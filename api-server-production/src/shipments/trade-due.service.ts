@@ -10,7 +10,7 @@ import { alertRulesOf } from './trade-alerts';
 import { profileFor } from './trade-profile';
 import { processStep } from './trade-process';
 import { ALERTABLE_ORDER } from './trade-test-orders';
-import { daysLate, DueContext, dueOf, dayOf, StepState, stepState } from './trade-due';
+import { daysLate, DueContext, dueOf, dayOf, flaggable, ruleFor, StepState, stepState } from './trade-due';
 import { isMovedToOrder } from './trade-process';
 
 const STEP = {
@@ -64,6 +64,11 @@ export interface DueItem {
   dueSetByName: string | null;
   dueSetAt: string | null;
   daysLate: number | null;
+  /** Round AZ: false when the due date is before the switch-on day (shown, never flagged / a task). */
+  flagged: boolean;
+  /** Round AZ: which rule gave the date (the step code, or INVOICE_2_SINGLE) and its days — the portal words it in the user's language. */
+  dueRule: string | null;
+  dueRuleDays: number | null;
 }
 
 @Injectable()
@@ -72,11 +77,24 @@ export class TradeDueService {
 
   /** The org flag enableStepDueDates (default off): without it there are no due dates, tasks or overdue. */
   async enabled(organizationId: string): Promise<boolean> {
+    return (await this.dueConfig(organizationId)).on;
+  }
+
+  /**
+   * Round AZ: the flag and the day it was switched on (features.stepDueDatesSince, stamped by the config save that
+   * turns the flag on). Due dates before that day show without the overdue badge and aren't tasks. A flag switched on
+   * without the stamp falls back to the config's last-saved day (never flags the whole backlog).
+   */
+  async dueConfig(organizationId: string): Promise<{ on: boolean; since: string | null }> {
     try {
       const o = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { uiConfig: true } });
-      return !!((o?.uiConfig as any)?.features?.enableStepDueDates);
+      const ui = o?.uiConfig as any;
+      const f = ui?.features ?? {};
+      if (!f.enableStepDueDates) return { on: false, since: null };
+      const since = typeof f.stepDueDatesSince === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(f.stepDueDatesSince) ? f.stepDueDatesSince : ui?.updatedAt ? tradeToday(new Date(ui.updatedAt)) : tradeToday();
+      return { on: true, since };
     } catch {
-      return false;
+      return { on: false, since: null };
     }
   }
 
@@ -86,7 +104,7 @@ export class TradeDueService {
   }
 
   /** Every applicable step of these orders (and their live shipments) with its due date and state. */
-  itemsOf(orders: any[], set: { profiles: unknown; taxDays: number }, today = tradeToday(), dueOn = true): DueItem[] {
+  itemsOf(orders: any[], set: { profiles: unknown; taxDays: number }, today = tradeToday(), dueOn = true, since: string | null = null): DueItem[] {
     const out: DueItem[] = [];
     for (const o of orders) {
       const ships = (o.shipments ?? []) as any[];
@@ -108,7 +126,7 @@ export class TradeDueService {
         for (const s of live) {
           if (s.notApplicable) continue;
           const d = s.isOngoing || !dueOn ? { due: null, source: null, why: null } : dueOf(s.code, ctx, s.dueAt);
-          const state = stepState(s, d.due, today, s.id === current);
+          const state = stepState(s, d.due, today, s.id === current, since);
           out.push({
             stepId: s.id,
             code: s.code,
@@ -130,6 +148,9 @@ export class TradeDueService {
             dueSetByName: s.dueSetByName ?? null,
             dueSetAt: s.dueSetAt ? new Date(s.dueSetAt).toISOString() : null,
             daysLate: state === 'overdue' && d.due ? daysLate(d.due, today) : null,
+            flagged: flaggable(d.due, since),
+            dueRule: d.source === 'rule' ? (s.code === 'INVOICE_2' && ctx.billingMode === 'SINGLE' ? 'INVOICE_2_SINGLE' : s.code) : null,
+            dueRuleDays: d.source === 'rule' ? Math.abs(ruleFor(s.code, ctx.billingMode, ctx.taxFundingDaysBefore)?.days ?? 0) : null,
           });
         }
       };
@@ -141,10 +162,11 @@ export class TradeDueService {
 
   /** Open steps of open (real, confirmed) orders: the Tasks list, the Dashboard and the overdue badges. */
   async openItems(organizationId: string, today = tradeToday()): Promise<DueItem[]> {
-    if (!(await this.enabled(organizationId))) return [];
+    const cfg = await this.dueConfig(organizationId);
+    if (!cfg.on) return [];
     const orders: any[] = await this.prisma.tradeOrder.findMany({ where: { organizationId, status: 'OPEN', ...ALERTABLE_ORDER }, select: ORDER });
     for (const o of orders) o.shipments = o.shipments.filter((s: any) => s.status !== 'CANCELLED');
-    const items = this.itemsOf(orders, await this.settings(organizationId), today);
+    const items = this.itemsOf(orders, await this.settings(organizationId), today, true, cfg.since);
     // A completed shipment's leftover steps aren't tasks.
     const closedShips = new Set(orders.flatMap((o) => o.shipments.filter((s: any) => s.status !== 'OPEN').map((s: any) => s.id)));
     return items.filter((i) => i.state !== 'done' && i.state !== 'na' && !(i.shipmentId && closedShips.has(i.shipmentId)));
@@ -162,7 +184,7 @@ export class TradeDueService {
     until.setUTCDate(until.getUTCDate() + days);
     const limit = until.toISOString().slice(0, 10);
     return (await this.openItems(organizationId, today))
-      .filter((i) => i.due && i.due <= limit)
+      .filter((i) => i.due && i.flagged && i.due <= limit)
       .sort((a, b) => a.due!.localeCompare(b.due!))
       .map((i) => ({
         id: `step:${i.stepId}`,
@@ -181,6 +203,8 @@ export class TradeDueService {
         updatedAt: null,
         stepId: i.stepId,
         overdue: i.state === 'overdue',
+        // Round AZ: the parts of the title / detail, so the portal can show them in Japanese.
+        step: { code: i.code, no: i.no, ref: i.ref, daysLate: i.daysLate, rule: i.dueRule, ruleDays: i.dueRuleDays, setBy: i.dueSource === 'manual' ? (i.dueSetByName ?? '') : null },
       }));
   }
 
@@ -188,8 +212,9 @@ export class TradeDueService {
   async orderProcess(organizationId: string, orderId: string, today = tradeToday()) {
     const o: any = await this.prisma.tradeOrder.findFirst({ where: { id: orderId, organizationId }, select: ORDER });
     if (!o) throw new NotFoundException('Order not found');
-    const dueOn = await this.enabled(organizationId);
-    const items = this.itemsOf([o], await this.settings(organizationId), today, dueOn);
+    const cfg = await this.dueConfig(organizationId);
+    const dueOn = cfg.on;
+    const items = this.itemsOf([o], await this.settings(organizationId), today, dueOn, cfg.since);
     // 出庫・納入依頼書 delivery rows (納入日) per shipment, for the schedule line.
     const sis: Array<{ shipmentId: string | null; rows: unknown }> = o.shipments.length
       ? await this.prisma.tradeGeneratedDoc.findMany({ where: { organizationId, shipmentId: { in: o.shipments.map((s: any) => s.id) }, docType: 'SHIPPING_INSTRUCTIONS' }, select: { shipmentId: true, rows: true } })
@@ -212,7 +237,7 @@ export class TradeDueService {
     };
     const nos = [...new Map(items.map((i) => [i.no || i.code, { no: i.no, code: i.code, title: i.title, titleJa: i.titleJa }])).values()].sort((a, b) => order(a.no) - order(b.no));
     const rows = nos.map((r) => ({ ...r, cells: Object.fromEntries(items.filter((i) => (i.no || i.code) === (r.no || r.code)).map((i) => [i.recordId, i])) }));
-    return { today, dueDates: dueOn, columns, rows, overdue: items.filter((i) => i.state === 'overdue').length };
+    return { today, dueDates: dueOn, dueSince: cfg.since, columns, rows, overdue: items.filter((i) => i.state === 'overdue').length };
   }
 
   /** Set (YYYY-MM-DD) or clear (null → back to the rule) one step's due date. */

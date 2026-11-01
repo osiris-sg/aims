@@ -9,8 +9,10 @@ import { useGetRoles } from "../hooks/useGetRoles";
 import useAddRoleStates from "../hooks/useAddRoleStates";
 import EditRole from "./EditRole";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
+import { useTranslations } from "next-intl";
 
 export default function Permissions() {
+  const t = useTranslations("users.roles");
   const { columns, handleEditRole, editRoleOpen, selectedRole, handleCloseEditRole, roleToDelete, isDeleteInProgress, confirmDeleteRole, cancelDelete } = useRoleTableHeader();
   // Header sorting is applied to the FULL list inside the hook (before its
   // slice) — the table is in manualSorting mode.
@@ -46,9 +48,9 @@ export default function Permissions() {
         manualSorting
         sorting={sorting}
         onSortingChange={setSorting}
-        tableName="Role Management"
-        subTitle="Assign and manage roles and permissions"
-        buttonName="Create Role"
+        tableName={t("tableName")}
+        subTitle={t("subTitle")}
+        buttonName={t("create")}
         onAddClick={onAddClick}
         loading={loading}
         page={page}

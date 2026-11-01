@@ -17,6 +17,13 @@ import FormSelectBox from "@/form-components/FormSelect";
 import NotificationsNoneIcon from "@mui/icons-material/NotificationsNone";
 import FilterDrawer, { FilterField } from "./FilterDrawer";
 import { IconX } from "@tabler/icons-react";
+import { useUiLang } from "@/i18n/UiLangProvider";
+
+// Round AZ: the table chrome in the portal language (useUiLang is English outside the provider, e.g. legacy layouts).
+const PT = {
+  en: { filtersApplied: "Filters Applied", filter: "Filter", search: "Search", showing: "Showing", pageSize: "Page Size", range: (a: number, b: number, n: number) => `Showing ${a}-${b} out of ${n} records` },
+  ja: { filtersApplied: "絞り込み中", filter: "絞り込み", search: "検索", showing: "表示件数", pageSize: "表示件数", range: (a: number, b: number, n: number) => `全${n}件中 ${a}〜${b}件を表示` },
+};
 
 interface Props {
   columns: ColumnDef<any>[];
@@ -69,6 +76,7 @@ interface Props {
   hideTable?: boolean;
 }
 export default function PageTable(props: Props) {
+  const pt = PT[useUiLang().lang];
   const { columns, data, tableName, subTitle, loading, buttonName, buttonDisabled, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, filterConfig: incomingFilterConfig, availableFilters, assetsData, totalDocs, renderSubComponent, actionButtons, headerContent, manualSorting, sorting, onSortingChange, onRowClick, rowHref, noSelectionColumn, hideTable } = props;
   const { control, handleSubmit, watch } = useForm({ defaultValues: { limit, search } });
   const _limit = watch("limit");
@@ -157,19 +165,19 @@ export default function PageTable(props: Props) {
                   {hasActiveFilters(filters) ? (
                     <Box sx={{ display: "flex", alignItems: "center", p: 1, gap: 0.25 }}>
                       <IconX />
-                      Filters Applied
+                      {pt.filtersApplied}
                     </Box>
                   ) : (
                     <Box sx={{ display: "flex", alignItems: "center", p: 1, gap: 0.25 }}>
                       <TuneIcon />
-                      Filter
+                      {pt.filter}
                     </Box>
                   )}
                 </Button>
               )}
               {/* data-tour wrapper: anchor for AIMS Guide walkthroughs */}
               <Box data-tour="page-search" sx={{ width: 320, minWidth: 200, flexShrink: 1 }}>
-                <FormInputBox fullWidth startIcon={<SearchIcon />} control={control} name="search" placeHolder="Search" />
+                <FormInputBox fullWidth startIcon={<SearchIcon />} control={control} name="search" placeHolder={pt.search} />
               </Box>
               <IconButton>
                 <NotificationsNoneIcon />
@@ -213,13 +221,13 @@ export default function PageTable(props: Props) {
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", overflowX: "hidden" }}>
               <Box sx={{ display: "flex", gap: "var(--default-gap)", alignItems: "center" }}>
                 <Typography variant="body2" sx={{ color: "text.secondary" }}>
-                  Showing
+                  {pt.showing}
                 </Typography>
-                <FormSelectBox size="small" control={control} name="limit" menuItems={[10, 20, 50, 100].map((num) => ({ label: String(num), value: num }))} menuTitle="Page Size" />
+                <FormSelectBox size="small" control={control} name="limit" menuItems={[10, 20, 50, 100].map((num) => ({ label: String(num), value: num }))} menuTitle={pt.pageSize} />
               </Box>
               {totalDocs !== undefined && limit !== undefined && page !== undefined && (
                 <Typography variant="body2" sx={{ color: "text.secondary" }}>
-                  {`Showing ${(page - 1) * limit + 1}-${Math.min(page * limit, totalDocs)} out of ${totalDocs} records`}
+                  {pt.range((page - 1) * limit + 1, Math.min(page * limit, totalDocs), totalDocs)}
                 </Typography>
               )}
               <Pagination page={page ?? 1} count={pageCount ?? 1} siblingCount={0} boundaryCount={0} onChange={(event, value) => setPage && setPage(value)} />

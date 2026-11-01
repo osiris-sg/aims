@@ -12,10 +12,27 @@
 
 import React from "react";
 import { Box, Stack, Tooltip, Typography } from "@mui/material";
-import type { ListBar } from "../_lib/api";
+import { useTranslations } from "next-intl";
+import type { CurrentStep, ListBar } from "../_lib/api";
 import { barCount, barGeometry, type BarInput } from "../_lib/progress";
+import { useUiLang } from "@/i18n/UiLangProvider";
+import { useStepName } from "@/i18n/hooks";
+
+/** The bar's label / tooltip: the API's English text; in Japanese rebuilt from the step's code (same shape). */
+function useBarText() {
+  const { lang } = useUiLang();
+  const t = useTranslations("orders.progress");
+  const stepName = useStepName();
+  return (bar: ListBar, step?: CurrentStep): { label: string | null; title: string | null } => {
+    if (lang !== "ja") return { label: bar.label, title: bar.title ?? null };
+    if (!step) return { label: bar.label === "Done" ? t("done") : bar.label === "No steps" ? t("noSteps") : bar.label, title: bar.title ?? null };
+    const name = step.code === "AWAITING_SHIPMENT" ? t("awaitingShipment") : stepName(step.code, step.title);
+    return step.displayNo ? { label: t("stepLabel", { no: step.displayNo, name }), title: `${step.displayNo}. ${name}` } : { label: name, title: name };
+  };
+}
 
 export function ThinBar({ bar, height = 6 }: { bar: BarInput; height?: number }) {
+  const t = useTranslations("orders.progress");
   const g = barGeometry(bar);
   return (
     <Box
@@ -36,17 +53,19 @@ export function ThinBar({ bar, height = 6 }: { bar: BarInput; height?: number })
     >
       {/* Plain flex boxes — nothing positioned: done (green), then the step being worked on (amber / red). */}
       <Box sx={{ width: `${g.fillPct}%`, flexShrink: 0, bgcolor: "success.main" }} />
-      {g.partialPct > 0 && <Box data-testid="bar-partial" title="Done on some shipments" sx={{ width: `${g.partialPct}%`, flexShrink: 0, bgcolor: "success.light", opacity: 0.55 }} />}
+      {g.partialPct > 0 && <Box data-testid="bar-partial" title={t("partial")} sx={{ width: `${g.partialPct}%`, flexShrink: 0, bgcolor: "success.light", opacity: 0.55 }} />}
       {g.markerPct !== null && <Box data-testid="bar-marker" sx={{ width: `${g.markerWidthPct}%`, flexShrink: 0, bgcolor: g.tint === "overdue" ? "error.main" : "warning.main" }} />}
     </Box>
   );
 }
 
-type Shipment = { ref: string; bar?: ListBar };
+type Shipment = { ref: string; bar?: ListBar; currentStep?: CurrentStep };
 
-export default function ProgressBarCell({ bar, shipments }: { bar?: ListBar | null; shipments?: Shipment[] }) {
+export default function ProgressBarCell({ bar, shipments, currentStep }: { bar?: ListBar | null; shipments?: Shipment[]; currentStep?: CurrentStep }) {
+  const barText = useBarText();
   if (!bar) return <Typography variant="body2">—</Typography>;
   const ships = (shipments ?? []).filter((s) => s.bar && s.bar.total);
+  const text = barText(bar, currentStep);
   const body = (
     // Above the table's stretched row link (zIndex 0) so hover reaches the tooltips; a click still bubbles to the row.
     <Box sx={{ width: "100%", minWidth: 0, position: "relative", zIndex: 1 }} data-testid="progress-hover">
@@ -56,9 +75,9 @@ export default function ProgressBarCell({ bar, shipments }: { bar?: ListBar | nu
           {barCount(bar)}
         </Typography>
       </Stack>
-      <Tooltip title={bar.title ?? ""} disableHoverListener={!bar.title || ships.length >= 2} placement="bottom-start">
+      <Tooltip title={text.title ?? ""} disableHoverListener={!text.title || ships.length >= 2} placement="bottom-start">
         <Typography variant="caption" component="div" sx={{ mt: 0.25, whiteSpace: "normal", wordBreak: "break-word" }} data-testid="bar-label">
-          {bar.label ?? "—"}
+          {text.label ?? "—"}
         </Typography>
       </Tooltip>
     </Box>
@@ -69,9 +88,9 @@ export default function ProgressBarCell({ bar, shipments }: { bar?: ListBar | nu
       placement="bottom-start"
       title={
         <Stack spacing={1} sx={{ py: 0.5, minWidth: 220 }}>
-          {bar.title && (
+          {text.title && (
             <Typography variant="caption" sx={{ fontWeight: 700 }}>
-              {bar.title}
+              {text.title}
             </Typography>
           )}
           {ships.map((s) => (
@@ -87,7 +106,7 @@ export default function ProgressBarCell({ bar, shipments }: { bar?: ListBar | nu
               </Stack>
               {s.bar!.label && (
                 <Typography variant="caption" component="div" sx={{ opacity: 0.85, pl: 6.5 }}>
-                  {s.bar!.label}
+                  {barText(s.bar!, s.currentStep).label}
                 </Typography>
               )}
             </Box>

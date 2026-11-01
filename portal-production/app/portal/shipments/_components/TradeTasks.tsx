@@ -10,11 +10,14 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslations } from "next-intl";
 import { Badge, Box, Button, Chip, CircularProgress, Divider, Drawer, IconButton, Stack, Tooltip, Typography } from "@mui/material";
 import CheckIcon from "@mui/icons-material/Check";
 import CloseIcon from "@mui/icons-material/Close";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import ChecklistIcon from "@mui/icons-material/ChecklistRtl";
+import { useUiLang } from "@/i18n/UiLangProvider";
+import { useStepName } from "@/i18n/hooks";
 import { useShipmentsApi, type TradeAlert } from "../_lib/api";
 import { SHIPMENT_KEYS } from "../_lib/hooks";
 import { fmtDmy } from "../_lib/format";
@@ -34,13 +37,14 @@ export function useMyTasks(enabled = true) {
 export function useRefreshTasks() {
   const api = useShipmentsApi();
   const qc = useQueryClient();
+  const t = useTranslations("orders.tasks");
   return async () => {
     try {
       const r = await api.refreshAlerts();
       await qc.invalidateQueries({ queryKey: HOME_KEY });
-      toast.success(`Reminders re-planned (${r.created} new, ${r.updated} changed)`);
+      toast.success(t("replanned", { created: r.created, updated: r.updated }));
     } catch (e: any) {
-      toast.error(e?.message || "Could not refresh");
+      toast.error(e?.message || t("refreshError"));
     }
   };
 }
@@ -65,6 +69,18 @@ export function TradeTasksList({
 }) {
   const api = useShipmentsApi();
   const router = useRouter();
+  const t = useTranslations("orders.tasks");
+  const tr = useTranslations("orders.tasks.rules");
+  const { lang } = useUiLang();
+  const stepName = useStepName();
+  // Round AZ: a step task in Japanese is worded here from its parts; English keeps the API's text exactly.
+  const stepText = (a: TradeAlert) => {
+    const p = a.step;
+    if (lang !== "ja" || a.kind !== "STEP_DUE" || !p) return null;
+    const title = t("stepTitle", { ref: p.ref, no: p.no, name: stepName(p.code, a.title) }) + (p.daysLate ? t("stepLate", { n: p.daysLate }) : "");
+    const detail = p.setBy !== null ? t("stepSetBy", { who: p.setBy || t("byHand") }) : p.rule && tr.has(p.rule) ? tr(p.rule, { n: p.ruleDays ?? 0 }) : a.detail;
+    return { title, detail };
+  };
   const today = tradeTodayYmd();
   const act = async (a: TradeAlert, fn: () => Promise<unknown>) => {
     try {
@@ -72,14 +88,14 @@ export function TradeTasksList({
       onActed?.(a);
       onChanged();
     } catch (e: any) {
-      toast.error(e?.message || "Could not update");
+      toast.error(e?.message || t("updateError"));
     }
   };
   if (loading) return <CircularProgress size={22} />;
   if (!alerts?.length) {
     return (
       <Typography variant="body2" color="text.secondary">
-        Nothing due — reminders appear here (tax funding, arrival notices, free time, due dates, stuck steps, steps past their due date).
+        {t("nothingDue")}
       </Typography>
     );
   }
@@ -99,28 +115,28 @@ export function TradeTasksList({
               }}
             >
               <Typography variant="body2" sx={{ wordBreak: "break-word" }}>
-                {a.title}
+                {stepText(a)?.title ?? a.title}
               </Typography>
-              {a.detail && (
+              {(stepText(a)?.detail ?? a.detail) && (
                 <Typography variant="caption" color="text.secondary" component="div" sx={{ wordBreak: "break-word" }}>
-                  {a.detail}
+                  {stepText(a)?.detail ?? a.detail}
                 </Typography>
               )}
             </Box>
             {a.kind === "STEP_DUE" ? (
               // Round AY: a step's due date — it closes when the step is done; the date is changed on the order's Overall process.
-              <Tooltip title="Closes when the step is done. Change its due date on the order's Overall process.">
-                <Chip size="small" variant="outlined" label="Step" data-tour="task-step-due" />
+              <Tooltip title={t("stepDueHint")}>
+                <Chip size="small" variant="outlined" label={t("step")} data-tour="task-step-due" />
               </Tooltip>
             ) : (
               <>
-                <Tooltip title="Done">
-                  <IconButton size="small" aria-label="Done" onClick={() => act(a, () => api.alertDone(a.id))}>
+                <Tooltip title={t("done")}>
+                  <IconButton size="small" aria-label={t("done")} onClick={() => act(a, () => api.alertDone(a.id))}>
                     <CheckIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Dismiss (comes back if its date moves)">
-                  <IconButton size="small" aria-label="Dismiss" onClick={() => act(a, () => api.alertDismiss(a.id))}>
+                <Tooltip title={t("dismissHint")}>
+                  <IconButton size="small" aria-label={t("dismiss")} onClick={() => act(a, () => api.alertDismiss(a.id))}>
                     <CloseIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
@@ -138,31 +154,32 @@ export function TasksButton() {
   const tasks = useMyTasks();
   const qc = useQueryClient();
   const refresh = useRefreshTasks();
+  const t = useTranslations("orders.tasks");
   const [open, setOpen] = useState(false);
   const counts = taskCounts(tasks.data, tradeTodayYmd());
   return (
     <>
       <Badge badgeContent={counts.overdue} color="error" overlap="rectangular" invisible={!counts.overdue}>
         <Button variant="outlined" startIcon={<ChecklistIcon />} onClick={() => setOpen(true)} data-tour="orders-tasks" sx={{ whiteSpace: "nowrap" }}>
-          Tasks ({counts.total})
+          {t("button", { n: counts.total })}
         </Button>
       </Badge>
       <Drawer anchor="right" open={open} onClose={() => setOpen(false)} slotProps={{ paper: { sx: { width: { xs: "100vw", sm: 440 }, p: 2 } } }}>
         <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
           <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1 }}>
-            My tasks today
+            {t("title")}
           </Typography>
-          <IconButton size="small" aria-label="Close" onClick={() => setOpen(false)}>
+          <IconButton size="small" aria-label={t("close")} onClick={() => setOpen(false)}>
             <CloseIcon fontSize="small" />
           </IconButton>
         </Stack>
         <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1.5 }}>
-          {counts.total} task{counts.total === 1 ? "" : "s"} due now or in the next 3 days
+          {t("dueSummary", { n: counts.total })}
           {counts.overdue ? (
             <>
               {" · "}
               <Box component="span" sx={{ color: "error.main", fontWeight: 700 }}>
-                {counts.overdue} overdue
+                {t("overdue", { n: counts.overdue })}
               </Box>
             </>
           ) : null}
@@ -170,7 +187,7 @@ export function TasksButton() {
         <TradeTasksList alerts={tasks.data} loading={tasks.isLoading} onChanged={() => qc.invalidateQueries({ queryKey: HOME_KEY })} onNavigate={() => setOpen(false)} />
         <Divider sx={{ my: 2 }} />
         <Button startIcon={<RefreshIcon />} onClick={refresh} size="small" sx={{ alignSelf: "flex-start" }}>
-          Refresh reminders
+          {t("refresh")}
         </Button>
       </Drawer>
     </>

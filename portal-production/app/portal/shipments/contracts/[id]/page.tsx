@@ -18,10 +18,11 @@ import { useParams, usePathname, useRouter, useSearchParams } from "next/navigat
 import { Alert, Box, Button, CircularProgress, IconButton, Menu, MenuItem, Paper, Stack, Tab, Tabs, Typography } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
+import { useTranslations } from "next-intl";
 import { toast } from "../../_lib/toast";
 import { useContract, useContractGeneratedDocs, useGeneratedDocs, useShipment, useTradeMutation } from "../../_lib/hooks";
 import { recordFileCount, useShipmentsApi, type AnExtraction, type BlExtraction, type Contract, type Shipment, type TradeFile, type TradeStep } from "../../_lib/api";
-import { blLabel, depositTermLabel, fmtDmy, fmtMoney, fmtMt, stepLabel } from "../../_lib/format";
+import { blLabel, fmtDmy, fmtMoney, fmtMt, stepLabel } from "../../_lib/format";
 import RecordHeader from "../../_components/RecordHeader";
 import ContractTerms from "../../_components/ContractTerms";
 import ContractOverview from "../../_components/ContractOverview";
@@ -36,12 +37,16 @@ import ExtractApplyDialog, { type ApplyRow } from "../../_components/ExtractAppl
 const TABS = ["journey", "details", "files"] as const;
 const byOrder = (a: TradeStep, b: TradeStep) => a.sortOrder - b.sortOrder;
 const firstOpen = (steps: TradeStep[]) => [...steps].sort(byOrder).find((s) => !s.isOngoing && s.status !== "DONE") ?? null;
+type Tr = ReturnType<typeof useTranslations<"contracts.deal">>;
+/** "3 business days" / "3営業日"; null without a day count. */
+const termOf = (t: Tr, days?: number | null, unit?: string | null) => (days === null || days === undefined ? null : t(unit === "CALENDAR" ? "calendarDaysN" : "businessDaysN", { n: days }));
 
 export default function DealPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
+  const t = useTranslations("contracts.deal");
   const tab = Math.max(0, TABS.indexOf((params?.get("tab") ?? "journey") as (typeof TABS)[number]));
   const q = useContract(id);
   const c = q.data;
@@ -108,12 +113,12 @@ export default function DealPage() {
       return;
     }
     if (was.contract === "OPEN" && c.status === "COMPLETED") {
-      toast.success(`Deal ${c.contractNo} completed — all shipments are done`);
+      toast.success(t("dealCompleted", { no: c.contractNo }));
       router.push("/portal/shipments?tab=completed");
     } else if (was.shipment === "OPEN" && s?.status === "COMPLETED") {
-      toast.success(`Shipment ${blLabel(s.blNumber)} completed — all its steps are done`);
+      toast.success(t("shipmentCompleted", { bl: blLabel(s.blNumber) }));
     }
-  }, [c, s, id, shipmentId, router]);
+  }, [c, s, id, shipmentId, router, t]);
 
   useEffect(() => {
     if (remountAfter.current && s && s.updatedAt !== remountAfter.current) {
@@ -133,7 +138,7 @@ export default function DealPage() {
     if (before) {
       const newlyDone = all.filter((x) => x.status === "DONE" && before.has(x.id) && before.get(x.id) !== "DONE");
       if (newlyDone.length) {
-        for (const x of newlyDone) toast.success(`Step ${stepLabel(x)} complete`);
+        for (const x of newlyDone) toast.success(t("stepComplete", { step: stepLabel(x) }));
         setUserPicked(false);
         const next = firstOpen(contractSteps) ?? firstOpen(shipSteps);
         if (next) setTimeout(() => document.getElementById(`step-${next.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
@@ -141,7 +146,7 @@ export default function DealPage() {
     }
     prev.current = new Map(all.map((x) => [x.id, x.status]));
     prevKey.current = key;
-  }, [c, s, contractSteps, shipSteps, id, shipmentId]);
+  }, [c, s, contractSteps, shipSteps, id, shipmentId, t]);
 
   if (q.isLoading) {
     return (
@@ -153,7 +158,7 @@ export default function DealPage() {
   if (q.isError || !c) {
     return (
       <Box sx={{ p: 3 }}>
-        <Alert severity="error">{(q.error as Error)?.message || "Contract not found"}</Alert>
+        <Alert severity="error">{(q.error as Error)?.message || t("notFound")}</Alert>
       </Box>
     );
   }
@@ -162,45 +167,45 @@ export default function DealPage() {
 
   const here = `/portal/shipments/contracts/${c.id}${shipmentId ? `?shipment=${shipmentId}` : ""}`;
   const hereTab = (t: string) => `${here}${here.includes("?") ? "&" : "?"}tab=${t}`;
-  const contractOwner = { kind: "contract" as const, id: c.id, label: `Contract ${c.contractNo}` };
+  const contractOwner = { kind: "contract" as const, id: c.id, label: t("contractLabel", { no: c.contractNo }) };
   const shipIndex = shipments.findIndex((x) => x.id === shipmentId);
-  const shipOwner = s ? { kind: "shipment" as const, id: s.id, label: `Shipment ${blLabel(s.blNumber)}` } : null;
+  const shipOwner = s ? { kind: "shipment" as const, id: s.id, label: t("shipmentLabel", { bl: blLabel(s.blNumber) }) } : null;
   const openShipments = shipments.filter((x) => x.status === "OPEN");
-  const contractCtx = contractContext(c);
-  const shipCtx = s ? shipmentContext(c, s) : {};
+  const contractCtx = contractContext(c, t);
+  const shipCtx = s ? shipmentContext(c, s, t) : {};
   const fileCount = recordFileCount(c) + (s ? recordFileCount(s) : 0);
 
   /** A B/L draft / arrival notice uploaded on its step row: read it and offer its values. */
   const readUploaded = async (docType: string, files: TradeFile[]) => {
     const f = files[0];
     if (!s || !f || (docType !== "BL_DRAFT" && docType !== "ARRIVAL_NOTICE")) return;
-    const what = docType === "BL_DRAFT" ? "B/L draft" : "arrival notice";
-    const t = toast.info(`Reading the ${what} (${f.fileName})…`, { autoClose: false });
+    const what = docType === "BL_DRAFT" ? t("blDraft") : t("arrivalNotice");
+    const tid = toast.info(t("reading", { what, file: f.fileName }), { autoClose: false });
     try {
       if (docType === "BL_DRAFT") {
         const x = await api.extractBlDraft({ fileId: f.id, shipmentId: s.id });
-        if (x.status !== "DONE" || !x.result) throw new Error(x.error || "the AI read failed");
+        if (x.status !== "DONE" || !x.result) throw new Error(x.error || t("aiFailed"));
         setOffer({
-          title: "Apply the B/L draft to the B/L details?",
-          intro: `Read from ${f.fileName}. The B/L check against the contract is shown on step 2.`,
+          title: t("applyBlTitle"),
+          intro: t("applyBlIntro", { file: f.fileName }),
           warning: null,
-          rows: blRows(s, x),
+          rows: blRows(s, x, t),
         });
       } else {
         const x = await api.extractAn({ fileId: f.id, shipmentId: s.id });
-        if (x.status !== "DONE" || !x.result) throw new Error(x.error || "the AI read failed");
+        if (x.status !== "DONE" || !x.result) throw new Error(x.error || t("aiFailed"));
         setOffer({
-          title: "Fill the shipment from the arrival notice?",
-          intro: `Read from ${f.fileName}. Only blank shipment fields are offered.`,
-          warning: x.result.blMismatch ? `This notice is for B/L ${x.result.draft.blNumber}, not ${s.blNumber}. Check it is the right file.` : null,
-          rows: anRows(s, x),
-          extra: anFacts(x),
+          title: t("fillAnTitle"),
+          intro: t("fillAnIntro", { file: f.fileName }),
+          warning: x.result.blMismatch ? t("anMismatch", { a: x.result.draft.blNumber ?? "", b: s.blNumber ?? "" }) : null,
+          rows: anRows(s, x, t),
+          extra: anFacts(x, t),
         });
       }
     } catch (e: any) {
-      toast.error(`Could not read the ${what}: ${e?.message || "unknown error"}. The file is stored — fill the fields by hand.`);
+      toast.error(t("couldNotReadDoc", { what, err: e?.message || t("unknownError") }));
     } finally {
-      toast.dismiss(t);
+      toast.dismiss(tid);
     }
   };
 
@@ -208,9 +213,9 @@ export default function DealPage() {
     manual.current = true;
     const r: any = await shipAction.mutateAsync({ id: s!.id, act });
     if (act === "delete") {
-      toast.success("Shipment deleted");
+      toast.success(t("shipmentDeleted"));
       setParam("shipment", null);
-    } else toast.success(act === "reopen" && r?.reopenedContract ? `Shipment reopened — contract ${r.reopenedContract} was reopened too` : `Shipment ${act === "complete" ? "completed" : act === "cancel" ? "cancelled" : "reopened"}`);
+    } else toast.success(act === "reopen" && r?.reopenedContract ? t("reopenedToo", { no: r.reopenedContract }) : t(act === "complete" ? "shipCompleted" : act === "cancel" ? "shipCancelled" : "shipReopened"));
   };
 
   return (
@@ -224,7 +229,7 @@ export default function DealPage() {
         // The deal's current step: the contract's while it has one open, else the selected shipment's.
         currentStep={c.currentStep ?? s?.currentStep ?? null}
         steps={c.steps}
-        blockers={openShipments.map((x) => `shipment ${x.blNumber || `#${shipments.indexOf(x) + 1} (B/L pending)`}`)}
+        blockers={openShipments.map((x) => (x.blNumber ? t("blockerBl", { bl: x.blNumber }) : t("blockerPending", { n: shipments.indexOf(x) + 1 })))}
         onComplete={() => complete.mutateAsync(c.id)}
         onCancel={() => cancel.mutateAsync(c.id)}
         onReopen={() => reopen.mutateAsync(c.id)}
@@ -249,16 +254,16 @@ export default function DealPage() {
       />
 
       <Tabs value={tab} onChange={(_, v) => setParam("tab", TABS[v])} sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }} variant="scrollable" allowScrollButtonsMobile>
-        <Tab label="Journey" />
-        <Tab label="Details" />
-        <Tab label={`Files${fileCount ? ` (${fileCount})` : ""}`} />
+        <Tab label={t("journey")} />
+        <Tab label={t("details")} />
+        <Tab label={fileCount ? t("filesN", { n: fileCount }) : t("files")} />
       </Tabs>
 
       {tab === 0 && (
         <Stack spacing={3}>
           <Box>
             <Typography variant="overline" color="text.secondary">
-              Deal setup
+              {t("dealSetup")}
             </Typography>
             <StepCards
               steps={c.steps}
@@ -277,7 +282,7 @@ export default function DealPage() {
           <Box>
             <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
               <Typography variant="overline" color="text.secondary" sx={{ flex: 1 }}>
-                {shipments.length > 1 ? `Shipments (${shipments.length})` : "Shipment"}
+                {shipments.length > 1 ? t("shipmentsN", { n: shipments.length }) : t("shipment")}
               </Typography>
               {c.status === "OPEN" && (
                 <Button
@@ -287,14 +292,14 @@ export default function DealPage() {
                   onClick={async () => {
                     try {
                       const n = await addShipment.mutateAsync(c.id);
-                      toast.success(`Shipment #${shipments.length + 1} added`);
+                      toast.success(t("added", { n: shipments.length + 1 }));
                       setParam("shipment", n.id);
                     } catch (e: any) {
-                      toast.error(e?.message || "Could not add the shipment");
+                      toast.error(e?.message || t("couldNotAdd"));
                     }
                   }}
                 >
-                  Add shipment
+                  {t("addShipment")}
                 </Button>
               )}
             </Stack>
@@ -311,7 +316,7 @@ export default function DealPage() {
                           #{i + 1} · {blLabel(x.blNumber)}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          {x.status !== "OPEN" ? (x.status === "COMPLETED" ? "Completed" : "Cancelled") : x.currentStep ? x.currentStep.label : "All steps done"}
+                          {x.status !== "OPEN" ? (x.status === "COMPLETED" ? t("completed") : t("cancelled")) : x.currentStep ? x.currentStep.label : t("allDone")}
                         </Typography>
                       </Box>
                     }
@@ -322,7 +327,7 @@ export default function DealPage() {
 
             {!shipments.length ? (
               <Paper variant="outlined" sx={{ p: 3, textAlign: "center", borderStyle: "dashed" }}>
-                <Typography variant="body2">No shipment on this contract yet — add one.</Typography>
+                <Typography variant="body2">{t("noShipment")}</Typography>
               </Paper>
             ) : !s ? (
               <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
@@ -333,7 +338,7 @@ export default function DealPage() {
                 <Paper variant="outlined" sx={{ px: 2, py: 1.25, mb: 1.5 }}>
                   <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
                     <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                      {shipments.length > 1 ? `#${shipIndex + 1} · ` : ""}B/L {s.blNumber || "pending"}
+                      {shipments.length > 1 ? `#${shipIndex + 1} · ` : ""}{t("bl", { bl: s.blNumber || t("pending") })}
                     </Typography>
                     <RecordStatusChip status={s.status} />
                     <ProgressCell progress={s.progress} width={90} />
@@ -346,7 +351,7 @@ export default function DealPage() {
                         {[s.vessel, s.voyageNo].filter(Boolean).join(" / ")}
                       </Typography>
                     )}
-                    <IconButton size="small" aria-label="Shipment actions" onClick={(e) => setShipMenu({ left: e.clientX, top: e.clientY })}>
+                    <IconButton size="small" aria-label={t("shipActions")} onClick={(e) => setShipMenu({ left: e.clientX, top: e.clientY })}>
                       <MoreVertIcon fontSize="small" />
                     </IconButton>
                   </Stack>
@@ -364,9 +369,9 @@ export default function DealPage() {
                   context={shipCtx}
                   onFileUploaded={(d, f) => void readUploaded(d, f)}
                   blCheck={s.blCheck}
-                  fieldsTitle="B/L details"
-                  fieldsSummary={blSummary(s)}
-                  fieldsForm={() => <ShipmentFormDialog key={formKey} inline open shipment={s} onClose={() => undefined} onSaved={() => toast.success("B/L details saved")} />}
+                  fieldsTitle={t("blDetails")}
+                  fieldsSummary={blSummary(s, t)}
+                  fieldsForm={() => <ShipmentFormDialog key={formKey} inline open shipment={s} onClose={() => undefined} onSaved={() => toast.success(t("blSaved"))} />}
                 />
               </>
             )}
@@ -380,7 +385,7 @@ export default function DealPage() {
           {s && (
             <Box>
               <Typography variant="overline" color="text.secondary">
-                {shipments.length > 1 ? `Shipment #${shipIndex + 1}` : "Shipment"} · B/L {s.blNumber || "pending"}
+                {shipments.length > 1 ? t("shipmentN", { n: shipIndex + 1 }) : t("shipment")} · {t("bl", { bl: s.blNumber || t("pending") })}
               </Typography>
               <ShipmentOverview shipment={s} />
             </Box>
@@ -392,7 +397,7 @@ export default function DealPage() {
         <Stack spacing={3}>
           <Box>
             <Typography variant="overline" color="text.secondary">
-              Contract {c.contractNo}
+              {t("contractLabel", { no: c.contractNo })}
             </Typography>
             <LinkedDocuments links={c.docLinks ?? []} returnTo={hereTab("files")} canEdit={c.status === "OPEN"} />
             <FilesTable filter={{ contractId: c.id }} currentId={c.id} uploadTargets={[contractOwner]} canUpload={c.status === "OPEN"} />
@@ -400,7 +405,7 @@ export default function DealPage() {
           {s && shipOwner && (
             <Box>
               <Typography variant="overline" color="text.secondary">
-                Shipment B/L {s.blNumber || "pending"}
+                {t("shipmentBl", { bl: s.blNumber || t("pending") })}
               </Typography>
               <LinkedDocuments links={s.docLinks ?? []} returnTo={hereTab("files")} canEdit={s.status === "OPEN"} />
               <FilesTable filter={{ shipmentId: s.id }} currentId={s.id} uploadTargets={[shipOwner]} canUpload={s.status === "OPEN"} />
@@ -417,7 +422,7 @@ export default function DealPage() {
               setShipConfirm("complete");
             }}
           >
-            Complete shipment
+            {t("completeShipment")}
           </MenuItem>
         )}
         {s?.status === "OPEN" && (
@@ -427,7 +432,7 @@ export default function DealPage() {
               setShipConfirm("cancel");
             }}
           >
-            Cancel shipment
+            {t("cancelShipment")}
           </MenuItem>
         )}
         {s && s.status !== "OPEN" && (
@@ -437,7 +442,7 @@ export default function DealPage() {
               setShipConfirm("reopen");
             }}
           >
-            Reopen shipment
+            {t("reopenShipment")}
           </MenuItem>
         )}
         <MenuItem
@@ -447,7 +452,7 @@ export default function DealPage() {
             setShipConfirm("delete");
           }}
         >
-          Delete shipment
+          {t("deleteShipment")}
         </MenuItem>
       </Menu>
       <ExtractApplyDialog
@@ -461,14 +466,14 @@ export default function DealPage() {
         onApply={async (patch) => {
           remountAfter.current = s?.updatedAt ?? null;
           await applyShip.mutateAsync({ id: s!.id, patch });
-          toast.success("Shipment updated from the document");
+          toast.success(t("updatedFromDoc"));
         }}
       />
       <ConfirmDialog
         open={!!shipConfirm}
-        title={shipConfirm && s ? `${shipConfirm === "delete" ? "Delete" : shipConfirm === "complete" ? "Complete" : shipConfirm === "cancel" ? "Cancel" : "Reopen"} shipment B/L ${s.blNumber || "pending"}?` : ""}
-        body={shipConfirm === "delete" ? "Its steps and document links are removed. The files themselves stay in the Documents library. This can't be undone." : undefined}
-        confirmLabel={shipConfirm === "delete" ? "Delete" : "Confirm"}
+        title={shipConfirm && s ? t(shipConfirm === "delete" ? "confirmDelete" : shipConfirm === "complete" ? "confirmComplete" : shipConfirm === "cancel" ? "confirmCancel" : "confirmReopen", { bl: s.blNumber || t("pending") }) : ""}
+        body={shipConfirm === "delete" ? t("deleteBody") : undefined}
+        confirmLabel={shipConfirm === "delete" ? t("delete") : t("confirm")}
         destructive={shipConfirm === "delete" || shipConfirm === "cancel"}
         onClose={() => setShipConfirm(null)}
         onConfirm={() => doShip(shipConfirm!)}
@@ -482,12 +487,13 @@ const NO_ROWS: ApplyRow[] = [];
 /** A contract as the yearly master (LTC): parties, product lines with default premiums, and the orders under it. */
 function ContractMaster({ contract: c }: { contract: Contract }) {
   const router = useRouter();
+  const t = useTranslations("contracts.deal");
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 1100, mx: "auto" }}>
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
-        <Button onClick={() => router.push("/portal/shipments/contracts")}>← Contracts</Button>
+        <Button onClick={() => router.push("/portal/shipments/contracts")}>{t("backContracts")}</Button>
         <Typography variant="h5" sx={{ fontWeight: 800 }}>
-          Contract {c.contractNo}
+          {t("contractLabel", { no: c.contractNo })}
         </Typography>
         <RecordStatusChip status={c.status} />
       </Stack>
@@ -496,17 +502,17 @@ function ContractMaster({ contract: c }: { contract: Contract }) {
         <ContractTerms contract={c} />
         <Paper variant="outlined" sx={{ p: 2 }}>
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
-            Orders on this contract ({c.orders?.length ?? 0})
+            {t("ordersOn", { n: c.orders?.length ?? 0 })}
           </Typography>
           {!(c.orders ?? []).length ? (
             <Typography variant="body2" color="text.secondary">
-              No orders yet — create one from Orders → New Order and pick this contract.
+              {t("noOrders")}
             </Typography>
           ) : (
             <Stack spacing={0.5}>
               {(c.orders ?? []).map((o) => (
                 <Button key={o.id} sx={{ justifyContent: "flex-start", textTransform: "none" }} onClick={() => router.push(`/portal/shipments/orders/${o.id}`)}>
-                  <b>#{o.orderNo}</b>&nbsp;· {o.customer?.name ?? "—"} · {[o.shipMonth, o.deliveryMonth].filter(Boolean).join(" → ")} · {o.grade ?? "—"} · {o.qtyMt != null ? `${fmtMt(o.qtyMt)} MT` : "—"} · client premium {o.clientPremium ?? "—"}
+                  <b>#{o.orderNo}</b>&nbsp;· {o.customer?.name ?? "—"} · {[o.shipMonth, o.deliveryMonth].filter(Boolean).join(" → ")} · {o.grade ?? "—"} · {o.qtyMt != null ? `${fmtMt(o.qtyMt)} MT` : "—"} · {t("clientPremium", { v: o.clientPremium ?? "—" })}
                   &nbsp;
                   <RecordStatusChip status={o.status} />
                 </Button>
@@ -519,36 +525,9 @@ function ContractMaster({ contract: c }: { contract: Contract }) {
   );
 }
 
-const BL_FIELDS: Array<[keyof Shipment & string, string]> = [
-  ["blNumber", "B/L no."],
-  ["shippingLine", "Shipping line"],
-  ["vessel", "Vessel"],
-  ["voyageNo", "Voyage"],
-  ["etd", "ETD"],
-  ["portOfLoading", "Port of loading"],
-  ["portOfDischarge", "Port of discharge"],
-  ["netWeightMt", "Net weight (MT)"],
-  ["grossWeightMt", "Gross weight (MT)"],
-  ["totalBundles", "Bundles"],
-  ["totalPieces", "Pieces"],
-  ["containerCount", "Containers"],
-  ["hsCode", "HS code"],
-  ["countryOfOrigin", "Country of origin"],
-  ["commodity", "Commodity"],
-  ["sizeSpec", "Size"],
-];
-const AN_LABELS: Record<string, string> = {
-  vessel: "Vessel",
-  voyageNo: "Voyage",
-  eta: "ETA",
-  grossWeightMt: "Gross weight (MT)",
-  netWeightMt: "Net weight (MT)",
-  totalBundles: "Bundles",
-  totalPieces: "Pieces",
-  containerCount: "Containers",
-  portOfLoading: "Port of loading",
-  portOfDischarge: "Port of discharge",
-};
+// Labels: contracts.deal.blf.<field>.
+const BL_FIELDS: Array<keyof Shipment & string> = ["blNumber", "shippingLine", "vessel", "voyageNo", "etd", "portOfLoading", "portOfDischarge", "netWeightMt", "grossWeightMt", "totalBundles", "totalPieces", "containerCount", "hsCode", "countryOfOrigin", "commodity", "sizeSpec"];
+const AN_FIELDS = new Set(["vessel", "voyageNo", "eta", "grossWeightMt", "netWeightMt", "totalBundles", "totalPieces", "containerCount", "portOfLoading", "portOfDischarge"]);
 const shown = (v: unknown) => (v === null || v === undefined || v === "" ? null : /^\d{4}-\d{2}-\d{2}/.test(String(v)) ? String(v).slice(0, 10) : String(v));
 const same = (a: unknown, b: unknown) => {
   const x = shown(a);
@@ -558,35 +537,35 @@ const same = (a: unknown, b: unknown) => {
 };
 
 /** B/L draft values that differ from the shipment (the contract line too, when the shipment has none). */
-function blRows(s: Shipment, x: BlExtraction): ApplyRow[] {
+function blRows(s: Shipment, x: BlExtraction, t: Tr): ApplyRow[] {
   const d = x.result!.draft as Record<string, unknown>;
-  const rows: ApplyRow[] = BL_FIELDS.filter(([k]) => shown(d[k]) !== null && !same(d[k], s[k])).map(([k, label]) => ({ key: k, label, current: shown(s[k]), next: shown(d[k])!, value: d[k] }));
+  const rows: ApplyRow[] = BL_FIELDS.filter((k) => shown(d[k]) !== null && !same(d[k], s[k])).map((k) => ({ key: k, label: t(`blf.${k}`), current: shown(s[k]), next: shown(d[k])!, value: d[k] }));
   const lineId = x.result!.contractLineId;
   if (lineId && !s.contractLineId) {
     const l = s.contract?.lines?.find((y) => y.id === lineId);
-    rows.push({ key: "contractLineId", label: "Product line", current: null, next: l ? [l.grade, l.product].filter(Boolean).join(" ") || "line" : "matched line", value: lineId });
+    rows.push({ key: "contractLineId", label: t("productLine"), current: null, next: l ? [l.grade, l.product].filter(Boolean).join(" ") || t("line") : t("matchedLine"), value: lineId });
   }
   return rows;
 }
 
 /** Arrival-notice values for the shipment's blank fields (the server decides which are blank). */
-function anRows(s: Shipment, x: AnExtraction): ApplyRow[] {
-  return Object.entries(x.result!.fill ?? {}).map(([k, v]) => ({ key: k, label: AN_LABELS[k] ?? k, current: shown((s as any)[k]), next: shown(v) ?? "", value: v }));
+function anRows(s: Shipment, x: AnExtraction, t: Tr): ApplyRow[] {
+  return Object.entries(x.result!.fill ?? {}).map(([k, v]) => ({ key: k, label: AN_FIELDS.has(k) ? t(`blf.${k}`) : k, current: shown((s as any)[k]), next: shown(v) ?? "", value: v }));
 }
 
 /** What the notice says that has no shipment field: CY terminal, containers + seals, charges collect. */
-function anFacts(x: AnExtraction): React.ReactNode {
+function anFacts(x: AnExtraction, t: Tr): React.ReactNode {
   const d = x.result!.draft;
   const lines = [
-    d.cyTerminal && `CY terminal: ${d.cyTerminal}`,
-    d.containers.length ? `Containers: ${d.containers.map((c) => [c.containerNo, c.sealNo && `seal ${c.sealNo}`].filter(Boolean).join(" ")).join(", ")}` : null,
-    d.chargesCollect.length ? `Charges collect: ${d.chargesCollect.map((c) => `${c.currency} ${c.amount.toLocaleString("en-US")}`).join(" + ")}` : null,
+    d.cyTerminal && t("cyTerminal", { v: d.cyTerminal }),
+    d.containers.length ? t("containers", { v: d.containers.map((c) => [c.containerNo, c.sealNo && t("seal", { no: c.sealNo })].filter(Boolean).join(" ")).join(", ") }) : null,
+    d.chargesCollect.length ? t("chargesCollect", { v: d.chargesCollect.map((c) => `${c.currency} ${c.amount.toLocaleString("en-US")}`).join(" + ") }) : null,
   ].filter(Boolean) as string[];
   if (!lines.length) return null;
   return (
     <Box>
       <Typography variant="overline" color="text.secondary">
-        Also on the notice
+        {t("alsoOnNotice")}
       </Typography>
       {lines.map((l) => (
         <Typography key={l} variant="body2">
@@ -613,44 +592,45 @@ function dealTitle(c: Contract): string {
 }
 
 /** What each contract step / document is about, from the contract itself. */
-function contractContext(c: Contract): StepContext {
+function contractContext(c: Contract, t: Tr): StepContext {
   const money = (v: unknown) => fmtMoney(v as any, c.currency);
   return {
     stepLine: (st) =>
       st.code === "PI_PAYMENT"
-        ? [c.piNumber && `PI ${c.piNumber}`, c.piDate && `dated ${fmtDmy(c.piDate)}`, c.piAmount != null && money(c.piAmount)].filter(Boolean).join(" · ") || null
+        ? [c.piNumber && `PI ${c.piNumber}`, c.piDate && t("dated", { date: fmtDmy(c.piDate) }), c.piAmount != null && money(c.piAmount)].filter(Boolean).join(" · ") || null
         : st.code === "INVOICE_1"
-          ? `To ${c.customer?.name ?? "the customer"} · ${c.linesSummary ?? ""}`.replace(/ · $/, "")
+          ? `${t("toCustomer", { name: c.customer?.name ?? t("theCustomer") })} · ${c.linesSummary ?? ""}`.replace(/ · $/, "")
           : null,
     docLine: (d) => {
       if (d === "DEPOSIT_PROOF") {
         const pct = c.depositPercent != null ? `${Number(c.depositPercent)}%` : "";
-        const due = c.depositDueDate ? `, due ${fmtDmy(c.depositDueDate)}` : depositTermLabel(c.depositDueDays, c.depositDueUnit) ? ` (${depositTermLabel(c.depositDueDays, c.depositDueUnit)} after the PI date)` : "";
-        return c.depositAmount != null ? `Deposit ${pct} = ${money(c.depositAmount)}${due}` : null;
+        const term = termOf(t, c.depositDueDays, c.depositDueUnit);
+        const due = c.depositDueDate ? t("dueComma", { date: fmtDmy(c.depositDueDate) }) : term ? t("dueAfter", { term }) : "";
+        return c.depositAmount != null ? `${t("depositLine", { pct, amt: money(c.depositAmount) })}${due}` : null;
       }
       if (d === "PI") return c.piNumber ? `PI ${c.piNumber}${c.piAmount != null ? ` · ${money(c.piAmount)}` : ""}` : null;
-      if (d === "INVOICE_1") return `${c.customer?.name ?? "Customer"} · contract ${c.contractNo}`;
+      if (d === "INVOICE_1") return t("invoiceLine", { name: c.customer?.name ?? t("customer"), no: c.contractNo });
       return null;
     },
   };
 }
 
 /** Facts for the shipment's steps: B/L, customer, vessel, CI amount… */
-function shipmentContext(c: Contract, s: Shipment): StepContext {
-  const bl = `B/L ${s.blNumber || "pending"}`;
+function shipmentContext(c: Contract, s: Shipment, t: Tr): StepContext {
+  const bl = t("bl", { bl: s.blNumber || t("pending") });
   return {
-    stepLine: (st) => (st.code === "BL_DRAFT_APPROVAL" ? `Contract ${c.contractNo} · ${s.productLine ?? "product line not picked yet"}` : [bl, s.customer?.name, s.vessel && [s.vessel, s.voyageNo].filter(Boolean).join(" / ")].filter(Boolean).join(" · ")),
+    stepLine: (st) => (st.code === "BL_DRAFT_APPROVAL" ? t("blStepLine", { no: c.contractNo, line: s.productLine ?? t("noLine") }) : [bl, s.customer?.name, s.vessel && [s.vessel, s.voyageNo].filter(Boolean).join(" / ")].filter(Boolean).join(" · ")),
     docLine: (d) => {
       if (d === "CI_PAYMENT_PROOF") return s.ciAmount != null ? `CI ${s.ciNumber ?? ""} · ${fmtMoney(s.ciAmount, s.currency)}`.replace("CI  ·", "CI ·") : null;
-      if (d === "INVOICE_2" || d === "CUSTOMER_PL" || d === "CUSTOMER_COA") return `${s.customer?.name ?? "Customer"} · ${bl}${s.netWeightMt != null ? ` · ${fmtMt(s.netWeightMt)} MT` : ""}`;
-      if (d === "TELEX_RELEASE" && s.telexReleaseCode) return `Release code ${s.telexReleaseCode}`;
+      if (d === "INVOICE_2" || d === "CUSTOMER_PL" || d === "CUSTOMER_COA") return `${s.customer?.name ?? t("customer")} · ${bl}${s.netWeightMt != null ? ` · ${fmtMt(s.netWeightMt)} MT` : ""}`;
+      if (d === "TELEX_RELEASE" && s.telexReleaseCode) return t("releaseCode", { code: s.telexReleaseCode });
       return null;
     },
   };
 }
 
 /** "B/L 198GX04822 · 6063 · 203MM · 300 MT · WAN HAI 316 / E042 · 120.140 MT net" once step 2's fields are in. */
-function blSummary(s: Shipment): string | null {
+function blSummary(s: Shipment, t: Tr): string | null {
   if (!s.blNumber) return null;
-  return [`B/L ${s.blNumber}`, s.productLine, s.vessel && [s.vessel, s.voyageNo].filter(Boolean).join(" / "), s.netWeightMt != null && `${fmtMt(s.netWeightMt)} MT net`].filter(Boolean).join(" · ");
+  return [`B/L ${s.blNumber}`, s.productLine, s.vessel && [s.vessel, s.voyageNo].filter(Boolean).join(" / "), s.netWeightMt != null && t("mtNet", { mt: fmtMt(s.netWeightMt) })].filter(Boolean).join(" · ");
 }

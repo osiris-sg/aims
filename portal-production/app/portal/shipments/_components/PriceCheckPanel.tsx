@@ -11,42 +11,44 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import ScheduleIcon from "@mui/icons-material/Schedule";
+import { useTranslations } from "next-intl";
 import { useShipmentsApi } from "../_lib/api";
 
 const usd = (v: number | null) => (v === null ? "—" : v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
 export default function PriceCheckPanel({ kind, id, title }: { kind: "order" | "supplier-order" | "shipment" | "generated"; id: string; title?: string }) {
+  const t = useTranslations("shipments.priceCheck");
   const api = useShipmentsApi();
   const q = useQuery({ queryKey: ["trade-orders", "price-check", kind, id], queryFn: () => api.priceCheck(kind, id), staleTime: 30_000 });
   if (q.isLoading) return null;
-  if (q.isError || !q.data) return <Alert severity="warning">Price check unavailable: {(q.error as Error)?.message ?? "no data"}</Alert>;
+  if (q.isError || !q.data) return <Alert severity="warning">{t("unavailable", { reason: (q.error as Error)?.message ?? t("noData") })}</Alert>;
   const c = q.data;
   return (
     <Paper variant="outlined" sx={{ p: 1.5 }} data-tour="price-check-panel">
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
         <Typography variant="subtitle2" sx={{ flex: 1 }}>
-          {title ?? "Price check vs contract"} {c.basisMonth ? `· basis ${c.basisMonth}` : ""}
+          {title ?? t("title")} {c.basisMonth ? `· ${t("basis", { month: c.basisMonth })}` : ""}
         </Typography>
         {/* Nothing read from the document yet: never "Matches". */}
         <Chip
           size="small"
           color={c.read === false ? "default" : c.ok ? "success" : "warning"}
           variant="outlined"
-          label={c.read === false ? "Not read yet" : c.ok ? (c.lines.some((l) => l.mark === "provisional") ? "Premium matches · LME provisional" : "Matches the contract") : "Check the differences"}
+          label={c.read === false ? t("notRead") : c.ok ? (c.lines.some((l) => l.mark === "provisional") ? t("premiumMatches") : t("matches")) : t("checkDiffs")}
         />
       </Stack>
       <Box sx={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr", columnGap: 2, rowGap: 0.5, alignItems: "center" }}>
         <Typography variant="caption" color="text.secondary">
-          Item
+          {t("item")}
         </Typography>
         <Typography variant="caption" color="text.secondary" sx={{ textAlign: "right" }}>
-          Expected
+          {t("expected")}
         </Typography>
         <Typography variant="caption" color="text.secondary" sx={{ textAlign: "right" }}>
-          On the document
+          {t("onDocument")}
         </Typography>
         <Typography variant="caption" color="text.secondary" sx={{ textAlign: "right" }}>
-          Difference
+          {t("difference")}
         </Typography>
         {c.lines.map((l) => (
           <React.Fragment key={l.key}>
@@ -64,7 +66,7 @@ export default function PriceCheckPanel({ kind, id, title }: { kind: "order" | "
                 {l.label}
                 {l.mark === "provisional" && (
                   <Typography component="span" variant="caption" color="warning.main" sx={{ ml: 0.75 }}>
-                    provisional — settles on the CI
+                    {t("provisional")}
                   </Typography>
                 )}
               </Typography>
@@ -83,7 +85,7 @@ export default function PriceCheckPanel({ kind, id, title }: { kind: "order" | "
       </Box>
       {(c.notes.length > 0 || c.source) && (
         <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 1 }}>
-          {[`From ${c.source}`, ...c.notes].join(" · ")}
+          {[t("from", { source: String(c.source) }), ...c.notes].join(" · ")}
         </Typography>
       )}
     </Paper>

@@ -7,9 +7,11 @@ import PageTable from "@/components/PageTable";
 import { useGetAuditLogs } from "../hooks/useGetAuditLogs";
 import { Box, Typography, Card, CardContent, Chip, Button } from "@mui/material";
 import { Security as SecurityIcon, Assessment as AssessmentIcon, Visibility as VisibilityIcon, Refresh as RefreshIcon } from "@mui/icons-material";
+import { useTranslations } from "next-intl";
 
 export default function AuditLogs() {
   const { columns } = useAuditTableHeader();
+  const t = useTranslations("audit.legacy");
   const { auditLogs, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, refreshAuditLogs } = useGetAuditLogs();
 
   // Calculate some basic stats for display
@@ -37,8 +39,8 @@ export default function AuditLogs() {
         <PageTable
           columns={columns}
           data={auditLogs?.logs || []}
-          tableName="Audit Logs"
-          subTitle="System audit trail and user activity logs"
+          tableName={t("tableName")}
+          subTitle={t("subTitle")}
           // No buttonName means no add button will be displayed
           loading={loading}
           page={page}
@@ -54,7 +56,7 @@ export default function AuditLogs() {
           totalDocs={auditLogs?.total || 0}
           actionButtons={[
             <Button key="refresh" variant="outlined" startIcon={<RefreshIcon />} onClick={refreshAuditLogs} disabled={loading}>
-              Refresh
+              {t("refresh")}
             </Button>,
           ]}
         />

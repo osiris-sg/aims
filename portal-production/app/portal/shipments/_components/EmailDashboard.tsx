@@ -14,14 +14,17 @@
 import React from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslations } from "next-intl";
+import { useUiLang } from "@/i18n/UiLangProvider";
 import { Alert, Box, Button, CircularProgress, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
 import { useShipmentsApi, type InboxDashboard, type InboxMessage, type ShipmentListItem, type TradeAlert } from "../_lib/api";
 import { useShipments } from "../_lib/hooks";
 import { fmtDmy, shortCustomer } from "../_lib/format";
-import { FREE_DAYS_HELP, freeDays } from "../_lib/free-days";
+import { FREE_DAYS_HELP, FREE_DAYS_HELP_JA, freeDays } from "../_lib/free-days";
 import { isOverdue, taskCounts, tradeTodayYmd } from "../_lib/tasks";
 import { arrivingThisWeek, byLine, orderHref } from "../_lib/inbox-threads";
-import { L, resultBox } from "../_lib/inbox-cards";
+import { resultBox } from "../_lib/inbox-cards";
+import { useInboxLabels } from "./inbox/useInboxLabels";
 import { HOME_KEY, TradeTasksList, useMyTasks, useRefreshTasks } from "./TradeTasks";
 import { InboxThreadList, type InboxActions } from "./inbox/InboxThreadList";
 import { useInboxActions } from "./inbox/useInboxActions";
@@ -52,6 +55,8 @@ function Section({ title, count, children, tour, action }: { title: string; coun
 
 /** Round W: what was filed by itself — the result in plain words ("✅ Added to #16-2 — …", one line per document), with Undo. */
 function FiledRow({ m, lang, onUndo, onOpen }: { m: InboxMessage & { threadSubject?: string | null }; lang: "en" | "ja"; onUndo: (m: InboxMessage) => void; onOpen: (m: InboxMessage) => void }) {
+  const labels = useInboxLabels();
+  const t = useTranslations("inbox.dashboard");
   const r = resultBox(m, lang);
   const filed = (m.linked?.files ?? []).find((f) => f.status === "done") ?? m.linked?.files[0] ?? null;
   const href = orderHref(m.linked?.orderId, m.linked?.shipmentId, filed?.stepId ?? null, filed?.name ?? null);
@@ -68,7 +73,7 @@ function FiledRow({ m, lang, onUndo, onOpen }: { m: InboxMessage & { threadSubje
           )}
         </Typography>
         <Typography variant="caption" color="text.secondary" component="div" sx={{ wordBreak: "break-word", overflowWrap: "anywhere" }}>
-          {m.subject || "(no subject)"} · {byLine(m.by)}
+          {m.subject || t("noSubject")} · {byLine(m.by, lang)}
         </Typography>
         {r.lines.map((l, i) => (
           <Typography key={i} variant="caption" color="text.secondary" component="div" sx={{ wordBreak: "break-word" }}>
@@ -85,7 +90,7 @@ function FiledRow({ m, lang, onUndo, onOpen }: { m: InboxMessage & { threadSubje
             onUndo(m);
           }}
         >
-          {L[lang].undo}
+          {labels.undo}
         </Button>
       )}
     </Stack>
@@ -94,6 +99,9 @@ function FiledRow({ m, lang, onUndo, onOpen }: { m: InboxMessage & { threadSubje
 
 export function EmailDashboardView({ data, actions, onTasksChanged, onRefreshTasks }: { data: EmailDashboardData; actions: InboxActions; onTasksChanged: () => void; onRefreshTasks?: () => void }) {
   const { inbox, tasks, shipments, today } = data;
+  const labels = useInboxLabels();
+  const t = useTranslations("inbox.dashboard");
+  const { lang } = useUiLang();
   const counts = taskCounts(tasks, today);
   const arriving = arrivingThisWeek(shipments ?? [], today);
   // Round AC (owner): no "Dashboard" heading and no "To do: …" line — tasks and arrivals have their own sections below.
@@ -102,64 +110,64 @@ export function EmailDashboardView({ data, actions, onTasksChanged, onRefreshTas
     <Box sx={{ p: { xs: 1.5, md: 3 }, pt: { xs: 1, md: 2 }, maxWidth: 1200, mx: "auto" }} data-tour="sales-dashboard">
       <Stack spacing={2}>
         <Section
-          title={actions.lang === "ja" ? "確認が必要なメール" : "Emails waiting for you"}
+          title={t("emailsWaiting")}
           tour="dashboard-emails"
           action={
             <Button component={Link} href={SHIPMENTS_EMAILS} size="small" sx={{ textTransform: "none" }} data-tour="dashboard-see-all-emails">
-              {L[actions.lang].seeAll}
+              {labels.seeAll}
             </Button>
           }
         >
           {data.loading && !inbox ? (
             <CircularProgress size={22} />
           ) : (
-            <InboxThreadList tab="UNPROCESSED" threads={inbox?.toConfirm.threads ?? []} actions={actions} emptyText={L[actions.lang].nothing} />
+            <InboxThreadList tab="UNPROCESSED" threads={inbox?.toConfirm.threads ?? []} actions={actions} emptyText={labels.nothing} />
           )}
         </Section>
-        <Section title="Filed automatically" count={inbox ? `last 3 days: ${inbox.filedAuto.length}` : ""} tour="dashboard-filed">
+        <Section title={t("filedAuto")} count={inbox ? t("last3", { n: inbox.filedAuto.length }) : ""} tour="dashboard-filed">
           {!inbox?.filedAuto.length ? (
             <Typography variant="body2" color="text.secondary">
-              Nothing was filed by itself in the last 3 days.
+              {t("nothingFiled")}
             </Typography>
           ) : (
             inbox.filedAuto.map((m) => <FiledRow key={m.id} m={m} lang={actions.lang} onUndo={actions.onUndo} onOpen={(mm) => actions.onOpen(mm)} />)
           )}
         </Section>
         <Section
-          title="Tasks"
-          count={tasks ? `${counts.total}${counts.overdue ? ` · ${counts.overdue} overdue` : ""}` : ""}
+          title={t("tasks")}
+          count={tasks ? `${counts.total}${counts.overdue ? ` · ${t("overdue", { n: counts.overdue })}` : ""}` : ""}
           tour="dashboard-tasks"
           action={
             onRefreshTasks ? (
               <Button size="small" onClick={onRefreshTasks}>
-                Refresh reminders
+                {t("refresh")}
               </Button>
             ) : undefined
           }
         >
           <TradeTasksList alerts={sortedTasks} loading={data.loading && !tasks} onChanged={onTasksChanged} />
         </Section>
-        <Section title="Arriving this week" count={shipments ? arriving.length : ""} tour="dashboard-arriving">
+        <Section title={t("arriving")} count={shipments ? arriving.length : ""} tour="dashboard-arriving">
           {!arriving.length ? (
             <Typography variant="body2" color="text.secondary">
-              No shipment has an ETA in the next 7 days.
+              {t("noArriving")}
             </Typography>
           ) : (
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell>Shipment</TableCell>
-                  <TableCell>Customer</TableCell>
-                  <TableCell>Vessel</TableCell>
+                  <TableCell>{t("colShipment")}</TableCell>
+                  <TableCell>{t("colCustomer")}</TableCell>
+                  <TableCell>{t("colVessel")}</TableCell>
                   <TableCell>ETA</TableCell>
-                  <TableCell align="right" title={FREE_DAYS_HELP}>
-                    Free days left
+                  <TableCell align="right" title={lang === "ja" ? FREE_DAYS_HELP_JA : FREE_DAYS_HELP}>
+                    {t("colFree")}
                   </TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {arriving.map((s) => {
-                  const fd = freeDays(s);
+                  const fd = freeDays(s, lang);
                   return (
                     <TableRow key={s.id} hover sx={{ cursor: "pointer" }} onClick={() => (window.location.href = orderHref(s.orderId, s.id) ?? "#")}>
                       <TableCell sx={{ fontWeight: 700 }}>{s.ref ?? s.blNumber ?? "—"}</TableCell>
@@ -185,13 +193,14 @@ export function EmailDashboardView({ data, actions, onTasksChanged, onRefreshTas
 export default function EmailDashboard() {
   const api = useShipmentsApi();
   const qc = useQueryClient();
+  const t = useTranslations("inbox.dashboard");
   const act = useInboxActions(() => inbox.refetch());
   const inbox = useQuery({ queryKey: ["trade-inbox", "dashboard", act.lang], queryFn: () => api.inboxDashboard(act.lang), refetchInterval: 30_000 });
   const tasks = useMyTasks();
   const ships = useShipments({ tab: "in_transit", pageSize: 100 });
   const refreshTasks = useRefreshTasks();
   const actions: InboxActions = act.actions;
-  if (inbox.isError) return <Alert severity="error">{(inbox.error as Error)?.message || "Could not load the dashboard"}</Alert>;
+  if (inbox.isError) return <Alert severity="error">{(inbox.error as Error)?.message || t("couldNotLoad")}</Alert>;
   return (
     <>
       <EmailDashboardView

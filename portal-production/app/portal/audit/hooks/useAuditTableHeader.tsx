@@ -2,27 +2,31 @@ import { useMemo } from "react";
 import { Chip, Typography, Box } from "@mui/material";
 import { format } from "date-fns";
 import { AuditLog } from "./useGetAuditLogs";
+import { useTranslations } from "next-intl";
+import { useUiLang } from "@/i18n/UiLangProvider";
 
 export default function useAuditTableHeader() {
+  const t = useTranslations("audit.legacy");
+  const { lang } = useUiLang();
   const columns = useMemo(
     () => [
       {
-        header: "Timestamp",
+        header: t("timestamp"),
         accessorKey: "createdAt",
         cell: ({ row }: { row: { original: AuditLog } }) => (
           <Typography variant="body2" sx={{ fontSize: "0.85rem" }}>
-            {format(new Date(row.original.createdAt), "MMM dd, yyyy HH:mm:ss")}
+            {format(new Date(row.original.createdAt), lang === "ja" ? "yyyy/MM/dd HH:mm:ss" : "MMM dd, yyyy HH:mm:ss")}
           </Typography>
         ),
         size: 160,
       },
       {
-        header: "User",
+        header: t("user"),
         accessorKey: "userName",
         cell: ({ row }: { row: { original: AuditLog } }) => (
           <Box>
             <Typography variant="body2" sx={{ fontWeight: 500, fontSize: "0.85rem" }}>
-              {row.original.userName || "Unknown"}
+              {row.original.userName || t("unknown")}
             </Typography>
             <Typography variant="caption" sx={{ color: "text.secondary", fontSize: "0.75rem" }}>
               {row.original.userEmail || row.original.userId}
@@ -32,7 +36,7 @@ export default function useAuditTableHeader() {
         size: 200,
       },
       {
-        header: "Action",
+        header: t("action"),
         accessorKey: "action",
         cell: ({ row }: { row: { original: AuditLog } }) => {
           const getActionColor = (action: string) => {
@@ -59,7 +63,7 @@ export default function useAuditTableHeader() {
         size: 100,
       },
       {
-        header: "Resource",
+        header: t("resource"),
         accessorKey: "resource",
         cell: ({ row }: { row: { original: AuditLog } }) => (
           <Box>
@@ -76,7 +80,7 @@ export default function useAuditTableHeader() {
         size: 150,
       },
       {
-        header: "Resource ID",
+        header: t("resourceId"),
         accessorKey: "resourceId",
         cell: ({ row }: { row: { original: AuditLog } }) => (
           <Typography variant="body2" sx={{ fontSize: "0.85rem", fontVariantNumeric: "tabular-nums" }}>
@@ -86,7 +90,7 @@ export default function useAuditTableHeader() {
         size: 120,
       },
       {
-        header: "Status",
+        header: t("status"),
         accessorKey: "status",
         cell: ({ row }: { row: { original: AuditLog } }) => {
           const getStatusColor = (status: string) => {
@@ -107,7 +111,7 @@ export default function useAuditTableHeader() {
         size: 100,
       },
       {
-        header: "IP Address",
+        header: t("ipAddress"),
         accessorKey: "ipAddress",
         cell: ({ row }: { row: { original: AuditLog } }) => (
           <Typography variant="body2" sx={{ fontSize: "0.85rem", fontVariantNumeric: "tabular-nums" }}>
@@ -117,7 +121,7 @@ export default function useAuditTableHeader() {
         size: 120,
       },
       {
-        header: "Error",
+        header: t("error"),
         accessorKey: "errorMessage",
         cell: ({ row }: { row: { original: AuditLog } }) => (
           <Typography
@@ -137,7 +141,7 @@ export default function useAuditTableHeader() {
         size: 200,
       },
     ],
-    []
+    [t, lang]
   );
 
   return {

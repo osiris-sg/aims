@@ -17,7 +17,7 @@ import { clientStats, ClientOrderFact, contactsFrom, DOC_FORMAT_SLOTS, formatVie
 import { clientName, shortSupplier } from './monthly-list';
 import { CustomerProfile, DOC_FORMAT_TYPES, DocFormatType, FormatSample, naStepCodes, OTHER_DOC_TEMPLATES, profileFor, supplierProfileFor } from './trade-profile';
 import { cleanSkipSteps, ImpactRecord, PROCESS_STEPS, processImpact } from './trade-process';
-import { cleanCompany, cleanContacts, cleanLogistics, cleanShippingLine, companyView, ContactInfo, lineCode, maskedProfile, ShippingLineInfo } from './clients-company';
+import { cleanCompany, cleanContacts, cleanLogistics, cleanShippingLine, companyView, ContactInfo, lineCode, maskedProfile, ShippingLineInfo, typesOf } from './clients-company';
 import { carrierCatalog, carrierOf } from './trade-carrier';
 import { defaultProfile, defaultSupplierProfile, SupplierProfile } from './trade-profile';
 import { shipmentRef } from './shipments.rules';
@@ -489,9 +489,10 @@ export class ClientsService {
     return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined));
   }
 
+  /** The shipping lines a client profile may name (known by their B/L + those added with the Shipping line type). */
   private async knownCarriers(organizationId: string) {
     const stored = await this.storedLines(organizationId);
-    return new Set([...carrierCatalog().map((c) => c.code), ...Object.keys(stored)]);
+    return new Set([...carrierCatalog().map((c) => c.code), ...Object.entries(stored).filter(([, v]) => typesOf(v).includes('SHIPPING_LINE')).map(([k]) => k)]);
   }
 
   private uniqueName(e: unknown, what: string): never {
@@ -557,7 +558,12 @@ export class ClientsService {
     return (row?.shippingLines ?? {}) as Record<string, ShippingLineInfo>;
   }
 
-  /** Clients → Shipping lines: the lines AIMS knows + lines added here, their info, and the shipments / clients using them. */
+  /**
+   * Clients → Logistics (round AZ; round AY's Shipping lines): the shipping lines AIMS knows by their B/L + every
+   * company added here (forwarders / 乙仲, customs brokers, warehouses, trucking, insurers — one company may be several),
+   * their info and contacts; shipping lines also their shipments and the clients using them; companies with e-mail
+   * domains their e-mail count.
+   */
   async shippingLines(organizationId: string) {
     const stored = await this.storedLines(organizationId);
     const catalog = carrierCatalog();
@@ -581,40 +587,55 @@ export class ClientsService {
       u.name = u.kind === 'customer' ? clientName(p?.key?.toUpperCase() ?? null, rec?.name ?? u.name) : p?.label || (rec ? shortSupplier(rec.name) : u.name);
     }
     const codes = [...new Set([...catalog.map((c) => c.code), ...Object.keys(stored)])];
+    const isLine = (code: string) => !!catalog.find((c) => c.code === code) || typesOf(stored[code]).includes('SHIPPING_LINE');
     const byCode = new Map<string, any[]>();
     const unmatched: any[] = [];
     for (const s of ships) {
       const c = carrierOf(s.blNumber, s.shippingLine);
-      const custom = !c && s.shippingLine ? Object.entries(stored).find(([, v]) => v.custom && v.name.toLowerCase() === String(s.shippingLine).trim().toLowerCase())?.[0] : undefined;
+      const custom = !c && s.shippingLine ? Object.entries(stored).find(([k, v]) => v.custom && isLine(k) && v.name.toLowerCase() === String(s.shippingLine).trim().toLowerCase())?.[0] : undefined;
       const code = c?.code ?? custom;
       const row = { id: s.id, ref: shipmentRef(s.order?.orderNo, s.seqNo), orderId: s.orderId, status: s.status, blNumber: s.blNumber, eta: s.eta, customer: s.order?.customer?.name ?? null };
       if (code) byCode.set(code, [...(byCode.get(code) ?? []), row]);
       else if (s.blNumber && !/^TEST/i.test(s.blNumber)) unmatched.push({ ...row, shippingLine: s.shippingLine });
     }
-    const lines = codes.map((code) => {
+    // E-mails from each company's domains (the intake log; counts only).
+    const domains = [...new Set(Object.values(stored).flatMap((v) => v.emailDomains ?? []))];
+    const mailCount = new Map<string, number>();
+    for (const d of domains) mailCount.set(d, await this.prisma.emailIngestLog.count({ where: { organizationId, fromAddress: { endsWith: `@${d}`, mode: 'insensitive' } } }));
+    const partners = codes.map((code) => {
       const known = catalog.find((c) => c.code === code);
       const info = stored[code] ?? ({} as ShippingLineInfo);
-      const list = byCode.get(code) ?? [];
+      const types = known ? [...new Set(['SHIPPING_LINE' as const, ...typesOf(info)])] : typesOf(info);
+      const line = types.includes('SHIPPING_LINE');
+      const list = line ? (byCode.get(code) ?? []) : [];
       return {
         code,
         name: info.name ?? known?.name ?? code,
+        nameJa: info.nameJa ?? null,
+        types,
         website: info.website ?? null,
-        trackingUrl: info.trackingUrl ?? known?.trackingUrl ?? null,
+        phone: info.phone ?? null,
+        address: info.address ?? null,
+        emailDomains: info.emailDomains ?? [],
+        emails: (info.emailDomains ?? []).reduce((n, d) => n + (mailCount.get(d) ?? 0), 0),
+        trackingUrl: line ? (info.trackingUrl ?? known?.trackingUrl ?? null) : null,
         agents: info.agents ?? [],
-        freeTime: info.freeTime ?? null,
+        freeTime: line ? (info.freeTime ?? null) : null,
         notes: info.notes ?? null,
         known: !!known,
         shipments: list.length,
         openShipments: list.filter((x) => x.status === 'OPEN').length,
         lastEta: list.find((x) => x.eta)?.eta ?? null,
         recent: list.slice(0, 20),
-        clients: used.filter((u) => u.code === code).map((u) => ({ id: u.id, kind: u.kind, name: u.name })),
+        clients: line ? used.filter((u) => u.code === code).map((u) => ({ id: u.id, kind: u.kind, name: u.name })) : [],
       };
     });
-    return { lines: lines.sort((a, b) => b.shipments - a.shipments || a.name.localeCompare(b.name)), unmatched: unmatched.slice(0, 50) };
+    const sorted = partners.sort((a, b) => b.shipments - a.shipments || b.emails - a.emails || a.name.localeCompare(b.name));
+    // `lines` = round AY's name for the same list (kept for a portal tab still open during the deploy).
+    return { partners: sorted, lines: sorted, unmatched: unmatched.slice(0, 50) };
   }
 
-  /** "+ Add shipping line" (one AIMS doesn't know by its B/L), or edit one's info. */
+  /** "+ Add company" (a shipping line AIMS doesn't know by its B/L, a forwarder, a warehouse …), or edit one's info. */
   async saveShippingLine(organizationId: string, code: string | null, body: unknown) {
     const stored = await this.storedLines(organizationId);
     const catalog = carrierCatalog();
@@ -622,12 +643,13 @@ export class ClientsService {
     let key = code;
     if (!key) {
       const name = String((body as Record<string, unknown>)?.name ?? '').trim();
-      if (!name) this.bad('A shipping line needs a name');
+      if (!name) this.bad('A logistics company needs a name');
       if ([...catalog.map((c) => c.name), ...Object.values(stored).map((v) => v.name)].some((n) => n.toLowerCase() === name.toLowerCase())) this.bad(`"${name}" is already on the list`);
       key = lineCode(name, taken);
-    } else if (!taken.has(key)) throw new NotFoundException('Shipping line not found');
-    const cur = stored[key] ?? (catalog.find((c) => c.code === key) ? { name: catalog.find((c) => c.code === key)!.name } : { name: '', custom: true });
-    const next = cleanShippingLine(body, cur as ShippingLineInfo, this.bad);
+    } else if (!taken.has(key)) throw new NotFoundException('Logistics company not found');
+    const known = !!catalog.find((c) => c.code === key);
+    const cur = stored[key] ?? (known ? { name: catalog.find((c) => c.code === key)!.name } : { name: '', custom: true });
+    const next = cleanShippingLine(body, cur as ShippingLineInfo, this.bad, known);
     const all = { ...stored, [key]: { ...next, ...(code ? {} : { custom: true }) } };
     await this.prisma.tradeSetting.upsert({ where: { organizationId }, update: { shippingLines: all as any }, create: { organizationId, shippingLines: all as any } });
     return { code: key, ...(await this.shippingLines(organizationId)) };

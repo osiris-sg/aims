@@ -2,12 +2,17 @@ import React, { useState } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
 import { Box, Chip, Typography } from "@mui/material";
 import { kebabColumn } from "@/components/RowKebab";
+import { useUiLang } from "@/i18n/UiLangProvider";
+import { formatDate } from "@/i18n/lang";
 import { useAuth } from "@clerk/nextjs";
+import { useTranslations } from "next-intl";
 
 const columnHelper = createColumnHelper<any>();
 
 export default function useOrganizationTableHeader() {
   const { getToken } = useAuth();
+  const t = useTranslations("users.orgs");
+  const { lang } = useUiLang();
   const [editOrganizationOpen, setEditOrganizationOpen] = useState(false);
   const [selectedOrganization, setSelectedOrganization] = useState(null);
   const [organizationToDelete, setOrganizationToDelete] = useState<string | null>(null);
@@ -66,7 +71,7 @@ export default function useOrganizationTableHeader() {
 
   const columns = [
     columnHelper.accessor("name", {
-      header: "Organization Name",
+      header: t("name"),
       cell: (info) => (
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <Typography variant="body2" sx={{ fontWeight: 500 }}>
@@ -76,7 +81,7 @@ export default function useOrganizationTableHeader() {
       ),
     }),
     columnHelper.accessor("id", {
-      header: "Organization ID",
+      header: t("id"),
       cell: (info) => (
         <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", fontSize: "0.8rem" }}>
           {info.getValue()}
@@ -84,24 +89,24 @@ export default function useOrganizationTableHeader() {
       ),
     }),
     columnHelper.accessor("_count.userOrganizations", {
-      header: "Users",
+      header: t("users"),
       cell: (info) => <Chip label={info.getValue() || 0} size="small" variant="outlined" sx={{ fontSize: "0.75rem" }} />,
     }),
     columnHelper.accessor("_count.assets", {
-      header: "Assets",
+      header: t("assets"),
       cell: (info) => <Chip label={info.getValue() || 0} size="small" variant="outlined" sx={{ fontSize: "0.75rem" }} />,
     }),
     columnHelper.accessor("createdAt", {
-      header: "Created",
+      header: t("created"),
       cell: (info) => (
         <Typography variant="body2" sx={{ fontSize: "0.8rem" }}>
-          {new Date(info.getValue()).toLocaleDateString()}
+          {lang === "ja" ? formatDate(info.getValue(), "ja") : new Date(info.getValue()).toLocaleDateString()}
         </Typography>
       ),
     }),
     kebabColumn((row: any) => [
-      { label: "Edit", onClick: () => handleEditOrganization(row) },
-      { label: "Delete", destructive: true, onClick: () => handleDeleteOrganization(row.id) },
+      { label: t("edit"), onClick: () => handleEditOrganization(row) },
+      { label: t("delete"), destructive: true, onClick: () => handleDeleteOrganization(row.id) },
     ]),
   ];
 

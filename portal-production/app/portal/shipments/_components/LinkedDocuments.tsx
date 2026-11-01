@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { Box, Chip, IconButton, Menu, MenuItem, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import { toast } from "../_lib/toast";
+import { useTranslations } from "next-intl";
 import type { RecordDocLink } from "../_lib/api";
 import { useDocTypeLabels, useTradeMutation } from "../_lib/hooks";
 import { DOC_STATUS_LABEL, documentHref, fmtDate, fmtMoney } from "../_lib/format";
@@ -18,21 +19,22 @@ import { ConfirmDialog } from "./bits";
 
 /** Status chip for a linked document: its own status, or Deleted / Voided. */
 export const DocLinkChip = ({ link, onClick }: { link: RecordDocLink; onClick?: () => void }) => {
+  const t = useTranslations("shipments.linkedDocuments");
   const state = link.state ?? (link.deleted ? "deleted" : link.voided ? "voided" : "confirmed");
   const label =
-    state === "deleted" ? "Deleted" : state === "voided" ? "Voided" : state === "draft" ? "Draft — confirm to count" : DOC_STATUS_LABEL(link.document?.status ?? "");
+    state === "deleted" ? t("deleted") : state === "voided" ? t("voided") : state === "draft" ? t("draftChip") : DOC_STATUS_LABEL(link.document?.status ?? "");
   const title =
     state === "draft"
-      ? "Not counted yet: confirm the invoice to tick this requirement"
+      ? t("draftTitle")
       : link.satisfies
-        ? "Open the invoice"
-        : "No longer counts: the invoice was deleted or voided";
+        ? t("openTitle")
+        : t("goneTitle");
   return (
     <Chip
       size="small"
       variant="outlined"
       color={link.satisfies ? "info" : state === "draft" ? "warning" : "error"}
-      label={`${link.document?.number ?? "Invoice"} · ${label}`}
+      label={`${link.document?.number ?? t("invoice")} · ${label}`}
       onClick={onClick}
       clickable={!!onClick}
       title={title}
@@ -41,6 +43,7 @@ export const DocLinkChip = ({ link, onClick }: { link: RecordDocLink; onClick?: 
 };
 
 export default function LinkedDocuments({ links, returnTo, canEdit }: { links: RecordDocLink[]; returnTo: string; canEdit: boolean }) {
+  const t = useTranslations("shipments.linkedDocuments");
   const router = useRouter();
   const label = useDocTypeLabels();
   const [menu, setMenu] = useState<{ pos: { left: number; top: number }; link: RecordDocLink } | null>(null);
@@ -54,22 +57,22 @@ export default function LinkedDocuments({ links, returnTo, canEdit }: { links: R
   return (
     <Box sx={{ mb: 3 }}>
       <Typography variant="subtitle2" sx={{ mb: 1 }}>
-        Documents
+        {t("title")}
       </Typography>
       {!links.length ? (
         <Typography variant="body2" color="text.secondary">
-          No invoices linked yet.
+          {t("empty")}
         </Typography>
       ) : (
         <TableContainer component={Paper} variant="outlined">
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>Document type</TableCell>
-                <TableCell>Invoice</TableCell>
-                <TableCell>Customer</TableCell>
-                <TableCell align="right">Total</TableCell>
-                <TableCell>Date</TableCell>
+                <TableCell>{t("docType")}</TableCell>
+                <TableCell>{t("invoice")}</TableCell>
+                <TableCell>{t("customer")}</TableCell>
+                <TableCell align="right">{t("total")}</TableCell>
+                <TableCell>{t("date")}</TableCell>
                 <TableCell />
               </TableRow>
             </TableHead>
@@ -86,7 +89,7 @@ export default function LinkedDocuments({ links, returnTo, canEdit }: { links: R
                   </TableCell>
                   <TableCell>{fmtDate(l.document?.date)}</TableCell>
                   <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                    <IconButton size="small" aria-label="Document actions" onClick={(e) => setMenu({ pos: { left: e.clientX, top: e.clientY }, link: l })}>
+                    <IconButton size="small" aria-label={t("actions")} onClick={(e) => setMenu({ pos: { left: e.clientX, top: e.clientY }, link: l })}>
                       <MoreVertIcon fontSize="small" />
                     </IconButton>
                   </TableCell>
@@ -106,7 +109,7 @@ export default function LinkedDocuments({ links, returnTo, canEdit }: { links: R
             open(l);
           }}
         >
-          Open invoice
+          {t("openInvoice")}
         </MenuItem>
         <MenuItem
           disabled={!canEdit}
@@ -117,19 +120,19 @@ export default function LinkedDocuments({ links, returnTo, canEdit }: { links: R
             setToUnlink(l);
           }}
         >
-          Unlink
+          {t("unlink")}
         </MenuItem>
       </Menu>
 
       <ConfirmDialog
         open={!!toUnlink}
-        title={`Unlink ${toUnlink?.document?.number ?? "this invoice"}?`}
-        confirmLabel="Unlink"
+        title={t("unlinkTitle", { number: toUnlink?.document?.number ?? t("thisInvoice") })}
+        confirmLabel={t("unlink")}
         destructive
         onClose={() => setToUnlink(null)}
         onConfirm={async () => {
           await unlink.mutateAsync(toUnlink!.id);
-          toast.success("Invoice unlinked");
+          toast.success(t("unlinked"));
         }}
       />
     </Box>

@@ -5,6 +5,7 @@ import { Box, Typography, Button } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
+import { useTranslations } from "next-intl";
 
 /**
  * Subtle info bar shown when an osiris-admin is viewing a different
@@ -18,6 +19,7 @@ import { useOrganization } from "@/app/portal/hooks/useOrganization";
  */
 export default function ViewingAsBanner() {
   const { isOsirisAdmin, organization, realOrganization, setActiveOrgId } = useOrganization();
+  const t = useTranslations("shell.org");
 
   if (!isOsirisAdmin) return null;
   if (!organization || !realOrganization) return null;
@@ -42,10 +44,10 @@ export default function ViewingAsBanner() {
     >
       <InfoOutlinedIcon fontSize="small" sx={{ color: "info.main", flexShrink: 0 }} />
       <Typography variant="caption" sx={{ color: "text.primary", fontWeight: 600 }}>
-        Viewing as {organization.name}
+        {t("viewingAs", { name: organization.name })}
       </Typography>
       <Typography variant="caption" sx={{ color: "text.secondary", flex: 1, minWidth: 0 }}>
-        Data and writes are scoped to this org, not your home ({realOrganization.name}).
+        {t("scopedNote", { home: realOrganization.name })}
       </Typography>
       <Button
         size="small"
@@ -54,7 +56,7 @@ export default function ViewingAsBanner() {
         onClick={() => setActiveOrgId(null)}
         sx={{ fontSize: "0.75rem", py: 0.25, minWidth: 0 }}
       >
-        Reset to home
+        {t("reset")}
       </Button>
     </Box>
   );

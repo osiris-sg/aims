@@ -17,6 +17,7 @@ import GroupsIcon from "@mui/icons-material/GroupsOutlined";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
+import { useTranslations } from "next-intl";
 
 type OrgUser = { id: string; name: string; email: string; roles?: Array<{ name: string }> };
 type Team = {
@@ -29,6 +30,7 @@ const money = (n: number | null | undefined) =>
 
 export default function TeamsPanel() {
   const { getToken } = useAuth();
+  const tr = useTranslations("users.teams");
   const [teams, setTeams] = useState<Team[]>([]);
   const [users, setUsers] = useState<OrgUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,8 +67,8 @@ export default function TeamsPanel() {
   }, [load]);
 
   const nameOf = useCallback(
-    (userId: string | null) => users.find((u) => u.id === userId)?.name || users.find((u) => u.id === userId)?.email || (userId ? "Unknown user" : "—"),
-    [users]
+    (userId: string | null) => users.find((u) => u.id === userId)?.name || users.find((u) => u.id === userId)?.email || (userId ? tr("unknownUser") : "—"),
+    [users, tr]
   );
 
   const openCreate = () => {
@@ -145,14 +147,14 @@ export default function TeamsPanel() {
         <GroupsIcon fontSize="small" sx={{ color: "text.secondary" }} />
         <Box sx={{ flex: 1 }}>
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-            Teams
+            {tr("title")}
           </Typography>
           <Typography variant="caption" sx={{ color: "text.secondary" }}>
-            Group members under a team leader (Junior Manager) with a yearly team target — the leader&apos;s dashboard shows the team&apos;s projects, leads and revenue.
+            {tr("intro")}
           </Typography>
         </Box>
         <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={openCreate}>
-          New team
+          {tr("newTeam")}
         </Button>
       </Stack>
 
@@ -162,17 +164,17 @@ export default function TeamsPanel() {
         </Box>
       ) : teams.length === 0 ? (
         <Typography variant="body2" sx={{ color: "text.disabled", px: 2, pb: 2 }}>
-          No teams yet.
+          {tr("none")}
         </Typography>
       ) : (
         <Box sx={{ overflowX: "auto" }}>
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>Team</TableCell>
-                <TableCell>Leader</TableCell>
-                <TableCell>Members</TableCell>
-                <TableCell align="right">Yearly team target</TableCell>
+                <TableCell>{tr("team")}</TableCell>
+                <TableCell>{tr("leader")}</TableCell>
+                <TableCell>{tr("members")}</TableCell>
+                <TableCell align="right">{tr("yearlyTarget")}</TableCell>
                 <TableCell align="right" />
               </TableRow>
             </TableHead>
@@ -191,7 +193,7 @@ export default function TeamsPanel() {
                       <Chip
                         size="small"
                         icon={<AddIcon sx={{ fontSize: 14 }} />}
-                        label={t.memberUserIds?.length ? "Edit" : "Add members"}
+                        label={t.memberUserIds?.length ? tr("edit") : tr("addMembers")}
                         onClick={(e) => {
                           e.stopPropagation();
                           openEdit(t);
@@ -204,7 +206,7 @@ export default function TeamsPanel() {
                     {money(t.yearlyTarget)}
                   </TableCell>
                   <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                    <Tooltip title="Delete team">
+                    <Tooltip title={tr("delete")}>
                       <IconButton size="small" onClick={() => setDeleting(t)} sx={{ color: "error.main" }}>
                         <DeleteOutlineIcon fontSize="small" />
                       </IconButton>
@@ -218,13 +220,13 @@ export default function TeamsPanel() {
       )}
 
       <Dialog open={dialogOpen} onClose={() => !busy && setDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>{editing ? `Edit ${editing.name}` : "New team"}</DialogTitle>
+        <DialogTitle>{editing ? tr("editTitle", { name: editing.name }) : tr("newTeam")}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 0.5 }}>
-            <TextField label="Team name" value={name} onChange={(e) => setName(e.target.value)} size="small" fullWidth autoFocus />
-            <TextField select label="Team leader (Junior Manager)" value={leaderUserId} onChange={(e) => setLeaderUserId(e.target.value)} size="small" fullWidth helperText="The leader sees the whole team's leads, projects and the team bubble on their dashboard.">
+            <TextField label={tr("teamName")} value={name} onChange={(e) => setName(e.target.value)} size="small" fullWidth autoFocus />
+            <TextField select label={tr("leaderLabel")} value={leaderUserId} onChange={(e) => setLeaderUserId(e.target.value)} size="small" fullWidth helperText={tr("leaderHelp")}>
               <MenuItem value="">
-                <em>No leader</em>
+                <em>{tr("noLeader")}</em>
               </MenuItem>
               {sortedUsers.map((u) => (
                 <MenuItem key={u.id} value={u.id}>
@@ -234,7 +236,7 @@ export default function TeamsPanel() {
               ))}
             </TextField>
             <TextField
-              label="Yearly team target (S$)"
+              label={tr("targetLabel")}
               value={target}
               onChange={(e) => {
                 if (/^[0-9]*\.?[0-9]*$/.test(e.target.value)) setTarget(e.target.value);
@@ -242,11 +244,11 @@ export default function TeamsPanel() {
               size="small"
               fullWidth
               inputProps={{ inputMode: "decimal" }}
-              helperText="Separate from each member's personal target."
+              helperText={tr("targetHelp")}
             />
             <Box>
               <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                Members — tap to add or remove (leader is always included)
+                {tr("membersHint")}
               </Typography>
               <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
                 {sortedUsers.map((u) => {
@@ -268,10 +270,10 @@ export default function TeamsPanel() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)} disabled={busy}>
-            Cancel
+            {tr("cancel")}
           </Button>
           <Button variant="contained" onClick={save} disabled={busy || !name.trim()}>
-            {busy ? "Saving…" : editing ? "Save" : "Create team"}
+            {busy ? tr("saving") : editing ? tr("save") : tr("create")}
           </Button>
         </DialogActions>
       </Dialog>

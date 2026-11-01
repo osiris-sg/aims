@@ -13,6 +13,7 @@ import { Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent,
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
+import { useTranslations } from "next-intl";
 import { ACCOUNT_LABEL, TARGET_LABEL, useShipmentsApi, type AllocationTarget, type PaymentAccount, type PaymentTarget, type TradePayment } from "../_lib/api";
 import { SHIPMENT_KEYS } from "../_lib/hooks";
 import { toast } from "../_lib/toast";
@@ -34,6 +35,10 @@ const cents = (v: number) => Math.round(v * 100);
 export default function PaymentDialog({ open, onClose, context, payment }: { open: boolean; onClose: () => void; context?: PaymentContext; payment?: TradePayment | null }) {
   const api = useShipmentsApi();
   const qc = useQueryClient();
+  const t = useTranslations("shipments.paymentDialog");
+  const tc = useTranslations("common");
+  const targetLabel = (k: AllocationTarget) => (t.has(`target.${k}`) ? t(`target.${k}`) : TARGET_LABEL[k]);
+  const accountLabel = (k: PaymentAccount) => (k === "OTHER" ? t("accountOther") : ACCOUNT_LABEL[k]);
   const [direction, setDirection] = useState<"IN" | "OUT">("OUT");
   const [paidAt, setPaidAt] = useState(today());
   const [amount, setAmount] = useState("");
@@ -82,8 +87,8 @@ export default function PaymentDialog({ open, onClose, context, payment }: { ope
 
   const save = async () => {
     setError(null);
-    if (!(total > 0)) return setError("Enter the amount");
-    if (left < -0.004) return setError(`The allocations are ${Math.abs(left).toFixed(2)} more than the payment`);
+    if (!(total > 0)) return setError(t("amountRequired"));
+    if (left < -0.004) return setError(t("overAlloc", { n: Math.abs(left).toFixed(2) }));
     setBusy(true);
     try {
       let proofFileId = payment?.proofFileId ?? null;
@@ -106,10 +111,10 @@ export default function PaymentDialog({ open, onClose, context, payment }: { ope
       if (payment) await api.updatePayment(payment.id, body);
       else await api.createPayment(body);
       await Promise.all([qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.orders }), qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.files })]);
-      toast.success(payment ? "Payment saved" : `Payment recorded${left > 0.004 ? ` — ${left.toLocaleString("en-US", { minimumFractionDigits: 2 })} ${currency} unallocated` : ""}`);
+      toast.success(payment ? t("saved") : left > 0.004 ? t("recordedUnalloc", { n: left.toLocaleString("en-US", { minimumFractionDigits: 2 }), cur: currency }) : t("recorded"));
       onClose();
     } catch (e: any) {
-      setError(e?.message || "Could not save the payment");
+      setError(e?.message || t("saveError"));
     } finally {
       setBusy(false);
     }
@@ -118,7 +123,7 @@ export default function PaymentDialog({ open, onClose, context, payment }: { ope
   const options = targets.data ?? [];
   return (
     <Dialog open={open} onClose={busy ? undefined : onClose} maxWidth="md" fullWidth>
-      <DialogTitle>{payment ? "Payment" : direction === "IN" ? "Record a receipt (cash in)" : "Record a payment (cash out)"}</DialogTitle>
+      <DialogTitle>{payment ? t("titlePayment") : direction === "IN" ? t("titleIn") : t("titleOut")}</DialogTitle>
       <DialogContent dividers>
         {error && (
           <Alert severity="error" sx={{ mb: 1.5 }}>
@@ -127,19 +132,19 @@ export default function PaymentDialog({ open, onClose, context, payment }: { ope
         )}
         <Grid container spacing={1.5}>
           <Grid item xs={6} sm={3}>
-            <TextField select fullWidth size="small" label="Direction" value={direction} onChange={(e) => setDirection(e.target.value as "IN" | "OUT")} disabled={!!payment}>
-              <MenuItem value="OUT">Cash out (ADH pays)</MenuItem>
-              <MenuItem value="IN">Cash in (customer pays)</MenuItem>
+            <TextField select fullWidth size="small" label={t("direction")} value={direction} onChange={(e) => setDirection(e.target.value as "IN" | "OUT")} disabled={!!payment}>
+              <MenuItem value="OUT">{t("cashOut")}</MenuItem>
+              <MenuItem value="IN">{t("cashIn")}</MenuItem>
             </TextField>
           </Grid>
           <Grid item xs={6} sm={3}>
-            <TextField fullWidth size="small" type="date" label="Date" InputLabelProps={{ shrink: true }} value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
+            <TextField fullWidth size="small" type="date" label={t("date")} InputLabelProps={{ shrink: true }} value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
           </Grid>
           <Grid item xs={6} sm={3}>
-            <TextField fullWidth size="small" type="number" label="Amount" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <TextField fullWidth size="small" type="number" label={t("amount")} value={amount} onChange={(e) => setAmount(e.target.value)} />
           </Grid>
           <Grid item xs={6} sm={3}>
-            <TextField select fullWidth size="small" label="Currency" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+            <TextField select fullWidth size="small" label={t("currency")} value={currency} onChange={(e) => setCurrency(e.target.value)}>
               {["USD", "JPY", "SGD"].map((c) => (
                 <MenuItem key={c} value={c}>
                   {c}
@@ -148,27 +153,27 @@ export default function PaymentDialog({ open, onClose, context, payment }: { ope
             </TextField>
           </Grid>
           <Grid item xs={12} sm={4}>
-            <TextField select fullWidth size="small" label="Account" value={account} onChange={(e) => setAccount(e.target.value as PaymentAccount)}>
+            <TextField select fullWidth size="small" label={t("account")} value={account} onChange={(e) => setAccount(e.target.value as PaymentAccount)}>
               {(Object.keys(ACCOUNT_LABEL) as PaymentAccount[]).map((a) => (
                 <MenuItem key={a} value={a}>
-                  {ACCOUNT_LABEL[a]}
+                  {accountLabel(a)}
                 </MenuItem>
               ))}
             </TextField>
           </Grid>
           <Grid item xs={12} sm={4}>
-            <TextField fullWidth size="small" label={direction === "IN" ? "From (customer)" : "To (Vedanta, customs, Mitsui Soko …)"} value={counterparty} onChange={(e) => setCounterparty(e.target.value)} />
+            <TextField fullWidth size="small" label={direction === "IN" ? t("from") : t("to")} value={counterparty} onChange={(e) => setCounterparty(e.target.value)} />
           </Grid>
           <Grid item xs={12} sm={4}>
-            <TextField fullWidth size="small" label="Reference (bank ref / transfer id)" value={reference} onChange={(e) => setReference(e.target.value)} />
+            <TextField fullWidth size="small" label={t("reference")} value={reference} onChange={(e) => setReference(e.target.value)} />
           </Grid>
           <Grid item xs={12}>
-            <TextField fullWidth size="small" label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <TextField fullWidth size="small" label={t("notes")} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </Grid>
           {context?.proof && !payment && (
             <Grid item xs={12}>
               <Button component="label" size="small" variant="outlined" startIcon={<UploadFileIcon />}>
-                {file ? file.name : "Attach the proof (filed on the step)"}
+                {file ? file.name : t("attachProof")}
                 <input hidden type="file" accept=".pdf,.png,.jpg,.jpeg" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
               </Button>
             </Grid>
@@ -177,10 +182,10 @@ export default function PaymentDialog({ open, onClose, context, payment }: { ope
 
         <Stack direction="row" alignItems="center" sx={{ mt: 2, mb: 1 }}>
           <Typography variant="subtitle2" sx={{ flex: 1 }}>
-            What it paid
+            {t("whatPaid")}
           </Typography>
           <Typography variant="body2" color={left < -0.004 ? "error" : left > 0.004 ? "warning.main" : "success.main"} data-tour="payment-unallocated">
-            {left > 0.004 ? `Unallocated ${left.toLocaleString("en-US", { minimumFractionDigits: 2 })} ${currency}` : left < -0.004 ? `Over by ${Math.abs(left).toFixed(2)}` : total > 0 ? "Fully allocated" : ""}
+            {left > 0.004 ? t("unallocated", { n: left.toLocaleString("en-US", { minimumFractionDigits: 2 }), cur: currency }) : left < -0.004 ? t("overBy", { n: Math.abs(left).toFixed(2) }) : total > 0 ? t("fully") : ""}
           </Typography>
         </Stack>
         {rows.map((r) => (
@@ -190,16 +195,16 @@ export default function PaymentDialog({ open, onClose, context, payment }: { ope
               sx={{ flex: 1 }}
               options={options}
               value={options.find((o) => o.targetType === r.targetType && o.targetId === r.targetId) ?? (r.targetId ? ({ targetType: r.targetType, targetId: r.targetId, label: r.label } as PaymentTarget) : null)}
-              getOptionLabel={(o) => `${TARGET_LABEL[o.targetType]} · ${o.label}`}
+              getOptionLabel={(o) => `${targetLabel(o.targetType)} · ${o.label}`}
               isOptionEqualToValue={(a, b) => a.targetType === b.targetType && a.targetId === b.targetId}
               renderOption={(props, o) => (
                 <li {...props} key={`${o.targetType}:${o.targetId}`}>
                   <Box>
                     <Typography variant="body2">
-                      {TARGET_LABEL[o.targetType]} · {o.label}
+                      {targetLabel(o.targetType)} · {o.label}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {o.expected != null ? `${o.currency} ${o.expected.toLocaleString("en-US", { minimumFractionDigits: 2 })} · ` : ""}paid {o.paid.toLocaleString("en-US", { minimumFractionDigits: 2 })}
+                      {o.expected != null ? `${o.currency} ${o.expected.toLocaleString("en-US", { minimumFractionDigits: 2 })} · ` : ""}{t("paidN", { n: o.paid.toLocaleString("en-US", { minimumFractionDigits: 2 }) })}
                     </Typography>
                   </Box>
                 </li>
@@ -211,24 +216,24 @@ export default function PaymentDialog({ open, onClose, context, payment }: { ope
                   ),
                 )
               }
-              renderInput={(p) => <TextField {...p} label="PI / CI / invoice / tax" />}
+              renderInput={(p) => <TextField {...p} label={t("targetsLabel")} />}
             />
-            <TextField size="small" type="number" label="Amount" value={r.amount} onChange={(e) => setRows((xs) => xs.map((x) => (x.key === r.key ? { ...x, amount: e.target.value } : x)))} sx={{ width: { sm: 180 } }} />
-            <IconButton size="small" aria-label="Remove" onClick={() => setRows((xs) => xs.filter((x) => x.key !== r.key))}>
+            <TextField size="small" type="number" label={t("amount")} value={r.amount} onChange={(e) => setRows((xs) => xs.map((x) => (x.key === r.key ? { ...x, amount: e.target.value } : x)))} sx={{ width: { sm: 180 } }} />
+            <IconButton size="small" aria-label={t("remove")} onClick={() => setRows((xs) => xs.filter((x) => x.key !== r.key))}>
               <DeleteIcon fontSize="small" />
             </IconButton>
           </Stack>
         ))}
         <Button size="small" startIcon={<AddIcon />} onClick={() => setRows((xs) => [...xs, { key: ++seq, targetType: direction === "IN" ? "INVOICE" : "CI", targetId: null, label: "", amount: left > 0 ? String(left) : "" }])}>
-          Add line
+          {t("addLine")}
         </Button>
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>
-          Cancel
+          {tc("cancel")}
         </Button>
         <Button variant="contained" onClick={save} disabled={busy}>
-          {busy ? "Saving…" : "Save"}
+          {busy ? t("saving") : tc("save")}
         </Button>
       </DialogActions>
     </Dialog>

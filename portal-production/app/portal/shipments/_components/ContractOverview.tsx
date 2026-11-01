@@ -3,8 +3,9 @@
 import React, { useState } from "react";
 import { Box, Button, Grid2, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
 import EditIcon from "@mui/icons-material/EditOutlined";
+import { useTranslations } from "next-intl";
 import type { Contract } from "../_lib/api";
-import { depositTermLabel, fmtDateTime, fmtDay, fmtDmy, fmtMoney, fmtMonth, fmtMt } from "../_lib/format";
+import { fmtDateTime, fmtDay, fmtDmy, fmtMoney, fmtMonth, fmtMt } from "../_lib/format";
 import { Field } from "./bits";
 import ContractFormDialog from "./ContractFormDialog";
 
@@ -27,84 +28,86 @@ const premium = (v: unknown) => {
 
 export default function ContractOverview({ contract: c }: { contract: Contract }) {
   const [editOpen, setEditOpen] = useState(false);
+  const t = useTranslations("contracts.fields");
+  const term = c.depositDueDays === null || c.depositDueDays === undefined ? null : t(c.depositDueUnit === "CALENDAR" ? "calendarDaysN" : "businessDaysN", { n: c.depositDueDays });
   const shippedBy = (lineId: string) => c.shipments.filter((s) => s.contractLineId === lineId).length;
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="flex-end">
         <Button variant="outlined" startIcon={<EditIcon />} onClick={() => setEditOpen(true)}>
-          Edit
+          {t("edit")}
         </Button>
       </Stack>
 
-      <Section n={1} title="Contract & parties">
+      <Section n={1} title={t("sec1")}>
         <Grid2 container spacing={2}>
           <Cell>
-            <Field label="Contract no." value={c.contractNo} />
+            <Field label={t("contractNo")} value={c.contractNo} />
           </Cell>
           <Cell>
-            <Field label="PI no." value={c.piNumber} />
+            <Field label={t("piNo")} value={c.piNumber} />
           </Cell>
           <Cell>
-            <Field label="PI date" value={c.piDate ? fmtDay(c.piDate) : null} />
+            <Field label={t("piDate")} value={c.piDate ? fmtDay(c.piDate) : null} />
           </Cell>
           <Cell>
-            <Field label="Currency" value={c.currency} />
+            <Field label={t("currency")} value={c.currency} />
           </Cell>
           <Cell>
-            <Field label="Supplier" value={c.supplier?.name} />
+            <Field label={t("supplier")} value={c.supplier?.name} />
           </Cell>
           <Cell>
-            <Field label="Customer" value={c.customer?.name} />
+            <Field label={t("customer")} value={c.customer?.name} />
           </Cell>
           <Cell>
-            <Field label="Destination port" value={c.destinationPort} />
+            <Field label={t("destPort")} value={c.destinationPort} />
           </Cell>
           <Cell>
-            <Field label="Destination country" value={c.destinationCountry} />
+            <Field label={t("destCountry")} value={c.destinationCountry} />
           </Cell>
           <Cell>
-            <Field label="Incoterm" value={c.incoterm} />
+            <Field label={t("incoterm")} value={c.incoterm} />
           </Cell>
           <Cell>
-            <Field label="Shipment month" value={fmtMonth(c.shipmentMonth)} />
+            <Field label={t("shipmentMonth")} value={fmtMonth(c.shipmentMonth)} />
           </Cell>
           <Cell>
-            <Field label="Delivery month" value={fmtMonth(c.deliveryMonth)} />
+            <Field label={t("deliveryMonth")} value={fmtMonth(c.deliveryMonth)} />
           </Cell>
           <Cell>
-            <Field label="Last updated" value={fmtDateTime(c.updatedAt)} />
+            <Field label={t("lastUpdated")} value={fmtDateTime(c.updatedAt)} />
           </Cell>
           <Grid2 size={12}>
-            <Field label="Notes" value={c.notes} />
+            <Field label={t("notes")} value={c.notes} />
           </Grid2>
         </Grid2>
       </Section>
 
-      <Section n={2} title="B/L instructions">
+      <Section n={2} title={t("sec2")}>
         <Grid2 container spacing={2}>
           <Cell wide>
-            <Field label="Consignee" value={c.consignee} />
+            <Field label={t("consignee")} value={c.consignee} />
           </Cell>
           <Cell wide>
-            <Field label="Notify party" value={c.notifyParty} />
+            <Field label={t("notifyParty")} value={c.notifyParty} />
           </Cell>
         </Grid2>
       </Section>
 
-      <Section n={3} title="Product lines">
+      <Section n={3} title={t("sec3")}>
         <Box sx={{ overflowX: "auto" }}>
           <Table size="small" sx={{ "& th": { color: "text.secondary", whiteSpace: "nowrap" }, "& td.num, & th.num": { textAlign: "right", fontVariantNumeric: "tabular-nums" } }}>
             <TableHead>
               <TableRow>
                 <TableCell>#</TableCell>
-                <TableCell>Grade</TableCell>
-                <TableCell>Size / spec</TableCell>
-                <TableCell>Product</TableCell>
-                <TableCell className="num">Qty (MT)</TableCell>
-                <TableCell className="num">Tolerance</TableCell>
-                <TableCell className="num">Vedanta premium (USD/t)</TableCell>
-                <TableCell className="num">Client premium (USD/t)</TableCell>
-                <TableCell className="num">Shipments</TableCell>
+                <TableCell>{t("grade")}</TableCell>
+                <TableCell>{t("sizeSpec")}</TableCell>
+                <TableCell>{t("product")}</TableCell>
+                <TableCell className="num">{t("qtyMt")}</TableCell>
+                <TableCell className="num">{t("tolerance")}</TableCell>
+                <TableCell className="num">{t("vedantaPremium")}</TableCell>
+                <TableCell className="num">{t("clientPremium")}</TableCell>
+                <TableCell className="num">{t("shipments")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -122,7 +125,7 @@ export default function ContractOverview({ contract: c }: { contract: Contract }
                 </TableRow>
               ))}
               <TableRow sx={{ "& td": { fontWeight: 700, borderBottom: 0 } }}>
-                <TableCell colSpan={4}>Total</TableCell>
+                <TableCell colSpan={4}>{t("total")}</TableCell>
                 <TableCell className="num">{fmtMt(c.totalQuantityMt)}</TableCell>
                 <TableCell colSpan={4} />
               </TableRow>
@@ -131,26 +134,26 @@ export default function ContractOverview({ contract: c }: { contract: Contract }
         </Box>
       </Section>
 
-      <Section n={4} title="PI payment">
+      <Section n={4} title={t("sec4")}>
         <Grid2 container spacing={2}>
           <Cell>
-            <Field label="PI amount" value={fmtMoney(c.piAmount, c.currency)} />
+            <Field label={t("piAmount")} value={fmtMoney(c.piAmount, c.currency)} />
           </Cell>
           <Cell>
-            <Field label="Deposit %" value={num(c.depositPercent) === null ? null : `${num(c.depositPercent)}%`} />
+            <Field label={t("depositPct")} value={num(c.depositPercent) === null ? null : `${num(c.depositPercent)}%`} />
           </Cell>
           <Cell>
-            <Field label="Deposit amount" value={fmtMoney(c.depositAmount, c.currency)} />
+            <Field label={t("depositAmount")} value={fmtMoney(c.depositAmount, c.currency)} />
           </Cell>
           <Cell>
-            <Field label="Deposit paid on" value={c.depositPaidAt ? fmtDay(c.depositPaidAt) : null} />
+            <Field label={t("depositPaidOn")} value={c.depositPaidAt ? fmtDay(c.depositPaidAt) : null} />
           </Cell>
           <Grid2 size={12}>
             <Field
-              label="Deposit due"
+              label={t("depositDue")}
               value={
-                depositTermLabel(c.depositDueDays, c.depositDueUnit)
-                  ? `${depositTermLabel(c.depositDueDays, c.depositDueUnit)} after the PI date${c.depositDueDate ? ` → ${fmtDmy(c.depositDueDate)}` : ""}`
+                term
+                  ? `${t("afterPi", { term })}${c.depositDueDate ? ` → ${fmtDmy(c.depositDueDate)}` : ""}`
                   : c.depositDueNote
               }
             />

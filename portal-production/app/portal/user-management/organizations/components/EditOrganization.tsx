@@ -6,7 +6,10 @@ import { useForm } from "react-hook-form";
 import FormInputBox from "@/form-components/FormInputBox";
 import { request } from "@/helpers/request";
 import { useAuth } from "@clerk/nextjs";
+import { useTranslations } from "next-intl";
 import EditIcon from "@mui/icons-material/Edit";
+import { useUiLang } from "@/i18n/UiLangProvider";
+import { formatDateTime } from "@/i18n/lang";
 
 interface Props {
   open: boolean;
@@ -17,6 +20,8 @@ interface Props {
 
 export default function EditOrganization({ open, onClose, onOrganizationUpdated, organization }: Props) {
   const { getToken } = useAuth();
+  const t = useTranslations("users.orgs");
+  const { lang } = useUiLang();
   const [error, setError] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -72,11 +77,11 @@ export default function EditOrganization({ open, onClose, onOrganizationUpdated,
           onOrganizationUpdated();
         }
       } else {
-        throw new Error(response.message || "Failed to update organization");
+        throw new Error(response.message || t("updateFailed"));
       }
     } catch (error: any) {
       console.error("Error updating organization:", error);
-      setError(error.message || "Failed to update organization");
+      setError(error.message || t("updateFailed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -129,11 +134,11 @@ export default function EditOrganization({ open, onClose, onOrganizationUpdated,
                 fontSize: "1.5rem",
               }}
             >
-              Edit Organization
+              {t("editTitle")}
             </Typography>
           </Box>
           <Typography variant="body2" sx={{ color: "#666666" }}>
-            Update organization information
+            {t("editSub")}
           </Typography>
         </Box>
 
@@ -153,14 +158,14 @@ export default function EditOrganization({ open, onClose, onOrganizationUpdated,
               <FormInputBox
                 control={control}
                 name="name"
-                label="Organization Name"
-                placeHolder="Enter organization name"
+                label={t("name")}
+                placeHolder={t("namePh")}
                 required
                 rules={{
-                  required: "Organization name is required",
+                  required: t("nameReq"),
                   minLength: {
                     value: 2,
-                    message: "Organization name must be at least 2 characters",
+                    message: t("nameMin"),
                   },
                 }}
               />
@@ -169,7 +174,7 @@ export default function EditOrganization({ open, onClose, onOrganizationUpdated,
             {organization?.id && (
               <Grid item xs={12}>
                 <Typography variant="body2" color="text.secondary">
-                  <strong>Organization ID:</strong> {organization.id}
+                  <strong>{t("idLabel")}</strong> {organization.id}
                 </Typography>
               </Grid>
             )}
@@ -177,7 +182,7 @@ export default function EditOrganization({ open, onClose, onOrganizationUpdated,
             {organization?.createdAt && (
               <Grid item xs={12}>
                 <Typography variant="body2" color="text.secondary">
-                  <strong>Created:</strong> {new Date(organization.createdAt).toLocaleString()}
+                  <strong>{t("createdLabel")}</strong> {lang === "ja" ? formatDateTime(organization.createdAt, "ja") : new Date(organization.createdAt).toLocaleString()}
                 </Typography>
               </Grid>
             )}
@@ -215,7 +220,7 @@ export default function EditOrganization({ open, onClose, onOrganizationUpdated,
                 },
               }}
             >
-              Cancel
+              {t("cancel")}
             </Button>
             <Button
               type="submit"
@@ -228,7 +233,7 @@ export default function EditOrganization({ open, onClose, onOrganizationUpdated,
                 },
               }}
             >
-              {isSubmitting ? "Updating..." : "Update Organization"}
+              {isSubmitting ? t("updating") : t("update")}
             </Button>
           </Box>
         </Box>

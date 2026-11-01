@@ -11,29 +11,32 @@ import { Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, Dial
 import EditIcon from "@mui/icons-material/EditOutlined";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
+import { useTranslations } from "next-intl";
 import type { Contract, ContractInput, PremiumRow } from "../_lib/api";
 import { useTradeMutation } from "../_lib/hooks";
 import { fmtDmy, fmtMt, monthShort } from "../_lib/format";
 import { toast } from "../_lib/toast";
 
+// [field, label key in contracts.terms]
 const CHECKABLE: Array<[string, string]> = [
-  ["periodStart", "Period start"],
-  ["periodEnd", "Period end"],
-  ["annualQtyMt", "Annual quantity"],
-  ["qpBasis", "QP basis"],
-  ["balanceTerms", "Balance terms"],
-  ["premiumSchedule", "Premium schedule"],
-  ["sizeSpec", "Size"],
+  ["periodStart", "periodStart"],
+  ["periodEnd", "periodEnd"],
+  ["annualQtyMt", "annualQty"],
+  ["qpBasis", "qpBasis"],
+  ["balanceTerms", "balanceTerms"],
+  ["premiumSchedule", "premiumSchedule"],
+  ["sizeSpec", "size"],
 ];
 const margin = (r: PremiumRow) => (r.clientPremium != null && r.supplierPremium != null ? Math.round((r.clientPremium - r.supplierPremium) * 100) / 100 : null);
 
 export default function ContractTerms({ contract: c }: { contract: Contract }) {
   const [edit, setEdit] = useState(false);
+  const t = useTranslations("contracts.terms");
   const check = new Set(c.checkFields ?? []);
   const Item = ({ k, label, value }: { k?: string; label: string; value: React.ReactNode }) => (
     <Grid item xs={12} sm={6} md={4}>
       <Typography variant="caption" color="text.secondary" component="div">
-        {label} {k && check.has(k) && <Chip size="small" color="warning" variant="outlined" label="check" sx={{ height: 18, ml: 0.5 }} />}
+        {label} {k && check.has(k) && <Chip size="small" color="warning" variant="outlined" label={t("check")} sx={{ height: 18, ml: 0.5 }} />}
       </Typography>
       <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
         {value === null || value === undefined || value === "" ? "—" : value}
@@ -45,59 +48,59 @@ export default function ContractTerms({ contract: c }: { contract: Contract }) {
     <Paper variant="outlined" sx={{ p: 2 }} data-tour="contract-master">
       <Stack direction="row" alignItems="center" sx={{ mb: 1 }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1 }}>
-          Contract terms
+          {t("title")}
         </Typography>
-        {check.size > 0 && <Chip size="small" color="warning" label={`${check.size} to confirm`} sx={{ mr: 1 }} />}
+        {check.size > 0 && <Chip size="small" color="warning" label={t("toConfirm", { n: check.size })} sx={{ mr: 1 }} />}
         {c.status === "OPEN" && (
           <Button size="small" startIcon={<EditIcon />} onClick={() => setEdit(true)}>
-            Edit
+            {t("edit")}
           </Button>
         )}
       </Stack>
       <Grid container spacing={1.5}>
-        <Item k="periodStart" label="Period" value={c.periodStart || c.periodEnd ? `${c.periodStart ? fmtDmy(c.periodStart) : "?"} → ${c.periodEnd ? fmtDmy(c.periodEnd) : "?"}` : null} />
-        <Item label="Grade / size" value={[c.grade, c.sizeSpec].filter(Boolean).join(" · ")} />
+        <Item k="periodStart" label={t("period")} value={c.periodStart || c.periodEnd ? `${c.periodStart ? fmtDmy(c.periodStart) : "?"} → ${c.periodEnd ? fmtDmy(c.periodEnd) : "?"}` : null} />
+        <Item label={t("gradeSize")} value={[c.grade, c.sizeSpec].filter(Boolean).join(" · ")} />
         <Item
           k="annualQtyMt"
-          label="Quantity"
+          label={t("quantity")}
           value={
             c.usage
-              ? `${c.usage.annualQtyMt != null ? `${fmtMt(c.usage.annualQtyMt)} MT` : "?"}${c.tolerancePct != null ? ` ±${Number(c.tolerancePct)}%` : ""} · ordered ${fmtMt(c.usage.orderedMt)} MT${c.usage.remainingMt != null ? ` · ${fmtMt(c.usage.remainingMt)} MT left` : ""}`
+              ? `${c.usage.annualQtyMt != null ? `${fmtMt(c.usage.annualQtyMt)} MT` : "?"}${c.tolerancePct != null ? ` ±${Number(c.tolerancePct)}%` : ""} · ${t("ordered", { mt: fmtMt(c.usage.orderedMt) })}${c.usage.remainingMt != null ? ` · ${t("left", { mt: fmtMt(c.usage.remainingMt) })}` : ""}`
               : null
           }
         />
-        <Item label="Deposit" value={c.depositPercent != null ? `${Number(c.depositPercent)}% advance${c.depositDueDays != null ? ` within ${c.depositDueDays} ${c.depositDueUnit === "CALENDAR" ? "days" : "business days"}` : ""}` : null} />
-        <Item k="balanceTerms" label="Balance" value={c.balanceTerms} />
-        <Item k="qpBasis" label="QP basis" value={c.qpBasis} />
-        <Item label="QMJP rule" value={c.qmjpRule} />
-        <Item label="Margin this month (client − supplier)" value={c.marginNow != null ? `${c.marginNow} USD/MT` : null} />
+        <Item label={t("deposit")} value={c.depositPercent != null ? `${t("advance", { pct: Number(c.depositPercent) })}${c.depositDueDays != null ? ` ${t(c.depositDueUnit === "CALENDAR" ? "withinDays" : "withinBizDays", { n: c.depositDueDays })}` : ""}` : null} />
+        <Item k="balanceTerms" label={t("balance")} value={c.balanceTerms} />
+        <Item k="qpBasis" label={t("qpBasis")} value={c.qpBasis} />
+        <Item label={t("qmjpRule")} value={c.qmjpRule} />
+        <Item label={t("marginNow")} value={c.marginNow != null ? `${c.marginNow} USD/MT` : null} />
       </Grid>
       <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 2, mb: 0.5 }}>
-        Premium schedule (USD/MT{c.qmjpRule ? ", on top of the quarter's QMJP" : ""}) {check.has("premiumSchedule") && <Chip size="small" color="warning" variant="outlined" label="check" sx={{ height: 18, ml: 0.5 }} />}
+        {c.qmjpRule ? t("scheduleQmjp") : t("schedule")} {check.has("premiumSchedule") && <Chip size="small" color="warning" variant="outlined" label={t("check")} sx={{ height: 18, ml: 0.5 }} />}
       </Typography>
       {!sched.length ? (
         <Typography variant="body2" color="text.secondary">
-          No schedule yet — the product line&apos;s premiums are used.
+          {t("noSchedule")}
         </Typography>
       ) : (
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>From</TableCell>
-              <TableCell>To</TableCell>
-              <TableCell>Grade</TableCell>
-              <TableCell align="right">Supplier</TableCell>
-              <TableCell align="right">Client</TableCell>
-              <TableCell align="right">Upcharge</TableCell>
-              <TableCell align="right">ADH margin</TableCell>
+              <TableCell>{t("from")}</TableCell>
+              <TableCell>{t("to")}</TableCell>
+              <TableCell>{t("grade")}</TableCell>
+              <TableCell align="right">{t("supplier")}</TableCell>
+              <TableCell align="right">{t("client")}</TableCell>
+              <TableCell align="right">{t("upcharge")}</TableCell>
+              <TableCell align="right">{t("adhMargin")}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {sched.map((r) => (
               <TableRow key={`${r.from}-${r.grade ?? ""}`}>
                 <TableCell>{monthShort(r.from)}</TableCell>
-                <TableCell>{r.to ? monthShort(r.to) : "open"}</TableCell>
-                <TableCell>{r.grade || "all"}</TableCell>
+                <TableCell>{r.to ? monthShort(r.to) : t("open")}</TableCell>
+                <TableCell>{r.grade || t("all")}</TableCell>
                 <TableCell align="right">{r.supplierPremium ?? "—"}</TableCell>
                 <TableCell align="right">{r.clientPremium ?? "—"}</TableCell>
                 <TableCell align="right">{r.upcharge ?? "—"}</TableCell>
@@ -115,6 +118,7 @@ export default function ContractTerms({ contract: c }: { contract: Contract }) {
 }
 
 function TermsDialog({ open, contract: c, onClose }: { open: boolean; contract: Contract; onClose: () => void }) {
+  const t = useTranslations("contracts.terms");
   const save = useTradeMutation((a, body: ContractInput) => a.updateContract(c.id, body));
   const [f, setF] = useState<Record<string, string>>({});
   const [rows, setRows] = useState<Array<Record<string, string>>>([]);
@@ -146,32 +150,32 @@ function TermsDialog({ open, contract: c, onClose }: { open: boolean; contract: 
   );
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>Contract {c.contractNo} — terms</DialogTitle>
+      <DialogTitle>{t("dialogTitle", { no: c.contractNo })}</DialogTitle>
       <DialogContent dividers>
         <Grid container spacing={1.5}>
-          {field("periodStart", "Period start", { type: "date", InputLabelProps: { shrink: true } }, 3)}
-          {field("periodEnd", "Period end", { type: "date", InputLabelProps: { shrink: true } }, 3)}
-          {field("grade", "Grade", {}, 3)}
-          {field("sizeSpec", "Size", {}, 3)}
-          {field("annualQtyMt", "Quantity (MT)", { type: "number" }, 3)}
-          {field("tolerancePct", "Tolerance %", { type: "number" }, 3)}
-          {field("qpBasis", "QP basis")}
-          {field("qmjpRule", "QMJP rule (blank = premium is fixed)", {}, 12)}
-          {field("balanceTerms", "Balance terms", { multiline: true, minRows: 2 }, 12)}
+          {field("periodStart", t("periodStart"), { type: "date", InputLabelProps: { shrink: true } }, 3)}
+          {field("periodEnd", t("periodEnd"), { type: "date", InputLabelProps: { shrink: true } }, 3)}
+          {field("grade", t("grade"), {}, 3)}
+          {field("sizeSpec", t("size"), {}, 3)}
+          {field("annualQtyMt", t("quantityMt"), { type: "number" }, 3)}
+          {field("tolerancePct", t("tolerancePct"), { type: "number" }, 3)}
+          {field("qpBasis", t("qpBasis"))}
+          {field("qmjpRule", t("qmjpRuleField"), {}, 12)}
+          {field("balanceTerms", t("balanceTerms"), { multiline: true, minRows: 2 }, 12)}
         </Grid>
         <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
-          Premium schedule
+          {t("premiumSchedule")}
         </Typography>
         {rows.map((r, i) => (
           <Stack key={i} direction="row" spacing={1} sx={{ mb: 1 }} alignItems="center">
             {(
               [
-                ["from", "From (YYYY-MM)", "month"],
-                ["to", "To (blank = open)", "month"],
-                ["grade", "Grade (blank = all)", "text"],
-                ["supplierPremium", "Supplier", "number"],
-                ["clientPremium", "Client", "number"],
-                ["upcharge", "Upcharge", "number"],
+                ["from", t("fromYm"), "month"],
+                ["to", t("toBlank"), "month"],
+                ["grade", t("gradeBlank"), "text"],
+                ["supplierPremium", t("supplier"), "number"],
+                ["clientPremium", t("client"), "number"],
+                ["upcharge", t("upcharge"), "number"],
               ] as Array<[string, string, string]>
             ).map(([k, label, type]) => (
               <TextField
@@ -184,16 +188,16 @@ function TermsDialog({ open, contract: c, onClose }: { open: boolean; contract: 
                 onChange={(e) => setRows((xs) => xs.map((x, j) => (j === i ? { ...x, [k]: e.target.value } : x)))}
               />
             ))}
-            <IconButton size="small" aria-label="Remove row" onClick={() => setRows((xs) => xs.filter((_, j) => j !== i))}>
+            <IconButton size="small" aria-label={t("removeRow")} onClick={() => setRows((xs) => xs.filter((_, j) => j !== i))}>
               <DeleteIcon fontSize="small" />
             </IconButton>
           </Stack>
         ))}
         <Button size="small" startIcon={<AddIcon />} onClick={() => setRows((xs) => [...xs, { from: "", to: "", grade: "", supplierPremium: "", clientPremium: "", upcharge: "" }])}>
-          Add row
+          {t("addRow")}
         </Button>
         <Typography variant="subtitle2" sx={{ mt: 2 }}>
-          Still to confirm (shown as &quot;check&quot;)
+          {t("stillToConfirm")}
         </Typography>
         <Box sx={{ display: "flex", flexWrap: "wrap" }}>
           {CHECKABLE.map(([k, label]) => (
@@ -213,13 +217,13 @@ function TermsDialog({ open, contract: c, onClose }: { open: boolean; contract: 
                   }
                 />
               }
-              label={label}
+              label={t(label)}
             />
           ))}
         </Box>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={onClose}>{t("cancel")}</Button>
         <Button
           variant="contained"
           disabled={save.isPending}
@@ -240,14 +244,14 @@ function TermsDialog({ open, contract: c, onClose }: { open: boolean; contract: 
                   .map((r) => ({ from: r.from, to: r.to || null, grade: r.grade?.trim() || null, supplierPremium: num(r.supplierPremium), clientPremium: num(r.clientPremium), upcharge: num(r.upcharge) })),
                 checkFields: [...check],
               });
-              toast.success("Contract terms saved");
+              toast.success(t("saved"));
               onClose();
             } catch (e: any) {
-              toast.error(e?.message || "Could not save");
+              toast.error(e?.message || t("couldNotSave"));
             }
           }}
         >
-          Save
+          {t("save")}
         </Button>
       </DialogActions>
     </Dialog>

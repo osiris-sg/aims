@@ -11,6 +11,7 @@ import { Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, D
 import AddIcon from "@mui/icons-material/Add";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import MailOutlineIcon from "@mui/icons-material/MailOutline";
+import { useTranslations } from "next-intl";
 import { toast } from "../_lib/toast";
 import { useIssues, useTradeMutation } from "../_lib/hooks";
 import { fmtDate, fmtDateTime } from "../_lib/format";
@@ -22,7 +23,9 @@ const COA = "CUSTOMER_COA";
 type Form = { title: string; summaryEn: string; summaryJa: string; effectiveFrom: string; coa: boolean };
 const EMPTY: Form = { title: "", summaryEn: "", summaryJa: "", effectiveFrom: "", coa: false };
 
-export default function IssuesPanel({ customerId, supplierId, orderId, title = "Issues" }: { customerId?: string; supplierId?: string; orderId?: string; title?: string }) {
+export default function IssuesPanel({ customerId, supplierId, orderId, title: titleProp }: { customerId?: string; supplierId?: string; orderId?: string; title?: string }) {
+  const t = useTranslations("inbox.issues");
+  const title = titleProp ?? t("title");
   const q = useIssues({ customerId, supplierId, orderId });
   const rows = useMemo(() => [...(q.data ?? [])].sort((a, b) => (a.status === b.status ? 0 : a.status === "OPEN" ? -1 : 1)), [q.data]);
   const create = useTradeMutation((a, body: IssueBody) => a.createIssue(body));
@@ -35,7 +38,7 @@ export default function IssuesPanel({ customerId, supplierId, orderId, title = "
   const save = async () => {
     if (!edit) return;
     const f = edit.form;
-    if (!f.title.trim()) return toast.error("A title is required");
+    if (!f.title.trim()) return toast.error(t("titleRequired"));
     const others = (edit.row?.docTypes ?? []).filter((d) => d !== COA);
     const body: IssueBody = {
       title: f.title.trim(),
@@ -47,14 +50,14 @@ export default function IssuesPanel({ customerId, supplierId, orderId, title = "
     try {
       if (edit.row) {
         await update.mutateAsync({ id: edit.row.id, body });
-        toast.success("Issue saved");
+        toast.success(t("saved"));
       } else {
         await create.mutateAsync({ ...body, ...(customerId ? { customerId } : {}), ...(supplierId ? { supplierId } : {}), ...(orderId ? { orderIds: [orderId] } : {}) });
-        toast.success("Issue added");
+        toast.success(t("added"));
       }
       setEdit(null);
     } catch (e: unknown) {
-      toast.error((e as Error)?.message || "Could not save the issue");
+      toast.error((e as Error)?.message || t("couldNotSave"));
     }
   };
 
@@ -62,9 +65,9 @@ export default function IssuesPanel({ customerId, supplierId, orderId, title = "
     setMenu(null);
     try {
       await update.mutateAsync({ id: row.id, body: { status } });
-      toast.success(status === "RESOLVED" ? "Issue resolved" : "Issue reopened");
+      toast.success(status === "RESOLVED" ? t("resolvedToast") : t("reopenedToast"));
     } catch (e: unknown) {
-      toast.error((e as Error)?.message || "Could not update the issue");
+      toast.error((e as Error)?.message || t("couldNotUpdate"));
     }
   };
 
@@ -76,21 +79,21 @@ export default function IssuesPanel({ customerId, supplierId, orderId, title = "
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 800, flex: 1 }}>
           {title}
-          {rows.length ? ` (${openCount} open)` : ""}
+          {rows.length ? ` (${t("openCount", { n: openCount })})` : ""}
         </Typography>
         <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => setEdit({ row: null, form: EMPTY })} data-tour="issue-add">
-          Add issue
+          {t("add")}
         </Button>
       </Stack>
       {q.isLoading ? (
         <CircularProgress size={20} />
       ) : q.isError ? (
         <Typography variant="body2" color="error">
-          {(q.error as Error)?.message || "Could not load the issues"}
+          {(q.error as Error)?.message || t("couldNotLoad")}
         </Typography>
       ) : !rows.length ? (
         <Typography variant="body2" color="text.secondary">
-          No issues yet. Add one for a process or policy change that is not about a single shipment (e.g. a new COA rule from a month on).
+          {t("empty")}
         </Typography>
       ) : (
         <Stack spacing={1}>
@@ -104,11 +107,11 @@ export default function IssuesPanel({ customerId, supplierId, orderId, title = "
                       <Typography variant="body1" sx={{ fontWeight: 700, wordBreak: "break-word" }}>
                         {r.title}
                       </Typography>
-                      <Chip size="small" variant="outlined" color={resolved ? "success" : "warning"} label={resolved ? "Resolved" : "Open"} />
-                      {r.docTypes.includes(COA) && <Chip size="small" variant="outlined" label="Step 4 COA" />}
+                      <Chip size="small" variant="outlined" color={resolved ? "success" : "warning"} label={resolved ? t("resolved") : t("open")} />
+                      {r.docTypes.includes(COA) && <Chip size="small" variant="outlined" label={t("step4")} />}
                       {r.effectiveFrom && (
                         <Typography variant="caption" color="text.secondary">
-                          From {r.effectiveFrom}
+                          {t("from", { d: r.effectiveFrom })}
                         </Typography>
                       )}
                     </Stack>
@@ -125,10 +128,10 @@ export default function IssuesPanel({ customerId, supplierId, orderId, title = "
                     {(r.shipments.length > 0 || r.orders.length > 0) && (
                       <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
                         {r.orders.map((o) => (
-                          <Chip key={o.id} size="small" variant="outlined" color="primary" label={o.ref ?? "Order"} component={Link} href={`/portal/shipments/orders/${o.id}`} clickable />
+                          <Chip key={o.id} size="small" variant="outlined" color="primary" label={o.ref ?? t("order")} component={Link} href={`/portal/shipments/orders/${o.id}`} clickable />
                         ))}
                         {r.shipments.map((s) => (
-                          <Chip key={s.id} size="small" variant="outlined" color="info" label={s.ref ?? "Shipment"} component={Link} href={`/portal/shipments/${s.id}`} clickable />
+                          <Chip key={s.id} size="small" variant="outlined" color="info" label={s.ref ?? t("shipment")} component={Link} href={`/portal/shipments/${s.id}`} clickable />
                         ))}
                       </Stack>
                     )}
@@ -145,7 +148,7 @@ export default function IssuesPanel({ customerId, supplierId, orderId, title = "
                           >
                             <MailOutlineIcon sx={{ fontSize: 16 }} />
                             <Typography variant="caption" sx={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {m.subject || "(no subject)"} · {fmtDate(m.date)}
+                              {m.subject || t("noSubject")} · {fmtDate(m.date)}
                               {m.from ? ` · ${m.from}` : ""}
                             </Typography>
                           </Box>
@@ -155,12 +158,11 @@ export default function IssuesPanel({ customerId, supplierId, orderId, title = "
                     <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.75 }}>
                       {[r.customerName, r.supplierName].filter(Boolean).join(" · ")}
                       {r.customerName || r.supplierName ? " · " : ""}
-                      Added {r.createdByName ? `by ${r.createdByName} ` : ""}
-                      {fmtDateTime(r.createdAt)}
-                      {resolved ? ` · Resolved${r.resolvedByName ? ` by ${r.resolvedByName}` : ""}${r.resolvedAt ? ` ${fmtDateTime(r.resolvedAt)}` : ""}` : ""}
+                      {r.createdByName ? t("addedBy", { name: r.createdByName, at: fmtDateTime(r.createdAt) }) : t("addedAt", { at: fmtDateTime(r.createdAt) })}
+                      {resolved ? ` · ${r.resolvedByName ? t("resolvedBy", { name: r.resolvedByName }) : t("resolved")}${r.resolvedAt ? ` ${fmtDateTime(r.resolvedAt)}` : ""}` : ""}
                     </Typography>
                   </Box>
-                  <IconButton size="small" aria-label="Issue actions" onClick={(e) => setMenu({ pos: { left: e.clientX, top: e.clientY }, row: r })}>
+                  <IconButton size="small" aria-label={t("actions")} onClick={(e) => setMenu({ pos: { left: e.clientX, top: e.clientY }, row: r })}>
                     <MoreVertIcon fontSize="small" />
                   </IconButton>
                 </Stack>
@@ -178,50 +180,50 @@ export default function IssuesPanel({ customerId, supplierId, orderId, title = "
             setEdit({ row: r, form: { title: r.title, summaryEn: r.summaryEn ?? "", summaryJa: r.summaryJa ?? "", effectiveFrom: r.effectiveFrom ?? "", coa: r.docTypes.includes(COA) } });
           }}
         >
-          Edit
+          {t("edit")}
         </MenuItem>
         {menu?.row.status === "OPEN" ? (
           <MenuItem disabled={busy} onClick={() => void setStatus(menu.row, "RESOLVED")}>
-            Mark resolved
+            {t("markResolved")}
           </MenuItem>
         ) : (
           <MenuItem disabled={busy} onClick={() => menu && void setStatus(menu.row, "OPEN")}>
-            Reopen
+            {t("reopen")}
           </MenuItem>
         )}
       </Menu>
 
       <Dialog open={!!edit} onClose={() => !busy && setEdit(null)} maxWidth="sm" fullWidth>
-        <DialogTitle>{edit?.row ? "Edit issue" : "Add issue"}</DialogTitle>
+        <DialogTitle>{edit?.row ? t("editTitle") : t("add")}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField label="Title" required autoFocus fullWidth size="small" value={edit?.form.title ?? ""} onChange={(e) => setF({ title: e.target.value })} inputProps={{ maxLength: 200 }} />
-            <TextField label="Summary (EN)" fullWidth multiline minRows={2} size="small" value={edit?.form.summaryEn ?? ""} onChange={(e) => setF({ summaryEn: e.target.value })} />
-            <TextField label="Summary (JA)" fullWidth multiline minRows={2} size="small" value={edit?.form.summaryJa ?? ""} onChange={(e) => setF({ summaryJa: e.target.value })} />
+            <TextField label={t("fTitle")} required autoFocus fullWidth size="small" value={edit?.form.title ?? ""} onChange={(e) => setF({ title: e.target.value })} inputProps={{ maxLength: 200 }} />
+            <TextField label={t("fSummaryEn")} fullWidth multiline minRows={2} size="small" value={edit?.form.summaryEn ?? ""} onChange={(e) => setF({ summaryEn: e.target.value })} />
+            <TextField label={t("fSummaryJa")} fullWidth multiline minRows={2} size="small" value={edit?.form.summaryJa ?? ""} onChange={(e) => setF({ summaryJa: e.target.value })} />
             <TextField
-              label="Effective from"
+              label={t("fEffective")}
               fullWidth
               size="small"
-              placeholder="e.g. Sep 2026 supplies"
+              placeholder={t("fEffectiveHint")}
               value={edit?.form.effectiveFrom ?? ""}
               onChange={(e) => setF({ effectiveFrom: e.target.value })}
               inputProps={{ maxLength: 80 }}
             />
-            <FormControlLabel control={<Checkbox checked={!!edit?.form.coa} onChange={(e) => setF({ coa: e.target.checked })} />} label="Show on step 4 COA" />
+            <FormControlLabel control={<Checkbox checked={!!edit?.form.coa} onChange={(e) => setF({ coa: e.target.checked })} />} label={t("fCoa")} />
             <Typography variant="caption" color="text.secondary">
               {orderId
-                ? "Linked to this order: its shipments show the issue."
-                : "Linked to this client: every shipment of theirs shows the issue."}{" "}
-              Issues are never deleted — mark them resolved.
+                ? t("linkedOrder")
+                : t("linkedClient")}{" "}
+              {t("neverDeleted")}
             </Typography>
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setEdit(null)} disabled={busy}>
-            Cancel
+            {t("cancel")}
           </Button>
           <Button variant="contained" onClick={() => void save()} disabled={busy || !edit?.form.title.trim()}>
-            {edit?.row ? "Save" : "Add issue"}
+            {edit?.row ? t("save") : t("add")}
           </Button>
         </DialogActions>
       </Dialog>

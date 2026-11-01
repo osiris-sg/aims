@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 // Round AY part 2 — the order page's "Overall process": every applicable step of the order and each shipment, in
@@ -16,17 +15,19 @@ import { useShipmentsApi, type ProcessCell } from "../_lib/api";
 import { SHIPMENT_KEYS } from "../_lib/hooks";
 import { cellView, scheduleParts, shortDay } from "../_lib/due";
 import { toast } from "../_lib/toast";
+import { useTranslations } from "next-intl";
+import { useUiLang } from "@/i18n/UiLangProvider";
+import { useStepName } from "@/i18n/hooks";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 
 export const processKey = (orderId: string) => [...SHIPMENT_KEYS.orders, "process", orderId] as const;
 
-const T = {
-  en: { title: "Overall process", overdue: (n: number) => `${n} overdue`, step: "Step", order: "Order", set: "Due date", save: "Save", rule: "Back to the rule", byHand: (w: string | null, at: string | null) => `Set by ${w ?? "hand"}${at ? ` on ${shortDay(at.slice(0, 10))}` : ""}`, ruleIs: "Rule", none: "—", saved: "Due date saved", reset: "Due date back to the rule" },
-  ja: { title: "全体プロセス", overdue: (n: number) => `期限超過 ${n}件`, step: "ステップ", order: "注文", set: "期限", save: "保存", rule: "ルールに戻す", byHand: (w: string | null, at: string | null) => `${w ?? "手入力"}が設定${at ? `（${shortDay(at.slice(0, 10))}）` : ""}`, ruleIs: "ルール", none: "—", saved: "期限を保存しました", reset: "期限をルールに戻しました" },
-};
-
-export default function OverallProcess({ orderId, lang = "en" }: { orderId: string; lang?: "en" | "ja" }) {
-  const t = T[lang];
+export default function OverallProcess({ orderId, lang: langProp }: { orderId: string; lang?: "en" | "ja" }) {
+  const uiLang = useUiLang().lang;
+  const lang = langProp ?? uiLang;
+  const t = useTranslations("shipments.overallProcess");
+  const stepName = useStepName();
+  const byHand = (w: string | null, at: string | null) => (at ? t("byHandOn", { who: w ?? t("hand"), date: shortDay(at.slice(0, 10)) }) : t("byHand", { who: w ?? t("hand") }));
   const api = useShipmentsApi();
   const qc = useQueryClient();
   const { hasPermission, userRoles } = useUserPermissions();
@@ -44,7 +45,7 @@ export default function OverallProcess({ orderId, lang = "en" }: { orderId: stri
     try {
       await api.setStepDue(edit.cell.stepId, value);
       await Promise.all([qc.invalidateQueries({ queryKey: processKey(orderId) }), qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.orders })]);
-      toast.success(value ? t.saved : t.reset);
+      toast.success(value ? t("saved") : t("reset"));
       setEdit(null);
     } catch (e) {
       toast.error((e as Error).message);
@@ -54,12 +55,12 @@ export default function OverallProcess({ orderId, lang = "en" }: { orderId: stri
   };
 
   const cell = (c: ProcessCell | undefined) => {
-    if (!c) return <Typography variant="caption" color="text.disabled">{t.none}</Typography>;
+    if (!c) return <Typography variant="caption" color="text.disabled">{t("none")}</Typography>;
     const v = cellView(c, lang, year);
     // Without due dates (the org flag off) a not-done step shows only "Now" or nothing.
     if (!d?.dueDates && c.state !== "done" && !c.ongoing) v.sub = "";
     const editable = !!d?.dueDates && canEdit && c.state !== "done" && c.state !== "na";
-    const tip = [c.dueSource === "manual" ? t.byHand(c.dueSetByName, c.dueSetAt) : null, c.dueWhy ? `${t.ruleIs}: ${c.dueWhy}` : null].filter(Boolean).join(" · ");
+    const tip = [c.flagged === false && c.due && c.state !== "done" ? t("before") : null, c.dueSource === "manual" ? byHand(c.dueSetByName, c.dueSetAt) : null, c.dueWhy ? `${t("ruleIs")}: ${c.dueWhy}` : null].filter(Boolean).join(" · ");
     return (
       <Stack spacing={0.25} alignItems="flex-start" data-state={c.state}>
         {v.head ? <Chip size="small" color={v.tone} variant={c.state === "upcoming" ? "outlined" : "filled"} label={v.head} sx={{ height: 20, "& .MuiChip-label": { px: 0.75, fontSize: 11, fontWeight: 700 } }} /> : null}
@@ -82,10 +83,11 @@ export default function OverallProcess({ orderId, lang = "en" }: { orderId: stri
   return (
     <Paper variant="outlined" sx={{ p: 1.5 }} data-tour="order-overall-process">
       <Stack direction="row" alignItems="center" spacing={1}>
-        <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>{t.title}</Typography>
-        {d?.overdue ? <Chip size="small" color="error" label={t.overdue(d.overdue)} sx={{ height: 20 }} /> : null}
+        <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>{t("title")}</Typography>
+        {d?.overdue ? <Chip size="small" color="error" label={t("overdue", { n: d.overdue })} sx={{ height: 20 }} /> : null}
+        {d?.dueDates && d.dueSince ? <Typography variant="caption" color="text.secondary">{t("since", { date: shortDay(d.dueSince) })}</Typography> : null}
         <Box sx={{ flex: 1 }} />
-        <IconButton size="small" onClick={() => setOpen((x) => !x)} aria-label={open ? "Collapse" : "Expand"}>
+        <IconButton size="small" onClick={() => setOpen((x) => !x)} aria-label={open ? t("collapse") : t("expand")}>
           {open ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
         </IconButton>
       </Stack>
@@ -97,10 +99,10 @@ export default function OverallProcess({ orderId, lang = "en" }: { orderId: stri
             <Table size="small" sx={{ "& td, & th": { verticalAlign: "top", py: 0.75 }, "& th, & th *": { textTransform: "none", letterSpacing: "normal" } }}>
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ minWidth: 200, fontWeight: 700 }}>{t.step}</TableCell>
+                  <TableCell sx={{ minWidth: 200, fontWeight: 700 }}>{t("step")}</TableCell>
                   {cols.map((c) => (
                     <TableCell key={c.id} sx={{ minWidth: 150 }}>
-                      <Typography variant="body2" sx={{ fontWeight: 800 }}>{c.ref}{c.kind === "order" ? ` · ${t.order}` : ""}</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 800 }}>{c.ref}{c.kind === "order" ? ` · ${t("order")}` : ""}</Typography>
                       {c.status !== "OPEN" && <Typography variant="caption" color="text.secondary">{c.status.toLowerCase()}</Typography>}
                       {c.schedule && (
                         <Stack spacing={0} data-tour="process-schedule">
@@ -117,7 +119,7 @@ export default function OverallProcess({ orderId, lang = "en" }: { orderId: stri
                 {d.rows.map((r) => (
                   <TableRow key={r.no || r.code}>
                     <TableCell>
-                      <Typography variant="body2"><b>{r.no}</b> {lang === "ja" && r.titleJa ? r.titleJa : r.title}</Typography>
+                      <Typography variant="body2"><b>{r.no}</b> {stepName(r.code, lang === "ja" && r.titleJa ? r.titleJa : r.title)}</Typography>
                       {r.titleJa && <Typography variant="caption" color="text.secondary">{lang === "ja" ? r.title : r.titleJa}</Typography>}
                     </TableCell>
                     {cols.map((c) => (
@@ -133,12 +135,12 @@ export default function OverallProcess({ orderId, lang = "en" }: { orderId: stri
       <Popover open={!!edit} anchorEl={edit?.el ?? null} onClose={() => setEdit(null)} anchorOrigin={{ vertical: "bottom", horizontal: "left" }}>
         {edit && (
           <Box sx={{ p: 2, width: 280 }} data-tour="process-due-editor">
-            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{edit.cell.ref} · {edit.cell.no} {edit.cell.title}</Typography>
-            {edit.cell.dueWhy && <Typography variant="caption" color="text.secondary" component="div">{t.ruleIs}: {edit.cell.dueWhy}</Typography>}
-            <TextField type="date" size="small" fullWidth label={t.set} value={edit.value} onChange={(e) => setEdit({ ...edit, value: e.target.value })} InputLabelProps={{ shrink: true }} sx={{ mt: 1.5 }} />
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{edit.cell.ref} · {edit.cell.no} {stepName(edit.cell.code, lang === "ja" && edit.cell.titleJa ? edit.cell.titleJa : edit.cell.title)}</Typography>
+            {edit.cell.dueWhy && <Typography variant="caption" color="text.secondary" component="div">{t("ruleIs")}: {edit.cell.dueWhy}</Typography>}
+            <TextField type="date" size="small" fullWidth label={t("set")} value={edit.value} onChange={(e) => setEdit({ ...edit, value: e.target.value })} InputLabelProps={{ shrink: true }} sx={{ mt: 1.5 }} />
             <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
-              <Button variant="contained" size="small" disabled={busy || !/^\d{4}-\d{2}-\d{2}$/.test(edit.value)} onClick={() => save(edit.value)}>{t.save}</Button>
-              {edit.cell.dueSource === "manual" && <Button size="small" disabled={busy} onClick={() => save(null)}>{t.rule}</Button>}
+              <Button variant="contained" size="small" disabled={busy || !/^\d{4}-\d{2}-\d{2}$/.test(edit.value)} onClick={() => save(edit.value)}>{t("save")}</Button>
+              {edit.cell.dueSource === "manual" && <Button size="small" disabled={busy} onClick={() => save(null)}>{t("rule")}</Button>}
             </Stack>
           </Box>
         )}

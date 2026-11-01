@@ -11,6 +11,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
+import { useTranslations } from "next-intl";
 import { useShipmentsApi, type Order, type PiExtraction } from "../_lib/api";
 import { fmtMoney, fmtMonth } from "../_lib/format";
 import OrderFormDialog from "./OrderFormDialog";
@@ -31,6 +32,7 @@ let seq = 0;
 export default function PiBulkDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const api = useShipmentsApi();
   const router = useRouter();
+  const t = useTranslations("orders.piBulk");
   const [rows, setRows] = useState<Row[]>([]);
   const [review, setReview] = useState<Row | null>(null);
   const update = (key: string, patch: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
@@ -39,10 +41,10 @@ export default function PiBulkDialog({ open, onClose }: { open: boolean; onClose
     update(row.key, { state: "reading", error: undefined });
     try {
       const x = await api.extractPi(row.extraction ? { fileId: row.extraction.fileId } : { file: row.file! });
-      if (x.status !== "DONE" || !x.result) update(row.key, { state: "failed", extraction: x, error: x.error || "Could not read this PI" });
+      if (x.status !== "DONE" || !x.result) update(row.key, { state: "failed", extraction: x, error: x.error || t("readError") });
       else update(row.key, { state: (x.result as any).existingOrder ? "exists" : "ready", extraction: { ...x, fileName: row.fileName } as any });
     } catch (e: any) {
-      update(row.key, { state: "failed", error: e?.message || "Could not read this PI" });
+      update(row.key, { state: "failed", error: e?.message || t("readError") });
     }
   };
 
@@ -70,13 +72,13 @@ export default function PiBulkDialog({ open, onClose }: { open: boolean; onClose
   return (
     <>
       <Dialog open={open && !review} onClose={close} maxWidth="lg" fullWidth>
-        <DialogTitle>New orders from PIs</DialogTitle>
+        <DialogTitle>{t("title")}</DialogTitle>
         <DialogContent dividers>
           <PdfDropZone
             multiple
-            title="Drop PI PDFs here"
+            title={t("drop")}
             busy={busy}
-            busyText={`Reading ${rows.filter((r) => r.state === "reading").length} PI(s)…`}
+            busyText={t("readingN", { n: rows.filter((r) => r.state === "reading").length })}
             onFiles={(f) => void add(f)}
             dataTour="contracts-from-pis"
           />
@@ -84,13 +86,13 @@ export default function PiBulkDialog({ open, onClose }: { open: boolean; onClose
             <Table size="small" sx={{ mt: 2 }}>
               <TableHead>
                 <TableRow>
-                  <TableCell>File</TableCell>
-                  <TableCell>Contract no.</TableCell>
-                  <TableCell>PI no.</TableCell>
-                  <TableCell>Lines</TableCell>
-                  <TableCell>Shipment</TableCell>
-                  <TableCell align="right">PI amount</TableCell>
-                  <TableCell>Status</TableCell>
+                  <TableCell>{t("file")}</TableCell>
+                  <TableCell>{t("contractNo")}</TableCell>
+                  <TableCell>{t("piNo")}</TableCell>
+                  <TableCell>{t("lines")}</TableCell>
+                  <TableCell>{t("shipment")}</TableCell>
+                  <TableCell align="right">{t("piAmount")}</TableCell>
+                  <TableCell>{t("status")}</TableCell>
                   <TableCell />
                 </TableRow>
               </TableHead>
@@ -111,9 +113,9 @@ export default function PiBulkDialog({ open, onClose }: { open: boolean; onClose
                       <TableCell align="right">{d?.piAmount != null ? fmtMoney(d.piAmount, d.currency) : "—"}</TableCell>
                       <TableCell>
                         {r.state === "reading" && <CircularProgress size={16} />}
-                        {r.state === "ready" && <Chip size="small" variant="outlined" color="info" label="Ready to review" />}
-                        {r.state === "exists" && <Chip size="small" variant="outlined" color="warning" label="Already on an order (same PI) — skipped" />}
-                        {r.state === "created" && <Chip size="small" variant="outlined" color="success" label="Created" />}
+                        {r.state === "ready" && <Chip size="small" variant="outlined" color="info" label={t("ready")} />}
+                        {r.state === "exists" && <Chip size="small" variant="outlined" color="warning" label={t("exists")} />}
+                        {r.state === "created" && <Chip size="small" variant="outlined" color="success" label={t("created")} />}
                         {r.state === "failed" && (
                           <Typography variant="caption" color="error">
                             {r.error}
@@ -123,22 +125,22 @@ export default function PiBulkDialog({ open, onClose }: { open: boolean; onClose
                       <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
                         {r.state === "ready" && (
                           <Button size="small" variant="contained" onClick={() => setReview(r)}>
-                            Review & create
+                            {t("review")}
                           </Button>
                         )}
                         {r.state === "created" && r.created && (
                           <Button size="small" onClick={() => router.push(`/portal/shipments/orders/${r.created!.id}`)}>
-                            Open
+                            {t("open")}
                           </Button>
                         )}
                         {r.state === "exists" && (r.extraction?.result as any)?.existingOrder && (
                           <Button size="small" onClick={() => router.push(`/portal/shipments/orders/${(r.extraction!.result as any).existingOrder.id}`)}>
-                            Open existing
+                            {t("openExisting")}
                           </Button>
                         )}
                         {r.state === "failed" && (r.file || r.extraction) && (
                           <Button size="small" onClick={() => void read(r)}>
-                            Retry
+                            {t("retry")}
                           </Button>
                         )}
                       </TableCell>
@@ -152,7 +154,7 @@ export default function PiBulkDialog({ open, onClose }: { open: boolean; onClose
         </DialogContent>
         <DialogActions>
           <Button onClick={close} disabled={busy}>
-            Close
+            {t("close")}
           </Button>
         </DialogActions>
       </Dialog>

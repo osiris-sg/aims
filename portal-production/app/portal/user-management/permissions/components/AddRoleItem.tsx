@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select, MenuItem, Chip, Alert, Divider } from "@mui/material";
 import { useForm } from "react-hook-form";
 import { useAuth } from "@clerk/nextjs";
+import { useTranslations } from "next-intl";
 import FormInputBox from "@/form-components/FormInputBox";
 import FormTextarea from "@/form-components/FormTextArea";
 import { useGetPermissions } from "../hooks/useGetPermissions";
@@ -27,6 +28,7 @@ interface GroupedPermissions {
 
 export default function AddRoleItem({ open, onClose, onRoleCreated }: Props) {
   const { getToken } = useAuth();
+  const t = useTranslations("users.roles");
   const { permissions, loading: permissionsLoading } = useGetPermissions();
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -50,7 +52,7 @@ export default function AddRoleItem({ open, onClose, onRoleCreated }: Props) {
 
   const onSubmit = async (data: any) => {
     if (selectedPermissions.length === 0) {
-      setError("Please select at least one permission");
+      setError(t("selectOne"));
       return;
     }
 
@@ -80,7 +82,7 @@ export default function AddRoleItem({ open, onClose, onRoleCreated }: Props) {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to create role");
+        throw new Error(errorData.message || t("createFailed"));
       }
 
       const result = await response.json();
@@ -99,11 +101,11 @@ export default function AddRoleItem({ open, onClose, onRoleCreated }: Props) {
           onRoleCreated();
         }
       } else {
-        throw new Error(result.message || "Failed to create role");
+        throw new Error(result.message || t("createFailed"));
       }
     } catch (error: any) {
       console.error("Error creating role:", error);
-      setError(error.message || "Failed to create role");
+      setError(error.message || t("createFailed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -159,11 +161,11 @@ export default function AddRoleItem({ open, onClose, onRoleCreated }: Props) {
                 fontSize: "1.5rem",
               }}
             >
-              Create New Role
+              {t("createTitle")}
             </Typography>
           </Box>
           <Typography variant="body2" sx={{ color: "#666666" }}>
-            Add a new role with specific permissions and access controls
+            {t("createSub")}
           </Typography>
         </Box>
 
@@ -195,12 +197,12 @@ export default function AddRoleItem({ open, onClose, onRoleCreated }: Props) {
               <Grid container spacing={3}>
                 <Grid item xs={12}>
                   <FormInputBox
-                    label="Role Name"
+                    label={t("name")}
                     control={control}
                     name="name"
-                    placeHolder="Enter role name"
+                    placeHolder={t("namePh")}
                     rules={{
-                      required: "Role name is required",
+                      required: t("nameReq"),
                     }}
                     error={!!errors.name}
                     helperText={errors.name?.message as string}
@@ -208,18 +210,18 @@ export default function AddRoleItem({ open, onClose, onRoleCreated }: Props) {
                 </Grid>
 
                 <Grid item xs={12}>
-                  <FormTextarea label="Description" control={control} name="description" placeHolder="Enter role description" rows={3} />
+                  <FormTextarea label={t("description")} control={control} name="description" placeHolder={t("descPh")} rows={3} />
                 </Grid>
 
                 <Grid item xs={12}>
                   <FormControl fullWidth>
                     <InputLabel id="select-permissions-label" sx={{ color: "#666666" }}>
-                      Select Permissions
+                      {t("selectPermissions")}
                     </InputLabel>
                     <Select
                       labelId="select-permissions-label"
                       id="select-permissions"
-                      label="Select Permissions"
+                      label={t("selectPermissions")}
                       multiple
                       value={selectedPermissions}
                       onChange={(e) => setSelectedPermissions(e.target.value as string[])}
@@ -272,7 +274,7 @@ export default function AddRoleItem({ open, onClose, onRoleCreated }: Props) {
                     >
                       {permissionsLoading ? (
                         <MenuItem disabled sx={{ color: "#666" }}>
-                          Loading permissions...
+                          {t("loadingPermissions")}
                         </MenuItem>
                       ) : (
                         Object.entries(groupedPermissions)
@@ -342,7 +344,7 @@ export default function AddRoleItem({ open, onClose, onRoleCreated }: Props) {
                 },
               }}
             >
-              Cancel
+              {t("cancel")}
             </Button>
             <Button
               type="submit"
@@ -361,7 +363,7 @@ export default function AddRoleItem({ open, onClose, onRoleCreated }: Props) {
                 },
               }}
             >
-              {isSubmitting ? "Creating..." : "Create Role"}
+              {isSubmitting ? t("creating") : t("create")}
             </Button>
           </Box>
         </Box>

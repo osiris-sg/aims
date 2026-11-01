@@ -12,6 +12,7 @@ import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, 
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import { useTranslations } from "next-intl";
 import { toast } from "../_lib/toast";
 import { useContracts, useCustomers, useTradeMutation } from "../_lib/hooks";
 import type { MonthlyOrderRow } from "../_lib/api";
@@ -28,6 +29,7 @@ let seq = 0;
 const blank = (): Draft => ({ key: ++seq, customerId: "", contractId: "", grade: "", size: "", qtyMt: "", clientPremium: "" });
 
 export default function MonthlyOrderDialog({ open, onClose, onImportPis }: { open: boolean; onClose: () => void; /** "Import from PI PDFs…": the bulk PI reader (one order per PI). */ onImportPis?: () => void }) {
+  const t = useTranslations("orders.monthlyOrder");
   const customers = useCustomers(open);
   const contracts = useContracts({ pageSize: 100 }, open);
   const [month, setMonth] = useState(nextMonth());
@@ -45,9 +47,9 @@ export default function MonthlyOrderDialog({ open, onClose, onImportPis }: { ope
   const set = (key: number, patch: Partial<Draft>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   const filled = rows.filter((r) => r.customerId || r.contractId || r.qtyMt);
   const problems = filled.flatMap((r, i) => [
-    ...(!r.customerId ? [`row ${i + 1}: customer`] : []),
-    ...(!r.contractId ? [`row ${i + 1}: contract`] : []),
-    ...(!(Number(r.qtyMt) > 0) ? [`row ${i + 1}: quantity`] : []),
+    ...(!r.customerId ? [t("needCustomer", { n: i + 1 })] : []),
+    ...(!r.contractId ? [t("needContract", { n: i + 1 })] : []),
+    ...(!(Number(r.qtyMt) > 0) ? [t("needQty", { n: i + 1 })] : []),
   ]);
   const monthBad = !/^\d{4}-\d{2}$/.test(month) || !!tradeDateError(month);
   const totalMt = filled.reduce((s, r) => s + (Number(r.qtyMt) || 0), 0);
@@ -55,23 +57,23 @@ export default function MonthlyOrderDialog({ open, onClose, onImportPis }: { ope
   return (
     <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
       <DialogTitle>
-        New monthly order
+        {t("title")}
         <Typography variant="body2" color="text.secondary">
-          One order per row, all shipping in the month (delivery two months later). Premiums come from the contract for that month unless typed.
+          {t("intro")}
         </Typography>
       </DialogTitle>
       <DialogContent dividers data-tour="monthly-order-grid">
-        <TextField size="small" label="Ship month" value={month} onChange={(e) => setMonth(e.target.value)} sx={{ mb: 2, width: 200 }} {...guardDate({ type: "month", InputLabelProps: { shrink: true }, helperText: " " }, month)} />
+        <TextField size="small" label={t("shipMonth")} value={month} onChange={(e) => setMonth(e.target.value)} sx={{ mb: 2, width: 200 }} {...guardDate({ type: "month", InputLabelProps: { shrink: true }, helperText: " " }, month)} />
         <Box sx={{ overflowX: "auto" }}>
           <Table size="small" sx={{ minWidth: 860 }}>
             <TableHead>
               <TableRow>
-                <TableCell sx={{ width: 200 }}>Customer</TableCell>
-                <TableCell sx={{ width: 220 }}>Contract</TableCell>
-                <TableCell sx={{ width: 110 }}>Grade</TableCell>
-                <TableCell sx={{ width: 160 }}>Size</TableCell>
-                <TableCell sx={{ width: 110 }}>Qty (MT)</TableCell>
-                <TableCell sx={{ width: 130 }}>Client premium</TableCell>
+                <TableCell sx={{ width: 200 }}>{t("customer")}</TableCell>
+                <TableCell sx={{ width: 220 }}>{t("contract")}</TableCell>
+                <TableCell sx={{ width: 110 }}>{t("grade")}</TableCell>
+                <TableCell sx={{ width: 160 }}>{t("size")}</TableCell>
+                <TableCell sx={{ width: 110 }}>{t("qty")}</TableCell>
+                <TableCell sx={{ width: 130 }}>{t("premium")}</TableCell>
                 <TableCell sx={{ width: 40 }} />
               </TableRow>
             </TableHead>
@@ -145,10 +147,10 @@ export default function MonthlyOrderDialog({ open, onClose, onImportPis }: { ope
                       <TextField fullWidth size="small" type="number" value={r.qtyMt} onChange={(e) => set(r.key, { qtyMt: e.target.value })} inputProps={{ min: 0, step: "0.001" }} />
                     </TableCell>
                     <TableCell>
-                      <TextField fullWidth size="small" type="number" value={r.clientPremium} onChange={(e) => set(r.key, { clientPremium: e.target.value })} placeholder="contract" />
+                      <TextField fullWidth size="small" type="number" value={r.clientPremium} onChange={(e) => set(r.key, { clientPremium: e.target.value })} placeholder={t("premiumPlaceholder")} />
                     </TableCell>
                     <TableCell>
-                      <IconButton size="small" aria-label="Remove row" disabled={rows.length === 1} onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))}>
+                      <IconButton size="small" aria-label={t("removeRow")} disabled={rows.length === 1} onClick={() => setRows((rs) => rs.filter((x) => x.key !== r.key))}>
                         <DeleteIcon fontSize="small" />
                       </IconButton>
                     </TableCell>
@@ -160,17 +162,17 @@ export default function MonthlyOrderDialog({ open, onClose, onImportPis }: { ope
         </Box>
         <Stack direction="row" alignItems="center" spacing={2} sx={{ mt: 1 }}>
           <Button size="small" startIcon={<AddIcon />} onClick={() => setRows((rs) => [...rs, blank()])}>
-            Add row
+            {t("addRow")}
           </Button>
           <Typography variant="body2" color="text.secondary">
-            {filled.length} order{filled.length === 1 ? "" : "s"} · {totalMt.toLocaleString("en-US", { maximumFractionDigits: 3 })} MT
+            {t("total", { n: filled.length, mt: totalMt.toLocaleString("en-US", { maximumFractionDigits: 3 }) })}
           </Typography>
         </Stack>
         {/* Space reserved for the message so the grid doesn't jump while typing. */}
         <Box sx={{ minHeight: 52, mt: 1 }}>
           {filled.length > 0 && problems.length > 0 && (
             <Alert severity="info" sx={{ py: 0 }}>
-              Still needed: {problems.join(", ")}
+              {t("stillNeeded", { list: problems.join(t("listSep")) })}
             </Alert>
           )}
         </Box>
@@ -178,10 +180,10 @@ export default function MonthlyOrderDialog({ open, onClose, onImportPis }: { ope
       <DialogActions>
         {onImportPis && (
           <Button startIcon={<AutoAwesomeIcon />} onClick={onImportPis} sx={{ mr: "auto" }} data-tour="monthly-order-import-pis">
-            Import from PI PDFs…
+            {t("importPis")}
           </Button>
         )}
-        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={onClose}>{t("cancel")}</Button>
         <Button
           variant="contained"
           disabled={!filled.length || problems.length > 0 || monthBad || save.isPending}
@@ -198,14 +200,14 @@ export default function MonthlyOrderDialog({ open, onClose, onImportPis }: { ope
                   clientPremium: r.clientPremium === "" ? null : Number(r.clientPremium),
                 })),
               });
-              toast.success(`Created ${out.created.map((o) => o.label).join(", ")}`);
+              toast.success(t("created", { list: out.created.map((o) => o.label).join(", ") }));
               onClose();
             } catch (e: any) {
-              toast.error(e?.message || "Could not create the orders");
+              toast.error(e?.message || t("createError"));
             }
           }}
         >
-          Create {filled.length || ""} order{filled.length === 1 ? "" : "s"}
+          {t("create", { n: filled.length })}
         </Button>
       </DialogActions>
     </Dialog>

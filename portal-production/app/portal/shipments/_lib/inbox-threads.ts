@@ -64,16 +64,26 @@ export function linkedChip(l: InboxLinked | null): string | null {
 }
 
 /** "21 Oct 10:12" in Tokyo. */
-export const whenShort = (iso: string | null | undefined): string => {
+export const whenShort = (iso: string | null | undefined, lang: "en" | "ja" = "en"): string => {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
+  // Round AZ: Japanese "10/21 10:12" (as the question cards' whenCard).
+  if (lang === "ja") {
+    const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tokyo", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(d).map((x) => [x.type, x.value]));
+    return `${p.month}/${p.day} ${p.hour}:${p.minute}`;
+  }
   return new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Tokyo", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }).format(d).replace(",", "");
 };
 
 /** "Confirmed by Sayaka · 21 Oct 10:12" / "Auto · B/L 198GX…" / "Auto · thread" / "Changed by …" / "Ignored by …". */
-export function byLine(by: InboxBy | null | undefined): string | null {
+export function byLine(by: InboxBy | null | undefined, lang: "en" | "ja" = "en"): string | null {
   if (!by) return null;
+  if (lang === "ja") {
+    if (by.outcome === "AUTO") return `自動 · ${by.autoLabel ?? "自動で反映"}${by.at ? ` · ${whenShort(by.at, lang)}` : ""}`;
+    const verbJa = by.outcome === "ACCEPTED" ? "確認" : by.outcome === "CHANGED" ? "変更" : by.outcome === "IGNORED" ? "無視" : "却下";
+    return `${by.name ?? "—"} が${verbJa}${by.via === "whatsapp" ? "（WhatsApp経由）" : ""}${by.at ? ` · ${whenShort(by.at, lang)}` : ""}`;
+  }
   if (by.outcome === "AUTO") return `Auto · ${by.autoLabel ?? "applied by itself"}${by.at ? ` · ${whenShort(by.at)}` : ""}`;
   const verb = by.outcome === "ACCEPTED" ? "Confirmed" : by.outcome === "CHANGED" ? "Changed" : by.outcome === "IGNORED" ? "Ignored" : "Rejected";
   return `${verb} by ${by.name ?? "—"}${by.via === "whatsapp" ? " via WhatsApp" : ""}${by.at ? ` · ${whenShort(by.at)}` : ""}`;

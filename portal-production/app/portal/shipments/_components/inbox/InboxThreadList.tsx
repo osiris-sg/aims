@@ -10,7 +10,9 @@ import React from "react";
 import { Box, Button, Chip, Paper, Stack, Typography } from "@mui/material";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import type { InboxAnswer, InboxAnswerResult, InboxLang, InboxMessage, InboxThread } from "../../_lib/api";
-import { L, threadResult } from "../../_lib/inbox-cards";
+import { threadResult } from "../../_lib/inbox-cards";
+import { useTranslations } from "next-intl";
+import { useInboxLabels } from "./useInboxLabels";
 import { fromParts, whenShort } from "../../_lib/inbox-threads";
 import { QuestionList } from "./QuestionList";
 
@@ -28,11 +30,12 @@ export interface InboxActions {
 /** A processed thread: the latest email + the result box + "n earlier emails". */
 export function ThreadCard({ t, actions }: { t: InboxThread; actions: InboxActions }) {
   const lang = actions.lang;
-  const labels = L[lang];
+  const labels = useInboxLabels();
+  const tr = useTranslations("inbox.threadList");
   const newest = t.messages[0];
   if (!newest) return null;
   const from = fromParts(newest.from);
-  const r = threadResult(t.messages, whenShort, lang);
+  const r = threadResult(t.messages, (iso) => whenShort(iso, lang), lang);
   const multi = r.multi;
   const earlier = t.earlier ?? Math.max(0, t.emails - 1);
   const color = r.tone === "done" ? "success.main" : r.tone === "link" ? "primary.main" : r.tone === "wait" ? "warning.main" : "text.secondary";
@@ -41,7 +44,7 @@ export function ThreadCard({ t, actions }: { t: InboxThread; actions: InboxActio
       <Stack direction="row" spacing={1} alignItems="flex-start">
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography variant="body2" sx={{ fontWeight: 700, color, wordBreak: "break-word" }} data-tour="thread-result">
-            {multi.length ? (lang === "ja" ? `${multi.length} 件の送り先` : `${multi.length} destinations`) : r.headline}
+            {multi.length ? tr("destinations", { n: multi.length }) : r.headline}
           </Typography>
           {multi.map((l, i) => (
             <Typography key={i} variant="caption" color="text.secondary" component="div" sx={{ wordBreak: "break-word" }}>
@@ -49,7 +52,7 @@ export function ThreadCard({ t, actions }: { t: InboxThread; actions: InboxActio
             </Typography>
           ))}
           <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.25, wordBreak: "break-word", overflowWrap: "anywhere" }}>
-            {t.subject || "(no subject)"}
+            {t.subject || tr("noSubject")}
           </Typography>
           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
             <Typography variant="caption" title={newest.from} sx={{ wordBreak: "break-word" }}>
@@ -57,7 +60,7 @@ export function ThreadCard({ t, actions }: { t: InboxThread; actions: InboxActio
             </Typography>
             {newest.company && <Chip size="small" variant="outlined" label={newest.company} sx={{ height: 18 }} />}
             <Typography variant="caption" color="text.secondary">
-              {whenShort(newest.date)}
+              {whenShort(newest.date, lang)}
             </Typography>
             {newest.attachments.length > 0 && (
               <Typography variant="caption" color="text.secondary" sx={{ display: "inline-flex", alignItems: "center", gap: 0.25 }}>

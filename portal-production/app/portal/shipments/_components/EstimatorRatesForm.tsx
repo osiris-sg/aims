@@ -12,8 +12,10 @@ import { Button, Grid2, InputAdornment, Stack, TextField, Typography } from "@mu
 import { useTradeMutation, useTradeSettings } from "../_lib/hooks";
 import type { EstimatorRates } from "../_lib/api";
 import { toast } from "../_lib/toast";
+import { useTranslations } from "next-intl";
 
 type Form = Record<string, string>;
+// Labels: settings.estimatorRates.<key> in the catalogs (the English text stays below for reference).
 const FIELDS: Array<[keyof EstimatorRates, string, string?]> = [
   ["customsPerMt", "通関 (一貫作業) default ¥/MT", "¥"],
   ["taxMultiplier", "Tax multiplier (customs, trucking)", "×"],
@@ -30,6 +32,7 @@ const DUE: Array<[string, string, number]> = [
 ];
 
 export default function EstimatorRatesForm() {
+  const t = useTranslations("settings.estimatorRates");
   const settings = useTradeSettings();
   const save = useTradeMutation((a, body: { estimatorRates: Partial<EstimatorRates>; docDefaults: Record<string, unknown> }) => a.updateSettings(body));
   const [f, setF] = useState<Form>({});
@@ -55,16 +58,16 @@ export default function EstimatorRatesForm() {
   const submit = async () => {
     const num = (k: string) => Number(f[k]);
     const bad = [...FIELDS.map(([k]) => k as string), "truck20", "truck10", ...DUE.map(([k]) => k)].filter((k) => f[k] === "" || !Number.isFinite(num(k)) || num(k) < 0);
-    if (bad.length) return toast.error("Every rate must be a number ≥ 0");
+    if (bad.length) return toast.error(t("badNumber"));
     try {
       await save.mutateAsync({
         estimatorRates: { ...Object.fromEntries(FIELDS.map(([k]) => [k, num(k as string)])), truckRates: { "20": num("truck20"), "10": num("truck10") } },
         docDefaults: Object.fromEntries(DUE.map(([k]) => [k, Math.round(num(k))])),
       });
-      toast.success("Estimator rates saved");
+      toast.success(t("saved"));
       setDirty(false);
     } catch (e: any) {
-      toast.error(e?.message || "Could not save the rates");
+      toast.error(e?.message || t("couldNotSave"));
     }
   };
   const field = (k: string, label: string, adorn?: string) => (
@@ -75,20 +78,20 @@ export default function EstimatorRatesForm() {
   return (
     <>
       <Grid2 container spacing={1.5} data-tour="settings-estimator-rates">
-        {FIELDS.map(([k, label, adorn]) => field(k as string, label, adorn))}
-        {field("truck20", "Truck 20t ¥/truck", "¥")}
-        {field("truck10", "Truck 10t ¥/truck", "¥")}
+        {FIELDS.map(([k, , adorn]) => field(k as string, t(k as string), adorn))}
+        {field("truck20", t("truck20"), "¥")}
+        {field("truck10", t("truck10"), "¥")}
       </Grid2>
       <Typography variant="overline" color="text.secondary" sx={{ display: "block", mt: 2 }}>
-        Invoice due dates
+        {t("dueDates")}
       </Typography>
-      <Grid2 container spacing={1.5}>{DUE.map(([k, label]) => field(k, label))}</Grid2>
+      <Grid2 container spacing={1.5}>{DUE.map(([k]) => field(k, t(k)))}</Grid2>
       <Stack direction="row" justifyContent="flex-end" spacing={1} sx={{ mt: 2 }}>
         <Button disabled={!dirty || save.isPending} onClick={load}>
-          Discard changes
+          {t("discard")}
         </Button>
         <Button variant="contained" disabled={!dirty || save.isPending} onClick={() => void submit()}>
-          {save.isPending ? "Saving…" : "Save rates"}
+          {save.isPending ? t("saving") : t("save")}
         </Button>
       </Stack>
     </>

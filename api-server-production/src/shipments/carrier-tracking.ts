@@ -190,7 +190,7 @@ export function carrierOf(blNumber: string | null | undefined, shippingLine?: st
   if (/^\d{3}[A-Z]{2}\d{5}$/.test(bl) || /WAN\s*HAI|WHL/.test(line)) return 'WAN_HAI';
   if (/MAERSK|MAEU/.test(line) || /^(MAEU)?\d{9}$/.test(bl)) return 'MAERSK';
   if (/^SIT[A-Z]/.test(bl) || /\bSITC\b/.test(line)) return 'SITC';
-  if (/\bRCL\b|REGIONAL CONTAINER/.test(line)) return 'RCL';
+  if (/^(GGVC|VKTCB)/.test(bl) || /\bRCL\b|REGIONAL CONTAINER/.test(line)) return 'RCL';
   if (/^EGLV/.test(bl) || /EVERGREEN/.test(line)) return 'EVERGREEN';
   return bl || line ? 'OTHER' : null;
 }

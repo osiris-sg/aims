@@ -10,6 +10,7 @@ import axios from "axios";
 import { useAuth } from "@clerk/nextjs";
 import { useMemo } from "react";
 import { request } from "@/helpers/request";
+import { currentLang } from "@/i18n/lang";
 
 export type RecordStatus = "OPEN" | "COMPLETED" | "CANCELLED";
 export type StepStatus = "NOT_STARTED" | "IN_PROGRESS" | "DONE" | "SKIPPED";
@@ -819,15 +820,21 @@ export type CompanyInfo = { country?: string; website?: string; paymentTerms?: s
 export type LogisticsInfo = { carriers?: string[]; blPattern?: string; bookingPattern?: string; portOfLoading?: string; portOfDischarge?: string; incoterm?: string };
 export type ContactInfo = { id?: string; name: string; role?: string; email?: string; phone?: string; lang?: "ja" | "en"; isPrimary?: boolean };
 export type CompanyForm = { name?: string; jpName?: string | null; address?: string | null; jpAddress?: string | null; email?: string | null; phone?: string | null; gstRegNo?: string | null; currency?: string; company?: CompanyInfo; logistics?: LogisticsInfo; contacts?: ContactInfo[] };
+/** Round AZ: what a logistics company does (one company can do several). */
+export const LOGISTICS_TYPES = ["SHIPPING_LINE", "FORWARDER", "CUSTOMS_BROKER", "WAREHOUSE", "TRUCKING", "INSURER"] as const;
+export type LogisticsType = (typeof LOGISTICS_TYPES)[number];
+/** Round AY: a shipping line; round AZ: any logistics company (Clients › Logistics). */
 export type ShippingLine = {
-  code: string; name: string; website: string | null; trackingUrl: string | null; known: boolean;
+  code: string; name: string; nameJa?: string | null; types: LogisticsType[];
+  website: string | null; phone?: string | null; address?: string | null; emailDomains: string[]; emails: number;
+  trackingUrl: string | null; known: boolean;
   agents: Array<{ name: string; company?: string; role?: string; email?: string; phone?: string }>;
   freeTime: { detDays?: number; demDays?: number; note?: string } | null; notes: string | null;
   shipments: number; openShipments: number; lastEta: string | null;
   recent: Array<{ id: string; ref: string; orderId: string | null; status: string; blNumber: string | null; eta: string | null; customer: string | null }>;
   clients: Array<{ id: string; kind: "customer" | "supplier"; name: string }>;
 };
-export type ShippingLines = { lines: ShippingLine[]; unmatched: Array<{ id: string; ref: string; orderId: string | null; blNumber: string | null; shippingLine: string | null; customer: string | null }> };
+export type ShippingLines = { partners: ShippingLine[]; lines?: ShippingLine[]; unmatched: Array<{ id: string; ref: string; orderId: string | null; blNumber: string | null; shippingLine: string | null; customer: string | null }> };
 export type ClientContract = {
   id: string; contractNo: string; status: string; grade: string | null; sizeSpec: string | null; periodStart: string | null; periodEnd: string | null; annualQtyMt: string | number | null; tolerancePct: string | number | null;
   incoterm: string | null; qpBasis: string | null; qmjpRule: string | null; balanceTerms: string | null; depositPercent: string | number | null; checkFields: string[];
@@ -857,12 +864,14 @@ export type ClientCustomerDetail = {
 export type ProcessStepDef = { scope: "ORDER" | "SHIPMENT"; code: string; no: string; en: string; ja: string; ongoing?: boolean };
 /** Round AY part 2: the order page's Overall process. */
 export type StepDueState = "done" | "current" | "upcoming" | "overdue" | "na";
-export type ProcessCell = { stepId: string; code: string; no: string; title: string; titleJa: string | null; kind: "order" | "shipment"; recordId: string; orderId: string; shipmentId: string | null; ref: string; status: string; ongoing?: boolean; state: StepDueState; doneAt: string | null; due: string | null; dueSource: "manual" | "rule" | null; dueWhy: string | null; dueSetByName: string | null; dueSetAt: string | null; daysLate: number | null };
+export type ProcessCell = { stepId: string; code: string; no: string; title: string; titleJa: string | null; kind: "order" | "shipment"; recordId: string; orderId: string; shipmentId: string | null; ref: string; status: string; ongoing?: boolean; state: StepDueState; doneAt: string | null; due: string | null; dueSource: "manual" | "rule" | null; dueWhy: string | null; dueSetByName: string | null; dueSetAt: string | null; daysLate: number | null; flagged?: boolean };
 export type ProcessSchedule = { etd: string | null; tsPort: string | null; tsEta: string | null; tsEtd: string | null; eta: string | null; arrived: string | null; deliveries: string[] };
 export type OrderProcess = {
   today: string; overdue: number;
   /** The org's enableStepDueDates flag: off → no due dates (steps and schedule only). */
   dueDates?: boolean;
+  /** Round AZ: the day due dates were switched on — earlier due dates show without the overdue badge. */
+  dueSince?: string | null;
   columns: Array<{ kind: "order" | "shipment"; id: string; ref: string; status: string; schedule: ProcessSchedule | null }>;
   rows: Array<{ no: string; code: string; title: string; titleJa: string | null; cells: Record<string, ProcessCell> }>;
 };
@@ -895,7 +904,11 @@ export type DeclarationResult = { created: Array<{ supplierOrderId: string; orde
 /** grade: the row applies to that grade only (a contract with two grades, e.g. Kato 6005 / 6063); blank = every grade. */
 export type PremiumRow = { from: string; to: string | null; grade?: string | null; supplierPremium: number | null; clientPremium: number | null; upcharge: number | null };
 // ── Alerts, dashboard, stock ───────────────────────────────────────────────
-export type TradeAlert = { id: string; kind: string; key: string; dueAt: string; title: string; detail: string | null; shipmentId: string | null; orderId: string | null; supplierOrderId: string | null; linkUrl: string | null; status: "SCHEDULED" | "DUE" | "DONE" | "DISMISSED"; notifiedAt: string | null };
+export type TradeAlert = {
+  id: string; kind: string; key: string; dueAt: string; title: string; detail: string | null; shipmentId: string | null; orderId: string | null; supplierOrderId: string | null; linkUrl: string | null; status: "SCHEDULED" | "DUE" | "DONE" | "DISMISSED"; notifiedAt: string | null;
+  /** Round AZ: a STEP_DUE task's parts (the portal words the title / detail in the user's language). */
+  step?: { code: string; no: string; ref: string; daysLate: number | null; rule: string | null; ruleDays: number | null; setBy: string | null };
+};
 export type CellState = "done" | "in_progress" | "na" | "overdue" | "not_started" | "none";
 export type Pipeline = { rows: Array<{ no: string; title: string }>; months: Array<{ month: string | null; orders: Array<{ id: string; label: string; customerName: string | null; status: RecordStatus; cells: Record<string, CellState> }> }> };
 // ── Round T: the email view + the Admin dashboard ─────────────────────────
@@ -1594,9 +1607,9 @@ export function useShipmentsApi() {
       clientUpdateCustomer: (id: string, body: CompanyForm) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}/details`, "PATCH", body),
       clientCreateSupplier: (body: CompanyForm) => call<ClientSupplierDetail>(`/trade-clients/suppliers`, "POST", body),
       clientUpdateSupplier: (id: string, body: CompanyForm) => call<ClientSupplierDetail>(`/trade-clients/suppliers/${id}/details`, "PATCH", body),
-      shippingLines: () => call<ShippingLines>(`/trade-clients/shipping-lines`),
-      addShippingLine: (body: Partial<ShippingLine>) => call<ShippingLines & { code: string }>(`/trade-clients/shipping-lines`, "POST", body),
-      updateShippingLine: (code: string, body: Partial<ShippingLine>) => call<ShippingLines & { code: string }>(`/trade-clients/shipping-lines/${code}`, "PATCH", body),
+      shippingLines: () => call<ShippingLines>(`/trade-clients/logistics`),
+      addShippingLine: (body: Partial<ShippingLine>) => call<ShippingLines & { code: string }>(`/trade-clients/logistics`, "POST", body),
+      updateShippingLine: (code: string, body: Partial<ShippingLine>) => call<ShippingLines & { code: string }>(`/trade-clients/logistics/${code}`, "PATCH", body),
       clientSupplier: (id: string) => call<ClientSupplierDetail>(`/trade-clients/suppliers/${id}`),
       orderProcess: (id: string) => call<OrderProcess>(`/trade-orders/${id}/process`),
       setStepDue: (stepId: string, dueAt: string | null) => call<{ stepId: string; from: string | null; to: string | null }>(`/trade-steps/${stepId}/due`, "PATCH", { dueAt }),
@@ -1952,7 +1965,8 @@ export const linkTargetsOf = (targets: Array<{ kind: TargetKind; id: string }>):
   orderIds: targets.filter((t) => t.kind === "order").map((t) => t.id),
   supplierOrderIds: targets.filter((t) => t.kind === "supplierOrder").map((t) => t.id),
 });
-export const targetGroup = (k: TargetKind) => (k === "order" ? "Orders" : k === "supplierOrder" ? "Supplier orders" : k === "contract" ? "Contracts" : "Shipments");
+export const targetGroup = (k: TargetKind, lang: "en" | "ja" = currentLang()) =>
+  lang === "ja" ? (k === "order" ? "注文" : k === "supplierOrder" ? "仕入注文" : k === "contract" ? "契約" : "出荷") : k === "order" ? "Orders" : k === "supplierOrder" ? "Supplier orders" : k === "contract" ? "Contracts" : "Shipments";
 
 /** Files-tab count: every file, plus linked documents that aren't already listed as their in-app PDF. */
 export function recordFileCount(r: { fileLinks: RecordFileLink[]; docLinks?: RecordDocLink[] }): number {

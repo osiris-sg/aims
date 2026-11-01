@@ -6,6 +6,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import PersonIcon from "@mui/icons-material/Person";
 import CloseIcon from "@mui/icons-material/Close";
 import { useGetCustomers } from "@/app/portal/hooks/api";
+import { useTranslations } from "next-intl";
 
 interface Customer {
   id: string;
@@ -21,6 +22,7 @@ interface CustomerSelectionDrawerProps {
 }
 
 export default function CustomerSelectionDrawer({ open, onClose, onSelectCustomer }: CustomerSelectionDrawerProps) {
+  const t = useTranslations("invoices.customerDrawer");
   const [searchTerm, setSearchTerm] = useState("");
   const { customers = [], isLoading, error } = useGetCustomers({ limit: 1000 });
 
@@ -64,7 +66,7 @@ export default function CustomerSelectionDrawer({ open, onClose, onSelectCustome
           }}
         >
           <Typography variant="h6" component="h2">
-            Select Customer
+            {t("title")}
           </Typography>
           <Button onClick={handleClose} sx={{ minWidth: "auto", p: 1 }} color="inherit">
             <CloseIcon />
@@ -75,7 +77,7 @@ export default function CustomerSelectionDrawer({ open, onClose, onSelectCustome
         <Box sx={{ p: 2 }}>
           <TextField
             fullWidth
-            placeholder="Search customers..."
+            placeholder={t("search")}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             InputProps={{
@@ -118,10 +120,10 @@ export default function CustomerSelectionDrawer({ open, onClose, onSelectCustome
               }}
             >
               <PersonIcon sx={{ fontSize: "3rem", mb: 2, opacity: 0.5 }} />
-              <Typography variant="body1">{searchTerm ? "No customers found" : "No customers available"}</Typography>
+              <Typography variant="body1">{searchTerm ? t("noneFound") : t("noneAvailable")}</Typography>
               {searchTerm && (
                 <Typography variant="body2" sx={{ mt: 1 }}>
-                  Try adjusting your search terms
+                  {t("adjustSearch")}
                 </Typography>
               )}
             </Box>
@@ -192,7 +194,7 @@ export default function CustomerSelectionDrawer({ open, onClose, onSelectCustome
           }}
         >
           <Typography variant="body2" color="text.secondary" textAlign="center">
-            Select a customer to create an invoice
+            {t("footer")}
           </Typography>
         </Box>
       </Box>

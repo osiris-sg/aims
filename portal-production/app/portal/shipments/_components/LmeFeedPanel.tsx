@@ -12,20 +12,24 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useShipmentsApi, type LmeFetchResult, type LmeMonthState } from "../_lib/api";
 import { SHIPMENT_KEYS, useLmeStatus } from "../_lib/hooks";
 import { toast } from "../_lib/toast";
+import { fmtMonth } from "../_lib/format";
+import { useTranslations } from "next-intl";
+import { currentLang, formatDateTime } from "@/i18n/lang";
 
 const usd = (v: number | null | undefined) => (v === null || v === undefined ? "—" : v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const monthName = (m: string) => `${MON[Number(m.slice(5, 7)) - 1]} ${m.slice(0, 4)}`;
-const when = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const monthName = (m: string) => fmtMonth(m.slice(0, 7));
+const when = (iso: string) => (currentLang() === "ja" ? formatDateTime(iso) : new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }));
 
-const STATE: Record<LmeMonthState, { label: string; color: "default" | "success" | "warning" | "error" | "info" }> = {
-  missing: { label: "Not in the table", color: "default" },
-  westmetall: { label: "Filled by Westmetall", color: "info" },
-  "typed-agrees": { label: "Typed · agrees", color: "success" },
-  "typed-differs": { label: "Typed · differs", color: "error" },
+// Labels: settings.lmeFeed.state.<state> in the catalogs.
+const STATE: Record<LmeMonthState, { color: "default" | "success" | "warning" | "error" | "info" }> = {
+  missing: { color: "default" },
+  westmetall: { color: "info" },
+  "typed-agrees": { color: "success" },
+  "typed-differs": { color: "error" },
 };
 
 export default function LmeFeedPanel() {
+  const t = useTranslations("settings.lmeFeed");
   const [month, setMonth] = useState<string | undefined>(undefined);
   const status = useLmeStatus(month);
   const api = useShipmentsApi();
@@ -39,11 +43,11 @@ export default function LmeFeedPanel() {
     try {
       const r = await api.lmeFetch();
       setResult(r);
-      if (!r.ok) toast.error(`Westmetall unavailable: ${r.error ?? "fetch failed"}`);
-      else toast.success(r.preview ? "Preview ready — nothing was written" : "LME fetched");
+      if (!r.ok) toast.error(t("unavailable", { error: r.error ?? t("fetchFailed") }));
+      else toast.success(r.preview ? t("previewReady") : t("fetched"));
       await qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.config });
     } catch (e: any) {
-      toast.error(e?.message || "Could not fetch the LME");
+      toast.error(e?.message || t("couldNotFetch"));
     } finally {
       setBusy(false);
     }
@@ -57,34 +61,34 @@ export default function LmeFeedPanel() {
       <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }} sx={{ mb: 1 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography variant="body2" sx={{ fontWeight: 600 }}>
-            Source:{" "}
+            {t("source")}{" "}
             <MuiLink href={s?.source.url ?? "https://www.westmetall.com/en/markdaten.php?action=table&field=LME_Al_cash"} target="_blank" rel="noopener noreferrer">
               Westmetall — LME Aluminium Cash-Settlement
             </MuiLink>
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-            {s?.source.schedule ?? "Daily 07:00 JST"} · monthly average = mean of the daily cash-settlement prices, rounded half-up to 2 dp · the running month is provisional until it ends.
-            {s?.lastRun ? ` Last fetch ${when(s.lastRun.createdAt)}${s.lastRun.ok ? "" : " — failed"}.` : " Not fetched yet."}
+            {s?.source.schedule ?? t("schedule")} {t("method")}
+            {s?.lastRun ? t("lastFetch", { when: when(s.lastRun.createdAt), failed: s.lastRun.ok ? "" : t("failed") }) : t("notFetched")}
           </Typography>
         </Box>
-        {s && <Chip size="small" label={s.switchedOn ? "Feed on" : "Feed off — preview only"} color={s.switchedOn ? "success" : "default"} variant="outlined" />}
+        {s && <Chip size="small" label={s.switchedOn ? t("feedOn") : t("feedOff")} color={s.switchedOn ? "success" : "default"} variant="outlined" />}
         <Button size="small" variant="outlined" startIcon={busy ? <CircularProgress size={14} /> : <RefreshIcon />} onClick={fetchNow} disabled={busy}>
-          {s?.switchedOn ? "Fetch now" : "Preview"}
+          {s?.switchedOn ? t("fetchNow") : t("preview")}
         </Button>
       </Stack>
 
       {s?.lastRun && !s.lastRun.ok && (
         <Alert severity="warning" sx={{ mb: 1 }}>
-          LME feed unavailable: {s.lastRun.error}. Nothing was changed; the table keeps its values.
+          {t("feedUnavailable", { error: s.lastRun.error ?? "" })}
         </Alert>
       )}
 
       {result && result.ok && plan && (
         <Alert severity={plan.conflicts.length ? "warning" : "info"} sx={{ mb: 1 }}>
-          {result.preview ? "Preview (feed off, nothing written): " : "Fetched: "}
-          {plan.writes.length ? `${result.preview ? "would fill" : "filled"} ${plan.writes.map((w) => `${monthName(w.month)} ${usd(w.to)}${w.final ? "" : ` (provisional, ${w.days} days)`}`).join(" · ")}` : "no month to fill"}
-          {plan.conflicts.length ? ` · typed months that differ (kept): ${plan.conflicts.map((c) => `${monthName(c.month)} table ${usd(c.table)} vs Westmetall ${usd(c.westmetall)}`).join(" · ")}` : ""}
-          {revise.length ? ` · revise tasks: ${revise.map((r) => `${r.ref} ${r.docLabel}`).join(", ")}` : ""}
+          {result.preview ? t("resultPreview") : t("resultFetched")}
+          {plan.writes.length ? `${result.preview ? t("wouldFill") : t("filled")} ${plan.writes.map((w) => `${monthName(w.month)} ${usd(w.to)}${w.final ? "" : t("provisionalDays", { n: w.days })}`).join(" · ")}` : t("noMonth")}
+          {plan.conflicts.length ? t("conflicts", { list: plan.conflicts.map((c) => t("conflict", { month: monthName(c.month), table: usd(c.table), westmetall: usd(c.westmetall) })).join(" · ") }) : ""}
+          {revise.length ? t("revise", { list: revise.map((r) => `${r.ref} ${r.docLabel}`).join(", ") }) : ""}
         </Alert>
       )}
 
@@ -93,12 +97,12 @@ export default function LmeFeedPanel() {
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>Month</TableCell>
+                <TableCell>{t("colMonth")}</TableCell>
                 <TableCell align="right">Westmetall</TableCell>
-                <TableCell align="right">Days</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell align="right">AIMS table</TableCell>
-                <TableCell>Table</TableCell>
+                <TableCell align="right">{t("colDays")}</TableCell>
+                <TableCell>{t("colStatus")}</TableCell>
+                <TableCell align="right">{t("colAimsTable")}</TableCell>
+                <TableCell>{t("colTable")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -108,11 +112,11 @@ export default function LmeFeedPanel() {
                   <TableCell align="right" sx={{ fontFamily: "monospace" }}>{usd(m.westmetall)}</TableCell>
                   <TableCell align="right">{m.days}</TableCell>
                   <TableCell>
-                    <Chip size="small" label={m.final ? "Final" : "Provisional"} color={m.final ? "default" : "warning"} variant="outlined" />
+                    <Chip size="small" label={m.final ? t("final") : t("provisional")} color={m.final ? "default" : "warning"} variant="outlined" />
                   </TableCell>
                   <TableCell align="right" sx={{ fontFamily: "monospace", color: m.state === "typed-differs" ? "error.main" : undefined }}>{usd(m.table)}</TableCell>
                   <TableCell>
-                    <Chip size="small" label={STATE[m.state].label} color={STATE[m.state].color} variant={m.state === "typed-differs" ? "filled" : "outlined"} />
+                    <Chip size="small" label={t(`state.${m.state}`)} color={STATE[m.state].color} variant={m.state === "typed-differs" ? "filled" : "outlined"} />
                   </TableCell>
                 </TableRow>
               ))}
@@ -124,16 +128,16 @@ export default function LmeFeedPanel() {
       {s && s.days.length > 0 && (
         <Box sx={{ mt: 1.5 }}>
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-            Daily values · {monthName(s.month)} (click a month above)
+            {t("dailyValues", { month: monthName(s.month) })}
           </Typography>
           <Box sx={{ overflowX: "auto", maxHeight: 260, overflowY: "auto" }}>
             <Table size="small" stickyHeader>
               <TableHead>
                 <TableRow>
-                  <TableCell>Date</TableCell>
-                  <TableCell align="right">Cash-Settlement</TableCell>
-                  <TableCell align="right">3-month</TableCell>
-                  <TableCell align="right">Stock (t)</TableCell>
+                  <TableCell>{t("colDate")}</TableCell>
+                  <TableCell align="right">{t("colCash")}</TableCell>
+                  <TableCell align="right">{t("colThreeMonth")}</TableCell>
+                  <TableCell align="right">{t("colStock")}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -152,7 +156,7 @@ export default function LmeFeedPanel() {
       )}
       {s && !s.months.length && (
         <Typography variant="body2" color="text.secondary">
-          No Westmetall values stored yet{s.switchedOn ? " — use Fetch now." : " (the feed is off: Preview shows what it would fill)."}
+          {s.switchedOn ? t("emptyOn") : t("emptyOff")}
         </Typography>
       )}
     </Box>

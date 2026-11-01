@@ -10,6 +10,7 @@ import { Box, Button, Checkbox, CircularProgress, IconButton, InputAdornment, Me
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import SearchIcon from "@mui/icons-material/Search";
 import DownloadIcon from "@mui/icons-material/Download";
+import { useTranslations } from "next-intl";
 import { csvOf, searchRows, sortRows, type ColValue, type SortDir } from "../../_lib/clients-table";
 
 export type ClientsColumn<T> = { id: string; label: string; value: (r: T) => ColValue; render?: (r: T) => React.ReactNode; minWidth?: number; align?: "left" | "right" };
@@ -24,7 +25,6 @@ export default function ClientsTable<T>({
   actions,
   menu,
   csvName,
-  lang = "en",
   dataTour,
   initialSort,
 }: {
@@ -37,6 +37,7 @@ export default function ClientsTable<T>({
   actions?: React.ReactNode;
   menu?: (r: T) => RowAction<T>[];
   csvName: string;
+  /** Not needed any more (text follows the portal language); kept for the callers. */
   lang?: "en" | "ja";
   dataTour?: string;
   initialSort?: { id: string; dir: SortDir };
@@ -57,25 +58,25 @@ export default function ClientsTable<T>({
     a.click();
     URL.revokeObjectURL(a.href);
   };
-  const ja = lang === "ja";
+  const t = useTranslations("clients.table");
   return (
     <Paper variant="outlined" sx={{ p: 1.5 }} data-tour={dataTour}>
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
         <TextField
           size="small"
-          placeholder={ja ? "検索" : "Search"}
+          placeholder={t("search")}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           sx={{ minWidth: 240, flex: { xs: 1, sm: "0 1 320px" } }}
           InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
         />
         <Typography variant="caption" color="text.secondary">
-          {shown.length} {ja ? "件" : shown.length === 1 ? "row" : "rows"}
-          {picked.length ? ` · ${picked.length} ${ja ? "件選択" : "selected"}` : ""}
+          {t("rows", { n: shown.length })}
+          {picked.length ? ` · ${t("selected", { n: picked.length })}` : ""}
         </Typography>
         <Box sx={{ flex: 1 }} />
         <Button size="small" startIcon={<DownloadIcon />} onClick={exportCsv} data-tour="clients-export">
-          {picked.length ? (ja ? "選択をCSV出力" : "Export selected (CSV)") : ja ? "CSV出力" : "Export (CSV)"}
+          {picked.length ? t("exportSelected") : t("export")}
         </Button>
         {actions}
       </Stack>
@@ -84,7 +85,7 @@ export default function ClientsTable<T>({
           <TableHead>
             <TableRow>
               <TableCell padding="checkbox">
-                <Checkbox size="small" checked={allOn} indeterminate={!allOn && shown.some((r) => sel.has(rowKey(r)))} onChange={() => setSel(allOn ? new Set() : new Set(shown.map(rowKey)))} inputProps={{ "aria-label": ja ? "すべて選択" : "Select all" }} />
+                <Checkbox size="small" checked={allOn} indeterminate={!allOn && shown.some((r) => sel.has(rowKey(r)))} onChange={() => setSel(allOn ? new Set() : new Set(shown.map(rowKey)))} inputProps={{ "aria-label": t("selectAll") }} />
               </TableCell>
               {columns.map((c) => (
                 <TableCell key={c.id} align={c.align} sx={{ minWidth: c.minWidth, whiteSpace: "nowrap", fontWeight: 700 }} sortDirection={sort.id === c.id ? sort.dir : false}>
@@ -103,7 +104,7 @@ export default function ClientsTable<T>({
               </TableRow>
             ) : !shown.length ? (
               <TableRow>
-                <TableCell colSpan={columns.length + 2}><Typography variant="body2" color="text.secondary">{ja ? "該当なし" : "Nothing here yet"}</Typography></TableCell>
+                <TableCell colSpan={columns.length + 2}><Typography variant="body2" color="text.secondary">{t("empty")}</Typography></TableCell>
               </TableRow>
             ) : (
               shown.map((r) => {
@@ -118,7 +119,7 @@ export default function ClientsTable<T>({
                     ))}
                     {menu && (
                       <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
-                        <IconButton size="small" aria-label="More" onClick={(e) => setM({ pos: { left: e.clientX, top: e.clientY }, row: r })}>
+                        <IconButton size="small" aria-label={t("more")} onClick={(e) => setM({ pos: { left: e.clientX, top: e.clientY }, row: r })}>
                           <MoreVertIcon fontSize="small" />
                         </IconButton>
                       </TableCell>

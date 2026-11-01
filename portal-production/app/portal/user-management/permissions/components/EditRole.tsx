@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { Drawer, Box, Typography, TextField, Button, CircularProgress, Divider, Alert } from "@mui/material";
 import { useAuth } from "@clerk/nextjs";
+import { useTranslations } from "next-intl";
 import PermissionCheckbox from "./PermissionsCheckbox";
 import { useGetPermissions } from "../hooks/useGetPermissions";
 
@@ -27,6 +28,7 @@ interface Props {
 
 export default function EditRole({ open, onClose, role, onRoleUpdated }: Props) {
   const { getToken } = useAuth();
+  const t = useTranslations("users.roles");
   const { permissions, loading: permissionsLoading, error: permissionsError } = useGetPermissions();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +75,7 @@ export default function EditRole({ open, onClose, role, onRoleUpdated }: Props) 
 
   const handleSave = async () => {
     if (!role || !name.trim()) {
-      setError("Role name is required");
+      setError(t("nameReq"));
       return;
     }
 
@@ -101,7 +103,7 @@ export default function EditRole({ open, onClose, role, onRoleUpdated }: Props) 
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to update role");
+        throw new Error(errorData.message || t("updateFailed"));
       }
 
       if (onRoleUpdated) {
@@ -110,7 +112,7 @@ export default function EditRole({ open, onClose, role, onRoleUpdated }: Props) 
       onClose();
     } catch (error: any) {
       console.error("Error updating role:", error);
-      setError(error.message || "Failed to update role");
+      setError(error.message || t("updateFailed"));
     } finally {
       setSaving(false);
     }
@@ -138,11 +140,11 @@ export default function EditRole({ open, onClose, role, onRoleUpdated }: Props) 
     <Drawer anchor="right" open={open} onClose={handleClose}>
       <Box sx={{ width: { xs: "100vw", sm: 500 }, p: 3, height: "100%", display: "flex", flexDirection: "column", backgroundColor: "background.paper" }}>
         <Typography variant="h5" sx={{ mb: 2 }}>
-          Edit Role
+          {t("editTitle")}
         </Typography>
 
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          Update role details and assign permissions.
+          {t("editSub")}
         </Typography>
 
         {error && (
@@ -153,15 +155,15 @@ export default function EditRole({ open, onClose, role, onRoleUpdated }: Props) 
 
         {/* Role Details Form */}
         <Box sx={{ mb: 3 }}>
-          <TextField fullWidth label="Role Name" value={name} onChange={(e) => setName(e.target.value)} disabled={saving} required sx={{ mb: 2 }} />
+          <TextField fullWidth label={t("name")} value={name} onChange={(e) => setName(e.target.value)} disabled={saving} required sx={{ mb: 2 }} />
 
-          <TextField fullWidth label="Description" value={description} onChange={(e) => setDescription(e.target.value)} disabled={saving} multiline rows={2} sx={{ mb: 2 }} />
+          <TextField fullWidth label={t("description")} value={description} onChange={(e) => setDescription(e.target.value)} disabled={saving} multiline rows={2} sx={{ mb: 2 }} />
         </Box>
 
         <Divider sx={{ mb: 2 }} />
 
         <Typography variant="h6" sx={{ mb: 2 }}>
-          Permissions
+          {t("permissions")}
         </Typography>
 
         {permissionsLoading ? (
@@ -173,11 +175,11 @@ export default function EditRole({ open, onClose, role, onRoleUpdated }: Props) 
             {Object.keys(groupedPermissions).length === 0 ? (
               <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: 200, flexDirection: "column" }}>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  {permissionsError ? "Failed to load permissions" : "No permissions available"}
+                  {permissionsError ? t("loadFailed") : t("noPermissions")}
                 </Typography>
                 {permissionsError && (
                   <Button variant="outlined" size="small" onClick={() => window.location.reload()}>
-                    Reload Page
+                    {t("reload")}
                   </Button>
                 )}
               </Box>
@@ -203,10 +205,10 @@ export default function EditRole({ open, onClose, role, onRoleUpdated }: Props) 
         {/* Action Buttons */}
         <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 2, pt: 2, borderTop: "1px solid", borderColor: "divider" }}>
           <Button variant="outlined" onClick={handleClose} disabled={saving}>
-            Cancel
+            {t("cancel")}
           </Button>
           <Button variant="contained" color="primary" onClick={handleSave} disabled={permissionsLoading || saving || !name.trim()}>
-            {saving ? <CircularProgress size={24} /> : "Save Changes"}
+            {saving ? <CircularProgress size={24} /> : t("saveChanges")}
           </Button>
         </Box>
       </Box>

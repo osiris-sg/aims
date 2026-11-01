@@ -6,12 +6,14 @@
 // by TopNavBar and the chat home, so the assistant can only open screens the
 // bar itself would show.
 
+import { useMemo } from "react";
+import { useTranslations } from "next-intl";
+import { useUiLang } from "@/i18n/UiLangProvider";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
-import { useEffect, useState } from "react";
-import { clientsNavModule, navLangOf, visibleSalesSubmenus, withoutSalesMonthly } from "@/helpers/shipmentsNav";
+import { clientsNavModule, visibleSalesSubmenus, withoutSalesMonthly } from "@/helpers/shipmentsNav";
 
 // Mirrors DynamicSidebarContent — keep the two in sync.
 const HIDDEN_MODULES = new Set<string>(["CUSTOMERS", "SUPPLIERS"]);
@@ -68,6 +70,26 @@ export const submenuLabel = (s: any) => {
   return raw.charAt(0).toUpperCase() + raw.slice(1).replace(/-/g, " ");
 };
 
+/**
+ * Round AZ — nav labels in the portal language. Japanese: the catalog name by module code (shell.modules.<CODE>),
+ * submenu key (shell.submenus.<CODE>.<key>) or settings path (shell.settings.<last path segment>) when there is one,
+ * else the stored name. English always shows the stored displayName / label exactly as before.
+ */
+export function useNavLabels() {
+  const { lang } = useUiLang();
+  const t = useTranslations("shell");
+  return useMemo(() => {
+    const ja = lang === "ja";
+    const pick = (key: string, stored: string) => (ja && t.has(key) ? t(key) : stored);
+    const keyOf = (s: any) => String(typeof s === "string" ? s : s?.key ?? "");
+    return {
+      moduleName: (m: any): string => (m?.moduleCode ? pick(`modules.${m.moduleCode}`, m.displayName || m.moduleCode) : m?.displayName || ""),
+      subLabel: (m: any, s: any, stored: string): string => (m?.moduleCode && keyOf(s) ? pick(`submenus.${m.moduleCode}.${keyOf(s)}`, stored) : stored),
+      settingLabel: (s: { label: string; path: string }): string => pick(`settings.${s.path.split("/").pop()}`, s.label),
+    };
+  }, [lang, t]);
+}
+
 export function useNavModules() {
   const { modules, isModuleEnabled } = useConfiguration();
   const { isModuleAllowed, userRoles, hasPermission } = useUserPermissions();
@@ -85,8 +107,7 @@ export function useNavModules() {
   const isMasterTier = userRoles.length === 0 || userRoles.some((r: any) => !SCOPED_ROLES.includes(r?.name));
 
   const orderKey = (m: any) => ORDER_OVERRIDE[m.moduleCode] ?? m.sortOrder ?? 999;
-  const [lang, setLang] = useState<"en" | "ja">("en");
-  useEffect(() => setLang(navLangOf(typeof navigator !== "undefined" ? navigator.language : null)), []);
+  const { lang } = useUiLang();
   const built = (modules || [])
     .filter((m: any) => m.enabled)
     .filter((m: any) => isModuleAllowed(m.moduleCode))

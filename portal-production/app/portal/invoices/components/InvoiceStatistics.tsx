@@ -7,6 +7,7 @@ import WarningIcon from "@mui/icons-material/Warning";
 import ScheduleIcon from "@mui/icons-material/Schedule";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import moment from "moment";
+import { useTranslations } from "next-intl";
 
 interface InvoiceStatisticsProps {
   documents: any[];
@@ -14,6 +15,7 @@ interface InvoiceStatisticsProps {
 }
 
 export default function InvoiceStatistics({ documents, loading }: InvoiceStatisticsProps) {
+  const t = useTranslations("invoices.stats");
   // Helper function to calculate amount from items if needed
   const calculateAmountFromItems = (items: any[]) => {
     if (!items || items.length === 0) return 0;
@@ -92,28 +94,28 @@ export default function InvoiceStatistics({ documents, loading }: InvoiceStatist
 
   const statsCards = [
     {
-      title: "TOTAL OUTSTANDING",
+      title: t("totalOutstanding"),
       value: statistics.totalOutstanding,
       icon: <TrendingUpIcon />,
       color: "primary.main",
       bgColor: "surfaceTones.high",
     },
     {
-      title: "OVERDUE",
+      title: t("overdue"),
       value: statistics.overdue,
       icon: <WarningIcon />,
       color: "customRed.main",
       bgColor: "customRed.light",
     },
     {
-      title: "DUE",
+      title: t("due"),
       value: statistics.due,
       icon: <ScheduleIcon />,
       color: "customYellow.dark",
       bgColor: "customYellow.light",
     },
     {
-      title: "PAID",
+      title: t("paid"),
       value: statistics.paid,
       icon: <CheckCircleIcon />,
       color: "success.main",

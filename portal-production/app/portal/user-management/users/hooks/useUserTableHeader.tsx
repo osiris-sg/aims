@@ -5,6 +5,9 @@ import PersonIcon from "@mui/icons-material/Person";
 import { kebabColumn } from "@/components/RowKebab";
 import { request } from "@/helpers/request";
 import { useAuth } from "@clerk/nextjs";
+import { useTranslations } from "next-intl";
+import { useUiLang } from "@/i18n/UiLangProvider";
+import { formatDate } from "@/i18n/lang";
 
 const columnHelper = createColumnHelper<any>();
 
@@ -14,6 +17,8 @@ export default function useUserTableHeader() {
   const [userToDelete, setUserToDelete] = useState<string | null>(null);
   const [isDeleteInProgress, setIsDeleteInProgress] = useState(false);
   const { getToken } = useAuth();
+  const t = useTranslations("users.list");
+  const { lang } = useUiLang();
 
   const handleEditUser = (user: any) => {
     setSelectedUser(user);
@@ -67,7 +72,7 @@ export default function useUserTableHeader() {
 
   const columns = [
     columnHelper.accessor("name", {
-      header: "User",
+      header: t("user"),
       cell: (info) => {
         const user = info.row.original;
         return (
@@ -88,7 +93,7 @@ export default function useUserTableHeader() {
       },
     }),
     columnHelper.accessor("roles", {
-      header: "Roles",
+      header: t("roles"),
       cell: (info) => {
         const roles = info.getValue();
         return (
@@ -110,7 +115,7 @@ export default function useUserTableHeader() {
               ))
             ) : (
               <Typography variant="caption" color="text.secondary">
-                No roles assigned
+                {t("noRoles")}
               </Typography>
             )}
           </Box>
@@ -118,10 +123,10 @@ export default function useUserTableHeader() {
       },
     }),
     columnHelper.accessor("whatsappNumber", {
-      header: "WhatsApp",
+      header: t("whatsapp"),
       cell: (info: any) => {
         const n = info.getValue() as string | null;
-        return n ? <Chip label={`Linked · …${String(n).slice(-4)}`} size="small" color="success" variant="outlined" sx={{ borderRadius: "4px" }} title="Can use the WhatsApp assistant and receives its pushes" /> : <Typography variant="caption" color="text.secondary">—</Typography>;
+        return n ? <Chip label={t("linked", { last4: String(n).slice(-4) })} size="small" color="success" variant="outlined" sx={{ borderRadius: "4px" }} title={t("linkedTip")} /> : <Typography variant="caption" color="text.secondary">—</Typography>;
       },
     }),
     columnHelper.accessor(
@@ -134,22 +139,22 @@ export default function useUserTableHeader() {
       },
       {
         id: "permissions",
-        header: "Permissions",
+        header: t("permissions"),
         cell: (info: any) => {
           const totalPermissions = info.getValue() as number;
-          return <Chip label={`${totalPermissions} permissions`} size="small" variant="outlined" sx={{ borderRadius: "4px" }} />;
+          return <Chip label={t("permCount", { n: totalPermissions })} size="small" variant="outlined" sx={{ borderRadius: "4px" }} />;
         },
       }
     ),
     columnHelper.accessor("createdAt", {
-      header: "Created",
+      header: t("created"),
       cell: (info) => {
-        return <Typography variant="body2">{new Date(info.getValue()).toLocaleDateString()}</Typography>;
+        return <Typography variant="body2">{lang === "ja" ? formatDate(info.getValue(), "ja") : new Date(info.getValue()).toLocaleDateString()}</Typography>;
       },
     }),
     kebabColumn((row: any) => [
-      { label: "Edit", onClick: () => handleEditUser(row) },
-      { label: "Remove from organization", destructive: true, onClick: () => handleDeleteUser(row.id) },
+      { label: t("edit"), onClick: () => handleEditUser(row) },
+      { label: t("remove"), destructive: true, onClick: () => handleDeleteUser(row.id) },
     ]),
   ];
 

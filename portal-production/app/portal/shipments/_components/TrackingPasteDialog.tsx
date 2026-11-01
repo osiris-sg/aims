@@ -12,16 +12,19 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useShipmentsApi, type TrackingRead } from "../_lib/api";
 import { SHIPMENT_KEYS } from "../_lib/hooks";
 import { toast } from "../_lib/toast";
+import { useTranslations } from "next-intl";
+import { currentLang, formatDay } from "@/i18n/lang";
 
-const fmt = (v: string | null) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? new Date(`${v}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : (v ?? "—"));
-const STATUS: Record<string, { label: string; color: "default" | "info" | "warning" | "success" }> = {
-  same: { label: "Same", color: "success" },
-  new: { label: "New", color: "info" },
-  changed: { label: "Changed", color: "warning" },
-  note: { label: "Note only", color: "default" },
+const fmt = (v: string | null) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? currentLang() === "ja" ? formatDay(`${v}T00:00:00Z`, "ja") : new Date(`${v}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : (v ?? "—"));
+const STATUS: Record<string, { color: "default" | "info" | "warning" | "success" }> = {
+  same: { color: "success" },
+  new: { color: "info" },
+  changed: { color: "warning" },
+  note: { color: "default" },
 };
 
 export default function TrackingPasteDialog({ shipmentId, blNumber, open, onClose }: { shipmentId: string; blNumber: string | null; open: boolean; onClose: () => void }) {
+  const t = useTranslations("shipments.trackingPasteDialog");
   const api = useShipmentsApi();
   const qc = useQueryClient();
   const [text, setText] = useState("");
@@ -52,8 +55,8 @@ export default function TrackingPasteDialog({ shipmentId, blNumber, open, onClos
 
   const pick = (f: File | null | undefined) => {
     if (!f) return;
-    if (!/^image\/(png|jpe?g|webp|gif)$/i.test(f.type)) return setError("The screenshot must be a PNG, JPEG, WebP or GIF image");
-    if (f.size > 8 * 1024 * 1024) return setError("The screenshot is larger than 8 MB");
+    if (!/^image\/(png|jpe?g|webp|gif)$/i.test(f.type)) return setError(t("badType"));
+    if (f.size > 8 * 1024 * 1024) return setError(t("tooBig"));
     setError(null);
     setImage(f);
   };
@@ -74,7 +77,7 @@ export default function TrackingPasteDialog({ shipmentId, blNumber, open, onClos
       setRead(r);
       setTicked(Object.fromEntries(r.rows.map((x) => [x.field, x.suggested && !x.handTyped])));
     } catch (e: any) {
-      setError(e?.message || "Could not read the tracking page");
+      setError(e?.message || t("readError"));
     } finally {
       setBusy(false);
     }
@@ -85,11 +88,11 @@ export default function TrackingPasteDialog({ shipmentId, blNumber, open, onClos
     setBusy(true);
     try {
       const r = await api.trackingApply(read.id, fields);
-      toast.success(r.fields.length ? `${read.ref}: ${r.fields.length} field${r.fields.length > 1 ? "s" : ""} updated from the tracking page` : `${read.ref} was already up to date`);
+      toast.success(r.fields.length ? t("updated", { ref: read.ref, n: r.fields.length }) : t("upToDate", { ref: read.ref }));
       await Promise.all([qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.shipments }), qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.orders })]);
       onClose();
     } catch (e: any) {
-      setError(e?.message || "Could not apply");
+      setError(e?.message || t("applyError"));
     } finally {
       setBusy(false);
     }
@@ -97,46 +100,46 @@ export default function TrackingPasteDialog({ shipmentId, blNumber, open, onClos
 
   return (
     <Dialog open={open} onClose={busy ? undefined : onClose} maxWidth="md" fullWidth onPaste={onPaste}>
-      <DialogTitle>Paste tracking{blNumber ? ` · B/L ${blNumber}` : ""}</DialogTitle>
+      <DialogTitle>{t("title")}{blNumber ? ` · B/L ${blNumber}` : ""}</DialogTitle>
       <DialogContent dividers>
         {!read && (
           <Stack spacing={1.5}>
             <Typography variant="body2" color="text.secondary">
-              Open the carrier&apos;s tracking page (Track button), then paste its text here or attach / paste (Ctrl+V) a screenshot. AIMS reads it and shows what would change — nothing is saved until you apply.
+              {t("intro")}
             </Typography>
-            <TextField multiline minRows={7} maxRows={16} fullWidth label="Tracking page text" placeholder={"B/L No. 198GX06523\nWAN HAI 366 / 51  VIZAG  ETD 2026/10/06\nPORT KLANG NORTH PORT  ETA 2026/10/10\nWAN HAI 365 / N046  ETD 2026/10/20\nYOKOHAMA  ETA 2026/11/01"} value={text} onChange={(e) => setText(e.target.value)} disabled={busy} inputProps={{ style: { fontFamily: "monospace", fontSize: 12.5 } }} />
+            <TextField multiline minRows={7} maxRows={16} fullWidth label={t("textLabel")} placeholder={"B/L No. 198GX06523\nWAN HAI 366 / 51  VIZAG  ETD 2026/10/06\nPORT KLANG NORTH PORT  ETA 2026/10/10\nWAN HAI 365 / N046  ETD 2026/10/20\nYOKOHAMA  ETA 2026/11/01"} value={text} onChange={(e) => setText(e.target.value)} disabled={busy} inputProps={{ style: { fontFamily: "monospace", fontSize: 12.5 } }} />
             <Stack direction="row" spacing={1} alignItems="center">
               <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden onChange={(e) => pick(e.target.files?.[0])} />
               <Button size="small" variant="outlined" startIcon={<ImageIcon />} onClick={() => fileRef.current?.click()} disabled={busy}>
-                {image ? "Change screenshot" : "Attach screenshot"}
+                {image ? t("changeShot") : t("attachShot")}
               </Button>
               {image && (
-                <Chip size="small" label={image.name || "screenshot"} onDelete={() => setImage(null)} />
+                <Chip size="small" label={image.name || t("screenshot")} onDelete={() => setImage(null)} />
               )}
             </Stack>
-            {preview && <Box component="img" src={preview} alt="Tracking screenshot" sx={{ maxWidth: "100%", maxHeight: 260, objectFit: "contain", border: 1, borderColor: "divider", borderRadius: 1 }} />}
+            {preview && <Box component="img" src={preview} alt={t("shotAlt")} sx={{ maxWidth: "100%", maxHeight: 260, objectFit: "contain", border: 1, borderColor: "divider", borderRadius: 1 }} />}
           </Stack>
         )}
         {read && (
           <Stack spacing={1.5}>
             <Typography variant="body2">
-              <b>{read.ref}</b> · {read.snapshot.carrier ?? "carrier"} · B/L {read.snapshot.blNumber ?? "—"} {read.bl === "match" ? "✓" : ""} · {read.source === "SCREENSHOT" ? "from a screenshot" : "from pasted text"}
+              <b>{read.ref}</b> · {read.snapshot.carrier ?? t("carrier")} · B/L {read.snapshot.blNumber ?? "—"} {read.bl === "match" ? "✓" : ""} · {read.source === "SCREENSHOT" ? t("fromShot") : t("fromText")}
             </Typography>
             {read.snapshot.legs.length > 0 && (
               <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
                 {read.snapshot.legs.map((l) => `${l.vessel ?? "?"}${l.voyage ? ` / ${l.voyage}` : ""}: ${l.portOfLoading ?? "?"} ${fmt(l.etd)} → ${l.portOfDischarge ?? "?"} ${fmt(l.eta)}`).join("  ·  ")}
               </Typography>
             )}
-            {read.snapshot.dropped.length > 0 && <Alert severity="info">Not used (not found in the pasted text): {read.snapshot.dropped.join(", ")}</Alert>}
+            {read.snapshot.dropped.length > 0 && <Alert severity="info">{t("dropped", { list: read.snapshot.dropped.join(", ") })}</Alert>}
             <Box sx={{ overflowX: "auto" }}>
               <Table size="small">
                 <TableHead>
                   <TableRow>
                     <TableCell padding="checkbox" />
-                    <TableCell>Field</TableCell>
-                    <TableCell>AIMS</TableCell>
-                    <TableCell>Tracking</TableCell>
-                    <TableCell>Status</TableCell>
+                    <TableCell>{t("field")}</TableCell>
+                    <TableCell>{t("aims")}</TableCell>
+                    <TableCell>{t("tracking")}</TableCell>
+                    <TableCell>{t("statusCol")}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -152,8 +155,8 @@ export default function TrackingPasteDialog({ shipmentId, blNumber, open, onClos
                         <TableCell sx={{ fontFamily: "monospace", fontSize: 12.5, fontWeight: can ? 600 : 400 }}>{fmt(r.tracking)}</TableCell>
                         <TableCell>
                           <Stack direction="row" spacing={0.5}>
-                            <Chip size="small" variant="outlined" label={STATUS[r.status].label} color={STATUS[r.status].color} />
-                            {r.handTyped && <Chip size="small" variant="outlined" color="warning" label="Typed by hand" />}
+                            <Chip size="small" variant="outlined" label={t(`status.${r.status}`)} color={STATUS[r.status].color} />
+                            {r.handTyped && <Chip size="small" variant="outlined" color="warning" label={t("handTyped")} />}
                           </Stack>
                         </TableCell>
                       </TableRow>
@@ -163,7 +166,7 @@ export default function TrackingPasteDialog({ shipmentId, blNumber, open, onClos
               </Table>
             </Box>
             <Typography variant="caption" color="text.secondary">
-              The ETA keeps its history (source: tracking). Weights and bundles come from the B/L / packing list and are never changed here. A typed ETA is unticked — tick it to replace it.
+              {t("footnote")}
             </Typography>
           </Stack>
         )}
@@ -175,20 +178,20 @@ export default function TrackingPasteDialog({ shipmentId, blNumber, open, onClos
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>
-          Cancel
+          {t("cancel")}
         </Button>
         {read ? (
           <>
             <Button onClick={() => setRead(null)} disabled={busy}>
-              Back
+              {t("back")}
             </Button>
             <Button variant="contained" onClick={apply} disabled={busy || !fields.length} startIcon={busy ? <CircularProgress size={14} /> : undefined}>
-              {fields.length ? `Apply ${fields.length} field${fields.length > 1 ? "s" : ""}` : "Nothing to apply"}
+              {fields.length ? t("applyN", { n: fields.length }) : t("nothing")}
             </Button>
           </>
         ) : (
           <Button variant="contained" onClick={doRead} disabled={busy || (!text.trim() && !image)} startIcon={busy ? <CircularProgress size={14} /> : undefined}>
-            Read
+            {t("read")}
           </Button>
         )}
       </DialogActions>

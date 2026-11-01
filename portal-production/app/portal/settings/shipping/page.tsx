@@ -20,6 +20,7 @@ import FilterPreviewPanel, { EmailFilterExtras } from "@/app/portal/shipments/_c
 import EstimatorRatesForm from "@/app/portal/shipments/_components/EstimatorRatesForm";
 import AlertRulesForm from "@/app/portal/shipments/_components/AlertRulesForm";
 import TradeTheme from "@/app/portal/shipments/_components/TradeTheme";
+import { useTranslations } from "next-intl";
 
 const Section = ({ title, hint, children, tour }: { title: string; hint: string; children: React.ReactNode; tour?: string }) => (
   <Paper variant="outlined" sx={{ p: { xs: 2, md: 3 } }} data-tour={tour}>
@@ -35,10 +36,11 @@ const Section = ({ title, hint, children, tour }: { title: string; hint: string;
 
 export default function ShippingSettingsPage() {
   const { isModuleEnabled, loading } = useConfiguration() as { isModuleEnabled: (code: string) => boolean; loading?: boolean };
+  const t = useTranslations("settings.shipping");
   if (!loading && !showShippingSettings(isModuleEnabled)) {
     return (
       <Box sx={{ p: 3 }}>
-        <Alert severity="info">Shipping &amp; documents settings are for organizations with the Shipments module.</Alert>
+        <Alert severity="info">{t("onlyShipments")}</Alert>
       </Box>
     );
   }
@@ -46,47 +48,47 @@ export default function ShippingSettingsPage() {
     <TradeTheme>
       <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 1000, mx: "auto" }}>
         <Typography variant="h5" sx={{ fontWeight: 800 }}>
-          Shipping &amp; documents
+          {t("title")}
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          Defaults for new contracts and the texts printed on the documents made in Shipments. Existing contracts and documents keep what they were created with.
+          {t("intro")}
         </Typography>
         <Stack spacing={3}>
-          <Section title="B/L instruction defaults" hint="Consignee and notify party that new contracts start with." tour="settings-bl-defaults">
+          <Section title={t("blTitle")} hint={t("blHint")} tour="settings-bl-defaults">
             <BlDefaultsForm />
           </Section>
           <Section
-            title="Document settings"
-            hint="Bank accounts, issuers and the 出庫・納入依頼書 宛先, company seal, delivery profiles and QMJP by quarter."
+            title={t("docTitle")}
+            hint={t("docHint")}
             tour="settings-doc-settings"
           >
             <DocSettingsForm />
           </Section>
           <Section
-            title="Estimator rates"
-            hint="Courier cost + import tax estimator (shipment steps 7, 8, 12) and the invoices' due days. Port, truck size and customs rate per customer are in Org Settings → Customers."
+            title={t("estTitle")}
+            hint={t("estHint")}
             tour="settings-estimator"
           >
             <EstimatorRatesForm />
           </Section>
-          <Section title="Alerts and reminders" hint="When reminders fall due, the default free time at the port, when a step counts as stuck, and the daily digest e-mail." tour="settings-alerts">
+          <Section title={t("alertsTitle")} hint={t("alertsHint")} tour="settings-alerts">
             <AlertRulesForm />
           </Section>
           <Section
-            title="Email intake"
-            hint="Forward shipping emails to this address. Each email is kept with its attachments; nothing is filed into deals yet."
+            title={t("intakeTitle")}
+            hint={t("intakeHint")}
             tour="settings-email-intake"
           >
             <EmailIntakePanel />
           </Section>
           <Section
-            title="Email filter"
-            hint="Which senders the intake keeps. Start with the trial run, check the preview below for false drops, then enforce."
+            title={t("filterTitle")}
+            hint={t("filterHint")}
             tour="settings-email-filter"
           >
             <EmailFilterForm />
             <Typography variant="subtitle2" sx={{ mt: 3, mb: 1 }}>
-              Filter preview (last 30 days)
+              {t("filterPreview")}
             </Typography>
             <FilterPreviewPanel />
             <EmailFilterExtras />

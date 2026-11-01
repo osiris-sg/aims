@@ -39,12 +39,12 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useShipmentsApi, type EmailFilter, type EmailFilterMode } from "../_lib/api";
 import { toast } from "../_lib/toast";
+import { useTranslations } from "next-intl";
 
-const MODES: Array<{ value: EmailFilterMode; label: string; hint: string }> = [
-  { value: "OFF", label: "Off", hint: "every email is kept and triaged" },
-  { value: "SHADOW", label: "Trial run", hint: "every email is still kept; Inbox › Filter preview shows what would be dropped" },
-  { value: "ENFORCE", label: "Enforce", hint: "mail that fails the filter is dropped before it is stored (only a minimal log line is kept)" },
-];
+type T = (key: string, values?: Record<string, string | number>) => string;
+
+// Labels and hints: settings.emailFilter.modes.<value> in the catalogs.
+const MODES: Array<{ value: EmailFilterMode }> = [{ value: "OFF" }, { value: "SHADOW" }, { value: "ENFORCE" }];
 
 /** The filter payload with the round-W company list (typed here; `_lib/api.ts` keeps its own shape). */
 type EmailFilterWithCompanies = EmailFilter & { emailCompanies?: Record<string, string>; companyDefaults?: Record<string, string> };
@@ -69,21 +69,22 @@ const textToNotes = (s: string) =>
 const rowsOf = (m: Record<string, string> | undefined) => Object.entries(m ?? {}).map(([domain, name]) => ({ domain, name }));
 
 /** The rows as the API map, or the first problem as a message. */
-function companiesOf(rows: CompanyRow[]): { map: Record<string, string> } | { error: string } {
+function companiesOf(rows: CompanyRow[], t: T): { map: Record<string, string> } | { error: string } {
   const map: Record<string, string> = {};
   for (const r of rows) {
     const domain = r.domain.trim().toLowerCase().replace(/^@/, "");
     const name = r.name.trim();
     if (!domain && !name) continue; // an empty row is just skipped
-    if (!COMPANY_DOMAIN_RE.test(domain)) return { error: `"${r.domain.trim() || "(empty)"}" is not an email domain or address (like isewan.co.jp or purchasing@gmail.com)` };
-    if (!name || name.length > COMPANY_NAME_MAX) return { error: `The company name for ${domain} must be 1–${COMPANY_NAME_MAX} characters` };
+    if (!COMPANY_DOMAIN_RE.test(domain)) return { error: t("errDomain", { domain: r.domain.trim() || t("empty") }) };
+    if (!name || name.length > COMPANY_NAME_MAX) return { error: t("errName", { domain, max: COMPANY_NAME_MAX }) };
     map[domain] = name;
   }
-  if (Object.keys(map).length > COMPANY_LIST_MAX) return { error: `At most ${COMPANY_LIST_MAX} companies` };
+  if (Object.keys(map).length > COMPANY_LIST_MAX) return { error: t("errMax", { max: COMPANY_LIST_MAX }) };
   return { map };
 }
 
 export default function EmailFilterForm() {
+  const t = useTranslations("settings.emailFilter");
   const api = useShipmentsApi();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["trade-email-filter"], queryFn: () => api.getEmailFilter() as Promise<EmailFilterWithCompanies> });
@@ -101,7 +102,7 @@ export default function EmailFilterForm() {
     setNotes(notesToText(q.data.filterNotes));
     setCompanies(rowsOf(q.data.emailCompanies));
   }, [q.data]);
-  if (q.isError) return <Alert severity="error">{(q.error as Error)?.message || "Could not load the email filter"}</Alert>;
+  if (q.isError) return <Alert severity="error">{(q.error as Error)?.message || t("couldNotLoad")}</Alert>;
   const noteOf = q.data?.filterNotes ?? {};
   const pending = Object.entries(noteOf).filter(([k]) => !k.includes("."));
   const defaults = q.data?.companyDefaults ?? {};
@@ -111,10 +112,10 @@ export default function EmailFilterForm() {
   const removeRow = (i: number) => setCompanies((rows) => rows.filter((_, j) => j !== i));
   const save = async () => {
     if (mode === "ENFORCE" && q.data?.filterMode !== "ENFORCE" && !lines(domains).length && !lines(addresses).length) {
-      toast.error("Add at least one allowed domain or address before enforcing");
+      toast.error(t("needAllow"));
       return;
     }
-    const c = companiesOf(companies);
+    const c = companiesOf(companies, t);
     if ("error" in c) {
       toast.error(c.error);
       return;
@@ -124,9 +125,9 @@ export default function EmailFilterForm() {
       const body: Partial<EmailFilterWithCompanies> = { filterMode: mode, allowDomains: lines(domains), allowAddresses: lines(addresses), filterNotes: textToNotes(notes), emailCompanies: c.map };
       await api.updateEmailFilter(body);
       await qc.invalidateQueries({ queryKey: ["trade-email-filter"] });
-      toast.success("Email filter saved");
+      toast.success(t("saved"));
     } catch (e: any) {
-      toast.error(e?.message || "Could not save");
+      toast.error(e?.message || t("couldNotSave"));
     } finally {
       setSaving(false);
     }
@@ -141,7 +142,7 @@ export default function EmailFilterForm() {
             control={<Radio size="small" />}
             label={
               <Typography variant="body2">
-                <b>{m.label}</b> — {m.hint}
+                <b>{t(`modes.${m.value}.label`)}</b> — {t(`modes.${m.value}.hint`)}
               </Typography>
             }
           />
@@ -154,7 +155,7 @@ export default function EmailFilterForm() {
             fullWidth
             multiline
             minRows={6}
-            label="Allowed domains (one per line)"
+            label={t("allowDomains")}
             value={domains}
             disabled={q.isLoading}
             onChange={(e) => setDomains(e.target.value)}
@@ -175,7 +176,7 @@ export default function EmailFilterForm() {
             fullWidth
             multiline
             minRows={6}
-            label="Allowed addresses (one per line)"
+            label={t("allowAddresses")}
             value={addresses}
             disabled={q.isLoading}
             onChange={(e) => setAddresses(e.target.value)}
@@ -183,7 +184,7 @@ export default function EmailFilterForm() {
             inputProps={{ style: { fontFamily: "monospace", fontSize: 12.5 } }}
           />
           <Typography variant="caption" color="text.secondary" component="div" sx={{ mt: 0.5 }}>
-            For people writing from a personal mailbox (gmail.com etc.) — never allow a whole public domain.
+            {t("addressesHint")}
           </Typography>
         </Box>
       </Stack>
@@ -192,29 +193,29 @@ export default function EmailFilterForm() {
         fullWidth
         multiline
         minRows={3}
-        label="Notes (one per line: domain or party — note)"
+        label={t("notes")}
         value={notes}
         disabled={q.isLoading}
         onChange={(e) => setNotes(e.target.value)}
         inputProps={{ style: { fontSize: 12.5 } }}
-        helperText={pending.length ? `Still to add: ${pending.map(([k, v]) => `${k} (${v})`).join(", ")}` : undefined}
+        helperText={pending.length ? t("stillToAdd", { list: pending.map(([k, v]) => `${k} (${v})`).join(", ") }) : undefined}
       />
       <Typography variant="caption" color="text.secondary">
-        Always kept, whatever the list: a shipment key in the subject or an attachment name (B/L 198GX… / 22AA… / KMTC… / MEDU… / SITG… / GGVC…, contract 4540…, PI 9331…, CI XP26… / 9000…) and replies on a thread already matched to an order. Mail only between your own addresses is kept only then.
+        {t("alwaysKept")}
       </Typography>
 
       {/* Companies: sender domain → the name the Inbox "Company" chip shows. */}
       <Box data-tour="settings-email-companies">
         <Typography variant="subtitle2" sx={{ mb: 0.25 }}>
-          Companies
+          {t("companies")}
         </Typography>
         <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1 }}>
-          The Inbox shows the company behind each sender&apos;s domain (isewan.co.jp → Isewan). Add a domain the built-ins don&apos;t know, or rename one; an unknown domain shows the domain itself. A subdomain follows its parent (mail.sus.co.jp → SUS).
+          {t("companiesHint")}
         </Typography>
         {Object.keys(defaults).length > 0 && (
           <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
             {Object.entries(defaults).map(([d, n]) => (
-              <Tooltip key={d} title={overridden.has(d) ? "Renamed in your list below" : "Built-in — click to rename it for your organisation"}>
+              <Tooltip key={d} title={overridden.has(d) ? t("renamed") : t("builtIn")}>
                 <Chip
                   size="small"
                   variant="outlined"
@@ -229,8 +230,8 @@ export default function EmailFilterForm() {
         <Table size="small" sx={{ "& td, & th": { px: 0.75, py: 0.5 } }}>
           <TableHead>
             <TableRow>
-              <TableCell sx={{ width: "45%" }}>Sender domain</TableCell>
-              <TableCell>Company</TableCell>
+              <TableCell sx={{ width: "45%" }}>{t("senderDomain")}</TableCell>
+              <TableCell>{t("company")}</TableCell>
               <TableCell align="right" sx={{ width: 48 }} />
             </TableRow>
           </TableHead>
@@ -250,7 +251,7 @@ export default function EmailFilterForm() {
                       error={badDomain}
                       disabled={q.isLoading}
                       onChange={(e) => setRow(i, { domain: e.target.value })}
-                      inputProps={{ style: { fontFamily: "monospace", fontSize: 12.5 }, "aria-label": "Sender domain" }}
+                      inputProps={{ style: { fontFamily: "monospace", fontSize: 12.5 }, "aria-label": t("senderDomain") }}
                     />
                   </TableCell>
                   <TableCell>
@@ -262,11 +263,11 @@ export default function EmailFilterForm() {
                       error={badName}
                       disabled={q.isLoading}
                       onChange={(e) => setRow(i, { name: e.target.value })}
-                      inputProps={{ maxLength: COMPANY_NAME_MAX, style: { fontSize: 12.5 }, "aria-label": "Company name" }}
+                      inputProps={{ maxLength: COMPANY_NAME_MAX, style: { fontSize: 12.5 }, "aria-label": t("companyName") }}
                     />
                   </TableCell>
                   <TableCell align="right">
-                    <IconButton size="small" aria-label="Remove" onClick={() => removeRow(i)} sx={{ color: "error.main" }}>
+                    <IconButton size="small" aria-label={t("remove")} onClick={() => removeRow(i)} sx={{ color: "error.main" }}>
                       <DeleteOutlineIcon fontSize="small" />
                     </IconButton>
                   </TableCell>
@@ -277,7 +278,7 @@ export default function EmailFilterForm() {
               <TableRow>
                 <TableCell colSpan={3}>
                   <Typography variant="caption" color="text.secondary">
-                    No companies of your own yet — the built-ins above apply.
+                    {t("noCompanies")}
                   </Typography>
                 </TableCell>
               </TableRow>
@@ -285,13 +286,13 @@ export default function EmailFilterForm() {
           </TableBody>
         </Table>
         <Button size="small" startIcon={<AddIcon />} onClick={() => addRow()} disabled={q.isLoading || companies.length >= COMPANY_LIST_MAX} sx={{ mt: 0.5 }}>
-          Add company
+          {t("addCompany")}
         </Button>
       </Box>
 
       <Stack direction="row" justifyContent="flex-end">
         <Button variant="contained" onClick={save} disabled={saving || q.isLoading}>
-          Save
+          {t("save")}
         </Button>
       </Stack>
     </Stack>

@@ -5,13 +5,18 @@
 
 import React, { useState } from "react";
 import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, LinearProgress, Paper, Typography } from "@mui/material";
+import { useTranslations } from "next-intl";
 import type { CurrentStep, Progress, RecordStatus } from "../_lib/api";
 import { RECORD_STATUS } from "../_lib/format";
+import { useUiLang } from "@/i18n/UiLangProvider";
+import { useStepName } from "@/i18n/hooks";
 
 export const RecordStatusChip = ({ status }: { status: RecordStatus }) => {
+  const t = useTranslations("orders.bits");
   const s = RECORD_STATUS[status] ?? { label: status, color: "default" as const };
+  const label = t.has(`recordStatus.${status}`) ? t(`recordStatus.${status}`) : s.label;
   // Outlined: filled info/secondary chips are light-on-light in the dark theme.
-  return <Chip size="small" label={s.label} color={s.color} variant="outlined" />;
+  return <Chip size="small" label={label} color={s.color} variant="outlined" />;
 };
 
 /** Bar + "x/y" (ongoing steps are already excluded by the backend). */
@@ -33,10 +38,13 @@ export const ProgressCell = ({ progress, width = 120 }: { progress?: Progress; w
 // Round Q: step names wrap to a second line instead of "…". Round AD (owner: no "…" anywhere): always — `wrap` is kept for callers.
 export const CurrentStepCell = ({ step, progress, maxWidth = 260, wrap = true }: { step?: CurrentStep; progress?: Progress; maxWidth?: number | string; wrap?: boolean }) => {
   void wrap;
+  const t = useTranslations("orders.bits");
+  const { lang } = useUiLang();
+  const stepName = useStepName();
   if (!step) {
     return progress?.total ? (
       <Typography variant="body2" sx={{ color: "success.main", fontWeight: 600 }}>
-        Completed
+        {t("completed")}
       </Typography>
     ) : (
       <Typography variant="body2" color="text.secondary">
@@ -44,9 +52,13 @@ export const CurrentStepCell = ({ step, progress, maxWidth = 260, wrap = true }:
       </Typography>
     );
   }
+  // The API's "9. Send arrival notice"; in Japanese rebuilt from the step's code.
+  const no = step.displayNo?.trim() || (step.position ? String(step.position) : "");
+  const name = step.code === "AWAITING_SHIPMENT" ? t("awaitingShipment") : stepName(step.code, step.title);
+  const label = lang === "ja" ? (no ? `${no}. ${name}` : name) : step.label;
   return (
-    <Typography variant="body2" title={step.label} sx={{ minWidth: 160, maxWidth, whiteSpace: "normal", wordBreak: "break-word" }}>
-      {step.label}
+    <Typography variant="body2" title={label} sx={{ minWidth: 160, maxWidth, whiteSpace: "normal", wordBreak: "break-word" }}>
+      {label}
     </Typography>
   );
 };
@@ -79,7 +91,7 @@ export function ConfirmDialog({
   open,
   title,
   body,
-  confirmLabel = "Confirm",
+  confirmLabel,
   destructive,
   onClose,
   onConfirm,
@@ -92,6 +104,7 @@ export function ConfirmDialog({
   onClose: () => void;
   onConfirm: () => Promise<unknown>;
 }) {
+  const t = useTranslations("orders.bits");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const close = () => {
@@ -107,7 +120,7 @@ export function ConfirmDialog({
       setBusy(false);
       onClose();
     } catch (e: any) {
-      setError(e?.message || "The action could not be completed");
+      setError(e?.message || t("actionFailed"));
       setBusy(false);
     }
   };
@@ -124,10 +137,10 @@ export function ConfirmDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={close} disabled={busy}>
-          Back
+          {t("back")}
         </Button>
         <Button onClick={run} disabled={busy} variant="contained" color={destructive ? "error" : "primary"}>
-          {busy ? "Working…" : confirmLabel}
+          {busy ? t("working") : (confirmLabel ?? t("confirm"))}
         </Button>
       </DialogActions>
     </Dialog>

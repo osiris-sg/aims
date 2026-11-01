@@ -22,6 +22,11 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
+import { useTranslations } from "next-intl";
+
+// Built-in fallback types (shown when the org has no invoice templates): their names stay English in the data
+// (they are handed to the editor) and are only translated for display.
+const DEFAULT_KEYS: Record<string, string> = { "default-ti": "ti", "default-proforma": "proforma", "default-commercial": "commercial" };
 
 interface InvoiceVariant {
   id: string;
@@ -48,6 +53,7 @@ export default function InvoiceVariantDrawer({
   onSelectVariant,
   selectedCustomer,
 }: InvoiceVariantDrawerProps) {
+  const t = useTranslations("invoices.variantDrawer");
   const [variants, setVariants] = useState<InvoiceVariant[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +72,7 @@ export default function InvoiceVariantDrawer({
       try {
         const token = await getToken();
         if (!token) {
-          setError("Authentication required");
+          setError(t("authRequired"));
           return;
         }
 
@@ -143,11 +149,11 @@ export default function InvoiceVariantDrawer({
 
           setVariants(variantList);
         } else {
-          setError(response.message || "Failed to fetch invoice templates");
+          setError(response.message || t("fetchFailed"));
         }
       } catch (err) {
         console.error("Error fetching invoice variants:", err);
-        setError("Failed to load invoice templates");
+        setError(t("loadFailed"));
 
         // Provide default options on error
         setVariants([
@@ -182,7 +188,7 @@ export default function InvoiceVariantDrawer({
     };
 
     fetchVariants();
-  }, [open, getToken, organizationId]);
+  }, [open, getToken, organizationId, t]);
 
   const handleSelectVariant = (variant: InvoiceVariant) => {
     onSelectVariant(variant);
@@ -218,11 +224,11 @@ export default function InvoiceVariantDrawer({
         >
           <Box>
             <Typography variant="h6" component="h2">
-              Select Invoice Type
+              {t("title")}
             </Typography>
             {selectedCustomer && (
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                For: {selectedCustomer.name}
+                {t("for", { name: selectedCustomer.name })}
               </Typography>
             )}
           </Box>
@@ -248,7 +254,7 @@ export default function InvoiceVariantDrawer({
             <Alert severity="warning" sx={{ mb: 2 }}>
               {error}
               <Typography variant="body2" sx={{ mt: 1 }}>
-                Showing default invoice types
+                {t("showingDefaults")}
               </Typography>
             </Alert>
           ) : variants.length === 0 ? (
@@ -263,7 +269,7 @@ export default function InvoiceVariantDrawer({
               }}
             >
               <DescriptionIcon sx={{ fontSize: "3rem", mb: 2, opacity: 0.5 }} />
-              <Typography variant="body1">No invoice templates available</Typography>
+              <Typography variant="body1">{t("empty")}</Typography>
             </Box>
           ) : (
             <List sx={{ overflow: "auto", height: "100%" }}>
@@ -299,11 +305,11 @@ export default function InvoiceVariantDrawer({
                         <Box sx={{ flex: 1 }}>
                           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
                             <Typography variant="subtitle1" fontWeight="medium">
-                              {variant.name}
+                              {DEFAULT_KEYS[variant.id] ? t(`defaults.${DEFAULT_KEYS[variant.id]}.name`) : variant.name}
                             </Typography>
                             {variant.isDefault && (
                               <Chip
-                                label="Default"
+                                label={t("default")}
                                 size="small"
                                 color="primary"
                                 variant="outlined"
@@ -312,11 +318,11 @@ export default function InvoiceVariantDrawer({
                             )}
                           </Box>
                           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                            Template: {variant.templateVariant}
+                            {t("template", { variant: variant.templateVariant })}
                           </Typography>
                           {variant.description && (
                             <Typography variant="body2" color="text.secondary">
-                              {variant.description}
+                              {DEFAULT_KEYS[variant.id] ? t(`defaults.${DEFAULT_KEYS[variant.id]}.description`) : variant.description}
                             </Typography>
                           )}
                         </Box>
@@ -348,7 +354,7 @@ export default function InvoiceVariantDrawer({
           }}
         >
           <Typography variant="body2" color="text.secondary" textAlign="center">
-            Choose an invoice template to continue
+            {t("footer")}
           </Typography>
         </Box>
       </Box>

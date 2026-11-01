@@ -21,7 +21,9 @@ import VisibilityIcon from "@mui/icons-material/Visibility";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useShipmentsApi, type InboxAnswer, type InboxAnswerResult, type InboxLang, type InboxMessage, type InboxRow, type InboxThread, type InboxThreadFile } from "../../_lib/api";
-import { cardFromLine, L, resultBox, threadResult, timeline, type ResultBox } from "../../_lib/inbox-cards";
+import { cardFromLine, resultBox, threadResult, timeline, type ResultBox } from "../../_lib/inbox-cards";
+import { useTranslations } from "next-intl";
+import { useInboxLabels } from "./useInboxLabels";
 import { fromParts, orderHref, whenShort } from "../../_lib/inbox-threads";
 import { fmtSize } from "../../_lib/email-html";
 import { toast } from "../../_lib/toast";
@@ -33,13 +35,15 @@ import { ChooseShipmentDialog } from "./ChooseShipmentDialog";
 export const isInlineImageName = (name: string) => /^(image\d*|Outlook-[A-Za-z0-9]+|~?WRD\d*|oledata)\.(png|jpe?g|gif|bmp|emz)$/i.test((name ?? "").trim());
 
 /** The result box: the outcome first, big. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function ResultBoxView({ r, lines, lang }: { r: ResultBox; lines?: Array<{ text: string; href: string | null }>; lang: InboxLang }) {
+  const t = useTranslations("inbox.details");
   const color = r.tone === "done" ? "success.main" : r.tone === "link" ? "primary.main" : r.tone === "wait" ? "warning.main" : "text.secondary";
   const all = lines?.length ? lines : r.lines;
   return (
     <Box sx={{ p: 1.5, borderRadius: 1.5, border: "1px solid", borderColor: color, bgcolor: "action.hover" }} data-tour="result-box" data-tone={r.tone}>
       <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.3, color, wordBreak: "break-word" }}>
-        {lines?.length ? (lang === "ja" ? `${lines.length} 件の送り先` : `${lines.length} destinations`) : r.headline}
+        {lines?.length ? t("destinations", { n: lines.length }) : r.headline}
       </Typography>
       {all.map((l, i) => (
         <Typography key={i} variant="body2" component="div" sx={{ mt: 0.5, wordBreak: "break-word" }}>
@@ -60,7 +64,8 @@ export function ResultBoxView({ r, lines, lang }: { r: ResultBox; lines?: Array<
 /** One file of the thread: name · date · sender, with Preview (PDF / image, inline) and Download — the URL is fetched on demand. */
 function ThreadFileRow({ f, lang }: { f: InboxThreadFile; lang: InboxLang }) {
   const api = useShipmentsApi();
-  const labels = L[lang];
+  const labels = useInboxLabels();
+  const t = useTranslations("inbox.details");
   const [url, setUrl] = useState<string | null>(null);
   const [preview, setPreview] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -74,7 +79,7 @@ function ThreadFileRow({ f, lang }: { f: InboxThreadFile; lang: InboxLang }) {
       setUrl(r.url);
       return r.url;
     } catch (e: any) {
-      toast.error(e?.message || "Could not get the file");
+      toast.error(e?.message || t("couldNotGetFile"));
       return null;
     } finally {
       setBusy(false);
@@ -90,7 +95,7 @@ function ThreadFileRow({ f, lang }: { f: InboxThreadFile; lang: InboxLang }) {
             {f.size ? <span style={{ opacity: 0.6, fontWeight: 400 }}> · {fmtSize(f.size)}</span> : null}
           </Typography>
           <Typography variant="caption" color="text.secondary" component="div">
-            {whenShort(f.date)} · {who}
+            {whenShort(f.date, lang)} · {who}
           </Typography>
         </Box>
         {(isPdf || isImage) && (
@@ -138,7 +143,7 @@ function ThreadFileRow({ f, lang }: { f: InboxThreadFile; lang: InboxLang }) {
 
 /** "All files in this thread (n)": every attachment of every stored email, newest first; the gap line when the replies quote emails AIMS never received. */
 function ThreadFiles({ files, quotedMissing, lang }: { files: InboxThreadFile[]; quotedMissing: number; lang: InboxLang }) {
-  const labels = L[lang];
+  const labels = useInboxLabels();
   const [open, setOpen] = useState(true);
   if (!files.length && !quotedMissing) return null;
   return (
@@ -167,6 +172,7 @@ function ThreadFiles({ files, quotedMissing, lang }: { files: InboxThreadFile[];
 }
 
 function TimelineRow({ n, m, latest, open, onToggle, lang, onDifferent }: { n: number; m: InboxMessage; latest: boolean; open: boolean; onToggle: () => void; lang: InboxLang; onDifferent?: (m: InboxMessage) => void }) {
+  const labels = useInboxLabels();
   const from = fromParts(m.from);
   const r = resultBox(m, lang);
   const atts = m.attachments.filter((a) => !isInlineImageName(a.name));
@@ -179,12 +185,12 @@ function TimelineRow({ n, m, latest, open, onToggle, lang, onDifferent }: { n: n
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
             <Typography variant="caption" color="text.secondary">
-              {whenShort(m.date)}
+              {whenShort(m.date, lang)}
             </Typography>
             <Typography variant="body2" sx={{ fontWeight: 700, wordBreak: "break-word" }} title={m.from}>
               {from.name}
             </Typography>
-            {latest && <Chip size="small" color="primary" label={L[lang].latest} sx={{ height: 20 }} />}
+            {latest && <Chip size="small" color="primary" label={labels.latest} sx={{ height: 20 }} />}
             {!latest && r.tone !== "wait" && m.linked?.ref && <Chip size="small" variant="outlined" label={m.linked.ref} sx={{ height: 20 }} />}
           </Stack>
           <Typography variant="body2" color="text.secondary" sx={{ wordBreak: "break-word" }}>
@@ -205,7 +211,7 @@ function TimelineRow({ n, m, latest, open, onToggle, lang, onDifferent }: { n: n
             </Typography>
             {onDifferent && m.inboxState !== "PROCESSED" && (
               <Button size="small" onClick={() => onDifferent(m)} sx={{ textTransform: "none", px: 0.5 }} data-tour="timeline-different">
-                {L[lang].thisOneDifferent}
+                {labels.thisOneDifferent}
               </Button>
             )}
           </Stack>
@@ -243,6 +249,7 @@ export function InboxDetailsDialog({
   onRowChanged: (r: InboxRow) => void;
 }) {
   const api = useShipmentsApi();
+  const t = useTranslations("inbox.details");
   const id = open?.id ?? null;
   const q = useQuery({ queryKey: ["trade-inbox", "thread", id], queryFn: () => api.inboxThread(id!), enabled: !!id, staleTime: 60_000 });
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -257,12 +264,12 @@ export function InboxDetailsDialog({
     setChoose(false);
   }, [q.data, id]);
   useEffect(() => {
-    if (q.isError) toast.error((q.error as Error)?.message || "Could not load the thread");
-  }, [q.isError, q.error]);
-  const labels = L[lang];
+    if (q.isError) toast.error((q.error as Error)?.message || t("couldNotLoad"));
+  }, [q.isError, q.error, t]);
+  const labels = useInboxLabels();
   const newest = timeline(messages).find((x) => x.latest)?.m ?? (open as InboxMessage | null);
-  const r = messages.length ? threadResult(messages, whenShort, lang) : newest ? resultBox(newest as InboxMessage, lang) : null;
-  const multi = messages.length ? threadResult(messages, whenShort, lang).multi : [];
+  const r = messages.length ? threadResult(messages, (iso) => whenShort(iso, lang), lang) : newest ? resultBox(newest as InboxMessage, lang) : null;
+  const multi = messages.length ? threadResult(messages, (iso) => whenShort(iso, lang), lang).multi : [];
   const waiting = !!thread?.question && thread.messages.some((m) => m.inboxState !== "PROCESSED");
   const firstFiled = newest?.linked?.files.find((f) => f.status === "done") ?? null;
   const href = newest?.linked?.ref ? orderHref(newest.linked.orderId, newest.linked.shipmentId, firstFiled?.stepId ?? null, firstFiled?.name ?? null) : null;
@@ -274,7 +281,7 @@ export function InboxDetailsDialog({
     <Dialog open={!!open} onClose={onClose} maxWidth="md" fullWidth transitionDuration={{ enter: 225, exit: 0 }} disableRestoreFocus data-tour="email-dialog">
       <DialogTitle sx={{ pr: 7 }}>
         <Typography variant="h6" component="div" sx={{ fontWeight: 700, minWidth: 0, wordBreak: "break-word", overflowWrap: "anywhere" }}>
-          {open?.subject || "(no subject)"}
+          {open?.subject || t("noSubject")}
         </Typography>
         {headEmail && (
           <Typography variant="caption" color="text.secondary" component="div" sx={{ wordBreak: "break-word" }} title={headEmail.from} data-tour="email-dialog-from">
@@ -282,12 +289,12 @@ export function InboxDetailsDialog({
             {messages.length > 1 ? ` · ${labels.emails(messages.length)}` : ""}
           </Typography>
         )}
-        <IconButton aria-label="Close" onClick={onClose} sx={{ position: "absolute", right: 8, top: 8 }} data-tour="email-dialog-close">
+        <IconButton aria-label={t("close")} onClick={onClose} sx={{ position: "absolute", right: 8, top: 8 }} data-tour="email-dialog-close">
           <CloseIcon />
         </IconButton>
       </DialogTitle>
       <DialogContent dividers>
-        {open?.error && <Alert severity="warning" sx={{ mb: 1 }}>AI triage: {open.error}</Alert>}
+        {open?.error && <Alert severity="warning" sx={{ mb: 1 }}>{t("aiTriage")} {open.error}</Alert>}
         {q.isLoading ? (
           <CircularProgress />
         ) : (
@@ -304,7 +311,7 @@ export function InboxDetailsDialog({
                     {labels.answer}
                   </Button>
                 </Stack>
-                <ChooseShipmentDialog open={choose} t={thread} lang={lang} busy={pending} onClose={() => setChoose(false)} onAnswer={(t, a) => void onAnswer(t, a).then((res) => setLast(res))} onCreateOrder={onCreateOrder} />
+                <ChooseShipmentDialog open={choose} t={thread} lang={lang} busy={pending} onClose={() => setChoose(false)} onAnswer={(th, a) => void onAnswer(th, a).then((res) => setLast(res))} onCreateOrder={onCreateOrder} />
               </>
             ) : r ? (
               <>
@@ -334,7 +341,7 @@ export function InboxDetailsDialog({
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
                   <Chip size="small" color="primary" label={labels.latest} sx={{ height: 20 }} />
                   <Typography variant="caption" color="text.secondary">
-                    {whenShort(latest.m.date)}
+                    {whenShort(latest.m.date, lang)}
                   </Typography>
                   <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 0, wordBreak: "break-word" }} title={latest.m.from}>
                     {fromParts(latest.m.from).name}
@@ -365,7 +372,7 @@ export function InboxDetailsDialog({
       </DialogContent>
       <DialogActions data-tour="inbox-dialog-actions">
         <Button onClick={onClose} sx={{ textTransform: "none" }}>
-          {lang === "ja" ? "閉じる" : "Close"}
+          {t("close")}
         </Button>
       </DialogActions>
     </Dialog>

@@ -1,0 +1,121 @@
+{
+  "modules": {
+    "DASHBOARD": "ダッシュボード",
+    "SHIPMENTS": "販売",
+    "SALES": "販売管理",
+    "INVOICES": "請求書",
+    "DOCUMENTS": "書類",
+    "USER_MANAGEMENT": "ユーザー管理",
+    "AUDIT": "監査",
+    "INVENTORY": "在庫",
+    "CUSTOMERS": "顧客",
+    "SUPPLIERS": "仕入先",
+    "PROJECTS": "プロジェクト",
+    "ORDERS": "注文",
+    "ACCOUNTING": "会計",
+    "ASSETS": "資産",
+    "ANALYTICS": "分析",
+    "INTEGRATIONS": "連携",
+    "DELIVERIES": "配送",
+    "CUSTOMER_INFORMATION": "顧客情報",
+    "ADMIN": "管理パネル"
+  },
+  "submenus": {
+    "SHIPMENTS": {
+      "list": "注文",
+      "shipments": "出荷",
+      "dashboard": "ダッシュボード",
+      "inbox": "受信箱",
+      "monthly": "月次一覧"
+    },
+    "INVOICES": {
+      "list": "請求書"
+    },
+    "DOCUMENTS": {
+      "templates": "テンプレート",
+      "extraction": "AI読取"
+    },
+    "USER_MANAGEMENT": {
+      "users": "ユーザー",
+      "roles": "ロール",
+      "permissions": "権限",
+      "organizations": "組織"
+    },
+    "SALES": {
+      "quotations": "見積書",
+      "sales-orders": "受注",
+      "delivery-orders": "納品書",
+      "return-delivery-orders": "返品納品書",
+      "invoices": "請求書",
+      "debit-notes": "デビットノート",
+      "credit-notes": "クレジットノート"
+    },
+    "ACCOUNTING": {
+      "list": "ダッシュボード",
+      "ledger": "総勘定元帳",
+      "receivables": "売掛金",
+      "payables": "買掛金",
+      "posting-queue": "仕訳承認待ち",
+      "setup": "設定"
+    }
+  },
+  "settings": {
+    "company-profile": "会社情報",
+    "shipping": "出荷・書類",
+    "customers": "顧客",
+    "accounting-setup": "会計設定",
+    "masterfiles": "マスタ管理"
+  },
+  "nav": {
+    "orgSettings": "組織設定",
+    "organizationSettings": "組織設定",
+    "failedToLoad": "メニューを読み込めませんでした",
+    "backToDashboard": "ダッシュボードに戻る",
+    "aimee": "AIMEE",
+    "openAimee": "AIMEEを開く",
+    "lightMode": "ライトモード",
+    "darkMode": "ダークモード",
+    "menu": "メニュー",
+    "apps": "アプリ"
+  },
+  "org": {
+    "viewingAsTip": "{name}として表示中 — データと書き込みはこの組織が対象です（ホーム：{home}）。",
+    "switch": "組織を切り替え",
+    "switchPlaceholder": "組織を切り替え…",
+    "home": "ホーム",
+    "resetTo": "ホームに戻す（{home}）",
+    "viewing": "表示中の組織",
+    "viewingAs": "{name}として表示中",
+    "scopedNote": "データと書き込みはこの組織が対象です（ホーム：{home}）。",
+    "reset": "ホームに戻す"
+  },
+  "search": {
+    "placeholder": "何でも検索…",
+    "short": "検索",
+    "aria": "全体検索",
+    "searching": "検索中…",
+    "nothing": "「{q}」に一致するものはありません。",
+    "draft": "下書き",
+    "completed": "完了",
+    "notSigned": "未署名",
+    "groups": {
+      "Documents": "書類",
+      "Projects": "プロジェクト",
+      "Leads": "見込み客",
+      "Customers": "顧客",
+      "Suppliers": "仕入先"
+    }
+  },
+  "bell": {
+    "aria": "通知",
+    "tasks": "タスク（{n}）",
+    "overdue": "期限超過 {n}件",
+    "notifications": "通知",
+    "markAll": "すべて既読にする",
+    "caughtUp": "新しい通知はありません。",
+    "justNow": "たった今",
+    "mAgo": "{n}分前",
+    "hAgo": "{n}時間前",
+    "dAgo": "{n}日前"
+  }
+}

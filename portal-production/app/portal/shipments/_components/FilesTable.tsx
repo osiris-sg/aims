@@ -12,25 +12,28 @@ import Link from "next/link";
 import { Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, Menu, MenuItem, Radio, RadioGroup, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
+import { useTranslations } from "next-intl";
 import { toast } from "../_lib/toast";
 import Table from "@/components/Table";
 import { linkTargetsOf, targetGroup, type FileFilters, type TradeFile, type TradeFileLink } from "../_lib/api";
 import { useOrders, useShipments, useTradeFiles, useTradeMutation } from "../_lib/hooks";
-import { blLabel, fmtBytes, fmtDate, fmtDateTime } from "../_lib/format";
+import { fmtBytes, fmtDate, fmtDateTime } from "../_lib/format";
 import { ConfirmDialog, EmptyState } from "./bits";
 import FileUploadDialog, { type LinkTarget } from "./FileUploadDialog";
 import { FileThumb, useFileViewer } from "./FilePreview";
 
-const linkLabel = (l: TradeFileLink) =>
+type T = (key: string, values?: Record<string, string | number>) => string;
+const linkLabel = (l: TradeFileLink, t: T) =>
   l.orderId
-    ? `Order #${l.order?.orderNo ?? ""}`
+    ? t("linkOrder", { no: `#${l.order?.orderNo ?? ""}` })
     : l.contractId
-      ? `Contract ${l.contract?.contractNo ?? ""}`
-      : `Shipment ${l.shipment?.order ? `#${l.shipment.order.orderNo}${l.shipment.seqNo ? `-${l.shipment.seqNo}` : ""}` : blLabel(l.shipment?.blNumber)}`;
+      ? t("linkContract", { no: l.contract?.contractNo ?? "" })
+      : t("linkShipment", { no: l.shipment?.order ? `#${l.shipment.order.orderNo}${l.shipment.seqNo ? `-${l.shipment.seqNo}` : ""}` : l.shipment?.blNumber || t("blPending") });
 const linkHref = (l: TradeFileLink) => (l.orderId ? `/portal/shipments/orders/${l.orderId}` : l.contractId ? `/portal/shipments/contracts/${l.contractId}` : `/portal/shipments/${l.shipmentId}`);
 
-export const LinkChips = ({ links, currentId }: { links: TradeFileLink[]; currentId?: string }) =>
-  links.length ? (
+export const LinkChips = ({ links, currentId }: { links: TradeFileLink[]; currentId?: string }) => {
+  const t = useTranslations("orders.files");
+  return links.length ? (
     <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
       {links.map((l) => {
         const isCurrent = !!currentId && (l.orderId ?? l.contractId ?? l.shipmentId) === currentId;
@@ -40,7 +43,7 @@ export const LinkChips = ({ links, currentId }: { links: TradeFileLink[]; curren
             size="small"
             variant="outlined"
             color={l.orderId || l.contractId ? "primary" : "info"}
-            label={linkLabel(l)}
+            label={linkLabel(l, t)}
             component={Link}
             href={linkHref(l)}
             clickable
@@ -54,12 +57,14 @@ export const LinkChips = ({ links, currentId }: { links: TradeFileLink[]; curren
     </Stack>
   ) : (
     <Typography variant="caption" color="text.secondary">
-      Not linked
+      {t("notLinked")}
     </Typography>
   );
+};
 
 /** Row menu + dialogs for trade files. Render `dialogs` once next to the table. */
 export function useFileActions(currentId?: string) {
+  const t = useTranslations("orders.files");
   const [menu, setMenu] = useState<{ pos: { left: number; top: number }; file: TradeFile } | null>(null);
   const [addFor, setAddFor] = useState<TradeFile | null>(null);
   const [unlinkFor, setUnlinkFor] = useState<TradeFile | null>(null);
@@ -71,16 +76,16 @@ export function useFileActions(currentId?: string) {
   const extractBl = useTradeMutation((a, v: { fileId: string; shipmentId?: string }) => a.extractBlDraft(v));
   const recheck = async (f: TradeFile) => {
     const shipmentId = f.links.find((l) => l.shipmentId === currentId)?.shipmentId ?? f.links.find((l) => l.shipmentId)?.shipmentId ?? undefined;
-    const t = toast.info(`Reading ${f.fileName}…`, { autoClose: false });
+    const tid = toast.info(t("reading", { name: f.fileName }), { autoClose: false });
     try {
       const x = await extractBl.mutateAsync({ fileId: f.id, shipmentId });
-      toast.dismiss(t);
-      if (x.status !== "DONE") toast.error(x.error || "Could not read the B/L draft");
-      else if (!shipmentId) toast.success("B/L draft read — link it to a shipment to check it against the contract");
-      else toast.success(x.issueCount ? `B/L check: ${x.issueCount} issue${x.issueCount === 1 ? "" : "s"} — see the shipment's B/L draft step` : "B/L check: all ✓");
+      toast.dismiss(tid);
+      if (x.status !== "DONE") toast.error(x.error || t("blReadError"));
+      else if (!shipmentId) toast.success(t("blReadNoShipment"));
+      else toast.success(x.issueCount ? t("blIssues", { n: x.issueCount }) : t("blAllOk"));
     } catch (e: any) {
-      toast.dismiss(t);
-      toast.error(e?.message || "Could not read the B/L draft");
+      toast.dismiss(tid);
+      toast.error(e?.message || t("blReadError"));
     }
   };
 
@@ -93,7 +98,7 @@ export function useFileActions(currentId?: string) {
   };
 
   const kebab = (f: TradeFile) => (
-    <IconButton size="small" aria-label="File actions" onClick={(e) => openMenu(e, f)}>
+    <IconButton size="small" aria-label={t("fileActions")} onClick={(e) => openMenu(e, f)}>
       <MoreVertIcon fontSize="small" />
     </IconButton>
   );
@@ -107,14 +112,14 @@ export function useFileActions(currentId?: string) {
   const dialogs = (
     <>
       <Menu anchorReference="anchorPosition" anchorPosition={menu?.pos} open={!!menu} onClose={() => setMenu(null)} onClick={(e) => e.stopPropagation()}>
-        <MenuItem onClick={pick(view)}>View</MenuItem>
-        {menu?.file.docType === "BL_DRAFT" && <MenuItem onClick={pick((f) => void recheck(f))}>Extract / re-check</MenuItem>}
-        <MenuItem onClick={pick(setAddFor)}>Add link</MenuItem>
+        <MenuItem onClick={pick(view)}>{t("view")}</MenuItem>
+        {menu?.file.docType === "BL_DRAFT" && <MenuItem onClick={pick((f) => void recheck(f))}>{t("recheck")}</MenuItem>}
+        <MenuItem onClick={pick(setAddFor)}>{t("addLink")}</MenuItem>
         <MenuItem onClick={pick(setUnlinkFor)} disabled={!menu?.file.links.length}>
-          Unlink
+          {t("unlink")}
         </MenuItem>
         <MenuItem onClick={pick(setDeleteFor)} sx={{ color: "error.main" }}>
-          Delete
+          {t("delete")}
         </MenuItem>
       </Menu>
       <AddLinkDialog file={addFor} onClose={() => setAddFor(null)} />
@@ -125,19 +130,19 @@ export function useFileActions(currentId?: string) {
         onClose={() => setUnlinkFor(null)}
         onConfirm={async (linkId) => {
           await removeLink.mutateAsync({ fileId: unlinkFor!.id, linkId });
-          toast.success("Link removed");
+          toast.success(t("linkRemoved"));
         }}
       />
       <ConfirmDialog
         open={!!deleteFor}
-        title={`Delete “${deleteFor?.fileName ?? ""}”?`}
-        body="The file is removed from storage and from every contract and shipment it is linked to. This can't be undone."
-        confirmLabel="Delete"
+        title={t("deleteTitle", { name: deleteFor?.fileName ?? "" })}
+        body={t("deleteBody")}
+        confirmLabel={t("delete")}
         destructive
         onClose={() => setDeleteFor(null)}
         onConfirm={async () => {
           await deleteFile.mutateAsync(deleteFor!.id);
-          toast.success("File deleted");
+          toast.success(t("deleted"));
         }}
       />
     </>
@@ -153,17 +158,17 @@ export function useFileActions(currentId?: string) {
       },
       {
         id: "docRef",
-        header: "Document ID",
+        header: t("docId"),
         cell: ({ row }: any) => (
           <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 700, whiteSpace: "nowrap" }}>
             {row.original.docRef || "—"}
           </Typography>
         ),
       },
-      { id: "docType", header: "Document type", cell: ({ row }: any) => <Chip size="small" variant="outlined" label={row.original.docTypeLabel} /> },
+      { id: "docType", header: t("docType"), cell: ({ row }: any) => <Chip size="small" variant="outlined" label={row.original.docTypeLabel} /> },
       {
         id: "fileName",
-        header: "File name",
+        header: t("fileName"),
         cell: ({ row }: any) => (
           <Box sx={{ maxWidth: 320 }}>
             <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: "break-word", whiteSpace: "normal" }}>
@@ -176,11 +181,11 @@ export function useFileActions(currentId?: string) {
           </Box>
         ),
       },
-      { id: "links", header: "Linked to", cell: ({ row }: any) => <LinkChips links={row.original.links} currentId={currentId} /> },
-      { id: "uploadedBy", header: "Uploaded by", cell: ({ row }: any) => row.original.uploadedByName || "—" },
+      { id: "links", header: t("linkedTo"), cell: ({ row }: any) => <LinkChips links={row.original.links} currentId={currentId} /> },
+      { id: "uploadedBy", header: t("uploadedBy"), cell: ({ row }: any) => row.original.uploadedByName || "—" },
       {
         id: "uploadedAt",
-        header: "Uploaded at",
+        header: t("uploadedAt"),
         cell: ({ row }: any) => (
           <Tooltip title={fmtDateTime(row.original.createdAt)}>
             <span>{fmtDate(row.original.createdAt)}</span>
@@ -190,7 +195,7 @@ export function useFileActions(currentId?: string) {
       { id: "actions", header: "", enableSorting: false, cell: ({ row }: any) => <Box onClick={(e) => e.stopPropagation()}>{kebab(row.original)}</Box> },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [currentId],
+    [currentId, t],
   );
 
   return { columns, dialogs, view };
@@ -198,6 +203,7 @@ export function useFileActions(currentId?: string) {
 
 /** Files linked to one contract or shipment, with an Upload button. */
 export default function FilesTable({ filter, currentId, uploadTargets, canUpload = true }: { filter: FileFilters; currentId: string; uploadTargets: LinkTarget[]; canUpload?: boolean }) {
+  const t = useTranslations("orders.files");
   const [page, setPage] = useState(1);
   const q = useTradeFiles({ ...filter, page, pageSize: 50 });
   const { columns, dialogs, view } = useFileActions(currentId);
@@ -205,10 +211,10 @@ export default function FilesTable({ filter, currentId, uploadTargets, canUpload
   const items = q.data?.items ?? [];
 
   const uploadButton = (
-    <Tooltip title={canUpload ? "" : "Reopen this record to add documents"}>
+    <Tooltip title={canUpload ? "" : t("reopenToAdd")}>
       <span>
         <Button variant="contained" startIcon={<UploadFileIcon />} onClick={() => setUploadOpen(true)} disabled={!canUpload}>
-          Upload
+          {t("upload")}
         </Button>
       </span>
     </Tooltip>
@@ -218,14 +224,14 @@ export default function FilesTable({ filter, currentId, uploadTargets, canUpload
     <Box>
       <Stack direction="row" alignItems="center" sx={{ mb: 1.5 }}>
         <Typography variant="body2" color="text.secondary">
-          {q.data ? `${q.data.total} file${q.data.total === 1 ? "" : "s"}` : ""}
+          {q.data ? t("fileCount", { n: q.data.total }) : ""}
         </Typography>
         <Box sx={{ flex: 1 }} />
         {uploadButton}
       </Stack>
-      {q.isError && <Alert severity="error" sx={{ mb: 2 }}>{(q.error as Error)?.message || "Could not load files"}</Alert>}
+      {q.isError && <Alert severity="error" sx={{ mb: 2 }}>{(q.error as Error)?.message || t("loadError")}</Alert>}
       {!q.isLoading && !items.length ? (
-        <EmptyState title="No documents yet" action={canUpload ? uploadButton : undefined} />
+        <EmptyState title={t("empty")} action={canUpload ? uploadButton : undefined} />
       ) : (
         <Box sx={{ border: "1px solid var(--table-grid)", borderRadius: "8px", overflowX: "auto", bgcolor: "background.paper" }}>
           <Table columns={columns} data={items} loading={q.isLoading} onRowClick={(f: TradeFile) => view(f)} isNoSelectionColumn />
@@ -234,13 +240,13 @@ export default function FilesTable({ filter, currentId, uploadTargets, canUpload
       {q.data && q.data.totalPages > 1 && (
         <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 1 }}>
           <Button size="small" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-            Previous
+            {t("previous")}
           </Button>
           <Typography variant="body2" sx={{ alignSelf: "center" }}>
             {page} / {q.data.totalPages}
           </Typography>
           <Button size="small" disabled={page >= q.data.totalPages} onClick={() => setPage((p) => p + 1)}>
-            Next
+            {t("next")}
           </Button>
         </Stack>
       )}
@@ -251,6 +257,7 @@ export default function FilesTable({ filter, currentId, uploadTargets, canUpload
 }
 
 export function AddLinkDialog({ file, onClose }: { file: TradeFile | null; onClose: () => void }) {
+  const t = useTranslations("orders.files");
   const open = !!file;
   const orders = useOrders({ bucket: "pending", pageSize: 100 }, open);
   const shipments = useShipments({ status: "OPEN", pageSize: 100 }, open);
@@ -260,8 +267,8 @@ export function AddLinkDialog({ file, onClose }: { file: TradeFile | null; onClo
 
   const linked = new Set((file?.links ?? []).map((l) => l.orderId ?? l.contractId ?? l.shipmentId));
   const options: LinkTarget[] = [
-    ...(orders.data?.items ?? []).map((o) => ({ kind: "order" as const, id: o.id, label: `Order ${o.label}${o.customerName ? ` · ${o.customerName}` : ""}` })),
-    ...(shipments.data?.items ?? []).map((s) => ({ kind: "shipment" as const, id: s.id, label: `Shipment ${s.ref || blLabel(s.blNumber)}${s.blNumber && s.ref ? ` · B/L ${s.blNumber}` : ""}` })),
+    ...(orders.data?.items ?? []).map((o) => ({ kind: "order" as const, id: o.id, label: `${t("linkOrder", { no: o.label })}${o.customerName ? ` · ${o.customerName}` : ""}` })),
+    ...(shipments.data?.items ?? []).map((s) => ({ kind: "shipment" as const, id: s.id, label: `${t("linkShipment", { no: s.ref || s.blNumber || t("blPending") })}${s.blNumber && s.ref ? ` · B/L ${s.blNumber}` : ""}` })),
   ].filter((o) => !linked.has(o.id));
 
   const close = () => {
@@ -274,17 +281,17 @@ export function AddLinkDialog({ file, onClose }: { file: TradeFile | null; onClo
     setError(null);
     try {
       await add.mutateAsync({ id: file!.id, targets });
-      toast.success("Links added");
+      toast.success(t("linksAdded"));
       setTargets([]);
       onClose();
     } catch (e: any) {
-      setError(e?.message || "Could not add the links");
+      setError(e?.message || t("addLinksError"));
     }
   };
 
   return (
     <Dialog open={open} onClose={close} maxWidth="sm" fullWidth>
-      <DialogTitle>Link “{file?.fileName}”</DialogTitle>
+      <DialogTitle>{t("linkTitle", { name: file?.fileName ?? "" })}</DialogTitle>
       <DialogContent>
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
@@ -300,15 +307,15 @@ export function AddLinkDialog({ file, onClose }: { file: TradeFile | null; onClo
           getOptionLabel={(o) => o.label}
           isOptionEqualToValue={(a, b) => a.id === b.id}
           loading={orders.isLoading || shipments.isLoading}
-          renderInput={(p) => <TextField {...p} label="Also link to" size="small" sx={{ mt: 1 }} />}
+          renderInput={(p) => <TextField {...p} label={t("alsoLinkTo")} size="small" sx={{ mt: 1 }} />}
         />
       </DialogContent>
       <DialogActions>
         <Button onClick={close} disabled={add.isPending}>
-          Cancel
+          {t("cancel")}
         </Button>
         <Button variant="contained" onClick={submit} disabled={!targets.length || add.isPending}>
-          {add.isPending ? "Linking…" : "Add links"}
+          {add.isPending ? t("linking") : t("addLinks")}
         </Button>
       </DialogActions>
     </Dialog>
@@ -316,6 +323,7 @@ export function AddLinkDialog({ file, onClose }: { file: TradeFile | null; onClo
 }
 
 export function UnlinkDialog({ file, currentId, onClose, onConfirm }: { file: TradeFile | null; currentId?: string; onClose: () => void; onConfirm: (linkId: string) => Promise<void> }) {
+  const t = useTranslations("orders.files");
   const [linkId, setLinkId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -338,7 +346,7 @@ export function UnlinkDialog({ file, currentId, onClose, onConfirm }: { file: Tr
       setLinkId("");
       onClose();
     } catch (e: any) {
-      setError(e?.message || "Could not remove the link");
+      setError(e?.message || t("removeLinkError"));
     } finally {
       setBusy(false);
     }
@@ -346,11 +354,11 @@ export function UnlinkDialog({ file, currentId, onClose, onConfirm }: { file: Tr
 
   return (
     <Dialog open={!!file} onClose={close} maxWidth="sm" fullWidth>
-      <DialogTitle>Unlink “{file?.fileName}”</DialogTitle>
+      <DialogTitle>{t("unlinkTitle", { name: file?.fileName ?? "" })}</DialogTitle>
       <DialogContent>
         <RadioGroup value={selected} onChange={(e) => setLinkId(e.target.value)}>
           {links.map((l) => (
-            <FormControlLabel key={l.id} value={l.id} control={<Radio size="small" />} label={linkLabel(l)} />
+            <FormControlLabel key={l.id} value={l.id} control={<Radio size="small" />} label={linkLabel(l, t)} />
           ))}
         </RadioGroup>
         {error && (
@@ -361,10 +369,10 @@ export function UnlinkDialog({ file, currentId, onClose, onConfirm }: { file: Tr
       </DialogContent>
       <DialogActions>
         <Button onClick={close} disabled={busy}>
-          Cancel
+          {t("cancel")}
         </Button>
         <Button variant="contained" color="error" onClick={submit} disabled={!selected || busy}>
-          {busy ? "Removing…" : "Unlink"}
+          {busy ? t("removing") : t("unlink")}
         </Button>
       </DialogActions>
     </Dialog>

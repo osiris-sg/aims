@@ -11,13 +11,15 @@ import { Alert, Button, CircularProgress, FormControlLabel, Paper, Stack, Switch
 import type { SupplierProfile } from "../_lib/api";
 import { useSuppliers, useTradeMutation, useTradeSettings } from "../_lib/hooks";
 import { toast } from "../_lib/toast";
+import { useTranslations } from "next-intl";
 
 export default function SupplierProfilesPanel() {
+  const t = useTranslations("settings.supplierProfiles");
   const settings = useTradeSettings();
   const suppliers = useSuppliers();
   if (settings.isLoading || suppliers.isLoading) return <CircularProgress />;
   const list = (suppliers.data ?? []).filter((s) => !/mitsui soko|asia deal hub/i.test(s.name));
-  if (!list.length) return <Alert severity="info">No suppliers yet — add them in Master Files.</Alert>;
+  if (!list.length) return <Alert severity="info">{t("none")}</Alert>;
   return (
     <Stack spacing={1.5} data-tour="settings-supplier-profiles">
       {list.map((s) => (
@@ -28,6 +30,7 @@ export default function SupplierProfilesPanel() {
 }
 
 function SupplierCard({ id, name, profile }: { id: string; name: string; profile: SupplierProfile | null }) {
+  const t = useTranslations("settings.supplierProfiles");
   const save = useTradeMutation((a, body: Partial<SupplierProfile>) => a.updateSettings({ supplierProfiles: { [id]: body } }));
   // A supplier without a profile works like Vedanta (has a PI); a new non-Vedanta profile starts without one.
   const [hasPI, setHasPI] = useState(profile?.hasPI ?? /vedanta/i.test(name));
@@ -43,16 +46,16 @@ function SupplierCard({ id, name, profile }: { id: string; name: string; profile
         {!profile && (
           <Typography component="span" variant="caption" color="text.secondary">
             {" "}
-            — no profile yet (works like Vedanta until saved)
+            {t("noProfile")}
           </Typography>
         )}
       </Typography>
       <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ sm: "center" }} sx={{ mt: 1 }}>
-        <FormControlLabel control={<Switch checked={hasPI} onChange={(e) => setHasPI(e.target.checked)} />} label={hasPI ? "Issues a PI (deposit on step 1)" : "No PI — step 1 N/A, CI paid in full"} />
+        <FormControlLabel control={<Switch checked={hasPI} onChange={(e) => setHasPI(e.target.checked)} />} label={hasPI ? t("hasPI") : t("noPI")} />
         <TextField
           size="small"
           sx={{ flex: 1 }}
-          label="Step 3b documents (codes; blank = Vedanta's set)"
+          label={t("docs")}
           placeholder="BL, CI, PL"
           value={docs}
           onChange={(e) => setDocs(e.target.value)}
@@ -67,13 +70,13 @@ function SupplierCard({ id, name, profile }: { id: string; name: string; profile
                 .map((d) => d.trim().toUpperCase())
                 .filter(Boolean);
               await save.mutateAsync({ hasPI, shippingDocs: list.length ? list : null, label: name });
-              toast.success(`${name}: profile saved — open supplier orders and shipments updated`);
+              toast.success(t("saved", { name }));
             } catch (e: any) {
-              toast.error(e?.message || "Could not save");
+              toast.error(e?.message || t("couldNotSave"));
             }
           }}
         >
-          Save
+          {t("save")}
         </Button>
       </Stack>
     </Paper>

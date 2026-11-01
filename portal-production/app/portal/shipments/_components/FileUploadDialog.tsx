@@ -29,6 +29,7 @@ import {
   Typography,
 } from "@mui/material";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
+import { useTranslations } from "next-intl";
 import CloseIcon from "@mui/icons-material/Close";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
@@ -36,17 +37,17 @@ import { linkTargetsOf, targetGroup, TRADE_FILE_EXTENSIONS, TRADE_FILE_MAX_BYTES
 import { toast } from "../_lib/toast";
 import { LocalPreview } from "./FilePreview";
 import { useOrders, useDocTypes, useShipments, useTradeMutation } from "../_lib/hooks";
-import { blLabel, fmtBytes } from "../_lib/format";
+import { fmtBytes } from "../_lib/format";
 
 export type LinkTarget = { kind: "contract" | "shipment" | "order" | "supplierOrder"; id: string; label: string };
 
 type Row = { file: File; status: "ready" | "uploading" | "done" | "error"; pct: number; error?: string };
 
 const extOf = (name: string) => (/\.([a-z0-9]+)$/i.exec(name)?.[1] ?? "").toLowerCase();
-const precheck = (f: File): string | undefined => {
-  if (!TRADE_FILE_EXTENSIONS.includes(extOf(f.name))) return `File type not allowed. Allowed: ${TRADE_FILE_EXTENSIONS.join(", ")}`;
-  if (f.size > TRADE_FILE_MAX_BYTES) return "File is larger than 25 MB";
-  if (f.size === 0) return "File is empty";
+const precheck = (f: File, t: (key: string, values?: Record<string, string | number>) => string): string | undefined => {
+  if (!TRADE_FILE_EXTENSIONS.includes(extOf(f.name))) return t("typeNotAllowed", { list: TRADE_FILE_EXTENSIONS.join(", ") });
+  if (f.size > TRADE_FILE_MAX_BYTES) return t("tooLarge");
+  if (f.size === 0) return t("empty");
   return undefined;
 };
 
@@ -80,6 +81,7 @@ export default function FileUploadDialog({
   announceSteps?: boolean;
   title?: string;
 }) {
+  const t = useTranslations("orders.upload");
   const docTypes = useDocTypes();
   const orders = useOrders({ bucket: "pending", pageSize: 100 }, open);
   const shipments = useShipments({ status: "OPEN", pageSize: 100 }, open);
@@ -105,7 +107,7 @@ export default function FileUploadDialog({
   );
 
   // Reset every time the dialog opens (targets/doc type depend on where it was opened).
-  const defaultKey = defaultTargets.map((t) => t.id).join(",");
+  const defaultKey = defaultTargets.map((x) => x.id).join(",");
   useEffect(() => {
     if (!open) return;
     setDocType(presetDocType ?? "");
@@ -120,8 +122,8 @@ export default function FileUploadDialog({
 
   const options: LinkTarget[] = useMemo(() => {
     const out: LinkTarget[] = [
-      ...(orders.data?.items ?? []).map((o) => ({ kind: "order" as const, id: o.id, label: `Order ${o.label}${o.customerName ? ` · ${o.customerName}` : ""}` })),
-      ...(shipments.data?.items ?? []).map((s) => ({ kind: "shipment" as const, id: s.id, label: `Shipment ${s.ref || blLabel(s.blNumber)}${s.blNumber && s.ref ? ` · B/L ${s.blNumber}` : ""}` })),
+      ...(orders.data?.items ?? []).map((o) => ({ kind: "order" as const, id: o.id, label: `${t("linkOrder", { no: o.label })}${o.customerName ? ` · ${o.customerName}` : ""}` })),
+      ...(shipments.data?.items ?? []).map((s) => ({ kind: "shipment" as const, id: s.id, label: `${t("linkShipment", { no: s.ref || s.blNumber || t("blPending") })}${s.blNumber && s.ref ? ` · B/L ${s.blNumber}` : ""}` })),
     ];
     // Keep defaults selectable even if they're not in the first page of results.
     defaultTargets.forEach((d) => {
@@ -136,7 +138,7 @@ export default function FileUploadDialog({
   function addFiles(list: FileList | File[] | null) {
     if (!list) return;
     const added = Array.from(list).map<Row>((file) => {
-      const err = precheck(file);
+      const err = precheck(file, t);
       return err ? { file, status: "error", pct: 0, error: err } : { file, status: "ready", pct: 0 };
     });
     setRows((rs) => [...rs.filter((r) => r.status !== "done"), ...added]);
@@ -149,8 +151,8 @@ export default function FileUploadDialog({
 
   const start = async () => {
     setError(null);
-    if (!docType) return setError("Choose a document type");
-    if (!targets.length && !stepId) return setError("Link the file to at least one contract or shipment");
+    if (!docType) return setError(t("chooseType"));
+    if (!targets.length && !stepId) return setError(t("needLink"));
     setBusy(true);
     let failed = 0;
     const uploaded: TradeFile[] = [];
@@ -166,29 +168,29 @@ export default function FileUploadDialog({
         setRows((rs) => rs.map((r, j) => (j === i ? { ...r, status: "done", pct: 100 } : r)));
       } catch (e: any) {
         failed++;
-        setRows((rs) => rs.map((r, j) => (j === i ? { ...r, status: "error", error: e?.message || "Upload failed" } : r)));
+        setRows((rs) => rs.map((r, j) => (j === i ? { ...r, status: "error", error: e?.message || t("failed") } : r)));
       }
     }
     if (uploaded.length && onUploaded) {
       try {
         await onUploaded(uploaded);
       } catch (e: any) {
-        toast.error(e?.message || "Uploaded, but the old file could not be removed");
+        toast.error(e?.message || t("oldNotRemoved"));
       }
     }
     setBusy(false);
-    if (announceSteps) for (const label of [...new Set(completed)]) toast.success(`Step ${label} complete`);
+    if (announceSteps) for (const label of [...new Set(completed)]) toast.success(t("stepComplete", { label }));
     const hadPrecheckErrors = rows.some((r) => r.status === "error");
     if (!failed && !hadPrecheckErrors) onClose();
   };
 
   return (
     <Dialog open={open} onClose={() => !busy && onClose()} maxWidth="sm" fullWidth>
-      <DialogTitle>{title ?? "Upload documents"}</DialogTitle>
+      <DialogTitle>{title ?? t("title")}</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2}>
           {error && <Alert severity="error">{error}</Alert>}
-          <TextField select label="Document type" required size="small" value={docType} onChange={(e) => setDocType(e.target.value)} disabled={busy} helperText={docTypes.isError ? "Could not load document types" : undefined}>
+          <TextField select label={t("docType")} required size="small" value={docType} onChange={(e) => setDocType(e.target.value)} disabled={busy} helperText={docTypes.isError ? t("docTypesError") : undefined}>
             {activeDocTypes.map((d) => (
               <MenuItem key={d.code} value={d.code}>
                 {d.label}
@@ -206,17 +208,17 @@ export default function FileUploadDialog({
             loading={orders.isLoading || shipments.isLoading}
             disabled={busy}
             renderTags={(value, getTagProps) => value.map((o, i) => <Chip size="small" label={o.label} {...getTagProps({ index: i })} key={o.id} />)}
-            renderInput={(p) => <TextField {...p} label="Link to" size="small" />}
+            renderInput={(p) => <TextField {...p} label={t("linkTo")} size="small" />}
           />
-          <TextField label="Notes" size="small" multiline minRows={2} value={notes} onChange={(e) => setNotes(e.target.value)} disabled={busy} />
+          <TextField label={t("notes")} size="small" multiline minRows={2} value={notes} onChange={(e) => setNotes(e.target.value)} disabled={busy} />
 
           <Box>
             <input ref={inputRef} type="file" multiple hidden accept={TRADE_FILE_EXTENSIONS.map((e) => `.${e}`).join(",")} onChange={(e) => addFiles(e.target.files)} />
             <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => inputRef.current?.click()} disabled={busy}>
-              Choose files
+              {t("choose")}
             </Button>
             <Typography variant="caption" color="text.secondary" sx={{ ml: 1.5 }}>
-              Up to 25 MB each · {TRADE_FILE_EXTENSIONS.join(", ")}
+              {t("limits", { list: TRADE_FILE_EXTENSIONS.join(", ") })}
             </Typography>
           </Box>
 
@@ -230,11 +232,11 @@ export default function FileUploadDialog({
                     r.status === "done" ? (
                       <CheckCircleIcon color="success" fontSize="small" />
                     ) : r.status === "error" ? (
-                      <IconButton size="small" edge="end" aria-label="Remove" onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} disabled={busy}>
+                      <IconButton size="small" edge="end" aria-label={t("remove")} onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} disabled={busy}>
                         <CloseIcon fontSize="small" />
                       </IconButton>
                     ) : r.status === "ready" ? (
-                      <IconButton size="small" edge="end" aria-label="Remove" onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} disabled={busy}>
+                      <IconButton size="small" edge="end" aria-label={t("remove")} onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} disabled={busy}>
                         <CloseIcon fontSize="small" />
                       </IconButton>
                     ) : null
@@ -263,9 +265,9 @@ export default function FileUploadDialog({
                           {r.error}
                         </Typography>
                       ) : r.status === "done" ? (
-                        "Uploaded"
+                        t("uploaded")
                       ) : (
-                        "Ready"
+                        t("ready")
                       )
                     }
                     secondaryTypographyProps={{ component: "div" }}
@@ -279,14 +281,14 @@ export default function FileUploadDialog({
       <DialogActions>
         {doneCount > 0 && (
           <Typography variant="caption" color="text.secondary" sx={{ mr: "auto", ml: 2 }}>
-            {doneCount} of {rows.length} uploaded
+            {t("progress", { done: doneCount, total: rows.length })}
           </Typography>
         )}
         <Button onClick={onClose} disabled={busy}>
-          {doneCount > 0 ? "Close" : "Cancel"}
+          {doneCount > 0 ? t("close") : t("cancel")}
         </Button>
         <Button variant="contained" onClick={start} disabled={!canUpload}>
-          {busy ? "Uploading…" : pending.length > 1 ? `Upload ${pending.length} files` : "Upload"}
+          {busy ? t("uploading") : pending.length > 1 ? t("uploadN", { n: pending.length }) : t("upload")}
         </Button>
       </DialogActions>
     </Dialog>

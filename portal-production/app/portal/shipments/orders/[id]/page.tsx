@@ -43,6 +43,11 @@ import PriceCheckPanel from "../../_components/PriceCheckPanel";
 import StepPaymentForm from "../../_components/StepPaymentForm";
 import IssuesPanel from "../../_components/IssuesPanel";
 import RecordEmailsPanel from "../../_components/RecordEmailsPanel";
+import { useTranslations } from "next-intl";
+import { useStepName } from "@/i18n/hooks";
+
+/** A message lookup passed to the helpers below (shipments.orderPage). */
+type Tr = (key: string, values?: Record<string, string | number>) => string;
 
 const TABS = ["journey", "details", "files"] as const;
 /** Order steps from here on (11 Invoice #2, 13 reconciliation) show after the shipments. */
@@ -52,6 +57,8 @@ const firstOpen = (steps: TradeStep[]) => [...steps].sort(byOrder).find((s) => !
 
 export default function OrderPage() {
   const { id } = useParams<{ id: string }>();
+  const t = useTranslations("shipments.orderPage");
+  const stepName = useStepName();
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -73,6 +80,7 @@ export default function OrderPage() {
   const { hasPermission } = useUserPermissions();
   const canMarkTest = hasPermission("shipments", "money");
 
+  const fieldName = (k: string) => (FIELD_NAMES.includes(k) ? t(`fieldNames.${k}`) : k);
   const setParam = (k: string, v: string | null) => {
     const p = new URLSearchParams(params?.toString() ?? "");
     if (v) p.set(k, v);
@@ -153,10 +161,10 @@ export default function OrderPage() {
       return;
     }
     if (was.order === "OPEN" && o.status === "COMPLETED") {
-      toast.success(`Order ${o.label} completed — all its shipments are done`);
+      toast.success(t("orderCompleted", { label: o.label }));
       router.push("/portal/shipments?tab=completed");
-    } else if (was.shipment === "OPEN" && s?.status === "COMPLETED") toast.success(`Shipment ${s.ref || blLabel(s.blNumber)} completed — all its steps are done`);
-  }, [o, s, id, shipmentId, router]);
+    } else if (was.shipment === "OPEN" && s?.status === "COMPLETED") toast.success(t("shipmentCompleted", { ref: s.ref || blLabel(s.blNumber) }));
+  }, [o, s, id, shipmentId, router, t]);
 
   useEffect(() => {
     if (remountAfter.current && s && s.updatedAt !== remountAfter.current) {
@@ -176,7 +184,7 @@ export default function OrderPage() {
     if (before) {
       const newlyDone = all.filter((x) => x.status === "DONE" && before.has(x.id) && before.get(x.id) !== "DONE");
       if (newlyDone.length) {
-        for (const x of newlyDone) toast.success(`Step ${stepLabel(x)} complete`);
+        for (const x of newlyDone) toast.success(t("stepComplete", { step: stepLabel({ ...x, title: stepName(x.code, x.title) }) }));
         // Open the next open step of the SAME group (the shipment's, or the order's) and bring it into view —
         // not the order's first open step at the top of the page.
         const last = newlyDone[newlyDone.length - 1];
@@ -192,7 +200,7 @@ export default function OrderPage() {
     }
     prev.current = new Map(all.map((x) => [x.id, x.status]));
     prevKey.current = key;
-  }, [o, s, orderSteps, earlySteps, lateSteps, shipSteps, id, shipmentId]);
+  }, [o, s, orderSteps, earlySteps, lateSteps, shipSteps, id, shipmentId, t, stepName]);
 
   if (q.isLoading) {
     return (
@@ -204,15 +212,15 @@ export default function OrderPage() {
   if (q.isError || !o) {
     return (
       <Box sx={{ p: 3 }}>
-        <Alert severity="error">{(q.error as Error)?.message || "Order not found"}</Alert>
+        <Alert severity="error">{(q.error as Error)?.message || t("notFound")}</Alert>
       </Box>
     );
   }
 
   const here = `/portal/shipments/orders/${o.id}${shipmentId ? `?shipment=${shipmentId}` : ""}`;
-  const hereTab = (t: string) => `${here}${here.includes("?") ? "&" : "?"}tab=${t}`;
-  const orderOwner = { kind: "order" as const, id: o.id, label: `Order ${o.label}` };
-  const shipOwner = s ? { kind: "shipment" as const, id: s.id, label: `Shipment ${s.ref || blLabel(s.blNumber)}` } : null;
+  const hereTab = (tb: string) => `${here}${here.includes("?") ? "&" : "?"}tab=${tb}`;
+  const orderOwner = { kind: "order" as const, id: o.id, label: t("orderLabel", { label: o.label }) };
+  const shipOwner = s ? { kind: "shipment" as const, id: s.id, label: t("shipmentLabel", { ref: s.ref || blLabel(s.blNumber) }) } : null;
   const openShipments = shipments.filter((x) => x.status === "OPEN");
   const fileCount = recordFileCount(o) + (s ? recordFileCount(s) : 0);
   const single = o.profile?.billingMode === "SINGLE";
@@ -226,15 +234,15 @@ export default function OrderPage() {
     returnTo: here,
     openId: shown,
     onOpen,
-    context: orderContext(o),
+    context: orderContext(o, t),
     customerId: o.customerId,
     onFileUploaded: (d: string, f: TradeFile[]) => void readOrderUpload(d, f),
     orderShipmentIds: shipments.filter((x) => x.status !== "CANCELLED").map((x) => x.id),
-    fieldsTitle: "Contract & premiums",
-    fieldsSummary: o.contract ? `Contract ${o.contract.contractNo} · premiums: supplier ${o.supplierPremium ?? "—"}, client ${o.clientPremium ?? "—"} USD/MT` : null,
+    fieldsTitle: t("contractPremiums"),
+    fieldsSummary: o.contract ? t("contractSummary", { no: o.contract.contractNo, supplier: String(o.supplierPremium ?? "—"), client: String(o.clientPremium ?? "—") }) : null,
     fieldsForm: () => (
       <Button variant="outlined" startIcon={<EditIcon />} onClick={() => setEditOpen(true)}>
-        Link the contract / confirm premiums
+        {t("linkContract")}
       </Button>
     ),
     stepExtra: (st: TradeStep) =>
@@ -242,7 +250,7 @@ export default function OrderPage() {
         <ReconciliationPanel orderId={o.id} canEdit={o.status === "OPEN"} />
       ) : st.code === "PI_PAYMENT" ? (
         <Stack spacing={1.5}>
-          <PriceCheckPanel kind="order" id={o.id} title="PI price check vs contract" />
+          <PriceCheckPanel kind="order" id={o.id} title={t("piPriceCheck")} />
           <StepPaymentForm step={st} fileLinks={o.fileLinks} expected={o.depositAmount != null ? Number(o.depositAmount) : null} currency={o.currency} canEdit={o.status === "OPEN"} />
         </Stack>
       ) : STEP_PAYMENT[st.code] ? (
@@ -254,16 +262,16 @@ export default function OrderPage() {
   const readOrderUpload = async (docType: string, files: TradeFile[]) => {
     const f = files[0];
     if (!f || docType !== "PI") return;
-    const t = toast.info(`Reading the PI (${f.fileName})…`, { autoClose: false });
+    const tid = toast.info(t("readingPi", { file: f.fileName }), { autoClose: false });
     try {
       const x: any = await api.extractPi({ fileId: f.id, orderId: o!.id });
-      if (x.status !== "DONE" || !x.result) throw new Error(x.error || "the AI read failed");
+      if (x.status !== "DONE" || !x.result) throw new Error(x.error || t("aiReadFailed"));
       const filled: string[] = x.result.filled ?? [];
-      toast.success(filled.length ? `PI read — filled ${filled.map((k) => FIELD_NAMES[k] ?? k).join(", ")} (blank fields only)` : "PI read — the price check compares it; the order's PI fields were already filled");
+      toast.success(filled.length ? t("piReadFilled", { fields: filled.map(fieldName).join(", ") }) : t("piReadNone"));
     } catch (e: any) {
-      toast.error(`Could not read the PI: ${e?.message || "unknown error"}. The file is stored — fill the PI fields by hand.`);
+      toast.error(t("piReadError", { error: e?.message || t("unknownError") }));
     } finally {
-      toast.dismiss(t);
+      toast.dismiss(tid);
       void qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.orders });
     }
   };
@@ -272,59 +280,59 @@ export default function OrderPage() {
     const f = files[0];
     if (s && f && docType === "CI") {
       // Step 3b: Vedanta's CI → the shipment's blank CI no. / amount; the CI price check (step 6) compares its prices.
-      const t = toast.info(`Reading the CI (${f.fileName})…`, { autoClose: false });
+      const tid = toast.info(t("readingCi", { file: f.fileName }), { autoClose: false });
       try {
         const x: any = await api.extractCi({ fileId: f.id, shipmentId: s.id });
-        if (x.status !== "DONE" || !x.result) throw new Error(x.error || "the AI read failed");
+        if (x.status !== "DONE" || !x.result) throw new Error(x.error || t("aiReadFailed"));
         const filled: string[] = x.result.filled ?? [];
-        toast.success(filled.length ? `CI read — filled ${filled.map((k) => FIELD_NAMES[k] ?? k).join(", ")}` : "CI read — the CI price check compares it");
+        toast.success(filled.length ? t("ciReadFilled", { fields: filled.map(fieldName).join(", ") }) : t("ciReadNone"));
       } catch (e: any) {
-        toast.error(`Could not read the CI: ${e?.message || "unknown error"}. The file is stored.`);
+        toast.error(t("ciReadError", { error: e?.message || t("unknownError") }));
       } finally {
-        toast.dismiss(t);
+        toast.dismiss(tid);
         void qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.orders });
         void qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.shipments });
       }
       return;
     }
     if (!s || !f || (docType !== "BL_DRAFT" && docType !== "ARRIVAL_NOTICE" && docType !== "IMPORT_PERMIT")) return;
-    const what = docType === "BL_DRAFT" ? "B/L draft" : docType === "IMPORT_PERMIT" ? "import permit" : "arrival notice";
-    const t = toast.info(`Reading the ${what} (${f.fileName})…`, { autoClose: false });
+    const what = docType === "BL_DRAFT" ? t("docBlDraft") : docType === "IMPORT_PERMIT" ? t("docImportPermit") : t("docArrivalNotice");
+    const tid = toast.info(t("readingDoc", { what, file: f.fileName }), { autoClose: false });
     try {
       if (docType === "BL_DRAFT") {
         const x = await api.extractBlDraft({ fileId: f.id, shipmentId: s.id });
-        if (x.status !== "DONE" || !x.result) throw new Error(x.error || "the AI read failed");
-        setOffer({ title: "Apply the B/L draft to the B/L details?", intro: `Read from ${f.fileName}. The B/L check against the order is shown on step 3a.`, warning: null, rows: blRows(s, x) });
+        if (x.status !== "DONE" || !x.result) throw new Error(x.error || t("aiReadFailed"));
+        setOffer({ title: t("applyBlTitle"), intro: t("applyBlIntro", { file: f.fileName }), warning: null, rows: blRows(s, x, t) });
       } else if (docType === "IMPORT_PERMIT") {
         const x = await api.extractImportPermit({ fileId: f.id, shipmentId: s.id });
-        if (x.status !== "DONE" || !x.result) throw new Error(x.error || "the read failed");
+        if (x.status !== "DONE" || !x.result) throw new Error(x.error || t("readFailed"));
         const r = x.result;
         const issues = r.checks.filter((c) => c.status === "mismatch");
         setOffer({
-          title: "Fill the import tax from the import permit?",
-          intro: `Read from ${f.fileName}${r.via === "text" ? " (text layer)" : " (AI read)"}. 納税額合計 ${fmtYen(r.permit.total)}${r.totalFrom === "fileName" ? " — from the file name" : ""}.`,
+          title: t("permitTitle"),
+          intro: t("permitIntro", { file: f.fileName, via: r.via === "text" ? t("viaText") : t("viaAi"), total: fmtYen(r.permit.total), from: r.totalFrom === "fileName" ? t("fromFileName") : "" }),
           warning: [
-            ...issues.map((c) => `${c.label} on the permit is ${c.found}, the shipment has ${c.expected}.`),
-            ...(r.formulaOk === false ? ["The permit's CIF × rate + add-on doesn't reproduce its total — check the figures."] : []),
+            ...issues.map((c) => t("permitMismatch", { label: c.label, found: String(c.found ?? ""), expected: String(c.expected ?? "") })),
+            ...(r.formulaOk === false ? [t("permitFormula")] : []),
           ].join(" ") || null,
-          rows: costRows(s, r.fill, PERMIT_LABELS),
+          rows: costRows(s, r.fill, PERMIT_LABELS, t),
           extra: <PermitFacts permit={r.permit} checks={r.checks} />,
         });
       } else {
         const x = await api.extractAn({ fileId: f.id, shipmentId: s.id });
-        if (x.status !== "DONE" || !x.result) throw new Error(x.error || "the AI read failed");
+        if (x.status !== "DONE" || !x.result) throw new Error(x.error || t("aiReadFailed"));
         setOffer({
-          title: "Fill the shipment from the arrival notice?",
-          intro: `Read from ${f.fileName}. Only blank shipment fields are offered.`,
-          warning: x.result.blMismatch ? `This notice is for B/L ${x.result.draft.blNumber}, not ${s.blNumber}. Check it is the right file.` : null,
-          rows: anRows(s, x),
+          title: t("anTitle"),
+          intro: t("anIntro", { file: f.fileName }),
+          warning: x.result.blMismatch ? t("anMismatch", { found: String(x.result.draft.blNumber ?? ""), bl: String(s.blNumber ?? "") }) : null,
+          rows: anRows(s, x, t),
           extra: <AnFacts draft={x.result.draft} />,
         });
       }
     } catch (e: any) {
-      toast.error(`Could not read the ${what}: ${e?.message || "unknown error"}. The file is stored — fill the fields by hand.`);
+      toast.error(t("docReadError", { what, error: e?.message || t("unknownError") }));
     } finally {
-      toast.dismiss(t);
+      toast.dismiss(tid);
     }
   };
 
@@ -332,9 +340,9 @@ export default function OrderPage() {
     manual.current = true;
     const r: any = await shipAction.mutateAsync({ id: s!.id, act });
     if (act === "delete") {
-      toast.success("Shipment deleted");
+      toast.success(t("shipmentDeleted"));
       setParam("shipment", null);
-    } else toast.success(act === "reopen" && r?.reopenedContract ? `Shipment reopened — order ${r.reopenedContract} was reopened too` : `Shipment ${act === "complete" ? "completed" : act === "cancel" ? "cancelled" : "reopened"}`);
+    } else toast.success(act === "reopen" && r?.reopenedContract ? t("shipmentReopenedOrder", { order: r.reopenedContract }) : act === "complete" ? t("shipmentDoneToast") : act === "cancel" ? t("shipmentCancelledToast") : t("shipmentReopenedToast"));
   };
 
   const unconfirmed = (o.checkFields ?? []).includes("status");
@@ -350,7 +358,7 @@ export default function OrderPage() {
         progress={o.bar ? { done: o.bar.done, total: o.bar.total } : o.progress}
         currentStep={o.currentStep ?? s?.currentStep ?? null}
         steps={o.steps.filter((x) => !x.notApplicable)}
-        blockers={openShipments.map((x) => `shipment ${x.ref}${x.blNumber ? "" : " (B/L pending)"}`)}
+        blockers={openShipments.map((x) => (x.blNumber ? t("blockerShipment", { ref: x.ref }) : t("blockerShipmentNoBl", { ref: x.ref })))}
         onComplete={() => complete.mutateAsync(o.id)}
         onCancel={() => cancel.mutateAsync(o.id)}
         onReopen={() => reopen.mutateAsync(o.id)}
@@ -358,16 +366,16 @@ export default function OrderPage() {
           canMarkTest
             ? [
                 {
-                  label: o.isTest ? "Unmark test order" : "Mark as test",
-                  hint: o.isTest ? "Shows in the lists, Home and reminders again" : "Hidden from lists, Home, counts and reminders — nothing is deleted",
+                  label: o.isTest ? t("unmarkTest") : t("markTest"),
+                  hint: o.isTest ? t("unmarkTestHint") : t("markTestHint"),
                   onClick: () =>
                     void api
                       .setOrderTest(o.id, !o.isTest)
                       .then(async () => {
                         await qc.invalidateQueries();
-                        toast.success(o.isTest ? "No longer a test order" : "Marked as test — hidden from the lists");
+                        toast.success(o.isTest ? t("unmarkedTest") : t("markedTest"));
                       })
-                      .catch((e: any) => toast.error(e?.message || "Could not change it")),
+                      .catch((e: any) => toast.error(e?.message || t("couldNotChange"))),
                 },
               ]
             : undefined
@@ -376,8 +384,8 @@ export default function OrderPage() {
         badge={
           // Round AB (owner): "status" in checkFields = ADH has not confirmed the order yet (the INALM sample) — no reminders until "Mark confirmed".
           unconfirmed ? (
-            <Tooltip title="ADH has not confirmed this order yet (shipped or not?). No reminders or alerts for it until it is marked confirmed below.">
-              <Chip size="small" color="warning" variant="outlined" label="Unconfirmed" sx={{ height: 20 }} data-tour="order-unconfirmed" />
+            <Tooltip title={t("unconfirmedTip")}>
+              <Chip size="small" color="warning" variant="outlined" label={t("unconfirmed")} sx={{ height: 20 }} data-tour="order-unconfirmed" />
             </Tooltip>
           ) : null
         }
@@ -396,14 +404,14 @@ export default function OrderPage() {
       )}
       {o.isTest && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          Test order — hidden from the lists, Home, counts and reminders.
+          {t("testOrderBanner")}
         </Alert>
       )}
 
       <Tabs value={tab} onChange={(_, v) => setParam("tab", TABS[v])} sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }} variant="scrollable" allowScrollButtonsMobile>
-        <Tab label="Journey" />
-        <Tab label="Details" />
-        <Tab label={`Files${fileCount ? ` (${fileCount})` : ""}`} />
+        <Tab label={t("tabJourney")} />
+        <Tab label={t("tabDetails")} />
+        <Tab label={`${t("tabFiles")}${fileCount ? ` (${fileCount})` : ""}`} />
       </Tabs>
 
       {tab === 0 && (
@@ -412,9 +420,9 @@ export default function OrderPage() {
           <Box data-tour="order-steps">
             <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
               <Typography variant="overline" color="text.secondary">
-                Order steps
+                {t("orderSteps")}
               </Typography>
-              {o.supplierProfile?.hasPI === false && <Chip size="small" variant="outlined" label="No PI (supplier profile)" />}
+              {o.supplierProfile?.hasPI === false && <Chip size="small" variant="outlined" label={t("noPi")} />}
             </Stack>
             <StepCards {...orderCards} steps={earlySteps} highlightFile={wantedFile} />
           </Box>
@@ -422,7 +430,7 @@ export default function OrderPage() {
           <Box>
             <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
               <Typography variant="overline" color="text.secondary" sx={{ flex: 1 }}>
-                Shipments ({shipments.length})
+                {t("shipments", { n: shipments.length })}
               </Typography>
               {o.status === "OPEN" && (
                 <Button
@@ -433,27 +441,27 @@ export default function OrderPage() {
                   onClick={async () => {
                     try {
                       const n = await addShipment.mutateAsync(o.id);
-                      toast.success(`Shipment ${n.ref ?? ""} added`);
+                      toast.success(t("shipmentAdded", { ref: n.ref ?? "" }));
                       showShipment(n.id);
                     } catch (e: any) {
-                      toast.error(e?.message || "Could not add the shipment");
+                      toast.error(e?.message || t("couldNotAdd"));
                     }
                   }}
                 >
-                  Add shipment
+                  {t("addShipment")}
                 </Button>
               )}
             </Stack>
             {!shipments.length ? (
               <Paper variant="outlined" sx={{ p: 3, textAlign: "center", borderStyle: "dashed" }}>
-                <Typography variant="body2">No shipment on this order yet — add one when Vedanta books the B/L.</Typography>
+                <Typography variant="body2">{t("noShipment")}</Typography>
               </Paper>
             ) : (
               <Grid container spacing={1.5} sx={{ mb: 2 }} data-tour="order-shipment-cards">
                 {shipments.map((x) => (
                   <Grid item xs={12} sm={6} md={4} key={x.id} sx={{ position: "relative" }}>
                     {x.id === shipmentId && (
-                      <IconButton size="small" aria-label="Shipment actions" onClick={(e) => setShipMenu({ left: e.clientX, top: e.clientY })} sx={{ position: "absolute", top: 16, right: 8, zIndex: 1 }} data-tour="shipment-card-menu">
+                      <IconButton size="small" aria-label={t("shipmentActions")} onClick={(e) => setShipMenu({ left: e.clientX, top: e.clientY })} sx={{ position: "absolute", top: 16, right: 8, zIndex: 1 }} data-tour="shipment-card-menu">
                         <MoreVertIcon fontSize="small" />
                       </IconButton>
                     )}
@@ -465,9 +473,9 @@ export default function OrderPage() {
                           </Typography>
                           <RecordStatusChip status={x.status} />
                         </Stack>
-                        <Typography variant="body2">{x.blNumber ? `B/L ${x.blNumber}` : "B/L pending"}</Typography>
+                        <Typography variant="body2">{x.blNumber ? `B/L ${x.blNumber}` : t("blPending")}</Typography>
                         <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                          {[x.vessel, x.voyageNo].filter(Boolean).join(" / ") || "Vessel —"} · ETA {fmtDay(x.eta)}
+                          {[x.vessel, x.voyageNo].filter(Boolean).join(" / ") || t("vesselNone")} · ETA {fmtDay(x.eta)}
                         </Typography>
                         <Box sx={{ mt: 0.75 }}>
                           <CurrentStepCell step={x.currentStep} progress={x.progress} maxWidth={260} />
@@ -499,13 +507,13 @@ export default function OrderPage() {
                   returnTo={here}
                   openId={shown}
                   onOpen={onOpen}
-                  context={shipmentContext(o, s)}
+                  context={shipmentContext(o, s, t)}
                   customerId={o.customerId}
                   onFileUploaded={(d, f) => void readUploaded(d, f)}
                   blCheck={s.blCheck}
-                  fieldsTitle="B/L details"
-                  fieldsSummary={blSummary(s)}
-                  fieldsForm={() => <ShipmentFormDialog key={formKey} inline open shipment={s} onClose={() => undefined} onSaved={() => toast.success("B/L details saved")} />}
+                  fieldsTitle={t("blDetails")}
+                  fieldsSummary={blSummary(s, t)}
+                  fieldsForm={() => <ShipmentFormDialog key={formKey} inline open shipment={s} onClose={() => undefined} onSaved={() => toast.success(t("blSaved"))} />}
                   stepExtra={(st) => {
                     const pay = STEP_PAYMENT[st.code] ? (
                       <StepPaymentForm
@@ -519,7 +527,7 @@ export default function OrderPage() {
                     const main = ESTIMATOR_STEPS[st.code] ? (
                       <EstimatorPanel shipment={s} mode={ESTIMATOR_STEPS[st.code]} canEdit={s.status === "OPEN"} />
                     ) : st.code === "CI_PAYMENT" ? (
-                      <PriceCheckPanel kind="shipment" id={s.id} title="CI price check vs contract" />
+                      <PriceCheckPanel kind="shipment" id={s.id} title={t("ciPriceCheck")} />
                     ) : null;
                     // Round N: step 3a warns when the shipments' net total is over the order's quantity ± tolerance.
                     const tol = st.code === "BL_DRAFT_APPROVAL" && o.tolerance?.status === "over" ? (
@@ -543,7 +551,7 @@ export default function OrderPage() {
           {lateSteps.length > 0 && (
             <Box data-tour="order-closing-steps">
               <Typography variant="overline" color="text.secondary">
-                Order steps — invoice &amp; reconciliation
+                {t("closingSteps")}
               </Typography>
               <StepCards {...orderCards} steps={lateSteps} highlightFile={wantedFile} />
             </Box>
@@ -558,7 +566,7 @@ export default function OrderPage() {
           {s && (
             <Box>
               <Typography variant="overline" color="text.secondary">
-                Shipment {s.ref} · B/L {s.blNumber || "pending"}
+                {t("shipmentHeading", { ref: s.ref, bl: s.blNumber || t("pending") })}
               </Typography>
               <ShipmentOverview shipment={s} />
             </Box>
@@ -570,23 +578,23 @@ export default function OrderPage() {
         <Stack spacing={3}>
           <Box>
             <Typography variant="overline" color="text.secondary">
-              Order {o.label}
+              {t("orderLabel", { label: o.label })}
             </Typography>
             <LinkedDocuments links={o.docLinks ?? []} returnTo={hereTab("files")} canEdit={o.status === "OPEN"} />
             <FilesTable filter={{ orderId: o.id }} currentId={o.id} uploadTargets={[orderOwner]} canUpload={o.status === "OPEN"} />
             <Box sx={{ mt: 2 }}>
-              <RecordEmailsPanel orderId={o.id} title="Emails — order" />
+              <RecordEmailsPanel orderId={o.id} title={t("emailsOrder")} />
             </Box>
           </Box>
           {s && shipOwner && (
             <Box>
               <Typography variant="overline" color="text.secondary">
-                Shipment {s.ref} · B/L {s.blNumber || "pending"}
+                {t("shipmentHeading", { ref: s.ref, bl: s.blNumber || t("pending") })}
               </Typography>
               <LinkedDocuments links={s.docLinks ?? []} returnTo={hereTab("files")} canEdit={s.status === "OPEN"} />
               <FilesTable filter={{ shipmentId: s.id }} currentId={s.id} uploadTargets={[shipOwner]} canUpload={s.status === "OPEN"} />
               <Box sx={{ mt: 2 }}>
-                <RecordEmailsPanel shipmentId={s.id} title={`Emails — shipment ${s.ref}`} />
+                <RecordEmailsPanel shipmentId={s.id} title={t("emailsShipment", { ref: s.ref })} />
               </Box>
             </Box>
           )}
@@ -599,18 +607,18 @@ export default function OrderPage() {
             data-tour="shipment-folder-zip"
             onClick={async () => {
               setShipMenu(null);
-              const t = toast.info("Preparing the shipment folder…", { autoClose: false });
+              const tid = toast.info(t("preparingZip"), { autoClose: false });
               try {
                 const name = await api.downloadShipmentZip(s.id);
-                toast.success(`Downloaded ${name}`);
+                toast.success(t("downloaded", { name }));
               } catch (e: any) {
-                toast.error(e?.message || "Could not download the folder");
+                toast.error(e?.message || t("couldNotDownload"));
               } finally {
-                toast.dismiss(t);
+                toast.dismiss(tid);
               }
             }}
           >
-            Download shipment folder (.zip)
+            {t("downloadZip")}
           </MenuItem>
         )}
         {s?.status === "OPEN" && (
@@ -620,7 +628,7 @@ export default function OrderPage() {
               setShipConfirm("complete");
             }}
           >
-            Complete shipment
+            {t("completeShipment")}
           </MenuItem>
         )}
         {s?.status === "OPEN" && (
@@ -630,7 +638,7 @@ export default function OrderPage() {
               setShipConfirm("cancel");
             }}
           >
-            Cancel shipment
+            {t("cancelShipment")}
           </MenuItem>
         )}
         {s && s.status !== "OPEN" && (
@@ -640,7 +648,7 @@ export default function OrderPage() {
               setShipConfirm("reopen");
             }}
           >
-            Reopen shipment
+            {t("reopenShipment")}
           </MenuItem>
         )}
         <MenuItem
@@ -650,7 +658,7 @@ export default function OrderPage() {
             setShipConfirm("delete");
           }}
         >
-          Delete shipment
+          {t("deleteShipment")}
         </MenuItem>
       </Menu>
       <ExtractApplyDialog
@@ -664,14 +672,14 @@ export default function OrderPage() {
         onApply={async (patch) => {
           remountAfter.current = s?.updatedAt ?? null;
           await applyShip.mutateAsync({ id: s!.id, patch: nestCosts(patch) });
-          toast.success("Shipment updated from the document");
+          toast.success(t("updatedFromDoc"));
         }}
       />
       <ConfirmDialog
         open={!!shipConfirm}
-        title={shipConfirm && s ? `${shipConfirm === "delete" ? "Delete" : shipConfirm === "complete" ? "Complete" : shipConfirm === "cancel" ? "Cancel" : "Reopen"} shipment ${s.ref || ""} (B/L ${s.blNumber || "pending"})?` : ""}
-        body={shipConfirm === "delete" ? "Its steps and document links are removed. The files themselves stay in the Documents library. This can't be undone." : undefined}
-        confirmLabel={shipConfirm === "delete" ? "Delete" : "Confirm"}
+        title={shipConfirm && s ? t(shipConfirm === "delete" ? "confirmDelete" : shipConfirm === "complete" ? "confirmComplete" : shipConfirm === "cancel" ? "confirmCancel" : "confirmReopen", { ref: s.ref || "", bl: s.blNumber || t("pending") }) : ""}
+        body={shipConfirm === "delete" ? t("deleteBody") : undefined}
+        confirmLabel={shipConfirm === "delete" ? t("delete") : t("confirm")}
         destructive={shipConfirm === "delete" || shipConfirm === "cancel"}
         onClose={() => setShipConfirm(null)}
         onConfirm={() => doShip(shipConfirm!)}
@@ -682,7 +690,7 @@ export default function OrderPage() {
 }
 
 const NO_ROWS: ApplyRow[] = [];
-const FIELD_NAMES: Record<string, string> = { piNo: "PI no.", piDate: "PI date", piAmount: "PI amount", depositAmount: "deposit", ciNumber: "CI no.", ciAmount: "CI amount" };
+const FIELD_NAMES = ["piNo", "piDate", "piAmount", "depositAmount", "ciNumber", "ciAmount"];
 
 /** "#19 · SUS · 6063 · 300 MT". */
 function orderTitle(o: Order): string {
@@ -691,23 +699,23 @@ function orderTitle(o: Order): string {
 /** "Vedanta" / "SIAE" / "Inalum" — the supplier's short name (round R header line 2). */
 
 /** What each order step / document is about. */
-function orderContext(o: Order): StepContext {
+function orderContext(o: Order, t: Tr): StepContext {
   const money = (v: unknown) => fmtMoney(v as any, o.currency);
   return {
     stepLine: (st) =>
       st.code === "CHECK_CONTRACT"
         ? o.contract
-          ? `Contract ${o.contract.contractNo} · premiums: supplier ${o.supplierPremium ?? "—"}, client ${o.clientPremium ?? "—"}${o.upcharge ? ` + ${o.upcharge}` : ""} USD/MT`
-          : "No contract linked yet — link it (or upload it) and confirm the premiums"
+          ? t("contractLine", { no: o.contract.contractNo, supplier: String(o.supplierPremium ?? "—"), client: `${o.clientPremium ?? "—"}${o.upcharge ? ` + ${o.upcharge}` : ""}` })
+          : t("noContract")
         : st.code === "PI_PAYMENT"
-          ? [o.piNo && `PI ${o.piNo}`, o.piDate && `dated ${fmtDmy(o.piDate)}`, o.piAmount != null && money(o.piAmount)].filter(Boolean).join(" · ") || null
+          ? [o.piNo && `PI ${o.piNo}`, o.piDate && t("dated", { date: fmtDmy(o.piDate) }), o.piAmount != null && money(o.piAmount)].filter(Boolean).join(" · ") || null
           // Round R: no customer / product / "every shipment of #26" lines — they repeat the page header.
           : null,
     docLine: (d) => {
       if (d === "DEPOSIT_PROOF") {
         const pct = o.depositPct != null ? `${Number(o.depositPct)}%` : "";
-        const due = o.depositDueDate ? `, due ${fmtDmy(o.depositDueDate)}` : depositTermLabel(o.depositDueDays, o.depositDueUnit) ? ` (${depositTermLabel(o.depositDueDays, o.depositDueUnit)} after the PI date)` : "";
-        return o.depositAmount != null ? `Deposit ${pct} = ${money(o.depositAmount)}${due}` : null;
+        const due = o.depositDueDate ? t("depositDue", { date: fmtDmy(o.depositDueDate) }) : depositTermLabel(o.depositDueDays, o.depositDueUnit) ? t("depositTerm", { term: depositTermLabel(o.depositDueDays, o.depositDueUnit) ?? "" }) : "";
+        return o.depositAmount != null ? t("depositLine", { pct, amount: money(o.depositAmount), due }) : null;
       }
       if (d === "PI") return o.piNo ? `PI ${o.piNo}${o.piAmount != null ? ` · ${money(o.piAmount)}` : ""}` : null;
       return null;
@@ -716,36 +724,38 @@ function orderContext(o: Order): StepContext {
 }
 
 /** Facts for the shipment's steps. */
-function shipmentContext(o: Order, s: Shipment): StepContext {
+function shipmentContext(o: Order, s: Shipment, t: Tr): StepContext {
   return {
     // Round R: no step / slot lines that repeat the shipment card (ref, B/L, customer, vessel, tonnage).
-    stepLine: (st) => (st.code === "BL_DRAFT_APPROVAL" ? `Order ${o.label} · ${o.productLabel}` : null),
+    stepLine: (st) => (st.code === "BL_DRAFT_APPROVAL" ? `${t("orderLabel", { label: o.label })} · ${o.productLabel}` : null),
     docLine: (d) => {
       if (d === "CI_PAYMENT_PROOF") return s.ciAmount != null ? `CI ${s.ciNumber ?? ""} · ${fmtMoney(s.ciAmount, s.currency)}`.replace("CI  ·", "CI ·") : null;
       // File OR field (prod click-through): the code from Vedanta's email, the SI's delivery dates, the in-app estimate.
-      if (d === "TELEX_RELEASE") return s.telexReleaseCode ? `Release code ${s.telexReleaseCode} (meets this — no file needed)` : "Upload the telex release, or type the release code in the B/L details";
-      if (d === "DELIVERY_SCHEDULE") return "Or: the delivery dates on the 出庫・納入依頼書 rows meet this";
-      if (d === "TAX_ESTIMATE") return (s.costs as any)?.cifUsd && (s.costs as any)?.fxRate ? "The in-app estimate (CIF + rate) meets this — the broker's file is optional" : "Or: fill CIF and the rate in the estimate below";
+      if (d === "TELEX_RELEASE") return s.telexReleaseCode ? t("telexCode", { code: s.telexReleaseCode }) : t("telexUpload");
+      if (d === "DELIVERY_SCHEDULE") return t("deliverySchedule");
+      if (d === "TAX_ESTIMATE") return (s.costs as any)?.cifUsd && (s.costs as any)?.fxRate ? t("taxEstimateOk") : t("taxEstimateFill");
       return null;
     },
   };
 }
 
-function blSummary(s: Shipment): string | null {
+function blSummary(s: Shipment, t: Tr): string | null {
   if (!s.blNumber) return null;
-  return [`B/L ${s.blNumber}`, s.productLine, s.vessel && [s.vessel, s.voyageNo].filter(Boolean).join(" / "), s.netWeightMt != null && `${fmtMt(s.netWeightMt)} MT net`].filter(Boolean).join(" · ");
+  return [`B/L ${s.blNumber}`, s.productLine, s.vessel && [s.vessel, s.voyageNo].filter(Boolean).join(" / "), s.netWeightMt != null && t("mtNet", { mt: fmtMt(s.netWeightMt) })].filter(Boolean).join(" · ");
 }
 
 function OrderOverview({ order: o, onEdit }: { order: Order; onEdit: () => void }) {
+  const t = useTranslations("shipments.orderPage");
   const money = (v: unknown) => fmtMoney(v as any, o.currency);
   const p = o.profile;
   const check = new Set(o.checkFields ?? []);
   const confirm = useTradeMutation((a, oid: string) => a.updateOrder(oid, { checkFields: [] }));
-  const CHECK_LABELS: Record<string, string> = { customerId: "customer", contractId: "contract", clientPremium: "client premium", supplierPremium: "supplier premium", currentStep: "current step", status: "status (unconfirmed)" };
+  const CHECK_KEYS = ["customerId", "contractId", "clientPremium", "supplierPremium", "currentStep", "status"];
+  const checkLabel = (k: string) => (CHECK_KEYS.includes(k) ? t(`check.${k}`) : k);
   const ck = (k: string | string[], value: React.ReactNode) =>
     (Array.isArray(k) ? k : [k]).some((x) => check.has(x)) ? (
       <>
-        {value} <Chip size="small" color="warning" variant="outlined" label="check" sx={{ height: 18, ml: 0.5 }} />
+        {value} <Chip size="small" color="warning" variant="outlined" label={t("checkChip")} sx={{ height: 18, ml: 0.5 }} />
       </>
     ) : (
       value
@@ -754,42 +764,42 @@ function OrderOverview({ order: o, onEdit }: { order: Order; onEdit: () => void 
     <Paper variant="outlined" sx={{ p: 2 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
         <Typography variant="subtitle2" sx={{ flex: 1 }}>
-          Order {o.label}
+          {t("orderLabel", { label: o.label })}
         </Typography>
         {check.size > 0 && (
-          <Tooltip title={`To confirm with ADH: ${[...check].map((k) => CHECK_LABELS[k] ?? k).join(", ")} (from the task list import). Edit the order if anything is wrong, then mark it confirmed.`}>
+          <Tooltip title={t("checkTip", { fields: [...check].map(checkLabel).join(", ") })}>
             <Button size="small" color="warning" disabled={confirm.isPending} onClick={() => confirm.mutate(o.id)} data-tour="order-check-confirm">
-              Check: {[...check].map((k) => CHECK_LABELS[k] ?? k).join(", ")} · Mark confirmed
+              {t("checkButton", { fields: [...check].map(checkLabel).join(", ") })}
             </Button>
           </Tooltip>
         )}
         <Button variant="outlined" startIcon={<EditIcon />} onClick={onEdit}>
-          Edit
+          {t("edit")}
         </Button>
       </Stack>
       <Grid container spacing={2}>
         <Grid item xs={6} md={3}>
-          <Field label="Customer" value={ck("customerId", o.customer?.name)} />
+          <Field label={t("ov.customer")} value={ck("customerId", o.customer?.name)} />
         </Grid>
         <Grid item xs={6} md={3}>
-          <Field label="Supplier" value={o.supplier?.name} />
+          <Field label={t("ov.supplier")} value={o.supplier?.name} />
         </Grid>
         <Grid item xs={6} md={3}>
-          <Field label="Contract" value={ck("contractId", o.contract?.contractNo ?? "—")} />
+          <Field label={t("ov.contract")} value={ck("contractId", o.contract?.contractNo ?? "—")} />
         </Grid>
         <Grid item xs={6} md={3}>
-          <Field label="Ship → delivery" value={o.monthsLabel || "—"} />
+          <Field label={t("ov.shipDelivery")} value={o.monthsLabel || "—"} />
         </Grid>
         <Grid item xs={6} md={3}>
-          <Field label="Product" value={o.productLabel || "—"} />
+          <Field label={t("ov.product")} value={o.productLabel || "—"} />
         </Grid>
         <Grid item xs={6} md={3}>
-          <Field label="Tolerance" value={o.tolPct != null ? `±${Number(o.tolPct)}%` : "—"} />
+          <Field label={t("ov.tolerance")} value={o.tolPct != null ? `±${Number(o.tolPct)}%` : "—"} />
         </Grid>
         <Grid item xs={12} md={6}>
           <Field
-            label="Customer profile"
-            value={`${p.billingMode === "SINGLE" ? "Single invoice" : "Invoice #1 + #2"} · import permit ${p.sendImportPermit ? "sent" : "not sent"}${p.port ? ` · ${p.port}` : ""} · ${p.truckCapacityT}t trucks`}
+            label={t("ov.customerProfile")}
+            value={`${p.billingMode === "SINGLE" ? t("ov.singleInvoice") : t("ov.twoInvoices")} · ${p.sendImportPermit ? t("ov.permitSent") : t("ov.permitNotSent")}${p.port ? ` · ${p.port}` : ""} · ${t("ov.trucks", { t: p.truckCapacityT })}`}
           />
         </Grid>
       </Grid>
@@ -797,40 +807,40 @@ function OrderOverview({ order: o, onEdit }: { order: Order; onEdit: () => void 
         <Grid item xs={12} md={6} data-tour="order-vedanta-side">
           <Typography variant="overline" color="text.secondary">
             {/* Round AC (owner): the supplier's own name — "MIND ID side" on #9, "Vedanta side" on Vedanta orders. */}
-            {shortParty(o.supplier?.name) ?? "Supplier"} side
+            {t("ov.supplierSide", { party: shortParty(o.supplier?.name) ?? t("ov.supplier") })}
           </Typography>
           <Grid container spacing={1.5}>
             <Grid item xs={6}>
-              <Field label="PI no. / date" value={[o.piNo, o.piDate && fmtDmy(o.piDate)].filter(Boolean).join(" · ") || "—"} />
+              <Field label={t("ov.piNoDate")} value={[o.piNo, o.piDate && fmtDmy(o.piDate)].filter(Boolean).join(" · ") || "—"} />
             </Grid>
             <Grid item xs={6}>
-              <Field label="PI amount" value={o.piAmount != null ? money(o.piAmount) : "—"} />
+              <Field label={t("ov.piAmount")} value={o.piAmount != null ? money(o.piAmount) : "—"} />
             </Grid>
             <Grid item xs={6}>
               <Field
-                label="Deposit"
+                label={t("ov.deposit")}
                 value={
                   o.depositAmount != null
-                    ? `${o.depositPct ?? ""}% = ${money(o.depositAmount)}${o.depositPaidAt ? ` · paid ${fmtDmy(o.depositPaidAt)}` : o.depositDueDate ? ` · due ${fmtDmy(o.depositDueDate)}` : ""}`
+                    ? `${o.depositPct ?? ""}% = ${money(o.depositAmount)}${o.depositPaidAt ? ` · ${t("ov.paid", { date: fmtDmy(o.depositPaidAt) })}` : o.depositDueDate ? ` · ${t("ov.due", { date: fmtDmy(o.depositDueDate) })}` : ""}`
                     : "—"
                 }
               />
             </Grid>
             <Grid item xs={6}>
-              <Field label="Supplier premium (USD/MT)" value={ck("supplierPremium", o.supplierPremium ?? "—")} />
+              <Field label={t("ov.supplierPremium")} value={ck("supplierPremium", o.supplierPremium ?? "—")} />
             </Grid>
           </Grid>
         </Grid>
         <Grid item xs={12} md={6} data-tour="order-customer-side">
           <Typography variant="overline" color="text.secondary">
-            Customer side
+            {t("ov.customerSide")}
           </Typography>
           <Grid container spacing={1.5}>
             <Grid item xs={6}>
-              <Field label="Customer PO" value={[o.customerPoNo, o.customerPoDate && fmtDmy(o.customerPoDate)].filter(Boolean).join(" · ") || "—"} />
+              <Field label={t("ov.customerPo")} value={[o.customerPoNo, o.customerPoDate && fmtDmy(o.customerPoDate)].filter(Boolean).join(" · ") || "—"} />
             </Grid>
             <Grid item xs={6}>
-              <Field label="Client premium (USD/MT)" value={ck("clientPremium", `${o.clientPremium ?? "—"}${o.upcharge ? ` + ${o.upcharge}` : ""}`)} />
+              <Field label={t("ov.clientPremium")} value={ck("clientPremium", `${o.clientPremium ?? "—"}${o.upcharge ? ` + ${o.upcharge}` : ""}`)} />
             </Grid>
           </Grid>
         </Grid>
@@ -839,36 +849,9 @@ function OrderOverview({ order: o, onEdit }: { order: Order; onEdit: () => void 
   );
 }
 
-const BL_FIELDS: Array<[keyof Shipment & string, string]> = [
-  ["blNumber", "B/L no."],
-  ["shippingLine", "Shipping line"],
-  ["vessel", "Vessel"],
-  ["voyageNo", "Voyage"],
-  ["etd", "ETD"],
-  ["portOfLoading", "Port of loading"],
-  ["portOfDischarge", "Port of discharge"],
-  ["netWeightMt", "Net weight (MT)"],
-  ["grossWeightMt", "Gross weight (MT)"],
-  ["totalBundles", "Bundles"],
-  ["totalPieces", "Pieces"],
-  ["containerCount", "Containers"],
-  ["hsCode", "HS code"],
-  ["countryOfOrigin", "Country of origin"],
-  ["commodity", "Commodity"],
-  ["sizeSpec", "Size"],
-];
-const AN_LABELS: Record<string, string> = {
-  vessel: "Vessel",
-  voyageNo: "Voyage",
-  eta: "ETA",
-  grossWeightMt: "Gross weight (MT)",
-  netWeightMt: "Net weight (MT)",
-  totalBundles: "Bundles",
-  totalPieces: "Pieces",
-  containerCount: "Containers",
-  portOfLoading: "Port of loading",
-  portOfDischarge: "Port of discharge",
-};
+/** B/L draft fields offered by "Apply the B/L draft" (labels: shipments.orderPage.fields.*). */
+const BL_FIELDS: Array<keyof Shipment & string> = ["blNumber", "shippingLine", "vessel", "voyageNo", "etd", "portOfLoading", "portOfDischarge", "netWeightMt", "grossWeightMt", "totalBundles", "totalPieces", "containerCount", "hsCode", "countryOfOrigin", "commodity", "sizeSpec"];
+const AN_LABELS = ["vessel", "voyageNo", "eta", "grossWeightMt", "netWeightMt", "totalBundles", "totalPieces", "containerCount", "portOfLoading", "portOfDischarge"];
 const shownVal = (v: unknown) => (v === null || v === undefined || v === "" ? null : /^\d{4}-\d{2}-\d{2}/.test(String(v)) ? String(v).slice(0, 10) : String(v));
 const same = (a: unknown, b: unknown) => {
   const x = shownVal(a);
@@ -876,27 +859,19 @@ const same = (a: unknown, b: unknown) => {
   if (x === null || y === null) return x === y;
   return Number.isFinite(Number(x)) && Number.isFinite(Number(y)) ? Number(x) === Number(y) : x.trim().toUpperCase() === y.trim().toUpperCase();
 };
-function blRows(s: Shipment, x: BlExtraction): ApplyRow[] {
+function blRows(s: Shipment, x: BlExtraction, t: Tr): ApplyRow[] {
   const d = x.result!.draft as Record<string, unknown>;
-  return BL_FIELDS.filter(([k]) => shownVal(d[k]) !== null && !same(d[k], s[k])).map(([k, label]) => ({ key: k, label, current: shownVal(s[k]), next: shownVal(d[k])!, value: d[k] }));
+  return BL_FIELDS.filter((k) => shownVal(d[k]) !== null && !same(d[k], s[k])).map((k) => ({ key: k, label: t(`fields.${k}`), current: shownVal(s[k]), next: shownVal(d[k])!, value: d[k] }));
 }
-const COST_LABELS: Record<string, string> = {
-  "costs.thc": "THC (estimator, step 7)",
-  "costs.docFee": "Documentation fee (estimator)",
-  "costs.equipmentFee": "EQMC (estimator; 加算運賃 default)",
-};
-const PERMIT_LABELS: Record<string, string> = {
-  "costs.importTaxActual": "Actual import tax (納税額合計)",
-  "costs.fxRate": "Customs rate (円/USD)",
-  "costs.cifUsd": "CIF (USD, 仕入書価格)",
-  "costs.customsAddOnJpy": "加算運賃 (JPY)",
-};
+/** Cost fields an A/N or import permit fills → their label key (shipments.orderPage.costs.*). */
+const COST_LABELS: Record<string, string> = { "costs.thc": "thc", "costs.docFee": "docFee", "costs.equipmentFee": "equipmentFee" };
+const PERMIT_LABELS: Record<string, string> = { "costs.importTaxActual": "importTaxActual", "costs.fxRate": "fxRate", "costs.cifUsd": "cifUsd", "costs.customsAddOnJpy": "customsAddOnJpy" };
 const costOf = (s: Shipment, key: string) => (key.startsWith("costs.") ? (s.costs as any)?.[key.slice(6)] : (s as any)[key]);
-function anRows(s: Shipment, x: AnExtraction): ApplyRow[] {
-  return Object.entries(x.result!.fill ?? {}).map(([k, v]) => ({ key: k, label: AN_LABELS[k] ?? COST_LABELS[k] ?? k, current: shownVal(costOf(s, k)), next: shownVal(v) ?? "", value: v }));
+function anRows(s: Shipment, x: AnExtraction, t: Tr): ApplyRow[] {
+  return Object.entries(x.result!.fill ?? {}).map(([k, v]) => ({ key: k, label: AN_LABELS.includes(k) ? t(`fields.${k}`) : COST_LABELS[k] ? t(`costs.${COST_LABELS[k]}`) : k, current: shownVal(costOf(s, k)), next: shownVal(v) ?? "", value: v }));
 }
-function costRows(s: Shipment, fill: Record<string, unknown>, labels: Record<string, string>): ApplyRow[] {
-  return Object.entries(fill).map(([k, v]) => ({ key: k, label: labels[k] ?? k, current: shownVal(costOf(s, k)), next: shownVal(v) ?? "", value: v }));
+function costRows(s: Shipment, fill: Record<string, unknown>, labels: Record<string, string>, t: Tr): ApplyRow[] {
+  return Object.entries(fill).map(([k, v]) => ({ key: k, label: labels[k] ? t(`costs.${labels[k]}`) : k, current: shownVal(costOf(s, k)), next: shownVal(v) ?? "", value: v }));
 }
 /** {"costs.thc": 1} → { costs: { thc: 1 } } (Shipment.costs merges a patch). */
 function nestCosts(patch: Record<string, unknown>): Record<string, unknown> {
@@ -911,23 +886,25 @@ function nestCosts(patch: Record<string, unknown>): Record<string, unknown> {
 
 /** Read-only facts from the A/N with no shipment field: the arriving vessel, CY, charges. */
 function AnFacts({ draft }: { draft: AnExtraction["result"] extends infer R ? (R extends { draft: infer D } ? D : never) : never }) {
+  const t = useTranslations("shipments.orderPage.facts");
   const rows: Array<[string, string]> = [];
-  if (draft.tsVessel) rows.push(["Arriving vessel (after T/S)", [draft.tsVessel, draft.tsVoyageNo].filter(Boolean).join(" / ")]);
-  if (draft.cyTerminal) rows.push(["CY terminal", draft.cyTerminal]);
-  if (draft.cbm) rows.push(["Measurement", `${draft.cbm} CBM`]);
-  if (draft.telexRelease) rows.push(["B/L", "Telex release"]);
-  for (const c of draft.charges) rows.push([c.code ?? "Charge", `${c.currency ?? ""} ${c.amount?.toLocaleString("en-US") ?? "—"}${c.unit && c.rate ? ` (${c.unit} × ${c.rate.toLocaleString("en-US")})` : ""}`]);
+  if (draft.tsVessel) rows.push([t("tsVessel"), [draft.tsVessel, draft.tsVoyageNo].filter(Boolean).join(" / ")]);
+  if (draft.cyTerminal) rows.push([t("cyTerminal"), draft.cyTerminal]);
+  if (draft.cbm) rows.push([t("measurement"), `${draft.cbm} CBM`]);
+  if (draft.telexRelease) rows.push(["B/L", t("telexRelease")]);
+  for (const c of draft.charges) rows.push([c.code ?? t("charge"), `${c.currency ?? ""} ${c.amount?.toLocaleString("en-US") ?? "—"}${c.unit && c.rate ? ` (${c.unit} × ${c.rate.toLocaleString("en-US")})` : ""}`]);
   if (!rows.length) return null;
   return <FactList rows={rows} />;
 }
 function PermitFacts({ permit, checks }: { permit: PermitExtraction["result"] extends infer R ? (R extends { permit: infer P } ? P : never) : never; checks: PermitCheck[] }) {
+  const t = useTranslations("shipments.orderPage.facts");
   const rows: Array<[string, string]> = [
     ["申告番号 / 申告年月日", `${permit.declarationNo ?? "—"} · ${permit.declarationDate ?? "—"}`],
     ["積載船", permit.vessel ?? "—"],
     ["貨物個数 / 重量", `${permit.packages ?? "—"} · ${permit.grossWeightKg?.toLocaleString("en-US") ?? "—"} kg`],
     ["申告価格", fmtYen(permit.customsValue)],
     ["消費税 / 地方消費税", `${fmtYen(permit.national)} / ${fmtYen(permit.local)}`],
-    ...checks.map((c): [string, string] => [c.label, `${c.found ?? "—"} ${c.status === "ok" ? "✓" : c.status === "mismatch" ? `✗ (shipment: ${c.expected})` : "(nothing to compare)"}`]),
+    ...checks.map((c): [string, string] => [c.label, `${c.found ?? "—"} ${c.status === "ok" ? "✓" : c.status === "mismatch" ? t("mismatchShipment", { expected: String(c.expected ?? "") }) : t("nothingToCompare")}`]),
   ];
   return <FactList rows={rows} />;
 }

@@ -65,6 +65,15 @@ export class UsersController {
     return this.usersService.upsertMemberProfile(req.user?.id, organization.id, { signatureImage: body?.signatureImage ?? null });
   }
 
+  // Round AZ: one's own portal language (EN / 日本語) — writes only the caller's row, no users:update needed.
+  @Patch('me/ui-lang')
+  @ApiOperation({ summary: "Save the caller's portal language (SHIPMENTS orgs)" })
+  async saveOwnUiLang(@Req() req: any, @Body() body: { uiLang?: string }, @UserOrganization() organization: { id: string; name: string }) {
+    const res = await this.usersService.setOwnUiLang(req.user?.id, organization.id, body?.uiLang);
+    req.actionLogResult = { uiLang: { from: res.from, to: res.uiLang } };
+    return res;
+  }
+
   @Patch(':userId/profile')
   @Permissions('users:update')
   @ApiOperation({ summary: 'Update the org-scoped member profile (WhatsApp number, default commission %, yearly sales target)' })

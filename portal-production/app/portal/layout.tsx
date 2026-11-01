@@ -7,6 +7,7 @@ import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { OrganizationProvider } from "./context/OrganizationContext";
 import { ConfigurationProvider } from "./context/ConfigurationContext";
+import UiLangProvider from "@/i18n/UiLangProvider";
 import { SidebarProvider } from "@/components/Sidebar/SidebarContext";
 import { useThemeMode } from "@/contexts/ThemeModeContext";
 import { usePathname, useRouter } from "next/navigation";
@@ -83,6 +84,8 @@ export default function Layout(props: Props) {
     <OrganizationProvider>
       <FieldOnlyGuard>
         <ConfigurationProvider>
+          {/* Round AZ: EN / 日本語 (SHIPMENTS orgs; everyone else English). */}
+          <UiLangProvider>
           <SidebarProvider>
             <Box
               className={styles.PORTAL_LAYOUT}
@@ -114,6 +117,7 @@ export default function Layout(props: Props) {
               <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable pauseOnHover theme={mode} />
             </Box>
           </SidebarProvider>
+          </UiLangProvider>
         </ConfigurationProvider>
       </FieldOnlyGuard>
     </OrganizationProvider>

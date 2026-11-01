@@ -5,6 +5,7 @@ import { Autocomplete, TextField, Box, Chip } from "@mui/material";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
+import { useTranslations } from "next-intl";
 
 interface OrgOption {
   id: string;
@@ -23,6 +24,7 @@ interface OrgOption {
 export default function OrgSwitcher() {
   const { isOsirisAdmin, organization, realOrganization, setActiveOrgId } = useOrganization();
   const { getToken } = useAuth();
+  const t = useTranslations("shell.org");
   const [orgs, setOrgs] = useState<OrgOption[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -83,8 +85,8 @@ export default function OrgSwitcher() {
         renderInput={(params) => (
           <TextField
             {...params}
-            label="Viewing organization"
-            placeholder="Switch organization…"
+            label={t("viewing")}
+            placeholder={t("switchPlaceholder")}
             variant="outlined"
           />
         )}
@@ -92,7 +94,7 @@ export default function OrgSwitcher() {
           <li {...props} key={option.id}>
             <span style={{ flex: 1 }}>{option.name}</span>
             {option.id === realOrganization?.id && (
-              <Chip size="small" label="home" sx={{ ml: 1 }} />
+              <Chip size="small" label={t("home")} sx={{ ml: 1 }} />
             )}
           </li>
         )}

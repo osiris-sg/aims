@@ -11,6 +11,7 @@ import FormInputBox from "@/form-components/FormInputBox";
 import { request } from "@/helpers/request";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useAuth } from "@clerk/nextjs";
+import { useTranslations } from "next-intl";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import PersonIcon from "@mui/icons-material/Person";
@@ -28,8 +29,9 @@ interface Props {
 // prefix; 'field-tech' keeps its name (the app keys on it) but reads as
 // "Technician (field app)".
 const PRESET_PREFIX = "Preset · ";
-const PRESET_LABEL: Record<string, string> = { "field-tech": "Technician (field app)" };
-const presetLabel = (r: { name: string; description?: string | null }) => PRESET_LABEL[r.name] ?? r.name;
+// Round AZ: the label text is users.form.fieldTech (English unchanged).
+const PRESET_LABEL: Record<string, string> = { "field-tech": "fieldTech" };
+const presetLabel = (r: { name: string; description?: string | null }, t: (key: string) => string) => (PRESET_LABEL[r.name] ? t(PRESET_LABEL[r.name]) : r.name);
 const presetSummary = (r: { description?: string | null }) => {
   const d = String(r.description ?? "");
   const i = d.indexOf(" — ");
@@ -45,6 +47,7 @@ interface Role {
 
 export default function EditUser({ open, onClose, onUserUpdated, user }: Props) {
   const { getToken } = useAuth();
+  const t = useTranslations("users.form");
   const [roles, setRoles] = useState<Role[]>([]);
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   // Commission % and the yearly sales target feed the ID-firm screens
@@ -156,7 +159,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
       );
 
       if (!response.success) {
-        throw new Error(response.message || "Failed to update user");
+        throw new Error(response.message || t("updateFailed"));
       }
 
       return response;
@@ -170,7 +173,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
 
   const onSubmit = async (data: any) => {
     if (selectedRoles.length === 0) {
-      setError("Please select at least one role");
+      setError(t("selectOneRole"));
       return;
     }
 
@@ -225,7 +228,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
         onUserUpdated();
       }
     } catch (error: any) {
-      setError(error.message || "Failed to update user");
+      setError(error.message || t("updateFailed"));
     }
   };
 
@@ -281,11 +284,11 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                 fontSize: "1.5rem",
               }}
             >
-              Edit User
+              {t("editTitle")}
             </Typography>
           </Box>
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            Update user information, email, password, and role assignments
+            {t("editSub")}
           </Typography>
         </Box>
 
@@ -313,12 +316,12 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
               <Grid container spacing={3}>
                 <Grid item xs={6}>
                   <FormInputBox
-                    label="First Name"
+                    label={t("firstName")}
                     control={control}
                     name="firstName"
-                    placeHolder="Enter first name"
+                    placeHolder={t("firstNamePh")}
                     rules={{
-                      required: "First name is required",
+                      required: t("firstNameReq"),
                     }}
                     error={!!errors.firstName}
                     helperText={errors.firstName?.message as string}
@@ -327,12 +330,12 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
 
                 <Grid item xs={6}>
                   <FormInputBox
-                    label="Last Name"
+                    label={t("lastName")}
                     control={control}
                     name="lastName"
-                    placeHolder="Enter last name"
+                    placeHolder={t("lastNamePh")}
                     rules={{
-                      required: "Last name is required",
+                      required: t("lastNameReq"),
                     }}
                     error={!!errors.lastName}
                     helperText={errors.lastName?.message as string}
@@ -341,15 +344,15 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
 
                 <Grid item xs={12}>
                   <FormInputBox
-                    label="Email Address"
+                    label={t("email")}
                     control={control}
                     name="email"
-                    placeHolder="Enter email address"
+                    placeHolder={t("emailPh")}
                     rules={{
-                      required: "Email is required",
+                      required: t("emailReq"),
                       pattern: {
                         value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-                        message: "Invalid email address",
+                        message: t("emailInvalid"),
                       },
                     }}
                     error={!!errors.email}
@@ -359,13 +362,13 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
 
                 <Grid item xs={6}>
                   <TextField
-                    label="WhatsApp Number"
+                    label={t("whatsappNumber")}
                     fullWidth
                     size="small"
                     value={whatsappNumber}
                     onChange={(e) => setWhatsappNumber(e.target.value)}
-                    placeholder="e.g. 819012345678"
-                    helperText="Digits with country code. Only linked numbers get answers; clear it to unlink."
+                    placeholder={t("whatsappPh")}
+                    helperText={t("whatsappHelp")}
                     inputProps={{ inputMode: "tel" }}
                     data-tour="user-whatsapp-number"
                   />
@@ -374,28 +377,28 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                 <Grid item xs={12}>
                   <Divider sx={{ my: 1 }} />
                   <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-                    WhatsApp notifications
+                    {t("waTitle")}
                   </Typography>
                   <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1 }}>
-                    Pushed to the number above (shipments assistant). Batched within 10 minutes, never in quiet hours (Japan time).
+                    {t("waNote")}
                   </Typography>
                   <Box sx={{ display: "flex", flexWrap: "wrap", columnGap: 2 }} data-tour="user-whatsapp-prefs">
-                    <FormControlLabel control={<Switch size="small" checked={waPrefs.digest} onChange={(e) => setWaPrefs({ ...waPrefs, digest: e.target.checked })} />} label="Morning digest (08:30)" />
-                    <FormControlLabel control={<Switch size="small" checked={waPrefs.needsMe} onChange={(e) => setWaPrefs({ ...waPrefs, needsMe: e.target.checked })} />} label="Needs you (an email waits for a decision)" />
-                    <FormControlLabel control={<Switch size="small" checked={waPrefs.events} onChange={(e) => setWaPrefs({ ...waPrefs, events: e.target.checked })} />} label="Events (ETA changed, AN / permit filed, free time, stuck step)" />
-                    <FormControlLabel control={<Switch size="small" checked={waPrefs.filed} onChange={(e) => setWaPrefs({ ...waPrefs, filed: e.target.checked })} />} label="Every auto-filed document (the digest covers it)" />
+                    <FormControlLabel control={<Switch size="small" checked={waPrefs.digest} onChange={(e) => setWaPrefs({ ...waPrefs, digest: e.target.checked })} />} label={t("waDigest")} />
+                    <FormControlLabel control={<Switch size="small" checked={waPrefs.needsMe} onChange={(e) => setWaPrefs({ ...waPrefs, needsMe: e.target.checked })} />} label={t("waNeedsMe")} />
+                    <FormControlLabel control={<Switch size="small" checked={waPrefs.events} onChange={(e) => setWaPrefs({ ...waPrefs, events: e.target.checked })} />} label={t("waEvents")} />
+                    <FormControlLabel control={<Switch size="small" checked={waPrefs.filed} onChange={(e) => setWaPrefs({ ...waPrefs, filed: e.target.checked })} />} label={t("waFiled")} />
                   </Box>
                   <Grid container spacing={2} sx={{ mt: 0 }}>
                     <Grid item xs={4}>
-                      <TextField label="Quiet from" type="time" size="small" fullWidth value={waPrefs.quietFrom} onChange={(e) => setWaPrefs({ ...waPrefs, quietFrom: e.target.value || "21:00" })} InputLabelProps={{ shrink: true }} />
+                      <TextField label={t("quietFrom")} type="time" size="small" fullWidth value={waPrefs.quietFrom} onChange={(e) => setWaPrefs({ ...waPrefs, quietFrom: e.target.value || "21:00" })} InputLabelProps={{ shrink: true }} />
                     </Grid>
                     <Grid item xs={4}>
-                      <TextField label="Quiet to" type="time" size="small" fullWidth value={waPrefs.quietTo} onChange={(e) => setWaPrefs({ ...waPrefs, quietTo: e.target.value || "08:00" })} InputLabelProps={{ shrink: true }} />
+                      <TextField label={t("quietTo")} type="time" size="small" fullWidth value={waPrefs.quietTo} onChange={(e) => setWaPrefs({ ...waPrefs, quietTo: e.target.value || "08:00" })} InputLabelProps={{ shrink: true }} />
                     </Grid>
                     <Grid item xs={4}>
                       <FormControl fullWidth size="small">
-                        <InputLabel id="wa-lang">Digest language</InputLabel>
-                        <Select labelId="wa-lang" label="Digest language" value={waPrefs.lang} onChange={(e) => setWaPrefs({ ...waPrefs, lang: e.target.value === "ja" ? "ja" : "en" })}>
+                        <InputLabel id="wa-lang">{t("digestLang")}</InputLabel>
+                        <Select labelId="wa-lang" label={t("digestLang")} value={waPrefs.lang} onChange={(e) => setWaPrefs({ ...waPrefs, lang: e.target.value === "ja" ? "ja" : "en" })}>
                           <MenuItem value="en">English</MenuItem>
                           <MenuItem value="ja">日本語</MenuItem>
                         </Select>
@@ -407,13 +410,13 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                 {isIdQuotationEnabled && (
                 <Grid item xs={6}>
                   <TextField
-                    label="Default Commission %"
+                    label={t("commission")}
                     fullWidth
                     size="small"
                     value={commissionPct}
                     onChange={(e) => setCommissionPct(e.target.value)}
-                    placeholder="e.g. 50"
-                    helperText="Applied to new projects they run"
+                    placeholder={t("commissionPh")}
+                    helperText={t("commissionHelp")}
                     inputProps={{ inputMode: "decimal" }}
                   />
                 </Grid>
@@ -422,13 +425,13 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                 {isIdQuotationEnabled && (
                 <Grid item xs={6}>
                   <TextField
-                    label="Yearly Sales Target (S$)"
+                    label={t("target")}
                     fullWidth
                     size="small"
                     value={yearlySalesTarget}
                     onChange={(e) => setYearlySalesTarget(e.target.value)}
-                    placeholder="e.g. 500000"
-                    helperText="Contract value signed per year — drives the dashboard target bar"
+                    placeholder={t("targetPh")}
+                    helperText={t("targetHelp")}
                     inputProps={{ inputMode: "decimal" }}
                   />
                 </Grid>
@@ -436,15 +439,15 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
 
                 <Grid item xs={12}>
                   <FormInputBox
-                    label="Password (Leave blank to keep current)"
+                    label={t("passwordKeep")}
                     control={control}
                     name="password"
                     type={showPassword ? "text" : "password"}
-                    placeHolder="Enter new password"
+                    placeHolder={t("newPasswordPh")}
                     rules={{
                       minLength: {
                         value: 8,
-                        message: "Password must be at least 8 characters",
+                        message: t("passwordMin"),
                       },
                     }}
                     error={!!errors.password}
@@ -461,7 +464,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                         p: 0.5,
                       }}
                     >
-                      {showPassword ? "Hide password" : "Show password"}
+                      {showPassword ? t("hidePassword") : t("showPassword")}
                     </Button>
                   </Box>
                 </Grid>
@@ -469,12 +472,12 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                 <Grid item xs={12}>
                   <FormControl fullWidth>
                     <InputLabel id="edit-roles-label">
-                      {isRolePresetsEnabled ? "Role" : "Select Roles"}
+                      {isRolePresetsEnabled ? t("role") : t("selectRoles")}
                     </InputLabel>
                     <Select
                       labelId="edit-roles-label"
                       id="edit-roles"
-                      label={isRolePresetsEnabled ? "Role" : "Select Roles"}
+                      label={isRolePresetsEnabled ? t("role") : t("selectRoles")}
                       multiple={!isRolePresetsEnabled}
                       value={isRolePresetsEnabled ? (selectedRoles[0] ?? "") : selectedRoles}
                       onChange={(e) => {
@@ -488,7 +491,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                             return (
                               <Chip
                                 key={value}
-                                label={role ? presetLabel(role) : value}
+                                label={role ? presetLabel(role, t) : value}
                                 size="small"
                                 sx={{
                                   bgcolor: (t) => alpha(t.palette.primary.main, t.palette.mode === "dark" ? 0.22 : 0.12),
@@ -535,7 +538,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                         <MenuItem key={role.id} value={role.id}>
                           <Box>
                             <Typography variant="body2" sx={{ fontWeight: 600, color: "text.primary" }}>
-                              {presetLabel(role)}
+                              {presetLabel(role, t)}
                             </Typography>
                             {role.description && (
                               <Typography variant="caption" sx={{ color: "text.secondary", display: "block", lineHeight: 1.4 }}>
@@ -575,7 +578,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
               disabled={loading}
               color="inherit"
             >
-              Cancel
+              {t("cancel")}
             </Button>
             <Button
               type="submit"
@@ -584,7 +587,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
               disabled={loading}
               onClick={handleSubmit(onSubmit)}
             >
-              {loading ? "Updating..." : "Update User"}
+              {loading ? t("updating") : t("update")}
             </Button>
           </Box>
         </Box>

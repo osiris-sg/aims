@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { Box, Chip, CircularProgress, ClickAwayListener, InputAdornment, InputBase, List, ListItemButton, ListItemText, ListSubheader, Paper, Popper, Typography, useMediaQuery, useTheme } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import { useAuth } from "@clerk/nextjs";
+import { useTranslations } from "next-intl";
 
 const apiBase = process.env.NEXT_PUBLIC_BACKEND_API_URL;
 
@@ -26,6 +27,7 @@ const money = (n: number | null) => (n == null ? null : `S$ ${new Intl.NumberFor
 
 export default function GlobalSearch() {
   const router = useRouter();
+  const t = useTranslations("shell.search");
   const { getToken } = useAuth();
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down("md"));
@@ -44,7 +46,7 @@ export default function GlobalSearch() {
     for (const d of res.documents) {
       out.push({
         group: "Documents",
-        label: `${d.number || "Draft"} · ${d.type}`,
+        label: `${d.number || t("draft")} · ${d.type}`,
         sub: [d.customer, d.status, money(d.total)].filter(Boolean).join(" · "),
         go: () => {
           if (d.type === "VARIATION_ORDER") router.push(`/portal/sales/variation-orders/${d.id}`);
@@ -53,12 +55,12 @@ export default function GlobalSearch() {
         },
       });
     }
-    for (const p of res.projects) out.push({ group: "Projects", label: p.name, sub: [p.address, p.stage || (p.status === "completed" ? "completed" : "not signed"), p.designer].filter(Boolean).join(" · "), go: () => router.push(`/portal/projects/${p.id}`) });
+    for (const p of res.projects) out.push({ group: "Projects", label: p.name, sub: [p.address, p.stage || (p.status === "completed" ? t("completed") : t("notSigned")), p.designer].filter(Boolean).join(" · "), go: () => router.push(`/portal/projects/${p.id}`) });
     for (const l of res.leads) out.push({ group: "Leads", label: l.name, sub: [l.phone, l.source?.toUpperCase(), l.status, l.assignedToName].filter(Boolean).join(" · "), go: () => router.push(`/portal/sales/leads?focus=${l.id}`) });
     for (const c of res.customers) out.push({ group: "Customers", label: c.name, sub: [c.customerCode, c.phone, c.email].filter(Boolean).join(" · "), go: () => router.push(`/portal/customers?focus=${c.id}`) });
     for (const s of res.suppliers) out.push({ group: "Suppliers", label: s.name, sub: s.supplierCode || "", go: () => router.push(`/portal/suppliers?focus=${s.id}`) });
     return out;
-  }, [res, router]);
+  }, [res, router, t]);
 
   const run = useCallback(
     async (term: string) => {
@@ -124,7 +126,7 @@ export default function GlobalSearch() {
               navigate(cursor);
             }
           }}
-          placeholder={compact ? "Search" : "Search anything…"}
+          placeholder={compact ? t("short") : t("placeholder")}
           startAdornment={
             <InputAdornment position="start" sx={{ color: "rgba(255,255,255,0.6)", ml: 0.5 }}>
               {loading ? <CircularProgress size={14} sx={{ color: "rgba(255,255,255,0.7)" }} /> : <SearchIcon sx={{ fontSize: 18 }} />}
@@ -142,14 +144,14 @@ export default function GlobalSearch() {
             "&:focus-within": { width: compact ? 180 : 320, bgcolor: "rgba(255,255,255,0.16)" },
             "& input::placeholder": { color: "rgba(255,255,255,0.55)", opacity: 1 },
           }}
-          inputProps={{ "aria-label": "Global search" }}
+          inputProps={{ "aria-label": t("aria") }}
           data-tour="global-search"
         />
         <Popper open={open && q.trim().length >= 2} anchorEl={anchor.current} placement="bottom-end" sx={{ zIndex: 1400 }}>
           <Paper elevation={8} sx={{ mt: 0.5, width: 420, maxWidth: "calc(100vw - 24px)", maxHeight: 480, overflowY: "auto", borderRadius: 2 }}>
             {flat.length === 0 ? (
               <Typography variant="body2" sx={{ p: 2, color: "text.secondary" }}>
-                {loading ? "Searching…" : `Nothing matches “${q.trim()}”.`}
+                {loading ? t("searching") : t("nothing", { q: q.trim() })}
               </Typography>
             ) : (
               <List dense disablePadding>
@@ -159,7 +161,7 @@ export default function GlobalSearch() {
                     <React.Fragment key={`${hit.group}-${i}`}>
                       {header && (
                         <ListSubheader disableSticky sx={{ lineHeight: "28px", fontSize: 11, letterSpacing: 0.6, textTransform: "uppercase", bgcolor: "transparent" }}>
-                          {hit.group}
+                          {t(`groups.${hit.group}`)}
                         </ListSubheader>
                       )}
                       <ListItemButton selected={i === cursor} onMouseEnter={() => setCursor(i)} onClick={() => navigate(i)} sx={{ py: 0.75 }}>

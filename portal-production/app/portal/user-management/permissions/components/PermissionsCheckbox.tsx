@@ -1,6 +1,7 @@
 import React from "react";
 import { Box, Checkbox, FormControlLabel, Typography, Tooltip } from "@mui/material";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import { useTranslations } from "next-intl";
 
 interface Permission {
   id: string;
@@ -18,6 +19,7 @@ interface Props {
 }
 
 export default function PermissionsCheckbox({ permission, checked, onChange, disabled = false }: Props) {
+  const t = useTranslations("users.roles");
   return (
     <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
       <FormControlLabel
@@ -32,7 +34,7 @@ export default function PermissionsCheckbox({ permission, checked, onChange, dis
         <Typography variant="caption" color="text.secondary" sx={{ textTransform: "capitalize" }}>
           {permission.action}
         </Typography>
-        <Tooltip title={permission.description || "No description available"}>
+        <Tooltip title={permission.description || t("noDescription")}>
           <InfoOutlinedIcon fontSize="small" color="action" />
         </Tooltip>
       </Box>

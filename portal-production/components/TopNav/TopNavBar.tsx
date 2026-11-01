@@ -7,6 +7,7 @@
 // dark bar across the top, text items, click-to-open dropdown per module,
 // active module underlined. Desktop (md+) only — mobile keeps the drawer.
 
+import LangSwitch from "./LangSwitch";
 import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -29,7 +30,8 @@ import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import { useThemeMode } from "@/contexts/ThemeModeContext";
 import logo from "@/components/Sidebar/aims-logo.png";
-import { resolveSubmenuRoute, submenuLabel, useNavModules } from "./useNavModules";
+import { resolveSubmenuRoute, submenuLabel, useNavLabels, useNavModules } from "./useNavModules";
+import { useTranslations } from "next-intl";
 import { HOME_VIEW_EVENT, closeAimee, openAimee, readHomeView, type HomeView } from "@/app/portal/chat/homeView";
 import AimeeFace from "@/app/portal/chat/AimeeFace";
 import { isClientsPath } from "@/helpers/shipmentsNav";
@@ -49,6 +51,7 @@ const CIEL_NAV_LOGO = "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/logos
 function TopNavOrgSwitcher() {
   const { isOsirisAdmin, organization, realOrganization, setActiveOrgId } = useOrganization();
   const { getToken } = useAuth();
+  const t = useTranslations("shell.org");
   const [orgs, setOrgs] = React.useState<{ id: string; name: string }[]>([]);
   React.useEffect(() => {
     if (!isOsirisAdmin) return;
@@ -85,8 +88,8 @@ function TopNavOrgSwitcher() {
       <Tooltip
         title={
           isOverride
-            ? `Viewing as ${organization?.name} — data and writes are scoped to this org, not your home (${realOrganization?.name}).`
-            : "Switch organization"
+            ? t("viewingAsTip", { name: organization?.name ?? "", home: realOrganization?.name ?? "" })
+            : t("switch")
         }
       >
         <Autocomplete
@@ -106,7 +109,7 @@ function TopNavOrgSwitcher() {
           renderOption={(props, option) => (
             <li {...props} key={option.id}>
               <span style={{ flex: 1 }}>{option.name}</span>
-              {option.id === realOrganization?.id && <Chip size="small" label="home" sx={{ ml: 1 }} />}
+              {option.id === realOrganization?.id && <Chip size="small" label={t("home")} sx={{ ml: 1 }} />}
             </li>
           )}
           sx={{
@@ -128,11 +131,11 @@ function TopNavOrgSwitcher() {
             },
             "& .MuiSvgIcon-root": { color: "rgba(255,255,255,0.7)" },
           }}
-          renderInput={(params) => <TextField {...params} placeholder="Switch organization…" variant="outlined" />}
+          renderInput={(params) => <TextField {...params} placeholder={t("switchPlaceholder")} variant="outlined" />}
         />
       </Tooltip>
       {isOverride && (
-        <Tooltip title={`Reset to home (${realOrganization?.name})`}>
+        <Tooltip title={t("resetTo", { home: realOrganization?.name ?? "" })}>
           <IconButton size="small" onClick={() => setActiveOrgId(null)} sx={{ color: "#4da3ff" }}>
             <CloseIcon sx={{ fontSize: "1rem" }} />
           </IconButton>
@@ -164,6 +167,8 @@ export default function TopNavBar() {
   const { mode, toggleMode } = useThemeMode();
   const { isAimsChatEnabled } = useOrganizationFeatures();
   const { navModules, isMasterTier, settingsMenu } = useNavModules();
+  const { moduleName, subLabel, settingLabel } = useNavLabels();
+  const tn = useTranslations("shell.nav");
   // AIMEE in the top bar (orgs with enableAimsChat): her face opens the
   // assistant from any page; while it is open the same face takes you back.
   const [homeView, setHomeView] = React.useState<HomeView>("dashboard");
@@ -276,7 +281,7 @@ export default function TopNavBar() {
                   "&:hover": { bgcolor: "rgba(255,255,255,0.08)" },
                 }}
               >
-                {m.displayName || m.moduleCode}
+                {moduleName(m)}
               </Button>
               {hasMenu && (
                 <Menu
@@ -289,7 +294,7 @@ export default function TopNavBar() {
                 >
                   {subMenus.map((s: any, i: number) => (
                     <MenuItem key={i} onClick={() => go(resolveSubmenuRoute(m, s))} sx={{ fontSize: "0.8125rem", py: 1 }}>
-                      {submenuLabel(s)}
+                      {subLabel(m, s, submenuLabel(s))}
                     </MenuItem>
                   ))}
                 </Menu>
@@ -321,7 +326,7 @@ export default function TopNavBar() {
             "&:hover": { bgcolor: "rgba(255,255,255,0.08)" },
           }}
         >
-          Org Settings
+          {tn("orgSettings")}
         </Button>
         <Menu
           anchorEl={openMenu && openMenu.code === "ORG_SETTINGS" ? openMenu.anchor : null}
@@ -333,7 +338,7 @@ export default function TopNavBar() {
         >
           {settingsMenu.map((s) => (
             <MenuItem key={s.path} onClick={() => go(s.path)} sx={{ fontSize: "0.8125rem", py: 1 }}>
-              {s.label}
+              {settingLabel(s)}
             </MenuItem>
           ))}
         </Menu>
@@ -343,12 +348,12 @@ export default function TopNavBar() {
 
       <Stack direction="row" alignItems="center" gap={1} sx={{ flexShrink: 0, ml: 1 }}>
         {isAimsChatEnabled && (
-          <Tooltip title={aimeeOpen ? "Back to the dashboard" : "AIMEE"}>
+          <Tooltip title={aimeeOpen ? tn("backToDashboard") : tn("aimee")}>
             <Box
               component="button"
               type="button"
               onClick={pressAimee}
-              aria-label={aimeeOpen ? "Back to the dashboard" : "Open AIMEE"}
+              aria-label={aimeeOpen ? tn("backToDashboard") : tn("openAimee")}
               data-tour="home-view-toggle"
               sx={{
                 all: "unset",
@@ -377,7 +382,8 @@ export default function TopNavBar() {
         <TopNavOrgSwitcher />
         <AppSwitcher />
         <NotificationBell />
-        <Tooltip title={mode === "dark" ? "Light mode" : "Dark mode"}>
+        <LangSwitch />
+        <Tooltip title={mode === "dark" ? tn("lightMode") : tn("darkMode")}>
           <IconButton size="small" onClick={toggleMode} sx={{ color: "rgba(255,255,255,0.8)" }}>
             {mode === "dark" ? <LightModeOutlinedIcon fontSize="small" /> : <DarkModeOutlinedIcon fontSize="small" />}
           </IconButton>

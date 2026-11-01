@@ -6,6 +6,7 @@
 // shipment. Nothing is saved without Apply.
 
 import React, { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
 
 export type ApplyRow = { key: string; label: string; current: string | null; next: string; value: unknown };
@@ -30,6 +31,7 @@ export default function ExtractApplyDialog({
   onClose: () => void;
   onApply: (patch: Record<string, unknown>) => Promise<void>;
 }) {
+  const t = useTranslations("shipments.extractApplyDialog");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,9 +69,9 @@ export default function ExtractApplyDialog({
             <TableHead>
               <TableRow>
                 <TableCell padding="checkbox" />
-                <TableCell>Field</TableCell>
-                <TableCell>Now</TableCell>
-                <TableCell>From the document</TableCell>
+                <TableCell>{t("field")}</TableCell>
+                <TableCell>{t("now")}</TableCell>
+                <TableCell>{t("fromDoc")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -86,7 +88,7 @@ export default function ExtractApplyDialog({
             </TableBody>
           </Table>
         ) : (
-          <Typography variant="body2">Nothing to fill — the shipment already has these values.</Typography>
+          <Typography variant="body2">{t("nothing")}</Typography>
         )}
         {extra && <Box sx={{ mt: 2 }}>{extra}</Box>}
         {error && (
@@ -97,7 +99,7 @@ export default function ExtractApplyDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>
-          {rows.length ? "Not now" : "Close"}
+          {rows.length ? t("notNow") : t("close")}
         </Button>
         {rows.length > 0 && (
           <Button
@@ -110,13 +112,13 @@ export default function ExtractApplyDialog({
                 await onApply(Object.fromEntries(rows.filter((r) => picked.has(r.key)).map((r) => [r.key, r.value])));
                 onClose();
               } catch (e) {
-                setError((e as Error)?.message || "Could not save");
+                setError((e as Error)?.message || t("saveError"));
               } finally {
                 setBusy(false);
               }
             }}
           >
-            Apply {picked.size} value{picked.size === 1 ? "" : "s"}
+            {t("applyN", { n: picked.size })}
           </Button>
         )}
       </DialogActions>

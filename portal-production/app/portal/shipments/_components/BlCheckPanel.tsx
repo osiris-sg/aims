@@ -18,6 +18,7 @@ import { useShipmentsApi } from "../_lib/api";
 import { useTradeMutation } from "../_lib/hooks";
 import { fmtDateTime } from "../_lib/format";
 import { toast } from "../_lib/toast";
+import { useTranslations } from "next-intl";
 
 const ICON: Record<BlCheck["status"], React.ReactNode> = {
   ok: <CheckCircleOutlineIcon fontSize="small" color="success" />,
@@ -26,13 +27,14 @@ const ICON: Record<BlCheck["status"], React.ReactNode> = {
   info: <InfoOutlinedIcon fontSize="small" color="info" />,
 };
 const ITEM: Record<CheckItem["status"], { label: string; color: "success" | "error" | "warning" }> = {
-  ok: { label: "✓", color: "success" },
-  mismatch: { label: "✗ differs", color: "error" },
+  ok: { label: "ok", color: "success" },
+  mismatch: { label: "differs", color: "error" },
   missing: { label: "missing", color: "warning" },
 };
 
 /** Chip for the "Approve B/L draft" step row and the Overview header. */
 export function BlCheckChip({ check, onClick }: { check: BlCheckSummary; onClick?: () => void }) {
+  const t = useTranslations("shipments.blCheck");
   const open = check.issueCount > 0 && !check.acknowledgedAt;
   return (
     <Chip
@@ -42,13 +44,14 @@ export function BlCheckChip({ check, onClick }: { check: BlCheckSummary; onClick
       onClick={onClick}
       color={open ? "warning" : "success"}
       icon={open ? <ErrorOutlineIcon /> : <CheckCircleOutlineIcon />}
-      label={open ? `B/L check: ${check.issueCount} issue${check.issueCount === 1 ? "" : "s"}` : check.issueCount ? `B/L check: acknowledged` : "B/L check ✓"}
-      title="AI check of the B/L draft against the contract"
+      label={open ? t("chipIssues", { n: check.issueCount }) : check.issueCount ? t("chipAcknowledged") : t("chipOk")}
+      title={t("chipTitle")}
     />
   );
 }
 
 export default function BlCheckPanel({ check, shipmentId, canEdit }: { check: BlCheckSummary; shipmentId: string; canEdit: boolean }) {
+  const t = useTranslations("shipments.blCheck");
   const api = useShipmentsApi();
   const [rechecking, setRechecking] = useState(false);
   const ack = useTradeMutation((a, id: string) => a.acknowledgeExtraction(id));
@@ -60,21 +63,21 @@ export default function BlCheckPanel({ check, shipmentId, canEdit }: { check: Bl
       const { url } = await api.fileUrl(check.fileId);
       window.open(url, "_blank", "noopener");
     } catch (e: any) {
-      toast.error(e?.message || "Could not open the file");
+      toast.error(e?.message || t("couldNotOpen"));
     }
   };
 
   return (
     <Paper variant="outlined" sx={{ p: 1.5 }} data-tour="bl-draft-check">
       <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
-        <Typography variant="subtitle2">B/L draft check</Typography>
+        <Typography variant="subtitle2">{t("title")}</Typography>
         <BlCheckChip check={check} />
         <Typography variant="caption" color="text.secondary">
-          {check.fileName ?? "B/L draft"} · read {fmtDateTime(check.extractedAt)}
+          {check.fileName ?? t("blDraft")} · {t("read", { when: fmtDateTime(check.extractedAt) })}
         </Typography>
         <Box sx={{ flex: 1 }} />
         <Button size="small" onClick={view}>
-          View PDF
+          {t("viewPdf")}
         </Button>
         <Button
           size="small"
@@ -84,16 +87,16 @@ export default function BlCheckPanel({ check, shipmentId, canEdit }: { check: Bl
             setRechecking(true);
             try {
               const x = await reread.mutateAsync({ fileId: check.fileId });
-              if (x.status === "FAILED") toast.error(x.error || "Could not read the B/L draft");
-              else toast.success("B/L draft re-checked");
+              if (x.status === "FAILED") toast.error(x.error || t("couldNotRead"));
+              else toast.success(t("rechecked"));
             } catch (e: any) {
-              toast.error(e?.message || "Could not re-check");
+              toast.error(e?.message || t("couldNotRecheck"));
             } finally {
               setRechecking(false);
             }
           }}
         >
-          {rechecking ? "Reading…" : "Re-read PDF"}
+          {rechecking ? t("reading") : t("reread")}
         </Button>
         {check.issueCount > 0 && !check.acknowledgedAt && (
           <Button
@@ -104,19 +107,19 @@ export default function BlCheckPanel({ check, shipmentId, canEdit }: { check: Bl
             onClick={async () => {
               try {
                 await ack.mutateAsync(check.extractionId);
-                toast.success("B/L check acknowledged");
+                toast.success(t("acknowledged"));
               } catch (e: any) {
-                toast.error(e?.message || "Could not acknowledge");
+                toast.error(e?.message || t("couldNotAcknowledge"));
               }
             }}
           >
-            Acknowledge
+            {t("acknowledge")}
           </Button>
         )}
       </Stack>
       {check.acknowledgedAt && check.issueCount > 0 && (
         <Alert severity="info" sx={{ mb: 1, py: 0 }}>
-          {check.issueCount} issue{check.issueCount === 1 ? "" : "s"} acknowledged by {check.acknowledgedByName ?? "someone"} · {fmtDateTime(check.acknowledgedAt)}
+          {t("acknowledgedBy", { n: check.issueCount, who: check.acknowledgedByName ?? t("someone") })} · {fmtDateTime(check.acknowledgedAt)}
         </Alert>
       )}
       <Table size="small" sx={{ tableLayout: "fixed", "& td": { verticalAlign: "top", py: 0.75 } }}>
@@ -143,9 +146,9 @@ export default function BlCheckPanel({ check, shipmentId, canEdit }: { check: Bl
                     {c.key === "fields" && (
                       <TableHead>
                         <TableRow>
-                          <TableCell>Field</TableCell>
-                          <TableCell>B/L draft</TableCell>
-                          <TableCell>Shipment</TableCell>
+                          <TableCell>{t("field")}</TableCell>
+                          <TableCell>{t("blDraft")}</TableCell>
+                          <TableCell>{t("shipment")}</TableCell>
                         </TableRow>
                       </TableHead>
                     )}
@@ -162,7 +165,7 @@ export default function BlCheckPanel({ check, shipmentId, canEdit }: { check: Bl
                             <>
                               <TableCell sx={{ whiteSpace: "pre-line" }}>{i.expected}</TableCell>
                               <TableCell sx={{ whiteSpace: "nowrap" }}>
-                                <Chip size="small" variant="outlined" color={ITEM[i.status].color} label={ITEM[i.status].label} />
+                                <Chip size="small" variant="outlined" color={ITEM[i.status].color} label={t(`item.${ITEM[i.status].label}`)} />
                               </TableCell>
                             </>
                           )}
@@ -178,7 +181,7 @@ export default function BlCheckPanel({ check, shipmentId, canEdit }: { check: Bl
       </Table>
       {check.containers?.length > 0 && (
         <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-          Containers: {check.containers.map((c) => [c.containerNo, c.sealNo && `seal ${c.sealNo}`, c.packages != null && `${c.packages} pkgs`].filter(Boolean).join(" ")).join(" · ")}
+          {t("containers")} {check.containers.map((c) => [c.containerNo, c.sealNo && t("seal", { no: c.sealNo }), c.packages != null && t("pkgs", { n: c.packages })].filter(Boolean).join(" ")).join(" · ")}
         </Typography>
       )}
     </Paper>

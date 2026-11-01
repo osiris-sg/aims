@@ -17,8 +17,10 @@ import type { Shipment } from "../_lib/api";
 import { useTradeMutation } from "../_lib/hooks";
 import { fmtDay } from "../_lib/format";
 import { toast } from "../_lib/toast";
+import { useTranslations } from "next-intl";
 
 export default function PortStoragePanel({ shipment: s }: { shipment: Shipment }) {
+  const t = useTranslations("shipments.portStoragePanel");
   const save = useTradeMutation((a, patch: Record<string, unknown>) => a.updateShipment(s.id, patch));
   const [f, setF] = useState<Record<string, string>>({});
   const [pasteOpen, setPasteOpen] = useState(false);
@@ -36,7 +38,7 @@ export default function PortStoragePanel({ shipment: s }: { shipment: Shipment }
     try {
       await save.mutateAsync(patch);
     } catch (e: any) {
-      toast.error(e?.message || "Could not save");
+      toast.error(e?.message || t("saveError"));
     }
   };
   const blur = (k: string, kind: "date" | "int" | "text") => () => {
@@ -50,9 +52,9 @@ export default function PortStoragePanel({ shipment: s }: { shipment: Shipment }
     if (!s.carrier.prefilled && s.blNumber) {
       try {
         await navigator.clipboard.writeText(s.blNumber);
-        toast.info(`B/L ${s.blNumber} copied — paste it into ${s.carrier.name}'s tracking search`);
+        toast.info(t("copied", { bl: s.blNumber, carrier: s.carrier.name }));
       } catch {
-        toast.info(`Search ${s.carrier.name} for B/L ${s.blNumber}`);
+        toast.info(t("search", { carrier: s.carrier.name, bl: s.blNumber }));
       }
     }
     window.open(s.carrier.url, "_blank", "noopener");
@@ -75,16 +77,16 @@ export default function PortStoragePanel({ shipment: s }: { shipment: Shipment }
     <Paper variant="outlined" sx={{ p: 2 }} data-tour="shipment-port-storage">
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
         <Typography variant="subtitle2" sx={{ flex: 1 }}>
-          Arrival, free time and storage start
+          {t("title")}
         </Typography>
         {s.carrier && (
           <Button size="small" variant="outlined" startIcon={<LaunchIcon />} onClick={track} data-tour="shipment-track">
-            Track ({s.carrier.name})
+            {t("track", { carrier: s.carrier.name })}
           </Button>
         )}
         {canEdit && (
           <Button size="small" variant="outlined" startIcon={<ContentPasteIcon />} onClick={() => setPasteOpen(true)} data-tour="shipment-tracking-paste">
-            Paste tracking
+            {t("paste")}
           </Button>
         )}
       </Stack>
@@ -92,14 +94,14 @@ export default function PortStoragePanel({ shipment: s }: { shipment: Shipment }
       <Box sx={{ mb: 1.5 }}>
         <Typography variant="caption" color="text.secondary">
           ETA {fmtDay(s.eta)}
-          {s.etaTrail ? ` · history ${s.etaTrail}` : ""}
+          {s.etaTrail ? t("history", { trail: s.etaTrail }) : ""}
         </Typography>
         {(s.tsPort || s.arrivingVessel || s.blReleaseType) && (
           <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
             {[
-              s.vessel ? `Ocean ${s.vessel}${s.voyageNo ? ` / ${s.voyageNo}` : ""}` : null,
-              s.tsPort ? `T/S ${s.tsPort}${s.tsEta ? ` arr ${fmtDay(s.tsEta)}` : ""}${s.tsEtd ? ` dep ${fmtDay(s.tsEtd)}` : ""}` : null,
-              s.arrivingVessel ? `Arriving (本船) ${s.arrivingVessel}${s.arrivingVoyageNo ? ` / ${s.arrivingVoyageNo}` : ""}` : null,
+              s.vessel ? `${t("ocean", { vessel: s.vessel })}${s.voyageNo ? ` / ${s.voyageNo}` : ""}` : null,
+              s.tsPort ? `T/S ${s.tsPort}${s.tsEta ? t("arr", { date: fmtDay(s.tsEta) }) : ""}${s.tsEtd ? t("dep", { date: fmtDay(s.tsEtd) }) : ""}` : null,
+              s.arrivingVessel ? `${t("arriving", { vessel: s.arrivingVessel })}${s.arrivingVoyageNo ? ` / ${s.arrivingVoyageNo}` : ""}` : null,
               s.blReleaseType ?? null,
             ]
               .filter(Boolean)
@@ -108,10 +110,10 @@ export default function PortStoragePanel({ shipment: s }: { shipment: Shipment }
         )}
       </Box>
       <Grid2 container spacing={1.5}>
-        <Grid2 size={{ xs: 12, sm: 4 }}>{field("dischargeDate", "Discharge date", "date")}</Grid2>
-        <Grid2 size={{ xs: 6, sm: 4 }}>{field("detFreeDays", "DET free days (default 4)", "int")}</Grid2>
-        <Grid2 size={{ xs: 6, sm: 4 }}>{field("demFreeDays", "DEM free days (default 10)", "int")}</Grid2>
-        <Grid2 size={{ xs: 12, sm: 4 }}>{field("storageStartDate", "Warehouse storage start", "date", { helperText: "For storage-fee estimates" })}</Grid2>
+        <Grid2 size={{ xs: 12, sm: 4 }}>{field("dischargeDate", t("discharge"), "date")}</Grid2>
+        <Grid2 size={{ xs: 6, sm: 4 }}>{field("detFreeDays", t("det"), "int")}</Grid2>
+        <Grid2 size={{ xs: 6, sm: 4 }}>{field("demFreeDays", t("dem"), "int")}</Grid2>
+        <Grid2 size={{ xs: 12, sm: 4 }}>{field("storageStartDate", t("storageStart"), "date", { helperText: t("storageHelp") })}</Grid2>
       </Grid2>
     </Paper>
   );

@@ -1,0 +1,121 @@
+{
+  "modules": {
+    "DASHBOARD": "Dashboard",
+    "SHIPMENTS": "Sales",
+    "SALES": "Sales",
+    "INVOICES": "Invoices",
+    "DOCUMENTS": "Documents",
+    "USER_MANAGEMENT": "User Management",
+    "AUDIT": "Audit",
+    "INVENTORY": "Inventory",
+    "CUSTOMERS": "Customers",
+    "SUPPLIERS": "Suppliers",
+    "PROJECTS": "Projects",
+    "ORDERS": "Orders",
+    "ACCOUNTING": "Accounting",
+    "ASSETS": "Assets",
+    "ANALYTICS": "Analytics",
+    "INTEGRATIONS": "Integrations",
+    "DELIVERIES": "Deliveries",
+    "CUSTOMER_INFORMATION": "Customer Information",
+    "ADMIN": "Admin Panel"
+  },
+  "submenus": {
+    "SHIPMENTS": {
+      "list": "Orders",
+      "shipments": "Shipments",
+      "dashboard": "Dashboard",
+      "inbox": "Inbox",
+      "monthly": "Monthly list"
+    },
+    "INVOICES": {
+      "list": "Invoices"
+    },
+    "DOCUMENTS": {
+      "templates": "Templates",
+      "extraction": "Extraction"
+    },
+    "USER_MANAGEMENT": {
+      "users": "Users",
+      "roles": "Roles",
+      "permissions": "Permissions",
+      "organizations": "Organizations"
+    },
+    "SALES": {
+      "quotations": "Quotation",
+      "sales-orders": "Sales Order",
+      "delivery-orders": "Delivery Order",
+      "return-delivery-orders": "Return Delivery Order",
+      "invoices": "Invoice",
+      "debit-notes": "Debit Note",
+      "credit-notes": "Credit Note"
+    },
+    "ACCOUNTING": {
+      "list": "Dashboard",
+      "ledger": "General Ledger",
+      "receivables": "Accounts Receivable",
+      "payables": "Accounts Payable",
+      "posting-queue": "Posting Queue",
+      "setup": "Setup"
+    }
+  },
+  "settings": {
+    "company-profile": "Company Profile",
+    "shipping": "Shipping & documents",
+    "customers": "Customers",
+    "accounting-setup": "Accounting Setup",
+    "masterfiles": "Master Files"
+  },
+  "nav": {
+    "orgSettings": "Org Settings",
+    "organizationSettings": "Organization Settings",
+    "failedToLoad": "Failed to load navigation",
+    "backToDashboard": "Back to the dashboard",
+    "aimee": "AIMEE",
+    "openAimee": "Open AIMEE",
+    "lightMode": "Light mode",
+    "darkMode": "Dark mode",
+    "menu": "menu",
+    "apps": "Apps"
+  },
+  "org": {
+    "viewingAsTip": "Viewing as {name} — data and writes are scoped to this org, not your home ({home}).",
+    "switch": "Switch organization",
+    "switchPlaceholder": "Switch organization…",
+    "home": "home",
+    "resetTo": "Reset to home ({home})",
+    "viewing": "Viewing organization",
+    "viewingAs": "Viewing as {name}",
+    "scopedNote": "Data and writes are scoped to this org, not your home ({home}).",
+    "reset": "Reset to home"
+  },
+  "search": {
+    "placeholder": "Search anything…",
+    "short": "Search",
+    "aria": "Global search",
+    "searching": "Searching…",
+    "nothing": "Nothing matches “{q}”.",
+    "draft": "Draft",
+    "completed": "completed",
+    "notSigned": "not signed",
+    "groups": {
+      "Documents": "Documents",
+      "Projects": "Projects",
+      "Leads": "Leads",
+      "Customers": "Customers",
+      "Suppliers": "Suppliers"
+    }
+  },
+  "bell": {
+    "aria": "notifications",
+    "tasks": "Tasks ({n})",
+    "overdue": "{n} overdue",
+    "notifications": "Notifications",
+    "markAll": "Mark all read",
+    "caughtUp": "You are all caught up.",
+    "justNow": "just now",
+    "mAgo": "{n}m ago",
+    "hAgo": "{n}h ago",
+    "dAgo": "{n}d ago"
+  }
+}

@@ -25,12 +25,18 @@ export function premiumRowFor(schedule: PremiumRow[] | null | undefined, month: 
 const sign = (n: number | null | undefined) => (n === null || n === undefined ? "—" : `${n >= 0 ? "+" : ""}${n}`);
 
 /** Helper texts under the premium fields — the selected grade's contract values, never another grade's. */
-export function premiumHelp(contractNo: string | null | undefined, row: PremiumRow | null, grade: string | null | undefined): { supplier: string; client: string } {
-  const g = (grade ?? "").trim() || "this grade";
-  if (!contractNo) return { supplier: "Fixed part: a PI's premium = QMJP of the quarter + this", client: "Fixed part billed to the customer" };
-  if (!row) return { supplier: `Contract ${contractNo} has no ${g} row — enter it`, client: `Contract ${contractNo} has no ${g} row — enter it` };
-  return {
-    supplier: `Contract ${contractNo}, ${g}: supplier ${sign(row.supplierPremium)} (PI premium = QMJP + this)`,
-    client: `Contract ${contractNo}, ${g}: client ${sign(row.clientPremium)}`,
-  };
+export function premiumHelp(contractNo: string | null | undefined, row: PremiumRow | null, grade: string | null | undefined, lang: "en" | "ja" = "en"): { supplier: string; client: string } {
+  const ja = lang === "ja";
+  const g = (grade ?? "").trim() || (ja ? "このグレード" : "this grade");
+  if (!contractNo) return ja ? { supplier: "固定部分：PIのプレミアム = 当該四半期のQMJP + この値", client: "顧客に請求する固定部分" } : { supplier: "Fixed part: a PI's premium = QMJP of the quarter + this", client: "Fixed part billed to the customer" };
+  if (!row) {
+    const none = ja ? `契約 ${contractNo} に ${g} の行がありません — 入力してください` : `Contract ${contractNo} has no ${g} row — enter it`;
+    return { supplier: none, client: none };
+  }
+  return ja
+    ? { supplier: `契約 ${contractNo}、${g}：仕入先 ${sign(row.supplierPremium)}（PIプレミアム = QMJP + この値）`, client: `契約 ${contractNo}、${g}：顧客 ${sign(row.clientPremium)}` }
+    : {
+        supplier: `Contract ${contractNo}, ${g}: supplier ${sign(row.supplierPremium)} (PI premium = QMJP + this)`,
+        client: `Contract ${contractNo}, ${g}: client ${sign(row.clientPremium)}`,
+      };
 }

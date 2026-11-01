@@ -11,9 +11,11 @@ import useAddRoleStates from "../hooks/useAddUser";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import TeamsPanel from "./TeamsPanel";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { useTranslations } from "next-intl";
 
 export default function Users() {
   const { isIdQuotationEnabled } = useOrganizationFeatures();
+  const t = useTranslations("users.list");
   const { columns, handleEditUser, editUserOpen, selectedUser, handleCloseEditUser, userToDelete, isDeleteInProgress, confirmDeleteUser, cancelDelete } = useUserTableHeader();
 
   const { users, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, refreshUsers } = useGetUsers();
@@ -40,9 +42,9 @@ export default function Users() {
         onRowClick={(r: any) => handleEditUser(r)}
         columns={columns}
         data={users.docs || []}
-        tableName="Users Management"
-        subTitle="Assign and manage role for users"
-        buttonName="Add User"
+        tableName={t("tableName")}
+        subTitle={t("subTitle")}
+        buttonName={t("add")}
         onAddClick={onAddClick}
         loading={loading}
         page={page}

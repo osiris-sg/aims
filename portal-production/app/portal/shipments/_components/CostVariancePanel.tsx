@@ -12,10 +12,12 @@ import { Alert, Box, Button, Paper, Stack, Typography } from "@mui/material";
 import { useShipmentsApi } from "../_lib/api";
 import { SHIPMENT_KEYS } from "../_lib/hooks";
 import { toast } from "../_lib/toast";
+import { useTranslations } from "next-intl";
 
 const usd = (v: number | null) => (v === null ? "—" : `US$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 
 export default function CostVariancePanel({ invoiceId, canAdjust, returnTo }: { invoiceId: string; canAdjust: boolean; returnTo?: string }) {
+  const t = useTranslations("shipments.costVariance");
   const api = useShipmentsApi();
   const qc = useQueryClient();
   const router = useRouter();
@@ -25,19 +27,19 @@ export default function CostVariancePanel({ invoiceId, canAdjust, returnTo }: { 
   return (
     <Paper variant="outlined" sx={{ p: 1.5 }} data-tour="cost-variance">
       <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-        {v.number ?? "Invoice"} — costs billed on estimate
+        {t("title", { number: v.number ?? t("invoice") })}
       </Typography>
       {!v.complete ? (
-        <Alert severity="info">Waiting for the actual costs (step 12) of every shipment it covers.</Alert>
+        <Alert severity="info">{t("waiting")}</Alert>
       ) : (
         <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ sm: "center" }}>
           <Box sx={{ flex: 1 }}>
             <Typography variant="body2">
-              Estimated {usd(v.estimatedUsd)} · actual ¥{(v.actualJpy ?? 0).toLocaleString("en-US")} at {v.fxRate ?? "—"} = {usd(v.actualUsd)}
+              {t("line", { est: usd(v.estimatedUsd), jpy: (v.actualJpy ?? 0).toLocaleString("en-US"), fx: String(v.fxRate ?? "—"), actual: usd(v.actualUsd) })}
             </Typography>
             <Typography variant="body2" sx={{ fontWeight: 700, color: (v.varianceUsd ?? 0) > 0 ? "warning.main" : "success.main" }}>
-              Variance {v.varianceUsd !== null && v.varianceUsd > 0 ? "+" : ""}
-              {usd(v.varianceUsd)} {v.varianceUsd !== null && v.varianceUsd > 0 ? "(under-billed)" : v.varianceUsd !== null && v.varianceUsd < 0 ? "(over-billed)" : ""}
+              {t("variance")} {v.varianceUsd !== null && v.varianceUsd > 0 ? "+" : ""}
+              {usd(v.varianceUsd)} {v.varianceUsd !== null && v.varianceUsd > 0 ? t("underBilled") : v.varianceUsd !== null && v.varianceUsd < 0 ? t("overBilled") : ""}
             </Typography>
           </Box>
           {canAdjust && v.varianceUsd !== null && Math.abs(v.varianceUsd) >= 0.01 && (
@@ -47,14 +49,14 @@ export default function CostVariancePanel({ invoiceId, canAdjust, returnTo }: { 
                 try {
                   const g = await api.issueAdjustment(invoiceId);
                   await qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.generated });
-                  toast.success("Adjustment draft created");
+                  toast.success(t("created"));
                   router.push(`/portal/trade-documents/generated/${g.id}${returnTo ? `?from=${encodeURIComponent(returnTo)}` : ""}`);
                 } catch (e: any) {
-                  toast.error(e?.message || "Could not create the adjustment");
+                  toast.error(e?.message || t("couldNotCreate"));
                 }
               }}
             >
-              Issue adjustment
+              {t("issueAdjustment")}
             </Button>
           )}
         </Stack>

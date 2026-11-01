@@ -9,6 +9,7 @@ import React, { useEffect, useState } from "react";
 import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItemButton, ListItemText, TextField, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "../_lib/toast";
+import { useTranslations } from "next-intl";
 import { linkTargetsOf, useShipmentsApi, type DocSummary } from "../_lib/api";
 import { useDocTypeLabels, useTradeMutation } from "../_lib/hooks";
 import { DOC_STATUS_LABEL, fmtDate, fmtMoney } from "../_lib/format";
@@ -27,6 +28,7 @@ export default function LinkInvoiceDialog({
   stepId?: string;
   owner: { kind: "contract" | "shipment" | "order" | "supplierOrder"; id: string; label: string };
 }) {
+  const t = useTranslations("shipments.linkInvoice");
   const api = useShipmentsApi();
   const label = useDocTypeLabels();
   const [q, setQ] = useState("");
@@ -54,40 +56,40 @@ export default function LinkInvoiceDialog({
     setError(null);
     try {
       await link.mutateAsync(picked);
-      toast.success(`${picked.number ?? "Invoice"} linked as ${label(docType)}`);
+      toast.success(t("linked", { number: picked.number ?? t("invoice"), type: label(docType) }));
       onClose();
     } catch (e: any) {
-      setError(e?.message || "Could not link the invoice");
+      setError(e?.message || t("couldNotLink"));
     }
   };
 
   return (
     <Dialog open={open} onClose={() => !link.isPending && onClose()} maxWidth="sm" fullWidth>
-      <DialogTitle>Link existing invoice as {label(docType)}</DialogTitle>
+      <DialogTitle>{t("title", { type: label(docType) })}</DialogTitle>
       <DialogContent dividers>
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}
           </Alert>
         )}
-        <TextField autoFocus fullWidth size="small" label="Search by invoice number or customer" value={q} onChange={(e) => setQ(e.target.value)} />
+        <TextField autoFocus fullWidth size="small" label={t("search")} value={q} onChange={(e) => setQ(e.target.value)} />
         <Box sx={{ mt: 1.5, minHeight: 120 }}>
           {results.isLoading ? (
             <Box sx={{ display: "flex", justifyContent: "center", py: 3 }}>
               <CircularProgress size={24} />
             </Box>
           ) : results.isError ? (
-            <Alert severity="error">{(results.error as Error)?.message || "Search failed"}</Alert>
+            <Alert severity="error">{(results.error as Error)?.message || t("searchFailed")}</Alert>
           ) : !(results.data ?? []).length ? (
             <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: "center" }}>
-              No invoices found{term ? ` for “${term}”` : ""}.
+              {term ? t("noneFor", { term }) : t("none")}
             </Typography>
           ) : (
             <List dense disablePadding sx={{ border: 1, borderColor: "divider", borderRadius: 1, maxHeight: 320, overflowY: "auto" }}>
               {(results.data ?? []).map((d) => (
                 <ListItemButton key={d.id} selected={picked?.id === d.id} onClick={() => setPicked(d)} divider>
                   <ListItemText
-                    primary={`${d.number ?? "(no number)"} · ${d.customerName ?? "—"}`}
+                    primary={`${d.number ?? t("noNumber")} · ${d.customerName ?? "—"}`}
                     secondary={`${DOC_STATUS_LABEL(d.status)} · ${fmtMoney(d.total, d.currency)} · ${fmtDate(d.date)}`}
                   />
                 </ListItemButton>
@@ -98,10 +100,10 @@ export default function LinkInvoiceDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={link.isPending}>
-          Cancel
+          {t("cancel")}
         </Button>
         <Button variant="contained" onClick={submit} disabled={!picked || link.isPending}>
-          {link.isPending ? "Linking…" : "Link invoice"}
+          {link.isPending ? t("linking") : t("link")}
         </Button>
       </DialogActions>
     </Dialog>

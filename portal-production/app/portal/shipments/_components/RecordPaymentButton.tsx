@@ -6,6 +6,7 @@
 
 import React, { useState } from "react";
 import { Button } from "@mui/material";
+import { useTranslations } from "next-intl";
 import PaymentsIcon from "@mui/icons-material/PaymentsOutlined";
 import PaymentDialog from "./PaymentDialog";
 import type { AllocationTarget } from "../_lib/api";
@@ -18,13 +19,14 @@ export const PAYING_STEPS: Record<string, { target: AllocationTarget; proofDocTy
 };
 
 export default function RecordPaymentButton({ stepCode, stepId, targetId, label, amount, currency, disabled }: { stepCode: string; stepId: string; targetId: string; label: string; amount?: number | null; currency?: string; disabled?: boolean }) {
+  const t = useTranslations("shipments.recordPaymentButton");
   const [open, setOpen] = useState(false);
   const cfg = PAYING_STEPS[stepCode];
   if (!cfg) return null;
   return (
     <>
       <Button size="small" variant="outlined" startIcon={<PaymentsIcon />} disabled={disabled} onClick={() => setOpen(true)} data-tour="record-payment">
-        Record payment
+        {t("recordPayment")}
       </Button>
       <PaymentDialog
         open={open}

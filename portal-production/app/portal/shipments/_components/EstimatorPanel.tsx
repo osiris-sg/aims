@@ -20,6 +20,7 @@ import type { Shipment, ShipmentCosts } from "../_lib/api";
 import { useTradeMutation } from "../_lib/hooks";
 import { fmtYen } from "../_lib/format";
 import { toast } from "../_lib/toast";
+import { useTranslations } from "next-intl";
 
 type Mode = "estimate" | "tax" | "actuals";
 export const ESTIMATOR_STEPS: Record<string, Mode> = { CUSTOMS_TAX_ESTIMATE: "estimate", TAX_FUNDS: "tax", LOGISTICS_PAYMENT: "actuals" };
@@ -27,6 +28,7 @@ export const ESTIMATOR_STEPS: Record<string, Mode> = { CUSTOMS_TAX_ESTIMATE: "es
 const CUSTOMS_FX_URL = "https://www.customs.go.jp/tetsuzuki/kawase/index.htm";
 
 export default function EstimatorPanel({ shipment, mode, canEdit }: { shipment: Shipment; mode: Mode; canEdit: boolean }) {
+  const t = useTranslations("shipments.estimator");
   const e = shipment.estimate;
   const costs = shipment.costs ?? {};
   const save = useTradeMutation((a, patch: ShipmentCosts) => a.updateShipment(shipment.id, { costs: patch }));
@@ -36,12 +38,12 @@ export default function EstimatorPanel({ shipment, mode, canEdit }: { shipment: 
   if (!e) return null;
 
   const put = async (patch: ShipmentCosts) => {
-    setTyped((t) => ({ ...t, ...patch }));
+    setTyped((p) => ({ ...p, ...patch }));
     try {
       await save.mutateAsync(patch);
     } catch (err: any) {
       setTyped({});
-      toast.error(err?.message || "Could not save");
+      toast.error(err?.message || t("couldNotSave"));
     }
   };
   const funded = "importTaxFunded" in typed ? (typed.importTaxFunded ?? null) : e.importTax.funded;
@@ -53,29 +55,29 @@ export default function EstimatorPanel({ shipment, mode, canEdit }: { shipment: 
       {mode === "estimate" && (
         <>
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-            Courier cost estimate (JPY)
+            {t("courierTitle")}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
             {shipment.profile?.port ? `${shipment.profile.port} · ` : ""}
-            {e.truckCapacityT}t trucks · 通関 ¥{e.customsRatePerMt.toLocaleString("en-US")}/MT · net {e.qtyMt ?? "—"} MT · gross {e.grossMt ?? "—"} MT
+            {t("courierSub", { cap: e.truckCapacityT, rate: e.customsRatePerMt.toLocaleString("en-US"), net: String(e.qtyMt ?? "—"), gross: String(e.grossMt ?? "—") })}
           </Typography>
           <Grid container spacing={1.5}>
-            <Num label="Trucks" value={costs.trucks} placeholder={e.trucksSuggested ?? undefined} helper={`ROUND(gross / ${e.truckCapacityT}) = ${e.trucksSuggested ?? "—"}`} disabled={!canEdit} onSave={(v) => put({ trucks: v })} />
-            <Num label="THC (AN)" value={costs.thc} yen disabled={!canEdit} onSave={(v) => put({ thc: v })} />
-            <Num label="Documentation fee (AN)" value={costs.docFee} yen disabled={!canEdit} onSave={(v) => put({ docFee: v })} />
-            <Num label="Equipment mgmt charge (AN)" value={costs.equipmentFee} yen disabled={!canEdit} onSave={(v) => put({ equipmentFee: v })} />
-            <Num label="Storage / other (manual)" value={costs.storage} yen disabled={!canEdit} onSave={(v) => put({ storage: v })} />
-            <Num label="Storage containers (¥20,000/CNT)" value={costs.storageContainers} disabled={!canEdit} onSave={(v) => put({ storageContainers: v })} />
+            <Num label={t("trucks")} value={costs.trucks} placeholder={e.trucksSuggested ?? undefined} helper={`ROUND(gross / ${e.truckCapacityT}) = ${e.trucksSuggested ?? "—"}`} disabled={!canEdit} onSave={(v) => put({ trucks: v })} />
+            <Num label={t("thc")} value={costs.thc} yen disabled={!canEdit} onSave={(v) => put({ thc: v })} />
+            <Num label={t("docFee")} value={costs.docFee} yen disabled={!canEdit} onSave={(v) => put({ docFee: v })} />
+            <Num label={t("equipmentFee")} value={costs.equipmentFee} yen disabled={!canEdit} onSave={(v) => put({ equipmentFee: v })} />
+            <Num label={t("storageManual")} value={costs.storage} yen disabled={!canEdit} onSave={(v) => put({ storage: v })} />
+            <Num label={t("storageContainers")} value={costs.storageContainers} disabled={!canEdit} onSave={(v) => put({ storageContainers: v })} />
           </Grid>
           <Figures
             rows={[
-              ["通関 (qty × rate × 1.1)", e.customs],
-              ["B/L fee", e.blFee],
-              ["AN charges", e.anCharges],
-              ["Est. 通関・車輸送", e.customsTotal, true],
-              [`Trucking (${e.trucks ?? "—"} × ¥${e.truckRate.toLocaleString("en-US")} × 1.1)`, e.trucking, true],
-              ["Storage / other", e.storage + e.other || null],
-              ["Total estimate", e.total, true],
+              [t("fCustoms"), e.customs],
+              [t("fBlFee"), e.blFee],
+              [t("fAnCharges"), e.anCharges],
+              [t("fCustomsTotal"), e.customsTotal, true],
+              [t("fTrucking", { trucks: String(e.trucks ?? "—"), rate: e.truckRate.toLocaleString("en-US") }), e.trucking, true],
+              [t("fStorage"), e.storage + e.other || null],
+              [t("fTotal"), e.total, true],
             ]}
           />
         </>
@@ -83,42 +85,42 @@ export default function EstimatorPanel({ shipment, mode, canEdit }: { shipment: 
       {(mode === "estimate" || mode === "tax") && (
         <Box sx={{ mt: mode === "estimate" ? 2 : 0 }}>
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-            Import tax {mode === "tax" ? "(funds)" : "estimate"}
+            {mode === "tax" ? t("taxFundsTitle") : t("taxEstimateTitle")}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            ⌊CIF × customs weekly rate⌋ + 加算運賃 → 消費税 7.8% + 地方消費税 22/78 —{" "}
+            {t("taxFormula")}{" "}
             <Link href={CUSTOMS_FX_URL} target="_blank" rel="noopener">
-              customs.go.jp exchange rates
+              {t("customsRates")}
             </Link>
           </Typography>
           <Grid container spacing={1.5}>
-            <Num label="CIF (USD)" value={costs.cifUsd} disabled={!canEdit} onSave={(v) => put({ cifUsd: v })} />
-            <Num label="Customs rate (円/USD)" value={costs.fxRate} disabled={!canEdit} onSave={(v) => put({ fxRate: v })} />
+            <Num label={t("cif")} value={costs.cifUsd} disabled={!canEdit} onSave={(v) => put({ cifUsd: v })} />
+            <Num label={t("customsRate")} value={costs.fxRate} disabled={!canEdit} onSave={(v) => put({ fxRate: v })} />
             <Num
-              label="加算運賃 (JPY add-on)"
+              label={t("addOn")}
               value={costs.customsAddOnJpy}
               yen
               placeholder={costs.equipmentFee ?? undefined}
-              helper={costs.customsAddOnJpy === null || costs.customsAddOnJpy === undefined ? (costs.equipmentFee !== null && costs.equipmentFee !== undefined ? "Default: the A/N's EQMC" : "Default: the A/N's EQMC (not read yet)") : "Typed — clear to use the EQMC"}
+              helper={costs.customsAddOnJpy === null || costs.customsAddOnJpy === undefined ? (costs.equipmentFee !== null && costs.equipmentFee !== undefined ? t("addOnDefault") : t("addOnNotRead")) : t("addOnTyped")}
               disabled={!canEdit}
               onSave={(v) => put({ customsAddOnJpy: v })}
             />
-            {mode === "tax" && <Num label="Funded" value={costs.importTaxFunded} yen disabled={!canEdit} onSave={(v) => put({ importTaxFunded: v })} />}
-            {mode === "tax" && <Num label="Actual (import permit)" value={costs.importTaxActual} yen disabled={!canEdit} onSave={(v) => put({ importTaxActual: v })} />}
+            {mode === "tax" && <Num label={t("funded")} value={costs.importTaxFunded} yen disabled={!canEdit} onSave={(v) => put({ importTaxFunded: v })} />}
+            {mode === "tax" && <Num label={t("actualPermit")} value={costs.importTaxActual} yen disabled={!canEdit} onSave={(v) => put({ importTaxActual: v })} />}
           </Grid>
           <Figures
             rows={[
-              ["CIF × rate (円未満切捨て)", e.importTax.cifJpy],
-              [`+ 加算運賃${e.importTax.addOnSource === "EQMC" ? " (EQMC)" : ""}`, e.importTax.addOnJpy || null],
-              ["申告価格", e.importTax.customsValue],
-              ["消費税 7.8% (課税標準 1,000円未満, 100円未満切捨て)", e.importTax.national],
-              ["地方消費税 22/78 (100円未満切捨て)", e.importTax.local],
-              ["Import tax estimate (納税額合計)", e.importTax.estimate, true],
+              [t("fCifJpy"), e.importTax.cifJpy],
+              [`+ ${t("fAddOn")}${e.importTax.addOnSource === "EQMC" ? " (EQMC)" : ""}`, e.importTax.addOnJpy || null],
+              [t("fCustomsValue"), e.importTax.customsValue],
+              [t("fNational"), e.importTax.national],
+              [t("fLocal"), e.importTax.local],
+              [t("fTaxEstimate"), e.importTax.estimate, true],
               ...(mode === "tax"
                 ? ([
-                    ["Funded", funded],
-                    ["Actual", actual],
-                    ["Variance (actual − estimate)", variance, true],
+                    [t("funded"), funded],
+                    [t("actual"), actual],
+                    [t("fVariance"), variance, true],
                   ] as Array<[string, number | null, boolean?]>)
                 : []),
             ]}
@@ -128,17 +130,17 @@ export default function EstimatorPanel({ shipment, mode, canEdit }: { shipment: 
       {mode === "actuals" && shipment.actuals && (
         <>
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-            Actuals vs estimate (Mitsui Soko invoices, JPY)
+            {t("actualsTitle")}
           </Typography>
           <Table size="small" sx={{ mt: 1 }}>
             <TableHead>
               <TableRow>
-                <TableCell>Item</TableCell>
-                <TableCell align="right">Estimate</TableCell>
+                <TableCell>{t("item")}</TableCell>
+                <TableCell align="right">{t("estimate")}</TableCell>
                 <TableCell align="right" sx={{ width: 180 }}>
-                  Actual
+                  {t("actual")}
                 </TableCell>
-                <TableCell align="right">Variance</TableCell>
+                <TableCell align="right">{t("variance")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -169,7 +171,7 @@ export default function EstimatorPanel({ shipment, mode, canEdit }: { shipment: 
                 </TableRow>
               ))}
               <TableRow>
-                <TableCell sx={{ fontWeight: 700 }}>Total</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>{t("total")}</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 700 }}>
                   {fmtYen(shipment.actuals.estimate)}
                 </TableCell>
@@ -209,6 +211,7 @@ const parse = (s: string) => (s.trim() === "" ? null : Number(s.replace(/,/g, ""
 
 /** A number field saved on blur (only when it changed). */
 function Num({ label, value, onSave, yen, disabled, helper, placeholder }: { label: string; value: number | null | undefined; onSave: (v: number | null) => void; yen?: boolean; disabled?: boolean; helper?: string; placeholder?: number }) {
+  const t = useTranslations("shipments.estimator");
   const [v, setV] = useState(value === null || value === undefined ? "" : String(value));
   useEffect(() => setV(value === null || value === undefined ? "" : String(value)), [value]);
   return (
@@ -227,7 +230,7 @@ function Num({ label, value, onSave, yen, disabled, helper, placeholder }: { lab
         }}
         onBlur={() => {
           const n = parse(v);
-          if (n !== null && !Number.isFinite(n)) return toast.error(`${label}: enter a number`);
+          if (n !== null && !Number.isFinite(n)) return toast.error(t("enterNumber", { label }));
           if (n !== (value ?? null)) onSave(n);
         }}
         InputProps={yen ? { startAdornment: <InputAdornment position="start">¥</InputAdornment> } : undefined}

@@ -9,6 +9,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslations } from "next-intl";
 import { Alert, Box, Button, CircularProgress, Dialog, DialogContent, DialogTitle, IconButton, Stack, Typography } from "@mui/material";
 import PictureAsPdfOutlinedIcon from "@mui/icons-material/PictureAsPdfOutlined";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
@@ -59,6 +60,7 @@ const frameSx = (w: number, h: number) => ({
 /** Thumbnail (A4-ish proportions) of a stored trade file; click opens the viewer. */
 export function FileThumb({ file, width = 96, onOpen }: { file: PreviewFile; width?: number; onOpen?: (f: PreviewFile) => void }) {
   const api = useShipmentsApi();
+  const t = useTranslations("orders.preview");
   const { organization } = useOrganization();
   const height = Math.round(width * 1.38);
   // Signed URLs last 10 minutes: refetch well before that.
@@ -85,7 +87,7 @@ export function FileThumb({ file, width = 96, onOpen }: { file: PreviewFile; wid
             }
           : undefined
       }
-      aria-label={onOpen ? `Preview ${file.fileName}` : undefined}
+      aria-label={onOpen ? t("previewAria", { name: file.fileName }) : undefined}
       sx={{ ...frameSx(width, height), p: 0, cursor: onOpen ? "zoom-in" : "default", font: "inherit" }}
     >
       {q.isLoading ? (
@@ -107,6 +109,7 @@ export function FileThumb({ file, width = 96, onOpen }: { file: PreviewFile; wid
  */
 export function FileViewer({ file, onClose }: { file: PreviewFile | null; onClose: () => void }) {
   const api = useShipmentsApi();
+  const t = useTranslations("orders.preview");
   const viewable = !!file && (isPdf(file) || isImage(file));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -124,7 +127,7 @@ export function FileViewer({ file, onClose }: { file: PreviewFile | null; onClos
       a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 30000);
     } catch (e) {
-      setError((e as Error)?.message || "Could not download the file");
+      setError((e as Error)?.message || t("downloadError"));
     } finally {
       setBusy(false);
     }
@@ -141,7 +144,7 @@ export function FileViewer({ file, onClose }: { file: PreviewFile | null; onClos
         <Typography component="span" variant={file?.docRef ? "body1" : "h6"} color={file?.docRef ? "text.secondary" : undefined} sx={{ minWidth: 0, wordBreak: "break-word" }}>
           {file?.fileName}
         </Typography>
-        <IconButton aria-label="Close" onClick={onClose} sx={{ position: "absolute", right: 8, top: 8 }}>
+        <IconButton aria-label={t("close")} onClick={onClose} sx={{ position: "absolute", right: 8, top: 8 }}>
           <CloseIcon />
         </IconButton>
       </DialogTitle>
@@ -152,11 +155,11 @@ export function FileViewer({ file, onClose }: { file: PreviewFile | null; onClos
           <Stack alignItems="center" spacing={1.5} sx={{ py: 8 }}>
             {file && <FileTypeIcon fileName={file.fileName} mimeType={file.mimeType} size={64} />}
             <Typography variant="body2" color="text.secondary">
-              No preview for this file type — download it to open it.
+              {t("noPreview")}
             </Typography>
             {error && <Alert severity="error">{error}</Alert>}
             <Button variant="contained" startIcon={busy ? <CircularProgress size={16} color="inherit" /> : <DownloadIcon />} disabled={busy} onClick={() => void downloadOther()}>
-              Download
+              {t("download")}
             </Button>
           </Stack>
         )}

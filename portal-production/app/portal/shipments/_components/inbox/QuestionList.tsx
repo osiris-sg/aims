@@ -8,7 +8,7 @@
 import React, { useState } from "react";
 import { Alert, Button, Paper, Stack, Typography } from "@mui/material";
 import type { InboxAnswer, InboxAnswerResult, InboxLang, InboxThread } from "../../_lib/api";
-import { L } from "../../_lib/inbox-cards";
+import { useInboxLabels } from "./useInboxLabels";
 import { QuestionCard } from "./QuestionCard";
 
 export const LIST_FIRST = 5;
@@ -26,7 +26,7 @@ export interface QuestionListProps {
 }
 
 export function QuestionList({ threads, lang, busy, onAnswer, onUndo, onCreateOrder, onOpenThread, footer }: QuestionListProps) {
-  const labels = L[lang];
+  const labels = useInboxLabels();
   const waiting = threads.filter((t) => !!t.question);
   const [open, setOpen] = useState(false);
   const [last, setLast] = useState<{ result: InboxAnswerResult; undone: boolean } | null>(null);
@@ -58,7 +58,7 @@ export function QuestionList({ threads, lang, busy, onAnswer, onUndo, onCreateOr
           }
           data-tour="question-result"
         >
-          {last.undone ? (lang === "ja" ? "元に戻しました" : "Undone") : last.result.text}
+          {last.undone ? labels.undone : last.result.text}
         </Alert>
       )}
       {waiting.length === 0 ? (

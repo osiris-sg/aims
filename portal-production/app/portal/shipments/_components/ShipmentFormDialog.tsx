@@ -25,6 +25,7 @@ import { commodityOf, lineLabel, toDateInput } from "../_lib/format";
 import { filledSx, PdfDropZone, SourcePdfPane } from "./PdfDrop";
 import { anyDateError, guardDate } from "../_lib/dates";
 import { factPrefill, factSuggestion } from "../_lib/shipment-picker";
+import { useTranslations } from "next-intl";
 
 /** The contract line whose grade matches the B/L (the only line, or exactly one match). */
 const lineForGrade = (lines: ContractLine[], grade: string | null) => {
@@ -106,6 +107,7 @@ export default function ShipmentFormDialog({
   /** Round AV: the form and its buttons without the dialog (the Answer flow's side drawer). */
   bare?: boolean;
 }) {
+  const t = useTranslations("shipments.shipmentFormDialog");
   const [form, setForm] = useState<Form>({ ...EMPTY, currency: "USD" });
   const [contractId, setContractId] = useState<string>("");
   const [lineId, setLineId] = useState<string>("");
@@ -212,20 +214,20 @@ export default function ShipmentFormDialog({
     if (sug.same && (fromEmail.has(k) || !!shipment)) {
       return (
         <Box component="span" sx={{ color: "info.main", fontWeight: 600 }} title={sourcesText(sug.same.sources)} data-tour="from-email">
-          {shipment ? "Same as the email" : "from email"}
+          {shipment ? t("sameAsEmail") : t("fromEmail")}
         </Box>
       );
     }
     if (!sug.others.length) return null;
     return (
       <Box component="span" data-tour="email-suggestion">
-        {sug.several ? "The email names several: " : "Email: "}
+        {sug.several ? t("emailSeveral") : t("emailLabel")}
         {sug.others.map((c, i) => (
           <React.Fragment key={c.value}>
             {i > 0 ? " · " : null}
             <b title={sourcesText(c.sources)}>{c.value}</b>{" "}
             <MuiLink component="button" type="button" variant="caption" onClick={() => takeEmailValue(k, c.value)} sx={{ verticalAlign: "baseline", fontWeight: 700 }} data-tour="use-email-value">
-              Use this
+              {t("useThis")}
             </MuiLink>
           </React.Fragment>
         ))}
@@ -290,11 +292,11 @@ export default function ShipmentFormDialog({
         inline && shipment ? { file, shipmentId: shipment.id } : { file, ...(presetContract?.id || contractId ? { contractId: presetContract?.id ?? contractId } : {}) },
       );
       if (x.status !== "DONE") {
-        setError(`Could not read ${file.name}: ${x.error || "unknown error"}. The PDF was stored — fill the form by hand.`);
+        setError(t("readError", { file: file.name, error: x.error || t("unknownError") }));
         setSource({ fileId: x.fileId, fileName: file.name, draft: null, existingShipmentId: null });
       } else applyBl(x);
     } catch (e: any) {
-      setError(e?.message || "Could not read the B/L draft");
+      setError(e?.message || t("readBlError"));
     } finally {
       setReading(false);
       setReadingFile(null);
@@ -333,7 +335,7 @@ export default function ShipmentFormDialog({
       if (inline) setFilled(new Set());
       onClose();
     } catch (e: any) {
-      setError(e?.message || "Could not save the shipment");
+      setError(e?.message || t("saveError"));
     }
   };
 
@@ -350,9 +352,9 @@ export default function ShipmentFormDialog({
         {(!shipment || inline) && (
           <Box sx={{ mb: 2 }}>
             <PdfDropZone
-              title={source ? "Read another B/L draft" : "Fill from B/L draft"}
+              title={source ? t("readAnother") : t("fillFromBl")}
               busy={reading}
-              busyText="Reading the B/L draft…"
+              busyText={t("readingBl")}
               onFiles={(f) => void readBl(f[0])}
               dataTour="shipment-fill-from-bl"
             />
@@ -360,12 +362,12 @@ export default function ShipmentFormDialog({
         )}
         {source?.draft && !source.draft.contractNo && !contractId && (
           <Alert severity="warning" variant="outlined" sx={{ mb: 2 }}>
-            The B/L doesn&apos;t print the contract no. — pick the contract.
+            {t("noContractNo")}
           </Alert>
         )}
         {source?.existingShipmentId && (
           <Alert severity="error" sx={{ mb: 2 }}>
-            B/L {form.blNumber} is already used by another shipment.
+            {t("blUsed", { bl: form.blNumber })}
           </Alert>
         )}
         {error && (
@@ -375,8 +377,8 @@ export default function ShipmentFormDialog({
         )}
         {overQty && qtyLimit && (
           <Alert severity="warning" sx={{ mb: 2 }} data-tour="shipment-over-qty">
-            Net {Number(form.netWeightMt).toLocaleString("en-US", { maximumFractionDigits: 3 })} t is more than {qtyLimit.orderRef} has left ({Math.max(0, qtyLimit.remainingMt).toLocaleString("en-US", { maximumFractionDigits: 3 })} t of max {qtyLimit.maxMt.toLocaleString("en-US", { maximumFractionDigits: 3 })} t incl. tolerance).
-            {askOver ? " Save again to keep it anyway." : ""}
+            {t("overQty", { net: Number(form.netWeightMt).toLocaleString("en-US", { maximumFractionDigits: 3 }), order: qtyLimit.orderRef, left: Math.max(0, qtyLimit.remainingMt).toLocaleString("en-US", { maximumFractionDigits: 3 }), max: qtyLimit.maxMt.toLocaleString("en-US", { maximumFractionDigits: 3 }) })}
+            {askOver ? t("saveAgain") : ""}
           </Alert>
         )}
         <Grid2 container spacing={2}>
@@ -384,10 +386,10 @@ export default function ShipmentFormDialog({
           {!inline && order && (
             <>
           <Grid2 size={{ xs: 12, sm: 6 }}>
-            <TextField label="Order" fullWidth size="small" value={`${order.ref}${order.contractNo ? ` · contract ${order.contractNo}` : ""}`} disabled />
+            <TextField label={t("order")} fullWidth size="small" value={order.contractNo ? t("orderValue", { ref: order.ref, contract: order.contractNo }) : order.ref} disabled />
           </Grid2>
           <Grid2 size={{ xs: 12, sm: 6 }}>
-            <TextField label="Customer" fullWidth size="small" value={customerName ?? order.customerName ?? ""} disabled InputLabelProps={{ shrink: true }} />
+            <TextField label={t("customer")} fullWidth size="small" value={customerName ?? order.customerName ?? ""} disabled InputLabelProps={{ shrink: true }} />
           </Grid2>
             </>
           )}
@@ -412,15 +414,15 @@ export default function ShipmentFormDialog({
                 }}
                 getOptionLabel={(o) => `${o.contractNo}${o.customer?.name ? ` · ${o.customer.name}` : ""}`}
                 isOptionEqualToValue={(a, b) => a.id === b.id}
-                noOptionsText="No open contracts — create a contract first"
-                renderInput={(p) => <TextField {...p} label="Contract" required size="small" error={touched && !contractId} helperText={touched && !contractId ? "Required" : undefined} />}
+                noOptionsText={t("noOpenContracts")}
+                renderInput={(p) => <TextField {...p} label={t("contract")} required size="small" error={touched && !contractId} helperText={touched && !contractId ? t("required") : undefined} />}
               />
             ) : (
-              <TextField label="Contract" fullWidth size="small" value={contractLabel ?? ""} disabled />
+              <TextField label={t("contract")} fullWidth size="small" value={contractLabel ?? ""} disabled />
             )}
           </Grid2>
           <Grid2 size={{ xs: 12, sm: 6 }}>
-            <TextField label="Customer" fullWidth size="small" value={customerName ?? ""} disabled placeholder="From the contract" InputLabelProps={{ shrink: true }} />
+            <TextField label={t("customer")} fullWidth size="small" value={customerName ?? ""} disabled placeholder={t("fromContract")} InputLabelProps={{ shrink: true }} />
           </Grid2>
             </>
           )}
@@ -430,7 +432,7 @@ export default function ShipmentFormDialog({
           <Grid2 size={{ xs: 12, sm: 8 }}>
             <TextField
               select
-              label="Product line"
+              label={t("productLine")}
               fullWidth
               size="small"
               required={lineRequired}
@@ -446,7 +448,7 @@ export default function ShipmentFormDialog({
               }}
               error={touched && lineRequired && !lineId}
               helperText={
-                !contractId ? "Pick the contract first" : !lineRequired ? "This contract has no product lines" : touched && !lineId ? "Required — which contract line does this B/L ship?" : undefined
+                !contractId ? t("pickContractFirst") : !lineRequired ? t("noLines") : touched && !lineId ? t("lineRequired") : undefined
               }
             >
               {lines.map((l, i) => (
@@ -458,67 +460,67 @@ export default function ShipmentFormDialog({
           </Grid2>
           )}
           <Grid2 size={{ xs: 12, sm: 4 }}>
-            {tf("deliveryMonth", "Delivery month", { type: "month", InputLabelProps: { shrink: true }, error: monthError, helperText: monthError ? "Use YYYY-MM" : undefined })}
+            {tf("deliveryMonth", t("deliveryMonth"), { type: "month", InputLabelProps: { shrink: true }, error: monthError, helperText: monthError ? t("useYyyyMm") : undefined })}
           </Grid2>
 
           <Grid2 size={12}>
             <Divider textAlign="left">
               <Typography variant="caption" color="text.secondary">
-                Vessel
+                {t("vessel")}
               </Typography>
             </Divider>
           </Grid2>
-          <Grid2 size={{ xs: 12, sm: 3 }}>{tf("blNumber", "B/L no.", { autoFocus: !inline })}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 3 }}>{tf("shippingLine", "Shipping line")}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 3 }}>{tf("vessel", "Vessel")}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 3 }}>{tf("voyageNo", "Voyage no.")}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 4 }}>{tf("etd", "ETD", { type: "date", InputLabelProps: { shrink: true } })}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 3 }}>{tf("blNumber", t("blNo"), { autoFocus: !inline })}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 3 }}>{tf("shippingLine", t("shippingLine"))}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 3 }}>{tf("vessel", t("vessel"))}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 3 }}>{tf("voyageNo", t("voyageNo"))}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 4 }}>{tf("etd", t("etd"), { type: "date", InputLabelProps: { shrink: true } })}</Grid2>
           <Grid2 size={{ xs: 12, sm: 4 }}>
-            {tf("eta", "Latest ETA", { type: "date", InputLabelProps: { shrink: true }, error: datesError, helperText: datesError ? "ETA is before ETD" : undefined })}
+            {tf("eta", t("latestEta"), { type: "date", InputLabelProps: { shrink: true }, error: datesError, helperText: datesError ? t("etaBeforeEtd") : undefined })}
           </Grid2>
-          <Grid2 size={{ xs: 12, sm: 4 }}>{tf("actualArrivalDate", "Actual arrival", { type: "date", InputLabelProps: { shrink: true } })}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 4 }}>{tf("portOfLoading", "Port of loading")}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 4 }}>{tf("portOfDischarge", "Port of discharge")}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 4 }}>{tf("telexReleaseCode", "Telex release code")}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 4 }}>{tf("actualArrivalDate", t("actualArrival"), { type: "date", InputLabelProps: { shrink: true } })}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 4 }}>{tf("portOfLoading", t("portOfLoading"))}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 4 }}>{tf("portOfDischarge", t("portOfDischarge"))}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 4 }}>{tf("telexReleaseCode", t("telexReleaseCode"))}</Grid2>
 
           <Grid2 size={12}>
             <Divider textAlign="left">
               <Typography variant="caption" color="text.secondary">
-                Cargo
+                {t("cargo")}
               </Typography>
             </Divider>
           </Grid2>
-          <Grid2 size={{ xs: 6, sm: 3 }}>{tf("netWeightMt", "Net weight (MT)", { type: "number", inputProps: { min: 0, step: "0.001" }, error: badDecimal(form.netWeightMt) })}</Grid2>
-          <Grid2 size={{ xs: 6, sm: 3 }}>{tf("grossWeightMt", "Gross weight (MT)", { type: "number", inputProps: { min: 0, step: "0.001" }, error: badDecimal(form.grossWeightMt) })}</Grid2>
-          <Grid2 size={{ xs: 6, sm: 3 }}>{tf("totalBundles", "Bundles", { type: "number", inputProps: { min: 0, step: 1 }, error: badInt(form.totalBundles) })}</Grid2>
-          <Grid2 size={{ xs: 6, sm: 3 }}>{tf("totalPieces", "Pieces", { type: "number", inputProps: { min: 0, step: 1 }, error: badInt(form.totalPieces) })}</Grid2>
-          <Grid2 size={{ xs: 6, sm: 3 }}>{tf("containerCount", "Containers", { type: "number", inputProps: { min: 0, step: 1 }, error: badInt(form.containerCount) })}</Grid2>
-          <Grid2 size={{ xs: 6, sm: 3 }}>{tf("hsCode", "HS code")}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("countryOfOrigin", "Country of origin")}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("commodity", "Commodity")}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("sizeSpec", "Size / spec")}</Grid2>
+          <Grid2 size={{ xs: 6, sm: 3 }}>{tf("netWeightMt", t("netWeight"), { type: "number", inputProps: { min: 0, step: "0.001" }, error: badDecimal(form.netWeightMt) })}</Grid2>
+          <Grid2 size={{ xs: 6, sm: 3 }}>{tf("grossWeightMt", t("grossWeight"), { type: "number", inputProps: { min: 0, step: "0.001" }, error: badDecimal(form.grossWeightMt) })}</Grid2>
+          <Grid2 size={{ xs: 6, sm: 3 }}>{tf("totalBundles", t("bundles"), { type: "number", inputProps: { min: 0, step: 1 }, error: badInt(form.totalBundles) })}</Grid2>
+          <Grid2 size={{ xs: 6, sm: 3 }}>{tf("totalPieces", t("pieces"), { type: "number", inputProps: { min: 0, step: 1 }, error: badInt(form.totalPieces) })}</Grid2>
+          <Grid2 size={{ xs: 6, sm: 3 }}>{tf("containerCount", t("containers"), { type: "number", inputProps: { min: 0, step: 1 }, error: badInt(form.containerCount) })}</Grid2>
+          <Grid2 size={{ xs: 6, sm: 3 }}>{tf("hsCode", t("hsCode"))}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("countryOfOrigin", t("countryOfOrigin"))}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("commodity", t("commodity"))}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("sizeSpec", t("sizeSpec"))}</Grid2>
 
           <Grid2 size={12}>
             <Divider textAlign="left">
               <Typography variant="caption" color="text.secondary">
-                Commercial invoice
+                {t("commercialInvoice")}
               </Typography>
             </Divider>
           </Grid2>
-          <Grid2 size={{ xs: 12, sm: 4 }}>{tf("ciNumber", "CI no.")}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 4 }}>{tf("ciAmount", "CI amount", { type: "number", inputProps: { min: 0, step: "0.01" }, error: badDecimal(form.ciAmount) })}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 4 }}>{tf("ciNumber", t("ciNo"))}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 4 }}>{tf("ciAmount", t("ciAmount"), { type: "number", inputProps: { min: 0, step: "0.01" }, error: badDecimal(form.ciAmount) })}</Grid2>
           <Grid2 size={{ xs: 12, sm: 4 }}>
             <TextField
-              label="Currency"
+              label={t("currency")}
               fullWidth
               size="small"
               value={form.currency}
               onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value.toUpperCase().slice(0, 3) }))}
               error={currencyError}
-              helperText={currencyError ? "3-letter code, e.g. USD" : undefined}
+              helperText={currencyError ? t("currencyHelp") : undefined}
             />
           </Grid2>
-          <Grid2 size={12}>{tf("notes", "Notes", { multiline: true, minRows: 2 })}</Grid2>
+          <Grid2 size={12}>{tf("notes", t("notes"), { multiline: true, minRows: 2 })}</Grid2>
         </Grid2>
         </Grid2>
         {(source || readingFile) && (
@@ -526,7 +528,7 @@ export default function ShipmentFormDialog({
             <SourcePdfPane fileId={source?.fileId} fileName={source?.fileName} file={readingFile} stacked={!side} />
             {source?.draft?.containers?.length ? (
               <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-                Containers: {source.draft.containers.map((c) => c.containerNo).filter(Boolean).join(", ")}
+                {t("containersList", { list: source.draft.containers.map((c) => c.containerNo).filter(Boolean).join(", ") })}
               </Typography>
             ) : null}
           </Grid2>
@@ -537,10 +539,10 @@ export default function ShipmentFormDialog({
   const actions = (
     <>
         <Button onClick={cancel} disabled={save.isPending || reading} data-tour="shipment-form-cancel">
-          {inline ? "Reset" : "Cancel"}
+          {inline ? t("reset") : t("cancel")}
         </Button>
         <Button variant="contained" onClick={submit} disabled={save.isPending || reading} data-tour="shipment-form-save">
-          {save.isPending ? "Saving…" : askOver && overQty ? "Save anyway" : inline ? "Save B/L details" : shipment ? "Save changes" : order?.nextRef ? `Create ${order.nextRef}` : "Create shipment"}
+          {save.isPending ? t("saving") : askOver && overQty ? t("saveAnyway") : inline ? t("saveBl") : shipment ? t("saveChanges") : order?.nextRef ? t("createRef", { ref: order.nextRef }) : t("createShipment")}
         </Button>
       </>
   );
@@ -565,7 +567,7 @@ export default function ShipmentFormDialog({
 
   return (
     <Dialog open={open} onClose={() => !save.isPending && !reading && cancel()} maxWidth={source || readingFile ? "xl" : "md"} fullWidth>
-      <DialogTitle>{shipment ? `Edit shipment ${shipment.blNumber ?? ""}`.trim() : "New shipment"}</DialogTitle>
+      <DialogTitle>{shipment ? t("editTitle", { bl: shipment.blNumber ?? "" }).trim() : t("newShipment")}</DialogTitle>
       <DialogContent dividers>{body}</DialogContent>
       <DialogActions>{actions}</DialogActions>
     </Dialog>

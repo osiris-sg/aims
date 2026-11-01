@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import FormInputBox from "@/form-components/FormInputBox";
 import { request } from "@/helpers/request";
 import { useAuth } from "@clerk/nextjs";
+import { useTranslations } from "next-intl";
 import BusinessIcon from "@mui/icons-material/Business";
 
 interface Props {
@@ -16,6 +17,7 @@ interface Props {
 
 export default function AddOrganizationItem({ open, onClose, onOrganizationCreated }: Props) {
   const { getToken } = useAuth();
+  const t = useTranslations("users.orgs");
   const [error, setError] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -79,11 +81,11 @@ export default function AddOrganizationItem({ open, onClose, onOrganizationCreat
         }
       } else {
         console.error("❌ Failed to create organization:", response);
-        throw new Error(response.message || "Failed to create organization");
+        throw new Error(response.message || t("createFailed"));
       }
     } catch (error: any) {
       console.error("💥 Error creating organization:", error);
-      setError(error.message || "Failed to create organization");
+      setError(error.message || t("createFailed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -136,11 +138,11 @@ export default function AddOrganizationItem({ open, onClose, onOrganizationCreat
                 fontSize: "1.5rem",
               }}
             >
-              Add New Organization
+              {t("addTitle")}
             </Typography>
           </Box>
           <Typography variant="body2" sx={{ color: "#666666" }}>
-            Create a new organization to manage users and resources
+            {t("addSub")}
           </Typography>
         </Box>
 
@@ -160,14 +162,14 @@ export default function AddOrganizationItem({ open, onClose, onOrganizationCreat
               <FormInputBox
                 control={control}
                 name="name"
-                label="Organization Name"
-                placeHolder="Enter organization name"
+                label={t("name")}
+                placeHolder={t("namePh")}
                 required
                 rules={{
-                  required: "Organization name is required",
+                  required: t("nameReq"),
                   minLength: {
                     value: 2,
-                    message: "Organization name must be at least 2 characters",
+                    message: t("nameMin"),
                   },
                 }}
               />
@@ -177,9 +179,9 @@ export default function AddOrganizationItem({ open, onClose, onOrganizationCreat
               <FormInputBox
                 control={control}
                 name="id"
-                label="Custom ID (Optional)"
-                placeHolder="Enter custom organization ID"
-                bottomText="Leave empty to auto-generate"
+                label={t("customId")}
+                placeHolder={t("customIdPh")}
+                bottomText={t("customIdHint")}
                 rules={{
                   pattern: {
                     value: /^[a-zA-Z0-9-_]+$/,
@@ -222,7 +224,7 @@ export default function AddOrganizationItem({ open, onClose, onOrganizationCreat
                 },
               }}
             >
-              Cancel
+              {t("cancel")}
             </Button>
             <Button
               type="submit"
@@ -235,7 +237,7 @@ export default function AddOrganizationItem({ open, onClose, onOrganizationCreat
                 },
               }}
             >
-              {isSubmitting ? "Creating..." : "Create Organization"}
+              {isSubmitting ? t("creating") : t("create")}
             </Button>
           </Box>
         </Box>

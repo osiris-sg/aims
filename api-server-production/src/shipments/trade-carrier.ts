@@ -6,7 +6,7 @@
  * ETD / ETA stay manual or from A/N / B/L reads (with history).
  */
 export interface Carrier {
-  code: 'WANHAI' | 'KMTC' | 'MAERSK' | 'MSC' | 'SITC' | 'RCL' | 'EVERGREEN';
+  code: 'WANHAI' | 'KMTC' | 'MAERSK' | 'MSC' | 'SITC' | 'RCL' | 'EVERGREEN' | 'JINJIANG';
   name: string;
   /** The tracking page. */
   url: string;
@@ -22,8 +22,11 @@ const CARRIERS: Array<{ code: Carrier['code']; name: string; bl?: RegExp; line: 
   { code: 'KMTC', name: 'KMTC', bl: /^KMTC/, line: /KMTC|KOREA MARINE/i, url: () => 'https://www.ekmtc.com/', prefilled: false },
   { code: 'MSC', name: 'MSC', bl: /^MEDU/, line: /\bMSC\b|MEDITERRANEAN SHIPPING/i, url: (bl) => `https://www.msc.com/en/track-a-shipment?agencyPath=msc&trackingNumber=${enc(bl)}`, prefilled: true },
   { code: 'SITC', name: 'SITC', bl: /^SITG/, line: /\bSITC\b/i, url: () => 'https://www.sitcline.com/', prefilled: false },
-  { code: 'RCL', name: 'RCL (Regional Container Lines)', bl: /^GGVC/, line: /\bRCL\b|REGIONAL CONTAINER/i, url: () => 'https://www.rclgroup.com/', prefilled: false },
+  // Round AZ: VKTCB… = RCL from Visakhapatnam (B/L VKTCB25000562 is RCL's form, carrier RCL Feeder Pte Ltd).
+  { code: 'RCL', name: 'RCL (Regional Container Lines)', bl: /^(GGVC|VKTCB)/, line: /\bRCL\b|REGIONAL CONTAINER/i, url: () => 'https://www.rclgroup.com/', prefilled: false },
   { code: 'EVERGREEN', name: 'Evergreen', bl: /^EGLV/, line: /EVERGREEN/i, url: () => 'https://ct.shipmentlink.com/servlet/TDB1_CargoTracking.do', prefilled: false },
+  // Round AZ: JJCVZ… = Shanghai Jinjiang Shipping (B/L JJCVZNGMNC401842 is its form, issued by Merchant Shipping Services, Vizag).
+  { code: 'JINJIANG', name: 'Shanghai Jinjiang Shipping (JJ Shipping)', bl: /^JJC[A-Z]{2}/, line: /JIN\s*JIANG|\bJJ\s*SHIPPING/i, url: () => 'http://ejj.jjshipping.cn/', prefilled: false },
   // Maersk B/Ls are all digits (9 or more).
   { code: 'MAERSK', name: 'Maersk', bl: /^\d{9,}$/, line: /MAERSK/i, url: (bl) => `https://www.maersk.com/tracking/${enc(bl)}`, prefilled: true },
 ];

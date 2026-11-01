@@ -30,6 +30,7 @@
  * isDefault: true or any other org's resolution would change (templates are a cross-org pool).
  */
 import 'dotenv/config';
+import { withFeatureStamps } from '../src/organizations/feature-stamps';
 import * as fs from 'fs';
 import * as path from 'path';
 import { PrismaNeon } from '@prisma/adapter-neon';
@@ -225,6 +226,7 @@ const FEATURE_OVERRIDES: Record<string, boolean> = {
   enableShipmentsHome: false, // round O/P: the OLD Home (cash / margin) stays off; the Dashboard route shows the email-first dashboard
   enableEmailReasoner: true, // round R: the thread reasoner — live on ADH since the owner's go (2026-10-21)
   enableWhatsAppAgent: true, // round S: WhatsApp shipments agent + pushes — live on ADH since the owner's go (2026-10-22)
+  enableStepDueDates: true, // round AZ: due dates per step — the owner approved the rules (2026-11-01); only dates from the switch-on day are flagged
 };
 
 const NUMBER_FORMATS = [
@@ -937,7 +939,8 @@ async function main() {
   // ── 5. Feature flags ──────────────────────────────────────────────────────
   header('5', 'Feature flags');
   const uiCfg = orgExists ? await plat.organizationUIConfig.findUnique({ where: { organizationId: orgId }, select: { features: true } }) : null;
-  const features = { ...DEFAULT_ORG_FEATURES, ...((uiCfg?.features as Record<string, boolean>) || {}), ...FEATURE_OVERRIDES };
+  // Round AZ: withFeatureStamps keeps (or, on off → on, stamps) the due dates' switch-on day.
+  const features = withFeatureStamps(uiCfg?.features, { ...DEFAULT_ORG_FEATURES, ...((uiCfg?.features as Record<string, boolean>) || {}), ...FEATURE_OVERRIDES }) as Record<string, unknown>;
   if (APPLY) {
     await plat.organizationUIConfig.upsert({
       where: { organizationId: orgId },

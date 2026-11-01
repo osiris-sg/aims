@@ -5,16 +5,24 @@
 // the year is out of range; the API refuses such values too (shipments.rules
 // tradeDateError — keep the two in step).
 
+import { currentLang, type UiLang } from "@/i18n/lang";
+
 export const TRADE_YEAR_MIN = 2000;
 export const TRADE_YEAR_MAX = 2100;
 
+// Round AZ: the messages in the portal language (pure — the current language, or an explicit one).
+const MSG = {
+  en: { invalid: "Enter a valid date", year: (min: number, max: number) => `Year must be ${min}–${max}` },
+  ja: { invalid: "正しい日付を入力してください", year: (min: number, max: number) => `年は${min}〜${max}の範囲で入力してください` },
+};
+
 /** Why a "YYYY-MM-DD" / "YYYY-MM" value is not acceptable, or null (blank is fine). */
-export function tradeDateError(value: unknown): string | null {
+export function tradeDateError(value: unknown, lang: UiLang = currentLang()): string | null {
   if (value === null || value === undefined || value === "") return null;
   const m = /^(\d+)-(\d{2})(?:-(\d{2}))?(?:$|T)/.exec(String(value).trim());
-  if (!m) return "Enter a valid date";
+  if (!m) return MSG[lang].invalid;
   const year = Number(m[1]);
-  if (m[1].length !== 4 || year < TRADE_YEAR_MIN || year > TRADE_YEAR_MAX) return `Year must be ${TRADE_YEAR_MIN}–${TRADE_YEAR_MAX}`;
+  if (m[1].length !== 4 || year < TRADE_YEAR_MIN || year > TRADE_YEAR_MAX) return MSG[lang].year(TRADE_YEAR_MIN, TRADE_YEAR_MAX);
   return null;
 }
 

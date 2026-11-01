@@ -20,6 +20,7 @@ import React, { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Alert, Box, Button, Menu, MenuItem, Stack, Tab, Tabs } from "@mui/material";
 import PlaylistAddIcon from "@mui/icons-material/PlaylistAdd";
+import { useTranslations } from "next-intl";
 import { toast } from "../_lib/toast";
 import PageTable from "@/components/PageTable";
 import type { FilterField } from "@/components/FilterDrawer";
@@ -45,6 +46,7 @@ type Bucket = "pending" | "completed" | "all";
 /** Round AM: the Orders list as a component — the Orders page's List view, and a client's Orders tab (pre-filtered, no create buttons).
  * Round AN: with `view` it is the whole Orders page (or Orders tab) for both views — the shared header + the List table or the Monthly view. */
 export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolbar, view = "list", onViewChange }: { fixedCustomerId?: string; fixedSupplierId?: string; toolbar?: React.ReactNode; view?: OrdersView; onViewChange?: (v: OrdersView) => void }) {
+  const t = useTranslations("orders.list");
   const router = useRouter();
   const params = useSearchParams();
   const tabParam = params?.get("tab");
@@ -70,16 +72,16 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
 
   const filterConfig: FilterField[] = useMemo(
     () => [
-      { type: "select", key: "contractId", label: "Contract", options: (contracts.data?.items ?? []).map((c) => ({ value: c.id, label: [c.contractNo, c.customer?.name].filter(Boolean).join(" · ") })) },
-      ...(fixedCustomerId ? [] : [{ type: "select" as const, key: "customerId", label: "Customer", options: (customers.data ?? []).map((c) => ({ value: c.id, label: c.name })) }]),
+      { type: "select", key: "contractId", label: t("contract"), options: (contracts.data?.items ?? []).map((c) => ({ value: c.id, label: [c.contractNo, c.customer?.name].filter(Boolean).join(" · ") })) },
+      ...(fixedCustomerId ? [] : [{ type: "select" as const, key: "customerId", label: t("customer"), options: (customers.data ?? []).map((c) => ({ value: c.id, label: c.name })) }]),
       {
         type: "select",
         key: "shipMonth",
-        label: "Ship month",
-        options: (list.data?.months ?? []).map((m) => ({ value: m.month ?? "none", label: `${m.month ? monthShort(m.month) : "No ship month"} (${m.orders})` })),
+        label: t("shipMonth"),
+        options: (list.data?.months ?? []).map((m) => ({ value: m.month ?? "none", label: `${m.month ? monthShort(m.month) : t("noShipMonth")} (${m.orders})` })),
       },
     ],
-    [contracts.data, customers.data, list.data?.months, fixedCustomerId]
+    [contracts.data, customers.data, list.data?.months, fixedCustomerId, t]
   );
 
   // Flat: the server sorts (ship month newest first, then order no. newest first).
@@ -91,7 +93,8 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
     return out;
   }, [list.data]);
 
-  const columns = useMemo(() => orderColumns({ onMenu: (e, row) => setMenu({ pos: { left: e.clientX, top: e.clientY }, row }) }), []);
+  const tc = useTranslations("orders.columns");
+  const columns = useMemo(() => orderColumns({ onMenu: (e, row) => setMenu({ pos: { left: e.clientX, top: e.clientY }, row }), t: tc }), [tc]);
 
   const filtered = !!(q || filters.contractId || filters.customerId || filters.shipMonth);
   const listCounts = list.data?.counts;
@@ -105,9 +108,9 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
       }}
       sx={{ minHeight: 40, "& .MuiTab-root": { minHeight: 40, textTransform: "none" } }}
     >
-      <Tab value="pending" label={`Pending${counts ? ` (${counts.pending})` : ""}`} data-tour="shipments-tab-pending" />
-      <Tab value="completed" label={`Completed${counts ? ` (${counts.completed})` : ""}`} data-tour="shipments-tab-completed" />
-      <Tab value="all" label={`All${counts ? ` (${counts.all})` : ""}`} data-tour="shipments-tab-all" />
+      <Tab value="pending" label={`${t("pending")}${counts ? ` (${counts.pending})` : ""}`} data-tour="shipments-tab-pending" />
+      <Tab value="completed" label={`${t("completed")}${counts ? ` (${counts.completed})` : ""}`} data-tour="shipments-tab-completed" />
+      <Tab value="all" label={`${t("all")}${counts ? ` (${counts.all})` : ""}`} data-tour="shipments-tab-all" />
     </Tabs>
   );
   const tabsRow = (
@@ -121,8 +124,8 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
   return (
     <Box sx={{ height: "100%" }}>
       <PageTable
-        tableName="Orders"
-        {...(fixed ? {} : { buttonName: "+ New order", onAddClick: () => setCreateOpen(true) })}
+        tableName={t("title")}
+        {...(fixed ? {} : { buttonName: t("newOrder"), onAddClick: () => setCreateOpen(true) })}
         columns={columns}
         data={rows}
         loading={list.isLoading}
@@ -150,7 +153,7 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
             : [
                 <TasksButton key="tasks" />,
                 <Button key="monthly" variant="outlined" startIcon={<PlaylistAddIcon />} onClick={() => setMonthlyOpen(true)} data-tour="orders-monthly">
-                  + New monthly order
+                  {t("newMonthly")}
                 </Button>,
               ]
         }
@@ -169,20 +172,20 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
                 <MonthlyView customerId={fixedCustomerId} supplierId={fixedSupplierId} bucket={bucket} search={q} mainFilters={filters} onClientChange={fixedCustomerId ? undefined : (id) => setFilters((f) => ({ ...f, customerId: id }))} onCounts={setMonthlyCounts} />
               </Box>
             ) : list.isError ? (
-              <Alert severity="error">{(list.error as Error)?.message || "Could not load orders"}</Alert>
+              <Alert severity="error">{(list.error as Error)?.message || t("loadError")}</Alert>
             ) : !list.isLoading && !list.data?.items?.length ? (
               filtered ? (
-                <EmptyState title="No orders match these filters" />
+                <EmptyState title={t("emptyFiltered")} />
               ) : fixed ? (
-                <EmptyState title={bucket === "completed" ? "No completed orders" : "No pending orders"} />
+                <EmptyState title={bucket === "completed" ? t("emptyCompleted") : t("emptyPending")} />
               ) : bucket === "completed" ? (
-                <EmptyState title="No completed orders yet" />
+                <EmptyState title={t("emptyCompletedYet")} />
               ) : (
                 <EmptyState
-                  title="No pending orders — start a new one"
+                  title={t("emptyStart")}
                   action={
                     <Button variant="contained" onClick={() => setCreateOpen(true)}>
-                      + New order
+                      {t("newOrder")}
                     </Button>
                   }
                 />
@@ -200,7 +203,7 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
             router.push(orderHref(r.id));
           }}
         >
-          Open
+          {t("open")}
         </MenuItem>
         <MenuItem
           sx={{ color: "error.main" }}
@@ -210,20 +213,20 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
             setToDelete(r);
           }}
         >
-          Delete
+          {t("delete")}
         </MenuItem>
       </Menu>
 
       <ConfirmDialog
         open={!!toDelete}
-        title={`Delete order ${toDelete?.label ?? ""}?`}
-        body="Its steps, empty shipments and document links are removed (an order whose shipments have documents can't be deleted). The files themselves stay in the Documents library. This can't be undone."
-        confirmLabel="Delete"
+        title={t("deleteTitle", { label: toDelete?.label ?? "" })}
+        body={t("deleteBody")}
+        confirmLabel={t("delete")}
         destructive
         onClose={() => setToDelete(null)}
         onConfirm={async () => {
           await del.mutateAsync(toDelete!.id);
-          toast.success("Order deleted");
+          toast.success(t("deleted"));
         }}
       />
 

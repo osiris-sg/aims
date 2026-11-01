@@ -18,6 +18,7 @@ import { bankEntity, type BankAccount, type DeliveryProfile, type IssuingEntity 
 import { useTradeMutation, useTradeSettings } from "../_lib/hooks";
 import { toast } from "../_lib/toast";
 import LmeFeedPanel from "./LmeFeedPanel";
+import { useTranslations } from "next-intl";
 
 const SEAL_MAX = 1024 * 1024;
 const newId = (prefix: string) => `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -44,6 +45,7 @@ type LmeRow = { key: string; month: string; value: string };
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 export default function DocSettingsForm() {
+  const t = useTranslations("settings.docSettings");
   const settings = useTradeSettings(true);
   // Edits are kept while the settings refetch in the background; a save reloads them.
   const [dirty, setDirty] = useState(false);
@@ -78,8 +80,8 @@ export default function DocSettingsForm() {
 
   const pickSeal = (file: File | undefined) => {
     if (!file) return;
-    if (!/^image\/(png|jpeg)$/.test(file.type)) return setError("The seal must be a PNG or JPEG image");
-    if (file.size > SEAL_MAX) return setError("The seal image must be 1 MB or smaller");
+    if (!/^image\/(png|jpeg)$/.test(file.type)) return setError(t("errSealType"));
+    if (file.size > SEAL_MAX) return setError(t("errSealSize"));
     const reader = new FileReader();
     reader.onload = () => {
       setSeal(String(reader.result));
@@ -90,22 +92,22 @@ export default function DocSettingsForm() {
 
   const submit = async () => {
     setError(null);
-    if (banks.some((b) => !b.label.trim() || !b.block.trim())) return setError("Every bank account needs a name and its text");
-    if (profiles.some((p) => !p.siteName.trim())) return setError("Every delivery profile needs a site name");
+    if (banks.some((b) => !b.label.trim() || !b.block.trim())) return setError(t("errBank"));
+    if (profiles.some((p) => !p.siteName.trim())) return setError(t("errProfile"));
     const q = qmjp.filter((r) => r.quarter.trim() || r.value.trim());
-    if (q.some((r) => !QUARTER.test(r.quarter.trim()))) return setError('QMJP quarters look like 2026-3Q');
-    if (q.some((r) => r.value.trim() === "" || !Number.isFinite(Number(r.value)) || Number(r.value) < 0)) return setError("Every QMJP quarter needs a number");
-    if (new Set(q.map((r) => r.quarter.trim())).size !== q.length) return setError("Each QMJP quarter only once");
+    if (q.some((r) => !QUARTER.test(r.quarter.trim()))) return setError(t("errQmjpQuarter"));
+    if (q.some((r) => r.value.trim() === "" || !Number.isFinite(Number(r.value)) || Number(r.value) < 0)) return setError(t("errQmjpValue"));
+    if (new Set(q.map((r) => r.quarter.trim())).size !== q.length) return setError(t("errQmjpDup"));
     const l = lme.filter((r) => r.month.trim() || r.value.trim());
-    if (l.some((r) => !MONTH.test(r.month.trim()))) return setError("LME months look like 2026-07");
-    if (l.some((r) => !(Number(r.value) > 0))) return setError("Every LME month needs a price");
-    if (new Set(l.map((r) => r.month.trim())).size !== l.length) return setError("Each LME month only once");
+    if (l.some((r) => !MONTH.test(r.month.trim()))) return setError(t("errLmeMonth"));
+    if (l.some((r) => !(Number(r.value) > 0))) return setError(t("errLmeValue"));
+    if (new Set(l.map((r) => r.month.trim())).size !== l.length) return setError(t("errLmeDup"));
     const keep = keepDomains
       .split(/[,\s]+/)
       .map((x) => x.trim().toLowerCase().replace(/^@/, ""))
       .filter(Boolean);
     const badDomain = keep.find((x) => !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(x));
-    if (badDomain) return setError(`"${badDomain}" is not an email domain (like vedanta.co.in)`);
+    if (badDomain) return setError(t("errDomain", { domain: badDomain }));
     try {
       await save.mutateAsync({
         banks: banks.map((b) => ({ id: b.id, label: b.label.trim(), block: b.block, entity: bankEntity(b) })),
@@ -118,9 +120,9 @@ export default function DocSettingsForm() {
         intakeKeepDomains: keep.length ? keep : null,
       });
       setDirty(false);
-      toast.success("Document settings saved");
+      toast.success(t("saved"));
     } catch (e: any) {
-      setError(e?.message || "Could not save the settings");
+      setError(e?.message || t("couldNotSave"));
     }
   };
 
@@ -140,43 +142,43 @@ export default function DocSettingsForm() {
         )}
         {settings.isError && (
           <Alert severity="error" sx={{ mb: 2 }}>
-            {(settings.error as Error)?.message || "Could not load the settings"}
+            {(settings.error as Error)?.message || t("couldNotLoad")}
           </Alert>
         )}
 
         <Section
-          title="Bank accounts (弊社指定口座)"
+          title={t("banks")}
           action={
             <Button size="small" startIcon={<AddIcon />} onClick={() => setBanks((bs) => [...bs, { id: newId("bank"), label: "", block: "" }])} disabled={loading}>
-              Add bank
+              {t("addBank")}
             </Button>
           }
         >
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-            One line per row; &quot;label&lt;Tab&gt;value&quot; prints as two columns. The selected default starts every new invoice.
+            {t("banksHint")}
           </Typography>
           <Stack spacing={1.5}>
             {banks.map((b, i) => (
               <Stack key={b.id} direction="row" spacing={1} alignItems="flex-start">
-                <Tooltip title="Default for new invoices">
-                  <Radio checked={defaultBankId === b.id} onChange={() => setDefaultBankId(b.id)} inputProps={{ "aria-label": `Default bank ${b.label}` }} />
+                <Tooltip title={t("defaultBank")}>
+                  <Radio checked={defaultBankId === b.id} onChange={() => setDefaultBankId(b.id)} inputProps={{ "aria-label": t("defaultBankAria", { label: b.label }) }} />
                 </Tooltip>
                 <Grid2 container spacing={1} sx={{ flex: 1 }}>
                   <Grid2 size={{ xs: 12, sm: 8 }}>
-                    <TextField size="small" fullWidth label="Name" value={b.label} onChange={(e) => setBank(i, { label: e.target.value })} />
+                    <TextField size="small" fullWidth label={t("name")} value={b.label} onChange={(e) => setBank(i, { label: e.target.value })} />
                   </Grid2>
                   <Grid2 size={{ xs: 12, sm: 4 }}>
-                    <TextField select size="small" fullWidth label="Entity" value={bankEntity(b)} onChange={(e) => setBank(i, { entity: e.target.value as IssuingEntity })} data-tour="settings-bank-entity">
+                    <TextField select size="small" fullWidth label={t("entity")} value={bankEntity(b)} onChange={(e) => setBank(i, { entity: e.target.value as IssuingEntity })} data-tour="settings-bank-entity">
                       <MenuItem value="ADH_SG">ADH SG (Asia Deal Hub Pte. Ltd.)</MenuItem>
                       <MenuItem value="ADH_JP">ADH JP (アジアディールハブジャパン合同会社)</MenuItem>
                     </TextField>
                   </Grid2>
                   <Grid2 size={12}>
-                    <TextField size="small" fullWidth multiline minRows={4} label="Printed text" value={b.block} onChange={(e) => setBank(i, { block: e.target.value })} inputProps={mono} />
+                    <TextField size="small" fullWidth multiline minRows={4} label={t("printedText")} value={b.block} onChange={(e) => setBank(i, { block: e.target.value })} inputProps={mono} />
                   </Grid2>
                 </Grid2>
-                <Tooltip title="Remove bank">
-                  <IconButton aria-label="Remove bank" onClick={() => setBanks((bs) => bs.filter((_, j) => j !== i))}>
+                <Tooltip title={t("removeBank")}>
+                  <IconButton aria-label={t("removeBank")} onClick={() => setBanks((bs) => bs.filter((_, j) => j !== i))}>
                     <DeleteIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
@@ -186,62 +188,62 @@ export default function DocSettingsForm() {
         </Section>
         <Divider sx={{ mb: 2 }} />
 
-        <Section title="Issuer per document">
+        <Section title={t("issuers")}>
           <Grid2 container spacing={1.5}>
-            <Grid2 size={12}>{iss("invoiceFromBlock", "請求書 — From block", { multiline: true, minRows: 3 })}</Grid2>
-            <Grid2 size={{ xs: 12, sm: 6 }}>{iss("customerDocIssuerName", "計量検収票 / 納品書兼分析試験成績報告書 — issuer")}</Grid2>
-            <Grid2 size={{ xs: 12, sm: 6 }}>{iss("customerDocContact", "担当 (contact)")}</Grid2>
-            <Grid2 size={12}>{iss("customerDocIssuerAddress", "Issuer address", { multiline: true, minRows: 2 })}</Grid2>
-            <Grid2 size={12}>{iss("siIssuerName", "出庫・納入依頼書 — issuer / 出荷主")}</Grid2>
-            <Grid2 size={12}>{iss("siAddressee", "出庫・納入依頼書 — 宛先 (warehouse)", { placeholder: "三井倉庫 株式会社 御中", helperText: "Blank = 三井倉庫 株式会社 御中" })}</Grid2>
+            <Grid2 size={12}>{iss("invoiceFromBlock", t("invoiceFromBlock"), { multiline: true, minRows: 3 })}</Grid2>
+            <Grid2 size={{ xs: 12, sm: 6 }}>{iss("customerDocIssuerName", t("customerDocIssuerName"))}</Grid2>
+            <Grid2 size={{ xs: 12, sm: 6 }}>{iss("customerDocContact", t("customerDocContact"))}</Grid2>
+            <Grid2 size={12}>{iss("customerDocIssuerAddress", t("customerDocIssuerAddress"), { multiline: true, minRows: 2 })}</Grid2>
+            <Grid2 size={12}>{iss("siIssuerName", t("siIssuerName"))}</Grid2>
+            <Grid2 size={12}>{iss("siAddressee", t("siAddressee"), { placeholder: "三井倉庫 株式会社 御中", helperText: t("siAddresseeHint") })}</Grid2>
           </Grid2>
         </Section>
         <Divider sx={{ mb: 2 }} />
 
-        <Section title="Company seal (請求書)">
+        <Section title={t("seal")}>
           <Stack direction="row" spacing={2} alignItems="center">
             <Box sx={{ width: 96, height: 96, border: 1, borderColor: "divider", borderRadius: 1, display: "flex", alignItems: "center", justifyContent: "center", bgcolor: "#fff" }}>
-              {seal ? <Box component="img" src={seal} alt="Company seal" sx={{ maxWidth: 88, maxHeight: 88 }} /> : <Typography variant="caption" color="text.secondary">No seal</Typography>}
+              {seal ? <Box component="img" src={seal} alt={t("sealAlt")} sx={{ maxWidth: 88, maxHeight: 88 }} /> : <Typography variant="caption" color="text.secondary">{t("noSeal")}</Typography>}
             </Box>
             <Button component="label" variant="outlined" startIcon={<UploadIcon />} disabled={loading}>
-              {seal ? "Replace" : "Upload"} PNG / JPEG
+              {seal ? t("replaceSeal") : t("uploadSeal")}
               <input hidden type="file" accept="image/png,image/jpeg" onChange={(e) => pickSeal(e.target.files?.[0])} />
             </Button>
             {seal && (
               <Button color="error" onClick={() => setSeal(null)}>
-                Remove
+                {t("remove")}
               </Button>
             )}
           </Stack>
         </Section>
         <Divider sx={{ mb: 2 }} />
 
-        <Section title="Delivery sites (出庫・納入依頼書)">
+        <Section title={t("sites")}>
           <Typography variant="body2" color="text.secondary">
-            Each customer&apos;s delivery site (納入先, address, 備考 lines) is now part of its profile in{" "}
-            <Link href="/portal/settings/customers">Org Settings → Customers</Link>
-            {profiles.length ? ` — ${profiles.length} older site(s) here are still used for customers without one.` : "."}
+            {t("sitesHint")}{" "}
+            <Link href="/portal/settings/customers">{t("sitesLink")}</Link>
+            {profiles.length ? t("sitesOlder", { n: profiles.length }) : t("sitesEnd")}
           </Typography>
         </Section>
         <Divider sx={{ mb: 2 }} />
 
         <Section
-          title="QMJP by quarter (US$/MT)"
+          title={t("qmjp")}
           action={
             <Button size="small" startIcon={<AddIcon />} onClick={() => setQmjp((rs) => [...rs, { key: newId("q"), quarter: "", value: "" }])} disabled={loading}>
-              Add quarter
+              {t("addQuarter")}
             </Button>
           }
         >
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-            Invoice #1 takes the QMJP of its LME month&apos;s quarter; the SG→JP invoice and Invoice #2 take the shipment month&apos;s quarter. A quarter not listed falls back to the contract line.
+            {t("qmjpHint")}
           </Typography>
           <Stack spacing={1} data-tour="settings-qmjp">
             {qmjp.map((r, i) => (
               <Stack key={r.key} direction="row" spacing={1} alignItems="center">
                 <TextField
                   size="small"
-                  label="Quarter"
+                  label={t("quarter")}
                   placeholder="2026-3Q"
                   value={r.quarter}
                   error={!!r.quarter.trim() && !QUARTER.test(r.quarter.trim())}
@@ -257,8 +259,8 @@ export default function DocSettingsForm() {
                   onChange={(e) => setQmjp((rs) => rs.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
                   sx={{ width: 160 }}
                 />
-                <Tooltip title="Remove quarter">
-                  <IconButton aria-label="Remove quarter" onClick={() => setQmjp((rs) => rs.filter((_, j) => j !== i))}>
+                <Tooltip title={t("removeQuarter")}>
+                  <IconButton aria-label={t("removeQuarter")} onClick={() => setQmjp((rs) => rs.filter((_, j) => j !== i))}>
                     <DeleteIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
@@ -266,7 +268,7 @@ export default function DocSettingsForm() {
             ))}
             {!qmjp.length && (
               <Typography variant="body2" color="text.secondary">
-                No quarters yet.
+                {t("noQuarters")}
               </Typography>
             )}
           </Stack>
@@ -274,22 +276,22 @@ export default function DocSettingsForm() {
 
         <Divider sx={{ mb: 2 }} />
         <Section
-          title="LME cash monthly average (US$/MT)"
+          title={t("lme")}
           action={
             <Button size="small" startIcon={<AddIcon />} onClick={() => setLme((rs) => [...rs, { key: newId("l"), month: "", value: "" }])} disabled={loading}>
-              Add month
+              {t("addMonth")}
             </Button>
           }
         >
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-            The price check compares PIs, CIs and invoices with LME of the basis month + the contract&apos;s premium (+ QMJP). A month not listed is marked &quot;unknown&quot;, never wrong. With the Westmetall feed on, empty months fill by themselves; a month you type here is never changed by the feed.
+            {t("lmeHint")}
           </Typography>
           <Stack spacing={1} data-tour="settings-lme">
             {lme.map((r, i) => (
               <Stack key={r.key} direction="row" spacing={1} alignItems="center">
                 <TextField
                   size="small"
-                  label="Month"
+                  label={t("month")}
                   placeholder="2026-07"
                   value={r.month}
                   error={!!r.month.trim() && !MONTH.test(r.month.trim())}
@@ -305,8 +307,8 @@ export default function DocSettingsForm() {
                   onChange={(e) => setLme((rs) => rs.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
                   sx={{ width: 160 }}
                 />
-                <Tooltip title="Remove month">
-                  <IconButton aria-label="Remove month" onClick={() => setLme((rs) => rs.filter((_, j) => j !== i))}>
+                <Tooltip title={t("removeMonth")}>
+                  <IconButton aria-label={t("removeMonth")} onClick={() => setLme((rs) => rs.filter((_, j) => j !== i))}>
                     <DeleteIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
@@ -314,23 +316,23 @@ export default function DocSettingsForm() {
             ))}
             {!lme.length && (
               <Typography variant="body2" color="text.secondary">
-                No months yet.
+                {t("noMonths")}
               </Typography>
             )}
           </Stack>
           <LmeFeedPanel />
         </Section>
 
-        <Section title="Email intake — never purge mail from">
+        <Section title={t("keep")}>
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-            Mail from, to or quoting these domains (and replies on their threads) is never deleted automatically: when the AI calls it &quot;not shipment&quot; it goes to Shipments › Inbox › Unsure for 14 days instead. Customers&apos; email domains (Org Settings › Customers) are always included. Leave blank for the built-in list (Vedanta, SUS, Kato, Mitsui Soko, the carriers).
+            {t("keepHint")}
           </Typography>
           <TextField
             size="small"
             fullWidth
             multiline
             minRows={4}
-            label="Domains (one per line)"
+            label={t("keepDomains")}
             value={keepDomains}
             disabled={loading}
             onChange={(e) => setKeepDomains(e.target.value)}
@@ -348,10 +350,10 @@ export default function DocSettingsForm() {
               void settings.refetch();
             }}
           >
-            Discard changes
+            {t("discard")}
           </Button>
           <Button variant="contained" onClick={submit} disabled={save.isPending || loading}>
-            {save.isPending ? "Saving…" : "Save document settings"}
+            {save.isPending ? t("saving") : t("save")}
           </Button>
         </Stack>
     </Box>

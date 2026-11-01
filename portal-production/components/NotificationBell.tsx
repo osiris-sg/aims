@@ -27,20 +27,24 @@ import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useQueryClient } from "@tanstack/react-query";
 import { HOME_KEY, TradeTasksList, useMyTasks } from "@/app/portal/shipments/_components/TradeTasks";
 import { bellBadge, taskCounts, tradeTodayYmd } from "@/app/portal/shipments/_lib/tasks";
+import { useTranslations } from "next-intl";
+import { useUiLang } from "@/i18n/UiLangProvider";
+import { formatDate } from "@/i18n/lang";
 
 // Compact relative time, no em-dashes in any user-facing string.
-function timeAgo(iso: string): string {
+// Round AZ: the words follow the portal language (shell.bell); English is unchanged.
+function timeAgo(iso: string, t: (key: string, values?: Record<string, number>) => string, lang: "en" | "ja"): string {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "";
   const secs = Math.max(0, Math.floor((Date.now() - then) / 1000));
-  if (secs < 60) return "just now";
+  if (secs < 60) return t("justNow");
   const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) return t("mAgo", { n: mins });
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
+  if (hrs < 24) return t("hAgo", { n: hrs });
   const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
+  if (days < 7) return t("dAgo", { n: days });
+  return lang === "ja" ? formatDate(iso, "ja") : new Date(iso).toLocaleDateString();
 }
 
 /**
@@ -58,6 +62,8 @@ function timeAgo(iso: string): string {
  */
 export default function NotificationBell({ sx, iconColor }: { sx?: SxProps<Theme>; iconColor?: string }) {
   const router = useRouter();
+  const t = useTranslations("shell.bell");
+  const { lang } = useUiLang();
   const { items, unread } = useNotifications();
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllNotificationsRead();
@@ -93,7 +99,7 @@ export default function NotificationBell({ sx, iconColor }: { sx?: SxProps<Theme
   return (
     <>
       <IconButton
-        aria-label="notifications"
+        aria-label={t("aria")}
         onClick={(e) => setAnchorEl(e.currentTarget)}
         sx={sx}
       >
@@ -114,11 +120,11 @@ export default function NotificationBell({ sx, iconColor }: { sx?: SxProps<Theme
           <Box data-tour="bell-tasks">
             <Stack direction="row" alignItems="center" spacing={1} sx={{ px: 2, py: 1 }}>
               <Typography variant="subtitle1" fontWeight={700} sx={{ flex: 1 }}>
-                Tasks ({counts.total})
+                {t("tasks", { n: counts.total })}
               </Typography>
               {counts.overdue > 0 && (
                 <Typography variant="caption" sx={{ color: "error.main", fontWeight: 700 }}>
-                  {counts.overdue} overdue
+                  {t("overdue", { n: counts.overdue })}
                 </Typography>
               )}
             </Stack>
@@ -137,7 +143,7 @@ export default function NotificationBell({ sx, iconColor }: { sx?: SxProps<Theme
         )}
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 2, py: 1 }}>
           <Typography variant="subtitle1" fontWeight={700}>
-            Notifications
+            {t("notifications")}
           </Typography>
           <Button
             size="small"
@@ -145,7 +151,7 @@ export default function NotificationBell({ sx, iconColor }: { sx?: SxProps<Theme
             onClick={() => markAll.mutate()}
             sx={{ textTransform: "none" }}
           >
-            {markAll.isPending ? <CircularProgress size={16} /> : "Mark all read"}
+            {markAll.isPending ? <CircularProgress size={16} /> : t("markAll")}
           </Button>
         </Stack>
         <Divider />
@@ -153,7 +159,7 @@ export default function NotificationBell({ sx, iconColor }: { sx?: SxProps<Theme
         {shown.length === 0 ? (
           <Box sx={{ px: 2, py: 4, textAlign: "center" }}>
             <Typography variant="body2" color="text.secondary">
-              You are all caught up.
+              {t("caughtUp")}
             </Typography>
           </Box>
         ) : (
@@ -183,7 +189,7 @@ export default function NotificationBell({ sx, iconColor }: { sx?: SxProps<Theme
                   </Typography>
                 )}
                 <Typography variant="caption" color="text.disabled">
-                  {timeAgo(n.createdAt)}
+                  {timeAgo(n.createdAt, t, lang)}
                 </Typography>
               </Box>
             </ListItemButton>

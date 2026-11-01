@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { Box, IconButton, ListItemText, Menu, MenuItem, Stack, Typography } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
+import { useTranslations } from "next-intl";
 import { toast } from "../_lib/toast";
 import type { CurrentStep, RecordStatus, TradeStep } from "../_lib/api";
 import { stepLabel } from "../_lib/format";
@@ -20,7 +21,6 @@ import { headerStepText } from "../_lib/order-focus";
 
 type Act = "complete" | "cancel" | "reopen";
 
-const kindLabel = (k: string) => (k === "contract" ? "Contract" : k === "order" ? "Order" : k === "supplierOrder" ? "Supplier order" : "Shipment");
 
 export default function RecordHeader({
   kind,
@@ -62,6 +62,9 @@ export default function RecordHeader({
   onActed?: (act: Act) => void;
 }) {
   const router = useRouter();
+  const t = useTranslations("shipments.recordHeader");
+  const kindLabel = (k: string) => t(`kindLabel.${k === "contract" || k === "order" || k === "supplierOrder" ? k : "shipment"}`);
+  const kindWord = t(`kind.${kind}`);
   const [confirm, setConfirm] = useState<Act | null>(null);
   const [menu, setMenu] = useState<{ left: number; top: number } | null>(null);
   const pick = (a: Act) => {
@@ -71,26 +74,26 @@ export default function RecordHeader({
 
   const text: Record<Act, { title: string; label: string; run: () => Promise<unknown>; done: string | ((result: unknown) => string); destructive?: boolean }> = {
     complete: {
-      title: `Complete ${kind} ${title}?`,
-      label: `Complete ${kind}`,
+      title: t("completeTitle", { kind: kindWord, title }),
+      label: t("completeLabel", { kind: kindWord }),
       run: onComplete,
-      done: `${kindLabel(kind)} completed`,
+      done: t("completed", { kind: kindLabel(kind) }),
     },
     cancel: {
-      title: `Cancel ${kind} ${title}?`,
-      label: `Cancel ${kind}`,
+      title: t("cancelTitle", { kind: kindWord, title }),
+      label: t("cancelLabel", { kind: kindWord }),
       run: onCancel,
-      done: `${kindLabel(kind)} cancelled`,
+      done: t("cancelled", { kind: kindLabel(kind) }),
       destructive: true,
     },
     reopen: {
-      title: `Reopen ${kind} ${title}?`,
-      label: "Reopen",
+      title: t("reopenTitle", { kind: kindWord, title }),
+      label: t("reopen"),
       run: onReopen,
       // Reopening a shipment also reopens its completed contract (the API reports it).
       done: (r) => {
         const reopened = (r as { reopenedContract?: string | null } | undefined)?.reopenedContract;
-        return reopened ? `Shipment reopened — contract ${reopened} was completed, so it was reopened too` : `${kindLabel(kind)} reopened`;
+        return reopened ? t("reopenedWithContract", { contract: reopened }) : t("reopened", { kind: kindLabel(kind) });
       },
     },
   };
@@ -98,12 +101,12 @@ export default function RecordHeader({
   const c = confirm ? text[confirm] : null;
   const main = steps.filter((s) => !s.isOngoing).sort((a, b) => a.sortOrder - b.sortOrder);
   const notDone = main.filter((s) => s.status !== "DONE").map((s) => stepLabel(s, main.indexOf(s) + 1));
-  const waiting = [...notDone.map((n) => `step ${n}`), ...blockers];
+  const waiting = [...notDone.map((n) => t("waitingStep", { n })), ...blockers];
 
   return (
     <Box sx={{ mb: 2 }}>
       <Stack direction="row" alignItems="center" spacing={1.5} sx={{ flexWrap: { xs: "wrap", md: "nowrap" }, rowGap: 1 }}>
-        <IconButton size="small" aria-label="Back" onClick={() => router.push(backHref)}>
+        <IconButton size="small" aria-label={t("back")} onClick={() => router.push(backHref)}>
           <ArrowBackIcon fontSize="small" />
         </IconButton>
         <Typography variant="h5" sx={{ fontWeight: 800, wordBreak: "break-word" }}>
@@ -119,22 +122,22 @@ export default function RecordHeader({
           </Typography>
         )}
         <Box sx={{ flex: 1 }} />
-        <IconButton aria-label={`${kind === "contract" ? "Deal" : kindLabel(kind)} actions`} data-tour="deal-actions-menu" onClick={(e) => setMenu({ left: e.clientX, top: e.clientY })}>
+        <IconButton aria-label={kind === "contract" ? t("dealActions") : t("actions", { kind: kindLabel(kind) })} data-tour="deal-actions-menu" onClick={(e) => setMenu({ left: e.clientX, top: e.clientY })}>
           <MoreVertIcon />
         </IconButton>
       </Stack>
       <Menu anchorReference="anchorPosition" anchorPosition={menu ?? undefined} open={!!menu} onClose={() => setMenu(null)}>
         {status === "OPEN" && (
           <MenuItem disabled={waiting.length > 0} onClick={() => pick("complete")}>
-            <ListItemText primary={`Complete ${kind}`} secondary={waiting.length ? "Finish the open steps first" : undefined} />
+            <ListItemText primary={t("completeLabel", { kind: kindWord })} secondary={waiting.length ? t("finishFirst") : undefined} />
           </MenuItem>
         )}
         {status === "OPEN" && (
           <MenuItem sx={{ color: "error.main" }} onClick={() => pick("cancel")}>
-            Cancel {kind}
+            {t("cancelLabel", { kind: kindWord })}
           </MenuItem>
         )}
-        {status !== "OPEN" && <MenuItem onClick={() => pick("reopen")}>Reopen {kind}</MenuItem>}
+        {status !== "OPEN" && <MenuItem onClick={() => pick("reopen")}>{t("reopenKind", { kind: kindWord })}</MenuItem>}
         {(extraMenu ?? []).map((x) => (
           <MenuItem
             key={x.label}
