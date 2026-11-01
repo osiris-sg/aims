@@ -1,5 +1,5 @@
 import { computeDocumentTotals } from '../common/document-money';
-import { assetKey, descKey, orderInvoiceReference, planOrderInvoice, quoteAllowance, splitJobLines } from './order-billing';
+import { assetKey, descKey, invoiceDiscountPercent, orderInvoiceReference, planOrderInvoice, quoteAllowance, quoteDiscountAmount, splitJobLines } from './order-billing';
 
 // WCT invoice per order: the quotation is billed once per order; only lines a
 // job carries on top of it are billed again (guru 2026-11-02, ORD202611-001).
@@ -142,5 +142,51 @@ describe('orderInvoiceReference', () => {
     expect(orderInvoiceReference('ORD202611-001', ['DO202611008', 'DO202611009'])).toBe('ORD202611-001 · DO202611008, DO202611009');
     expect(orderInvoiceReference('ORD202611-001', ['DO202611008'], 'PO-778')).toBe('PO-778');
     expect(orderInvoiceReference('ORD202611-001', [], '')).toBe('ORD202611-001');
+  });
+});
+
+describe('the quotation discount comes with it, exactly as quoted', () => {
+  // A $100 quote with 10% off: 100 − 10 = 90, + 9% GST = $98.10.
+  const dq = { items: quote, discountPercent: 10, discountAmount: 10, nettTotal: 98.1 };
+
+  it('quote with discount, 2 jobs → the invoice total equals the quote total', () => {
+    const plan = planOrderInvoice({
+      quoteBilled: false,
+      quoteLines: quote,
+      jobs: [
+        { jobId: 'j1', lines: [{ description: DEGREASE, quantity: 1 }] },
+        { jobId: 'j2', lines: [{ description: DEGREASE, quantity: 1 }] },
+      ],
+      keyOfQuoteLine: quoteKey,
+      keyOfJobLine: jobKey,
+    });
+    const discount = quoteDiscountAmount(dq, 100);
+    const t = computeDocumentTotals(invoiceLines(plan) as any[], tax, { discountAmount: discount });
+    expect(t.nettTotal).toBe(dq.nettTotal);
+    expect(t.discountAmount).toBe(10);
+    // the stored % is the quote's own, so the editor re-derives the same amount
+    expect(invoiceDiscountPercent(dq, discount, t.grossTotal, true)).toBe(10);
+  });
+
+  it('extras on the first invoice are not discounted; the stored % reproduces the quoted amount', () => {
+    const lines = [...quote, { description: 'Replace filter', quantity: 1, unitPrice: 50, amount: 50 }];
+    const t = computeDocumentTotals(lines, tax, { discountAmount: quoteDiscountAmount(dq, 100) });
+    expect(t.nettTotal).toBe(152.6); // (150 − 10) × 1.09
+    const pct = invoiceDiscountPercent(dq, 10, t.grossTotal, false)!;
+    expect(Math.round(t.grossTotal * pct) / 100).toBe(10);
+  });
+
+  it('a percentage-only quote discount; documentInfo keys; none', () => {
+    expect(quoteDiscountAmount({ discountPercent: '12.5' }, 200)).toBe(25);
+    expect(quoteDiscountAmount({ documentInfo: { discountAmount: 30 } }, 200)).toBe(30);
+    expect(quoteDiscountAmount({ discountAmount: 500 }, 200)).toBe(200);
+    expect(quoteDiscountAmount({}, 200)).toBe(0);
+    expect(invoiceDiscountPercent({}, 0, 200, true)).toBeNull();
+  });
+
+  it('computeDocumentTotals: unchanged without a discount (no discountAmount key), tax-inclusive with one', () => {
+    expect(computeDocumentTotals(quote, tax)).toEqual({ grossTotal: 100, subTotal: 100, gstAmount: 9, nettTotal: 109, gstPercent: 9, taxApplicable: 'Y', absorbTax: 'N' });
+    const inc = computeDocumentTotals([{ amount: 109 }], { gstPercent: 9, absorbTax: 'Y' }, { discountAmount: 10.9 });
+    expect([inc.nettTotal, inc.gstAmount, inc.subTotal]).toEqual([98.1, 8.1, 90]);
   });
 });

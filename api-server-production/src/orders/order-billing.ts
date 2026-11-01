@@ -115,3 +115,40 @@ export function orderInvoiceReference(orderNumber: string, doNumbers: string[], 
   if (prev) return prev;
   return [orderNumber, doNumbers.filter(Boolean).join(', ')].filter(Boolean).join(' · ');
 }
+
+const num = (v: unknown): number | null => {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return isFinite(n) ? n : null;
+};
+
+/**
+ * The quotation's document discount, as an amount (the quotation is billed
+ * exactly as quoted, discount included). The stored amount wins (it is what
+ * the quote printed); else the percentage of the quote's line total. The
+ * editor reads both from the flat key or documentInfo. 0 when none.
+ */
+export function quoteDiscountAmount(quoteConfig: any, quoteGross: number): number {
+  const qc = quoteConfig || {};
+  const di = qc.documentInfo || {};
+  const amount = num(qc.discountAmount) ?? num(di.discountAmount);
+  if (amount !== null && amount > 0) return Math.round(Math.min(amount, Math.max(0, quoteGross)) * 100) / 100;
+  const pct = num(qc.discountPercent) ?? num(di.discountPercent);
+  if (pct !== null && pct > 0) return Math.round(quoteGross * pct) / 100;
+  return 0;
+}
+
+/**
+ * The Discount % the order invoice stores beside that amount. The editor
+ * re-derives the discount from the % over ALL the invoice's lines when it is
+ * opened, so the % must reproduce the quote's amount over the invoice's gross:
+ * the quote's own % when the invoice is the quote alone, else the amount's
+ * share of the gross (so extras on top are not discounted).
+ */
+export function invoiceDiscountPercent(quoteConfig: any, discountAmount: number, invoiceGross: number, quoteOnly: boolean): number | null {
+  if (!(discountAmount > 0) || !(invoiceGross > 0)) return null;
+  const qc = quoteConfig || {};
+  const pct = num(qc.discountPercent) ?? num(qc.documentInfo?.discountPercent);
+  if (quoteOnly && pct !== null && pct > 0 && Math.abs(Math.round(invoiceGross * pct) / 100 - discountAmount) < 0.005) return pct;
+  return Math.round((discountAmount / invoiceGross) * 100 * 1e6) / 1e6;
+}

@@ -32,7 +32,7 @@ import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-numb
 import { refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
-import { assetKey, descKey, isDisplayRow, orderInvoiceReference, planOrderInvoice } from '../orders/order-billing';
+import { assetKey, descKey, invoiceDiscountPercent, isDisplayRow, orderInvoiceReference, planOrderInvoice, quoteDiscountAmount } from '../orders/order-billing';
 import { quotationLinesForJob } from '../deliveries/quotation-to-delivery';
 
 // Who performed a document action — derived from req.user in the controller.
@@ -6152,7 +6152,18 @@ export class DocumentsService {
         const orgRow: any = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { taxRate: true, taxApplicable: true } }).catch(() => null);
         taxSrc = { gstPercent: orgRow?.taxRate ?? 9, taxApplicable: orgRow?.taxApplicable === false ? 'N' : 'Y', absorbTax: 'N' };
       }
-      const totals = computeDocumentTotals(lines, taxSrc);
+      // The quotation's document discount comes with its lines, as an amount
+      // (extras on top are not discounted); the % is stored so the editor,
+      // which re-derives the discount from it, lands on the same amount.
+      const quoteGross = plan.billQuote ? computeDocumentTotals(workLines, taxSrc).grossTotal : 0;
+      const discount = plan.billQuote ? quoteDiscountAmount(qc, quoteGross) : 0;
+      const totals = computeDocumentTotals(lines, taxSrc, { discountAmount: discount });
+      const discountPercent = invoiceDiscountPercent(qc, discount, totals.grossTotal, !plan.extras.length);
+      const discountKeys = discount > 0 ? { discountAmount: totals.discountAmount ?? 0, discountPercent } : {};
+      const quotedNett = Number(qc.nettTotal ?? qc.documentInfo?.nettTotal);
+      if (plan.billQuote && !plan.extras.length && isFinite(quotedNett) && quotedNett > 0 && Math.abs(quotedNett - totals.nettTotal) > 0.01) {
+        console.warn(`🧾 ORDER→INVOICE: ${order.orderNumber} invoice total ${totals.nettTotal} differs from the quotation's ${quotedNett}; check the quotation's adjustments.`);
+      }
       const doNumbers = orderedDos.map((d) => d.name).filter(Boolean) as string[];
       const reference = orderInvoiceReference(order.orderNumber, doNumbers, (base as any).referenceNo ?? (base as any).documentInfo?.referenceNo);
       const invoiceConfig = stampDocumentMoney(
@@ -6171,8 +6182,9 @@ export class DocumentsService {
           // too, so the invoice lists find it by order number.
           referenceNo: reference,
           ...totals,
+          ...discountKeys,
           showTotals: true,
-          documentInfo: { ...((base as any).documentInfo || {}), ...totals, referenceNo: reference },
+          documentInfo: { ...((base as any).documentInfo || {}), ...totals, ...discountKeys, referenceNo: reference },
         },
         { gross: totals.nettTotal, outstanding: totals.nettTotal, paid: 0 },
       );

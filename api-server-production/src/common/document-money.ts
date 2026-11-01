@@ -100,16 +100,18 @@ export function stampDocumentMoney(
  * Totals for a document built OUTSIDE the editor (an invoice auto-drafted from
  * a delivery order). Mirrors the editor's standard formula (TabbedDocumentCreator
  * totals effect) so the stored numbers equal what the office sees on opening it:
- *   gross = Σ line amounts; no document discount;
- *   tax inclusive (absorbTax 'Y'): gst = gross × g / (100 + g), nett = gross, subTotal = gross − gst
- *   otherwise:                    gst = gross × g / 100,       nett = gross + gst, subTotal = gross
+ *   gross = Σ line amounts; net = gross − document discount (0 unless given);
+ *   tax inclusive (absorbTax 'Y'): gst = net × g / (100 + g), nett = net, subTotal = net − gst
+ *   otherwise:                    gst = net × g / 100,       nett = net + gst, subTotal = net
  * An invoice saved with NO totals posted Dr 0 against Cr <lines> in the posting
- * review (guru 2026-10-27, WCT INV202610-0002).
+ * review (guru 2026-10-27, WCT INV202610-0002). The discount (a WCT order's
+ * first invoice carrying its quotation's discount) is capped at gross, as in the editor.
  */
 export function computeDocumentTotals(
   lines: Array<{ amount?: any; quantity?: any; unitPrice?: any }>,
   tax: { gstPercent?: any; taxApplicable?: any; absorbTax?: any },
-): { grossTotal: number; subTotal: number; gstAmount: number; nettTotal: number; gstPercent: number; taxApplicable: 'Y' | 'N'; absorbTax: 'Y' | 'N' } {
+  adjust: { discountAmount?: any } = {},
+): { grossTotal: number; subTotal: number; gstAmount: number; nettTotal: number; gstPercent: number; taxApplicable: 'Y' | 'N'; absorbTax: 'Y' | 'N'; discountAmount?: number } {
   const R = (n: number) => Math.round(n * 100) / 100;
   const amountOf = (l: any) => {
     const a = Number(l?.amount);
@@ -122,15 +124,18 @@ export function computeDocumentTotals(
   const absorb = tax?.absorbTax === 'Y' || tax?.absorbTax === true;
   const raw = Number(tax?.gstPercent);
   const g = !applicable ? 0 : isFinite(raw) && raw >= 0 ? raw : 9;
+  const d = Number(adjust?.discountAmount);
+  const discountAmount = R(isFinite(d) && d > 0 ? Math.min(d, Math.max(0, grossTotal)) : 0);
+  const net = grossTotal - discountAmount;
   let gstAmount: number, nettTotal: number, subTotal: number;
   if (absorb && g > 0) {
-    gstAmount = (grossTotal * g) / (100 + g);
-    nettTotal = grossTotal;
-    subTotal = grossTotal - gstAmount;
+    gstAmount = (net * g) / (100 + g);
+    nettTotal = net;
+    subTotal = net - gstAmount;
   } else {
-    gstAmount = (grossTotal * g) / 100;
-    nettTotal = grossTotal + gstAmount;
-    subTotal = grossTotal;
+    gstAmount = (net * g) / 100;
+    nettTotal = net + gstAmount;
+    subTotal = net;
   }
-  return { grossTotal, subTotal: R(subTotal), gstAmount: R(gstAmount), nettTotal: R(nettTotal), gstPercent: g, taxApplicable: applicable ? 'Y' : 'N', absorbTax: absorb ? 'Y' : 'N' };
+  return { grossTotal, subTotal: R(subTotal), gstAmount: R(gstAmount), nettTotal: R(nettTotal), gstPercent: g, taxApplicable: applicable ? 'Y' : 'N', absorbTax: absorb ? 'Y' : 'N', ...(discountAmount > 0 ? { discountAmount } : {}) };
 }

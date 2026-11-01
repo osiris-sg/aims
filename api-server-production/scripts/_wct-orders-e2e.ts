@@ -548,6 +548,23 @@ const sgt = (dayOffset: number, hh: number, mm = 0) => {
       check('P4b: …the extra is marked as one, with its DO', items.length === 2 && items[1].orderExtra === true && items[1].description === 'Replace grease filter' && !!items[1].doNumber, items);
     }
     {
+      // a quote with a document discount (10%: 100 − 10 = 90, + GST = $98.10), 2 jobs → the invoice total equals the quote total
+      const qd: any = await quotation(Q109);
+      await prisma.document.update({ where: { id: qd.id }, data: { config: { ...(qd.config as any), discountPercent: 10, discountAmount: 10, grossTotal: 100, subTotal: 90, gstAmount: 8.1, nettTotal: 98.1 } } });
+      await confirm(qd);
+      const o: any = (await ordersOf(qd.id))[0];
+      const [first] = await jobsOf(o.id);
+      await deliveries.updateScheduled(first.id, { scheduledFor: sgt(3, 9), items: lines(first), customerId: customer.id, address: SITE } as any, WCT);
+      const second: any = await deliveries.createScheduled({ orderId: o.id, customerId: customer.id, address: SITE, scheduledFor: sgt(3, 10), items: lines(first) } as any, WCT);
+      await finishJob(first.id, { signature: SIG });
+      await finishJob(second.id, { signature: SIG });
+      const invs = await orderInvoices(o.id);
+      const ic: any = invs[0]?.config || {};
+      check('P4b discount: quote with 10% off, 2 jobs → ONE invoice of $98.10 (= the quote total)', invs.length === 1 && nett(invs[0]) === 98.1 && Number(ic.discountAmount) === 10 && Number(ic.discountPercent) === 10 && Number(ic.gstAmount) === 8.1, invs.map((d) => [nett(d), (d.config as any).discountAmount, (d.config as any).discountPercent]));
+      const ih = renderWctBody('invoice', { ...ic, name: invs[0]?.name }, { name: 'WCT' }, resolveDesign({ layout: 'wct' }));
+      check('P4b discount: the invoice prints the Discount line', ih.includes('Discount:'), ih.includes('Discount'));
+    }
+    {
       // split: Invoice now after job 1 (the quote), a later job with an extra → a second invoice with ONLY the extra; one more with nothing extra → no third invoice
       const { o, first } = await mkOrder(Q109);
       const second: any = await deliveries.createScheduled({ orderId: o.id, customerId: customer.id, address: SITE, scheduledFor: sgt(3, 15), items: lines(first) } as any, WCT);
