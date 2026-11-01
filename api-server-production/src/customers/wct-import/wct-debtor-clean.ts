@@ -160,8 +160,6 @@ export function cleanUen(raw: string): { uen: string | null; status: UenStatus }
 // ── Address ─────────────────────────────────────────────────────────────────
 export interface CleanAddress {
   address: string | null;
-  /** First line of the address (site name for the Job Location picker). */
-  firstLine: string | null;
   formatted: boolean;
 }
 
@@ -176,7 +174,7 @@ export function cleanAddress(raw: string, country = ''): CleanAddress {
         .replace(/^[,\s]+|[,\s]+$/g, ''),
     )
     .filter(Boolean);
-  if (!lines.length) return { address: null, firstLine: null, formatted: false };
+  if (!lines.length) return { address: null, formatted: false };
   let s = lines
     .join(', ')
     .replace(/\s+,/g, ',')
@@ -187,18 +185,16 @@ export function cleanAddress(raw: string, country = ''): CleanAddress {
   const dup = s.match(/^(.*\b(\d{6})\b.*?)[\s,]+\2$/);
   if (dup) s = dup[1].replace(/[,\s]+$/, '');
   let formatted = false;
-  let street = s;
   const foreign = country.trim() !== '' && country.trim().toUpperCase() !== 'SG';
   if (!foreign && !/singapore/i.test(s)) {
     const m = s.match(/^(.*?)(?:^|[\s,]+)(?:\(S\)|S\(?|SG)?\s*(\d{6})\)?$/i);
     if (m) {
-      street = m[1].replace(/[,\s]+$/, '');
+      const street = m[1].replace(/[,\s]+$/, '');
       s = street ? `${street}, Singapore ${m[2]}` : `Singapore ${m[2]}`;
       formatted = true;
     }
   }
-  const firstLine = lines.length > 1 ? lines[0] : street.replace(/[,\s]*\bSingapore\b[\s,]*\(?\d{6}\)?$/i, '') || s;
-  return { address: s, firstLine, formatted };
+  return { address: s, formatted };
 }
 
 // ── Phones ──────────────────────────────────────────────────────────────────
@@ -277,6 +273,22 @@ export function cleanContactName(raw: string, salute: string, companyName: strin
   return sal ? `${titleSal(sal)} ${s}` : s;
 }
 
+// ── Status-marked names ─────────────────────────────────────────────────────
+// DP Info marks dead accounts in the name: "(CANCEL) X", "X - CLOSED",
+// "TERMINATED X". Only a bracketed tag, a leading tag or a trailing "- tag"
+// counts, so real names ("Old Chang Kee", "Old Beijing Hotpot") stay.
+const STATUS = String.raw`(cancel(?:led|ed)?|closed|do not use|old|terminated)`;
+const STATUS_TAG = new RegExp(String.raw`[(\[{]\s*${STATUS}\s*[)\]}]|\s[-–]\s*${STATUS}\s*$`, 'i');
+const STATUS_LEAD = /^(cancel(?:led|ed)?|closed|do not use|terminated)\b/i;
+const STATUS_WORD = new RegExp(String.raw`\b${STATUS}\b`, 'i');
+
+/** The status tag that marks this name as a dead account, or null. */
+export function statusMarker(name: string): string | null {
+  const m = name.match(STATUS_TAG) ?? name.match(STATUS_LEAD);
+  return m ? m[0].trim() : null;
+}
+export const hasStatusWord = (name: string) => STATUS_WORD.test(name);
+
 // ── Plan ────────────────────────────────────────────────────────────────────
 export const WCT_SELF_DEBTOR_CODE = '74';
 
@@ -289,7 +301,6 @@ export interface CleanRow {
   uenStatus: UenStatus;
   address: string | null;
   addressKey: string;
-  siteName: string | null;
   addressFormatted: boolean;
   phones: string[];
   emails: string[];
@@ -322,7 +333,6 @@ export function cleanRow(r: DebtorRow): CleanRow {
     uenStatus: uen.status,
     address: addr.address,
     addressKey: normKey(addr.address),
-    siteName: addr.firstLine,
     addressFormatted: addr.formatted,
     phones,
     emails: [...new Set(em.valid)],
@@ -371,6 +381,9 @@ export interface ImportPlan {
   total: number;
   skippedSelf: CleanRow[];
   skippedBlankName: string[];
+  skippedStatusName: { row: CleanRow; marker: string }[];
+  /** Names containing a status word that are real names (imported). */
+  statusWordKept: CleanRow[];
   skippedAlreadyImported: CleanRow[];
   skippedExisting: ExistingMatch[];
   customers: PlannedCustomer[];
@@ -414,6 +427,8 @@ export function planImport(raw: DebtorRow[], existing: ExistingCustomer[], alrea
     total: raw.length,
     skippedSelf: [],
     skippedBlankName: [],
+    skippedStatusName: [],
+    statusWordKept: [],
     skippedAlreadyImported: [],
     skippedExisting: [],
     customers: [],
@@ -435,6 +450,12 @@ export function planImport(raw: DebtorRow[], existing: ExistingCustomer[], alrea
       plan.skippedBlankName.push(row.debtorCode);
       continue;
     }
+    const marker = statusMarker(row.name);
+    if (marker) {
+      plan.skippedStatusName.push({ row, marker });
+      continue;
+    }
+    if (hasStatusWord(row.name)) plan.statusWordKept.push(row);
     if (alreadyImported.has(row.debtorCode)) {
       plan.skippedAlreadyImported.push(row);
       continue;
@@ -457,7 +478,6 @@ export function planImport(raw: DebtorRow[], existing: ExistingCustomer[], alrea
     const allEmails = rows.flatMap((r) => r.emails);
     const primary = contacts[0];
     const address = rows.find((r) => r.address)?.address ?? null;
-    const siteName = rows.find((r) => r.address)?.siteName ?? null;
     const cd = primary && primary.email && primary.phone ? { name: primary.name, email: primary.email, phone: primary.phone } : null;
     const c: PlannedCustomer = {
       debtorCodes: rows.map((r) => r.debtorCode),
@@ -469,7 +489,7 @@ export function planImport(raw: DebtorRow[], existing: ExistingCustomer[], alrea
       email: null,
       emailNulledReason: null,
       contacts,
-      site: address ? { name: siteName || address, address, contactDetail: cd } : null,
+      site: address ? { name: address, address, contactDetail: cd } : null,
     };
     plan.customers.push(c);
     if (rows.length > 1) plan.merges.push(c);

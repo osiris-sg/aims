@@ -154,6 +154,7 @@ async function main() {
       skippedExisting: plan.skippedExisting.length,
       skippedAlreadyImported: plan.skippedAlreadyImported.length,
       skippedBlankName: plan.skippedBlankName.length,
+      skippedStatusName: plan.skippedStatusName.length,
       skippedWct: plan.skippedSelf.length,
       emailsNulled: count(
         planned.filter((c) => c.emailNulledReason),
@@ -174,7 +175,7 @@ async function main() {
       uen: count(createdRows, (r) => r.uenStatus),
       address: count(createdRows, (r) => (!r.address ? 'blank' : r.addressFormatted ? 'formatted' : /singapore/i.test(r.address) ? 'had Singapore' : 'no trailing postal (left as is)')),
     };
-    const sumCheck = stats.toCreate + stats.mergedRows + stats.skippedExisting + stats.skippedAlreadyImported + stats.skippedBlankName + stats.skippedWct;
+    const sumCheck = stats.toCreate + stats.mergedRows + stats.skippedExisting + stats.skippedAlreadyImported + stats.skippedBlankName + stats.skippedStatusName + stats.skippedWct;
 
     // ── Mapping CSV ──
     const mapRows: unknown[][] = [];
@@ -197,6 +198,7 @@ async function main() {
       mapRows.push([m.row.debtorCode, 'skipped-existing', '', '', '', m.row.name, m.row.uen ?? '', m.row.uenStatus, m.row.acctOpenDate ?? '', m.existing.customerCode ?? '']);
     for (const r of plan.skippedAlreadyImported) mapRows.push([r.debtorCode, 'already-imported', '', '', '', r.name, '', '', '', '']);
     for (const r of plan.skippedSelf) mapRows.push([r.debtorCode, 'skipped-wct-itself', '', '', '', r.name, '', '', '', '']);
+    for (const { row: r, marker } of plan.skippedStatusName) mapRows.push([r.debtorCode, `skipped-status-name ${marker}`, '', '', '', r.name, r.uen ?? '', r.uenStatus, r.acctOpenDate ?? '', '']);
     for (const code of plan.skippedBlankName) mapRows.push([code, 'skipped-blank-name', '', '', '', '', '', '', '', '']);
     mapRows.sort((a, b) => Number(a[0]) - Number(b[0]) || String(a[0]).localeCompare(String(b[0])));
 
@@ -206,7 +208,7 @@ async function main() {
     L.push(`Source: ${path.basename(csvPath)} (${plan.total} rows). Org: WCT ${WCT_ORG}. Existing WCT customers: ${existingAll.length} (TEST SiteClock CT001 ignored for matching).`, '');
     L.push('## Counts', '', '```', JSON.stringify(stats, null, 2), '```', '');
     L.push(
-      `Row check: created ${stats.toCreate} + merged ${stats.mergedRows} + skipped-existing ${stats.skippedExisting} + already-imported ${stats.skippedAlreadyImported} + blank ${stats.skippedBlankName} + WCT itself ${stats.skippedWct} = ${sumCheck} (CSV ${plan.total})`,
+      `Row check: created ${stats.toCreate} + merged ${stats.mergedRows} + skipped-existing ${stats.skippedExisting} + already-imported ${stats.skippedAlreadyImported} + blank ${stats.skippedBlankName} + status-marked ${stats.skippedStatusName} + WCT itself ${stats.skippedWct} = ${sumCheck} (CSV ${plan.total})`,
       '',
     );
     L.push(
@@ -230,6 +232,10 @@ async function main() {
         if (normKey(c.name).split(' ')[0] === w)
           L.push(`- existing ${ex.customerCode} "${ex.name}" | ${ex.address || '-'}  ~  import ${c.debtorCodes.join('+')} "${c.name}" | ${c.address ?? '-'} → would be ${c.customerCode}`);
     }
+    L.push('', '## Skipped: status-marked name (CANCEL / CLOSED / DO NOT USE / OLD / TERMINATED as a tag)', '');
+    for (const { row: r, marker } of plan.skippedStatusName) L.push(`- ${r.debtorCode}: ${r.name} (tag ${marker})`);
+    L.push('', '## Kept: status word inside a real name', '');
+    for (const r of plan.statusWordKept) L.push(`- ${r.debtorCode}: ${r.name} → ${planned.find((c) => c.rows.includes(r))?.customerCode ?? '(not created)'}`);
     L.push('', `## Skipped: WCT itself / blank name`, '', ...plan.skippedSelf.map((r) => `- ${r.debtorCode} ${r.name}`), ...plan.skippedBlankName.map((c) => `- ${c} (blank Name)`), '');
     L.push('## 10 random customers as they would be created (emails/phones masked)', '');
     for (const c of sample(planned, 10)) {

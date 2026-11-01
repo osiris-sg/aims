@@ -1,4 +1,17 @@
-import { DebtorRow, cleanAddress, cleanContactName, cleanEmailField, cleanPhoneField, cleanText, cleanUen, debtorRowsFromCsv, fixMojibake, parseCsv, planImport } from './wct-debtor-clean';
+import {
+  DebtorRow,
+  cleanAddress,
+  cleanContactName,
+  cleanEmailField,
+  cleanPhoneField,
+  cleanText,
+  cleanUen,
+  statusMarker,
+  debtorRowsFromCsv,
+  fixMojibake,
+  parseCsv,
+  planImport,
+} from './wct-debtor-clean';
 
 const row = (o: Partial<DebtorRow>): DebtorRow => ({
   DebtorCode: '1',
@@ -52,16 +65,14 @@ describe('WCT debtor import — cleaning', () => {
 
   it('formats addresses as "<street>, Singapore <postal>"', () => {
     expect(cleanAddress('134 Tagore Lane    787557').address).toBe('134 Tagore Lane, Singapore 787557');
-    expect(cleanAddress('1a Short Street \nS188210')).toEqual({ address: '1a Short Street, Singapore 188210', firstLine: '1a Short Street', formatted: true });
+    expect(cleanAddress('1a Short Street \nS188210')).toEqual({ address: '1a Short Street, Singapore 188210', formatted: true });
     expect(cleanAddress('93 Cashew height #02-02\n(S)679664').address).toBe('93 Cashew height #02-02, Singapore 679664');
     expect(cleanAddress('No 5 Soon Lee Street\n#04-32 Pioneer Point\nSingapore 627607')).toEqual({
       address: 'No 5 Soon Lee Street, #04-32 Pioneer Point, Singapore 627607',
-      firstLine: 'No 5 Soon Lee Street',
       formatted: false,
     });
     expect(cleanAddress('101 Thomson Rd, Singapore 307591 307591').address).toBe('101 Thomson Rd, Singapore 307591');
     expect(cleanAddress('10 Tagore Drive, Wah Loon Building, 787625 787625').address).toBe('10 Tagore Drive, Wah Loon Building, Singapore 787625');
-    expect(cleanAddress('Blk 547, Segar Road, #01-01, Singapore 670547').firstLine).toBe('Blk 547, Segar Road, #01-01');
     expect(cleanAddress('Block 5 Jalan Ampang').address).toBe('Block 5 Jalan Ampang');
     expect(cleanAddress('Lot 1, 50450 Kuala Lumpur', 'MY').formatted).toBe(false);
     expect(cleanAddress('  ').address).toBeNull();
@@ -110,18 +121,40 @@ describe('WCT debtor import — cleaning', () => {
   });
 });
 
+describe('WCT debtor import: status-marked names', () => {
+  it('flags tagged dead accounts, keeps real names with the same words', () => {
+    expect(statusMarker('(CANCEL) Dsign Signature Builder Pte Ltd')).toBe('(CANCEL)');
+    expect(statusMarker('Foo Pte Ltd - CLOSED')).toBe('- CLOSED');
+    expect(statusMarker('Foo Pte Ltd [Do Not Use]')).toBe('[Do Not Use]');
+    expect(statusMarker('Foo (old)')).toBe('(old)');
+    expect(statusMarker('TERMINATED Foo')).toBe('TERMINATED');
+    expect(statusMarker('Old Chang Kee Singapore Pte Ltd')).toBeNull();
+    expect(statusMarker('Old Beijing Hotpot Pte Ltd')).toBeNull();
+    expect(statusMarker('Goldhill Cancellation Services')).toBeNull();
+  });
+});
+
 describe('WCT debtor import — plan', () => {
   const existing = [{ id: 'e1', customerCode: 'CY001', name: 'Yoshinoya (Suntec City)', email: null, phone: null, address: null }];
 
   it('skips WCT itself, blank names and existing customers', () => {
     const p = planImport(
-      [row({ DebtorCode: '74', Name: 'WCT (S) SYSTEMS PTE LTD' }), row({ DebtorCode: '2', Name: '  ' }), row({ DebtorCode: '3', Name: 'YOSHINOYA  (SUNTEC CITY)' }), row({ DebtorCode: '4' })],
+      [
+        row({ DebtorCode: '74', Name: 'WCT (S) SYSTEMS PTE LTD' }),
+        row({ DebtorCode: '2', Name: '  ' }),
+        row({ DebtorCode: '3', Name: 'YOSHINOYA  (SUNTEC CITY)' }),
+        row({ DebtorCode: '4' }),
+        row({ DebtorCode: '5', Name: '(CANCEL) Gone Pte Ltd' }),
+        row({ DebtorCode: '6', Name: 'Old Chang Kee Pte Ltd' }),
+      ],
       existing,
     );
     expect(p.skippedSelf).toHaveLength(1);
     expect(p.skippedBlankName).toEqual(['2']);
     expect(p.skippedExisting.map((m) => [m.row.debtorCode, m.existing.id, m.by])).toEqual([['3', 'e1', 'name']]);
-    expect(p.customers.map((c) => c.debtorCodes)).toEqual([['4']]);
+    expect(p.customers.map((c) => c.debtorCodes)).toEqual([['4'], ['6']]);
+    expect(p.skippedStatusName.map((x) => [x.row.debtorCode, x.marker])).toEqual([['5', '(CANCEL)']]);
+    expect(p.statusWordKept.map((r) => r.debtorCode)).toEqual(['6']);
   });
 
   it('merges exact duplicates and unions their phones/emails into contacts', () => {
@@ -144,7 +177,7 @@ describe('WCT debtor import — plan', () => {
       { name: 'Ms Bee', phone: '81234567', email: 'b@acme.sg', isPrimary: false },
     ]);
     expect(c.site).toEqual({
-      name: '1 Main St',
+      name: '1 Main St, Singapore 123456',
       address: '1 Main St, Singapore 123456',
       contactDetail: { name: 'Mr Alvin', email: 'a@acme.sg', phone: '91234567' },
     });
