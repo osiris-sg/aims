@@ -11,6 +11,7 @@ import { Box, IconButton } from "@mui/material";
 import { useRouter } from "next/navigation";
 import { ROUTES } from "@/routes";
 import AddCustomer from "./components/AddCustomer";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 interface Customer {
   id: string;
@@ -19,6 +20,8 @@ interface Customer {
   email: string;
   phone: string;
   address: string;
+  uen?: string | null;
+  externalRef?: string | null;
   createdAt: string;
   salesman?: {
     id: string;
@@ -39,6 +42,8 @@ interface Filters {
 
 export default function CustomersPage() {
   const router = useRouter();
+  // UEN + Old code columns (enableCustomerUen); the search finds both for every org.
+  const { isCustomerUenEnabled } = useOrganizationFeatures();
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
@@ -95,6 +100,12 @@ export default function CustomersPage() {
       header: "Customer Code",
       cell: (info: any) => info.getValue() || "-",
     },
+    ...(isCustomerUenEnabled
+      ? [
+          { id: "uen", accessorKey: "uen", header: "UEN", cell: (info: any) => info.getValue() || "-" },
+          { id: "externalRef", accessorKey: "externalRef", header: "Old code", cell: (info: any) => info.getValue() || "-" },
+        ]
+      : []),
     {
       id: "name",
       accessorKey: "name",

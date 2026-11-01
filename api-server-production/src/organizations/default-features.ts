@@ -176,4 +176,12 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // calendar with a legend. Default OFF; WCT first ("Permit required" /
   // "Permit approved", seeded by scripts/seed-wct-job-fields.ts).
   enableJobFields: false,
+  // Customer UEN + old code (2026-11-02): the customer drawer gets "UEN" and
+  // "Old customer code" (Customer.uen / externalRef — the code the customer
+  // had in the org's previous system; WCT: the DP Info DebtorCode, filled by
+  // the import). The customers list shows both as columns, the customer page
+  // shows them, and the document customer picker shows them under the name.
+  // Searching the customers list and the pickers by either works for every
+  // org (empty for orgs that never set them). Default OFF; WCT on.
+  enableCustomerUen: false,
 };

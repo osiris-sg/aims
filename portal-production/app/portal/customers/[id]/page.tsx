@@ -14,8 +14,12 @@ import AddSiteOffice from "./components/AddSiteOffice";
 import WhatsAppGroupPicker from "@/components/deliveries/WhatsAppGroupPicker";
 import { useGetSiteOffices } from "./hooks/useGetSiteOffices";
 import { toast } from "react-toastify";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 interface Customer {
   id: string;
+  customerCode?: string | null;
+  uen?: string | null;
+  externalRef?: string | null;
   name: string;
   email: string;
   phone: string;
@@ -27,6 +31,7 @@ export default function ViewCustomerPage({ params }: { params: { id: string } })
   const { organization } = useOrganization();
   const { getToken } = useAuth();
   const organizationId = organization?.id;
+  const { isCustomerUenEnabled } = useOrganizationFeatures();
   // --- Site Offices State and Fetch Logic ---
   const { siteOffices, isLoading: isLoadingSiteOffices, refetch: refetchSiteOffices } = useGetSiteOffices();
   const [customer, setCustomer] = useState<Customer | null>(null);
@@ -159,6 +164,13 @@ export default function ViewCustomerPage({ params }: { params: { id: string } })
                   {customer?.name || "-"}
                 </Typography>
 
+                {/* Code + UEN + old (previous-system) code: enableCustomerUen orgs. */}
+                {isCustomerUenEnabled && (
+                  <Typography variant="h4" color="text.secondary" textAlign="center">
+                    <strong>Code:</strong> {customer?.customerCode || "-"} · <strong>UEN:</strong> {customer?.uen || "-"} · <strong>Old code:</strong>{" "}
+                    {customer?.externalRef || "-"}
+                  </Typography>
+                )}
                 <Typography variant="h4" color="text.secondary">
                   <strong>Email:</strong> {customer?.email || "-"}
                 </Typography>

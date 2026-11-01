@@ -31,6 +31,13 @@ export class CustomersService {
           { email: { contains: search, mode: 'insensitive' } },
           { phone: { contains: search, mode: 'insensitive' } },
           { address: { contains: search, mode: 'insensitive' } },
+          // UEN and the old (previous-system) code; null for orgs that never set them.
+          // The old code matches whole ("449"), also inside a merged "228+229".
+          { uen: { contains: search, mode: 'insensitive' } },
+          { externalRef: { equals: search.trim() } },
+          { externalRef: { startsWith: `${search.trim()}+` } },
+          { externalRef: { endsWith: `+${search.trim()}` } },
+          { externalRef: { contains: `+${search.trim()}+` } },
         ];
       }
 

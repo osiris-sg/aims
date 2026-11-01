@@ -29,6 +29,7 @@ import {
 } from "@mui/icons-material";
 import { toast } from "react-toastify";
 import { useCreateCustomer } from "@/app/portal/hooks/api";
+import { customerIdsLine, customerIdsMatch } from "@/helpers/customerIds";
 
 interface Customer {
   id: string;
@@ -37,6 +38,8 @@ interface Customer {
   email?: string;
   phone?: string;
   address?: string;
+  uen?: string | null;
+  externalRef?: string | null;
   salesman?: {
     id: string;
     salesmanCode: string;
@@ -94,7 +97,8 @@ export default function CustomerSelectDialog({
     }
   };
 
-  // Free-text search across ALL displayed columns (code, name, phone, email).
+  // Free-text search across ALL displayed columns (code, name, phone, email),
+  // plus UEN and the old (previous-system) code when the customer has them.
   const filteredCustomers = useMemo(() => {
     if (!searchTerm.trim()) {
       return customers;
@@ -104,7 +108,7 @@ export default function CustomerSelectDialog({
 
     return customers.filter((customer) =>
       [customer.customerCode, customer.name, customer.phone, customer.email]
-        .some((v) => String(v ?? "").toLowerCase().includes(term)),
+        .some((v) => String(v ?? "").toLowerCase().includes(term)) || customerIdsMatch(customer, term),
     );
   }, [customers, searchTerm]);
 
@@ -339,7 +343,14 @@ export default function CustomerSelectDialog({
                     <TableCell sx={{ fontWeight: 500, color: "text.primary" }}>
                       {customer.customerCode || "-"}
                     </TableCell>
-                    <TableCell>{customer.name || "-"}</TableCell>
+                    <TableCell>
+                      {customer.name || "-"}
+                      {customerIdsLine(customer) && (
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          {customerIdsLine(customer)}
+                        </Typography>
+                      )}
+                    </TableCell>
                     <TableCell>{customer.phone || "-"}</TableCell>
                     <TableCell>{customer.email || "-"}</TableCell>
                   </TableRow>

@@ -48,6 +48,16 @@ export class CreateCustomerDto {
   @IsString()
   gstRegNo?: string | null;
 
+  // Registration number (UEN) and the customer's code in the org's previous
+  // system (enableCustomerUen orgs show and send them).
+  @IsOptional()
+  @IsString()
+  uen?: string | null;
+
+  @IsOptional()
+  @IsString()
+  externalRef?: string | null;
+
   // Japanese legal name / address / contact — only orgs whose per-org schema
   // has these columns (Shipments / ADH Japan) show and send them.
   @IsOptional()

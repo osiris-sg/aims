@@ -26,6 +26,8 @@ interface OrganizationFeatures {
   enableWctFinishModes?: boolean;
   enableWctOrderInvoice?: boolean;
   enableJobFields?: boolean;
+  // Customer UEN + old code (2026-11-02): fields, columns, picker line. WCT on.
+  enableCustomerUen?: boolean;
   // Preset roles with built-in permissions; no role / permission editor for the client.
   enableRolePresets?: boolean;
   enableCappitechOrders?: boolean;
@@ -180,6 +182,7 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Custom job fields (2026-11-01): Settings → Job fields; on the schedule form,
   // the delivery page and the jobs calendar. Default OFF.
   enableJobFields: false,
+  enableCustomerUen: false,
 };
 
 interface OrganizationUIConfig {
@@ -255,6 +258,7 @@ export function useOrganizationFeatures() {
     isWctFinishModesEnabled: features.enableWctFinishModes ?? false,
     isWctOrderInvoiceEnabled: features.enableWctOrderInvoice ?? false,
     isJobFieldsEnabled: features.enableJobFields ?? false,
+    isCustomerUenEnabled: features.enableCustomerUen ?? false,
     isRolePresetsEnabled: features.enableRolePresets ?? false,
     isCappitechOrdersEnabled: features.enableCappitechOrders ?? false,
     isNettRoundDownEnabled: features.enableNettRoundDown ?? false,

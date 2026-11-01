@@ -9,6 +9,7 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { useEffect, useState } from "react";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 interface Salesman {
   id: string;
@@ -31,6 +32,8 @@ const customerSchema = yup.object().shape({
   phone: yup.string().notRequired(),
   address: yup.string().notRequired(),
   gstRegNo: yup.string().notRequired(),
+  uen: yup.string().nullable().notRequired(),
+  externalRef: yup.string().nullable().notRequired(),
   jpName: yup.string().nullable().notRequired(),
   jpAddress: yup.string().nullable().notRequired(),
   jpContact: yup.string().nullable().notRequired(),
@@ -60,6 +63,8 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
   // (their per-org schema carries the columns; other orgs never send them).
   const { isModuleEnabled } = useConfiguration();
   const showJp = isModuleEnabled("SHIPMENTS");
+  // UEN + old (previous-system) customer code: enableCustomerUen orgs only.
+  const { isCustomerUenEnabled: showIds } = useOrganizationFeatures();
   const [salesmen, setSalesmen] = useState<Salesman[]>([]);
   const [loadingSalesmen, setLoadingSalesmen] = useState(false);
 
@@ -70,6 +75,8 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
       phone: null,
       address: null,
       gstRegNo: null,
+      uen: null as string | null,
+      externalRef: null as string | null,
       jpName: null as string | null,
       jpAddress: null as string | null,
       jpContact: null as string | null,
@@ -141,6 +148,8 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
             setValue("phone", customer.phone);
             setValue("address", customer.address);
             setValue("gstRegNo", customer.gstRegNo);
+            setValue("uen", customer.uen ?? null);
+            setValue("externalRef", customer.externalRef ?? null);
             setValue("jpName", customer.jpName ?? null);
             setValue("jpAddress", customer.jpAddress ?? null);
             setValue("jpContact", customer.jpContact ?? null);
@@ -177,8 +186,9 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
       const token = await getToken();
       if (!token || !organization?.id) return;
 
-      const { jpName, jpAddress, jpContact, ...rest } = data;
+      const { jpName, jpAddress, jpContact, uen, externalRef, ...rest } = data;
       const jp = showJp ? { jpName: jpName || null, jpAddress: jpAddress || null, jpContact: jpContact || null } : {};
+      const ids = showIds ? { uen: uen?.trim().toUpperCase() || null, externalRef: externalRef?.trim() || null } : {};
       const response = await request(
         {
           path: isEditMode ? "/customers/update" : "/customers/create",
@@ -187,6 +197,7 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
         {
           ...rest,
           ...jp,
+          ...ids,
           contacts: (data.contacts || []).filter(
             (c: { name?: string }) => c.name && c.name.trim() !== ""
           ),
@@ -219,6 +230,12 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
             <FormInputBox control={control} name="phone" label="Phone" placeHolder="Enter customer phone number" />
             <FormInputBox control={control} name="address" label="Address" placeHolder="Enter customer address" />
             <FormInputBox control={control} name="gstRegNo" label="GST Reg No." placeHolder="Enter GST registration number" />
+            {showIds && (
+              <>
+                <FormInputBox control={control} name="uen" label="UEN" placeHolder="e.g. 201302496E" description="Company registration number (not the GST number)" />
+                <FormInputBox control={control} name="externalRef" label="Old customer code" placeHolder="e.g. 449" description="The customer's code in your previous system" />
+              </>
+            )}
             {showJp && (
               <>
                 <FormInputBox control={control} name="jpName" label="Japanese legal name" placeHolder="e.g. SUS株式会社" description="Printed on Japanese documents (請求書, 計量検収票, 納品書兼…)" />

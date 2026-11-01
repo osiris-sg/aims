@@ -7,12 +7,15 @@ import PersonIcon from "@mui/icons-material/Person";
 import CloseIcon from "@mui/icons-material/Close";
 import { useGetCustomers } from "@/app/portal/hooks/api";
 import { useTranslations } from "next-intl";
+import { customerIdsLine, customerIdsMatch } from "@/helpers/customerIds";
 
 interface Customer {
   id: string;
   name: string;
   email?: string;
   address?: string;
+  uen?: string | null;
+  externalRef?: string | null;
 }
 
 interface CustomerSelectionDrawerProps {
@@ -27,7 +30,8 @@ export default function CustomerSelectionDrawer({ open, onClose, onSelectCustome
   const { customers = [], isLoading, error } = useGetCustomers({ limit: 1000 });
 
   // Filter customers based on search term
-  const filteredCustomers = customers.filter((customer: Customer) => customer.name.toLowerCase().includes(searchTerm.toLowerCase()) || (customer.email && customer.email.toLowerCase().includes(searchTerm.toLowerCase())));
+  // Name or email, plus UEN / old (previous-system) code when the customer has them.
+  const filteredCustomers = customers.filter((customer: Customer) => customer.name.toLowerCase().includes(searchTerm.toLowerCase()) || (customer.email && customer.email.toLowerCase().includes(searchTerm.toLowerCase())) || customerIdsMatch(customer, searchTerm));
 
   const handleSelectCustomer = (customer: Customer) => {
     onSelectCustomer(customer);
@@ -154,6 +158,11 @@ export default function CustomerSelectionDrawer({ open, onClose, onSelectCustome
                         }
                         secondary={
                           <Box>
+                            {customerIdsLine(customer) && (
+                              <Typography variant="body2" color="text.secondary">
+                                {customerIdsLine(customer)}
+                              </Typography>
+                            )}
                             {customer.email && (
                               <Typography variant="body2" color="text.secondary">
                                 {customer.email}
