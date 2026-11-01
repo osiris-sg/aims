@@ -342,8 +342,10 @@ export default function RecordPaymentDialog({
               margin="normal"
               required
               fullWidth
+              // Only when the user is choosing: opened from an invoice, that
+              // invoice is selected and the customer's list is never fetched.
               helperText={
-                selectedCustomer && customerInvoices.length === 0
+                selectedCustomer && !selectedInvoice && !loadingInvoices && customerInvoices.length === 0
                   ? t("noUnpaid")
                   : ""
               }
