@@ -1,21 +1,38 @@
 /**
  * WCT order-flow test data cleanup — run 1 (ORD202611-001, 1 Nov) and run 2
- * (ORD202611-002 retest, 2 Nov) — DRY RUN ONLY. Prints every row it would delete / cancel and every row
- * linked to them, inside a READ ONLY transaction. SiteClock is only read
- * (GET). There is no apply mode in this script: the apply is a separate step
- * after the owner's approval.
+ * (ORD202611-002 retest, 2 Nov).
+ *
+ * DRY RUN by default: prints every row it would delete / cancel and every row
+ * linked to them, inside a READ ONLY transaction; SiteClock is only read (GET).
  *
  *   DBURL=<prod url, inline> SC_KEY_FILE=<env-style file with SITECLOCK_API_KEY=> \
- *   NODE_PATH=$PWD/node_modules node scripts/cleanup-wct-order-flow-test.js
+ *   NODE_PATH=$PWD/node_modules node scripts/cleanup-wct-order-flow-test.js [--rehearse | --apply --confirm-prod]
+ *
+ * --rehearse: runs every DELETE in one transaction, checks each row count
+ *   against the dry run, prints the counts, then ROLLBACK (nothing kept;
+ *   SiteClock untouched).
+ * --apply --confirm-prod: the same, then cancels the SiteClock job(s) that
+ *   can be cancelled (POST /v1/jobs/by-ref/<ref>/cancel) and COMMITs. Any count
+ *   mismatch or a failed SiteClock cancel rolls the whole database part back.
  *
  * Rules: DocumentNumberFormat / counters are never touched (number gaps are
  * fine). ActionLog and AuditLog rows are KEPT (the activity history); the apply
  * adds one ActionLog row for the cleanup.
  */
 const fs = require('fs');
-const { Client } = require('pg');
+const { Client, types } = require('pg');
+
+// Prisma stores DateTime as UTC in "timestamp without time zone"; node-pg would
+// read those as the machine's LOCAL time (SGT here) and print them 8 h early —
+// a 1 Nov payment date showed as 2026-10-31. Read them as UTC, like the app.
+types.setTypeParser(1114, (v) => new Date(`${v.replace(' ', 'T')}Z`));
 
 const WCT = '5c700000-0000-4000-8000-5c7000000001';
+const MODE = process.argv.includes('--apply') ? 'apply' : process.argv.includes('--rehearse') ? 'rehearse' : 'dry';
+if (MODE === 'apply' && !process.argv.includes('--confirm-prod')) {
+  console.error('--apply needs --confirm-prod');
+  process.exit(1);
+}
 const OSIRIS = 'osiris-platform';
 // Each run: its order, quotation (and the reference the test typed), invoice,
 // TEST payment (note pattern), jobs, DOs and the service report numbers.
@@ -66,7 +83,9 @@ const stop = (why) => {
 (async () => {
   const c = new Client({ connectionString: process.env.DBURL });
   await c.connect();
-  await c.query('BEGIN READ ONLY');
+  await c.query(MODE === 'dry' ? 'BEGIN READ ONLY' : 'BEGIN');
+  // Long sweep on a slow link: don't let the session's idle timeout kill it.
+  if (MODE !== 'dry') await c.query(`SET LOCAL idle_in_transaction_session_timeout = '15min'`);
   const q = async (sql, p = []) => {
     await c.query('SAVEPOINT s');
     try {
@@ -83,7 +102,7 @@ const stop = (why) => {
   const plan = [];
   const del = (table, where, rows, why) => plan.push({ op: 'DELETE', table, where, rows, why });
 
-  out('WCT ORDER-FLOW TEST CLEANUP — DRY RUN (read only; nothing is written)');
+  out(`WCT ORDER-FLOW TEST CLEANUP — ${MODE === 'dry' ? 'DRY RUN (read only; nothing is written)' : MODE === 'rehearse' ? 'REHEARSAL (deletes, then ROLLBACK)' : 'APPLY'}`);
   out(`run at ${new Date().toISOString()}`);
 
   // ── 0. identities: every target must be what the request says ──
@@ -280,7 +299,7 @@ const stop = (why) => {
       out(`      → CANNOT be removed through the /v1 API: DELETE /v1/jobs/by-ref is a soft CANCEL and refuses a COMPLETED job (409 JOB_CLOSED). It stays on SiteClock as a completed job; removing it needs SiteClock-side admin action.`);
       siteclockSide.push(`#${no}: SiteClock job ${j.id} "${j.title ?? ''}" status ${j.status}, start ${j.startAt ?? j.scheduledStart ?? '?'}, crew ${(j.crew || []).map((x) => x?.user?.name ?? x?.name).join(',') || `${s.workerName ?? '?'} (AIMS assignment)`}`);
     } else if (j && j.status !== 'CANCELLED') {
-      plan.push({ op: 'CANCEL', table: 'SiteClock job', where: `DELETE /v1/jobs/by-ref/${s.externalRef} {notify:false}`, rows: 1, why: `#${no} ${j.status}: soft cancel, gone from every SiteClock screen (SiteClock keeps it for history)` });
+      plan.push({ op: 'CANCEL', table: 'SiteClock job', where: `POST /v1/jobs/by-ref/${s.externalRef}/cancel`, ref: s.externalRef, rows: 1, why: `#${no} ${j.status}: soft cancel, gone from every SiteClock screen (SiteClock keeps it for history)` });
     } else out('      → already cancelled or missing; nothing to do');
   }
 
@@ -352,8 +371,95 @@ const stop = (why) => {
   out(`  KEPT: ActionLog + AuditLog history rows of these records; DocumentNumberFormat and all counters (gaps: ${RUNS.flatMap((r) => [r.order[1], r.quotation[1], ...Object.keys(r.dos), r.invoice[1]]).join(', ')}, ${jes.map((e) => e.journalNumber).join(', ')}); S3 files (photos, signatures, PDFs); the imported WCT customers.`);
   out('\n== NEEDS DELETING ON THE SITECLOCK SIDE (the AIMS API cannot do it)');
   out(siteclockSide.length ? siteclockSide.map((x) => `  ${x}`).join('\n') : `  #${T.siteclockSideDelete}: SiteClock not read (no key file); its job is completed and can only be removed in SiteClock`);
-  out(`\n${problems ? `${problems} PROBLEM(S): fix before any apply` : 'No problems found.'} DRY RUN: nothing was written.`);
-  await c.query('ROLLBACK');
+  if (MODE === 'dry') {
+    out(`\n${problems ? `${problems} PROBLEM(S): fix before any apply` : 'No problems found.'} DRY RUN: nothing was written.`);
+    await c.query('ROLLBACK');
+    await c.end();
+    return;
+  }
+  if (problems) {
+    out(`\n${problems} PROBLEM(S): refusing to ${MODE}. Nothing written.`);
+    await c.query('ROLLBACK');
+    await c.end();
+    process.exit(1);
+  }
+
+  // ── apply / rehearse: one transaction, every count checked ──
+  out(`\n== ${MODE === 'rehearse' ? 'REHEARSAL' : 'APPLY'}: deletes in one transaction (orders before their documents)`);
+  const msrIdsAll = msrs.map((m) => m.id);
+  const quoteIds = RUNS.map((r) => r.quotation[0]);
+  const noteIds = [...docIds, ...deliveryIds, ...orderIds, ...msrIdsAll, ...paymentIds];
+  const ops = [
+    ['JournalEntryLine (of the entries below)', `delete from "JournalEntryLine" where "journalEntryId"::text = any($1::text[])`, [jeIds], jeLines],
+    ['JournalEntry', `delete from "JournalEntry" where "organizationId"=$2 and id::text = any($1::text[])`, [jeIds, WCT], jes.length],
+    ['Payment', `delete from "Payment" where "organizationId"=$2 and id::text = any($1::text[])`, [paymentIds, WCT], paymentIds.length],
+    ['CustomFieldValue', `delete from "CustomFieldValue" where id::text = any($1::text[])`, [cfv.map((v) => v.id)], cfv.length],
+    ['DeliveryGroupPost', `delete from "DeliveryGroupPost" where id::text = any($1::text[])`, [posts.map((p) => p.id)], posts.length],
+    ['DeliverySiteClockJob', `delete from "DeliverySiteClockJob" where id::text = any($1::text[])`, [scRows.map((r) => r.id)], scRows.length],
+    ['ServiceReportSignLink', `delete from "ServiceReportSignLink" where id::text = any($1::text[])`, [srLinks.map((l) => l.id)], srLinks.length],
+    ['ShortLink', `delete from "ShortLink" where id::text = any($1::text[])`, [shortLinks.map((l) => l.id)], shortLinks.length],
+    ['DeliveryLocationPing (under the reports)', `delete from "DeliveryLocationPing" where "reportId"::text = any($1::text[])`, [msrIdsAll], pings],
+    ['MaintenanceServiceReport', `delete from "MaintenanceServiceReport" where "organizationId"=$2 and id::text = any($1::text[])`, [msrIdsAll, WCT], msrs.length],
+    ['DeliveryItem (of the jobs)', `delete from "DeliveryItem" where "deliveryId"::text = any($1::text[])`, [deliveryIds], items.length],
+    ['DeliveryShareLink (of the jobs)', `delete from "DeliveryShareLink" where id::text = any($1::text[])`, [dsl.map((l) => l.id)], dsl.length],
+    ['Delivery', `delete from "Delivery" where "organizationId"=$2 and id::text = any($1::text[])`, [deliveryIds, WCT], dels.length],
+    ['Notification', `delete from "Notification" where "organizationId"=$2 and "entityId" = any($1::text[])`, [noteIds, WCT], notes.reduce((t, x) => t + x.n, 0)],
+    ['Order', `delete from "Order" where "organizationId"=$2 and id::text = any($1::text[])`, [orderIds, WCT], orderIds.length],
+    ['Document INVOICE', `delete from "Document" where "organizationId"=$2 and type='INVOICE' and id::text = any($1::text[])`, [invoiceIds, WCT], invoiceIds.length],
+    ['DocumentShareLink (of the DOs)', `delete from "DocumentShareLink" where id::text = any($1::text[])`, [docShare.map((l) => l.id)], docShare.length],
+    ['Document DELIVERY_ORDER', `delete from "Document" where "organizationId"=$2 and type='DELIVERY_ORDER' and id::text = any($1::text[])`, [doIds, WCT], doIds.length],
+    ['Document QUOTATION', `delete from "Document" where "organizationId"=$2 and type='QUOTATION' and id::text = any($1::text[])`, [quoteIds, WCT], quoteIds.length],
+  ];
+  if (custFree) {
+    ops.push(['CustomerContact (of CT001)', `delete from "CustomerContact" where "customerId"=$1`, [T.customer], contacts.length]);
+    ops.push(['Customer CT001', `delete from "Customer" where "organizationId"=$2 and id=$1 and "customerCode"='CT001'`, [T.customer, WCT], 1]);
+  }
+  if (plan.some((p) => p.table.startsWith('Document QUOTATION (osiris-platform)'))) ops.push(['Document QUOTATION (osiris QO1202610-001)', `delete from "Document" where "organizationId"=$2 and id=$1`, [T.osirisQuote, OSIRIS], 1]);
+  const done = [];
+  try {
+    for (const [label, sql, params, expected] of ops) {
+      const r = await c.query(sql, params);
+      done.push([label, r.rowCount, expected]);
+      out(`  ${label.padEnd(46)} deleted ${String(r.rowCount).padStart(3)}  (dry run: ${expected})${r.rowCount === expected ? '' : '   <- MISMATCH'}`);
+      if (r.rowCount !== expected) throw new Error(`${label}: deleted ${r.rowCount}, expected ${expected}`);
+    }
+    const left = await one(
+      `select (select count(*) from "Document" where id::text = any($1::text[]))::int docs, (select count(*) from "Delivery" where id::text = any($2::text[]))::int jobs,
+              (select count(*) from "JournalEntry" where id::text = any($3::text[]))::int jes, (select count(*) from "Order" where id::text = any($4::text[]))::int orders`,
+      [docIds, deliveryIds, jeIds, orderIds],
+    );
+    out(`  left after the deletes: documents ${left.docs}, jobs ${left.jobs}, journals ${left.jes}, orders ${left.orders}`);
+    if (left.docs || left.jobs || left.jes || left.orders) throw new Error('rows still there after the deletes');
+    await c.query(
+      `insert into "ActionLog" (id,"actorType","actorId","actorName","organizationId",channel,action,resource,details,status,"createdAt") values ($1,'SYSTEM','system:wct-order-flow-test-cleanup','System creation',$2,'operator','DELETE','OrderFlowTestData',$3::jsonb,'SUCCESS',now())`,
+      [require('crypto').randomUUID(), WCT, JSON.stringify({ runs: RUNS.map((r) => r.order[1]), deleted: Object.fromEntries(done.map(([l, k]) => [l, k])), siteclockCancelled: sc.map((p) => p.ref), siteclockSide })],
+    );
+    out('  ActionLog: 1 row (system:wct-order-flow-test-cleanup)');
+    if (MODE === 'rehearse') {
+      await c.query('ROLLBACK');
+      out('\nREHEARSAL OK: every count matched. ROLLBACK: nothing kept, SiteClock untouched.');
+      await c.end();
+      return;
+    }
+    // SiteClock cancel before COMMIT: a failure rolls the database part back.
+    for (const p of sc) {
+      const r = await fetch(`${conn.baseUrl.replace(/\/$/, '')}/v1/jobs/by-ref/${encodeURIComponent(p.ref)}/cancel`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'AIMS test data cleanup' }),
+      });
+      const body = await r.json().catch(() => null);
+      out(`  SiteClock cancel ${p.where}: HTTP ${r.status} status=${body?.job?.status ?? body?.error ?? '?'}`);
+      if (!r.ok) throw new Error(`SiteClock cancel failed (HTTP ${r.status})`);
+    }
+    await c.query('COMMIT');
+    out('\nAPPLIED: committed.');
+  } catch (e) {
+    await c.query('ROLLBACK').catch(() => {});
+    out(`\n!! ${e.message}. ROLLBACK: nothing written.`);
+    await c.end();
+    process.exit(1);
+  }
   await c.end();
 })().catch((e) => {
   console.error('ERR', e.message);
