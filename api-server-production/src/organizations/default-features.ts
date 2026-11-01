@@ -169,4 +169,11 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // reads Invoiced → Paid → Closed (paid + service report on the order).
   // Default OFF; WCT only.
   enableWctOrderInvoice: false,
+  // Custom job fields (2026-11-01, Phase 6): the org's admins define their own
+  // fields on jobs (Settings → Job fields: yes/no, text, date, file upload,
+  // link; icon + colours) — filled on the schedule / edit job form and the
+  // delivery page; fields marked "Show on calendar" draw their icon on the jobs
+  // calendar with a legend. Default OFF; WCT first ("Permit required" /
+  // "Permit approved", seeded by scripts/seed-wct-job-fields.ts).
+  enableJobFields: false,
 };

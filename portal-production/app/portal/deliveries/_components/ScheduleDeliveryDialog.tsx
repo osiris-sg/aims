@@ -43,6 +43,8 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 import ExtractQuotationDialog from "@/containers/DocumentTemplates/components/ExtractQuotationDialog";
 import SiteClockSchedulePicker, { SiteClockPick } from "./SiteClockSchedulePicker";
 import type { AddJobPrefill } from "@/helpers/wctOrders";
+import JobFieldsEditor from "@/components/jobFields/JobFieldsEditor";
+import { JobFieldDef, jobFieldProblem } from "@/helpers/jobFields";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
@@ -119,6 +121,8 @@ interface EditRun {
   items: Array<{ asset: { id: string; name: string; skuKey: string } | null; quantity: number; description: string | null; assetClass?: string | null }>;
   // SiteClock link (enableSiteClockLink orgs): the worker this run is scheduled on.
   siteclock?: { workerId: string | null; workerName: string | null; durationMin: number } | null;
+  // Custom job fields (enableJobFields): this run's values ({ fieldId: value }).
+  jobFieldValues?: Record<string, any> | null;
 }
 
 export default function ScheduleDeliveryDialog({
@@ -138,7 +142,10 @@ export default function ScheduleDeliveryDialog({
 }) {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
-  const { isQuotationToDeliveryEnabled, isSiteClockLinkEnabled } = useOrganizationFeatures();
+  const { isQuotationToDeliveryEnabled, isSiteClockLinkEnabled, isJobFieldsEnabled } = useOrganizationFeatures();
+  // Custom job fields (enableJobFields): the org's fields + this job's values.
+  const [jobFieldDefs, setJobFieldDefs] = useState<JobFieldDef[]>([]);
+  const [jobFieldValues, setJobFieldValues] = useState<Record<string, any>>({});
   // Service-job org (enableQuotationToDelivery — WCT 2026-10-27): a run is a job
   // from an accepted quotation, not a rental deployment. No Project and no Sales
   // Order sections at all (the backend relaxes the same two rules under the same
@@ -222,6 +229,25 @@ export default function ScheduleDeliveryDialog({
   const [quoteLoading, setQuoteLoading] = useState(false);
 
   // Reset on (re)open — or PREFILL from the run being edited.
+  useEffect(() => {
+    if (!open || !isJobFieldsEnabled) return;
+    setJobFieldValues(editRun?.jobFieldValues ? { ...editRun.jobFieldValues } : {});
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        const res = await request({ path: "/job-fields", method: "GET" }, {}, token ?? undefined);
+        const body = res?.data ?? res;
+        if (!cancelled) setJobFieldDefs(Array.isArray(body?.fields) ? body.fields : []);
+      } catch {
+        if (!cancelled) setJobFieldDefs([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, isJobFieldsEnabled, editRun, getToken]);
+
   useEffect(() => {
     if (!open) return;
     setError(null);
@@ -884,6 +910,12 @@ export default function ScheduleDeliveryDialog({
     // A DRAFT saves whatever has been entered, however little. Only a real
     // schedule needs the full set.
     if (!asDraft && !canSubmit) return;
+    // Custom job fields: a bad value stops the save; a required one only for a real schedule.
+    const jfProblem = jobFieldDefs.map((f) => jobFieldProblem(f, jobFieldValues[f.id], { checkRequired: !asDraft })).find(Boolean);
+    if (jfProblem) {
+      setError(jfProblem);
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -918,6 +950,10 @@ export default function ScheduleDeliveryDialog({
           ...(project ? { projectId: project.id } : {}),
           // WCT orders "Add job": the new job belongs to the order.
           ...(!editRun && prefill ? { orderId: prefill.orderId } : {}),
+          // Custom job fields: every field's current value (null clears).
+          ...(isJobFieldsEnabled && jobFieldDefs.length
+            ? { jobFields: Object.fromEntries(jobFieldDefs.map((f) => [f.id, jobFieldValues[f.id] === "" || jobFieldValues[f.id] === undefined ? null : jobFieldValues[f.id]])) }
+            : {}),
           // Send the picker's CURRENT selection so the backend persists it before
           // deriving the DO's Attention. The pick-time PUT still fires for instant
           // feedback, but this closes the race where the DO is built before that
@@ -1339,6 +1375,15 @@ export default function ScheduleDeliveryDialog({
         </Stack>
         {isSiteClockLinkEnabled && (
           <SiteClockSchedulePicker open={open} value={scPick} onChange={setScPick} onEnabled={setScLive} scheduleTime={scheduleTime} />
+        )}
+
+        {isJobFieldsEnabled && jobFieldDefs.length > 0 && (
+          <Box sx={{ mt: 2.5 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
+              Job details
+            </Typography>
+            <JobFieldsEditor fields={jobFieldDefs} values={jobFieldValues} onChange={setJobFieldValues} checkRequired disabled={submitting} />
+          </Box>
         )}
 
         {note && <Alert severity="info" sx={{ mt: 2 }} onClose={() => setNote(null)}>{note}</Alert>}

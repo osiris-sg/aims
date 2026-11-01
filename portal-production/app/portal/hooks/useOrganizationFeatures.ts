@@ -25,6 +25,7 @@ interface OrganizationFeatures {
   enableWctMyJobs?: boolean;
   enableWctFinishModes?: boolean;
   enableWctOrderInvoice?: boolean;
+  enableJobFields?: boolean;
   // Preset roles with built-in permissions; no role / permission editor for the client.
   enableRolePresets?: boolean;
   enableCappitechOrders?: boolean;
@@ -176,6 +177,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableWctFinishModes: false,
   // WCT invoice per order (2026-11-01): one invoice per order, "Invoice now". Default OFF.
   enableWctOrderInvoice: false,
+  // Custom job fields (2026-11-01): Settings → Job fields; on the schedule form,
+  // the delivery page and the jobs calendar. Default OFF.
+  enableJobFields: false,
 };
 
 interface OrganizationUIConfig {
@@ -250,6 +254,7 @@ export function useOrganizationFeatures() {
     isWctMyJobsEnabled: features.enableWctMyJobs ?? false,
     isWctFinishModesEnabled: features.enableWctFinishModes ?? false,
     isWctOrderInvoiceEnabled: features.enableWctOrderInvoice ?? false,
+    isJobFieldsEnabled: features.enableJobFields ?? false,
     isRolePresetsEnabled: features.enableRolePresets ?? false,
     isCappitechOrdersEnabled: features.enableCappitechOrders ?? false,
     isNettRoundDownEnabled: features.enableNettRoundDown ?? false,

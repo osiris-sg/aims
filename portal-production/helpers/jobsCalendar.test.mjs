@@ -2,7 +2,7 @@
 // 2026-10-30: Dashboard jobs calendar (WCT, enableJobsCalendar): range, colours, cancelled toggle, popup text, banner.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { rangeOf, toCalendarInputs, timeWindow, crewLine, siteclockBanner, KIND_COLOR, CANCELLED_COLOR } from "../components/Dashboard/jobs-calendar/calendarModel.ts";
+import { rangeOf, toCalendarInputs, timeWindow, crewLine, siteclockBanner, KIND_COLOR, CANCELLED_COLOR, badgeTitle, legendTitle } from "../components/Dashboard/jobs-calendar/calendarModel.ts";
 
 const ev = (over = {}) => ({
   id: "aims:1", source: "aims", kind: "delivery", title: "#12 Acme", start: "2026-11-03T02:00:00.000Z", end: "2026-11-03T03:30:00.000Z",
@@ -53,4 +53,10 @@ test("banner only when SiteClock was unavailable", () => {
   assert.equal(siteclockBanner({ siteclock: { state: "ok" } }), null);
   assert.equal(siteclockBanner({ siteclock: { state: "off" } }), null);
   assert.equal(siteclockBanner(null), null);
+});
+
+test("custom job fields: icon tooltip and legend tooltip", () => {
+  assert.equal(badgeTitle({ fieldId: "f", label: "Permit approved", icon: "verified", colour: "#2e7d32", text: "Yes" }), "Permit approved: Yes");
+  assert.equal(legendTitle({ fieldId: "f", label: "Permit approved", icon: "verified", colours: [{ value: "Yes", colour: "#2e7d32" }, { value: "No", colour: "#c62828" }] }), "Permit approved: green = Yes, red = No");
+  assert.equal(legendTitle({ fieldId: "g", label: "Permit date", icon: "event", colours: [{ value: "set", colour: "#1565c0" }] }), "Permit date: blue when filled in");
 });

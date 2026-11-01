@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
@@ -217,8 +217,18 @@ export class DeliveriesController {
     const run: any = await this.service.findById(id, org.id);
     // WCT finish modes: the job's verification block (null for every other run).
     if (run?.verificationState) run.verification = await this.service.verificationOf(id, org.id);
+    // Custom job fields (enableJobFields): definitions + this run's values.
+    const jobFields = run?.id ? await this.service.jobFieldsOf(id, org.id) : null;
+    if (jobFields) run.jobFields = jobFields;
     const views = await this.siteclock.viewsFor(org.id, run?.id ? [run.id] : []);
     return views.size ? { ...run, siteclock: views.get(run.id) ?? null } : run;
+  }
+
+  // Custom job fields (enableJobFields): save this job's values ({ fieldId: value }).
+  @Put(':id/job-fields')
+  @Permissions('documents:create-basic')
+  saveJobFields(@Param('id') id: string, @Body() body: { values?: Record<string, any> }, @UserOrganization() org: { id: string }) {
+    return this.service.saveJobFields(id, org.id, body?.values || {});
   }
 
   // WCT finish modes: the admin accepts a stamped-DO / paper finish.

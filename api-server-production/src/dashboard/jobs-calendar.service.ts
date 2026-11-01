@@ -4,6 +4,7 @@ import { runAsOrg } from '../common/tenancy/tenant-context';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { SiteClockLinkService } from '../siteclock/siteclock-link.service';
 import { buildCalendarEvents, CalendarEvent, CalendarSiteClockJob, CALENDAR_TZ, checkRange, rangeInstants } from './jobs-calendar';
+import { calendarBadge, calendarLegend, isJobFieldsEnabled, jobFieldDefs, jobFieldValues } from '../deliveries/job-fields';
 
 export const JOBS_CALENDAR_FLAG = 'enableJobsCalendar';
 const SITECLOCK_TTL_MS = 60_000;
@@ -16,6 +17,8 @@ export interface JobsCalendarResponse {
   events: CalendarEvent[];
   /** off = no enabled SiteClock connection; unavailable = SiteClock didn't answer (AIMS events only). */
   siteclock: { state: 'ok' | 'off' | 'unavailable'; error?: string; fetchedAt?: string };
+  /** Custom job fields (enableJobFields): what each event icon means (absent without the flag). */
+  legend?: ReturnType<typeof calendarLegend>;
 }
 
 /**
@@ -48,12 +51,24 @@ export class JobsCalendarService {
           select: { deliveryId: true, workerName: true, durationMin: true, externalRef: true },
         })
       : [];
+    // Custom job fields: each run's icons + the legend.
+    let legend: ReturnType<typeof calendarLegend> | undefined;
+    if (runs.length && (await isJobFieldsEnabled(this.prisma, organizationId))) {
+      const defs = await jobFieldDefs(this.prisma, organizationId);
+      const values = await jobFieldValues(this.prisma, organizationId, runs.map((r) => r.id), defs);
+      for (const r of runs as any[]) {
+        const v = values.get(r.id) ?? {};
+        r.badges = defs.map((f) => calendarBadge(f, v[f.id])).filter(Boolean);
+      }
+      legend = calendarLegend(defs);
+    }
     return {
       from,
       to,
       timezone: CALENDAR_TZ,
       events: buildCalendarEvents(runs, links, sc.jobs),
       siteclock: sc.status,
+      ...(legend ? { legend } : {}),
     };
   }
 

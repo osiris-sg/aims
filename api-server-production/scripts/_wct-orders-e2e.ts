@@ -38,6 +38,12 @@
  *   P5 service report on the order: upload a file / link an AIMS service
  *     report (the order's own job reports offered first, any by number);
  *     remove; a paid order with the report on it reads Closed.
+ *   P6 custom job fields (enableJobFields): the seeded Permit required /
+ *     Permit approved; admin add / duplicate / bad type; values saved with the
+ *     schedule (a bad value refused BEFORE the run is made), edited on the job;
+ *     calendar icons in the value's colour + legend; flag off → ignored; the
+ *     generic custom-field fixes (values saved for the caller's org, another
+ *     org's field id not editable).
  *
  * Boots only the deliveries + public-sign + orders modules (no cron), WhatsApp
  * + push + email replaced by no-ops.
@@ -78,6 +84,9 @@ import { renderWctBody } from '../src/common/services/document-html/wct';
 import { resolveDesign } from '../src/common/services/document-html/design';
 import { seal } from '../src/common/secret-box';
 import { PaymentsService } from '../src/payments/payments.service';
+import { JobFieldsModule } from '../src/job-fields/job-fields.module';
+import { JobFieldsService } from '../src/job-fields/job-fields.service';
+import { ConfigurationService } from '../src/configuration/configuration.service';
 import { refreshOrderStatus } from '../src/orders/wct-orders';
 
 const WCT = '5c700000-0000-4000-8000-5c7000000001';
@@ -85,7 +94,7 @@ const SC_URL = process.env.SC_URL || 'http://localhost:4100';
 const SC_COMPANY = process.env.SC_COMPANY || '';
 const SC_KEY = (fs.readFileSync(process.env.SC_KEY_FILE || '', 'utf8').match(/sck_live_[A-Za-z0-9_-]+/) || [])[0] || '';
 const [W1, W2] = (process.env.SC_WORKERS || '').split(',');
-const FLAGS = ['enableQuotationToDelivery', 'enableWctOrders', 'enableSiteClockLink', 'enableRealDoOnSchedule', 'enableJobsCalendar', 'enableQuotationESign', 'enableConfirmQuotation', 'enableWctMyJobs', 'enableWctFinishModes', 'enableWctOrderInvoice'] as const;
+const FLAGS = ['enableQuotationToDelivery', 'enableWctOrders', 'enableSiteClockLink', 'enableRealDoOnSchedule', 'enableJobsCalendar', 'enableQuotationESign', 'enableConfirmQuotation', 'enableWctMyJobs', 'enableWctFinishModes', 'enableWctOrderInvoice', 'enableJobFields'] as const;
 const TECH = 'user_e2e_wct_tech';
 const WORKER_USER = 'user_e2e_wct_worker_1'; // Phase 2: a WCT field-tech linked to SiteClock worker W1
 const CUSTOMER = 'WCT Orders E2E Customer';
@@ -93,7 +102,7 @@ const SITE = '10 Anson Road, Singapore 079903';
 const ORD = /^ORD\d{6}-\d{3,}$/;
 const SIG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
-@Module({ imports: [ConfigModule.forRoot({ load: [configuration], isGlobal: true }), ClerkModule, PushModule, ActionLogModule, DeliveriesModule, PublicSignModule, OrdersModule] })
+@Module({ imports: [ConfigModule.forRoot({ load: [configuration], isGlobal: true }), ClerkModule, PushModule, ActionLogModule, DeliveriesModule, PublicSignModule, OrdersModule, JobFieldsModule] })
 class E2EModule {}
 
 const silenced: string[] = [];
@@ -148,6 +157,8 @@ const sgt = (dayOffset: number, hh: number, mm = 0) => {
   const orders = mod.get(OrdersService);
   const link = mod.get(SiteClockLinkService);
   const calendar = new JobsCalendarService(prisma, link);
+  const jobFieldsSvc = mod.get(JobFieldsService);
+  const configuration = new ConfigurationService(prisma);
 
   // Other orgs: Order rows and Delivery.orderId use, before (compared at the end).
   const otherOrgsSnapshot = async () => {
@@ -523,6 +534,65 @@ const sgt = (dayOffset: number, hh: number, mm = 0) => {
     await setFlags({ enableWctOrders: false });
     await expectRefusal('P5: orders flag off → attachments refused', () => orders.addOrderAttachment(o6.id, WCT, { kind: 'file', fileKey: 'k', fileName: 'f' }, {}), /not enabled/);
     await setFlags({ enableWctOrders: true });
+
+    // ── P6: custom job fields ──
+    await setFlags({ enableJobFields: true });
+    const jf: any = await jobFieldsSvc.list(WCT);
+    const fReq = jf.fields.find((f: any) => f.fieldName === 'permit_required');
+    const fApp = jf.fields.find((f: any) => f.fieldName === 'permit_approved');
+    check('P6: WCT has the seeded Permit required / Permit approved (yes/no, on the calendar)', !!fReq && !!fApp && fReq.fieldType === 'boolean' && fApp.display?.showOnCalendar === true, jf.fields.map((f: any) => f.fieldName));
+    const fDate: any = await jobFieldsSvc.create(WCT, { displayLabel: 'E2E permit date', fieldType: 'date', display: { showOnCalendar: false } });
+    const fLink: any = await jobFieldsSvc.create(WCT, { displayLabel: 'E2E permit link', fieldType: 'url', display: { showOnCalendar: true, icon: 'link', colour: '#1565c0' } });
+    check('P6: admin adds date / link fields', fDate.fieldName === 'e2e_permit_date' && fLink.fieldType === 'url', [fDate.fieldName, fLink.fieldType]);
+    await expectRefusal('P6: a second field with the same name is refused', () => jobFieldsSvc.create(WCT, { displayLabel: 'E2E permit date', fieldType: 'text' }), /already a job field/);
+    await expectRefusal('P6: an unknown type is refused', () => jobFieldsSvc.create(WCT, { displayLabel: 'E2E x', fieldType: 'number' }), /Type must be one of/);
+    const runsBefore = await prisma.delivery.count({ where: { organizationId: WCT } });
+    await expectRefusal(
+      'P6: a bad value is refused before the job is made',
+      () => deliveries.createScheduled({ orderId: o1.id, customerId: customer.id, address: SITE, scheduledFor: sgt(3, 10), items: [{ description: 'Permit job', quantity: 1, assetClass: 'SERVICE' }], jobFields: { [fApp.id]: 'maybe' } } as any, WCT),
+      /Permit approved must be yes or no/,
+    );
+    check('P6: …and no run was created', (await prisma.delivery.count({ where: { organizationId: WCT } })) === runsBefore);
+    const p6: any = await deliveries.createScheduled(
+      { orderId: o1.id, customerId: customer.id, address: SITE, scheduledFor: sgt(3, 10), items: [{ description: 'Permit job', quantity: 1, assetClass: 'SERVICE' }], jobFields: { [fReq.id]: true, [fApp.id]: false, [fDate.id]: '2026-11-20', [fLink.id]: 'https://permits.example.sg/123' } } as any,
+      WCT,
+    );
+    let jfOf: any = await deliveries.jobFieldsOf(p6.id, WCT);
+    check('P6: values saved with the schedule', jfOf.values[fReq.id] === true && jfOf.values[fApp.id] === false && jfOf.values[fDate.id] === '2026-11-20' && jfOf.values[fLink.id] === 'https://permits.example.sg/123', jfOf.values);
+    const calDay = sgt(3, 10).slice(0, 10);
+    let cal6: any = await calendar.get(WCT, calDay, calDay);
+    let ev6 = cal6.events.find((e: any) => e.id === `aims:${p6.id}`);
+    const badge = (fid: string) => ev6?.badges?.find((b: any) => b.fieldId === fid);
+    check('P6: calendar icons: Permit required orange (yes), Permit approved red (no), the link blue; no date icon', badge(fReq.id)?.colour === '#ef6c00' && badge(fApp.id)?.colour === '#c62828' && badge(fLink.id)?.colour === '#1565c0' && !badge(fDate.id), ev6?.badges);
+    check('P6: legend lists the calendar fields', (cal6.legend || []).some((l: any) => l.fieldId === fReq.id) && (cal6.legend || []).some((l: any) => l.fieldId === fApp.id) && !(cal6.legend || []).some((l: any) => l.fieldId === fDate.id), cal6.legend?.map((l: any) => l.label));
+    await deliveries.saveJobFields(p6.id, WCT, { [fApp.id]: true, [fReq.id]: null });
+    cal6 = await calendar.get(WCT, calDay, calDay);
+    ev6 = cal6.events.find((e: any) => e.id === `aims:${p6.id}`);
+    check('P6: edited on the job: approved → green; cleared → icon gone', badge(fApp.id)?.colour === '#2e7d32' && !badge(fReq.id), ev6?.badges);
+    await expectRefusal('P6: a link must be http(s)', () => deliveries.saveJobFields(p6.id, WCT, { [fLink.id]: 'javascript:alert(1)' }), /https/);
+    await expectRefusal('P6: a file value must be an upload', () => deliveries.saveJobFields(p6.id, WCT, { [fLink.id]: { fileKey: 'x' } }), /https/);
+    const p6edit: any = await deliveries.updateScheduled(p6.id, { scheduledFor: sgt(3, 10), items: [{ description: 'Permit job', quantity: 1, assetClass: 'SERVICE' }], customerId: customer.id, address: SITE, jobFields: { [fDate.id]: '2026-11-21' } } as any, WCT);
+    jfOf = await deliveries.jobFieldsOf(p6edit.id, WCT);
+    check('P6: the edit dialog saves too; other values untouched', jfOf.values[fDate.id] === '2026-11-21' && jfOf.values[fApp.id] === true, jfOf.values);
+    // the generic custom-field routes, fixed
+    await runAsOrg(WCT, () => configuration.setCustomFieldValues(WCT, p6.id, 'Delivery', { permit_required: true }));
+    jfOf = await deliveries.jobFieldsOf(p6.id, WCT);
+    check('P6: generic save of values works for the caller’s org (was a no-op)', jfOf.values[fReq.id] === true, jfOf.values);
+    const foreign = await prisma.customField.findFirst({ where: { organizationId: { not: WCT } }, select: { id: true } }).catch(() => null);
+    if (foreign) await expectRefusal('P6: another org’s field id is not editable from WCT', () => configuration.updateCustomField(WCT, foreign.id, { displayLabel: 'hijack' } as any), /not found/);
+    else console.log('SKIP  P6: no other org has a custom field on dev to try');
+    // flag off: ignored, and the calendar has no icons / legend
+    await setFlags({ enableJobFields: false });
+    const p6off: any = await deliveries.createScheduled({ orderId: o1.id, customerId: customer.id, address: SITE, scheduledFor: sgt(3, 12), items: [{ description: 'Permit job', quantity: 1, assetClass: 'SERVICE' }], jobFields: { [fReq.id]: true } } as any, WCT);
+    const offVals = await prisma.customFieldValue.count({ where: { entityId: p6off.id } });
+    const calOff: any = await calendar.get(WCT, calDay, calDay);
+    check('P6: flag off → job fields ignored, no icons, no legend', offVals === 0 && !calOff.legend && !calOff.events.some((e: any) => e.badges), [offVals, !!calOff.legend]);
+    check('P6: flag off → the field list says off', (await jobFieldsSvc.list(WCT)).enabled === false);
+    await setFlags({ enableJobFields: true });
+    await jobFieldsSvc.remove(WCT, fDate.id);
+    await jobFieldsSvc.remove(WCT, fLink.id);
+    check('P6: removed fields drop out of the list; values stay', !(await jobFieldsSvc.list(WCT)).fields.some((f: any) => f.id === fDate.id) && (await prisma.customFieldValue.count({ where: { customFieldId: fDate.id } })) >= 1);
+    for (const r of [p6, p6off]) await deliveries.cancel(r.id, WCT).catch(() => undefined);
 
     // ── G: flag off → the old path ──
     await setFlags({ enableWctOrders: false });

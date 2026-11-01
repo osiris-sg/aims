@@ -52,6 +52,8 @@ import DeliveryGroupPostsPanel from "@/components/deliveries/DeliveryGroupPostsP
 import { SiteClockCard, SiteClockView } from "@/app/portal/deliveries/_components/SiteClockStatus";
 import { canPurge, confirmCopy, runWasStarted } from "@/app/portal/deliveries/_lib/run-actions";
 import DoStatusTag from "@/components/DoStatusTag";
+import JobFieldsPanel from "@/components/jobFields/JobFieldsPanel";
+import type { JobFieldDef } from "@/helpers/jobFields";
 import VerificationPanel, { JobVerification } from "@/components/delivery/VerificationPanel";
 import { runDoTag } from "@/helpers/doStatusTag";
 
@@ -106,6 +108,8 @@ interface RunDetail {
   order?: { id: string; orderNumber: string; status: string } | null;
   // WCT finish modes (enableWctFinishModes): the sign-off and its office check.
   verification?: JobVerification | null;
+  // Custom job fields (enableJobFields): the org's fields + this run's values.
+  jobFields?: { fields: JobFieldDef[]; values: Record<string, any> } | null;
   // Derived by the backend: the single distinct DO across linked items, else null.
   // saleOrderId: the pointer to the SALES_ORDER document this run is against,
   // read off the DO's config by findById. It MUST be declared and forwarded —
@@ -839,6 +843,9 @@ export default function DeliveryDetailPage() {
         {run.customer ? ` · Customer: ${run.customer.name}` : ""}
         {run.siteAddress ? ` · Site: ${run.siteAddress}` : ""}
       </Typography>
+
+      {/* Custom job fields (enableJobFields): edit the job's own fields here. */}
+      {run.jobFields && run.jobFields.fields.length > 0 && <JobFieldsPanel deliveryId={run.id} jobFields={run.jobFields} onSaved={() => void load()} />}
 
       {/* WCT finish modes: how the job was signed off and the office check (Verify / Reject). */}
       {run.verification && (
@@ -1576,6 +1583,7 @@ export default function DeliveryDetailPage() {
           siteclock: run.siteclock
             ? { workerId: run.siteclock.workerId, workerName: run.siteclock.workerName, durationMin: run.siteclock.durationMin }
             : null,
+          jobFieldValues: run.jobFields?.values ?? null,
         }}
       />
     </Box>

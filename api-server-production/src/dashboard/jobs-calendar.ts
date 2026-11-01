@@ -45,6 +45,17 @@ export interface CalendarRun {
   order?: { id: string; orderNumber: string } | null;
   /** WCT finish modes: the office check of a stamped-DO / paper finish. */
   verificationState?: string | null;
+  /** Custom job fields (enableJobFields): the icons this run shows. */
+  badges?: CalendarBadge[];
+}
+
+/** One custom job field's icon on an event (icon key, colour, "Permit approved: Yes"). */
+export interface CalendarBadge {
+  fieldId: string;
+  label: string;
+  icon: string;
+  colour: string;
+  text: string;
 }
 
 export interface CalendarLink {
@@ -115,6 +126,8 @@ export interface CalendarEvent {
   orderHref?: string | null;
   /** WCT finish modes: "Awaiting verification" / "Verified" / "Rejected" for a checked job. */
   verificationLabel?: string | null;
+  /** Custom job fields (enableJobFields): the icons drawn on the event. */
+  badges?: CalendarBadge[];
 }
 
 /** The DO block of a run's popup: number, tag (from the DO itself) and the office DO page. */
@@ -259,6 +272,7 @@ export function buildCalendarEvents(runs: CalendarRun[], links: CalendarLink[], 
       ...(r.verificationState && VERIFICATION_LABEL[r.verificationState as keyof typeof VERIFICATION_LABEL]
         ? { verificationLabel: VERIFICATION_LABEL[r.verificationState as keyof typeof VERIFICATION_LABEL] }
         : {}),
+      ...(r.badges?.length ? { badges: r.badges } : {}),
     });
   }
 

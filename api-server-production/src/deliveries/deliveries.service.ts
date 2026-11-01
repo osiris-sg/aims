@@ -60,6 +60,7 @@ import { SiteClockLinkService, SiteClockScheduleInput } from '../siteclock/sitec
 import { applyOrderToDoConfig, isWctOrdersEnabled, refreshOrderStatus, refreshOrderStatusForRun } from '../orders/wct-orders';
 import { plannedRiderView, savePlannedRider } from './planned-rider';
 import { CompletionMode, WCT_FINISH_MODES_FLAG, finishModeProblem, initialVerification, isCompletionMode } from './finish-modes';
+import { checkJobFieldValues, isJobFieldsEnabled, jobFieldDefs, jobFieldValues, saveJobFieldValues } from './job-fields';
 @Injectable()
 export class DeliveriesService {
   private readonly logger = new Logger(DeliveriesService.name);
@@ -598,6 +599,8 @@ export class DeliveriesService {
     if (!isDraft && !dto.saleOrderId && !relaxedSchedule) throw new BadRequestException('A Sale Order is required for a scheduled delivery');
     // WCT orders: "Add job" on an order schedules another job of that order.
     const order = dto.orderId ? await this.orderForNewJob(dto.orderId, organizationId) : null;
+    // Custom job fields: a bad value is refused BEFORE anything is created.
+    const jobFieldsOn = !!dto.jobFields && (await this.checkJobFieldsUpFront(organizationId, dto.jobFields));
     // projectId is REQUIRED (post-assign matching keys on it). Validate it up
     // front and derive the customer from the project when the office didn't send
     // one — the scheduled run must carry BOTH so the draft DO gets a customer and
@@ -786,6 +789,8 @@ export class DeliveriesService {
     // WCT "My jobs" (enableWctMyJobs): the job is planned for the AIMS user
     // behind the picked SiteClock worker. Flag-gated, never throws.
     await savePlannedRider(this.prisma, organizationId, run.id, dto);
+    // Custom job fields (enableJobFields): the form's values.
+    if (jobFieldsOn) await this.saveJobFields(run.id, organizationId, dto.jobFields!);
     // SiteClock link (orgs with enableSiteClockLink only): put the run on the
     // picked worker's schedule. Never throws, never waits on SiteClock.
     await this.siteclock?.onScheduleSaved(organizationId, run.id, siteclockInput(dto));
@@ -1007,6 +1012,7 @@ export class DeliveriesService {
     // draft has none). Saving an incomplete form again just keeps it a draft.
     const willBeDraft = dto.isDraft === true;
     if (!willBeDraft && !dto.items?.length) throw new BadRequestException('At least one item is required');
+    const jobFieldsOn = !!dto.jobFields && (await this.checkJobFieldsUpFront(organizationId, dto.jobFields));
 
     // Same per-org relaxation as createScheduled: a service-job org promotes a
     // draft (e.g. one auto-created from an accepted quotation) without a
@@ -1193,6 +1199,7 @@ export class DeliveriesService {
     else await this.ensureScheduledServiceReport(id, organizationId);
     // WCT "My jobs": a re-picked (or cleared) worker moves who the job is planned for.
     await savePlannedRider(this.prisma, organizationId, id, dto);
+    if (jobFieldsOn) await this.saveJobFields(id, organizationId, dto.jobFields!);
     // SiteClock link: move / reassign the job, or cancel it (worker cleared, back to draft).
     await this.siteclock?.onScheduleSaved(organizationId, id, siteclockInput(dto));
     // WCT orders: promoting a draft job (or saving one back to draft) moves the order.
@@ -4588,6 +4595,39 @@ export class DeliveriesService {
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
     await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return finished ? { ...finished, signedItemCount, partial: false } : finished;
+  }
+
+  // ── Custom job fields (enableJobFields) ─────────────────────────────────
+
+  /** True when the org has job fields on and the values are all valid (400 otherwise); false = ignore them (flag off). */
+  private async checkJobFieldsUpFront(organizationId: string, values: Record<string, any>): Promise<boolean> {
+    if (!(await isJobFieldsEnabled(this.prisma, organizationId))) return false;
+    try {
+      checkJobFieldValues(await jobFieldDefs(this.prisma, organizationId), values);
+    } catch (e: any) {
+      throw new BadRequestException(e?.message || 'Check the job fields');
+    }
+    return true;
+  }
+
+  /** Save a run's job field values; a bad value is a 400 naming the field. */
+  async saveJobFields(deliveryId: string, organizationId: string, values: Record<string, any>) {
+    if (!(await isJobFieldsEnabled(this.prisma, organizationId))) throw new BadRequestException('Job fields are not enabled for this organisation');
+    const run = await this.prisma.delivery.findFirst({ where: { id: deliveryId, organizationId }, select: { id: true } });
+    if (!run) throw new NotFoundException('Delivery not found');
+    try {
+      return await saveJobFieldValues(this.prisma, organizationId, deliveryId, values);
+    } catch (e: any) {
+      throw new BadRequestException(e?.message || 'Could not save the job fields');
+    }
+  }
+
+  /** The run's job fields (definitions + values) for the delivery page; null without the flag. */
+  async jobFieldsOf(deliveryId: string, organizationId: string) {
+    if (!(await isJobFieldsEnabled(this.prisma, organizationId))) return null;
+    const fields = await jobFieldDefs(this.prisma, organizationId);
+    const values = (await jobFieldValues(this.prisma, organizationId, [deliveryId], fields)).get(deliveryId) ?? {};
+    return { fields, values };
   }
 
   // ── WCT finish modes: verification (enableWctFinishModes) ──────────────

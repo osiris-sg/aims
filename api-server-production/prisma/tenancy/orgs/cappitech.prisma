@@ -189,6 +189,8 @@ model CustomField {
   showInList     Boolean            @default(false) // Show in list/table views
   showInForm     Boolean            @default(true) // Show in forms
   groupName      String? // Group fields together in forms
+  // Job fields (enableJobFields): mirrors schema.prisma.
+  display        Json?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
   fieldValues    CustomFieldValue[]

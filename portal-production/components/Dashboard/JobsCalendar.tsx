@@ -8,11 +8,12 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Alert, Box, Checkbox, CircularProgress, FormControlLabel, Skeleton, Stack, Typography } from "@mui/material";
+import { Alert, Box, Checkbox, CircularProgress, FormControlLabel, Skeleton, Stack, Tooltip, Typography } from "@mui/material";
+import JobFieldIcon from "@/components/jobFields/JobFieldIcon";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { unwrap } from "@/app/portal/admin/organizations/_lib/siteclock-connection";
-import { CANCELLED_COLOR, KIND_COLOR, rangeOf, siteclockBanner, type CalendarPayload } from "./jobs-calendar/calendarModel";
+import { CANCELLED_COLOR, KIND_COLOR, legendTitle, rangeOf, siteclockBanner, type CalendarPayload } from "./jobs-calendar/calendarModel";
 
 const CalendarView = dynamic(() => import("./jobs-calendar/CalendarView"), {
   ssr: false,
@@ -103,6 +104,17 @@ export function JobsCalendarPanel({
                 {l.label}
               </Typography>
             </Stack>
+          ))}
+          {/* Custom job fields: what each event icon means (hover for its colours). */}
+          {(data?.legend ?? []).map((l) => (
+            <Tooltip key={l.fieldId} title={legendTitle(l)}>
+              <Stack direction="row" spacing={0.5} alignItems="center" data-tour="jobs-calendar-field-legend">
+                <JobFieldIcon icon={l.icon} sx={{ fontSize: 15, color: l.colours[0]?.colour }} />
+                <Typography variant="caption" color="text.secondary">
+                  {l.label}
+                </Typography>
+              </Stack>
+            </Tooltip>
           ))}
           <FormControlLabel
             sx={{ mr: 0 }}

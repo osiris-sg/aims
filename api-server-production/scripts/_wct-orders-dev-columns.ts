@@ -40,6 +40,8 @@ const COLUMNS: Record<string, [string, string][]> = {
   ],
   // Phase 2
   OrganizationMemberProfile: [['siteclockUserId', 'TEXT']],
+  // Phase 6
+  CustomField: [['display', 'JSONB']],
 };
 
 /** Indexes: [table, index name, column list]. */

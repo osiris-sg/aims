@@ -1,21 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import {
-  ArrayNotEmpty,
-  IsArray,
-  IsBoolean,
-  IsEnum,
-  IsInt,
-  IsISO8601,
-  IsIn,
-  IsOptional,
-  IsString,
-  IsUUID,
-  Max,
-  Min,
-  ValidateIf,
-  ValidateNested,
-} from 'class-validator';
+import { ArrayNotEmpty, IsArray, IsBoolean, IsEnum, IsInt, IsISO8601, IsIn, IsOptional, IsString, IsUUID, Max, Min, ValidateIf, ValidateNested, IsObject } from 'class-validator';
 import { AssetClass } from '@prisma/client';
 
 /**
@@ -202,6 +187,14 @@ export class ScheduleDeliveryDto {
   @IsOptional()
   @IsUUID()
   orderId?: string;
+
+  @ApiProperty({
+    required: false,
+    description: "Custom job fields (enableJobFields): { <CustomField id>: value } — yes/no as true/false, text, date as yyyy-mm-dd, link as https://…, file as { fileKey, fileName, mimeType }; null clears.",
+  })
+  @IsOptional()
+  @IsObject()
+  jobFields?: Record<string, any>;
 }
 
 /**
