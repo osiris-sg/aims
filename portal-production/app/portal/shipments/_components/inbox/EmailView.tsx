@@ -19,10 +19,12 @@ import LinkIcon from "@mui/icons-material/Link";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { useQuery } from "@tanstack/react-query";
 import DOMPurify from "dompurify";
+import { useTranslations } from "next-intl";
+import { useUiLang } from "@/i18n/UiLangProvider";
 import { useShipmentsApi, type EmailMessage, type InboxLang } from "../../_lib/api";
 import { headerSummary } from "../../_lib/inbox-cards";
 import { fmtDateTime } from "../../_lib/format";
-import { estimateFrameHeight, fmtSize, frameDocument, FRAME_SANDBOX, PURIFY_CONFIG, restoreRemoteImages, restyleEmailHtml, textToHtml, type EmailLink, type RestyledEmail } from "../../_lib/email-html";
+import { estimateFrameHeight, fmtSize, frameDocument, FRAME_SANDBOX, PURIFY_CONFIG, removedText, restoreRemoteImages, restyleEmailHtml, textToHtml, type EmailLink, type RestyledEmail } from "../../_lib/email-html";
 
 /** Sanitised body HTML for the frame: HTML when the email has it (images blocked), else the plain text. */
 export function bodyHtml(m: EmailMessage, loadImages: boolean): string {
@@ -54,6 +56,7 @@ function HeaderLine({ label, value }: { label: string; value: string | null | un
 }
 
 function AttachmentRow({ a }: { a: EmailMessage["attachments"][number] }) {
+  const t = useTranslations("inbox.emailView");
   const [preview, setPreview] = useState(false);
   const isPdf = /pdf/i.test(a.contentType) || /\.pdf$/i.test(a.name);
   const isImage = /^image\//i.test(a.contentType) || /\.(png|jpe?g|gif|webp)$/i.test(a.name);
@@ -65,21 +68,21 @@ function AttachmentRow({ a }: { a: EmailMessage["attachments"][number] }) {
           📎 {a.name} <span style={{ opacity: 0.6 }}>· {fmtSize(a.size)}</span>
         </Typography>
         {canPreview && (
-          <Tooltip title={preview ? "Hide preview" : "Preview"}>
-            <IconButton size="small" onClick={() => setPreview((p) => !p)} aria-label="Preview">
+          <Tooltip title={preview ? t("hidePreview") : t("preview")}>
+            <IconButton size="small" onClick={() => setPreview((p) => !p)} aria-label={t("preview")}>
               <VisibilityIcon fontSize="small" />
             </IconButton>
           </Tooltip>
         )}
         {a.url ? (
-          <Tooltip title="Download">
-            <IconButton size="small" component="a" href={a.url} download={a.name} target="_blank" rel="noopener noreferrer" aria-label="Download">
+          <Tooltip title={t("download")}>
+            <IconButton size="small" component="a" href={a.url} download={a.name} target="_blank" rel="noopener noreferrer" aria-label={t("download")}>
               <DownloadIcon fontSize="small" />
             </IconButton>
           </Tooltip>
         ) : (
           <Typography variant="caption" color="text.secondary">
-            not stored
+            {t("notStored")}
           </Typography>
         )}
       </Stack>
@@ -129,13 +132,14 @@ function BodyFrame({ title, html, dark, original, tour }: { title: string; html:
  * opening in a new tab with noopener.
  */
 function LinksList({ links }: { links: EmailLink[] }) {
+  const t = useTranslations("inbox.emailView");
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState<EmailLink | null>(null);
   if (!links.length) return null;
   return (
     <Box>
       <Button size="small" startIcon={<LinkIcon />} onClick={() => setOpen((s) => !s)} sx={{ textTransform: "none" }} data-tour="email-links">
-        {open ? "Hide links" : `Links in this email (${links.length})`}
+        {open ? t("hideLinks") : t("links", { n: links.length })}
       </Button>
       <Collapse in={open} unmountOnExit>
         <Stack spacing={0.25} sx={{ pl: 1, borderLeft: "3px solid", borderColor: "divider" }}>
@@ -160,18 +164,18 @@ function LinksList({ links }: { links: EmailLink[] }) {
         </Stack>
       </Collapse>
       <Dialog open={!!confirm} onClose={() => setConfirm(null)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ fontSize: 16 }}>Open {confirm?.host}?</DialogTitle>
+        <DialogTitle sx={{ fontSize: 16 }}>{t("openHost", { host: confirm?.host ?? "" })}</DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ wordBreak: "break-all" }}>
             {confirm?.href}
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-            This link came from the email. Only open it if you trust the sender; it opens in a new tab.
+            {t("linkWarning")}
           </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setConfirm(null)} sx={{ textTransform: "none" }}>
-            Cancel
+            {t("cancel")}
           </Button>
           <Button
             variant="contained"
@@ -181,7 +185,7 @@ function LinksList({ links }: { links: EmailLink[] }) {
               setConfirm(null);
             }}
           >
-            Open in a new tab
+            {t("openNewTab")}
           </Button>
         </DialogActions>
       </Dialog>
@@ -192,6 +196,8 @@ function LinksList({ links }: { links: EmailLink[] }) {
 /** One email's full view. Fetches /email-inbox/:id/message when shown. */
 export function EmailView({ id, compactHeaders = false, company = null, lang = "en" }: { id: string; /** Round W: From/To/Cc as one line ("From 榎本若菜 (Mitsui Soko) · to Sayaka + 9") with expand. */ compactHeaders?: boolean; company?: string | null; lang?: InboxLang }) {
   const api = useShipmentsApi();
+  const t = useTranslations("inbox.emailView");
+  const uiLang = useUiLang().lang;
   const theme = useTheme();
   const dark = theme.palette.mode === "dark";
   const q = useQuery({ queryKey: ["trade-inbox", "message", id], queryFn: () => api.inboxMessage(id), staleTime: 5 * 60_000 });
@@ -215,59 +221,59 @@ export function EmailView({ id, compactHeaders = false, company = null, lang = "
     setShowSignature(false);
   }, [id]);
   if (q.isLoading) return <CircularProgress size={20} />;
-  if (q.isError || !m) return <Typography color="error">Could not load this email.</Typography>;
+  if (q.isError || !m) return <Typography color="error">{t("couldNotLoad")}</Typography>;
   const cleaned = restyled?.removed.filter((r) => r !== "signature") ?? [];
   return (
     <Stack spacing={1.25} data-tour="email-view">
       <Box sx={{ borderBottom: "1px solid", borderColor: "divider", pb: 1 }}>
         {!compactHeaders && (
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-            {m.headers.subject || "(no subject)"}
+            {m.headers.subject || t("noSubject")}
           </Typography>
         )}
         {compactHeaders && !showHeaders ? (
-          <Typography variant="caption" color="text.secondary" component="div" onClick={() => setShowHeaders(true)} sx={{ cursor: "pointer" }} title={lang === "ja" ? "宛先を表示" : "Show all recipients"} data-tour="email-headers-compact">
+          <Typography variant="caption" color="text.secondary" component="div" onClick={() => setShowHeaders(true)} sx={{ cursor: "pointer" }} title={t("showRecipients")} data-tour="email-headers-compact">
             {headerSummary(m.headers, company, lang)}
             {m.headers.date ? ` · ${fmtDateTime(m.headers.date)}` : ""} ▾
           </Typography>
         ) : (
           <>
-            <HeaderLine label="From" value={m.headers.from} />
-            <HeaderLine label="To" value={m.headers.to} />
-            <HeaderLine label="Cc" value={m.headers.cc} />
-            <HeaderLine label="Date" value={m.headers.date ? fmtDateTime(m.headers.date) : null} />
+            <HeaderLine label={t("hFrom")} value={m.headers.from} />
+            <HeaderLine label={t("hTo")} value={m.headers.to} />
+            <HeaderLine label={t("hCc")} value={m.headers.cc} />
+            <HeaderLine label={t("hDate")} value={m.headers.date ? fmtDateTime(m.headers.date) : null} />
           </>
         )}
         <Stack direction="row" spacing={0.75} sx={{ mt: 0.5 }} flexWrap="wrap" useFlexGap alignItems="center">
-          {m.source === "whatsapp" && <Chip size="small" color="success" variant="outlined" label="Sent on WhatsApp" />}
-          {m.reconstructed && <Chip size="small" variant="outlined" label="Rebuilt from the stored text (older email)" />}
+          {m.source === "whatsapp" && <Chip size="small" color="success" variant="outlined" label={t("whatsapp")} />}
+          {m.reconstructed && <Chip size="small" variant="outlined" label={t("rebuilt")} />}
           {m.html && m.blockedRemote > 0 && !loadImages && (
             <Button size="small" startIcon={<ImageIcon />} onClick={() => setLoadImages(true)} sx={{ textTransform: "none" }} data-tour="email-load-images">
-              Load images ({m.blockedRemote} blocked)
+              {t("loadImages", { n: m.blockedRemote })}
             </Button>
           )}
           {restyled && (
-            <Tooltip title={showOriginal ? "Back to the cleaned view (our fonts and colours, sender junk removed)" : `Show the email as it was sent, with its own styles${cleaned.length ? ` — cleaned away: ${cleaned.join(", ")}` : ""}`}>
+            <Tooltip title={showOriginal ? t("backToCleaned") : `${t("showAsSent")}${cleaned.length ? ` — ${t("cleanedAway", { list: cleaned.map((c) => removedText(c, uiLang)).join(", ") })}` : ""}`}>
               <Button size="small" onClick={() => setShowOriginal((s) => !s)} sx={{ textTransform: "none" }} data-tour="email-show-original">
-                {showOriginal ? "Show cleaned" : "Show original"}
+                {showOriginal ? t("showCleaned") : t("showOriginal")}
               </Button>
             </Tooltip>
           )}
         </Stack>
       </Box>
-      <BodyFrame title="Email body" html={html} dark={dark} original={original && !!m.html} />
+      <BodyFrame title={t("body")} html={html} dark={dark} original={original && !!m.html} />
       {!original && cleaned.length > 0 && (
         <Typography variant="caption" color="text.secondary">
-          Cleaned for reading: {cleaned.join(" · ")}
+          {t("cleanedForReading", { list: cleaned.map((c) => removedText(c, uiLang)).join(" · ") })}
         </Typography>
       )}
       {signatureHtml && (
         <Box>
           <Button size="small" onClick={() => setShowSignature((s) => !s)} sx={{ textTransform: "none" }} data-tour="email-signature">
-            {showSignature ? "Hide signature" : "Show signature"}
+            {showSignature ? t("hideSignature") : t("showSignature")}
           </Button>
           <Collapse in={showSignature} unmountOnExit>
-            <BodyFrame title="Email signature" html={signatureHtml} dark={dark} />
+            <BodyFrame title={t("signature")} html={signatureHtml} dark={dark} />
           </Collapse>
         </Box>
       )}
@@ -275,7 +281,7 @@ export function EmailView({ id, compactHeaders = false, company = null, lang = "
       {m.quoted && (
         <Box>
           <Button size="small" onClick={() => setShowQuoted((s) => !s)} sx={{ textTransform: "none" }} data-tour="email-quoted">
-            {showQuoted ? "Hide quoted text" : "Show quoted text"}
+            {showQuoted ? t("hideQuoted") : t("showQuoted")}
           </Button>
           <Collapse in={showQuoted} unmountOnExit>
             <Box component="pre" sx={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 12, color: "text.secondary", m: 0, p: 1, borderLeft: "3px solid", borderColor: "divider" }}>
@@ -287,7 +293,7 @@ export function EmailView({ id, compactHeaders = false, company = null, lang = "
       {m.attachments.length > 0 && (
         <Stack spacing={0.75}>
           <Typography variant="overline" color="text.secondary">
-            Attachments ({m.attachments.length})
+            {t("attachments", { n: m.attachments.length })}
           </Typography>
           {m.attachments.map((a) => (
             <AttachmentRow key={a.index} a={a} />

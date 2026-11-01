@@ -29,6 +29,7 @@ import { useCreatePayment, PAYMENT_METHODS } from "@/app/portal/hooks/api/usePay
 import AttachmentUploader, { Attachment } from "@/components/AttachmentUploader";
 import { useGetCustomers } from "@/app/portal/hooks/api";
 import moment from "moment";
+import { useTranslations } from "next-intl";
 
 interface RecordPaymentDialogProps {
   open: boolean;
@@ -53,6 +54,7 @@ export default function RecordPaymentDialog({
   onSuccess,
   invoice,
 }: RecordPaymentDialogProps) {
+  const t = useTranslations("invoices.recordPayment");
   const { getToken } = useAuth();
   const createPaymentMutation = useCreatePayment();
   const { customers, isLoading: customersLoading } = useGetCustomers();
@@ -160,7 +162,7 @@ export default function RecordPaymentDialog({
       }
     } catch (error) {
       console.error("Error fetching customer invoices:", error);
-      toast.error("Failed to load customer invoices");
+      toast.error(t("loadInvoicesFailed"));
     } finally {
       setLoadingInvoices(false);
     }
@@ -192,7 +194,7 @@ export default function RecordPaymentDialog({
       }
     } catch (error) {
       console.error("Error fetching invoice summary:", error);
-      toast.error("Failed to load invoice details");
+      toast.error(t("loadDetailsFailed"));
     } finally {
       setLoadingSummary(false);
     }
@@ -226,7 +228,7 @@ export default function RecordPaymentDialog({
   const handleSubmit = async () => {
     // Validate required fields
     if (!selectedCustomer || !selectedInvoice || !amount || parseFloat(amount) <= 0) {
-      toast.error("Please fill all required fields");
+      toast.error(t("fillRequired"));
       return;
     }
 
@@ -235,7 +237,7 @@ export default function RecordPaymentDialog({
     // (mirrors the bills dialog's guard).
     const remaining = Number(invoiceSummary?.remainingBalance);
     if (Number.isFinite(remaining) && parseFloat(amount) > remaining + 0.005) {
-      toast.error(`Amount exceeds the remaining balance (SGD ${remaining.toFixed(2)})`);
+      toast.error(t("exceedsBalance", { amount: remaining.toFixed(2) }));
       return;
     }
 
@@ -253,13 +255,13 @@ export default function RecordPaymentDialog({
 
     try {
       await createPaymentMutation.mutateAsync(paymentData);
-      toast.success("Payment recorded successfully!");
+      toast.success(t("recorded"));
       onSuccess();
       onClose();
       resetForm();
     } catch (error: any) {
       console.error("Error creating payment:", error);
-      toast.error(error.message || "Failed to record payment");
+      toast.error(error.message || t("recordFailed"));
     }
   };
 
@@ -286,7 +288,7 @@ export default function RecordPaymentDialog({
         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <PaymentIcon color="primary" />
-            <Typography variant="h6">Record Payment</Typography>
+            <Typography variant="h6">{t("title")}</Typography>
           </Box>
           <IconButton onClick={onClose}>
             <CloseIcon />
@@ -306,7 +308,7 @@ export default function RecordPaymentDialog({
           renderInput={(params) => (
             <TextField
               {...params}
-              label="Customer"
+              label={t("customer")}
               margin="normal"
               required
               fullWidth
@@ -334,13 +336,13 @@ export default function RecordPaymentDialog({
           renderInput={(params) => (
             <TextField
               {...params}
-              label="Invoice"
+              label={t("invoice")}
               margin="normal"
               required
               fullWidth
               helperText={
                 selectedCustomer && customerInvoices.length === 0
-                  ? "No unpaid invoices found for this customer"
+                  ? t("noUnpaid")
                   : ""
               }
               InputProps={{
@@ -360,17 +362,17 @@ export default function RecordPaymentDialog({
         {invoiceSummary && (
           <Alert severity="info" sx={{ mt: 2, mb: 2 }}>
             <Typography variant="body2" sx={{ fontWeight: 600 }}>
-              Invoice Summary
+              {t("summary")}
             </Typography>
             <Box sx={{ mt: 1 }}>
               <Typography variant="body2">
-                Invoice Amount: SGD {invoiceSummary.invoiceAmount?.toFixed(2)}
+                {t("invoiceAmount", { amount: invoiceSummary.invoiceAmount?.toFixed(2) ?? "" })}
               </Typography>
               <Typography variant="body2">
-                Total Paid: SGD {invoiceSummary.totalPaid?.toFixed(2)}
+                {t("totalPaid", { amount: invoiceSummary.totalPaid?.toFixed(2) ?? "" })}
               </Typography>
               <Typography variant="body2" sx={{ fontWeight: 600, color: "primary.main" }}>
-                Remaining Balance: SGD {invoiceSummary.remainingBalance?.toFixed(2)}
+                {t("remaining", { amount: invoiceSummary.remainingBalance?.toFixed(2) ?? "" })}
               </Typography>
             </Box>
           </Alert>
@@ -378,7 +380,7 @@ export default function RecordPaymentDialog({
 
         {/* Amount */}
         <TextField
-          label="Payment Amount"
+          label={t("amount")}
           type="number"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
@@ -390,9 +392,9 @@ export default function RecordPaymentDialog({
           }}
           helperText={
             loadingSummary
-              ? "Loading invoice details..."
+              ? t("loadingDetails")
               : invoiceSummary
-              ? `Enter amount to pay (max: SGD ${invoiceSummary.remainingBalance?.toFixed(2)})`
+              ? t("amountHelp", { amount: invoiceSummary.remainingBalance?.toFixed(2) ?? "" })
               : ""
           }
           disabled={!selectedInvoice || loadingSummary}
@@ -400,7 +402,7 @@ export default function RecordPaymentDialog({
 
         {/* Payment Date */}
         <TextField
-          label="Payment Date"
+          label={t("date")}
           type="date"
           value={paymentDate}
           onChange={(e) => setPaymentDate(e.target.value)}
@@ -414,15 +416,15 @@ export default function RecordPaymentDialog({
 
         {/* Payment Method */}
         <FormControl fullWidth margin="normal" required>
-          <InputLabel>Payment Method</InputLabel>
+          <InputLabel>{t("method")}</InputLabel>
           <Select
             value={paymentMethod}
             onChange={(e) => setPaymentMethod(e.target.value)}
-            label="Payment Method"
+            label={t("method")}
           >
             {PAYMENT_METHODS.map((method) => (
               <MenuItem key={method.value} value={method.value}>
-                {method.label}
+                {t.has(`methods.${method.value}`) ? t(`methods.${method.value}`) : method.label}
               </MenuItem>
             ))}
           </Select>
@@ -430,16 +432,16 @@ export default function RecordPaymentDialog({
 
         {/* Deposit to — bank/cash GL account the payment lands in. Blank = org default. */}
         <FormControl fullWidth margin="normal">
-          <InputLabel shrink>Deposit to</InputLabel>
+          <InputLabel shrink>{t("depositTo")}</InputLabel>
           <Select
             value={depositAccount}
             onChange={(e) => setDepositAccount(e.target.value)}
-            label="Deposit to"
+            label={t("depositTo")}
             displayEmpty
             notched
           >
             <MenuItem value="">
-              <em>Auto (organisation default)</em>
+              <em>{t("depositAuto")}</em>
             </MenuItem>
             {bankAccounts.map((a) => (
               <MenuItem key={a.code} value={a.code}>
@@ -451,24 +453,24 @@ export default function RecordPaymentDialog({
 
         {/* Reference */}
         <TextField
-          label="Reference Number (Optional)"
+          label={t("reference")}
           value={reference}
           onChange={(e) => setReference(e.target.value)}
           fullWidth
           margin="normal"
-          placeholder="e.g., Check number, Transaction ID"
+          placeholder={t("referencePlaceholder")}
         />
 
         {/* Notes */}
         <TextField
-          label="Notes (Optional)"
+          label={t("notes")}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           fullWidth
           margin="normal"
           multiline
           rows={3}
-          placeholder="Additional notes about this payment"
+          placeholder={t("notesPlaceholder")}
         />
 
         {/* Payment proof — deposit slip, bank screenshot, etc. */}
@@ -477,7 +479,7 @@ export default function RecordPaymentDialog({
             folder={`payments/invoice-${selectedInvoice?.id || "new"}`}
             value={attachments}
             onChange={setAttachments}
-            label="Payment Proof"
+            label={t("proof")}
             compact
           />
         </Box>
@@ -485,7 +487,7 @@ export default function RecordPaymentDialog({
 
       <DialogActions sx={{ p: 2 }}>
         <Button onClick={onClose} disabled={createPaymentMutation.isPending}>
-          Cancel
+          {t("cancel")}
         </Button>
         <Button
           variant="contained"
@@ -501,7 +503,7 @@ export default function RecordPaymentDialog({
             createPaymentMutation.isPending ? <CircularProgress size={20} /> : <PaymentIcon />
           }
         >
-          {createPaymentMutation.isPending ? "Recording..." : "Record Payment"}
+          {createPaymentMutation.isPending ? t("recording") : t("title")}
         </Button>
       </DialogActions>
     </Dialog>

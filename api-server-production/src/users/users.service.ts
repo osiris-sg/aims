@@ -212,9 +212,22 @@ export class UsersService {
   async getOwnProfile(userId: string, organizationId: string) {
     const p = await this.prisma.organizationMemberProfile.findUnique({
       where: { organizationId_userId: { organizationId, userId } },
-      select: { whatsappNumber: true, commissionPct: true, yearlySalesTarget: true, signatureImage: true },
+      select: { whatsappNumber: true, commissionPct: true, yearlySalesTarget: true, signatureImage: true, uiLang: true },
     });
-    return p || { whatsappNumber: null, commissionPct: null, yearlySalesTarget: null, signatureImage: null };
+    return p || { whatsappNumber: null, commissionPct: null, yearlySalesTarget: null, signatureImage: null, uiLang: null };
+  }
+
+  /**
+   * Round AZ: the caller's portal language in this org (EN / 日本語 switch in the top bar). Only orgs with the
+   * SHIPMENTS module have the switch; every other org stays English.
+   */
+  async setOwnUiLang(userId: string, organizationId: string, uiLang: unknown) {
+    if (uiLang !== 'en' && uiLang !== 'ja') throw new BadRequestException('uiLang must be "en" or "ja"');
+    const m = await this.prisma.organizationModule.findUnique({ where: { organizationId_moduleCode: { organizationId, moduleCode: 'SHIPMENTS' } }, select: { enabled: true } });
+    if (!m?.enabled) throw new BadRequestException('The language switch is not available for this organization');
+    const prev = await this.prisma.organizationMemberProfile.findUnique({ where: { organizationId_userId: { organizationId, userId } }, select: { uiLang: true } });
+    await this.prisma.organizationMemberProfile.upsert({ where: { organizationId_userId: { organizationId, userId } }, update: { uiLang }, create: { organizationId, userId, uiLang } });
+    return { uiLang, from: prev?.uiLang ?? null };
   }
 
   async getUserRoles(userId: string, organizationId: string) {

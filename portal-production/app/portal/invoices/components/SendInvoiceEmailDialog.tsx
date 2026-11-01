@@ -26,6 +26,7 @@ import { request } from "@/helpers/request";
 import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
 import { toast } from "react-toastify";
 import moment from "moment";
+import { useTranslations } from "next-intl";
 
 interface SendInvoiceEmailDialogProps {
   open: boolean;
@@ -84,7 +85,10 @@ export default function SendInvoiceEmailDialog({
   const docTypeUpper = (invoice?.type || "").toUpperCase();
   const isQuotation = QUOTATION_TYPES.includes(docTypeUpper);
   const isInvoice = INVOICE_TYPES.includes(docTypeUpper);
+  // docLabel stays English: it goes into the e-mail subject / body / file name (customer-facing data).
   const docLabel = isQuotation ? "Quotation" : isInvoice ? "Invoice" : "Document";
+  const t = useTranslations("invoices.sendEmail");
+  const docUi = t(`docTypes.${isQuotation ? "quotation" : isInvoice ? "invoice" : "document"}`);
   const { getToken } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -209,10 +213,10 @@ ${orgName}`;
         setCc([...cc, newCcEmail]);
         setNewCcEmail("");
       } else {
-        toast.warning("Email already in CC list");
+        toast.warning(t("alreadyCc"));
       }
     } else {
-      toast.error("Please enter a valid email");
+      toast.error(t("validEmail"));
     }
   };
 
@@ -222,10 +226,10 @@ ${orgName}`;
         setBcc([...bcc, newBccEmail]);
         setNewBccEmail("");
       } else {
-        toast.warning("Email already in BCC list");
+        toast.warning(t("alreadyBcc"));
       }
     } else {
-      toast.error("Please enter a valid email");
+      toast.error(t("validEmail"));
     }
   };
 
@@ -240,17 +244,17 @@ ${orgName}`;
   const handleSendEmail = async () => {
     // Validate required fields
     if (to.length === 0 || !to[0]) {
-      toast.error("Recipient email is required");
+      toast.error(t("toRequired"));
       return;
     }
 
     if (!subject.trim()) {
-      toast.error("Subject is required");
+      toast.error(t("subjectRequired"));
       return;
     }
 
     if (!message.trim()) {
-      toast.error("Message is required");
+      toast.error(t("messageRequired"));
       return;
     }
 
@@ -260,7 +264,7 @@ ${orgName}`;
     try {
       const token = await getToken();
       if (!token) {
-        throw new Error("Authentication failed");
+        throw new Error(t("authFailed"));
       }
 
       const response = await request(
@@ -279,16 +283,16 @@ ${orgName}`;
       );
 
       if (response.success) {
-        toast.success(`${docLabel} email sent successfully!`);
+        toast.success(t("sent", { doc: docUi }));
         onSent(); // Refresh the page/data
         onClose();
       } else {
-        throw new Error(response.message || "Failed to send email");
+        throw new Error(response.message || t("sendFailed"));
       }
     } catch (error: any) {
       console.error("Error sending email:", error);
-      setError(error.message || "Failed to send email");
-      toast.error(error.message || "Failed to send email");
+      setError(error.message || t("sendFailed"));
+      toast.error(error.message || t("sendFailed"));
     } finally {
       setLoading(false);
     }
@@ -314,7 +318,7 @@ ${orgName}`;
     >
       <DialogTitle>
         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <Typography variant="h6">{previewOnly ? `Email Preview — ${docLabel}` : `Send ${docLabel} Email`}</Typography>
+          <Typography variant="h6">{previewOnly ? t("previewTitle", { doc: docUi }) : t("sendTitle", { doc: docUi })}</Typography>
           <IconButton onClick={onClose} disabled={loading}>
             <CloseIcon />
           </IconButton>
@@ -324,9 +328,7 @@ ${orgName}`;
       <DialogContent dividers>
         {previewOnly && (
           <Alert severity="info" sx={{ mb: 2 }}>
-            This is the email each scheduled run will send, with that run&apos;s dates and amounts filled in. Edit the
-            recipients, subject or wording and hit <b>Save email settings</b> — the changes apply to every future run.
-            Nothing is sent from here.
+            {t.rich("previewInfo", { b: (c) => <b>{c}</b> })}
           </Alert>
         )}
         {error && (
@@ -337,7 +339,7 @@ ${orgName}`;
 
         {/* FROM field (read-only) */}
         <TextField
-          label="FROM"
+          label={t("from")}
           value="admin@osiris.sg"
           fullWidth
           disabled
@@ -359,7 +361,7 @@ ${orgName}`;
             const unique = Array.from(new Set(cleaned));
             const invalid = unique.filter((v) => !validateEmail(v));
             if (invalid.length > 0) {
-              toast.error(`Invalid email: ${invalid.join(", ")}`);
+              toast.error(t("invalidEmail", { emails: invalid.join(", ") }));
             }
             setTo(unique.filter((v) => validateEmail(v)));
           }}
@@ -376,15 +378,15 @@ ${orgName}`;
           renderInput={(params) => (
             <TextField
               {...params}
-              label="TO"
+              label={t("to")}
               required
               margin="normal"
               disabled={loading}
               error={to.length === 0}
               helperText={
                 to.length === 0
-                  ? "Recipient email is required"
-                  : "Press Enter or comma to add an email"
+                  ? t("toRequired")
+                  : t("toHelp")
               }
             />
           )}
@@ -396,13 +398,13 @@ ${orgName}`;
         <Box sx={{ mb: 2 }}>
           <Box sx={{ display: "flex", gap: 1, alignItems: "flex-end" }}>
             <TextField
-              label="CC"
+              label={t("cc")}
               value={newCcEmail}
               onChange={(e) => setNewCcEmail(e.target.value)}
               fullWidth
               margin="normal"
               disabled={loading}
-              placeholder="Enter email address"
+              placeholder={t("emailPlaceholder")}
               onKeyPress={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -417,7 +419,7 @@ ${orgName}`;
               sx={{ mb: 1, minWidth: 100 }}
               startIcon={<AddIcon />}
             >
-              Add CC
+              {t("addCc")}
             </Button>
           </Box>
           {cc.length > 0 && (
@@ -439,13 +441,13 @@ ${orgName}`;
         <Box sx={{ mb: 2 }}>
           <Box sx={{ display: "flex", gap: 1, alignItems: "flex-end" }}>
             <TextField
-              label="BCC"
+              label={t("bcc")}
               value={newBccEmail}
               onChange={(e) => setNewBccEmail(e.target.value)}
               fullWidth
               margin="normal"
               disabled={loading}
-              placeholder="Enter email address"
+              placeholder={t("emailPlaceholder")}
               onKeyPress={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -460,7 +462,7 @@ ${orgName}`;
               sx={{ mb: 1, minWidth: 100 }}
               startIcon={<AddIcon />}
             >
-              Add BCC
+              {t("addBcc")}
             </Button>
           </Box>
           {bcc.length > 0 && (
@@ -481,10 +483,10 @@ ${orgName}`;
         {/* Attachment chip */}
         <Box sx={{ mb: 2 }}>
           <Typography variant="caption" color="text.secondary">
-            Attachment
+            {t("attachment")}
           </Typography>
           <Box sx={{ mt: 1 }}>
-            <Tooltip title={templateId ? "Click to view the invoice" : ""}>
+            <Tooltip title={templateId ? t("viewInvoice") : ""}>
               <Chip
                 icon={<AttachFileIcon />}
                 label={`${invoice?.name || docLabel}.pdf`}
@@ -499,7 +501,7 @@ ${orgName}`;
 
         {/* Subject field */}
         <TextField
-          label="SUBJECT"
+          label={t("subject")}
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
           fullWidth
@@ -507,13 +509,13 @@ ${orgName}`;
           margin="normal"
           disabled={loading}
           error={!subject.trim()}
-          helperText={!subject.trim() ? "Subject is required" : ""}
+          helperText={!subject.trim() ? t("subjectRequired") : ""}
           sx={{ mb: 2 }}
         />
 
         {/* Message field */}
         <TextField
-          label="MESSAGE FOR CUSTOMER"
+          label={t("message")}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           fullWidth
@@ -523,7 +525,7 @@ ${orgName}`;
           margin="normal"
           disabled={loading}
           error={!message.trim()}
-          helperText={!message.trim() ? "Message is required" : ""}
+          helperText={!message.trim() ? t("messageRequired") : ""}
         />
       </DialogContent>
 
@@ -557,7 +559,7 @@ ${orgName}`;
 
       <DialogActions sx={{ p: 2 }}>
         <Button onClick={onClose} disabled={loading}>
-          Cancel
+          {t("cancel")}
         </Button>
         {previewOnly && onSaveOverrides && (
           <Button
@@ -574,7 +576,7 @@ ${orgName}`;
             }}
             disabled={to.length === 0}
           >
-            Save email settings
+            {t("saveSettings")}
           </Button>
         )}
         {!previewOnly && (
@@ -584,7 +586,7 @@ ${orgName}`;
             disabled={loading || to.length === 0 || !subject.trim() || !message.trim()}
             startIcon={loading ? <CircularProgress size={20} /> : <SendIcon />}
           >
-            {loading ? "Sending..." : "Send Email"}
+            {loading ? t("sending") : t("send")}
           </Button>
         )}
       </DialogActions>

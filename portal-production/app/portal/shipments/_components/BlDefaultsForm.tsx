@@ -9,8 +9,10 @@ import React, { useEffect, useState } from "react";
 import { Alert, Box, Button, Grid2, Stack, TextField } from "@mui/material";
 import { useTradeMutation, useTradeSettings } from "../_lib/hooks";
 import { toast } from "../_lib/toast";
+import { useTranslations } from "next-intl";
 
 export default function BlDefaultsForm() {
+  const t = useTranslations("settings.blDefaults");
   const settings = useTradeSettings(true);
   const [dirty, setDirty] = useState(false);
   const [consignee, setConsignee] = useState("");
@@ -30,9 +32,9 @@ export default function BlDefaultsForm() {
     try {
       await save.mutateAsync({ defaultConsignee: consignee.trim() || null, defaultNotifyParty: notifyParty.trim() || null });
       setDirty(false);
-      toast.success("B/L instruction defaults saved");
+      toast.success(t("saved"));
     } catch (e: any) {
-      setError(e?.message || "Could not save the defaults");
+      setError(e?.message || t("couldNotSave"));
     }
   };
 
@@ -46,23 +48,23 @@ export default function BlDefaultsForm() {
         )}
         {settings.isError && (
           <Alert severity="error" sx={{ mb: 2 }}>
-            {(settings.error as Error)?.message || "Could not load the defaults"}
+            {(settings.error as Error)?.message || t("couldNotLoad")}
           </Alert>
         )}
         <Grid2 container spacing={2}>
           <Grid2 size={{ xs: 12, md: 6 }}>
-            <TextField label="Default consignee" fullWidth multiline minRows={7} value={consignee} onChange={(e) => (setDirty(true), setConsignee(e.target.value))} inputProps={mono} disabled={settings.isLoading} />
+            <TextField label={t("consignee")} fullWidth multiline minRows={7} value={consignee} onChange={(e) => (setDirty(true), setConsignee(e.target.value))} inputProps={mono} disabled={settings.isLoading} />
           </Grid2>
           <Grid2 size={{ xs: 12, md: 6 }}>
-            <TextField label="Default notify party" fullWidth multiline minRows={7} value={notifyParty} onChange={(e) => (setDirty(true), setNotifyParty(e.target.value))} inputProps={mono} disabled={settings.isLoading} />
+            <TextField label={t("notifyParty")} fullWidth multiline minRows={7} value={notifyParty} onChange={(e) => (setDirty(true), setNotifyParty(e.target.value))} inputProps={mono} disabled={settings.isLoading} />
           </Grid2>
         </Grid2>
         <Stack direction="row" justifyContent="flex-end" spacing={1} sx={{ mt: 2 }}>
           <Button onClick={() => setDirty(false)} disabled={save.isPending || !dirty}>
-            Discard changes
+            {t("discard")}
           </Button>
           <Button variant="contained" onClick={submit} disabled={save.isPending || settings.isLoading}>
-            {save.isPending ? "Saving…" : "Save B/L defaults"}
+            {save.isPending ? t("saving") : t("save")}
           </Button>
         </Stack>
     </Box>

@@ -42,8 +42,10 @@ import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
 import { uploadFile } from "@/helpers/fileUploader";
 import { Add as AddIcon, Delete as DeleteIcon } from "@mui/icons-material";
+import { useTranslations } from "next-intl";
 
 export default function OrganizationSettingsPage() {
+  const t = useTranslations("settings.companyProfile");
   const { organization } = useOrganization();
   const { getToken } = useAuth();
 
@@ -109,21 +111,22 @@ export default function OrganizationSettingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultValues, reset]);
 
-  // Available document types that can be customized
-  const availableDocumentTypes = [
-    { code: "TI", label: "Tax Invoice" },
-    { code: "QO1", label: "Quotation 1" },
-    { code: "QO2", label: "Quotation 2" },
-    { code: "DO", label: "Delivery Order" },
-    { code: "RDO", label: "Return Delivery Order" },
-    { code: "MSR", label: "Maintenance Service Report" },
-    { code: "PO", label: "Purchase Order" },
-    { code: "PR", label: "Purchase Return" },
-    { code: "SO", label: "Sales Order" },
-    { code: "DN", label: "Debit Note" },
-    { code: "CN", label: "Credit Note" },
-    { code: "SAI", label: "Stock Adjustment In" },
-    { code: "SAO", label: "Stock Adjustment Out" },
+  // Available document types that can be customized (labels: settings.companyProfile.docNames.<code>)
+  const docName = (code: string) => t(`docNames.${code}`);
+  const availableDocumentTypes: Array<{ code: string }> = [
+    { code: "TI" },
+    { code: "QO1" },
+    { code: "QO2" },
+    { code: "DO" },
+    { code: "RDO" },
+    { code: "MSR" },
+    { code: "PO" },
+    { code: "PR" },
+    { code: "SO" },
+    { code: "DN" },
+    { code: "CN" },
+    { code: "SAI" },
+    { code: "SAO" },
   ];
 
   const addCustomDocumentType = (docType: string) => {
@@ -145,11 +148,11 @@ export default function OrganizationSettingsPage() {
   const onSubmit = async (data: any) => {
     const token = await getToken();
     if (!token || !organization?.id) {
-      toast.error("Missing authentication or organization.");
+      toast.error(t("missingAuth"));
       return;
     }
 
-    const toastId = toast.loading("Saving organization...");
+    const toastId = toast.loading(t("saving"));
 
     // Extract keys from FormImage values
     const payload: any = {
@@ -242,30 +245,30 @@ export default function OrganizationSettingsPage() {
       console.log("[OrgSettings] PATCH response body:", json);
 
       if (res.ok && json?.success !== false) {
-        toast.update(toastId, { render: "Organization saved.", type: "success", isLoading: false, autoClose: 2000 });
+        toast.update(toastId, { render: t("saved"), type: "success", isLoading: false, autoClose: 2000 });
       } else {
-        const msg = json?.message || `Failed to save (status ${res.status})`;
+        const msg = json?.message || t("failedStatus", { status: res.status });
         toast.update(toastId, { render: msg, type: "error", isLoading: false, autoClose: 4000 });
       }
     } catch (e: any) {
       console.error("[OrgSettings] PATCH error", e);
-      toast.update(toastId, { render: e?.message || "Save failed", type: "error", isLoading: false, autoClose: 4000 });
+      toast.update(toastId, { render: e?.message || t("saveFailed"), type: "error", isLoading: false, autoClose: 4000 });
     }
     // no hard refresh here; OrganizationContext will continue returning previous values until reload
   };
 
   const tabs: { value: typeof activeTab; label: string }[] = [
-    { value: "general", label: "General" },
-    { value: "bank", label: "Bank Details" },
-    { value: "branding", label: "Branding" },
-    { value: "documents", label: "Document Names" },
-    { value: "docDefaults", label: "Doc Defaults" },
+    { value: "general", label: t("tabs.general") },
+    { value: "bank", label: t("tabs.bank") },
+    { value: "branding", label: t("tabs.branding") },
+    { value: "documents", label: t("tabs.documents") },
+    { value: "docDefaults", label: t("tabs.docDefaults") },
   ];
 
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       <Typography variant="h5" sx={{ fontWeight: 700 }}>
-        Company Profile
+        {t("title")}
       </Typography>
 
       <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
@@ -285,8 +288,8 @@ export default function OrganizationSettingsPage() {
             "& .MuiTabs-indicator": { backgroundColor: "primary.main" },
           }}
         >
-          {tabs.map((t) => (
-            <Tab key={t.value} value={t.value} label={t.label} />
+          {tabs.map((tab) => (
+            <Tab key={tab.value} value={tab.value} label={tab.label} />
           ))}
         </Tabs>
       </Box>
@@ -294,19 +297,19 @@ export default function OrganizationSettingsPage() {
       <Box component="form" onSubmit={handleSubmit(onSubmit)} sx={{ display: "flex", flexDirection: "column", gap: 2, maxWidth: 720 }}>
         {activeTab === "general" && (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <FormInputBox control={control} name="name" label="Organization Name" placeHolder="Enter name" />
-            <FormInputBox control={control} name="address" label="Address" placeHolder="Enter address" />
-            <FormInputBox control={control} name="phoneNumber" label="Phone Number" placeHolder="Enter phone" />
-            <FormInputBox control={control} name="registrationNumber" label="Registration No" placeHolder="Enter registration number" />
-            <FormInputBox control={control} name="email" label="Email (letterhead)" placeHolder="e.g. info@company.com.sg" />
-            <FormInputBox control={control} name="website" label="Website (letterhead)" placeHolder="e.g. www.company.com.sg" />
+            <FormInputBox control={control} name="name" label={t("orgName")} placeHolder={t("orgNamePh")} />
+            <FormInputBox control={control} name="address" label={t("address")} placeHolder={t("addressPh")} />
+            <FormInputBox control={control} name="phoneNumber" label={t("phone")} placeHolder={t("phonePh")} />
+            <FormInputBox control={control} name="registrationNumber" label={t("regNo")} placeHolder={t("regNoPh")} />
+            <FormInputBox control={control} name="email" label={t("email")} placeHolder={t("emailPh")} />
+            <FormInputBox control={control} name="website" label={t("website")} placeHolder={t("websitePh")} />
             <FormSelect
               control={control}
               name="defaultCurrency"
-              label="Default Currency"
-              menuTitle="Default Currency"
-              placeHolder="Select default currency"
-              menuItems={CURRENCY_OPTIONS}
+              label={t("defaultCurrency")}
+              menuTitle={t("defaultCurrency")}
+              placeHolder={t("defaultCurrencyPh")}
+              menuItems={CURRENCY_OPTIONS.map((o) => ({ ...o, label: t(`currencies.${o.value}`) }))}
             />
           </Box>
         )}
@@ -314,61 +317,61 @@ export default function OrganizationSettingsPage() {
         {activeTab === "bank" && (
           <Box>
             <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>
-              Bank Details
+              {t("tabs.bank")}
             </Typography>
             <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
-              Bank details will appear on invoices and other documents.
+              {t("bankHint")}
             </Typography>
             <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-              <FormInputBox control={control} name="bankAccountName" label="Account Name" placeHolder="Enter account name" />
-              <FormInputBox control={control} name="bankAccountNumber" label="Account Number" placeHolder="Enter account number" />
-              <FormInputBox control={control} name="bankName" label="Bank Name" placeHolder="Enter bank name" />
-              <FormInputBox control={control} name="bankSwiftCode" label="SWIFT/BIC Code" placeHolder="Enter SWIFT/BIC code" />
+              <FormInputBox control={control} name="bankAccountName" label={t("accountName")} placeHolder={t("accountNamePh")} />
+              <FormInputBox control={control} name="bankAccountNumber" label={t("accountNumber")} placeHolder={t("accountNumberPh")} />
+              <FormInputBox control={control} name="bankName" label={t("bankName")} placeHolder={t("bankNamePh")} />
+              <FormInputBox control={control} name="bankSwiftCode" label={t("swift")} placeHolder={t("swiftPh")} />
               <Box sx={{ display: "flex", gap: 2, flexDirection: { xs: "column", sm: "row" } }}>
                 <Box sx={{ flex: 1 }}>
-                  <FormInputBox control={control} name="bankBranchCode" label="Branch Code" placeHolder="Enter branch code" />
+                  <FormInputBox control={control} name="bankBranchCode" label={t("branchCode")} placeHolder={t("branchCodePh")} />
                 </Box>
                 <Box sx={{ flex: 1 }}>
-                  <FormInputBox control={control} name="bankCode" label="Bank Code" placeHolder="Enter bank code" />
+                  <FormInputBox control={control} name="bankCode" label={t("bankCode")} placeHolder={t("bankCodePh")} />
                 </Box>
                 <Box sx={{ flex: 1 }}>
-                  <FormInputBox control={control} name="bankCurrencyCode" label="Currency Code" placeHolder="Enter currency" />
+                  <FormInputBox control={control} name="bankCurrencyCode" label={t("currencyCode")} placeHolder={t("currencyCodePh")} />
                 </Box>
                 <Box sx={{ flex: 1 }}>
-                  <FormInputBox control={control} name="paynowUen" label="PayNow UEN" placeHolder="e.g. 201724603K001" />
+                  <FormInputBox control={control} name="paynowUen" label="PayNow UEN" placeHolder={t("uenPh")} />
                 </Box>
               </Box>
 
               {/* Additional banks — printed under the first bank with an "OR"
                   between each on invoices/documents (guru 2026-09-09). */}
               <Box sx={{ mt: 2 }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>Additional Banks</Typography>
+                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>{t("additionalBanks")}</Typography>
                 <Typography variant="body2" sx={{ color: "text.secondary", mb: 1 }}>
-                  Extra accounts appear below the first bank on documents, separated by &quot;OR&quot;.
+                  {t("additionalBanksHint")}
                 </Typography>
                 {additionalBanks.map((b, i) => (
                   <Box key={i} sx={{ border: 1, borderColor: "divider", borderRadius: 2, p: 2, mb: 1.5 }}>
                     <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>Bank {i + 2}</Typography>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>{t("bankN", { n: i + 2 })}</Typography>
                       <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={() => setAdditionalBanks((arr) => arr.filter((_, j) => j !== i))}>
-                        Remove
+                        {t("remove")}
                       </Button>
                     </Box>
                     <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-                      <TextField size="small" fullWidth label="Account Name" value={b.accountName || ""} onChange={(e) => setBankField(i, "accountName", e.target.value)} />
-                      <TextField size="small" fullWidth label="Account Number" value={b.accountNumber || ""} onChange={(e) => setBankField(i, "accountNumber", e.target.value)} />
-                      <TextField size="small" fullWidth label="Bank Name" value={b.bankName || ""} onChange={(e) => setBankField(i, "bankName", e.target.value)} />
-                      <TextField size="small" fullWidth label="SWIFT/BIC Code" value={b.swiftCode || ""} onChange={(e) => setBankField(i, "swiftCode", e.target.value)} />
+                      <TextField size="small" fullWidth label={t("accountName")} value={b.accountName || ""} onChange={(e) => setBankField(i, "accountName", e.target.value)} />
+                      <TextField size="small" fullWidth label={t("accountNumber")} value={b.accountNumber || ""} onChange={(e) => setBankField(i, "accountNumber", e.target.value)} />
+                      <TextField size="small" fullWidth label={t("bankName")} value={b.bankName || ""} onChange={(e) => setBankField(i, "bankName", e.target.value)} />
+                      <TextField size="small" fullWidth label={t("swift")} value={b.swiftCode || ""} onChange={(e) => setBankField(i, "swiftCode", e.target.value)} />
                       <Box sx={{ display: "flex", gap: 2, flexDirection: { xs: "column", sm: "row" } }}>
-                        <TextField size="small" sx={{ flex: 1 }} label="Branch Code" value={b.branchCode || ""} onChange={(e) => setBankField(i, "branchCode", e.target.value)} />
-                        <TextField size="small" sx={{ flex: 1 }} label="Bank Code" value={b.bankCode || ""} onChange={(e) => setBankField(i, "bankCode", e.target.value)} />
-                        <TextField size="small" sx={{ flex: 1 }} label="Currency Code" value={b.currencyCode || ""} onChange={(e) => setBankField(i, "currencyCode", e.target.value)} />
+                        <TextField size="small" sx={{ flex: 1 }} label={t("branchCode")} value={b.branchCode || ""} onChange={(e) => setBankField(i, "branchCode", e.target.value)} />
+                        <TextField size="small" sx={{ flex: 1 }} label={t("bankCode")} value={b.bankCode || ""} onChange={(e) => setBankField(i, "bankCode", e.target.value)} />
+                        <TextField size="small" sx={{ flex: 1 }} label={t("currencyCode")} value={b.currencyCode || ""} onChange={(e) => setBankField(i, "currencyCode", e.target.value)} />
                       </Box>
                     </Box>
                   </Box>
                 ))}
                 <Button variant="outlined" startIcon={<AddIcon />} onClick={() => setAdditionalBanks((arr) => [...arr, { ...emptyBank }])}>
-                  Add another bank
+                  {t("addBank")}
                 </Button>
               </Box>
 
@@ -378,7 +381,7 @@ export default function OrganizationSettingsPage() {
               <Box sx={{ mt: 1 }}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>PayNow QR</Typography>
                 <Typography variant="body2" sx={{ color: "text.secondary", mb: 1 }}>
-                  Customers scan this on the Click-to-pay page from invoice emails. Save after uploading.
+                  {t("qrHint")}
                 </Typography>
                 <input
                   hidden
@@ -392,12 +395,12 @@ export default function OrganizationSettingsPage() {
                     setQrUploading(true);
                     try {
                       const token = await getToken();
-                      if (!token) throw new Error("Not authenticated");
+                      if (!token) throw new Error(t("notAuthenticated"));
                       const up: any = await uploadFile({ file: f, folder: "payment-details", token });
                       setPaynowQrKey(up?.fileKey || up?.key || "");
-                      toast.success("QR uploaded — remember to Save");
+                      toast.success(t("qrUploaded"));
                     } catch (err: any) {
-                      toast.error(err?.message || "Upload failed");
+                      toast.error(err?.message || t("uploadFailed"));
                     } finally {
                       setQrUploading(false);
                     }
@@ -405,7 +408,7 @@ export default function OrganizationSettingsPage() {
                 />
                 <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
                   <Button variant="outlined" disabled={qrUploading} onClick={() => qrFileRef.current?.click()}>
-                    {qrUploading ? "Uploading…" : paynowQrKey ? "Replace QR image" : "Upload QR image"}
+                    {qrUploading ? t("uploading") : paynowQrKey ? t("replaceQr") : t("uploadQr")}
                   </Button>
                   {paynowQrKey && (
                     <>
@@ -415,7 +418,7 @@ export default function OrganizationSettingsPage() {
                         alt="PayNow QR"
                         style={{ maxHeight: 110, borderRadius: 8 }}
                       />
-                      <Button size="small" color="error" onClick={() => setPaynowQrKey("")}>Remove</Button>
+                      <Button size="small" color="error" onClick={() => setPaynowQrKey("")}>{t("remove")}</Button>
                     </>
                   )}
                 </Box>
@@ -428,14 +431,14 @@ export default function OrganizationSettingsPage() {
           <Box sx={{ display: "flex", flexDirection: "column", gap: 3 }}>
             <Box>
               <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>
-                Logo
+                {t("logo")}
               </Typography>
               <FormImage control={control} name="logo" numberOfUploaders={1} />
             </Box>
 
             <Box>
               <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>
-                Default Company Stamp
+                {t("stamp")}
               </Typography>
               <FormImage control={control} name="defaultStamp" numberOfUploaders={1} />
             </Box>
@@ -445,10 +448,10 @@ export default function OrganizationSettingsPage() {
         {activeTab === "documents" && (
           <Box>
             <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 600 }}>
-              Custom Document Type Names
+              {t("customNames")}
             </Typography>
             <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
-              Customize how document types appear to your users. For example, change &quot;Invoice&quot; to &quot;BI2025&quot; for your organization.
+              {t("customNamesHint")}
             </Typography>
 
             {Object.entries(customDocumentTypes).map(([docType]) => {
@@ -458,14 +461,14 @@ export default function OrganizationSettingsPage() {
                   <Grid2 container spacing={2} alignItems="center">
                     <Grid2 size={3}>
                       <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                        {docInfo?.label || docType}
+                        {docInfo ? docName(docInfo.code) : docType}
                       </Typography>
                       <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                        Code: {docType}
+                        {t("code", { code: docType })}
                       </Typography>
                     </Grid2>
                     <Grid2 size={7}>
-                      <FormInputBox control={control} name={`customDocumentTypes.${docType}`} label="Custom Display Name" placeHolder={`e.g., BI2025, Custom ${docInfo?.label || docType}`} size="small" onChange={(e) => updateCustomDocumentType(docType, e.target.value)} />
+                      <FormInputBox control={control} name={`customDocumentTypes.${docType}`} label={t("customDisplayName")} placeHolder={t("customDisplayNamePh", { name: docInfo ? docName(docInfo.code) : docType })} size="small" onChange={(e) => updateCustomDocumentType(docType, e.target.value)} />
                     </Grid2>
                     <Grid2 size={2}>
                       <IconButton onClick={() => removeCustomDocumentType(docType)} color="error" size="small">
@@ -481,7 +484,7 @@ export default function OrganizationSettingsPage() {
               {availableDocumentTypes
                 .filter((docType) => !customDocumentTypes[docType.code])
                 .map((docType) => (
-                  <Chip key={docType.code} label={`Add ${docType.label}`} onClick={() => addCustomDocumentType(docType.code)} icon={<AddIcon />} variant="outlined" clickable sx={{ mb: 1 }} />
+                  <Chip key={docType.code} label={t("addDocType", { name: docName(docType.code) })} onClick={() => addCustomDocumentType(docType.code)} icon={<AddIcon />} variant="outlined" clickable sx={{ mb: 1 }} />
                 ))}
             </Box>
           </Box>
@@ -491,7 +494,7 @@ export default function OrganizationSettingsPage() {
 
         <Divider sx={{ mt: 1 }} />
         <Button type="submit" variant="contained" color="primary" sx={{ alignSelf: "flex-start" }}>
-          Save
+          {t("save")}
         </Button>
       </Box>
     </Box>
@@ -507,6 +510,7 @@ export default function OrganizationSettingsPage() {
  * keeps the form payload synced so the outer "Save" button picks it up.
  */
 function DocDefaultsTab({ control, setValue }: { control: any; setValue: (n: string, v: any) => void }) {
+  const t = useTranslations("settings.companyProfile.docDefaults");
   const { getToken } = useAuth();
   // Watch the current docTypeDefaults so we hydrate the visible fields when
   // the user switches type. Direct subscription via useWatch from react-hook-form.
@@ -558,12 +562,12 @@ function DocDefaultsTab({ control, setValue }: { control: any; setValue: (n: str
         const docs: any[] = res?.data?.docs || [];
         const seen = new Set<string>();
         const list: { code: string; label: string }[] = [];
-        for (const t of docs) {
-          const code = String(t?.type || "").trim();
+        for (const tpl of docs) {
+          const code = String(tpl?.type || "").trim();
           if (!code || seen.has(code)) continue;
           seen.add(code);
-          const friendly = KNOWN_LABELS[code];
-          const label = friendly || (t?.name ? `${t.name} (${code})` : code);
+          const friendly = KNOWN_LABELS[code] ? t(`known.${code}`) : undefined;
+          const label = friendly || (tpl?.name ? `${tpl.name} (${code})` : code);
           list.push({ code, label });
         }
         list.sort((a, b) => a.label.localeCompare(b.label));
@@ -592,20 +596,19 @@ function DocDefaultsTab({ control, setValue }: { control: any; setValue: (n: str
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
       <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-        Doc Defaults
+        {t("title")}
       </Typography>
       <Typography variant="body2" sx={{ color: "text.secondary" }}>
-        Save default Terms &amp; Conditions, Notes, and a closing Footer message per document type. New documents inherit
-        these when the corresponding field is empty; per-document edits still win.
+        {t("intro")}
       </Typography>
 
       <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-        <Typography variant="caption" color="text.secondary">Document Type</Typography>
+        <Typography variant="caption" color="text.secondary">{t("docType")}</Typography>
         {loadingTypes ? (
-          <Typography variant="caption" color="text.disabled">Loading templates…</Typography>
+          <Typography variant="caption" color="text.disabled">{t("loadingTemplates")}</Typography>
         ) : docTypes.length === 0 ? (
           <Typography variant="caption" color="warning.main">
-            No document templates activated for this organization. Set one up first (Admin → Organizations → Templates).
+            {t("noTemplates")}
           </Typography>
         ) : (
         <Select
@@ -614,7 +617,7 @@ function DocDefaultsTab({ control, setValue }: { control: any; setValue: (n: str
           onChange={(e) => setSelectedType(e.target.value as string)}
           displayEmpty
         >
-          <MenuItem value=""><em>Select a document type…</em></MenuItem>
+          <MenuItem value=""><em>{t("selectType")}</em></MenuItem>
           {docTypes.map((d) => {
             const hasContent =
               !!all[d.code]?.tnc?.trim() ||
@@ -626,7 +629,7 @@ function DocDefaultsTab({ control, setValue }: { control: any; setValue: (n: str
                 {hasContent && (
                   <Chip
                     size="small"
-                    label="set"
+                    label={t("set")}
                     variant="outlined"
                     color="success"
                     sx={{ ml: 1, height: 18, fontSize: "0.65rem" }}
@@ -642,30 +645,30 @@ function DocDefaultsTab({ control, setValue }: { control: any; setValue: (n: str
       {selectedType ? (
         <>
           <TextField
-            label="Terms & Conditions"
+            label={t("tnc")}
             multiline
             minRows={4}
             value={current.tnc || ""}
             onChange={(e) => updateField("tnc", e.target.value)}
-            placeholder="e.g. Prices are subject to confirmation. Goods sold are non-refundable…"
+            placeholder={t("tncPh")}
             fullWidth
           />
           <TextField
-            label="Notes"
+            label={t("notes")}
             multiline
             minRows={3}
             value={current.notes || ""}
             onChange={(e) => updateField("notes", e.target.value)}
-            placeholder="Internal / customer-visible notes."
+            placeholder={t("notesPh")}
             fullWidth
           />
           <TextField
-            label="Footer / Closing Message"
+            label={t("footer")}
             multiline
             minRows={2}
             value={current.footerMessage || ""}
             onChange={(e) => updateField("footerMessage", e.target.value)}
-            placeholder="Renders at the bottom of the printed document. e.g. 'Thank you for your business.'"
+            placeholder={t("footerPh")}
             fullWidth
           />
           <Box>
@@ -679,13 +682,13 @@ function DocDefaultsTab({ control, setValue }: { control: any; setValue: (n: str
                 setValue("docTypeDefaults", next);
               }}
             >
-              Clear defaults for this type
+              {t("clear")}
             </Button>
           </Box>
         </>
       ) : (
         <Typography variant="caption" color="text.secondary">
-          Pick a document type above to start editing its defaults.
+          {t("pick")}
         </Typography>
       )}
     </Box>

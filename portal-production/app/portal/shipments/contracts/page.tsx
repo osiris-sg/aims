@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { Alert, Box, Button, IconButton, Menu, MenuItem, Typography } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import { useTranslations } from "next-intl";
 import { toast } from "../_lib/toast";
 import PageTable from "@/components/PageTable";
 import type { FilterField } from "@/components/FilterDrawer";
@@ -21,15 +22,16 @@ import ContractFormDialog from "../_components/ContractFormDialog";
 import { useDebounced } from "../_components/useDebounced";
 
 const STATUS_OPTIONS = [
-  { value: "OPEN", label: "Open" },
-  { value: "COMPLETED", label: "Completed" },
-  { value: "CANCELLED", label: "Cancelled" },
-];
+  { value: "OPEN", key: "statusOpen" },
+  { value: "COMPLETED", key: "statusCompleted" },
+  { value: "CANCELLED", key: "statusCancelled" },
+] as const;
 
 type Filters = { status: string; supplierId: string; customerId: string };
 
 export default function ContractsPage() {
   const router = useRouter();
+  const t = useTranslations("contracts.list");
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
   const [search, setSearch] = useState("");
@@ -53,26 +55,26 @@ export default function ContractsPage() {
 
   const filterConfig: FilterField[] = useMemo(
     () => [
-      { type: "select", key: "status", label: "Status", options: STATUS_OPTIONS },
-      { type: "select", key: "supplierId", label: "Supplier", options: (suppliers.data ?? []).map((c) => ({ value: c.id, label: c.name })) },
-      { type: "select", key: "customerId", label: "Customer", options: (customers.data ?? []).map((c) => ({ value: c.id, label: c.name })) },
+      { type: "select", key: "status", label: t("status"), options: STATUS_OPTIONS.map((o) => ({ value: o.value, label: t(o.key) })) },
+      { type: "select", key: "supplierId", label: t("supplier"), options: (suppliers.data ?? []).map((c) => ({ value: c.id, label: c.name })) },
+      { type: "select", key: "customerId", label: t("customer"), options: (customers.data ?? []).map((c) => ({ value: c.id, label: c.name })) },
     ],
-    [suppliers.data, customers.data],
+    [suppliers.data, customers.data, t],
   );
 
   const columns = useMemo(
     () => [
-      { id: "contractNo", header: "Contract no.", cell: ({ row }: any) => <Typography variant="body2" sx={{ fontWeight: 600 }}>{row.original.contractNo}</Typography> },
-      { id: "pi", header: "PI no.", cell: ({ row }: any) => row.original.piNumber || "—" },
-      { id: "supplier", header: "Supplier", cell: ({ row }: any) => row.original.supplier?.name || "—" },
-      { id: "customer", header: "Customer", cell: ({ row }: any) => row.original.customer?.name || "—" },
-      { id: "products", header: "Products", cell: ({ row }: any) => row.original.linesSummary || "—" },
-      { id: "qty", header: "Qty MT", cell: ({ row }: any) => <Box sx={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>{fmtMt(row.original.totalQuantityMt)}</Box> },
-      { id: "month", header: "Shipment month", cell: ({ row }: any) => fmtMonth(row.original.shipmentMonth) },
-      { id: "shipments", header: "# Shipments", cell: ({ row }: any) => <Box sx={{ textAlign: "center" }}>{row.original.shipmentCount}</Box> },
-      { id: "progress", header: "Progress", cell: ({ row }: any) => <ProgressCell progress={row.original.progress} width={80} /> },
-      { id: "currentStep", header: "Current step", cell: ({ row }: any) => <CurrentStepCell step={row.original.currentStep} progress={row.original.progress} maxWidth={200} /> },
-      { id: "status", header: "Status", cell: ({ row }: any) => <RecordStatusChip status={row.original.status} /> },
+      { id: "contractNo", header: t("contractNo"), cell: ({ row }: any) => <Typography variant="body2" sx={{ fontWeight: 600 }}>{row.original.contractNo}</Typography> },
+      { id: "pi", header: t("piNo"), cell: ({ row }: any) => row.original.piNumber || "—" },
+      { id: "supplier", header: t("supplier"), cell: ({ row }: any) => row.original.supplier?.name || "—" },
+      { id: "customer", header: t("customer"), cell: ({ row }: any) => row.original.customer?.name || "—" },
+      { id: "products", header: t("products"), cell: ({ row }: any) => row.original.linesSummary || "—" },
+      { id: "qty", header: t("qtyMt"), cell: ({ row }: any) => <Box sx={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>{fmtMt(row.original.totalQuantityMt)}</Box> },
+      { id: "month", header: t("shipmentMonth"), cell: ({ row }: any) => fmtMonth(row.original.shipmentMonth) },
+      { id: "shipments", header: t("nShipments"), cell: ({ row }: any) => <Box sx={{ textAlign: "center" }}>{row.original.shipmentCount}</Box> },
+      { id: "progress", header: t("progress"), cell: ({ row }: any) => <ProgressCell progress={row.original.progress} width={80} /> },
+      { id: "currentStep", header: t("currentStep"), cell: ({ row }: any) => <CurrentStepCell step={row.original.currentStep} progress={row.original.progress} maxWidth={200} /> },
+      { id: "status", header: t("status"), cell: ({ row }: any) => <RecordStatusChip status={row.original.status} /> },
       {
         id: "actions",
         header: "",
@@ -80,7 +82,7 @@ export default function ContractsPage() {
         cell: ({ row }: any) => (
           <IconButton
             size="small"
-            aria-label="Contract actions"
+            aria-label={t("actions")}
             onClick={(e) => {
               e.stopPropagation();
               setMenu({ pos: { left: e.clientX, top: e.clientY }, row: row.original });
@@ -91,7 +93,7 @@ export default function ContractsPage() {
         ),
       },
     ],
-    [],
+    [t],
   );
 
   const items = list.data?.items ?? [];
@@ -100,8 +102,8 @@ export default function ContractsPage() {
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, height: "100%" }}>
       <PageTable
-        tableName="Contracts"
-        buttonName="New contract"
+        tableName={t("title")}
+        buttonName={t("newContract")}
         onAddClick={() => setCreateOpen(true)}
         columns={columns}
         data={items}
@@ -126,7 +128,7 @@ export default function ContractsPage() {
         filterConfig={filterConfig}
         actionButtons={[
           <Button key="from-pis" variant="outlined" startIcon={<AutoAwesomeIcon />} onClick={() => setBulkOpen(true)}>
-            New contracts from PIs
+            {t("fromPis")}
           </Button>,
         ]}
         pageCount={list.data?.totalPages ?? 1}
@@ -138,16 +140,16 @@ export default function ContractsPage() {
         hideTable={!list.isLoading && !list.isError && !items.length}
         headerContent={
           list.isError ? (
-            <Alert severity="error">{(list.error as Error)?.message || "Could not load contracts"}</Alert>
+            <Alert severity="error">{(list.error as Error)?.message || t("loadError")}</Alert>
           ) : !list.isLoading && !items.length ? (
             filtered ? (
-              <EmptyState title="No contracts match these filters" />
+              <EmptyState title={t("noMatch")} />
             ) : (
               <EmptyState
-                title="No contracts yet"
+                title={t("none")}
                 action={
                   <Button variant="contained" onClick={() => setCreateOpen(true)}>
-                    New contract
+                    {t("newContract")}
                   </Button>
                 }
               />
@@ -164,7 +166,7 @@ export default function ContractsPage() {
             router.push(`/portal/shipments/contracts/${r.id}`);
           }}
         >
-          Open
+          {t("open")}
         </MenuItem>
         <MenuItem
           sx={{ color: "error.main" }}
@@ -174,20 +176,20 @@ export default function ContractsPage() {
             setToDelete(r);
           }}
         >
-          Delete
+          {t("delete")}
         </MenuItem>
       </Menu>
 
       <ConfirmDialog
         open={!!toDelete}
-        title={`Delete contract ${toDelete?.contractNo ?? ""}?`}
-        body="Its shipments go with it when nothing is on them yet; a shipment with documents must be deleted first. Steps and document links are removed; the files stay in the Documents library. This can&apos;t be undone."
-        confirmLabel="Delete"
+        title={t("deleteTitle", { no: toDelete?.contractNo ?? "" })}
+        body={t("deleteBody")}
+        confirmLabel={t("delete")}
         destructive
         onClose={() => setToDelete(null)}
         onConfirm={async () => {
           await del.mutateAsync(toDelete!.id);
-          toast.success("Contract deleted");
+          toast.success(t("deleted"));
         }}
       />
 

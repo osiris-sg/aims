@@ -158,7 +158,7 @@ export function cleanContacts(raw: unknown, fail: (m: string) => never): Contact
   });
 }
 
-// ── Shipping lines ─────────────────────────────────────────────────────────
+// ── Logistics partners (round AY: shipping lines; round AZ: every logistics company) ─────────────────────
 export interface AgentContact {
   name: string;
   company?: string;
@@ -166,29 +166,63 @@ export interface AgentContact {
   email?: string;
   phone?: string;
 }
+/** Round AZ: what a logistics company does for ADH — one company can do several (Mitsui Soko: warehouse + customs + trucking). */
+export const LOGISTICS_TYPES = ['SHIPPING_LINE', 'FORWARDER', 'CUSTOMS_BROKER', 'WAREHOUSE', 'TRUCKING', 'INSURER'] as const;
+export type LogisticsType = (typeof LOGISTICS_TYPES)[number];
+/**
+ * One logistics company (stored in TradeSetting.shippingLines, keyed by code — the round AY column, kept so the
+ * shipping lines saved there stay as they are). Shipping lines also carry tracking and free time.
+ */
 export interface ShippingLineInfo {
   name: string;
+  /** 三井倉庫株式会社 */
+  nameJa?: string;
+  /** Missing on round AY rows = a shipping line. */
+  types?: LogisticsType[];
   website?: string;
+  phone?: string;
+  address?: string;
+  /** Their e-mail domains (mitsui-soko.co.jp) — the e-mail count on the tab. */
+  emailDomains?: string[];
   trackingUrl?: string;
-  /** Local agents (e.g. Wan Hai Japan). */
+  /** Contacts (a shipping line's local agents, e.g. Wan Hai Japan). */
   agents?: AgentContact[];
-  /** Free time at the port of discharge. */
+  /** Free time at the port of discharge (shipping lines). */
   freeTime?: { detDays?: number; demDays?: number; note?: string };
   notes?: string;
-  /** Added on the Shipping lines tab (not one AIMS knows by its B/L). */
+  /** Added on the tab (not a shipping line AIMS knows by its B/L). */
   custom?: boolean;
 }
+export const typesOf = (info: Pick<ShippingLineInfo, 'types'> | undefined): LogisticsType[] => (info?.types?.length ? info.types : ['SHIPPING_LINE']);
 
-export function cleanShippingLine(raw: unknown, current: ShippingLineInfo | undefined, fail: (m: string) => never): ShippingLineInfo {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('A shipping line must be an object');
+/** @param known a shipping line AIMS knows by its B/L (always keeps the Shipping line type). */
+export function cleanShippingLine(raw: unknown, current: ShippingLineInfo | undefined, fail: (m: string) => never, known = false): ShippingLineInfo {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('A logistics company must be an object');
   const r = raw as Record<string, unknown>;
   const name = clean(r.name, 120, 'name', fail) ?? current?.name;
-  if (!name) fail('A shipping line needs a name');
+  if (!name) fail('A logistics company needs a name');
   const url = (k: string) => {
     const v = clean(r[k], 400, k, fail);
     if (v && !/^https?:\/\/\S+$/i.test(v)) fail(`${k} must start with http:// or https://`);
     return v;
   };
+  let types = typesOf(current);
+  if (r.types !== undefined) {
+    if (!Array.isArray(r.types) || !r.types.length) fail('Pick at least one type');
+    const bad = (r.types as unknown[]).find((t) => !LOGISTICS_TYPES.includes(t as LogisticsType));
+    if (bad !== undefined) fail(`Unknown type "${String(bad)}"`);
+    types = LOGISTICS_TYPES.filter((t) => (r.types as unknown[]).includes(t));
+  }
+  if (known && !types.includes('SHIPPING_LINE')) fail('A shipping line AIMS knows by its B/L keeps the Shipping line type');
+  const line = types.includes('SHIPPING_LINE');
+  let emailDomains = current?.emailDomains;
+  if (r.emailDomains !== undefined) {
+    const list = r.emailDomains === null ? [] : Array.isArray(r.emailDomains) ? r.emailDomains : String(r.emailDomains).split(/[\s,]+/);
+    emailDomains = [...new Set(list.map((d) => String(d).trim().toLowerCase().replace(/^@/, '')).filter(Boolean))];
+    const badDomain = emailDomains.find((d) => !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(d));
+    if (badDomain) fail(`"${badDomain}" is not an e-mail domain`);
+    if (emailDomains.length > 10) fail('Up to 10 e-mail domains');
+  }
   const ft = (r.freeTime ?? undefined) as Record<string, unknown> | undefined;
   const days = (v: unknown, n: string) => {
     if (v === undefined || v === null || v === '') return undefined;
@@ -197,13 +231,19 @@ export function cleanShippingLine(raw: unknown, current: ShippingLineInfo | unde
     return x;
   };
   const agents = r.agents === undefined ? current?.agents : cleanAgents(r.agents, fail);
+  const keep = (k: 'nameJa' | 'phone' | 'address', max: number, label: string) => (r[k] === undefined ? current?.[k] : clean(r[k], max, label, fail));
   return strip({
     name: name!,
-    website: url('website'),
-    trackingUrl: url('trackingUrl'),
+    nameJa: keep('nameJa', 160, '日本語名'),
+    types: r.types === undefined && !current?.types ? undefined : types,
+    website: r.website === undefined ? current?.website : url('website'),
+    phone: keep('phone', 60, 'phone'),
+    address: keep('address', 1000, 'address'),
+    emailDomains: emailDomains?.length ? emailDomains : undefined,
+    trackingUrl: line ? (r.trackingUrl === undefined ? current?.trackingUrl : url('trackingUrl')) : undefined,
     agents,
-    freeTime: ft ? strip({ detDays: days(ft.detDays, 'DET free days'), demDays: days(ft.demDays, 'DEM free days'), note: clean(ft.note, 500, 'free-time note', fail) }) : current?.freeTime,
-    notes: clean(r.notes, 4000, 'notes', fail),
+    freeTime: line ? (ft ? strip({ detDays: days(ft.detDays, 'DET free days'), demDays: days(ft.demDays, 'DEM free days'), note: clean(ft.note, 500, 'free-time note', fail) }) : current?.freeTime) : undefined,
+    notes: r.notes === undefined ? current?.notes : clean(r.notes, 4000, 'notes', fail),
     custom: current?.custom,
   });
 }

@@ -14,6 +14,7 @@
 import React, { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Alert, Box, Stack, Tab, Tabs, Typography } from "@mui/material";
+import { useTranslations } from "next-intl";
 import PageTable from "@/components/PageTable";
 import type { ShipmentListItem, ShipmentTab } from "../_lib/api";
 import { useShipments } from "../_lib/hooks";
@@ -21,19 +22,15 @@ import { blLabel, fmtDay, fmtMt, shortCustomer } from "../_lib/format";
 import { CurrentStepCell, EmptyState } from "../_components/bits";
 import { useDebounced } from "../_components/useDebounced";
 
-const TABS: Array<{ value: ShipmentTab; label: string }> = [
-  { value: "in_transit", label: "In transit" },
-  { value: "arrived", label: "Arrived" },
-  { value: "delivered", label: "Delivered" },
-  { value: "completed", label: "Completed" },
-];
+const TABS: Array<{ value: ShipmentTab }> = [{ value: "in_transit" }, { value: "arrived" }, { value: "delivered" }, { value: "completed" }];
 
 const hrefOf = (s: ShipmentListItem) => (s.orderId ? `/portal/shipments/orders/${s.orderId}?shipment=${s.id}` : `/portal/shipments/${s.id}`);
 
 export default function ShipmentsListPage() {
+  const t = useTranslations("orders.shipmentsList");
   const router = useRouter();
   const params = useSearchParams();
-  const [tab, setTab] = useState<ShipmentTab>(TABS.some((t) => t.value === params?.get("tab")) ? (params!.get("tab") as ShipmentTab) : "in_transit");
+  const [tab, setTab] = useState<ShipmentTab>(TABS.some((x) => x.value === params?.get("tab")) ? (params!.get("tab") as ShipmentTab) : "in_transit");
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
   const [search, setSearch] = useState("");
@@ -45,16 +42,16 @@ export default function ShipmentsListPage() {
   const columns = useMemo(
     () => [
       { id: "ref", header: "#", nowrap: true, cell: ({ row }: any) => <Typography variant="body2" sx={{ fontWeight: 800 }}>{row.original.ref || "—"}</Typography> },
-      { id: "customer", header: "Customer", cell: ({ row }: any) => <span title={row.original.customerName ?? undefined}>{shortCustomer(row.original.customerName) || "—"}</span> },
+      { id: "customer", header: t("customer"), cell: ({ row }: any) => <span title={row.original.customerName ?? undefined}>{shortCustomer(row.original.customerName) || "—"}</span> },
       { id: "bl", header: "B/L", nowrap: true, cell: ({ row }: any) => blLabel(row.original.blNumber) },
-      { id: "vessel", header: "Vessel / voyage", cell: ({ row }: any) => [row.original.vessel, row.original.voyageNo].filter(Boolean).join(" / ") || "—" },
-      { id: "carrier", header: "Carrier", cell: ({ row }: any) => row.original.carrier || "—" },
-      { id: "net", header: "Net MT", cell: ({ row }: any) => <Box sx={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>{row.original.netWeightMt != null ? fmtMt(row.original.netWeightMt) : "—"}</Box> },
+      { id: "vessel", header: t("vessel"), cell: ({ row }: any) => [row.original.vessel, row.original.voyageNo].filter(Boolean).join(" / ") || "—" },
+      { id: "carrier", header: t("carrier"), cell: ({ row }: any) => row.original.carrier || "—" },
+      { id: "net", header: t("net"), cell: ({ row }: any) => <Box sx={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>{row.original.netWeightMt != null ? fmtMt(row.original.netWeightMt) : "—"}</Box> },
       { id: "etd", header: "ETD", nowrap: true, cell: ({ row }: any) => fmtDay(row.original.etd) },
-      { id: "eta", header: "ETA (latest)", nowrap: true, cell: ({ row }: any) => fmtDay(row.original.eta) },
-      { id: "step", header: "Current step", cell: ({ row }: any) => <CurrentStepCell step={row.original.currentStep} progress={row.original.progress} maxWidth={260} wrap /> },
+      { id: "eta", header: t("eta"), nowrap: true, cell: ({ row }: any) => fmtDay(row.original.eta) },
+      { id: "step", header: t("step"), cell: ({ row }: any) => <CurrentStepCell step={row.original.currentStep} progress={row.original.progress} maxWidth={260} wrap /> },
     ],
-    [],
+    [t],
   );
 
   const tabs = (
@@ -69,8 +66,8 @@ export default function ShipmentsListPage() {
       sx={{ minHeight: 40, "& .MuiTab-root": { minHeight: 40, textTransform: "none" } }}
       data-tour="shipments-list-tabs"
     >
-      {TABS.map((t) => (
-        <Tab key={t.value} value={t.value} label={`${t.label}${counts ? ` (${counts[t.value] ?? 0})` : ""}`} />
+      {TABS.map((x) => (
+        <Tab key={x.value} value={x.value} label={`${t(`tabs.${x.value}`)}${counts ? ` (${counts[x.value] ?? 0})` : ""}`} />
       ))}
     </Tabs>
   );
@@ -78,7 +75,7 @@ export default function ShipmentsListPage() {
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, height: "100%" }} data-tour="shipments-list">
       <PageTable
-        tableName="Shipments"
+        tableName={t("title")}
         columns={columns}
         data={list.data?.items ?? []}
         loading={list.isLoading}
@@ -107,9 +104,9 @@ export default function ShipmentsListPage() {
               {tabs}
             </Stack>
             {list.isError ? (
-              <Alert severity="error">{(list.error as Error)?.message || "Could not load shipments"}</Alert>
+              <Alert severity="error">{(list.error as Error)?.message || t("loadError")}</Alert>
             ) : !list.isLoading && !list.data?.items?.length ? (
-              <EmptyState title={q ? "No shipment matches this search" : `No shipments ${TABS.find((t) => t.value === tab)!.label.toLowerCase()}`} />
+              <EmptyState title={q ? t("emptySearch") : t(`empty.${tab}`)} />
             ) : null}
           </>
         }

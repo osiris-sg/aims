@@ -262,6 +262,15 @@ export function stripClientJunk(html: string): { html: string; removed: string[]
   return { html: h, removed };
 }
 
+const REMOVED_JA: Record<string, string> = { "sender banner": "送信者バナー", "external tag": "外部タグ", "tracking pixel": "トラッキングピクセル", "spacer table": "スペーサー表", "blank lines": "空行", signature: "署名" };
+/** Round AZ: one `removed` label ("2 tracking pixels") in the UI language — the labels themselves stay English codes. */
+export function removedText(label: string, lang: "en" | "ja" = "en"): string {
+  if (lang !== "ja") return label;
+  const m = /^(\d+) (tracking pixels|spacer tables)$/.exec(label);
+  if (m) return `${REMOVED_JA[m[2].replace(/s$/, "")]} ${m[1]}件`;
+  return REMOVED_JA[label] ?? label;
+}
+
 /** Runs of 3+ line breaks become 2; leading / trailing breaks go. */
 export function collapseBreaks(html: string): string {
   return html

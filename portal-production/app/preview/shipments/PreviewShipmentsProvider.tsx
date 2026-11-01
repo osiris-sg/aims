@@ -7,6 +7,8 @@
 import React, { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TradeTheme from "@/app/portal/shipments/_components/TradeTheme";
+import { StaticUiLang } from "@/i18n/UiLangProvider";
+import type { UiLang } from "@/i18n/lang";
 
 // Round AN: the shared-header variants (tab, search) are keyed by the normalised query (scripts/_an-preview-fixtures.ts).
 const norm = (q: Record<string, unknown>) =>
@@ -28,7 +30,7 @@ function answer(d: any, key: readonly unknown[]): unknown {
     if (key[2] === "suppliers") return d.suppliers;
     if (key[2] === "customer") return d.detail?.[key[3] as string];
     if (key[2] === "supplier") return d.sdetail?.[key[3] as string];
-    if (key[2] === "shipping-lines") return d.shippingLines;
+    if (key[2] === "logistics") return d.logistics ?? d.shippingLines;
   }
   if (k0 === "trade-monthly-list") {
     const q: any = key[1] ?? {};
@@ -76,9 +78,14 @@ export default function PreviewShipmentsProvider({ data, children }: { data: any
     });
     return c;
   });
+  // Round AZ: ?lang=ja renders the page in Japanese (the screenshots of both languages).
+  const [lang, setLang] = useState<UiLang>("en");
+  React.useEffect(() => setLang(new URLSearchParams(window.location.search).get("lang") === "ja" ? "ja" : "en"), []);
   return (
     <QueryClientProvider client={qc}>
-      <TradeTheme>{children}</TradeTheme>
+      <StaticUiLang lang={lang}>
+        <TradeTheme key={lang}>{children}</TradeTheme>
+      </StaticUiLang>
     </QueryClientProvider>
   );
 }

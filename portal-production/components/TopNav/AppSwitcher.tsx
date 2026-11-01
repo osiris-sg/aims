@@ -15,6 +15,7 @@ import AppsRoundedIcon from "@mui/icons-material/AppsRounded";
 import AccessTimeRoundedIcon from "@mui/icons-material/AccessTimeRounded";
 import Image from "next/image";
 import logo from "@/components/Sidebar/aims-logo.png";
+import { useTranslations } from "next-intl";
 
 export const SITECLOCK_URL = "https://siteclock.osiris.sg";
 // ?from=aims makes SiteClock sync the AIMS session once on that visit (direct visits never sync)
@@ -50,6 +51,7 @@ const APPS: AppTile[] = [
 
 export default function AppSwitcher({ sx, iconColor }: { sx?: SxProps<Theme>; iconColor?: string }) {
   const router = useRouter();
+  const tn = useTranslations("shell.nav");
   const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
   const open = Boolean(anchorEl);
 
@@ -64,10 +66,10 @@ export default function AppSwitcher({ sx, iconColor }: { sx?: SxProps<Theme>; ic
 
   return (
     <>
-      <Tooltip title="Apps">
+      <Tooltip title={tn("apps")}>
         <IconButton
           size="small"
-          aria-label="Apps"
+          aria-label={tn("apps")}
           aria-haspopup="true"
           aria-expanded={open ? "true" : undefined}
           data-tour="app-switcher"

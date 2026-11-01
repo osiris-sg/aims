@@ -18,6 +18,8 @@ import { defaultDeliveryMonth, premiumHelp, premiumRowFor } from "../_lib/order-
 import { useShipmentsApi, type Contract, type Order, type OrderInput, type PiExtraction } from "../_lib/api";
 import { useContracts, useCustomers, useSuppliers, useTradeMutation } from "../_lib/hooks";
 import { filledSx, PdfDropZone, SourcePdfPane } from "./PdfDrop";
+import { useTranslations } from "next-intl";
+import { useUiLang } from "@/i18n/UiLangProvider";
 
 type Form = Record<
   | "year"
@@ -89,6 +91,8 @@ export default function OrderFormDialog({
   /** Round Q: "Create order from this thread" without a PI — the thread's keys and subject cues. */
   seed?: { piNo?: string | null; contractNo?: string | null; grade?: string | null; qtyMt?: number | null; customerKey?: string | null; deliveryMonth?: string | null } | null;
 }) {
+  const t = useTranslations("shipments.orderFormDialog");
+  const { lang } = useUiLang();
   const api = useShipmentsApi();
   const wide = useMediaQuery("(min-width:1200px)");
   const contracts = useContracts({ pageSize: 100 }, open);
@@ -185,7 +189,7 @@ export default function OrderFormDialog({
 
   // Contract picked / grade changed: parties and premiums default from it (typed premiums win).
   const scheduleRow = contract ? premiumRowFor((contract as any).premiumSchedule, form.shipMonth || null, form.grade || null) : null;
-  const help = premiumHelp(contract?.contractNo, scheduleRow, form.grade);
+  const help = premiumHelp(contract?.contractNo, scheduleRow, form.grade, lang);
   useEffect(() => {
     if (!contract) return;
     const line = contract.lines.find((l) => form.grade && l.grade === form.grade) ?? (contract.lines.length === 1 ? contract.lines[0] : null);
@@ -269,7 +273,7 @@ export default function OrderFormDialog({
     setFilled(new Set(keys));
     // A PI from the bulk dialog belongs to that dialog (it removes unsaved ones); one read here is ours.
     setSource({ fileId: x.fileId, fileName: (x as any).fileName ?? "PI", owned: !prefill, existingOrder: (x.result as any)?.existingOrder ?? null });
-    if (d.contractNo && !contractId) toast.info(`Contract ${d.contractNo} isn't in the master files yet — the order can be saved without it (link it on step 0).`);
+    if (d.contractNo && !contractId) toast.info(t("contractMissing", { no: d.contractNo }));
   };
 
   const readPi = async (file: File) => {
@@ -280,11 +284,11 @@ export default function OrderFormDialog({
     try {
       const x = await api.extractPi({ file });
       if (x.status !== "DONE" || !x.result) {
-        setError(`Could not read ${file.name}: ${x.error || "unknown error"}. The PI was stored — fill the form by hand.`);
+        setError(t("readFailed", { file: file.name, error: x.error || t("unknownError") }));
         setSource({ fileId: x.fileId, fileName: file.name, owned: true });
       } else applyPi({ ...x, fileName: file.name } as any);
     } catch (e: any) {
-      setError(e?.message || "Could not read the PI");
+      setError(e?.message || t("couldNotReadPi"));
     } finally {
       setReading(false);
       setReadingFile(null);
@@ -299,8 +303,8 @@ export default function OrderFormDialog({
 
   const submit = async () => {
     setError(null);
-    if (!form.customerId) return setError("Pick the customer (or a contract)");
-    if (!form.supplierId) return setError("Pick the supplier (or a contract)");
+    if (!form.customerId) return setError(t("pickCustomer"));
+    if (!form.supplierId) return setError(t("pickSupplier"));
     const body: OrderInput = {
       year: numOrNull(form.year) ?? undefined,
       orderNo: numOrNull(form.orderNo) ?? undefined,
@@ -327,12 +331,12 @@ export default function OrderFormDialog({
     };
     try {
       const o = await save.mutateAsync(body);
-      toast.success(order ? `Order ${o.label} saved` : `Order ${o.label} created`);
+      toast.success(order ? t("saved", { label: o.label }) : t("created", { label: o.label }));
       setSource(null);
       onSaved?.(o);
       onClose();
     } catch (e: any) {
-      setError(e?.message || "Could not save the order");
+      setError(e?.message || t("couldNotSave"));
     }
   };
 
@@ -344,14 +348,14 @@ export default function OrderFormDialog({
 
   return (
     <Dialog open={open} onClose={() => !save.isPending && !reading && cancel()} maxWidth={side ? "xl" : "md"} fullWidth>
-      <DialogTitle>{order ? `Edit order ${order.label}` : "New Order"}</DialogTitle>
+      <DialogTitle>{order ? t("editTitle", { label: order.label }) : t("newTitle")}</DialogTitle>
       <DialogContent dividers>
         <Grid container spacing={2}>
           <Grid item xs={12} md={side ? 6 : 12}>
-            {!order && <PdfDropZone title="Fill from PI — drop Vedanta's PI here" busy={reading} busyText="Reading the PI…" onFiles={(f) => void readPi(f[0])} dataTour="order-fill-from-pi" />}
+            {!order && <PdfDropZone title={t("fillFromPi")} busy={reading} busyText={t("readingPi")} onFiles={(f) => void readPi(f[0])} dataTour="order-fill-from-pi" />}
             {source?.existingOrder && (
               <Alert severity="warning" sx={{ mt: 1.5 }}>
-                This PI is already on order {source.existingOrder.label}.
+                {t("piOnOrder", { label: source.existingOrder.label })}
               </Alert>
             )}
             {error && (
@@ -361,10 +365,10 @@ export default function OrderFormDialog({
             )}
             <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
               <Grid item xs={6} sm={3}>
-                {field("year", "Year", { type: "number" })}
+                {field("year", t("year"), { type: "number" })}
               </Grid>
               <Grid item xs={6} sm={3}>
-                {field("orderNo", "Order no. (#)", { type: "number", helperText: form.orderNo ? `#${form.orderNo}` : " " })}
+                {field("orderNo", t("orderNo"), { type: "number", helperText: form.orderNo ? `#${form.orderNo}` : " " })}
               </Grid>
               <Grid item xs={12} sm={6}>
                 <Autocomplete
@@ -377,11 +381,11 @@ export default function OrderFormDialog({
                   }}
                   getOptionLabel={(c) => [c.contractNo, c.customer?.name].filter(Boolean).join(" · ")}
                   isOptionEqualToValue={(a, b) => a.id === b.id}
-                  renderInput={(p) => <TextField {...p} label="Contract (optional)" helperText="Premiums default from its line" />}
+                  renderInput={(p) => <TextField {...p} label={t("contract")} helperText={t("contractHelp")} />}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
-                <TextField select fullWidth size="small" label="Customer" value={form.customerId} onChange={set("customerId")} sx={filledSx(filled.has("customerId"))}>
+                <TextField select fullWidth size="small" label={t("customer")} value={form.customerId} onChange={set("customerId")} sx={filledSx(filled.has("customerId"))}>
                   {(customers.data ?? []).map((c) => (
                     <MenuItem key={c.id} value={c.id}>
                       {c.name}
@@ -390,7 +394,7 @@ export default function OrderFormDialog({
                 </TextField>
               </Grid>
               <Grid item xs={12} sm={6}>
-                <TextField select fullWidth size="small" label="Supplier" value={form.supplierId} onChange={set("supplierId")} sx={filledSx(filled.has("supplierId"))}>
+                <TextField select fullWidth size="small" label={t("supplier")} value={form.supplierId} onChange={set("supplierId")} sx={filledSx(filled.has("supplierId"))}>
                   {(suppliers.data ?? []).map((c) => (
                     <MenuItem key={c.id} value={c.id}>
                       {c.name}
@@ -399,67 +403,67 @@ export default function OrderFormDialog({
                 </TextField>
               </Grid>
               <Grid item xs={6}>
-                {field("shipMonth", "Ship month", { type: "month", InputLabelProps: { shrink: true } })}
+                {field("shipMonth", t("shipMonth"), { type: "month", InputLabelProps: { shrink: true } })}
               </Grid>
               <Grid item xs={6}>
-                {field("deliveryMonth", "Delivery month", { type: "month", InputLabelProps: { shrink: true }, helperText: !deliveryTouched && !order && form.shipMonth ? "Ship month + 2 — edit if different" : " " })}
+                {field("deliveryMonth", t("deliveryMonth"), { type: "month", InputLabelProps: { shrink: true }, helperText: !deliveryTouched && !order && form.shipMonth ? t("deliveryHelp") : " " })}
               </Grid>
               <Grid item xs={12} sm={4}>
-                {field("product", "Product")}
+                {field("product", t("product"))}
               </Grid>
               <Grid item xs={6} sm={4}>
-                {field("grade", "Grade", { placeholder: "6005 / 6063 / P1020" })}
+                {field("grade", t("grade"), { placeholder: "6005 / 6063 / P1020" })}
               </Grid>
               <Grid item xs={6} sm={4}>
-                {field("size", "Size", { placeholder: "203 MM X 5800 MM" })}
+                {field("size", t("size"), { placeholder: "203 MM X 5800 MM" })}
               </Grid>
               <Grid item xs={6} sm={4}>
-                {field("qtyMt", "Quantity (MT)", { type: "number" })}
+                {field("qtyMt", t("qtyMt"), { type: "number" })}
               </Grid>
               <Grid item xs={6} sm={4}>
-                {field("tolPct", "Tolerance ±%", { type: "number" })}
+                {field("tolPct", t("tolPct"), { type: "number" })}
               </Grid>
               <Grid item xs={12}>
                 <Typography variant="overline" color="text.secondary">
-                  Premiums (USD/MT, fixed part — QMJP is added by quarter){contract ? ` — default from contract ${contract.contractNo}` : ""}
+                  {t("premiums")}{contract ? t("premiumsFrom", { no: contract.contractNo }) : ""}
                 </Typography>
               </Grid>
               <Grid item xs={4}>
-                {field("supplierPremium", "Supplier premium", { type: "number", helperText: help.supplier })}
+                {field("supplierPremium", t("supplierPremium"), { type: "number", helperText: help.supplier })}
               </Grid>
               <Grid item xs={4}>
-                {field("clientPremium", "Client premium", { type: "number", helperText: help.client })}
+                {field("clientPremium", t("clientPremium"), { type: "number", helperText: help.client })}
               </Grid>
               <Grid item xs={4}>
-                {field("upcharge", "Upcharge", { type: "number" })}
+                {field("upcharge", t("upcharge"), { type: "number" })}
               </Grid>
               <Grid item xs={12}>
                 <Typography variant="overline" color="text.secondary">
-                  {shortParty((suppliers.data ?? []).find((c) => c.id === form.supplierId)?.name) ?? "Supplier"} side — PI and deposit
+                  {t("supplierSide", { party: shortParty((suppliers.data ?? []).find((c) => c.id === form.supplierId)?.name) ?? t("supplier") })}
                 </Typography>
               </Grid>
               <Grid item xs={6} sm={3}>
-                {field("piNo", "PI no.")}
+                {field("piNo", t("piNo"))}
               </Grid>
               <Grid item xs={6} sm={3}>
-                {field("piDate", "PI date", { type: "date", InputLabelProps: { shrink: true } })}
+                {field("piDate", t("piDate"), { type: "date", InputLabelProps: { shrink: true } })}
               </Grid>
               <Grid item xs={6} sm={3}>
-                {field("piAmount", "PI amount (USD)", { type: "number" })}
+                {field("piAmount", t("piAmount"), { type: "number" })}
               </Grid>
               <Grid item xs={6} sm={3}>
-                {field("depositPct", "Deposit %", { type: "number" })}
+                {field("depositPct", t("depositPct"), { type: "number" })}
               </Grid>
               <Grid item xs={12}>
                 <Typography variant="overline" color="text.secondary">
-                  Customer side — purchase order
+                  {t("customerSide")}
                 </Typography>
               </Grid>
               <Grid item xs={6}>
-                {field("customerPoNo", "Customer PO no.")}
+                {field("customerPoNo", t("customerPoNo"))}
               </Grid>
               <Grid item xs={6}>
-                {field("customerPoDate", "Customer PO date", { type: "date", InputLabelProps: { shrink: true } })}
+                {field("customerPoDate", t("customerPoDate"), { type: "date", InputLabelProps: { shrink: true } })}
               </Grid>
             </Grid>
           </Grid>
@@ -474,10 +478,10 @@ export default function OrderFormDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={cancel} disabled={save.isPending || reading}>
-          Cancel
+          {t("cancel")}
         </Button>
         <Button variant="contained" onClick={() => void submit()} disabled={save.isPending || reading} data-tour="order-save">
-          {save.isPending ? "Saving…" : order ? "Save" : "Create order"}
+          {save.isPending ? t("saving") : order ? t("save") : t("create")}
         </Button>
       </DialogActions>
     </Dialog>

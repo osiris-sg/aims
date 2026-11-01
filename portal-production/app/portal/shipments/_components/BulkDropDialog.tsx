@@ -14,6 +14,7 @@ import React, { useEffect, useState } from "react";
 import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Select, Stack, Table, TableBody, TableCell, TableHead, TableRow, Tooltip, Typography } from "@mui/material";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTranslations } from "next-intl";
 import { linkTargetsOf, useShipmentsApi, type FileClassification, type TradeFile, type TradeStep } from "../_lib/api";
 import { SHIPMENT_KEYS, useDocTypeLabels } from "../_lib/hooks";
 import { toast } from "../_lib/toast";
@@ -49,6 +50,7 @@ export default function BulkDropDialog({
   const api = useShipmentsApi();
   const qc = useQueryClient();
   const label = useDocTypeLabels();
+  const t = useTranslations("orders.bulkDrop");
   const [rows, setRows] = useState<Row[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,7 +70,7 @@ export default function BulkDropDialog({
           const r = await api.classifyFile(files[i], docTypes, owner.kind === "shipment" ? owner.id : undefined);
           if (live) setRows((rs) => rs.map((x, j) => (j === i ? { ...x, status: "ready", result: r, choice: r.docType } : x)));
         } catch (e) {
-          if (live) setRows((rs) => rs.map((x, j) => (j === i ? { ...x, status: "ready", choice: "OTHER", error: (e as Error)?.message || "Could not read it" } : x)));
+          if (live) setRows((rs) => rs.map((x, j) => (j === i ? { ...x, status: "ready", choice: "OTHER", error: (e as Error)?.message || t("readError") } : x)));
         }
       }
     };
@@ -108,7 +110,7 @@ export default function BulkDropDialog({
         setRows((rs) => rs.map((x, j) => (j === i ? { ...x, status: "done" } : x)));
       } catch (e) {
         failed++;
-        setRows((rs) => rs.map((x, j) => (j === i ? { ...x, status: "error", error: (e as Error)?.message || "Upload failed" } : x)));
+        setRows((rs) => rs.map((x, j) => (j === i ? { ...x, status: "error", error: (e as Error)?.message || t("uploadFailed") } : x)));
       }
     }
     // Refresh in the background; never wait on it (see useTradeMutation).
@@ -116,9 +118,9 @@ export default function BulkDropDialog({
     for (const k of [SHIPMENT_KEYS.orders, SHIPMENT_KEYS.contracts, SHIPMENT_KEYS.shipments, SHIPMENT_KEYS.files, SHIPMENT_KEYS.hub]) void qc.invalidateQueries({ queryKey: k });
     for (const u of uploaded) onFileUploaded?.(u.docType, [u.file]);
     setBusy(false);
-    if (failed) setError(`${failed} file(s) could not be uploaded — see the rows marked in red.`);
+    if (failed) setError(t("failedN", { n: failed }));
     else {
-      toast.success(`${order.length} document${order.length === 1 ? "" : "s"} attached${completed.length ? ` — step ${[...new Set(completed)].join(", ")} complete` : ""}`);
+      toast.success(`${t("attachedN", { n: order.length })}${completed.length ? t("stepsComplete", { list: [...new Set(completed)].join(", ") }) : ""}`);
       onClose();
     }
   };
@@ -127,9 +129,9 @@ export default function BulkDropDialog({
   return (
     <Dialog open={open} onClose={busy ? undefined : onClose} maxWidth="lg" fullWidth>
       <DialogTitle>
-        Sort {files?.length ?? 0} document{files?.length === 1 ? "" : "s"}
+        {t("title", { n: files?.length ?? 0 })}
         <Typography variant="body2" color="text.secondary">
-          Each file is read and matched to a document of this step. Check the types, change any that are wrong, then attach them.
+          {t("intro")}
         </Typography>
       </DialogTitle>
       <DialogContent dividers>
@@ -142,9 +144,9 @@ export default function BulkDropDialog({
           <TableHead>
             <TableRow>
               <TableCell sx={{ width: 64 }} />
-              <TableCell>File</TableCell>
-              <TableCell sx={{ width: 260 }}>Document type</TableCell>
-              <TableCell sx={{ width: 120 }}>Confidence</TableCell>
+              <TableCell>{t("file")}</TableCell>
+              <TableCell sx={{ width: 260 }}>{t("docType")}</TableCell>
+              <TableCell sx={{ width: 120 }}>{t("confidence")}</TableCell>
               <TableCell sx={{ width: 90 }} />
             </TableRow>
           </TableHead>
@@ -161,7 +163,7 @@ export default function BulkDropDialog({
                       {r.file.name}
                     </Typography>
                     <Typography variant="caption" color={r.error ? "error" : "text.secondary"}>
-                      {r.error ?? (r.result ? [r.result.variant, r.result.reason].filter(Boolean).join(" · ") : "Reading…")}
+                      {r.error ?? (r.result ? [r.result.variant, r.result.reason].filter(Boolean).join(" · ") : t("reading"))}
                     </Typography>
                   </TableCell>
                   <TableCell>
@@ -175,11 +177,11 @@ export default function BulkDropDialog({
                       {docTypes.map((d) => (
                         <MenuItem key={d} value={d}>
                           {label(d)}
-                          {(step?.optionalDocTypes ?? []).includes(d) && !step?.requiredDocTypes.includes(d) ? " (optional)" : ""}
+                          {(step?.optionalDocTypes ?? []).includes(d) && !step?.requiredDocTypes.includes(d) ? t("optional") : ""}
                         </MenuItem>
                       ))}
                       <MenuItem value={SKIP}>
-                        <em>Skip — don&apos;t attach</em>
+                        <em>{t("skip")}</em>
                       </MenuItem>
                     </Select>
                   </TableCell>
@@ -190,7 +192,7 @@ export default function BulkDropDialog({
                       <Stack direction="row" spacing={0.5} alignItems="center">
                         <Chip size="small" variant="outlined" color={low ? "warning" : "success"} label={`${Math.round(r.result.confidence * 100)}%`} />
                         {low && (
-                          <Tooltip title="Low confidence — check the type">
+                          <Tooltip title={t("lowConfidence")}>
                             <WarningAmberIcon fontSize="small" color="warning" />
                           </Tooltip>
                         )}
@@ -203,9 +205,9 @@ export default function BulkDropDialog({
                     {r.status === "uploading" ? (
                       <CircularProgress size={18} />
                     ) : r.status === "done" ? (
-                      <Chip size="small" color="success" label="Attached" />
+                      <Chip size="small" color="success" label={t("attached")} />
                     ) : r.status === "error" ? (
-                      <Chip size="small" color="error" label="Failed" />
+                      <Chip size="small" color="error" label={t("failed")} />
                     ) : null}
                   </TableCell>
                 </TableRow>
@@ -216,17 +218,17 @@ export default function BulkDropDialog({
         {reading && (
           <Box sx={{ mt: 1.5 }}>
             <Typography variant="caption" color="text.secondary">
-              Reading the documents (about 5–10 s each)…
+              {t("readingAll")}
             </Typography>
           </Box>
         )}
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={busy}>
-          Cancel
+          {t("cancel")}
         </Button>
         <Button variant="contained" onClick={() => void confirm()} disabled={busy || reading || !toUpload.length}>
-          {busy ? "Attaching…" : `Attach ${toUpload.length} document${toUpload.length === 1 ? "" : "s"}`}
+          {busy ? t("attaching") : t("attach", { n: toUpload.length })}
         </Button>
       </DialogActions>
     </Dialog>

@@ -63,22 +63,23 @@ export class ClientsController {
     return this.clients.updateSupplierDetails(orgIdOf(req), id, body ?? {});
   }
 
-  @Get('shipping-lines')
+  // Round AZ: Clients → Logistics (every logistics company, typed); /shipping-lines is round AY's path, kept as an alias.
+  @Get(['logistics', 'shipping-lines'])
   @Permissions('shipments:read')
   shippingLines(@Req() req: TradeRequest) {
     return this.clients.shippingLines(orgIdOf(req));
   }
 
-  @Post('shipping-lines')
+  @Post(['logistics', 'shipping-lines'])
   @Permissions('shipments:update')
   addShippingLine(@Body() body: unknown, @Req() req: TradeRequest) {
     return this.clients.saveShippingLine(orgIdOf(req), null, body);
   }
 
-  @Patch('shipping-lines/:code')
+  @Patch(['logistics/:code', 'shipping-lines/:code'])
   @Permissions('shipments:update')
   updateShippingLine(@Param('code') code: string, @Body() body: unknown, @Req() req: TradeRequest) {
-    if (!/^[A-Z0-9_]{2,40}$/.test(code)) throw new BadRequestException('Unknown shipping line');
+    if (!/^[A-Z0-9_]{2,40}$/.test(code)) throw new BadRequestException('Unknown logistics company');
     return this.clients.saveShippingLine(orgIdOf(req), code, body);
   }
 

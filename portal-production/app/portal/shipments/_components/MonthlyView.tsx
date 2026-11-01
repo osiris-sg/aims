@@ -14,6 +14,7 @@
 // Completed / All), Search and main Filter (contract, customer, ship month) apply here too; a search that matches only in
 // other months says which (one click jumps there).
 
+import { useUiLang } from "@/i18n/UiLangProvider";
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, Box, Button, Chip, CircularProgress, FormControlLabel, IconButton, Menu, MenuItem, Paper, Popover, Stack, Switch, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Tooltip, Typography } from "@mui/material";
@@ -21,23 +22,25 @@ import DownloadIcon from "@mui/icons-material/Download";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslations } from "next-intl";
 import { useShipmentsApi, type MonthlyQuery, type MonthlyRow } from "../_lib/api";
 import { orderHref } from "../_lib/inbox-threads";
-import { uiLangOf } from "../_lib/inbox-cards";
 import { toast } from "../_lib/toast";
+import { fmtMonth } from "../_lib/format";
+import { currentLang } from "@/i18n/lang";
 
 const YELLOW = { bgcolor: "rgba(255, 214, 0, 0.18)" };
 const GROUPS = [
-  { title: "Order information", ja: "注文情報", cols: 9, tour: "monthly-group-order" },
-  { title: "Supplier information", ja: "仕入先情報", cols: 4, tour: "monthly-group-supplier" },
-  { title: "Shipment information", ja: "出荷情報", cols: 5, tour: "monthly-group-shipment" },
+  { key: "order", cols: 9, tour: "monthly-group-order" },
+  { key: "supplier", cols: 4, tour: "monthly-group-supplier" },
+  { key: "shipment", cols: 5, tour: "monthly-group-shipment" },
 ];
-const HEADERS = ["Client", "Order No.", "Order Date", "Billet Type", "Supplier", "Ton", "Shipment Month", "Delivery Month", "Order Status", "Supplier Contract No", "Order Date", "Order ton", "Supplier Status", "管理NO", "BL Number", "ETD", "ETA", "Notes"];
-const HEADERS_JA: Record<number, string> = { 8: "注文ステータス", 12: "仕入ステータス", 17: "備考" };
+// ADH's own spreadsheet headings (catalog orders.monthly.headers.0–17).
+const HEADERS = Array.from({ length: 18 }, (_, i) => String(i));
 const YELLOW_COLS = new Set([8, 12]);
-const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const month = (ym: string | null) => (ym && /^\d{4}-\d{2}$/.test(ym) ? `${MON[Number(ym.slice(5)) - 1]} ${ym.slice(0, 4)}` : (ym ?? ""));
-const dmy = (d: string | null) => (d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : "");
+const month = (ym: string | null) => (ym && /^\d{4}-\d{2}$/.test(ym) ? fmtMonth(ym) : (ym ?? ""));
+// ADH's sheet writes DD/MM/YYYY; in Japanese YYYY/MM/DD.
+const dmy = (d: string | null) => (d ? (currentLang() === "ja" ? `${d.slice(0, 4)}/${d.slice(5, 7)}/${d.slice(8, 10)}` : `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`) : "");
 const t3 = (n: number | null) => (n === null || n === undefined ? "" : Number(n).toLocaleString("en-US", { maximumFractionDigits: 3 }));
 export const addMonth = (ym: string, n: number) => {
   const d = new Date(Date.UTC(Number(ym.slice(0, 4)), Number(ym.slice(5)) - 1 + n, 1));
@@ -45,8 +48,6 @@ export const addMonth = (ym: string, n: number) => {
 };
 export const tokyoMonth = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit" }).format(new Date()).slice(0, 7);
 
-/** Supplier status words in Japanese (the API sends the English label + the code). */
-const SUPPLIER_JA: Record<string, string> = { NONE: "—", PI_RECEIVED: "PI受領", DEPOSIT_PAID: "前払金支払済", SHIPPED: "出荷済（B/L発行）", CI_RECEIVED: "CI受領", BALANCE_PAID: "残金支払済", DONE: "完了" };
 
 function download(fileName: string, contentType: string, base64: string) {
   const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
@@ -84,8 +85,8 @@ export default function MonthlyView({
   const router = useRouter();
   const qc = useQueryClient();
   const now = tokyoMonth();
-  const [lang, setLang] = useState<"en" | "ja">("en");
-  useEffect(() => setLang(uiLangOf(typeof navigator !== "undefined" ? navigator.language : null)), []);
+  const { lang } = useUiLang();
+  const t = useTranslations("orders.monthly");
   const [range, setRange] = useState(false);
   const [q, setQ] = useState<MonthlyQuery>({ from: now, to: now, basis: "delivery" });
   const clientId = customerId || (onClientChange ? mainFilters?.customerId : q.customerId) || undefined;
@@ -118,7 +119,7 @@ export default function MonthlyView({
       const f = await api.monthlyExport(query, format);
       download(f.fileName, f.contentType, f.base64);
     } catch (e: any) {
-      toast.error(e?.message || "Export failed");
+      toast.error(e?.message || t("exportFailed"));
     } finally {
       setBusy(false);
     }
@@ -133,16 +134,17 @@ export default function MonthlyView({
       await api.updateShipment(note.row.shipmentId, { notes: note.text.trim() || null });
       setNote(null);
       await qc.invalidateQueries({ queryKey: ["trade-monthly-list"] });
-      toast.success("Note saved");
+      toast.success(t("noteSaved"));
     } catch (e: any) {
-      toast.error(e?.message || "Could not save the note");
+      toast.error(e?.message || t("noteError"));
     }
   };
   const stageLabel = (r: MonthlyRow) => {
     const ja = data?.options.stages?.find((s) => s.code === r.orderStage)?.ja;
     return lang === "ja" && ja ? ja : r.orderStageLabel;
   };
-  const supplierLabel = (r: MonthlyRow) => (lang === "ja" ? (SUPPLIER_JA[r.supplierStage] ?? r.supplierStageLabel) : r.supplierStageLabel);
+  // Supplier status words in Japanese (the API sends the English label + the code).
+  const supplierLabel = (r: MonthlyRow) => (lang === "ja" && t.has(`supplierStage.${r.supplierStage}`) ? t(`supplierStage.${r.supplierStage}`) : r.supplierStageLabel);
 
   const cells = useMemo(
     () => (r: MonthlyRow) => {
@@ -166,12 +168,12 @@ export default function MonthlyView({
         merged(6, month(r.shipMonth), { whiteSpace: "nowrap" }),
         merged(7, month(r.deliveryMonth), { whiteSpace: "nowrap" }),
         <TableCell key={8} sx={{ ...YELLOW, fontWeight: 600 }} data-tour="monthly-order-status">
-          <Tooltip title={r.shipmentStatus ? `Current step: ${r.shipmentStatus}` : ""} disableInteractive>
+          <Tooltip title={r.shipmentStatus ? t("currentStep", { step: r.shipmentStatus }) : ""} disableInteractive>
             <span>
               {stageLabel(r)}
               {r.unconfirmed && (
                 <Typography component="span" variant="caption" color="warning.main" sx={{ ml: 0.5 }}>
-                  check
+                  {t("check")}
                 </Typography>
               )}
             </span>
@@ -179,7 +181,7 @@ export default function MonthlyView({
           {r.overdue && (
             // Round AY: steps past their due date on this row.
             <Tooltip title={r.overdue.labels.join("\n")} disableInteractive slotProps={{ tooltip: { sx: { whiteSpace: "pre-line" } } }}>
-              <Chip size="small" color="error" variant="outlined" label={lang === "ja" ? `期限超過 ${r.overdue.days}日` : `overdue ${r.overdue.days}d`} sx={{ ml: 0.75, height: 20, "& .MuiChip-label": { px: 0.75, fontSize: 11 } }} data-tour="monthly-overdue" />
+              <Chip size="small" color="error" variant="outlined" label={t("overdueDays", { n: r.overdue.days })} sx={{ ml: 0.75, height: 20, "& .MuiChip-label": { px: 0.75, fontSize: 11 } }} data-tour="monthly-overdue" />
             </Tooltip>
           )}
         </TableCell>,
@@ -210,12 +212,12 @@ export default function MonthlyView({
             if (r.shipmentId) setNote({ pos: { left: e.clientX, top: e.clientY }, row: r, text: r.notes ?? "" });
           }}
         >
-          {r.notes ?? (r.shipmentId ? "+ note" : "")}
+          {r.notes ?? (r.shipmentId ? t("addNote") : "")}
         </TableCell>,
       ];
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [lang, data?.options.stages]
+    [lang, t, data?.options.stages]
   );
 
   return (
@@ -223,12 +225,12 @@ export default function MonthlyView({
       <Paper variant="outlined" sx={{ px: 1.5, py: 1, mb: 1.5 }} data-tour="monthly-filters">
         <Stack direction="row" alignItems="center" spacing={1.25} flexWrap="wrap" useFlexGap>
           <Stack direction="row" alignItems="center" spacing={0.5} data-tour="monthly-month-picker">
-            <IconButton size="small" onClick={() => step(-1)} aria-label="Previous month">
+            <IconButton size="small" onClick={() => step(-1)} aria-label={t("prevMonth")}>
               <ChevronLeftIcon />
             </IconButton>
-            <TextField type="month" size="small" label={range ? "From" : lang === "ja" ? "月" : "Month"} value={q.from ?? ""} onChange={(e) => set("from", e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
-            {range && <TextField type="month" size="small" label="To" value={q.to ?? ""} onChange={(e) => set("to", e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />}
-            <IconButton size="small" onClick={() => step(1)} aria-label="Next month">
+            <TextField type="month" size="small" label={range ? t("from") : t("month")} value={q.from ?? ""} onChange={(e) => set("from", e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />
+            {range && <TextField type="month" size="small" label={t("to")} value={q.to ?? ""} onChange={(e) => set("to", e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 160 }} />}
+            <IconButton size="small" onClick={() => step(1)} aria-label={t("nextMonth")}>
               <ChevronRightIcon />
             </IconButton>
             <FormControlLabel
@@ -243,21 +245,21 @@ export default function MonthlyView({
                   }}
                 />
               }
-              label={lang === "ja" ? "期間" : "Range"}
+              label={t("range")}
             />
             {q.from !== now && (
               <Button size="small" onClick={() => setQ((p) => ({ ...p, from: now, to: range ? addMonth(now, 2) : now }))} sx={{ textTransform: "none" }}>
-                {lang === "ja" ? "今月" : "This month"}
+                {t("thisMonth")}
               </Button>
             )}
           </Stack>
-          <TextField select size="small" label="Month by" value={q.basis ?? "delivery"} onChange={(e) => set("basis", e.target.value)} sx={{ minWidth: 140 }}>
-            <MenuItem value="delivery">Delivery month</MenuItem>
-            <MenuItem value="ship">Shipment month</MenuItem>
+          <TextField select size="small" label={t("monthBy")} value={q.basis ?? "delivery"} onChange={(e) => set("basis", e.target.value)} sx={{ minWidth: 140 }}>
+            <MenuItem value="delivery">{t("deliveryMonth")}</MenuItem>
+            <MenuItem value="ship">{t("shipmentMonth")}</MenuItem>
           </TextField>
           {!customerId && (
-            <TextField select size="small" label="Client" value={clientId ?? ""} onChange={(e) => (onClientChange ? onClientChange(e.target.value) : set("customerId", e.target.value))} sx={{ minWidth: 120 }}>
-              <MenuItem value="">All</MenuItem>
+            <TextField select size="small" label={t("client")} value={clientId ?? ""} onChange={(e) => (onClientChange ? onClientChange(e.target.value) : set("customerId", e.target.value))} sx={{ minWidth: 120 }}>
+              <MenuItem value="">{t("all")}</MenuItem>
               {(data?.options.clients ?? []).map((c) => (
                 <MenuItem key={c.id} value={c.id}>
                   {c.name}
@@ -266,8 +268,8 @@ export default function MonthlyView({
             </TextField>
           )}
           {!supplierId && (
-            <TextField select size="small" label="Supplier" value={q.supplier ?? ""} onChange={(e) => set("supplier", e.target.value)} sx={{ minWidth: 120 }}>
-              <MenuItem value="">All</MenuItem>
+            <TextField select size="small" label={t("supplier")} value={q.supplier ?? ""} onChange={(e) => set("supplier", e.target.value)} sx={{ minWidth: 120 }}>
+              <MenuItem value="">{t("all")}</MenuItem>
               {(data?.options.suppliers ?? []).map((s) => (
                 <MenuItem key={s} value={s}>
                   {s}
@@ -275,16 +277,16 @@ export default function MonthlyView({
               ))}
             </TextField>
           )}
-          <TextField select size="small" label="Grade" value={q.grade ?? ""} onChange={(e) => set("grade", e.target.value)} sx={{ minWidth: 100 }}>
-            <MenuItem value="">All</MenuItem>
+          <TextField select size="small" label={t("grade")} value={q.grade ?? ""} onChange={(e) => set("grade", e.target.value)} sx={{ minWidth: 100 }}>
+            <MenuItem value="">{t("all")}</MenuItem>
             {(data?.options.grades ?? []).map((g) => (
               <MenuItem key={g} value={g}>
                 {g}
               </MenuItem>
             ))}
           </TextField>
-          <TextField select size="small" label={lang === "ja" ? "注文ステータス" : "Order Status"} value={q.stage ?? ""} onChange={(e) => set("stage", e.target.value)} sx={{ minWidth: 170 }}>
-            <MenuItem value="">All</MenuItem>
+          <TextField select size="small" label={t("orderStatus")} value={q.stage ?? ""} onChange={(e) => set("stage", e.target.value)} sx={{ minWidth: 170 }}>
+            <MenuItem value="">{t("all")}</MenuItem>
             {(data?.options.stages ?? []).map((s) => (
               <MenuItem key={s.code} value={s.code}>
                 {lang === "ja" ? s.ja : s.en}
@@ -294,31 +296,31 @@ export default function MonthlyView({
           <Stack direction="row" alignItems="center" spacing={1.25} sx={{ ml: "auto" }}>
             {data && (
               <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "nowrap" }} data-tour="monthly-totals">
-                {data.totals.orders} order{data.totals.orders === 1 ? "" : "s"} · {data.totals.rows} row{data.totals.rows === 1 ? "" : "s"} · {t3(data.totals.tons)} t
+                {t("totals", { orders: data.totals.orders, rows: data.totals.rows, tons: t3(data.totals.tons) })}
               </Typography>
             )}
             <Button variant="contained" startIcon={busy ? <CircularProgress size={16} color="inherit" /> : <DownloadIcon />} disabled={busy || !data?.totals.rows} onClick={(e) => setMenu(e.currentTarget)} sx={{ textTransform: "none" }} data-tour="monthly-export">
-              Export
+              {t("export")}
             </Button>
             <Menu anchorEl={menu} open={!!menu} onClose={() => setMenu(null)}>
-              <MenuItem onClick={() => void exportAs("xlsx")}>Excel (.xlsx) — their layout</MenuItem>
-              <MenuItem onClick={() => void exportAs("csv")}>CSV (.csv)</MenuItem>
+              <MenuItem onClick={() => void exportAs("xlsx")}>{t("exportXlsx")}</MenuItem>
+              <MenuItem onClick={() => void exportAs("csv")}>{t("exportCsv")}</MenuItem>
             </Menu>
           </Stack>
         </Stack>
       </Paper>
-      {list.isError && <Alert severity="error">{(list.error as Error)?.message || "Could not load the list"}</Alert>}
+      {list.isError && <Alert severity="error">{(list.error as Error)?.message || t("loadError")}</Alert>}
       {list.isLoading ? (
         <CircularProgress />
       ) : !data?.blocks.length ? (
         <Paper variant="outlined" sx={{ p: 3, textAlign: "center" }}>
           <Typography color="text.secondary">
-            No {bucket === "pending" ? "pending " : bucket === "completed" ? "completed " : ""}orders {query.q ? `matching “${query.q}” ` : ""}in {range ? "this range" : month(q.from ?? now)}.
+            {t(`empty.${bucket}`, { q: query.q ?? "", hasQ: query.q ? "yes" : "no", when: range ? t("thisRange") : month(q.from ?? now) })}
           </Typography>
           {!!data?.elsewhere?.length && (
             <Stack direction="row" spacing={1} justifyContent="center" alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 1.5 }} data-tour="monthly-elsewhere">
               <Typography variant="body2" color="text.secondary">
-                Found in:
+                {t("foundIn")}
               </Typography>
               {data.elsewhere.slice(0, 8).map((m) => (
                 <Chip
@@ -337,7 +339,7 @@ export default function MonthlyView({
           )}
           {bucket !== "all" && !data?.elsewhere?.length && !!data?.counts?.all && (
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              {data.counts.all} order{data.counts.all === 1 ? "" : "s"} in the All tab.
+              {t("inAllTab", { n: data.counts.all })}
             </Typography>
           )}
         </Paper>
@@ -347,15 +349,15 @@ export default function MonthlyView({
             <TableHead>
               <TableRow>
                 {GROUPS.map((g) => (
-                  <TableCell key={g.title} colSpan={g.cols} align="center" sx={{ fontWeight: 800, bgcolor: "background.paper" }} data-tour={g.tour}>
-                    {lang === "ja" ? g.ja : g.title}
+                  <TableCell key={g.key} colSpan={g.cols} align="center" sx={{ fontWeight: 800, bgcolor: "background.paper" }} data-tour={g.tour}>
+                    {t(`groups.${g.key}`)}
                   </TableCell>
                 ))}
               </TableRow>
               <TableRow>
                 {HEADERS.map((h, i) => (
                   <TableCell key={i} sx={{ fontWeight: 700, whiteSpace: "nowrap", top: 33, bgcolor: "background.paper", ...(YELLOW_COLS.has(i) ? { backgroundImage: "linear-gradient(rgba(255,214,0,0.18), rgba(255,214,0,0.18))" } : {}) }}>
-                    {lang === "ja" ? (HEADERS_JA[i] ?? h) : h}
+                    {t(`headers.${h}`)}
                   </TableCell>
                 ))}
               </TableRow>
@@ -365,7 +367,7 @@ export default function MonthlyView({
                 <React.Fragment key={b.client}>
                   <TableRow data-tour="monthly-block">
                     <TableCell colSpan={HEADERS.length} sx={{ fontWeight: 800, bgcolor: "action.selected" }}>
-                      {b.client} — {b.orders} order{b.orders === 1 ? "" : "s"} · {t3(b.tons)} t
+                      {b.client} — {t("blockTotals", { orders: b.orders, tons: t3(b.tons) })}
                     </TableCell>
                   </TableRow>
                   {b.rows.map((r) => (
@@ -382,15 +384,15 @@ export default function MonthlyView({
       <Popover open={!!note} anchorReference="anchorPosition" anchorPosition={note?.pos} onClose={() => setNote(null)} onClick={(e) => e.stopPropagation()}>
         <Box sx={{ p: 1.5, width: 320 }}>
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
-            {note?.row.managementNo} — {lang === "ja" ? "備考" : "Notes"}
+            {note?.row.managementNo} — {t("notes")}
           </Typography>
-          <TextField autoFocus fullWidth multiline minRows={3} size="small" placeholder="e.g. 11/9 2trks 40T · STORE until DEC?" value={note?.text ?? ""} onChange={(e) => setNote((n) => (n ? { ...n, text: e.target.value } : n))} />
+          <TextField autoFocus fullWidth multiline minRows={3} size="small" placeholder={t("notePlaceholder")} value={note?.text ?? ""} onChange={(e) => setNote((n) => (n ? { ...n, text: e.target.value } : n))} />
           <Stack direction="row" justifyContent="flex-end" spacing={1} sx={{ mt: 1 }}>
             <Button size="small" onClick={() => setNote(null)}>
-              Cancel
+              {t("cancel")}
             </Button>
             <Button size="small" variant="contained" onClick={() => void saveNote()}>
-              Save
+              {t("save")}
             </Button>
           </Stack>
         </Box>

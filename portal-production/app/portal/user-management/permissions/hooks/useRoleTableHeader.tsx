@@ -2,12 +2,17 @@ import React, { useState } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
 import { Chip, Typography } from "@mui/material";
 import { kebabColumn } from "@/components/RowKebab";
+import { useUiLang } from "@/i18n/UiLangProvider";
+import { formatDate } from "@/i18n/lang";
 import { useAuth } from "@clerk/nextjs";
+import { useTranslations } from "next-intl";
 
 const columnHelper = createColumnHelper<any>();
 
 export default function useRoleTableHeader() {
   const { getToken } = useAuth();
+  const t = useTranslations("users.roles");
+  const { lang } = useUiLang();
   const [editRoleOpen, setEditRoleOpen] = useState(false);
   const [selectedRole, setSelectedRole] = useState(null);
   const [roleToDelete, setRoleToDelete] = useState<string | null>(null);
@@ -66,7 +71,7 @@ export default function useRoleTableHeader() {
 
   const columns = [
     columnHelper.accessor("name", {
-      header: "Role Name",
+      header: t("name"),
       cell: (info) => (
         <Typography variant="body2" sx={{ fontWeight: 500 }}>
           {info.getValue()}
@@ -74,24 +79,24 @@ export default function useRoleTableHeader() {
       ),
     }),
     columnHelper.accessor("description", {
-      header: "Description",
+      header: t("description"),
       cell: (info) => info.getValue(),
     }),
     columnHelper.accessor("permissions", {
-      header: "Permissions Count",
+      header: t("count"),
       cell: (info) => {
         const permissions = info.getValue();
         const count = Array.isArray(permissions) ? permissions.length : 0;
-        return <Chip label={`${count} permissions`} size="small" variant="outlined" sx={{ borderRadius: "4px" }} />;
+        return <Chip label={t("permCount", { n: count })} size="small" variant="outlined" sx={{ borderRadius: "4px" }} />;
       },
     }),
     columnHelper.accessor("createdAt", {
-      header: "Created",
-      cell: (info) => new Date(info.getValue()).toLocaleDateString(),
+      header: t("created"),
+      cell: (info) => (lang === "ja" ? formatDate(info.getValue(), "ja") : new Date(info.getValue()).toLocaleDateString()),
     }),
     kebabColumn((row: any) => [
-      { label: "Edit", onClick: () => handleEditRole(row) },
-      { label: "Delete", destructive: true, onClick: () => handleDeleteRole(row.id) },
+      { label: t("edit"), onClick: () => handleEditRole(row) },
+      { label: t("delete"), destructive: true, onClick: () => handleDeleteRole(row.id) },
     ]),
   ];
 

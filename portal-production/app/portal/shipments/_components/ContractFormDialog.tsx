@@ -17,6 +17,7 @@ import { Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent,
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
+import { useTranslations } from "next-intl";
 import { useShipmentsApi, type Contract, type ContractDraft, type ContractInput, type ContractLineInput, type DepositDueUnit, type Party, type PiExtraction } from "../_lib/api";
 import { fmtDmy, toDateInput } from "../_lib/format";
 import { useCustomers, useSuppliers, useTradeMutation, useTradeSettings } from "../_lib/hooks";
@@ -174,6 +175,8 @@ export default function ContractFormDialog({
   prefill?: PiExtraction | null;
 }) {
   const api = useShipmentsApi();
+  const t = useTranslations("contracts.form");
+  const tf_ = useTranslations("contracts.fields");
   // Fill from PI: the stored PI file, which fields the AI filled, and the read state.
   // owned = read in THIS dialog (Fill from PI): removed again if the dialog is cancelled.
   // A bulk prefill belongs to the bulk dialog, which cleans up its own files.
@@ -288,11 +291,11 @@ export default function ContractFormDialog({
     try {
       const x = await api.extractPi({ file });
       if (x.status !== "DONE") {
-        setError(`Could not read ${file.name}: ${x.error || "unknown error"}. The PI was stored — fill the form by hand.`);
+        setError(t("couldNotRead", { name: file.name, err: x.error || t("unknownError") }));
         setSource({ fileId: x.fileId, fileName: file.name, existingContractId: null, owned: true });
       } else applyPi(x, true);
     } catch (e: any) {
-      setError(e?.message || "Could not read the PI");
+      setError(e?.message || t("couldNotReadPi"));
     } finally {
       setReading(false);
       setReadingFile(null);
@@ -384,7 +387,7 @@ export default function ContractFormDialog({
       onSaved?.(saved);
       onClose();
     } catch (e: any) {
-      setError(e?.message || "Could not save the contract");
+      setError(e?.message || t("couldNotSave"));
     }
   };
 
@@ -402,14 +405,14 @@ export default function ContractFormDialog({
         }}
         getOptionLabel={(o) => o.name}
         isOptionEqualToValue={(a, b) => a.id === b.id}
-        renderInput={(p) => <TextField {...p} label={label} required size="small" sx={filledSx(filled.has(key))} error={touched && !form[key]} helperText={touched && !form[key] ? (source && key === "customerId" ? "Required — the PI doesn't name the end customer" : "Required") : undefined} />}
+        renderInput={(p) => <TextField {...p} label={label} required size="small" sx={filledSx(filled.has(key))} error={touched && !form[key]} helperText={touched && !form[key] ? (source && key === "customerId" ? t("requiredNoCustomer") : t("required")) : undefined} />}
       />
     );
   };
 
   const tf = (k: TextKey, label: string, extra: Record<string, any> = {}) => <TextField label={label} fullWidth size="small" value={form[k]} onChange={set(k)} sx={filledSx(filled.has(k))} {...guardDate(extra, form[k])} />;
   const dateTf = (k: TextKey, label: string) => tf(k, label, { type: "date", InputLabelProps: { shrink: true } });
-  const monthTf = (k: "shipmentMonth" | "deliveryMonth", label: string) => tf(k, label, { type: "month", InputLabelProps: { shrink: true }, error: monthError(k), helperText: monthError(k) ? "Use YYYY-MM" : undefined });
+  const monthTf = (k: "shipmentMonth" | "deliveryMonth", label: string) => tf(k, label, { type: "month", InputLabelProps: { shrink: true }, error: monthError(k), helperText: monthError(k) ? t("useYm") : undefined });
 
   const blField = (k: "consignee" | "notifyParty", label: string) => {
     const dflt = defaults[k];
@@ -417,10 +420,10 @@ export default function ContractFormDialog({
       <Box>
         <TextField label={label} fullWidth size="small" multiline minRows={5} value={form[k]} onChange={set(k)} inputProps={{ style: { fontFamily: "monospace", fontSize: 12.5 } }} />
         <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 0.5 }}>
-          <Tooltip title={dflt ? "Replace with the org default (Contracts → B/L instruction defaults)" : "No org default set yet"}>
+          <Tooltip title={dflt ? t("resetTip") : t("noDefault")}>
             <span>
               <Button size="small" startIcon={<RestartAltIcon fontSize="small" />} disabled={!dflt || form[k] === dflt} onClick={() => setVal(k, dflt)}>
-                Reset to default
+                {t("reset")}
               </Button>
             </span>
           </Tooltip>
@@ -448,10 +451,10 @@ export default function ContractFormDialog({
   return (
     <Dialog open={open} onClose={() => !save.isPending && !reading && cancel()} maxWidth={source || readingFile ? "xl" : "lg"} fullWidth>
       <DialogTitle>
-        {contract ? `Edit contract ${contract.contractNo}` : "New contract"}
+        {contract ? t("editTitle", { no: contract.contractNo }) : t("newTitle")}
         {!contract && (
           <Typography variant="body2" color="text.secondary">
-            The master contract (LTC). Orders are created from it — each order then gets its shipments.
+            {t("intro")}
           </Typography>
         )}
       </DialogTitle>
@@ -461,9 +464,9 @@ export default function ContractFormDialog({
             {!contract && (
               <Box sx={{ mb: 2 }}>
                 <PdfDropZone
-                  title={source ? "Read another PI" : "Fill from PI"}
+                  title={source ? t("readAnother") : t("fillFromPi")}
                   busy={reading}
-                  busyText="Reading the PI…"
+                  busyText={t("readingPi")}
                   onFiles={(f) => void readPi(f[0])}
                   dataTour="contract-fill-from-pi"
                 />
@@ -471,7 +474,7 @@ export default function ContractFormDialog({
             )}
             {source?.existingContractId && (
               <Alert severity="error" sx={{ mb: 2 }}>
-                Contract {form.contractNo} already exists — this PI may already have been entered.
+                {t("exists", { no: form.contractNo })}
               </Alert>
             )}
             {error && (
@@ -480,40 +483,40 @@ export default function ContractFormDialog({
               </Alert>
             )}
 
-            <Section n={1} title="Contract & parties">
+            <Section n={1} title={tf_("sec1")}>
               <Grid2 container spacing={2}>
-                <Grid2 size={{ xs: 12, sm: 4 }}>{tf("contractNo", "Contract no.", { required: true, autoFocus: true, error: touched && !form.contractNo.trim(), helperText: touched && !form.contractNo.trim() ? "Required" : undefined })}</Grid2>
-                <Grid2 size={{ xs: 12, sm: 4 }}>{tf("piNumber", "PI no.")}</Grid2>
-                <Grid2 size={{ xs: 12, sm: 4 }}>{dateTf("piDate", "PI date")}</Grid2>
-                <Grid2 size={{ xs: 12, sm: 6 }}>{partyField("Supplier", "supplierId", suppliers)}</Grid2>
-                <Grid2 size={{ xs: 12, sm: 6 }}>{partyField("Customer", "customerId", customers)}</Grid2>
-                <Grid2 size={{ xs: 12, sm: 4 }}>{tf("destinationPort", "Destination port")}</Grid2>
-                <Grid2 size={{ xs: 12, sm: 4 }}>{tf("destinationCountry", "Destination country")}</Grid2>
-                <Grid2 size={{ xs: 12, sm: 4 }}>{tf("incoterm", "Incoterm")}</Grid2>
-                <Grid2 size={{ xs: 12, sm: 4 }}>{monthTf("shipmentMonth", "Shipment month")}</Grid2>
-                <Grid2 size={{ xs: 12, sm: 4 }}>{monthTf("deliveryMonth", "Delivery month")}</Grid2>
+                <Grid2 size={{ xs: 12, sm: 4 }}>{tf("contractNo", tf_("contractNo"), { required: true, autoFocus: true, error: touched && !form.contractNo.trim(), helperText: touched && !form.contractNo.trim() ? t("required") : undefined })}</Grid2>
+                <Grid2 size={{ xs: 12, sm: 4 }}>{tf("piNumber", tf_("piNo"))}</Grid2>
+                <Grid2 size={{ xs: 12, sm: 4 }}>{dateTf("piDate", tf_("piDate"))}</Grid2>
+                <Grid2 size={{ xs: 12, sm: 6 }}>{partyField(tf_("supplier"), "supplierId", suppliers)}</Grid2>
+                <Grid2 size={{ xs: 12, sm: 6 }}>{partyField(tf_("customer"), "customerId", customers)}</Grid2>
+                <Grid2 size={{ xs: 12, sm: 4 }}>{tf("destinationPort", tf_("destPort"))}</Grid2>
+                <Grid2 size={{ xs: 12, sm: 4 }}>{tf("destinationCountry", tf_("destCountry"))}</Grid2>
+                <Grid2 size={{ xs: 12, sm: 4 }}>{tf("incoterm", tf_("incoterm"))}</Grid2>
+                <Grid2 size={{ xs: 12, sm: 4 }}>{monthTf("shipmentMonth", tf_("shipmentMonth"))}</Grid2>
+                <Grid2 size={{ xs: 12, sm: 4 }}>{monthTf("deliveryMonth", tf_("deliveryMonth"))}</Grid2>
                 <Grid2 size={{ xs: 12, sm: 4 }}>
-                  <TextField label="Currency" fullWidth size="small" value={form.currency} onChange={(e) => setVal("currency", e.target.value.toUpperCase().slice(0, 3))} sx={filledSx(filled.has("currency"))} error={currencyError} helperText={currencyError ? "3-letter code, e.g. USD" : undefined} />
+                  <TextField label={tf_("currency")} fullWidth size="small" value={form.currency} onChange={(e) => setVal("currency", e.target.value.toUpperCase().slice(0, 3))} sx={filledSx(filled.has("currency"))} error={currencyError} helperText={currencyError ? t("currencyHint") : undefined} />
                 </Grid2>
-                <Grid2 size={12}>{tf("notes", "Notes", { multiline: true, minRows: 2 })}</Grid2>
+                <Grid2 size={12}>{tf("notes", tf_("notes"), { multiline: true, minRows: 2 })}</Grid2>
               </Grid2>
             </Section>
             <Divider sx={{ mb: 2 }} />
 
-            <Section n={2} title="B/L instructions">
+            <Section n={2} title={tf_("sec2")}>
               <Grid2 container spacing={2}>
-                <Grid2 size={{ xs: 12, md: 6 }}>{blField("consignee", "Consignee")}</Grid2>
-                <Grid2 size={{ xs: 12, md: 6 }}>{blField("notifyParty", "Notify party")}</Grid2>
+                <Grid2 size={{ xs: 12, md: 6 }}>{blField("consignee", tf_("consignee"))}</Grid2>
+                <Grid2 size={{ xs: 12, md: 6 }}>{blField("notifyParty", tf_("notifyParty"))}</Grid2>
               </Grid2>
             </Section>
             <Divider sx={{ mb: 2 }} />
 
             <Section
               n={3}
-              title="Product lines"
+              title={tf_("sec3")}
               action={
                 <Button size="small" startIcon={<AddIcon />} onClick={() => setLines((ls) => [...ls, newLine()])}>
-                  Add line
+                  {t("addLine")}
                 </Button>
               }
             >
@@ -527,16 +530,16 @@ export default function ContractFormDialog({
                   </colgroup>
                   <TableHead>
                     <TableRow>
-                      <TableCell>Grade</TableCell>
-                      <TableCell>Size / spec</TableCell>
-                      <TableCell>Product</TableCell>
-                      <TableCell align="right">Qty (MT)</TableCell>
-                      <TableCell align="right">Tolerance %</TableCell>
-                      <TableCell align="right">Vedanta premium (USD/t)</TableCell>
-                      <TableCell align="right">Client premium (USD/t)</TableCell>
-                      <TableCell align="right">QMJP (USD/t)</TableCell>
-                      <TableCell align="right">Billet premium (USD/t)</TableCell>
-                      <TableCell align="right">Upcharge (USD/t)</TableCell>
+                      <TableCell>{tf_("grade")}</TableCell>
+                      <TableCell>{tf_("sizeSpec")}</TableCell>
+                      <TableCell>{tf_("product")}</TableCell>
+                      <TableCell align="right">{tf_("qtyMt")}</TableCell>
+                      <TableCell align="right">{tf_("tolerancePct")}</TableCell>
+                      <TableCell align="right">{tf_("vedantaPremium")}</TableCell>
+                      <TableCell align="right">{tf_("clientPremium")}</TableCell>
+                      <TableCell align="right">{tf_("qmjp")}</TableCell>
+                      <TableCell align="right">{tf_("billetPremium")}</TableCell>
+                      <TableCell align="right">{tf_("upcharge")}</TableCell>
                       <TableCell />
                     </TableRow>
                   </TableHead>
@@ -554,9 +557,9 @@ export default function ContractFormDialog({
                         {lineCell(l, "billetPremium", { numeric: true, allowNegative: true })}
                         {lineCell(l, "upcharge", { numeric: true, allowNegative: true })}
                         <TableCell sx={{ px: 0.5, width: 40 }}>
-                          <Tooltip title={lines.length === 1 ? "A contract needs at least one product line" : "Remove line"}>
+                          <Tooltip title={lines.length === 1 ? t("needOneLine") : t("removeLine")}>
                             <span>
-                              <IconButton size="small" aria-label="Remove line" disabled={lines.length === 1} onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))}>
+                              <IconButton size="small" aria-label={t("removeLine")} disabled={lines.length === 1} onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))}>
                                 <DeleteOutlineIcon fontSize="small" />
                               </IconButton>
                             </span>
@@ -566,7 +569,7 @@ export default function ContractFormDialog({
                     ))}
                     <TableRow>
                       <TableCell colSpan={3} sx={{ px: 0.5, fontWeight: 700, borderBottom: 0 }}>
-                        Total ({lines.length} line{lines.length === 1 ? "" : "s"})
+                        {t("totalLines", { n: lines.length })}
                       </TableCell>
                       <TableCell align="right" sx={{ px: 1.5, fontWeight: 700, borderBottom: 0, fontVariantNumeric: "tabular-nums" }}>
                         {totalQty.toLocaleString("en-US", { maximumFractionDigits: 3 })} MT
@@ -579,13 +582,13 @@ export default function ContractFormDialog({
             </Section>
             <Divider sx={{ mb: 2 }} />
 
-            <Section n={4} title="PI payment">
+            <Section n={4} title={tf_("sec4")}>
               <Grid2 container spacing={2}>
-                <Grid2 size={{ xs: 12, sm: 4 }}>{tf("piAmount", "PI amount", { type: "number", inputProps: { min: 0, step: "0.01" }, error: numberError(form.piAmount) })}</Grid2>
-                <Grid2 size={{ xs: 12, sm: 4 }}>{tf("depositPercent", "Deposit %", { type: "number", inputProps: { min: 0, max: 100, step: "0.01" }, error: pctError, helperText: pctError ? "0–100" : undefined })}</Grid2>
+                <Grid2 size={{ xs: 12, sm: 4 }}>{tf("piAmount", tf_("piAmount"), { type: "number", inputProps: { min: 0, step: "0.01" }, error: numberError(form.piAmount) })}</Grid2>
+                <Grid2 size={{ xs: 12, sm: 4 }}>{tf("depositPercent", tf_("depositPct"), { type: "number", inputProps: { min: 0, max: 100, step: "0.01" }, error: pctError, helperText: pctError ? "0–100" : undefined })}</Grid2>
                 <Grid2 size={{ xs: 12, sm: 4 }}>
                   <TextField
-                    label="Deposit amount"
+                    label={tf_("depositAmount")}
                     type="number"
                     fullWidth
                     size="small"
@@ -608,7 +611,7 @@ export default function ContractFormDialog({
                             setForm((f) => ({ ...f, depositAmount: autoDeposit(f.piAmount, f.depositPercent) }));
                           }}
                         >
-                          Recalculate from PI amount × %
+                          {t("recalc")}
                         </Box>
                       ) : undefined
                     }
@@ -628,7 +631,7 @@ export default function ContractFormDialog({
                     }}
                   />
                 </Grid2>
-                <Grid2 size={{ xs: 12, sm: 4 }}>{dateTf("depositPaidAt", "Deposit paid on")}</Grid2>
+                <Grid2 size={{ xs: 12, sm: 4 }}>{dateTf("depositPaidAt", tf_("depositPaidOn"))}</Grid2>
               </Grid2>
             </Section>
           </Grid2>
@@ -641,10 +644,10 @@ export default function ContractFormDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={cancel} disabled={save.isPending || reading}>
-          Cancel
+          {t("cancel")}
         </Button>
         <Button variant="contained" onClick={submit} disabled={save.isPending || reading}>
-          {save.isPending ? "Saving…" : contract ? "Save changes" : "Create contract"}
+          {save.isPending ? t("saving") : contract ? t("saveChanges") : t("create")}
         </Button>
       </DialogActions>
     </Dialog>
@@ -674,6 +677,8 @@ function DepositDueField({
   onChange: (days: string, unit: string) => void;
 }) {
   const api = useShipmentsApi();
+  const t = useTranslations("contracts.form");
+  const tf_ = useTranslations("contracts.fields");
   const [due, setDue] = useState<string | null>(null);
   useEffect(() => {
     const n = Number(days);
@@ -697,7 +702,7 @@ function DepositDueField({
     <Box>
       <Stack direction="row" spacing={1} alignItems="flex-start">
         <TextField
-          label="Deposit due"
+          label={tf_("depositDue")}
           type="number"
           size="small"
           value={days}
@@ -706,23 +711,23 @@ function DepositDueField({
           error={error}
           sx={{ width: 120, ...filledSx(filled) }}
         />
-        <TextField select size="small" label="Unit" value={unit} onChange={(e) => onChange(days, e.target.value)} sx={{ width: 170, ...filledSx(filled) }}>
-          <MenuItem value="BUSINESS">Business days</MenuItem>
-          <MenuItem value="CALENDAR">Calendar days</MenuItem>
+        <TextField select size="small" label={t("unit")} value={unit} onChange={(e) => onChange(days, e.target.value)} sx={{ width: 170, ...filledSx(filled) }}>
+          <MenuItem value="BUSINESS">{t("businessDays")}</MenuItem>
+          <MenuItem value="CALENDAR">{t("calendarDays")}</MenuItem>
         </TextField>
         <Box sx={{ pt: 1, minWidth: 0 }}>
           <Typography variant="body2" sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>
-            {due ? `→ due ${fmtDmy(due)}` : piDate ? "" : "after the PI date"}
+            {due ? t("dueOn", { date: fmtDmy(due) }) : piDate ? "" : t("afterPi")}
           </Typography>
         </Box>
       </Stack>
       {error ? (
         <Typography variant="caption" color="error">
-          A whole number of days, 0–365
+          {t("wholeDays")}
         </Typography>
       ) : legacyNote ? (
         <Typography variant="caption" color="text.secondary">
-          Written on the contract as: “{legacyNote}”
+          {t("writtenAs", { note: legacyNote })}
         </Typography>
       ) : null}
     </Box>

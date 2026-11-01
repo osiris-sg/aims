@@ -1,0 +1,18 @@
+{
+  "CHECK_CONTRACT": "契約内容の確認",
+  "PI_PAYMENT": "PI（前払金）の支払い",
+  "INVOICE_1": "請求書①の発行・送付",
+  "BL_DRAFT_APPROVAL": "B/Lドラフトの承認",
+  "SHIPPING_DOCS": "船積書類の受領",
+  "CUSTOMER_DOCS": "顧客向け書類の作成",
+  "SEND_DOCS_SCHEDULE": "書類送付・納期確認",
+  "CI_PAYMENT": "CI（残金）の支払い",
+  "CUSTOMS_TAX_ESTIMATE": "通関書類・輸入税見積",
+  "TAX_FUNDS": "輸入税の資金準備",
+  "AN_INSTRUCTIONS": "到着案内・出庫指示の送付",
+  "IMPORT_PERMIT": "輸入許可書の保管・送付",
+  "INVOICE_2": "請求書②（最終請求書）の発行",
+  "LOGISTICS_PAYMENT": "運送費・保管料の支払い",
+  "XERO_HANDOFF": "Xero照合用データの準備",
+  "DELIVERY_CHANGES": "納品変更の調整"
+}

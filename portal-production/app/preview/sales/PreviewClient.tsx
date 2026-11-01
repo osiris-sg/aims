@@ -6,6 +6,7 @@
 import React, { useState } from "react";
 import { Box, Tab, Tabs, Typography } from "@mui/material";
 import TradeTheme from "@/app/portal/shipments/_components/TradeTheme";
+import { StaticUiLang } from "@/i18n/UiLangProvider";
 import { EmailDashboardView } from "@/app/portal/shipments/_components/EmailDashboard";
 import { InboxThreadList, type InboxActions } from "@/app/portal/shipments/_components/inbox/InboxThreadList";
 import { DASHBOARD, DASHBOARD_MANY, PREVIEW_TODAY, PROCESSED, SHIPMENTS, TASKS, UNPROCESSED, UNPROCESSED_MANY } from "./fixtures";
@@ -16,8 +17,12 @@ const noop: InboxActions = { lang: "en", onAnswer: async () => null, onAnswerUnd
 export default function PreviewClient({ view, many = false }: { view: "dashboard" | "inbox"; many?: boolean }) {
   const [tab, setTab] = useState<"UNPROCESSED" | "PROCESSED">("UNPROCESSED");
   const unprocessed = many ? UNPROCESSED_MANY : UNPROCESSED;
+  // Round AZ: ?lang=ja renders the dashboard in Japanese.
+  const [lang, setLang] = useState<"en" | "ja">("en");
+  React.useEffect(() => setLang(new URLSearchParams(window.location.search).get("lang") === "ja" ? "ja" : "en"), []);
   return (
-    <TradeTheme>
+    <StaticUiLang lang={lang}>
+    <TradeTheme key={lang}>
       {view === "dashboard" ? (
         <EmailDashboardView data={{ inbox: many ? DASHBOARD_MANY : DASHBOARD, tasks: TASKS, shipments: SHIPMENTS, today: PREVIEW_TODAY, loading: false }} actions={noop} onTasksChanged={() => undefined} />
       ) : (
@@ -33,5 +38,6 @@ export default function PreviewClient({ view, many = false }: { view: "dashboard
         </Box>
       )}
     </TradeTheme>
+    </StaticUiLang>
   );
 }

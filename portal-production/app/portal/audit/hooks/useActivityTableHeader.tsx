@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import { Chip, Typography, Box, Tooltip } from "@mui/material";
 import { format } from "date-fns";
 import { ActionLogRow } from "./useGetActionLogs";
+import { useTranslations } from "next-intl";
+import { useUiLang } from "@/i18n/UiLangProvider";
 
 // MUI palette-based colors only — theme-aware in both light and dark mode.
 const ACTOR_COLOR: Record<string, "primary" | "secondary" | "info" | "default"> = {
@@ -21,20 +23,22 @@ const ACTION_COLOR = (action: string): "success" | "warning" | "error" | "info" 
 };
 
 export default function useActivityTableHeader() {
+  const t = useTranslations("audit.activity");
+  const { lang } = useUiLang();
   const columns = useMemo(
     () => [
       {
-        header: "Time",
+        header: t("time"),
         accessorKey: "createdAt",
         cell: ({ row }: { row: { original: ActionLogRow } }) => (
           <Typography variant="body2" sx={{ fontSize: "0.85rem", whiteSpace: "nowrap" }}>
-            {format(new Date(row.original.createdAt), "MMM dd, HH:mm:ss")}
+            {format(new Date(row.original.createdAt), lang === "ja" ? "MM/dd HH:mm:ss" : "MMM dd, HH:mm:ss")}
           </Typography>
         ),
         size: 130,
       },
       {
-        header: "Actor",
+        header: t("actor"),
         accessorKey: "actorName",
         cell: ({ row }: { row: { original: ActionLogRow } }) => {
           const r = row.original;
@@ -43,7 +47,7 @@ export default function useActivityTableHeader() {
               <Chip label={r.actorType === "API_KEY" ? "API" : r.actorType} size="small" variant="outlined" color={ACTOR_COLOR[r.actorType] || "default"} sx={{ fontSize: "0.7rem" }} />
               <Box>
                 <Typography variant="body2" sx={{ fontWeight: 500, fontSize: "0.85rem" }}>
-                  {r.actorName || (r.actorType === "SYSTEM" ? "System creation" : r.actorId)}
+                  {r.actorName || (r.actorType === "SYSTEM" ? t("systemCreation") : r.actorId)}
                 </Typography>
                 {r.actorEmail && (
                   <Typography variant="caption" sx={{ color: "text.secondary", fontSize: "0.72rem" }}>
@@ -57,7 +61,7 @@ export default function useActivityTableHeader() {
         size: 230,
       },
       {
-        header: "Action",
+        header: t("action"),
         accessorKey: "action",
         cell: ({ row }: { row: { original: ActionLogRow } }) => (
           <Chip label={row.original.action} size="small" color={ACTION_COLOR(row.original.action)} sx={{ fontSize: "0.72rem", fontWeight: 500 }} />
@@ -65,7 +69,7 @@ export default function useActivityTableHeader() {
         size: 110,
       },
       {
-        header: "Resource",
+        header: t("resource"),
         accessorKey: "resource",
         cell: ({ row }: { row: { original: ActionLogRow } }) => (
           <Box>
@@ -84,7 +88,7 @@ export default function useActivityTableHeader() {
         size: 150,
       },
       {
-        header: "Request",
+        header: t("request"),
         accessorKey: "path",
         cell: ({ row }: { row: { original: ActionLogRow } }) => {
           const r = row.original;
@@ -100,7 +104,7 @@ export default function useActivityTableHeader() {
         size: 260,
       },
       {
-        header: "Status",
+        header: t("status"),
         accessorKey: "status",
         cell: ({ row }: { row: { original: ActionLogRow } }) => {
           const r = row.original;
@@ -119,17 +123,17 @@ export default function useActivityTableHeader() {
         size: 120,
       },
       {
-        header: "Duration",
+        header: t("duration"),
         accessorKey: "durationMs",
         cell: ({ row }: { row: { original: ActionLogRow } }) => (
           <Typography variant="body2" sx={{ fontSize: "0.8rem", fontVariantNumeric: "tabular-nums", color: (row.original.durationMs || 0) > 2000 ? "warning.main" : "text.secondary" }}>
-            {row.original.durationMs != null ? `${row.original.durationMs} ms` : "—"}
+            {row.original.durationMs != null ? t("ms", { n: String(row.original.durationMs) }) : "—"}
           </Typography>
         ),
         size: 90,
       },
       {
-        header: "IP",
+        header: t("ip"),
         accessorKey: "ipAddress",
         cell: ({ row }: { row: { original: ActionLogRow } }) => (
           <Typography variant="body2" sx={{ fontSize: "0.8rem", fontVariantNumeric: "tabular-nums" }}>
@@ -139,7 +143,7 @@ export default function useActivityTableHeader() {
         size: 120,
       },
     ],
-    []
+    [t, lang]
   );
 
   return { columns };

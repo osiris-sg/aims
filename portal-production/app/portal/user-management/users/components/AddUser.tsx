@@ -6,6 +6,7 @@ import useAddUserStates from "../hooks/useAddUser";
 import { request } from "@/helpers/request";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useAuth } from "@clerk/nextjs";
+import { useTranslations } from "next-intl";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import PersonAddIcon from "@mui/icons-material/PersonAdd";
@@ -21,8 +22,9 @@ interface Props {
 // prefix; 'field-tech' keeps its name (the app keys on it) but reads as
 // "Technician (field app)".
 const PRESET_PREFIX = "Preset · ";
-const PRESET_LABEL: Record<string, string> = { "field-tech": "Technician (field app)" };
-const presetLabel = (r: { name: string; description?: string | null }) => PRESET_LABEL[r.name] ?? r.name;
+// Round AZ: the label text is users.form.fieldTech (English unchanged).
+const PRESET_LABEL: Record<string, string> = { "field-tech": "fieldTech" };
+const presetLabel = (r: { name: string; description?: string | null }, t: (key: string) => string) => (PRESET_LABEL[r.name] ? t(PRESET_LABEL[r.name]) : r.name);
 const presetSummary = (r: { description?: string | null }) => {
   const d = String(r.description ?? "");
   const i = d.indexOf(" — ");
@@ -38,6 +40,7 @@ interface Role {
 
 export default function AddUser({ open, onClose, onUserCreated }: Props) {
   const { createUser, loading } = useAddUserStates();
+  const t = useTranslations("users.form");
   const { getToken } = useAuth();
   const [roles, setRoles] = useState<Role[]>([]);
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
@@ -95,7 +98,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
 
   const onSubmit = async (data: any) => {
     if (selectedRoles.length === 0) {
-      setError("Please select at least one role");
+      setError(t("selectOneRole"));
       return;
     }
 
@@ -129,7 +132,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
         onUserCreated();
       }
     } catch (error: any) {
-      setError(error.message || "Failed to create user");
+      setError(error.message || t("createFailed"));
     }
   };
 
@@ -185,11 +188,11 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                 fontSize: "1.5rem",
               }}
             >
-              Create New User
+              {t("createTitle")}
             </Typography>
           </Box>
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            Add a new user account with email and role assignments
+            {t("createSub")}
           </Typography>
         </Box>
 
@@ -217,12 +220,12 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
               <Grid container spacing={3}>
                 <Grid item xs={6}>
                   <FormInputBox
-                    label="First Name"
+                    label={t("firstName")}
                     control={control}
                     name="firstName"
-                    placeHolder="Enter first name"
+                    placeHolder={t("firstNamePh")}
                     rules={{
-                      required: "First name is required",
+                      required: t("firstNameReq"),
                     }}
                     error={!!errors.firstName}
                     helperText={errors.firstName?.message as string}
@@ -231,12 +234,12 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
 
                 <Grid item xs={6}>
                   <FormInputBox
-                    label="Last Name"
+                    label={t("lastName")}
                     control={control}
                     name="lastName"
-                    placeHolder="Enter last name"
+                    placeHolder={t("lastNamePh")}
                     rules={{
-                      required: "Last name is required",
+                      required: t("lastNameReq"),
                     }}
                     error={!!errors.lastName}
                     helperText={errors.lastName?.message as string}
@@ -245,15 +248,15 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
 
                 <Grid item xs={12}>
                   <FormInputBox
-                    label="Email Address"
+                    label={t("email")}
                     control={control}
                     name="email"
-                    placeHolder="Enter email address"
+                    placeHolder={t("emailPh")}
                     rules={{
-                      required: "Email is required",
+                      required: t("emailReq"),
                       pattern: {
                         value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-                        message: "Invalid email address",
+                        message: t("emailInvalid"),
                       },
                     }}
                     error={!!errors.email}
@@ -263,16 +266,16 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
 
               <Grid item xs={12}>
                   <FormInputBox
-                    label="Password"
+                    label={t("password")}
                     control={control}
                     name="password"
                     type={showPassword ? "text" : "password"}
-                    placeHolder="Enter password"
+                    placeHolder={t("passwordPh")}
                     rules={{
-                      validate: (v: string) => !v || v.length >= 8 || "Password must be at least 8 characters",
+                      validate: (v: string) => !v || v.length >= 8 || t("passwordMin"),
                     }}
                     error={!!errors.password}
-                    helperText={(errors.password?.message as string) || "Optional. Leave blank and they sign in with an email code."}
+                    helperText={(errors.password?.message as string) || t("passwordHelp")}
                   />
                   <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1 }}>
                     <Button
@@ -285,17 +288,17 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                         p: 0.5,
                       }}
                     >
-                      {showPassword ? "Hide password" : "Show password"}
+                      {showPassword ? t("hidePassword") : t("showPassword")}
                     </Button>
                   </Box>
               </Grid>
 
               <Grid item xs={12}>
                   <FormInputBox
-                    label="Salesman Code"
+                    label={t("salesmanCode")}
                     control={control}
                     name="salesmanCode"
-                    placeHolder="Enter salesman code (e.g., S001)"
+                    placeHolder={t("salesmanCodePh")}
                   />
                 </Grid>
 
@@ -304,22 +307,22 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                   retyping it on every quotation (Eve @ Biofuel, 2026-09-24). */}
               <Grid item xs={12}>
                   <FormInputBox
-                    label="Salesman Mobile"
+                    label={t("salesmanMobile")}
                     control={control}
                     name="salesmanMobile"
-                    placeHolder="e.g., 9014 5879"
+                    placeHolder={t("salesmanMobilePh")}
                   />
                 </Grid>
 
               <Grid item xs={12}>
                   <FormControl fullWidth>
                     <InputLabel id="select-roles-label">
-                      {isRolePresetsEnabled ? "Role" : "Select Roles"}
+                      {isRolePresetsEnabled ? t("role") : t("selectRoles")}
                     </InputLabel>
                     <Select
                       labelId="select-roles-label"
                       id="select-roles"
-                      label={isRolePresetsEnabled ? "Role" : "Select Roles"}
+                      label={isRolePresetsEnabled ? t("role") : t("selectRoles")}
                       multiple={!isRolePresetsEnabled}
                       value={isRolePresetsEnabled ? (selectedRoles[0] ?? "") : selectedRoles}
                       onChange={(e) => {
@@ -333,7 +336,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                             return (
                               <Chip
                                 key={value}
-                                label={role ? presetLabel(role) : value}
+                                label={role ? presetLabel(role, t) : value}
                                 size="small"
                                 sx={{
                                   bgcolor: (t) => alpha(t.palette.primary.main, t.palette.mode === "dark" ? 0.22 : 0.12),
@@ -381,7 +384,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                         <MenuItem key={role.id} value={role.id}>
                           <Box sx={{ minWidth: 0 }}>
                             <Typography variant="body2" sx={{ fontWeight: 600, color: "text.primary" }}>
-                              {presetLabel(role)}
+                              {presetLabel(role, t)}
                             </Typography>
                             {role.description && (
                               <Typography variant="caption" sx={{ color: "text.secondary", display: "block", lineHeight: 1.4 }}>
@@ -428,7 +431,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
               disabled={loading}
               color="inherit"
               >
-                Cancel
+                {t("cancel")}
               </Button>
             <Button
               type="submit"
@@ -437,7 +440,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
               disabled={loading}
               onClick={handleSubmit(onSubmit)}
             >
-              {loading ? "Creating..." : "Create User"}
+              {loading ? t("creating") : t("create")}
               </Button>
             </Box>
           </Box>

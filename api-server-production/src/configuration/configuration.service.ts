@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { withFeatureStamps } from '../organizations/feature-stamps';
 import { PrismaService } from '../common/prisma.service';
 import { CreateModuleDto, UpdateModuleDto, ModuleConfigDto } from './dto/module.dto';
 import { CreateCustomFieldDto, UpdateCustomFieldDto } from './dto/custom-field.dto';
@@ -203,6 +204,10 @@ export class ConfigurationService {
   }
 
   async updateUIConfig(organizationId: string, data: UpdateUIConfigDto) {
+    if (data && (data as any).features !== undefined) {
+      const prev = await this.prisma.organizationUIConfig.findUnique({ where: { organizationId }, select: { features: true } });
+      data = { ...data, features: withFeatureStamps(prev?.features, (data as any).features) as any };
+    }
     return this.prisma.organizationUIConfig.upsert({
       where: { organizationId },
       update: data,

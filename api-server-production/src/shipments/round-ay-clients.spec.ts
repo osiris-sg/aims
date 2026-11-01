@@ -60,7 +60,7 @@ describe('round AY — contacts and logistics', () => {
 
 describe('round AY — shipping lines', () => {
   it('the catalogue lists the lines AIMS knows by their B/L (Wan Hai, KMTC, MSC, SITC, RCL, Evergreen, Maersk)', () => {
-    expect(carrierCatalog().map((c) => c.code).sort()).toEqual(['EVERGREEN', 'KMTC', 'MAERSK', 'MSC', 'RCL', 'SITC', 'WANHAI']);
+    expect(carrierCatalog().map((c) => c.code).sort()).toEqual(['EVERGREEN', 'JINJIANG', 'KMTC', 'MAERSK', 'MSC', 'RCL', 'SITC', 'WANHAI']); // + Jinjiang (round AZ)
   });
   it('a line: name, links (http/https), agents, free time (whole days), notes', () => {
     const l = cleanShippingLine({ name: 'Wan Hai Lines', website: 'https://www.wanhai.com', agents: [{ company: 'Wan Hai Lines (Japan)', name: 'Tanaka', email: 'tanaka@wanhai.example' }], freeTime: { detDays: '4', demDays: 10, note: 'calendar days' }, notes: 'A/N ~2 days before ETA' }, undefined, fail);

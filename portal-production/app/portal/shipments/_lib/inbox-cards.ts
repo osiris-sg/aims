@@ -235,7 +235,30 @@ const DOC_PLAIN: Record<string, string> = {
   SHIPPING_INSTRUCTIONS: "Shipping instructions",
   OTHER: "Other document",
 };
-export const docPlainName = (f: Pick<InboxLinkedFile, "docType" | "docLabel">): string => f.docLabel || (f.docType ? (DOC_PLAIN[f.docType] ?? f.docType) : "Document");
+const DOC_PLAIN_JA: Record<string, string> = {
+  CI: "コマーシャルインボイス（CI）",
+  PI: "プロフォーマインボイス（PI）",
+  PL: "パッキングリスト",
+  COA: "COA",
+  BL: "船荷証券（B/L）",
+  BL_DRAFT: "B/Lドラフト",
+  ARRIVAL_NOTICE: "到着案内",
+  IMPORT_PERMIT: "輸入許可書",
+  DELIVERY_NOTE: "納品書",
+  BUNDLE_LIST: "バンドルリスト（NO.取りリスト）",
+  TELEX_RELEASE: "テレックスリリース",
+  CONTRACT: "売買契約書",
+  COO: "原産地証明書",
+  INSURANCE: "保険証券",
+  CONTAINER_PL: "コンテナパッキングリスト",
+  DELIVERY_SCHEDULE: "納入スケジュール",
+  PAYMENT_PROOF: "支払証明",
+  VENDOR_INVOICE: "仕入先請求書",
+  SHIPPING_INSTRUCTIONS: "出庫・納入依頼書",
+  OTHER: "その他の書類",
+};
+export const docPlainName = (f: Pick<InboxLinkedFile, "docType" | "docLabel">, lang: InboxLang = "en"): string =>
+  f.docLabel || (f.docType ? ((lang === "ja" ? DOC_PLAIN_JA : DOC_PLAIN)[f.docType] ?? f.docType) : lang === "ja" ? "書類" : "Document");
 
 export interface ResultLine {
   text: string;
@@ -259,7 +282,7 @@ const orderHref = (orderId: string | null | undefined, shipmentId?: string | nul
 
 /** "22AA198GX06003.pdf → Bundle list (NO.取りリスト), step 9" — clickable into the slot on the order page. */
 export const fileLine = (f: InboxLinkedFile, lang: InboxLang, orderId: string | null): ResultLine => ({
-  text: `${f.name} → ${docPlainName(f)}${f.stepNo ? `, ${L[lang].step(f.stepNo)}` : ""}`,
+  text: `${f.name} → ${docPlainName(f, lang)}${f.stepNo ? `, ${L[lang].step(f.stepNo)}` : ""}`,
   href: orderHref(f.ownerKind === "order" ? f.ownerId : orderId, f.ownerKind !== "order" ? f.ownerId : null, f.stepId, f.name),
 });
 
@@ -288,7 +311,7 @@ export function threadResultLines(messages: Array<Pick<InboxMessage, "id" | "dat
     .map((m) => {
       const filed = m.linked!.files.filter((f) => f.status === "done");
       const byType = new Map<string, number>();
-      for (const f of filed) byType.set(docPlainName(f), (byType.get(docPlainName(f)) ?? 0) + 1);
+      for (const f of filed) byType.set(docPlainName(f, lang), (byType.get(docPlainName(f, lang)) ?? 0) + 1);
       const docs = [...byType.entries()].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n)).join(", ");
       return { text: `${when(m.date)} → ${m.linked!.ref}${docs ? ` · ${docs}` : lang === "ja" ? " · 紐付けのみ" : " · link only"}`, href: orderHref(m.linked!.orderId, m.linked!.shipmentId, filed[0]?.stepId ?? null, filed[0]?.name ?? null) };
     });
@@ -345,9 +368,9 @@ export function headerSummary(h: { from: string; to: string; cc: string }, compa
 // ── Round AA: the minimal question card + the "Choose shipment" dialog ───────────────────────────────────────────
 
 /** Round AD (owner: no "…" anywhere): the subject in full, whitespace collapsed; "(no subject)" when empty. The `max` is ignored. */
-export function trimSubject(subject: string | null | undefined, _max = 50): string {
+export function trimSubject(subject: string | null | undefined, _max = 50, lang: InboxLang = "en"): string {
   const s = (subject ?? "").replace(/\s+/g, " ").trim();
-  return s || "(no subject)";
+  return s || (lang === "ja" ? "（件名なし）" : "(no subject)");
 }
 
 /** The sender's display name from a From header ("Name <a@b>" → Name; a bare address → its local part) — mirrors inbox-threads' fromParts (no runtime import: node --test). */
@@ -393,7 +416,7 @@ export function cardFromLine(m: Pick<InboxMessage, "from" | "company" | "date" |
 }
 
 /** The subject in full for the card, whitespace collapsed; "(no subject)" when empty. */
-export const fullSubject = (subject: string | null | undefined): string => (subject ?? "").replace(/\s+/g, " ").trim() || "(no subject)";
+export const fullSubject = (subject: string | null | undefined, lang: InboxLang = "en"): string => (subject ?? "").replace(/\s+/g, " ").trim() || (lang === "ja" ? "（件名なし）" : "(no subject)");
 
 /**
  * Round AB: the muted one-line summary under the company line — the stored summary (made once when the email was

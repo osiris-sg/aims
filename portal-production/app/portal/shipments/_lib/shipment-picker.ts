@@ -8,11 +8,11 @@ import type { EmailFactKey, EmailShipmentFacts, OrderListItem, ShipmentListItem 
 export type PickerFmt = { day: (d?: string | null) => string; customer: (name: string | null | undefined) => string | null };
 
 /** "#18-2 · SUS · 6005 · 20.4 t · ETA 29 Oct" — one shipment row; no net yet → its B/L, or "no B/L yet". */
-export function shipmentLine(s: Pick<ShipmentListItem, "ref" | "blNumber" | "netWeightMt" | "eta" | "customerName" | "customer" | "order" | "contractLine" | "productLine">, fmt: PickerFmt): string {
+export function shipmentLine(s: Pick<ShipmentListItem, "ref" | "blNumber" | "netWeightMt" | "eta" | "customerName" | "customer" | "order" | "contractLine" | "productLine">, fmt: PickerFmt, lang: "en" | "ja" = "en"): string {
   const net = s.netWeightMt !== null && s.netWeightMt !== undefined && s.netWeightMt !== "" && Number.isFinite(Number(s.netWeightMt)) ? `${Number(s.netWeightMt).toLocaleString("en-US", { maximumFractionDigits: 1 })} t` : null;
   const grade = s.order?.grade ?? s.contractLine?.grade ?? s.productLine ?? null;
-  const qty = net ?? (s.blNumber ? `B/L ${s.blNumber}` : "no B/L yet");
-  return [s.ref || (s.blNumber ? `B/L ${s.blNumber}` : "Shipment"), fmt.customer(s.customerName ?? s.customer?.name), grade, qty, s.eta ? `ETA ${fmt.day(s.eta).slice(0, 6)}` : null].filter(Boolean).join(" · ");
+  const qty = net ?? (s.blNumber ? `B/L ${s.blNumber}` : lang === "ja" ? "B/L未着" : "no B/L yet");
+  return [s.ref || (s.blNumber ? `B/L ${s.blNumber}` : lang === "ja" ? "出荷" : "Shipment"), fmt.customer(s.customerName ?? s.customer?.name), grade, qty, s.eta ? `ETA ${fmt.day(s.eta).slice(0, 6)}` : null].filter(Boolean).join(" · ");
 }
 
 /** "#27-1": the order's next shipment number (cancelled shipments keep theirs, as the server counts). */

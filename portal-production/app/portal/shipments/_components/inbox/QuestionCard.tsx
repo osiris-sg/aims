@@ -10,7 +10,8 @@
 import React, { useState } from "react";
 import { Box, Button, Paper, Stack, Typography } from "@mui/material";
 import type { InboxAnswer, InboxLang, InboxThread } from "../../_lib/api";
-import { cardSummary, cardWhoLine, fullSubject, L } from "../../_lib/inbox-cards";
+import { cardSummary, cardWhoLine, fullSubject } from "../../_lib/inbox-cards";
+import { useInboxLabels } from "./useInboxLabels";
 import { ChooseShipmentDialog } from "./ChooseShipmentDialog";
 
 export interface QuestionCardProps {
@@ -28,9 +29,9 @@ export function QuestionCard({ t, lang, n, busy, onAnswer, onCreateOrder, onOpen
   const q = t.question;
   const [choose, setChoose] = useState(false);
   const newest = t.messages[0];
-  const labels = L[lang];
+  const labels = useInboxLabels();
   if (!q || !newest) return null;
-  const subject = fullSubject(t.subject ?? newest.subject);
+  const subject = fullSubject(t.subject ?? newest.subject, lang);
   const summary = cardSummary(newest);
   return (
     <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 } }} data-tour="question-card" data-kind={q.kind}>

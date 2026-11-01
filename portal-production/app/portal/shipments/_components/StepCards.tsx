@@ -29,6 +29,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslations } from "next-intl";
 import { Box, Button, ButtonBase, Checkbox, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Stack, Tooltip, Typography } from "@mui/material";
 import BlockIcon from "@mui/icons-material/Block";
 import MailOutlineIcon from "@mui/icons-material/MailOutline";
@@ -54,6 +55,7 @@ import LinkInvoiceDialog from "./LinkInvoiceDialog";
 import { DocLinkChip } from "./LinkedDocuments";
 import BulkDropDialog, { bulkDocTypes } from "./BulkDropDialog";
 import IssueBanner from "./IssueBanner";
+import { useStepName } from "@/i18n/hooks";
 
 /** One short line under each document title (what it is / where it comes from). */
 const DOC_HINTS: Record<string, string> = {
@@ -107,7 +109,7 @@ export default function StepCards({
   context = {},
   fieldsForm,
   fieldsSummary,
-  fieldsTitle = "Details",
+  fieldsTitle,
   blCheck = null,
   numberFrom,
   onFileUploaded,
@@ -150,7 +152,15 @@ export default function StepCards({
 }) {
   const api = useShipmentsApi();
   const router = useRouter();
+  const t = useTranslations("shipments.stepCards");
+  const tc = useTranslations("common");
+  const stepName = useStepName();
   const label = useDocTypeLabels();
+  /** The translated helper line under a document title (English DOC_HINTS for other types). */
+  const hintText = (docType: string) => (t.has(`hints.${docType}`) ? t(`hints.${docType}`) : DOC_HINTS[docType]);
+  const createLabelOf = (docType: string) => (t.has(`createLabel.${docType}`) ? t(`createLabel.${docType}`) : GENERATED_DOC_TYPES[docType]?.createLabel);
+  const sourceLabelOf = (docType: string) => (t.has(`sourceLabel.${docType}`) ? t(`sourceLabel.${docType}`) : GENERATED_DOC_TYPES[docType]?.sourceLabel);
+  const sourceFilesOf = (docType: string) => (t.has(`sourceFiles.${docType}`) ? t(`sourceFiles.${docType}`) : GENERATED_DOC_TYPES[docType]?.sourceFiles ?? t("spreadsheet"));
   const { open: view, viewer } = useFileViewer();
   const [upload, setUpload] = useState<{ step: TradeStep; docType: string; files?: File[]; replace?: RecordFileLink; optional?: boolean } | null>(null);
   const [linkExisting, setLinkExisting] = useState<{ step: TradeStep; docType: string } | null>(null);
@@ -177,7 +187,7 @@ export default function StepCards({
   const main = sorted.filter((s) => !s.isOngoing);
   // Numbering ignores N/A steps only when the org has no own step numbers (displayNo).
   const ongoing = sorted.filter((s) => s.isOngoing);
-  const titleOf = (s: TradeStep) => stepLabel(s, s.isOngoing ? undefined : (numberFrom ?? 0) + main.indexOf(s) + 1);
+  const titleOf = (s: TradeStep) => stepLabel({ ...s, title: stepName(s.code, s.title) }, s.isOngoing ? undefined : (numberFrom ?? 0) + main.indexOf(s) + 1);
   const editorHref = (id: string) => `/portal/trade-documents/generated/${id}?from=${encodeURIComponent(returnTo)}`;
   // Step 11 is the order's (round H): its Invoice #2 / single invoice is made for the order's shipments.
   const canCreate = (docType: string) => GENERATED_DOC_TYPES[docType]?.scope === owner.kind || (owner.kind === "order" && !!GENERATED_DOC_TYPES[docType]?.covers && orderShipmentIds.length > 0);
@@ -206,14 +216,14 @@ export default function StepCards({
       if (!inRequiredRow) setOptOpen((o) => ({ ...o, [openId]: true }));
     }
     if (scrolledFile.current === `${openId}:${highlightFile}`) return;
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       const el = document.querySelector('[data-tour="file-highlight"]');
       if (el) {
         el.scrollIntoView({ behavior: "smooth", block: "center" });
         scrolledFile.current = `${openId}:${highlightFile}`;
       }
     }, 450);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightFile, openId, fileLinks, optOpen]);
   /** An optional row: only files uploaded for this step (plus a required type's extra files). */
@@ -227,7 +237,7 @@ export default function StepCards({
     ...s.requiredDocTypes.filter((d) => !stateOf(s, d).done).map(label),
     ...(s.fieldRequirements ?? []).filter((f) => !f.satisfied).map((f) => f.label),
     // A paying step stays open until its payment (amount, date, account) is saved below.
-    ...(PAYMENT_GATED_STEPS.has(s.code) && !s.notApplicable && !paymentOf(s) ? ["the payment (amount, date, account)"] : []),
+    ...(PAYMENT_GATED_STEPS.has(s.code) && !s.notApplicable && !paymentOf(s) ? [t("needPayment")] : []),
   ];
   const hasRequirements = (s: TradeStep) => s.requiredDocTypes.length > 0 || (s.requiredFields?.length ?? 0) > 0;
 
@@ -236,7 +246,7 @@ export default function StepCards({
     try {
       await change.mutateAsync({ id: s.id, action });
     } catch (e: any) {
-      toast.error(e?.message || "Could not update the step");
+      toast.error(e?.message || t("stepError"));
     } finally {
       setBusyId(null);
     }
@@ -262,7 +272,7 @@ export default function StepCards({
       });
       router.push(editorHref(g.id));
     } catch (e: any) {
-      toast.error(e?.message || "Could not create the document");
+      toast.error(e?.message || t("createError"));
       setCreating(null);
     }
   };
@@ -272,7 +282,7 @@ export default function StepCards({
       const g = await api.createGenerated({ shipmentId: owner.id, docType, sourceFileId });
       router.push(editorHref(g.id));
     } catch (e: any) {
-      toast.error(e?.message || "Could not create the document");
+      toast.error(e?.message || t("createError"));
       setCreating(null);
     }
   };
@@ -310,8 +320,8 @@ export default function StepCards({
       <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
         {label(docType)}
       </Typography>
-      <HintInfo text={hintFor(docType, label(docType))} />
-      {optional && <Chip size="small" variant="outlined" label="Optional" />}
+      <HintInfo text={hintFor(docType, label(docType), hintText(docType))} />
+      {optional && <Chip size="small" variant="outlined" label={t("optional")} />}
     </Stack>
   );
   const rowHint = (docType: string) => {
@@ -358,11 +368,11 @@ export default function StepCards({
                 </Box>
                 <Stack direction="row" spacing={1}>
                   <Button size="small" variant="outlined" onClick={() => view({ id: l.file.id, fileName: l.file.fileName, mimeType: l.file.mimeType, hasThumb: l.file.hasThumb, docRef: l.file.docRef })}>
-                    View
+                    {t("view")}
                   </Button>
                   {recordOpen && (
                     <Button size="small" variant="outlined" onClick={() => setUpload({ step: s, docType, replace: l })}>
-                      Replace
+                      {t("replace")}
                     </Button>
                   )}
                 </Stack>
@@ -371,7 +381,7 @@ export default function StepCards({
             {recordOpen && (
               <Box>
                 <Button size="small" startIcon={<UploadFileIcon />} onClick={() => setUpload({ step: s, docType, optional })}>
-                  Add another file
+                  {t("addAnother")}
                 </Button>
               </Box>
             )}
@@ -380,7 +390,7 @@ export default function StepCards({
           <DropZone onFiles={(files) => setUpload({ step: s, docType, files, optional })} />
         ) : (
           <Typography variant="body2" color="text.secondary" sx={{ ml: 3.5, mt: 1 }}>
-            Not uploaded
+            {t("notUploaded")}
           </Typography>
         )}
       </>,
@@ -411,7 +421,7 @@ export default function StepCards({
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
                     {g.number ?? label(docType)}
                   </Typography>
-                  <Chip size="small" color={g.status === "FINAL" ? "success" : "warning"} variant="outlined" label={g.status === "FINAL" ? "Finalized" : "Draft — finalize to count"} />
+                  <Chip size="small" color={g.status === "FINAL" ? "success" : "warning"} variant="outlined" label={g.status === "FINAL" ? t("finalized") : t("draftToCount")} />
                 </Stack>
                 <Typography variant="caption" color="text.secondary">
                   {g.createdByName ? `${g.createdByName} · ` : ""}
@@ -420,10 +430,10 @@ export default function StepCards({
               </Box>
               <Stack direction="row" spacing={1}>
                 <Button size="small" variant="contained" onClick={() => router.push(editorHref(g.id))}>
-                  Open
+                  {t("open")}
                 </Button>
-                <Button size="small" variant="outlined" startIcon={<DownloadIcon />} onClick={() => void api.downloadGeneratedPdf(g.id).catch((e) => toast.error(e?.message || "Could not download the PDF"))}>
-                  PDF
+                <Button size="small" variant="outlined" startIcon={<DownloadIcon />} onClick={() => void api.downloadGeneratedPdf(g.id).catch((e) => toast.error(e?.message || t("pdfError")))}>
+                  {t("pdf")}
                 </Button>
               </Stack>
             </Stack>
@@ -452,7 +462,7 @@ export default function StepCards({
               docType={docType}
               shipmentId={owner.kind === "shipment" && spec?.source ? owner.id : null}
               creating={creating}
-              blankLabel={st.gens.length && spec?.multiple ? `Create another ${label(docType)}` : (spec?.createLabel ?? `Create ${label(docType)}`)}
+              blankLabel={st.gens.length && spec?.multiple ? t("createAnother", { label: label(docType) }) : (createLabelOf(docType) ?? t("create", { label: label(docType) }))}
               onBlank={() => void createBlank(docType)}
               onSource={(id) => void createFromSource(docType, id)}
               onMore={(e) => openMore(e, s, docType)}
@@ -469,7 +479,7 @@ export default function StepCards({
     const done = fieldsDone(s);
     return rowShell(
       done,
-      <FieldsRow title={fieldsTitle} done={done} summary={fieldsSummary ?? null} canEdit={recordOpen} form={fieldsForm?.(s) ?? null} labels={(s.fieldRequirements ?? []).filter((f) => !f.satisfied).map((f) => f.label)} />,
+      <FieldsRow title={fieldsTitle ?? t("details")} done={done} summary={fieldsSummary ?? null} canEdit={recordOpen} form={fieldsForm?.(s) ?? null} labels={(s.fieldRequirements ?? []).filter((f) => !f.satisfied).map((f) => f.label)} />,
       `${s.id}-fields`,
     );
   };
@@ -511,7 +521,7 @@ export default function StepCards({
             size="small"
             color={isDone ? "success" : "warning"}
             variant="outlined"
-            label={isDone ? "Done" : s.holdOpen ? "Reopened" : s.isOngoing ? "Ongoing" : "In progress"}
+            label={isDone ? t("done") : s.holdOpen ? t("reopened") : s.isOngoing ? t("ongoing") : t("inProgress")}
           />
         </Stack>
 
@@ -522,8 +532,8 @@ export default function StepCards({
             <Box data-tour="step-bulk-drop">
               <DropZone
                 big
-                title="Drop all documents here"
-                hint="Drop every file for this step at once — each is read and sorted into its row (you confirm the types first)."
+                title={t("dropAllTitle")}
+                hint={t("dropAllHint")}
                 onFiles={(files) => setBulk({ step: s, files })}
               />
             </Box>
@@ -533,24 +543,24 @@ export default function StepCards({
           {owner.kind === "shipment" && s.code === "BL_DRAFT_APPROVAL" && blCheck && <BlCheckPanel check={blCheck} shipmentId={owner.id} canEdit={recordOpen} />}
           {(s.subtasks ?? []).length > 0 && (
             <Paper variant="outlined" sx={{ px: 2, py: 1 }} data-tour="step-subtasks">
-              {(s.subtasks ?? []).map((t) => (
-                <Stack key={t.key} direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                  {t.na ? (
+              {(s.subtasks ?? []).map((st) => (
+                <Stack key={st.key} direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                  {st.na ? (
                     <Typography variant="body2" color="text.disabled" sx={{ py: 0.75 }}>
                       <BlockIcon sx={{ fontSize: 16, verticalAlign: "-3px", mr: 0.75 }} />
-                      {t.label} — N/A (customer profile)
+                      {st.label} — {t("naProfile")}
                     </Typography>
                   ) : (
                     <FormControlLabel
-                      control={<Checkbox size="small" checked={!!t.done} disabled={!recordOpen || tick.isPending} onChange={(e) => void tick.mutateAsync({ id: s.id, key: t.key, done: e.target.checked }).catch((err) => toast.error(err?.message || "Could not update"))} />}
-                      label={<Typography variant="body2">{t.label}</Typography>}
+                      control={<Checkbox size="small" checked={!!st.done} disabled={!recordOpen || tick.isPending} onChange={(e) => void tick.mutateAsync({ id: s.id, key: st.key, done: e.target.checked }).catch((err) => toast.error(err?.message || t("updateError")))} />}
+                      label={<Typography variant="body2">{st.label}</Typography>}
                     />
                   )}
-                  {t.done && (
+                  {st.done && (
                     <Typography variant="caption" color="text.secondary">
-                      {t.source === "EMAIL" ? <MailOutlineIcon sx={{ fontSize: 14, verticalAlign: "-2px", mr: 0.5 }} /> : null}
-                      {t.source === "EMAIL" ? "from an email" : t.by ? `by ${t.by}` : ""}
-                      {t.at ? ` · ${fmtDateTime(t.at)}` : ""}
+                      {st.source === "EMAIL" ? <MailOutlineIcon sx={{ fontSize: 14, verticalAlign: "-2px", mr: 0.5 }} /> : null}
+                      {st.source === "EMAIL" ? t("fromEmail") : st.by ? t("byWho", { name: st.by }) : ""}
+                      {st.at ? ` · ${fmtDateTime(st.at)}` : ""}
                     </Typography>
                   )}
                 </Stack>
@@ -563,7 +573,7 @@ export default function StepCards({
         {(optRows.length > 0 || extra.length > 0) && (
           <Box sx={{ mt: 1.5 }}>
             <Button size="small" color="inherit" onClick={() => setOptOpen((o) => ({ ...o, [s.id]: !o[s.id] }))} endIcon={<ExpandMoreIcon sx={{ transform: optOpen[s.id] ? "rotate(180deg)" : "none", transition: "transform .2s" }} />}>
-              Optional{optCount ? ` (${optCount})` : ""}
+              {t("optional")}{optCount ? ` (${optCount})` : ""}
             </Button>
             <Collapse in={!!optOpen[s.id]} unmountOnExit>
               <Stack spacing={1.25} sx={{ mt: 1 }}>
@@ -592,31 +602,31 @@ export default function StepCards({
           <Box sx={{ flex: 1, minWidth: 0 }}>
             {!isDone && needed.length > 0 && (
               <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                Still needed: {needed.join(", ")}
+                {t("stillNeeded", { list: needed.join(", ") })}
               </Typography>
             )}
             {!isDone && needed.length === 0 && hasRequirements(s) && s.holdOpen && (
               <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                Everything is here — mark it done, or replace a document first.
+                {t("allHere")}
               </Typography>
             )}
             {!recordOpen && (
               <Typography variant="body2" color="text.secondary">
-                This record is closed — reopen it to change its steps.
+                {t("closed")}
               </Typography>
             )}
             <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-              {isDone ? `Done${s.updatedByName ? ` by ${s.updatedByName}` : ""} · ${fmtDateTime(s.completedAt ?? s.updatedAt)}${s.skipReason ? ` · ${s.skipReason}` : ""}` : s.updatedByName ? `Last change by ${s.updatedByName} · ${fmtDateTime(s.updatedAt)}` : ""}
+              {isDone ? `${s.updatedByName ? t("doneBy", { name: s.updatedByName }) : t("done")} · ${fmtDateTime(s.completedAt ?? s.updatedAt)}${s.skipReason ? ` · ${s.skipReason}` : ""}` : s.updatedByName ? `${t("lastChange", { name: s.updatedByName })} · ${fmtDateTime(s.updatedAt)}` : ""}
             </Typography>
           </Box>
           {canMarkDone && (
             <Button variant="contained" color="success" size="large" disabled={busyId === s.id} onClick={() => void run(s, "complete")}>
-              Mark done
+              {t("markDone")}
             </Button>
           )}
           {(isDone || s.status === "SKIPPED") && recordOpen && (
             <Button variant="outlined" disabled={busyId === s.id} onClick={() => setReopenAsk(s)}>
-              Reopen
+              {t("reopen")}
             </Button>
           )}
         </Stack>
@@ -646,7 +656,7 @@ export default function StepCards({
           <Typography variant="body2" sx={{ fontWeight: isDone ? 600 : 400, color: isDone ? "text.primary" : "text.disabled", flexShrink: 0 }}>
             {titleOf(s)}
           </Typography>
-          {!isDone && s.holdOpen && <Chip size="small" variant="outlined" color="warning" label="Reopened" />}
+          {!isDone && s.holdOpen && <Chip size="small" variant="outlined" color="warning" label={t("reopened")} />}
         </Stack>
       </ButtonBase>
     );
@@ -659,7 +669,7 @@ export default function StepCards({
       <Typography variant="body2" color="text.disabled" sx={{ textDecoration: "line-through" }}>
         {titleOf(s)}
       </Typography>
-      <Chip size="small" variant="outlined" label="N/A (customer profile)" data-tour="step-na-chip" />
+      <Chip size="small" variant="outlined" label={t("naProfile")} data-tour="step-na-chip" />
     </Box>
   );
 
@@ -671,7 +681,7 @@ export default function StepCards({
       {ongoing.length > 0 && (
         <Box sx={{ mt: 2 }}>
           <Typography variant="overline" color="text.secondary">
-            Ongoing
+            {t("ongoing")}
           </Typography>
           <Stack spacing={0.5}>{ongoing.map(item)}</Stack>
         </Box>
@@ -691,12 +701,12 @@ export default function StepCards({
           >
             <ListItemIcon>{more.sources === null ? <CircularProgress size={16} /> : <PostAddIcon fontSize="small" />}</ListItemIcon>
             <ListItemText
-              primary={more.sources?.length ? `Create from ${more.sources[0].label ?? "Vedanta file"}` : "Create from Vedanta file"}
+              primary={more.sources?.length ? t("createFrom", { name: more.sources[0].label ?? t("vedantaFile") }) : t("createFromVedanta")}
               secondary={
                 more.sources === null
-                  ? "Finding Vedanta's files…"
+                  ? t("finding")
                   : !more.sources.length
-                    ? `Upload Vedanta's ${GENERATED_DOC_TYPES[more.docType].sourceLabel} (${GENERATED_DOC_TYPES[more.docType].sourceFiles ?? "spreadsheet"}) on this shipment first`
+                    ? t("uploadSourceFirst", { label: sourceLabelOf(more.docType) ?? "", files: sourceFilesOf(more.docType) })
                     : more.sources[0].fileName
               }
             />
@@ -714,7 +724,7 @@ export default function StepCards({
             <ListItemIcon>
               <ExpandMoreIcon fontSize="small" />
             </ListItemIcon>
-            Use a different file…
+            {t("useDifferent")}
           </MenuItem>
         )}
         <MenuItem
@@ -727,7 +737,7 @@ export default function StepCards({
           <ListItemIcon>
             <UploadFileIcon fontSize="small" />
           </ListItemIcon>
-          Upload a file instead
+          {t("uploadInstead")}
         </MenuItem>
         {more && INVOICE_DOC_TYPES.includes(more.docType) && (
           <MenuItem
@@ -740,13 +750,13 @@ export default function StepCards({
             <ListItemIcon>
               <LinkIcon fontSize="small" />
             </ListItemIcon>
-            Link an existing invoice
+            {t("linkExisting")}
           </MenuItem>
         )}
       </Menu>
 
       <Dialog open={!!pickSource} onClose={() => setPickSource(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>Use a different {pickSource ? GENERATED_DOC_TYPES[pickSource.docType]?.sourceLabel : ""} file</DialogTitle>
+        <DialogTitle>{t("pickTitle", { label: pickSource ? (sourceLabelOf(pickSource.docType) ?? "") : "" })}</DialogTitle>
         <DialogContent dividers>
           <List dense disablePadding>
             {(pickSource?.sources ?? []).map((f) => (
@@ -768,14 +778,14 @@ export default function StepCards({
           </List>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPickSource(null)}>Cancel</Button>
+          <Button onClick={() => setPickSource(null)}>{tc("cancel")}</Button>
         </DialogActions>
       </Dialog>
 
       <FileUploadDialog
         open={!!upload}
         onClose={() => setUpload(null)}
-        title={upload ? `${upload.replace ? "Replace" : "Upload"} ${label(upload.docType)}` : undefined}
+        title={upload ? (upload.replace ? t("replaceDoc", { label: label(upload.docType) }) : t("uploadDoc", { label: label(upload.docType) })) : undefined}
         docType={upload?.docType}
         stepId={upload?.step.id}
         replacesFileId={upload?.replace?.file.id}
@@ -814,9 +824,9 @@ export default function StepCards({
       <LinkInvoiceDialog open={!!linkExisting} onClose={() => setLinkExisting(null)} docType={linkExisting?.docType ?? ""} stepId={linkExisting?.step.id} owner={owner} />
       <ConfirmDialog
         open={!!reopenAsk}
-        title={reopenAsk ? `Reopen step ${titleOf(reopenAsk)}?` : ""}
-        body="Files can then be deleted."
-        confirmLabel="Reopen step"
+        title={reopenAsk ? t("reopenTitle", { title: titleOf(reopenAsk) }) : ""}
+        body={t("reopenBody")}
+        confirmLabel={t("reopenConfirm")}
         onClose={() => setReopenAsk(null)}
         onConfirm={async () => {
           if (reopenAsk) await change.mutateAsync({ id: reopenAsk.id, action: "reopen" });
@@ -855,13 +865,14 @@ function HintInfo({ text }: { text: string | null | undefined }) {
 
 /** A hint only when it says something the title doesn't. */
 const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9\u3040-\u30ff\u4e00-\u9fff]+/g, "");
-export function hintFor(docType: string, title: string): string | null {
-  const h = DOC_HINTS[docType];
+export function hintFor(docType: string, title: string, hint: string | null | undefined = DOC_HINTS[docType]): string | null {
+  const h = hint;
   if (!h) return null;
   return norm(h) === norm(title) ? null : h;
 }
 
 function DropZone({ onFiles, big = false, title, hint }: { onFiles: (files: File[]) => void; big?: boolean; title?: string; hint?: string }) {
+  const t = useTranslations("shipments.stepCards");
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   return (
@@ -897,7 +908,7 @@ function DropZone({ onFiles, big = false, title, hint }: { onFiles: (files: File
         </Typography>
       )}
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-        {hint ?? "Drag & drop the file here"}
+        {hint ?? t("dropHint")}
       </Typography>
       <input
         ref={input}
@@ -911,7 +922,7 @@ function DropZone({ onFiles, big = false, title, hint }: { onFiles: (files: File
         }}
       />
       <Button variant={big ? "outlined" : "contained"} startIcon={<UploadFileIcon />} onClick={() => input.current?.click()}>
-        {big ? "Choose files" : "Choose file"}
+        {big ? t("chooseFiles") : t("chooseFile")}
       </Button>
     </Box>
   );
@@ -919,6 +930,8 @@ function DropZone({ onFiles, big = false, title, hint }: { onFiles: (files: File
 
 /** The step's record fields: the inline form while open, else the filled summary with Edit. */
 function FieldsRow({ title, done, summary, canEdit, form, labels }: { title: string; done: boolean; summary: string | null; canEdit: boolean; form: React.ReactNode; labels: string[] }) {
+  const t = useTranslations("shipments.stepCards");
+  const tc = useTranslations("common");
   const [editing, setEditing] = useState(false);
   const showForm = canEdit && (!done || editing);
   return (
@@ -930,12 +943,12 @@ function FieldsRow({ title, done, summary, canEdit, form, labels }: { title: str
         </Typography>
         {done && canEdit && (
           <Button size="small" onClick={() => setEditing((v) => !v)}>
-            {editing ? "Close" : "Edit"}
+            {editing ? tc("close") : tc("edit")}
           </Button>
         )}
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ ml: 3.5, mt: 0.25 }}>
-        {done && summary ? summary : `Needed: ${labels.join(", ")}`}
+        {done && summary ? summary : t("needed", { list: labels.join(", ") })}
       </Typography>
       {showForm && form && <Box sx={{ mt: 1.5 }}>{form}</Box>}
     </>
@@ -970,6 +983,7 @@ function CreateButtons({
   onMore: (e: React.MouseEvent) => void;
 }) {
   const api = useShipmentsApi();
+  const t = useTranslations("shipments.stepCards");
   const sources = useQuery({ queryKey: ["trade-generated", "sources", shipmentId, docType], queryFn: () => api.generatedSources(shipmentId!, docType), enabled: !!shipmentId, staleTime: 30_000 });
   const best = (sources.data ?? []).find((x) => x.best && (x.kind === "spreadsheet" || x.kind === "summary")) ?? null;
   const busy = creating === docType;
@@ -979,10 +993,10 @@ function CreateButtons({
       {best ? (
         <>
           <Button variant="contained" size="large" startIcon={icon} disabled={!!creating} onClick={() => onSource(best.id)} sx={{ py: 1.25, px: 3 }} data-tour="step-create-from-source">
-            Create from {(best.label ?? best.fileName).split(":")[0]}
+            {t("createFrom", { name: (best.label ?? best.fileName).split(":")[0] })}
           </Button>
           <Button variant="outlined" disabled={!!creating} onClick={onBlank}>
-            Create blank
+            {t("createBlank")}
           </Button>
         </>
       ) : (
@@ -991,7 +1005,7 @@ function CreateButtons({
         </Button>
       )}
       <Button variant="text" endIcon={<ExpandMoreIcon />} onClick={onMore}>
-        Other ways
+        {t("otherWays")}
       </Button>
     </Stack>
   );
@@ -1018,6 +1032,8 @@ function CoversDialog({
   onClose: () => void;
   onConfirm: (ids: string[]) => void;
 }) {
+  const t = useTranslations("shipments.stepCards");
+  const tc = useTranslations("common");
   // Completed shipments can still be invoiced (step 11 is the order's); cancelled ones can't.
   const list = useShipments({ customerId: customerId ?? undefined, uninvoiced: "true", pageSize: 100 }, open && !!customerId);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -1037,16 +1053,16 @@ function CoversDialog({
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>
-        {label}: which shipments does it cover?
+        {t("coversTitle", { label })}
         <Typography variant="body2" color="text.secondary">
-          One invoice can bill several shipments of this customer — including shipments of other orders. An order&apos;s step 11 is done once all its shipments are invoiced.
+          {t("coversBody")}
         </Typography>
       </DialogTitle>
       <DialogContent dividers data-tour="invoice-covers-picker">
         {list.isLoading ? (
           <CircularProgress size={22} />
         ) : !rows.length ? (
-          <Typography variant="body2">{primaryId ? "Only this shipment is open and not invoiced yet." : "No shipment of this customer is waiting for an invoice."}</Typography>
+          <Typography variant="body2">{primaryId ? t("onlyThis") : t("noneWaiting")}</Typography>
         ) : (
           <List dense disablePadding>
             {rows.map((x) => (
@@ -1055,8 +1071,8 @@ function CoversDialog({
                   <Checkbox edge="start" size="small" checked={picked.has(x.id)} disabled={x.id === primaryId} />
                 </ListItemIcon>
                 <ListItemText
-                  primary={`${x.ref || "Shipment"}${x.blNumber ? ` · B/L ${x.blNumber}` : " · B/L pending"}${x.id === primaryId ? " (this shipment)" : ""}`}
-                  secondary={[x.productLine, x.netWeightMt != null ? `${Number(x.netWeightMt).toLocaleString("en-US", { maximumFractionDigits: 3 })} MT net` : null].filter(Boolean).join(" · ")}
+                  primary={`${x.ref || t("shipment")}${x.blNumber ? ` · B/L ${x.blNumber}` : ` · ${t("blPending")}`}${x.id === primaryId ? ` ${t("thisShipment")}` : ""}`}
+                  secondary={[x.productLine, x.netWeightMt != null ? t("mtNet", { n: Number(x.netWeightMt).toLocaleString("en-US", { maximumFractionDigits: 3 }) }) : null].filter(Boolean).join(" · ")}
                 />
               </ListItemButton>
             ))}
@@ -1064,7 +1080,7 @@ function CoversDialog({
         )}
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={onClose}>{tc("cancel")}</Button>
         <Button
           variant="contained"
           onClick={() => {
@@ -1075,7 +1091,7 @@ function CoversDialog({
           }}
           disabled={!docType || picked.size === 0}
         >
-          Create invoice ({picked.size} shipment{picked.size === 1 ? "" : "s"})
+          {t("createInvoice", { n: picked.size })}
         </Button>
       </DialogActions>
     </Dialog>

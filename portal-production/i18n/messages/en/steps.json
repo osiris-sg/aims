@@ -1,0 +1,18 @@
+{
+  "CHECK_CONTRACT": "Check contract",
+  "PI_PAYMENT": "Set up PI payment",
+  "INVOICE_1": "Issue and send Invoice #1",
+  "BL_DRAFT_APPROVAL": "Approve B/L draft (Vedanta)",
+  "SHIPPING_DOCS": "Receive shipping documents",
+  "CUSTOMER_DOCS": "Create customer documents",
+  "SEND_DOCS_SCHEDULE": "Send documents & ask schedule",
+  "CI_PAYMENT": "Set up CI payment",
+  "CUSTOMS_TAX_ESTIMATE": "Customs documents & tax estimate",
+  "TAX_FUNDS": "Prepare import-tax funds",
+  "AN_INSTRUCTIONS": "Send arrival notice & shipping instructions",
+  "IMPORT_PERMIT": "Store & send import permit",
+  "INVOICE_2": "Issue Invoice #2 / the invoice",
+  "LOGISTICS_PAYMENT": "Pay transport & storage costs",
+  "XERO_HANDOFF": "Prepare data for Xero reconciliation",
+  "DELIVERY_CHANGES": "Coordinate delivery changes"
+}

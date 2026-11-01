@@ -1,0 +1,47 @@
+{
+  "tabs": {
+    "activity": "操作履歴",
+    "legacy": "監査ログ（旧）"
+  },
+  "activity": {
+    "tableName": "操作履歴",
+    "subTitle": "システム内のすべての操作 — ユーザー、APIキー、ゲスト、システム作成",
+    "actorType": "実行者の種別",
+    "status": "状態",
+    "all": "すべて",
+    "actorTypes": {
+      "USER": "ユーザー",
+      "API_KEY": "APIキー",
+      "GUEST": "ゲスト",
+      "SYSTEM": "システム作成"
+    },
+    "statuses": {
+      "SUCCESS": "成功",
+      "FAILURE": "失敗"
+    },
+    "refresh": "更新",
+    "time": "日時",
+    "actor": "実行者",
+    "action": "操作",
+    "resource": "対象",
+    "request": "リクエスト",
+    "duration": "所要時間",
+    "ip": "IP",
+    "systemCreation": "システム作成",
+    "ms": "{n} ms"
+  },
+  "legacy": {
+    "tableName": "監査ログ",
+    "subTitle": "システムの監査証跡とユーザー操作ログ",
+    "refresh": "更新",
+    "timestamp": "日時",
+    "user": "ユーザー",
+    "unknown": "不明",
+    "action": "操作",
+    "resource": "対象",
+    "resourceId": "対象ID",
+    "status": "状態",
+    "ipAddress": "IPアドレス",
+    "error": "エラー"
+  }
+}

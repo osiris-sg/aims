@@ -4,33 +4,32 @@
 // Round AM — shared parts of the Clients pages: the Customers · Suppliers switch, the contracts list with
 // premiums / terms / the contract PDFs already in AIMS, the contacts from known email senders, small label helpers.
 
+import { useUiLang } from "@/i18n/UiLangProvider";
+import { useTranslations } from "next-intl";
 import React, { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Box, Chip, Link, Paper, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, Typography } from "@mui/material";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
-import { CLIENTS_LABELS, CLIENTS_ROUTE, navLangOf } from "@/helpers/shipmentsNav";
+import { CLIENTS_LABELS, CLIENTS_ROUTE } from "@/helpers/shipmentsNav";
 import { useShipmentsApi, type ClientContact, type ClientContract } from "../../_lib/api";
-import { fmtDay } from "../../_lib/format";
+import { fmtDay, fmtMonth } from "../../_lib/format";
 import { toast } from "../../_lib/toast";
 
+/** The portal language (round AZ: the user's EN / 日本語 switch). */
 export function useLang(): "en" | "ja" {
-  const [lang, setLang] = useState<"en" | "ja">("en");
-  useEffect(() => setLang(navLangOf(typeof navigator !== "undefined" ? navigator.language : null)), []);
-  return lang;
+  return useUiLang().lang;
 }
 
-export const T = {
-  en: { openOrders: "Open orders", thisMonth: "This month (t)", last3: "Last 3 months (t)", lastDelivery: "Last delivery", invoice: "Invoice profile", contracts: "Contracts", piStatus: "PI status", orders: "Orders", details: "Details", formats: "Document formats", docsTheySend: "Documents they send" },
-  ja: { openOrders: "未完了の注文", thisMonth: "今月 (t)", last3: "過去3か月 (t)", lastDelivery: "最終納入", invoice: "請求方式", contracts: "契約", piStatus: "PI状況", orders: "注文", details: "詳細", formats: "書類フォーマット", docsTheySend: "受領書類" },
-} as const;
-
-export const billingLabel = (m: string, lang: "en" | "ja") => (m === "SINGLE" ? (lang === "ja" ? "一括請求（1回）" : "Single invoice") : lang === "ja" ? "2段階（#1 + #2）" : "Two-stage (#1 + #2)");
+/** The billing mode's label in the portal language. */
+export function useBillingLabel() {
+  const t = useTranslations("clients.bits");
+  return (m: string) => (m === "SINGLE" ? t("billingSingle") : t("billingTwo"));
+}
 export const t3 = (n: number | string | null | undefined) => (n === null || n === undefined || n === "" ? "—" : Number(n).toLocaleString("en-US", { maximumFractionDigits: 3 }));
-const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-export const ym = (m: string | null | undefined) => (m && /^\d{4}-\d{2}$/.test(m) ? `${MON[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}` : m ?? "");
+export const ym = (m: string | null | undefined) => (m && /^\d{4}-\d{2}$/.test(m) ? fmtMonth(m) : m ?? "");
 
 /** Customers · Suppliers switch at the top of the Clients pages. */
-export function ClientsHeader({ active, title, children }: { active: "customers" | "suppliers" | "shipping-lines"; title?: React.ReactNode; children?: React.ReactNode }) {
+export function ClientsHeader({ active, title, children }: { active: "customers" | "suppliers" | "logistics"; title?: React.ReactNode; children?: React.ReactNode }) {
   const router = useRouter();
   const lang = useLang();
   const L = CLIENTS_LABELS[lang];
@@ -43,7 +42,7 @@ export function ClientsHeader({ active, title, children }: { active: "customers"
         <Tabs value={active} onChange={(_, v) => router.push(`${CLIENTS_ROUTE}/${v}`)} sx={{ minHeight: 40, "& .MuiTab-root": { minHeight: 40, textTransform: "none" } }}>
           <Tab value="customers" label={L.customers} data-tour="clients-tab-customers" />
           <Tab value="suppliers" label={L.suppliers} data-tour="clients-tab-suppliers" />
-          <Tab value="shipping-lines" label={L.shippingLines} data-tour="clients-tab-shipping-lines" />
+          <Tab value="logistics" label={L.logistics} data-tour="clients-tab-logistics" />
         </Tabs>
         <Box sx={{ flex: 1 }} />
         {children}
@@ -76,15 +75,16 @@ export function useTab<T extends string>(tabs: readonly T[], fallback: T): [T, (
 export function ContractsPanel({ contracts, party }: { contracts: ClientContract[]; party: "customer" | "supplier" }) {
   const api = useShipmentsApi();
   const router = useRouter();
+  const t = useTranslations("clients.bits");
   const openFile = async (id: string) => {
     try {
       const f = await api.fileUrl(id);
       window.open(f.url, "_blank", "noopener");
     } catch (e: any) {
-      toast.error(e?.message || "Could not open the file");
+      toast.error(e?.message || t("couldNotOpen"));
     }
   };
-  if (!contracts.length) return <Typography color="text.secondary">No contracts in AIMS yet.</Typography>;
+  if (!contracts.length) return <Typography color="text.secondary">{t("noContracts")}</Typography>;
   return (
     <Stack spacing={2}>
       {contracts.map((c) => (
@@ -96,20 +96,20 @@ export function ContractsPanel({ contracts, party }: { contracts: ClientContract
             <Chip size="small" label={c.status} color={c.status === "OPEN" ? "primary" : "default"} variant="outlined" />
             <Typography variant="body2" color="text.secondary">
               {party === "customer" ? c.supplier.name : c.customer.name} · {[c.grade, c.sizeSpec].filter(Boolean).join(" ")} · {fmtDay(c.periodStart)} – {fmtDay(c.periodEnd)}
-              {c.annualQtyMt !== null && c.annualQtyMt !== undefined ? ` · ${t3(c.annualQtyMt)} t` : ""} · {c.orders} order{c.orders === 1 ? "" : "s"}
+              {c.annualQtyMt !== null && c.annualQtyMt !== undefined ? ` · ${t3(c.annualQtyMt)} t` : ""} · {t("ordersN", { n: c.orders })}
             </Typography>
-            {c.checkFields?.length ? <Chip size="small" color="warning" variant="outlined" label={`check: ${c.checkFields.join(", ")}`} /> : null}
+            {c.checkFields?.length ? <Chip size="small" color="warning" variant="outlined" label={t("check", { fields: c.checkFields.join(", ") })} /> : null}
           </Stack>
           <Table size="small" sx={{ mb: 1, "& td, & th": { fontSize: 12.5 } }}>
             <TableHead>
               <TableRow>
-                <TableCell>From</TableCell>
-                <TableCell>To</TableCell>
-                <TableCell>Grade</TableCell>
-                <TableCell align="right">Supplier premium</TableCell>
-                <TableCell align="right">Client premium</TableCell>
-                <TableCell align="right">Upcharge</TableCell>
-                <TableCell align="right">Margin</TableCell>
+                <TableCell>{t("from")}</TableCell>
+                <TableCell>{t("to")}</TableCell>
+                <TableCell>{t("grade")}</TableCell>
+                <TableCell align="right">{t("supplierPremium")}</TableCell>
+                <TableCell align="right">{t("clientPremium")}</TableCell>
+                <TableCell align="right">{t("upcharge")}</TableCell>
+                <TableCell align="right">{t("margin")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -119,7 +119,7 @@ export function ContractsPanel({ contracts, party }: { contracts: ClientContract
                 return (
                   <TableRow key={i}>
                     <TableCell>{ym(p.from) || "—"}</TableCell>
-                    <TableCell>{p.to ? ym(p.to) : "open"}</TableCell>
+                    <TableCell>{p.to ? ym(p.to) : t("openEnded")}</TableCell>
                     <TableCell>{p.grade ?? c.grade ?? "—"}</TableCell>
                     <TableCell align="right">{sp ?? "—"}</TableCell>
                     <TableCell align="right">{cp ?? "—"}</TableCell>
@@ -133,22 +133,22 @@ export function ContractsPanel({ contracts, party }: { contracts: ClientContract
           <Stack spacing={0.5} sx={{ fontSize: 13 }}>
             {c.qpBasis && (
               <Typography variant="body2">
-                <b>QP / LME basis:</b> {c.qpBasis}
+                <b>{t("qpBasis")}</b> {c.qpBasis}
               </Typography>
             )}
             {c.depositPercent !== null && c.depositPercent !== undefined && (
               <Typography variant="body2">
-                <b>Deposit:</b> {Number(c.depositPercent)}%
+                <b>{t("deposit")}</b> {Number(c.depositPercent)}%
               </Typography>
             )}
             {c.balanceTerms && (
               <Typography variant="body2">
-                <b>Payment terms:</b> {c.balanceTerms}
+                <b>{t("paymentTerms")}</b> {c.balanceTerms}
               </Typography>
             )}
             {c.incoterm && (
               <Typography variant="body2">
-                <b>Incoterm:</b> {c.incoterm}
+                <b>{t("incoterm")}</b> {c.incoterm}
               </Typography>
             )}
           </Stack>
@@ -166,15 +166,16 @@ export function ContractsPanel({ contracts, party }: { contracts: ClientContract
 }
 
 export function ContactsList({ contacts, records }: { contacts: ClientContact[]; records?: Array<{ name: string; email: string | null; phone: string | null; designation: string | null }> }) {
-  if (!contacts.length && !records?.length) return <Typography color="text.secondary">No contacts yet — senders appear here once their emails reach the intake.</Typography>;
+  const t = useTranslations("clients.bits");
+  if (!contacts.length && !records?.length) return <Typography color="text.secondary">{t("noContacts")}</Typography>;
   return (
     <Table size="small" sx={{ "& td, & th": { fontSize: 12.5 } }}>
       <TableHead>
         <TableRow>
-          <TableCell>Contact</TableCell>
-          <TableCell>Source</TableCell>
-          <TableCell align="right">Emails</TableCell>
-          <TableCell>Last email</TableCell>
+          <TableCell>{t("contact")}</TableCell>
+          <TableCell>{t("source")}</TableCell>
+          <TableCell align="right">{t("emails")}</TableCell>
+          <TableCell>{t("lastEmail")}</TableCell>
         </TableRow>
       </TableHead>
       <TableBody>
@@ -187,7 +188,7 @@ export function ContactsList({ contacts, records }: { contacts: ClientContact[];
                 {[r.email, r.phone].filter(Boolean).join(" · ")}
               </Typography>
             </TableCell>
-            <TableCell>Customer record</TableCell>
+            <TableCell>{t("customerRecord")}</TableCell>
             <TableCell align="right">—</TableCell>
             <TableCell>—</TableCell>
           </TableRow>
@@ -195,7 +196,7 @@ export function ContactsList({ contacts, records }: { contacts: ClientContact[];
         {contacts.map((c) => (
           <TableRow key={c.email}>
             <TableCell>{c.email}</TableCell>
-            <TableCell>Email intake</TableCell>
+            <TableCell>{t("emailIntake")}</TableCell>
             <TableCell align="right">{c.messages}</TableCell>
             <TableCell>{fmtDay(c.lastAt)}</TableCell>
           </TableRow>

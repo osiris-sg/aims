@@ -10,6 +10,7 @@ import { Avatar, IconButton } from "@mui/material";
 import MobileSideBar from "./Sidebar/MobileSidebar";
 import NotificationBell from "./NotificationBell";
 import AppSwitcher from "./TopNav/AppSwitcher";
+import { useTranslations } from "next-intl";
 
 const Toolbar = styled(MuiToolbar)({
   width: "100%",
@@ -29,6 +30,7 @@ const Toolbar = styled(MuiToolbar)({
 
 export default function AppNavbar() {
   const [open, setOpen] = React.useState(false);
+  const tn = useTranslations("shell.nav");
   const toggleDrawer = (newOpen: boolean) => {
     setOpen(newOpen);
   };
@@ -73,7 +75,7 @@ export default function AppNavbar() {
           </Stack>
           <AppSwitcher iconColor="#FFFFFF" />
           <NotificationBell iconColor="#FFFFFF" sx={{ color: "#FFFFFF" }} />
-          <IconButton aria-label="menu" onClick={() => toggleDrawer(true)}>
+          <IconButton aria-label={tn("menu")} onClick={() => toggleDrawer(true)}>
             <MenuRoundedIcon sx={{ color: "#FFFFFF" }} />
           </IconButton>
           <MobileSideBar open={open} toggleDrawer={(state) => toggleDrawer(state)} />

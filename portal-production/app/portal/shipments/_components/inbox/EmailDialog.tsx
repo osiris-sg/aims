@@ -12,6 +12,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import AddIcon from "@mui/icons-material/Add";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import { toast } from "react-toastify";
+import { useTranslations } from "next-intl";
 import { ShipmentDrawer, type DrawerMode } from "./ShipmentDrawer";
 import type { InboxLang, InboxMessage } from "../../_lib/api";
 import { resultBox } from "../../_lib/inbox-cards";
@@ -24,19 +25,19 @@ export function EmailDialog({ message, lang, open, onClose }: { message: InboxMe
   const from = m ? `${fromParts(m.from).name}${m.company ? ` (${m.company})` : ""}` : "";
   const [drawer, setDrawer] = useState<DrawerMode | null>(null);
   const linkedShipment = m?.linked?.shipmentId ? { id: m.linked.shipmentId, ref: m.linked.ref ?? "" } : null;
-  const ja = lang === "ja";
+  const t = useTranslations("inbox.emailDialog");
   return (
     <Dialog open={open && !!m} onClose={onClose} maxWidth="md" fullWidth transitionDuration={{ enter: 225, exit: 0 }} disableRestoreFocus data-tour="email-popup">
       <DialogTitle sx={{ pr: 7 }}>
         <Typography variant="h6" component="div" sx={{ fontWeight: 700, minWidth: 0, wordBreak: "break-word", overflowWrap: "anywhere" }}>
-          {m?.subject || "(no subject)"}
+          {m?.subject || t("noSubject")}
         </Typography>
         {m && (
           <Typography variant="caption" color="text.secondary" component="div" sx={{ wordBreak: "break-word" }} title={m.from}>
-            {lang === "ja" ? `${from} から` : `From ${from}`} · {whenShort(m.date)}
+            {t("from", { from })} · {whenShort(m.date, lang)}
           </Typography>
         )}
-        <IconButton aria-label="Close" onClick={onClose} sx={{ position: "absolute", right: 8, top: 8 }} data-tour="email-dialog-close">
+        <IconButton aria-label={t("close")} onClick={onClose} sx={{ position: "absolute", right: 8, top: 8 }} data-tour="email-dialog-close">
           <CloseIcon />
         </IconButton>
       </DialogTitle>
@@ -46,11 +47,11 @@ export function EmailDialog({ message, lang, open, onClose }: { message: InboxMe
             <ResultBoxView r={resultBox(m, lang)} lang={lang} />
             <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" data-tour="email-popup-shipment-actions">
               <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => setDrawer({ kind: "new" })} sx={{ textTransform: "none" }} data-tour="email-popup-new-shipment">
-                {ja ? "新しい出荷…" : "New shipment…"}
+                {t("newShipment")}
               </Button>
               {linkedShipment && (
                 <Button size="small" variant="outlined" startIcon={<EditOutlinedIcon />} onClick={() => setDrawer({ kind: "edit", shipmentId: linkedShipment.id })} sx={{ textTransform: "none" }} data-tour="email-popup-edit-shipment">
-                  {ja ? `${linkedShipment.ref} を編集` : `Edit ${linkedShipment.ref}`}
+                  {t("editRef", { ref: linkedShipment.ref })}
                 </Button>
               )}
             </Stack>
@@ -65,7 +66,7 @@ export function EmailDialog({ message, lang, open, onClose }: { message: InboxMe
           emailIds={[m.id]}
           lang={lang}
           onClose={() => setDrawer(null)}
-          onSaved={(s) => toast.success(drawer?.kind === "new" ? (ja ? `${s.ref ?? "出荷"} を作成しました（メールの紐付けは「回答」で）` : `${s.ref ?? "Shipment"} created — link the email with Answer`) : ja ? `${s.ref ?? "出荷"} を保存しました` : `${s.ref ?? "Shipment"} saved`)}
+          onSaved={(s) => toast.success(drawer?.kind === "new" ? t("created", { ref: s.ref ?? t("shipment") }) : t("saved", { ref: s.ref ?? t("shipment") }))}
         />
       )}
     </Dialog>

@@ -12,7 +12,8 @@ import React, { useState } from "react";
 import { Alert, Box, CircularProgress, Tab, Tabs } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { useShipmentsApi, type InboxThreadsTab } from "../../_lib/api";
-import { L } from "../../_lib/inbox-cards";
+import { useTranslations } from "next-intl";
+import { useInboxLabels } from "./useInboxLabels";
 import { InboxThreadList } from "./InboxThreadList";
 import { useInboxActions } from "./useInboxActions";
 
@@ -26,15 +27,16 @@ export default function EmailsAll() {
   const qp = useQuery({ queryKey: ["trade-inbox", "threads", "PROCESSED", act.lang], queryFn: () => api.inboxThreads("PROCESSED", act.lang), refetchInterval: 30_000, enabled: tab === "PROCESSED" });
   const q = tab === "UNPROCESSED" ? qu : qp;
   const counts = qu.data?.counts ?? qp.data?.counts;
-  const labels = L[act.lang];
-  const unprocessedLabel = act.lang === "ja" ? "未処理" : "Unprocessed";
+  const labels = useInboxLabels();
+  const t = useTranslations("inbox.emailsAll");
+  const unprocessedLabel = t("unprocessed");
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, maxWidth: 1000, mx: "auto" }} data-tour="emails-all">
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }} data-tour="inbox-tabs">
         <Tab value="UNPROCESSED" label={unprocessedLabel} sx={{ textTransform: "none" }} />
-        <Tab value="PROCESSED" label={`${act.lang === "ja" ? "処理済み" : "Processed"}${counts ? ` (${counts.processed})` : ""}`} sx={{ textTransform: "none" }} />
+        <Tab value="PROCESSED" label={`${t("processed")}${counts ? ` (${counts.processed})` : ""}`} sx={{ textTransform: "none" }} />
       </Tabs>
-      {q.isError ? <Alert severity="error">{(q.error as Error)?.message || "Could not load the emails"}</Alert> : q.isLoading ? <CircularProgress /> : <InboxThreadList tab={tab} threads={q.data?.threads ?? []} actions={act.actions} emptyText={tab === "UNPROCESSED" ? labels.nothing : act.lang === "ja" ? "処理済みのメールはまだありません。" : "Nothing processed yet."} />}
+      {q.isError ? <Alert severity="error">{(q.error as Error)?.message || t("couldNotLoad")}</Alert> : q.isLoading ? <CircularProgress /> : <InboxThreadList tab={tab} threads={q.data?.threads ?? []} actions={act.actions} emptyText={tab === "UNPROCESSED" ? labels.nothing : t("nothingProcessed")} />}
       {act.dialogs}
     </Box>
   );

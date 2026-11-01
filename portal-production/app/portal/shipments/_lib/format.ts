@@ -1,9 +1,14 @@
 // Display formatting for the Shipments pages: MT to 3 decimals, money to 2,
-// dates as DD MMM YYYY.
+// dates as DD MMM YYYY — or 2026/10/05 when the portal is in Japanese (round AZ: i18n/lang).
 
 import type { Num, RecordStatus, StepStatus } from "./api";
+import { currentLang, formatDate, formatDateTime, formatDay, formatMoney, formatMonth } from "@/i18n/lang";
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+// Round AZ: labels that follow the portal language (English unchanged).
+const ja = () => currentLang() === "ja";
+// A getter (not a spread): the label is read when shown, in the language of the moment.
+const status = <C extends string>(en: string, jaText: string, color: C) => ({ get label() { return ja() ? jaText : en; }, color });
+
 const pad = (n: number) => String(n).padStart(2, "0");
 
 const toNumber = (v: Num | undefined) => {
@@ -17,41 +22,18 @@ export const fmtMt = (v: Num | undefined) => {
   return n === null ? "—" : n.toLocaleString("en-US", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 };
 
-export const fmtMoney = (v: Num | undefined, currency?: string | null) => {
-  const n = toNumber(v);
-  if (n === null) return "—";
-  const s = n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return currency ? `${currency} ${s}` : s;
-};
+export const fmtMoney = (v: Num | undefined, currency?: string | null) => formatMoney(toNumber(v), currency);
 
 /** Calendar dates (ETD/ETA) are stored as UTC midnight — read them in UTC so they never shift a day. */
-export const fmtDay = (d?: string | null) => {
-  if (!d) return "—";
-  const x = new Date(d);
-  if (isNaN(x.getTime())) return "—";
-  return `${pad(x.getUTCDate())} ${MONTHS[x.getUTCMonth()]} ${x.getUTCFullYear()}`;
-};
+export const fmtDay = (d?: string | null) => formatDay(d);
 
 /** Timestamps (uploaded / done at) in local time. */
-export const fmtDate = (d?: string | null) => {
-  if (!d) return "—";
-  const x = new Date(d);
-  if (isNaN(x.getTime())) return "—";
-  return `${pad(x.getDate())} ${MONTHS[x.getMonth()]} ${x.getFullYear()}`;
-};
+export const fmtDate = (d?: string | null) => formatDate(d);
 
-export const fmtDateTime = (d?: string | null) => {
-  if (!d) return "—";
-  const x = new Date(d);
-  if (isNaN(x.getTime())) return "—";
-  return `${fmtDate(d)}, ${pad(x.getHours())}:${pad(x.getMinutes())}`;
-};
+export const fmtDateTime = (d?: string | null) => formatDateTime(d);
 
-/** "2026-10" → "Oct 2026". */
-export const fmtMonth = (m?: string | null) => {
-  const r = /^(\d{4})-(\d{2})$/.exec(m || "");
-  return r ? `${MONTHS[Number(r[2]) - 1]} ${r[1]}` : m || "—";
-};
+/** "2026-10" → "Oct 2026" / "2026年10月". */
+export const fmtMonth = (m?: string | null) => formatMonth(m);
 
 /** ISO → yyyy-mm-dd for a date input (UTC, matching fmtDay). */
 export const toDateInput = (d?: string | null) => (d ? new Date(d).toISOString().slice(0, 10) : "");
@@ -59,20 +41,20 @@ export const toDateInput = (d?: string | null) => (d ? new Date(d).toISOString()
 export const fmtBytes = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
 export const RECORD_STATUS: Record<RecordStatus, { label: string; color: "info" | "success" | "default" }> = {
-  OPEN: { label: "Open", color: "info" },
-  COMPLETED: { label: "Completed", color: "success" },
-  CANCELLED: { label: "Cancelled", color: "default" },
+  OPEN: status("Open", "未完了", "info"),
+  COMPLETED: status("Completed", "完了", "success"),
+  CANCELLED: status("Cancelled", "キャンセル", "default"),
 };
 
 export const STEP_STATUS: Record<StepStatus, { label: string; color: "default" | "warning" | "success" | "secondary" }> = {
-  NOT_STARTED: { label: "Not started", color: "default" },
-  IN_PROGRESS: { label: "In progress", color: "warning" },
-  DONE: { label: "Done", color: "success" },
+  NOT_STARTED: status("Not started", "未着手", "default"),
+  IN_PROGRESS: status("In progress", "対応中", "warning"),
+  DONE: status("Done", "完了", "success"),
   // Can't be set any more; only legacy rows can still carry it.
-  SKIPPED: { label: "Skipped (legacy)", color: "secondary" },
+  SKIPPED: status("Skipped (legacy)", "スキップ（旧）", "secondary"),
 };
 
-export const blLabel = (bl?: string | null) => bl || "B/L pending";
+export const blLabel = (bl?: string | null) => bl || (ja() ? "B/L未定" : "B/L pending");
 
 /** Doc types that can be met by an in-app invoice instead of an uploaded file. */
 export const INVOICE_DOC_TYPES = ["INVOICE_1", "INVOICE_2", "INVOICE_SINGLE"];
@@ -132,12 +114,13 @@ export const fmtDmy = (d?: string | null) => {
   if (!d) return "—";
   const x = new Date(/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d}T00:00:00Z` : d);
   if (isNaN(x.getTime())) return "—";
-  return `${pad(x.getUTCDate())}/${pad(x.getUTCMonth() + 1)}/${x.getUTCFullYear()}`;
+  // Round AZ: Japanese reads year first (2026/10/05).
+  return ja() ? `${x.getUTCFullYear()}/${pad(x.getUTCMonth() + 1)}/${pad(x.getUTCDate())}` : `${pad(x.getUTCDate())}/${pad(x.getUTCMonth() + 1)}/${x.getUTCFullYear()}`;
 };
 
 /** "3 business days" / "10 calendar days" — the contract's deposit term. */
 export const depositTermLabel = (days?: number | null, unit?: string | null) =>
-  days === null || days === undefined ? null : `${days} ${unit === "CALENDAR" ? "calendar" : "business"} day${days === 1 ? "" : "s"}`;
+  days === null || days === undefined ? null : ja() ? `${days}${unit === "CALENDAR" ? "暦日" : "営業日"}` : `${days} ${unit === "CALENDAR" ? "calendar" : "business"} day${days === 1 ? "" : "s"}`;
 
 /** "¥1,526,676" (yen, no decimals); "—" for null. */
 export const fmtYen = (v: number | null | undefined) => (v === null || v === undefined || !Number.isFinite(v) ? "—" : `¥${Math.round(v).toLocaleString("en-US")}`);

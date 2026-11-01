@@ -12,16 +12,22 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslations } from "next-intl";
+import { useUiLang } from "@/i18n/UiLangProvider";
+import { fmtDateTime } from "../_lib/format";
 import { useShipmentsApi, type IntakeEmail } from "../_lib/api";
 import { toast } from "../_lib/toast";
 
-const when = (e: IntakeEmail) => {
+const when = (e: IntakeEmail, lang: "en" | "ja") => {
   const d = new Date(e.date ?? e.receivedAt);
+  if (lang === "ja" && !Number.isNaN(d.getTime())) return fmtDateTime(e.date ?? e.receivedAt);
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 };
 
 export default function EmailIntakePanel() {
   const api = useShipmentsApi();
+  const t = useTranslations("inbox.intake");
+  const { lang } = useUiLang();
   const q = useQuery({ queryKey: ["email-intake"], queryFn: () => api.emailIntake(), refetchInterval: 30000 });
   const data = q.data;
 
@@ -29,9 +35,9 @@ export default function EmailIntakePanel() {
     if (!data?.address) return;
     try {
       await navigator.clipboard.writeText(data.address);
-      toast.success("Address copied");
+      toast.success(t("copied"));
     } catch {
-      toast.error("Could not copy — select the address and copy it");
+      toast.error(t("couldNotCopy"));
     }
   };
 
@@ -44,55 +50,55 @@ export default function EmailIntakePanel() {
       else window.location.href = url;
     } catch (e) {
       tab?.close();
-      toast.error((e as Error)?.message || "Could not open the file");
+      toast.error((e as Error)?.message || t("couldNotOpen"));
     }
   };
 
-  if (q.isLoading) return <Typography variant="body2" color="text.secondary">Loading…</Typography>;
-  if (q.isError) return <Alert severity="error">{(q.error as Error)?.message || "Could not load the email intake"}</Alert>;
+  if (q.isLoading) return <Typography variant="body2" color="text.secondary">{t("loading")}</Typography>;
+  if (q.isError) return <Alert severity="error">{(q.error as Error)?.message || t("couldNotLoad")}</Alert>;
 
   return (
     <Stack spacing={2}>
       <Box>
         <Typography variant="caption" color="text.secondary">
-          Forward emails to
+          {t("forwardTo")}
         </Typography>
         {data?.address ? (
           <Stack direction="row" spacing={1} alignItems="center" data-tour="email-intake-address">
             <Typography sx={{ fontFamily: "monospace", fontSize: 14, wordBreak: "break-all", userSelect: "all" }}>{data.address}</Typography>
-            <Tooltip title="Copy address">
-              <IconButton size="small" onClick={() => void copy()} aria-label="Copy address">
+            <Tooltip title={t("copy")}>
+              <IconButton size="small" onClick={() => void copy()} aria-label={t("copy")}>
                 <ContentCopyIcon fontSize="small" />
               </IconButton>
             </Tooltip>
           </Stack>
         ) : (
-          <Alert severity="warning">No intake address: {data?.addressNote ?? "not configured"}.</Alert>
+          <Alert severity="warning">{t("noAddress", { note: data?.addressNote ?? t("notConfigured") })}</Alert>
         )}
-        {!data?.enabled && <Alert severity="info" sx={{ mt: 1 }}>Email intake is off for this organization — mail sent to the address is not kept.</Alert>}
+        {!data?.enabled && <Alert severity="info" sx={{ mt: 1 }}>{t("off")}</Alert>}
       </Box>
 
       <Box>
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-            Received emails
+            {t("received")}
           </Typography>
           <Button size="small" startIcon={<RefreshIcon />} onClick={() => void q.refetch()} disabled={q.isFetching}>
-            Refresh
+            {t("refresh")}
           </Button>
         </Stack>
         {!data?.emails.length ? (
           <Typography variant="body2" color="text.secondary">
-            Nothing received yet. Forward an email to the address above; it appears here within a minute.
+            {t("nothing")}
           </Typography>
         ) : (
           <Table size="small" data-tour="email-intake-list">
             <TableHead>
               <TableRow>
-                <TableCell sx={{ width: 170 }}>Date</TableCell>
-                <TableCell sx={{ width: 220 }}>From</TableCell>
-                <TableCell>Subject</TableCell>
-                <TableCell>Attachments</TableCell>
+                <TableCell sx={{ width: 170 }}>{t("date")}</TableCell>
+                <TableCell sx={{ width: 220 }}>{t("from")}</TableCell>
+                <TableCell>{t("subject")}</TableCell>
+                <TableCell>{t("attachments")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -102,12 +108,12 @@ export default function EmailIntakePanel() {
                   hover
                   sx={{ cursor: e.hasEml ? "pointer" : "default" }}
                   onClick={() => e.hasEml && void open(e.id)}
-                  title={e.hasEml ? "Open the email (.eml)" : e.reason ?? e.status}
+                  title={e.hasEml ? t("openEml") : e.reason ?? e.status}
                 >
-                  <TableCell sx={{ whiteSpace: "nowrap" }}>{when(e)}</TableCell>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>{when(e, lang)}</TableCell>
                   <TableCell sx={{ wordBreak: "break-all" }}>{e.from || "—"}</TableCell>
                   <TableCell>
-                    {e.subject || <em>(no subject)</em>}
+                    {e.subject || <em>{t("noSubject")}</em>}
                     {e.status !== "STORED" && (
                       <Typography variant="caption" color="text.secondary" component="div">
                         {e.status}

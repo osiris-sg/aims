@@ -9,8 +9,10 @@ import useAddOrganizationStates from "../hooks/useAddOrganizationStates";
 import EditOrganization from "./EditOrganization";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import useOrganizationTableHeader from "../hooks/useOrganizationTableHeader";
+import { useTranslations } from "next-intl";
 
 export default function Organizations() {
+  const t = useTranslations("users.orgs");
   const { columns, editOrganizationOpen, selectedOrganization, handleEditOrganization, handleCloseEditOrganization, organizationToDelete, isDeleteInProgress, confirmDeleteOrganization, cancelDelete } = useOrganizationTableHeader();
 
   // Header sorting is applied to the FULL list inside the hook (before its
@@ -48,9 +50,9 @@ export default function Organizations() {
         manualSorting
         sorting={sorting}
         onSortingChange={setSorting}
-        tableName="Organizations Management"
-        subTitle="Manage all organizations in the platform"
-        buttonName="Add Organization"
+        tableName={t("tableName")}
+        subTitle={t("subTitle")}
+        buttonName={t("add")}
         onAddClick={onAddClick}
         loading={loading}
         page={page}

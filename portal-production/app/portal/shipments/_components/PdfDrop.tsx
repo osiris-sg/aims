@@ -7,6 +7,7 @@
 import React, { useRef, useState } from "react";
 import { Box, Button, CircularProgress, Paper, Typography, type SxProps, type Theme } from "@mui/material";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import { useTranslations } from "next-intl";
 import DocPages from "./DocPages";
 
 const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp";
@@ -27,6 +28,7 @@ export function PdfDropZone({
   onFiles: (files: File[]) => void;
   dataTour?: string;
 }) {
+  const t = useTranslations("orders.pdfDrop");
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const take = (list: FileList | null) => {
@@ -52,11 +54,11 @@ export function PdfDropZone({
       {busy ? <CircularProgress size={22} /> : <AutoAwesomeIcon color="primary" />}
       <Box sx={{ flex: 1, minWidth: 0 }}>
         <Typography variant="body2" sx={{ fontWeight: 600 }}>
-          {busy ? busyText || "Reading…" : title}
+          {busy ? busyText || t("reading") : title}
         </Typography>
       </Box>
       <Button size="small" variant="outlined" disabled={busy} onClick={() => input.current?.click()}>
-        Choose PDF{multiple ? "s" : ""}
+        {multiple ? t("choosePdfs") : t("choosePdf")}
       </Button>
       <input
         ref={input}
@@ -79,7 +81,8 @@ export function PdfDropZone({
  * (shown at once, before it is stored); else the stored file.
  */
 export function SourcePdfPane({ fileId, fileName, file, stacked = false }: { fileId?: string | null; fileName?: string | null; file?: File | null; stacked?: boolean }) {
-  const name = file?.name ?? fileName ?? "Source PDF";
+  const t = useTranslations("orders.pdfDrop");
+  const name = file?.name ?? fileName ?? t("sourcePdf");
   return (
     <Box
       sx={{
@@ -93,7 +96,7 @@ export function SourcePdfPane({ fileId, fileName, file, stacked = false }: { fil
       }}
     >
       <Typography variant="caption" color="text.secondary" sx={{ wordBreak: "break-word" }}>
-        {file ? `Reading ${name}…` : name}
+        {file ? t("readingName", { name }) : name}
       </Typography>
       <Box sx={{ flex: 1, minHeight: 0, border: 1, borderColor: "divider", borderRadius: 1, overflow: "hidden", bgcolor: "background.default" }}>
         <DocPages src={file ? { file } : fileId ? { fileId } : null} fileName={name} mimeType={file?.type || undefined} />

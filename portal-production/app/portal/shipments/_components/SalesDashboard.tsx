@@ -12,6 +12,7 @@
 import React, { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { Box, CircularProgress, Stack, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
@@ -41,6 +42,7 @@ export default function SalesDashboard() {
 
 function SalesDashboardInner() {
   const params = useSearchParams();
+  const t = useTranslations("inbox.sales");
   const emailsView = params?.get("view") === "emails";
   const { isLoading, isShipmentsHomeEnabled } = useOrganizationFeatures();
   const { hasPermission, userRoles } = useUserPermissions();
@@ -71,7 +73,7 @@ function SalesDashboardInner() {
       <Box>
         <Box sx={{ px: { xs: 1.5, md: 3 }, pt: 2 }}>
           <Link href={SHIPMENTS_HOME} style={{ fontSize: 13, fontWeight: 600 }} data-tour="emails-back">
-            ← Back to Dashboard
+            {t("back")}
           </Link>
         </Box>
         <EmailsAll />
@@ -87,10 +89,10 @@ function SalesDashboardInner() {
         <Stack direction="row" spacing={2} alignItems="center" sx={{ px: { xs: 1.5, md: 3 }, pt: 2, maxWidth: showAdmin ? 1400 : 1200, mx: "auto" }} data-tour="dashboard-toggle">
           <ToggleButtonGroup size="small" exclusive value={view} onChange={(_, v) => v && pick(v)}>
             <ToggleButton value="overview" sx={{ textTransform: "none", px: 2 }}>
-              Overview
+              {t("overview")}
             </ToggleButton>
             <ToggleButton value="admin" sx={{ textTransform: "none", px: 2 }}>
-              Admin
+              {t("admin")}
             </ToggleButton>
           </ToggleButtonGroup>
         </Stack>

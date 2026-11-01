@@ -16,7 +16,9 @@ import AddIcon from "@mui/icons-material/Add";
 import RemoveIcon from "@mui/icons-material/Remove";
 import FitScreenIcon from "@mui/icons-material/FitScreen";
 import CloseIcon from "@mui/icons-material/Close";
+import { useTranslations } from "next-intl";
 import { useShipmentsApi } from "../_lib/api";
+import { currentLang } from "@/i18n/lang";
 
 export type DocSource = { fileId: string } | { file: File } | { blob: Blob };
 
@@ -37,18 +39,19 @@ type PdfPage = {
 type PdfDoc = { numPages: number; getPage: (n: number) => Promise<PdfPage>; destroy: () => Promise<void> };
 type PdfJs = { GlobalWorkerOptions: { workerSrc: string }; getDocument: (o: { data: Uint8Array }) => { promise: Promise<PdfDoc> } };
 let pdfjsPromise: Promise<PdfJs> | null = null;
+const viewerError = () => new Error(currentLang() === "ja" ? "PDFビューアーを読み込めませんでした" : "Could not load the PDF viewer");
 export function loadPdfjs(): Promise<PdfJs> {
   const w = window as unknown as { __aimsPdfjs?: PdfJs };
   if (w.__aimsPdfjs) return Promise.resolve(w.__aimsPdfjs);
   if (!pdfjsPromise) {
     // A module <script> (public/pdfjs/loader.mjs) puts pdf.js on window — the bundler never sees it.
     pdfjsPromise = new Promise<PdfJs>((resolve, reject) => {
-      const done = () => (w.__aimsPdfjs ? resolve(w.__aimsPdfjs) : reject(new Error("Could not load the PDF viewer")));
+      const done = () => (w.__aimsPdfjs ? resolve(w.__aimsPdfjs) : reject(viewerError()));
       window.addEventListener("aims-pdfjs-ready", done, { once: true });
       const el = document.createElement("script");
       el.type = "module";
       el.src = "/pdfjs/loader.mjs";
-      el.onerror = () => reject(new Error("Could not load the PDF viewer"));
+      el.onerror = () => reject(viewerError());
       document.head.appendChild(el);
     });
     pdfjsPromise.catch(() => (pdfjsPromise = null));
@@ -59,6 +62,7 @@ export function loadPdfjs(): Promise<PdfJs> {
 /** The source's bytes as a Blob (stored files come through the API). */
 function useSourceBlob(src: DocSource | null) {
   const api = useShipmentsApi();
+  const t = useTranslations("orders.viewer");
   const [blob, setBlob] = useState<Blob | null>(null);
   const [error, setError] = useState<string | null>(null);
   const key = !src ? "" : "fileId" in src ? `id:${src.fileId}` : "file" in src ? `file:${src.file.name}:${src.file.size}:${src.file.lastModified}` : "blob";
@@ -72,7 +76,7 @@ function useSourceBlob(src: DocSource | null) {
     api
       .fileContent(src.fileId)
       .then((b) => live && setBlob(b))
-      .catch((e: Error) => live && setError(e?.message || "Could not open the file"));
+      .catch((e: Error) => live && setError(e?.message || t("openError")));
     return () => {
       live = false;
     };
@@ -120,6 +124,7 @@ export default function DocPages({
   /** Height of the scrolling page area (the bar sits above it). */
   height?: number | string;
 }) {
+  const t = useTranslations("orders.viewer");
   const kind = isPdfName(fileName, mimeType) ? "pdf" : isImageName(fileName, mimeType) ? "image" : "other";
   const { blob, error } = useSourceBlob(kind === "other" ? null : src);
   const scroller = useRef<HTMLDivElement>(null);
@@ -162,13 +167,14 @@ export default function DocPages({
         setPages(d.numPages);
         setCurrent(1);
       } catch (e) {
-        if (live) setRenderError((e as Error)?.message || "Could not read the PDF");
+        if (live) setRenderError((e as Error)?.message || t("readPdfError"));
       }
     })();
     return () => {
       live = false;
       void opened?.destroy();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, blob]);
 
   // Draw every page at the current width × zoom (debounced while resizing).
@@ -176,7 +182,7 @@ export default function DocPages({
   useEffect(() => {
     if (!doc || !width) return;
     let live = true;
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       for (let n = 1; n <= doc.numPages && live; n++) {
         const c = canvases.current[n - 1];
         if (c) await drawPage(doc, n, c, pageWidth).catch(() => undefined);
@@ -184,7 +190,7 @@ export default function DocPages({
     }, 80);
     return () => {
       live = false;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
   }, [doc, width, pageWidth]);
 
@@ -208,25 +214,25 @@ export default function DocPages({
     <Box sx={{ display: "flex", flexDirection: "column", height, minHeight: 0 }}>
       <Stack direction="row" alignItems="center" spacing={0.5} sx={{ px: 1, py: 0.25, minHeight: 34, borderBottom: 1, borderColor: "divider" }}>
         <Typography variant="caption" color="text.secondary" sx={{ flex: 1, minWidth: 0 }} noWrap>
-          {kind === "pdf" ? (pages ? `Page ${current} of ${pages}` : "") : kind === "image" ? "Image" : ""}
+          {kind === "pdf" ? (pages ? t("pageOf", { n: current, total: pages }) : "") : kind === "image" ? t("image") : ""}
         </Typography>
         {kind !== "other" && (
           <>
-            <Tooltip title="Zoom out">
+            <Tooltip title={t("zoomOut")}>
               <span>
-                <IconButton size="small" aria-label="Zoom out" disabled={zoom <= ZOOMS[0]} onClick={() => step(-1)}>
+                <IconButton size="small" aria-label={t("zoomOut")} disabled={zoom <= ZOOMS[0]} onClick={() => step(-1)}>
                   <RemoveIcon fontSize="small" />
                 </IconButton>
               </span>
             </Tooltip>
-            <Tooltip title="Fit width">
-              <IconButton size="small" aria-label="Fit width" onClick={() => setZoom(1)} color={zoom === 1 ? "primary" : "default"}>
+            <Tooltip title={t("fitWidth")}>
+              <IconButton size="small" aria-label={t("fitWidth")} onClick={() => setZoom(1)} color={zoom === 1 ? "primary" : "default"}>
                 <FitScreenIcon fontSize="small" />
               </IconButton>
             </Tooltip>
-            <Tooltip title="Zoom in">
+            <Tooltip title={t("zoomIn")}>
               <span>
-                <IconButton size="small" aria-label="Zoom in" disabled={zoom >= ZOOMS[ZOOMS.length - 1]} onClick={() => step(1)}>
+                <IconButton size="small" aria-label={t("zoomIn")} disabled={zoom >= ZOOMS[ZOOMS.length - 1]} onClick={() => step(1)}>
                   <AddIcon fontSize="small" />
                 </IconButton>
               </span>
@@ -235,7 +241,7 @@ export default function DocPages({
         )}
         {download && (
           <Link component="button" type="button" variant="caption" underline="hover" onClick={download} sx={{ ml: 1 }}>
-            Download
+            {t("download")}
           </Link>
         )}
       </Stack>
@@ -243,7 +249,7 @@ export default function DocPages({
       <Box ref={scroller} onScroll={onScroll} sx={{ flex: 1, minHeight: 0, overflow: "auto", bgcolor: "action.hover", p: 1.5 }}>
         {kind === "other" ? (
           <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: "center" }}>
-            No preview for this file type — download it to open it.
+            {t("noPreview")}
           </Typography>
         ) : problem ? (
           <Alert severity="error">{problem}</Alert>
@@ -259,8 +265,8 @@ export default function DocPages({
         ) : (
           <Stack spacing={1.5} alignItems={zoom > 1 ? "flex-start" : "center"}>
             {Array.from({ length: pages }, (_, i) => (
-              <Box key={i} onClick={() => setFull(i + 1)} sx={{ bgcolor: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,.25)", cursor: "zoom-in", lineHeight: 0 }} title={`Page ${i + 1} — click for full screen`}>
-                <canvas ref={(c) => void (canvases.current[i] = c)} aria-label={`Page ${i + 1}`} />
+              <Box key={i} onClick={() => setFull(i + 1)} sx={{ bgcolor: "#fff", boxShadow: "0 1px 4px rgba(0,0,0,.25)", cursor: "zoom-in", lineHeight: 0 }} title={t("pageFull", { n: i + 1 })}>
+                <canvas ref={(c) => void (canvases.current[i] = c)} aria-label={t("page", { n: i + 1 })} />
               </Box>
             ))}
           </Stack>
@@ -300,6 +306,7 @@ function FullPage({
   fileName: string;
   onPage: (n: number) => void;
 }) {
+  const tr = useTranslations("orders.viewer");
   const canvas = useRef<HTMLCanvasElement | null>(null);
   useEffect(() => {
     if (!open || !doc) return;
@@ -322,9 +329,9 @@ function FullPage({
       <Stack direction="row" alignItems="center" sx={{ px: 2, py: 1, color: "#fff" }}>
         <Typography variant="body2" sx={{ flex: 1, wordBreak: "break-word" }}>
           {fileName}
-          {doc ? ` · Page ${page} of ${pages}` : ""}
+          {doc ? ` · ${tr("pageOf", { n: page, total: pages })}` : ""}
         </Typography>
-        <IconButton aria-label="Close" onClick={onClose} sx={{ color: "#fff" }}>
+        <IconButton aria-label={tr("close")} onClick={onClose} sx={{ color: "#fff" }}>
           <CloseIcon />
         </IconButton>
       </Stack>

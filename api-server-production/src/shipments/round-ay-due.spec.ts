@@ -99,7 +99,7 @@ describe('round AY — due service', () => {
   });
   it('tasks: due within the window or overdue, shaped like reminders, linking to the order', async () => {
     const prisma: any = {
-      organization: { findUnique: async () => ({ uiConfig: { features: { enableStepDueDates: true } } }) },
+      organization: { findUnique: async () => ({ uiConfig: { features: { enableStepDueDates: true, stepDueDatesSince: '2026-01-01' } } }) },
       tradeSetting: { findUnique: async () => ({ customerProfiles: set.profiles, alertRules: {} }) },
       tradeOrder: { findMany: async () => [order()], findFirst: async () => order() },
       tradeGeneratedDoc: { findMany: async () => [{ shipmentId: 's1', rows: [{ deliveryDate: '2026-10-30' }, { deliveryDate: '2026-10-28' }] }] },
@@ -111,7 +111,7 @@ describe('round AY — due service', () => {
   });
   it('setDue: a date or null only, stamped with who / when', async () => {
     const updates: any[] = [];
-    const prisma: any = { organization: { findUnique: async () => ({ uiConfig: { features: { enableStepDueDates: true } } }) }, tradeStep: { findFirst: async () => ({ id: 'st', dueAt: null, code: 'X', orderId: 'o1', shipmentId: null, shipment: null }), update: async (a: any) => updates.push(a) } };
+    const prisma: any = { organization: { findUnique: async () => ({ uiConfig: { features: { enableStepDueDates: true, stepDueDatesSince: '2026-01-01' } } }) }, tradeStep: { findFirst: async () => ({ id: 'st', dueAt: null, code: 'X', orderId: 'o1', shipmentId: null, shipment: null }), update: async (a: any) => updates.push(a) } };
     const s = new TradeDueService(prisma);
     await expect(s.setDue('org', 'st', '31/10/2026', { id: 'u', name: 'Take' })).rejects.toThrow('YYYY-MM-DD');
     await s.setDue('org', 'st', '2026-11-05', { id: 'u', name: 'Take' });
@@ -121,7 +121,7 @@ describe('round AY — due service', () => {
   });
   it('Overall process: the order + each shipment, the schedule (T/S, delivery dates), rows in process order', async () => {
     const prisma: any = {
-      organization: { findUnique: async () => ({ uiConfig: { features: { enableStepDueDates: true } } }) },
+      organization: { findUnique: async () => ({ uiConfig: { features: { enableStepDueDates: true, stepDueDatesSince: '2026-01-01' } } }) },
       tradeSetting: { findUnique: async () => ({ customerProfiles: set.profiles, alertRules: {} }) },
       tradeOrder: { findFirst: async () => order() },
       tradeGeneratedDoc: { findMany: async () => [{ shipmentId: 's1', rows: [{ deliveryDate: '2026-10-30' }, { deliveryDate: '2026-10-28' }] }] },

@@ -1,4 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { useUiLang } from "@/i18n/UiLangProvider";
+import { useTranslations } from "next-intl";
+import { useNavLabels } from "@/components/TopNav/useNavModules";
 import * as React from "react";
 import {
   List,
@@ -47,7 +50,7 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 import { getListRouteFromPathname } from "@/app/portal/components/documentRoutes";
 import { useSidebar } from "./SidebarContext";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
-import { clientsNavModule, isClientsPath, navLangOf, visibleSalesSubmenus, withoutSalesMonthly } from "@/helpers/shipmentsNav";
+import { clientsNavModule, isClientsPath, visibleSalesSubmenus, withoutSalesMonthly } from "@/helpers/shipmentsNav";
 
 // Material UI icon mapping
 const iconMap: Record<string, React.ComponentType> = {
@@ -92,8 +95,9 @@ export default function DynamicSidebarContent() {
   const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled } = useOrganizationFeatures();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
-  const [navLang, setNavLang] = React.useState<'en' | 'ja'>('en');
-  React.useEffect(() => setNavLang(navLangOf(typeof navigator !== 'undefined' ? navigator.language : null)), []);
+  const navLang = useUiLang().lang;
+  const { moduleName, subLabel, settingLabel } = useNavLabels();
+  const tn = useTranslations("shell.nav");
 
   // When we're inside a document editor URL (/portal/documents/<type>/...),
   // behave for sidebar-highlight purposes as if we were still on the
@@ -187,7 +191,7 @@ export default function DynamicSidebarContent() {
         <ErrorOutline sx={{ color: "#FFFFFF", mb: 1 }} />
         {!isCollapsed && (
           <Typography variant="caption" sx={{ color: "rgba(255, 255, 255, 0.7)", textAlign: "center" }}>
-            Failed to load navigation
+            {tn("failedToLoad")}
           </Typography>
         )}
       </Stack>
@@ -364,7 +368,7 @@ export default function DynamicSidebarContent() {
           {!isCollapsed && (
             <>
               <ListItemText
-                primary={module.displayName || module.moduleCode}
+                primary={moduleName(module)}
                 primaryTypographyProps={{
                   sx: {
                     color: isActive ? "#FFFFFF" : alpha("#ffffff", 0.78),
@@ -384,7 +388,7 @@ export default function DynamicSidebarContent() {
 
     if (isCollapsed) {
       return (
-        <Tooltip key={module.id} title={module.displayName || module.moduleCode} placement="right">
+        <Tooltip key={module.id} title={moduleName(module)} placement="right">
           {menuItem}
         </Tooltip>
       );
@@ -399,9 +403,9 @@ export default function DynamicSidebarContent() {
             <List component="div" disablePadding>
               {module.config.subMenus.map((submenu: any) => {
                 const submenuKey = typeof submenu === 'string' ? submenu : submenu.key;
-                const submenuLabel = typeof submenu === 'string'
+                const submenuLabel = subLabel(module, submenu, typeof submenu === 'string'
                   ? submenu.charAt(0).toUpperCase() + submenu.slice(1).replace(/-/g, ' ')
-                  : submenu.label;
+                  : submenu.label);
                 const submenuRoute = resolveSubmenuRoute(module, submenu);
                 const isSubmenuActive =
                   submenuRoute === module.config?.route
@@ -464,7 +468,7 @@ export default function DynamicSidebarContent() {
   }> = [
     {
       id: 'settings',
-      text: 'Organization Settings',
+      text: tn('organizationSettings'),
       icon: 'SettingsRounded',
       subMenus: [
         { key: 'company-profile', label: 'Company Profile', path: '/portal/settings/company-profile' },
@@ -472,7 +476,8 @@ export default function DynamicSidebarContent() {
         { key: 'customer-profiles', label: 'Customers', path: '/portal/settings/customers' },
         { key: 'accounting-setup', label: 'Accounting Setup', path: '/portal/settings/accounting-setup' },
         { key: 'masterfiles', label: 'Master Files', path: '/portal/masterfiles' },
-      ].filter((s) => (s.key !== 'accounting-setup' || accountingSetupShown) && ((s.key !== 'shipping' && s.key !== 'customer-profiles') || showShippingSettings(isModuleEnabled))),
+      ].filter((s) => (s.key !== 'accounting-setup' || accountingSetupShown) && ((s.key !== 'shipping' && s.key !== 'customer-profiles') || showShippingSettings(isModuleEnabled)))
+        .map((s) => ({ ...s, label: settingLabel(s) })),
     },
   ];
 

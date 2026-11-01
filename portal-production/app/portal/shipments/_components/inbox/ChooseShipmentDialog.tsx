@@ -27,6 +27,8 @@ import CloseIcon from "@mui/icons-material/Close";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import SearchIcon from "@mui/icons-material/Search";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslations } from "next-intl";
+import { useInboxLabels } from "./useInboxLabels";
 import { useShipmentsApi, type AnswerFile, type AnswerIssue, type AnswerTarget, type InboxAnswer, type InboxLang, type InboxThread, type Placement, type ShipmentListItem } from "../../_lib/api";
 import { useCustomers, useOrders, useShipments, useSuppliers } from "../../_lib/hooks";
 import type { OrderListItem, Shipment } from "../../_lib/api";
@@ -43,14 +45,14 @@ type IssueForm = { title: string; summaryEn: string; summaryJa: string; owner: s
 
 /** The document slots a person may put a file in (the intake's triage types — the planner files by them). */
 const SLOTS = ["COA", "COA_XLS", "PL", "PL_XLS", "PL_CONTAINER", "CI", "PI", "BL_SCAN", "BL_DRAFT", "COO", "INSURANCE", "TELEX", "ARRIVAL_NOTICE", "IMPORT_PERMIT", "BUNDLE_LIST", "DELIVERY_NOTE", "DELIVERY_SCHEDULE", "VENDOR_INVOICE", "PAYMENT_PROOF", "CONTRACT", "SI"];
-const SLOT_LABEL: Record<string, string> = { COA_XLS: "COA (Excel)", PL_XLS: "Packing list (Excel)", PL_CONTAINER: "Container packing list", BL_SCAN: "Bill of lading (B/L)", TELEX: "Telex release", SI: "Shipping instructions" };
-const slotLabel = (code: string) => SLOT_LABEL[code] ?? docPlainName({ docType: code, docLabel: null } as any);
+/** The slots named here (the rest by docPlainName); their words are in inbox.choose.slots. */
+const SLOT_LABEL = new Set(["COA_XLS", "PL_XLS", "PL_CONTAINER", "BL_SCAN", "TELEX", "SI"]);
 const CAST_RE = /^\d{3}[A-Z]\d{4}(\d{2})?$/i;
 const fileKey = (f: Pick<Placement, "emailId" | "index">) => `${f.emailId}:${f.index}`;
 const tKey = (t: { orderId?: string | null; shipmentId?: string | null }) => `${t.orderId ?? ""}:${t.shipmentId ?? ""}`;
 
 /** One line of the All-shipments list (round AV: the rule is in _lib/shipment-picker.ts). */
-export const shipmentLine = (s: Parameters<typeof shipmentLineOf>[0]) => shipmentLineOf(s, { day: fmtDay, customer: shortCustomer });
+export const shipmentLine = (s: Parameters<typeof shipmentLineOf>[0], lang: InboxLang = "en") => shipmentLineOf(s, { day: fmtDay, customer: shortCustomer }, lang);
 const orderLine = (o: Parameters<typeof orderLineOf>[0]) => orderLineOf(o, { customer: shortCustomer });
 
 /** The search text of a shipment row: ref, customer, grade, B/L, vessel. */
@@ -63,7 +65,9 @@ export function stepOneQuestion(kind: InboxThread["question"] extends infer Q ? 
 
 export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, onCreateOrder }: { open: boolean; t: InboxThread; lang: InboxLang; busy?: boolean; onClose: () => void; onAnswer: (t: InboxThread, a: InboxAnswer) => void; onCreateOrder: (t: InboxThread) => void }) {
   const q = t.question;
-  const labels = L[lang];
+  const labels = useInboxLabels();
+  const tc = useTranslations("inbox.choose");
+  const slotLabel = (code: string) => (SLOT_LABEL.has(code) ? tc(`slots.${code}`) : docPlainName({ docType: code, docLabel: null } as any, lang));
   const api = useShipmentsApi();
   const [step, setStep] = useState<Step>("q1");
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -121,11 +125,11 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
     for (const o of likely) m.set(optionKey(o), { key: optionKey(o), orderId: o.orderId, shipmentId: o.shipmentId, ref: o.ref, label: o.summary || o.ref });
     for (const s of allShips) {
       const k = optionKey({ orderId: s.orderId!, shipmentId: s.id });
-      if (!m.has(k)) m.set(k, { key: k, orderId: s.orderId!, shipmentId: s.id, ref: s.ref || s.blNumber || "Shipment", label: shipmentLine(s) });
+      if (!m.has(k)) m.set(k, { key: k, orderId: s.orderId!, shipmentId: s.id, ref: s.ref || s.blNumber || tc("shipment"), label: shipmentLine(s, lang) });
     }
     for (const [k, o] of made) if (!m.has(k)) m.set(k, o);
     return m;
-  }, [likely, allShips, made]);
+  }, [likely, allShips, made, tc, lang]);
   const orderById = useMemo(() => new Map((orders.data?.items ?? []).map((o) => [o.id, o])), [orders.data]);
   const shipById = useMemo(() => new Map(allShips.map((s) => [s.id, s])), [allShips]);
   const groups = useMemo(() => orderGroups(orders.data?.items ?? [], { showCompleted }), [orders.data, showCompleted]);
@@ -133,7 +137,7 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
   const onDrawerSaved = (s: Shipment) => {
     if (drawer?.kind === "new" && s.orderId) {
       const k = optionKey({ orderId: s.orderId, shipmentId: s.id });
-      setMade((prev) => new Map(prev).set(k, { key: k, orderId: s.orderId!, shipmentId: s.id, ref: s.ref ?? "Shipment", label: shipmentLine(s as any) }));
+      setMade((prev) => new Map(prev).set(k, { key: k, orderId: s.orderId!, shipmentId: s.id, ref: s.ref ?? tc("shipment"), label: shipmentLine(s as any, lang) }));
       setTicked((prev) => new Set(prev).add(k));
     }
   };
@@ -166,7 +170,7 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
     const o = optsByKey.get(key);
     if (o) return o;
     const d = f ? [...f.defaults, ...f.holders].find((x) => optionKey({ orderId: x.orderId ?? "", shipmentId: x.shipmentId }) === key) : null;
-    return d ? { key, orderId: d.orderId, shipmentId: d.shipmentId, ref: d.ref ?? "Shipment", label: d.ref ?? "Shipment" } : null;
+    return d ? { key, orderId: d.orderId, shipmentId: d.shipmentId, ref: d.ref ?? tc("shipment"), label: d.ref ?? tc("shipment") } : null;
   };
   const unplaced = fileRows.filter((f) => { const s = files[fileKey(f)]; return !s || (!s.skip && (!s.targets.length || !s.docType)); }).length;
 
@@ -308,11 +312,11 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
       <ListItemText primary={primaryText} secondary={secondary || undefined} primaryTypographyProps={{ variant: "body2", fontWeight: 600, sx: { wordBreak: "break-word" } }} secondaryTypographyProps={{ variant: "caption", sx: { wordBreak: "break-word" } }} />
       {extra}
       {editId && (
-        <Tooltip title={lang === "ja" ? "出荷を編集" : "Edit the shipment"}>
+        <Tooltip title={tc("editShipment")}>
           <IconButton
             size="small"
             edge="end"
-            aria-label={lang === "ja" ? "出荷を編集" : "Edit the shipment"}
+            aria-label={tc("editShipment")}
             onClick={(e) => {
               e.stopPropagation();
               setDrawer({ kind: "edit", shipmentId: editId });
@@ -338,7 +342,7 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
         sx={{ textTransform: "none", flexShrink: 0, whiteSpace: "nowrap" }}
         data-tour="choose-shipment-new-for-order"
       >
-        {lang === "ja" ? `新しい出荷（${nextShipmentRef(o)}）` : `New shipment (${nextShipmentRef(o)})`}
+        {tc("newFor", { ref: nextShipmentRef(o) })}
       </Button>
     ) : null;
   const liveShips = (o: OrderListItem) => (o.shipments ?? []).filter((x) => x.status !== "CANCELLED");
@@ -364,7 +368,7 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
             {t.subject || ""}
           </Typography>
         )}
-        <IconButton aria-label="Close" onClick={onClose} sx={{ position: "absolute", right: 8, top: 8 }} data-tour="answer-flow-close">
+        <IconButton aria-label={tc("close")} onClick={onClose} sx={{ position: "absolute", right: 8, top: 8 }} data-tour="answer-flow-close">
           <CloseIcon />
         </IconButton>
       </DialogTitle>
@@ -408,7 +412,7 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
           <DialogContent dividers sx={{ p: 0 }}>
             <Box sx={{ px: 2, pt: 1 }}>
               <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => setDrawer({ kind: "new" })} sx={{ textTransform: "none" }} data-tour="answer-new-shipment">
-                {lang === "ja" ? "新しい出荷…" : "New shipment…"}
+                {tc("newShipment")}
               </Button>
             </Box>
             {!isDeal && (
@@ -433,7 +437,7 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
                   <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>{labels.castNone(castKey)}</Typography>
                 ) : (
                   <List dense disablePadding>
-                    {castShips.map((s) => row(optionKey({ orderId: s.orderId!, shipmentId: s.id }), shipmentLine(s), s.status === "COMPLETED" ? (lang === "ja" ? "完了" : "Completed") : null, "choose-shipment-row"))}
+                    {castShips.map((s) => row(optionKey({ orderId: s.orderId!, shipmentId: s.id }), shipmentLine(s, lang), s.status === "COMPLETED" ? tc("completed") : null, "choose-shipment-row"))}
                   </List>
                 )}
                 <Divider sx={{ my: 1 }} />
@@ -448,7 +452,7 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
                   {likelyShown.map((o) => {
                     const ord = !o.shipmentId ? orderById.get(o.orderId) : null;
                     const empty = !!ord && liveShips(ord).length === 0;
-                    const primaryText = empty ? `${orderLine(ord!)} · ${lang === "ja" ? "出荷なし" : "no shipment yet"}` : o.summary || o.ref;
+                    const primaryText = empty ? `${orderLine(ord!)} · ${tc("noShipment")}` : o.summary || o.ref;
                     return row(optionKey(o), primaryText, [primaryText.includes(o.ref) ? null : o.ref, o.why].filter(Boolean).join(" · "), "choose-shipment-option", o.shipmentId, ord ? newFor(ord) : null);
                   })}
                 </List>
@@ -463,7 +467,7 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
                   </Typography>
                   <FormControlLabel
                     control={<Switch size="small" checked={showCompleted} onChange={(e) => setShowCompleted(e.target.checked)} />}
-                    label={<Typography variant="caption">{lang === "ja" ? "完了も表示" : "Show completed"}</Typography>}
+                    label={<Typography variant="caption">{tc("showCompleted")}</Typography>}
                     sx={{ mr: 0 }}
                     data-tour="choose-shipment-show-completed"
                   />
@@ -499,17 +503,17 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
                             <Stack direction="row" alignItems="center" spacing={1} sx={{ px: 1, pt: 0.5 }}>
                               <Typography variant="body2" sx={{ fontWeight: 800, flex: 1, minWidth: 0, wordBreak: "break-word" }}>
                                 {orderLine(o)}
-                                {o.status === "COMPLETED" ? <Chip size="small" label={lang === "ja" ? "完了" : "Completed"} sx={{ ml: 1, height: 20 }} /> : null}
+                                {o.status === "COMPLETED" ? <Chip size="small" label={tc("completed")} sx={{ ml: 1, height: 20 }} /> : null}
                               </Typography>
                               {newFor(o)}
                             </Stack>
                             {rows.length ? (
                               <List dense disablePadding sx={{ pl: 1.5 }}>
-                                {rows.map((x) => row(optionKey({ orderId: o.id, shipmentId: x.id }), shipmentLine(x), x.status === "COMPLETED" ? (lang === "ja" ? "完了" : "Completed") : null, "choose-shipment-row", x.id))}
+                                {rows.map((x) => row(optionKey({ orderId: o.id, shipmentId: x.id }), shipmentLine(x, lang), x.status === "COMPLETED" ? tc("completed") : null, "choose-shipment-row", x.id))}
                               </List>
                             ) : (
                               <Typography variant="caption" color="text.secondary" component="div" sx={{ pl: 2.5, pb: 0.5 }}>
-                                {liveShips(o).length ? (lang === "ja" ? "上の候補にあります" : "listed above") : lang === "ja" ? "出荷なし" : "no shipment yet"}
+                                {liveShips(o).length ? tc("listedAbove") : tc("noShipment")}
                               </Typography>
                             )}
                           </Box>
@@ -531,7 +535,7 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
               <Typography variant="body2" color="text.secondary">{labels.loadingFiles}</Typography>
             </Stack>
           ) : placements.error ? (
-            <Alert severity="error">{(placements.error as Error)?.message || "Could not read the files"}</Alert>
+            <Alert severity="error">{(placements.error as Error)?.message || tc("couldNotRead")}</Alert>
           ) : fileRows.length === 0 ? (
             <Typography variant="body2" color="text.secondary">{labels.noFiles}</Typography>
           ) : (
@@ -664,7 +668,7 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
             </Stack>
           ) : (
             <Typography variant="body2" color="text.secondary" data-tour="answer-step-confirm">
-              {lang === "ja" ? "確定するとメールは非表示になります（設定 → メールフィルター → 非表示 から戻せます）。" : "On Confirm the emails are hidden (Settings → Email filter → Hidden brings them back)."}
+              {tc("hiddenNote")}
             </Typography>
           )}
         </DialogContent>

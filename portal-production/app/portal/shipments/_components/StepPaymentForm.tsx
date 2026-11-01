@@ -14,6 +14,7 @@
 
 import React, { useEffect, useState } from "react";
 import { Box, Button, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
+import { useTranslations } from "next-intl";
 import PaymentsIcon from "@mui/icons-material/PaymentsOutlined";
 import { toast } from "../_lib/toast";
 import { useTradeMutation } from "../_lib/hooks";
@@ -39,7 +40,11 @@ export default function StepPaymentForm({
   currency?: string | null;
   canEdit: boolean;
 }) {
+  const t = useTranslations("shipments.stepPaymentForm");
+  const tc = useTranslations("common");
   const spec = STEP_PAYMENT[step.code];
+  const specLabel = spec ? (t.has(`label.${step.code}`) ? t(`label.${step.code}`) : spec.label) : "";
+  const accountLabel = (k: PaymentAccount) => (k === "OTHER" ? t("accountOther") : ACCOUNT_LABEL[k]);
   const saved = paymentOf(step);
   const [editing, setEditing] = useState(false);
   const [amount, setAmount] = useState("");
@@ -61,7 +66,7 @@ export default function StepPaymentForm({
 
   if (!spec) return null;
   const proofs = fileLinks.filter((l) => l.file.docType === spec.proofDocType && (l.stepId === step.id || !l.stepId));
-  const proofName = saved?.proofFileId ? (fileLinks.find((l) => l.file.id === saved.proofFileId)?.file.fileName ?? "proof file") : null;
+  const proofName = saved?.proofFileId ? (fileLinks.find((l) => l.file.id === saved.proofFileId)?.file.fileName ?? t("proofFile")) : null;
 
   if (!editing) {
     return (
@@ -69,21 +74,21 @@ export default function StepPaymentForm({
         <PaymentsIcon fontSize="small" color={saved ? "success" : "disabled"} />
         {saved ? (
           <Typography variant="body2">
-            {spec.label}: <b>{fmtMoney(saved.amount, saved.currency)}</b> on {fmtDmy(saved.paidAt)} · {ACCOUNT_LABEL[saved.account] ?? saved.account}
-            {proofName ? ` · ${proofName}` : " · no proof attached"}
+            {specLabel}: <b>{fmtMoney(saved.amount, saved.currency)}</b> {t("onDate", { date: fmtDmy(saved.paidAt) })} · {accountLabel(saved.account) ?? saved.account}
+            {proofName ? ` · ${proofName}` : ` · ${t("noProof")}`}
           </Typography>
         ) : receiptNotTracked(spec.direction, saved, canEdit, step.skipReason) ? (
           <Typography variant="body2" color="text.secondary" data-tour="receipt-not-tracked">
-            Imported, payment not tracked
+            {t("notTracked")}
           </Typography>
         ) : (
           <Typography variant="body2" color="text.secondary">
-            {spec.direction === "IN" ? "No receipt recorded" : "No payment recorded"}
+            {spec.direction === "IN" ? t("noReceipt") : t("noPayment")}
           </Typography>
         )}
         {canEdit && (
           <Button size="small" variant={saved ? "text" : "outlined"} onClick={() => setEditing(true)}>
-            {saved ? "Edit" : spec.direction === "IN" ? "Record receipt" : "Record payment"}
+            {saved ? tc("edit") : spec.direction === "IN" ? t("recordReceipt") : t("recordPayment")}
           </Button>
         )}
         {canEdit && saved && (
@@ -93,13 +98,13 @@ export default function StepPaymentForm({
             onClick={async () => {
               try {
                 await save.mutateAsync(null);
-                toast.success("Payment cleared");
+                toast.success(t("cleared"));
               } catch (e: any) {
-                toast.error(e?.message || "Could not clear the payment");
+                toast.error(e?.message || t("clearError"));
               }
             }}
           >
-            Clear
+            {t("clear")}
           </Button>
         )}
       </Stack>
@@ -110,28 +115,28 @@ export default function StepPaymentForm({
   return (
     <Paper variant="outlined" sx={{ p: 1.5 }} data-tour="step-payment">
       <Typography variant="subtitle2" sx={{ mb: 1 }}>
-        {spec.label}
+        {specLabel}
       </Typography>
       <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", md: "1.2fr 0.6fr 1fr 1.2fr 1.6fr" } }}>
-        <TextField size="small" label="Amount" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} inputProps={{ min: 0, step: "0.01" }} />
-        <TextField size="small" select label="Currency" value={cur} onChange={(e) => setCur(e.target.value)}>
+        <TextField size="small" label={t("amount")} type="number" value={amount} onChange={(e) => setAmount(e.target.value)} inputProps={{ min: 0, step: "0.01" }} />
+        <TextField size="small" select label={t("currency")} value={cur} onChange={(e) => setCur(e.target.value)}>
           {["USD", "JPY", "SGD"].map((c) => (
             <MenuItem key={c} value={c}>
               {c}
             </MenuItem>
           ))}
         </TextField>
-        <TextField size="small" label="Date" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} {...guardDate({ type: "date", InputLabelProps: { shrink: true } }, paidAt)} />
-        <TextField size="small" select label="Account" value={account} onChange={(e) => setAccount(e.target.value as PaymentAccount)}>
+        <TextField size="small" label={t("date")} value={paidAt} onChange={(e) => setPaidAt(e.target.value)} {...guardDate({ type: "date", InputLabelProps: { shrink: true } }, paidAt)} />
+        <TextField size="small" select label={t("account")} value={account} onChange={(e) => setAccount(e.target.value as PaymentAccount)}>
           {(Object.keys(ACCOUNT_LABEL) as PaymentAccount[]).map((k) => (
             <MenuItem key={k} value={k}>
-              {ACCOUNT_LABEL[k]}
+              {accountLabel(k)}
             </MenuItem>
           ))}
         </TextField>
-        <TextField size="small" select label="Proof" value={proofFileId} onChange={(e) => setProofFileId(e.target.value)} helperText={proofs.length ? undefined : "Upload the proof on this step first"}>
+        <TextField size="small" select label={t("proof")} value={proofFileId} onChange={(e) => setProofFileId(e.target.value)} helperText={proofs.length ? undefined : t("uploadProofFirst")}>
           <MenuItem value="">
-            <em>None</em>
+            <em>{t("none")}</em>
           </MenuItem>
           {proofs.map((l) => (
             <MenuItem key={l.file.id} value={l.file.id}>
@@ -141,21 +146,21 @@ export default function StepPaymentForm({
         </TextField>
       </Box>
       <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 1.5 }}>
-        <Button onClick={() => setEditing(false)}>Cancel</Button>
+        <Button onClick={() => setEditing(false)}>{tc("cancel")}</Button>
         <Button
           variant="contained"
           disabled={bad || save.isPending}
           onClick={async () => {
             try {
               await save.mutateAsync({ amount: Number(amount), currency: cur, paidAt, account, proofFileId: proofFileId || null });
-              toast.success(`${spec.label} saved`);
+              toast.success(t("savedToast", { label: specLabel }));
               setEditing(false);
             } catch (e: any) {
-              toast.error(e?.message || "Could not save the payment");
+              toast.error(e?.message || t("saveError"));
             }
           }}
         >
-          Save
+          {tc("save")}
         </Button>
       </Stack>
     </Paper>

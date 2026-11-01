@@ -6,12 +6,14 @@ import useActivityTableHeader from "../hooks/useActivityTableHeader";
 import { useGetActionLogs } from "../hooks/useGetActionLogs";
 import { Button, MenuItem, TextField } from "@mui/material";
 import { Refresh as RefreshIcon } from "@mui/icons-material";
+import { useTranslations } from "next-intl";
 
 const ACTOR_TYPES = ["", "USER", "API_KEY", "GUEST", "SYSTEM"];
 const STATUSES = ["", "SUCCESS", "FAILURE"];
 
 export default function ActivityLog() {
   const { columns } = useActivityTableHeader();
+  const tr = useTranslations("audit.activity");
   const { data, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, refresh } = useGetActionLogs();
 
   const setFilter = (key: string, value: string) => {
@@ -23,8 +25,8 @@ export default function ActivityLog() {
     <PageTable
       columns={columns}
       data={data.logs}
-      tableName="Activity Log"
-      subTitle="Every action in the system — users, API keys, guests and system creation"
+      tableName={tr("tableName")}
+      subTitle={tr("subTitle")}
       loading={loading}
       page={page}
       limit={limit}
@@ -42,26 +44,26 @@ export default function ActivityLog() {
           key="actorType"
           select
           size="small"
-          label="Actor type"
+          label={tr("actorType")}
           value={filters.actorType}
           onChange={(e) => setFilter("actorType", e.target.value)}
           sx={{ minWidth: 140 }}
         >
           {ACTOR_TYPES.map((t) => (
             <MenuItem key={t || "all"} value={t}>
-              {t === "" ? "All" : t === "SYSTEM" ? "System creation" : t === "API_KEY" ? "API key" : t.charAt(0) + t.slice(1).toLowerCase()}
+              {t === "" ? tr("all") : tr(`actorTypes.${t}`)}
             </MenuItem>
           ))}
         </TextField>,
-        <TextField key="status" select size="small" label="Status" value={filters.status} onChange={(e) => setFilter("status", e.target.value)} sx={{ minWidth: 120 }}>
+        <TextField key="status" select size="small" label={tr("status")} value={filters.status} onChange={(e) => setFilter("status", e.target.value)} sx={{ minWidth: 120 }}>
           {STATUSES.map((s) => (
             <MenuItem key={s || "all"} value={s}>
-              {s === "" ? "All" : s.charAt(0) + s.slice(1).toLowerCase()}
+              {s === "" ? tr("all") : tr(`statuses.${s}`)}
             </MenuItem>
           ))}
         </TextField>,
         <Button key="refresh" variant="outlined" startIcon={<RefreshIcon />} onClick={refresh} disabled={loading}>
-          Refresh
+          {tr("refresh")}
         </Button>,
       ]}
     />

@@ -29,6 +29,9 @@ import InvoiceStatistics from "./components/InvoiceStatistics";
 import RecordPaymentDialog from "./components/RecordPaymentDialog";
 import { useXeroConnection } from "./hooks/useXeroConnection";
 import { docGrossTotal } from "@/helpers/docTotal";
+import { useTranslations } from "next-intl";
+import { useUiLang } from "@/i18n/UiLangProvider";
+import { formatDate } from "@/i18n/lang";
 
 interface Document {
   id: string;
@@ -88,6 +91,10 @@ const INVOICE_STATUS_OPTIONS = [
 
 export default function InvoicesPage() {
   const router = useRouter();
+  const t = useTranslations("invoices.list");
+  const { lang } = useUiLang();
+  // Dates: English keeps DD/MM/YYYY exactly; Japanese uses the portal's YYYY/MM/DD.
+  const fmtDmy = (d: any) => (lang === "ja" ? formatDate(moment(d).toDate()) : moment(d).format("DD/MM/YYYY"));
   // Create Invoice here shares the EXACT flow of the Sales > Invoice page
   // (number-format picker → template picker → create → editor). ?from= on the
   // editor URL brings the user back to this tab afterwards.
@@ -170,7 +177,7 @@ export default function InvoicesPage() {
     const id = docToDelete.id;
     try {
       await deleteDocumentMutation.mutateAsync(id);
-      toast.success("Invoice deleted");
+      toast.success(t("invoiceDeleted"));
       setDocToDelete(null);
       // Drop the row locally so the list updates without an extra round-trip.
       setDocuments((prev) => ({
@@ -180,7 +187,7 @@ export default function InvoicesPage() {
       }));
     } catch (err: any) {
       console.error("Delete invoice failed:", err);
-      toast.error(err?.message || "Failed to delete invoice");
+      toast.error(err?.message || t("failedDelete"));
     }
   };
 
@@ -271,18 +278,18 @@ export default function InvoicesPage() {
     },
     {
       accessorKey: "name",
-      header: "Document SKU",
+      header: t("colSku"),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => <Box sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{row.original.name}</Box>,
     },
     {
       accessorKey: "associated_customer",
-      header: "Associated Customer",
+      header: t("colCustomer"),
     },
     {
       // Free-text Reference — what the invoice is FOR (guru 2026-07-24).
       accessorKey: "reference",
-      header: "Reference",
+      header: t("colReference"),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => {
         const c: any = row.original.config || {};
@@ -296,17 +303,17 @@ export default function InvoicesPage() {
     // "Associated Item" dropped from all document lists (2026-07-13, guru).
     {
       accessorKey: "dueDate",
-      header: "Due Date",
+      header: t("colDueDate"),
       nowrap: true,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => {
         const dueDate = row.original.config?.dueDate;
-        return dueDate ? moment(dueDate).format("DD/MM/YYYY") : <Box component="span" sx={{ color: "text.disabled" }}>—</Box>;
+        return dueDate ? fmtDmy(dueDate) : <Box component="span" sx={{ color: "text.disabled" }}>—</Box>;
       },
     },
     {
       accessorKey: "status",
-      header: "Status",
+      header: t("colStatus"),
       // wrap: chip may take two lines (no "…" — guru 2026-08-27)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => <StatusChip status={row.original.status} />,
@@ -323,13 +330,13 @@ export default function InvoicesPage() {
         return cfg.xeroInvoiceId ? (
           <Chip size="small" variant="outlined" color="success" label={`Xero · ${cfg.xeroStatus || "SYNCED"}`} sx={{ fontSize: "0.65rem", height: "auto", minHeight: 24, py: 0.25, "& .MuiChip-label": { whiteSpace: "normal", display: "block", textAlign: "center", lineHeight: 1.3 } }} />
         ) : (
-          <Chip size="small" variant="outlined" label="Not synced" sx={{ fontSize: "0.65rem", opacity: 0.6, height: "auto", minHeight: 24, py: 0.25, "& .MuiChip-label": { whiteSpace: "normal", display: "block", textAlign: "center", lineHeight: 1.3 } }} />
+          <Chip size="small" variant="outlined" label={t("notSynced")} sx={{ fontSize: "0.65rem", opacity: 0.6, height: "auto", minHeight: 24, py: 0.25, "& .MuiChip-label": { whiteSpace: "normal", display: "block", textAlign: "center", lineHeight: 1.3 } }} />
         );
       },
     },
     {
       accessorKey: "outstanding",
-      header: "Outstanding",
+      header: t("colOutstanding"),
       nowrap: true,
       align: "right",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -346,7 +353,7 @@ export default function InvoicesPage() {
             <Box sx={{ fontWeight: 600 }}>{fmt(outstanding)}</Box>
             {paid > 0 && (
               <Box sx={{ fontSize: "0.7rem", color: "text.secondary" }}>
-                paid {fmt(paid)} / {fmt(total)}
+                {t("paidOf", { paid: fmt(paid), total: fmt(total) })}
               </Box>
             )}
           </Box>
@@ -355,13 +362,13 @@ export default function InvoicesPage() {
     },
     {
       accessorKey: "daysOverdue",
-      header: "Age",
+      header: t("colAge"),
       nowrap: true,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => {
         const status = arStatusOf(row.original);
         if (status === "paid") {
-          return <Box sx={{ fontSize: "0.8125rem", color: "success.main" }}>Paid</Box>;
+          return <Box sx={{ fontSize: "0.8125rem", color: "success.main" }}>{t("paid")}</Box>;
         }
         const od = daysOverdue(row.original);
         if (od === null) return <Box sx={{ color: "text.disabled" }}>—</Box>;
@@ -369,22 +376,22 @@ export default function InvoicesPage() {
           const tone = od >= 60 ? "error.main" : od >= 30 ? "warning.main" : "warning.main";
           return (
             <Box sx={{ color: tone, fontWeight: 600, fontSize: "0.8125rem" }}>
-              {od}d overdue
+              {t("daysOverdue", { n: od })}
             </Box>
           );
         }
-        if (od === 0) return <Box sx={{ fontSize: "0.8125rem", color: "warning.main" }}>Due today</Box>;
-        return <Box sx={{ fontSize: "0.8125rem", color: "text.secondary" }}>{Math.abs(od)}d to go</Box>;
+        if (od === 0) return <Box sx={{ fontSize: "0.8125rem", color: "warning.main" }}>{t("dueToday")}</Box>;
+        return <Box sx={{ fontSize: "0.8125rem", color: "text.secondary" }}>{t("daysToGo", { n: Math.abs(od) })}</Box>;
       },
     },
     {
       accessorKey: "createdAt",
-      header: "Invoice Date",
+      header: t("colInvoiceDate"),
       nowrap: true,
       // Show the invoice's real issue date (config.date); fall back to the row
       // creation timestamp only when an invoice has no issue date recorded.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      cell: ({ row }: any) => moment(row.original.config?.date ?? row.original.createdAt).format("DD/MM/YYYY"),
+      cell: ({ row }: any) => fmtDmy(row.original.config?.date ?? row.original.createdAt),
     },
     {
       // Row-click opens the invoice; the kebab holds payment/download/delete
@@ -398,7 +405,7 @@ export default function InvoicesPage() {
       cell: ({ row }: any) => (
         <IconButton
           size="small"
-          aria-label="Row actions"
+          aria-label={t("rowActions")}
           onClick={(e: React.MouseEvent<HTMLElement>) => {
             e.stopPropagation();
             setRowMenu({ pos: { left: e.clientX, top: e.clientY }, row: row.original });
@@ -487,15 +494,15 @@ export default function InvoicesPage() {
           nextPage: null,
         });
       } else {
-        setError(response.message || "Failed to fetch documents");
+        setError(response.message || t("fetchFailed"));
       }
     } catch (error) {
       console.error("Error fetching documents:", error);
-      setError("An error occurred while fetching documents");
+      setError(t("fetchError"));
     } finally {
       setLoading(false);
     }
-  }, [organizationId, getToken, limit]);
+  }, [organizationId, getToken, limit, t]);
 
   useEffect(() => {
     fetchDocuments();
@@ -539,11 +546,11 @@ export default function InvoicesPage() {
   }, [filterCustomers]);
   const invoiceFilterConfig: FilterField[] = useMemo(
     () => [
-      { type: "dateRange", key: "createdOn", label: "Created On" },
-      { type: "select", key: "status", label: "Status", options: INVOICE_STATUS_OPTIONS },
-      { type: "select", key: "customerId", label: "Customer", options: (filterCustomers || []).map((c: any) => ({ value: c.id, label: c.name })) },
+      { type: "dateRange", key: "createdOn", label: t("filterCreatedOn") },
+      { type: "select", key: "status", label: t("filterStatus"), options: INVOICE_STATUS_OPTIONS.map((o) => ({ value: o.value, label: t(`statusOptions.${o.value}`) })) },
+      { type: "select", key: "customerId", label: t("filterCustomer"), options: (filterCustomers || []).map((c: any) => ({ value: c.id, label: c.name })) },
     ],
-    [filterCustomers],
+    [filterCustomers, t],
   );
 
   const visibleDocs = (() => {
@@ -638,7 +645,7 @@ export default function InvoicesPage() {
     setBulkDownloading(true);
     try {
       const token = await getToken();
-      if (!token) throw new Error("Authentication required");
+      if (!token) throw new Error(t("authRequired"));
       const res = await request(
         // Generating many fresh PDFs (Puppeteer) can exceed the 30s default —
         // give the batch a longer per-call timeout.
@@ -649,7 +656,7 @@ export default function InvoicesPage() {
       // The API's global CustomResponseInterceptor wraps every body as
       // { success, data, message } — the real payload sits under data.
       const payload = res?.data;
-      if (!res?.success || !payload?.base64) throw new Error((!res?.success && res?.message) || "Download failed");
+      if (!res?.success || !payload?.base64) throw new Error((!res?.success && res?.message) || t("downloadFailed"));
       const bytes = Uint8Array.from(atob(payload.base64), (ch) => ch.charCodeAt(0));
       const blob = new Blob([bytes], { type: payload.mime || "application/octet-stream" });
       const url = URL.createObjectURL(blob);
@@ -660,10 +667,10 @@ export default function InvoicesPage() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      if (payload.failed?.length) toast.warn(`${payload.failed.length} document${payload.failed.length === 1 ? "" : "s"} could not be included`);
+      if (payload.failed?.length) toast.warn(t("notIncluded", { n: payload.failed.length, c: String(payload.failed.length) }));
     } catch (err: any) {
       console.error("Bulk download failed:", err);
-      toast.error(err?.message || "Failed to download PDFs");
+      toast.error(err?.message || t("failedDownload"));
     } finally {
       setBulkDownloading(false);
     }
@@ -689,8 +696,8 @@ export default function InvoicesPage() {
     }
     setBulkDeleting(false);
     setBulkDeleteOpen(false);
-    if (deleted.size) toast.success(`Deleted ${deleted.size} invoice${deleted.size === 1 ? "" : "s"}`);
-    if (failed) toast.error(`${failed} invoice${failed === 1 ? "" : "s"} failed to delete`);
+    if (deleted.size) toast.success(t("bulkDeleted", { n: deleted.size, c: String(deleted.size) }));
+    if (failed) toast.error(t("bulkDeleteFailed", { n: failed, c: String(failed) }));
     setDocuments((prev) => ({
       ...prev,
       docs: (prev.docs || []).filter((d) => !deleted.has(d.id)),
@@ -777,7 +784,7 @@ export default function InvoicesPage() {
       }, selectedCustomer, variant.id);
     } else {
       console.error("No customer selected! This shouldn't happen.");
-      toast.error("Please select a customer first");
+      toast.error(t("selectCustomerFirst"));
       // Reopen customer drawer
       setCustomerDrawerOpen(true);
     }
@@ -866,14 +873,14 @@ export default function InvoicesPage() {
 
       if (!response || !response.success) {
         console.error("Document creation failed:", response);
-        alert(`Failed to create document: ${response?.message || 'Unknown error'}`);
+        alert(t("createFailed", { message: response?.message || t("unknownError") }));
         return;
       }
 
       const createdDocumentId = response?.data?.id;
       if (!createdDocumentId) {
         console.error("No document ID in response:", response);
-        alert("Failed to create document: No document ID returned");
+        alert(t("createFailed", { message: t("noDocumentId") }));
         return;
       }
 
@@ -887,7 +894,7 @@ export default function InvoicesPage() {
       console.log("=== NAVIGATING ===");
       console.log("Navigation URL:", urlWithCustomer);
 
-      toast.success("Invoice created successfully! Redirecting...");
+      toast.success(t("createdRedirecting"));
 
       // Small delay to ensure toast is visible
       setTimeout(() => {
@@ -897,7 +904,7 @@ export default function InvoicesPage() {
     } catch (error) {
       console.error("=== ERROR IN ONSUBMIT ===");
       console.error("Error submitting form:", error);
-      alert(`Error creating invoice: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      alert(t("createError", { message: error instanceof Error ? error.message : t("unknownError") }));
     } finally {
       setIsDocumentTemplateUpdating(false);
       console.log("isDocumentTemplateUpdating set to false");
@@ -924,7 +931,7 @@ export default function InvoicesPage() {
           },
         }}
       >
-        Connect Xero
+        {t("connectXero")}
       </Button>
     );
   }
@@ -940,7 +947,7 @@ export default function InvoicesPage() {
       {/* Show Xero connection status */}
       {connectionStatus && connectionStatus.connected && (
         <Alert severity="success" sx={{ mb: 2 }}>
-          ✅ Xero is connected! Invoices will be automatically synced.
+          {t("xeroConnected")}
         </Alert>
       )}
 
@@ -956,9 +963,9 @@ export default function InvoicesPage() {
         // nothing (guru 2026-08-07).
         data={sortedDocs.slice((page - 1) * limit, page * limit)}
         {...sortingProps}
-        tableName="Invoice List"
-        subTitle="Invoice Detail Information"
-        buttonName="Create Invoice"
+        tableName={t("tableName")}
+        subTitle={t("subTitle")}
+        buttonName={t("createInvoice")}
         onAddClick={createInvoice}
         buttonDisabled={creatingInvoice}
         loading={loading || isDocumentTemplateUpdating}
@@ -983,11 +990,11 @@ export default function InvoicesPage() {
                 onChange={(_, v) => setArTab(v)}
                 sx={{ minHeight: 36, "& .MuiTab-root": { minHeight: 36, textTransform: "none", fontWeight: 600 } }}
               >
-                <Tab value="all" label={<TabLabel text="All" count={arCounts.all} />} />
-                <Tab value="draft" label={<TabLabel text="Unconfirmed" count={arCounts.draft} />} />
-                <Tab value="awaiting" label={<TabLabel text="Awaiting Payment" count={arCounts.awaiting} tone="info" />} />
-                <Tab value="overdue" label={<TabLabel text="Overdue" count={arCounts.overdue} tone="error" />} />
-                <Tab value="paid" label={<TabLabel text="Paid" count={arCounts.paid} tone="success" />} />
+                <Tab value="all" label={<TabLabel text={t("tabAll")} count={arCounts.all} />} />
+                <Tab value="draft" label={<TabLabel text={t("tabUnconfirmed")} count={arCounts.draft} />} />
+                <Tab value="awaiting" label={<TabLabel text={t("tabAwaiting")} count={arCounts.awaiting} tone="info" />} />
+                <Tab value="overdue" label={<TabLabel text={t("tabOverdue")} count={arCounts.overdue} tone="error" />} />
+                <Tab value="paid" label={<TabLabel text={t("tabPaid")} count={arCounts.paid} tone="success" />} />
               </Tabs>
             </Box>
           </Box>
@@ -1001,27 +1008,27 @@ export default function InvoicesPage() {
         actions={[
           {
             key: "download",
-            label: bulkDownloading ? "Preparing…" : "Download",
+            label: bulkDownloading ? t("preparing") : t("download"),
             icon: <DownloadIcon />,
             disabled: bulkDownloading,
             tooltip:
               selectedDocs.length > 1
-                ? "Download the selected invoices' PDFs as one ZIP"
-                : "Download this invoice's PDF",
+                ? t("downloadZipTip")
+                : t("downloadOneTip"),
             onClick: handleBulkDownload,
           },
           {
             key: "delete",
-            label: skippedCount > 0 && deletableSelected.length > 0 ? `Delete ${deletableSelected.length} unconfirmed` : "Delete",
+            label: skippedCount > 0 && deletableSelected.length > 0 ? t("deleteNUnconfirmed", { n: deletableSelected.length }) : t("delete"),
             icon: <DeleteIcon />,
             color: "error",
             disabled: deletableSelected.length === 0 || bulkDeleting,
             tooltip:
               deletableSelected.length === 0
-                ? "Only unconfirmed (draft) invoices can be deleted"
+                ? t("onlyDraftDeletable")
                 : skippedCount > 0
-                ? `${skippedCount} confirmed invoice${skippedCount === 1 ? "" : "s"} in the selection will be skipped`
-                : "Delete the selected unconfirmed invoices",
+                ? t("willBeSkipped", { n: skippedCount, c: String(skippedCount) })
+                : t("deleteSelectedTip"),
             onClick: () => setBulkDeleteOpen(true),
           },
         ]}
@@ -1029,41 +1036,41 @@ export default function InvoicesPage() {
 
       {/* Bulk delete confirm */}
       <Dialog open={bulkDeleteOpen} onClose={() => !bulkDeleting && setBulkDeleteOpen(false)}>
-        <DialogTitle>Delete {deletableSelected.length} invoice{deletableSelected.length === 1 ? "" : "s"}</DialogTitle>
+        <DialogTitle>{t("bulkDeleteTitle", { n: deletableSelected.length, c: String(deletableSelected.length) })}</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Delete {deletableSelected.length} unconfirmed invoice{deletableSelected.length === 1 ? "" : "s"}? This cannot be undone.
+            {t("bulkDeleteBody", { n: deletableSelected.length, c: String(deletableSelected.length) })}
             {skippedCount > 0 &&
-              ` ${skippedCount} confirmed invoice${skippedCount === 1 ? "" : "s"} in the selection will not be touched.`}
+              ` ${t("willNotBeTouched", { n: skippedCount, c: String(skippedCount) })}`}
           </DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setBulkDeleteOpen(false)} disabled={bulkDeleting}>
-            Cancel
+            {t("cancel")}
           </Button>
           <Button color="error" variant="contained" onClick={handleBulkDelete} disabled={bulkDeleting}>
-            {bulkDeleting ? "Deleting..." : "Delete"}
+            {bulkDeleting ? t("deleting") : t("delete")}
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* Row kebab menu (CLAUDE.md table pattern) */}
       <Menu anchorReference="anchorPosition" anchorPosition={rowMenu?.pos} open={!!rowMenu} onClose={() => setRowMenu(null)}>
-        <MenuItem onClick={() => { const r = rowMenu!.row; setRowMenu(null); openInvoice(r); }}>Open</MenuItem>
-        <MenuItem onClick={() => { const r = rowMenu!.row; setRowMenu(null); openInvoiceNewTab(r); }}>Open in new tab</MenuItem>
+        <MenuItem onClick={() => { const r = rowMenu!.row; setRowMenu(null); openInvoice(r); }}>{t("open")}</MenuItem>
+        <MenuItem onClick={() => { const r = rowMenu!.row; setRowMenu(null); openInvoiceNewTab(r); }}>{t("openNewTab")}</MenuItem>
         {rowMenu &&
           !["draft", "unconfirmed"].includes(rowMenu.row.status || "unconfirmed") &&
           arStatusOf(rowMenu.row) !== "paid" && (
             <MenuItem onClick={() => { const r = rowMenu!.row; setRowMenu(null); openPayDialogFor(r); }}>
-              Record payment
+              {t("recordPayment")}
             </MenuItem>
           )}
         {/* Same server-rendered branded PDF as the bulk bar's Download
             (guru 2026-09-11) — not the old print-view popup. */}
-        <MenuItem onClick={() => { const r = rowMenu!.row; setRowMenu(null); downloadPdfs([r.id]); }}>Download PDF</MenuItem>
+        <MenuItem onClick={() => { const r = rowMenu!.row; setRowMenu(null); downloadPdfs([r.id]); }}>{t("downloadPdf")}</MenuItem>
         {rowMenu && ["draft", "unconfirmed"].includes(rowMenu.row.status || "unconfirmed") && (
           <MenuItem sx={{ color: "error.main" }} onClick={() => { const r = rowMenu!.row; setRowMenu(null); setDocToDelete(r); }}>
-            Delete draft
+            {t("deleteDraft")}
           </MenuItem>
         )}
       </Menu>
@@ -1095,9 +1102,9 @@ export default function InvoicesPage() {
 
       {/* Numbering-variant picker — shown when the type has >1 active format */}
       <Dialog open={!!numberingPicker} onClose={() => setNumberingPicker(null)} fullWidth maxWidth="xs">
-        <DialogTitle>Choose number format</DialogTitle>
+        <DialogTitle>{t("chooseNumberFormat")}</DialogTitle>
         <DialogContent>
-          <DialogContentText sx={{ mb: 2 }}>This document type has multiple numbering formats. Which one should this document use?</DialogContentText>
+          <DialogContentText sx={{ mb: 2 }}>{t("chooseNumberFormatBody")}</DialogContentText>
           <Stack gap={1}>
             {(numberingPicker?.formats || []).map((f: any) => (
               <Button
@@ -1119,20 +1126,20 @@ export default function InvoicesPage() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setNumberingPicker(null)}>Cancel</Button>
+          <Button onClick={() => setNumberingPicker(null)}>{t("cancel")}</Button>
         </DialogActions>
       </Dialog>
 
       <Dialog open={!!docToDelete} onClose={() => setDocToDelete(null)}>
-        <DialogTitle>Delete Invoice</DialogTitle>
+        <DialogTitle>{t("deleteInvoiceTitle")}</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Delete &quot;{docToDelete?.name || "this draft"}&quot;? This cannot be undone.
+            {t("deleteOneBody", { name: docToDelete?.name || t("thisDraft") })}
           </DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDocToDelete(null)} disabled={deleteDocumentMutation.isPending}>
-            Cancel
+            {t("cancel")}
           </Button>
           <Button
             onClick={handleDeleteConfirm}
@@ -1140,7 +1147,7 @@ export default function InvoicesPage() {
             variant="contained"
             disabled={deleteDocumentMutation.isPending}
           >
-            {deleteDocumentMutation.isPending ? "Deleting..." : "Delete"}
+            {deleteDocumentMutation.isPending ? t("deleting") : t("delete")}
           </Button>
         </DialogActions>
       </Dialog>

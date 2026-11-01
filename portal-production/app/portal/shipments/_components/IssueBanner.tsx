@@ -5,9 +5,11 @@
 
 import React from "react";
 import { Alert, AlertTitle, Box, Typography } from "@mui/material";
+import { useTranslations } from "next-intl";
 import { useShipmentIssues } from "../_lib/hooks";
 
 export default function IssueBanner({ shipmentId, docType }: { shipmentId: string; docType: string }) {
+  const t = useTranslations("shipments.issueBanner");
   const q = useShipmentIssues(shipmentId, docType);
   const rows = (q.data ?? []).filter((i) => i.status === "OPEN");
   if (!rows.length) return null;
@@ -21,7 +23,7 @@ export default function IssueBanner({ shipmentId, docType }: { shipmentId: strin
               {i.title}
               {i.effectiveFrom ? (
                 <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                  from {i.effectiveFrom}
+                  {t("from", { date: i.effectiveFrom })}
                 </Typography>
               ) : null}
             </AlertTitle>
@@ -37,7 +39,7 @@ export default function IssueBanner({ shipmentId, docType }: { shipmentId: strin
             )}
             {party && (
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.25 }}>
-                Issue on {party}
+                {t("issueOn", { party })}
               </Typography>
             )}
           </Alert>

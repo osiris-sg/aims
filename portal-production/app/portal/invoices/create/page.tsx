@@ -14,10 +14,12 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { Receipt as InvoiceIcon } from "@mui/icons-material";
+import { useTranslations } from "next-intl";
 
 export default function CreateDocument() {
   const { availableDocumentTypes } = useGetDocumentTemplates();
   const router = useRouter();
+  const t = useTranslations("invoices.create");
   const { organization } = useOrganization();
   const organizationId = organization?.id;
   const documentTemplateSchema = yup.object().shape({
@@ -153,37 +155,37 @@ export default function CreateDocument() {
         <form onSubmit={handleSubmit(onSubmit)} style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "center", maxWidth: 600 }}>
           <Stack direction="column" justifyContent="center" width="100%" height="100%" alignContent="center">
             <Typography variant="h2" textAlign="center">
-              Choose a Document
+              {t("title")}
             </Typography>
             <Typography variant="body1" color="text.secondary" marginBottom="var(--default-gap)" textAlign="center">
-              Select a document type you wish to create
+              {t("subtitle")}
             </Typography>
 
             {/* MSR Data Preview */}
             {msrData && (
               <Alert severity="info" icon={<InvoiceIcon />} sx={{ mb: 3, textAlign: "left" }}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 1 }}>
-                  Creating Invoice from Maintenance Service Report
+                  {t("fromMsr")}
                 </Typography>
                 <Typography variant="body2" sx={{ mb: 1 }}>
-                  Equipment: {msrData.reportDetails?.equipmentId} | Location: {msrData.reportDetails?.location}
+                  {t("equipment")}: {msrData.reportDetails?.equipmentId} | {t("location")}: {msrData.reportDetails?.location}
                 </Typography>
                 <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                  <Chip label={`${msrData.items?.length || 0} chargeable items`} size="small" color="success" />
-                  <Chip label={`Total: $${msrData.items?.reduce((sum: number, item: any) => sum + item.unitPrice * item.quantity + (item.laborHours || 0) * (item.laborRate || 0), 0).toFixed(2)}`} size="small" variant="outlined" />
+                  <Chip label={t("chargeableItems", { n: msrData.items?.length || 0 })} size="small" color="success" />
+                  <Chip label={`${t("total")}: $${msrData.items?.reduce((sum: number, item: any) => sum + item.unitPrice * item.quantity + (item.laborHours || 0) * (item.laborRate || 0), 0).toFixed(2)}`} size="small" variant="outlined" />
                 </Box>
               </Alert>
             )}
 
-            <FormSelect control={control} menuItems={availableDocumentTypes.map((doc) => ({ label: doc.label, value: doc.value }))} label="Document" name="documentType" menuTitle="Choose a document" />
+            <FormSelect control={control} menuItems={availableDocumentTypes.map((doc) => ({ label: doc.label, value: doc.value }))} label={t("document")} name="documentType" menuTitle={t("menuTitle")} />
           </Stack>
 
           <Stack direction="row" justifyContent="space-between" width="100%">
             <Button variant="outlined" color="primary" onClick={() => router.push(ROUTES.DOCUMENTS)}>
-              Cancel
+              {t("cancel")}
             </Button>
             <Button variant="contained" color="primary" type="submit" loading={isDocumentTemplateUpdating} disabled={!isDirty}>
-              {msrData ? "Create Invoice from MSR" : "Confirm"}
+              {msrData ? t("createFromMsr") : t("confirm")}
             </Button>
           </Stack>
         </form>

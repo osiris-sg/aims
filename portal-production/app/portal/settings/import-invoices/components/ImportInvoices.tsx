@@ -45,6 +45,9 @@ import { useImportData, Invoice, LineItem, Asset, Customer, Project, Category, S
 import { useOrganization } from "@hooks/useOrganization";
 import { toast } from "react-toastify";
 import { normalizeProjectName } from "@/helpers/normalizeProjectName";
+import { useTranslations } from "next-intl";
+import { useUiLang } from "@/i18n/UiLangProvider";
+import { formatDate } from "@/i18n/lang";
 
 // ─── Editable line item form state ───
 interface EditableLineItem {
@@ -175,6 +178,9 @@ function buildFormState(invoice: Invoice, customers: Customer[], projects: Proje
 }
 
 export default function ImportInvoices() {
+  const t = useTranslations("settings.importInvoices");
+  const { lang } = useUiLang();
+  const fmtLong = (d: string) => (lang === "ja" ? formatDate(d, "ja") : new Date(d).toLocaleDateString("en-SG", { year: "numeric", month: "long", day: "numeric" }));
   const { organization } = useOrganization();
   const {
     invoices,
@@ -218,7 +224,7 @@ export default function ImportInvoices() {
   if (organization && organization.name !== "Biofuel Industries Pte Ltd") {
     return (
       <Box sx={{ p: 4 }}>
-        <Alert severity="error">This page is only available for Biofuel Industries.</Alert>
+        <Alert severity="error">{t("onlyBiofuel")}</Alert>
       </Box>
     );
   }
@@ -292,7 +298,7 @@ export default function ImportInvoices() {
         });
         if (created) {
           siteOfficeId = created.id;
-          toast.info(`Created site office: ${created.name}`);
+          toast.info(t("createdSiteOffice", { name: created.name }));
         }
       }
 
@@ -308,7 +314,7 @@ export default function ImportInvoices() {
         });
         if (created) {
           projectId = created.id;
-          toast.info(`Created project: ${created.name}`);
+          toast.info(t("createdProject", { name: created.name }));
         }
       }
 
@@ -331,7 +337,7 @@ export default function ImportInvoices() {
           });
           if (created) {
             updatedItems[i] = { ...li, selectedAssetId: created.id, isNewAsset: false };
-            toast.info(`Created asset: ${created.name} (${created.skuKey})`);
+            toast.info(t("createdAsset", { name: created.name, sku: created.skuKey }));
           }
         }
       }
@@ -356,7 +362,7 @@ export default function ImportInvoices() {
       if (importResult?.success === false && importResult?.message === 'Invoice already exists') {
         // Already imported — just mark as confirmed, don't show error
       } else if (importResult) {
-        toast.success(`Imported ${currentInvoice.invoice_number}`);
+        toast.success(t("imported", { no: currentInvoice.invoice_number }));
       }
 
       // 5. Mark as confirmed in the tracking file
@@ -374,7 +380,7 @@ export default function ImportInvoices() {
         setCurrentIndex(currentIndex - 1);
       }
     } catch (err) {
-      toast.error(`Error confirming: ${err}`);
+      toast.error(t("errorConfirming", { err: String(err) }));
     }
   };
 
@@ -382,7 +388,7 @@ export default function ImportInvoices() {
     if (!currentInvoice) return;
     const success = await skipInvoice(currentInvoice.invoice_number, "Skipped by user");
     if (success) {
-      toast.info(`Skipped ${currentInvoice.invoice_number}`);
+      toast.info(t("skippedToast", { no: currentInvoice.invoice_number }));
       await refreshInvoices();
       if (currentIndex >= invoices.length - 1 && currentIndex > 0) {
         setCurrentIndex(currentIndex - 1);
@@ -398,20 +404,20 @@ export default function ImportInvoices() {
     <Box sx={{ p: { xs: 1.5, md: 4 }, width: "100%" }}>
       {/* Header */}
       <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
-        Xero Invoice Import
+        {t("title")}
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Review and confirm invoices before importing into AIMS
+        {t("subtitle")}
       </Typography>
 
       {/* Stats Cards */}
       {stats && (
         <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(2, 1fr)", sm: "repeat(3, 1fr)", md: "repeat(5, 1fr)" }, gap: 2, mb: 3 }}>
-          <StatCard label="Total" value={stats.total} color="#1976d2" />
-          <StatCard label="Pending" value={stats.pending} color="#ed6c02" />
-          <StatCard label="Confirmed" value={stats.confirmed} color="#2e7d32" />
-          <StatCard label="Skipped" value={stats.skipped} color="#757575" />
-          <StatCard label="Match Rate" value={stats.summary.match_rate} color="#9c27b0" />
+          <StatCard label={t("stats.total")} value={stats.total} color="#1976d2" />
+          <StatCard label={t("stats.pending")} value={stats.pending} color="#ed6c02" />
+          <StatCard label={t("stats.confirmed")} value={stats.confirmed} color="#2e7d32" />
+          <StatCard label={t("stats.skipped")} value={stats.skipped} color="#757575" />
+          <StatCard label={t("stats.matchRate")} value={stats.summary.match_rate} color="#9c27b0" />
         </Box>
       )}
 
@@ -422,10 +428,10 @@ export default function ImportInvoices() {
           onChange={(_, v) => { setStatusFilter(v); setCurrentIndex(0); setPage(1); }}
           sx={{ "& .MuiTab-root": { textTransform: "none" } }}
         >
-          <Tab label="Pending" value="pending" />
-          <Tab label="Confirmed" value="confirmed" />
-          <Tab label="Skipped" value="skipped" />
-          <Tab label="All" value="" />
+          <Tab label={t("tabs.pending")} value="pending" />
+          <Tab label={t("tabs.confirmed")} value="confirmed" />
+          <Tab label={t("tabs.skipped")} value="skipped" />
+          <Tab label={t("tabs.all")} value="" />
         </Tabs>
         <Box sx={{ flex: 1 }} />
       </Box>
@@ -449,7 +455,7 @@ export default function ImportInvoices() {
             <NavigateBeforeIcon />
           </IconButton>
           <Typography variant="body2" sx={{ minWidth: 180, textAlign: "center" }}>
-            {(page - 1) * 20 + currentIndex + 1} of {totalInvoices}
+            {t("position", { n: String((page - 1) * 20 + currentIndex + 1), total: String(totalInvoices) })}
           </Typography>
           <IconButton
             onClick={() => {
@@ -471,7 +477,7 @@ export default function ImportInvoices() {
           <TextField
             size="small"
             sx={{ width: { xs: "100%", sm: 300 } }}
-            label="Search invoice or customer (press Enter)"
+            label={t("searchLabel")}
             placeholder="e.g. BI202509041"
             defaultValue={search}
             onKeyDown={(e) => {
@@ -490,12 +496,12 @@ export default function ImportInvoices() {
           />
           {search && (
             <Button size="small" onClick={() => { setSearch(""); setPage(1); setCurrentIndex(0); }}>
-              Clear
+              {t("clear")}
             </Button>
           )}
           {!search && (
             <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-              Press Enter to search
+              {t("pressEnter")}
             </Typography>
           )}
         </Box>
@@ -509,7 +515,7 @@ export default function ImportInvoices() {
               <Box>
                 <Typography variant="h5" sx={{ fontWeight: 700 }}>{currentInvoice.invoice_number}</Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {new Date(currentInvoice.date).toLocaleDateString("en-SG", { year: "numeric", month: "long", day: "numeric" })}
+                  {fmtLong(currentInvoice.date)}
                 </Typography>
               </Box>
               <Box sx={{ display: "flex", gap: 1 }}>
@@ -519,10 +525,10 @@ export default function ImportInvoices() {
             </Box>
 
             <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", md: "1fr 1fr 1fr 1fr" }, gap: 2, mb: 2 }}>
-              <Box><Typography variant="caption" color="text.secondary">Customer</Typography><Typography variant="body2" sx={{ fontWeight: 500 }}>{currentInvoice.customer}</Typography></Box>
-              <Box><Typography variant="caption" color="text.secondary">Gross</Typography><Typography variant="body2" sx={{ fontWeight: 500 }}>${currentInvoice.gross?.toLocaleString("en-SG", { minimumFractionDigits: 2 })}</Typography></Box>
-              <Box><Typography variant="caption" color="text.secondary">Balance</Typography><Typography variant="body2" sx={{ fontWeight: 500 }}>${currentInvoice.balance?.toLocaleString("en-SG", { minimumFractionDigits: 2 })}</Typography></Box>
-              <Box><Typography variant="caption" color="text.secondary">Project</Typography><Typography variant="body2" sx={{ fontWeight: 500 }}>{(currentInvoice as any).project_name || currentInvoice.project_location || "—"}</Typography></Box>
+              <Box><Typography variant="caption" color="text.secondary">{t("customer")}</Typography><Typography variant="body2" sx={{ fontWeight: 500 }}>{currentInvoice.customer}</Typography></Box>
+              <Box><Typography variant="caption" color="text.secondary">{t("gross")}</Typography><Typography variant="body2" sx={{ fontWeight: 500 }}>${currentInvoice.gross?.toLocaleString("en-SG", { minimumFractionDigits: 2 })}</Typography></Box>
+              <Box><Typography variant="caption" color="text.secondary">{t("balance")}</Typography><Typography variant="body2" sx={{ fontWeight: 500 }}>${currentInvoice.balance?.toLocaleString("en-SG", { minimumFractionDigits: 2 })}</Typography></Box>
+              <Box><Typography variant="caption" color="text.secondary">{t("project")}</Typography><Typography variant="body2" sx={{ fontWeight: 500 }}>{(currentInvoice as any).project_name || currentInvoice.project_location || "—"}</Typography></Box>
             </Box>
 
             <Divider sx={{ mb: 2 }} />
@@ -532,8 +538,8 @@ export default function ImportInvoices() {
               <Box key={idx} sx={{ p: 1.5, mb: 1, borderLeft: 3, borderColor: "success.main", bgcolor: "surfaceTones.low", borderRadius: 1 }}>
                 <Typography variant="body2" sx={{ fontSize: 13, mb: 0.5 }}>{li.description?.split("\n")[0]?.slice(0, 150)}</Typography>
                 <Typography variant="caption" color="text.secondary">
-                  Qty: {li.quantity} | ${li.unit_price?.toLocaleString("en-SG", { minimumFractionDigits: 2 })} | Gross: ${li.gross?.toLocaleString("en-SG", { minimumFractionDigits: 2 })}
-                  {li.asset_match?.name ? ` | Asset: ${li.asset_match.name} (${li.asset_match.sku})` : ""}
+                  {t("qty")}: {li.quantity} | ${li.unit_price?.toLocaleString("en-SG", { minimumFractionDigits: 2 })} | {t("gross")}: ${li.gross?.toLocaleString("en-SG", { minimumFractionDigits: 2 })}
+                  {li.asset_match?.name ? ` | ${t("asset")}: ${li.asset_match.name} (${li.asset_match.sku})` : ""}
                   {li.serial_numbers?.length ? ` | S/N: ${li.serial_numbers.join(", ")}` : li.serialNumbers?.length ? ` | S/N: ${li.serialNumbers.join(", ")}` : ""}
                 </Typography>
               </Box>
@@ -553,13 +559,13 @@ export default function ImportInvoices() {
                   {currentInvoice.invoice_number}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {new Date(currentInvoice.date).toLocaleDateString("en-SG", { year: "numeric", month: "long", day: "numeric" })}
+                  {fmtLong(currentInvoice.date)}
                 </Typography>
               </Box>
               <Box sx={{ display: "flex", gap: 1 }}>
                 <Chip label={currentInvoice.status} size="small"
                   color={currentInvoice.status === "Paid" ? "success" : currentInvoice.status === "Approved" ? "primary" : "default"} />
-                <Chip label={currentInvoice.source === "Receivable Credit Note" ? "Credit Note" : "Invoice"}
+                <Chip label={currentInvoice.source === "Receivable Credit Note" ? t("creditNote") : t("invoice")}
                   size="small" variant="outlined"
                   color={currentInvoice.source === "Receivable Credit Note" ? "error" : "default"} />
                 <Chip label={currentInvoice.review_status} size="small"
@@ -569,7 +575,7 @@ export default function ImportInvoices() {
 
             {/* ─── Invoice Details Form ─── */}
             <Paper variant="outlined" sx={{ p: 2.5, mb: 3, bgcolor: "surfaceTones.low" }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2 }}>Invoice Details</Typography>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2 }}>{t("invoiceDetails")}</Typography>
               <Grid container spacing={2}>
                 {/* Customer */}
                 <Grid item xs={12} md={4}>
@@ -592,7 +598,7 @@ export default function ImportInvoices() {
                     options={customers}
                     getOptionLabel={(c) => `${c.name} (${c.customerCode})`}
                     renderInput={(params) => (
-                      <TextField {...params} label="Customer" required
+                      <TextField {...params} label={t("customer")} required
                         helperText={!formState.customerId ? `Xero: "${currentInvoice.customer}"` : undefined}
                         error={!formState.customerId}
                       />
@@ -603,13 +609,13 @@ export default function ImportInvoices() {
 
                 {/* Gross */}
                 <Grid item xs={6} md={2}>
-                  <TextField size="small" label="Gross" value={`$${currentInvoice.gross?.toLocaleString("en-SG", { minimumFractionDigits: 2 }) || "0.00"}`}
+                  <TextField size="small" label={t("gross")} value={`$${currentInvoice.gross?.toLocaleString("en-SG", { minimumFractionDigits: 2 }) || "0.00"}`}
                     InputProps={{ readOnly: true }} fullWidth />
                 </Grid>
 
                 {/* Balance */}
                 <Grid item xs={6} md={2}>
-                  <TextField size="small" label="Balance" value={`$${currentInvoice.balance?.toLocaleString("en-SG", { minimumFractionDigits: 2 }) || "0.00"}`}
+                  <TextField size="small" label={t("balance")} value={`$${currentInvoice.balance?.toLocaleString("en-SG", { minimumFractionDigits: 2 }) || "0.00"}`}
                     InputProps={{ readOnly: true }} fullWidth />
                 </Grid>
 
@@ -633,7 +639,7 @@ export default function ImportInvoices() {
                     options={projects}
                     getOptionLabel={(opt) => typeof opt === "string" ? opt : opt.name}
                     renderInput={(params) => (
-                      <TextField {...params} label="Project / Location" placeholder="Type or select" />
+                      <TextField {...params} label={t("projectLocation")} placeholder={t("typeOrSelect")} />
                     )}
                     disabled={!isPending}
                   />
@@ -653,9 +659,9 @@ export default function ImportInvoices() {
                     })}
                     options={siteOffices}
                     getOptionLabel={(s) => `${s.name}${s.address ? ` — ${s.address}` : ""}`}
-                    renderInput={(params) => <TextField {...params} label="Select Existing Site Office (or fill in below)" />}
+                    renderInput={(params) => <TextField {...params} label={t("selectSiteOffice")} />}
                     disabled={!isPending || !formState.customerId}
-                    noOptionsText={formState.customerId ? "No site offices — fill in below to create" : "Select a customer first"}
+                    noOptionsText={formState.customerId ? t("noSiteOfficesFill") : t("selectCustomerFirst")}
                   />
                 </Grid>
 
@@ -664,11 +670,11 @@ export default function ImportInvoices() {
                   <TextField
                     size="small"
                     fullWidth
-                    label="Site Office Name"
+                    label={t("siteOfficeName")}
                     value={formState.siteOfficeName}
                     onChange={(e) => setFormState({ ...formState, siteOfficeName: e.target.value, siteOfficeId: "", isNewSiteOffice: true })}
                     disabled={!isPending || !formState.customerId || !!formState.siteOfficeId}
-                    placeholder="e.g. Main Site"
+                    placeholder={t("egMainSite")}
                   />
                 </Grid>
 
@@ -677,11 +683,11 @@ export default function ImportInvoices() {
                   <TextField
                     size="small"
                     fullWidth
-                    label="Site Office Address"
+                    label={t("siteOfficeAddress")}
                     value={formState.siteOfficeAddress}
                     onChange={(e) => setFormState({ ...formState, siteOfficeAddress: e.target.value, siteOfficeId: "", isNewSiteOffice: true })}
                     disabled={!isPending || !formState.customerId || !!formState.siteOfficeId}
-                    placeholder="e.g. 30 Lim Chu Kang Lane 5"
+                    placeholder={t("egAddress")}
                   />
                 </Grid>
 
@@ -690,7 +696,7 @@ export default function ImportInvoices() {
                   <TextField
                     size="small"
                     fullWidth
-                    label="Start Date"
+                    label={t("startDate")}
                     type="date"
                     value={formState.startDate}
                     onChange={(e) => setFormState({ ...formState, startDate: e.target.value })}
@@ -704,7 +710,7 @@ export default function ImportInvoices() {
                   <TextField
                     size="small"
                     fullWidth
-                    label="End Date"
+                    label={t("endDate")}
                     type="date"
                     value={formState.endDate}
                     onChange={(e) => setFormState({ ...formState, endDate: e.target.value })}
@@ -719,7 +725,7 @@ export default function ImportInvoices() {
 
             {/* ─── Line Items ─── */}
             <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 2 }}>
-              Line Items ({formState.lineItems.length})
+              {t("lineItems", { n: formState.lineItems.length })}
             </Typography>
 
             {formState.lineItems.map((li, idx) => (
@@ -749,7 +755,7 @@ export default function ImportInvoices() {
                     </Tooltip>
                     <Box sx={{ display: "flex", gap: { xs: 1.5, md: 3 }, alignItems: "center", flexWrap: "wrap" }}>
                       <Typography variant="caption" color="text.secondary">
-                        Qty:{" "}
+                        {t("qty")}:{" "}
                         {isPending ? (
                           <input
                             type="number"
@@ -770,10 +776,10 @@ export default function ImportInvoices() {
                         )}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        Unit: <strong>${li.unit_price?.toLocaleString("en-SG", { minimumFractionDigits: 2 }) ?? "—"}</strong>
+                        {t("unit")}: <strong>${li.unit_price?.toLocaleString("en-SG", { minimumFractionDigits: 2 }) ?? "—"}</strong>
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        Gross: <strong>${li.gross?.toLocaleString("en-SG", { minimumFractionDigits: 2 }) ?? "—"}</strong>
+                        {t("gross")}: <strong>${li.gross?.toLocaleString("en-SG", { minimumFractionDigits: 2 }) ?? "—"}</strong>
                       </Typography>
                       <Tooltip title={li.match_reason || ""}>
                         <Box sx={{ display: "flex", alignItems: "center", gap: 0.3 }}>
@@ -782,10 +788,10 @@ export default function ImportInvoices() {
                         </Box>
                       </Tooltip>
                       {li.isNewAsset && !li.selectedAssetId && (
-                        <Chip label="New Asset" size="small" color="warning" sx={{ height: 20, fontSize: 11 }} />
+                        <Chip label={t("newAsset")} size="small" color="warning" sx={{ height: 20, fontSize: 11 }} />
                       )}
                       {li.selectedAssetId && (
-                        <Chip label="Exists in DB" size="small" color="success" sx={{ height: 20, fontSize: 11 }} />
+                        <Chip label={t("existsInDb")} size="small" color="success" sx={{ height: 20, fontSize: 11 }} />
                       )}
                     </Box>
                   </Box>
@@ -796,7 +802,7 @@ export default function ImportInvoices() {
                   {/* Toggle between Service and Product */}
                   <Box sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
                     <Chip
-                      label={li.isService ? "Service" : "Product"}
+                      label={li.isService ? t("service") : t("product")}
                       size="small"
                       color={li.isService ? "secondary" : "primary"}
                       onClick={() => isPending && updateLineItem(idx, "isService", !li.isService)}
@@ -804,7 +810,7 @@ export default function ImportInvoices() {
                     />
                     {isPending && (
                       <Typography variant="caption" color="text.secondary">
-                        Click to switch to {li.isService ? "product (with inventory)" : "service (no inventory)"}
+                        {li.isService ? t("switchToProduct") : t("switchToService")}
                       </Typography>
                     )}
                   </Box>
@@ -813,7 +819,7 @@ export default function ImportInvoices() {
                     /* ── Service Item: just show name, no asset/serial/inventory ── */
                     <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
                       <Typography variant="body2" color="text.secondary">
-                        {li.selectedAssetName || "Service Item"} ({li.selectedSku || "—"}) — No inventory tracking
+                        {li.selectedAssetName || t("serviceItem")} ({li.selectedSku || "—"}) — {t("noInventoryTracking")}
                       </Typography>
                     </Box>
                   ) : (
@@ -840,8 +846,8 @@ export default function ImportInvoices() {
                         renderInput={(params) => (
                           <TextField
                             {...params}
-                            label="Select Existing Asset (or fill in below to create new)"
-                            placeholder="Search by name or SKU..."
+                            label={t("selectAsset")}
+                            placeholder={t("searchAsset")}
                           />
                         )}
                         disabled={!isPending}
@@ -853,7 +859,7 @@ export default function ImportInvoices() {
                       <TextField
                         size="small"
                         fullWidth
-                        label="Asset Name"
+                        label={t("assetName")}
                         value={li.selectedAssetName}
                         onChange={(e) => updateLineItem(idx, "selectedAssetName", e.target.value)}
                         disabled={!isPending || !!li.selectedAssetId}
@@ -882,7 +888,7 @@ export default function ImportInvoices() {
                           disabled={!isPending}
                           style={{ cursor: isPending ? "pointer" : "default" }}
                         />
-                        <Typography variant="caption" color="text.secondary">Has Serial No.</Typography>
+                        <Typography variant="caption" color="text.secondary">{t("hasSerial")}</Typography>
                       </Box>
                       {li.hasSerialNumber && (
                         (li.quantity && li.quantity > 1 ? Array.from({ length: li.quantity }, (_, i) => i) : [0]).map((i) => (
@@ -890,7 +896,7 @@ export default function ImportInvoices() {
                             key={i}
                             size="small"
                             fullWidth
-                            label={li.quantity && li.quantity > 1 ? `Serial No. ${i + 1}/${li.quantity}` : "Serial No."}
+                            label={li.quantity && li.quantity > 1 ? t("serialNoOf", { i: i + 1, n: li.quantity }) : t("serialNo")}
                             value={li.serialNumbers[i] || ""}
                             onChange={(e) => {
                               const updated = [...li.serialNumbers];
@@ -924,7 +930,7 @@ export default function ImportInvoices() {
                         }}
                         options={categories}
                         getOptionLabel={(c) => typeof c === "string" ? c : c.name}
-                        renderInput={(params) => <TextField {...params} label="Category" size="small" />}
+                        renderInput={(params) => <TextField {...params} label={t("category")} size="small" />}
                         disabled={!isPending || !!li.selectedAssetId}
                       />
                     </Grid>
@@ -967,11 +973,11 @@ export default function ImportInvoices() {
                                 }
                               }
                               setFormState({ ...formState, lineItems: updated });
-                              toast.success(`Created asset: ${created.name} (${created.skuKey})`);
+                              toast.success(t("createdAsset", { name: created.name, sku: created.skuKey }));
                             }
                           }}
                         >
-                          Create Asset Now
+                          {t("createAssetNow")}
                         </Button>
                       </Grid>
                     )}
@@ -991,7 +997,7 @@ export default function ImportInvoices() {
                   startIcon={showRefLines ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                   sx={{ textTransform: "none", color: "text.secondary" }}
                 >
-                  Reference Lines ({referenceLines.length}) — auto-skipped
+                  {t("referenceLines", { n: referenceLines.length })}
                 </Button>
                 <Collapse in={showRefLines}>
                   <Box sx={{ bgcolor: "surfaceTones.low", p: 1.5, borderRadius: 1, mt: 1, maxHeight: 200, overflow: "auto" }}>
@@ -1009,10 +1015,10 @@ export default function ImportInvoices() {
             {isPending && (
               <Box sx={{ display: "flex", gap: 2, justifyContent: "flex-end", mt: 3, pt: 2, borderTop: 1, borderColor: "divider", flexWrap: { xs: "wrap", md: "nowrap" } }}>
                 <Button variant="outlined" color="inherit" startIcon={<SkipNextIcon />} onClick={handleSkip}>
-                  Skip
+                  {t("skip")}
                 </Button>
                 <Button variant="contained" color="success" startIcon={<CheckCircleIcon />} onClick={handleConfirm}>
-                  Confirm Invoice
+                  {t("confirmInvoice")}
                 </Button>
               </Box>
             )}
@@ -1021,7 +1027,7 @@ export default function ImportInvoices() {
       ) : (
         !loading && (
           <Alert severity="info" sx={{ mt: 2 }}>
-            No invoices found for the selected filter.
+            {t("noInvoices")}
           </Alert>
         )
       )}
@@ -1029,11 +1035,11 @@ export default function ImportInvoices() {
 
       {/* ─── Create Project Dialog ─── */}
       <Dialog open={createProjectDialogOpen} onClose={() => setCreateProjectDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Create New Project</DialogTitle>
+        <DialogTitle>{t("createNewProject")}</DialogTitle>
         <DialogContent>
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}>
             <TextField
-              label="Project Name"
+              label={t("projectName")}
               value={newProject.name}
               onChange={(e) => setNewProject({ ...newProject, name: e.target.value })}
               required
@@ -1051,20 +1057,20 @@ export default function ImportInvoices() {
               }}
               options={customers}
               getOptionLabel={(c) => `${c.name} (${c.customerCode})`}
-              renderInput={(params) => <TextField {...params} label="Customer" required />}
+              renderInput={(params) => <TextField {...params} label={t("customer")} required />}
             />
             <Autocomplete
               value={newProjectSiteOffices.find((s) => s.id === newProject.siteOfficeId) || null}
               onChange={(_, val) => setNewProject({ ...newProject, siteOfficeId: val?.id || "" })}
               options={newProjectSiteOffices}
               getOptionLabel={(s) => `${s.name}${s.address ? ` — ${s.address}` : ""}`}
-              renderInput={(params) => <TextField {...params} label="Site Office (optional)" />}
+              renderInput={(params) => <TextField {...params} label={t("siteOfficeOptional")} />}
               disabled={!newProject.customerId}
-              noOptionsText={newProject.customerId ? "No site offices for this customer" : "Select a customer first"}
+              noOptionsText={newProject.customerId ? t("noSiteOfficesCustomer") : t("selectCustomerFirst")}
             />
             <Box sx={{ display: "flex", gap: 2 }}>
               <TextField
-                label="Start Date"
+                label={t("startDate")}
                 type="date"
                 value={newProject.startDate}
                 onChange={(e) => setNewProject({ ...newProject, startDate: e.target.value })}
@@ -1072,7 +1078,7 @@ export default function ImportInvoices() {
                 fullWidth
               />
               <TextField
-                label="End Date"
+                label={t("endDate")}
                 type="date"
                 value={newProject.endDate}
                 onChange={(e) => setNewProject({ ...newProject, endDate: e.target.value })}
@@ -1083,7 +1089,7 @@ export default function ImportInvoices() {
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCreateProjectDialogOpen(false)}>Cancel</Button>
+          <Button onClick={() => setCreateProjectDialogOpen(false)}>{t("cancel")}</Button>
           <Button
             variant="contained"
             disabled={!newProject.name || !newProject.customerId}
@@ -1096,7 +1102,7 @@ export default function ImportInvoices() {
                 endDate: newProject.endDate || undefined,
               });
               if (created) {
-                toast.success(`Created project: ${created.name}`);
+                toast.success(t("createdProject", { name: created.name }));
                 if (formState) {
                   setFormState({
                     ...formState,
@@ -1109,7 +1115,7 @@ export default function ImportInvoices() {
               }
             }}
           >
-            Create Project
+            {t("createProject")}
           </Button>
         </DialogActions>
       </Dialog>

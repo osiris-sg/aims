@@ -1,0 +1,47 @@
+{
+  "tabs": {
+    "activity": "Activity Log",
+    "legacy": "Audit Logs (legacy)"
+  },
+  "activity": {
+    "tableName": "Activity Log",
+    "subTitle": "Every action in the system — users, API keys, guests and system creation",
+    "actorType": "Actor type",
+    "status": "Status",
+    "all": "All",
+    "actorTypes": {
+      "USER": "User",
+      "API_KEY": "API key",
+      "GUEST": "Guest",
+      "SYSTEM": "System creation"
+    },
+    "statuses": {
+      "SUCCESS": "Success",
+      "FAILURE": "Failure"
+    },
+    "refresh": "Refresh",
+    "time": "Time",
+    "actor": "Actor",
+    "action": "Action",
+    "resource": "Resource",
+    "request": "Request",
+    "duration": "Duration",
+    "ip": "IP",
+    "systemCreation": "System creation",
+    "ms": "{n} ms"
+  },
+  "legacy": {
+    "tableName": "Audit Logs",
+    "subTitle": "System audit trail and user activity logs",
+    "refresh": "Refresh",
+    "timestamp": "Timestamp",
+    "user": "User",
+    "unknown": "Unknown",
+    "action": "Action",
+    "resource": "Resource",
+    "resourceId": "Resource ID",
+    "status": "Status",
+    "ipAddress": "IP Address",
+    "error": "Error"
+  }
+}

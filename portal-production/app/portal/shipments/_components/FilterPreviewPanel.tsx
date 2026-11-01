@@ -8,6 +8,7 @@
 import React, { useState } from "react";
 import { Alert, Box, Chip, CircularProgress, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslations } from "next-intl";
 import { useShipmentsApi, type FilterPreview } from "../_lib/api";
 import { fmtDateTime } from "../_lib/format";
 import { toast } from "../_lib/toast";
@@ -18,15 +19,16 @@ export function EmailFilterExtras() {
   const api = useShipmentsApi();
   const stats = useQuery({ queryKey: ["trade-inbox", "stats"], queryFn: () => api.inboxStats(30), staleTime: 60_000 });
   const hidden = useQuery({ queryKey: ["trade-inbox", "hidden"], queryFn: () => api.inboxHidden(), staleTime: 30_000 });
+  const t = useTranslations("inbox.filter");
   const [busy, setBusy] = useState<string | null>(null);
   const unhide = async (id: string) => {
     setBusy(id);
     try {
       await api.inboxUnhide(id);
-      toast.success("Back in the inbox");
+      toast.success(t("backInInbox"));
       await hidden.refetch();
     } catch (e) {
-      toast.error((e as Error)?.message || "Could not unhide");
+      toast.error((e as Error)?.message || t("couldNotUnhide"));
     } finally {
       setBusy(null);
     }
@@ -35,30 +37,30 @@ export function EmailFilterExtras() {
     <Box sx={{ mt: 3 }}>
       {stats.data && (stats.data.reviewed > 0 || stats.data.AUTO > 0) && (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }} data-tour="inbox-accept-rate">
-          Last {stats.data.days} days: {stats.data.acceptedAsIsPct ?? "—"}% accepted as-is · auto {stats.data.AUTO} · changed {stats.data.CHANGED} · rejected {stats.data.REJECTED}
+          {t("stats", { days: stats.data.days, pct: stats.data.acceptedAsIsPct ?? "—", auto: stats.data.AUTO, changed: stats.data.CHANGED, rejected: stats.data.REJECTED })}
         </Typography>
       )}
       <Typography variant="subtitle2" sx={{ mb: 1 }}>
-        Hidden ({hidden.data?.length ?? 0})
+        {t("hidden", { n: hidden.data?.length ?? 0 })}
       </Typography>
       <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1 }}>
-        Calendar responses, meeting invites, auto-replies and newsletters are kept but left out of the inbox. Unhide brings one back.
+        {t("hiddenHelp")}
       </Typography>
       {hidden.isLoading ? (
         <CircularProgress size={18} />
       ) : !hidden.data?.length ? (
         <Typography variant="body2" color="text.secondary">
-          Nothing hidden.
+          {t("nothingHidden")}
         </Typography>
       ) : (
         <Paper variant="outlined" sx={{ overflowX: "auto" }}>
           <Table size="small" data-tour="settings-hidden-emails">
             <TableHead>
               <TableRow>
-                <TableCell>Date</TableCell>
-                <TableCell>From domain</TableCell>
-                <TableCell>Subject</TableCell>
-                <TableCell>Why</TableCell>
+                <TableCell>{t("date")}</TableCell>
+                <TableCell>{t("fromDomain")}</TableCell>
+                <TableCell>{t("subject")}</TableCell>
+                <TableCell>{t("why")}</TableCell>
                 <TableCell />
               </TableRow>
             </TableHead>
@@ -69,7 +71,7 @@ export function EmailFilterExtras() {
                   <TableCell>{r.fromDomain}</TableCell>
                   <TableCell sx={{ maxWidth: 380 }}>
                     <Typography variant="body2" sx={{ wordBreak: "break-word" }}>
-                      {r.subject || "(no subject)"}
+                      {r.subject || t("noSubject")}
                     </Typography>
                   </TableCell>
                   <TableCell>
@@ -79,7 +81,7 @@ export function EmailFilterExtras() {
                   </TableCell>
                   <TableCell align="right">
                     <Button size="small" disabled={busy === r.id} onClick={() => void unhide(r.id)}>
-                      Unhide
+                      {t("unhide")}
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -95,28 +97,29 @@ export function EmailFilterExtras() {
 export default /** What the sender filter kept / would drop (SHADOW): from-domain + subject (60) only — never bodies or addresses. */
 function FilterPreviewPanel() {
   const api = useShipmentsApi();
+  const t = useTranslations("inbox.filter");
   const [show, setShow] = useState<"DROP" | "KEEP" | "ALL">("DROP");
   const q = useQuery({ queryKey: ["trade-inbox", "filter-preview"], queryFn: () => api.inboxFilterPreview(30), staleTime: 60_000 });
   const d: FilterPreview | undefined = q.data;
   const items = (d?.items ?? []).filter((r) => show === "ALL" || r.filterVerdict === show);
   const falseDrops = (d?.items ?? []).filter((r) => r.falseDrop).length;
-  if (q.isError) return <Alert severity="error">{(q.error as Error)?.message || "Could not load the filter preview"}</Alert>;
+  if (q.isError) return <Alert severity="error">{(q.error as Error)?.message || t("couldNotLoad")}</Alert>;
   if (q.isLoading) return <CircularProgress />;
   return (
     <Box>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-        The sender filter in its trial run (Settings → Shipping → Email filter): every email is still kept; this shows what it would drop once switched to Enforce. Last {d?.days ?? 30} days: <b>kept {d?.kept ?? 0}</b> · <b>would drop {d?.dropped ?? 0}</b>
-        {falseDrops ? ` · ${falseDrops} of them shipment / unsure mail — add the sender to the allow-list before enforcing` : ""}.
+        {t.rich("intro", { days: d?.days ?? 30, kept: d?.kept ?? 0, dropped: d?.dropped ?? 0, b: (c) => <b>{c}</b> })}
+        {falseDrops ? ` · ${t("falseDrops", { n: falseDrops })}` : ""}{t("period")}
       </Typography>
       <Stack direction="row" spacing={1} sx={{ mb: 1.5 }}>
         {(["DROP", "KEEP", "ALL"] as const).map((k) => (
-          <Chip key={k} label={k === "DROP" ? "Would drop" : k === "KEEP" ? "Kept" : "All"} color={show === k ? "primary" : "default"} variant={show === k ? "filled" : "outlined"} onClick={() => setShow(k)} />
+          <Chip key={k} label={k === "DROP" ? t("wouldDrop") : k === "KEEP" ? t("kept") : t("all")} color={show === k ? "primary" : "default"} variant={show === k ? "filled" : "outlined"} onClick={() => setShow(k)} />
         ))}
       </Stack>
       {!items.length ? (
         <Paper variant="outlined" sx={{ p: 3, textAlign: "center" }}>
           <Typography variant="body2" color="text.secondary">
-            {d && d.kept + d.dropped === 0 ? "No email judged yet — the filter is off, or nothing arrived since it was switched on." : "Nothing here."}
+            {d && d.kept + d.dropped === 0 ? t("noneJudged") : t("nothingHere")}
           </Typography>
         </Paper>
       ) : (
@@ -124,11 +127,11 @@ function FilterPreviewPanel() {
           <Table size="small" data-tour="settings-filter-preview">
             <TableHead>
               <TableRow>
-                <TableCell>Date</TableCell>
-                <TableCell>From domain</TableCell>
-                <TableCell>Subject</TableCell>
-                <TableCell>Filter</TableCell>
-                <TableCell>Why</TableCell>
+                <TableCell>{t("date")}</TableCell>
+                <TableCell>{t("fromDomain")}</TableCell>
+                <TableCell>{t("subject")}</TableCell>
+                <TableCell>{t("filterCol")}</TableCell>
+                <TableCell>{t("why")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -138,12 +141,12 @@ function FilterPreviewPanel() {
                   <TableCell>{r.fromDomain}</TableCell>
                   <TableCell sx={{ maxWidth: 380 }}>
                     <Typography variant="body2" sx={{ wordBreak: "break-word" }}>
-                      {r.subject || "(no subject)"}
+                      {r.subject || t("noSubject")}
                     </Typography>
                   </TableCell>
                   <TableCell sx={{ whiteSpace: "nowrap" }}>
-                    <Chip size="small" variant="outlined" color={r.filterVerdict === "KEEP" ? "success" : "default"} label={r.filterVerdict === "KEEP" ? "Kept" : "Would drop"} />
-                    {r.falseDrop && <Chip size="small" color="error" variant="outlined" label="false drop" title={`Triage said ${r.verdict}`} sx={{ ml: 0.5 }} />}
+                    <Chip size="small" variant="outlined" color={r.filterVerdict === "KEEP" ? "success" : "default"} label={r.filterVerdict === "KEEP" ? t("kept") : t("wouldDrop")} />
+                    {r.falseDrop && <Chip size="small" color="error" variant="outlined" label={t("falseDrop")} title={t("triageSaid", { v: r.verdict })} sx={{ ml: 0.5 }} />}
                   </TableCell>
                   <TableCell>
                     <Typography variant="caption" color="text.secondary">

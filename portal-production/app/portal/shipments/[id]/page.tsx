@@ -8,11 +8,13 @@
 import React, { useEffect } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Alert, Box, CircularProgress } from "@mui/material";
+import { useTranslations } from "next-intl";
 import { useShipment } from "../_lib/hooks";
 
 export default function ShipmentRedirect() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const tr = useTranslations("shipments.shipmentPage");
   const params = useSearchParams();
   const q = useShipment(id);
   const contractId = q.data?.contractId;
@@ -29,7 +31,7 @@ export default function ShipmentRedirect() {
   if (q.isError) {
     return (
       <Box sx={{ p: 3 }}>
-        <Alert severity="error">{(q.error as Error)?.message || "Shipment not found"}</Alert>
+        <Alert severity="error">{(q.error as Error)?.message || tr("notFound")}</Alert>
       </Box>
     );
   }

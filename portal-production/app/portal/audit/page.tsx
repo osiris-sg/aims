@@ -5,10 +5,12 @@ import AuditLogs from "./components/AuditLogs";
 import ActivityLog from "./components/ActivityLog";
 import MainCard from "@/components/MainCard";
 import { Box, Tab, Tabs } from "@mui/material";
+import { useTranslations } from "next-intl";
 import { useOrganizationFeatures, FEATURE_FLAG_DEFAULTS } from "../hooks/useOrganizationFeatures";
 
 export default function Page() {
   const { features } = useOrganizationFeatures();
+  const t = useTranslations("audit.tabs");
   // Default ON for every org (stored config only overrides when an admin
   // explicitly switched it off).
   const actionLogEnabled = features?.enableActionLog ?? FEATURE_FLAG_DEFAULTS.enableActionLog;
@@ -20,8 +22,8 @@ export default function Page() {
   return (
     <Box>
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 1, borderBottom: 1, borderColor: "divider" }}>
-        <Tab label="Activity Log" />
-        <Tab label="Audit Logs (legacy)" />
+        <Tab label={t("activity")} />
+        <Tab label={t("legacy")} />
       </Tabs>
       {tab === 0 ? (
         <MainCard>

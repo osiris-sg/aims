@@ -4,6 +4,7 @@
 import React, { useState } from "react";
 import { Box, Button, CircularProgress, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslations } from "next-intl";
 import { useShipmentsApi, type InboxRow } from "../../_lib/api";
 import { toast } from "../../_lib/toast";
 
@@ -11,14 +12,15 @@ export function PiTablePanel({ row, onApplied }: { row: InboxRow; onApplied: (r:
   const api = useShipmentsApi();
   const plan = useQuery({ queryKey: ["trade-orders", "pi-table", row.id, (row.supplierOrderResults ?? []).length], queryFn: () => api.inboxPiTable(row.id) });
   const [busy, setBusy] = useState(false);
+  const t = useTranslations("inbox.piTable");
   const fieldText = (f: Record<string, string | number>) =>
     Object.entries(f)
-      .map(([k, v]) => (k === "piNo" ? `PI no. ${v}` : k === "piAmount" ? `PI amount ${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 })}` : `${k} ${v}`))
+      .map(([k, v]) => (k === "piNo" ? t("piNo", { v }) : k === "piAmount" ? t("piAmount", { v: Number(v).toLocaleString("en-US", { minimumFractionDigits: 2 }) }) : `${k} ${v}`))
       .join(", ");
   return (
     <Box data-tour="inbox-pi-table">
       <Typography variant="overline" color="text.secondary">
-        Vedanta&apos;s PI table → the month&apos;s orders
+        {t("heading")}
       </Typography>
       {plan.isLoading ? (
         <CircularProgress size={18} />
@@ -29,7 +31,7 @@ export function PiTablePanel({ row, onApplied }: { row: InboxRow; onApplied: (r:
             {p.orderLabel ? (
               <b>
                 {p.orderLabel}
-                {Object.keys(p.fields).length ? `: fill ${fieldText(p.fields)}` : " (already filled)"}
+                {Object.keys(p.fields).length ? t("fill", { fields: fieldText(p.fields) }) : t("alreadyFilled")}
               </b>
             ) : (
               <span style={{ opacity: 0.7 }}>{p.reason}</span>
@@ -54,16 +56,16 @@ export function PiTablePanel({ row, onApplied }: { row: InboxRow; onApplied: (r:
           try {
             const out = await api.inboxApplyPiTable(row.id);
             onApplied(out.row);
-            toast.success(`PI table: ${out.results.map((r) => `${r.orderLabel ?? r.contractNo} ${r.action}`).join(", ")}`);
+            toast.success(`${t("toastPrefix")} ${out.results.map((r) => `${r.orderLabel ?? r.contractNo} ${r.action}`).join(", ")}`);
             await plan.refetch();
           } catch (e: any) {
-            toast.error(e?.message || "Could not apply");
+            toast.error(e?.message || t("couldNotApply"));
           } finally {
             setBusy(false);
           }
         }}
       >
-        Fill the PI fields on these orders
+        {t("apply")}
       </Button>
     </Box>
   );

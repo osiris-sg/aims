@@ -1050,6 +1050,7 @@ model OrganizationMemberProfile {
   commissionPct     Float? // default share of project profit for this designer
   yearlySalesTarget Float? // manager-set sales target (contract value signed per year)
   signatureImage    String? // saved signature (PNG data URL) for one-tap counter-signing
+  uiLang            String? // round AZ: the portal language this user picked in this org ("en" | "ja"; SHIPMENTS orgs only). null = English
   teamId            String? // hierarchy (CIEL 09-19): the Team this member belongs to
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt

@@ -16,6 +16,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import { ThemeProvider, type Theme } from "@mui/material/styles";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslations } from "next-intl";
 import { useShipmentsApi, type InboxLang, type OrderListItem, type Shipment } from "../../_lib/api";
 import { useOrder, useOrders, useShipment } from "../../_lib/hooks";
 import { nextShipmentRef, orderHaystack, orderLine as orderLineOf, qtyLeft } from "../../_lib/shipment-picker";
@@ -32,7 +33,7 @@ export type DrawerMode = { kind: "new"; orderId?: string | null } | { kind: "edi
 
 export function ShipmentDrawer({ open, mode, emailIds, lang, onClose, onSaved }: { open: boolean; mode: DrawerMode | null; emailIds: string[]; lang: InboxLang; onClose: () => void; onSaved: (s: Shipment) => void }) {
   const api = useShipmentsApi();
-  const ja = lang === "ja";
+  const t = useTranslations("inbox.drawer");
   const [pickedOrder, setPickedOrder] = useState<OrderListItem | null>(null);
   const [orderQ, setOrderQ] = useState("");
   const isNew = mode?.kind === "new";
@@ -67,7 +68,7 @@ export function ShipmentDrawer({ open, mode, emailIds, lang, onClose, onSaved }:
 
   // Edit of a shipment under an order: the form shows the order (not a contract to pick) and saves as an edit.
   const ed = mode?.kind === "edit" ? editing.data : null;
-  const editOrderRef: OrderRef | null = ed?.orderId ? { id: ed.orderId, ref: (ed.ref ?? "").replace(/-\d+$/, "") || "Order", customerName: ed.customer?.name ?? null, contractNo: ed.contract?.contractNo ?? null } : null;
+  const editOrderRef: OrderRef | null = ed?.orderId ? { id: ed.orderId, ref: (ed.ref ?? "").replace(/-\d+$/, "") || t("order"), customerName: ed.customer?.name ?? null, contractNo: ed.contract?.contractNo ?? null } : null;
 
   // The order list under the search: every word must match (#n and old numbers, customer, grade, contract, PI).
   const orderOptions = useMemo(() => {
@@ -81,7 +82,7 @@ export function ShipmentDrawer({ open, mode, emailIds, lang, onClose, onSaved }:
     onClose();
   };
   const subject = facts.data?.subject ?? null;
-  const title = !mode ? "" : mode.kind === "edit" ? (ja ? `出荷を編集 ${editing.data?.ref ?? ""}` : `Edit shipment ${editing.data?.ref ?? ""}`) : orderRef ? (ja ? `新しい出荷 ${orderRef.nextRef}` : `New shipment ${orderRef.nextRef}`) : ja ? "新しい出荷 — 注文を選択" : "New shipment — pick the order";
+  const title = !mode ? "" : mode.kind === "edit" ? t("editTitle", { ref: editing.data?.ref ?? "" }) : orderRef ? t("newTitle", { ref: orderRef.nextRef }) : t("newPick");
   const newestId = emailIds[emailIds.length - 1];
 
   return (
@@ -93,13 +94,13 @@ export function ShipmentDrawer({ open, mode, emailIds, lang, onClose, onSaved }:
           <Typography variant="h6" sx={{ fontWeight: 700, flex: 1, minWidth: 0, wordBreak: "break-word" }} data-tour="shipment-drawer-title">
             {title}
           </Typography>
-          <IconButton aria-label="Close" onClick={close} data-tour="shipment-drawer-close">
+          <IconButton aria-label={t("close")} onClick={close} data-tour="shipment-drawer-close">
             <CloseIcon />
           </IconButton>
         </Stack>
         {subject && (
           <Typography variant="caption" color="text.secondary" component="div" sx={{ wordBreak: "break-word" }}>
-            {ja ? "メールから" : "From the email"}: {subject}
+            {t("fromEmail")}: {subject}
           </Typography>
         )}
       </Box>
@@ -107,7 +108,7 @@ export function ShipmentDrawer({ open, mode, emailIds, lang, onClose, onSaved }:
         {newestId && (
           <Accordion disableGutters variant="outlined" sx={{ mb: 2, "&:before": { display: "none" } }} data-tour="shipment-drawer-email">
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>{ja ? "メール" : "The email"}</Typography>
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>{t("theEmail")}</Typography>
             </AccordionSummary>
             <AccordionDetails sx={{ maxHeight: 420, overflow: "auto" }}>
               <EmailView id={newestId} compactHeaders lang={lang} />
@@ -117,12 +118,12 @@ export function ShipmentDrawer({ open, mode, emailIds, lang, onClose, onSaved }:
         {facts.isLoading && (
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
             <CircularProgress size={16} />
-            <Typography variant="caption" color="text.secondary">{ja ? "メールと添付を読んでいます…" : "Reading the email and its attachments…"}</Typography>
+            <Typography variant="caption" color="text.secondary">{t("reading")}</Typography>
           </Stack>
         )}
         {facts.data && facts.data.containers.length > 0 && (
           <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1.5, wordBreak: "break-word" }} data-tour="email-containers">
-            {ja ? "メールのコンテナ" : "Containers in the email"}: {facts.data.containers.join(", ")}
+            {t("containers")}: {facts.data.containers.join(", ")}
           </Typography>
         )}
         {isNew && !presetOrder && !pickedOrder && (
@@ -131,7 +132,7 @@ export function ShipmentDrawer({ open, mode, emailIds, lang, onClose, onSaved }:
               fullWidth
               autoFocus
               size="small"
-              label={ja ? "注文（#番号・顧客・材質・契約・PI）" : "Order (#n, customer, grade, contract, PI)"}
+              label={t("orderSearch")}
               value={orderQ}
               onChange={(e) => setOrderQ(e.target.value)}
               inputProps={{ "data-tour": "new-shipment-order" }}
@@ -141,13 +142,13 @@ export function ShipmentDrawer({ open, mode, emailIds, lang, onClose, onSaved }:
             ) : (
               <List dense disablePadding sx={{ mt: 1 }} data-tour="new-shipment-order-list">
                 {orderOptions.length === 0 && (
-                  <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>{ja ? "該当する注文がありません" : "No open order matches"}</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>{t("noOrders")}</Typography>
                 )}
                 {orderOptions.map((o) => (
                   <ListItemButton key={o.id} onClick={() => setPickedOrder(o)} sx={{ borderRadius: 1 }} data-tour="new-shipment-order-option">
                     <ListItemText
                       primary={orderLine(o)}
-                      secondary={[o.contractNo, o.piNo ? `PI ${o.piNo}` : null, o.shipmentCount ? `${o.shipmentCount} shipment${o.shipmentCount > 1 ? "s" : ""}` : ja ? "出荷なし" : "no shipment yet", `${ja ? "次" : "next"} ${nextShipmentRef(o)}`].filter(Boolean).join(" · ")}
+                      secondary={[o.contractNo, o.piNo ? `PI ${o.piNo}` : null, o.shipmentCount ? t("shipments", { n: o.shipmentCount }) : t("noShipment"), t("next", { ref: nextShipmentRef(o) })].filter(Boolean).join(" · ")}
                       primaryTypographyProps={{ variant: "body2", fontWeight: 600 }}
                       secondaryTypographyProps={{ variant: "caption" }}
                     />

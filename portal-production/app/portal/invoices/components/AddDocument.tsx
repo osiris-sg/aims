@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
+import { useTranslations } from "next-intl";
 
 interface AddDocumentProps {
   open: boolean;
@@ -16,6 +17,7 @@ export default function AddDocument({ open, onClose, onSuccess }: AddDocumentPro
   const { getToken } = useAuth();
   const { organization } = useOrganization();
   const theme = useTheme();
+  const t = useTranslations("invoices.addDocument");
 
   const { control, handleSubmit, reset } = useForm({
     defaultValues: {
@@ -57,14 +59,14 @@ export default function AddDocument({ open, onClose, onSuccess }: AddDocumentPro
     <Drawer anchor="right" open={open} onClose={onClose} sx={{ "& .MuiDrawer-paper": { width: { xs: "100%", sm: "400px" }, backgroundColor: "background.paper", backgroundImage: "none", borderLeft: 1, borderColor: "divider" } }}>
       <Stack direction="column" gap="var(--double-gap)" padding="var(--default-padding)" minHeight="100%" width="100%" display="flex" alignItems="center" justifyContent="flex-start">
         <Typography variant="body1" sx={{ width: "100%" }}>
-          Create Document
+          {t("title")}
         </Typography>
         <form style={{ width: "100%" }} onSubmit={handleSubmit(onSubmit)}>
           <Stack direction="column" gap="var(--default-gap)" width="100%">
-            <FormInputBox control={control} name="name" label="Name" placeHolder="Enter document name" />
-            <FormInputBox control={control} name="status" label="Status" placeHolder="Enter document status" />
-            <FormInputBox control={control} name="category" label="Category" placeHolder="Enter document category" />
-            <FormTextArea control={control} name="content" label="Content" placeHolder="Enter document content" rows={4} />
+            <FormInputBox control={control} name="name" label={t("name")} placeHolder={t("namePh")} />
+            <FormInputBox control={control} name="status" label={t("status")} placeHolder={t("statusPh")} />
+            <FormInputBox control={control} name="category" label={t("category")} placeHolder={t("categoryPh")} />
+            <FormTextArea control={control} name="content" label={t("content")} placeHolder={t("contentPh")} rows={4} />
           </Stack>
           <Stack
             direction="row"
@@ -76,11 +78,11 @@ export default function AddDocument({ open, onClose, onSuccess }: AddDocumentPro
             }}
           >
             <Button variant="outlined" type="button" onClick={onClose}>
-              Cancel
+              {t("cancel")}
             </Button>
 
             <Button variant="contained" type="submit">
-              Save
+              {t("save")}
             </Button>
           </Stack>
         </form>

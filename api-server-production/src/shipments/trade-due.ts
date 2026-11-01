@@ -105,13 +105,20 @@ export function dueOf(code: string, c: DueContext, manual?: Date | string | null
 
 export type StepState = 'done' | 'current' | 'upcoming' | 'overdue' | 'na';
 
-/** done / N/A first; past its due date and not done → overdue; the record's first open step → current. */
-export function stepState(s: { status: string; notApplicable?: boolean | null; isOngoing?: boolean }, due: string | null, today: string, isCurrent: boolean): StepState {
+/**
+ * done / N/A first; past its due date and not done → overdue; the record's first open step → current. Round AZ: a due
+ * date before the day due dates were switched on (`since`) is never flagged — it shows the date without the badge,
+ * so switching on doesn't flood the lists with the backlog.
+ */
+export function stepState(s: { status: string; notApplicable?: boolean | null; isOngoing?: boolean }, due: string | null, today: string, isCurrent: boolean, since?: string | null): StepState {
   if (s.notApplicable) return 'na';
   if (s.status === 'DONE') return 'done';
-  if (due && due < today && !s.isOngoing) return 'overdue';
+  if (due && due < today && !s.isOngoing && flaggable(due, since)) return 'overdue';
   return isCurrent ? 'current' : 'upcoming';
 }
+
+/** Round AZ: whether a due date counts (due / overdue / a task): on or after the switch-on day. */
+export const flaggable = (due: string | null, since?: string | null) => !!due && (!since || due >= since);
 
 /** Days late (positive) for an overdue date. */
 export const daysLate = (due: string, today: string) => Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${due}T00:00:00Z`)) / 86_400_000);

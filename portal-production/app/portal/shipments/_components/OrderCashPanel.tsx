@@ -11,12 +11,14 @@ import { Box, Button, Chip, Paper, Stack, Table, TableBody, TableCell, TableHead
 import { useShipmentsApi } from "../_lib/api";
 import { SHIPMENT_KEYS } from "../_lib/hooks";
 import { fmtDmy } from "../_lib/format";
+import { useTranslations } from "next-intl";
 import PaymentDialog, { type PaymentContext } from "./PaymentDialog";
 
 const money = (v: number, c = "USD") => `${c} ${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const totals = (m: Record<string, number>) => (Object.keys(m).length ? Object.entries(m).map(([c, v]) => money(v, c)).join(" + ") : "—");
 
 export default function OrderCashPanel({ orderId, canEdit, showMoney = true }: { orderId: string; canEdit: boolean; showMoney?: boolean }) {
+  const t = useTranslations("shipments.orderCashPanel");
   const api = useShipmentsApi();
   const q = useQuery({ queryKey: [...SHIPMENT_KEYS.orders, "cash", orderId], queryFn: () => api.orderCash(orderId) });
   const [ctx, setCtx] = useState<PaymentContext | null>(null);
@@ -26,28 +28,28 @@ export default function OrderCashPanel({ orderId, canEdit, showMoney = true }: {
     <Paper variant="outlined" sx={{ p: 2 }} data-tour="order-cash">
       <Stack direction="row" alignItems="center" sx={{ mb: 1 }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1 }}>
-          Cash
+          {t("title")}
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Out {totals(c.totals.out)} · In {totals(c.totals.in)}
+          {t("outIn", { out: totals(c.totals.out), in: totals(c.totals.in) })}
         </Typography>
       </Stack>
       <Typography variant="caption" color="text.secondary">
-        Customer invoices
+        {t("customerInvoices")}
       </Typography>
       {!c.invoices.length ? (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-          No finalized invoice yet.
+          {t("noInvoice")}
         </Typography>
       ) : (
         <Table size="small" sx={{ mb: 2 }}>
           <TableHead>
             <TableRow>
-              <TableCell>Invoice</TableCell>
-              <TableCell>Due</TableCell>
-              <TableCell align="right">Total</TableCell>
-              <TableCell align="right">Received</TableCell>
-              <TableCell align="right">Outstanding</TableCell>
+              <TableCell>{t("invoice")}</TableCell>
+              <TableCell>{t("due")}</TableCell>
+              <TableCell align="right">{t("total")}</TableCell>
+              <TableCell align="right">{t("received")}</TableCell>
+              <TableCell align="right">{t("outstanding")}</TableCell>
               <TableCell />
             </TableRow>
           </TableHead>
@@ -56,7 +58,7 @@ export default function OrderCashPanel({ orderId, canEdit, showMoney = true }: {
               <TableRow key={i.id}>
                 <TableCell>{i.label}</TableCell>
                 <TableCell>
-                  {i.dueDate ? fmtDmy(i.dueDate) : "—"} {i.overdue && <Chip size="small" color="error" label={`overdue ${i.daysOverdue}d`} sx={{ ml: 0.5 }} />}
+                  {i.dueDate ? fmtDmy(i.dueDate) : "—"} {i.overdue && <Chip size="small" color="error" label={t("overdueDays", { n: i.daysOverdue })} sx={{ ml: 0.5 }} />}
                 </TableCell>
                 <TableCell align="right">{money(i.total)}</TableCell>
                 <TableCell align="right">{money(i.paid)}</TableCell>
@@ -66,7 +68,7 @@ export default function OrderCashPanel({ orderId, canEdit, showMoney = true }: {
                 <TableCell align="right">
                   {canEdit && i.outstanding > 0.004 && (
                     <Button size="small" onClick={() => setCtx({ direction: "IN", target: { targetType: "INVOICE", targetId: i.id, label: i.label, amount: i.outstanding, currency: "USD" } })}>
-                      Record receipt
+                      {t("recordReceipt")}
                     </Button>
                   )}
                 </TableCell>
@@ -79,7 +81,7 @@ export default function OrderCashPanel({ orderId, canEdit, showMoney = true }: {
         {(["cashOut", "cashIn"] as const).map((k) => (
           <Box key={k}>
             <Typography variant="caption" color="text.secondary">
-              {k === "cashOut" ? "Paid out (supplier, tax, logistics)" : "Received"}
+              {k === "cashOut" ? t("paidOut") : t("received")}
             </Typography>
             {!c[k].length ? (
               <Typography variant="body2" color="text.secondary">
