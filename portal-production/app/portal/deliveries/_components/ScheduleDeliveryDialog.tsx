@@ -836,15 +836,15 @@ export default function ScheduleDeliveryDialog({
       const matched = finalRows.filter((r) => !r.freeTyped).length;
       // Honest summary: matched count + SEPARATELY whether project/PO were filled.
       // Never imply the project came from the quotation (they don't carry one).
-      const parts = [`Quotation applied — ${matched}/${finalRows.length} line(s) matched a catalog product; the rest are free-typed.`];
+      const parts = [`Quotation applied: ${matched}/${finalRows.length} line(s) matched a catalog product; the rest are free-typed.`];
       parts.push(filledPo ? "PO number filled." : "No PO on the quotation.");
-      if (!serviceJobs) parts.push(filledProject ? "Project taken from the quotation." : "This quotation has no project — pick one below (required).");
+      if (!serviceJobs) parts.push(filledProject ? "Project taken from the quotation." : "This quotation has no project. Pick one below (required).");
       parts.push("Review products, quantities & address.");
       setNote(parts.join(" "));
     } else {
-      const parts = ["Quotation applied — it had no line items."];
+      const parts = ["Quotation applied. It had no line items."];
       parts.push(filledPo ? "PO number filled." : "No PO on the quotation.");
-      if (!serviceJobs) parts.push(filledProject ? "Project taken from the quotation." : "This quotation has no project — pick one below (required).");
+      if (!serviceJobs) parts.push(filledProject ? "Project taken from the quotation." : "This quotation has no project. Pick one below (required).");
       setNote(parts.join(" "));
     }
   };
@@ -1146,7 +1146,7 @@ export default function ScheduleDeliveryDialog({
             <TextField
               label="Sales Order"
               placeholder="No Sales Order selected"
-              value={saleOrder ? `${saleOrder.name}${saleOrder.customerPo ? ` — ${saleOrder.customerPo}` : ""}` : ""}
+              value={saleOrder ? `${saleOrder.name}${saleOrder.customerPo ? ` · ${saleOrder.customerPo}` : ""}` : ""}
               onClick={() => void openSaleOrders()}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
@@ -1184,7 +1184,7 @@ export default function ScheduleDeliveryDialog({
               InputLabelProps={{ shrink: true }}
               helperText={
                 poTouched && !saleOrder
-                  ? "Pick a Sales Order — required to schedule. Save as draft if it does not exist yet."
+                  ? "Pick a Sales Order (required to schedule). Save as draft if it does not exist yet."
                   : 'The Sales Order\'s customer PO lands on the draft DO as "Your PO No."'
               }
               sx={{ cursor: "pointer", "& .MuiInputBase-input": { cursor: "pointer" } }}
@@ -1210,7 +1210,7 @@ export default function ScheduleDeliveryDialog({
             greyed placeholder. */}
         <TextField
           label="Delivery address"
-          placeholder="Where the goods go — lands on the DO's Deliver To"
+          placeholder="Where the goods go. It lands on the DO's Deliver To."
           value={address}
           onChange={(e) => {
             setAddress(e.target.value);
@@ -1225,8 +1225,8 @@ export default function ScheduleDeliveryDialog({
           InputLabelProps={{ shrink: true, sx: { fontWeight: 400 } }}
           helperText={
             address && !addressTouched
-              ? (serviceJobs ? "Auto-filled from the customer's address — edit if needed" : "Auto-filled from the project — edit if needed")
-              : "Where the goods go — lands on the DO's Deliver To"
+              ? (serviceJobs ? "Auto-filled from the customer's address. Edit if needed." : "Auto-filled from the project. Edit if needed.")
+              : "Where the goods go. It lands on the DO's Deliver To."
           }
           sx={{
             mb: 2,
@@ -1244,12 +1244,12 @@ export default function ScheduleDeliveryDialog({
             config.machineLocation, rendered under "Deliver To". */}
         <TextField
           label={serviceJobs ? "Location on site (optional)" : "Machine location (optional)"}
-          placeholder={serviceJobs ? "Specific spot on site — kitchen, level, unit" : "Specific spot on site — tower, floor, unit"}
+          placeholder={serviceJobs ? "Specific spot on site (kitchen, level, unit)" : "Specific spot on site (tower, floor, unit)"}
           value={machineLocation}
           onChange={(e) => setMachineLocation(e.target.value)}
           fullWidth
           size="small"
-          helperText="More specific than the address — lands on the DO under Deliver To"
+          helperText="More specific than the address. It lands on the DO under Deliver To."
           sx={{ mb: 2 }}
         />
 

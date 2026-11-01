@@ -707,7 +707,9 @@ export default function DeliveryDetailPage() {
     );
   }
 
-  const chip = STATUS_CHIP[run.status] ?? { label: run.status, color: "default" as const };
+  // A draft job of a WCT order is not scheduled yet: it reads Draft, as on the order page, until it is given a date and confirmed.
+  const orderDraft = !!run.order && !!run.isDraft && run.status === "scheduled";
+  const chip = orderDraft ? { label: "Draft", color: "default" as const } : STATUS_CHIP[run.status] ?? { label: run.status, color: "default" as const };
   // Per-item link state. distinctDocs powers the header when the run spans DOs.
   const unlinkedItems = run.items.filter((i) => !i.documentId);
   const linkedCount = run.items.length - unlinkedItems.length;
@@ -909,11 +911,12 @@ export default function DeliveryDetailPage() {
       {run.status === "scheduled" && (
         <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
           <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
-            Scheduled for {fmtDateTime(run.scheduledFor)}
+            {orderDraft ? (run.scheduledFor ? `Draft for ${fmtDateTime(run.scheduledFor)}` : "Draft, no date yet") : `Scheduled for ${fmtDateTime(run.scheduledFor)}`}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            Waiting for a rider — they claim it by scanning any unit of a scheduled
-            product. Nothing is reserved until then.
+            {orderDraft
+              ? "Edit the job to set the date and confirm the schedule. It goes to the worker once it is confirmed."
+              : "Waiting for a rider. They claim it by scanning any unit of a scheduled product. Nothing is reserved until then."}
           </Typography>
           <Button variant="outlined" color="error" onClick={() => setConfirmAction("cancel")} disabled={acting}>
             Cancel scheduled delivery
@@ -971,10 +974,10 @@ export default function DeliveryDetailPage() {
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
             Tick the items below, then link them to a DO (or create one from them).
-            Items can go to different DOs — repeat for the rest. &ldquo;Create DO&rdquo;
+            Items can go to different DOs, so repeat for the rest. &ldquo;Create DO&rdquo;
             makes a <b>draft</b> for review; stock is deducted only when the DO is
             <b> confirmed</b> (linking to an already-confirmed DO deducts immediately).
-            It does <b>not</b> create an invoice — invoicing stays a separate, manual step.
+            It does <b>not</b> create an invoice. Invoicing stays a separate, manual step.
           </Typography>
           <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
             <Button variant="contained" startIcon={<LinkIcon />} onClick={openPicker} disabled={acting || selected.size === 0}>
@@ -1212,7 +1215,7 @@ export default function DeliveryDetailPage() {
         return (
           <Paper variant="outlined" sx={{ p: 2, mb: 3, display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
             <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>Service report</Typography>
-            <Chip size="small" label={done ? "Completed" : "Scheduled — awaiting the technician"} color={done ? "success" : "info"} variant={done ? "filled" : "outlined"} />
+            <Chip size="small" label={done ? "Completed" : "Scheduled, awaiting the technician"} color={done ? "success" : "info"} variant={done ? "filled" : "outlined"} />
             <Button size="small" variant="outlined" onClick={() => router.push(`/portal/maintenance-reports/${sr.id}`)} data-tour="run-service-report">
               {done ? "Open report" : "Preview"}
             </Button>
@@ -1429,7 +1432,7 @@ export default function DeliveryDetailPage() {
             <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}><CircularProgress size={28} /></Box>
           ) : eligibleDos.length === 0 ? (
             <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-              No eligible delivery orders found{!showAllDos && run.projectId ? " for this project — try showing all projects" : ""}.
+              No eligible delivery orders found{!showAllDos && run.projectId ? " for this project. Try showing all projects" : ""}.
             </Typography>
           ) : (
             <List dense>

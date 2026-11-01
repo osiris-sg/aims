@@ -179,7 +179,7 @@ export default function SaleOrderSelectDialog({ open, onClose, rows, loading, on
                     <Typography color="text.secondary">
                       {searchTerm || customerFilter
                         ? "No Sales Orders match your search"
-                        : "No Sales Orders yet — upload one below"}
+                        : "No Sales Orders yet. Upload one below."}
                     </Typography>
                   </TableCell>
                 </TableRow>

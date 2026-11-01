@@ -91,6 +91,7 @@ import QuotationSelectDialog from "./QuotationSelectDialog";
 import { AutoAwesome as AutoAwesomeIcon } from "@mui/icons-material";
 import CleanDocumentPreview from "./CleanDocumentPreview";
 import ServerDocumentPreview, { type ServerDocumentPreviewHandle } from "./ServerDocumentPreview";
+import { orderDocLine } from "@/helpers/wctOrders";
 import { resolveDesign as resolveTemplateDesign } from "@/app/portal/documents/design";
 import RouteOrderPointsEditor from "./RouteOrderPointsEditor";
 // Shared dialog — same component used by the Field Reports tab on the
@@ -1152,6 +1153,11 @@ export default function TabbedDocumentCreator({
     // it rides the config spread here). Carried explicitly or the formData
     // allowlist drops it and the DO Timeline block renders blank.
     scheduledFor: (existingData as any)?.scheduledFor ?? null,
+    // WCT orders: a job's DO and an order invoice carry their order (and the
+    // invoice the DOs it covers). Server-written, kept on save by the API, so
+    // carried here like projectName above or the preview loses its Order No line.
+    orderNo: (existingData as any)?.orderNo || "",
+    deliveryOrderNos: Array.isArray((existingData as any)?.deliveryOrderNos) ? (existingData as any).deliveryOrderNos : [],
     // Items data
     items: existingData?.items || [],
     // Source document tracking (for quotation/DO extraction)
@@ -4355,6 +4361,11 @@ export default function TabbedDocumentCreator({
               ? existingData?.name || `${getDocumentTitle()} Template`
               : formData.documentInfo?.documentNumber || formData.name || `${getDocumentTitle()} - New`}
           </Typography>
+          {!isTemplateEditMode && orderDocLine(existingData, documentType) && (
+            <Typography variant="caption" color="text.secondary" noWrap sx={{ minWidth: 0, flexShrink: 1, fontVariantNumeric: "tabular-nums" }} data-tour="editor-order-no">
+              {orderDocLine(existingData, documentType)}
+            </Typography>
+          )}
         </Box>
         {/* Phone: the cluster must be allowed to shrink (flexShrink 0 sized it to
     full content width, so flexWrap never engaged and buttons ran off-screen). */}

@@ -74,8 +74,15 @@ test("Add job prefill: order id + number, customer, site, quotation lines (blank
 });
 
 test("Invoice now text: names the jobs and says where the rest go", () => {
-  assert.equal(invoiceNowText([12], 0), "Create the invoice now for the verified job #12?");
-  assert.equal(invoiceNowText([12, 13], 1), "Create the invoice now for the verified jobs #12, #13? The 1 job not done or not verified yet will go on a second invoice for this order once verified.");
+  assert.equal(invoiceNowText([12], 0), "Create the invoice now for the verified job #12? It bills the quotation once, plus any lines added to this job on top of it.");
+  assert.equal(
+    invoiceNowText([12, 13], 1),
+    "Create the invoice now for the verified jobs #12, #13? It bills the quotation once, plus any lines added to these jobs on top of it. The 1 job not done or not verified yet is covered by this invoice. Lines added to it on top of the quotation go on a second invoice once verified.",
+  );
+  assert.equal(
+    invoiceNowText([14], 0, true),
+    "Invoice the verified job #14 now? The quotation is already billed on this order, so only lines added to this job on top of the quotation are invoiced. If there are none, no invoice is made and the job is marked as covered.",
+  );
 });
 
 test("billing tab: invoiced / paid / closed", () => {
@@ -85,7 +92,9 @@ test("billing tab: invoiced / paid / closed", () => {
 });
 
 test("service report lines: uploaded file / linked report", () => {
-  assert.deepEqual(attachmentLine({ id: "a", kind: "file", fileName: "SR-12.pdf", label: "Service report", addedByName: "Ann", addedAt: "2026-11-01T03:00:00Z" }), { title: "SR-12.pdf", detail: "Service report · added by Ann, 01 Nov 2026" });
+  assert.deepEqual(attachmentLine({ id: "a", kind: "file", fileName: "SR-12.pdf", label: "Service report", addedByName: "Ann", addedAt: "2026-11-01T03:00:00Z" }), { title: "SR-12.pdf", detail: "Service report · added by Ann · 01 Nov 2026" });
+  assert.equal(attachmentLine({ id: "d", kind: "report", reportId: "r", addedByName: "Elroy Lee", addedAt: "2026-11-01T15:27:51Z", report: { id: "r", reportNumber: 5, status: "completed" } }).detail, "Completed · linked by Elroy Lee · 01 Nov 2026");
+  assert.equal(attachmentLine({ id: "e", kind: "report", reportId: "r", addedByName: null, addedAt: "2026-11-01T15:27:51Z", report: { id: "r", reportNumber: 5, status: "completed" } }).detail, "Completed · linked 01 Nov 2026");
   assert.equal(attachmentLine({ id: "b", kind: "report", reportId: "r", reportNumber: 7, report: { id: "r", reportNumber: 7, status: "completed" } }).title, "Service report #7");
   assert.equal(attachmentLine({ id: "c", kind: "report", reportId: "r", report: null }).detail, "Report not found");
 });

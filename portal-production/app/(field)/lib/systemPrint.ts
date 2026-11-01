@@ -250,3 +250,35 @@ export async function savePdfViaSystem(
 export async function printHtmlViaSystem(html: string, jobName: string): Promise<void> {
   await SystemPrint.printHtml({ html, jobName, baseUrl: window.location.origin + "/" });
 }
+
+/**
+ * Print an already-serialised document from a BROWSER (the field app opened
+ * outside the SiteJobs shell): a hidden iframe holds the document and its own
+ * window prints, so only the document reaches the printer, not the app screen.
+ * Resolves once the browser's print dialog has been asked for.
+ */
+export function printHtmlInBrowser(html: string, jobName: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const frame = document.createElement("iframe");
+    frame.setAttribute("aria-hidden", "true");
+    frame.title = jobName;
+    frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;";
+    const done = () => setTimeout(() => frame.remove(), 60_000);
+    frame.onload = () => {
+      try {
+        const w = frame.contentWindow;
+        if (!w) throw new Error("Could not open the print view.");
+        w.document.title = jobName;
+        w.focus();
+        w.print();
+        done();
+        resolve();
+      } catch (e) {
+        frame.remove();
+        reject(e);
+      }
+    };
+    frame.srcdoc = html;
+    document.body.appendChild(frame);
+  });
+}

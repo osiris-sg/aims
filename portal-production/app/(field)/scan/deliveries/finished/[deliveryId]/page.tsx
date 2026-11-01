@@ -20,6 +20,10 @@ import { formatUnitLabel } from "../../../../lib/btPrinter";
 import { DoPrintActions } from "../../../../components/DoPrintActions";
 import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+
+/** WCT Print DO: re-reads of the run while the DO is still being made (2.5 s apart). */
+const DO_READY_POLLS = 8;
 
 /**
  * "Delivery completed" final screen (field). Reached both as the LANDING right
@@ -108,24 +112,29 @@ export default function FinishedDeliveryDetailPage() {
   const isReturn = run?.direction === "RETURN";
   useFieldAppBar({ title: run ? `${isReturn ? "Return" : "Delivery"} #${run.deliveryNumber}` : "Delivery" });
 
-  useEffect(() => {
-    (async () => {
+  // quiet = a re-read while waiting for the DO: a failure keeps the screen as it is.
+  const load = useCallback(
+    async (quiet = false) => {
       try {
         const token = await getToken();
         if (!token) {
-          setError("Not signed in");
+          if (!quiet) setError("Not signed in");
           return;
         }
         const res = await request({ path: `/deliveries/${deliveryId}`, method: "GET" }, {}, token);
         if (res.success === false) throw new Error(res.message ?? "Failed to load delivery");
         setRun((res.data ?? res) as Run);
       } catch (e: any) {
-        setError(e?.message ?? "Failed to load delivery");
+        if (!quiet) setError(e?.message ?? "Failed to load delivery");
       } finally {
         setLoading(false);
       }
-    })();
-  }, [getToken, deliveryId]);
+    },
+    [getToken, deliveryId],
+  );
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   // The hand-off proof: latest DO_ACK MSR carrying a signature. That row's
   // signedByName is the recipient; its lat/long the GPS at hand-off. Feeds the
@@ -157,6 +166,22 @@ export default function FinishedDeliveryDetailPage() {
     () => run?.document?.id ?? run?.items.find((i) => i.document?.id)?.document?.id ?? null,
     [run],
   );
+
+  // WCT: Print DO waits for the DO to be READY (linked, on its real number,
+  // not a DO-PENDING placeholder) and works in a browser too. While it is not
+  // ready the run is re-read every few seconds; after that, Retry.
+  const { isWctOrdersEnabled } = useOrganizationFeatures();
+  const printableDo = useMemo(() => run?.document ?? run?.items.find((i) => i.document?.id)?.document ?? null, [run]);
+  const doReady = !!printableDo?.id && !/PENDING/i.test(printableDo?.name ?? "");
+  const [doPolls, setDoPolls] = useState(0);
+  const waitForDo = isWctOrdersEnabled && !!run && run.status === "completed" && !doReady;
+  useEffect(() => {
+    if (!waitForDo || doPolls >= DO_READY_POLLS) return;
+    const t = setTimeout(() => {
+      void load(true).then(() => setDoPolls((n) => n + 1));
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [waitForDo, doPolls, load]);
 
   // WCT flow: Quotation → DO → service done → invoice → SERVICE REPORT. The
   // report is scheduled with the run and MUST be written once the job is
@@ -225,13 +250,23 @@ export default function FinishedDeliveryDetailPage() {
         </Alert>
       )}
 
-      {/* Print DO / Download DO (native shell only), shared with the basket of a
-          partly signed run. */}
-      <DoPrintActions doId={printableDoId} docLabel={isReturn ? "RDO" : "DO"} />
+      {/* Print DO / Download DO (native shell only; WCT can also print from a
+          browser), shared with the basket of a partly signed run. */}
+      {isWctOrdersEnabled && !partlySigned ? (
+        <DoPrintActions
+          doId={doReady ? printableDo!.id : null}
+          docLabel={isReturn ? "RDO" : "DO"}
+          browserPrint
+          preparing={waitForDo && doPolls < DO_READY_POLLS}
+          onRetry={doReady ? undefined : () => setDoPolls(0)}
+        />
+      ) : (
+        <DoPrintActions doId={printableDoId} docLabel={isReturn ? "RDO" : "DO"} />
+      )}
 
       {isServiceJob && !isReturn && !hasServiceReport && !partlySigned && (
         <Alert severity="warning">
-          Service report pending — this job is not finished until the service report is written and sent to the customer.
+          Service report pending. This job is not finished until the service report is written and sent to the customer.
         </Alert>
       )}
       {isServiceJob && !isReturn && (

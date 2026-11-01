@@ -58,7 +58,9 @@ export default function FinalizeDeliveryPage() {
   // WCT finish modes (enableWctFinishModes): besides the customer's signature,
   // a photo of the DO the customer stamped, or "completed, paper copy later".
   // Full finish only (a partial sign-off is always signed).
-  const { isWctFinishModesEnabled } = useOrganizationFeatures();
+  const { isWctFinishModesEnabled, isWctOrderInvoiceEnabled } = useOrganizationFeatures();
+  // WCT invoice per order: a job of an order is not invoiced on its own.
+  const [orderJob, setOrderJob] = useState(false);
   const [mode, setMode] = useState<FinishMode>("signature");
   const [stampedPhotos, setStampedPhotos] = useState<CapturedPhoto[]>([]);
   const [completionNote, setCompletionNote] = useState("");
@@ -77,6 +79,7 @@ export default function FinalizeDeliveryPage() {
         const res = await request({ path: `/deliveries/${deliveryId}`, method: "GET" }, {}, token);
         const run = res?.data ?? res;
         if (cancelled || !run?.items) return;
+        setOrderJob(!!(run.order?.id || run.orderId));
         // A service job whose report was already written during the job (the
         // normal order now: select lines → report → sign-off) lands on the
         // finished screen; only a run with no report yet is sent to write one.
@@ -308,7 +311,9 @@ export default function FinalizeDeliveryPage() {
               ? "One signature covers the whole return. It completes the collection and creates the Return Delivery Order."
               : partial
                 ? `This signature covers the ${partialCount} ${partialCount === 1 ? "item" : "items"} delivered so far. The rest of this delivery stays open and is signed for when it arrives.`
-                : "One signature covers the whole delivery. It completes the run and creates the Delivery Order and its invoice."}
+                : orderJob && isWctOrderInvoiceEnabled
+                  ? "One signature covers the whole job. It completes the job and the Delivery Order. The order is invoiced once every job is verified."
+                  : "One signature covers the whole delivery. It completes the run and creates the Delivery Order and its invoice."}
           </Typography>
 
           <TextField

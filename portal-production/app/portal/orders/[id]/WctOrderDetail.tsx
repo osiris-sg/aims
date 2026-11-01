@@ -8,11 +8,11 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import DoStatusTag from "@/components/DoStatusTag";
+import StatusPill from "../_components/StatusPill";
 import {
   Alert,
   Box,
   Button,
-  Chip,
   CircularProgress,
   IconButton,
   Menu,
@@ -95,6 +95,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
   const [invoiceAsk, setInvoiceAsk] = useState(false);
   const [invoicing, setInvoicing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionInfo, setActionInfo] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
   const [reportNo, setReportNo] = useState("");
@@ -204,7 +205,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
             <Typography variant="h5" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
               {order.orderNumber}
             </Typography>
-            <Chip size="small" label={orderStatusLabel(order.status)} color={orderStatusColor(order.status) as any} />
+            <StatusPill label={orderStatusLabel(order.status)} color={orderStatusColor(order.status)} />
           </Stack>
           <Stack direction="row" spacing={3} sx={{ mt: 1 }} flexWrap="wrap" useFlexGap>
             <Box>
@@ -288,7 +289,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
                     )}
                   </TableCell>
                   <TableCell>
-                    <Chip size="small" label={jobStatusLabel(j)} color={jobStatusColor(j) as any} variant={j.isDraft ? "outlined" : "filled"} />
+                    <StatusPill label={jobStatusLabel(j)} color={jobStatusColor(j)} variant={j.isDraft ? "outlined" : "filled"} />
                   </TableCell>
                   <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
                     <IconButton
@@ -312,6 +313,11 @@ export default function WctOrderDetail({ id }: { id: string }) {
       {actionError && (
         <Alert severity="warning" sx={{ mt: 2 }} onClose={() => setActionError(null)}>
           {actionError}
+        </Alert>
+      )}
+      {actionInfo && (
+        <Alert severity="info" sx={{ mt: 2 }} onClose={() => setActionInfo(null)}>
+          {actionInfo}
         </Alert>
       )}
       {order.invoicing && (
@@ -351,7 +357,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
                         {inv.total.toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
                       <TableCell>
-                        <Chip size="small" label={INVOICE_STATUS[inv.status] ?? inv.status} color={inv.status === "paid" ? "success" : inv.status === "pending_payment" ? "info" : "default"} />
+                        <StatusPill label={INVOICE_STATUS[inv.status] ?? inv.status} color={inv.status === "paid" ? "success" : inv.status === "pending_payment" ? "info" : "default"} />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -460,7 +466,11 @@ export default function WctOrderDetail({ id }: { id: string }) {
         <DialogTitle>Invoice now</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            {invoiceNowText(order.toInvoice ?? [], order.jobs.filter((j) => j.status !== "cancelled" && !j.invoiceId && !(order.toInvoice ?? []).includes(j.deliveryNumber)).length)}
+            {invoiceNowText(
+              order.toInvoice ?? [],
+              order.jobs.filter((j) => j.status !== "cancelled" && !j.invoiceId && !(order.toInvoice ?? []).includes(j.deliveryNumber)).length,
+              (order.invoices?.length ?? 0) > 0,
+            )}
           </DialogContentText>
         </DialogContent>
         <DialogActions>
@@ -476,6 +486,9 @@ export default function WctOrderDetail({ id }: { id: string }) {
                 const res = await request({ path: `/orders/${order.id}/invoice-now`, method: "POST" }, {}, token ?? undefined);
                 if (res?.success === false) throw new Error(res?.message || "Could not create the invoice");
                 setInvoiceAsk(false);
+                const out = res?.data ?? res;
+                // The quotation was already billed and the jobs added nothing on top: no new invoice.
+                if (out?.covered) setActionInfo(`No new invoice: nothing was added on top of the quotation, so job${(out.jobNumbers?.length ?? 0) === 1 ? "" : "s"} ${(out.jobNumbers ?? []).map((n: number) => `#${n}`).join(", ")} ${(out.jobNumbers?.length ?? 0) === 1 ? "is" : "are"} covered by ${out.name || "the order's invoice"}.`);
                 await load();
               } catch (e: any) {
                 setActionError(e?.message || "Could not create the invoice");

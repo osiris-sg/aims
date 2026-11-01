@@ -7,7 +7,8 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
-import { Box, Chip, Tab, Tabs, Typography } from "@mui/material";
+import { Box, Tab, Tabs, Typography } from "@mui/material";
+import StatusPill from "./_components/StatusPill";
 import moment from "moment";
 import { toast } from "react-toastify";
 import { ORDER_TABS, OrderTab, fmtJobWhen, jobCountsLine, orderMatchesSearch, orderMatchesTab, orderStatusColor, orderStatusLabel } from "@/helpers/wctOrders";
@@ -84,7 +85,7 @@ export default function WctOrdersList() {
       accessorKey: "status",
       header: "Status",
       size: 9,
-      cell: ({ row }: any) => <Chip size="small" label={orderStatusLabel(row.original.status)} color={orderStatusColor(row.original.status) as any} />,
+      cell: ({ row }: any) => <StatusPill label={orderStatusLabel(row.original.status)} color={orderStatusColor(row.original.status)} />,
     },
     { accessorKey: "createdAt", header: "Created", size: 9, cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY") },
   ];

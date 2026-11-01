@@ -17,12 +17,29 @@ import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
  * Print goes through ANDROID'S print system (the printer is a WiFi colour
  * inkjet no Bluetooth path can reach); Download saves the same render as a PDF
  * and offers the share sheet, so the rider can join the printer's own hotspot
- * and print from there. Both are native-shell only. The offscreen A4 surface
+ * and print from there. Both are native-shell only, except that Print can also
+ * use the browser's own dialog when the caller asks (browserPrint, WCT). The offscreen A4 surface
  * is mounted here, so the caller only passes the DO id.
  */
-export function DoPrintActions({ doId, docLabel = "DO" }: { doId: string | null; docLabel?: "DO" | "RDO" }) {
+export function DoPrintActions({
+  doId,
+  docLabel = "DO",
+  browserPrint = false,
+  preparing = false,
+  onRetry,
+}: {
+  doId: string | null;
+  docLabel?: "DO" | "RDO";
+  /** Print through the browser's own dialog when not in the SiteJobs shell (WCT). Off: the button stays disabled there, as before. */
+  browserPrint?: boolean;
+  /** The DO is still being made (not linked, or still on its placeholder number): spinner instead of Print. */
+  preparing?: boolean;
+  /** Shown as Retry once the caller stops waiting and the DO is still not ready. */
+  onRetry?: () => void;
+}) {
   const docName = docLabel === "RDO" ? "return delivery order" : "delivery order";
-  const { surface: printSurface, printDoViaSystem, downloadDo, progress: printProgress } = useDoA4Print();
+  const { surface: printSurface, printDoViaSystem, printDoInBrowser, downloadDo, progress: printProgress } = useDoA4Print();
+  const native = isSystemPrintAvailable();
   const [printing, setPrinting] = useState(false);
   const [printMsg, setPrintMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -34,17 +51,18 @@ export function DoPrintActions({ doId, docLabel = "DO" }: { doId: string | null;
     setPrinting(true);
     setPrintMsg(null);
     try {
-      await printDoViaSystem(doId);
-      // The dialog is now Android's. It owns printer choice, settings and
-      // cancellation, and reports none of that back, so this says the handover
-      // happened, not that paper came out.
+      if (native) await printDoViaSystem(doId);
+      else await printDoInBrowser(doId);
+      // The dialog is now Android's (or the browser's). It owns printer choice,
+      // settings and cancellation, and reports none of that back, so this says
+      // the handover happened, not that paper came out.
       setPrintMsg({ ok: true, text: "Print dialog opened. Pick the printer there." });
     } catch (e: any) {
       setPrintMsg({ ok: false, text: e?.message ?? "Could not open the print dialog." });
     } finally {
       setPrinting(false);
     }
-  }, [doId, printDoViaSystem]);
+  }, [doId, native, printDoViaSystem, printDoInBrowser]);
 
   const doDownload = async () => {
     if (!doId) {
@@ -63,9 +81,31 @@ export function DoPrintActions({ doId, docLabel = "DO" }: { doId: string | null;
     }
   };
 
+  if (preparing || (!doId && onRetry)) {
+    return (
+      <>
+        <Button variant="contained" startIcon={preparing ? <CircularProgress size={18} color="inherit" /> : <PrintIcon />} disabled fullWidth sx={FIELD_BUTTON_SX}>
+          {preparing ? `Preparing the ${docName}…` : `Print ${docLabel}`}
+        </Button>
+        {!preparing && onRetry && (
+          <Alert
+            severity="warning"
+            action={
+              <Button size="small" onClick={onRetry}>
+                Retry
+              </Button>
+            }
+          >
+            {`The ${docName} is not ready yet. Try again in a moment.`}
+          </Alert>
+        )}
+      </>
+    );
+  }
+
   return (
     <>
-      {isSystemPrintAvailable() ? (
+      {native || browserPrint ? (
         <Button
           variant="contained"
           startIcon={printing ? <CircularProgress size={18} /> : <PrintIcon />}
@@ -86,7 +126,7 @@ export function DoPrintActions({ doId, docLabel = "DO" }: { doId: string | null;
         </Tooltip>
       )}
 
-      {isSystemPrintAvailable() && (
+      {native && (
         <Button
           variant="outlined"
           startIcon={<DownloadIcon />}

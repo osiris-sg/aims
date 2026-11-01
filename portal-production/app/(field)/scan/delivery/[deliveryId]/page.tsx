@@ -104,6 +104,8 @@ interface RunItem {
 interface Run {
   id: string;
   deliveryNumber: number;
+  // WCT orders: the order this job belongs to (null outside that flow).
+  order?: { id: string; orderNumber: string } | null;
   direction?: "OUTBOUND" | "RETURN";
   // "scheduled" = the office declared this run and NO unit has been scanned yet
   // (the run-first entry point lands here). The first successful scan claims it
@@ -843,7 +845,8 @@ export default function DeliveryBasketPage() {
 
   useFieldAppBar({
     title: run ? `${run.direction === "RETURN" ? "Return" : "Delivery"} #${run.deliveryNumber}` : "Delivery",
-    subtitle: run?.siteAddress || undefined,
+    // WCT orders: the job's order leads the subtitle (as on the job cards).
+    subtitle: [run?.order?.orderNumber, run?.siteAddress].filter(Boolean).join(" · ") || undefined,
   });
 
   if (loading) {

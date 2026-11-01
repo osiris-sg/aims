@@ -19,6 +19,7 @@ import type { SavedPrinter } from "../lib/btPrinter";
 import {
   DO_PRINT_PAGE_STYLE,
   printHtmlViaSystem,
+  printHtmlInBrowser,
   savePdfViaSystem,
   serializeNodeToPrintHtml,
 } from "../lib/systemPrint";
@@ -78,6 +79,8 @@ export interface UseDoA4PrintResult {
   printDo: (doId: string, printer: SavedPrinter) => Promise<void>;
   /** ANDROID PRINT DIALOG: what the Print DO button calls. */
   printDoViaSystem: (doId: string) => Promise<void>;
+  /** BROWSER PRINT DIALOG: Print DO outside the SiteJobs shell (WCT). */
+  printDoInBrowser: (doId: string) => Promise<void>;
   /** SAVE TO THE TABLET: what the Download DO button calls. */
   downloadDo: (doId: string) => Promise<{ uri: string; fileName: string }>;
   progress: PrintProgress | null;
@@ -157,6 +160,35 @@ export function useDoA4Print(): UseDoA4PrintResult {
           }));
         setProgress({ page: 1, pageCount: 1, fraction: 0.9, label: "Opening the print dialog…" });
         await printHtmlViaSystem(html, documentNumber);
+      } finally {
+        setProgress(null);
+        setDoc(null);
+      }
+    },
+    [prepare],
+  );
+
+  /**
+   * The same document through the BROWSER's print dialog, for the field app
+   * opened outside the SiteJobs shell. Same render and print CSS as above.
+   */
+  const printDoInBrowser = useCallback(
+    async (doId: string) => {
+      setProgress({ page: 1, pageCount: 1, fraction: 0, label: "Loading the delivery order…" });
+      try {
+        const prepared = await prepare(doId);
+        const { documentNumber } = prepared;
+        setProgress({ page: 1, pageCount: 1, fraction: 0.5, label: "Preparing the document…" });
+        const html =
+          prepared.html ??
+          (await serializeNodeToPrintHtml(prepared.node!, {
+            title: documentNumber,
+            pageStyle: DO_PRINT_PAGE_STYLE,
+            fitSelector: '[data-print-sheet="do"]',
+            fitBandMm: 285,
+          }));
+        setProgress({ page: 1, pageCount: 1, fraction: 0.9, label: "Opening the print dialog…" });
+        await printHtmlInBrowser(html, documentNumber);
       } finally {
         setProgress(null);
         setDoc(null);
@@ -270,5 +302,5 @@ export function useDoA4Print(): UseDoA4PrintResult {
     </Box>
   );
 
-  return { surface, printDo, printDoViaSystem, downloadDo, progress };
+  return { surface, printDo, printDoViaSystem, printDoInBrowser, downloadDo, progress };
 }

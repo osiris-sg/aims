@@ -131,11 +131,22 @@ export function addJobPrefill(order: {
   };
 }
 
-/** "Invoice now" confirmation: what gets billed now and what happens to the rest. */
-export function invoiceNowText(toInvoice: number[], openJobs: number): string {
+/**
+ * "Invoice now" confirmation: what gets billed now and what happens to the rest.
+ * The quotation is billed once per order (on its first invoice); a later
+ * invoice bills only the lines added to its jobs on top of the quotation.
+ */
+export function invoiceNowText(toInvoice: number[], openJobs: number, quoteBilled = false): string {
+  const many = toInvoice.length !== 1;
   const jobs = toInvoice.map((n) => `#${n}`).join(", ");
-  const rest = openJobs > 0 ? ` The ${openJobs} job${openJobs === 1 ? "" : "s"} not done or not verified yet will go on a second invoice for this order once verified.` : "";
-  return `Create the invoice now for the verified job${toInvoice.length === 1 ? "" : "s"} ${jobs}?${rest}`;
+  if (quoteBilled) {
+    return `Invoice the verified job${many ? "s" : ""} ${jobs} now? The quotation is already billed on this order, so only lines added to ${many ? "these jobs" : "this job"} on top of the quotation are invoiced. If there are none, no invoice is made and ${many ? "the jobs are" : "the job is"} marked as covered.`;
+  }
+  const rest =
+    openJobs > 0
+      ? ` The ${openJobs} job${openJobs === 1 ? "" : "s"} not done or not verified yet ${openJobs === 1 ? "is" : "are"} covered by this invoice. Lines added to ${openJobs === 1 ? "it" : "them"} on top of the quotation go on a second invoice once verified.`
+      : "";
+  return `Create the invoice now for the verified job${many ? "s" : ""} ${jobs}? It bills the quotation once, plus any lines added to ${many ? "these jobs" : "this job"} on top of it.${rest}`;
 }
 
 /** WCT service report on the order (Phase 5): an uploaded file or a linked AIMS service report. */
@@ -165,11 +176,30 @@ export interface ReportOption {
 /** One line of the order's Service report list. */
 export function attachmentLine(a: OrderAttachment): { title: string; detail: string } {
   const when = a.addedAt ? new Date(a.addedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Singapore" }) : "";
-  const by = [a.addedByName, when].filter(Boolean).join(", ");
+  // "linked by Elroy Lee · 01 Nov 2026"; without a name, "linked 01 Nov 2026".
+  const by = (verb: string) => (a.addedByName ? [`${verb} by ${a.addedByName}`, when].filter(Boolean).join(" · ") : when ? `${verb} ${when}` : "");
   if (a.kind === "report") {
     const n = a.report?.reportNumber ?? a.reportNumber;
     const st = a.report ? (a.report.status === "completed" ? "Completed" : "Draft") : "Report not found";
-    return { title: `Service report ${n ? `#${n}` : "(draft)"}`, detail: [st, by && `linked by ${by}`].filter(Boolean).join(" · ") };
+    return { title: `Service report ${n ? `#${n}` : "(draft)"}`, detail: [st, by("linked")].filter(Boolean).join(" · ") };
   }
-  return { title: a.fileName || "File", detail: [a.label || "Uploaded file", by && `added by ${by}`].filter(Boolean).join(" · ") };
+  return { title: a.fileName || "File", detail: [a.label || "Uploaded file", by("added")].filter(Boolean).join(" · ") };
+}
+
+/**
+ * The editor's order line on a WCT order document (a job's DO or an order
+ * invoice), shown under the document number: "Order ORD202611-001 · Quotation
+ * QO202611-0016" on a DO, "Order ORD202611-001 · DO202611008, DO202611009" on
+ * an invoice. Empty for every document without an order.
+ */
+export function orderDocLine(doc: { orderNo?: string | null; quotationNo?: string | null; sourceDocumentNumber?: string | null; deliveryOrderNos?: string[] | null } | null | undefined, documentType: string): string {
+  const orderNo = String(doc?.orderNo ?? "").trim();
+  if (!orderNo) return "";
+  const t = String(documentType || "").toUpperCase();
+  if (t === "INVOICE" || t === "TI") {
+    const dos = (Array.isArray(doc?.deliveryOrderNos) ? doc!.deliveryOrderNos : []).filter(Boolean).join(", ");
+    return dos ? `Order ${orderNo} · ${dos}` : `Order ${orderNo}`;
+  }
+  const qo = String(doc?.quotationNo || doc?.sourceDocumentNumber || "").trim();
+  return qo ? `Order ${orderNo} · Quotation ${qo}` : `Order ${orderNo}`;
 }

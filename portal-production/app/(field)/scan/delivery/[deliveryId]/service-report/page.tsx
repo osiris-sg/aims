@@ -337,7 +337,7 @@ export default function WctServiceReportPage() {
     if (cursor.phase === "finish") return "Finish";
     const s = sections[cursor.index];
     const name = s ? `${s.heading}${s.subject ? ` ${s.subject}` : ""}` : "Section";
-    return cursor.sub === "before" ? `${name} — Before` : cursor.sub === "after" ? `${name} — After` : name;
+    return cursor.sub === "before" ? `${name}: Before` : cursor.sub === "after" ? `${name}: After` : name;
   })();
 
   // ── finish: complete the scheduled report, then the customer's sign-off ──
@@ -436,7 +436,8 @@ export default function WctServiceReportPage() {
 
   useFieldAppBar({
     title: "Service",
-    subtitle: run && !created ? `Delivery #${run.deliveryNumber} · Step ${stepNumber} of ${totalSteps} · ${stepTitle}` : run ? `Delivery #${run.deliveryNumber}` : undefined,
+    // The total depends on the job types ticked on step 1, so it shows from step 2 on.
+    subtitle: run && !created ? `Delivery #${run.deliveryNumber} · Step ${stepNumber}${cursor.phase === "job" ? "" : ` of ${totalSteps}`} · ${stepTitle}` : run ? `Delivery #${run.deliveryNumber}` : undefined,
     onBack: created ? undefined : goBack,
     backDisabled: submitting || uploading,
   });
@@ -494,13 +495,13 @@ export default function WctServiceReportPage() {
   const canStart = jobTypes.size > 0 && customerName.trim().length > 0;
   const section = cursor.phase === "section" ? sections[cursor.index] : null;
   const grid = section ? grids[section.id] : null;
-  const saveNote = saveState === "saving" ? "Saving…" : saveState === "saved" ? "Progress saved" : saveState === "failed" ? "Could not save progress — check the connection" : "";
+  const saveNote = saveState === "saving" ? "Saving…" : saveState === "saved" ? "Progress saved" : saveState === "failed" ? "Could not save progress. Check the connection." : "";
 
   return (
     <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2.5, pb: 6 }}>
       <Box>
         <Typography variant="subtitle1">{stepTitle}</Typography>
-        <LinearProgress variant="determinate" value={(stepNumber / totalSteps) * 100} sx={{ mt: 1, borderRadius: 1, height: 6 }} />
+        <LinearProgress variant="determinate" value={cursor.phase === "job" ? 0 : (stepNumber / totalSteps) * 100} sx={{ mt: 1, borderRadius: 1, height: 6 }} />
         {scheduledDraft && saveNote && (
           <Typography variant="caption" color={saveState === "failed" ? "error.main" : "text.secondary"} sx={{ display: "block", mt: 0.5 }}>
             {saveNote}
@@ -516,7 +517,7 @@ export default function WctServiceReportPage() {
         <Stack spacing={2}>
           <Alert severity="info">
             {run.status === "completed"
-              ? "The job is signed off. Write the service report now — it goes to the customer by email."
+              ? "The job is signed off. Write the service report now. It goes to the customer by email."
               : "Tick what is being done today, then take the Before photos, do the work, take the After photos. The customer signs at the end."}
           </Alert>
           <TextField label="Company" value={customerName} onChange={(e) => setCustomerName(e.target.value)} fullWidth size="small" />
@@ -569,7 +570,7 @@ export default function WctServiceReportPage() {
             {cursor.sub === "after" && (
               <>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                  Work done — take the After photos and un-tick anything not done.
+                  Work done. Take the After photos and un-tick anything not done.
                 </Typography>
                 <PhotoCaptureField label="After" photos={grid.after} onChange={(p) => setGrid(section.id, { after: p })} upload={upload} maxPhotos={WCT_MAX_PHOTOS_PER_GRID} onError={(m) => setError(m || null)} onUploadingChange={setUploading} />
               </>
@@ -613,7 +614,7 @@ export default function WctServiceReportPage() {
       {cursor.phase === "finish" && (
         <Stack spacing={2}>
           <TextField label="Remarks (optional)" value={remarks} onChange={(e) => setRemarks(e.target.value)} fullWidth multiline minRows={3} />
-          <TextField label="Customer email (optional — the report is emailed here)" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} fullWidth size="small" />
+          <TextField label="Customer email (optional, the report is emailed here)" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} fullWidth size="small" />
           <Typography variant="body2" color="text.secondary">
             {customerName || "—"} · {jobLocation || "—"} · {serviceDate} · {jobTypes.size} job type{jobTypes.size === 1 ? "" : "s"} · {sections.length} photo section{sections.length === 1 ? "" : "s"}
           </Typography>
