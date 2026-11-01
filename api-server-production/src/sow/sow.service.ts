@@ -5,6 +5,7 @@ import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
 import { DocumentsService, DocumentActor } from '../documents/documents.service';
 import { DocumentTemplatesService } from '../documentTemplates/documentTemplates.service';
 import { OSIRIS_LOGO_DATA_URI } from './osiris-logo';
+import { orgTodayFor } from '../common/org-today';
 
 /**
  * SOW Builder — OSIRIS-INTERNAL tool (osirisadmin only, guru 2026-09-16).
@@ -342,7 +343,7 @@ One scope section per selected module (merge closely-related modules if that rea
     const subTotal = items.reduce((s, it) => s + it.amount, 0);
 
     const config = {
-      date: new Date().toISOString(),
+      date: await orgTodayFor(this.prisma, OSIRIS_ORG_ID),
       customerId: customer.id,
       customer: { id: customer.id, name: customer.name, address: customer.address || '' },
       customerName: customer.name,

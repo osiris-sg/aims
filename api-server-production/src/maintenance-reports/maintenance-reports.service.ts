@@ -15,6 +15,7 @@ import { buildServiceReportHtml, MAX_SERVICE_REPORT_PHOTOS, servicePdfOptions } 
 import { templateFor } from './msr-templates';
 import type { WctOrgProfile } from './service-report-wct';
 import { minPhotosForAssetClass } from 'src/common/asset-class';
+import { orgTodayFor } from '../common/org-today';
 
 /** Org fields every renderer may need: name/logo for the stock sheets, the rest for the WCT letterhead + footer. */
 const REPORT_ORG_SELECT = { name: true, logo: true, address: true, phoneNumber: true, email: true, website: true, registrationNumber: true } as const;
@@ -740,7 +741,7 @@ export class MaintenanceReportsService {
       : [];
 
     const config = {
-      date: new Date().toISOString(),
+      date: await orgTodayFor(this.prisma, organizationId),
       items,
       customer: sd.customerId
         ? { id: sd.customerId, name: sd.customerName ?? '' }

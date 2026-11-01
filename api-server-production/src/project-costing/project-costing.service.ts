@@ -8,6 +8,7 @@ import { ActionLogService } from '../action-log/action-log.service';
 import { BillsService } from '../bills/bills.service';
 import { DocumentsService } from '../documents/documents.service';
 import { ID_SCHEDULE_SEQUENCE, SG_PUBLIC_HOLIDAYS, MY_PUBLIC_HOLIDAYS, buildWeeks, renderScheduleHtml } from './schedule';
+import { orgTodayFor } from '../common/org-today';
 
 const DEFAULT_ENGAGEMENT_FEE = 1500; // S$ — in lieu of the 10% deposit (their T&C clause A)
 
@@ -634,8 +635,9 @@ export class ProjectCostingService {
 
     const pctText = m.pct != null ? `${m.pct}% of contract sum S$${num(q?.grandTotal).toLocaleString('en-SG', { minimumFractionDigits: 2 })}` : '';
     const description = `Progress claim — ${m.label}${pctText ? ` (${pctText})` : ''}${q?.number ? `\nContract ${q.number}` : ''}${project.address ? `\nSite: ${project.address.split('\n')[0]}` : ''}`;
-    const now = new Date();
-    const due = new Date(now.getTime() + 7 * 86400000);
+    // Date-only in the org's time zone (a UTC timestamp read as yesterday before 08:00 SGT).
+    const today = await orgTodayFor(this.prisma, organizationId);
+    const due = new Date(Date.parse(`${today}T00:00:00Z`) + 7 * 86400000).toISOString().slice(0, 10);
     const config: any = {
       customer: qCfg.customer || { name: q?.clientName || project.name, address: q?.address || project.address || '', phone: q?.contact || '' },
       customerId: qCfg.customerId || project.customerId || null,
@@ -655,9 +657,9 @@ export class ProjectCostingService {
           accountCode: 'SS001',
         },
       ],
-      date: now.toISOString(),
-      dueDate: due.toISOString(),
-      documentInfo: { date: now.toISOString(), dueDate: due.toISOString(), paymentTerms: 'Due on receipt', referenceNo: q?.number || '', subject: `Progress claim — ${m.label}`, currency: 'SGD', taxApplicable: false },
+      date: today,
+      dueDate: due,
+      documentInfo: { date: today, dueDate: due, paymentTerms: 'Due on receipt', referenceNo: q?.number || '', subject: `Progress claim — ${m.label}`, currency: 'SGD', taxApplicable: false },
       taxApplicable: false,
       sourceDocumentId: q?.id || null,
       sourceDocumentNumber: q?.number || null,

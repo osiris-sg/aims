@@ -34,6 +34,7 @@ import { isOrgFeatureEnabled } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { assetKey, descKey, invoiceDiscountPercent, isDisplayRow, orderInvoiceReference, planOrderInvoice, quoteDiscountAmount } from '../orders/order-billing';
 import { quotationLinesForJob } from '../deliveries/quotation-to-delivery';
+import { orgTodayFor } from '../common/org-today';
 
 // Who performed a document action — derived from req.user in the controller.
 export interface DocumentActor {
@@ -1813,7 +1814,7 @@ export class DocumentsService {
               organizationId,
               documentId: id,
               documentNumber: updatedDocument.name || cfg?.documentNumber,
-              entryDate: cfg?.date ? new Date(cfg.date) : new Date(),
+              entryDate: new Date(cfg?.date || (await orgTodayFor(this.prisma, organizationId))),
               netAmount,
               taxAmount,
               grossAmount,
@@ -5915,7 +5916,7 @@ export class DocumentsService {
       {
         ...invoiceBase,
         items: invoiceLines,
-        date: new Date().toISOString(),
+        date: await orgTodayFor(this.prisma, organizationId),
         sourceDocumentId: documentId,
         sourceDocumentNumber: doDoc.name ?? undefined,
         sourceDocumentType: 'DELIVERY_ORDER',
@@ -6170,7 +6171,7 @@ export class DocumentsService {
         {
           ...base,
           items: lines,
-          date: new Date().toISOString(),
+          date: await orgTodayFor(this.prisma, organizationId),
           // Priced from the quotation; the order + its DOs are named on it.
           ...(quotationId ? { sourceDocumentId: quotationId, sourceDocumentType: 'QUOTATION', ...(qo?.name ? { sourceDocumentNumber: qo.name } : {}) } : {}),
           orderId: order.id,
@@ -6934,7 +6935,7 @@ export class DocumentsService {
             organizationId,
             documentId,
             invoiceNumber: updatedDocument.name || config?.documentNumber,
-            entryDate: config?.date ? new Date(config.date) : new Date(),
+            entryDate: new Date(config?.date || (await orgTodayFor(this.prisma, organizationId))),
             customerName,
             netAmount,
             taxAmount,
