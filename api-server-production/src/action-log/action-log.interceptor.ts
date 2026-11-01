@@ -97,6 +97,11 @@ const VERB_ACTIONS: Record<string, string> = {
   'issue-draft': 'EXTRACT',
   // Deliveries: OsirisAdmin permanent delete of a cancelled run that committed nothing (2026-10-30).
   purge: 'PURGE',
+  // WCT finish modes (2026-11-01): the admin verifies a stamped-DO / paper finish (reject is above);
+  // the worker / office resubmits evidence for a rejected job.
+  verify: 'VERIFY', 'resubmit-evidence': 'SUBMIT',
+  // WCT invoice per order: the admin's "Invoice now" on an order.
+  'invoice-now': 'CREATE',
   // Quotation e-sign link sent to the customer (WhatsApp / email) from the editor or the agent (2026-10-28).
   send: 'SEND',
   deliver: 'DELIVER', 'collect-return': 'COLLECT', 'off-hire': 'OFF_HIRE',

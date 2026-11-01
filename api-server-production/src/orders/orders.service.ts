@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
@@ -6,6 +7,10 @@ import {
   DocumentExtractionService,
   SupplierReconciliationData,
 } from '../document-extraction/document-extraction.service';
+import { isWctOrdersEnabled, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
+import { isVerifiedJob } from '../deliveries/finish-modes';
+import { isOrgFeatureEnabled } from '../common/org-features';
+import { doStatusTag } from '../deliveries/do-number';
 
 /**
  * Orders are auto-created when a quotation is confirmed (gated by the
@@ -242,6 +247,7 @@ export class OrdersService {
   }
 
   async list(organizationId: string) {
+    if (await isWctOrdersEnabled(this.prisma, organizationId)) return this.listWct(organizationId);
     const orders = await this.prisma.order.findMany({
       where: { organizationId },
       orderBy: { createdAt: 'desc' },
@@ -268,6 +274,7 @@ export class OrdersService {
   }
 
   async getById(id: string, organizationId: string) {
+    if (await isWctOrdersEnabled(this.prisma, organizationId)) return this.getWctById(id, organizationId);
     const order = await this.prisma.order.findFirst({
       where: { id, organizationId },
       include: {
@@ -334,9 +341,274 @@ export class OrdersService {
   }
 
   async delete(id: string, organizationId: string) {
+    // WCT orders: an order with jobs is never deleted from under them (the
+    // jobs would lose their order silently). No other org's order has jobs.
+    const jobs = await this.prisma.delivery.count({ where: { organizationId, orderId: id } });
+    if (jobs > 0) throw new HttpException('This order has jobs. Cancel or delete its jobs first.', HttpStatus.BAD_REQUEST);
     return this.prisma.order.delete({
       where: { id, organizationId },
     });
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // WCT orders (enableWctOrders, 2026-11-01): one order per accepted quotation,
+  // its jobs are Delivery runs (Delivery.orderId). The order is made by the
+  // quotation→delivery hook; jobs are added with POST /deliveries/scheduled
+  // { orderId }. These reads add the jobs and keep the stored status in step.
+  // ────────────────────────────────────────────────────────────────────────
+
+  /** Store the status the jobs + invoices say, where it drifted (best-effort). Mutates the rows. */
+  private async syncWctStatuses(organizationId: string, orders: Array<{ id: string; status: string }>) {
+    for (const o of orders) o.status = (await refreshOrderStatus(this.prisma, organizationId, o.id)) ?? o.status;
+  }
+
+  private async listWct(organizationId: string) {
+    const rows = await this.prisma.order.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        customer: { select: { id: true, name: true, customerCode: true } },
+        sourceQuotation: { select: { id: true, name: true, status: true, type: true, documentTemplateId: true } },
+        deliveries: { select: { id: true, deliveryNumber: true, status: true, isDraft: true, scheduledFor: true, verificationState: true }, orderBy: { deliveryNumber: 'asc' } },
+      },
+    });
+    const orders = rows.map(({ deliveries, ...o }: any) => ({ ...o, jobs: deliveries as any[] }));
+    await this.syncWctStatuses(organizationId, orders);
+    const now = Date.now();
+    return orders.map(({ jobs, ...o }) => {
+      const live = jobs.filter((j) => j.status !== 'cancelled');
+      const upcoming = live
+        .filter((j) => !j.isDraft && j.status === 'scheduled' && j.scheduledFor && new Date(j.scheduledFor).getTime() >= now)
+        .map((j) => new Date(j.scheduledFor).toISOString())
+        .sort()[0];
+      return {
+        ...o,
+        statusLabel: WCT_ORDER_STATUS_LABEL[o.status as WctOrderStatus] ?? o.status,
+        jobCounts: {
+          total: live.length,
+          drafts: live.filter((j) => j.isDraft).length,
+          completed: live.filter((j) => !j.isDraft && j.status === 'completed').length,
+          awaitingVerification: live.filter((j) => j.status === 'completed' && (j.verificationState === 'pending' || j.verificationState === 'rejected')).length,
+          cancelled: jobs.length - live.length,
+        },
+        nextJobAt: upcoming ?? null,
+      };
+    });
+  }
+
+  private async getWctById(id: string, organizationId: string) {
+    const row: any = await this.prisma.order.findFirst({
+      where: { id, organizationId },
+      include: {
+        customer: { select: { id: true, name: true, customerCode: true, address: true } },
+        sourceQuotation: { select: { id: true, name: true, status: true, type: true, documentTemplateId: true, config: true } },
+        deliveries: {
+          orderBy: { deliveryNumber: 'asc' },
+          select: {
+            id: true,
+            deliveryNumber: true,
+            status: true,
+            isDraft: true,
+            scheduledFor: true,
+            startedAt: true,
+            completedAt: true,
+            siteAddress: true,
+            riderUserId: true,
+            riderName: true,
+            completionMode: true,
+            verificationState: true,
+            verificationNote: true,
+            orderInvoiceId: true,
+            items: { select: { documentId: true, description: true, quantity: true, assetId: true }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+          },
+        },
+      },
+    });
+    if (!row) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
+    const { deliveries, sourceQuotation, ...order } = row;
+    const jobsRaw: any[] = deliveries;
+    const holder = [{ id: order.id, status: order.status, jobs: jobsRaw }];
+    await this.syncWctStatuses(organizationId, holder);
+    order.status = holder[0].status;
+
+    // Each job's DO (first DO its lines point at) and its SiteClock worker.
+    const docIds = [...new Set(jobsRaw.flatMap((j) => j.items.map((i: any) => i.documentId)).filter(Boolean))] as string[];
+    const [docs, links] = await Promise.all([
+      docIds.length
+        ? this.prisma.document.findMany({
+            where: { id: { in: docIds }, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } },
+            select: { id: true, name: true, status: true, documentTemplateId: true, config: true, createdAt: true },
+            orderBy: { createdAt: 'asc' },
+          })
+        : Promise.resolve([] as any[]),
+      jobsRaw.length
+        ? this.prisma.deliverySiteClockJob.findMany({
+            where: { organizationId, deliveryId: { in: jobsRaw.map((j) => j.id) } },
+            select: { deliveryId: true, workerId: true, workerName: true, durationMin: true, syncState: true, lastError: true },
+          })
+        : Promise.resolve([] as any[]),
+    ]);
+    const linkBy = new Map(links.map((l: any) => [l.deliveryId, l]));
+    const jobs = jobsRaw.map((j) => {
+      const own = new Set(j.items.map((i: any) => i.documentId).filter(Boolean));
+      const d: any = docs.find((x: any) => own.has(x.id));
+      const l: any = linkBy.get(j.id);
+      return {
+        id: j.id,
+        deliveryNumber: j.deliveryNumber,
+        status: j.status,
+        isDraft: j.isDraft,
+        scheduledFor: j.scheduledFor,
+        startedAt: j.startedAt,
+        completedAt: j.completedAt,
+        siteAddress: j.siteAddress,
+        rider: j.riderUserId ? j.riderName || null : null,
+        // WCT finish modes: how it was finished and the office check (null before the flag).
+        completionMode: j.completionMode ?? null,
+        verificationState: j.verificationState ?? null,
+        verificationNote: j.verificationNote ?? null,
+        // WCT invoice per order: the order invoice this job is billed on (null = not yet).
+        invoiceId: j.orderInvoiceId && !String(j.orderInvoiceId).startsWith('claim:') ? j.orderInvoiceId : null,
+        worker: l ? { id: l.workerId, name: l.workerName, durationMin: l.durationMin, syncState: l.syncState, lastError: l.lastError } : null,
+        deliveryOrder: d
+          ? { id: d.id, name: d.name, status: d.status, templateId: d.documentTemplateId, tag: doStatusTag({ status: d.status, config: d.config }) }
+          : null,
+        lineCount: j.items.length,
+      };
+    });
+
+    // "Add job" prefill: the quotation's billable lines and where the work is.
+    const qcfg: any = sourceQuotation?.config || {};
+    const di: any = qcfg.documentInfo || {};
+    const { quotationLinesForJob } = await import('../deliveries/quotation-to-delivery');
+    const quotationLines = sourceQuotation ? await quotationLinesForJob(this.prisma, organizationId, qcfg) : [];
+    const lastSite = [...jobsRaw].reverse().find((j) => j.siteAddress)?.siteAddress;
+    const siteAddress = String(lastSite || di.location || di.jobLocation || qcfg.location || qcfg.deliveryTo || order.customer?.address || '').trim() || null;
+
+    return {
+      ...order,
+      statusLabel: WCT_ORDER_STATUS_LABEL[order.status as WctOrderStatus] ?? order.status,
+      sourceQuotation: sourceQuotation
+        ? { id: sourceQuotation.id, name: sourceQuotation.name, status: sourceQuotation.status, type: sourceQuotation.type, documentTemplateId: sourceQuotation.documentTemplateId }
+        : null,
+      jobs,
+      prefill: { siteAddress, lines: quotationLines },
+      ...(await this.wctBilling(organizationId, jobsRaw)),
+      attachments: await this.orderAttachmentsView(organizationId, Array.isArray(order.attachments) ? (order.attachments as any[]) : []),
+    };
+  }
+
+  // ── WCT service report on the order (enableWctOrders, 2026-11-01, Phase 5) ──
+  // Order.attachments holds the order's files, same shape as Document.attachments
+  // plus a kind: { id, kind: 'file', fileKey, fileName, mimeType?, label?, … }
+  // for an uploaded file (S3, uploaded first through POST /uploads/image), or
+  // { id, kind: 'report', reportId, reportNumber, label, … } for an AIMS service
+  // report linked to it. Either one counts as "the service report is on the
+  // order" (a paid order then reads Closed).
+
+  private async wctOrderOrThrow(id: string, organizationId: string) {
+    if (!(await isWctOrdersEnabled(this.prisma, organizationId))) throw new HttpException('Orders with jobs are not enabled for this organisation', HttpStatus.BAD_REQUEST);
+    const order = await this.prisma.order.findFirst({ where: { id, organizationId }, select: { id: true, orderNumber: true, attachments: true } });
+    if (!order) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
+    return order;
+  }
+
+  /** Add an uploaded file, or link an AIMS service report, to the order. */
+  async addOrderAttachment(
+    id: string,
+    organizationId: string,
+    body: { kind?: string; fileKey?: string; fileName?: string; mimeType?: string; label?: string; reportId?: string },
+    actor: { id?: string; name?: string },
+  ) {
+    const order = await this.wctOrderOrThrow(id, organizationId);
+    const list: any[] = Array.isArray(order.attachments) ? [...(order.attachments as any[])] : [];
+    const stamp = { id: randomUUID(), addedAt: new Date().toISOString(), addedBy: actor.id ?? null, addedByName: actor.name ?? null };
+    let entry: any;
+    if (body.kind === 'report') {
+      if (!body.reportId) throw new HttpException('Pick a service report', HttpStatus.BAD_REQUEST);
+      const report = await this.prisma.maintenanceServiceReport.findFirst({
+        where: { id: body.reportId, organizationId, kind: 'SERVICE' },
+        select: { id: true, reportNumber: true, status: true },
+      });
+      if (!report) throw new HttpException('Service report not found', HttpStatus.NOT_FOUND);
+      if (list.some((a) => a.kind === 'report' && a.reportId === report.id)) return this.orderAttachmentsView(organizationId, list);
+      entry = { ...stamp, kind: 'report', reportId: report.id, reportNumber: report.reportNumber ?? null, label: body.label?.trim() || 'Service report' };
+    } else {
+      const key = String(body.fileKey || '').trim();
+      if (!key || !body.fileName) throw new HttpException('Upload the file first', HttpStatus.BAD_REQUEST);
+      if (list.some((a) => a.kind === 'file' && a.fileKey === key)) return this.orderAttachmentsView(organizationId, list);
+      entry = { ...stamp, kind: 'file', fileKey: key, fileName: body.fileName, ...(body.mimeType ? { mimeType: body.mimeType } : {}), label: body.label?.trim() || 'Service report' };
+    }
+    list.push(entry);
+    await this.prisma.order.update({ where: { id, organizationId }, data: { attachments: list as Prisma.InputJsonValue } });
+    await refreshOrderStatus(this.prisma, organizationId, id);
+    return this.orderAttachmentsView(organizationId, list);
+  }
+
+  async removeOrderAttachment(id: string, organizationId: string, attachmentId: string) {
+    const order = await this.wctOrderOrThrow(id, organizationId);
+    const list: any[] = Array.isArray(order.attachments) ? (order.attachments as any[]) : [];
+    const next = list.filter((a) => a?.id !== attachmentId);
+    if (next.length === list.length) throw new HttpException('Attachment not found on this order', HttpStatus.NOT_FOUND);
+    await this.prisma.order.update({ where: { id, organizationId }, data: { attachments: next as Prisma.InputJsonValue } });
+    await refreshOrderStatus(this.prisma, organizationId, id);
+    return this.orderAttachmentsView(organizationId, next);
+  }
+
+  /**
+   * Reports the order page offers to link: the service reports of the order's
+   * own jobs first, then (with ?number=) any service report by its number.
+   */
+  async orderReportOptions(id: string, organizationId: string, number?: string) {
+    await this.wctOrderOrThrow(id, organizationId);
+    const jobs = await this.prisma.delivery.findMany({ where: { organizationId, orderId: id }, select: { id: true, deliveryNumber: true } });
+    const jobNo = new Map(jobs.map((j) => [j.id, j.deliveryNumber]));
+    const n = number && /^\d+$/.test(number.trim()) ? parseInt(number.trim(), 10) : null;
+    const reports = await this.prisma.maintenanceServiceReport.findMany({
+      where: { organizationId, kind: 'SERVICE', OR: [{ deliveryId: { in: jobs.map((j) => j.id) } }, ...(n !== null ? [{ reportNumber: n }] : [])] },
+      select: { id: true, reportNumber: true, status: true, deliveryId: true, createdAt: true, technicianName: true },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+    return reports.map((r) => ({ ...r, jobNumber: r.deliveryId ? jobNo.get(r.deliveryId) ?? null : null, ofThisOrder: !!(r.deliveryId && jobNo.has(r.deliveryId)) }));
+  }
+
+  /** The attachments with each linked report's current number + status. */
+  private async orderAttachmentsView(organizationId: string, list: any[]) {
+    const ids = list.filter((a) => a?.kind === 'report' && a.reportId).map((a) => a.reportId);
+    const reports = ids.length
+      ? await this.prisma.maintenanceServiceReport.findMany({ where: { id: { in: ids }, organizationId }, select: { id: true, reportNumber: true, status: true } })
+      : [];
+    const byId = new Map(reports.map((r) => [r.id, r]));
+    return list.map((a) => (a?.kind === 'report' ? { ...a, report: byId.get(a.reportId) ?? null } : a));
+  }
+
+  /**
+   * WCT invoice per order: the order's invoices (oldest first) and whether
+   * "Invoice now" has anything to bill (completed + verified jobs not on an
+   * invoice yet). invoicing = enableWctOrderInvoice.
+   */
+  private async wctBilling(organizationId: string, jobs: any[]) {
+    const invoicing = await isOrgFeatureEnabled(this.prisma, organizationId, WCT_ORDER_INVOICE_FLAG);
+    const ids = [...new Set(jobs.map((j) => j.orderInvoiceId).filter((v) => v && !String(v).startsWith('claim:')))] as string[];
+    const docs = ids.length
+      ? await this.prisma.document.findMany({
+          where: { id: { in: ids }, organizationId },
+          select: { id: true, name: true, status: true, type: true, documentTemplateId: true, config: true, createdAt: true },
+          orderBy: { createdAt: 'asc' },
+        })
+      : [];
+    const invoices = docs.map((d: any) => ({
+      id: d.id,
+      name: d.name,
+      status: d.status,
+      href: `/portal/documents/${d.type}/${d.documentTemplateId}/${d.id}`,
+      total: Number(d.config?.grandTotal ?? d.config?.documentInfo?.grandTotal ?? d.config?.nettTotal ?? 0) || 0,
+      jobNumbers: jobs.filter((j) => j.orderInvoiceId === d.id).map((j) => j.deliveryNumber),
+      createdAt: d.createdAt,
+    }));
+    const toInvoice = jobs.filter((j) => isVerifiedJob(j) && !j.orderInvoiceId).map((j) => j.deliveryNumber);
+    return { invoicing, invoices, toInvoice };
   }
 
   /**
@@ -857,3 +1129,4 @@ export class OrdersService {
 function round2(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
+

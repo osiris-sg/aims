@@ -5,13 +5,14 @@ import { Box, CircularProgress } from "@mui/material";
 import { useOrganizationFeatures } from "../../hooks/useOrganizationFeatures";
 import { CappitechOrderDetail } from "./CappitechOrderDetail";
 import SlimOrderDetail from "./SlimOrderDetail";
+import WctOrderDetail from "./WctOrderDetail";
 
 // Routing seam: pick the Orders variant by org feature flag. Default export so
 // Next.js routes to it; it threads `params` (the route's { id }) to whichever
 // variant renders. enableCappitechOrders=true → rich; else → slim. Phase A:
 // the slim branch is a passthrough to rich, so both branches look identical.
 export default function OrderDetailRouter({ params }: { params: { id: string } }) {
-  const { isCappitechOrdersEnabled, isLoading } = useOrganizationFeatures();
+  const { isCappitechOrdersEnabled, isWctOrdersEnabled, isLoading } = useOrganizationFeatures();
 
   // Hold on a loader until the flag resolves, rather than painting one variant
   // and swapping. Chosen over "default to rich during load" because slim is the
@@ -26,6 +27,9 @@ export default function OrderDetailRouter({ params }: { params: { id: string } }
       </Box>
     );
   }
+
+  // enableWctOrders: the order with its jobs and "Add job".
+  if (isWctOrdersEnabled) return <WctOrderDetail id={params.id} />;
 
   return isCappitechOrdersEnabled ? (
     <CappitechOrderDetail params={params} />

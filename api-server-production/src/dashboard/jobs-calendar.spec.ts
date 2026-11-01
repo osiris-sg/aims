@@ -127,6 +127,18 @@ describe('jobs calendar merge', () => {
     expect(dl(null)).toMatchObject({ doNumber: null, doTag: null, doHref: null });
   });
 
+  it('a job of a WCT order: the order number leads the title and the popup links the order', () => {
+    const [e] = buildCalendarEvents([run({ order: { id: 'o1', orderNumber: 'ORD202611-001' } })], [], null);
+    expect(e.title.startsWith('ORD202611-001 · #')).toBe(true);
+    expect(e).toMatchObject({ orderNumber: 'ORD202611-001', orderHref: '/portal/orders/o1' });
+    const [plain] = buildCalendarEvents([run()], [], null);
+    expect(plain.title.startsWith('#')).toBe(true);
+    expect(plain).not.toHaveProperty('orderNumber');
+    expect(plain).not.toHaveProperty('verificationLabel');
+    const [pending] = buildCalendarEvents([run({ status: 'completed', verificationState: 'pending' })], [], null);
+    expect(pending.verificationLabel).toBe('Awaiting verification');
+  });
+
   it('completed and cancelled runs are flagged for fading / hiding', () => {
     const ev = buildCalendarEvents([run({ id: D1, status: 'completed' }), run({ id: D2, status: 'cancelled' })], [], null);
     expect(ev.find((e) => e.id === `aims:${D1}`)).toMatchObject({ completed: true, cancelled: false });

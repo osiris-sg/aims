@@ -116,35 +116,38 @@ export class ConfigurationController {
   @ApiOperation({ summary: 'Update a custom field' })
   @ApiResponse({ status: 200, description: 'Custom field updated successfully' })
   async updateCustomField(
+    @UserOrganization() userOrganization: any,
     @Param('id') id: string,
     @Body() updateCustomFieldDto: UpdateCustomFieldDto
   ) {
-    return this.configurationService.updateCustomField(id, updateCustomFieldDto);
+    return this.configurationService.updateCustomField(userOrganization.id, id, updateCustomFieldDto);
   }
 
   @Delete('custom-fields/:id')
   @Permissions('configuration:write')
   @ApiOperation({ summary: 'Delete a custom field (soft delete)' })
   @ApiResponse({ status: 200, description: 'Custom field deleted successfully' })
-  async deleteCustomField(@Param('id') id: string) {
-    return this.configurationService.deleteCustomField(id);
+  async deleteCustomField(@UserOrganization() userOrganization: any, @Param('id') id: string) {
+    return this.configurationService.deleteCustomField(userOrganization.id, id);
   }
 
   @Get('custom-fields/values/:entityId')
   @ApiOperation({ summary: 'Get custom field values for an entity' })
   @ApiResponse({ status: 200, description: 'Custom field values for the entity' })
   async getCustomFieldValues(
+    @UserOrganization() userOrganization: any,
     @Param('entityId') entityId: string,
     @Query('entityType') entityType: string
   ) {
-    return this.configurationService.getCustomFieldValues(entityId, entityType);
+    return this.configurationService.getCustomFieldValues(userOrganization.id, entityId, entityType);
   }
 
   @Post('custom-fields/values')
   @ApiOperation({ summary: 'Set custom field values for an entity' })
   @ApiResponse({ status: 201, description: 'Custom field values set successfully' })
-  async setCustomFieldValues(@Body() dto: BulkSetCustomFieldValuesDto) {
+  async setCustomFieldValues(@UserOrganization() userOrganization: any, @Body() dto: BulkSetCustomFieldValuesDto) {
     return this.configurationService.setCustomFieldValues(
+      userOrganization.id,
       dto.entityId,
       dto.entityType,
       dto.values

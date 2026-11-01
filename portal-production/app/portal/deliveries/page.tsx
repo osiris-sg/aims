@@ -133,7 +133,7 @@ export default function DeliveriesQueuePage() {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
   const [maintenanceOpen, setMaintenanceOpen] = useState(false);
-  const { isMaintenanceDatesEnabled, isQuotationToDeliveryEnabled, isRealDoOnScheduleEnabled } = useOrganizationFeatures();
+  const { isMaintenanceDatesEnabled, isQuotationToDeliveryEnabled, isRealDoOnScheduleEnabled, isWctFinishModesEnabled } = useOrganizationFeatures();
   const { isOsirisAdmin } = useOrganization();
   // Service-job org (WCT): runs have no project, so the column is just Customer / Site.
   const serviceJobs = isQuotationToDeliveryEnabled;
@@ -329,6 +329,12 @@ export default function DeliveriesQueuePage() {
           Deliveries
         </Typography>
         <Box sx={{ flex: 1 }} />
+        {/* WCT finish modes: stamped-DO / paper sign-offs waiting for the office. */}
+        {isWctFinishModesEnabled && (
+          <Button variant="outlined" color="warning" onClick={() => router.push("/portal/deliveries/verification")} data-tour="deliveries-verification">
+            Awaiting verification
+          </Button>
+        )}
         {isMaintenanceDatesEnabled && (
           <Button variant="outlined" startIcon={<EventIcon />} onClick={() => setMaintenanceOpen(true)}>
             Schedule maintenance

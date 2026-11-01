@@ -510,7 +510,11 @@ export class PublicSignService {
     await this.staffWhatsApp.push(
       doc.organizationId,
       `Quotation ${allocatedName || doc.name || ''} signed by ${name}${clientLabel ? ` (${clientLabel})` : ''}.` +
-        (run ? ` Draft delivery #${run.deliveryNumber} created: please schedule a date and confirm the items.` : ' It is now confirmed.'),
+        (run
+          ? run.orderNumber
+            ? ` Order ${run.orderNumber} created with draft job #${run.deliveryNumber}: please schedule a date and confirm the items.`
+            : ` Draft delivery #${run.deliveryNumber} created: please schedule a date and confirm the items.`
+          : ' It is now confirmed.'),
       {
         linkPath: run ? `/portal/deliveries/${run.id}` : isIdQuote ? `/portal/sales/quotations/id/${doc.id}` : doc.documentTemplateId ? `/portal/documents/${doc.type}/${doc.documentTemplateId}/${doc.id}` : '/portal',
         dedupeKey: `quotation-signed:${doc.id}`,

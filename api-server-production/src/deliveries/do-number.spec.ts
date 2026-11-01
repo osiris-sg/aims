@@ -32,6 +32,8 @@ describe('WCT real DO numbers: tags and server-owned DO keys', () => {
   it('…but an explicit value in the incoming config wins, and nothing is invented', () => {
     expect(carryServerDoKeys({ cancelled: true }, { cancelled: false })).toEqual({ cancelled: false });
     expect(carryServerDoKeys({ remarks: 'x' }, { remarks: 'y' })).toEqual({ remarks: 'y' });
+    // WCT orders: the job's order survives an editor save
+    expect(carryServerDoKeys({ orderId: 'o1', orderNo: 'ORD202611-001' }, { remarks: 'y' })).toEqual({ remarks: 'y', orderId: 'o1', orderNo: 'ORD202611-001' });
     expect(carryServerDoKeys(null, { a: 1 })).toEqual({ a: 1 });
   });
 });

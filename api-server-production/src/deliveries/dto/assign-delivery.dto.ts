@@ -136,6 +136,48 @@ export class AckAllDto {
   @IsArray()
   @IsString({ each: true })
   installPhotos?: string[];
+
+  @ApiProperty({
+    required: false,
+    enum: ['signature', 'stamped_do', 'paper'],
+    description:
+      'WCT finish modes (enableWctFinishModes): how the job is finished. signature (default) = the customer signs on the device; stamped_do = photo(s) of the DO the customer stamped (stampedDoPhotos), no signature; paper = marked completed, the paper copy comes back later, no signature. The last two wait for an admin to verify.',
+  })
+  @IsOptional()
+  @IsIn(['signature', 'stamped_do', 'paper'])
+  completionMode?: 'signature' | 'stamped_do' | 'paper';
+
+  @ApiProperty({ required: false, description: 'S3 keys of the stamped-DO photo(s) (completionMode stamped_do).', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  stampedDoPhotos?: string[];
+
+  @ApiProperty({ required: false, description: "The worker's note on a stamped-DO / paper finish." })
+  @IsOptional()
+  @IsString()
+  completionNote?: string;
+}
+
+/** WCT finish modes: new evidence for a rejected job (or a note), which puts it back to "Awaiting verification". */
+export class ResubmitEvidenceDto {
+  @ApiProperty({ required: false, description: 'S3 keys of new stamped-DO photo(s).', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  photos?: string[];
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
+/** WCT finish modes: the admin's reject reason. */
+export class RejectJobDto {
+  @ApiProperty({ description: 'Why the evidence is not accepted (shown to the worker and the office).' })
+  @IsString()
+  reason!: string;
 }
 
 /** Free-typed line START: guided condition photos (+ parallel angle labels) + GPS. */

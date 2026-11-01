@@ -43,12 +43,10 @@ export class CustomFieldsInterceptor implements NestInterceptor {
         // Handle custom fields processing after entity creation/update
         if (request.customFieldsToProcess && data && data.id) {
           await this.configurationService.setCustomFieldValues(
+            request.customFieldsToProcess.organizationId,
             data.id,
             request.customFieldsToProcess.entityType,
-            {
-              ...request.customFieldsToProcess.values,
-              organizationId: request.customFieldsToProcess.organizationId,
-            }
+            request.customFieldsToProcess.values,
           );
         }
 
@@ -56,20 +54,20 @@ export class CustomFieldsInterceptor implements NestInterceptor {
         if (entityType && organizationId) {
           // Handle single entity response
           if (data && data.id && !Array.isArray(data)) {
-            return await this.enrichWithCustomFields(data, entityType);
+            return await this.enrichWithCustomFields(data, entityType, organizationId);
           }
 
           // Handle array of entities
           if (Array.isArray(data)) {
             return await Promise.all(
-              data.map((item) => this.enrichWithCustomFields(item, entityType))
+              data.map((item) => this.enrichWithCustomFields(item, entityType, organizationId))
             );
           }
 
           // Handle paginated response
           if (data && data.items && Array.isArray(data.items)) {
             const enrichedItems = await Promise.all(
-              data.items.map((item) => this.enrichWithCustomFields(item, entityType))
+              data.items.map((item) => this.enrichWithCustomFields(item, entityType, organizationId))
             );
             return {
               ...data,
@@ -83,13 +81,14 @@ export class CustomFieldsInterceptor implements NestInterceptor {
     );
   }
 
-  private async enrichWithCustomFields(entity: any, entityType: string) {
+  private async enrichWithCustomFields(entity: any, entityType: string, organizationId: string) {
     if (!entity || !entity.id) {
       return entity;
     }
 
     try {
       const customFieldValues = await this.configurationService.getCustomFieldValues(
+        organizationId,
         entity.id,
         entityType
       );

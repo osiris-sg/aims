@@ -1,4 +1,5 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import { refreshOrderStatus } from '../orders/wct-orders';
 import { PrismaService } from '../common/prisma.service';
 import { amountPaidOf, grossStampOf, outstandingOf, owedOf, stampDocumentMoney } from '../common/document-money';
 import { CreatePaymentDto } from './dto/create-payment.dto';
@@ -529,6 +530,8 @@ export class PaymentsService {
         },
       });
       console.log(`✅ Invoice ${document.name}: balance ${outstanding}, status ${newStatus} (Paid: ${totalPaid}/${invoiceAmount})`);
+      // WCT invoice per order: a paid order invoice moves its order (Invoiced → Paid / Closed).
+      if (config?.orderId) await refreshOrderStatus(this.prisma, organizationId, String(config.orderId));
     } catch (error) {
       // Log error but don't throw - this is a non-critical operation
       console.error('Error updating invoice status after payment:', error);

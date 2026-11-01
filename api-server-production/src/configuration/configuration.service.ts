@@ -127,14 +127,24 @@ export class ConfigurationService {
     });
   }
 
-  async updateCustomField(id: string, data: UpdateCustomFieldDto) {
+  // Org-scoped (2026-11-01): a field id from another organisation is "not
+  // found", never edited — the routes used to update by id alone.
+  private async ownCustomField(organizationId: string, id: string) {
+    const field = await this.prisma.customField.findFirst({ where: { id, organizationId }, select: { id: true } });
+    if (!field) throw new NotFoundException('Custom field not found');
+    return field;
+  }
+
+  async updateCustomField(organizationId: string, id: string, data: UpdateCustomFieldDto) {
+    await this.ownCustomField(organizationId, id);
     return this.prisma.customField.update({
       where: { id },
       data,
     });
   }
 
-  async deleteCustomField(id: string) {
+  async deleteCustomField(organizationId: string, id: string) {
+    await this.ownCustomField(organizationId, id);
     // Soft delete by setting isActive to false
     return this.prisma.customField.update({
       where: { id },
@@ -142,11 +152,12 @@ export class ConfigurationService {
     });
   }
 
-  async getCustomFieldValues(entityId: string, entityType: string) {
+  async getCustomFieldValues(organizationId: string, entityId: string, entityType: string) {
     return this.prisma.customFieldValue.findMany({
       where: {
         entityId,
         entityType,
+        customField: { organizationId },
       },
       include: {
         customField: true,
@@ -175,9 +186,11 @@ export class ConfigurationService {
     });
   }
 
-  async setCustomFieldValues(entityId: string, entityType: string, values: Record<string, any>) {
-    // Get all custom fields for this entity type and organization
-    const customFields = await this.getCustomFields(values.organizationId, entityType);
+  async setCustomFieldValues(organizationId: string, entityId: string, entityType: string, values: Record<string, any>) {
+    // Get all custom fields for this entity type and organization. The org is
+    // the caller's (2026-11-01 fix): it used to be read from values.organizationId,
+    // which the body never carried, so no field ever matched and nothing saved.
+    const customFields = await this.getCustomFields(organizationId, entityType);
 
     const promises = customFields
       .filter(field => values[field.fieldName] !== undefined)
@@ -326,9 +339,10 @@ export class ConfigurationService {
 
   async enrichEntityWithCustomFields<T extends { id: string }>(
     entity: T,
-    entityType: string
+    entityType: string,
+    organizationId: string,
   ): Promise<T & { customFields: Record<string, any> }> {
-    const customFieldValues = await this.getCustomFieldValues(entity.id, entityType);
+    const customFieldValues = await this.getCustomFieldValues(organizationId, entity.id, entityType);
 
     const customFields = customFieldValues.reduce((acc, fieldValue) => {
       acc[fieldValue.customField.fieldName] = fieldValue.value;
@@ -343,10 +357,11 @@ export class ConfigurationService {
 
   async enrichEntitiesWithCustomFields<T extends { id: string }>(
     entities: T[],
-    entityType: string
+    entityType: string,
+    organizationId: string,
   ): Promise<(T & { customFields: Record<string, any> })[]> {
     const enrichedPromises = entities.map(entity =>
-      this.enrichEntityWithCustomFields(entity, entityType)
+      this.enrichEntityWithCustomFields(entity, entityType, organizationId)
     );
 
     return Promise.all(enrichedPromises);

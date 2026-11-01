@@ -36,6 +36,28 @@ export interface CalendarEvent {
   doNumber?: string | null;
   doTag?: "Pending" | "Completed" | "Cancelled" | null;
   doHref?: string | null;
+  /** WCT orders (enableWctOrders): the job's order number and the order page. */
+  orderNumber?: string | null;
+  orderHref?: string | null;
+  /** WCT finish modes: the office check of a stamped-DO / paper finish. */
+  verificationLabel?: string | null;
+  /** Custom job fields (enableJobFields): the icons drawn on the event. */
+  badges?: CalendarBadge[];
+}
+
+export interface CalendarBadge {
+  fieldId: string;
+  label: string;
+  icon: string;
+  colour: string;
+  text: string;
+}
+
+export interface CalendarLegendEntry {
+  fieldId: string;
+  label: string;
+  icon: string;
+  colours: { value: string; colour: string }[];
 }
 
 export interface CalendarPayload {
@@ -44,6 +66,17 @@ export interface CalendarPayload {
   timezone: string;
   events: CalendarEvent[];
   siteclock: { state: "ok" | "off" | "unavailable"; error?: string; fetchedAt?: string };
+  /** Custom job fields (enableJobFields): what the event icons mean. */
+  legend?: CalendarLegendEntry[];
+}
+
+/** "Permit approved: Yes" — an event icon's tooltip. */
+export const badgeTitle = (b: CalendarBadge) => `${b.label}: ${b.text}`;
+
+/** "Yes = green, No = red" — a legend entry's tooltip (colour names for the six picker colours). */
+export function legendTitle(l: CalendarLegendEntry): string {
+  const name = (c: string) => ({ "#2e7d32": "green", "#ef6c00": "orange", "#c62828": "red", "#1565c0": "blue", "#6a1b9a": "purple", "#546e7a": "grey" } as Record<string, string>)[c.toLowerCase()] || c;
+  return `${l.label}: ${l.colours.map((c) => (c.value === "set" ? `${name(c.colour)} when filled in` : `${name(c.colour)} = ${c.value}`)).join(", ")}`;
 }
 
 // Deliveries and returns blue, service runs orange, SiteClock's own jobs green;

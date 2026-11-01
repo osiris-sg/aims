@@ -10,12 +10,13 @@ import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import luxonPlugin from "@fullcalendar/luxon3";
-import type { DatesSetArg, EventClickArg } from "@fullcalendar/core";
+import type { DatesSetArg, EventClickArg, EventContentArg } from "@fullcalendar/core";
+import JobFieldIcon from "@/components/jobFields/JobFieldIcon";
 import { Box, Button, Chip, Divider, Popover, Stack, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
-import { CALENDAR_TZ, CANCELLED_COLOR, KIND_COLOR, KIND_LABEL, crewLine, timeWindow, toCalendarInputs, type CalendarEvent } from "./calendarModel";
+import { CALENDAR_TZ, CANCELLED_COLOR, KIND_COLOR, KIND_LABEL, badgeTitle, crewLine, timeWindow, toCalendarInputs, type CalendarEvent } from "./calendarModel";
 import DoStatusTag from "@/components/DoStatusTag";
 
 interface Props {
@@ -86,6 +87,22 @@ export default function CalendarView({ events, showCancelled, onRange, initialDa
         eventTimeFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
         events={inputs}
         eventClick={onClick}
+        // Custom job fields: the job's icons after its time + title (default rendering otherwise).
+        eventContent={(arg: EventContentArg) => {
+          const e = arg.event.extendedProps.event as CalendarEvent;
+          if (!e?.badges?.length) return true;
+          return (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, overflow: "hidden", px: 0.25 }}>
+              {arg.timeText && <Box component="span" sx={{ fontWeight: 600, flexShrink: 0 }}>{arg.timeText}</Box>}
+              <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{arg.event.title}</Box>
+              {e.badges.map((b) => (
+                <Box key={b.fieldId} component="span" title={badgeTitle(b)} sx={{ display: "inline-flex", bgcolor: "#fff", borderRadius: "50%", p: "1px", flexShrink: 0 }}>
+                  <JobFieldIcon icon={b.icon} sx={{ fontSize: 13, color: b.colour }} />
+                </Box>
+              ))}
+            </Box>
+          );
+        }}
         datesSet={(arg: DatesSetArg) => {
           setViewType(arg.view.type);
           onRange(arg.startStr, arg.endStr);
@@ -168,6 +185,20 @@ function EventCard({ event: e }: { event: CalendarEvent }) {
           sx={{ height: 22, bgcolor: alpha(color, 0.15), color: "text.primary", border: `1px solid ${alpha(color, 0.5)}` }}
         />
       </Row>
+      {e.verificationLabel && <Row label="Sign-off">{e.verificationLabel}</Row>}
+      {(e.badges ?? []).map((b) => (
+        <Row key={b.fieldId} label={b.label}>
+          <Stack direction="row" spacing={0.5} alignItems="center">
+            <JobFieldIcon icon={b.icon} sx={{ fontSize: 16, color: b.colour }} />
+            <span>{b.text}</span>
+          </Stack>
+        </Row>
+      ))}
+      {e.orderNumber && (
+        <Row label="Order">
+          <Box component="span" sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{e.orderNumber}</Box>
+        </Row>
+      )}
       {e.doNumber && (
         <Row label="DO">
           <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
@@ -185,6 +216,11 @@ function EventCard({ event: e }: { event: CalendarEvent }) {
           {e.doHref && (
             <Button component={Link} href={e.doHref} size="small" variant="outlined">
               View DO
+            </Button>
+          )}
+          {e.orderHref && (
+            <Button component={Link} href={e.orderHref} size="small" variant="outlined">
+              Open order
             </Button>
           )}
         </Stack>

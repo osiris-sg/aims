@@ -165,6 +165,8 @@ model CustomField {
   showInList     Boolean            @default(false) // Show in list/table views
   showInForm     Boolean            @default(true) // Show in forms
   groupName      String? // Group fields together in forms
+  // Job fields (enableJobFields): mirrors schema.prisma.
+  display        Json?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
   fieldValues    CustomFieldValue[]
@@ -1033,6 +1035,9 @@ model Order {
   items             Json // Snapshot at order-creation time: [{ itemCode, description, quantity, unitPrice, costPrice?, taggedAssetCode?, ... }]
   linkedDocuments   Json? // { po: [{id,name}], do: [{id,name}], invoice: [{id,name}] }
   notes             String?
+  // WCT orders (enableWctOrders): mirrors schema.prisma.
+  invoiceDocumentId String?  @db.Uuid
+  attachments       Json?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

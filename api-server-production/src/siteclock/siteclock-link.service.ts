@@ -182,6 +182,7 @@ export class SiteClockLinkService {
           customerId: true,
           customer: { select: { name: true } },
           project: { select: { name: true } },
+          order: { select: { orderNumber: true } },
           items: { select: { description: true, quantity: true, assetId: true, documentId: true }, orderBy: { sortOrder: 'asc' } },
         },
       }),
@@ -210,6 +211,7 @@ export class SiteClockLinkService {
       items: (r.items ?? []).map((i: any) => ({ description: String(i.description || assetName.get(i.assetId) || ''), quantity: Number(i.quantity) || 1 })),
       doNumber: doc?.name ?? null,
       doUrl: doc ? await this.doLink(organizationId, doc.id, mintLink) : null,
+      orderNumber: r.order?.orderNumber ?? null,
     };
   }
 

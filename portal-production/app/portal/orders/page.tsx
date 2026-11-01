@@ -5,12 +5,14 @@ import { Box, CircularProgress } from "@mui/material";
 import { useOrganizationFeatures } from "../hooks/useOrganizationFeatures";
 import { CappitechOrdersList } from "./CappitechOrdersList";
 import SlimOrdersList from "./SlimOrdersList";
+import WctOrdersList from "./WctOrdersList";
 
 // Routing seam (mirrors the order-detail seam): pick the Orders LIST variant by
 // org feature flag. enableCappitechOrders=true → the rich multi-column list;
-// else → the slim pipeline board (status filter tabs).
+// else → the slim pipeline board (status filter tabs). enableWctOrders → WCT's
+// orders with their jobs (one order per accepted quotation).
 export default function OrdersListRouter() {
-  const { isCappitechOrdersEnabled, isLoading } = useOrganizationFeatures();
+  const { isCappitechOrdersEnabled, isWctOrdersEnabled, isLoading } = useOrganizationFeatures();
 
   // Hold on a loader until the flag resolves, rather than painting one variant
   // and swapping. Same no-flash choice as the detail router: slim is the
@@ -24,5 +26,6 @@ export default function OrdersListRouter() {
     );
   }
 
+  if (isWctOrdersEnabled) return <WctOrdersList />;
   return isCappitechOrdersEnabled ? <CappitechOrdersList /> : <SlimOrdersList />;
 }

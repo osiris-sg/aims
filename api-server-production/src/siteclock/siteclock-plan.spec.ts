@@ -185,6 +185,16 @@ describe('siteclock plan', () => {
       expect(t.endsWith(' · DO202610007')).toBe(true);
     });
 
+    it('a job of a WCT order leads with the order number; long names still keep both numbers', () => {
+      expect(jobTitle(withDo({ orderNumber: 'ORD202611-001' }))).toBe('ORD202611-001 · #7 Acme Kitchens · DO202610007');
+      expect(jobTitle(run({ orderNumber: 'ORD202611-001' }))).toBe('ORD202611-001 · #7 Acme Kitchens');
+      const t = jobTitle(withDo({ orderNumber: 'ORD202611-001', customerName: 'X'.repeat(300) }));
+      expect(t.length).toBeLessThanOrEqual(200);
+      expect(t.startsWith('ORD202611-001 · #7 ')).toBe(true);
+      expect(t.endsWith(' · DO202610007')).toBe(true);
+      expect(jobTitle(withDo({ orderNumber: null }))).toBe('#7 Acme Kitchens · DO202610007');
+    });
+
     it('renumbered while scheduled: one PATCH with the full fields', () => {
       const l = applied(link(), planSync(withDo({ doNumber: 'DO-PENDING-01' }), link(), D));
       const p = planSync(withDo(), l, D);

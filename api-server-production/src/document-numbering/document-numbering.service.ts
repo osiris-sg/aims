@@ -28,6 +28,23 @@ export const DOC_CODE: Record<string, string> = {
   RECEIPT: 'RCP',
 };
 
+/**
+ * WCT orders (enableWctOrders, 2026-11-01): the Order number is issued from an
+ * ORDER format too (default ORD{YYYY}{MM}-{###}). Kept OUT of DOC_CODE on
+ * purpose: "Apply to all" walks DOC_CODE, and must not start creating ORDER
+ * formats for every org. Its numbers live in Order.orderNumber, not
+ * Document.name, so the "highest existing" scan reads the Order table.
+ */
+export const ORDER_NUMBER_TYPE = 'ORDER';
+export const ORDER_DOC_CODE = 'ORD';
+export const DEFAULT_ORDER_PATTERN = '{DOC}{YYYY}{MM}-{###}';
+const docCodeOf = (documentType: string) => DOC_CODE[documentType] || (documentType === ORDER_NUMBER_TYPE ? ORDER_DOC_CODE : '');
+
+type NamesDb = {
+  document: { findMany: (args: any) => Promise<Array<{ name: string | null }>> };
+  order?: { findMany: (args: any) => Promise<Array<{ orderNumber: string | null }>> };
+};
+
 @Injectable()
 export class DocumentNumberingService {
   constructor(private readonly prisma: PrismaService) {}
@@ -80,7 +97,8 @@ export class DocumentNumberingService {
     pattern: string,
     docCode: string,
     when: Date,
-    db: { document: { findMany: (args: any) => Promise<Array<{ name: string | null }>> } } = this.prisma,
+    db: NamesDb = this.prisma,
+    documentType?: string,
   ): Promise<number> {
     const serialToken = /\{(#+)\}/.exec(pattern);
     if (!serialToken) return 0;
@@ -92,10 +110,13 @@ export class DocumentNumberingService {
       docCode,
     );
     if (!prefix) return 0;
-    const existing = await db.document.findMany({
-      where: { organizationId, name: { startsWith: prefix } },
-      select: { name: true },
-    });
+    const existing =
+      documentType === ORDER_NUMBER_TYPE && db.order
+        ? (await db.order.findMany({ where: { organizationId, orderNumber: { startsWith: prefix } }, select: { orderNumber: true } })).map((o) => ({ name: o.orderNumber }))
+        : await db.document.findMany({
+            where: { organizationId, name: { startsWith: prefix } },
+            select: { name: true },
+          });
     let max = 0;
     for (const d of existing) {
       const name = d.name || '';
@@ -129,8 +150,8 @@ export class DocumentNumberingService {
     }
 
     const key = this.resetKey(format.resetPolicy, when);
-    const docCode = DOC_CODE[format.documentType] || '';
-    const maxExisting = await this.maxExistingSerial(organizationId, format.pattern, docCode, when);
+    const docCode = docCodeOf(format.documentType);
+    const maxExisting = await this.maxExistingSerial(organizationId, format.pattern, docCode, when, this.prisma, format.documentType);
 
     // Atomically claim the serial: reset if the reset-window changed, else use
     // nextSerial — never below one past the highest existing number; then bump.
@@ -159,12 +180,17 @@ export class DocumentNumberingService {
    * or hand-typed numbers are still skipped. Same pattern, reset and padding as
    * generateNumber, which every other caller keeps using unchanged. Null when
    * the org has no active format for the type (caller falls back).
+   *
+   * `tx` (WCT orders): claim inside the caller's open transaction instead of a
+   * new one, so the number and the row that carries it commit (or roll back)
+   * together.
    */
   async issueNumberLocked(
     organizationId: string,
     documentType: string,
     formatId?: string | null,
     when: Date = new Date(),
+    tx?: any,
   ): Promise<string | null> {
     let format = formatId
       ? await this.prisma.documentNumberFormat.findFirst({ where: { id: formatId, organizationId } })
@@ -176,19 +202,20 @@ export class DocumentNumberingService {
       });
       if (!format) return null;
     }
-    const docCode = DOC_CODE[format.documentType] || '';
+    const docCode = docCodeOf(format.documentType);
     const key = this.resetKey(format.resetPolicy, when);
-    return this.prisma.$transaction(async (tx) => {
-      const f = await tx.documentNumberFormat.update({ where: { id: format!.id }, data: { nextSerial: { increment: 0 } } });
-      const maxExisting = await this.maxExistingSerial(organizationId, f.pattern, docCode, when, tx);
+    const claim = async (db: any) => {
+      const f = await db.documentNumberFormat.update({ where: { id: format!.id }, data: { nextSerial: { increment: 0 } } });
+      const maxExisting = await this.maxExistingSerial(organizationId, f.pattern, docCode, when, db, f.documentType);
       const restart = key != null && f.lastResetKey !== key;
       const serial = Math.max(restart ? 1 : f.nextSerial, maxExisting + 1);
-      await tx.documentNumberFormat.update({
+      await db.documentNumberFormat.update({
         where: { id: f.id },
         data: { nextSerial: serial + 1, ...(key != null ? { lastResetKey: key } : {}) },
       });
       return DocumentNumberingService.format(f.pattern, serial, when, docCode);
-    });
+    };
+    return tx ? claim(tx) : this.prisma.$transaction((t) => claim(t));
   }
 
   // Roll the counter back when a just-numbered document is deleted (e.g. the
@@ -216,7 +243,7 @@ export class DocumentNumberingService {
           f.pattern,
           lastSerial,
           when,
-          DOC_CODE[f.documentType] || '',
+          docCodeOf(f.documentType),
         );
         if (expected !== documentName) return false;
         await tx.documentNumberFormat.update({
@@ -243,8 +270,8 @@ export class DocumentNumberingService {
     const when = new Date();
     return Promise.all(
       formats.map(async (f) => {
-        const docCode = DOC_CODE[f.documentType] || '';
-        const maxExisting = await this.maxExistingSerial(organizationId, f.pattern, docCode, when);
+        const docCode = docCodeOf(f.documentType);
+        const maxExisting = await this.maxExistingSerial(organizationId, f.pattern, docCode, when, this.prisma, f.documentType);
         const key = this.resetKey(f.resetPolicy, when);
         const restart = key != null && f.lastResetKey !== key;
         const serial = Math.max(restart ? 1 : f.nextSerial, maxExisting + 1);

@@ -204,12 +204,15 @@ model OrganizationMemberProfile {
   signatureImage String? // saved signature (PNG data URL) for one-tap counter-signing
   uiLang            String? // round AZ: the portal language this user picked in this org ("en" | "ja"; SHIPMENTS orgs only). null = English
   teamId         String? // hierarchy (CIEL 09-19): the Team this member belongs to
+  // WCT worker logins (enableWctMyJobs): mirrors schema.prisma.
+  siteclockUserId String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   @@unique([organizationId, userId])
   @@index([whatsappNumber])
   @@index([organizationId, teamId])
+  @@index([organizationId, siteclockUserId])
 }
 
 model DeviceToken {

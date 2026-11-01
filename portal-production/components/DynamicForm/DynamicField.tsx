@@ -23,6 +23,8 @@ import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import dayjs from "dayjs";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import { useAuth } from "@clerk/nextjs";
+import { uploadFile, publicFileUrl } from "@/helpers/fileUploader";
 
 interface CustomFieldConfig {
   id: string;
@@ -52,6 +54,11 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({ field, control, erro
     const rules: any = {
       required: field.required ? `${field.displayLabel} is required` : false,
     };
+
+    // A link must be a web address (2026-11-01): http(s) only, never javascript: etc.
+    if (field.fieldType === "url" && !field.validation?.pattern) {
+      rules.pattern = { value: /^https?:\/\/\S+$/i, message: `${field.displayLabel} must start with https://` };
+    }
 
     if (field.validation) {
       if (field.validation.min !== undefined) {
@@ -270,41 +277,9 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({ field, control, erro
         );
 
       case "file":
-        return (
-          <Box>
-            <input
-              accept="*/*"
-              style={{ display: "none" }}
-              id={`file-upload-${field.fieldName}`}
-              type="file"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  onChange(file);
-                }
-              }}
-            />
-            <label htmlFor={`file-upload-${field.fieldName}`}>
-              <Button
-                variant="contained"
-                component="span"
-                startIcon={<CloudUploadIcon />}
-              >
-                Upload {field.displayLabel}
-              </Button>
-            </label>
-            {fieldValue && (
-              <Box sx={{ mt: 1 }}>
-                <Typography variant="body2">
-                  Selected: {fieldValue.name || fieldValue}
-                </Typography>
-              </Box>
-            )}
-            {errors?.[field.fieldName] && (
-              <FormHelperText error>{errors[field.fieldName].message}</FormHelperText>
-            )}
-          </Box>
-        );
+        // Uploaded to S3 at once (2026-11-01 fix): the value is { fileKey, fileName, mimeType },
+        // never the browser File object (which could not be saved).
+        return <FileFieldInput field={field} value={fieldValue} onChange={onChange} error={errors?.[field.fieldName]?.message} />;
 
       default:
         return (
@@ -380,3 +355,43 @@ export const DynamicFieldDisplay: React.FC<{
     </Box>
   );
 };
+
+/** A file field: upload to S3, keep { fileKey, fileName, mimeType }; link to the stored file. */
+function FileFieldInput({ field, value, onChange, error }: { field: CustomFieldConfig; value: any; onChange: (v: any) => void; error?: string }) {
+  const { getToken } = useAuth();
+  const [busy, setBusy] = React.useState(false);
+  const [problem, setProblem] = React.useState<string | null>(null);
+  const pick = async (file?: File) => {
+    if (!file) return;
+    setBusy(true);
+    setProblem(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const meta = await uploadFile({ file, folder: `custom-fields/${field.fieldName}`, token });
+      onChange({ fileKey: meta.fileKey, fileName: meta.fileName, mimeType: meta.mimeType });
+    } catch (e: any) {
+      setProblem(e?.message || "Upload failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Box>
+      <Button variant="contained" component="label" startIcon={<CloudUploadIcon />} disabled={busy}>
+        {busy ? "Uploading…" : `Upload ${field.displayLabel}`}
+        <input hidden type="file" onChange={(e) => void pick(e.target.files?.[0])} />
+      </Button>
+      {value?.fileKey && (
+        <Box sx={{ mt: 1 }}>
+          <Typography variant="body2">
+            <a href={publicFileUrl(value.fileKey)} target="_blank" rel="noopener noreferrer">
+              {value.fileName || "File"}
+            </a>
+          </Typography>
+        </Box>
+      )}
+      {(problem || error) && <FormHelperText error>{problem || error}</FormHelperText>}
+    </Box>
+  );
+}

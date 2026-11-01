@@ -40,6 +40,8 @@ export const SETTINGS_MENU = [
   { label: "Customers", path: "/portal/settings/customers" },
   { label: "Accounting Setup", path: "/portal/settings/accounting-setup" },
   { label: "Master Files", path: "/portal/masterfiles" },
+  // Custom job fields (enableJobFields orgs only, filtered below).
+  { label: "Job fields", path: "/portal/settings/job-fields" },
 ];
 
 const ADMIN_ROLES = ["superadmin", "admin", "osirisadmin"];
@@ -94,12 +96,13 @@ export function useNavModules() {
   const { modules, isModuleEnabled } = useConfiguration();
   const { isModuleAllowed, userRoles, hasPermission } = useUserPermissions();
   // Same rule as DynamicSidebarContent's Organization Settings group.
+  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled } = useOrganizationFeatures();
   const settingsMenu = SETTINGS_MENU.filter(
     (s) =>
       (s.path !== "/portal/settings/accounting-setup" || showAccountingSetup(isModuleEnabled)) &&
-      ((s.path !== "/portal/settings/shipping" && s.path !== "/portal/settings/customers") || showShippingSettings(isModuleEnabled)),
+      ((s.path !== "/portal/settings/shipping" && s.path !== "/portal/settings/customers") || showShippingSettings(isModuleEnabled)) &&
+      (s.path !== "/portal/settings/job-fields" || isJobFieldsEnabled),
   );
-  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled } = useOrganizationFeatures();
 
   const isAdminUser =
     userRoles.length === 0 ||

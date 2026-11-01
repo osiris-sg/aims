@@ -57,6 +57,10 @@ import { isOrgFeatureEnabled } from 'src/common/org-features';
 import { QUOTATION_TO_DELIVERY_FLAG, applyQuotationLinkToDoConfig } from './quotation-to-delivery';
 import { REAL_DO_ON_SCHEDULE_FLAG, cancelledDoConfig, isIssuedOnSchedule } from './do-number';
 import { SiteClockLinkService, SiteClockScheduleInput } from '../siteclock/siteclock-link.service';
+import { applyOrderToDoConfig, isWctOrdersEnabled, refreshOrderStatus, refreshOrderStatusForRun } from '../orders/wct-orders';
+import { plannedRiderView, savePlannedRider } from './planned-rider';
+import { CompletionMode, WCT_FINISH_MODES_FLAG, finishModeProblem, initialVerification, isCompletionMode } from './finish-modes';
+import { checkJobFieldValues, isJobFieldsEnabled, jobFieldDefs, jobFieldValues, saveJobFieldValues } from './job-fields';
 @Injectable()
 export class DeliveriesService {
   private readonly logger = new Logger(DeliveriesService.name);
@@ -81,6 +85,11 @@ export class DeliveriesService {
     // SiteClock link (WCT): optional so hand-built instances (scripts) still work.
     @Optional() private readonly siteclock?: SiteClockLinkService,
   ) {}
+
+  /** WCT orders: the job's order re-derives its status. Best-effort, never throws; a no-op for runs without an order. */
+  private async orderFollowsRun(organizationId: string, deliveryId: string) {
+    await refreshOrderStatusForRun(this.prisma, organizationId, deliveryId);
+  }
 
   // ── reservation ──────────────────────────────────────────────────────────
 
@@ -588,6 +597,10 @@ export class DeliveriesService {
     // (the DTO's ValidateIf moved here so the requirement can be per-org).
     const relaxedSchedule = await isOrgFeatureEnabled(this.prisma, organizationId, QUOTATION_TO_DELIVERY_FLAG);
     if (!isDraft && !dto.saleOrderId && !relaxedSchedule) throw new BadRequestException('A Sale Order is required for a scheduled delivery');
+    // WCT orders: "Add job" on an order schedules another job of that order.
+    const order = dto.orderId ? await this.orderForNewJob(dto.orderId, organizationId) : null;
+    // Custom job fields: a bad value is refused BEFORE anything is created.
+    const jobFieldsOn = !!dto.jobFields && (await this.checkJobFieldsUpFront(organizationId, dto.jobFields));
     // projectId is REQUIRED (post-assign matching keys on it). Validate it up
     // front and derive the customer from the project when the office didn't send
     // one — the scheduled run must carry BOTH so the draft DO gets a customer and
@@ -614,7 +627,7 @@ export class DeliveriesService {
           : (dto.contactIds ?? []).map((contactId) => ({ contactId, group: null }));
       await this.projectsService.setProjectContacts(dto.projectId, organizationId, entries);
     }
-    const customerId = dto.customerId ?? project?.customerId ?? undefined;
+    const customerId = dto.customerId ?? project?.customerId ?? order?.customerId ?? undefined;
     // Delivery address: what the office typed (dto.address) wins; else default to
     // the project NAME (for this fleet the project name IS its site address).
     // Lands on the DO's Deliver To.
@@ -664,6 +677,9 @@ export class DeliveriesService {
             customerId,
             ...(deliveryAddress ? { siteAddress: deliveryAddress } : {}),
             ...(dto.notes?.trim() ? { notes: dto.notes.trim() } : {}),
+            // The order's jobs carry its quotation too: the DO prints the
+            // quotation number and the invoice prices from it, as for the first job.
+            ...(order ? { orderId: order.id, ...(order.sourceQuotationId ? { sourceQuotationId: order.sourceQuotationId } : {}) } : {}),
             items: {
               // A qty-N catalog line becomes N qty-1 SLOTS, so every position the
               // rider walks is a real row that can carry its own status and
@@ -737,6 +753,10 @@ export class DeliveriesService {
         // ids the rows were just created with — a direct pairing, not sortOrder).
         deliveryItemIdFor: (lineIdx, n) => plannedIds[lineIdx]?.[n],
       });
+      if (order) {
+        if (order.sourceQuotationId) await applyQuotationLinkToDoConfig(this.prisma, organizationId, order.sourceQuotationId, doConfig, this.logger);
+        await applyOrderToDoConfig(this.prisma, organizationId, order.id, doConfig);
+      }
       const doc = await this.createScheduledDo(templateId, organizationId, doConfig, dto.projectId);
       documentId = doc.id;
       await this.prisma.deliveryItem.updateMany({ where: { deliveryId: run.id }, data: { documentId: doc.id } });
@@ -766,11 +786,31 @@ export class DeliveriesService {
       );
     }
     if (!isDraft) await this.ensureScheduledServiceReport(run.id, organizationId);
+    // WCT "My jobs" (enableWctMyJobs): the job is planned for the AIMS user
+    // behind the picked SiteClock worker. Flag-gated, never throws.
+    await savePlannedRider(this.prisma, organizationId, run.id, dto);
+    // Custom job fields (enableJobFields): the form's values.
+    if (jobFieldsOn) await this.saveJobFields(run.id, organizationId, dto.jobFields!);
     // SiteClock link (orgs with enableSiteClockLink only): put the run on the
     // picked worker's schedule. Never throws, never waits on SiteClock.
     await this.siteclock?.onScheduleSaved(organizationId, run.id, siteclockInput(dto));
+    if (order) await refreshOrderStatus(this.prisma, organizationId, order.id);
 
     return { ...run, documentId };
+  }
+
+  /**
+   * WCT orders: the order a new job is added to (dto.orderId). Only for
+   * enableWctOrders orgs, only the caller's org's own order.
+   */
+  private async orderForNewJob(orderId: string, organizationId: string) {
+    if (!(await isWctOrdersEnabled(this.prisma, organizationId))) throw new BadRequestException('Orders with jobs are not enabled for this organisation');
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, organizationId },
+      select: { id: true, orderNumber: true, customerId: true, sourceQuotationId: true },
+    });
+    if (!order) throw new NotFoundException('Order not found in this organization');
+    return order;
   }
 
   /**
@@ -972,6 +1012,7 @@ export class DeliveriesService {
     // draft has none). Saving an incomplete form again just keeps it a draft.
     const willBeDraft = dto.isDraft === true;
     if (!willBeDraft && !dto.items?.length) throw new BadRequestException('At least one item is required');
+    const jobFieldsOn = !!dto.jobFields && (await this.checkJobFieldsUpFront(organizationId, dto.jobFields));
 
     // Same per-org relaxation as createScheduled: a service-job org promotes a
     // draft (e.g. one auto-created from an accepted quotation) without a
@@ -1098,6 +1139,8 @@ export class DeliveriesService {
         if (run.sourceQuotationId) {
           await applyQuotationLinkToDoConfig(this.prisma, organizationId, run.sourceQuotationId, doConfig, this.logger);
         }
+        // WCT orders: the job's DO carries its order (printed as "Order No").
+        if (run.orderId) await applyOrderToDoConfig(this.prisma, organizationId, run.orderId, doConfig);
         const doc = await this.createScheduledDo(templateId, organizationId, doConfig, dto.projectId);
         await this.prisma.deliveryItem.updateMany({ where: { deliveryId: id }, data: { documentId: doc.id } });
       } catch (err: any) {
@@ -1143,6 +1186,7 @@ export class DeliveriesService {
         if (run.sourceQuotationId) {
           await applyQuotationLinkToDoConfig(this.prisma, organizationId, run.sourceQuotationId, fragment, this.logger);
         }
+        if (run.orderId) await applyOrderToDoConfig(this.prisma, organizationId, run.orderId, fragment);
         await this.documentsService.replaceScheduledDoConfig(documentId, organizationId, fragment, dto.projectId);
       } catch (err: any) {
         this.logger.error(`updateScheduled: draft DO regen failed for run ${id}: ${err?.message}`, err?.stack);
@@ -1153,8 +1197,13 @@ export class DeliveriesService {
     // saved back to a draft is not a job yet, so its scheduled report goes.
     if (willBeDraft) await this.dropScheduledServiceReport(id);
     else await this.ensureScheduledServiceReport(id, organizationId);
+    // WCT "My jobs": a re-picked (or cleared) worker moves who the job is planned for.
+    await savePlannedRider(this.prisma, organizationId, id, dto);
+    if (jobFieldsOn) await this.saveJobFields(id, organizationId, dto.jobFields!);
     // SiteClock link: move / reassign the job, or cancel it (worker cleared, back to draft).
     await this.siteclock?.onScheduleSaved(organizationId, id, siteclockInput(dto));
+    // WCT orders: promoting a draft job (or saving one back to draft) moves the order.
+    if (run.orderId) await refreshOrderStatus(this.prisma, organizationId, run.orderId);
 
     return this.prisma.delivery.findUniqueOrThrow({ where: { id }, include: { items: true } });
   }
@@ -1661,6 +1710,7 @@ export class DeliveriesService {
     });
 
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return { deliveryId, deliveryNumber: run.deliveryNumber, claimed: true };
   }
 
@@ -1705,6 +1755,7 @@ export class DeliveriesService {
       });
     }
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return this.prisma.delivery.findUniqueOrThrow({ where: { id: deliveryId }, include: { items: true } });
   }
 
@@ -2113,6 +2164,8 @@ export class DeliveriesService {
         // dialog already accepts it (EditRun.customer.customerCode) and the run
         // detail page forwards it — this select was the only thing withholding it.
         customer: { select: { id: true, name: true, customerCode: true } },
+        // WCT orders: the order this job belongs to (null outside that flow).
+        order: { select: { id: true, orderNumber: true, status: true } },
       },
     });
     if (!delivery) throw new NotFoundException('Delivery not found');
@@ -2324,6 +2377,8 @@ export class DeliveriesService {
       // Office only. Drafts are invisible everywhere by default so no rider
       // query can ever surface one.
       includeDrafts?: boolean;
+      // WCT "My jobs": the caller, to mark the rows planned for them.
+      viewerUserId?: string;
     } = {},
   ) {
     const page = Math.max(1, opts.page ?? 1);
@@ -2375,6 +2430,8 @@ export class DeliveriesService {
           },
           project: { select: { id: true, name: true } },
           customer: { select: { id: true, name: true } },
+          // WCT orders: the job's order number on the list / field cards.
+          order: { select: { id: true, orderNumber: true } },
         },
       }),
       this.prisma.delivery.count({ where }),
@@ -2609,6 +2666,8 @@ export class DeliveriesService {
         // `origin` rides through from the row; the list keys its Ad-hoc column
         // off it rather than inferring from a null project.
         missing,
+        // WCT "My jobs" (enableWctMyJobs): null on every run without a planned rider.
+        plannedRider: plannedRiderView(d as any, opts.viewerUserId),
         serviceReport: serviceReportByRun.get(d.id) ?? null,
         document: runDoc
           ? { ...runDoc, poNo: poNoByDoc.get(runDoc.id) ?? null, saleOrderId: saleOrderIdByDoc.get(runDoc.id) ?? null }
@@ -2715,6 +2774,7 @@ export class DeliveriesService {
 
     await this.recomputeRunStatus(deliveryId, organizationId);
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return this.prisma.deliveryItem.findUnique({ where: { id: target.id } });
   }
 
@@ -3049,6 +3109,7 @@ export class DeliveriesService {
     // The signature page then sees a normal delivered run and needs no branch.
     await this.recomputeRunStatus(deliveryId, organizationId);
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return this.prisma.delivery.findUnique({ where: { id: deliveryId } });
   }
 
@@ -3110,6 +3171,7 @@ export class DeliveriesService {
         },
       });
       void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: status follows the run
+      await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
       // Completion hook: the FIRST time a run reaches `completed`. Exactly ONE
       // of two mutually-exclusive branches runs, routed by whether the run is
       // already linked to a DO:
@@ -4284,6 +4346,7 @@ export class DeliveriesService {
     }
     await this.recomputeRunStatus(deliveryId, organizationId);
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return { acknowledged, total: pending.length };
   }
 
@@ -4368,6 +4431,10 @@ export class DeliveriesService {
       // photos; false -> no installation recorded.
       installNeeded?: boolean;
       installPhotos?: string[];
+      // WCT finish modes (enableWctFinishModes): signature (default) / stamped_do / paper.
+      completionMode?: CompletionMode;
+      stampedDoPhotos?: string[];
+      completionNote?: string;
     },
     organizationId: string,
     technicianUserId: string,
@@ -4383,12 +4450,25 @@ export class DeliveriesService {
     if (run.direction === DeliveryDirection.RETURN) {
       throw new BadRequestException('Returns are signed at collection, not at run finalize');
     }
-    if (!dto.signature) throw new BadRequestException('Customer signature is required');
+    // WCT finish modes: a stamped-DO photo or a paper finish replaces the
+    // signature, only behind the flag and only for a full finish. Without the
+    // flag (and for every other org) the signature rule is exactly as before.
+    const mode: CompletionMode = isCompletionMode(dto.completionMode) ? dto.completionMode : 'signature';
+    const finishModes = await isOrgFeatureEnabled(this.prisma, organizationId, WCT_FINISH_MODES_FLAG);
+    const finishProblem = finishModeProblem({
+      mode,
+      flagOn: finishModes,
+      signature: dto.signature,
+      photos: dto.stampedDoPhotos,
+      partial: run.status === 'in_progress' && !!opts.allowPartial,
+    });
+    if (finishProblem) throw new BadRequestException(finishProblem);
     if (run.status === 'completed') throw new BadRequestException('This delivery is already finalized');
     // PARTIAL SIGN-OFF (2026-09): an in_progress run signs for what it has
     // handed over so far. The run stays open for the rest; see finalizeRunPartial.
     if (run.status === 'in_progress' && opts.allowPartial) {
       void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+      await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
       return this.finalizeRunPartial(deliveryId, dto, organizationId, technicianUserId);
     }
     // `delivered` is the fold's "every item delivered" state (all not_installed
@@ -4436,15 +4516,56 @@ export class DeliveriesService {
       });
     }
     // One signature stamped across every still-unsigned proof MSR on the run.
+    // A stamped-DO / paper finish completes them WITHOUT a signature.
     await this.prisma.maintenanceServiceReport.updateMany({
       where: { deliveryId, kind: { in: ['DO_ACK', 'DO_INSTALL'] }, status: { not: 'completed' } },
-      data: {
-        signature: dto.signature,
-        ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
-        signedAt: now,
-        status: 'completed',
-      },
+      data:
+        mode === 'signature'
+          ? {
+              signature: dto.signature,
+              ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
+              signedAt: now,
+              status: 'completed',
+            }
+          : { status: 'completed' },
     });
+    const stampedPhotos = mode === 'stamped_do' ? (dto.stampedDoPhotos ?? []).map((k) => String(k).trim()).filter(Boolean) : [];
+    if (mode !== 'signature') {
+      // The field record of a stamped-DO / paper finish: one run-level
+      // DO_ACK carrying the stamped-DO photos (it lands in the DO's Proof of
+      // Delivery like any other proof photo) or the paper note.
+      await this.prisma.maintenanceServiceReport.create({
+        data: {
+          organizationId,
+          technicianUserId,
+          assetId: null,
+          inventoryId: null,
+          deliveryId,
+          kind: 'DO_ACK',
+          status: 'completed',
+          description: `${mode === 'stamped_do' ? 'Stamped DO (photo)' : 'Completed: paper copy to follow'}${dto.completionNote?.trim() ? ` — ${dto.completionNote.trim()}` : ''}`,
+          ...(stampedPhotos.length ? { photos: stampedPhotos } : {}),
+          ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
+          ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
+          ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
+        },
+      });
+    }
+    // WCT finish modes: how it was finished + the office check, stamped BEFORE
+    // the run folds to completed so every completion hook (the order's
+    // invoice, its status) already sees whether the job still waits.
+    if (finishModes) {
+      await this.prisma.delivery.update({
+        where: { id: deliveryId },
+        data: {
+          completionMode: mode,
+          completionNote: dto.completionNote?.trim() || null,
+          completionPhotos: stampedPhotos.length ? stampedPhotos : undefined,
+          verificationNote: null,
+          ...initialVerification(mode, now),
+        },
+      });
+    }
     // Link the run's proof MSRs (photos + this signature) onto their born-linked
     // DO(s) so the DO preview/PDF actually finds them. A born-linked scheduled
     // run never passes through link() (the only other place MSR.documentId is
@@ -4458,6 +4579,8 @@ export class DeliveriesService {
       data: { deliveryStatus: DeliveryStatus.completed, completedAt: now },
     });
     await this.recomputeRunStatus(deliveryId, organizationId);
+    // The stamped-DO photos also go on the DO itself, as "Stamped DO" attachments.
+    if (stampedPhotos.length) await this.attachStampedDo(deliveryId, organizationId, stampedPhotos, { id: technicianUserId, name: dto.technicianName });
     // Auto-revoke any guest share link on this run, but ONLY once the run is
     // finished: the link must stop accepting anything then (matches the guest
     // resolveToken guard). A run that did not complete keeps its link.
@@ -4470,7 +4593,221 @@ export class DeliveriesService {
     await this.endTripHandoff(deliveryId);
     const finished = await this.prisma.delivery.findUnique({ where: { id: deliveryId } });
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return finished ? { ...finished, signedItemCount, partial: false } : finished;
+  }
+
+  // ── Custom job fields (enableJobFields) ─────────────────────────────────
+
+  /** True when the org has job fields on and the values are all valid (400 otherwise); false = ignore them (flag off). */
+  private async checkJobFieldsUpFront(organizationId: string, values: Record<string, any>): Promise<boolean> {
+    if (!(await isJobFieldsEnabled(this.prisma, organizationId))) return false;
+    try {
+      checkJobFieldValues(await jobFieldDefs(this.prisma, organizationId), values);
+    } catch (e: any) {
+      throw new BadRequestException(e?.message || 'Check the job fields');
+    }
+    return true;
+  }
+
+  /** Save a run's job field values; a bad value is a 400 naming the field. */
+  async saveJobFields(deliveryId: string, organizationId: string, values: Record<string, any>) {
+    if (!(await isJobFieldsEnabled(this.prisma, organizationId))) throw new BadRequestException('Job fields are not enabled for this organisation');
+    const run = await this.prisma.delivery.findFirst({ where: { id: deliveryId, organizationId }, select: { id: true } });
+    if (!run) throw new NotFoundException('Delivery not found');
+    try {
+      return await saveJobFieldValues(this.prisma, organizationId, deliveryId, values);
+    } catch (e: any) {
+      throw new BadRequestException(e?.message || 'Could not save the job fields');
+    }
+  }
+
+  /** The run's job fields (definitions + values) for the delivery page; null without the flag. */
+  async jobFieldsOf(deliveryId: string, organizationId: string) {
+    if (!(await isJobFieldsEnabled(this.prisma, organizationId))) return null;
+    const fields = await jobFieldDefs(this.prisma, organizationId);
+    const values = (await jobFieldValues(this.prisma, organizationId, [deliveryId], fields)).get(deliveryId) ?? {};
+    return { fields, values };
+  }
+
+  // ── WCT finish modes: verification (enableWctFinishModes) ──────────────
+
+  /** The run's DO(s) get the stamped-DO photos as "Stamped DO" attachments. Best-effort. */
+  private async attachStampedDo(deliveryId: string, organizationId: string, photos: string[], actor: { id?: string; name?: string }) {
+    try {
+      const items = await this.prisma.deliveryItem.findMany({ where: { deliveryId, documentId: { not: null } }, select: { documentId: true } });
+      const docIds = [...new Set(items.map((i) => i.documentId as string))];
+      for (const docId of docIds) {
+        await this.documentsService.addAttachments(
+          docId,
+          organizationId,
+          photos.map((key, n) => ({ fileKey: key, fileName: `Stamped DO${photos.length > 1 ? ` ${n + 1}` : ''}.${(key.split('.').pop() || 'jpg').toLowerCase()}`, mimeType: 'image/jpeg', label: 'Stamped DO' })),
+          { id: actor.id, name: actor.name },
+        );
+      }
+    } catch (err: any) {
+      this.logger.warn(`attachStampedDo ${deliveryId}: ${err?.message}`);
+    }
+  }
+
+  private async assertFinishModes(organizationId: string) {
+    if (!(await isOrgFeatureEnabled(this.prisma, organizationId, WCT_FINISH_MODES_FLAG))) {
+      throw new BadRequestException('Job verification is not enabled for this organisation');
+    }
+  }
+
+  /**
+   * The admin's "Awaiting verification" queue: completed jobs finished with a
+   * stamped-DO photo or on paper, still pending (default) or rejected.
+   */
+  async verificationQueue(organizationId: string, state: 'pending' | 'rejected' | 'all' = 'pending') {
+    await this.assertFinishModes(organizationId);
+    const runs = await this.prisma.delivery.findMany({
+      where: { organizationId, status: 'completed', verificationState: state === 'all' ? { in: ['pending', 'rejected'] } : state },
+      orderBy: { completedAt: 'asc' },
+      include: {
+        customer: { select: { id: true, name: true } },
+        order: { select: { id: true, orderNumber: true } },
+        items: { select: { documentId: true } },
+      },
+    });
+    return Promise.all(runs.map((r) => this.verificationView(r, organizationId)));
+  }
+
+  /** One job's verification block (also used by the delivery page and the order page). */
+  private async verificationView(r: any, organizationId: string) {
+    const docIds = [...new Set((r.items ?? []).map((i: any) => i.documentId).filter(Boolean))] as string[];
+    const [doc, proof] = await Promise.all([
+      docIds.length
+        ? this.prisma.document.findFirst({ where: { id: { in: docIds }, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, name: true, documentTemplateId: true }, orderBy: { createdAt: 'asc' } })
+        : null,
+      this.prisma.maintenanceServiceReport.findMany({
+        where: { deliveryId: r.id, kind: 'DO_ACK', assetId: null, description: { startsWith: 'Stamped DO' } },
+        select: { photos: true },
+      }),
+    ]);
+    const photos = [...new Set([...((r.completionPhotos as string[]) ?? []), ...proof.flatMap((p) => p.photos ?? [])])];
+    return {
+      id: r.id,
+      deliveryNumber: r.deliveryNumber,
+      completedAt: r.completedAt,
+      scheduledFor: r.scheduledFor,
+      siteAddress: r.siteAddress,
+      rider: r.riderName ?? null,
+      customer: r.customer ?? null,
+      order: r.order ?? null,
+      deliveryOrder: doc ? { id: doc.id, name: doc.name, templateId: doc.documentTemplateId } : null,
+      completionMode: r.completionMode,
+      completionNote: r.completionNote,
+      photos,
+      verificationState: r.verificationState,
+      verificationNote: r.verificationNote,
+      verifiedAt: r.verifiedAt,
+      verifiedByName: r.verifiedByName,
+    };
+  }
+
+  private async jobForVerification(deliveryId: string, organizationId: string) {
+    await this.assertFinishModes(organizationId);
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: { id: true, status: true, verificationState: true, orderId: true, completionPhotos: true, deliveryNumber: true },
+    });
+    if (!run) throw new NotFoundException('Delivery not found');
+    if (run.status !== 'completed' || !run.verificationState) throw new BadRequestException('Only a completed job waiting for verification can be checked');
+    return run;
+  }
+
+  /** Admin: the stamped DO / paper copy is fine. */
+  async verifyJob(deliveryId: string, organizationId: string, actor: { id?: string; name?: string }) {
+    const run = await this.jobForVerification(deliveryId, organizationId);
+    if (run.verificationState === 'verified') return this.verificationOf(deliveryId, organizationId);
+    await this.prisma.delivery.update({
+      where: { id: deliveryId },
+      data: { verificationState: 'verified', verifiedAt: new Date(), verifiedByUserId: actor.id ?? null, verifiedByName: actor.name ?? null, verificationNote: null },
+    });
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: a verified job may complete the order
+    await this.afterJobVerified(deliveryId, organizationId);
+    return this.verificationOf(deliveryId, organizationId);
+  }
+
+  /** Admin: the evidence is not good enough; back to the worker / office with the reason. */
+  async rejectJob(deliveryId: string, organizationId: string, actor: { id?: string; name?: string }, reason: string) {
+    const why = (reason || '').trim();
+    if (!why) throw new BadRequestException('Say why the job is rejected');
+    const run = await this.jobForVerification(deliveryId, organizationId);
+    if (run.verificationState === 'verified') throw new BadRequestException('This job is already verified');
+    await this.prisma.delivery.update({
+      where: { id: deliveryId },
+      data: { verificationState: 'rejected', verifiedAt: new Date(), verifiedByUserId: actor.id ?? null, verifiedByName: actor.name ?? null, verificationNote: why },
+    });
+    await this.orderFollowsRun(organizationId, deliveryId);
+    return this.verificationOf(deliveryId, organizationId);
+  }
+
+  /** Worker or office: new stamped-DO photo(s) and/or a note for a rejected (or pending) job → back to "Awaiting verification". */
+  async resubmitEvidence(deliveryId: string, organizationId: string, actor: { id?: string; name?: string }, body: { photos?: string[]; note?: string }) {
+    const run = await this.jobForVerification(deliveryId, organizationId);
+    if (run.verificationState === 'verified') throw new BadRequestException('This job is already verified');
+    const photos = (body.photos ?? []).map((k) => String(k).trim()).filter(Boolean);
+    const note = body.note?.trim() || '';
+    if (!photos.length && !note) throw new BadRequestException('Add a photo of the stamped DO or a note');
+    if (photos.length) {
+      await this.prisma.maintenanceServiceReport.create({
+        data: {
+          organizationId,
+          technicianUserId: actor.id ?? 'unknown',
+          assetId: null,
+          inventoryId: null,
+          deliveryId,
+          kind: 'DO_ACK',
+          status: 'completed',
+          description: `Stamped DO (photo, resubmitted)${note ? ` — ${note}` : ''}`,
+          photos,
+          ...(actor.name ? { technicianName: actor.name } : {}),
+        },
+      });
+      await this.stampProofMsrDocumentIds(deliveryId, organizationId);
+      await this.attachStampedDo(deliveryId, organizationId, photos, actor);
+    }
+    await this.prisma.delivery.update({
+      where: { id: deliveryId },
+      data: {
+        verificationState: 'pending',
+        verifiedAt: null,
+        verifiedByUserId: null,
+        verifiedByName: null,
+        ...(photos.length ? { completionPhotos: [...(((run.completionPhotos as string[]) ?? []) as string[]), ...photos] } : {}),
+        ...(note ? { completionNote: note } : {}),
+      },
+    });
+    await this.orderFollowsRun(organizationId, deliveryId);
+    return this.verificationOf(deliveryId, organizationId);
+  }
+
+  /** The verification block of one job (delivery page). Null when the job has none. */
+  async verificationOf(deliveryId: string, organizationId: string) {
+    const r = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      include: { customer: { select: { id: true, name: true } }, order: { select: { id: true, orderNumber: true } }, items: { select: { documentId: true } } },
+    });
+    if (!r || !r.verificationState) return null;
+    return this.verificationView(r, organizationId);
+  }
+
+  /** A verified job may be the last one its order was waiting for: bill the order (enableWctOrderInvoice). */
+  private async afterJobVerified(deliveryId: string, organizationId: string): Promise<void> {
+    await this.orderBillingFollowsRun(organizationId, deliveryId);
+  }
+
+  /** WCT invoice per order: the order bills itself once every remaining job is done and verified. Never throws. */
+  private async orderBillingFollowsRun(organizationId: string, deliveryId: string): Promise<void> {
+    try {
+      const run = await this.prisma.delivery.findFirst({ where: { id: deliveryId, organizationId }, select: { orderId: true } });
+      if (run?.orderId) await this.documentsService.maybeInvoiceOrder(run.orderId, organizationId);
+    } catch (err: any) {
+      this.logger.warn(`order billing after run ${deliveryId}: ${err?.message}`);
+    }
   }
 
   /**
@@ -4875,6 +5212,7 @@ export class DeliveriesService {
     });
     await this.recomputeRunStatus(deliveryId, organizationId);
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return this.prisma.delivery.findUnique({ where: { id: deliveryId } });
   }
 
@@ -5829,6 +6167,7 @@ export class DeliveriesService {
     });
     await this.recomputeRunStatus(deliveryId, organizationId);
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
   }
 
@@ -5927,6 +6266,7 @@ export class DeliveriesService {
       });
     });
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
   }
 
@@ -5957,6 +6297,7 @@ export class DeliveriesService {
       const collected = await this.collectReturnFreeTyped(deliveryId, item.id, organizationId);
       await this.recomputeRunStatus(deliveryId, organizationId);
       void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+      await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
       return collected ?? this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
     }
     // No signature and NO acknowledgement photos here (2026-08 signature-at-end):
@@ -5997,6 +6338,7 @@ export class DeliveriesService {
     }
     await this.recomputeRunStatus(deliveryId, organizationId);
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return this.prisma.deliveryItem.findUnique({ where: { id: item.id } });
   }
 
@@ -6117,6 +6459,8 @@ export class DeliveriesService {
       const updated = await this.prisma.delivery.update({ where: { id: deliveryId }, data: { status: 'cancelled' } });
       await this.endTripHandoff(deliveryId);
       void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+      await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
+    await this.orderBillingFollowsRun(organizationId, deliveryId); // the jobs left may now all be billable
       return note ? { ...updated, note } : updated;
     }
 
@@ -6169,6 +6513,8 @@ export class DeliveriesService {
     // A cancelled run's driver link must stop working too.
     await this.endTripHandoff(deliveryId);
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
+    await this.orderBillingFollowsRun(organizationId, deliveryId); // the jobs left may now all be billable
     return cancelled;
   }
 
@@ -6261,6 +6607,7 @@ export class DeliveriesService {
       this.prisma.delivery.delete({ where: { id: deliveryId } }),
     ]);
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+    await refreshOrderStatus(this.prisma, organizationId, delivery.orderId); // WCT orders: the run is gone, so by its order id
     return { id: deliveryId, deleted: true };
   }
 
@@ -6315,6 +6662,7 @@ export class DeliveriesService {
       this.prisma.delivery.delete({ where: { id: deliveryId } }),
     ]);
     void this.siteclock?.touch(organizationId, deliveryId); // a job still live in SiteClock gets cancelled
+    await refreshOrderStatus(this.prisma, organizationId, delivery.orderId); // WCT orders: the run is gone, so by its order id
     return {
       id: deliveryId,
       deleted: true,

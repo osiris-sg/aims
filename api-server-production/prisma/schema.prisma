@@ -1052,12 +1052,18 @@ model OrganizationMemberProfile {
   signatureImage    String? // saved signature (PNG data URL) for one-tap counter-signing
   uiLang            String? // round AZ: the portal language this user picked in this org ("en" | "ja"; SHIPMENTS orgs only). null = English
   teamId            String? // hierarchy (CIEL 09-19): the Team this member belongs to
+  // WCT worker logins (enableWctMyJobs, 2026-11-01): this member's SiteClock
+  // user id (Clerk publicMetadata.siteclock.userId), written by
+  // scripts/setup-wct-siteclock-fieldtechs.ts. A job scheduled on that
+  // SiteClock worker is planned for this member ("My jobs").
+  siteclockUserId   String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   @@unique([organizationId, userId])
   @@index([whatsappNumber])
   @@index([organizationId, teamId])
+  @@index([organizationId, siteclockUserId])
 }
 
 // Sales team (hierarchy access, CIEL 09-19): a Junior Manager leads a team of
@@ -1670,16 +1676,22 @@ model Order {
   customerId        String?  @db.Uuid
   sourceQuotationId String?  @db.Uuid // Document.id of the originating quotation
   orderType         String? // Carried from the QF quotation's "Type" field: Project / Route Order
-  status            String   @default("DRAFT") // DRAFT / IN_PROGRESS / COMPLETED / CANCELLED (free-form)
+  status            String   @default("DRAFT") // DRAFT / IN_PROGRESS / COMPLETED / CANCELLED (free-form); WCT orders: OPEN / SCHEDULED / IN_PROGRESS / AWAITING_VERIFICATION / COMPLETED / INVOICED / PAID / CLOSED, derived from the jobs + invoices and stored
   items             Json // Snapshot at order-creation time: [{ itemCode, description, quantity, unitPrice, costPrice?, taggedAssetCode?, ... }]
   linkedDocuments   Json? // { po: [{id,name}], do: [{id,name}], invoice: [{id,name}] }
   notes             String?
+  // WCT orders (enableWctOrders, 2026-11-01): the one invoice for the whole
+  // order (Phase 4; plain pointer, no FK) and the order's files, same shape as
+  // Document.attachments (Phase 5). Nullable + additive (safe db push).
+  invoiceDocumentId String?  @db.Uuid
+  attachments       Json?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
   organization    Organization @relation(fields: [organizationId], references: [id])
   customer        Customer?    @relation("CustomerOrders", fields: [customerId], references: [id])
   sourceQuotation Document?    @relation("OrderSourceQuotation", fields: [sourceQuotationId], references: [id])
+  deliveries      Delivery[] // WCT orders: the order's jobs
 
   @@unique([orderNumber, organizationId])
   @@index([organizationId, status])
@@ -1721,6 +1733,9 @@ model CustomField {
   showInList     Boolean            @default(false) // Show in list/table views
   showInForm     Boolean            @default(true) // Show in forms
   groupName      String? // Group fields together in forms
+  // Job fields (enableJobFields, 2026-11-01): how a Delivery field shows on the
+  // jobs calendar — { showOnCalendar, icon, colourByValue: { "true": "#2e7d32" } }.
+  display        Json?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
   organization   Organization       @relation(fields: [organizationId], references: [id])
@@ -3253,6 +3268,36 @@ model Delivery {
   // quotationNo + sourceDocument* (and the quote's prices) onto its config.
   // Plain pointer, no FK — same reasoning as the frozen documentId below.
   sourceQuotationId String?           @db.Uuid
+  // WCT orders (enableWctOrders, 2026-11-01): the Order this job belongs to. An
+  // accepted quotation makes ONE order and its first job; "Add job" on the
+  // order adds more. Null for every run outside that flow.
+  orderId           String?           @db.Uuid
+  // WCT worker logins (enableWctMyJobs, 2026-11-01): who the job is PLANNED
+  // for — the AIMS user behind the picked SiteClock worker, set whenever the
+  // schedule's worker is saved. riderUserId stays who actually started it.
+  plannedRiderUserId String?
+  plannedRiderName   String?
+  // WCT finish modes + verification (enableWctFinishModes, 2026-11-01): how
+  // the job was finished — signature (customer signs on the device) /
+  // stamped_do (photo of the DO the customer stamped) / paper (marked done, the
+  // paper copy comes back later) — and the office check of it: pending /
+  // verified / rejected. A signature is verified at once; the other two wait
+  // for an admin. Null on every run before the flag = verified (signed as
+  // always). Plain strings, NOT new DeliveryRunStatus values: the run's status
+  // stays `completed`.
+  completionMode     String?
+  completionNote     String?
+  completionPhotos   Json? // S3 keys of the stamped-DO photos (also on the run's proof report + the DO's attachments)
+  verificationState  String?
+  verifiedAt         DateTime?
+  verifiedByUserId   String?
+  verifiedByName     String?
+  verificationNote   String? // the reject reason
+  // WCT invoice per order (enableWctOrderInvoice, 2026-11-01): the order
+  // invoice this job is billed on. Set when the job is claimed for an invoice
+  // (a "claim:" token first, then the invoice id), so a job is never billed
+  // twice; null = not invoiced yet. Plain pointer, no FK.
+  orderInvoiceId     String?
   // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
   // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
   // for zero-downtime deploys (Render db-pushes on deploy while old code may
@@ -3267,6 +3312,7 @@ model Delivery {
   project      Project?                   @relation(fields: [projectId], references: [id])
   customer     Customer?                  @relation(fields: [customerId], references: [id])
   document     Document?                  @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  order        Order?                     @relation(fields: [orderId], references: [id], onDelete: SetNull)
   items        DeliveryItem[]
   reports      MaintenanceServiceReport[]
   shareLinks   DeliveryShareLink[] // run-scoped guest delivery links
@@ -3275,6 +3321,9 @@ model Delivery {
   @@index([documentId])
   @@index([organizationId, status, createdAt])
   @@index([organizationId, sourceQuotationId])
+  @@index([organizationId, orderId])
+  @@index([organizationId, verificationState])
+  @@index([orderInvoiceId])
   @@index([organizationId, scheduledFor]) // jobs calendar range reads
 }
 

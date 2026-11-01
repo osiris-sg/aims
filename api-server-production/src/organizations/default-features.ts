@@ -136,4 +136,44 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // the DO as Cancelled. A Pending / Completed / Cancelled tag shows next to
   // the number. Default OFF; WCT only.
   enableRealDoOnSchedule: false,
+  // WCT orders (2026-11-01, Phase 1): an accepted quotation (staff Confirm or
+  // the client's e-sign) makes ONE Order, numbered by the ORDER format in
+  // Document Numbering (default ORD{YYYY}{MM}-{###}), plus its first draft job;
+  // the order page lists its jobs and "Add job" schedules more. The order
+  // number shows on each job's DO ("Order No"), the SiteClock job title, the
+  // jobs calendar, the field app and the delivery page. The order's status
+  // follows its jobs. Works on top of enableQuotationToDelivery (the order is
+  // made in that hook); the Orders tab also needs the ORDERS module. Default
+  // OFF; WCT only.
+  enableWctOrders: false,
+  // WCT worker logins (2026-11-01, Phase 2): a job scheduled on a SiteClock
+  // worker is planned for that worker's AIMS login (linked by
+  // scripts/setup-wct-siteclock-fieldtechs.ts). The field app's Pending tab
+  // opens on "My jobs" (All is one tap away), and starting a job planned for
+  // someone else asks first. Default OFF; WCT only.
+  enableWctMyJobs: false,
+  // WCT finish modes + verification (2026-11-01, Phase 3): the field app's
+  // finish step also offers "Photo of the stamped DO" (saved on the DO as a
+  // "Stamped DO" attachment and on the run's proof) and "Mark completed, paper
+  // copy later"; those jobs wait in Deliveries → Awaiting verification for an
+  // admin to Verify or Reject (with a reason; the worker or office then sends
+  // new evidence). A customer signature is verified at once. The run's status
+  // stays completed (verificationState column). Default OFF; WCT only.
+  enableWctFinishModes: false,
+  // WCT invoice per order (2026-11-01, Phase 4; needs enableWctOrders): a job
+  // of an order makes NO invoice of its own. The order is invoiced once every
+  // job is done and verified (automatically), or with "Invoice now" on the
+  // order page for what is verified so far — jobs verified later go on a second
+  // invoice for the same order. Priced from the quotation, posted to the GL,
+  // notified per order. Send / Mark paid as for any invoice; the order then
+  // reads Invoiced → Paid → Closed (paid + service report on the order).
+  // Default OFF; WCT only.
+  enableWctOrderInvoice: false,
+  // Custom job fields (2026-11-01, Phase 6): the org's admins define their own
+  // fields on jobs (Settings → Job fields: yes/no, text, date, file upload,
+  // link; icon + colours) — filled on the schedule / edit job form and the
+  // delivery page; fields marked "Show on calendar" draw their icon on the jobs
+  // calendar with a legend. Default OFF; WCT first ("Permit required" /
+  // "Permit approved", seeded by scripts/seed-wct-job-fields.ts).
+  enableJobFields: false,
 };
