@@ -49,6 +49,7 @@ import CleanDocumentPreview from "@/containers/DocumentTemplates/components/Clea
 // Shared dialog — also consumed by the DO editor header's "Show Route" button
 // in TabbedDocumentCreator. Extracted from a previously-inline definition.
 import DeliveryRouteDialog from "@/components/DeliveryRouteDialog";
+import { todayIso } from "@/helpers/orgToday";
 
 // Leaflet hits `window` at import time; load the map client-side only.
 const DeliveryRouteMap = dynamic(() => import("@/components/DeliveryRouteMap"), {
@@ -1822,7 +1823,7 @@ function NewDeploymentDialog({
   const [type, setType] = useState<DeploymentType>("RENTAL");
   const [description, setDescription] = useState("");
   const [monthlyRate, setMonthlyRate] = useState("");
-  const [deployedDate, setDeployedDate] = useState(new Date().toISOString().slice(0, 10));
+  const [deployedDate, setDeployedDate] = useState(todayIso());
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
 

@@ -1,5 +1,6 @@
 import { newId } from "./math";
 import type { IdQuote, QuoteArea, QuoteItem, QuoteSection, WorkSection } from "./types";
+import { todayIso } from "@/helpers/orgToday";
 
 export const DEFAULT_TITLE = "RE: Letter of Intent & Appointment for Renovation Works at the below mentioned new address";
 
@@ -87,7 +88,7 @@ export function defaultQuote(): IdQuote {
       nric: "",
       address: "",
       contact: "",
-      agreementDate: new Date().toISOString().slice(0, 10),
+      agreementDate: todayIso(),
       remarks: "",
       designer: "",
       designerPhone: "",

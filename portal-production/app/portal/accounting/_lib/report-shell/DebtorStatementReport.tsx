@@ -46,6 +46,7 @@ import { FilterSelect } from "./DateRangeSelect";
 import { soaSummaryOf, useSideContacts, type ReportSide } from "./side";
 
 import { withActiveOrg } from "@/helpers/request";
+import { todayIso } from "@/helpers/orgToday";
 
 /** Document-number cell as a real link (⌘-click / "Open Link in New Tab"). */
 const docCell = (d: any) => {
@@ -114,7 +115,7 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
 
   const [fromCustomer, setFromCustomer] = useState<any>(null);
   const [toCustomer, setToCustomer] = useState<any>(null);
-  const [asOf, setAsOf] = useState(() => monthEndISO(new Date().toISOString().slice(0, 10)));
+  const [asOf, setAsOf] = useState(() => monthEndISO(todayIso()));
   const [scope, setScope] = useState<"outstanding" | "current">("outstanding");
   const [loading, setLoading] = useState(false);
   const [statements, setStatements] = useState<CustomerStatement[] | null>(null);

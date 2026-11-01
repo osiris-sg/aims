@@ -31,6 +31,7 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./api";
+import { todayIso } from "@/helpers/orgToday";
 
 type CloseType = "MONTH_END" | "YEAR_END";
 
@@ -57,7 +58,7 @@ type RunResult = {
   yearEndJournalEntryId: string | null;
 };
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayIso();
 // End of last month — sensible default for Month-End Close.
 const endOfLastMonth = () => {
   const d = new Date();

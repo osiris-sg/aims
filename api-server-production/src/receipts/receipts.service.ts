@@ -5,6 +5,7 @@ import { JournalService } from '../journal/journal.service';
 import { PaymentsService } from '../payments/payments.service';
 import { AuditService } from 'src/common/audit.service';
 import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
+import { orgToday } from '../common/org-today';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 
@@ -135,7 +136,7 @@ export class ReceiptsService {
     const [templateId, number, setting] = await Promise.all([
       this.getOrCreateReceiptTemplate(organizationId),
       this.nextReceiptNumber(organizationId),
-      this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { controlAccounts: true, baseCurrency: true } }),
+      this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { controlAccounts: true, baseCurrency: true, timeZone: true } }),
     ]);
     const controls = (setting?.controlAccounts as any) || {};
     const doc = await this.prisma.document.create({
@@ -146,7 +147,7 @@ export class ReceiptsService {
         name: number,
         status: 'unconfirmed',
         config: {
-          date: new Date().toISOString().slice(0, 10),
+          date: orgToday(setting?.timeZone),
           chequeNo: null,
           remarks: '',
           customerId: null,
@@ -603,11 +604,12 @@ export class ReceiptsService {
       }
     }
 
-    const [templateId, number] = await Promise.all([
+    const [templateId, number, tzSetting] = await Promise.all([
       this.getOrCreateOffsetTemplate(organizationId),
       this.nextOffsetNumber(organizationId),
+      this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { timeZone: true } }),
     ]);
-    const date = dto.date || new Date().toISOString().slice(0, 10);
+    const date = dto.date || orgToday(tzSetting?.timeZone);
     const enrich = (a: { documentId: string; amount: number }, m: Map<string, any>) => {
       const o = m.get(a.documentId);
       return { ...a, reference: o?.reference ?? null, date: o?.date ?? null, currency: o?.currency ?? null };

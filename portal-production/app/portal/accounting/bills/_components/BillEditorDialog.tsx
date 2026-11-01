@@ -43,6 +43,7 @@ import { uploadFile } from "@/helpers/fileUploader";
 import { expandUploadFiles, UPLOAD_ACCEPT } from "@/helpers/uploadExpand";
 import AttachmentUploader, { Attachment } from "@/components/AttachmentUploader";
 import PostingPreviewDialog, { PreviewResult } from "@/components/PostingPreviewDialog";
+import { todayIso } from "@/helpers/orgToday";
 
 // ---------------------------------------------------------------------------
 // Create / view bill. Three entry paths:
@@ -102,7 +103,6 @@ type FormSnapshot = {
 };
 
 const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const newLine = (): LineForm => ({
   uid: Math.random().toString(36).slice(2),
@@ -608,7 +608,7 @@ export default function BillEditorDialog({
             supplierName: fm.supplierId ? undefined : it.supplierNameGuess,
             billNumber:
               fm.billNumber.trim() ||
-              `UPLOAD-${new Date().toISOString().slice(0, 10)}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+              `UPLOAD-${todayIso()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
             billDate: fm.billDate,
             dueDate: fm.dueDate || undefined,
             reference: fm.reference.trim() || undefined,

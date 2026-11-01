@@ -11,6 +11,7 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import ClearIcon from "@mui/icons-material/Close";
 import { toast } from "react-toastify";
 import { useIdProjectApi, type Cost } from "./api";
+import { todayIso } from "@/helpers/orgToday";
 
 interface Props {
   open: boolean;
@@ -22,7 +23,7 @@ interface Props {
 }
 
 type Form = { date: string; supplierName: string; description: string; invoiceNo: string; amount: string; sectionId: string; notes: string; attachmentUrl: string; attachmentKey: string; status: string };
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayIso();
 const blank = (): Form => ({ date: today(), supplierName: "", description: "", invoiceNo: "", amount: "", sectionId: "", notes: "", attachmentUrl: "", attachmentKey: "", status: "approved" });
 
 export default function CostDialog({ open, projectId, sections, editing, onClose, onSaved }: Props) {

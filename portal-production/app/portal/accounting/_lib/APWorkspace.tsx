@@ -43,12 +43,13 @@ import { useGetSuppliers } from "@/app/portal/hooks/api/useSuppliers";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import JournalEntryDialog from "./JournalEntryDialog";
 import { ReportPrintExportButton } from "./report-export";
+import { todayIso } from "@/helpers/orgToday";
 
 const fmt = (n: number) =>
   (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const unwrap = (r: any) => (r && typeof r === "object" && r.success !== undefined && r.data !== undefined ? r.data : r);
 const dmy = (d: any) => (d ? new Date(d).toLocaleDateString("en-GB") : "—");
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => todayIso();
 const monthStartISO = (iso: string) => `${iso.slice(0, 7)}-01`;
 
 // Legacy AP home's report list (guru's screenshot 87). `tab` keys must match

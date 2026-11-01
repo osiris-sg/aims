@@ -18,6 +18,7 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
 import { useGetSuppliers } from "@/app/portal/hooks/api/useSuppliers";
+import { todayIso } from "@/helpers/orgToday";
 
 const unwrap = (r: any) => (r && typeof r === "object" && r.data !== undefined ? r.data : r);
 
@@ -61,7 +62,7 @@ export default function PaymentVoucherPage() {
           lastUsedAt: v.savedAt,
           updatedAt: v.updatedAt,
           pvData: {
-            date: v.date || new Date().toISOString().slice(0, 10),
+            date: v.date || todayIso(),
             chequeNo: v.chequeNo || "",
             remarks: v.remarks || "",
             debitAccountCode: v.debitAccountCode || null,

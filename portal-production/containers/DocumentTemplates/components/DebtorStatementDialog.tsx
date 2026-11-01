@@ -38,6 +38,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import PrintIcon from "@mui/icons-material/Print";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
+import { todayIso } from "@/helpers/orgToday";
 
 const fmt = (n: number) =>
   (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -102,7 +103,7 @@ export default function DebtorStatementDialog({
 }) {
   const { getToken } = useAuth();
   const router = useRouter();
-  const [cutOff, setCutOff] = useState(() => monthEndISO(new Date().toISOString().slice(0, 10)));
+  const [cutOff, setCutOff] = useState(() => monthEndISO(todayIso()));
   const [loading, setLoading] = useState(false);
   const [opening, setOpening] = useState(0);
   const [closing, setClosing] = useState(0);

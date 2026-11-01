@@ -17,6 +17,7 @@ import { useAccountingApi } from "../_lib/api";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { ReportPrintCss } from "../_lib/report-doc";
 import { ReportPrintExportButton, type ReportExportModel } from "../_lib/report-export";
+import { todayIso } from "@/helpers/orgToday";
 
 type Movement = { code: string; name: string; movement?: number; cashImpact: number };
 
@@ -46,7 +47,7 @@ const monthStart = () => {
   const d = new Date();
   return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
 };
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayIso();
 
 export default function CashFlowPage() {
   const { request } = useAccountingApi();

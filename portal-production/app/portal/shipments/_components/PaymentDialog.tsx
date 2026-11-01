@@ -17,6 +17,7 @@ import { useTranslations } from "next-intl";
 import { ACCOUNT_LABEL, TARGET_LABEL, useShipmentsApi, type AllocationTarget, type PaymentAccount, type PaymentTarget, type TradePayment } from "../_lib/api";
 import { SHIPMENT_KEYS } from "../_lib/hooks";
 import { toast } from "../_lib/toast";
+import { todayIso } from "@/helpers/orgToday";
 
 /** Where the proof goes: the step it pays (its record), as the step's proof document. */
 export type PaymentContext = {
@@ -29,7 +30,7 @@ export type PaymentContext = {
 
 type Row = { key: number; targetType: AllocationTarget; targetId: string | null; label: string; amount: string };
 let seq = 0;
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayIso();
 const cents = (v: number) => Math.round(v * 100);
 
 export default function PaymentDialog({ open, onClose, context, payment }: { open: boolean; onClose: () => void; context?: PaymentContext; payment?: TradePayment | null }) {

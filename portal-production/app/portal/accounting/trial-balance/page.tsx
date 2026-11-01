@@ -21,6 +21,7 @@ import { useAccountingApi } from "../_lib/api";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { PaperSheet, ReportHeader, ReportPrintCss, fmt, formatShortDate } from "../_lib/report-doc";
 import { ReportPrintExportButton } from "../_lib/report-export";
+import { todayIso } from "@/helpers/orgToday";
 
 type Row = {
   accountId: string;
@@ -52,7 +53,7 @@ const toNet = (r: Row): NetRow => {
   return { ...r, netDebit: net > 0 ? net : 0, netCredit: net < 0 ? -net : 0 };
 };
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayIso();
 
 export default function TrialBalancePage() {
   const { request } = useAccountingApi();

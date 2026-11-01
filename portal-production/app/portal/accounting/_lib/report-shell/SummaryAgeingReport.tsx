@@ -18,6 +18,7 @@ import { FilterSelect } from "./DateRangeSelect";
 import { useSideContacts, type ReportSide } from "./side";
 
 import { withActiveOrg } from "@/helpers/request";
+import { todayIso } from "@/helpers/orgToday";
 
 /** Document cell as a real link (⌘-click / "Open Link in New Tab"). */
 const docCell = (d: any, text: string) => {
@@ -69,7 +70,7 @@ export default function SummaryAgeingReport({ side = "receivable" }: { side?: Re
 
   const [fromCustomer, setFromCustomer] = useState<any>(null);
   const [toCustomer, setToCustomer] = useState<any>(null);
-  const [asOf, setAsOf] = useState(() => monthEndISO(new Date().toISOString().slice(0, 10)));
+  const [asOf, setAsOf] = useState(() => monthEndISO(todayIso()));
   const [details, setDetails] = useState<"summary" | "details">("summary");
   const [loading, setLoading] = useState(false);
   const [groups, setGroups] = useState<Array<{ contactId: string; contactName: string; docs: AgedDoc[] }> | null>(null);

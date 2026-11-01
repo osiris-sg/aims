@@ -17,6 +17,7 @@ import ReportShell, { downloadCsv } from "./ReportShell";
 import ReportTable, { ReportRow, fmtDate } from "./ReportTable";
 import { DateRangeSelect } from "./DateRangeSelect";
 import { soaSummaryOf, useSideContacts, type ReportSide } from "./side";
+import { todayIso } from "@/helpers/orgToday";
 
 const R = (n: number) => Math.round(n * 100) / 100;
 const fmtAbs = (n: number) =>
@@ -54,7 +55,7 @@ export default function HistoricalListingReport({ side = "receivable" }: { side?
   const { sorted: sortedCustomers, codeOf, words } = useSideContacts(side);
 
   const [from, setFrom] = useState(yearStartISO());
-  const [to, setTo] = useState(() => monthEndISO(new Date().toISOString().slice(0, 10)));
+  const [to, setTo] = useState(() => monthEndISO(todayIso()));
   const [fromCustomer, setFromCustomer] = useState<any>(null);
   const [toCustomer, setToCustomer] = useState<any>(null);
   const [loading, setLoading] = useState(false);

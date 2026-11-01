@@ -50,9 +50,10 @@ import MicIcon from "@mui/icons-material/Mic";
 import MicNoneIcon from "@mui/icons-material/MicNone";
 import { toast } from "react-toastify";
 import { useIdProjectApi, type Schedule, type ScheduleItem } from "./api";
+import { todayIso } from "@/helpers/orgToday";
 
 const DAY = 86400000;
-const isoToday = () => new Date().toISOString().slice(0, 10);
+const isoToday = () => todayIso();
 const addDays = (iso: string, n: number) => new Date(new Date(iso).getTime() + n * DAY).toISOString().slice(0, 10);
 const fmt = (iso: string) => new Date(iso).toLocaleDateString("en-SG", { day: "2-digit", month: "short" });
 const fmtFull = (iso: string) => new Date(iso).toLocaleDateString("en-SG", { day: "2-digit", month: "short", year: "numeric" });

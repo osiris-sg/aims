@@ -30,6 +30,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import CloseIcon from "@mui/icons-material/Close";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../../_lib/api";
+import { todayIso } from "@/helpers/orgToday";
 
 type Account = {
   id: string;
@@ -87,7 +88,7 @@ export default function RecurringTemplateDialog({
   const [description, setDescription] = useState("");
   const [reference, setReference] = useState("");
   const [frequency, setFrequency] = useState<string>("MONTHLY");
-  const [nextRunDate, setNextRunDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [nextRunDate, setNextRunDate] = useState<string>(() => todayIso());
   const [endDate, setEndDate] = useState<string>("");
   const [lines, setLines] = useState<LineForm[]>([newLine(), newLine()]);
 
@@ -108,7 +109,7 @@ export default function RecurringTemplateDialog({
       setDescription(editing.description || "");
       setReference(editing.reference || "");
       setFrequency(editing.frequency || "MONTHLY");
-      setNextRunDate(editing.nextRunDate ? editing.nextRunDate.slice(0, 10) : new Date().toISOString().slice(0, 10));
+      setNextRunDate(editing.nextRunDate ? editing.nextRunDate.slice(0, 10) : todayIso());
       setEndDate(editing.endDate ? editing.endDate.slice(0, 10) : "");
       const lineRows = (Array.isArray(editing.lines) ? editing.lines : []).map((l: any) => ({
         uid: Math.random().toString(36).slice(2),
@@ -123,7 +124,7 @@ export default function RecurringTemplateDialog({
       setDescription("");
       setReference("");
       setFrequency("MONTHLY");
-      setNextRunDate(new Date().toISOString().slice(0, 10));
+      setNextRunDate(todayIso());
       setEndDate("");
       setLines([newLine(), newLine()]);
     }

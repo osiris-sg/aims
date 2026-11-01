@@ -52,6 +52,7 @@ import { toast } from "react-toastify";
 import { headerInputSx } from "./DynamicFormFields";
 import type { TemplateFieldConfig } from "../types/templateFieldTypes";
 import DocumentRefLink from "@/components/DocumentRefLink";
+import { todayIso } from "@/helpers/orgToday";
 
 // ---------------------------------------------------------------------------
 // Field definitions — none of these names appear in HEADER_FIELD_ORDER (or the
@@ -581,7 +582,7 @@ export function OfficialReceiptOffsetSection({
       // Xero-style report (guru's call), pre-scoped to receipts this month.
       // ?back= returns to THIS receipt page from the report's Back button.
       onClick: () => {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = todayIso();
         const back = encodeURIComponent(window.location.pathname + window.location.search);
         router.push(`/portal/accounting/receivables?tab=audit-trail&prefix=OR&from=${today.slice(0, 7)}-01&to=${today}&back=${back}`);
       },

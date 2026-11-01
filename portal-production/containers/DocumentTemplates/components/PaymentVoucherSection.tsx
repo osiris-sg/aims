@@ -44,6 +44,7 @@ import { toast } from "react-toastify";
 import { headerInputSx } from "./DynamicFormFields";
 import { AccountSelectDialog, useOrAccounts, type OrAccount } from "./OfficialReceiptSection";
 import type { TemplateFieldConfig } from "../types/templateFieldTypes";
+import { todayIso } from "@/helpers/orgToday";
 
 // Field names avoid HEADER_FIELD_ORDER and the right-column substring filters
 // (rate/currency/gst/...), so DynamicFormFields renders them single-column in
@@ -401,7 +402,7 @@ export function PaymentVoucherOffsetSection({
       label: "Creditor Statement",
       icon: <DescriptionOutlinedIcon />,
       onClick: needSupplier(() => {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = todayIso();
         router.push(`/portal/accounting/payables?tab=creditor-statement&contactId=${supplierId}&asOf=${today}&back=${back()}`);
       }),
     },
@@ -409,7 +410,7 @@ export function PaymentVoucherOffsetSection({
       label: "Audit Trail",
       icon: <ManageSearchIcon />,
       onClick: () => {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = todayIso();
         router.push(`/portal/accounting/payables?tab=audit-trail&prefix=P/V&from=${today.slice(0, 7)}-01&to=${today}&back=${back()}`);
       },
     },

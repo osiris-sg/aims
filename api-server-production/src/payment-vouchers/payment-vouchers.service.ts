@@ -5,6 +5,7 @@ import { JournalService } from '../journal/journal.service';
 import { BillsService } from '../bills/bills.service';
 import { AuditService } from 'src/common/audit.service';
 import { outstandingOf, grossStampOf } from '../common/document-money';
+import { orgToday } from '../common/org-today';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 
@@ -120,7 +121,7 @@ export class PaymentVouchersService {
     const [templateId, number, setting] = await Promise.all([
       this.getOrCreateTemplate(organizationId),
       this.nextVoucherNumber(organizationId),
-      this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { controlAccounts: true, baseCurrency: true } }),
+      this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { controlAccounts: true, baseCurrency: true, timeZone: true } }),
     ]);
     const controls = (setting?.controlAccounts as any) || {};
     const doc = await this.prisma.document.create({
@@ -131,7 +132,7 @@ export class PaymentVouchersService {
         name: number,
         status: 'unconfirmed',
         config: {
-          date: new Date().toISOString().slice(0, 10),
+          date: orgToday(setting?.timeZone),
           chequeNo: null,
           remarks: '',
           supplierId: null,

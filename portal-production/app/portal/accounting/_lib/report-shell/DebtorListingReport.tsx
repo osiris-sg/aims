@@ -16,6 +16,7 @@ import { useAccountingApi } from "../api";
 import ReportShell, { downloadCsv } from "./ReportShell";
 import ReportTable, { ReportRow, fmtDate } from "./ReportTable";
 import { useSideContacts, type ReportSide } from "./side";
+import { todayIso } from "@/helpers/orgToday";
 
 const R = (n: number) => Math.round(n * 100) / 100;
 const fmtAbs = (n: number) =>
@@ -44,7 +45,7 @@ export default function DebtorListingReport({ side = "receivable" }: { side?: Re
 
   const [fromContact, setFromContact] = useState<any>(null);
   const [toContact, setToContact] = useState<any>(null);
-  const [cutOff, setCutOff] = useState(() => monthEndISO(new Date().toISOString().slice(0, 10)));
+  const [cutOff, setCutOff] = useState(() => monthEndISO(todayIso()));
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<AgedRow[] | null>(null);
 

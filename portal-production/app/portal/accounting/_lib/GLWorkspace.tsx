@@ -46,12 +46,13 @@ import { useAccountingApi } from "./api";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { PaperSheet, ReportHeader, ReportPrintCss, fmt as docFmt, formatShortDate } from "./report-doc";
 import { ReportPrintExportButton, type ReportExportModel, type ReportExportTable } from "./report-export";
+import { todayIso } from "@/helpers/orgToday";
 
 const fmt = (n: number) =>
   (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const unwrap = (r: any) => (r && typeof r === "object" && r.success !== undefined && r.data !== undefined ? r.data : r);
 const dmy = (d: any) => (d ? new Date(d).toLocaleDateString("en-GB") : "—");
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const todayISO = () => todayIso();
 const monthStartISO = (iso: string) => `${iso.slice(0, 7)}-01`;
 
 // The legacy GL home's left rail, as a View Reports dialog (same convention

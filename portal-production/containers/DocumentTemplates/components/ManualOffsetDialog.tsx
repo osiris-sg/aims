@@ -37,6 +37,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
 import DocumentRefLink from "@/components/DocumentRefLink";
+import { todayIso } from "@/helpers/orgToday";
 
 const fmt = (n: number) =>
   (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -144,7 +145,7 @@ export default function ManualOffsetDialog({
         method: "POST",
         body: JSON.stringify({
           customerId: customer.id,
-          date: new Date().toISOString().slice(0, 10),
+          date: todayIso(),
           updateFx,
           debits: Object.entries(debits).map(([documentId, amount]) => ({ documentId, amount })),
           credits: Object.entries(credits).map(([documentId, amount]) => ({ documentId, amount })),

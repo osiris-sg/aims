@@ -23,6 +23,7 @@ import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import PageTable from "@/components/PageTable";
 import { useClientSort } from "@/components/clientSort";
+import { todayIso } from "@/helpers/orgToday";
 
 type FA = {
   id: string;
@@ -276,7 +277,7 @@ function FAEditor({
     category: "",
     cost: 0,
     salvageValue: 0,
-    inServiceDate: new Date().toISOString().slice(0, 10),
+    inServiceDate: todayIso(),
     method: "STRAIGHT_LINE",
     usefulLifeMonths: 36,
     decliningRate: 20,
@@ -310,7 +311,7 @@ function FAEditor({
         category: "",
         cost: 0,
         salvageValue: 0,
-        inServiceDate: new Date().toISOString().slice(0, 10),
+        inServiceDate: todayIso(),
         method: "STRAIGHT_LINE",
         usefulLifeMonths: 36,
         decliningRate: 20,

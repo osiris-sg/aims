@@ -25,6 +25,7 @@ import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import CloseWizardDialog from "../_lib/CloseWizardDialog";
 import { PaperSheet, ReportHeader, ReportPrintCss, fmt, formatShortDate } from "../_lib/report-doc";
 import { ReportPrintExportButton, type ReportExportTable } from "../_lib/report-export";
+import { todayIso } from "@/helpers/orgToday";
 
 type Section = {
   title: string;
@@ -57,7 +58,7 @@ type BsReport = {
   totals: { totalAssets: number; totalLiabilitiesAndEquity: number; balanced: boolean };
 };
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayIso();
 
 type Mode = "STANDARD" | "MONTH_END" | "YEAR_END";
 

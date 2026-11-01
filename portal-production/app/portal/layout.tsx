@@ -8,6 +8,7 @@ import "react-toastify/dist/ReactToastify.css";
 import { OrganizationProvider } from "./context/OrganizationContext";
 import { ConfigurationProvider } from "./context/ConfigurationContext";
 import UiLangProvider from "@/i18n/UiLangProvider";
+import OrgTimeZoneLoader from "@/components/OrgTimeZoneLoader";
 import { SidebarProvider } from "@/components/Sidebar/SidebarContext";
 import { useThemeMode } from "@/contexts/ThemeModeContext";
 import { usePathname, useRouter } from "next/navigation";
@@ -84,6 +85,8 @@ export default function Layout(props: Props) {
     <OrganizationProvider>
       <FieldOnlyGuard>
         <ConfigurationProvider>
+          {/* Default dates follow the org's time zone (helpers/orgToday). */}
+          <OrgTimeZoneLoader />
           {/* Round AZ: EN / 日本語 (SHIPMENTS orgs; everyone else English). */}
           <UiLangProvider>
           <SidebarProvider>

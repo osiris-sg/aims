@@ -30,6 +30,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import CloseIcon from "@mui/icons-material/Close";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./api";
+import { todayIso } from "@/helpers/orgToday";
 
 type Account = {
   id: string;
@@ -65,7 +66,7 @@ const newLine = (): Line => ({
 const fmt = (n: number) =>
   n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayIso();
 
 export default function JournalEntryDialog({
   open,

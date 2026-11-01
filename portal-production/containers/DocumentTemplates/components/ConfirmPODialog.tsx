@@ -20,6 +20,7 @@ import {
   Folder as FolderIcon,
   Search as SearchIcon,
 } from "@mui/icons-material";
+import { todayIso } from "@/helpers/orgToday";
 
 interface AccountEntry {
   label: string;
@@ -54,7 +55,7 @@ export default function ConfirmPODialog({
 }: ConfirmPODialogProps) {
   const [supplierDONo, setSupplierDONo] = useState("");
   const [supplierDODate, setSupplierDODate] = useState(
-    new Date().toISOString().split("T")[0]
+    todayIso()
   );
   const [rate, setRate] = useState("1.000000");
   const [linkToAccounts, setLinkToAccounts] = useState(false);
@@ -85,7 +86,7 @@ export default function ConfirmPODialog({
   const handleClose = () => {
     // Reset form
     setSupplierDONo("");
-    setSupplierDODate(new Date().toISOString().split("T")[0]);
+    setSupplierDODate(todayIso());
     setRate("1.000000");
     setLinkToAccounts(false);
     onClose();
