@@ -185,8 +185,10 @@ export class CustomersService {
    * Example: CA001, CA002, CB001, etc.
    */
   private async generateCustomerCode(customerName: string, organizationId: string): Promise<string> {
-    // Get the first letter of the customer name (uppercase), default to 'X' if empty
-    const firstLetter = customerName?.trim().charAt(0).toUpperCase() || 'X';
+    // First A-Z/0-9 character of the name, skipping leading punctuation
+    // ("+Plus Cafe" → CP, "(EBT) Ong" → CE, accents folded: "Éclair" → CE);
+    // 'X' when there is none (empty, Chinese and other non-Latin names).
+    const firstLetter = customerName?.normalize('NFD').toUpperCase().match(/[A-Z0-9]/)?.[0] || 'X';
     const prefix = `C${firstLetter}`;
 
     // Next number = MAX(existing numeric suffix) + 1 — NOT count+1, which
@@ -198,9 +200,13 @@ export class CustomersService {
       where: { organizationId, customerCode: { startsWith: prefix } },
       select: { customerCode: true },
     });
+    // Match the prefix as literal text (it used to be the raw first character:
+    // "(" was a SyntaxError, "+" issued C+001 forever).
+    const literal = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const codeRe = new RegExp(`^${literal}(\\d+)$`);
     let max = 0;
     for (const c of existing) {
-      const m = c.customerCode?.match(new RegExp(`^${prefix}(\\d+)$`));
+      const m = c.customerCode?.match(codeRe);
       if (m) max = Math.max(max, parseInt(m[1], 10));
     }
     return `${prefix}${String(max + 1).padStart(3, '0')}`;
