@@ -131,7 +131,7 @@ export async function autoDraftDeliveryFromQuotation(
       customerId: customer?.id ?? null,
       sourceQuotationId: doc.id,
       ...(siteAddress ? { siteAddress } : {}),
-      notes: `Auto-created from accepted quotation ${doc.name || doc.id} — set the date and confirm the schedule to make it live.`,
+      notes: `Auto-created from accepted quotation ${doc.name || doc.id}. Set the date and confirm the schedule to make it live.`,
       items: {
         create: lines.flatMap((l, lineIdx) => {
           const asset = resolveAsset(l);

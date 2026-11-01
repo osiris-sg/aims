@@ -625,10 +625,22 @@ export class OrdersService {
           orderBy: { createdAt: 'asc' },
         })
       : [];
+    // Actually emailed (a SENT history event): "Confirmed" alone is not "Sent".
+    const sent = docs.length
+      ? new Set(
+          (
+            await this.prisma.auditLog.findMany({
+              where: { organizationId, resource: 'document', action: 'SENT', resourceId: { in: docs.map((d: any) => d.id) } },
+              select: { resourceId: true },
+            })
+          ).map((a) => a.resourceId),
+        )
+      : new Set<string | null>();
     const invoices = docs.map((d: any) => ({
       id: d.id,
       name: d.name,
       status: d.status,
+      emailed: sent.has(d.id),
       href: `/portal/documents/${d.type}/${d.documentTemplateId}/${d.id}`,
       total: Number(d.config?.grandTotal ?? d.config?.documentInfo?.grandTotal ?? d.config?.nettTotal ?? 0) || 0,
       jobNumbers: jobs.filter((j) => j.orderInvoiceId === d.id).map((j) => j.deliveryNumber),

@@ -61,6 +61,8 @@ interface OrderInvoice {
   href: string;
   total: number;
   jobNumbers: number[];
+  /** Emailed to the customer at least once (else only confirmed). */
+  emailed?: boolean;
 }
 interface WctOrder {
   id: string;
@@ -79,7 +81,10 @@ interface WctOrder {
   attachments?: OrderAttachment[];
 }
 
-const INVOICE_STATUS: Record<string, string> = { draft: "Draft", unconfirmed: "Draft", confirmed: "Confirmed", pending_payment: "Sent, awaiting payment", paid: "Paid" };
+const INVOICE_STATUS: Record<string, string> = { draft: "Draft", unconfirmed: "Draft", confirmed: "Confirmed", pending_payment: "Confirmed, awaiting payment", paid: "Paid" };
+// "Sent" only when the invoice was actually emailed (the API's `emailed`).
+const invoiceStatusLabel = (inv: { status: string; emailed?: boolean }) =>
+  inv.status === "pending_payment" && inv.emailed ? "Sent, awaiting payment" : INVOICE_STATUS[inv.status] ?? inv.status;
 
 const doHref = (d: NonNullable<Job["deliveryOrder"]>) => `/portal/documents/DELIVERY_ORDER/${d.templateId}/${d.id}`;
 
@@ -357,7 +362,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
                         {inv.total.toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
                       <TableCell>
-                        <StatusPill label={INVOICE_STATUS[inv.status] ?? inv.status} color={inv.status === "paid" ? "success" : inv.status === "pending_payment" ? "info" : "default"} />
+                        <StatusPill label={invoiceStatusLabel(inv)} color={inv.status === "paid" ? "success" : inv.status === "pending_payment" ? "info" : "default"} />
                       </TableCell>
                     </TableRow>
                   ))}
