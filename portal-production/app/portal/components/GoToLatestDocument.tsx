@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
-import { Box, CircularProgress } from "@mui/material";
+import { Box, Button, CircularProgress, Typography } from "@mui/material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import DocumentListView from "./DocumentListView";
-import { useTemplatePicker } from "./useTemplatePicker";
+import { useCreateDocumentFlow } from "./useCreateDocumentFlow";
+import { latestDocumentAction } from "@/helpers/latestDocument";
 import IdQuotationList from "@/app/portal/sales/quotations/id/_components/IdQuotationList";
 
 const QUOTATION_CODES = ["QUOTATION", "QO", "QO1", "QO2", "QT"];
@@ -34,7 +35,12 @@ export default function GoToLatestDocument({
   // editor (sectioned quote), bypassing both the auto-redirect and the generic
   // document list. Other document types are unaffected.
   const idQuotationMode = isIdQuotationEnabled && documentTypes.some((t) => QUOTATION_CODES.includes(String(t).toUpperCase()));
-  const { resolveTemplate, dialog: templatePickerDialog } = useTemplatePicker();
+  // An empty list never creates anything by itself (2026-11-02: opening an
+  // empty Quotations page used to auto-create a blank quotation, burning a
+  // document number each time). It shows an empty state; the button runs the
+  // same create flow as every other "Create <type>" button.
+  const { create, creating, dialogs: createFlowDialogs } = useCreateDocumentFlow(createDocumentType, documentLabel);
+  const [empty, setEmpty] = useState(false);
   const [, setError] = useState<string | null>(null);
   const hasRedirected = useRef(false);
 
@@ -70,37 +76,8 @@ export default function GoToLatestDocument({
 
         const filteredDocs: any[] = response.data.docs || [];
 
-        if (filteredDocs.length === 0) {
-          // No documents found - auto-create one
-          console.log(`No ${documentLabel} found, auto-creating...`);
-
-          // Resolve via the shared picker (self-gating: popup only if >1 active).
-          // null = no template OR the user cancelled → abort the auto-create.
-          const templateId = await resolveTemplate(createDocumentType);
-          if (!templateId) {
-            setError(`No template found for ${documentLabel}`);
-            return;
-          }
-
-          // Create the document. Re-fetch the token — the list fetch + template
-          // picker above can outlive the 60s Clerk token and 401 the create.
-          const freshToken = await getToken();
-          const createResponse = await request(
-            { path: "/documents/basic", method: "POST" },
-            {
-              type: createDocumentType,
-              config: {},
-              documentTemplateId: templateId,
-              organizationId: organization.id,
-            },
-            freshToken ?? token ?? undefined
-          );
-
-          if (createResponse?.success && createResponse?.data?.id) {
-            router.replace(`/portal/documents/${createDocumentType}/${templateId}/${createResponse.data.id}`);
-          } else {
-            setError(`Failed to create ${documentLabel}`);
-          }
+        if (latestDocumentAction(filteredDocs) === "empty") {
+          setEmpty(true);
           return;
         }
 
@@ -113,7 +90,7 @@ export default function GoToLatestDocument({
     };
 
     fetchAndRedirect();
-  }, [organization?.id, documentTypes, documentLabel, createDocumentType, getToken, router, isDocumentListViewEnabled, idQuotationMode, featuresLoading, resolveTemplate]);
+  }, [organization?.id, documentTypes, documentLabel, createDocumentType, getToken, router, isDocumentListViewEnabled, idQuotationMode, featuresLoading]);
 
   // Wait for feature flag to load before deciding which UI to render —
   // otherwise we'd briefly redirect, then unmount and show the list view.
@@ -139,9 +116,23 @@ export default function GoToLatestDocument({
     );
   }
 
-  // Legacy behavior — auto-redirect to latest (or auto-create if none). The
-  // template picker may surface here when the auto-create hits a type with >1
-  // active template.
+  // No document of this type yet: an empty state, nothing created until the click.
+  if (empty) {
+    return (
+      <Box sx={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: 2, height: "50vh", textAlign: "center", px: 2 }}>
+        <Typography variant="h6">No {pluralLabel ?? `${documentLabel}s`} yet</Typography>
+        <Typography variant="body2" color="text.secondary">
+          Create the first one when you are ready.
+        </Typography>
+        <Button variant="contained" onClick={() => void create()} disabled={creating} data-tour="page-create-button">
+          {creating ? <CircularProgress size={18} /> : `Create ${documentLabel}`}
+        </Button>
+        {createFlowDialogs}
+      </Box>
+    );
+  }
+
+  // Legacy behavior: open the latest document of these types.
   return (
     <Box
       sx={{
@@ -152,7 +143,6 @@ export default function GoToLatestDocument({
       }}
     >
       <CircularProgress size={32} />
-      {templatePickerDialog}
     </Box>
   );
 }
