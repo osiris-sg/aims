@@ -1,0 +1,111 @@
+{
+  "tabs": {
+    "products": "Products",
+    "packing": "Packing"
+  },
+  "warehouse": "Warehouse: {name}",
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save",
+    "hide": "Hide",
+    "actions": "Actions"
+  },
+  "forms": {
+    "BILLET": "billet",
+    "INGOT": "ingot",
+    "REMELT_INGOT": "remelt ingot",
+    "SCRAP": "scrap",
+    "OTHER": "other"
+  },
+  "fields": {
+    "grade": "Grade",
+    "form": "Form",
+    "size": "Size",
+    "diameterMm": "Diameter (mm)",
+    "lengthMm": "Length (mm)",
+    "or": "or",
+    "sizeText": "Size (free text)",
+    "sizeTextPlaceholder": "e.g. 1000 × 500 × 80",
+    "standard": "Standard / spec",
+    "standardPlaceholder": "e.g. JIS H 2110, customer spec no.",
+    "chemistry": "Chemistry",
+    "tolerances": "Tolerances",
+    "piecesPerBundle": "Pieces per bundle",
+    "bundleWeightKg": "Bundle weight (kg)",
+    "monthlyQtyMt": "Monthly quantity (t)",
+    "priceBasis": "Price basis",
+    "notes": "Notes"
+  },
+  "chem": {
+    "element": "Element",
+    "min": "Min %",
+    "max": "Max %",
+    "add": "Add element",
+    "remove": "Remove element"
+  },
+  "products": {
+    "introCustomer": "What this customer buys: specs, bundles, monthly quantity and price basis.",
+    "introSupplier": "What this supplier sells: specs, bundles, monthly quantity and price basis.",
+    "hiddenN": "({n} hidden)",
+    "none": "No products yet.",
+    "add": "Add product",
+    "addTitle": "Add product",
+    "editTitle": "Edit {label}",
+    "edit": "Edit",
+    "hide": "Hide",
+    "hideTitle": "Hide this product?",
+    "hideBody": "{label} will no longer show here. Nothing is deleted.",
+    "hidden": "Product hidden",
+    "hideFailed": "Could not hide the product",
+    "saved": "Product saved",
+    "added": "Product added",
+    "saveFailed": "Could not save the product",
+    "badNumber": "Numbers only in the size, bundle, quantity and chemistry fields.",
+    "unnamed": "Product",
+    "toConfirm": "To confirm: {field}",
+    "source": "Source: {source}"
+  },
+  "files": {
+    "specSheets": "Spec sheets",
+    "noSpecs": "None yet.",
+    "uploadSpec": "Upload spec sheet",
+    "specAdded": "Spec sheet added",
+    "uploadFailed": "Upload failed",
+    "openFailed": "Could not open the file",
+    "hide": "Hide",
+    "hideTitle": "Hide this file?",
+    "hideBody": "{name} will no longer show here. The file is kept.",
+    "hideFailed": "Could not hide the file"
+  },
+  "photos": {
+    "packingPhotos": "Packing photos",
+    "caption": "Caption",
+    "captionPlaceholder": "e.g. strapping, base ingots",
+    "takenOn": "Taken on",
+    "add": "Add photo",
+    "added": "Photo added",
+    "openFull": "Open full size",
+    "unavailable": "Not available"
+  },
+  "packing": {
+    "gallery": "Packing photos",
+    "noPhotos": "No packing photos yet.",
+    "notesTitle": "Packing notes",
+    "notes": "Notes",
+    "notesPlaceholder": "How this company packs / wants goods packed",
+    "saveNotes": "Save notes",
+    "notesSaved": "Packing notes saved",
+    "notesFailed": "Could not save the notes",
+    "issues": "Linked packing issues",
+    "issuesHint": "Issues are linked from the imported records for now; linking from this screen comes later.",
+    "noIssues": "No linked issues.",
+    "byProduct": "Photos by product",
+    "noProductPhotos": "No product has packing photos yet."
+  },
+  "contracts": {
+    "new": "New contract",
+    "uploadPdf": "Upload contract PDF",
+    "uploaded": "Contract PDF uploaded",
+    "uploadFailed": "Could not upload the contract PDF"
+  }
+}

@@ -18,6 +18,7 @@ import { defaultDeliveryMonth, premiumHelp, premiumRowFor } from "../_lib/order-
 import { useShipmentsApi, type Contract, type Order, type OrderInput, type PiExtraction } from "../_lib/api";
 import { useContracts, useCustomers, useSuppliers, useTradeMutation } from "../_lib/hooks";
 import { filledSx, PdfDropZone, SourcePdfPane } from "./PdfDrop";
+import AddFlowProductPicker, { orderFieldsFrom } from "./AddFlowProductPicker";
 import { useTranslations } from "next-intl";
 import { useUiLang } from "@/i18n/UiLangProvider";
 
@@ -402,6 +403,22 @@ export default function OrderFormDialog({
                   ))}
                 </TextField>
               </Grid>
+              {/* Round BA: the customer's products (Clients › Products) fill product / grade / size; fitting suppliers below. */}
+              {form.customerId && (
+                <Grid item xs={12}>
+                  <AddFlowProductPicker
+                    open={open}
+                    customerId={form.customerId}
+                    supplierId={form.supplierId}
+                    suppliers={suppliers.data ?? []}
+                    onPick={(p) => {
+                      const x = orderFieldsFrom(p);
+                      setForm((f) => ({ ...f, grade: x.grade || f.grade, size: x.size || f.size, product: x.product ?? f.product }));
+                    }}
+                    onSupplier={(id) => setForm((f) => (f.supplierId ? f : { ...f, supplierId: id }))}
+                  />
+                </Grid>
+              )}
               <Grid item xs={6}>
                 {field("shipMonth", t("shipMonth"), { type: "month", InputLabelProps: { shrink: true } })}
               </Grid>

@@ -13,16 +13,19 @@ import { useClientSupplier } from "../../../_lib/hooks";
 import OrdersListView from "../../../_components/OrdersListView";
 import { useOrdersView } from "../../../_components/OrdersViewToggle";
 import CompanyDetails from "../../_components/CompanyDetails";
+import { ProductsPanel } from "../../_components/ProductsPanel";
+import { PackingPanel } from "../../_components/PackingPanel";
 import IssuesPanel from "../../../_components/IssuesPanel";
 import { ClientsHeader, ContactsList, ContractsPanel, KV, useLang, useTab } from "../../_components/ClientsBits";
 
-const TABS = ["orders", "contracts", "details", "issues"] as const;
+const TABS = ["orders", "contracts", "products", "packing", "details", "issues"] as const;
 
 export default function ClientSupplierPage() {
   const { id } = useParams<{ id: string }>();
   const lang = useLang();
   const tb = useTranslations("clients.bits");
   const t = useTranslations("clients.profile");
+  const tc = useTranslations("catalog");
   const q = useClientSupplier(id);
   const [tab, setTab] = useTab(TABS, "orders");
   const [view, setView] = useOrdersView();
@@ -46,11 +49,15 @@ export default function ClientSupplierPage() {
           <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, minHeight: 40, "& .MuiTab-root": { minHeight: 40, textTransform: "none" } }}>
             <Tab value="orders" label={tb("orders")} />
             <Tab value="contracts" label={`${tb("contracts")} (${d.contracts.length})`} />
+            <Tab value="products" label={`${tc("tabs.products")} (${d.catalog?.products.length ?? 0})`} data-tour="client-tab-products" />
+            <Tab value="packing" label={tc("tabs.packing")} data-tour="client-tab-packing" />
             <Tab value="details" label={tb("details")} />
             <Tab value="issues" label={t("issues")} data-tour="client-tab-issues" />
           </Tabs>
           {tab === "orders" && <OrdersListView fixedSupplierId={d.supplier.id} view={view} onViewChange={setView} />}
-          {tab === "contracts" && <ContractsPanel contracts={d.contracts} party="supplier" />}
+          {tab === "contracts" && <ContractsPanel contracts={d.contracts} party="supplier" partyId={d.supplier.id} />}
+          {tab === "products" && <ProductsPanel kind="suppliers" id={d.supplier.id} catalog={d.catalog} />}
+          {tab === "packing" && <PackingPanel kind="suppliers" id={d.supplier.id} catalog={d.catalog} />}
           {tab === "details" && (
             <Stack spacing={2}>
             <CompanyDetails kind="supplier" rec={{ id: d.supplier.id, name: d.supplier.name, address: d.supplier.address, email: d.supplier.email, phone: d.supplier.phone, gstRegNo: d.supplier.gstRegNo, currency: d.supplier.currency, jpName: d.company?.legalNameJa ?? null }} company={d.company} logistics={d.logistics} contacts={d.contactList ?? []} lang={lang}>

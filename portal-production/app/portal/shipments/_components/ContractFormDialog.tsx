@@ -165,6 +165,7 @@ export default function ContractFormDialog({
   contract,
   onSaved,
   prefill,
+  party,
 }: {
   open: boolean;
   onClose: () => void;
@@ -173,6 +174,8 @@ export default function ContractFormDialog({
   onSaved?: (c: Contract) => void;
   /** A finished PI read (bulk "New contracts from PIs") to start from. */
   prefill?: PiExtraction | null;
+  /** Round BA: a new contract for this customer / supplier (the "+ Add customer / supplier" flow). */
+  party?: { customerId?: string; supplierId?: string } | null;
 }) {
   const api = useShipmentsApi();
   const t = useTranslations("contracts.form");
@@ -201,7 +204,7 @@ export default function ContractFormDialog({
 
   useEffect(() => {
     if (!open) return;
-    setForm(contract ? fromContract(contract) : { ...EMPTY, ...defaults });
+    setForm(contract ? fromContract(contract) : { ...EMPTY, ...defaults, ...(party?.customerId ? { customerId: party.customerId } : {}), ...(party?.supplierId ? { supplierId: party.supplierId } : {}) });
     setLines(contract ? (linesFrom(contract).length ? linesFrom(contract) : [newLine()]) : [newLine()]);
     setDepositEdited(!!contract && contract.depositAmount != null && autoDeposit(str(contract.piAmount), str(contract.depositPercent)) !== str(contract.depositAmount));
     setError(null);

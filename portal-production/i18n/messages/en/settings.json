@@ -258,6 +258,8 @@
     "deliverySite": "Delivery site (出庫・納入依頼書)",
     "siteName": "Site name (納入先)",
     "address": "Address",
+    "warehouseName": "倉庫名 (warehouse on the 出庫・納入依頼書)",
+    "warehouseNameHint": "Blank: Yokohama sites print the default warehouse; other ports are left blank to fill in",
     "notes": "Notes (one 備考 line each)",
     "invoiceRemarks": "Single invoice 備考 (商品 / 荷姿 / 保管倉庫 / 取扱港 / 保管条件 / 業務範囲 / 作業備考)",
     "discard": "Discard changes",

@@ -1,0 +1,94 @@
+{
+  "steps": {
+    "basic": "基本情報",
+    "products": "製品",
+    "packing": "梱包",
+    "contract": "契約",
+    "optional": "任意"
+  },
+  "nav": {
+    "saveContinue": "保存して次へ",
+    "finishLater": "保存して後で続ける",
+    "skip": "スキップ",
+    "next": "次へ",
+    "back": "戻る",
+    "finish": "完了",
+    "created": "{name}を保存しました。製品・梱包・契約を今追加するか、後で続けられます。",
+    "createdToast": "{name}を登録しました"
+  },
+  "products": {
+    "introC": "この顧客が購入する製品。注文作成時に選択できます。",
+    "introS": "この仕入先が販売する製品。新規注文で顧客の製品と照合されます。",
+    "grade": "グレード",
+    "gradeHint": "例：6063、6005、P1020",
+    "form": "形状",
+    "forms": {
+      "BILLET": "ビレット",
+      "INGOT": "インゴット",
+      "REMELT_INGOT": "再溶解インゴット",
+      "SCRAP": "スクラップ",
+      "OTHER": "その他"
+    },
+    "diameter": "直径 (mm)",
+    "length": "長さ (mm)",
+    "sizeText": "サイズ（その他）",
+    "sizeTextHint": "直径×長さでない場合。例：1000 × 500 × 80",
+    "pieces": "本数／束",
+    "bundleKg": "束重量 (kg)",
+    "monthly": "月間数量 (t)",
+    "priceBasis": "価格基準",
+    "priceBasisHint": "LME＋プレミアム、MJP＋プレミアム…",
+    "notes": "備考",
+    "add": "製品を追加",
+    "added": "製品を追加しました",
+    "list": "追加済み（{n}）",
+    "none": "製品はまだありません。"
+  },
+  "packing": {
+    "intro": "この会社の梱包要件：備考と写真（バンド掛け、ラベル、下駄・台座インゴットなど）。",
+    "notes": "梱包備考",
+    "saveNotes": "備考を保存",
+    "notesSaved": "梱包備考を保存しました",
+    "choose": "写真を選択",
+    "caption": "説明",
+    "captionHint": "写っている内容。例：バンド掛け、下駄・台座インゴット",
+    "takenOn": "撮影日",
+    "upload": "写真をアップロード",
+    "uploaded": "写真をアップロードしました",
+    "photos": "写真（{n}）",
+    "none": "写真はまだありません。"
+  },
+  "contract": {
+    "introC": "この顧客との年間契約を追加します。顧客は入力済みです。",
+    "introS": "この仕入先との年間契約を追加します。仕入先は入力済みです。",
+    "add": "契約を追加",
+    "saved": "契約 {no} を保存しました",
+    "list": "追加した契約：{n}件"
+  },
+  "picker": {
+    "label": "顧客の製品から選択",
+    "hint": "製品・グレード・サイズを入力します",
+    "monthly": "月{n} t",
+    "suppliers": "この製品を扱う仕入先",
+    "exact": "完全一致",
+    "grade": "同グレード・別サイズ",
+    "setSupplier": "クリックで仕入先に設定",
+    "supplierSet": "仕入先は選択済みです",
+    "noSupplier": "この製品を扱う仕入先はまだありません。"
+  },
+  "panel": {
+    "title": "梱包",
+    "notes": "備考",
+    "photos": "写真",
+    "issues": "梱包の課題",
+    "products": "製品別",
+    "bundle": "{pieces}本／束",
+    "weight": "{kg} kg／束",
+    "open": "原寸で開く",
+    "close": "閉じる",
+    "status": {
+      "OPEN": "未解決",
+      "RESOLVED": "解決済み"
+    }
+  }
+}

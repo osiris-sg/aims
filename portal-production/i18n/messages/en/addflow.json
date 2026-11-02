@@ -1,0 +1,94 @@
+{
+  "steps": {
+    "basic": "Basic",
+    "products": "Products",
+    "packing": "Packing",
+    "contract": "Contract",
+    "optional": "Optional"
+  },
+  "nav": {
+    "saveContinue": "Save and continue",
+    "finishLater": "Save and finish later",
+    "skip": "Skip",
+    "next": "Next",
+    "back": "Back",
+    "finish": "Finish",
+    "created": "{name} is saved. Add products, packing and a contract now, or finish later.",
+    "createdToast": "{name} created"
+  },
+  "products": {
+    "introC": "The products this customer buys. Each one can be picked when you create an order.",
+    "introS": "The products this supplier sells. They are matched to customer products on new orders.",
+    "grade": "Grade",
+    "gradeHint": "e.g. 6063, 6005, P1020",
+    "form": "Form",
+    "forms": {
+      "BILLET": "Billet",
+      "INGOT": "Ingot",
+      "REMELT_INGOT": "Remelt ingot",
+      "SCRAP": "Scrap",
+      "OTHER": "Other"
+    },
+    "diameter": "Diameter (mm)",
+    "length": "Length (mm)",
+    "sizeText": "Size (other)",
+    "sizeTextHint": "When it isn't diameter × length, e.g. 1000 × 500 × 80",
+    "pieces": "Pieces / bundle",
+    "bundleKg": "Bundle weight (kg)",
+    "monthly": "Monthly (t)",
+    "priceBasis": "Price basis",
+    "priceBasisHint": "LME + premium, MJP + premium…",
+    "notes": "Notes",
+    "add": "Add product",
+    "added": "Product added",
+    "list": "Added ({n})",
+    "none": "No products yet."
+  },
+  "packing": {
+    "intro": "How this company wants the goods packed: notes and photos (strapping, labels, base ingots…).",
+    "notes": "Packing notes",
+    "saveNotes": "Save notes",
+    "notesSaved": "Packing notes saved",
+    "choose": "Choose photo",
+    "caption": "Caption",
+    "captionHint": "What it shows, e.g. strapping, geta / base ingots",
+    "takenOn": "Taken on",
+    "upload": "Upload photo",
+    "uploaded": "Photo uploaded",
+    "photos": "Photos ({n})",
+    "none": "No photos yet."
+  },
+  "contract": {
+    "introC": "Add the yearly contract with this customer. The customer is filled in for you.",
+    "introS": "Add the yearly contract with this supplier. The supplier is filled in for you.",
+    "add": "Add contract",
+    "saved": "Contract {no} saved",
+    "list": "Contracts added: {n}"
+  },
+  "picker": {
+    "label": "Pick from the customer's products",
+    "hint": "Fills product, grade and size",
+    "monthly": "{n} t / month",
+    "suppliers": "Suppliers with this product",
+    "exact": "Exact match",
+    "grade": "Same grade, other size",
+    "setSupplier": "Click to set the supplier",
+    "supplierSet": "Supplier already chosen",
+    "noSupplier": "No supplier has this product yet."
+  },
+  "panel": {
+    "title": "Packing",
+    "notes": "Notes",
+    "photos": "Photos",
+    "issues": "Packing issues",
+    "products": "Per product",
+    "bundle": "{pieces} pcs / bundle",
+    "weight": "{kg} kg / bundle",
+    "open": "Open full size",
+    "close": "Close",
+    "status": {
+      "OPEN": "Open",
+      "RESOLVED": "Resolved"
+    }
+  }
+}

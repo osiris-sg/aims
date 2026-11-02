@@ -850,15 +850,48 @@ export type DocFormatView = {
   generator: string; generatorLabel: string; formatConfirmed: boolean; options: Array<{ key: string; label: string; formatConfirmed: boolean }>;
   choose: "variant" | "billing" | "fixed"; previewable: boolean; language: "ja" | "en"; addressee: string | null; effectiveAddressee: string; notes: string | null; samples: FormatSampleView[];
 };
+/** Round BA — Clients › Products / Packing (customers and suppliers). */
+export type ProductForm = "BILLET" | "INGOT" | "REMELT_INGOT" | "SCRAP" | "OTHER";
+export const PRODUCT_FORMS: ProductForm[] = ["BILLET", "INGOT", "REMELT_INGOT", "SCRAP", "OTHER"];
+export type ProfileFileView = { id: string; fileName: string; mimeType: string; sizeBytes: number; uploadedAt: string; uploadedByName: string | null; caption: string | null; takenOn: string | null; url?: string | null };
+export type ChemLimit = { element: string; min?: number | null; max?: number | null };
+export type ClientProductInput = {
+  grade?: string | null; form?: ProductForm | null; diameterMm?: number | null; lengthMm?: number | null; sizeText?: string | null;
+  standard?: string | null; chemistry?: ChemLimit[]; tolerances?: string | null; piecesPerBundle?: number | null; bundleWeightKg?: number | null;
+  monthlyQtyMt?: number | null; priceBasis?: string | null; notes?: string | null;
+};
+export type ClientProductView = ClientProductInput & {
+  id: string; label: string; size: string; specFiles: ProfileFileView[]; packingImages: ProfileFileView[];
+  source?: string | null; toConfirm?: string[]; createdAt?: string; updatedAt?: string;
+};
+export type PackingIssue = { id: string; title: string; summaryEn: string | null; summaryJa: string | null; status: string; createdAt: string };
+export type ClientCatalog = {
+  products: ClientProductView[]; hiddenProducts: number;
+  packing: { notes: string | null; images: ProfileFileView[]; issues: PackingIssue[] };
+};
+export type ClientKind = "customers" | "suppliers";
+/** New order: products per customer / supplier; each customer product with the supplier products that fit it. */
+export type ProductBrief = { id: string; label: string; grade: string | null; form: ProductForm | null; size: string; monthlyQtyMt: number | null; priceBasis: string | null };
+export type ProductCatalog = {
+  customers: Array<{ customerId: string; products: Array<ProductBrief & { matches: Array<{ supplierId: string; productId: string; label: string; fit: "exact" | "grade" }> }> }>;
+  suppliers: Array<{ supplierId: string; products: ProductBrief[] }>;
+};
+/** Order / shipment pages: the customer's packing notes, photos (signed URLs), linked issues and bundle data. */
+export type CustomerPacking = {
+  notes: string | null; images: ProfileFileView[]; issues: PackingIssue[];
+  products: Array<{ id: string; label: string; piecesPerBundle: number | null; bundleWeightKg: number | null; images: ProfileFileView[] }>;
+};
 export type ClientCustomerDetail = {
   customer: { id: string; customerCode: string | null; name: string; jpName: string | null; jpAddress: string | null; jpContact: string | null; email: string | null; phone: string | null; address: string | null; currency: string; contacts: Array<{ id: string; name: string; email: string | null; phone: string | null; designation: string | null; isPrimary: boolean; lang?: "ja" | "en" | null }>; gstRegNo?: string | null };
   short: string; profile: CustomerProfile; hasProfile: boolean; stats: ClientStats; contracts: ClientContract[]; contacts: ClientContact[]; ports: string[];
-  deliverySites: Array<{ siteName: string; address: string; notes?: string; label?: string | null; warehouseCheck?: boolean; source: string }>;
+  deliverySites: Array<{ siteName: string; address: string; notes?: string; label?: string | null; warehouseName?: string | null; warehouseCheck?: boolean; source: string }>;
   formats: DocFormatView[];
   /** Round AY: the customer's process — every step, and the ones left out. */
   process: { steps: ProcessStepDef[]; skipSteps: string[] };
   /** Round AY part 3. */
   company?: CompanyInfo; logistics?: LogisticsInfo; contactList?: ContactInfo[];
+  /** Round BA: Products / Packing. */
+  catalog?: ClientCatalog;
 };
 /** Round AY: one step of the order process (Clients → a customer → Process). */
 export type ProcessStepDef = { scope: "ORDER" | "SHIPMENT"; code: string; no: string; en: string; ja: string; ongoing?: boolean };
@@ -887,6 +920,8 @@ export type ClientSupplierDetail = {
   openStages: Array<{ orderNo: number; supplierStage: SupplierStageCode; orderStage: OrderStageCode }>;
   /** Round AY part 3. */
   company?: CompanyInfo; logistics?: LogisticsInfo; contactList?: ContactInfo[];
+  /** Round BA: Products / Packing. */
+  catalog?: ClientCatalog;
 };
 export type FormatPreview = { generator: string; source: string | null; notes: string[]; pdf: { fileName: string; contentType: string; base64: string }; xlsx: { fileName: string; contentType: string; base64: string } | null };
 /** Round AF: one attachment of a thread (inline signature images left out), with the email it came in. */
@@ -1631,6 +1666,35 @@ export function useShipmentsApi() {
         try {
           const res = await axios.post(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/trade-clients/customers/${id}/formats/${docType}/samples`, form, { headers, timeout: 120000 });
           return (res.data?.data ?? res.data) as ClientCustomerDetail;
+        } catch (e: any) {
+          if (e?.response?.status === 413) throw new Error("File is larger than 25 MB");
+          throw new Error(errorText(e?.response?.data?.message ?? e?.message, "Upload failed"));
+        }
+      },
+      // Round BA — Products / Packing (customers and suppliers).
+      clientSaveProduct: (kind: ClientKind, id: string, productId: string | null, body: ClientProductInput) =>
+        call<ClientCatalog>(productId ? `/trade-clients/${kind}/${id}/products/${productId}` : `/trade-clients/${kind}/${id}/products`, productId ? "PATCH" : "POST", body),
+      clientHideProduct: (kind: ClientKind, id: string, productId: string, hidden = true) => call<ClientCatalog>(`/trade-clients/${kind}/${id}/products/${productId}/hide`, "PATCH", { hidden }),
+      clientSavePacking: (kind: ClientKind, id: string, body: { notes?: string | null; issueIds?: string[] }) => call<ClientCatalog>(`/trade-clients/${kind}/${id}/packing`, "PATCH", body),
+      clientHideProfileFile: (kind: ClientKind, id: string, fileId: string) => call<ClientCatalog>(`/trade-clients/${kind}/${id}/files/${fileId}/hide`, "PATCH", {}),
+      clientProfileFileUrl: (kind: ClientKind, id: string, fileId: string) => call<{ url: string; fileName: string; mimeType: string }>(`/trade-clients/${kind}/${id}/files/${fileId}/url`),
+      productCatalog: () => call<ProductCatalog>(`/trade-clients/products`),
+      customerPacking: (customerId: string) => call<CustomerPacking>(`/trade-clients/customers/${customerId}/packing`),
+      /** Multipart: a spec sheet (slot "spec") / packing photo (slot "packing") on a product, or (productId null) a photo in the Packing gallery. */
+      clientUploadProfileFile: async (kind: ClientKind, id: string, productId: string | null, slot: "spec" | "packing", file: File, meta: { caption?: string; takenOn?: string } = {}): Promise<ClientCatalog> => {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const form = new FormData();
+        form.append("file", file);
+        if (meta.caption) form.append("caption", meta.caption);
+        if (meta.takenOn) form.append("takenOn", meta.takenOn);
+        const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+        const activeOrgId = typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null;
+        if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
+        const path = productId ? `/trade-clients/${kind}/${id}/products/${productId}/files/${slot}` : `/trade-clients/${kind}/${id}/packing/images`;
+        try {
+          const res = await axios.post(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}${path}`, form, { headers, timeout: 120000 });
+          return (res.data?.data ?? res.data) as ClientCatalog;
         } catch (e: any) {
           if (e?.response?.status === 413) throw new Error("File is larger than 25 MB");
           throw new Error(errorText(e?.response?.data?.message ?? e?.message, "Upload failed"));

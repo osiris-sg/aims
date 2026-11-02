@@ -244,11 +244,6 @@ function SgjpAdhForm({ header: h, rows, disabled, setHeader, setRows }: DocFormP
   );
 }
 
-const blTailOf = (bl: string) => {
-  const t = (bl ?? "").trim();
-  return t.length > 5 ? `末尾・・・${t.slice(-5)}` : t;
-};
-
 function SiAdhForm({ doc, header: h, rows, disabled, setHeader, setRows }: DocFormProps<any, any>) {
   const api = useShipmentsApi();
   const qc = useQueryClient();
@@ -286,7 +281,7 @@ function SiAdhForm({ doc, header: h, rows, disabled, setHeader, setRows }: DocFo
           <Grid2 size={{ xs: 12, sm: 6 }}>{tf("issuerName", "Issuer")}</Grid2>
           <Grid2 size={{ xs: 12, sm: 6 }}>{tf("vessel", "本船")}</Grid2>
           <Grid2 size={{ xs: 12, sm: 6 }}>{tf("voyageNo", "海事№ (voyage)")}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("blNumber", "B/L №", { helperText: `Printed as ${blTailOf(h.blNumber) || "—"}` })}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("blNumber", "B/L №")}</Grid2>
           <Grid2 size={{ xs: 12, sm: 6 }}>
             {tf("warehouseName", "倉庫名", (h as any).warehouseCheck && !h.warehouseName ? { helperText: "check — the Nagoya warehouse isn't known yet; ask Mitsui Soko (中部支社)", FormHelperTextProps: { sx: { color: "warning.main" } } } : {})}
           </Grid2>

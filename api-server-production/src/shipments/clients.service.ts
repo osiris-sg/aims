@@ -20,6 +20,9 @@ import { cleanSkipSteps, ImpactRecord, PROCESS_STEPS, processImpact } from './tr
 import { cleanCompany, cleanContacts, cleanLogistics, cleanShippingLine, companyView, ContactInfo, lineCode, maskedProfile, ShippingLineInfo, typesOf } from './clients-company';
 import { carrierCatalog, carrierOf } from './trade-carrier';
 import { defaultProfile, defaultSupplierProfile, SupplierProfile } from './trade-profile';
+import { cleanPacking, cleanProduct, ClientProduct, PackingInfo, productLabel, productMatch, productSize, ProfileFile } from './clients-products';
+
+type Party = 'customer' | 'supplier';
 import { shipmentRef } from './shipments.rules';
 import { orderStage, supplierStage } from './trade-stage';
 
@@ -144,6 +147,8 @@ export class ClientsService {
       deliverySites: [...(profile.deliveryProfile ? [{ ...profile.deliveryProfile, source: 'profile' }] : []), ...legacy.map((d) => ({ ...d, source: 'documents defaults' }))],
       formats: formatViews(profile, c.jpName || c.name),
       process: { steps: PROCESS_STEPS, skipSteps: profile.skipSteps ?? [] },
+      // Round BA: Products / Packing tabs.
+      catalog: await this.catalogView(organizationId, 'customer', id),
     };
   }
 
@@ -321,6 +326,8 @@ export class ClientsService {
         lmeBasis: contracts.map((k) => ({ contractNo: k.contractNo, text: k.qpBasis })).filter((x) => !!x.text),
       },
       openStages: stages,
+      // Round BA: Products / Packing tabs.
+      catalog: await this.catalogView(organizationId, 'supplier', id),
     };
   }
 
@@ -551,6 +558,221 @@ export class ClientsService {
     if (Object.keys(cols).length) await this.prisma.supplier.update({ where: { id }, data: cols as any }).catch((e: unknown) => this.uniqueName(e, 'supplier'));
     if (Object.keys(patch).length) await this.config.updateSettings(organizationId, { supplierProfiles: { [id]: patch } } as any);
     return this.supplier(organizationId, id);
+  }
+
+  // ── Round BA: products & packing (customers and suppliers) ─────────────
+  // Stored on the trade profile; this service is their only writer. Hidden
+  // rows / files stay stored (nothing is deleted).
+
+  private async assertParty(organizationId: string, kind: Party, id: string) {
+    const row = kind === 'customer'
+      ? await this.prisma.customer.findFirst({ where: { id, organizationId }, select: { id: true } })
+      : await this.prisma.supplier.findFirst({ where: { id, organizationId }, select: { id: true } });
+    if (!row) throw new NotFoundException(kind === 'customer' ? 'Customer not found' : 'Supplier not found');
+  }
+
+  private async readParty(organizationId: string, kind: Party, id: string): Promise<{ products: ClientProduct[]; packing: PackingInfo }> {
+    const row: any = await this.prisma.tradeSetting.findUnique({ where: { organizationId }, select: { customerProfiles: true, supplierProfiles: true } });
+    const p = ((kind === 'customer' ? row?.customerProfiles : row?.supplierProfiles) ?? {})[id] ?? {};
+    return { products: p.products ?? [], packing: p.packing ?? {} };
+  }
+
+  /** The only writer of profile.products / profile.packing (a missing profile gets the default one, as a settings save would). */
+  private async writeParty(organizationId: string, kind: Party, id: string, fn: (cur: { products: ClientProduct[]; packing: PackingInfo }) => { products: ClientProduct[]; packing: PackingInfo }) {
+    const field = kind === 'customer' ? 'customerProfiles' : 'supplierProfiles';
+    const row: any = await this.prisma.tradeSetting.findUnique({ where: { organizationId }, select: { id: true, [field]: true } });
+    const profiles = (row?.[field] ?? {}) as Record<string, any>;
+    const p = profiles[id] ?? (kind === 'customer' ? profileFor({}, id) : defaultSupplierProfile(id));
+    const next = fn({ products: [...(p.products ?? [])], packing: { ...(p.packing ?? {}) } });
+    const all = { ...profiles, [id]: { ...p, products: next.products, packing: next.packing } };
+    if (row) await this.prisma.tradeSetting.update({ where: { organizationId }, data: { [field]: all } as any });
+    else await this.prisma.tradeSetting.create({ data: { organizationId, [field]: all } as any });
+  }
+
+  private fileView = (f: ProfileFile) => ({ id: f.id, fileName: f.fileName, mimeType: f.mimeType, sizeBytes: f.sizeBytes, uploadedAt: f.uploadedAt, uploadedByName: f.uploadedByName ?? null, caption: f.caption ?? null, takenOn: f.takenOn ?? null });
+
+  /** Products + packing as the screens see them (visible rows / files, no S3 keys; linked issues with their titles). */
+  async catalogView(organizationId: string, kind: Party, id: string) {
+    const { products, packing } = await this.readParty(organizationId, kind, id);
+    const issueIds = packing.issueIds ?? [];
+    const issues: any[] = issueIds.length
+      ? await this.prisma.tradeIssue.findMany({ where: { organizationId, id: { in: issueIds } }, select: { id: true, title: true, summaryEn: true, summaryJa: true, status: true, createdAt: true } })
+      : [];
+    return {
+      products: products.filter((p) => !p.hidden).map((p) => ({
+        ...p,
+        label: productLabel(p),
+        size: productSize(p),
+        specFiles: (p.specFiles ?? []).filter((f) => !f.hidden).map(this.fileView),
+        packingImages: (p.packingImages ?? []).filter((f) => !f.hidden).map(this.fileView),
+      })),
+      hiddenProducts: products.filter((p) => p.hidden).length,
+      packing: { notes: packing.notes ?? null, images: (packing.images ?? []).filter((f) => !f.hidden).map(this.fileView), issues },
+    };
+  }
+
+  /** Add (productId null) or edit one product. */
+  async saveProduct(organizationId: string, kind: Party, id: string, productId: string | null, body: unknown) {
+    await this.assertParty(organizationId, kind, id);
+    const now = new Date().toISOString();
+    await this.writeParty(organizationId, kind, id, (cur) => {
+      if (productId) {
+        const i = cur.products.findIndex((p) => p.id === productId);
+        if (i < 0) throw new NotFoundException('Product not found');
+        cur.products[i] = cleanProduct(body, cur.products[i], productId, now, this.bad);
+      } else cur.products.push(cleanProduct(body, undefined, randomUUID(), now, this.bad));
+      return cur;
+    });
+    return this.catalogView(organizationId, kind, id);
+  }
+
+  /** Hide (or show again) a product — kept, never deleted. */
+  async hideProduct(organizationId: string, kind: Party, id: string, productId: string, hidden = true) {
+    await this.assertParty(organizationId, kind, id);
+    await this.writeParty(organizationId, kind, id, (cur) => {
+      const p = cur.products.find((x) => x.id === productId);
+      if (!p) throw new NotFoundException('Product not found');
+      p.hidden = hidden;
+      p.updatedAt = new Date().toISOString();
+      return cur;
+    });
+    return this.catalogView(organizationId, kind, id);
+  }
+
+  /** Validate + store one upload in S3 (images only for packing photos). */
+  private async storeProfileFile(organizationId: string, kind: Party, id: string, folder: string, file: Express.Multer.File | undefined, meta: { caption?: unknown; takenOn?: unknown }, actor: TradeActor, imagesOnly: boolean): Promise<ProfileFile> {
+    if (!file) throw new BadRequestException('Please attach a file');
+    const fileName = decodeUploadName(file.originalname || 'file');
+    const mimeType = resolveTradeFileMime(fileName, file.mimetype);
+    if (!mimeType) throw new BadRequestException(`File type not allowed: ${fileName}`);
+    if (imagesOnly && !mimeType.startsWith('image/')) throw new BadRequestException('Packing photos must be images (JPG, PNG…)');
+    if (file.size > TRADE_FILE_MAX_BYTES) throw new BadRequestException('File is larger than 25 MB');
+    const takenOn = typeof meta.takenOn === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(meta.takenOn) ? meta.takenOn : null;
+    const caption = typeof meta.caption === 'string' && meta.caption.trim() ? meta.caption.trim().slice(0, 300) : null;
+    const fid = randomUUID();
+    const s3Key = `${TradeFilesService.keyPrefix(organizationId)}${folder}/${kind}/${id}/${fid}_${sanitizeFileName(fileName)}`;
+    await this.s3.uploadFile(s3Key, file.buffer, mimeType);
+    return { id: fid, fileName, mimeType, sizeBytes: file.size, s3Key, uploadedAt: new Date().toISOString(), uploadedByName: actor.name, caption, takenOn };
+  }
+
+  /** A spec sheet ("spec") or packing photo ("packing") on one product. */
+  async addProductFile(organizationId: string, kind: Party, id: string, productId: string, slot: string, file: Express.Multer.File | undefined, meta: { caption?: unknown; takenOn?: unknown }, actor: TradeActor) {
+    if (slot !== 'spec' && slot !== 'packing') throw new BadRequestException('slot must be spec or packing');
+    await this.assertParty(organizationId, kind, id);
+    const cur = await this.readParty(organizationId, kind, id);
+    if (!cur.products.some((p) => p.id === productId)) throw new NotFoundException('Product not found');
+    const f = await this.storeProfileFile(organizationId, kind, id, 'client-products', file, meta, actor, slot === 'packing');
+    try {
+      await this.writeParty(organizationId, kind, id, (c) => {
+        const p = c.products.find((x) => x.id === productId);
+        if (!p) throw new NotFoundException('Product not found');
+        if (slot === 'spec') p.specFiles = [...(p.specFiles ?? []), f];
+        else p.packingImages = [...(p.packingImages ?? []), f];
+        p.updatedAt = new Date().toISOString();
+        return c;
+      });
+    } catch (e) {
+      await this.s3.deleteFile(f.s3Key).catch(() => undefined);
+      throw e;
+    }
+    return this.catalogView(organizationId, kind, id);
+  }
+
+  /** A packing photo in the company's general Packing gallery. */
+  async addPackingImage(organizationId: string, kind: Party, id: string, file: Express.Multer.File | undefined, meta: { caption?: unknown; takenOn?: unknown }, actor: TradeActor) {
+    await this.assertParty(organizationId, kind, id);
+    const f = await this.storeProfileFile(organizationId, kind, id, 'client-packing', file, meta, actor, true);
+    try {
+      await this.writeParty(organizationId, kind, id, (c) => ({ ...c, packing: { ...c.packing, images: [...(c.packing.images ?? []), f] } }));
+    } catch (e) {
+      await this.s3.deleteFile(f.s3Key).catch(() => undefined);
+      throw e;
+    }
+    return this.catalogView(organizationId, kind, id);
+  }
+
+  /** Every file of this company's products + gallery, by id (for hide / url). */
+  private findProfileFile(cur: { products: ClientProduct[]; packing: PackingInfo }, fileId: string): ProfileFile | null {
+    for (const p of cur.products) for (const f of [...(p.specFiles ?? []), ...(p.packingImages ?? [])]) if (f.id === fileId) return f;
+    return (cur.packing.images ?? []).find((f) => f.id === fileId) ?? null;
+  }
+
+  /** Hide a spec sheet / packing photo (kept in S3 and on the profile). */
+  async hideProfileFile(organizationId: string, kind: Party, id: string, fileId: string) {
+    await this.assertParty(organizationId, kind, id);
+    let found = false;
+    await this.writeParty(organizationId, kind, id, (c) => {
+      const f = this.findProfileFile(c, fileId);
+      if (f) {
+        f.hidden = true;
+        found = true;
+      }
+      return c;
+    });
+    if (!found) throw new NotFoundException('File not found');
+    return this.catalogView(organizationId, kind, id);
+  }
+
+  async profileFileUrl(organizationId: string, kind: Party, id: string, fileId: string) {
+    await this.assertParty(organizationId, kind, id);
+    const f = this.findProfileFile(await this.readParty(organizationId, kind, id), fileId);
+    if (!f || f.hidden || !f.s3Key.startsWith(TradeFilesService.keyPrefix(organizationId))) throw new NotFoundException('File not found');
+    return { url: await this.s3.getSignedUrl(f.s3Key, SIGNED_URL_TTL), fileName: f.fileName, mimeType: f.mimeType, expiresIn: SIGNED_URL_TTL };
+  }
+
+  /** Packing notes and linked issues (the issues must be this org's). */
+  async savePacking(organizationId: string, kind: Party, id: string, body: unknown) {
+    await this.assertParty(organizationId, kind, id);
+    const cur = await this.readParty(organizationId, kind, id);
+    const next = cleanPacking(body, cur.packing, this.bad);
+    if (next.issueIds?.length) {
+      const n = await this.prisma.tradeIssue.count({ where: { organizationId, id: { in: next.issueIds } } });
+      if (n !== next.issueIds.length) this.bad('An issue to link was not found');
+    }
+    await this.writeParty(organizationId, kind, id, (c) => ({ ...c, packing: next }));
+    return this.catalogView(organizationId, kind, id);
+  }
+
+  /**
+   * New order: every customer's and supplier's visible products (no files), each
+   * customer product with the supplier products that fit it (exact / same grade).
+   */
+  async productCatalog(organizationId: string) {
+    const row: any = await this.prisma.tradeSetting.findUnique({ where: { organizationId }, select: { customerProfiles: true, supplierProfiles: true } });
+    const brief = (p: ClientProduct) => ({ id: p.id, label: productLabel(p), grade: p.grade ?? null, form: p.form ?? null, size: productSize(p), monthlyQtyMt: p.monthlyQtyMt ?? null, priceBasis: p.priceBasis ?? null });
+    const suppliers = Object.entries((row?.supplierProfiles ?? {}) as Record<string, SupplierProfile>).map(([sid, p]) => ({ supplierId: sid, products: (p.products ?? []).filter((x) => !x.hidden) }));
+    return {
+      customers: Object.entries((row?.customerProfiles ?? {}) as Record<string, CustomerProfile>).map(([cid, p]) => ({
+        customerId: cid,
+        products: (p.products ?? []).filter((x) => !x.hidden).map((x) => ({
+          ...brief(x),
+          matches: suppliers.flatMap((s) => s.products.map((sp) => ({ supplierId: s.supplierId, productId: sp.id, label: productLabel(sp), fit: productMatch(x, sp) })).filter((m) => m.fit)),
+        })),
+      })).filter((c) => c.products.length),
+      suppliers: suppliers.map((s) => ({ supplierId: s.supplierId, products: s.products.map(brief) })).filter((s) => s.products.length),
+    };
+  }
+
+  /** Order / shipment pages: the customer's packing notes, photos (signed URLs) and linked issues, and each product's bundle data. */
+  async packingFor(organizationId: string, customerId: string) {
+    await this.assertParty(organizationId, 'customer', customerId);
+    const view = await this.catalogView(organizationId, 'customer', customerId);
+    const cur = await this.readParty(organizationId, 'customer', customerId);
+    const urlOf = async (fid: string) => {
+      const f = this.findProfileFile(cur, fid);
+      return f ? this.s3.getSignedUrl(f.s3Key, SIGNED_URL_TTL) : null;
+    };
+    const withUrls = async (list: ReturnType<typeof this.fileView>[]) => Promise.all(list.map(async (f) => ({ ...f, url: await urlOf(f.id) })));
+    return {
+      notes: view.packing.notes,
+      images: await withUrls(view.packing.images),
+      issues: view.packing.issues,
+      products: await Promise.all(
+        view.products
+          .filter((p) => p.packingImages.length || p.piecesPerBundle || p.bundleWeightKg)
+          .map(async (p) => ({ id: p.id, label: p.label, piecesPerBundle: p.piecesPerBundle ?? null, bundleWeightKg: p.bundleWeightKg ?? null, images: await withUrls(p.packingImages) })),
+      ),
+    };
   }
 
   private async storedLines(organizationId: string): Promise<Record<string, ShippingLineInfo>> {

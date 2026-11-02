@@ -61,8 +61,12 @@ export const companyView = (c: CompanyInfo | null | undefined): CompanyInfo => (
 
 /** A profile (customer or supplier) as sent to the browser: the bank account masked. */
 export function maskedProfile<T extends { company?: CompanyInfo } | null | undefined>(p: T): T {
-  if (!p || !p.company?.bank?.accountNo) return p;
-  return { ...p, company: companyView(p.company) };
+  if (!p) return p;
+  // Round BA: products / packing (with their S3 keys) are served by the Clients catalog view only.
+  const { products: _products, packing: _packing, ...rest } = p as T & { products?: unknown; packing?: unknown };
+  const out = rest as unknown as NonNullable<T>;
+  if (!out.company?.bank?.accountNo) return out;
+  return { ...out, company: companyView(out.company) };
 }
 /** Org Settings (GET /trade-config/settings): every profile's bank account masked. */
 export function maskedSettings<T extends { customerProfiles?: unknown; supplierProfiles?: unknown }>(s: T): T {

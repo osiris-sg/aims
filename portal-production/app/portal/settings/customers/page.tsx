@@ -204,6 +204,20 @@ function ProfileCard({ customer, profile, banks }: { customer: { id: string; nam
         <Grid2 size={{ xs: 12, sm: 8 }}>
           <TextField size="small" fullWidth label={t("address")} value={dp.address} onChange={(e) => set({ deliveryProfile: { ...dp, address: e.target.value } })} />
         </Grid2>
+        {/* Round BA: 倉庫名 on this customer's 出庫・納入依頼書. A non-Yokohama site
+            (Kato, Nagoya) is otherwise left blank to check; a name clears that. */}
+        <Grid2 size={{ xs: 12, sm: 6 }}>
+          <TextField
+            size="small"
+            fullWidth
+            label={t("warehouseName")}
+            helperText={t("warehouseNameHint")}
+            value={dp.warehouseName ?? ""}
+            onChange={(e) =>
+              set({ deliveryProfile: { ...dp, warehouseName: e.target.value, ...(e.target.value.trim() ? { warehouseCheck: false } : {}) } })
+            }
+          />
+        </Grid2>
         <Grid2 size={12}>
           <TextField size="small" fullWidth multiline minRows={2} label={t("notes")} value={dp.notes} onChange={(e) => set({ deliveryProfile: { ...dp, notes: e.target.value } })} />
         </Grid2>

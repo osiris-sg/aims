@@ -75,6 +75,9 @@ export interface CustomerProfile {
   logistics?: import('./clients-company').LogisticsInfo;
   /** Round AY part 3: contacts (name, role, e-mail, phone, language, main) — kept here so they work in every tenancy mode. */
   contacts?: import('./clients-company').ContactInfo[];
+  /** Round BA (Clients → Products / Packing): written by the Clients service only. */
+  products?: import('./clients-products').ClientProduct[];
+  packing?: import('./clients-products').PackingInfo;
 }
 
 /** The documents AIMS makes for a customer, by step: 4 Customer COA / PL, 7 SG→JP IV & PL, 9 出庫・納入依頼書, 11 invoice. */
@@ -155,6 +158,9 @@ export interface SupplierProfile {
   company?: import('./clients-company').CompanyInfo;
   logistics?: import('./clients-company').LogisticsInfo;
   contacts?: import('./clients-company').ContactInfo[];
+  /** Round BA (Clients → Products / Packing): written by the Clients service only. */
+  products?: import('./clients-products').ClientProduct[];
+  packing?: import('./clients-products').PackingInfo;
 }
 
 /** Every supplier's own key formats (intake validation): Vedanta's defaults are added by the callers. */
@@ -378,6 +384,9 @@ export function mergeProfiles(current: unknown, patch: Record<string, unknown>, 
       ...(skipSteps.length ? { skipSteps } : {}),
       // Round AY part 3: Clients → Details keeps these; a save without them (Org Settings → Customers) keeps the stored ones.
       ...keepExtra(out[id] as CustomerProfile | undefined, p as Partial<CustomerProfile>),
+      // Round BA: products / packing are the Clients service's alone — a settings save always keeps the stored ones.
+      ...((out[id] as CustomerProfile | undefined)?.products?.length ? { products: (out[id] as CustomerProfile).products } : {}),
+      ...((out[id] as CustomerProfile | undefined)?.packing ? { packing: (out[id] as CustomerProfile).packing } : {}),
     };
   }
   return out;

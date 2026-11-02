@@ -394,11 +394,17 @@ export interface SiRowV2 {
   bundles: number | null;
 }
 
-/** "末尾・・・04630": the B/L number's last five characters, as ADH prints it. */
-export const blTail = (bl: string) => {
-  const t = (bl ?? '').trim();
-  return t.length > 5 ? `末尾・・・${t.slice(-5)}` : t;
-};
+/**
+ * The B/L as stored, in full ("198GX06445"); several B/Ls each in full, joined
+ * with " / ". Round BA (Sayaka): ADH's old sheet printed only the tail
+ * ("末尾・・・06445"). An issued (FINAL) document keeps its stored PDF.
+ */
+export const blFull = (bl: string) =>
+  (bl ?? '')
+    .split(/\s*[,;/\n]+\s*|\s{2,}/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join(' / ');
 /** "203 MM X 5800 MM" → "203 X 5800". */
 export const billetSize = (size: string | null | undefined) =>
   (size ?? '')
@@ -425,7 +431,7 @@ export function renderSiV2Html(h: SiHeaderV2, rows: SiRowV2[], opts: { draft?: b
 <h1>${esc(h.title || '出庫・納入依頼書')}</h1>
 <table class="kv">
   <tr><th>本船</th><td>${esc(h.vessel)}</td><td class="gap"></td><th>海事№</th><td>${esc(h.voyageNo)}</td></tr>
-  <tr><th>B/L №</th><td>${esc(blTail(h.blNumber))}</td><td class="gap"></td><th>倉庫名</th><td>${esc(h.warehouseName)}</td></tr>
+  <tr><th>B/L №</th><td>${esc(blFull(h.blNumber))}</td><td class="gap"></td><th>倉庫名</th><td>${esc(h.warehouseName)}</td></tr>
 </table>
 <table class="grid">
   <colgroup><col style="width:11%"><col style="width:12%"><col style="width:36%"><col style="width:16%"><col style="width:8%"><col style="width:17%"></colgroup>

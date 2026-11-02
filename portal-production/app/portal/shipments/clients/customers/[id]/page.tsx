@@ -18,14 +18,17 @@ import { ClientsHeader, ContactsList, ContractsPanel, KV, t3, useBillingLabel, u
 import DocumentFormatsPanel from "../../_components/DocumentFormatsPanel";
 import ProcessPanel from "../../_components/ProcessPanel";
 import CompanyDetails from "../../_components/CompanyDetails";
+import { ProductsPanel } from "../../_components/ProductsPanel";
+import { PackingPanel } from "../../_components/PackingPanel";
 
-const TABS = ["orders", "contracts", "details", "process", "formats", "issues"] as const;
+const TABS = ["orders", "contracts", "products", "packing", "details", "process", "formats", "issues"] as const;
 
 export default function ClientCustomerPage() {
   const { id } = useParams<{ id: string }>();
   const lang = useLang();
   const tb = useTranslations("clients.bits");
   const t = useTranslations("clients.profile");
+  const tc = useTranslations("catalog");
   const billingLabel = useBillingLabel();
   const q = useClientCustomer(id);
   const [tab, setTab] = useTab(TABS, "orders");
@@ -54,13 +57,17 @@ export default function ClientCustomerPage() {
           <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, minHeight: 40, "& .MuiTab-root": { minHeight: 40, textTransform: "none" } }}>
             <Tab value="orders" label={tb("orders")} data-tour="client-tab-orders" />
             <Tab value="contracts" label={`${tb("contracts")} (${d.contracts.length})`} data-tour="client-tab-contracts" />
+            <Tab value="products" label={`${tc("tabs.products")} (${d.catalog?.products.length ?? 0})`} data-tour="client-tab-products" />
+            <Tab value="packing" label={tc("tabs.packing")} data-tour="client-tab-packing" />
             <Tab value="details" label={tb("details")} data-tour="client-tab-details" />
             <Tab value="process" label={t("process")} data-tour="client-tab-process" />
             <Tab value="formats" label={tb("formats")} data-tour="client-tab-formats" />
             <Tab value="issues" label={t("issues")} data-tour="client-tab-issues" />
           </Tabs>
           {tab === "orders" && <OrdersListView fixedCustomerId={d.customer.id} view={view} onViewChange={setView} />}
-          {tab === "contracts" && <ContractsPanel contracts={d.contracts} party="customer" />}
+          {tab === "contracts" && <ContractsPanel contracts={d.contracts} party="customer" partyId={d.customer.id} />}
+          {tab === "products" && <ProductsPanel kind="customers" id={d.customer.id} catalog={d.catalog} />}
+          {tab === "packing" && <PackingPanel kind="customers" id={d.customer.id} catalog={d.catalog} />}
           {tab === "details" && (
             <Stack spacing={2}>
             <CompanyDetails
@@ -98,7 +105,7 @@ export default function ClientCustomerPage() {
                   <KV k={t("ports")} v={d.ports.join(", ") || "—"} />
                   {d.deliverySites.map((s, i) => (
                     <Box key={i} sx={{ mt: 1 }}>
-                      <KV k={`${t("site")}${s.label ? ` (${s.label})` : ""}`} v={<>{s.siteName}{s.warehouseCheck ? <Chip size="small" color="warning" variant="outlined" label={t("whTbc")} sx={{ ml: 1 }} /> : null}</>} />
+                      <KV k={`${t("site")}${s.label ? ` (${s.label})` : ""}`} v={<>{s.siteName}{s.warehouseName ? <Typography component="span" variant="body2" color="text.secondary">{` · ${tc("warehouse", { name: s.warehouseName })}`}</Typography> : null}{s.warehouseCheck ? <Chip size="small" color="warning" variant="outlined" label={t("whTbc")} sx={{ ml: 1 }} /> : null}</>} />
                       <KV k={t("address")} v={s.address} />
                       {s.notes ? <KV k={t("notes")} v={s.notes} /> : null}
                       <Typography variant="caption" color="text.secondary">{t("fromSource", { source: s.source })}</Typography>

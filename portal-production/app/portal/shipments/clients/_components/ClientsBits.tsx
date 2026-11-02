@@ -6,13 +6,18 @@
 
 import { useUiLang } from "@/i18n/UiLangProvider";
 import { useTranslations } from "next-intl";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
-import { Box, Chip, Link, Paper, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, Typography } from "@mui/material";
+import { Box, Button, Chip, CircularProgress, Link, Paper, Stack, Tab, Table, TableBody, TableCell, TableHead, TableRow, Tabs, Typography } from "@mui/material";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import AddIcon from "@mui/icons-material/Add";
+import UploadFileIcon from "@mui/icons-material/UploadFile";
 import { CLIENTS_LABELS, CLIENTS_ROUTE } from "@/helpers/shipmentsNav";
 import { useShipmentsApi, type ClientContact, type ClientContract } from "../../_lib/api";
+import { CLIENT_KEYS } from "../../_lib/hooks";
 import { fmtDay, fmtMonth } from "../../_lib/format";
+import ContractFormDialog from "../../_components/ContractFormDialog";
 import { toast } from "../../_lib/toast";
 
 /** The portal language (round AZ: the user's EN / 日本語 switch). */
@@ -71,11 +76,45 @@ export function useTab<T extends string>(tabs: readonly T[], fallback: T): [T, (
   return [tab, setTab];
 }
 
+/** Round BA: "Upload contract PDF" on one contract (filed as a CONTRACT document linked to it). */
+function ContractPdfUpload({ contractId }: { contractId: string }) {
+  const api = useShipmentsApi();
+  const qc = useQueryClient();
+  const t = useTranslations("catalog");
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const upload = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      await api.uploadFile({ file, docType: "CONTRACT", contractIds: [contractId] });
+      await qc.invalidateQueries({ queryKey: [...CLIENT_KEYS.all] });
+      toast.success(t("contracts.uploaded"));
+    } catch (e: any) {
+      toast.error(e?.message || t("contracts.uploadFailed"));
+    } finally {
+      setBusy(false);
+      if (input.current) input.current.value = "";
+    }
+  };
+  return (
+    <>
+      <input ref={input} type="file" accept="application/pdf,.pdf" hidden onChange={(e) => void upload(e.target.files?.[0])} />
+      <Button size="small" startIcon={busy ? <CircularProgress size={14} /> : <UploadFileIcon />} onClick={() => input.current?.click()} disabled={busy}>
+        {t("contracts.uploadPdf")}
+      </Button>
+    </>
+  );
+}
+
 /** Contracts with their lines, premium schedule, terms and the contract files already in AIMS. */
-export function ContractsPanel({ contracts, party }: { contracts: ClientContract[]; party: "customer" | "supplier" }) {
+export function ContractsPanel({ contracts, party, partyId }: { contracts: ClientContract[]; party: "customer" | "supplier"; partyId: string }) {
   const api = useShipmentsApi();
   const router = useRouter();
+  const qc = useQueryClient();
   const t = useTranslations("clients.bits");
+  const tc = useTranslations("catalog");
+  const [creating, setCreating] = useState(false);
   const openFile = async (id: string) => {
     try {
       const f = await api.fileUrl(id);
@@ -84,9 +123,24 @@ export function ContractsPanel({ contracts, party }: { contracts: ClientContract
       toast.error(e?.message || t("couldNotOpen"));
     }
   };
-  if (!contracts.length) return <Typography color="text.secondary">{t("noContracts")}</Typography>;
   return (
     <Stack spacing={2}>
+      <Stack direction="row" alignItems="center">
+        {!contracts.length && <Typography color="text.secondary">{t("noContracts")}</Typography>}
+        <Box sx={{ flex: 1 }} />
+        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreating(true)} data-tour="contract-new">
+          {tc("contracts.new")}
+        </Button>
+      </Stack>
+      <ContractFormDialog
+        open={creating}
+        onClose={() => setCreating(false)}
+        party={party === "customer" ? { customerId: partyId } : { supplierId: partyId }}
+        onSaved={() => {
+          setCreating(false);
+          void qc.invalidateQueries({ queryKey: [...CLIENT_KEYS.all] });
+        }}
+      />
       {contracts.map((c) => (
         <Paper key={c.id} variant="outlined" sx={{ p: 2 }} data-tour="client-contract">
           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
@@ -152,13 +206,12 @@ export function ContractsPanel({ contracts, party }: { contracts: ClientContract
               </Typography>
             )}
           </Stack>
-          {c.files.length > 0 && (
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
-              {c.files.map((f) => (
-                <Chip key={f.id} icon={<PictureAsPdfIcon />} label={f.fileName} variant="outlined" onClick={() => void openFile(f.id)} title={f.docRef ?? undefined} sx={{ maxWidth: 360 }} />
-              ))}
-            </Stack>
-          )}
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center" sx={{ mt: 1 }}>
+            {c.files.map((f) => (
+              <Chip key={f.id} icon={<PictureAsPdfIcon />} label={f.fileName} variant="outlined" onClick={() => void openFile(f.id)} title={f.docRef ?? undefined} sx={{ maxWidth: 360 }} />
+            ))}
+            <ContractPdfUpload contractId={c.id} />
+          </Stack>
         </Paper>
       ))}
     </Stack>

@@ -1,0 +1,111 @@
+{
+  "tabs": {
+    "products": "製品",
+    "packing": "梱包"
+  },
+  "warehouse": "倉庫名: {name}",
+  "common": {
+    "cancel": "キャンセル",
+    "save": "保存",
+    "hide": "非表示",
+    "actions": "操作"
+  },
+  "forms": {
+    "BILLET": "ビレット",
+    "INGOT": "インゴット",
+    "REMELT_INGOT": "再溶解インゴット",
+    "SCRAP": "スクラップ",
+    "OTHER": "その他"
+  },
+  "fields": {
+    "grade": "グレード",
+    "form": "形状",
+    "size": "サイズ",
+    "diameterMm": "直径 (mm)",
+    "lengthMm": "長さ (mm)",
+    "or": "または",
+    "sizeText": "サイズ (自由入力)",
+    "sizeTextPlaceholder": "例: 1000 × 500 × 80",
+    "standard": "規格 / 仕様",
+    "standardPlaceholder": "例: JIS H 2110、顧客仕様書番号",
+    "chemistry": "化学成分",
+    "tolerances": "公差",
+    "piecesPerBundle": "1束あたりの本数",
+    "bundleWeightKg": "1束の重量 (kg)",
+    "monthlyQtyMt": "月間数量 (t)",
+    "priceBasis": "価格基準",
+    "notes": "備考"
+  },
+  "chem": {
+    "element": "元素",
+    "min": "最小 %",
+    "max": "最大 %",
+    "add": "元素を追加",
+    "remove": "元素を削除"
+  },
+  "products": {
+    "introCustomer": "この顧客が購入する製品: 仕様、結束、月間数量、価格基準。",
+    "introSupplier": "このサプライヤーが販売する製品: 仕様、結束、月間数量、価格基準。",
+    "hiddenN": "(非表示 {n} 件)",
+    "none": "製品はまだありません。",
+    "add": "製品を追加",
+    "addTitle": "製品を追加",
+    "editTitle": "{label} を編集",
+    "edit": "編集",
+    "hide": "非表示",
+    "hideTitle": "この製品を非表示にしますか？",
+    "hideBody": "{label} はここに表示されなくなります。削除はされません。",
+    "hidden": "製品を非表示にしました",
+    "hideFailed": "製品を非表示にできませんでした",
+    "saved": "製品を保存しました",
+    "added": "製品を追加しました",
+    "saveFailed": "製品を保存できませんでした",
+    "badNumber": "サイズ・結束・数量・化学成分の欄には数値のみ入力してください。",
+    "unnamed": "製品",
+    "toConfirm": "要確認: {field}",
+    "source": "出典: {source}"
+  },
+  "files": {
+    "specSheets": "仕様書",
+    "noSpecs": "まだありません。",
+    "uploadSpec": "仕様書をアップロード",
+    "specAdded": "仕様書を追加しました",
+    "uploadFailed": "アップロードに失敗しました",
+    "openFailed": "ファイルを開けませんでした",
+    "hide": "非表示",
+    "hideTitle": "このファイルを非表示にしますか？",
+    "hideBody": "{name} はここに表示されなくなります。ファイルは保持されます。",
+    "hideFailed": "ファイルを非表示にできませんでした"
+  },
+  "photos": {
+    "packingPhotos": "梱包写真",
+    "caption": "説明",
+    "captionPlaceholder": "例: 結束バンド、下敷きインゴット",
+    "takenOn": "撮影日",
+    "add": "写真を追加",
+    "added": "写真を追加しました",
+    "openFull": "原寸で開く",
+    "unavailable": "表示できません"
+  },
+  "packing": {
+    "gallery": "梱包写真",
+    "noPhotos": "梱包写真はまだありません。",
+    "notesTitle": "梱包メモ",
+    "notes": "メモ",
+    "notesPlaceholder": "この会社の梱包方法 / 希望する梱包",
+    "saveNotes": "メモを保存",
+    "notesSaved": "梱包メモを保存しました",
+    "notesFailed": "メモを保存できませんでした",
+    "issues": "関連する梱包の問題",
+    "issuesHint": "現在、問題は取り込んだ記録から関連付けられています。この画面からの関連付けは今後対応予定です。",
+    "noIssues": "関連する問題はありません。",
+    "byProduct": "製品別の写真",
+    "noProductPhotos": "梱包写真のある製品はまだありません。"
+  },
+  "contracts": {
+    "new": "新規契約",
+    "uploadPdf": "契約書PDFをアップロード",
+    "uploaded": "契約書PDFをアップロードしました",
+    "uploadFailed": "契約書PDFをアップロードできませんでした"
+  }
+}

@@ -43,6 +43,7 @@ import PriceCheckPanel from "../../_components/PriceCheckPanel";
 import StepPaymentForm from "../../_components/StepPaymentForm";
 import IssuesPanel from "../../_components/IssuesPanel";
 import RecordEmailsPanel from "../../_components/RecordEmailsPanel";
+import CustomerPackingPanel from "../../_components/CustomerPackingPanel";
 import { useTranslations } from "next-intl";
 import { useStepName } from "@/i18n/hooks";
 
@@ -495,6 +496,10 @@ export default function OrderPage() {
               <>
                 {/* Round R: no bar repeating the selected card — its ⋮ menu sits on the card. */}
                 <Box id="shipment-steps" />
+                {/* Round BA: how this customer wants it packed (nothing when there's no packing info). */}
+                <Box sx={{ mb: 1.5, "&:empty": { display: "none" } }}>
+                  <CustomerPackingPanel customerId={o.customerId} />
+                </Box>
                 <StepCards
                   highlightFile={wantedFile}
                   // Step 11 moved to the order (round H): the shipment's old row stays in the data, not on screen.
@@ -562,6 +567,7 @@ export default function OrderPage() {
       {tab === 1 && (
         <Stack spacing={3}>
           <OrderOverview order={o} onEdit={() => setEditOpen(true)} />
+          <CustomerPackingPanel customerId={o.customerId} />
           <IssuesPanel orderId={o.id} />
           {s && (
             <Box>

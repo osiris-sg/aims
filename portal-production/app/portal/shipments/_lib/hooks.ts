@@ -310,6 +310,21 @@ export const useClientCustomers = () => {
   const orgId = useOrgId();
   return useQuery({ queryKey: [...CLIENT_KEYS.all, orgId, "customers"], enabled: !!orgId, queryFn: () => api.clientCustomers() });
 };
+/** Round BA: every customer's / supplier's products (New order picker). */
+export const useProductCatalog = (enabled = true) => {
+  const api = useShipmentsApi();
+  const { organization } = useOrganization();
+  const orgId = organization?.id;
+  return useQuery({ queryKey: [...CLIENT_KEYS.all, orgId, "product-catalog"], enabled: !!orgId && enabled, queryFn: () => api.productCatalog(), staleTime: 60_000 });
+};
+/** Round BA: a customer's packing notes / photos / issues (order and shipment pages). */
+export const useCustomerPacking = (customerId: string | null | undefined) => {
+  const api = useShipmentsApi();
+  const { organization } = useOrganization();
+  const orgId = organization?.id;
+  // Signed photo URLs expire after 5 minutes: refresh before that.
+  return useQuery({ queryKey: [...CLIENT_KEYS.all, orgId, "packing", customerId], enabled: !!orgId && !!customerId, queryFn: () => api.customerPacking(customerId!), staleTime: 4 * 60_000 });
+};
 export const useClientCustomer = (id: string | undefined) => {
   const api = useShipmentsApi();
   const orgId = useOrgId();

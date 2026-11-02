@@ -258,6 +258,8 @@
     "deliverySite": "納入先（出庫・納入依頼書）",
     "siteName": "納入先名",
     "address": "住所",
+    "warehouseName": "倉庫名（出庫・納入依頼書）",
+    "warehouseNameHint": "空欄：横浜はデフォルトの倉庫、その他の港は空欄のまま（書類で入力）",
     "notes": "備考（1行に1件）",
     "invoiceRemarks": "一括請求書の備考（商品 / 荷姿 / 保管倉庫 / 取扱港 / 保管条件 / 業務範囲 / 作業備考）",
     "discard": "変更を破棄",

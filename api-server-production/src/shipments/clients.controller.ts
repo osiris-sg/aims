@@ -7,6 +7,15 @@ import { actorOf, orgIdOf, TradeRequest } from './shipments.request';
 import { decodeUploadName, resolveTradeFileMime, TRADE_FILE_EXTENSIONS, TRADE_FILE_MAX_BYTES } from './shipments.rules';
 import { ClientsService } from './clients.service';
 
+const partyOf = (kind: string): 'customer' | 'supplier' => (kind === 'suppliers' ? 'supplier' : 'customer');
+const UPLOAD_OPTS = {
+  limits: { fileSize: TRADE_FILE_MAX_BYTES, files: 1 },
+  fileFilter: (_req: unknown, file: Express.Multer.File, callback: (e: Error | null, ok: boolean) => void) => {
+    if (!resolveTradeFileMime(decodeUploadName(file.originalname), file.mimetype)) return callback(new BadRequestException(`File type not allowed. Allowed: ${TRADE_FILE_EXTENSIONS.join(', ')}`), false);
+    callback(null, true);
+  },
+};
+
 /** Round AM — Clients (Customers · Suppliers) for SHIPMENTS orgs: lists, profiles, per-customer document formats. */
 @RequiresModule('SHIPMENTS')
 @Controller('trade-clients')
@@ -104,6 +113,84 @@ export class ClientsController {
   @Permissions('shipments:update')
   updateFormat(@Param('id', ParseUUIDPipe) id: string, @Param('docType') docType: string, @Body() body: { generator?: string | null; language?: string | null; addressee?: string | null; notes?: string | null }, @Req() req: TradeRequest) {
     return this.clients.updateFormat(orgIdOf(req), id, docType, body ?? {});
+  }
+
+  // ── Round BA: Products / Packing (customers and suppliers) ─────────────
+  /** New order: every customer's / supplier's products and the supplier products that fit each customer product. */
+  @Get('products')
+  @Permissions('shipments:read')
+  productCatalog(@Req() req: TradeRequest) {
+    return this.clients.productCatalog(orgIdOf(req));
+  }
+
+  /** Order / shipment pages: the customer's packing notes, photos and linked issues. */
+  @Get('customers/:id/packing')
+  @Permissions('shipments:read')
+  packingFor(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {
+    return this.clients.packingFor(orgIdOf(req), id);
+  }
+
+  @Post(':kind(customers|suppliers)/:id/products')
+  @Permissions('shipments:update')
+  addProduct(@Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Body() body: unknown, @Req() req: TradeRequest) {
+    return this.clients.saveProduct(orgIdOf(req), partyOf(kind), id, null, body);
+  }
+
+  @Patch(':kind(customers|suppliers)/:id/products/:productId')
+  @Permissions('shipments:update')
+  updateProduct(@Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Param('productId', ParseUUIDPipe) productId: string, @Body() body: unknown, @Req() req: TradeRequest) {
+    return this.clients.saveProduct(orgIdOf(req), partyOf(kind), id, productId, body);
+  }
+
+  /** Hide a product ({ hidden: false } shows it again) — kept, never deleted. */
+  @Patch(':kind(customers|suppliers)/:id/products/:productId/hide')
+  @Permissions('shipments:update')
+  hideProduct(@Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Param('productId', ParseUUIDPipe) productId: string, @Body() body: { hidden?: boolean }, @Req() req: TradeRequest) {
+    return this.clients.hideProduct(orgIdOf(req), partyOf(kind), id, productId, body?.hidden !== false);
+  }
+
+  /** Multipart "file" (+ caption, takenOn): a spec sheet (slot "spec") or packing photo (slot "packing") on one product. */
+  @Post(':kind(customers|suppliers)/:id/products/:productId/files/:slot')
+  @Permissions('shipments:update')
+  @UseInterceptors(FileInterceptor('file', UPLOAD_OPTS))
+  addProductFile(
+    @Param('kind') kind: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('productId', ParseUUIDPipe) productId: string,
+    @Param('slot') slot: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { caption?: string; takenOn?: string },
+    @Req() req: TradeRequest,
+  ) {
+    return this.clients.addProductFile(orgIdOf(req), partyOf(kind), id, productId, slot, file, body ?? {}, actorOf(req));
+  }
+
+  /** Multipart "file" (+ caption, takenOn): a photo in the company's Packing gallery. */
+  @Post(':kind(customers|suppliers)/:id/packing/images')
+  @Permissions('shipments:update')
+  @UseInterceptors(FileInterceptor('file', UPLOAD_OPTS))
+  addPackingImage(@Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @UploadedFile() file: Express.Multer.File, @Body() body: { caption?: string; takenOn?: string }, @Req() req: TradeRequest) {
+    return this.clients.addPackingImage(orgIdOf(req), partyOf(kind), id, file, body ?? {}, actorOf(req));
+  }
+
+  /** Packing notes and linked issue ids. */
+  @Patch(':kind(customers|suppliers)/:id/packing')
+  @Permissions('shipments:update')
+  savePacking(@Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Body() body: unknown, @Req() req: TradeRequest) {
+    return this.clients.savePacking(orgIdOf(req), partyOf(kind), id, body);
+  }
+
+  /** Hide a spec sheet / packing photo (kept). */
+  @Patch(':kind(customers|suppliers)/:id/files/:fileId/hide')
+  @Permissions('shipments:update')
+  hideProfileFile(@Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Param('fileId', ParseUUIDPipe) fileId: string, @Req() req: TradeRequest) {
+    return this.clients.hideProfileFile(orgIdOf(req), partyOf(kind), id, fileId);
+  }
+
+  @Get(':kind(customers|suppliers)/:id/files/:fileId/url')
+  @Permissions('shipments:read')
+  profileFileUrl(@Param('kind') kind: string, @Param('id', ParseUUIDPipe) id: string, @Param('fileId', ParseUUIDPipe) fileId: string, @Req() req: TradeRequest) {
+    return this.clients.profileFileUrl(orgIdOf(req), partyOf(kind), id, fileId);
   }
 
   /** Multipart "file": a sample / template the customer gave for this document. */

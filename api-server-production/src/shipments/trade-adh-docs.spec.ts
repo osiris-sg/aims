@@ -12,7 +12,7 @@ import { customerDocHeader, deliveryProfileFor, deliveryRemarks, sgjpGoods } fro
 import { buildDefaultHeader } from './trade-generated.service';
 import { renderGeneratedHtml } from './trade-generated.html';
 import { banksOf, defaultBank, DocDefaults, helperRemarks, invoice2FinalLines, invoiceHeaderDefaults, InvoiceLine, invoiceTotals, quarterOf, renderInvoiceHtml } from './trade-invoice';
-import { billetSize, blTail, renderSgjpV2Html, renderSiV2Html, SgjpHeaderV2, SgjpItem, sgjpInvoiceNo, sgjpItemAmount, sgjpTotals, sgjpUnitPrice, SiHeaderV2 } from './trade-logistics-docs';
+import { billetSize, blFull, renderSgjpV2Html, renderSiV2Html, SgjpHeaderV2, SgjpItem, sgjpInvoiceNo, sgjpItemAmount, sgjpTotals, sgjpUnitPrice, SiHeaderV2 } from './trade-logistics-docs';
 import { parseDelimitedSheet } from './trade-sheet.parser';
 
 const line = (over: Partial<InvoiceLine>): InvoiceLine => ({ description: '', quantity: null, unit: 'トン', unitPrice: null, amountOverride: null, remarks: '', dueDate: null, ...over });
@@ -222,9 +222,12 @@ describe('SG→JP INVOICE & PACKING LIST (ADH layout)', () => {
 });
 
 describe('出庫・納入依頼書 (ADH layout)', () => {
-  it('B/L tail, billet size, delivery profile → 納入先 + 備考', () => {
-    expect(blTail('198GX04630')).toBe('末尾・・・04630');
-    expect(blTail('123')).toBe('123');
+  it('B/L in full, billet size, delivery profile → 納入先 + 備考', () => {
+    expect(blFull('198GX04630')).toBe('198GX04630');
+    expect(blFull(' 198GX06445 ')).toBe('198GX06445');
+    expect(blFull('198GX06445/198GX06446')).toBe('198GX06445 / 198GX06446');
+    expect(blFull('198GX06445, 198GX06446')).toBe('198GX06445 / 198GX06446');
+    expect(blFull('')).toBe('');
     expect(billetSize('203 MM X 5800 MM')).toBe('203 X 5800');
     expect(billetSize('203MM×5800MM')).toBe('203 X 5800');
     const profiles = [{ id: 'p1', customerName: 'SUS', siteName: 'SUS福島工場', address: '東京都千代田区試験町1-1', notes: 'AM7:30より作業開始\nバンド切れ外れはリバンドル\n' }];
@@ -261,7 +264,7 @@ describe('出庫・納入依頼書 (ADH layout)', () => {
       '出庫・納入依頼書',
       '本船 RACHA BHUM',
       '海事№ 211E',
-      'B/L № 末尾・・・04630',
+      'B/L № 198GX04630',
       '倉庫名 三井倉庫/本牧A倉庫',
       '出荷日 納入日 納入先 ビレット 束数 重 量',
       '9/7 9/8 SUS福島工場 ロングビレット 203 X 5800 16 総重量 307.004トン (正味重量 305.804トン)',
