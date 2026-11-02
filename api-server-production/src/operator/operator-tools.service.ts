@@ -1858,26 +1858,31 @@ export class OperatorToolsService {
         input_schema: {
           type: 'object',
           properties: {
-            customerId: { type: 'string' },
-            documentId: { type: 'string', description: 'The invoice being paid' },
+            documentId: { type: 'string', description: 'The invoice being paid (id or number)' },
             amount: { type: 'number' },
             paymentMethod: { type: 'string', description: 'e.g. BANK TRANSFER, PAYNOW, CHEQUE, CASH' },
             paymentDate: { type: 'string', description: 'ISO date; defaults to today' },
             reference: { type: 'string' },
           },
-          required: ['customerId', 'documentId', 'amount'],
+          required: ['documentId', 'amount'],
         },
         run: async (ctx, args) => {
           const doc = await this.findDoc(ctx.organizationId, args.documentId);
           if (!doc) return { result: { error: 'Invoice not found in this organization' } };
           const cfg: any = doc.config || {};
+          // The invoice names its own customer; a customer id the model looked
+          // up separately could be a duplicate record of the same company and
+          // the payment then failed on "Customer does not match invoice"
+          // (guru 2026-11-02). Always pay against the invoice's customer.
+          const customerId = cfg.customer?.id ?? cfg.customerId ?? null;
+          if (!customerId) return { result: { error: `${doc.name} has no customer on it, so a payment cannot be recorded against it.` } };
           return {
             result: { needsConfirmation: true, documentNumber: doc.name, amount: args.amount },
             pending: {
               kind: 'record_payment',
               documentId: doc.id,
               summary: `Record payment of ${args.amount} against ${doc.name} (${cfg.customerName || cfg.customer?.name || 'customer'})`,
-              args: { ...args, documentId: doc.id },
+              args: { ...args, documentId: doc.id, customerId },
               createdAt: new Date().toISOString(),
             },
           };
