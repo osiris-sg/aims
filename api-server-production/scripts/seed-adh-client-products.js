@@ -33,7 +33,7 @@ const CUSTOMERS = [
   ] },
   { match: /^Hou?ei/i, products: [
     { grade: 'P1020', form: 'INGOT', bundleWeightKg: 994, tolerances: '±2% quantity', priceBasis: 'LME + premium', source: 'contract 454003652 (150 t ±2%); order #14: 688 pcs / 152 bundles, ~994 kg per bundle', toConfirm: [CHEM, 'standard', 'piecesPerBundle', 'sizeText', 'monthlyQtyMt'] },
-    { grade: 'P0507', form: 'INGOT', bundleWeightKg: 994, priceBasis: 'LME + premium', source: 'order #10, ~994 kg per bundle', toConfirm: [CHEM, 'standard', 'piecesPerBundle', 'sizeText', 'tolerances', 'monthlyQtyMt'] },
+    { grade: 'P0507', form: 'INGOT', bundleWeightKg: 994, priceBasis: 'LME + premium', source: 'order #10 (was #1011): #10-1 100 bundles, 99.354 t net, ~994 kg per bundle', toConfirm: [CHEM, 'standard', 'piecesPerBundle', 'sizeText', 'tolerances', 'monthlyQtyMt'] },
   ] },
   { match: /^Sankyo/i, products: [
     { grade: '6063', form: 'REMELT_INGOT', tolerances: '±5%', source: 'order #24 from PT Sri Indah (sales contract 26100906: "Aluminium Alloy Ingot 6063", 50 t)', notes: 'Packing (geta / base ingots): no issue or photo on file yet.', toConfirm: [CHEM, 'standard', 'sizeText', 'piecesPerBundle', 'bundleWeightKg', 'priceBasis', 'monthlyQtyMt'] },
@@ -47,10 +47,11 @@ const SUPPLIERS = [
     billet('1070', 203, 5800, { priceBasis: 'LME + premium', source: 'orders #1001, #1006 (Kato)', toConfirm: [CHEM, 'piecesPerBundle', 'bundleWeightKg', 'tolerances'] }),
     billet('6061', 203, 5800, { priceBasis: 'LME + premium', source: 'order #1004 (Kato)', toConfirm: [CHEM, 'piecesPerBundle', 'bundleWeightKg', 'tolerances'] }),
     { grade: 'P1020', form: 'INGOT', priceBasis: 'LME + premium', source: 'contract 454003652 (Hoei)', toConfirm: [CHEM, 'sizeText', 'piecesPerBundle', 'bundleWeightKg'] },
-    { grade: 'P0507', form: 'INGOT', priceBasis: 'LME + premium', source: 'order #10 (Hoei)', toConfirm: [CHEM, 'sizeText', 'piecesPerBundle', 'bundleWeightKg'] },
+    { grade: 'P0507', form: 'INGOT', priceBasis: 'LME + premium', source: 'order #10 (was #1011, Hoei)', toConfirm: [CHEM, 'sizeText', 'piecesPerBundle', 'bundleWeightKg'] },
   ] },
-  { match: /^MIND ID/i, products: [
-    billet('6063', 203, 5800, { priceBasis: 'Whole-month average LME + premium', source: 'contract AHS260527001P (SUS, 20 t), order #9', toConfirm: [CHEM, 'piecesPerBundle', 'bundleWeightKg', 'tolerances'] }),
+  // No profile yet: a minimal one (the app's default supplier profile) is created with the product.
+  { match: /^MIND ID/i, createProfile: true, products: [
+    { grade: '6063', form: 'BILLET', priceBasis: 'Whole-month average LME + premium', notes: 'Producer: PT Indonesia Asahan Aluminium (Inalum), LME brand INALLET. Inalum COA CoA/0093/2026 (delivery order AO50000995) states producer grade "BILLET 6063-D7 INCH (B-3)" while order #9 says 203 MM X 5800 MM, so the size is left to confirm. Shipment #9-1: 8 bundles, 20.296 t net (no per-bundle figures on the documents).', source: 'order #9 / shipment #9-1 (SUS), Inalum COA CoA/0093/2026 (DO AO50000995), contract AHS260527001P', toConfirm: [CHEM, 'standard', 'diameterMm', 'sizeText', 'piecesPerBundle', 'bundleWeightKg', 'tolerances'] },
   ] },
   { match: /^PT Sri Indah/i, products: [
     { grade: '6063', form: 'REMELT_INGOT', tolerances: '±5%', priceBasis: 'Fixed USD/t (3,625 on PI SIAE_PI_26100906)', notes: 'Payment: 30% advance, 70% against B/L copy', source: 'sales contract 26100906 / PI SIAE_PI_26100906 (Sankyo order #24)', toConfirm: [CHEM, 'standard', 'sizeText', 'piecesPerBundle', 'bundleWeightKg'] },
@@ -67,15 +68,18 @@ async function seed(kind, list, companies) {
     const row = await prisma.tradeSetting.findUnique({ where: { organizationId: ADH }, select: { id: true, [field]: true } });
     const profiles = row?.[field] ?? {};
     const prof = profiles[co.id];
-    if (!prof) { console.log(`  -- ${co.name}: no trade profile yet — skipped (open it once on Clients, then re-run)`); continue; }
-    if ((prof.products ?? []).length) { console.log(`  -- ${co.name}: already has ${prof.products.length} product(s) — skipped`); continue; }
+    if (!prof && !c.createProfile) { console.log(`  -- ${co.name}: no trade profile yet — skipped`); continue; }
+    // The app's own default (trade-profile.ts defaultCustomerProfile / defaultSupplierProfile) — only for a company flagged createProfile.
+    const base = prof ?? { supplierId: co.id, hasPI: true, shippingDocs: null };
+    if (!prof) console.log(`  ${co.name}: creates its minimal ${kind} profile (app default, no other fields)`);
+    if ((base.products ?? []).length) { console.log(`  -- ${co.name}: already has ${prof.products.length} product(s) — skipped`); continue; }
     const now = new Date().toISOString();
     const rows = c.products.map((p) => ({ id: randomUUID(), grade: null, form: null, diameterMm: null, lengthMm: null, sizeText: null, standard: null, chemistry: [], tolerances: null, piecesPerBundle: null, bundleWeightKg: null, monthlyQtyMt: null, priceBasis: null, notes: null, specFiles: [], packingImages: [], source: null, toConfirm: [], hidden: false, createdAt: now, updatedAt: now, ...p }));
     console.log(`  ${co.name} (${kind} ${co.id}) +${rows.length}`);
     for (const r of rows) console.log(`     ${r.grade} ${r.form} ${size(r) || '-'} | ${r.piecesPerBundle ?? '?'} pcs/bdl | ${r.bundleWeightKg ?? '?'} kg/bdl | ${r.tolerances ?? '-'} | ${r.priceBasis ?? '-'}\n       source: ${r.source}\n       to confirm: ${r.toConfirm.join(', ')}`);
     if (!APPLY) continue;
-    await prisma.tradeSetting.update({ where: { organizationId: ADH }, data: { [field]: { ...profiles, [co.id]: { ...prof, products: rows } } } });
-    await prisma.actionLog.create({ data: { actorType: 'SYSTEM', actorId: 'system:round-ba-seed-products', actorName: 'System creation', organizationId: ADH, channel: 'operator', action: 'CREATE', resource: 'TradeClientProduct', resourceId: co.id, details: { note: `Round BA seed: ${rows.length} product(s) for ${kind} ${co.name}`, kind, productIds: rows.map((r) => r.id), labels: rows.map((r) => `${r.grade} ${r.form} ${size(r)}`.trim()) } } });
+    await prisma.tradeSetting.update({ where: { organizationId: ADH }, data: { [field]: { ...profiles, [co.id]: { ...base, products: rows } } } });
+    await prisma.actionLog.create({ data: { actorType: 'SYSTEM', actorId: 'system:round-ba-seed-products', actorName: 'System creation', organizationId: ADH, channel: 'operator', action: 'CREATE', resource: 'TradeClientProduct', resourceId: co.id, details: { note: `Round BA seed: ${rows.length} product(s) for ${kind} ${co.name}${prof ? '' : ' (minimal profile created)'}`, kind, profileCreated: !prof, productIds: rows.map((r) => r.id), labels: rows.map((r) => `${r.grade} ${r.form} ${size(r)}`.trim()) } } });
     console.log('     WRITTEN + logged');
   }
 }
