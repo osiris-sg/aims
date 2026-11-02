@@ -7,6 +7,10 @@ import { isOrgFeatureEnabled } from 'src/common/org-features';
  * sign-off's photos and the signed DO (rendered later by the sweep). The
  * post-only worker (whatsapp-post-bridge) sends it.
  *
+ * RETURN runs (2026-11-02) post the same way at their one sign-off
+ * (finalizeReturn): the signed RDO, the collection photos and a "Returned: …"
+ * caption. Same group order, idempotency and SKIPPED rule as a delivery.
+ *
  * Pure helper on purpose: DeliveriesService calls it with its own Prisma, so
  * the deliveries module needs no dependency on the posts module (which pulls in
  * PDF rendering, S3 and public links).
@@ -45,7 +49,8 @@ export async function enqueueDeliveryGroupPost(
         siteAddress: true,
       },
     });
-    if (!run || run.direction !== 'OUTBOUND') return null; // returns are not posted
+    if (!run || (run.direction !== 'OUTBOUND' && run.direction !== 'RETURN')) return null;
+    const isReturn = run.direction === 'RETURN';
 
     // This sign-off's timestamp: the proof rows it just stamped.
     const ack = await prisma.maintenanceServiceReport.findFirst({
@@ -98,22 +103,30 @@ export async function enqueueDeliveryGroupPost(
 
     // Photos of THIS sign-off: condition photos of the signed units (by item,
     // or by unit for older rows without an item link) + this sign-off's
-    // installation photos.
+    // installation photos. A return has no install step: its photos are the
+    // collection photos, taken at the start of the return and/or when each unit
+    // was collected (the per-unit DO_ACK).
     const inventoryIds = items.map((i: any) => i.inventoryId).filter(Boolean);
+    const ofSignedUnits = [
+      ...(signedItemIds.length ? [{ deliveryItemId: { in: signedItemIds } }] : []),
+      ...(inventoryIds.length ? [{ deliveryItemId: null, inventoryId: { in: inventoryIds } }] : []),
+    ];
     const start = await prisma.maintenanceServiceReport.findMany({
-      where: {
-        deliveryId,
-        kind: 'DO_START',
-        OR: [...(signedItemIds.length ? [{ deliveryItemId: { in: signedItemIds } }] : []), ...(inventoryIds.length ? [{ deliveryItemId: null, inventoryId: { in: inventoryIds } }] : [])],
-      },
+      where: { deliveryId, kind: 'DO_START', OR: ofSignedUnits },
       select: { photos: true },
       orderBy: { createdAt: 'asc' },
     });
-    const install = await prisma.maintenanceServiceReport.findMany({
-      where: { deliveryId, kind: 'DO_INSTALL', signedAt },
-      select: { photos: true },
-    });
-    const allPhotos = [...start, ...install].flatMap((m: any) => m.photos || []).filter((k: string) => k && !k.startsWith('data:'));
+    const after = isReturn
+      ? await prisma.maintenanceServiceReport.findMany({
+          where: { deliveryId, kind: 'DO_ACK', OR: ofSignedUnits },
+          select: { photos: true },
+          orderBy: { createdAt: 'asc' },
+        })
+      : await prisma.maintenanceServiceReport.findMany({
+          where: { deliveryId, kind: 'DO_INSTALL', signedAt },
+          select: { photos: true },
+        });
+    const allPhotos = [...start, ...after].flatMap((m: any) => m.photos || []).filter((k: string) => k && !k.startsWith('data:'));
     const photoKeys = [...new Set(allPhotos)].slice(0, MAX_POST_PHOTOS) as string[];
     const extraPhotoCount = Math.max(0, new Set(allPhotos).size - photoKeys.length);
 
@@ -137,16 +150,30 @@ export async function enqueueDeliveryGroupPost(
     //
     //   DO: DO202610078 · signed by elroy at 2 Oct, 2:46 pm
     //   Trip 1 (final) · 1 x ZZTEST Asset
-    const head = [`Delivery #${run.deliveryNumber}`, project?.name || customer?.name].filter(Boolean).join(', ');
-    const signedLine = `${doNames ? `DO: ${doNames} · signed` : 'Signed'}${signer ? ` by ${signer}` : ''} at ${fmtSgt(signedAt)}`;
-    const tripLine = `Trip ${tripNumber} (${final ? 'final' : `partial: ${owed} item${owed === 1 ? '' : 's'} still to deliver`}) · ${
-      [...counts].map(([d, q]) => `${q} x ${d}`).join(', ') || 'no items'
-    }`;
+    const head = [`${isReturn ? 'Return' : 'Delivery'} #${run.deliveryNumber}`, project?.name || customer?.name].filter(Boolean).join(', ');
+    const what = [...counts].map(([d, q]) => `${q} x ${d}`).join(', ');
+    let body: string[];
+    if (isReturn) {
+      // Return (2026-11-02): one signature at the end, always the last trip.
+      //   Return #88, Singapore Sailing Port
+      //
+      //   RDO: RDO202611-001
+      //   Returned: 2 x FIREFLY 4200 (AIS2026016, AIS2026019), signed by Azad at 2 Nov, 6:02 pm
+      const units = await skusOf(prisma, organizationId, inventoryIds);
+      body = [
+        ...(doNames ? [`RDO: ${doNames}`] : []),
+        `Returned: ${what || 'no items'}${units.length ? ` (${units.join(', ')})` : ''}, signed${signer ? ` by ${signer}` : ''} at ${fmtSgt(signedAt)}`,
+      ];
+    } else {
+      body = [
+        `${doNames ? `DO: ${doNames} · signed` : 'Signed'}${signer ? ` by ${signer}` : ''} at ${fmtSgt(signedAt)}`,
+        `Trip ${tripNumber} (${final ? 'final' : `partial: ${owed} item${owed === 1 ? '' : 's'} still to deliver`}) · ${what || 'no items'}`,
+      ];
+    }
     const caption = [
       head,
       '',
-      signedLine,
-      tripLine,
+      ...body,
       ...(extraPhotoCount ? [`+${extraPhotoCount} more photo${extraPhotoCount === 1 ? '' : 's'} in AIMS`] : []),
     ].join('\n');
 
@@ -183,4 +210,12 @@ export async function enqueueDeliveryGroupPost(
     logger?.warn(`delivery group post not queued for ${deliveryId}: ${e?.message}`);
     return null;
   }
+}
+
+/** Unit tags (Inventory.sku) of the signed units, in the order given. */
+async function skusOf(prisma: any, organizationId: string, inventoryIds: string[]): Promise<string[]> {
+  if (!inventoryIds.length) return [];
+  const rows = await prisma.inventory.findMany({ where: { id: { in: inventoryIds }, organizationId }, select: { id: true, sku: true } });
+  const byId = new Map<string, string | null>(rows.map((r: any) => [r.id, r.sku]));
+  return inventoryIds.map((id) => byId.get(id)).filter((v): v is string => !!v);
 }
