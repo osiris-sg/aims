@@ -9,6 +9,7 @@ interface AimsRequest extends Request {
   userOrganization?: any; // effective org (set by ClerkAuthGuard / ApiV1KeyGuard)
   isOsirisAdmin?: boolean;
   apiKey?: { id: string; name: string }; // set by ApiV1KeyGuard
+  siteclockInbound?: { connectionId: string }; // set by SiteClockInboundGuard (job photos)
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -239,6 +240,10 @@ export class ActionLogInterceptor implements NestInterceptor {
     }
     if (req.apiKey?.id) {
       return { actorType: 'API_KEY', actorId: req.apiKey.id, actorName: req.apiKey.name, channel: 'v1' };
+    }
+    // SiteClock calling AIMS with the org's inbound key (job photos, 2026-11-02).
+    if (req.siteclockInbound?.connectionId) {
+      return { actorType: 'API_KEY', actorId: `siteclock:${req.siteclockInbound.connectionId}`, actorName: 'SiteClock', channel: 'siteclock' };
     }
     // Token-holding guests on public pages: identify by the token itself.
     const params: any = req.params || {};

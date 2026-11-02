@@ -61,6 +61,7 @@ import { AccountingModule } from './accounting/accounting.module';
 import { JournalModule } from './journal/journal.module';
 import { MaintenanceReportsModule } from './maintenance-reports/maintenance-reports.module';
 import { DeliveriesModule } from './deliveries/deliveries.module';
+import { JobPhotosModule } from './job-photos/job-photos.module';
 import { DeliveryGroupPostsModule } from './delivery-group-posts/delivery-group-posts.module';
 import { MaintenanceSchedulesModule } from './maintenance-schedules/maintenance-schedules.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -138,6 +139,7 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
     JournalModule,
     MaintenanceReportsModule,
     DeliveriesModule,
+    JobPhotosModule,
     DeliveryGroupPostsModule,
     MaintenanceSchedulesModule,
     NotificationsModule,

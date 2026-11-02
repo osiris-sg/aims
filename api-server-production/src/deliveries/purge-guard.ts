@@ -20,6 +20,8 @@ export interface PurgeFacts {
   }>;
   /** Documents the run's lines point at (DeliveryItem.documentId). */
   docs: Array<{ id: string; name: string | null; status: string | null }>;
+  /** Job photos SiteClock sent for this job (hidden ones too). */
+  jobPhotos?: number;
   /** Invoices raised from any of those documents (config.sourceDocumentId). */
   invoices: number;
   /** POSTED journal entries sourced from any of those documents. */
@@ -42,6 +44,7 @@ export function purgeBlocker(f: PurgeFacts): string | null {
   }
   if (f.reports) return 'This run has field reports attached. It stays as a cancelled delivery.';
   if (f.groupPosts) return 'This run was posted to a delivery group. It stays as a cancelled delivery.';
+  if (f.jobPhotos) return 'This job has photos from SiteClock. It stays as a cancelled delivery.';
   const real = f.docs.find((d) => !isPlaceholderDocName(d.name) || !isUnconfirmedDoc(d.status));
   if (real) return `This run has Delivery Order ${real.name ?? real.id}, which is a real document. It stays as a cancelled delivery.`;
   if (f.invoices) return 'An invoice was raised from this run. It stays as a cancelled delivery.';

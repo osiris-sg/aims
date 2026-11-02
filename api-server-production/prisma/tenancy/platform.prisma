@@ -452,6 +452,12 @@ model SiteClockConnection {
   defaultDurationMin Int       @default(60)
   lastOkAt           DateTime?
   lastError          String?
+  // Inbound key: SiteClock calls AIMS with it (job photos, 2026-11-02). Only
+  // its sha256 is stored; the plaintext is shown once when generated.
+  inboundKeyHash       String?   @unique
+  inboundKeyLast4      String?
+  inboundKeyCreatedAt  DateTime?
+  inboundKeyLastUsedAt DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 }
@@ -486,4 +492,35 @@ model DeliverySiteClockJob {
 
   @@index([organizationId])
   @@index([syncState, nextAttemptAt])
+}
+
+/// A photo a worker took on a job in SiteClock, sent to AIMS by SiteClock
+/// (POST /integrations/siteclock/photos). AIMS owns the photos of its own jobs.
+/// deliveryId is a plain pointer (the job); the order is reached through it.
+/// Soft-deleted only: deletedAt hides it, the files stay in S3.
+model JobPhoto {
+  id             String    @id @default(uuid())
+  organizationId String
+  deliveryId     String
+  externalRef    String? // as SiteClock sent it: aims-delivery:<deliveryId>[:<n>]
+  source         String    @default("siteclock")
+  sourcePhotoId  String // SiteClock's photo id (the idempotency key)
+  tag            String // SIGNED_DO | STAMPED_DO | SERVICE_REPORT | SITE | OTHER
+  note           String?
+  takenAt        DateTime?
+  workerSourceId String? // SiteClock user id
+  workerName     String?
+  fileKey        String
+  thumbKey       String
+  mimeType       String    @default("image/jpeg")
+  bytes          Int
+  width          Int?
+  height         Int?
+  createdAt      DateTime  @default(now())
+  deletedAt      DateTime?
+  deletedBy      String? // "siteclock" or "user:<id>"
+  deletedByName  String?
+
+  @@unique([organizationId, source, sourcePhotoId])
+  @@index([organizationId, deliveryId])
 }

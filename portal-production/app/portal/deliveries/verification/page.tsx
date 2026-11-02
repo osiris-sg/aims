@@ -33,6 +33,7 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import MainCard from "@/components/MainCard";
 import { request } from "@/helpers/request";
 import { photoSrc } from "@/components/maintenance/ReportPhotos";
+import { siteclockEvidenceCaption } from "@/helpers/jobPhotos";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { VERIFICATION_COLOR, VerificationState, completionModeLabel, rejectProblem, verificationLabel } from "@/helpers/wctFinishModes";
 import { fmtJobWhen } from "@/helpers/wctOrders";
@@ -53,6 +54,8 @@ interface QueueRow {
   completionMode: string | null;
   completionNote: string | null;
   photos: string[];
+  /** Which of the photos came from SiteClock (job photos). */
+  siteclockPhotos?: Array<{ key: string; workerName: string | null }>;
   verificationState: VerificationState;
   verificationNote: string | null;
 }
@@ -174,7 +177,7 @@ export default function VerificationQueuePage() {
                   <TableCell>
                     <Stack direction="row" spacing={0.75} alignItems="center">
                       {r.photos.slice(0, 3).map((k) => (
-                        <Box key={k} component="img" src={photoSrc(k)} alt="Stamped DO" sx={{ width: 44, height: 44, objectFit: "cover", borderRadius: 0.5, border: 1, borderColor: "divider" }} />
+                        <Box key={k} component="img" src={photoSrc(k)} alt="Stamped DO" title={siteclockEvidenceCaption(k, r.siteclockPhotos) ?? undefined} sx={{ width: 44, height: 44, objectFit: "cover", borderRadius: 0.5, border: 1, borderColor: "divider" }} />
                       ))}
                       {r.completionNote && (
                         <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: 220 }} title={r.completionNote}>

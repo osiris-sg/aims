@@ -51,10 +51,12 @@ export class S3Service {
     return Buffer.from(bytes);
   }
 
-  async getSignedUrl(key: string, expiresIn: number = 3600): Promise<string> {
+  // downloadAs: the browser saves the file under this name instead of opening it.
+  async getSignedUrl(key: string, expiresIn: number = 3600, downloadAs?: string): Promise<string> {
     const command = new GetObjectCommand({
       Bucket: this.bucketName,
       Key: key,
+      ...(downloadAs ? { ResponseContentDisposition: `attachment; filename="${downloadAs.replace(/["\\\r\n]/g, '')}"` } : {}),
     });
 
     return getSignedUrl(this.s3Client, command, { expiresIn });

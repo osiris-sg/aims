@@ -16,6 +16,15 @@ export interface Conn {
   defaultDurationMin?: number;
   lastOkAt?: string | null;
   lastError?: string | null;
+  /** The key SiteClock calls AIMS with (job photos): never the key itself. */
+  inboundKey?: { last4: string | null; createdAt: string | null; lastUsedAt: string | null } | null;
+}
+
+/** "Key ending …a1B2, made 2 Nov 2026, last used …" or null when there is none. */
+export function inboundKeyLabel(c: Conn | null | undefined, fmt: (d?: string | null) => string): string | null {
+  const k = c?.inboundKey;
+  if (!k) return null;
+  return `Key ending …${k.last4 ?? "????"}, made ${fmt(k.createdAt)}, last used ${fmt(k.lastUsedAt)}`;
 }
 
 /** The payload of a { success, data } response; throws the server's message when the call failed. */

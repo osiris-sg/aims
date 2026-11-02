@@ -56,6 +56,7 @@ import DoStatusTag from "@/components/DoStatusTag";
 import JobFieldsPanel from "@/components/jobFields/JobFieldsPanel";
 import type { JobFieldDef } from "@/helpers/jobFields";
 import VerificationPanel, { JobVerification } from "@/components/delivery/VerificationPanel";
+import { DeliveryJobPhotos } from "@/components/delivery/JobPhotos";
 import { runDoTag } from "@/helpers/doStatusTag";
 
 /**
@@ -850,6 +851,11 @@ export default function DeliveryDetailPage() {
           <VerificationPanel verification={run.verification} canDecide onChanged={() => void load()} />
         </Box>
       )}
+
+      {/* Job photos from SiteClock (orgs with the SiteClock link; renders nothing otherwise). */}
+      <Box sx={{ my: 2 }}>
+        <DeliveryJobPhotos deliveryId={run.id} />
+      </Box>
 
       {/* Signed DO download + "Posted to group" (delivery group posts). Shown
           once the customer has signed for anything on an outbound run. */}

@@ -4677,7 +4677,7 @@ export class DeliveriesService {
   /** One job's verification block (also used by the delivery page and the order page). */
   private async verificationView(r: any, organizationId: string) {
     const docIds = [...new Set((r.items ?? []).map((i: any) => i.documentId).filter(Boolean))] as string[];
-    const [doc, proof] = await Promise.all([
+    const [doc, proof, fromSiteClock] = await Promise.all([
       docIds.length
         ? this.prisma.document.findFirst({ where: { id: { in: docIds }, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, name: true, documentTemplateId: true }, orderBy: { createdAt: 'asc' } })
         : null,
@@ -4685,8 +4685,14 @@ export class DeliveriesService {
         where: { deliveryId: r.id, kind: 'DO_ACK', assetId: null, description: { startsWith: 'Stamped DO' } },
         select: { photos: true },
       }),
+      // Job photos from SiteClock: a live Signed DO / Stamped DO photo is evidence too.
+      this.prisma.jobPhoto.findMany({
+        where: { organizationId, deliveryId: r.id, deletedAt: null, tag: { in: ['SIGNED_DO', 'STAMPED_DO'] } },
+        select: { fileKey: true, tag: true, workerName: true, takenAt: true },
+        orderBy: { createdAt: 'asc' },
+      }),
     ]);
-    const photos = [...new Set([...((r.completionPhotos as string[]) ?? []), ...proof.flatMap((p) => p.photos ?? [])])];
+    const photos = [...new Set([...((r.completionPhotos as string[]) ?? []), ...proof.flatMap((p) => p.photos ?? []), ...fromSiteClock.map((p) => p.fileKey)])];
     return {
       id: r.id,
       deliveryNumber: r.deliveryNumber,
@@ -4700,6 +4706,8 @@ export class DeliveriesService {
       completionMode: r.completionMode,
       completionNote: r.completionNote,
       photos,
+      // Which of the photos came from SiteClock (the views caption them "SiteClock · worker").
+      siteclockPhotos: fromSiteClock.map((p) => ({ key: p.fileKey, tag: p.tag, workerName: p.workerName, takenAt: p.takenAt })),
       verificationState: r.verificationState,
       verificationNote: r.verificationNote,
       verifiedAt: r.verifiedAt,
@@ -6550,6 +6558,11 @@ export class DeliveriesService {
     if (delivery.items.some((i) => i.inventoryId)) {
       throw new BadRequestException('This run has units bound to it and cannot be deleted. Cancel it instead.');
     }
+    // Job photos from SiteClock (hidden ones too): the job was worked, and the photos must keep their job.
+    const photoCount = await this.prisma.jobPhoto.count({ where: { organizationId, deliveryId } });
+    if (photoCount) {
+      throw new BadRequestException('This job has photos from SiteClock and cannot be deleted. Cancel it instead.');
+    }
     // A scheduled/draft run should carry no field reports; if it does, the run
     // was worked and this is not a safe delete. Its SCHEDULED service report
     // (a placeholder nobody has written) is not field work: it goes with the run.
@@ -6632,7 +6645,7 @@ export class DeliveriesService {
 
     const docIds = [...new Set(delivery.items.map((i) => i.documentId).filter((v): v is string => !!v))];
     const placeholderReport = { deliveryId, kind: 'SERVICE' as const, status: 'draft', reportNumber: null, serviceData: { path: ['scheduled'], equals: true } };
-    const [docs, invoices, postedEntries, allReports, placeholderReports, groupPosts] = await Promise.all([
+    const [docs, invoices, postedEntries, allReports, placeholderReports, groupPosts, jobPhotos] = await Promise.all([
       docIds.length
         ? this.prisma.document.findMany({ where: { id: { in: docIds }, organizationId }, select: { id: true, name: true, status: true } })
         : Promise.resolve([] as Array<{ id: string; name: string | null; status: string | null }>),
@@ -6643,6 +6656,7 @@ export class DeliveriesService {
       this.prisma.maintenanceServiceReport.count({ where: { deliveryId } }),
       this.prisma.maintenanceServiceReport.count({ where: placeholderReport as any }),
       this.prisma.deliveryGroupPost.count({ where: { deliveryId } }),
+      this.prisma.jobPhoto.count({ where: { organizationId, deliveryId } }),
     ]);
     const blocker = purgeBlocker({
       status: delivery.status,
@@ -6653,6 +6667,7 @@ export class DeliveriesService {
       postedEntries,
       reports: allReports - placeholderReports,
       groupPosts,
+      jobPhotos,
     });
     if (blocker) throw new BadRequestException(blocker);
 

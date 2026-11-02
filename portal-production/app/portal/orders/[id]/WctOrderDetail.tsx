@@ -35,6 +35,7 @@ import { addJobPrefill, fmtJobWhen, invoiceNowText, jobStatusColor, jobStatusLab
 import { Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, List, ListItemButton, ListItemText, TextField } from "@mui/material";
 import { uploadFile, publicFileUrl } from "@/helpers/fileUploader";
 import { attachmentLine, type OrderAttachment, type ReportOption } from "@/helpers/wctOrders";
+import { OrderJobPhotos } from "@/components/delivery/JobPhotos";
 
 // WCT order page (enableWctOrders, 2026-11-01): the order header, its jobs
 // (Delivery runs), and "Add job", which opens the usual schedule dialog
@@ -373,6 +374,9 @@ export default function WctOrderDetail({ id }: { id: string }) {
         </Box>
       )}
 
+      {/* Job photos from SiteClock, one group per job (orgs with the SiteClock link; renders nothing otherwise). */}
+      <OrderPhotosSection orderId={order.id} />
+
       <Box sx={{ mt: 3 }}>
         <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
           <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
@@ -532,5 +536,19 @@ export default function WctOrderDetail({ id }: { id: string }) {
 
       <ScheduleDeliveryDialog open={addOpen} onClose={() => setAddOpen(false)} onCreated={() => void load()} prefill={prefill} />
     </MainCard>
+  );
+}
+
+/** The order's "Photos" heading + the per-job photo groups; the whole block hides for orgs without the SiteClock link. */
+function OrderPhotosSection({ orderId }: { orderId: string }) {
+  const [shown, setShown] = React.useState(true);
+  if (!shown) return null;
+  return (
+    <Box sx={{ mt: 3 }}>
+      <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+        Photos
+      </Typography>
+      <OrderJobPhotos orderId={orderId} onUnavailable={() => setShown(false)} />
+    </Box>
   );
 }

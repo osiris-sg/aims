@@ -8,6 +8,7 @@ import { uploadImage } from "@/helpers/imageUploader";
 import { photoSrc } from "@/components/maintenance/ReportPhotos";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
 import { VERIFICATION_COLOR, VerificationState, completionModeLabel, rejectProblem, verificationLabel } from "@/helpers/wctFinishModes";
+import { siteclockEvidenceCaption } from "@/helpers/jobPhotos";
 
 /**
  * WCT finish modes (enableWctFinishModes, 2026-11-01): a job's verification
@@ -22,6 +23,8 @@ export interface JobVerification {
   completionMode: string | null;
   completionNote: string | null;
   photos: string[];
+  /** Which of the photos came from SiteClock (job photos tagged Signed DO / Stamped DO). */
+  siteclockPhotos?: Array<{ key: string; tag: string; workerName: string | null; takenAt: string | null }>;
   verificationState: VerificationState | null;
   verificationNote: string | null;
   verifiedAt: string | null;
@@ -85,11 +88,21 @@ export default function VerificationPanel({
       )}
       {v.photos.length > 0 && (
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
-          {v.photos.map((k) => (
-            <a key={k} href={photoSrc(k)} target="_blank" rel="noopener noreferrer">
-              <Box component="img" src={photoSrc(k)} alt="Stamped DO" sx={{ width: 120, height: 120, objectFit: "cover", borderRadius: 1, border: 1, borderColor: "divider" }} />
-            </a>
-          ))}
+          {v.photos.map((k) => {
+            const from = siteclockEvidenceCaption(k, v.siteclockPhotos);
+            return (
+              <Box key={k} sx={{ width: 120 }}>
+                <a href={photoSrc(k)} target="_blank" rel="noopener noreferrer">
+                  <Box component="img" src={photoSrc(k)} alt="Stamped DO" sx={{ width: 120, height: 120, objectFit: "cover", borderRadius: 1, border: 1, borderColor: "divider", display: "block" }} />
+                </a>
+                {from && (
+                  <Typography variant="caption" color="text.secondary" component="div" sx={{ lineHeight: 1.3, mt: 0.25 }}>
+                    {from}
+                  </Typography>
+                )}
+              </Box>
+            );
+          })}
         </Stack>
       )}
       {state === "rejected" && v.verificationNote && (

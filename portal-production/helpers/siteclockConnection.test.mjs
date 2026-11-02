@@ -2,7 +2,7 @@
 // 2026-10-30: Admin → organisation → SiteClock tab — a failed save must surface the server's message, never look saved.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { unwrap, isConn, keyStoredLabel, secretsMissing, testResultText } from "../app/portal/admin/organizations/_lib/siteclock-connection.ts";
+import { unwrap, isConn, keyStoredLabel, secretsMissing, testResultText, inboundKeyLabel } from "../app/portal/admin/organizations/_lib/siteclock-connection.ts";
 
 const conn = { connected: true, secretsReady: true, baseUrl: "https://api.siteclock.osiris.sg", siteclockCompanyId: "cmv0", apiKeyLast4: "u0XK", enabled: true, defaultDurationMin: 60 };
 
@@ -36,4 +36,14 @@ test("test connection: teams count or the error", () => {
   assert.deepEqual(testResultText({ ok: true, teams: 3 }), { ok: true, text: "Connected: 3 teams in SiteClock" });
   assert.deepEqual(testResultText({ ok: true, teams: 1 }), { ok: true, text: "Connected: 1 team in SiteClock" });
   assert.deepEqual(testResultText({ ok: false, error: "401 invalid key" }), { ok: false, text: "SiteClock said: 401 invalid key" });
+});
+
+test("inboundKeyLabel: only the last 4 and dates, null without a key", () => {
+  const fmt = (d) => (d ? d.slice(0, 10) : "never");
+  assert.equal(inboundKeyLabel({ connected: true, secretsReady: true, inboundKey: null }, fmt), null);
+  assert.equal(inboundKeyLabel(null, fmt), null);
+  assert.equal(
+    inboundKeyLabel({ connected: true, secretsReady: true, inboundKey: { last4: "a1B2", createdAt: "2026-11-02T10:00:00Z", lastUsedAt: null } }, fmt),
+    "Key ending …a1B2, made 2026-11-02, last used never",
+  );
 });

@@ -41,6 +41,7 @@ describe('purgeBlocker (permanent delete of a cancelled run)', () => {
     expect(purgeBlocker(facts({ items: [line({ deliveryStatus: 'delivering' })] }))).toMatch(/in the field/);
     expect(purgeBlocker(facts({ reports: 1 }))).toMatch(/field reports/);
     expect(purgeBlocker(facts({ groupPosts: 1 }))).toMatch(/delivery group/);
+    expect(purgeBlocker(facts({ jobPhotos: 1 }))).toMatch(/photos from SiteClock/);
   });
 
   it('refuses a real DO number, a confirmed placeholder, an invoice or a ledger post', () => {
@@ -62,7 +63,7 @@ describe('purgeBlocker (permanent delete of a cancelled run)', () => {
 const ORG = '5c700000-0000-4000-8000-5c7000000001';
 const RUN = '9931cce0-c309-4e8b-a52c-76543b087eb2';
 
-function world(over: { status?: string; inventoryId?: string | null; docName?: string; docStatus?: string; invoice?: boolean; report?: boolean } = {}) {
+function world(over: { status?: string; inventoryId?: string | null; docName?: string; docStatus?: string; invoice?: boolean; report?: boolean; photos?: boolean } = {}) {
   const calls: string[] = [];
   const delivery = {
     id: RUN,
@@ -89,6 +90,7 @@ function world(over: { status?: string; inventoryId?: string | null; docName?: s
       deleteMany: () => (calls.push('report.deleteMany placeholder'), 'q-reports'),
     },
     deliveryGroupPost: { count: async () => 0 },
+    jobPhoto: { count: async ({ where }: any) => (over.photos && where.organizationId === ORG ? 1 : 0) },
     $transaction: async (ops: any[]) => {
       calls.push(`tx(${ops.length})`);
       return ops;
@@ -110,7 +112,7 @@ describe('DeliveriesService.purgeCancelled', () => {
   });
 
   it('touches nothing when a guard refuses', async () => {
-    for (const over of [{ status: 'scheduled' }, { inventoryId: 'inv1' }, { docName: 'DO-2026-0042' }, { docName: 'DO-PENDING-01', invoice: true }, { report: true }]) {
+    for (const over of [{ status: 'scheduled' }, { inventoryId: 'inv1' }, { docName: 'DO-2026-0042' }, { docName: 'DO-PENDING-01', invoice: true }, { report: true }, { photos: true }]) {
       const w = world(over);
       await expect(w.svc.purgeCancelled(RUN, ORG)).rejects.toBeInstanceOf(BadRequestException);
       expect(w.calls).toEqual([]);

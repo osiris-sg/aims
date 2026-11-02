@@ -2,11 +2,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Alert, Box, Button, CircularProgress, FormControlLabel, Stack, Switch, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, Stack, Switch, TextField, Typography } from "@mui/material";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
-import { Conn, isConn, keyStoredLabel, secretsMissing, testResultText, unwrap } from "../_lib/siteclock-connection";
+import { Conn, inboundKeyLabel, isConn, keyStoredLabel, secretsMissing, testResultText, unwrap } from "../_lib/siteclock-connection";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SiteClock tab (admin org detail page, OsirisAdmin only).
@@ -34,6 +34,8 @@ export default function SiteClockTab({ organizationId }: { organizationId: strin
   // Inline results: the save / test outcome stays on screen (a toast alone was missed).
   const [saveError, setSaveError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
+  // The new inbound key, shown once in a dialog (never kept anywhere else).
+  const [newKey, setNewKey] = useState<string | null>(null);
 
   const base = `/admin/organizations/${organizationId}/siteclock`;
 
@@ -114,6 +116,50 @@ export default function SiteClockTab({ organizationId }: { organizationId: strin
     }
   };
 
+  // Inbound key (SiteClock → AIMS, job photos): generate / rotate shows it once; revoke stops SiteClock's calls.
+  const generateKey = async () => {
+    if (conn?.inboundKey && !window.confirm("Rotate the SiteClock key? The current key stops working at once, so paste the new one into SiteClock straight away.")) return;
+    setBusy(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res: any = await request({ path: `${base}/inbound-key`, method: "POST" }, {}, token);
+      const { key, ...c } = unwrap<Conn & { key: string }>(res, "Could not generate the key");
+      if (isConn(c)) setConn(c);
+      setNewKey(key);
+    } catch (e: any) {
+      toast.error(e?.message || "Could not generate the key");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revokeKey = async () => {
+    if (!window.confirm("Revoke the SiteClock key? SiteClock can no longer send job photos to AIMS until a new key is generated.")) return;
+    setBusy(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const res: any = await request({ path: `${base}/inbound-key`, method: "DELETE" }, {}, token);
+      const c = unwrap<Conn>(res, "Could not revoke the key");
+      if (isConn(c)) setConn(c);
+      toast.success("SiteClock key revoked");
+    } catch (e: any) {
+      toast.error(e?.message || "Could not revoke the key");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const copyKey = async () => {
+    try {
+      await navigator.clipboard.writeText(newKey ?? "");
+      toast.success("Key copied");
+    } catch {
+      toast.error("Copy failed: select the key and copy it");
+    }
+  };
+
   if (loading) return <Box sx={{ p: 3 }}><CircularProgress size={24} /></Box>;
 
   return (
@@ -161,6 +207,34 @@ export default function SiteClockTab({ organizationId }: { organizationId: strin
           <Button variant="outlined" onClick={test} disabled={busy || !conn?.connected}>Test connection</Button>
         </Stack>
       </Stack>
+
+      <Divider sx={{ my: 3 }} />
+      <Typography variant="subtitle1" fontWeight={700} gutterBottom>Inbound key (SiteClock to AIMS)</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+        SiteClock sends job photos to AIMS with this key. Paste it into SiteClock&apos;s settings for this company. AIMS keeps only a fingerprint of it, so it is shown once.
+      </Typography>
+      <Typography variant="body2" sx={{ mb: 1.5 }}>{inboundKeyLabel(conn, fmt) ?? "No key yet"}</Typography>
+      <Stack direction="row" spacing={1} data-tour="siteclock-inbound-key">
+        <Button variant="contained" onClick={generateKey} disabled={busy || !conn?.connected}>
+          {conn?.inboundKey ? "Rotate key" : "Generate SiteClock key"}
+        </Button>
+        {conn?.inboundKey && (
+          <Button variant="outlined" color="error" onClick={revokeKey} disabled={busy}>Revoke</Button>
+        )}
+      </Stack>
+      {!conn?.connected && <Typography variant="caption" color="text.secondary">Save the connection first.</Typography>}
+
+      <Dialog open={!!newKey} onClose={() => setNewKey(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>SiteClock key</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>Copy it now. It is not shown again; if it is lost, rotate the key.</Alert>
+          <TextField value={newKey ?? ""} fullWidth size="small" InputProps={{ readOnly: true, sx: { fontFamily: "monospace" } }} onFocus={(e) => e.target.select()} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={copyKey}>Copy</Button>
+          <Button variant="contained" onClick={() => setNewKey(null)}>Done</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

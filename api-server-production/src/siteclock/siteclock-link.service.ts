@@ -8,6 +8,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { ActionLogService } from '../action-log/action-log.service';
 import { SiteClockApiError, SiteClockClient, SiteClockJob } from './siteclock.client';
 import { backoffMs, externalRefFor, Plan, PlanLink, PlanRun, planSync, PushedStatus } from './siteclock-plan';
+import { hashInboundKey, newInboundKey } from '../job-photos/job-photos';
 
 export const SITECLOCK_LINK_FLAG = 'enableSiteClockLink';
 const ALERT_AFTER = 3; // failures in a row before the office bell rings
@@ -601,7 +602,37 @@ export class SiteClockLinkService {
       lastOkAt: c.lastOkAt,
       lastError: c.lastError,
       updatedAt: c.updatedAt,
+      // SiteClock → AIMS key (job photos): never the key, only that one exists.
+      inboundKey: c.inboundKeyHash ? { last4: c.inboundKeyLast4, createdAt: c.inboundKeyCreatedAt, lastUsedAt: c.inboundKeyLastUsedAt } : null,
     };
+  }
+
+  /**
+   * Admin "Generate SiteClock key" (also Rotate): a new inbound key for
+   * SiteClock to call AIMS with. Returned ONCE here; only its sha256 is kept,
+   * and the previous key stops working at once.
+   */
+  async generateInboundKey(organizationId: string) {
+    const existing = await this.prisma.siteClockConnection.findUnique({ where: { organizationId }, select: { id: true, inboundKeyHash: true } });
+    if (!existing) throw new NotFoundException('Save the SiteClock connection first');
+    const key = newInboundKey();
+    await this.prisma.siteClockConnection.update({
+      where: { organizationId },
+      data: { inboundKeyHash: hashInboundKey(key), inboundKeyLast4: key.slice(-4), inboundKeyCreatedAt: new Date(), inboundKeyLastUsedAt: null },
+    });
+    this.actionLog?.system('siteclock-inbound-key', existing.inboundKeyHash ? 'ROTATE' : 'CREATE', 'siteclock-connection', { organizationId, resourceId: existing.id, details: { last4: key.slice(-4) } });
+    return { key, ...(await this.getConnection(organizationId)) };
+  }
+
+  /** Admin "Revoke": SiteClock can no longer call AIMS until a new key is generated. */
+  async revokeInboundKey(organizationId: string) {
+    const existing = await this.prisma.siteClockConnection.findUnique({ where: { organizationId }, select: { id: true } });
+    if (!existing) throw new NotFoundException('No SiteClock connection for this organisation');
+    await this.prisma.siteClockConnection.update({
+      where: { organizationId },
+      data: { inboundKeyHash: null, inboundKeyLast4: null, inboundKeyCreatedAt: null, inboundKeyLastUsedAt: null },
+    });
+    return this.getConnection(organizationId);
   }
 
   async saveConnection(organizationId: string, body: { baseUrl?: string; siteclockCompanyId?: string; apiKey?: string; enabled?: boolean; defaultDurationMin?: number }) {

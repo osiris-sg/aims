@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Param, Put, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { SiteClockLinkService } from './siteclock-link.service';
@@ -33,6 +33,20 @@ export class SiteClockAdminController {
   save(@Req() req: AdminRequest, @Param('orgId') orgId: string, @Body() body: { baseUrl?: string; siteclockCompanyId?: string; apiKey?: string; enabled?: boolean; defaultDurationMin?: number }) {
     this.assertOsirisAdmin(req);
     return this.link.saveConnection(orgId, body || {});
+  }
+
+  @Post('inbound-key')
+  @ApiOperation({ summary: 'Generate (or rotate) the key SiteClock calls AIMS with. Returned once; only its hash is stored.' })
+  generateInboundKey(@Req() req: AdminRequest, @Param('orgId') orgId: string) {
+    this.assertOsirisAdmin(req);
+    return this.link.generateInboundKey(orgId);
+  }
+
+  @Delete('inbound-key')
+  @ApiOperation({ summary: 'Revoke the inbound key: SiteClock calls are refused until a new one is generated.' })
+  revokeInboundKey(@Req() req: AdminRequest, @Param('orgId') orgId: string) {
+    this.assertOsirisAdmin(req);
+    return this.link.revokeInboundKey(orgId);
   }
 
   @Get('test')
