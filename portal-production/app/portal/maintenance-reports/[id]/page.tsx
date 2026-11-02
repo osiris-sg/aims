@@ -39,6 +39,7 @@ import {
 import ReportPhotos from "@/components/maintenance/ReportPhotos";
 import CustomerSignLinkButton from "../_components/CustomerSignLinkButton";
 import WctReportView from "../_components/WctReportView";
+import { msrStatusChip } from "@/helpers/msrStatus";
 
 // Labels come from the SHARED catalogue (see the drift warning there). Which
 // template a report renders under is read from the ROW's stamped templateId,
@@ -291,9 +292,9 @@ export default function MaintenanceReportDetailPage() {
               </Box>
               <Chip
                 size="small"
-                label={report.status === "draft" && sd.scheduled ? "Scheduled — awaiting the technician" : report.status}
-                color={report.status === "completed" ? "success" : report.status === "draft" && sd.scheduled ? "info" : "default"}
-                sx={{ textTransform: sd.scheduled ? "none" : "capitalize" }}
+                label={report.status === "draft" && sd.scheduled ? "Scheduled — awaiting the technician" : msrStatusChip(report).label}
+                color={msrStatusChip(report).color}
+                variant={msrStatusChip(report).variant}
               />
             </Stack>
           </Paper>
@@ -326,9 +327,10 @@ export default function MaintenanceReportDetailPage() {
             </Typography>
             <Chip
               size="small"
-              label={report.status}
-              color={report.status === "completed" ? "success" : "default"}
-              sx={{ mt: 0.5, textTransform: "capitalize" }}
+              label={msrStatusChip(report).label}
+              color={msrStatusChip(report).color}
+              variant={msrStatusChip(report).variant}
+              sx={{ mt: 0.5 }}
             />
           </Box>
         </Stack>

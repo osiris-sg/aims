@@ -45,11 +45,13 @@ interface MsrRow {
   inventory: { sku: string; serialNumber: string | null } | null;
 }
 
-type StatusKind = "completed" | "pending-invoice" | "invoice-created" | "scheduled";
+type StatusKind = "pending-sign" | "completed" | "pending-invoice" | "invoice-created" | "scheduled";
 
 const statusFor = (row: MsrRow): StatusKind => {
   // WCT: scheduled with the run, written by the technician after the sign-off.
   if (row.status === "draft" && row.serviceData?.scheduled) return "scheduled";
+  // Submitted unsigned (field app Skip): waiting for the customer's signature.
+  if (row.status === "draft") return "pending-sign";
   if (!row.paymentRequired) return "completed";
   if (row.invoiceDocumentId) return "invoice-created";
   return "pending-invoice";
@@ -57,6 +59,7 @@ const statusFor = (row: MsrRow): StatusKind => {
 
 const statusChipProps = (kind: StatusKind): { label: string; color: "success" | "warning" | "info"; variant: "filled" | "outlined" } => {
   if (kind === "scheduled") return { label: "Scheduled", color: "info", variant: "outlined" };
+  if (kind === "pending-sign") return { label: "Pending sign", color: "warning", variant: "outlined" };
   if (kind === "pending-invoice") return { label: "Pending Invoice", color: "warning", variant: "filled" };
   if (kind === "invoice-created") return { label: "Invoice Created", color: "success", variant: "outlined" };
   return { label: "Completed", color: "success", variant: "filled" };

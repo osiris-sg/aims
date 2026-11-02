@@ -50,6 +50,7 @@ import CleanDocumentPreview from "@/containers/DocumentTemplates/components/Clea
 // in TabbedDocumentCreator. Extracted from a previously-inline definition.
 import DeliveryRouteDialog from "@/components/DeliveryRouteDialog";
 import { todayIso } from "@/helpers/orgToday";
+import { msrStatusChip } from "@/helpers/msrStatus";
 
 // Leaflet hits `window` at import time; load the map client-side only.
 const DeliveryRouteMap = dynamic(() => import("@/components/DeliveryRouteMap"), {
@@ -1279,7 +1280,7 @@ function FieldReportCard({
             </Button>
           </Tooltip>
         )}
-        <Chip size="small" variant="outlined" label={report.status} />
+        <Chip size="small" variant={msrStatusChip(report).variant} color={msrStatusChip(report).color} label={msrStatusChip(report).label} />
       </Stack>
 
       <Stack direction="row" gap={3} flexWrap="wrap" sx={{ color: "text.secondary", mb: 1 }}>

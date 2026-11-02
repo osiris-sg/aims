@@ -1210,7 +1210,14 @@ export default function DeliveryDetailPage() {
         return (
           <Paper variant="outlined" sx={{ p: 2, mb: 3, display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
             <Typography variant="subtitle2" sx={{ flexGrow: 1 }}>Service report</Typography>
-            <Chip size="small" label={done ? "Completed" : "Scheduled, awaiting the technician"} color={done ? "success" : "info"} variant={done ? "filled" : "outlined"} />
+            {/* A draft is WCT's scheduled report only on service-job orgs; elsewhere
+                it was submitted unsigned and waits for the customer's signature. */}
+            <Chip
+              size="small"
+              label={done ? "Completed" : serviceJobs ? "Scheduled, awaiting the technician" : "Pending sign"}
+              color={done ? "success" : serviceJobs ? "info" : "warning"}
+              variant={done ? "filled" : "outlined"}
+            />
             <Button size="small" variant="outlined" onClick={() => router.push(`/portal/maintenance-reports/${sr.id}`)} data-tour="run-service-report">
               {done ? "Open report" : "Preview"}
             </Button>
