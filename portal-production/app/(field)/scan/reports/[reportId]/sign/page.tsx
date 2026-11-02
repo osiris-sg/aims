@@ -81,9 +81,8 @@ export default function SignReportPage() {
         const res = await request({ path: `/maintenance-reports/${reportId}`, method: "GET" }, {}, token);
         const data = res?.data ?? res;
         if (!data?.id) throw new Error("Report not found");
-        // Already signed by someone else while this sat in the list, or another
-        // technician's report (field-tech rule: read-only): open the print view.
-        if (data.status === "completed" || data.canEdit === false) {
+        if (data.status === "completed") {
+          // Already signed by someone else while this sat in the list.
           router.replace(`/scan/reports/${reportId}/print`);
           return;
         }

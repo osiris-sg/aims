@@ -76,9 +76,8 @@ function SignBatchInner() {
         if (found.length !== ids.length) throw new Error("One of the selected reports could not be loaded.");
         // Already signed elsewhere while the selection sat on screen — drop them
         // rather than posting a sign the endpoint would refuse anyway.
-        // Another technician's report (field-tech rule) is read-only here too.
-        const open = found.filter((r) => r.status !== "completed" && r.canEdit !== false);
-        if (!open.length) throw new Error("Every selected report has already been signed, or belongs to another technician's job.");
+        const open = found.filter((r) => r.status !== "completed");
+        if (!open.length) throw new Error("Every selected report has already been signed.");
         // The URL is editable: re-prove the one-customer rule server-side data,
         // not just in the list's UI.
         // Array, not a Set spread — the portal's tsconfig target predates

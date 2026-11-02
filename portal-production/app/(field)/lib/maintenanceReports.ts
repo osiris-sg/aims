@@ -14,8 +14,6 @@ export interface ReportSummary {
   createdAt: string;
   signedAt?: string | null;
   technicianName?: string | null;
-  /** False when another technician's report (field-tech rule): open it read-only. */
-  canEdit?: boolean;
   serviceData: {
     customerName?: string | null;
     model?: string | null;

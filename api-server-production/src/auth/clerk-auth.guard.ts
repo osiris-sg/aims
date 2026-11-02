@@ -311,11 +311,6 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
       request.isOsirisAdmin = false;
     }
 
-    // Role names in the active org, for data scoping in the services
-    // (src/auth/field-scope.ts: a field-tech-only user sees just their work).
-    const activeOrgId = request.userOrganization?.id ?? userOrg?.organization?.id;
-    request.orgRoleNames = userRoles.filter((ur) => ur.organizationId === activeOrgId).map((ur) => ur.role.name);
-
     // Get required permissions from the route handler
     const requiredPermissions = this.reflector.get<string[]>(PERMISSIONS_KEY, context.getHandler());
 

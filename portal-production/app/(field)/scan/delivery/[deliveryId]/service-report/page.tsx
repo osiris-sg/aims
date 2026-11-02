@@ -124,8 +124,6 @@ export default function WctServiceReportPage() {
   const [run, setRun] = useState<Run | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  // Field-tech rule: another technician's report on this job is read-only.
-  const [viewOnlyReportId, setViewOnlyReportId] = useState<string | null>(null);
   const [cursor, setCursor] = useState<Cursor>({ phase: "job" });
   const [customerName, setCustomerName] = useState("");
   const [jobLocation, setJobLocation] = useState("");
@@ -172,7 +170,6 @@ export default function WctServiceReportPage() {
         if (draftRow) {
           try {
             const full = await request({ path: `/maintenance-reports/${draftRow.id}`, method: "GET" }, {}, token);
-            if (!cancelled && (full?.data ?? full)?.canEdit === false) setViewOnlyReportId(draftRow.id);
             const d: Draft | undefined = (full?.data ?? full)?.serviceData?.draft;
             if (!cancelled && d && Array.isArray(d.jobTypes)) {
               setJobTypes(new Set(d.jobTypes));
@@ -243,7 +240,7 @@ export default function WctServiceReportPage() {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSaved = useRef<string>("");
   useEffect(() => {
-    if (!restored || !scheduledDraft || created || existing || viewOnlyReportId) return;
+    if (!restored || !scheduledDraft || created || existing) return;
     const payload = draftOf();
     const json = JSON.stringify(payload);
     if (json === lastSaved.current) return;
@@ -264,7 +261,7 @@ export default function WctServiceReportPage() {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
-  }, [draftOf, restored, scheduledDraft, created, existing, viewOnlyReportId, getToken]);
+  }, [draftOf, restored, scheduledDraft, created, existing, getToken]);
 
   const upload = async (blob: Blob): Promise<string | null> => {
     const token = await getToken();
@@ -457,15 +454,6 @@ export default function WctServiceReportPage() {
       <Box sx={{ p: 2 }}>
         <Alert severity="error">{loadError ?? "Delivery not found"}</Alert>
         <Button sx={{ mt: 2 }} onClick={() => router.back()}>Back</Button>
-      </Box>
-    );
-  }
-  if (viewOnlyReportId) {
-    return (
-      <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
-        <Alert severity="info">This report belongs to the technician on this job. You can view it, but only they can change it.</Alert>
-        <Button variant="contained" onClick={() => router.push(`/scan/reports/${viewOnlyReportId}/print`)}>View report</Button>
-        <Button onClick={() => router.back()}>Back</Button>
       </Box>
     );
   }
