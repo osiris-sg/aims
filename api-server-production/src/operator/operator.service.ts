@@ -1268,8 +1268,14 @@ export class OperatorService {
     }
     await this.auth.setOrganization(msg.channel, msg.channelUserId, org.id);
     // An org whose WhatsApp agent is OFF would swallow every message from here
-    // on without a word (handleInboundSerial ignores them) — say so now.
-    const agentOn = msg.channel !== 'whatsapp' || (await isOrgFeatureEnabled(this.prisma, org.id, 'enableWhatsAppAgent').catch(() => false));
+    // on without a word (handleInboundSerial ignores them) — say so now. That
+    // silent-swallow gate only exists on the SHIPMENTS profile, so only warn
+    // there: an ordinary AIMS org (Biofuel, WCT, CIEL…) answers regardless of
+    // the flag, and warning them read as "the agent is broken" (guru 2026-11-02).
+    const agentOn =
+      msg.channel !== 'whatsapp' ||
+      (await this.profileOf(org.id).catch(() => null)) !== 'shipments' ||
+      (await isOrgFeatureEnabled(this.prisma, org.id, 'enableWhatsAppAgent').catch(() => false));
     await adapter.sendText(
       msg.chatId,
       `✅ Now working in ${org.name}. Everything I do next applies to this org.` +
