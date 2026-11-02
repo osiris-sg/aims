@@ -67,7 +67,7 @@ const FLAGS_OFF = [
   'enableDeliveryGroupPosts',
   'enableProjects',
   'enableMaintenanceDates',
-  'enableServiceItems',
+  // enableServiceItems: copied from WCT (owner 2026-11-02).
 ];
 const MODULES_OFF = new Set(['ORDERS', 'MAINTENANCE']);
 const TO_CONFIRM: string[] = [];
@@ -93,9 +93,16 @@ async function main() {
     (await q(`select column_name c from information_schema.columns where table_schema='public' and table_name=$1 order by ordinal_position`, [t])).map((r: any) => r.c as string);
   const written: Record<string, string[]> = {};
   const note = (t: string, id: string) => (written[t] = [...(written[t] ?? []), id]);
+  const typeCache: Record<string, Record<string, string>> = {};
+  const colTypes = async (t: string) =>
+    (typeCache[t] ??= Object.fromEntries(
+      (await q(`select column_name c, data_type d from information_schema.columns where table_schema='public' and table_name=$1`, [t])).map((r: any) => [r.c, r.d]),
+    ));
   const ins = async (t: string, row: Record<string, any>) => {
     const keys = Object.keys(row);
-    const vals = keys.map((k) => (row[k] !== null && typeof row[k] === 'object' && !(row[k] instanceof Date) && !Array.isArray(row[k]) ? JSON.stringify(row[k]) : row[k]));
+    const ct = await colTypes(t);
+    // json / jsonb columns take JSON text (arrays included); Postgres array columns take JS arrays.
+    const vals = keys.map((k) => (row[k] === null || row[k] === undefined ? null : ct[k] === 'json' || ct[k] === 'jsonb' ? JSON.stringify(row[k]) : row[k]));
     if (MODE !== 'dry') await c.query(`insert into "${t}" (${keys.map((k) => `"${k}"`).join(',')}) values (${keys.map((_, i) => `$${i + 1}`).join(',')})`, vals);
     if (row.id) note(t, row.id);
   };
@@ -157,7 +164,7 @@ async function main() {
   for (const [t, ids] of Object.entries(written)) {
     if (t === '_PermissionToRole') continue;
     const orgCol = t === 'Organization' ? 'id' : '"organizationId"';
-    const rows = MODE === 'dry' ? ids.map(() => ({ org: NEW_ORG_ID })) : await q(`select ${orgCol}::text org from "${t}" where id = any($1::text[])`, [ids]);
+    const rows = MODE === 'dry' ? ids.map(() => ({ org: NEW_ORG_ID })) : await q(`select ${orgCol}::text org from "${t}" where id::text = any($1::text[])`, [ids]);
     const other = rows.filter((r: any) => r.org !== NEW_ORG_ID).length;
     const missing = ids.length - rows.length;
     out(`  ${t.padEnd(24)} written ${String(ids.length).padStart(4)}  new org ${String(rows.length - other).padStart(4)}  other org ${other}${missing ? `  MISSING ${missing}` : ''}`);
