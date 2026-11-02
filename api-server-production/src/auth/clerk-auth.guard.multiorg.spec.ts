@@ -9,8 +9,7 @@ import { PERMISSIONS_KEY } from './decorators/permissions.decorator';
  * Multi-organisation users (2026-11-02): which org a request runs in.
  * A user in A + B: the header picks one of THEIR orgs, any other org is a 403,
  * no header = the most recently used membership, roles / permissions come from
- * the active org only; osiris admins keep any-org; an invited email becomes a
- * member on its first request.
+ * the active org only; osiris admins keep any-org.
  */
 const A = 'org-a';
 const B = 'org-b';
@@ -46,7 +45,6 @@ function world() {
     { id: 'ur2', userId: 'u1', organizationId: B, roleId: 'accountsB', isActive: true },
     { id: 'ur3', userId: 'admin', organizationId: 'osiris-platform', roleId: 'osiris', isActive: true },
   ];
-  const invites: any[] = [];
   const withOrg = (m: any) => (m ? { organization: orgs[m.organizationId] } : null);
   const prisma: any = {
     userRole: {
@@ -62,17 +60,9 @@ function world() {
       upsert: async ({ create }: any) => (memberships.push({ ...create, joinedAt: new Date(), lastActiveAt: null }), create),
     },
     organization: { findUnique: async ({ where }: any) => orgs[where.id] ?? null },
-    pendingOrgInvite: {
-      findMany: async ({ where }: any) => invites.filter((i) => where.email.in.includes(i.email) && !i.acceptedAt && !i.revokedAt),
-      update: async ({ where, data }: any) =>
-        Object.assign(
-          invites.find((i) => i.id === where.id),
-          data,
-        ),
-    },
     role: { findMany: async ({ where }: any) => Object.values(roles).filter((r: any) => where.id.in.includes(r.id) && r.organizationId === where.organizationId) },
   };
-  return { prisma, memberships, invites, userRoles };
+  return { prisma, memberships, userRoles };
 }
 
 function run(w: ReturnType<typeof world>, userId: string, headers: Record<string, string> = {}, perms: string[] = [], emails: string[] = []) {
@@ -139,21 +129,5 @@ describe('ClerkAuthGuard: multi-organisation users', () => {
     expect(r.ok).toBe(true);
     expect(r.req.userOrganization.id).toBe(C);
     expect(r.req.isOsirisAdmin).toBe(true);
-  });
-
-  it('an invited email becomes a member with its roles on its first request; a cancelled invitation does not', async () => {
-    const w = world();
-    w.invites.push({ id: 'i1', organizationId: C, email: 'new@x.sg', roleIds: ['salesC'], acceptedAt: null, revokedAt: null });
-    const r = await run(w, 'newbie', {}, ['documents:read'], ['New@X.sg']);
-    expect(r.ok).toBe(true);
-    expect(r.req.userOrganization.id).toBe(C);
-    expect(w.invites[0].acceptedAt).toBeInstanceOf(Date);
-    expect(w.userRoles.some((u) => u.userId === 'newbie' && u.roleId === 'salesC')).toBe(true);
-
-    const w2 = world();
-    w2.invites.push({ id: 'i2', organizationId: C, email: 'gone@x.sg', roleIds: ['salesC'], acceptedAt: null, revokedAt: new Date() });
-    const r2: any = await run(w2, 'other', {}, [], ['gone@x.sg']);
-    expect(r2.err).toBeInstanceOf(ForbiddenException);
-    expect(r2.err.message).toMatch(/not assigned to any organization/);
   });
 });

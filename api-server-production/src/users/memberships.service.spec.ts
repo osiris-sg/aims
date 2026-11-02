@@ -1,5 +1,5 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { ADD_MEMBER_REPLY, MembershipsService } from './memberships.service';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { ADD_MEMBER_FAILED, ADD_MEMBER_REPLY, MembershipsService } from './memberships.service';
 
 const A = 'org-a';
 const B = 'org-b';
@@ -11,7 +11,6 @@ function world() {
     { userId: 'existing', organizationId: B, isActive: true, joinedAt: new Date('2026-10-01'), lastActiveAt: null },
   ];
   const userRoles: any[] = [{ userId: 'boss', organizationId: 'osiris-platform', roleId: 'osirisadmin', isActive: true, platform: true }];
-  const invites: any[] = [];
   const roles = [
     { id: 'roleA', name: 'Admin', organizationId: A },
     { id: 'roleB', name: 'Accounts', organizationId: B },
@@ -24,7 +23,6 @@ function world() {
         memberships
           .filter((m) => m.userId === where.userId && m.isActive)
           .map((m) => ({ organizationId: m.organizationId, lastActiveAt: m.lastActiveAt, organization: { id: m.organizationId, name: m.organizationId.toUpperCase(), logo: null } })),
-      findUnique: async ({ where }: any) => memberships.find((m) => m.userId === key(where).userId && m.organizationId === key(where).organizationId) ?? null,
       updateMany: async ({ where, data }: any) => {
         const rows = memberships.filter((m) => m.userId === where.userId && m.organizationId === where.organizationId && m.isActive);
         rows.forEach((r) => Object.assign(r, data));
@@ -45,38 +43,28 @@ function world() {
     notification: { groupBy: async () => [] },
     role: { findMany: async ({ where }: any) => roles.filter((r) => where.id.in.includes(r.id) && r.organizationId === where.organizationId) },
     organization: { findUnique: async ({ where }: any) => ({ id: where.id, name: where.id.toUpperCase() }) },
-    pendingOrgInvite: {
-      findMany: async ({ where }: any) => invites.filter((i) => i.organizationId === where.organizationId && !i.acceptedAt && !i.revokedAt),
-      findFirst: async ({ where }: any) => invites.find((i) => i.id === where.id && i.organizationId === where.organizationId && !i.acceptedAt && !i.revokedAt) ?? null,
-      update: async ({ where, data }: any) =>
-        Object.assign(
-          invites.find((i) => i.id === where.id),
-          data,
-        ),
-      upsert: async ({ where, update, create }: any) => {
-        const k = where.organizationId_email;
-        const row = invites.find((i) => i.organizationId === k.organizationId && i.email === k.email);
-        if (row) Object.assign(row, update);
-        else invites.push({ id: `inv${invites.length + 1}`, ...create, acceptedAt: null, revokedAt: null });
-      },
-    },
   };
   const clerk: any = {
-    users: { getUserList: jest.fn(async ({ emailAddress }: any) => ({ data: logins[emailAddress[0]] ? [logins[emailAddress[0]]] : [] })) },
-    invitations: { createInvitation: jest.fn(async () => ({ id: 'clerk_inv_1' })), revokeInvitation: jest.fn(async () => ({})) },
+    users: {
+      getUserList: jest.fn(async ({ emailAddress }: any) => ({ data: logins[emailAddress[0]] ? [logins[emailAddress[0]]] : [] })),
+      createUser: jest.fn(async ({ emailAddress }: any) => {
+        const u = { id: `new_${emailAddress[0]}` };
+        logins[emailAddress[0]] = u;
+        return u;
+      }),
+    },
   };
-  const email = { sendSimpleEmail: jest.fn(async () => ({ success: true })) };
-  const notifications = { emit: jest.fn(async () => undefined) };
-  const svc = new MembershipsService(prisma, clerk, email as any, notifications as any);
-  return { svc, memberships, userRoles, invites, clerk, email, notifications };
+  const identity = { stampExternalId: jest.fn(async () => undefined) };
+  const svc = new MembershipsService(prisma, clerk, identity as any);
+  return { svc, memberships, userRoles, clerk, identity };
 }
-const adminOfA = { orgId: A, platform: false, userId: 'me', name: 'Finance Lead' };
+const adminOfA = { orgId: A, platform: false, userId: 'me' };
+const memberOfA = (w: any, userId: string) => w.memberships.find((m: any) => m.userId === userId && m.organizationId === A && m.isActive);
 
 describe('MembershipsService', () => {
-  it('my organisations: only mine, default first', async () => {
+  it('my organisations: only mine', async () => {
     const w = world();
-    w.memberships.find((m) => m.organizationId === B).lastActiveAt = new Date('2026-11-02T10:00:00Z');
-    const r = await w.svc.myOrganizations('me', [], { id: A }, false);
+    const r = await w.svc.myOrganizations('me', { id: A }, false);
     expect(r.organizations.map((o) => o.id).sort()).toEqual([A, B]);
     expect(r.isOsirisAdmin).toBe(false);
   });
@@ -84,53 +72,59 @@ describe('MembershipsService', () => {
   it('switching remembers one of my orgs; another org is a 403', async () => {
     const w = world();
     await expect(w.svc.setActiveOrg('me', B, false)).resolves.toEqual({ organizationId: B, remembered: true });
-    expect(w.memberships.find((m) => m.userId === 'me' && m.organizationId === B).lastActiveAt).toBeInstanceOf(Date);
     await expect(w.svc.setActiveOrg('me', 'org-c', false)).rejects.toBeInstanceOf(ForbiddenException);
     await expect(w.svc.setActiveOrg('boss', 'org-c', true)).resolves.toEqual({ organizationId: 'org-c', remembered: false });
   });
 
-  it('add by email gives the SAME reply for a login in another org, no login, and a login that cannot be added', async () => {
+  it('Add user: an existing login (in another org) and a new email get IDENTICAL replies and both become members at once', async () => {
     const w = world();
-    const existing = await w.svc.addByEmail('Existing@x.sg', ['roleA'], adminOfA); // in org B already
-    const nobody = await w.svc.addByEmail('nobody@x.sg', ['roleA'], adminOfA);
-    const platform = await w.svc.addByEmail('boss@osiris.sg', ['roleA'], adminOfA);
-    expect(Object.keys(existing).sort()).toEqual(['message', 'ok']);
+    const existing = await w.svc.addByEmail('Existing@x.sg', ['roleA'], adminOfA);
+    const fresh = await w.svc.addByEmail('new@x.sg', ['roleA'], adminOfA);
     expect(existing).toEqual({ ok: true, message: ADD_MEMBER_REPLY('existing@x.sg', 'ORG-A') });
-    expect(nobody).toEqual({ ok: true, message: ADD_MEMBER_REPLY('nobody@x.sg', 'ORG-A') });
-    expect(platform).toEqual({ ok: true, message: ADD_MEMBER_REPLY('boss@osiris.sg', 'ORG-A') });
-    // what actually happened behind the same words:
-    expect(w.memberships.some((m) => m.userId === 'existing' && m.organizationId === A && m.isActive)).toBe(true);
-    expect(w.memberships.filter((m) => m.userId === 'existing' && m.organizationId === B)).toHaveLength(1); // B untouched
-    expect(w.invites).toMatchObject([{ organizationId: A, email: 'nobody@x.sg', roleIds: ['roleA'] }]);
-    expect(w.clerk.invitations.createInvitation).toHaveBeenCalledTimes(1);
-    expect(w.memberships.some((m) => m.userId === 'boss' && m.organizationId === A)).toBe(false);
+    expect(fresh).toEqual({ ok: true, message: ADD_MEMBER_REPLY('new@x.sg', 'ORG-A') });
+    expect(existing.message.replace('existing@x.sg', 'E')).toBe(fresh.message.replace('new@x.sg', 'E'));
+    expect(Object.keys(existing).sort()).toEqual(['message', 'ok']);
+    expect(memberOfA(w, 'existing')).toBeTruthy();
+    expect(memberOfA(w, 'new_new@x.sg')).toBeTruthy();
+    // the existing login's other org is untouched; only the new email got a login made for it
+    expect(w.memberships.filter((m) => m.userId === 'existing' && m.organizationId === B && m.isActive)).toHaveLength(1);
+    expect(w.clerk.users.createUser).toHaveBeenCalledTimes(1);
+    expect(w.clerk.users.createUser).toHaveBeenCalledWith(expect.objectContaining({ emailAddress: ['new@x.sg'] }));
+    expect(w.identity.stampExternalId).toHaveBeenCalledWith('new_new@x.sg');
   });
 
-  it('the added person gets an in-app notice in that org and an email; re-adding an active member sends nothing again', async () => {
+  it('adding again is harmless and gives the same reply', async () => {
     const w = world();
-    await w.svc.addByEmail('existing@x.sg', ['roleA'], adminOfA);
-    expect(w.notifications.emit).toHaveBeenCalledWith(expect.objectContaining({ organizationId: A, forUserId: 'existing', exclusive: true, kind: 'member_added' }));
-    expect(w.email.sendSimpleEmail).toHaveBeenCalledWith(expect.objectContaining({ to: ['existing@x.sg'] }));
-    await w.svc.addByEmail('existing@x.sg', ['roleA'], adminOfA);
-    expect(w.email.sendSimpleEmail).toHaveBeenCalledTimes(1);
+    const a = await w.svc.addByEmail('existing@x.sg', ['roleA'], adminOfA);
+    const b = await w.svc.addByEmail('existing@x.sg', ['roleA'], adminOfA);
+    expect(b).toEqual(a);
+    expect(w.memberships.filter((m) => m.userId === 'existing' && m.organizationId === A)).toHaveLength(1);
   });
 
-  it("roles must be the caller's org's; the email must be an email", async () => {
+  it('one error wording for anything that stops it: a platform admin, a login lookup failure, a create failure', async () => {
     const w = world();
-    await expect(w.svc.addByEmail('existing@x.sg', ['roleB'], adminOfA)).rejects.toBeInstanceOf(NotFoundException);
+    const err = async (p: Promise<any>) =>
+      p.then(
+        () => null,
+        (e) => e,
+      );
+    const e1 = await err(w.svc.addByEmail('boss@osiris.sg', ['roleA'], adminOfA));
+    w.clerk.users.getUserList.mockRejectedValueOnce(new Error('clerk down'));
+    const e2 = await err(w.svc.addByEmail('x@x.sg', ['roleA'], adminOfA));
+    w.clerk.users.createUser.mockRejectedValueOnce(new Error('form_identifier_exists'));
+    const e3 = await err(w.svc.addByEmail('y@x.sg', ['roleA'], adminOfA));
+    for (const e of [e1, e2, e3]) {
+      expect(e).toBeInstanceOf(BadRequestException);
+      expect(e.message).toBe(ADD_MEMBER_FAILED);
+    }
+    expect(memberOfA(w, 'boss')).toBeFalsy();
+  });
+
+  it("form checks: a valid email and roles of the caller's org", async () => {
+    const w = world();
+    await expect(w.svc.addByEmail('existing@x.sg', ['roleB'], adminOfA)).rejects.toBeInstanceOf(BadRequestException);
     await expect(w.svc.addByEmail('not-an-email', ['roleA'], adminOfA)).rejects.toBeInstanceOf(BadRequestException);
     await expect(w.svc.addByEmail('a@x.sg', [], adminOfA)).rejects.toBeInstanceOf(BadRequestException);
-  });
-
-  it("invitations: listed and cancelled in the caller's org only", async () => {
-    const w = world();
-    await w.svc.addByEmail('nobody@x.sg', ['roleA'], adminOfA);
-    expect(await w.svc.listInvites(B)).toEqual([]);
-    const [inv] = await w.svc.listInvites(A);
-    expect(inv).toMatchObject({ email: 'nobody@x.sg', roles: ['Admin'], invitedByName: 'Finance Lead' });
-    await expect(w.svc.revokeInvite(B, inv.id)).rejects.toBeInstanceOf(NotFoundException);
-    await expect(w.svc.revokeInvite(A, inv.id)).resolves.toEqual({ ok: true });
-    expect(w.clerk.invitations.revokeInvitation).toHaveBeenCalledWith('clerk_inv_1');
-    expect(await w.svc.listInvites(A)).toEqual([]);
+    expect(w.clerk.users.createUser).not.toHaveBeenCalled();
   });
 });

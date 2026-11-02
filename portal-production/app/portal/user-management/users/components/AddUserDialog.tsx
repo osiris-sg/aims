@@ -7,17 +7,17 @@ import { useAuth } from "@clerk/nextjs";
 import { useTranslations } from "next-intl";
 import { request } from "@/helpers/request";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
-import { isPresetRole, presetLabel } from "./AddUser";
+import { isPresetRole, presetLabel } from "./rolePresets";
 
 /**
- * Multi-org users (2026-11-02): an org admin gives a person access to THIS org
- * by email, with roles. A person who already has an AIMS login gets access at
- * once (an in-app notice and an email tell them); an email with no login gets
- * an invitation to sign up. The server answers the same either way, so this
- * dialog never learns whether the email belongs to another organisation.
+ * "Add user" (multi-org users, 2026-11-02): an org admin adds a person to THIS
+ * org by email + role. An existing AIMS login (in any org) becomes a member at
+ * once; an email with no login gets one made for it the way users have always
+ * been added. Nothing is sent to the person. The server answers the same either
+ * way, so this dialog never learns whether the login existed or where else it is.
  */
-export default function AddByEmail({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
-  const t = useTranslations("users.invite");
+export default function AddUserDialog({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
+  const t = useTranslations("users.addUser");
   const tf = useTranslations("users.form");
   const { getToken } = useAuth();
   const { isRolePresetsEnabled } = useOrganizationFeatures();

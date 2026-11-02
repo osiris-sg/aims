@@ -4,8 +4,8 @@
  * Boots the real AppModule on a random local port with three test doubles:
  *   - the Clerk sign-in: an `x-e2e-user` (+ `x-e2e-email`) header names the
  *     user instead of a Clerk token (FakeStrategy, this script only);
- *   - the Clerk API client (no real invitations / lookups);
- *   - the email sender (no real email).
+ *   - the Clerk API client (no real logins are looked up or created);
+ *   - the email sender (asserts nothing is sent).
  * Everything else (guard, tenancy, controllers, services, dev DB) is real.
  *
  *   A org choice: no header = default (oldest, then most recently used);
@@ -16,8 +16,10 @@
  *     active org's rows
  *   C roles per org: Admin in A, Manager in B (users:read only in A)
  *   D my orgs + switch remembered; switching to a non-member org = 403
- *   E add by email (same reply for login / no login / platform admin), the
- *     notice + email, invitation -> membership on first sign-in, cancel
+ *   E "Add user" by email: an existing login (in another org) and a new email
+ *     give IDENTICAL replies and identical users-list entries, both members at
+ *     once; one error wording; nothing sent; org admins see only their org's
+ *     members
  *   F remove from org A only; B untouched
  * Every row it made is removed at the end.
  *
@@ -45,10 +47,9 @@ const ROLE_B_MANAGER = '0f47ac39-6446-4d23-993c-69ba06aabd5e';
 const ROLE_B_ADMIN = '8da505ed-f335-4beb-b0af-21ba356f18f4';
 const MULTI = 'user_e2e_multiorg_1';
 const SINGLE = 'user_e2e_multiorg_2';
-const NEWBIE = 'user_e2e_multiorg_3';
 const SINGLE_EMAIL = 'e2e.multiorg.single@example.test';
 const NEW_EMAIL = 'e2e.multiorg.new@example.test';
-const USERS = [MULTI, SINGLE, NEWBIE];
+const USERS = [MULTI, SINGLE];
 
 let pass = 0;
 let fail = 0;
@@ -70,19 +71,22 @@ class FakeStrategy extends PassportStrategy(Strategy, 'clerk') {
 
 const sentEmails: any[] = [];
 const clerkCalls: string[] = [];
+// Fake Clerk logins: no names, so the users list shows each by its email.
+const logins: Record<string, any> = {};
+const login = (id: string, email: string) => (logins[id] = { id, externalId: id, firstName: null, lastName: null, username: null, emailAddresses: [{ emailAddress: email }] });
 const fakeClerk: any = {
   users: {
-    getUserList: async ({ emailAddress }: any) => {
-      clerkCalls.push(`getUserList ${emailAddress?.[0]}`);
-      if (emailAddress?.[0] === SINGLE_EMAIL) return { data: [{ id: SINGLE, externalId: SINGLE }] };
-      if (emailAddress?.[0] === 'e2e.platform@example.test') return { data: [{ id: 'user_e2e_platform', externalId: 'user_e2e_platform' }] };
-      return { data: [] };
+    getUserList: async (q: any) => {
+      if (q?.emailAddress) {
+        clerkCalls.push(`getUserList ${q.emailAddress[0]}`);
+        return { data: Object.values(logins).filter((u: any) => u.emailAddresses[0].emailAddress === q.emailAddress[0]) };
+      }
+      const ids: string[] = q?.externalId ?? q?.userId ?? [];
+      return { data: ids.map((id) => logins[id]).filter(Boolean) };
     },
-    getUser: async (id: string) => ({ id, firstName: 'E2E', lastName: '', emailAddresses: [] }),
-  },
-  invitations: {
-    createInvitation: async ({ emailAddress }: any) => (clerkCalls.push(`invite ${emailAddress}`), { id: `inv_${Date.now()}` }),
-    revokeInvitation: async (id: string) => (clerkCalls.push(`revoke ${id}`), {}),
+    getUser: async (id: string) => logins[id] ?? { id, firstName: null, lastName: null, emailAddresses: [] },
+    createUser: async ({ emailAddress }: any) => (clerkCalls.push(`createUser ${emailAddress[0]}`), login(`user_e2e_created_${Date.now()}`, emailAddress[0])),
+    updateUser: async (id: string) => logins[id],
   },
 };
 
@@ -118,12 +122,16 @@ async function main() {
 
   // ── fixtures ──
   const cleanup = async () => {
+    const created = Object.keys(logins).filter((id) => id.startsWith('user_e2e_created_'));
+    USERS.push(...created.filter((id) => !USERS.includes(id)));
     await prisma.userRole.deleteMany({ where: { userId: { in: [...USERS, 'user_e2e_platform'] } } }).catch(() => {});
     for (const org of [A, B, C]) await runAsOrg(org, () => prisma.userRole.deleteMany({ where: { userId: { in: [...USERS, 'user_e2e_platform'] }, organizationId: org } })).catch(() => {});
     await prisma.userOrganization.deleteMany({ where: { userId: { in: [...USERS, 'user_e2e_platform'] } } });
-    await prisma.pendingOrgInvite.deleteMany({ where: { email: { in: [NEW_EMAIL, SINGLE_EMAIL, 'e2e.platform@example.test'] } } });
     for (const org of [A, B, C]) await runAsOrg(org, () => prisma.notification.deleteMany({ where: { userId: { in: USERS }, organizationId: org } })).catch(() => {});
   };
+  login(MULTI, 'e2e.multiorg.admin@example.test');
+  login(SINGLE, SINGLE_EMAIL);
+  login('user_e2e_platform', 'e2e.platform@example.test');
   await cleanup();
   const t0 = Date.now();
   await prisma.userOrganization.create({ data: { userId: MULTI, organizationId: A, isActive: true, joinedAt: new Date(t0 - 2 * 86400e3) } });
@@ -195,10 +203,39 @@ async function main() {
     await call(MULTI, 'POST', '/users/me/active-org', { real: true, body: { organizationId: A } });
     ok((await orgOf(MULTI)) === A, 'switched back: WCT is the default again');
 
-    // ── E add by email (as MULTI, Admin of WCT) ──
+    // ── E "Add user" by email (as MULTI, Admin of WCT) ──
     const add = (email: string) => call(MULTI, 'POST', '/users/members/add-by-email', { org: A, body: { email, roleIds: [ROLE_A_ADMIN] } });
     const rLogin = await add(SINGLE_EMAIL); // a login that is in Biofuel
-    const rNew = await add(NEW_EMAIL); // no login
+    const rNew = await add(NEW_EMAIL); // no login yet
+    const norm = (r: any, e: string) => JSON.stringify(r.data).replace(e, '<email>');
+    ok(rLogin.status === rNew.status && rLogin.status < 300, 'both answer with the same success status', [rLogin.status, rNew.status]);
+    ok(norm(rLogin, SINGLE_EMAIL) === norm(rNew, NEW_EMAIL), 'IDENTICAL reply for a login in another org and a brand-new email', [rLogin.data, rNew.data]);
+    ok(
+      Object.keys(rLogin.data ?? {})
+        .sort()
+        .join() === 'message,ok',
+      'the reply carries only ok + message',
+      rLogin.data,
+    );
+    ok(clerkCalls.filter((c) => c.startsWith('createUser')).length === 1 && clerkCalls.includes(`createUser ${NEW_EMAIL}`), 'a login was made for the new email only');
+    const newId = Object.keys(logins).find((id) => logins[id].emailAddresses[0].emailAddress === NEW_EMAIL)!;
+    ok((await orgOf(SINGLE, { org: A })) === A && (await orgOf(SINGLE, { org: B })) === B, 'the existing login now works in WCT, and still in Biofuel');
+    ok((await orgOf(newId, { org: A })) === A, 'the new login works in WCT at once (no accept step)');
+    const listed = ((await call(MULTI, 'POST', '/users/list', { org: A, body: { page: 1, limit: 200 } })).data?.users ?? []) as any[];
+    const eLogin = listed.find((u) => u.id === SINGLE);
+    const eNew = listed.find((u) => u.id === newId);
+    const shape = (u: any, email: string) =>
+      u && JSON.stringify({ ...u, id: '<id>', email: '<email>', name: u.name === email ? '<email>' : u.name, createdAt: '<t>', updatedAt: '<t>', roles: u.roles.map((r: any) => r.name) });
+    ok(!!eLogin && !!eNew && shape(eLogin, SINGLE_EMAIL) === shape(eNew, NEW_EMAIL), 'IDENTICAL users-list entries for the two (a normal member, role Admin, shown by email)', [
+      shape(eLogin, SINGLE_EMAIL),
+      shape(eNew, NEW_EMAIL),
+    ]);
+    ok(sentEmails.length === 0, 'no email sent to anyone');
+    const notes = await runAsOrg(A, () => prisma.notification.count({ where: { userId: { in: [SINGLE, newId] }, organizationId: A } }));
+    ok(notes === 0, 'no in-app notice either');
+    const mineNow = (await call(SINGLE, 'GET', '/users/me/organizations', { real: true })).data?.organizations?.map((o: any) => o.id).sort();
+    ok(mineNow?.join() === [A, B].sort().join(), 'the org simply appears in their picker (WCT + Biofuel)', mineNow);
+    // one error wording
     await prisma.userRole
       .create({
         data: {
@@ -209,52 +246,17 @@ async function main() {
       })
       .catch(() => null);
     const rPlat = await add('e2e.platform@example.test');
-    const norm = (r: any, e: string) => JSON.stringify(r.data).replace(e, '<email>');
+    ok(rPlat.status === 400 && /could not be added/.test(rPlat.body?.message), "a platform admin's login is refused with the one error wording", rPlat.body?.message);
+    ok(!(await prisma.userOrganization.findFirst({ where: { userId: 'user_e2e_platform', organizationId: A } })), '...and not added');
+    // org admins see only their own org's members
+    const bList = ((await call(SINGLE, 'POST', '/users/list', { org: B, body: { page: 1, limit: 500 } })).data?.users ?? []) as any[]; // Biofuel Admin
+    ok(!bList.some((u) => u.id === newId), "Biofuel's admin does not see WCT's new member");
+    ok(!listed.some((u) => u.id === 'user_e2e_platform'), "WCT's list has no one it did not add");
+    const bIds = new Set(((await runAsOrg(B, () => prisma.userRole.findMany({ where: { organizationId: B, isActive: true }, select: { userId: true } }))) as any[]).map((r) => r.userId));
     ok(
-      [rLogin, rNew, rPlat].every((r) => r.status < 300),
-      'add by email answers OK in all three cases',
-      [rLogin.status, rNew.status, rPlat.status],
+      bList.every((u) => bIds.has(u.id)),
+      `Biofuel's list holds only Biofuel members (${bList.length} checked)`,
     );
-    ok(
-      norm(rLogin, SINGLE_EMAIL) === norm(rNew, NEW_EMAIL) && norm(rNew, NEW_EMAIL) === norm(rPlat, 'e2e.platform@example.test'),
-      "the SAME reply for: a login in another org / no login / a login that can't be added",
-      [rLogin.data, rNew.data, rPlat.data],
-    );
-    ok(
-      Object.keys(rLogin.data ?? {})
-        .sort()
-        .join() === 'message,ok',
-      'the reply carries only ok + message',
-      rLogin.data,
-    );
-    ok((await orgOf(SINGLE, { org: A })) === A, 'the existing login now works in WCT');
-    ok((await orgOf(SINGLE, { org: B })) === B, '...and still in Biofuel');
-    ok(
-      sentEmails.some((e) => e.to?.[0] === SINGLE_EMAIL && /WCT/.test(e.subject)),
-      'the added person got the email',
-    );
-    const notice = await runAsOrg(A, () => prisma.notification.findFirst({ where: { userId: SINGLE, organizationId: A, kind: 'member_added' } }));
-    ok(!!notice, 'the added person got the in-app notice (in WCT)');
-    ok(!(await prisma.userOrganization.findFirst({ where: { userId: 'user_e2e_platform', organizationId: A } })), "a platform admin's login was not added");
-    const invites = (await call(MULTI, 'GET', '/users/members/invites', { org: A })).data;
-    ok(Array.isArray(invites) && invites.some((i: any) => i.email === NEW_EMAIL), 'the no-login email is listed as invited (WCT)');
-    const bList = await call(SINGLE, 'GET', '/users/members/invites', { org: B }); // a Biofuel Admin
-    ok(bList.status < 300 && Array.isArray(bList.data) && !bList.data.some((i: any) => i.email === NEW_EMAIL), "Biofuel's admin: the list does not show WCT's invitation", {
-      status: bList.status,
-      data: bList.data,
-    });
-    const first = await call(NEWBIE, 'GET', '/organizations/user', { real: true, email: 'E2E.MultiOrg.New@example.test' });
-    ok(first.data?.id === A, "the invited email's first sign-in: member of WCT", first);
-    ok((await prisma.pendingOrgInvite.findFirst({ where: { organizationId: A, email: NEW_EMAIL } }))?.acceptedUserId === NEWBIE, 'the invitation is marked accepted');
-    // cancel: a second invitation, cancelled, never becomes a membership
-    await add('e2e.multiorg.cancel@example.test');
-    const inv2 = ((await call(MULTI, 'GET', '/users/members/invites', { org: A })).data ?? []).find((i: any) => i.email === 'e2e.multiorg.cancel@example.test');
-    const xCancel = await call(SINGLE, 'DELETE', `/users/members/invites/${inv2?.id}`, { org: B }); // Biofuel Admin
-    ok(xCancel.status === 404, "Biofuel's admin cannot cancel WCT's invitation (404)", xCancel.status);
-    ok((await call(MULTI, 'DELETE', `/users/members/invites/${inv2?.id}`, { org: A })).status < 300, "WCT's admin cancels it");
-    const late = await call('user_e2e_multiorg_4', 'GET', '/organizations/user', { real: true, email: 'e2e.multiorg.cancel@example.test' });
-    ok(late.status === 403, 'a cancelled invitation gives no membership', late.status);
-    await prisma.pendingOrgInvite.deleteMany({ where: { email: 'e2e.multiorg.cancel@example.test' } });
 
     // ── F remove from WCT only ──
     const rm = await call(MULTI, 'DELETE', `/users/${SINGLE}`, { org: A });

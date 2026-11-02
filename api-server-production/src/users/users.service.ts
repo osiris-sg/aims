@@ -132,7 +132,8 @@ export class UsersService {
           return {
             id: userId,
             email: clerkUser.emailAddresses[0]?.emailAddress || userId,
-            name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || clerkUser.username || `User ${userId}`,
+            // A login with no name shows its email (a person added by email shows like any other member).
+            name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || clerkUser.username || clerkUser.emailAddresses[0]?.emailAddress || `User ${userId}`,
             whatsappNumber: profile?.whatsappNumber ?? null,
             whatsappPrefs: profile?.whatsappPrefs ?? null,
             commissionPct: profile?.commissionPct ?? null,

@@ -1,6 +1,6 @@
 import { type ExecutionContext, Injectable, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { isPlatformAdminRole } from './admin-scope';
-import { acceptPendingInvites, DEFAULT_MEMBERSHIP_ORDER, NOT_A_MEMBER_MESSAGE } from './active-org';
+import { DEFAULT_MEMBERSHIP_ORDER, NOT_A_MEMBER_MESSAGE } from './active-org';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
@@ -232,7 +232,7 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
     const authStart = Date.now();
 
     // Roles + membership org — served from the per-user cache when warm.
-    let { userRoles, userOrg } = await this.loadUserAuth(user.id);
+    const { userRoles, userOrg } = await this.loadUserAuth(user.id);
 
     const authQueryDuration = Date.now() - authStart;
     dbg(`📊 Auth data ready in ${authQueryDuration}ms`);
@@ -306,15 +306,6 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
       request.isOsirisAdmin = true;
     } else {
       dbg('User is not osiris-admin');
-      // An email an org admin invited before it had a login: its first
-      // signed-in request turns the invitation into the membership.
-      if (!userOrg && !request.headers['x-operator-internal']) {
-        const emails = (user.emailAddresses ?? []).map((e: any) => e?.emailAddress).filter(Boolean);
-        if (emails.length && (await acceptPendingInvites(this.prisma, user.id, emails))) {
-          ClerkAuthGuard.invalidateUser(user.id);
-          ({ userRoles, userOrg } = await this.loadUserAuth(user.id));
-        }
-      }
       // For regular users, require organization assignment
       if (!userOrg) {
         console.warn(`User ${user.id} is not assigned to any organization`);

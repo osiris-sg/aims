@@ -24,8 +24,7 @@ export class UsersController {
   @Get('me/organizations')
   @ApiOperation({ summary: 'My active organisations (default first), my roles and unread notifications in each' })
   myOrganizations(@Req() req: any) {
-    const emails = (req.user?.emailAddresses ?? []).map((e: any) => e?.emailAddress).filter(Boolean);
-    return this.memberships.myOrganizations(req.user.id, emails, req.userOrganization ?? null, !!req.isOsirisAdmin);
+    return this.memberships.myOrganizations(req.user.id, req.userOrganization ?? null, !!req.isOsirisAdmin);
   }
 
   // Switch org: remembered as my default (most recently used). Only an org I belong to.
@@ -35,29 +34,13 @@ export class UsersController {
     return this.memberships.setActiveOrg(req.user.id, String(body?.organizationId ?? ''), !!req.isOsirisAdmin);
   }
 
-  // An org admin adds a person to THEIR org by email (a login gets access at once; no login gets an invitation).
-  // The reply is the same whatever the email is, so it never tells whether it belongs to another org.
+  // "Add user": an org admin adds a person to THEIR org by email + role. An existing login
+  // (any org) or a new one gets the same reply, so it never tells whether the login existed.
   @Post('members/add-by-email')
   @Permissions('users:create')
   @ApiOperation({ summary: "Add a person to the caller's organisation by email, with roles" })
   addByEmail(@Body() body: { email?: string; roleIds?: string[] }, @UserOrganization() organization: { id: string; name: string }, @Req() req: any) {
-    const u: any = req?.user || {};
-    const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || undefined;
-    return this.memberships.addByEmail(String(body?.email ?? ''), body?.roleIds ?? [], { ...actorOf(req, organization.id), name });
-  }
-
-  @Get('members/invites')
-  @Permissions('users:read')
-  @ApiOperation({ summary: "The caller's organisation's open invitations" })
-  listInvites(@UserOrganization() organization: { id: string; name: string }) {
-    return this.memberships.listInvites(organization.id);
-  }
-
-  @Delete('members/invites/:inviteId')
-  @Permissions('users:create')
-  @ApiOperation({ summary: 'Cancel an open invitation' })
-  revokeInvite(@Param('inviteId') inviteId: string, @UserOrganization() organization: { id: string; name: string }) {
-    return this.memberships.revokeInvite(organization.id, inviteId);
+    return this.memberships.addByEmail(String(body?.email ?? ''), body?.roleIds ?? [], actorOf(req, organization.id));
   }
 
   // No permissions required — users can always read their own roles

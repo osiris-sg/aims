@@ -163,22 +163,13 @@
     "create": "Create Organization",
     "createFailed": "Failed to create organization"
   },
-  "invite": {
-    "open": "Add existing user by email",
-    "title": "Add a person by email",
-    "intro": "If they already have an AIMS login they get access to this organisation now; otherwise they get an email inviting them to sign up. Either way they are told by email.",
+  "addUser": {
+    "title": "Add user",
+    "intro": "Enter the person's email and pick their role. They are added to this organisation right away and can sign in with this email.",
     "pickRole": "Pick at least one role",
     "submit": "Add",
     "close": "Close",
-    "done": "Done. They will get an email.",
-    "failed": "Could not add this person. Please try again.",
-    "invitedTitle": "Invited (not signed up yet)",
-    "email": "Email",
-    "roles": "Roles",
-    "invitedBy": "Invited by",
-    "sent": "Sent",
-    "invited": "Invited",
-    "cancel": "Cancel invitation",
-    "cancelConfirm": "Cancel the invitation for {email}?"
+    "done": "Added.",
+    "failed": "This person could not be added. Check the email address and try again."
   }
 }
