@@ -119,8 +119,17 @@ const uniq = (a) => [...new Set(a.filter(Boolean))];
     [WCT, invIds],
   );
   const cnIds = notesDocs.map((d) => d.id);
-  const docIds = uniq([...qIds, ...invIds, ...doIds, ...cnIds]);
-  const allDocs = [...quotes, ...invoices, ...dos, ...notesDocs];
+  // Other WCT documents the owner named for deletion too (2026-11-02: the test PO).
+  const EXTRA = [['PO', 'PO202610-0001']];
+  const extraDocs = [];
+  for (const [type, nm] of EXTRA) {
+    const rows = await q(`select ${docCols} from "Document" where "organizationId"=$1 and type=$2 and name=$3`, [WCT, type, nm]);
+    if (rows.length !== 1) stop(`${type} ${nm}: found ${rows.length} in WCT, expected 1`);
+    extraDocs.push(...rows);
+  }
+  const extraIds = extraDocs.map((d) => d.id);
+  const docIds = uniq([...qIds, ...invIds, ...doIds, ...cnIds, ...extraIds]);
+  const allDocs = [...quotes, ...invoices, ...dos, ...notesDocs, ...extraDocs];
   const name = new Map(allDocs.map((d) => [d.id, d.name]));
   if (allDocs.some((d) => d.organizationId !== WCT)) stop('a target document is not WCT’s');
 
@@ -140,6 +149,7 @@ const uniq = (a) => [...new Set(a.filter(Boolean))];
   if (items.some((i) => i.inventoryId)) stop('a job has a stock unit bound (stock moved): needs a stock reversal, not a delete');
   out(`  Delivery orders: ${dos.map((d) => `${d.name} (${d.status})`).join(', ') || 'none'}`);
   out(`  Credit / debit notes: ${notesDocs.map((d) => d.name).join(', ') || 'none'}`);
+  out(`  Also deleted at the owner's request: ${extraDocs.map((d) => `${d.type} ${d.name} (${day(d.createdAt)}, ${d.status})`).join(', ') || 'none'}`);
 
   const msrs = await q(
     `select id,"reportNumber",kind,status,"deliveryId","documentId","invoiceDocumentId","organizationId" from "MaintenanceServiceReport"
@@ -336,6 +346,7 @@ const uniq = (a) => [...new Set(a.filter(Boolean))];
     ['Document INVOICE', `delete from "Document" where "organizationId"=$2 and type='INVOICE' and id::text = any($1::text[])`, [invIds, W], invIds.length, `select "organizationId" org, count(*)::int n from "Document" where id::text = any($1::text[]) group by 1`, [invIds]],
     ['Document DELIVERY_ORDER', `delete from "Document" where "organizationId"=$2 and type in ('DELIVERY_ORDER','DO') and id::text = any($1::text[])`, [doIds, W], doIds.length, `select "organizationId" org, count(*)::int n from "Document" where id::text = any($1::text[]) group by 1`, [doIds]],
     ['Document QUOTATION', `delete from "Document" where "organizationId"=$2 and type='QUOTATION' and id::text = any($1::text[])`, [qIds, W], qIds.length, `select "organizationId" org, count(*)::int n from "Document" where id::text = any($1::text[]) group by 1`, [qIds]],
+    ['Document PO (named by the owner)', `delete from "Document" where "organizationId"=$2 and type='PO' and id::text = any($1::text[])`, [extraIds, W], extraIds.length, `select "organizationId" org, count(*)::int n from "Document" where id::text = any($1::text[]) group by 1`, [extraIds]],
     // Cascades with their documents: counted so the proof covers them too.
     ['DocumentItem (cascade with the documents)', null, null, null, `select ${viaDoc()} org, count(*)::int n from "DocumentItem" t where t."documentId"::text = any($1::text[]) group by 1`, [docIds]],
     ['DocumentEmbedding (cascade with the documents)', null, null, null, `select ${viaDoc()} org, count(*)::int n from "DocumentEmbedding" t where t."documentId"::text = any($1::text[]) group by 1`, [docIds]],
@@ -412,7 +423,7 @@ const uniq = (a) => [...new Set(a.filter(Boolean))];
       if (r.rowCount !== expected) throw new Error(`${l}: deleted ${r.rowCount}, expected ${expected}`);
     }
     const left = await one(
-      `select (select count(*) from "Document" where "organizationId"=$1 and type in ('QUOTATION','INVOICE'))::int qi, (select count(*) from "Document" where id::text = any($2::text[]))::int docs,
+      `select (select count(*) from "Document" where "organizationId"=$1 and (type in ('QUOTATION','INVOICE') or id::text = any($2::text[])))::int qi, (select count(*) from "Document" where id::text = any($2::text[]))::int docs,
               (select count(*) from "Delivery" where id::text = any($3::text[]))::int jobs, (select count(*) from "JournalEntry" where id::text = any($4::text[]))::int jes`,
       [WCT, docIds, delIds, jeIds],
     );
@@ -420,7 +431,7 @@ const uniq = (a) => [...new Set(a.filter(Boolean))];
     if (left.qi || left.docs || left.jobs || left.jes) throw new Error('rows still there after the deletes');
     await c.query(
       `insert into "ActionLog" (id,"actorType","actorId","actorName","organizationId",channel,action,resource,details,status,"createdAt") values ($1,'SYSTEM',$2,'System creation',$3,'operator','DELETE','WctQuotesInvoicesPurge',$4::jsonb,'SUCCESS',now())`,
-      [require('crypto').randomUUID(), JOB, WCT, JSON.stringify({ quotations: quotes.map((d) => d.name), invoices: invoices.map((d) => d.name), dos: dos.map((d) => d.name), jobs: dels.map((d) => d.deliveryNumber), journals: jes.map((e) => e.journalNumber), deleted: Object.fromEntries(done), siteclockCancelled: sc.map((p) => p.label), siteclockSide })],
+      [require('crypto').randomUUID(), JOB, WCT, JSON.stringify({ quotations: quotes.map((d) => d.name), invoices: invoices.map((d) => d.name), alsoDeleted: extraDocs.map((d) => d.name), dos: dos.map((d) => d.name), jobs: dels.map((d) => d.deliveryNumber), journals: jes.map((e) => e.journalNumber), deleted: Object.fromEntries(done), siteclockCancelled: sc.map((p) => p.label), siteclockSide })],
     );
     out(`  ActionLog: 1 row (${JOB})`);
     if (MODE === 'rehearse') {
