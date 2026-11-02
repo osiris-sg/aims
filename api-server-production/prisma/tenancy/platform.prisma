@@ -454,12 +454,14 @@ model SiteClockConnection {
   lastError          String?
   // Inbound key: SiteClock calls AIMS with it (job photos, 2026-11-02). Only
   // its sha256 is stored; the plaintext is shown once when generated.
-  inboundKeyHash       String?   @unique
+  inboundKeyHash       String? // indexed, not @unique: a unique index on an existing table stops Render's db push (data-loss prompt); keys are 256-bit random
   inboundKeyLast4      String?
   inboundKeyCreatedAt  DateTime?
   inboundKeyLastUsedAt DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
+
+  @@index([inboundKeyHash])
 }
 
 /// One SiteClock job per delivery run. worker/duration are the office's choice;

@@ -27,7 +27,7 @@ export class SiteClockInboundGuard implements CanActivate {
     const req = context.switchToHttp().getRequest();
     const key = bearerOf(req.headers?.['authorization']);
     if (!key || !key.startsWith(INBOUND_KEY_PREFIX)) throw new UnauthorizedException('Missing SiteClock key (Authorization: Bearer aims_sck_...)');
-    const conn = await this.prisma.siteClockConnection.findUnique({
+    const conn = await this.prisma.siteClockConnection.findFirst({
       where: { inboundKeyHash: hashInboundKey(key) },
       select: { id: true, organizationId: true, inboundKeyLastUsedAt: true },
     });

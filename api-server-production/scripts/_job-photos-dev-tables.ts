@@ -22,7 +22,7 @@ const sql = (s: string) => [
   `ALTER TABLE "${s}"."SiteClockConnection" ADD COLUMN IF NOT EXISTS "inboundKeyLast4" TEXT`,
   `ALTER TABLE "${s}"."SiteClockConnection" ADD COLUMN IF NOT EXISTS "inboundKeyCreatedAt" TIMESTAMP(3)`,
   `ALTER TABLE "${s}"."SiteClockConnection" ADD COLUMN IF NOT EXISTS "inboundKeyLastUsedAt" TIMESTAMP(3)`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS "SiteClockConnection_inboundKeyHash_key" ON "${s}"."SiteClockConnection"("inboundKeyHash")`,
+  `CREATE INDEX IF NOT EXISTS "SiteClockConnection_inboundKeyHash_idx" ON "${s}"."SiteClockConnection"("inboundKeyHash")`,
   `CREATE TABLE IF NOT EXISTS "${s}"."JobPhoto" (
        "id" TEXT NOT NULL,
        "organizationId" TEXT NOT NULL,

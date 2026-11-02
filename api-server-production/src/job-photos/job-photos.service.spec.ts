@@ -231,7 +231,7 @@ describe('SiteClockInboundGuard', () => {
     const conns = [{ id: 'conn-1', organizationId: ORG, inboundKeyHash: hashInboundKey(key), inboundKeyLastUsedAt: null }];
     const prisma: any = {
       siteClockConnection: {
-        findUnique: async ({ where }: any) => conns.find((c) => c.inboundKeyHash === where.inboundKeyHash) ?? null,
+        findFirst: async ({ where }: any) => conns.find((c) => c.inboundKeyHash === where.inboundKeyHash) ?? null,
         update: jest.fn(() => Promise.resolve({})),
       },
       organization: { findUnique: async () => ({ id: ORG, name: 'WCT' }) },
