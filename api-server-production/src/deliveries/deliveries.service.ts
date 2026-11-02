@@ -5180,6 +5180,8 @@ export class DeliveriesService {
    * completes each collected (not_installed) item, and the fold's completion hook
    * then fires completeReturnRun (the RDO). A SKIPPED item holds the run at
    * in_progress, so finalize is unreachable until the rider comes back for it.
+   * Scheduled and ad-hoc returns both sign here, and both queue the WhatsApp
+   * group post (enableDeliveryGroupPosts), like finalizeRun does for a DO.
    */
   async finalizeReturn(
     deliveryId: string,
@@ -5214,11 +5216,22 @@ export class DeliveriesService {
     // Complete every COLLECTED (not_installed) item. Skipped items stay skipped,
     // so only genuinely collected lines advance — the fold then reaches
     // `completed` and fires completeReturnRun (the RDO).
+    const signedItemIds = (
+      await this.prisma.deliveryItem.findMany({
+        where: { deliveryId, deliveryStatus: DeliveryStatus.not_installed },
+        select: { id: true },
+      })
+    ).map((i) => i.id);
     await this.prisma.deliveryItem.updateMany({
       where: { deliveryId, deliveryStatus: DeliveryStatus.not_installed },
       data: { deliveryStatus: DeliveryStatus.completed, completedAt: now },
     });
     await this.recomputeRunStatus(deliveryId, organizationId);
+    // Queue the return's post for the WhatsApp group, like a delivery sign-off
+    // (flag-gated, never throws). After the recompute on purpose: that is what
+    // claims the real RDO number on the lines, so the post names RDO2026…, not
+    // the RDO-PENDING placeholder.
+    await enqueueDeliveryGroupPost(this.prisma, organizationId, deliveryId, signedItemIds, this.logger);
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
     await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
     return this.prisma.delivery.findUnique({ where: { id: deliveryId } });

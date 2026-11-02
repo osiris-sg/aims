@@ -857,15 +857,14 @@ export default function DeliveryDetailPage() {
         <DeliveryJobPhotos deliveryId={run.id} />
       </Box>
 
-      {/* Signed DO download + "Posted to group" (delivery group posts). Shown
-          once the customer has signed for anything on an outbound run. */}
-      {run.direction !== "RETURN" && (
-        <DeliveryGroupPostsPanel
-          deliveryId={deliveryId}
-          documents={distinctDocs.map((d) => ({ id: d.id, name: d.name ?? null }))}
-          signed={run.items.some((i) => i.deliveryStatus === "completed")}
-        />
-      )}
+      {/* Signed DO / RDO download + "Posted to group" (delivery group posts).
+          Shown once the customer has signed for anything on the run. */}
+      <DeliveryGroupPostsPanel
+        deliveryId={deliveryId}
+        documents={distinctDocs.map((d) => ({ id: d.id, name: d.name ?? null }))}
+        signed={run.items.some((i) => i.deliveryStatus === "completed")}
+        isReturn={isReturnRun}
+      />
 
       {/* SiteClock link (WCT): the worker this run is scheduled on in SiteClock. */}
       {run.siteclock && (

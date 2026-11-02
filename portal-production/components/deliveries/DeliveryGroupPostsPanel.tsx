@@ -12,6 +12,7 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
  * Run page: "Download signed DO" for each DO on the run (rendered now, exactly
  * as the field app prints it), and, with enableDeliveryGroupPosts, the
  * "Posted to group" line per sign-off with a retry for a failed or skipped one.
+ * A return run shows the same for its signed RDO (2026-11-02).
  */
 interface Post {
   id: string;
@@ -28,8 +29,8 @@ const fmt = (d: string | null) =>
   d ? new Date(d).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true }) : "";
 
 const STATUS: Record<string, { label: string; color: "default" | "success" | "warning" | "error" | "info" }> = {
-  PENDING: { label: "Preparing the signed DO", color: "info" },
-  RENDERING: { label: "Preparing the signed DO", color: "info" },
+  PENDING: { label: "Preparing the signed document", color: "info" },
+  RENDERING: { label: "Preparing the signed document", color: "info" },
   READY: { label: "Waiting to post", color: "info" },
   CLAIMED: { label: "Posting", color: "info" },
   SENT: { label: "Posted", color: "success" },
@@ -41,12 +42,16 @@ export default function DeliveryGroupPostsPanel({
   deliveryId,
   documents,
   signed,
+  isReturn = false,
 }: {
   deliveryId: string;
   documents: Array<{ id: string; name: string | null }>;
   /** The run has at least one customer sign-off (partial or final). */
   signed: boolean;
+  /** A return run: its document is the RDO and it has a single sign-off. */
+  isReturn?: boolean;
 }) {
+  const docLabel = isReturn ? "RDO" : "DO";
   const { getToken } = useAuth();
   const { isDeliveryGroupPostsEnabled } = useOrganizationFeatures();
   const [posts, setPosts] = useState<Post[]>([]);
@@ -88,13 +93,13 @@ export default function DeliveryGroupPostsPanel({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${(doc.name || "DO").replace(/[^a-zA-Z0-9._-]/g, "_")}-signed.pdf`;
+      a.download = `${(doc.name || docLabel).replace(/[^a-zA-Z0-9._-]/g, "_")}-signed.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
     } catch (e: any) {
-      setError(e?.message ?? "Could not download the signed DO");
+      setError(e?.message ?? `Could not download the signed ${docLabel}`);
     } finally {
       setDownloading(null);
     }
@@ -130,7 +135,7 @@ export default function DeliveryGroupPostsPanel({
               disabled={!!downloading}
               onClick={() => void download(d)}
             >
-              Download signed DO{documents.length > 1 && d.name ? ` ${d.name}` : ""}
+              Download signed {docLabel}{documents.length > 1 && d.name ? ` ${d.name}` : ""}
             </Button>
           ))}
         </Stack>
@@ -147,7 +152,7 @@ export default function DeliveryGroupPostsPanel({
                   : p.groupName
                     ? `Group ${p.groupName}`
                     : "No WhatsApp group"}
-                {` · Trip ${p.tripNumber}${p.final ? " (final)" : ""}`}
+                {isReturn ? " · Return" : ` · Trip ${p.tripNumber}${p.final ? " (final)" : ""}`}
               </Typography>
               {p.status !== "SENT" && <Chip size="small" variant="outlined" color={st.color} label={st.label} />}
               {(p.status === "FAILED" || p.status === "SKIPPED") && (
