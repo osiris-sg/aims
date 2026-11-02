@@ -5,6 +5,7 @@ import { JournalService } from '../journal/journal.service';
 import { PaymentsService } from '../payments/payments.service';
 import { AuditService } from 'src/common/audit.service';
 import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
+import { documentReferenceOf } from '../common/doc-ref';
 import { orgToday } from '../common/org-today';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
@@ -268,7 +269,9 @@ export class ReceiptsService {
         type: d.type,
         templateId: d.documentTemplateId ?? null,
         date: c.date ? String(c.date).slice(0, 10) : null,
-        remarks: 'INVOICE',
+        // Remarks = the invoice's own reference text; the legacy word only
+        // when the document carries none (guru 2026-11-02).
+        remarks: documentReferenceOf(c) || 'INVOICE',
         gross,
         outstanding,
         currency: di.currency || c.currency || null,
@@ -544,7 +547,7 @@ export class ReceiptsService {
         type: d.type,
         templateId: d.documentTemplateId ?? null,
         date: c.date ? String(c.date).slice(0, 10) : null,
-        remarks: 'CREDIT NOTE',
+        remarks: documentReferenceOf(c) || 'CREDIT NOTE',
         gross,
         outstanding,
         currency: di.currency || c.currency || null,

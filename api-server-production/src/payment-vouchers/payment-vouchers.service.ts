@@ -5,6 +5,7 @@ import { JournalService } from '../journal/journal.service';
 import { BillsService } from '../bills/bills.service';
 import { AuditService } from 'src/common/audit.service';
 import { outstandingOf, grossStampOf } from '../common/document-money';
+import { documentReferenceOf } from '../common/doc-ref';
 import { orgToday } from '../common/org-today';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
@@ -235,7 +236,9 @@ export class PaymentVouchersService {
         type: d.type,
         templateId: d.documentTemplateId ?? null,
         date: (c.billDate || c.date) ? String(c.billDate || c.date).slice(0, 10) : null,
-        remarks: 'SUPPLIER INVOICE',
+        // Remarks = the bill's own reference text; the legacy word only when
+        // the document carries none (guru 2026-11-02).
+        remarks: documentReferenceOf(c) || 'SUPPLIER INVOICE',
         gross,
         outstanding,
         currency: c.currency || c.documentInfo?.currency || null,
