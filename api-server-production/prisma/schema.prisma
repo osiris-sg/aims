@@ -1350,6 +1350,28 @@ model UserOrganization {
   @@unique([salesmanCode, organizationId])
 }
 
+/// An org admin's invitation for an email with no AIMS login yet (multi-org
+/// users, 2026-11-02). Clerk emails the sign-up link; on the person's first
+/// signed-in request the membership + roles below are created and the row is
+/// marked accepted. One open row per (org, email); a re-invite reuses it.
+model PendingOrgInvite {
+  id                 String    @id @default(uuid())
+  organizationId     String
+  email              String // lower-case
+  roleIds            String[]  @default([])
+  invitedById        String?
+  invitedByName      String?
+  clerkInvitationId  String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  acceptedAt         DateTime?
+  acceptedUserId     String?
+  revokedAt          DateTime?
+
+  @@unique([organizationId, email])
+  @@index([email])
+}
+
 model Project {
   id                String                @id @default(uuid()) @db.Uuid
   projectNumber     String? // e.g. PRJ-2026-001

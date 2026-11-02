@@ -1,5 +1,6 @@
 "use client";
 
+import FieldOrgPicker from "./FieldOrgPicker";
 import React, { useEffect } from "react";
 import { Box, GlobalStyles } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
@@ -129,6 +130,8 @@ function FieldShellBody({ onSignOut, children }: { onSignOut: () => void; childr
         {/* The top bar carries the sign-out button (it used to float
             top-right on every screen) and the theme choice. */}
         <FieldAppBarProvider onSignOut={onSignOut}>{children}</FieldAppBarProvider>
+        {/* A person in 2+ orgs picks the org (multi-org users). */}
+        <FieldOrgPicker />
         {/* Field-flow toasts (e.g. "Item created and assigned to …"). Lives
             at the layout level so a toast fired right before a
             router.replace survives the navigation. */}

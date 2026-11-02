@@ -1,6 +1,7 @@
 // src/users/users.controller.ts
 import { Controller, Get, Post, Delete, Patch, Param, Body, UseGuards, Query, Req } from '@nestjs/common';
 import { UsersService } from './users.service';
+import { MembershipsService } from './memberships.service';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { UserOrganization } from 'src/auth/decorators/user-organization.decorator';
@@ -13,7 +14,51 @@ import { UpdateUserDto } from './dto/update-user.dto';
 @Controller('users')
 @UseGuards(ClerkAuthGuard)
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly memberships: MembershipsService,
+  ) {}
+
+  // ── Multi-organisation users (2026-11-02) ───────────────────────────────
+  // My organisations (for the org switcher): no permission needed, only my own rows.
+  @Get('me/organizations')
+  @ApiOperation({ summary: 'My active organisations (default first), my roles and unread notifications in each' })
+  myOrganizations(@Req() req: any) {
+    const emails = (req.user?.emailAddresses ?? []).map((e: any) => e?.emailAddress).filter(Boolean);
+    return this.memberships.myOrganizations(req.user.id, emails, req.userOrganization ?? null, !!req.isOsirisAdmin);
+  }
+
+  // Switch org: remembered as my default (most recently used). Only an org I belong to.
+  @Post('me/active-org')
+  @ApiOperation({ summary: 'Remember the org I switched to as my default' })
+  setActiveOrg(@Req() req: any, @Body() body: { organizationId?: string }) {
+    return this.memberships.setActiveOrg(req.user.id, String(body?.organizationId ?? ''), !!req.isOsirisAdmin);
+  }
+
+  // An org admin adds a person to THEIR org by email (a login gets access at once; no login gets an invitation).
+  // The reply is the same whatever the email is, so it never tells whether it belongs to another org.
+  @Post('members/add-by-email')
+  @Permissions('users:create')
+  @ApiOperation({ summary: "Add a person to the caller's organisation by email, with roles" })
+  addByEmail(@Body() body: { email?: string; roleIds?: string[] }, @UserOrganization() organization: { id: string; name: string }, @Req() req: any) {
+    const u: any = req?.user || {};
+    const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || undefined;
+    return this.memberships.addByEmail(String(body?.email ?? ''), body?.roleIds ?? [], { ...actorOf(req, organization.id), name });
+  }
+
+  @Get('members/invites')
+  @Permissions('users:read')
+  @ApiOperation({ summary: "The caller's organisation's open invitations" })
+  listInvites(@UserOrganization() organization: { id: string; name: string }) {
+    return this.memberships.listInvites(organization.id);
+  }
+
+  @Delete('members/invites/:inviteId')
+  @Permissions('users:create')
+  @ApiOperation({ summary: 'Cancel an open invitation' })
+  revokeInvite(@Param('inviteId') inviteId: string, @UserOrganization() organization: { id: string; name: string }) {
+    return this.memberships.revokeInvite(organization.id, inviteId);
+  }
 
   // No permissions required — users can always read their own roles
   @Get('me/roles')

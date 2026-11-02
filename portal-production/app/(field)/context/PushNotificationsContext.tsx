@@ -14,6 +14,8 @@ import { PushNotifications } from "@capacitor/push-notifications";
 import type { PluginListenerHandle } from "@capacitor/core";
 import type { PushNotificationSchema, Token } from "@capacitor/push-notifications";
 import { toast } from "react-toastify";
+import { useOrganization } from "@/app/portal/hooks/useOrganization";
+import { ACTIVE_ORG_KEY, pushOrgSwitch, pushTitle } from "@/helpers/multiOrg";
 
 /**
  * Push registration for the (field) route group.
@@ -170,6 +172,10 @@ export function PushNotificationsProvider({
   // and registering the plugin listeners twice would POST every token twice.
   const initedRef = useRef(false);
   const listenersRef = useRef<PluginListenerHandle[]>([]);
+  // The org on screen and my orgs, read by the push listeners (attached once).
+  const { organization, memberships } = useOrganization();
+  const orgRef = useRef<{ currentId: string | null; mine: string[] }>({ currentId: null, mine: [] });
+  orgRef.current = { currentId: organization?.id ?? null, mine: memberships.map((m) => m.id) };
   const tokenRef = useRef<string | null>(null);
 
   /**
@@ -272,8 +278,10 @@ export function PushNotificationsProvider({
               // default — FCM hands them straight to this callback instead. So
               // a rider with the app open would otherwise see nothing at all.
               // Reuse the field group's existing toast surface.
+              // A push of another of my orgs names that org (multi-org users).
+              const title = pushTitle(n.title ?? "", n.data, orgRef.current.currentId);
               toast.info(
-                [n.title, n.body].filter(Boolean).join(" — ") ||
+                [title, n.body].filter(Boolean).join(" — ") ||
                   "New scheduled delivery",
               );
             },
@@ -283,12 +291,15 @@ export function PushNotificationsProvider({
         listenersRef.current.push(
           await PushNotifications.addListener(
             "pushNotificationActionPerformed",
-            () => {
-              // Tapping already brings the app to the front via the launcher
-              // intent — that is the whole of the required behaviour today.
-              // Deep-linking to the run is deliberately NOT built here; the
-              // backend already ships deliveryId/deliveryNumber in the message
-              // data for whoever picks that up next.
+            (action) => {
+              // Tapping brings the app to the front via the launcher intent.
+              // A push of ANOTHER of my orgs (multi-org users, 2026-11-02;
+              // the backend tags data.orgId) switches the app to that org.
+              const to = pushOrgSwitch(action?.notification?.data, orgRef.current.currentId, orgRef.current.mine);
+              if (to && typeof window !== "undefined") {
+                window.sessionStorage.setItem(ACTIVE_ORG_KEY, to);
+                window.location.assign("/scan/deliveries");
+              }
             },
           ),
         );

@@ -87,7 +87,9 @@
     "viewing": "表示中の組織",
     "viewingAs": "{name}として表示中",
     "scopedNote": "データと書き込みはこの組織が対象です（ホーム：{home}）。",
-    "reset": "ホームに戻す"
+    "reset": "ホームに戻す",
+    "myOrgsTip": "所属している組織です。このタブはここで選んだ組織で動きます。",
+    "unread": "新着 {n}"
   },
   "search": {
     "placeholder": "何でも検索…",

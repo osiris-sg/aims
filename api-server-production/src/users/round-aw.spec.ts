@@ -289,7 +289,7 @@ describe('round AW — controller passes the caller through', () => {
   it('DELETE /users/:id acts in the caller\'s org and records what it did', async () => {
     const svc = { deleteUser: jest.fn(async () => ({ removedFrom: A, rolesRemoved: 1, clerkDeleted: false })) };
     const req: any = { isOsirisAdmin: false, user: { id: 'take' } };
-    await new UsersController(svc as any).deleteUser('sayaka', { id: A, name: 'ADH' }, req);
+    await new UsersController(svc as any, {} as any).deleteUser('sayaka', { id: A, name: 'ADH' }, req);
     expect(svc.deleteUser).toHaveBeenCalledWith('sayaka', { orgId: A, platform: false, userId: 'take' });
     expect(req.actionLogResult).toEqual({ removedFrom: A, rolesRemoved: 1, clerkDeleted: false });
   });

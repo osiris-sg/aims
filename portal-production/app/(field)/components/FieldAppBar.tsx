@@ -1,5 +1,7 @@
 "use client";
 
+import { useOrganization } from "@/app/portal/hooks/useOrganization";
+import { FIELD_ORG_PICK_EVENT } from "./FieldOrgPicker";
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Divider, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Tooltip, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
@@ -195,6 +197,7 @@ const THEME_CHOICES: { value: FieldThemePreference; label: string; Icon: typeof 
 function ThemeChoiceButton({ color }: { color: string }) {
   const { preference, setPreference } = useFieldTheme();
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  const { organization, memberships } = useOrganization(); // multi-org: "Switch organisation"
   const current = THEME_CHOICES.find((c) => c.value === preference) ?? THEME_CHOICES[2];
   const CurrentIcon = current.Icon;
   return (
@@ -239,6 +242,17 @@ function ThemeChoiceButton({ color }: { color: string }) {
           );
         })}
         <Divider sx={{ my: 0.5 }} />
+        {memberships.length >= 2 && (
+          <MenuItem
+            onClick={() => {
+              setAnchorEl(null);
+              window.dispatchEvent(new Event(FIELD_ORG_PICK_EVENT));
+            }}
+            sx={{ minHeight: 44 }}
+          >
+            <ListItemText primary="Switch organisation" secondary={organization?.name} primaryTypographyProps={{ fontWeight: 500 }} />
+          </MenuItem>
+        )}
         {/* target=_blank: the Capacitor shell hands a new-window request to the
             system browser, so the policy opens in Chrome and Back returns here. */}
         <MenuItem component="a" href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer" onClick={() => setAnchorEl(null)} sx={{ minHeight: 44 }}>

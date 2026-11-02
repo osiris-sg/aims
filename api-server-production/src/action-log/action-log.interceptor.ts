@@ -44,6 +44,7 @@ const SKIP_GET_PATHS = [
   '/configuration',
   '/organizations/user',
   '/users/me/roles',
+  '/users/me/organizations', // multi-org switcher bootstrap (every page load)
   '/guide/',
   '/documents/past-descriptions',
   // The WhatsApp group bridge polls these every few seconds (2026-09-30: ~65%
@@ -94,6 +95,8 @@ const VERB_ACTIONS: Record<string, string> = {
   'deployment-type': 'UPDATE', 'asset-class': 'UPDATE',
   // Round AM: Clients → Document formats — a sample hidden (kept, never deleted).
   hide: 'HIDE',
+  // Multi-org users (2026-11-02): switching org, and an org admin adding a person by email.
+  'active-org': 'SWITCH_ORG', 'add-by-email': 'ADD_MEMBER',
   // Round AR: the Answer flow's draft of a general issue read from the emails (nothing saved).
   'issue-draft': 'EXTRACT',
   // Deliveries: OsirisAdmin permanent delete of a cancelled run that committed nothing (2026-10-30).

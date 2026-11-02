@@ -43,13 +43,15 @@ import { isClientsPath } from "@/helpers/shipmentsNav";
 const CIEL_ORG_ID = "09e55c23-e031-4254-8152-a373597b2cb3";
 const CIEL_NAV_LOGO = "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/logos/ciel-logo-cream.png";
 
-// Admin-only org switcher, folded into the bar next to the brand (Xero puts
+// Org switcher, folded into the bar next to the brand (Xero puts
 // the org name there). Replaces the old below-bar "Viewing organization" row
 // AND the ViewingAsBanner strip: when an override org is active the field is
 // info-tinted, a tooltip carries the "writes are scoped here" warning, and the
 // ✕ resets to home (guru 2026-08-30).
+// Osiris admins pick any org; a member of 2+ orgs picks one of THEIR orgs
+// (multi-org users, 2026-11-02), with each org's unread bell count.
 function TopNavOrgSwitcher() {
-  const { isOsirisAdmin, organization, realOrganization, setActiveOrgId } = useOrganization();
+  const { isOsirisAdmin, organization, realOrganization, setActiveOrgId, memberships } = useOrganization();
   const { getToken } = useAuth();
   const t = useTranslations("shell.org");
   const [orgs, setOrgs] = React.useState<{ id: string; name: string }[]>([]);
@@ -79,26 +81,31 @@ function TopNavOrgSwitcher() {
     return () => { cancelled = true; };
   }, [isOsirisAdmin, getToken, realOrganization?.id]);
 
-  if (!isOsirisAdmin) return null;
-  const value = orgs.find((o) => o.id === organization?.id) ?? null;
+  const memberMode = !isOsirisAdmin && memberships.length >= 2;
+  if (!isOsirisAdmin && !memberMode) return null;
+  const unread = new Map(memberships.map((m) => [m.id, m.unreadNotifications]));
+  const options: { id: string; name: string }[] = memberMode ? memberships.map((m) => ({ id: m.id, name: m.name })) : orgs;
+  const value = options.find((o) => o.id === organization?.id) ?? null;
   const isOverride = !!organization && !!realOrganization && organization.id !== realOrganization.id;
 
   return (
-    <Stack direction="row" alignItems="center" gap={0.25} sx={{ flexShrink: 0 }}>
+    <Stack direction="row" alignItems="center" gap={0.25} sx={{ flexShrink: 0 }} data-tour="org-switcher">
       <Tooltip
         title={
-          isOverride
-            ? t("viewingAsTip", { name: organization?.name ?? "", home: realOrganization?.name ?? "" })
-            : t("switch")
+          memberMode
+            ? t("myOrgsTip")
+            : isOverride
+              ? t("viewingAsTip", { name: organization?.name ?? "", home: realOrganization?.name ?? "" })
+              : t("switch")
         }
       >
         <Autocomplete
           size="small"
-          options={orgs}
+          options={options}
           // Always controlled: null (not undefined) until the org list loads,
           // else MUI locks in uncontrolled mode and never shows the current
           // org. disableClearable types value as non-null; null is fine at runtime.
-          value={value as (typeof orgs)[number]}
+          value={value as (typeof options)[number]}
           getOptionLabel={(o) => o.name ?? ""}
           isOptionEqualToValue={(a, b) => a.id === b.id}
           disableClearable
@@ -109,6 +116,9 @@ function TopNavOrgSwitcher() {
           renderOption={(props, option) => (
             <li {...props} key={option.id}>
               <span style={{ flex: 1 }}>{option.name}</span>
+              {memberMode && option.id !== organization?.id && (unread.get(option.id) ?? 0) > 0 && (
+                <Chip size="small" color="primary" label={t("unread", { n: unread.get(option.id) ?? 0 })} sx={{ ml: 1 }} />
+              )}
               {option.id === realOrganization?.id && <Chip size="small" label={t("home")} sx={{ ml: 1 }} />}
             </li>
           )}

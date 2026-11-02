@@ -87,7 +87,9 @@
     "viewing": "Viewing organization",
     "viewingAs": "Viewing as {name}",
     "scopedNote": "Data and writes are scoped to this org, not your home ({home}).",
-    "reset": "Reset to home"
+    "reset": "Reset to home",
+    "myOrgsTip": "Your organizations. This tab works in the one picked here.",
+    "unread": "{n} new"
   },
   "search": {
     "placeholder": "Search anything…",

@@ -183,8 +183,8 @@ export class ConfigurationController {
    */
   @Get('modules/:code/organizations')
   @ApiOperation({ summary: 'Organizations available to this user with the module enabled' })
-  async organizationsWithModule(@Param('code') code: string, @Req() req: Request & { isOsirisAdmin?: boolean; userOrganization?: { id: string } }) {
-    return this.configurationService.organizationsWithModule(String(code).toUpperCase(), !!req.isOsirisAdmin, req.userOrganization?.id ?? null);
+  async organizationsWithModule(@Param('code') code: string, @Req() req: Request & { isOsirisAdmin?: boolean; userOrganization?: { id: string }; user?: { id?: string } }) {
+    return this.configurationService.organizationsWithModule(String(code).toUpperCase(), !!req.isOsirisAdmin, req.userOrganization?.id ?? null, req.user?.id ?? null);
   }
 
   // ===================== COMPLETE CONFIGURATION =====================

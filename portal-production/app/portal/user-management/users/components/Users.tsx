@@ -10,6 +10,10 @@ import { useGetUsers } from "../hooks/useGetUser";
 import useAddRoleStates from "../hooks/useAddUser";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import TeamsPanel from "./TeamsPanel";
+import AddByEmail from "./AddByEmail";
+import InvitesPanel from "./InvitesPanel";
+import { Button, Stack } from "@mui/material";
+import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useTranslations } from "next-intl";
 
@@ -20,6 +24,12 @@ export default function Users() {
 
   const { users, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, refreshUsers } = useGetUsers();
   const { openDrawer, onAddClick, onCloseClick } = useAddRoleStates();
+  // Multi-org users (2026-11-02): give a person (an existing login or a new invite) access to this org by email.
+  const ti = useTranslations("users.invite");
+  const { hasPermission, userRoles } = useUserPermissions();
+  const canAdd = hasPermission("users", "create") || userRoles.length === 0;
+  const [byEmailOpen, setByEmailOpen] = React.useState(false);
+  const [invitesKey, setInvitesKey] = React.useState(0);
 
   const handleUserUpdated = () => {
     refreshUsers();
@@ -38,6 +48,13 @@ export default function Users() {
 
   return (
     <MainCard>
+      {canAdd && (
+        <Stack direction="row" justifyContent="flex-end" sx={{ mb: 1 }}>
+          <Button size="small" variant="outlined" onClick={() => setByEmailOpen(true)} data-tour="users-add-by-email">
+            {ti("open")}
+          </Button>
+        </Stack>
+      )}
       <PageTable
         onRowClick={(r: any) => handleEditUser(r)}
         columns={columns}
@@ -60,7 +77,18 @@ export default function Users() {
         totalDocs={users.totalDocuments}
       />
 
+      <InvitesPanel refreshKey={invitesKey} />
+
       {isIdQuotationEnabled && <TeamsPanel />}
+
+      <AddByEmail
+        open={byEmailOpen}
+        onClose={() => setByEmailOpen(false)}
+        onDone={() => {
+          refreshUsers();
+          setInvitesKey((k) => k + 1);
+        }}
+      />
 
       <AddUser open={openDrawer} onClose={onCloseClick} onUserCreated={refreshUsers} />
 

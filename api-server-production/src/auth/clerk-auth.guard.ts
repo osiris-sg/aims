@@ -1,5 +1,6 @@
 import { type ExecutionContext, Injectable, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { isPlatformAdminRole } from './admin-scope';
+import { acceptPendingInvites, DEFAULT_MEMBERSHIP_ORDER, NOT_A_MEMBER_MESSAGE } from './active-org';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
@@ -138,12 +139,14 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
         },
         select: USER_ROLE_SELECT,
       }),
-      // Get user organization
+      // The user's DEFAULT org: the membership used most recently, then the
+      // oldest (never an arbitrary row when they belong to several orgs).
       this.prisma.userOrganization.findFirst({
         where: {
           userId,
           isActive: true,
         },
+        orderBy: DEFAULT_MEMBERSHIP_ORDER as any,
         select: USER_ORG_SELECT,
       }),
     ]);
@@ -229,7 +232,7 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
     const authStart = Date.now();
 
     // Roles + membership org — served from the per-user cache when warm.
-    const { userRoles, userOrg } = await this.loadUserAuth(user.id);
+    let { userRoles, userOrg } = await this.loadUserAuth(user.id);
 
     const authQueryDuration = Date.now() - authStart;
     dbg(`📊 Auth data ready in ${authQueryDuration}ms`);
@@ -247,8 +250,9 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
     // bootstrap fetch so it can still learn the user's actual membership org
     // even while a switch override is active.
     //
-    // Non-admins: the header is silently ignored — no path overrides
-    // request.userOrganization for them.
+    // Members of several orgs: the header picks one of THEIR orgs; any other
+    // org is a 403 (multi-org users, 2026-11-02; it used to be ignored, which
+    // served the default org's data under another org's id).
     let overrideOrg: { id: string; name: string; [k: string]: any } | null = null;
     const rawActiveOrgId = request.headers['x-active-org-id'];
     const rawUseRealOrg = request.headers['x-use-real-org'];
@@ -268,6 +272,8 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
         if (member?.organization) {
           overrideOrg = member.organization as any;
           dbg(`🔀 Org switch (member): ${userOrg?.organization?.name ?? '(none)'} → ${overrideOrg!.name}`);
+        } else {
+          throw new ForbiddenException(NOT_A_MEMBER_MESSAGE);
         }
       }
     }
@@ -300,6 +306,15 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
       request.isOsirisAdmin = true;
     } else {
       dbg('User is not osiris-admin');
+      // An email an org admin invited before it had a login: its first
+      // signed-in request turns the invitation into the membership.
+      if (!userOrg && !request.headers['x-operator-internal']) {
+        const emails = (user.emailAddresses ?? []).map((e: any) => e?.emailAddress).filter(Boolean);
+        if (emails.length && (await acceptPendingInvites(this.prisma, user.id, emails))) {
+          ClerkAuthGuard.invalidateUser(user.id);
+          ({ userRoles, userOrg } = await this.loadUserAuth(user.id));
+        }
+      }
       // For regular users, require organization assignment
       if (!userOrg) {
         console.warn(`User ${user.id} is not assigned to any organization`);

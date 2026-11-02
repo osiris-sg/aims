@@ -140,8 +140,11 @@ export class PushService implements OnModuleInit {
         return empty;
       }
 
+      // Every device of these users, whichever org it was registered under
+      // (multi-org users, 2026-11-02): a phone belongs to the person, and the
+      // message carries its org (data.orgId) so tapping it switches there.
       const rows = await this.prisma.deviceToken.findMany({
-        where: { organizationId, userId: { in: userIds } },
+        where: { userId: { in: userIds } },
         select: { id: true, token: true, userId: true },
       });
       if (!rows.length) {
@@ -151,10 +154,11 @@ export class PushService implements OnModuleInit {
         return { ...empty, recipients: userIds.length };
       }
 
+      const org = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } }).catch(() => null);
       const res = await getMessaging(this.app).sendEachForMulticast({
         tokens: rows.map((r) => r.token),
         notification: { title: payload.title, body: payload.body },
-        data: payload.data,
+        data: { ...(payload.data ?? {}), orgId: organizationId, ...(org?.name ? { orgName: org.name } : {}) },
         android: { priority: 'high', notification: { channelId: 'aims-deliveries' } },
       });
 

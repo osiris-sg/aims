@@ -260,10 +260,15 @@ export class ConfigurationService {
 
   // ===================== COMPLETE CONFIGURATION =====================
 
-  /** Round Y: orgs with `moduleCode` enabled that this user may use (admin: every org; else only the org the request is scoped to). */
-  async organizationsWithModule(moduleCode: string, isOsirisAdmin: boolean, organizationId: string | null): Promise<Array<{ id: string; name: string }>> {
+  /** Round Y: orgs with `moduleCode` enabled that this user may use (admin: every org; else the orgs they are an active member of, multi-org users 2026-11-02). */
+  async organizationsWithModule(moduleCode: string, isOsirisAdmin: boolean, organizationId: string | null, userId?: string | null): Promise<Array<{ id: string; name: string }>> {
+    let mine: string[] = organizationId ? [organizationId] : [];
+    if (!isOsirisAdmin && userId) {
+      const rows = await this.prisma.userOrganization.findMany({ where: { userId, isActive: true }, select: { organizationId: true } });
+      mine = [...new Set([...mine, ...rows.map((r) => r.organizationId)])];
+    }
     const rows = await this.prisma.organizationModule.findMany({
-      where: { moduleCode, enabled: true, ...(isOsirisAdmin ? {} : { organizationId: organizationId ?? '' }) },
+      where: { moduleCode, enabled: true, ...(isOsirisAdmin ? {} : { organizationId: { in: mine } }) },
       select: { organization: { select: { id: true, name: true } } },
     });
     return rows.map((r) => r.organization).filter((o): o is { id: string; name: string } => !!o).sort((a, b) => a.name.localeCompare(b.name));

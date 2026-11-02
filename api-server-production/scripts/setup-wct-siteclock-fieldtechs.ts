@@ -15,8 +15,9 @@
  *   - AIMS id = external_id || Clerk id (imported users keep their old id);
  *     external_id is stamped (= own id) ONLY where it is empty. No Clerk user is
  *     ever created, and nothing else on the Clerk user changes.
- *   - EXCLUDED and listed: anyone already in ANOTHER AIMS org (a second org
- *     makes their portal org pick unpredictable), and other SiteClock roles.
+ *   - someone already in ANOTHER AIMS org is added too (multi-org users,
+ *     2026-11-02: they switch org from the top bar) and listed with those orgs;
+ *     other SiteClock roles are skipped.
  *   - already a WCT member → roles left alone; only the SiteClock link is stored.
  *   - new → UserOrganization + the field-tech role (WCT only), plus
  *     OrganizationMemberProfile.siteclockUserId so jobs planned on that worker
@@ -88,20 +89,17 @@ async function main() {
       }
       const memberships = await plat.userOrganization.findMany({ where: { userId: aimsId, isActive: true }, select: { organizationId: true } });
       const others = memberships.filter((m: any) => m.organizationId !== ORG_ID);
-      if (others.length) {
-        const orgNames = await plat.organization.findMany({ where: { id: { in: others.map((m: any) => m.organizationId) } }, select: { name: true } });
-        rows.push({ ...base, action: 'EXCLUDED', note: `already in ${orgNames.map((o: any) => o.name).join(', ')}` });
-        continue;
-      }
+      const orgNames = others.length ? await plat.organization.findMany({ where: { id: { in: others.map((m: any) => m.organizationId) } }, select: { name: true } }) : [];
+      const alsoIn = orgNames.length ? `; also in ${orgNames.map((o: any) => o.name).join(', ')} (keeps that membership)` : '';
       const inWct = memberships.some((m: any) => m.organizationId === ORG_ID);
-      rows.push({ ...base, action: inWct ? 'link' : 'add', note: inWct ? 'already a WCT member: roles left alone, SiteClock link stored' : !u.externalId ? 'external_id stamped = own id' : 'imported user (keeps its AIMS id)' });
+      rows.push({ ...base, action: inWct ? 'link' : 'add', note: (inWct ? 'already a WCT member: roles left alone, SiteClock link stored' : !u.externalId ? 'external_id stamped = own id' : 'imported user (keeps its AIMS id)') + alsoIn });
     }
 
-    const order = ['add', 'link', 'EXCLUDED', 'skip'];
+    const order = ['add', 'link', 'skip'];
     rows.sort((a, b) => order.indexOf(a.action) - order.indexOf(b.action) || a.name.localeCompare(b.name));
     for (const r of rows) console.log(`  ${r.action.padEnd(8)} ${r.scRole.padEnd(13)} ${r.name.padEnd(28)} ${r.note ?? ''}`);
     const count = (a: string) => rows.filter((r) => r.action === a).length;
-    console.log(`\n  add ${count('add')} · link ${count('link')} · EXCLUDED ${count('EXCLUDED')} · skip ${count('skip')}`);
+    console.log(`\n  add ${count('add')} · link ${count('link')} · skip ${count('skip')}`);
 
     if (!APPLY) {
       console.log('\nDRY RUN DONE — nothing written. Re-run with --apply (prod: --apply --confirm-prod).');
