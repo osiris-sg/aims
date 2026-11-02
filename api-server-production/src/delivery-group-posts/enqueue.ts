@@ -146,16 +146,19 @@ export async function enqueueDeliveryGroupPost(
           })
         ).reduce((n: number, i: any) => n + (i.assetId ? 1 : i.quantity || 1), 0);
     // Format (2026-10-02):
-    //   Delivery #69, ZZTestProject
+    //   Delivery #69, ZZ Customer (ZZTestProject)
     //
     //   DO: DO202610078 · signed by elroy at 2 Oct, 2:46 pm
     //   Trip 1 (final) · 1 x ZZTEST Asset
-    const head = [`${isReturn ? 'Return' : 'Delivery'} #${run.deliveryNumber}`, project?.name || customer?.name].filter(Boolean).join(', ');
+    // Who: the customer always, the project in brackets (2026-11-02), e.g.
+    // "Return #88, Singapore Sailing Port Pte. Ltd. (Nil)".
+    const who = customer?.name ? `${customer.name}${project?.name ? ` (${project.name})` : ''}` : project?.name;
+    const head = [`${isReturn ? 'Return' : 'Delivery'} #${run.deliveryNumber}`, who].filter(Boolean).join(', ');
     const what = [...counts].map(([d, q]) => `${q} x ${d}`).join(', ');
     let body: string[];
     if (isReturn) {
       // Return (2026-11-02): one signature at the end, always the last trip.
-      //   Return #88, Singapore Sailing Port
+      //   Return #88, Singapore Sailing Port Pte. Ltd. (Nil)
       //
       //   RDO: RDO202611-001
       //   Returned: 2 x FIREFLY 4200 (AIS2026016, AIS2026019), signed by Azad at 2 Nov, 6:02 pm

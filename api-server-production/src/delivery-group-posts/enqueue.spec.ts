@@ -83,7 +83,7 @@ describe('enqueueDeliveryGroupPost: return runs', () => {
     await enqueueDeliveryGroupPost(prisma, ORG, RUN, ['i1', 'i2']);
     const { caption } = prisma.posts[0];
     expect(caption).toBe(
-      ['Return #88, Nil', '', 'RDO: RDO202611-001', 'Returned: 2 x FIREFLY 4200 (AIS2026016, AIS2026019), signed by Azad at 2 Nov, 6:02 pm'].join('\n'),
+      ['Return #88, Singapore Sailing Port (Nil)', '', 'RDO: RDO202611-001', 'Returned: 2 x FIREFLY 4200 (AIS2026016, AIS2026019), signed by Azad at 2 Nov, 6:02 pm'].join('\n'),
     );
     expect(caption).not.toMatch(/deliver/i);
     expect(caption).not.toMatch(/Trip/);
@@ -118,11 +118,22 @@ describe('enqueueDeliveryGroupPost: return runs', () => {
     expect(prisma.posts).toHaveLength(0);
   });
 
+  it('the heading names the customer, with the project in brackets when there is one', async () => {
+    const noProject = fakePrisma({ customerGroup: 'c@g.us' });
+    noProject.project.findFirst = async () => null as any;
+    await enqueueDeliveryGroupPost(noProject, ORG, RUN, ['i1', 'i2']);
+    expect(noProject.posts[0].caption.split('\n')[0]).toBe('Return #88, Singapore Sailing Port');
+    const noCustomer = fakePrisma({ projectGroup: 'p@g.us' });
+    noCustomer.customer.findFirst = async () => null as any;
+    await enqueueDeliveryGroupPost(noCustomer, ORG, RUN, ['i1', 'i2']);
+    expect(noCustomer.posts[0].caption.split('\n')[0]).toBe('Return #88, Nil');
+  });
+
   it('a delivery keeps its own wording and its installation photos', async () => {
     const prisma = fakePrisma({ direction: 'OUTBOUND', customerGroup: 'c@g.us' });
     await enqueueDeliveryGroupPost(prisma, ORG, RUN, ['i1', 'i2']);
     const post = prisma.posts[0];
-    expect(post.caption).toMatch(/^Delivery #88, Nil\n\nDO: RDO202611-001 · signed by Azad at 2 Nov, 6:02 pm\nTrip 1 \(final\) · 2 x FIREFLY 4200$/);
+    expect(post.caption).toMatch(/^Delivery #88, Singapore Sailing Port \(Nil\)\n\nDO: RDO202611-001 · signed by Azad at 2 Nov, 6:02 pm\nTrip 1 \(final\) · 2 x FIREFLY 4200$/);
     expect(post.photoKeys).toEqual(['start-1.jpg', 'start-2.jpg', 'start-3.jpg', 'install-1.jpg']);
   });
 });
