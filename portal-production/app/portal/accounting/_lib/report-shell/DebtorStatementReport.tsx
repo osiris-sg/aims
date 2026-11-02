@@ -191,10 +191,22 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
             }
             for (const t of monthTxs) {
               run = R(run + (Number(t.debit) || 0) - (Number(t.credit) || 0));
+              // Remarks = the document's reference text, same as the
+              // prior-month rows above; a document with no reference prints
+              // the legacy placeholder rather than "Invoice BI…" (guru
+              // 2026-11-02: Oct rows fell back while Sept rows were fine).
+              // (customer SOA rows carry transactionType, supplier SOA rows
+              // carry type: 'BILL' | 'PAYMENT')
+              const docRemarks =
+                t.transactionType === "INVOICE" || t.type === "BILL"
+                  ? t.docReference || (side === "payable" ? "SUPPLIER INVOICE" : "INVOICE")
+                  : t.transactionType === "CREDIT_NOTE"
+                    ? t.docReference || "CREDIT NOTE"
+                    : null;
               rows.push({
                 reference: t.reference,
                 date: t.date,
-                remarks: t.description || t.transactionType,
+                remarks: docRemarks || t.description || t.transactionType,
                 debit: Number(t.debit) || 0,
                 credit: Number(t.credit) || 0,
                 running: run,

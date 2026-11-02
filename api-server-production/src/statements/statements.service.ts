@@ -1,7 +1,7 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { amountPaidOf, grossOf, outstandingOf, owedOf } from '../common/document-money';
-import { docRef, refWith } from '../common/doc-ref';
+import { docRef, documentReferenceOf, refWith } from '../common/doc-ref';
 import { GenerateSOADto } from './dto/generate-soa.dto';
 
 export interface AgingBucket {
@@ -58,7 +58,7 @@ export class StatementsService {
       // docId/docTypeKey/templateId ride along so the statement's Reference
       // cell can be a real link to the document (guru 2026-10-21). They are
       // absent on payment rows, which address no document of their own.
-      type Tx = { date: Date; reference: string; description: string; transactionType: string; debit: number; credit: number; balance: number; documentType?: string; paymentMethod?: string; docId?: string; docTypeKey?: string; templateId?: string | null };
+      type Tx = { date: Date; reference: string; description: string; docReference?: string | null; transactionType: string; debit: number; credit: number; balance: number; documentType?: string; paymentMethod?: string; docId?: string; docTypeKey?: string; templateId?: string | null };
       const all: Tx[] = [];
       let openingBalance = 0;
       const add = (d: Date, tx: Tx, netEffect: number) => {
@@ -78,13 +78,24 @@ export class StatementsService {
         const gross = R(grossOf(c) ?? 0);
         if (gross <= 0) continue;
         if (doc.type === 'INVOICE') {
-          add(d, { date: d, reference: docRef(doc.type, doc.name || '(no #)'), description: `Invoice ${doc.name || ''}`.trim(), transactionType: 'INVOICE', debit: gross, credit: 0, balance: 0, documentType: 'INVOICE', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId }, gross);
+          // Description = the document's own reference text ("BI202610027
+          // (3rd mth HDB Yishun N5C11 - DO…)"), the way the legacy statement's
+          // Remarks column reads. The Debtor Statement already showed it for
+          // prior-month outstanding rows (which come from /statements/aged)
+          // but the statement month's rows come from here, where every
+          // invoice read "Invoice BI…" (guru 2026-11-02). "Invoice <no>" is
+          // only the fallback for a document with no reference at all;
+          // docReference carries the raw value so the Debtor Statement can
+          // print its own legacy "INVOICE" placeholder instead.
+          const ref = documentReferenceOf(c);
+          add(d, { date: d, reference: docRef(doc.type, doc.name || '(no #)'), description: ref || `Invoice ${doc.name || ''}`.trim(), docReference: ref || null, transactionType: 'INVOICE', debit: gross, credit: 0, balance: 0, documentType: 'INVOICE', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId }, gross);
           const paid = R(gross - R(outstandingOf(c) ?? gross));
           if (isXero && paid > 0.005) {
             add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: `Payment / credits applied — ${doc.name || ''}`.trim(), transactionType: 'PAYMENT', debit: 0, credit: paid, balance: 0, documentType: 'PAYMENT', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId }, -paid);
           }
         } else if (doc.type === 'CREDIT_NOTE' && !isXero) {
-          add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: `Credit Note ${doc.name || ''}`.trim(), transactionType: 'CREDIT_NOTE', debit: 0, credit: gross, balance: 0, documentType: 'CREDIT_NOTE', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId }, -gross);
+          const ref = documentReferenceOf(c);
+          add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: ref || `Credit Note ${doc.name || ''}`.trim(), docReference: ref || null, transactionType: 'CREDIT_NOTE', debit: 0, credit: gross, balance: 0, documentType: 'CREDIT_NOTE', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId }, -gross);
         }
       }
       for (const p of payments) {
@@ -116,7 +127,7 @@ export class StatementsService {
             totalCredit: R(all.reduce((s, t) => s + t.credit, 0)),
             transactionCount: all.length,
           },
-          transactions: all.map((t) => ({ date: t.date, reference: t.reference, description: t.description, transactionType: t.transactionType, debit: t.debit, credit: t.credit, balance: t.balance, documentType: t.documentType, paymentMethod: t.paymentMethod, docId: t.docId, docTypeKey: t.docTypeKey, templateId: t.templateId })),
+          transactions: all.map((t) => ({ date: t.date, reference: t.reference, description: t.description, docReference: t.docReference ?? null, transactionType: t.transactionType, debit: t.debit, credit: t.credit, balance: t.balance, documentType: t.documentType, paymentMethod: t.paymentMethod, docId: t.docId, docTypeKey: t.docTypeKey, templateId: t.templateId })),
           monthlyBalances,
           agingAnalysis,
           generatedAt: new Date(),
@@ -377,6 +388,7 @@ export class StatementsService {
       type: 'BILL' | 'PAYMENT';
       reference: string;
       description: string;
+      docReference?: string | null;
       debit: number; // money out — bill amount
       credit: number; // money paid back
       balance: number;
@@ -412,7 +424,10 @@ export class StatementsService {
         // Supplier Invoice = SIN (doc-type prefix plan; "bill" reads as
         // "Supplier Invoice" in reports — guru).
         reference: refWith('SIN', b.name || '(no #)'),
-        description: `Supplier Invoice ${b.name || ''}`.trim(),
+        // Reference text first, "Supplier Invoice <no>" only as the fallback —
+        // same rule as the customer SOA (guru 2026-11-02).
+        description: documentReferenceOf(c) || `Supplier Invoice ${b.name || ''}`.trim(),
+        docReference: documentReferenceOf(c) || null,
         debit: gross,
         credit: 0,
         balance: 0,
