@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma.service';
 import { randomBytes } from 'crypto';
@@ -616,9 +616,14 @@ export class SiteClockLinkService {
     const existing = await this.prisma.siteClockConnection.findUnique({ where: { organizationId }, select: { id: true, inboundKeyHash: true } });
     if (!existing) throw new NotFoundException('Save the SiteClock connection first');
     const key = newInboundKey();
+    const hash = hashInboundKey(key);
+    // inboundKeyHash is a plain index, not @unique (Render's db push), so the
+    // one-key-one-org rule is kept here: never save a hash another connection has.
+    const clash = await this.prisma.siteClockConnection.findFirst({ where: { inboundKeyHash: hash, id: { not: existing.id } }, select: { id: true } });
+    if (clash) throw new ConflictException('That key clashed with another organisation. Nothing was saved; generate again.');
     await this.prisma.siteClockConnection.update({
       where: { organizationId },
-      data: { inboundKeyHash: hashInboundKey(key), inboundKeyLast4: key.slice(-4), inboundKeyCreatedAt: new Date(), inboundKeyLastUsedAt: null },
+      data: { inboundKeyHash: hash, inboundKeyLast4: key.slice(-4), inboundKeyCreatedAt: new Date(), inboundKeyLastUsedAt: null },
     });
     this.actionLog?.system('siteclock-inbound-key', existing.inboundKeyHash ? 'ROTATE' : 'CREATE', 'siteclock-connection', { organizationId, resourceId: existing.id, details: { last4: key.slice(-4) } });
     return { key, ...(await this.getConnection(organizationId)) };
