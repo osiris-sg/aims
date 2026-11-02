@@ -1148,14 +1148,30 @@ export class MaintenanceReportsService {
     status?: 'draft' | 'completed',
   ) {
     const trimmed = search?.trim();
+    // A SCHEDULED service report (WCT: created with the run, written after the
+    // sign-off) is a draft nobody has to sign — keep it out of the field app's
+    // Pending Sign list. The office list (no status filter) shows it.
+    // Excluded BY ID: the former `NOT: { serviceData: { path: ['scheduled'],
+    // equals: true } }` became NOT (serviceData->'scheduled' = 'true'), which
+    // is NULL — not true — when the key is missing, so it dropped EVERY
+    // ordinary draft and Pending Sign was empty for every org (27 Oct–2 Nov).
+    // Only scheduled === true is excluded; a missing key or false stays.
+    const scheduledDraftIds =
+      status === 'draft'
+        ? (
+            await this.prisma.$queryRaw<Array<{ id: string }>>`
+              SELECT r.id FROM "MaintenanceServiceReport" r
+              WHERE r."organizationId" = ${organizationId}
+                AND r.kind = 'SERVICE'
+                AND r.status = 'draft'
+                AND COALESCE(r."serviceData" ->> 'scheduled', 'false') = 'true'`
+          ).map((r) => r.id)
+        : [];
     const where: Prisma.MaintenanceServiceReportWhereInput = {
       organizationId,
       kind: 'SERVICE',
       ...(status ? { status } : {}),
-      // A SCHEDULED service report (WCT: created with the run, written after
-      // the sign-off) is a draft nobody has to sign — keep it out of the field
-      // app's Pending Sign list. The office list (no status filter) shows it.
-      ...(status === 'draft' ? { NOT: { serviceData: { path: ['scheduled'], equals: true } } } : {}),
+      ...(scheduledDraftIds.length ? { id: { notIn: scheduledDraftIds } } : {}),
     };
 
     if (trimmed) {
