@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Box, CircularProgress } from "@mui/material";
 import TabbedDocumentCreator from "@/containers/DocumentTemplates/components/TabbedDocumentCreator";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
+import { NEW_DOC_ID, readNewDocument, savedDocumentUrl, asThenAction } from "@/helpers/newDocument";
 import { useGetSuppliers, useGetDocumentNav } from "@/app/portal/hooks/api";
 import { useCustomerPool } from "@/app/portal/hooks/api/useCustomerPicker";
 import { useGetProjects } from "@/containers/DocumentTemplates/hooks/useGetProjects";
@@ -54,6 +55,15 @@ export default function page() {
   const params = useParams();
   const router = useRouter();
   const { type, id, documentId } = params;
+  const searchParams = useSearchParams();
+  // "New <type> (number on save)": no document exists yet; the first save
+  // creates it (and claims its number). Leaving without saving creates nothing.
+  const isNew = documentId === NEW_DOC_ID;
+  const newDocRequest = useMemo(
+    () => (isNew ? readNewDocument(searchParams?.get("nd") ?? null, { type: String(Array.isArray(type) ? type[0] : type), templateId: String(id) }) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isNew, id, type],
+  );
   const { getToken } = useAuth();
   const { organization } = useOrganization();
 
@@ -169,6 +179,18 @@ export default function page() {
       if (!response.success || !response.data) {
         return null;
       }
+      return await processDocumentData(response, token, urlType);
+    } catch (error) {
+      console.error("Error fetching document:", docId, error);
+      return null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // A document (GET /documents/:id) or a new document's draft
+  // (POST /documents/basic/draft: id and name null) shaped for the editor.
+  const processDocumentData = useCallback(async (response: any, token: string, urlType: string | string[]): Promise<CachedDocument | null> => {
+    try {
 
       let templateVariant = Array.isArray(urlType) ? urlType[0] : urlType;
       const templateId = response.data.documentTemplateId;
@@ -257,7 +279,7 @@ export default function page() {
         customerId,
       };
     } catch (error) {
-      console.error("Error fetching document:", docId, error);
+      console.error("Error preparing document:", error);
       return null;
     }
   }, []);
@@ -425,6 +447,38 @@ export default function page() {
         return;
       }
 
+      if (isNew && newDocRequest) {
+        try {
+          const token = await getToken();
+          if (!token) return;
+          const draft = await request(
+            { path: "/documents/basic/draft", method: "POST" },
+            {
+              documentTemplateId: newDocRequest.templateId,
+              type: newDocRequest.type,
+              config: { ...(newDocRequest.config ?? {}), ...(newDocRequest.numberFormatId ? { numberFormatId: newDocRequest.numberFormatId } : {}) },
+              ...(newDocRequest.projectId ? { projectId: newDocRequest.projectId } : {}),
+            },
+            token,
+          );
+          const result = draft?.success ? await processDocumentData(draft, token, type as string) : null;
+          if (result) {
+            setExistingData(result.existingData);
+            setDocumentMetadata(result.documentMetadata);
+            setFieldConfig(result.fieldConfig);
+            setSelectedCustomerId(result.customerId);
+          } else {
+            toast.error("Could not open a new document");
+          }
+        } catch (error) {
+          console.error("Error opening a new document:", error);
+          toast.error("Could not open a new document");
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
+
       const docIdStr = documentId as string;
 
       // Check cache first
@@ -472,7 +526,7 @@ export default function page() {
 
     setIsLoading(true);
     loadDocument();
-  }, [documentId, getToken, fetchDocumentData, type]);
+  }, [documentId, getToken, fetchDocumentData, processDocumentData, type, isNew, newDocRequest]);
 
   // Initial prefetch effect - runs when filteredDocuments and currentIndex are ready
   useEffect(() => {
@@ -520,6 +574,10 @@ export default function page() {
         return;
       }
 
+      // The action that asked for this save (e.g. "sign"): run on the saved document.
+      const thenAction = asThenAction((data as any)?.__then);
+      if (data && typeof data === "object") delete (data as any).__then;
+
       // Use the field config that was loaded when the document was fetched
       // If not available, fetch it now
       let currentFieldConfig = fieldConfig;
@@ -541,9 +599,33 @@ export default function page() {
       console.log("handleSave - After transform - configData.issueBy:", configData.issueBy);
       console.log("handleSave - After transform - configData.items:", JSON.stringify(configData.items, null, 2));
 
+
+      // First save of a NEW document: create it now, which claims its number
+      // (atomically, server side), then save the edited content onto it.
+      let targetId = documentId as string;
+      let createdName: string | null = null;
+      if (isNew) {
+        const created = await request(
+          { path: "/documents/basic", method: "POST" },
+          {
+            documentTemplateId: documentMetadata?.documentTemplateId || (params.id as string),
+            type: newDocRequest?.type || (type as string),
+            config: { ...configData, ...(newDocRequest?.numberFormatId ? { numberFormatId: newDocRequest.numberFormatId } : {}) },
+            ...(newDocRequest?.projectId || data.project?.id || data.projectId ? { projectId: newDocRequest?.projectId || data.project?.id || data.projectId } : {}),
+          },
+          token,
+        );
+        if (!created?.success || !created?.data?.id) {
+          toast.error(created?.message || "Failed to save document");
+          return;
+        }
+        targetId = created.data.id;
+        createdName = created.data.name ?? null;
+      }
+
       // Prepare update payload with transformed config
       const updatePayload = {
-        id: documentId as string,
+        id: targetId,
         type: type as string,
         config: configData,
         // Keep the document's CURRENT status when the form doesn't set one —
@@ -554,7 +636,7 @@ export default function page() {
         customerId: data.customer?.id || null,
         projectId: data.project?.id || data.projectId || null,
         documentTemplateId: documentMetadata?.documentTemplateId || params.id as string,
-        name: data.name || data.documentInfo?.documentNumber || documentMetadata?.name,
+        name: data.name || data.documentInfo?.documentNumber || createdName || documentMetadata?.name,
         // Optimistic-concurrency token from the editor's lock; the backend
         // rejects the save (409) if another editor saved in the meantime.
         version: data.version,
@@ -572,6 +654,22 @@ export default function page() {
         token
       );
 
+      if (response.success && isNew) {
+        // Saved for the first time: open the real document (its number shows),
+        // then run the action that asked for the save.
+        try {
+          const nd = searchParams?.get("nd");
+          if (nd) window.sessionStorage.removeItem(`aims-new-doc:${nd}`);
+        } catch {
+          // ignore
+        }
+        const keep: Record<string, string> = {};
+        searchParams?.forEach((v, k) => {
+          if (!["nd", "from", "then"].includes(k)) keep[k] = v;
+        });
+        router.replace(savedDocumentUrl(type as string, (documentMetadata?.documentTemplateId || params.id) as string, targetId, { from: searchParams?.get("from"), then: thenAction, keep }));
+        return { id: targetId, name: updatePayload.name };
+      }
       if (response.success) {
         // Clear this document from cache so fresh data is loaded on next access
         documentCache.delete(documentId as string);
@@ -696,7 +794,8 @@ export default function page() {
     <TabbedDocumentCreator
       documentType={templateVariant as any}
       actualDocumentType={actualDocumentType as string}
-      documentId={documentId as string}
+      documentId={isNew ? undefined : (documentId as string)}
+      isNewDocument={isNew}
       templateId={documentMetadata?.documentTemplateId || id as string}
       existingData={existingData}
       onSave={handleSave}

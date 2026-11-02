@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { newDocumentUrl } from "@/helpers/newDocument";
 import { useGetDocumentsPaginated, useDeleteDocument } from "@/app/portal/hooks/api";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
@@ -326,26 +327,9 @@ export default function SalesDocumentList({
 
       const documentTemplateId = templateResponse.data.id;
 
-      // Create the document. Re-fetch the token — the template lookup above can
-      // outlive the 60s Clerk token and 401 the create.
-      const freshToken = await getToken();
-      const response = await request(
-        {
-          path: "/documents/basic",
-          method: "POST",
-        },
-        {
-          type: createDocumentType,
-          config: {},
-          documentTemplateId: documentTemplateId,
-          organizationId: organization.id,
-        },
-        freshToken ?? token ?? undefined
-      );
-
-      if (response?.data?.id) {
-        // Navigate directly to the edit page
-        router.push(`/portal/documents/${createDocumentType}/${documentTemplateId}/${response.data.id}`);
+      // Open "New <type> (number on save)": nothing is created until it is saved.
+      if (documentTemplateId) {
+        router.push(newDocumentUrl({ type: createDocumentType, templateId: documentTemplateId }, { from: window.location.pathname + window.location.search }));
       } else {
         toast.error("Failed to create document");
       }

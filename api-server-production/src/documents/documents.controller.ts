@@ -54,6 +54,22 @@ export class DocumentsController {
     return await this.documentsService.createDocumentWithTimeline(dto, organizationId);
   }
 
+  // "New <type> (number on save)" (2026-11-02): the starting content of a new
+  // document WITHOUT creating it. The editor creates the document, and claims
+  // its number, only on the first save.
+  @Post('basic/draft')
+  @Permissions('documents:create-basic')
+  async draftBasicDocument(
+    @Body() body: { documentTemplateId: string; type: string; config?: any; projectId?: string },
+    @Req() req: RequestWithOrganization,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return await this.documentsService.draftDocument(body.documentTemplateId, body.type, organizationId, body.config || {}, body.projectId);
+  }
+
   @Post('basic')
   @Permissions('documents:create-basic')
   async createBasicDocument(

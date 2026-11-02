@@ -2,12 +2,11 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
-import { request } from "@/helpers/request";
 import { useOrganization } from "@hooks/useOrganization";
 import { useTemplatePicker } from "./useTemplatePicker";
 import { useNumberFormatPicker } from "./useNumberFormatPicker";
+import { newDocumentUrl } from "@/helpers/newDocument";
 
 /**
  * THE document-creation flow, shared by every "Create <type>" button (sales
@@ -15,8 +14,10 @@ import { useNumberFormatPicker } from "./useNumberFormatPicker";
  * is identical everywhere:
  *   1. number format — 0 → legacy numbering, 1 → auto, >1 → picker popup
  *   2. template      — 1 active → straight through, >1 → picker popup
- *   3. POST /documents/basic → navigate to the editor with ?from=<here> so
- *      the editor's Back returns to the ORIGINATING page (e.g. the AR tab).
+ *   3. open the editor on a NEW, unsaved document ("New <type> (number on
+ *      save)", 2026-11-02) with ?from=<here> so its Back returns to the
+ *      ORIGINATING page (e.g. the AR tab). Nothing is created, and no number
+ *      is used, until the first save; leaving without saving creates nothing.
  *
  * Usage:
  *   const { create, creating, dialogs } = useCreateDocumentFlow("INVOICE", "Invoice");
@@ -24,7 +25,6 @@ import { useNumberFormatPicker } from "./useNumberFormatPicker";
  */
 export function useCreateDocumentFlow(createDocumentType?: string, documentLabel = "document") {
   const router = useRouter();
-  const { getToken } = useAuth();
   const { organization } = useOrganization();
   const { resolveTemplate, dialog: templatePickerDialog } = useTemplatePicker();
   const { resolveNumberFormat, dialog: numberFormatPickerDialog } = useNumberFormatPicker();
@@ -34,7 +34,6 @@ export function useCreateDocumentFlow(createDocumentType?: string, documentLabel
     if (!organization?.id || !createDocumentType || creating) return;
     setCreating(true);
     try {
-      const token = await getToken();
       // Step 1 — number format: 0 → legacy, 1 → auto, >1 → popup. null = cancelled.
       const nf = await resolveNumberFormat(createDocumentType);
       if (nf === null) {
@@ -48,27 +47,8 @@ export function useCreateDocumentFlow(createDocumentType?: string, documentLabel
       if (!templateId) {
         return;
       }
-      const created = await request(
-        { path: "/documents/basic", method: "POST" },
-        {
-          type: createDocumentType,
-          config: { ...(numberFormatId ? { numberFormatId } : {}) },
-          documentTemplateId: templateId,
-          organizationId: organization.id,
-        },
-        token ?? undefined
-      );
-      if (created?.success && created?.data?.id) {
-        const from =
-          typeof window !== "undefined"
-            ? encodeURIComponent(window.location.pathname + window.location.search)
-            : "";
-        router.push(
-          `/portal/documents/${createDocumentType}/${templateId}/${created.data.id}${from ? `?from=${from}` : ""}`
-        );
-      } else {
-        toast.error(`Failed to create ${documentLabel}`);
-      }
+      const from = typeof window !== "undefined" ? window.location.pathname + window.location.search : "";
+      router.push(newDocumentUrl({ type: createDocumentType, templateId, numberFormatId: numberFormatId ?? null }, { from }));
     } catch (err) {
       console.error("useCreateDocumentFlow create error:", err);
       toast.error(`Failed to create ${documentLabel}`);

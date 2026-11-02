@@ -1,5 +1,6 @@
 "use client";
 
+import { newDocumentUrl } from "@/helpers/newDocument";
 import React, { useState } from "react";
 import MainCard from "@/components/MainCard";
 import { Typography, Stack, Box, Button } from "@mui/material";
@@ -10,16 +11,11 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import * as yup from "yup";
 import { yupResolver } from "@hookform/resolvers/yup";
-import { useAuth } from "@clerk/nextjs";
-import { useOrganization } from "@hooks/useOrganization";
-import { request } from "@/helpers/request";
 import { useTemplatePicker } from "@/app/portal/components/useTemplatePicker";
 
 export default function CreateDocument() {
   const { availableDocumentTypes } = useGetDocumentTemplates();
   const router = useRouter();
-  const { organization } = useOrganization();
-  const organizationId = organization?.id;
   const { resolveTemplate, dialog: templatePickerDialog } = useTemplatePicker();
   const documentTemplateSchema = yup.object().shape({
     documentType: yup.string().required(),
@@ -38,26 +34,18 @@ export default function CreateDocument() {
   });
 
   const [isDocumentTemplateUpdating, setIsDocumentTemplateUpdating] = useState(false);
-  const { getToken } = useAuth();
 
   const onSubmit = async (data: { documentType: string }) => {
     const type = data.documentType;
     setIsDocumentTemplateUpdating(true);
     try {
-      const token = (await getToken()) ?? "";
-
       // Shared picker: 1 active → straight through, >1 → popup, 0 → single-resolve.
       // null = no template OR the user cancelled the popup → abort without creating.
       const documentTemplateId = await resolveTemplate(type);
       if (!documentTemplateId) return;
 
-      const response = await request(
-        { path: "/documents/basic", method: "POST" },
-        { type, config: {}, documentTemplateId, organizationId },
-        token || undefined
-      );
-      const createdDocumentId = response?.data.id;
-      router.push(`/portal/documents/${type}/${documentTemplateId}/${createdDocumentId}`);
+      // Open "New <type> (number on save)": nothing is created until it is saved.
+      router.push(newDocumentUrl({ type, templateId: documentTemplateId }));
     } catch (error) {
       console.error("Error submitting form:", error);
     } finally {

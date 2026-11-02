@@ -160,6 +160,7 @@ import {
 import { getDocumentListRoute, getListRouteFromPathname } from "@/app/portal/components/documentRoutes"; // co-pkg: depends on fa8351c
 import { useAimsUserId } from "@hooks/useAimsUserId";
 import { todayIso } from "@/helpers/orgToday";
+import { asThenAction, newDocumentUrl, numberOnSaveLabel, type ThenAction } from "@/helpers/newDocument";
 
 // Helper to determine the parent route based on document type
 const getParentRoute = (docType: string): string => {
@@ -281,6 +282,8 @@ interface DocumentCreatorProps {
   documentType: "QO1" | "DO" | "RDO" | "TI" | "TI2" | "MSR" | "INVOICE" | string;
   actualDocumentType?: string; // The actual document type (INVOICE, QUOTATION, etc.) for creating documents
   documentId?: string;
+  /** A new document not created yet ("New <type> (number on save)"): the first save creates it. */
+  isNewDocument?: boolean;
   templateId?: string; // Template ID for fetching custom field definitions
   fieldDefinitions?: TemplateFieldConfig; // Optional pre-loaded field definitions
   onSave?: (data: any) => void;
@@ -350,6 +353,7 @@ export default function TabbedDocumentCreator({
   siteOffices = [],
   salesmen = [],
   documentId,
+  isNewDocument = false,
   templateId,
   fieldDefinitions: propFieldDefinitions,
   onCustomerChange,
@@ -895,6 +899,9 @@ export default function TabbedDocumentCreator({
   // Concurrent-edit guard. Only locks a persisted document being edited (not a
   // brand-new draft, not the template editor, not a confirmed/preview view).
   const lockDocId = (existingData?.id || documentId) as string | undefined;
+  // "New <type> (number on save)": not created yet. The first save creates it
+  // (and gives it its number); actions that need a number save first.
+  const isNewUnsaved = isNewDocument && !(existingData?.id || documentId);
   // Don't lock the read-only view page (opens in preview), the template editor,
   // or confirmed documents — only a real edit session claims the lock.
   const lockEnabled = !!lockDocId && !isTemplateEditMode && !isDocumentConfirmed && !initialPreviewMode;
@@ -2837,6 +2844,11 @@ export default function TabbedDocumentCreator({
   };
 
   const handlePrint = () => {
+    // Never saved yet: save first so the printout carries the real number.
+    if (isNewUnsaved) {
+      void saveThen("print");
+      return;
+    }
     if (usesServerPreview) {
       // Server-rendered layout: print the preview iframe (its letterhead
       // repeats per page; page numbers come with the generated PDF).
@@ -2940,6 +2952,8 @@ export default function TabbedDocumentCreator({
 
   const handleConfirmDocument = async () => {
     if (refuseEmptyConfirm()) return;
+    // Never saved yet: save first (that creates it and gives it its number), then confirm on the saved document.
+    if (isNewUnsaved) return saveThen("confirm");
     setIsConfirming(true);
     try {
       // Get current user info for tracking
@@ -2982,6 +2996,8 @@ export default function TabbedDocumentCreator({
   // ConvertQuotation dialog. Does NOT reload — the dialog handles next steps.
   const handleConfirmQuotation = async () => {
     if (refuseEmptyConfirm()) return;
+    // Never saved yet: save first (that creates it and gives it its number), then confirm on the saved document.
+    if (isNewUnsaved) return saveThen("confirm");
     // Type gate — every quotation that has a Type field configured (the QF
     // template's Project / Route Order picker) must have one chosen before
     // confirm. Without it the auto-created Order has orderType=null, and
@@ -3063,6 +3079,8 @@ export default function TabbedDocumentCreator({
   // Handle PO confirmation with supplier D/O info
   const handleConfirmPO = async (poData: ConfirmPOData) => {
     if (refuseEmptyConfirm()) return;
+    // Never saved yet: save first (that creates it and gives it its number), then confirm on the saved document.
+    if (isNewUnsaved) return saveThen("confirm");
     setIsConfirming(true);
     try {
       // Get current user info for tracking
@@ -3108,6 +3126,8 @@ export default function TabbedDocumentCreator({
   // Handle Stock Adjustment confirmation
   const handleConfirmAdjustment = async (adjustmentData: ConfirmAdjustmentData) => {
     if (refuseEmptyConfirm()) return;
+    // Never saved yet: save first (that creates it and gives it its number), then confirm on the saved document.
+    if (isNewUnsaved) return saveThen("confirm");
     setIsConfirming(true);
     try {
       // Get current user info for tracking
@@ -3152,6 +3172,8 @@ export default function TabbedDocumentCreator({
   // Handle Delivery Order confirmation (may deduct stock based on org settings)
   const handleConfirmDO = async (doData: ConfirmDOData) => {
     if (refuseEmptyConfirm()) return;
+    // Never saved yet: save first (that creates it and gives it its number), then confirm on the saved document.
+    if (isNewUnsaved) return saveThen("confirm");
     setIsConfirming(true);
     try {
       const token = await getToken();
@@ -3219,6 +3241,8 @@ export default function TabbedDocumentCreator({
   // Handle Purchase Return confirmation
   const handleConfirmPR = async (prData: ConfirmPRData) => {
     if (refuseEmptyConfirm()) return;
+    // Never saved yet: save first (that creates it and gives it its number), then confirm on the saved document.
+    if (isNewUnsaved) return saveThen("confirm");
     setIsConfirming(true);
     try {
       const token = await getToken();
@@ -3300,6 +3324,8 @@ export default function TabbedDocumentCreator({
   // Handle Invoice confirmation (may deduct stock based on org settings)
   const handleConfirmInvoice = async (invoiceData: ConfirmInvoiceData) => {
     if (refuseEmptyConfirm()) return;
+    // Never saved yet: save first (that creates it and gives it its number), then confirm on the saved document.
+    if (isNewUnsaved) return saveThen("confirm");
     setIsConfirming(true);
     try {
       const token = await getToken();
@@ -3601,24 +3627,8 @@ export default function TabbedDocumentCreator({
         toast.error("Could not find document template. Please try creating from the main page.");
         return;
       }
-      const response = await request(
-        { path: "/documents/basic", method: "POST" },
-        {
-          type: docTypeForCreate,
-          config: {},
-          documentTemplateId: templateId,
-          organizationId: organization?.id,
-        },
-        token
-      );
-      if (response?.success && response?.data?.id) {
-        toast.success(`New ${getDocumentTitle()} created`);
-        // Refetch documents list so navigation works
-        onDocumentCreated?.();
-        router.push(`/portal/documents/${docTypeForCreate}/${templateId}/${response.data.id}`);
-      } else {
-        toast.error(response?.message || "Failed to create document");
-      }
+      // Opens "New <type> (number on save)": nothing is created until it is saved.
+      router.push(newDocumentUrl({ type: docTypeForCreate, templateId }, { from: typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("from") ?? undefined : undefined }));
     } catch (error) {
       console.error("Error creating new document:", error);
       toast.error("Failed to create document");
@@ -4097,7 +4107,71 @@ export default function TabbedDocumentCreator({
     }
   };
 
+  // A new document's first save, made for an action that needs the document
+  // to exist with its number (sign link, print / PDF, email, attachments,
+  // share links, confirm): save, then the page opens the saved document and
+  // runs the action there (?then=<action>).
+  const saveThen = useCallback(
+    async (action: ThenAction) => {
+      const who = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || "SYS";
+      const at = new Date().toISOString();
+      try {
+        await guardedSave({
+          ...formData,
+          items,
+          name: formData.name || (formData?.documentInfo as any)?.documentNumber,
+          savedBy: who,
+          savedAt: at,
+          lastUsedBy: who,
+          lastUsedAt: at,
+          __then: action,
+        });
+      } catch (e) {
+        console.error("Save before action failed:", e);
+        toast.error("Could not save the document. Fix the save error and try again.");
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [guardedSave, formData, items, user],
+  );
+
+  // After a new document's first save: run the action that asked for it, once.
+  const thenRanRef = useRef(false);
+  useEffect(() => {
+    if (thenRanRef.current || isNewUnsaved || !(existingData?.id || documentId) || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const action = asThenAction(url.searchParams.get("then"));
+    if (!action) return;
+    thenRanRef.current = true;
+    url.searchParams.delete("then");
+    window.history.replaceState(window.history.state, "", url.pathname + url.search);
+    const t = setTimeout(() => {
+      if (action === "sign") setSignLinkDialogOpen(true);
+      else if (action === "print") handlePrint();
+      else if (action === "email") void handleOpenSendEmail();
+      else if (action === "attachments") setAttachmentsDialogOpen(true);
+      else if (action === "history") setHistoryDrawerOpen(true);
+      else if (action === "share-do-view") void handleShareDoViewLink();
+      else if (action === "share-delivery") void handleShareDeliveryLink();
+      else if (action === "confirm") openConfirmForThisType();
+    }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existingData?.id, documentId, isNewUnsaved]);
+
+  // The confirm step of this document's type (what its Confirm button opens).
+  const openConfirmForThisType = () => {
+    if (isDeliveryOrder) setConfirmDODialogOpen(true);
+    else if (isInvoiceType) setConfirmInvoiceDialogOpen(true);
+    else if (isPurchaseReturn) setConfirmPRDialogOpen(true);
+    else if (isStockAdjustment) setConfirmAdjustmentDialogOpen(true);
+    else if (isPurchaseOrder) setIsReceiving(true);
+    else if (isQuotation && isConfirmQuotationEnabled) void handleConfirmQuotation();
+    else setConfirmDialogOpen(true);
+  };
+
   const handleOpenSendEmail = async () => {
+    if (isNewUnsaved) return saveThen("email");
     if (lockReadOnly) {
       toast.error("Cannot send — someone else is editing this document.");
       return;
@@ -4360,7 +4434,7 @@ export default function TabbedDocumentCreator({
           >
             {isTemplateEditMode
               ? existingData?.name || `${getDocumentTitle()} Template`
-              : formData.documentInfo?.documentNumber || formData.name || `${getDocumentTitle()} - New`}
+              : formData.documentInfo?.documentNumber || formData.name || (isNewUnsaved ? numberOnSaveLabel(getDocumentTitle()) : `${getDocumentTitle()} - New`)}
           </Typography>
           {!isTemplateEditMode && orderDocLine(existingData, documentType) && (
             <Typography variant="caption" color="text.secondary" noWrap sx={{ minWidth: 0, flexShrink: 1, fontVariantNumeric: "tabular-nums" }} data-tour="editor-order-no">
@@ -4741,8 +4815,8 @@ export default function TabbedDocumentCreator({
             )}
             {/* Client e-sign link (enableQuotationESign): saved, unconfirmed
                 quotations only — signing is what confirms them. */}
-            {isQuotation && isQuotationESignEnabled && (existingData?.id || documentId) && !isDocumentConfirmedStatus && (
-              <MenuItem onClick={() => { closeMoreMenu(); setSignLinkDialogOpen(true); }}>
+            {isQuotation && isQuotationESignEnabled && (existingData?.id || documentId || isNewUnsaved) && !isDocumentConfirmedStatus && (
+              <MenuItem onClick={() => { closeMoreMenu(); if (isNewUnsaved) void saveThen("sign"); else setSignLinkDialogOpen(true); }}>
                 <ListItemIcon><BorderColorIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Send for signature</ListItemText>
               </MenuItem>
@@ -4781,8 +4855,8 @@ export default function TabbedDocumentCreator({
                 <ListItemText>Stock Card</ListItemText>
               </MenuItem>
             )}
-            {(existingData?.id || documentId) && (
-              <MenuItem onClick={() => { closeMoreMenu(); setAttachmentsDialogOpen(true); }}>
+            {(existingData?.id || documentId || isNewUnsaved) && (
+              <MenuItem onClick={() => { closeMoreMenu(); if (isNewUnsaved) void saveThen("attachments"); else setAttachmentsDialogOpen(true); }}>
                 <ListItemIcon><AttachFileIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Attachments</ListItemText>
               </MenuItem>
@@ -4835,8 +4909,8 @@ export default function TabbedDocumentCreator({
                 <ListItemText>{doStartReportId ? "Show Route" : "Show Route (no delivery yet)"}</ListItemText>
               </MenuItem>
             )}
-            {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (existingData?.id || documentId) && (
-              <MenuItem onClick={() => { closeMoreMenu(); handleShareDeliveryLink(); }}>
+            {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (existingData?.id || documentId || isNewUnsaved) && (
+              <MenuItem onClick={() => { closeMoreMenu(); if (isNewUnsaved) void saveThen("share-delivery"); else handleShareDeliveryLink(); }}>
                 <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Share delivery link</ListItemText>
               </MenuItem>
@@ -4847,8 +4921,8 @@ export default function TabbedDocumentCreator({
                 <ListItemText>Revoke delivery link</ListItemText>
               </MenuItem>
             )}
-            {(documentType === "DO" || documentType === "DELIVERY_ORDER" || documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER") && (existingData?.id || documentId) && (
-              <MenuItem onClick={() => { closeMoreMenu(); handleShareDoViewLink(); }}>
+            {(documentType === "DO" || documentType === "DELIVERY_ORDER" || documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER") && (existingData?.id || documentId || isNewUnsaved) && (
+              <MenuItem onClick={() => { closeMoreMenu(); if (isNewUnsaved) void saveThen("share-do-view"); else handleShareDoViewLink(); }}>
                 <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Share DO link (view only)</ListItemText>
               </MenuItem>
@@ -5473,6 +5547,7 @@ export default function TabbedDocumentCreator({
                           fullWidth
                           label={`${getDocumentTitle()} Number`}
                           value={formData.documentInfo.documentNumber}
+                          placeholder={isNewUnsaved ? "Assigned on save" : undefined}
                           onChange={(e) =>
                             setFormData({
                               ...formData,

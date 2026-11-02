@@ -2868,23 +2868,13 @@ export class DocumentsService {
     return name;
   }
 
-  async createBasicDocument(
-    documentTemplateId: string,
-    type: string,
-    organizationId: string,
-    config: any = {},
-    projectId?: string,
-    actor?: DocumentActor,
-    nameOverride?: string,
-  ) {
-    // The serial is claimed BEFORE the row is written. If the write then fails
-    // the number is gone for good — eight JPSG invoice numbers (0057-0064)
-    // were burned this way on 2026-10-19, leaving a gap an auditor will ask
-    // about. Remember what we claimed so the catch can hand it back.
-    let claimedName: string | undefined;
-    try {
-      console.log('Creating basic document with template ID:', documentTemplateId, 'Type:', type, 'Organization ID:', organizationId, 'Config:', config, 'ProjectId:', projectId);
-
+  /**
+   * The config a NEW document starts with (org defaults: logo, stamp, tax,
+   * currency, T&Cs / notes / footer, the template's column layout, a project's
+   * customer). No write, no number: shared by createBasicDocument and
+   * draftDocument (the editor's "New <type> (number on save)" screen).
+   */
+  private async buildNewDocumentConfig(documentTemplateId: string, type: string, organizationId: string, config: any = {}, projectId?: string) {
       // If projectId is supplied, validate it belongs to this org and prefill
       // customer info into the config when the caller didn't pass one. Empty-
       // field-only fill so explicit customer choices in the config are never
@@ -2932,63 +2922,11 @@ export class DocumentsService {
       const now = new Date();
       const year = now.getFullYear();
       const month = String(now.getMonth() + 1).padStart(2, '0');
-
-      // Use templateVariant for document name prefix (e.g., "SO" instead of "SALES_ORDER")
-      // Falls back to custom document types, then to the original type
+      // Legacy number prefix (orgs with no DocumentNumberFormat for the type):
+      // templateVariant, else the custom document type, else the type itself.
       const customTypes = organization?.customDocumentTypes as Record<string, string> | null;
       const documentPrefix = documentTemplate?.templateVariant || customTypes?.[type] || type;
-      const namePrefix = `${documentPrefix}${year}${month}-`;
-
-      // Find the highest serial for this prefix, ORG-WIDE and not scoped to
-      // documentTemplateId — see generateSequentialDocumentName for why: the
-      // prefix comes from templateVariant, which templates share, so a
-      // per-template scan handed the same number to siblings. Revision
-      // documents are excluded via baseDocumentId: null, as before.
-      const existingDocs = await this.prisma.document.findMany({
-        where: {
-          organizationId,
-          name: {
-            startsWith: namePrefix,
-          },
-          baseDocumentId: null,
-        },
-        select: { name: true },
-      });
-
-      // Numeric max — a lexicographic one mis-ranks mixed serial widths, which
-      // the widened scan can now surface under a single prefix.
-      let nextSerial = 1;
-      for (const d of existingDocs) {
-        const match = (d.name || '').match(/-(\d+)$/);
-        if (match) {
-          nextSerial = Math.max(nextSerial, parseInt(match[1], 10) + 1);
-        }
-      }
-
-      const serial = String(nextSerial).padStart(3, '0');
-      let name = `${namePrefix}${serial}`;
-
-      // A scheduled DRAFT passes a placeholder (e.g. DO-PENDING-01) via
-      // nameOverride and SKIPS the real sequence — the number is claimed at
-      // confirm (OSI-83). Everything else takes the next number NOW: the
-      // customisable per-type format (DocumentNumberFormat variant) if the org
-      // has one — or config.numberFormatId — else the legacy serial above.
-      if (nameOverride) {
-        name = nameOverride;
-      } else if ((config as any)?.skipNumbering === true) {
-        // ID quotations (CIEL 09-01): drafts carry NO number — the serial is
-        // claimed only when the quotation confirms (updateDocument / sign),
-        // so abandoned drafts stop burning contract numbers.
-        name = null as any;
-      } else {
-        try {
-          const numberFormatId = (config as any)?.numberFormatId ?? null;
-          const custom = await this.documentNumbering.generateNumber(organizationId, type, numberFormatId, now);
-          if (custom) name = custom;
-        } catch (e: any) {
-          console.warn('[numbering] custom format failed, using legacy name:', e?.message);
-        }
-      }
+      const legacyPrefix = `${documentPrefix}${year}${month}-`;
 
       // Seed initial config with organization defaults so they persist even if user doesn't save the form
       const initialConfig: any = config && typeof config === 'object' ? { ...config } : {};
@@ -3066,31 +3004,102 @@ export class DocumentsService {
         if (!initialConfig.customer) initialConfig.customer = resolvedProject.customer;
       }
 
-      // Honour a user-supplied document number at creation time too — the
-      // editable "Purchase Order No." (or any doc's number field) should
-      // immediately become the document's name. Falls back to the
-      // auto-generated serial when no custom value was passed.
-      const initialDocNumber =
-        (initialConfig as any)?.documentNumber ?? (initialConfig as any)?.documentInfo?.documentNumber;
-      const initialName = nameOverride
-        ? nameOverride
-        : typeof initialDocNumber === 'string' && initialDocNumber.trim()
-          ? initialDocNumber.trim()
-          : name;
+      return { initialConfig, legacyPrefix, now };
+  }
 
-      claimedName = initialName;
-      const newDocument = await this.prisma.document.create({
-        data: {
-          documentTemplateId,
-          type,
-          config: initialConfig,
-          organizationId,
-          name: initialName,
-          revisionNumber: 0,
-          projectId: projectId || undefined,
-        },
-      });
-      claimedName = undefined; // written — the number is legitimately spent
+  /**
+   * A new document's starting content WITHOUT creating it (multi-step create,
+   * 2026-11-02): the editor opens "New <type> (number on save)" from this and
+   * creates the document, with its number, only on the first save. Leaving
+   * without saving creates nothing and uses no number.
+   */
+  async draftDocument(documentTemplateId: string, type: string, organizationId: string, config: any = {}, projectId?: string) {
+    const { initialConfig } = await this.buildNewDocumentConfig(documentTemplateId, type, organizationId, config, projectId);
+    return { id: null, name: null, type, documentTemplateId, organizationId, projectId: projectId ?? null, status: 'unconfirmed', config: initialConfig, numberOnSave: true };
+  }
+
+  /**
+   * The next document number, claimed INSIDE the caller's transaction so the
+   * number and the row that carries it commit (or roll back) together:
+   *   - the org's DocumentNumberFormat (config.numberFormatId, else the active
+   *     variant) through issueNumberLocked, the same locked issuer as the DO
+   *     numbers: the counter row is locked, so concurrent saves never get the
+   *     same number;
+   *   - no format: the legacy prefix + serial from the highest existing name,
+   *     scanned under a transaction-scoped advisory lock on (org, prefix), so
+   *     concurrent creates are serialised there too.
+   */
+  private async issueNewDocumentName(tx: any, organizationId: string, type: string, numberFormatId: string | null, legacyPrefix: string, now: Date): Promise<string> {
+    const custom = await this.documentNumbering.issueNumberLocked(organizationId, type, numberFormatId, now, tx);
+    if (custom) return custom;
+    await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext($1))`, `doc-number:${organizationId}:${legacyPrefix}`);
+    const existing = await tx.document.findMany({ where: { organizationId, name: { startsWith: legacyPrefix }, baseDocumentId: null }, select: { name: true } });
+    // Numeric max: a lexicographic one mis-ranks mixed serial widths.
+    let next = 1;
+    for (const d of existing) {
+      const m = (d.name || '').match(/-(\d+)$/);
+      if (m) next = Math.max(next, parseInt(m[1], 10) + 1);
+    }
+    return `${legacyPrefix}${String(next).padStart(3, '0')}`;
+  }
+
+  async createBasicDocument(
+    documentTemplateId: string,
+    type: string,
+    organizationId: string,
+    config: any = {},
+    projectId?: string,
+    actor?: DocumentActor,
+    nameOverride?: string,
+  ) {
+    try {
+      console.log('Creating basic document with template ID:', documentTemplateId, 'Type:', type, 'Organization ID:', organizationId, 'Config:', config, 'ProjectId:', projectId);
+      const { initialConfig, legacyPrefix, now } = await this.buildNewDocumentConfig(documentTemplateId, type, organizationId, config, projectId);
+
+      // Which name the row gets:
+      //   - nameOverride: a placeholder (DO-PENDING-NN, the real number is
+      //     claimed at confirm, OSI-83) or a number reserved elsewhere;
+      //   - skipNumbering (ID quotations): no number until it confirms;
+      //   - a number the user typed (e.g. "Purchase Order No."): that one, and
+      //     NO serial is claimed for it (it used to be claimed and burned);
+      //   - otherwise the next number, claimed in the same transaction as the
+      //     row (issueNewDocumentName), so a failed write never burns it.
+      const typedNumber = (initialConfig as any)?.documentNumber ?? (initialConfig as any)?.documentInfo?.documentNumber;
+      const fixedName: string | null | undefined = nameOverride
+        ? nameOverride
+        : (config as any)?.skipNumbering === true
+          ? null
+          : typeof typedNumber === 'string' && typedNumber.trim()
+            ? typedNumber.trim()
+            : undefined;
+      const numberFormatId = (initialConfig as any)?.numberFormatId ?? null;
+
+      let newDocument: any;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          newDocument = await this.prisma.$transaction(async (tx: any) => {
+            const name = fixedName !== undefined ? fixedName : await this.issueNewDocumentName(tx, organizationId, type, numberFormatId, legacyPrefix, now);
+            return tx.document.create({
+              data: {
+                documentTemplateId,
+                type,
+                config: initialConfig,
+                organizationId,
+                name,
+                revisionNumber: 0,
+                projectId: projectId || undefined,
+              },
+            });
+          });
+          break;
+        } catch (e: any) {
+          // A same-name document written by a path outside the lock (a typed
+          // number, an import): take the next number, never a duplicate.
+          if (fixedName === undefined && attempt < 5 && /unique constraint|P2002/i.test(String(e?.message ?? e?.code))) continue;
+          throw e;
+        }
+      }
+      const initialName = newDocument.name;
 
       // Sync DocumentItem junction table (in case config has items)
       await this.syncDocumentItems(newDocument.id, initialConfig, organizationId);
@@ -3099,25 +3108,14 @@ export class DocumentsService {
         documentId: newDocument.id,
         organizationId,
         action: 'CREATED',
-        detail: `${initialName} created`,
+        detail: `${initialName ?? 'Draft'} created`,
         documentName: initialName,
         actor,
       });
 
       return newDocument;
     } catch (error) {
-      // Hand the serial back. releaseNumberIfLatest re-verifies inside its own
-      // transaction that this name is still the LAST one claimed, so a
-      // concurrent create that already took the next number is never clobbered
-      // — if it is no longer last, the number stays spent, which is safe.
-      if (claimedName) {
-        try {
-          const given = await this.documentNumbering.releaseNumberIfLatest(organizationId, type, claimedName);
-          if (given) console.warn(`[numbering] returned ${claimedName} after a failed create`);
-        } catch (e: any) {
-          console.warn('[numbering] could not return the serial:', e?.message);
-        }
-      }
+      if (error instanceof HttpException) throw error;
       throw new HttpException(`Basic document creation failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }

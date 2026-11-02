@@ -1,5 +1,6 @@
 "use client";
 
+import { newDocumentUrl } from "@/helpers/newDocument";
 import React, { useState, useEffect } from "react";
 import MainCard from "@/components/MainCard";
 import { Typography, Stack, Box, Button, Alert, Chip } from "@mui/material";
@@ -116,32 +117,12 @@ export default function CreateDocument() {
         };
       }
 
-      // Re-fetch the token — earlier lookups in this flow can outlive the 60s
-      // Clerk token and 401 the create.
-      const freshToken = await getToken();
-      const response = await request(
-        {
-          path: "/documents/basic",
-          method: "POST",
-        },
-        {
-          type: data.documentType,
-          config: config,
-          documentTemplateId: documentTemplateId,
-          organizationId: organizationId,
-        },
-        freshToken ?? token ?? undefined
-      );
-
-      const createdDocumentId = response?.data.id;
-      console.log("Created Document ID:", createdDocumentId);
-
-      // Clear MSR data from sessionStorage
+      // Open "New <type> (number on save)" prefilled from the service report:
+      // nothing is created, and no number is used, until it is saved.
       if (msrData) {
         sessionStorage.removeItem("invoiceFromMSR");
       }
-
-      router.push(`/portal/documents/${data.documentType}/${documentTemplateId}/${createdDocumentId}`);
+      router.push(newDocumentUrl({ type: data.documentType, templateId: documentTemplateId, config }));
     } catch (error) {
       console.error("Error submitting form:", error);
     } finally {

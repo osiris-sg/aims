@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { newDocumentUrl } from "@/helpers/newDocument";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request, withActiveOrg } from "@/helpers/request";
@@ -839,65 +840,18 @@ export default function InvoicesPage() {
       console.log("Selected Template ID:", documentTemplateId);
       console.log("Organization ID:", organizationId);
 
-      const requestPayload = {
-        type: data.documentType, // Use the document type from the template
-        config: {
-          ...(customer ? { customerId: customer.id, templateVariant: data.templateVariant } : {}),
-          ...(numberFormatId ? { numberFormatId } : {}),
-        },
-        documentTemplateId: documentTemplateId,
-        organizationId: organizationId,
-      };
-      console.log("Request payload:", requestPayload);
-
-      // Re-fetch the token: the numbering + template lookups above can take
-      // seconds, and Clerk tokens live 60s — reusing the flow-start token
-      // intermittently 401s right here (JWT expired mid-flow).
-      const freshToken = await getToken();
-      const response = await request(
-        {
-          path: "/documents/basic",
-          method: "POST",
-        },
-        requestPayload,
-        freshToken ?? token ?? undefined
+      // Open "New <type> (number on save)": nothing is created, and no number
+      // is used, until the first save.
+      if (!documentTemplateId) {
+        alert(t("createFailed", { message: t("unknownError") }));
+        return;
+      }
+      router.push(
+        newDocumentUrl(
+          { type: data.documentType, templateId: documentTemplateId, numberFormatId: numberFormatId ?? null, config: customer ? { customerId: customer.id, templateVariant: data.templateVariant } : {} },
+          { from: window.location.pathname + window.location.search, query: customer ? { customerId: customer.id } : {} },
+        ),
       );
-
-      console.log("=== RESPONSE RECEIVED ===");
-      console.log("Full Response:", response);
-      console.log("Response success:", response?.success);
-      console.log("Response data:", response?.data);
-
-      if (!response || !response.success) {
-        console.error("Document creation failed:", response);
-        alert(t("createFailed", { message: response?.message || t("unknownError") }));
-        return;
-      }
-
-      const createdDocumentId = response?.data?.id;
-      if (!createdDocumentId) {
-        console.error("No document ID in response:", response);
-        alert(t("createFailed", { message: t("noDocumentId") }));
-        return;
-      }
-
-      console.log("Created Document ID:", createdDocumentId);
-
-      // Navigate to the document with customer pre-selected
-      // Use the document type from the template
-      const url = `/portal/documents/${data.documentType}/${documentTemplateId}/${createdDocumentId}`;
-      const urlWithCustomer = customer ? `${url}?customerId=${customer.id}` : url;
-
-      console.log("=== NAVIGATING ===");
-      console.log("Navigation URL:", urlWithCustomer);
-
-      toast.success(t("createdRedirecting"));
-
-      // Small delay to ensure toast is visible
-      setTimeout(() => {
-        router.push(urlWithCustomer);
-        console.log("Navigation triggered");
-      }, 500);
     } catch (error) {
       console.error("=== ERROR IN ONSUBMIT ===");
       console.error("Error submitting form:", error);

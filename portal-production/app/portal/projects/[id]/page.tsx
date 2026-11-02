@@ -1,5 +1,6 @@
 "use client";
 
+import { newDocumentUrl } from "@/helpers/newDocument";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
@@ -607,23 +608,8 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
     }
     setCreatingQuotation(true);
     try {
-      const token = await getToken();
-      if (!token) return;
-      const res = await request(
-        { path: "/documents/basic", method: "POST" },
-        {
-          documentTemplateId: quotationTemplateId,
-          type: "QUOTATION",
-          config: {},
-          projectId: project.id,
-        },
-        token,
-      );
-      if (res?.success && res.data?.id) {
-        router.push(`/portal/documents/QUOTATION/${quotationTemplateId}/${res.data.id}`);
-      } else {
-        toast.error(res?.message ?? "Failed to create quotation");
-      }
+      // Open "New Quotation (number on save)" for this project: nothing is created until it is saved.
+      router.push(newDocumentUrl({ type: "QUOTATION", templateId: quotationTemplateId, projectId: project.id }, { from: window.location.pathname + window.location.search }));
     } catch (err) {
       console.error(err);
       toast.error("Error creating quotation");

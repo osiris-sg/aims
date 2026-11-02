@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
+import { newDocumentUrl } from "@/helpers/newDocument";
 import { Avatar, Box, Button, Skeleton, Stack, Typography, Grid2, useMediaQuery, useTheme, IconButton } from "@mui/material";
 import { useParams } from "next/navigation";
 import React, { useState, useEffect } from "react";
@@ -125,26 +126,9 @@ export default function ScanInventory() {
     console.log("Editing document with data:", data);
     try {
       setIsDocumentTemplateUpdating(true);
-      const token = await getToken();
       const documentTemplateId = data.doc_id;
-      console.log("Selected Document Type:", organizationId);
-      const response = await request(
-        {
-          path: "/documents/basic",
-          method: "POST",
-        },
-        {
-          type: data.doc_type,
-          config: {},
-          documentTemplateId: documentTemplateId,
-          organizationId: organizationId,
-        },
-        token ?? undefined
-      );
-
-      const createdDocumentId = response?.data.id;
-      console.log("Created Document ID:", createdDocumentId);
-      router.push(`/portal/documents/${data.doc_type}/${documentTemplateId}/${createdDocumentId}?scannedInventoryId=${inventory?.id}`);
+      // Open "New <type> (number on save)" with the scanned unit: nothing is created until it is saved.
+      router.push(newDocumentUrl({ type: data.doc_type, templateId: documentTemplateId }, { query: inventory?.id ? { scannedInventoryId: String(inventory.id) } : {} }));
     } catch (error) {
       console.error("Error submitting form:", error);
     } finally {
