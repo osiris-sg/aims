@@ -33,30 +33,45 @@ test("copy: both languages have the new strings, no em or en dashes in them", ()
   for (const l of ["en", "ja"]) {
     const u = json(`i18n/messages/${l}/users.json`);
     const a = json(`i18n/messages/${l}/audit.json`);
-    for (const s of [u.form.noEmailPh, u.list.noEmail, u.addUser.intro, u.addUser.done, a.activity.unnamedUser]) {
+    for (const s of [u.form.noEmailPh, u.list.noEmail, u.form.mobile, u.form.mobileHelp, u.form.mobileInvalid, u.form.needOne, u.form.added, u.form.passwordHelp, a.activity.unnamedUser]) {
       assert.ok(s && s.length, l);
-      assert.doesNotMatch(s, /[–—]/, `${l}: ${s}`);
+      assert.doesNotMatch(s, /[\u2013\u2014]/, `${l}: ${s}`);
     }
   }
-  assert.equal(json("i18n/messages/en/users.json").addUser.done, "Added. They can sign in at app.ai-ms.io with their email or mobile.");
-  assert.doesNotMatch(read("app/set-password/page.tsx"), /[–—]/);
+  assert.equal(json("i18n/messages/en/users.json").form.passwordHelp, "Optional. Leave blank to let them set their own.");
+  assert.doesNotMatch(read("app/set-password/page.tsx"), /[\u2013\u2014]/);
 });
 
-test("Add user: the full form (email and/or SG mobile, names, roles, optional password with show/hide) posts to add-member", () => {
-  const src = read("app/portal/user-management/users/components/AddUserDialog.tsx");
-  assert.match(src, /path: "\/users\/members\/add-member"/);
-  for (const f of ["phone: mobile", "firstName: firstName", "lastName: lastName", "password: password", "roleIds"]) assert.ok(src.includes(f), f);
+test("Add user is the ORIGINAL side drawer again (not a pop-up), with every old field", () => {
+  const users = read("app/portal/user-management/users/components/Users.tsx");
+  assert.match(users, /<AddUser open=\{openDrawer\}/);
+  assert.doesNotMatch(users, /AddUserDialog/);
+  const src = read("app/portal/user-management/users/components/AddUser.tsx");
+  assert.match(src, /<Drawer\s+anchor="right"/);
+  assert.match(src, /t\("createTitle"\)/);
+  const order = ['name="firstName"', 'name="lastName"', 'name="email"', 'name="mobile"', 'name="password"', 'name="salesmanCode"', 'name="salesmanMobile"', 'id="select-roles"'];
+  const at = order.map((f) => src.indexOf(f));
+  assert.ok(at.every((x) => x > 0), JSON.stringify(at));
+  assert.deepEqual([...at].sort((a, b) => a - b), at, "field order");
+  assert.match(src, /t\(showPassword \? "hidePassword" : "showPassword"\)|showPassword \? t\("hidePassword"\) : t\("showPassword"\)/);
+});
+
+test("the drawer: email optional, mobile optional, at least one; posts to add-member and shows the server's one message", () => {
+  const src = read("app/portal/user-management/users/components/AddUser.tsx");
+  const emailField = src.slice(src.indexOf('name="email"'), src.indexOf('name="email"') + 400);
+  assert.doesNotMatch(emailField, /required:/);
   assert.match(src, /t\("needOne"\)/);
-  assert.match(src, /setShowPassword/);
-  assert.match(src, />\+65</);
+  assert.match(src, /phone: data\.mobile\.trim\(\)/);
+  assert.match(src, /toast\.success\(res\?\.data\?\.message/);
+  assert.match(read("app/portal/user-management/users/hooks/useAddUser.tsx"), /path: "\/users\/members\/add-member"/);
 });
 
-test("SG mobile check in the form", async () => {
+test("SG mobile check in the drawer", () => {
   const re = /^(?:\+?65)?[89]\d{7}$/;
   const ok = (v) => re.test(v.replace(/[\s\-().]/g, ""));
   for (const v of ["9123 4567", "+65 8123-4567", "6591234567"]) assert.ok(ok(v), v);
   for (const v of ["6123 4567", "912345", "+60 91234567"]) assert.ok(!ok(v), v);
-  assert.ok(read("app/portal/user-management/users/components/AddUserDialog.tsx").includes("/^(?:\\+?65)?[89]\\d{7}$/"));
+  assert.ok(read("app/portal/user-management/users/components/AddUser.tsx").includes("/^(?:\\+?65)?[89]\\d{7}$/"));
 });
 
 test("set-password: a login with an admin-set password replaces it through the server once", () => {

@@ -41,7 +41,7 @@ export class UsersController {
   @Permissions('users:create')
   @ApiOperation({ summary: "Add a person to the caller's organisation (email and/or mobile, names, roles, optional password)" })
   addMember(
-    @Body() body: { email?: string; phone?: string; firstName?: string; lastName?: string; password?: string; roleIds?: string[] },
+    @Body() body: { email?: string; phone?: string; firstName?: string; lastName?: string; password?: string; roleIds?: string[]; salesmanCode?: string; salesmanMobile?: string },
     @UserOrganization() organization: { id: string; name: string },
     @Req() req: any,
   ) {

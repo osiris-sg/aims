@@ -4,11 +4,12 @@ import React from "react";
 import MainCard from "@/components/MainCard";
 import useUserTableHeader from "../hooks/useUserTableHeader";
 import PageTable from "@/components/PageTable";
+import AddUser from "./AddUser";
 import EditUser from "./EditUser";
 import { useGetUsers } from "../hooks/useGetUser";
+import useAddRoleStates from "../hooks/useAddUser";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import TeamsPanel from "./TeamsPanel";
-import AddUserDialog from "./AddUserDialog";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useTranslations } from "next-intl";
 
@@ -18,8 +19,7 @@ export default function Users() {
   const { columns, handleEditUser, editUserOpen, selectedUser, handleCloseEditUser, userToDelete, isDeleteInProgress, confirmDeleteUser, cancelDelete } = useUserTableHeader();
 
   const { users, loading, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, refreshUsers } = useGetUsers();
-  // "Add user": email + role (an existing login in any org, or a new one), multi-org users 2026-11-02.
-  const [addOpen, setAddOpen] = React.useState(false);
+  const { openDrawer, onAddClick, onCloseClick } = useAddRoleStates();
 
   const handleUserUpdated = () => {
     refreshUsers();
@@ -45,7 +45,7 @@ export default function Users() {
         tableName={t("tableName")}
         subTitle={t("subTitle")}
         buttonName={t("add")}
-        onAddClick={() => setAddOpen(true)}
+        onAddClick={onAddClick}
         loading={loading}
         page={page}
         limit={limit}
@@ -62,7 +62,7 @@ export default function Users() {
 
       {isIdQuotationEnabled && <TeamsPanel />}
 
-      <AddUserDialog open={addOpen} onClose={() => setAddOpen(false)} onDone={refreshUsers} />
+      <AddUser open={openDrawer} onClose={onCloseClick} onUserCreated={refreshUsers} />
 
       {selectedUser && <EditUser open={editUserOpen} onClose={handleCloseEditUser} user={selectedUser} onUserUpdated={handleUserUpdated} />}
 

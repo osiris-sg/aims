@@ -9,7 +9,17 @@ import { EmailService } from '../email/email.service';
 import { ActionLogService } from '../action-log/action-log.service';
 
 /** What the Add user form sends (owner 2026-11-03: email and/or SG mobile, names, roles, optional password). */
-export type AddMemberInput = { email?: string | null; phone?: string | null; firstName?: string | null; lastName?: string | null; password?: string | null; roleIds?: string[] };
+export type AddMemberInput = {
+  email?: string | null;
+  phone?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  password?: string | null;
+  roleIds?: string[];
+  // This org's membership (the drawer's Salesman Code / Salesman Mobile), not the login.
+  salesmanCode?: string | null;
+  salesmanMobile?: string | null;
+};
 
 /** A Singapore mobile as E.164 (+65 then 8 digits starting with 8 or 9), or null. Spaces, dashes and a leading +65 / 65 are fine. */
 export const normSgMobile = (raw: unknown): string | null => {
@@ -171,10 +181,13 @@ export class MembershipsService {
     // A platform admin's login is never added to an org this way.
     if (await this.prisma.userRole.count({ where: { userId, isActive: true, ...PLATFORM_ADMIN_ROLE_WHERE } })) throw new BadRequestException(ADD_MEMBER_FAILED);
 
+    // Salesman code / mobile belong to THIS org's membership (not the login): set when given.
+    const salesmanCode = String(input?.salesmanCode ?? '').trim() || undefined;
+    const salesmanMobile = String(input?.salesmanMobile ?? '').trim() || undefined;
     await this.prisma.userOrganization.upsert({
       where: { userId_organizationId: { userId, organizationId } },
-      update: { isActive: true },
-      create: { userId, organizationId, isActive: true },
+      update: { isActive: true, salesmanCode, salesmanMobile },
+      create: { userId, organizationId, isActive: true, salesmanCode: salesmanCode ?? null, salesmanMobile: salesmanMobile ?? null },
     });
     for (const r of roles) {
       await this.prisma.userRole.upsert({

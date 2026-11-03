@@ -302,4 +302,13 @@ describe('MembershipsService', () => {
     await expect(w.svc.setFirstPassword('flagged', 'short')).rejects.toBeInstanceOf(BadRequestException);
     expect(w.clerk.users.updateUser).toHaveBeenCalledTimes(1);
   });
+
+  it("the drawer's salesman code / mobile go on this org's membership (new or existing login), never on the login", async () => {
+    const w = world();
+    await add(w, { email: 'existing@x.sg', salesmanCode: ' S007 ', salesmanMobile: '9014 5879' });
+    await add(w, { email: 'fresh@x.sg', salesmanCode: 'S008' });
+    expect(memberOfA(w, 'existing')).toEqual(expect.objectContaining({ salesmanCode: 'S007', salesmanMobile: '9014 5879' }));
+    expect(memberOfA(w, 'new_fresh@x.sg')).toEqual(expect.objectContaining({ salesmanCode: 'S008', salesmanMobile: null }));
+    expect(w.clerk.users.createUser).toHaveBeenCalledWith(expect.not.objectContaining({ salesmanCode: expect.anything() }));
+  });
 });
