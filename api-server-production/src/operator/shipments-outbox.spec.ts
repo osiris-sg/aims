@@ -108,7 +108,10 @@ describe('ShipmentsOutboxService.drain', () => {
     expect(templates.answerTemplate).toHaveBeenCalledWith('answer', 'en', 'line-osiris');
     expect(whatsapp.sendTemplateLines).not.toHaveBeenCalled();
     expect(whatsapp.sendTextResult).toHaveBeenCalledWith('819000000001', push);
-    expect(whatsapp.sendText.mock.calls.map((c: any[]) => c[1])).toEqual(['Good morning', 'B']);
+    // The digest goes as plain text; events go through sendTextResult (since 07bdfe92: a closed 24h window falls back to
+    // the notify template, so staff lifecycle pushes still land).
+    expect(whatsapp.sendText.mock.calls.map((c: any[]) => c[1])).toEqual(['Good morning']);
+    expect(whatsapp.sendTextResult.mock.calls.map((c: any[]) => c[1])).toEqual([push, 'B']);
     expect(rows.filter((x) => x.status === 'SENT').map((x) => x.id).sort()).toEqual(['r1', 'r2', 'r3']);
     expect(rows.find((x) => x.id === 'r4').status).toBe('QUEUED'); // not due yet
   });

@@ -23,7 +23,7 @@ import { companyOf, companyOverridesOf } from './email-companies';
 import { attachmentHits, attachmentTarget, autoTier, DEFAULT_CI_PATTERNS, DEFAULT_CONTRACT_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, insideFileSource, newShipmentCandidates, offerable, orderCuesMatch, ownTextCues, recordRef, SourceFamily, subjectCues, telexTiedTo, ThreadContext, validCiNo } from './email-match.rules';
 import { auditLink, AuditResult, RECHECK_TEXT } from './email-audit';
 import { answerText, batchesOf, waitingFileCard, Lang, QuestionCard, QuestionInput, questionOf, type EvidenceItem, type StoredCard } from './email-question';
-import { customerKeyOf, docFacts, fileNaming, isRejected, monthOf, rejectedOf } from './email-card.rules';
+import { blOfFiledDocs, customerKeyOf, docFacts, fileNaming, isRejected, monthOf, rejectedOf } from './email-card.rules';
 import { arrivalNoticeLine, filedLine, importPermitLine, needsCheckText, NeedsCheckInput, senderLine } from '../operator/push-text';
 import { splitQuoted, missingQuotedEmails, quotedEmailHeaders } from './email-quote';
 import { blockRemoteContent, parseEmail, ParsedEmail } from './email-mime';
@@ -1820,6 +1820,15 @@ export class EmailTriageService {
       if (keys.blNo && s && !s.blNumber) {
         const other = await this.prisma.shipment.findFirst({ where: { organizationId, blNumber: { contains: keys.blNo }, NOT: { id: target.shipmentId } }, select: { id: true } });
         if (!other) fill('blNumber', keys.blNo);
+      }
+      // Round BD: no B/L read by the AI, but a B/L / B/L draft filed here states it (two places agree) → fill it too.
+      if (!keys.blNo && s && !s.blNumber && !multi) {
+        const blDocs = out.filter((x) => x.kind === 'file' && x.status === 'planned' && x.ownerKind === 'shipment' && x.ownerId === target.shipmentId && (x.docType === 'BL' || x.docType === 'BL_DRAFT')).map((x) => x.attachmentIndex!).filter((i) => Number.isInteger(i));
+        const found = blOfFiledDocs(ev, blDocs);
+        if (found) {
+          const other = await this.prisma.shipment.findFirst({ where: { organizationId, blNumber: { contains: found.bl }, NOT: { id: target.shipmentId } }, select: { id: true } });
+          if (!other) fill('blNumber', found.bl);
+        }
       }
       // Round W follow-up: a CI no. is ONE invoice's (XP2652102551 ≠ XP2652102552) — never filled by a split (multi-target)
       // email, and never when another shipment already carries it.

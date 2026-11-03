@@ -123,3 +123,26 @@ export const isRejected = (rejected: Array<{ orderId: string | null; shipmentId:
 
 /** "2026-11-07" → "2026-11"; else the email's own month. */
 export const monthOf = (etd: string | null, date: Date | null | undefined) => (etd && /^\d{4}-\d{2}/.test(etd) ? etd.slice(0, 7) : date ? new Date(date).toISOString().slice(0, 7) : null);
+
+/**
+ * Round BD (owner) — the B/L no. a filed B/L / B/L draft states, when the B/L field is empty and the AI read no B/L:
+ * ONE carrier B/L in the B/L documents being filed, found in at least TWO independent places (that document's text,
+ * its file name, the subject, the email's own text, another attachment) — the two-source rule. Pure; null = none.
+ */
+export function blOfFiledDocs(ev: EmailEvidence, blDocIndexes: number[]): { bl: string; sources: string[] } | null {
+  if (!blDocIndexes.length) return null;
+  const docs = blDocIndexes.map((i) => ev.attachments[i]).filter(Boolean);
+  const inDocs = [...new Set(docs.flatMap((a) => blsIn(`${a.name}\n${a.text ?? ''}`)))];
+  if (inDocs.length !== 1) return null;
+  const bl = inDocs[0];
+  const has = (t: string) => blsIn(t).includes(bl);
+  const { own } = splitQuoted(ev.body ?? '');
+  const sources = [
+    docs.some((a) => has(a.text ?? '')) ? 'the B/L document' : null,
+    docs.some((a) => has(a.name)) ? 'its file name' : null,
+    has(ev.subject ?? '') ? 'the subject' : null,
+    has(own) ? 'the email text' : null,
+    ev.attachments.some((a, i) => !blDocIndexes.includes(i) && has(`${a.name}\n${a.text ?? ''}`)) ? 'another attachment' : null,
+  ].filter((x): x is string => !!x);
+  return sources.length >= 2 ? { bl, sources } : null;
+}

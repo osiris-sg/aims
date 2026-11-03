@@ -3,7 +3,7 @@
  * supplier-order PIs, the B/L inside a file as a source, the card (one guess, evidence, what Yes does) in EN / JA,
  * batches, the reply hint.
  */
-import { customerKeyOf, docFacts, isRejected, rejectedOf } from './email-card.rules';
+import { blOfFiledDocs, customerKeyOf, docFacts, isRejected, rejectedOf } from './email-card.rules';
 import { findKeyHits, insideFileSource, MatchRecord, newShipmentCandidates, offerable } from './email-match.rules';
 import { batchesOf, leaksEnglish, plainReason, questionOf, QuestionInput } from './email-question';
 
@@ -136,5 +136,16 @@ describe('round BB — the card', () => {
       { key: 'new-shipments', threadIds: ['t1', 't2'], title: '2 B/L drafts and documents for orders without that shipment yet' },
     ]);
     expect(batchesOf([{ id: 't3', question: q('record', 'o18', 's182', '#18-2') }, { id: 't4', question: q('record', 'o18', 's182', '#18-2') }], 'ja')[0].title).toBe('#18 に関するメール2件：AIMSの回答を確認');
+  });
+});
+
+describe('round BD — the B/L no. a filed B/L states', () => {
+  const ev = (o: Partial<{ subject: string; body: string; attachments: Array<{ name: string; text: string }> }>) => ({ subject: '', body: '', attachments: [], date: null, ...o });
+  it('one B/L in the filed B/L document, found in two places → filled; one place or two B/Ls → not', () => {
+    expect(blOfFiledDocs(ev({ subject: 'Copy documents // SITGHAYK003213 // 198.821 MT', attachments: [{ name: 'COA.pdf', text: '' }, { name: 'SITGHAYK003213 SCAN.PDF', text: '' }] }), [1])).toEqual({ bl: 'SITGHAYK003213', sources: ['its file name', 'the subject'] });
+    expect(blOfFiledDocs(ev({ attachments: [{ name: 'BLCopyView (1).pdf', text: 'B/L No. 198GX07288 … 198GX07288' }] }), [0])).toBeNull();
+    expect(blOfFiledDocs(ev({ attachments: [{ name: 'BLCopyView (1).pdf', text: 'B/L No. 198GX07288' }, { name: 'COO.pdf', text: 'BL 198GX07288' }] }), [0])).toEqual({ bl: '198GX07288', sources: ['the B/L document', 'another attachment'] });
+    expect(blOfFiledDocs(ev({ subject: '198GX07288', attachments: [{ name: 'bl.pdf', text: '198GX07288 and 198GX07292' }] }), [0])).toBeNull();
+    expect(blOfFiledDocs(ev({ subject: '198GX07288' }), [])).toBeNull();
   });
 });
