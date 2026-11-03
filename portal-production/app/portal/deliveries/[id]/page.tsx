@@ -46,6 +46,8 @@ import PlaceIcon from "@mui/icons-material/Place";
 import { request } from "@/helpers/request";
 import { useOrganization } from "@hooks/useOrganization";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { useRunWords } from "@/app/portal/hooks/useRunWords";
+import { jobLabel, runTitle } from "@/helpers/jobWording";
 import { normalizeAssetClass } from "@/helpers/assetClass";
 import ScheduleDeliveryDialog from "@/app/portal/deliveries/_components/ScheduleDeliveryDialog";
 import DeliveryGroupPostsPanel from "@/components/deliveries/DeliveryGroupPostsPanel";
@@ -263,6 +265,8 @@ const fmtDateTime = (d: string | null) =>
 const LINKABLE_DO_STATUSES = new Set(["draft", "unconfirmed", "confirmed", "pending_delivery", "delivered_not_installed"]);
 
 export default function DeliveryDetailPage() {
+  // WCT (enableWctOrders) reads "Job"; everyone else "Delivery" (helpers/jobWording.ts).
+  const w = useRunWords();
   const params = useParams();
   const router = useRouter();
   const { getToken } = useAuth();
@@ -431,13 +435,13 @@ export default function DeliveryDetailPage() {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const res = await request({ path: `/deliveries/${deliveryId}`, method: "GET" }, {}, token);
-      if (res.success === false) throw new Error(res.message ?? "Delivery not found");
+      if (res.success === false) throw new Error(res.message ?? `${w.Noun} not found`);
       const data: RunDetail = res.data ?? res;
       setRun(data);
       // Re-seed the selection with whatever is still unlinked after a refresh.
       setSelected(new Set(data.items.filter((i) => !i.documentId).map((i) => i.id)));
     } catch (e: any) {
-      setError(e?.message ?? "Failed to load delivery");
+      setError(e?.message ?? `Failed to load ${w.noun}`);
     } finally {
       setLoading(false);
     }
@@ -695,9 +699,9 @@ export default function DeliveryDetailPage() {
   if (error || !run) {
     return (
       <Box sx={{ p: 3 }}>
-        <Alert severity="error">{error ?? "Delivery not found"}</Alert>
-        <Button startIcon={<ArrowBackIcon />} sx={{ mt: 2 }} onClick={() => router.push("/portal/deliveries")}>
-          Back to deliveries
+        <Alert severity="error">{error ?? `${w.Noun} not found`}</Alert>
+        <Button startIcon={<ArrowBackIcon />} sx={{ mt: 2 }} onClick={() => router.push(w.isWct ? "/portal/orders?tab=jobs" : "/portal/deliveries")}>
+          Back to {w.nouns}
         </Button>
       </Box>
     );
@@ -705,7 +709,8 @@ export default function DeliveryDetailPage() {
 
   // A draft job of a WCT order is not scheduled yet: it reads Draft, as on the order page, until it is given a date and confirmed.
   const orderDraft = !!run.order && !!run.isDraft && run.status === "scheduled";
-  const chip = orderDraft ? { label: "Draft", color: "default" as const } : STATUS_CHIP[run.status] ?? { label: run.status, color: "default" as const };
+  const chip0 = orderDraft ? { label: "Draft", color: "default" as const } : STATUS_CHIP[run.status] ?? { label: run.status, color: "default" as const };
+  const chip = { ...chip0, label: jobLabel(chip0.label, w.isWct) };
   // Per-item link state. distinctDocs powers the header when the run spans DOs.
   const unlinkedItems = run.items.filter((i) => !i.documentId);
   const linkedCount = run.items.length - unlinkedItems.length;
@@ -761,7 +766,7 @@ export default function DeliveryDetailPage() {
       setActing(false);
     }
   };
-  const confirmText = confirmAction ? confirmCopy(confirmAction, run, { keepsDo: realDoNumbers && !run.isDraft && run.items.some((i) => !!i.documentId) }) : null;
+  const confirmText = confirmAction ? confirmCopy(confirmAction, run, { keepsDo: realDoNumbers && !run.isDraft && run.items.some((i) => !!i.documentId), noun: w.noun }) : null;
   const toggleItem = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -772,13 +777,14 @@ export default function DeliveryDetailPage() {
 
   return (
     <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3, maxWidth: 1100 }}>
-      <Button startIcon={<ArrowBackIcon />} size="small" sx={{ mb: 1.5 }} onClick={() => router.push("/portal/deliveries")}>
-        Deliveries
+      {/* WCT: back to Orders → Jobs (its deliveries list moved there). */}
+      <Button startIcon={<ArrowBackIcon />} size="small" sx={{ mb: 1.5 }} onClick={() => router.push(w.isWct ? "/portal/orders?tab=jobs" : "/portal/deliveries")}>
+        {w.Nouns}
       </Button>
 
       <Stack direction="row" alignItems="center" spacing={1.5} flexWrap="wrap" sx={{ mb: 0.5 }}>
         <LocalShippingIcon color="primary" />
-        <Typography variant="h5" fontWeight={700}>Delivery #{run.deliveryNumber}</Typography>
+        <Typography variant="h5" fontWeight={700}>{runTitle(w, run.deliveryNumber)}</Typography>
         <Chip size="small" label={chip.label} color={chip.color} />
         {linkedCount === 0 ? (
           <Chip size="small" variant="outlined" label="No DO yet" />
@@ -894,7 +900,7 @@ export default function DeliveryDetailPage() {
         <DialogContent>
           <Typography variant="body2">
             The driver&apos;s link for vehicle {run.vehicleNumber ?? ""} stops working, and the rider&apos;s app asks
-            who is delivering this trip again. Items the driver already ended or signed for stay as they are.
+            who is {w.isWct ? "doing" : "delivering"} this trip again. Items the driver already ended or signed for stay as they are.
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -919,7 +925,7 @@ export default function DeliveryDetailPage() {
               : "Waiting for a rider. They claim it by scanning any unit of a scheduled product. Nothing is reserved until then."}
           </Typography>
           <Button variant="outlined" color="error" onClick={() => setConfirmAction("cancel")} disabled={acting}>
-            Cancel scheduled delivery
+            Cancel scheduled {w.noun}
           </Button>
         </Paper>
       )}
@@ -930,7 +936,7 @@ export default function DeliveryDetailPage() {
       {canPurge(run, isOsirisAdmin) && (
         <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            Osiris admin: this cancelled delivery can be deleted permanently if it never committed anything.
+            Osiris admin: this cancelled {w.noun} can be deleted permanently if it never committed anything.
           </Typography>
           <Button variant="outlined" color="error" onClick={() => setConfirmAction("purge")} disabled={acting}>
             Delete permanently
@@ -1025,7 +1031,8 @@ export default function DeliveryDetailPage() {
           </TableHead>
           <TableBody>
             {run.items.map((it) => {
-              const ic = ITEM_CHIP[it.deliveryStatus] ?? { label: it.deliveryStatus, color: "default" as const };
+              const ic0 = ITEM_CHIP[it.deliveryStatus] ?? { label: it.deliveryStatus, color: "default" as const };
+              const ic = { ...ic0, label: jobLabel(ic0.label, w.isWct) };
               return (
                 <TableRow key={it.id}>
                   {hasUnlinked && (
@@ -1239,7 +1246,7 @@ export default function DeliveryDetailPage() {
         return (
       <>
       <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
-        Proof of delivery
+        Proof of {w.noun}
       </Typography>
       {proofReports.length === 0 ? (
         <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
@@ -1273,7 +1280,7 @@ export default function DeliveryDetailPage() {
                   {Array.from(g.itemIds).map(itemName).join("; ") || "Items not recorded"}
                 </Typography>
                 <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-                  Delivery started {fmtDateTime(g.startedAt)} · Delivery ended {fmtDateTime(g.endedAt)}
+                  {w.Noun} started {fmtDateTime(g.startedAt)} · {w.Noun} ended {fmtDateTime(g.endedAt)}
                 </Typography>
                 {g.signature && (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -1297,7 +1304,7 @@ export default function DeliveryDetailPage() {
               <Paper key={group.kind} variant="outlined" sx={{ p: 2 }}>
                 <Stack direction="row" alignItems="center" spacing={1.5} flexWrap="wrap" sx={{ mb: 1 }}>
                   <Typography variant="subtitle2" fontWeight={700}>
-                    {KIND_LABEL[group.kind] ?? group.kind}
+                    {jobLabel(KIND_LABEL[group.kind] ?? group.kind, w.isWct)}
                   </Typography>
                   <Chip
                     size="small"
@@ -1373,10 +1380,10 @@ export default function DeliveryDetailPage() {
                                     Photo {photoIdx + 1}
                                   </Box>
                                   {optimizable ? (
-                                    <Image src={src} alt="Delivery photo" width={120} height={120} loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                                    <Image src={src} alt={`${w.Noun} photo`} width={120} height={120} loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                                   ) : (
                                     // eslint-disable-next-line @next/next/no-img-element
-                                    <img src={src} alt="Delivery photo" loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                                    <img src={src} alt={`${w.Noun} photo`} loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                                   )}
                                 </Box>
                               );
@@ -1424,7 +1431,7 @@ export default function DeliveryDetailPage() {
       {/* Link picker */}
       <Dialog open={pickerOpen} onClose={() => !acting && setPickerOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>
-          Link {selected.size} item{selected.size === 1 ? "" : "s"} of Delivery #{run.deliveryNumber} to a Delivery Order
+          Link {selected.size} item{selected.size === 1 ? "" : "s"} of {runTitle(w, run.deliveryNumber)} to a Delivery Order
         </DialogTitle>
         <DialogContent dividers>
           {docsError && <Alert severity="error" sx={{ mb: 1 }}>{docsError}</Alert>}

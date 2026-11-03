@@ -1,11 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { Suspense } from "react";
 import { Box, CircularProgress } from "@mui/material";
 import { useOrganizationFeatures } from "../hooks/useOrganizationFeatures";
 import { CappitechOrdersList } from "./CappitechOrdersList";
 import SlimOrdersList from "./SlimOrdersList";
-import WctOrdersList from "./WctOrdersList";
+import WctOrdersPage from "./WctOrdersPage";
 
 // Routing seam (mirrors the order-detail seam): pick the Orders LIST variant by
 // org feature flag. enableCappitechOrders=true → the rich multi-column list;
@@ -26,6 +26,12 @@ export default function OrdersListRouter() {
     );
   }
 
-  if (isWctOrdersEnabled) return <WctOrdersList />;
+  // WCT: Orders | Jobs | To verify (WctOrdersPage reads ?tab=, so it needs a Suspense boundary).
+  if (isWctOrdersEnabled)
+    return (
+      <Suspense fallback={null}>
+        <WctOrdersPage />
+      </Suspense>
+    );
   return isCappitechOrdersEnabled ? <CappitechOrdersList /> : <SlimOrdersList />;
 }

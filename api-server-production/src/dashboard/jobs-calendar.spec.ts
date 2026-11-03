@@ -133,6 +133,9 @@ describe('jobs calendar merge', () => {
     expect(e).toMatchObject({ orderNumber: 'ORD202611-001', orderHref: '/portal/orders/o1' });
     const [plain] = buildCalendarEvents([run()], [], null);
     expect(plain.title.startsWith('#')).toBe(true);
+    // A finished-but-unsigned order job reads "Done"; any other run "Delivered" (2026-11-03).
+    expect(buildCalendarEvents([run({ status: 'delivered', order: { id: 'o1', orderNumber: 'ORD1' } })], [], null)[0].statusLabel).toBe('Done');
+    expect(buildCalendarEvents([run({ status: 'delivered' })], [], null)[0].statusLabel).toBe('Delivered');
     expect(plain).not.toHaveProperty('orderNumber');
     expect(plain).not.toHaveProperty('verificationLabel');
     const [pending] = buildCalendarEvents([run({ status: 'completed', verificationState: 'pending' })], [], null);

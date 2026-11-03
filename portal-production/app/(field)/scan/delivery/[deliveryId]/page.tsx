@@ -58,6 +58,7 @@ import { claimReturnRun } from "../../../lib/deliveryLists";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import DoStatusTag from "@/components/DoStatusTag";
 import { runDoTag } from "@/helpers/doStatusTag";
+import { jobLabel, runTitle, runWords } from "@/helpers/jobWording";
 
 /**
  * Standalone-delivery BASKET (Layer 3 + in-basket scanning patch).
@@ -160,7 +161,10 @@ const RUN_STATUS_LABEL: Record<Run["status"], string> = {
 
 export default function DeliveryBasketPage() {
   // Real DO numbers (enableRealDoOnSchedule): the DO's state sits next to its number.
-  const { isRealDoOnScheduleEnabled } = useOrganizationFeatures();
+  const { isRealDoOnScheduleEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
+  // WCT (enableWctOrders): "Job" wording (helpers/jobWording.ts).
+  const w = runWords(!!isWctOrdersEnabled);
+  const wct = !!isWctOrdersEnabled;
   const params = useParams();
   const router = useRouter();
   const { getToken } = useAuth();
@@ -253,12 +257,12 @@ export default function DeliveryBasketPage() {
       }
       const res = await request({ path: `/deliveries/${deliveryId}`, method: "GET" }, {}, token);
       if (res.success === false) {
-        setError(res.message ?? "Delivery not found");
+        setError(res.message ?? `${w.Noun} not found`);
         return null;
       }
       return (res.data ?? res) as Run;
     } catch (e: any) {
-      setError(e?.message ?? "Failed to load delivery");
+      setError(e?.message ?? `Failed to load ${w.noun}`);
       return null;
     }
   }, [deliveryId, getToken]);
@@ -379,7 +383,7 @@ export default function DeliveryBasketPage() {
           inventoryId,
           kind: "DO_START",
           deliveryId,
-          description: "Delivery started (added to run)",
+          description: `${w.Noun} started (added to run)`,
           photos: photoKeys,
           // An AD-HOC run adds units with no photos at all, which the server's
           // per-unit minimum would otherwise reject. The report itself is still
@@ -388,7 +392,7 @@ export default function DeliveryBasketPage() {
         },
         token,
       );
-      if (res.success === false) throw new Error(res.message ?? "Failed to start delivery for this unit");
+      if (res.success === false) throw new Error(res.message ?? `Failed to start ${w.noun} for this unit`);
     },
     [deliveryId],
   );
@@ -470,7 +474,7 @@ export default function DeliveryBasketPage() {
               {},
               token,
             );
-        if (res?.success === false) throw new Error(res?.message ?? "Could not mark this item delivered");
+        if (res?.success === false) throw new Error(res?.message ?? `Could not mark this item ${w.done}`);
         // Peek at the fresh status WITHOUT committing it. Ending the LAST
         // unresolved item leaves the run `delivered` -> go STRAIGHT to the one
         // signature; committing the delivered run first would flash this page's
@@ -482,9 +486,9 @@ export default function DeliveryBasketPage() {
           return;
         }
         if (fresh) setRun(fresh);
-        setActionMsg(it.inventory?.sku ? `${it.inventory.sku} delivered ✓` : "Marked delivered ✓");
+        setActionMsg(it.inventory?.sku ? `${it.inventory.sku} ${w.done} ✓` : `Marked ${w.done} ✓`);
       } catch (e: any) {
-        setActionMsg(e?.message ?? "Could not mark this item delivered");
+        setActionMsg(e?.message ?? `Could not mark this item ${w.done}`);
       } finally {
         setBusy(false);
       }
@@ -635,7 +639,7 @@ export default function DeliveryBasketPage() {
             { assetId: pending.assetId, inventoryId: pending.inventoryId },
             token,
           );
-          if (res.success === false) throw new Error(res.message ?? "Could not start this delivery");
+          if (res.success === false) throw new Error(res.message ?? `Could not start this ${w.noun}`);
         } else {
           const res = await request(
             { path: `/deliveries/${deliveryId}/items`, method: "POST" },
@@ -844,7 +848,7 @@ export default function DeliveryBasketPage() {
   };
 
   useFieldAppBar({
-    title: run ? `${run.direction === "RETURN" ? "Return" : "Delivery"} #${run.deliveryNumber}` : "Delivery",
+    title: run ? runTitle(w, run.deliveryNumber, run.direction === "RETURN") : w.Noun,
     // WCT orders: the job's order leads the subtitle (as on the job cards).
     subtitle: [run?.order?.orderNumber, run?.siteAddress].filter(Boolean).join(" · ") || undefined,
   });
@@ -860,7 +864,7 @@ export default function DeliveryBasketPage() {
   if (error || !run) {
     return (
       <Box sx={{ p: 2 }}>
-        <Alert severity="error">{error ?? "Could not load delivery"}</Alert>
+        <Alert severity="error">{error ?? `Could not load ${w.noun}`}</Alert>
         <Button sx={{ mt: 2 }} onClick={() => router.push("/scan")}>Back</Button>
       </Box>
     );
@@ -948,7 +952,7 @@ export default function DeliveryBasketPage() {
         const token = await getToken();
         if (!token) throw new Error("Not signed in");
         const res = await request({ path: `/deliveries/${run.id}/adhoc-ack`, method: "POST" }, {}, token);
-        if (res?.success === false) throw new Error(res?.message ?? "Could not start the delivery");
+        if (res?.success === false) throw new Error(res?.message ?? `Could not start the ${w.noun}`);
         const fresh = await fetchRun();
         if (fresh && fresh.status === "delivered") {
           router.push(`/scan/delivery/${run.id}/finalize`);
@@ -956,7 +960,7 @@ export default function DeliveryBasketPage() {
         }
         if (fresh) setRun(fresh);
       } catch (e: any) {
-        setActionMsg(e?.message ?? "Could not start the delivery");
+        setActionMsg(e?.message ?? `Could not start the ${w.noun}`);
       } finally {
         setBusy(false);
       }
@@ -972,7 +976,7 @@ export default function DeliveryBasketPage() {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const res = await request({ path: `/deliveries/${run.id}/ack-all`, method: "POST" }, {}, token);
-      if (res?.success === false) throw new Error(res?.message ?? "Could not mark items delivered");
+      if (res?.success === false) throw new Error(res?.message ?? `Could not mark items ${w.done}`);
       // Peek without committing: if this ended the last unresolved item(s) the run
       // is now `delivered` -> go straight to the one signature. Committing the
       // delivered run first would flash this page's post-delivery state before the
@@ -1000,7 +1004,7 @@ export default function DeliveryBasketPage() {
       }
       if (fresh) setRun(fresh);
     } catch (e: any) {
-      setActionMsg(e?.message ?? "Could not mark items delivered");
+      setActionMsg(e?.message ?? `Could not mark items ${w.done}`);
     } finally {
       setBusy(false);
     }
@@ -1258,7 +1262,7 @@ export default function DeliveryBasketPage() {
         ? `Serial ${it.inventory.sku}`
         : !it.assetId
           ? "Free-typed item"
-          : "Unit scanned on delivery";
+          : `Unit scanned on ${w.noun}`;
     const pickable = orderedItems.filter((it) => it.deliveryStatus === "not_delivered");
     const picked = new Set(draftPick.filter((id) => pickable.some((it) => it.id === id)));
     const allPicked = pickable.length > 0 && pickable.every((it) => picked.has(it.id));
@@ -1307,7 +1311,7 @@ export default function DeliveryBasketPage() {
           <LocalShippingIcon color="primary" sx={{ fontSize: 32 }} />
           <Box sx={{ minWidth: 0, flex: 1 }}>
             <Typography variant="body2" color="text.secondary">
-              {pickStage === "pick" ? "Choose the items you are delivering on this trip." : "Check the items before you start."}
+              {pickStage === "pick" ? (wct ? "Choose the items for this trip." : "Choose the items you are delivering on this trip.") : "Check the items before you start."}
             </Typography>
           </Box>
         </Stack>
@@ -1332,7 +1336,7 @@ export default function DeliveryBasketPage() {
           <Card variant="outlined" sx={{ bgcolor: "success.light", borderColor: "transparent" }}>
             <CardContent>
               <Typography variant="subtitle1" fontWeight={700}>
-                {partialSignCount} {partialSignCount === 1 ? "item is" : "items are"} delivered and waiting for a signature
+                {partialSignCount} {partialSignCount === 1 ? "item is" : "items are"} {w.done} and waiting for a signature
               </Typography>
               <Button
                 fullWidth
@@ -1366,7 +1370,7 @@ export default function DeliveryBasketPage() {
                 />
                 <ListItemText primary="Select all" primaryTypographyProps={{ fontWeight: 600, variant: "body2" }} />
                 <Typography variant="caption" color="text.secondary">
-                  {pickable.length} to deliver
+                  {pickable.length} {wct ? "to do" : "to deliver"}
                 </Typography>
               </ListItemButton>
               <List disablePadding>
@@ -1390,7 +1394,7 @@ export default function DeliveryBasketPage() {
                       />
                       {lineText(it)}
                       {done ? (
-                        <StatusChip label={chip.label} tone={chip.tone} sx={{ ml: 1 }} />
+                        <StatusChip label={jobLabel(chip.label, wct)} tone={chip.tone} sx={{ ml: 1 }} />
                       ) : it.skippedAt ? (
                         <StatusChip label="SKIPPED" tone="neutral" sx={{ ml: 1 }} />
                       ) : null}
@@ -1407,7 +1411,7 @@ export default function DeliveryBasketPage() {
               onClick={() => setPickStage("confirm")}
               sx={{ minHeight: 48 }}
             >
-              Start delivery ({picked.size})
+              Start {w.noun} ({picked.size})
             </Button>
           </>
         ) : (
@@ -1418,7 +1422,7 @@ export default function DeliveryBasketPage() {
                   {pickedItems.length} {pickedItems.length === 1 ? "item" : "items"}
                 </Typography>
                 <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                  Deliver these items?
+                  {wct ? "Start these items?" : "Deliver these items?"}
                 </Typography>
                 <List disablePadding>
                   {pickedItems.map((it, i) => (
@@ -1503,7 +1507,7 @@ export default function DeliveryBasketPage() {
   if (handoffStage === "qr" && handoffQr) {
     const link = handoffQr.url;
     const shareText = link
-      ? `Delivery #${run.deliveryNumber}${run.siteAddress ? ` for ${run.siteAddress}` : ""}. Open to deliver: ${link}`
+      ? `${runTitle(w, run.deliveryNumber)}${run.siteAddress ? ` for ${run.siteAddress}` : ""}. ${wct ? "Open the job" : "Open to deliver"}: ${link}`
       : "";
     const copyLink = async () => {
       if (!link) return;
@@ -1522,7 +1526,7 @@ export default function DeliveryBasketPage() {
     const shareLink = async () => {
       if (!link || !canShare) return;
       try {
-        await (navigator as any).share({ title: `Delivery #${run.deliveryNumber}`, text: shareText });
+        await (navigator as any).share({ title: runTitle(w, run.deliveryNumber), text: shareText });
       } catch {
         /* the rider closed the share sheet */
       }
@@ -1601,7 +1605,7 @@ export default function DeliveryBasketPage() {
             </Typography>
           </Box>
         </Stack>
-        <Typography variant="h5">Who&apos;s delivering?</Typography>
+        <Typography variant="h5">{wct ? "Who's doing this job?" : <>Who&apos;s delivering?</>}</Typography>
         {handoffError && <Alert severity="error">{handoffError}</Alert>}
         {handoffStage !== "vehicle" ? (
           <Stack spacing={1.5}>
@@ -1652,7 +1656,7 @@ export default function DeliveryBasketPage() {
         <LocalShippingIcon color="primary" sx={{ fontSize: 32 }} />
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Typography variant="body2" color="text.secondary">
-            {RUN_STATUS_LABEL[run.status]}
+            {wct && run.status === "delivered" ? "Done" : RUN_STATUS_LABEL[run.status]}
             {(() => {
               // Per-item linking: items may span DOs. Single DO → its name;
               // several → a count; none → the old "no DO yet".
@@ -1715,10 +1719,10 @@ export default function DeliveryBasketPage() {
       {tripDone && !handedOver && (
         <Card variant="outlined" sx={{ bgcolor: "success.light", borderColor: "transparent" }}>
           <CardContent>
-            <Typography variant="subtitle1">Items for this trip are delivered</Typography>
+            <Typography variant="subtitle1">Items for this trip are {w.done}</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.5 }}>
               {canPartialSign
-                ? `Get the customer's signature for the ${partialSignCount} ${partialSignCount === 1 ? "item" : "items"} delivered. `
+                ? `Get the customer's signature for the ${partialSignCount} ${partialSignCount === 1 ? "item" : "items"} ${w.done}. `
                 : ""}
               {offTripCount} {offTripCount === 1 ? "item is" : "items are"} still waiting on this delivery.
             </Typography>
@@ -1760,7 +1764,7 @@ export default function DeliveryBasketPage() {
           <CardContent>
             <Typography variant="subtitle1">Ready to finish</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.5 }}>
-              Every item is delivered or skipped. Get the customer&apos;s signature to complete this delivery.
+              Every item is {w.done} or skipped. Get the customer&apos;s signature to complete this {w.noun}.
             </Typography>
             <Button
               fullWidth
@@ -1854,7 +1858,7 @@ export default function DeliveryBasketPage() {
                   disabled={busy}
                   sx={{ py: 1.5, minHeight: 48 }}
                 >
-                  {isReturnRun ? "Start Return" : "Start Delivery"}
+                  {isReturnRun ? "Start Return" : `Start ${w.Noun}`}
                 </Button>
                 )
               )}
@@ -1869,7 +1873,7 @@ export default function DeliveryBasketPage() {
                   disabled={busy}
                   sx={{ py: 1.5, minHeight: 48 }}
                 >
-                  End Delivery
+                  End {w.Noun}
                 </Button>
               )}
 
@@ -1886,7 +1890,7 @@ export default function DeliveryBasketPage() {
                   disabled={busy}
                   sx={{ py: 1.5, minHeight: 48 }}
                 >
-                  {isReturnRun ? "Start Return" : "Start Delivery"}
+                  {isReturnRun ? "Start Return" : `Start ${w.Noun}`}
                 </Button>
               )}
               {/* AD-HOC: no per-unit End. /units/:id/deliver does the reserved ->
@@ -1914,7 +1918,7 @@ export default function DeliveryBasketPage() {
                     disabled={busy}
                     sx={{ py: 1.5, minHeight: 48 }}
                   >
-                    End Delivery
+                    End {w.Noun}
                   </Button>
                 )
               )}
@@ -2017,7 +2021,7 @@ export default function DeliveryBasketPage() {
       {inFlightItems.length > 0 && (
       <Box sx={{ border: 1, borderColor: "divider", borderRadius: "16px", bgcolor: "background.paper", p: 1.5 }}>
       <Typography variant="subtitle1" sx={{ mb: 1 }}>
-        Delivering ({inFlightItems.length})
+        {wct ? "In progress" : "Delivering"} ({inFlightItems.length})
       </Typography>
       <Stack spacing={1}>
         {inFlightItems.map((it) => {
@@ -2036,7 +2040,7 @@ export default function DeliveryBasketPage() {
                       </Typography>
                     )}
                   </Box>
-                  <StatusChip label={chip.label} tone={chip.tone} />
+                  <StatusChip label={jobLabel(chip.label, wct)} tone={chip.tone} />
                 </Stack>
                 {it.deliveryStatus !== "completed" && (
                   <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
@@ -2065,7 +2069,7 @@ export default function DeliveryBasketPage() {
                         disabled={busy}
                         sx={{ minHeight: 40 }}
                       >
-                        {isReturnRun ? "Start Return" : "Start Delivery"}
+                        {isReturnRun ? "Start Return" : `Start ${w.Noun}`}
                       </Button>
                       )
                     )}
@@ -2084,7 +2088,7 @@ export default function DeliveryBasketPage() {
                         disabled={busy}
                         sx={{ minHeight: 40 }}
                       >
-                        {isReturnRun ? "Start Return" : "Start Delivery"}
+                        {isReturnRun ? "Start Return" : `Start ${w.Noun}`}
                       </Button>
                     )}
                     {/* Per-item install actions removed (2026-08): installation is
@@ -2143,7 +2147,7 @@ export default function DeliveryBasketPage() {
           disabled={busy}
           sx={{ mt: 1.5, minHeight: 44 }}
         >
-          {isReturnRun ? "End Return" : "End Delivery"}
+          {isReturnRun ? "End Return" : `End ${w.Noun}`}
         </Button>
       )}
 
@@ -2160,7 +2164,7 @@ export default function DeliveryBasketPage() {
           disabled={busy}
           sx={{ mt: 1.5, minHeight: 48 }}
         >
-          Done adding — back to delivery
+          Done adding, back to {w.noun}
         </Button>
       )}
       </Box>
@@ -2191,7 +2195,7 @@ export default function DeliveryBasketPage() {
                           </Typography>
                         )}
                       </Box>
-                      <StatusChip label={chip.label} tone={chip.tone} />
+                      <StatusChip label={jobLabel(chip.label, wct)} tone={chip.tone} />
                     </Stack>
                   </CardContent>
                 </Card>
@@ -2257,7 +2261,7 @@ export default function DeliveryBasketPage() {
                         disabled={busy}
                         sx={{ minHeight: 40 }}
                       >
-                        {isReturnRun ? "Collect this item" : "Deliver this item"}
+                        {isReturnRun ? "Collect this item" : wct ? "Do this item" : "Deliver this item"}
                       </Button>
                     </Stack>
                   )}
@@ -2281,7 +2285,7 @@ export default function DeliveryBasketPage() {
                     <Box sx={{ minWidth: 0, flex: 1 }}>
                       <Typography variant="body2" fontWeight={600} noWrap>{s.label}</Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {s.scheduled} scheduled · {s.delivered} delivered · {s.remaining} remaining
+                        {s.scheduled} scheduled · {s.delivered} {w.done} · {s.remaining} remaining
                       </Typography>
                     </Box>
                     <StatusChip tone="warn" label={`${s.remaining} TO LOAD`} />

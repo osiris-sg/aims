@@ -10,6 +10,7 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 import FieldBackButton from "../../components/FieldBackButton";
+import { withNoAdhocForWct } from "@/app/(field)/lib/wctNoAdhoc";
 
 /**
  * AD-HOC chooser (2026-10-22), reached from the "Ad-hoc" button on the
@@ -21,7 +22,7 @@ import FieldBackButton from "../../components/FieldBackButton";
  *                        tag a new one, nothing started; the marker brings every
  *                        back on that trip here instead of the Deliveries home.
  */
-export default function AdHocChooserPage() {
+function AdHocChooserPage() {
   const router = useRouter();
   const { features, isLoading } = useOrganizationFeatures();
 
@@ -101,3 +102,6 @@ export default function AdHocChooserPage() {
     </Box>
   );
 }
+
+// WCT: no ad-hoc / scan-a-unit start (every WCT job starts from an order).
+export default withNoAdhocForWct(AdHocChooserPage);

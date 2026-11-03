@@ -47,30 +47,32 @@ export function confirmCopy(
   action: RunAction,
   run: { deliveryNumber: number; isDraft?: boolean; siteclock?: SiteClockLike | null },
   // enableRealDoOnSchedule: the run's DO already has its real number, so a cancel keeps it (as Cancelled).
-  opts: { keepsDo?: boolean } = {},
+  // noun: "job" for WCT (enableWctOrders), else "delivery" (helpers/jobWording.ts).
+  opts: { keepsDo?: boolean; noun?: string } = {},
 ): { title: string; body: string; siteclock: string | null; button: string } {
+  const noun = opts.noun || "delivery";
+  const thing = opts.noun && opts.noun !== "delivery" ? noun : "run";
   const job = liveSiteClockJob(run.siteclock);
   const siteclock = job ? `This also cancels the SiteClock job${job.workerName ? ` for ${job.workerName}` : ""}.` : null;
   if (action === "cancel") {
     return {
-      title: `Cancel delivery #${run.deliveryNumber}?`,
-      body: `The run is marked cancelled and any reserved units are returned to stock.${opts.keepsDo ? " Its Delivery Order keeps its number and is marked Cancelled." : ""} This cannot be undone.`,
+      title: `Cancel ${noun} #${run.deliveryNumber}?`,
+      body: `The ${thing} is marked cancelled and any reserved units are returned to stock.${opts.keepsDo ? " Its Delivery Order keeps its number and is marked Cancelled." : ""} This cannot be undone.`,
       siteclock,
-      button: "Cancel delivery",
+      button: `Cancel ${noun}`,
     };
   }
   if (action === "delete") {
     return {
-      title: `Delete ${run.isDraft ? "draft" : "delivery"} #${run.deliveryNumber}?`,
-      body: "This permanently removes the run and its unconfirmed draft Delivery Order. It cannot be undone. A run that has delivered or linked anything cannot be deleted; cancel it instead.",
+      title: `Delete ${run.isDraft ? "draft" : noun} #${run.deliveryNumber}?`,
+      body: `This permanently removes the ${thing} and its unconfirmed draft Delivery Order. It cannot be undone. A ${thing} that has ${noun === "delivery" ? "delivered" : "started"} or linked anything cannot be deleted; cancel it instead.`,
       siteclock,
       button: "Delete",
     };
   }
   return {
-    title: `Delete delivery #${run.deliveryNumber} permanently?`,
-    body:
-      "This removes the cancelled run, its lines and its placeholder Delivery Order for good. It is refused if the run has a real DO number, moved stock, or was invoiced. Recorded in the Activity Log.",
+    title: `Delete ${noun} #${run.deliveryNumber} permanently?`,
+    body: `This removes the cancelled ${thing}, its lines and its placeholder Delivery Order for good. It is refused if the ${thing} has a real DO number, moved stock, or was invoiced. Recorded in the Activity Log.`,
     siteclock: run.siteclock ? "Its SiteClock job is cancelled too if it is still live (SiteClock keeps cancelled jobs, hidden)." : null,
     button: "Delete permanently",
   };

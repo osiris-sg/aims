@@ -185,7 +185,17 @@ export default function SalesDocumentList({
     {
       accessorKey: "name",
       header: "Document Name",
-      cell: ({ row }: any) => <Box sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{row.original.name}</Box>,
+      cell: ({ row }: any) => (
+        <Box sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
+          {row.original.name}
+          {/* WCT (enableWctOrders): the order a confirmed quotation became, on a second line. */}
+          {row.original.linkedOrder?.orderNumber && (
+            <Box component="span" sx={{ display: "block", fontWeight: 400, fontSize: "0.75rem", color: "text.secondary" }}>
+              Order {row.original.linkedOrder.orderNumber}
+            </Box>
+          )}
+        </Box>
+      ),
     },
     // "Associated Item" dropped from all document lists (2026-07-13, guru) —
     // it was N/A on nearly every row; re-add here if it earns its keep.

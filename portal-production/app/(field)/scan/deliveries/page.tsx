@@ -12,6 +12,7 @@ import { InProgressRunCard } from "../../components/DeliveryRunCards";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 import { EmptyState } from "@/app/(field)/components/fieldUi";
 import FieldBackButton from "../../components/FieldBackButton";
+import { useRunWords } from "@/app/portal/hooks/useRunWords";
 
 /**
  * Rider "resume unfinished deliveries" list (field). Runs the rider started
@@ -26,9 +27,11 @@ import FieldBackButton from "../../components/FieldBackButton";
  */
 
 export default function ResumeDeliveriesPage() {
+  // WCT (enableWctOrders): "Job" wording (helpers/jobWording.ts).
+  const w = useRunWords();
   const router = useRouter();
   const { getToken } = useAuth();
-  useFieldAppBar({ title: "Your deliveries in progress" });
+  useFieldAppBar({ title: `Your ${w.nouns} in progress` });
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +49,7 @@ export default function ResumeDeliveriesPage() {
       }
       setRuns(await fetchInProgressRuns(token));
     } catch (e: any) {
-      setError(e?.message ?? "Failed to load deliveries");
+      setError(e?.message ?? `Failed to load ${w.nouns}`);
     } finally {
       setLoading(false);
     }
@@ -84,7 +87,7 @@ export default function ResumeDeliveriesPage() {
       {!loading && runs.length > 3 && (
         <TextField
           size="small"
-          placeholder="Search delivery # or unit serial"
+          placeholder={`Search ${w.noun} # or unit serial`}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           InputProps={{ startAdornment: <SearchIcon fontSize="small" sx={{ mr: 1, color: "text.disabled" }} /> }}
@@ -100,7 +103,7 @@ export default function ResumeDeliveriesPage() {
       ) : runs.length === 0 ? (
         <EmptyState icon={<LocalShippingOutlinedIcon />} message={<>Nothing in progress — you&apos;re all caught up.</>} />
       ) : filtered.length === 0 ? (
-        <EmptyState icon={<SearchOffIcon />} message={<>No delivery matches &quot;{q}&quot;.</>} />
+        <EmptyState icon={<SearchOffIcon />} message={<>No {w.noun} matches &quot;{q}&quot;.</>} />
       ) : (
         <Stack spacing={1.5}>
           {filtered.map((r) => (

@@ -13,21 +13,19 @@ import JobFieldIcon from "@/components/jobFields/JobFieldIcon";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { unwrap } from "@/app/portal/admin/organizations/_lib/siteclock-connection";
-import { CANCELLED_COLOR, KIND_COLOR, legendTitle, rangeOf, siteclockBanner, type CalendarPayload } from "./jobs-calendar/calendarModel";
+import { calendarLegendItems, legendTitle, rangeOf, siteclockBanner, type CalendarPayload } from "./jobs-calendar/calendarModel";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 const CalendarView = dynamic(() => import("./jobs-calendar/CalendarView"), {
   ssr: false,
   loading: () => <Skeleton variant="rectangular" height={560} sx={{ borderRadius: 1 }} />,
 });
 
-const LEGEND = [
-  { label: "Delivery / return", color: KIND_COLOR.delivery },
-  { label: "Service run", color: KIND_COLOR.service },
-  { label: "SiteClock job", color: KIND_COLOR.siteclock },
-  { label: "Cancelled", color: CANCELLED_COLOR },
-];
 
-export default function JobsCalendar() {
+/** fullHeight: WCT's dashboard is this calendar alone. */
+export default function JobsCalendar({ fullHeight = false }: { fullHeight?: boolean }) {
+  // WCT (enableWctOrders): "Job" wording, and a click opens the job.
+  const { isWctOrdersEnabled } = useOrganizationFeatures();
   const { getToken } = useAuth();
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
   const [data, setData] = useState<CalendarPayload | null>(null);
@@ -63,7 +61,7 @@ export default function JobsCalendar() {
     })();
   }, [range, getToken]);
 
-  return <JobsCalendarPanel data={data} loading={loading} error={error} showCancelled={showCancelled} onShowCancelled={setShowCancelled} onRange={onRange} />;
+  return <JobsCalendarPanel data={data} loading={loading} error={error} showCancelled={showCancelled} onShowCancelled={setShowCancelled} onRange={onRange} jobWords={!!isWctOrdersEnabled} fullHeight={fullHeight} />;
 }
 
 /** The calendar block itself (also rendered from fixtures by /preview/jobs-calendar). */
@@ -76,6 +74,8 @@ export function JobsCalendarPanel({
   onRange,
   initialDate,
   initialView,
+  jobWords = false,
+  fullHeight = false,
 }: {
   data: CalendarPayload | null;
   loading: boolean;
@@ -85,6 +85,8 @@ export function JobsCalendarPanel({
   onRange: (startStr: string, endStr: string) => void;
   initialDate?: string;
   initialView?: "dayGridMonth" | "timeGridWeek" | "timeGridDay";
+  jobWords?: boolean;
+  fullHeight?: boolean;
 }) {
   const banner = siteclockBanner(data);
   return (
@@ -97,7 +99,7 @@ export function JobsCalendarPanel({
           {loading && <CircularProgress size={16} />}
         </Stack>
         <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
-          {LEGEND.map((l) => (
+          {calendarLegendItems(jobWords).map((l) => (
             <Stack key={l.label} direction="row" spacing={0.75} alignItems="center">
               <Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: l.color }} />
               <Typography variant="caption" color="text.secondary">
@@ -133,7 +135,7 @@ export function JobsCalendarPanel({
           {error}
         </Alert>
       )}
-      <CalendarView events={data?.events ?? []} showCancelled={showCancelled} onRange={onRange} initialDate={initialDate} initialView={initialView} />
+      <CalendarView events={data?.events ?? []} showCancelled={showCancelled} onRange={onRange} initialDate={initialDate} initialView={initialView} jobWords={jobWords} openOnClick={jobWords} fullHeight={fullHeight} />
     </Box>
   );
 }

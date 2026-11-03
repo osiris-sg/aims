@@ -314,12 +314,14 @@ export class DeliveryGroupPostsService implements OnModuleInit {
       const mins = Math.round((now - beat.at) / 60_000);
       for (const organizationId of b.orgIds) {
         rung++;
+        // WCT (enableWctOrders) reads "jobs".
+        const nouns = (await isOrgFeatureEnabled(this.prisma, organizationId, 'enableWctOrders').catch(() => false)) ? 'jobs' : 'deliveries';
         await runAsOrg(organizationId, () =>
           this.notifications.emit({
             organizationId,
             kind: 'WA_POST_BRIDGE_DOWN',
             title: `WhatsApp posting (${b.label}) is offline`,
-            body: `No check-in for ${mins} minutes. Signed deliveries are queued and will be posted to their groups when it is back.`,
+            body: `No check-in for ${mins} minutes. Signed ${nouns} are queued and will be posted to their groups when it is back.`,
             entityType: 'wa-post-bridge',
             entityId: `${b.label}:${new Date(beat.at).toISOString()}`,
           }),

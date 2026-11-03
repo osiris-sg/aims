@@ -18,6 +18,7 @@
  */
 import { DoStatusTag, doStatusTag } from '../deliveries/do-number';
 import { VERIFICATION_LABEL } from '../deliveries/finish-modes';
+import { deliveredLabel, runNoun } from '../deliveries/job-wording';
 
 export const CALENDAR_TZ = 'Asia/Singapore';
 export const CALENDAR_MAX_DAYS = 62;
@@ -181,7 +182,7 @@ export function deliveryIdOfRef(ref: string | null | undefined): string | null {
 const crewOf = (j: CalendarSiteClockJob): CalendarCrew[] => j.crew.map((c) => ({ name: c.name, arrivedAt: c.arrivedAt, leftAt: c.leftAt }));
 
 function runTitle(r: CalendarRun) {
-  const who = r.customerName || r.projectName || r.siteAddress || 'Delivery';
+  const who = r.customerName || r.projectName || r.siteAddress || runNoun(r);
   return `${r.order?.orderNumber ? `${r.order.orderNumber} · ` : ''}${r.direction === 'RETURN' ? 'Return ' : ''}#${r.deliveryNumber} ${who}`;
 }
 
@@ -255,7 +256,8 @@ export function buildCalendarEvents(runs: CalendarRun[], links: CalendarLink[], 
       end: new Date(start.getTime() + minutes * 60_000).toISOString(),
       allDay: false,
       status: r.status,
-      statusLabel: RUN_STATUS_LABEL[r.status] ?? r.status,
+      // A WCT order job reads "Done", not "Delivered" (deliveries/job-wording.ts).
+      statusLabel: r.status === 'delivered' ? deliveredLabel(runNoun(r) === 'Job') : (RUN_STATUS_LABEL[r.status] ?? r.status),
       completed: r.status === 'completed',
       cancelled: r.status === 'cancelled',
       address: r.siteAddress,

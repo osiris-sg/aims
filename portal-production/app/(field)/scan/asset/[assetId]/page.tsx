@@ -16,6 +16,7 @@ import DescriptionIcon from "@mui/icons-material/Description";
 import { request } from "@/helpers/request";
 import FieldBackButton from "../../../components/FieldBackButton";
 import { exitFor, isAdhocOrigin, withOrigin } from "../../../lib/scanOrigin";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 type DeliveryItemStatus = "not_delivered" | "delivering" | "not_installed" | "completed";
 
@@ -97,6 +98,8 @@ export default function AssetActionChooser() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   useFieldAppBar({ title: "Asset" });
+  // WCT (enableWctOrders): no delivery / return start from a scanned unit; every job starts from an order.
+  const { isWctOrdersEnabled } = useOrganizationFeatures();
 
   useEffect(() => {
     let cancelled = false;
@@ -345,7 +348,8 @@ export default function AssetActionChooser() {
       {/* Single morphing delivery card: Start Delivery → Acknowledge Delivery →
           Complete Installation → Completed, driven by deliveryStage. Hidden once
           the delivery is completed (#1) — nothing to act on. */}
-      {!deliveryCompleted && (
+      {isWctOrdersEnabled && <Alert severity="info">Jobs start from an order. Open your job from the Jobs list.</Alert>}
+      {!deliveryCompleted && !isWctOrdersEnabled && (
         <Card variant="outlined">
           {deliveryCard.onClick ? (
             <CardActionArea onClick={deliveryCard.onClick}>{deliveryCardInner}</CardActionArea>
@@ -358,7 +362,7 @@ export default function AssetActionChooser() {
 
       {/* Reverse delivery: collect a rental unit back to stock. Same field flow
           (photo/GPS → collect-ack), no assign/install. */}
-      {data.canStartReturn && inventory && (
+      {data.canStartReturn && inventory && !isWctOrdersEnabled && (
         <Card variant="outlined">
           <CardActionArea
             onClick={() =>

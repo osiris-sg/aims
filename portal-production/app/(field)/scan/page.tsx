@@ -7,6 +7,7 @@ import { Alert, Box, Chip, CircularProgress, Stack } from "@mui/material";
 import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined";
 import SearchOffIcon from "@mui/icons-material/SearchOff";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { runWords } from "@/helpers/jobWording";
 import { RunSummary, fetchCompletedRuns, fetchInProgressRuns, fetchScheduledRuns, resolveInProgressHref, runMatchesSearch, claimReturnRun } from "../lib/deliveryLists";
 import { CompletedRunCard, InProgressRunCard, ScheduledRunCard } from "../components/DeliveryRunCards";
 import { FieldBottomNav, FieldBottomNavSpacer } from "../components/FieldBottomNav";
@@ -47,17 +48,20 @@ const FETCHERS: Record<DeliveriesTab, (token: string) => Promise<RunSummary[]>> 
   completed: fetchCompletedRuns,
 };
 
-const EMPTY_COPY: Record<DeliveriesTab, string> = {
-  pending: "Nothing scheduled right now.",
-  progress: "Nothing in progress. You're all caught up.",
-  completed: "No deliveries completed in the last 7 days.",
-};
+const emptyCopy = (tab: DeliveriesTab, nouns: string) =>
+  ({
+    pending: "Nothing scheduled right now.",
+    progress: "Nothing in progress. You're all caught up.",
+    completed: `No ${nouns} completed in the last 7 days.`,
+  })[tab];
 
 export default function DeliveriesHomePage() {
   const router = useRouter();
   const search = useSearchParams();
   const { getToken } = useAuth();
-  const { features, isLoading, isWctMyJobsEnabled } = useOrganizationFeatures();
+  const { features, isLoading, isWctMyJobsEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
+  // WCT (enableWctOrders): "Jobs", and no ad-hoc start (all WCT work starts from an order).
+  const w = runWords(!!isWctOrdersEnabled);
   // WCT "My jobs" (enableWctMyJobs): the Pending tab opens on the jobs planned
   // for this worker; All shows every scheduled job as before.
   const [scope, setScope] = useState<JobsScope>("mine");
@@ -102,7 +106,7 @@ export default function DeliveriesHomePage() {
         const runs = await FETCHERS[tab](token);
         if (!cancelled) setLists((prev) => ({ ...prev, [tab]: runs }));
       } catch (e: any) {
-        if (!cancelled) setError(e?.message ?? "Failed to load deliveries");
+        if (!cancelled) setError(e?.message ?? `Failed to load ${w.nouns}`);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -160,13 +164,13 @@ export default function DeliveriesHomePage() {
   return (
     <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
       <FieldHomeHeader
-        title="Deliveries"
+        title={w.Nouns}
         search={q}
         onSearch={setQ}
-        placeholder="Search delivery #, project, customer, address"
+        placeholder={isWctOrdersEnabled ? "Search job #, order, customer, address" : "Search delivery #, project, customer, address"}
         addLabel="Ad-hoc delivery or return"
         addButtonLabel="Ad-hoc"
-        onAdd={() => router.push("/scan/adhoc")}
+        onAdd={isWctOrdersEnabled ? undefined : () => router.push("/scan/adhoc")}
         tabs={TABS}
         tab={tab}
         onTab={selectTab}
@@ -188,11 +192,11 @@ export default function DeliveriesHomePage() {
             </Box>
           )
         ) : runs.length === 0 ? (
-          <EmptyState icon={<LocalShippingOutlinedIcon />} message={EMPTY_COPY[tab]} />
+          <EmptyState icon={<LocalShippingOutlinedIcon />} message={emptyCopy(tab, w.nouns)} />
         ) : scoped && scope === "mine" && mineCount === 0 && !q ? (
           <EmptyState icon={<LocalShippingOutlinedIcon />} message="No jobs planned for you. Tap All to see every scheduled job." />
         ) : filtered.length === 0 ? (
-          <EmptyState icon={<SearchOffIcon />} message={<>No delivery matches &quot;{q}&quot;.</>} />
+          <EmptyState icon={<SearchOffIcon />} message={<>No {w.noun} matches &quot;{q}&quot;.</>} />
         ) : (
           filtered.map((r) =>
             tab === "pending" ? (

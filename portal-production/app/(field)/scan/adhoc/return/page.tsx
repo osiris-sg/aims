@@ -13,6 +13,7 @@ import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCap
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
 import FieldBackButton from "../../../components/FieldBackButton";
+import { withNoAdhocForWct } from "@/app/(field)/lib/wctNoAdhoc";
 
 /**
  * AD-HOC RETURN, screens 1 and 2 (2026-10-22). One page, two steps, so the
@@ -37,7 +38,7 @@ interface Line {
   photos: CapturedPhoto[];
 }
 
-export default function AdHocReturnEntryPage() {
+function AdHocReturnEntryPage() {
   const router = useRouter();
   const { getToken } = useAuth();
   const { user } = useUser();
@@ -214,3 +215,6 @@ export default function AdHocReturnEntryPage() {
     </Box>
   );
 }
+
+// WCT: no ad-hoc / scan-a-unit start (every WCT job starts from an order).
+export default withNoAdhocForWct(AdHocReturnEntryPage);

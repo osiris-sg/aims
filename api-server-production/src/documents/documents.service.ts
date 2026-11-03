@@ -685,6 +685,24 @@ export class DocumentsService {
     }
   }
 
+  /**
+   * WCT (enableWctOrders, 2026-11-03): the order each quotation became, by
+   * quotation id, for the quotation banner and the quotations list. Empty for
+   * every other org and for non-quotation rows (one batched read).
+   */
+  private async quotationOrders(organizationId: string, docs: Array<{ id: string; type?: string | null }>): Promise<Map<string, { id: string; orderNumber: string }>> {
+    const ids = docs.filter((d) => ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(String(d.type ?? ''))).map((d) => d.id);
+    if (!ids.length || !(await isOrgFeatureEnabled(this.prisma, organizationId, 'enableWctOrders'))) return new Map();
+    const orders = await this.prisma.order.findMany({
+      where: { organizationId, sourceQuotationId: { in: ids } },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, orderNumber: true, sourceQuotationId: true },
+    });
+    const out = new Map<string, { id: string; orderNumber: string }>();
+    for (const o of orders) if (o.sourceQuotationId && !out.has(o.sourceQuotationId)) out.set(o.sourceQuotationId, { id: o.id, orderNumber: o.orderNumber });
+    return out;
+  }
+
   async getById(id: string, organizationId: string) {
     try {
       const document = await this.prisma.document.findFirst({
@@ -950,6 +968,9 @@ export class DocumentsService {
         ...document,
         template: templateBundle?.template ?? null,
         fieldDefinitions: templateBundle?.fieldDefinitions ?? null,
+        // WCT (enableWctOrders, 2026-11-03): the order this quotation became, for the
+        // "Order ORD… created" banner. Absent for every other org / document.
+        ...(await this.quotationOrders(organizationId, [document]).then((m) => (m.has(document.id) ? { linkedOrder: m.get(document.id) } : {}))),
       };
     } catch (error) {
       throw new HttpException(`Fetch by ID failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -4050,6 +4071,7 @@ export class DocumentsService {
         ? await this.prisma.project.findMany({ where: { id: { in: [...new Set(projectIds)] } }, select: { id: true, name: true } })
         : [];
       const projectMap = new Map(projects.map((p) => [p.id, p.name]));
+      const orderByQuotation = await this.quotationOrders(organizationId, rows);
 
       const docs = rows.map((doc: any) => {
         const config = doc.config as any;
@@ -4070,6 +4092,8 @@ export class DocumentsService {
           projectId: doc.projectId ?? null,
           projectName: (doc.projectId && projectMap.get(doc.projectId)) ?? null,
           config: doc.config,
+          // WCT: the order a confirmed quotation became (the list shows its number).
+          ...(orderByQuotation.has(doc.id) ? { linkedOrder: orderByQuotation.get(doc.id) } : {}),
         };
       });
 

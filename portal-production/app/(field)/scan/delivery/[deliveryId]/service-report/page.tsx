@@ -35,6 +35,8 @@ import {
   type WctSectionResult,
   type WctServiceData,
 } from "@/lib/msr-templates";
+import { useRunWords } from "@/app/portal/hooks/useRunWords";
+import { runTitle } from "@/helpers/jobWording";
 
 /**
  * WCT service job — the SERVICE itself, walked step by step (guru 2026-10-27:
@@ -115,6 +117,8 @@ interface Draft {
 }
 
 export default function WctServiceReportPage() {
+  // WCT (enableWctOrders): "Job" wording (helpers/jobWording.ts).
+  const w = useRunWords();
   const params = useParams();
   const router = useRouter();
   const { getToken } = useAuth();
@@ -160,7 +164,7 @@ export default function WctServiceReportPage() {
         if (!token) throw new Error("Not signed in");
         const res = await request({ path: `/deliveries/${deliveryId}`, method: "GET" }, {}, token);
         if (cancelled) return;
-        if (res?.success === false) throw new Error(res?.message ?? "Could not load the delivery");
+        if (res?.success === false) throw new Error(res?.message ?? `Could not load the ${w.noun}`);
         const r = (res?.data ?? res) as Run;
         setRun(r);
         setCustomerName(r.customer?.name ?? "");
@@ -195,7 +199,7 @@ export default function WctServiceReportPage() {
           }
         }
       } catch (e: any) {
-        if (!cancelled) setLoadError(e?.message ?? "Could not load the delivery");
+        if (!cancelled) setLoadError(e?.message ?? `Could not load the ${w.noun}`);
       } finally {
         if (!cancelled) {
           setRestored(true);
@@ -437,7 +441,7 @@ export default function WctServiceReportPage() {
   useFieldAppBar({
     title: "Service",
     // The total depends on the job types ticked on step 1, so it shows from step 2 on.
-    subtitle: run && !created ? `Delivery #${run.deliveryNumber} · Step ${stepNumber}${cursor.phase === "job" ? "" : ` of ${totalSteps}`} · ${stepTitle}` : run ? `Delivery #${run.deliveryNumber}` : undefined,
+    subtitle: run && !created ? `${runTitle(w, run.deliveryNumber)} · Step ${stepNumber}${cursor.phase === "job" ? "" : ` of ${totalSteps}`} · ${stepTitle}` : run ? runTitle(w, run.deliveryNumber) : undefined,
     onBack: created ? undefined : goBack,
     backDisabled: submitting || uploading,
   });
@@ -452,7 +456,7 @@ export default function WctServiceReportPage() {
   if (loadError || !run) {
     return (
       <Box sx={{ p: 2 }}>
-        <Alert severity="error">{loadError ?? "Delivery not found"}</Alert>
+        <Alert severity="error">{loadError ?? `${w.Noun} not found`}</Alert>
         <Button sx={{ mt: 2 }} onClick={() => router.back()}>Back</Button>
       </Box>
     );
@@ -468,7 +472,7 @@ export default function WctServiceReportPage() {
           <Typography variant="h5">{created ? "Service report created" : "Service report already written"}</Typography>
           <Typography variant="body2" color="text.secondary">
             {created?.reportNumber != null ? `Report #${String(created.reportNumber).padStart(6, "0")} · ` : ""}
-            Delivery #{run.deliveryNumber}{created ? " · emailed to the customer when an email is on file" : ""}
+            {runTitle(w, run.deliveryNumber)}{created ? " · emailed to the customer when an email is on file" : ""}
           </Typography>
         </Stack>
         {printBusy && <Alert severity="info">{printBusy}</Alert>}
@@ -481,7 +485,7 @@ export default function WctServiceReportPage() {
         {error && <Alert severity="error">{error}</Alert>}
         {run.status === "completed" ? (
           <Button variant="text" onClick={() => router.replace(`/scan/deliveries/finished/${run.id}`)} fullWidth sx={FIELD_BUTTON_SX}>
-            Back to delivery
+            Back to {w.noun}
           </Button>
         ) : (
           <Button variant="contained" color="success" onClick={() => void continueToSignOff()} disabled={submitting} fullWidth sx={FIELD_BUTTON_SX}>
@@ -509,7 +513,7 @@ export default function WctServiceReportPage() {
         )}
       </Box>
       {serviceItems.length === 0 && (
-        <Alert severity="warning">This delivery has no Service line. The report is still written against the run.</Alert>
+        <Alert severity="warning">This {w.noun} has no Service line. The report is still written against the run.</Alert>
       )}
 
       {/* JOB — what is being done today */}

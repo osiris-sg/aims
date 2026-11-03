@@ -1,4 +1,5 @@
 import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { OrderJobsService } from './order-jobs.service';
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
@@ -32,6 +33,7 @@ export class DeliveriesController {
   constructor(
     private readonly service: DeliveriesService,
     private readonly siteclock: SiteClockLinkService,
+    private readonly orderJobs: OrderJobsService,
   ) {}
 
   @Post()
@@ -164,6 +166,23 @@ export class DeliveriesController {
     const views = await this.siteclock.viewsFor(org.id, (out.docs ?? []).map((d: any) => d.id));
     if (!views.size) return out;
     return { ...out, docs: out.docs.map((d: any) => ({ ...d, siteclock: views.get(d.id) ?? null })) };
+  }
+
+  // WCT Orders → Jobs (enableWctOrders, 2026-11-03): every order job, filterable.
+  // Declared before :id like scheduled-open.
+  @Get('order-jobs')
+  @Permissions('maintenance-reports:read')
+  orderJobsList(
+    @UserOrganization() org: { id: string },
+    @Query('q') q?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('state') state?: string,
+    @Query('worker') worker?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.orderJobs.list(org.id, { q, from, to, state, worker, page: page ? parseInt(page, 10) : undefined, limit: limit ? parseInt(limit, 10) : undefined });
   }
 
   // SiteClock link (WCT): the schedule form's switch + default duration, and the

@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import { isOrgFeatureEnabled } from 'src/common/org-features';
+import { runNoun } from '../deliveries/job-wording';
 
 /**
  * Delivery group posts (2026-09-30): after a delivery sign-off (full or
@@ -47,6 +48,8 @@ export async function enqueueDeliveryGroupPost(
         projectId: true,
         customerId: true,
         siteAddress: true,
+        // WCT order job: the caption says "Job #12" (deliveries/job-wording.ts).
+        orderId: true,
       },
     });
     if (!run || (run.direction !== 'OUTBOUND' && run.direction !== 'RETURN')) return null;
@@ -153,7 +156,8 @@ export async function enqueueDeliveryGroupPost(
     // Who: the customer always, the project in brackets (2026-11-02), e.g.
     // "Return #88, Singapore Sailing Port Pte. Ltd. (Nil)".
     const who = customer?.name ? `${customer.name}${project?.name ? ` (${project.name})` : ''}` : project?.name;
-    const head = [`${isReturn ? 'Return' : 'Delivery'} #${run.deliveryNumber}`, who].filter(Boolean).join(', ');
+    const noun = runNoun(run);
+    const head = [`${isReturn ? 'Return' : noun} #${run.deliveryNumber}`, who].filter(Boolean).join(', ');
     const what = [...counts].map(([d, q]) => `${q} x ${d}`).join(', ');
     let body: string[];
     if (isReturn) {
@@ -170,7 +174,7 @@ export async function enqueueDeliveryGroupPost(
     } else {
       body = [
         `${doNames ? `DO: ${doNames} · signed` : 'Signed'}${signer ? ` by ${signer}` : ''} at ${fmtSgt(signedAt)}`,
-        `Trip ${tripNumber} (${final ? 'final' : `partial: ${owed} item${owed === 1 ? '' : 's'} still to deliver`}) · ${what || 'no items'}`,
+        `Trip ${tripNumber} (${final ? 'final' : `partial: ${owed} item${owed === 1 ? '' : 's'} still to ${noun === 'Job' ? 'do' : 'deliver'}`}) · ${what || 'no items'}`,
       ];
     }
     const caption = [

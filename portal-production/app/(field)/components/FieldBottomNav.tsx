@@ -7,6 +7,7 @@ import { useTheme } from "@mui/material/styles";
 import { fieldChrome } from "@/themes/fieldTheme";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import BuildIcon from "@mui/icons-material/Build";
+import { useRunWords } from "@/app/portal/hooks/useRunWords";
 
 export type FieldHomeTab = "deliveries" | "maintenance";
 
@@ -32,6 +33,8 @@ export const FIELD_BOTTOM_NAV_OFFSET = `calc(${FIELD_BOTTOM_NAV_HEIGHT}px + ${SA
 export function FieldBottomNav({ value }: { value: FieldHomeTab }) {
   const router = useRouter();
   const theme = useTheme();
+  // WCT (enableWctOrders): "Jobs".
+  const w = useRunWords();
   const pill = fieldChrome(theme).navIndicator;
   return (
     <Paper
@@ -86,7 +89,7 @@ export function FieldBottomNav({ value }: { value: FieldHomeTab }) {
           },
         }}
       >
-        <BottomNavigationAction label="Deliveries" value="deliveries" icon={<LocalShippingIcon />} />
+        <BottomNavigationAction label={w.Nouns} value="deliveries" icon={<LocalShippingIcon />} />
         <BottomNavigationAction label="Maintenance" value="maintenance" icon={<BuildIcon />} />
       </BottomNavigation>
     </Paper>

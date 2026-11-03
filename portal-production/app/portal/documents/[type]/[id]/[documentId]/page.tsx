@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Box, CircularProgress } from "@mui/material";
+import { Alert, Box, Button, CircularProgress } from "@mui/material";
+import Link from "next/link";
 import TabbedDocumentCreator from "@/containers/DocumentTemplates/components/TabbedDocumentCreator";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
@@ -692,7 +693,23 @@ export default function page() {
   console.log("type from URL:", type);
   console.log("Final actualDocumentType:", actualDocumentType);
 
+  // WCT (enableWctOrders, 2026-11-03): a confirmed quotation that became an order says so at the top.
+  const linkedOrder: { id: string; orderNumber: string } | undefined = documentMetadata?.linkedOrder;
   return (
+    <>
+    {linkedOrder && (
+      <Alert
+        severity="success"
+        sx={{ mb: 2 }}
+        action={
+          <Button component={Link} href={`/portal/orders/${linkedOrder.id}`} size="small" variant="contained" disableElevation>
+            Open order
+          </Button>
+        }
+      >
+        Order {linkedOrder.orderNumber} created
+      </Alert>
+    )}
     <TabbedDocumentCreator
       documentType={templateVariant as any}
       actualDocumentType={actualDocumentType as string}
@@ -715,5 +732,6 @@ export default function page() {
       hasNext={hasNext}
       onDocumentCreated={refetchDocuments}
     />
+    </>
   );
 }

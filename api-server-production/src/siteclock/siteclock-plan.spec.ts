@@ -100,7 +100,7 @@ describe('siteclock plan', () => {
     expect(kinds(planSync(null, l, D))).toEqual(['cancel']);
     expect(kinds(planSync(run({ isDraft: true }), l, D))).toEqual(['cancel']);
     expect(kinds(planSync(run(), { ...l, workerId: null }, D))).toEqual(['cancel']);
-    expect((planSync(null, l, D).steps[0] as any).reason).toBe('Delivery deleted in AIMS');
+    expect((planSync(null, l, D).steps[0] as any).reason).toBe('Job deleted in AIMS'); // a deleted run: only WCT has the SiteClock link, so "Job"
   });
 
   it('progress follows the run: started → IN_PROGRESS, finished → COMPLETED, never twice', () => {

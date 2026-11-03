@@ -21,6 +21,8 @@ import { DoPrintActions } from "../../../../components/DoPrintActions";
 import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { useRunWords } from "@/app/portal/hooks/useRunWords";
+import { runTitle } from "@/helpers/jobWording";
 
 /** WCT Print DO: re-reads of the run while the DO is still being made (2.5 s apart). */
 const DO_READY_POLLS = 8;
@@ -92,6 +94,9 @@ const itemLabel = (i: RunItem): string =>
   formatUnitLabel({ sku: i.inventory?.sku, assetName: i.asset?.name, description: i.description });
 
 export default function FinishedDeliveryDetailPage() {
+  // WCT (enableWctOrders): "Job" wording (helpers/jobWording.ts).
+  const w = useRunWords();
+  const wct = w.isWct;
   const router = useRouter();
   const { getToken } = useAuth();
   const params = useParams();
@@ -110,7 +115,7 @@ export default function FinishedDeliveryDetailPage() {
   const byDriver = search?.get("by") === "driver";
 
   const isReturn = run?.direction === "RETURN";
-  useFieldAppBar({ title: run ? `${isReturn ? "Return" : "Delivery"} #${run.deliveryNumber}` : "Delivery" });
+  useFieldAppBar({ title: run ? runTitle(w, run.deliveryNumber, isReturn) : w.Noun });
 
   // quiet = a re-read while waiting for the DO: a failure keeps the screen as it is.
   const load = useCallback(
@@ -122,10 +127,10 @@ export default function FinishedDeliveryDetailPage() {
           return;
         }
         const res = await request({ path: `/deliveries/${deliveryId}`, method: "GET" }, {}, token);
-        if (res.success === false) throw new Error(res.message ?? "Failed to load delivery");
+        if (res.success === false) throw new Error(res.message ?? `Failed to load ${w.noun}`);
         setRun((res.data ?? res) as Run);
       } catch (e: any) {
-        if (!quiet) setError(e?.message ?? "Failed to load delivery");
+        if (!quiet) setError(e?.message ?? `Failed to load ${w.noun}`);
       } finally {
         setLoading(false);
       }
@@ -201,7 +206,7 @@ export default function FinishedDeliveryDetailPage() {
   if (error || !run) {
     return (
       <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
-        <Alert severity="error">{error ?? "Delivery not found"}</Alert>
+        <Alert severity="error">{error ?? `${w.Noun} not found`}</Alert>
         <Button startIcon={<ArrowBackIcon />} onClick={() => router.replace("/scan")}>
           Back
         </Button>
@@ -221,11 +226,11 @@ export default function FinishedDeliveryDetailPage() {
       <Stack alignItems="center" spacing={1} sx={{ py: 2 }}>
         <CheckCircleIcon color="success" sx={{ fontSize: 64 }} />
         <Typography variant="h5" sx={{ textAlign: "center" }}>
-          {partlySigned ? `Signed for ${signedCount} ${signedCount === 1 ? "item" : "items"}` : isReturn ? "Return completed" : "Delivery completed"}
+          {partlySigned ? `Signed for ${signedCount} ${signedCount === 1 ? "item" : "items"}` : isReturn ? "Return completed" : `${w.Noun} completed`}
         </Typography>
         {partlySigned && remaining > 0 && (
           <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center" }}>
-            {remaining} {remaining === 1 ? "item is" : "items are"} still to deliver on this delivery. The customer signs
+            {remaining} {remaining === 1 ? "item is" : "items are"} {wct ? "still to do on this job" : "still to deliver on this delivery"}. The customer signs
             again when they arrive.
           </Typography>
         )}
@@ -235,7 +240,7 @@ export default function FinishedDeliveryDetailPage() {
           </Typography>
         )}
         <Typography variant="body2" color="text.secondary" sx={{ fontFamily: "monospace" }}>
-          {isReturn ? "Return" : "Delivery"} #{run.deliveryNumber}
+          {runTitle(w, run.deliveryNumber, isReturn)}
         </Typography>
       </Stack>
 
@@ -246,7 +251,7 @@ export default function FinishedDeliveryDetailPage() {
 
       {!ack && !(run.verification && run.verification.completionMode !== "signature") && (
         <Alert severity="info">
-          No signed {isReturn ? "return" : "delivery"} is stored for this run. The printout will show the items without a signature.
+          No signed {isReturn ? "return" : w.noun} is stored for this run. The printout will show the items without a signature.
         </Alert>
       )}
 
@@ -290,7 +295,7 @@ export default function FinishedDeliveryDetailPage() {
         fullWidth
         sx={FIELD_BUTTON_SX}
       >
-        {partlySigned ? "Back to Deliveries" : "Back"}
+        {partlySigned ? `Back to ${w.Nouns}` : "Back"}
       </Button>
 
     </Box>

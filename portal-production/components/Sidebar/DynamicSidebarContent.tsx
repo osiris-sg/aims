@@ -47,6 +47,7 @@ import { usePathname } from "next/navigation";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { hiddenFromMenu, menuOrderOverride } from "@/helpers/wctNav";
 import { getListRouteFromPathname } from "@/app/portal/components/documentRoutes";
 import { useSidebar } from "./SidebarContext";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
@@ -92,7 +93,7 @@ export default function DynamicSidebarContent() {
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
-  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled } = useOrganizationFeatures();
+  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
   const navLang = useUiLang().lang;
@@ -215,10 +216,9 @@ export default function DynamicSidebarContent() {
     USER_MANAGEMENT: ['roles'],
   };
   // Display-order overrides (win over each module's stored sortOrder). Sales sits
-  // just below Dashboard so it appears above Inventory for every org.
-  const ORDER_OVERRIDE: Record<string, number> = {
-    SALES: 0.5,
-  };
+  // just below Dashboard so it appears above Inventory for every org; WCT's
+  // Orders right after Sales (helpers/wctNav.ts).
+  const ORDER_OVERRIDE: Record<string, number> = menuOrderOverride(!!isWctOrdersEnabled);
   const orderKey = (m: any) => ORDER_OVERRIDE[m.moduleCode] ?? m.sortOrder ?? 999;
 
   // Filter and sort enabled modules, then filter by role-based module access
@@ -226,6 +226,8 @@ export default function DynamicSidebarContent() {
     .filter(m => m.enabled)
     .filter(m => isModuleAllowed(m.moduleCode))
     .filter(m => !HIDDEN_MODULES.has(m.moduleCode))
+    // WCT: no Deliveries in the menu (its jobs are under Orders).
+    .filter(m => !hiddenFromMenu(m.moduleCode, !!isWctOrdersEnabled))
       .filter(m => shownInMenu(m))
     .map(m => {
       const hide = HIDDEN_SUBMENUS[m.moduleCode];

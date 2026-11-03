@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import { runNoun } from '../deliveries/job-wording';
 
 /**
  * Pure planning for the SiteClock link: what the SiteClock job for a delivery
@@ -135,7 +136,7 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…`
  * a WCT order leads with the order: "ORD202611-001 · #12 Acme Pte Ltd · DO202611008".
  */
 export function jobTitle(run: PlanRun) {
-  const who = run.customerName || run.projectName || 'Delivery';
+  const who = run.customerName || run.projectName || runNoun(run);
   const doNo = run.doNumber?.trim();
   const ord = run.orderNumber?.trim();
   const head = ord ? `${ord} · ` : '';
@@ -170,14 +171,16 @@ export function planSync(run: PlanRun | null, link: PlanLink, deliveryId: string
 
   if (target === 'none') {
     if (!jobLive) return { target, steps: [] };
-    const reason = !run ? 'Delivery deleted in AIMS' : run.status === 'cancelled' ? 'Delivery cancelled in AIMS' : !link.workerId ? 'Worker removed in AIMS' : 'Delivery unscheduled in AIMS';
+    // SiteClock reads these: a WCT order job is a "Job" (only WCT has the SiteClock link today).
+    const noun = run ? runNoun(run) : 'Job';
+    const reason = !run ? `${noun} deleted in AIMS` : run.status === 'cancelled' ? `${noun} cancelled in AIMS` : !link.workerId ? 'Worker removed in AIMS' : `${noun} unscheduled in AIMS`;
     return { target, steps: [{ kind: 'cancel', reason }] };
   }
   const r = run!;
   const address = (r.siteAddress || '').trim();
   if (!address) {
     if (last === 'COMPLETED') return { target, steps: [] };
-    return { target, steps: [], problem: 'The delivery has no address, so SiteClock has nowhere to put the job' };
+    return { target, steps: [], problem: `The ${runNoun(r).toLowerCase()} has no address, so SiteClock has nowhere to put the job` };
   }
 
   const steps: Step[] = [];
