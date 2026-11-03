@@ -6,6 +6,7 @@ import { Autocomplete, Box, CircularProgress, Stack, TextField, Typography } fro
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import { request } from "@/helpers/request";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { runWords } from "@/helpers/jobWording";
 
 /**
  * Delivery group posts (2026-09-30): which WhatsApp group a signed delivery is
@@ -20,15 +21,17 @@ interface Group {
   name: string;
 }
 
-const HINT: Record<Target["kind"], string> = {
-  project: "Signed deliveries for this project are posted here (photos + signed DO).",
-  customer: "Used for this customer's deliveries when the project has no group.",
-  ops: "Fallback when neither the project nor the customer has a group.",
-};
+// WCT (enableWctOrders) reads "jobs" (helpers/jobWording.ts).
+const hintFor = (kind: Target["kind"], nouns: string) =>
+  ({
+    project: `Signed ${nouns} for this project are posted here (photos + signed DO).`,
+    customer: `Used for this customer's ${nouns} when the project has no group.`,
+    ops: "Fallback when neither the project nor the customer has a group.",
+  })[kind];
 
 export default function WhatsAppGroupPicker({
   target,
-  label = "WhatsApp group for delivery posts",
+  label,
   orgId,
 }: {
   target: Target;
@@ -38,7 +41,9 @@ export default function WhatsAppGroupPicker({
   orgId?: string;
 }) {
   const { getToken } = useAuth();
-  const { isDeliveryGroupPostsEnabled: flagOn } = useOrganizationFeatures();
+  const { isDeliveryGroupPostsEnabled: flagOn, isWctOrdersEnabled } = useOrganizationFeatures();
+  const w = runWords(!!isWctOrdersEnabled);
+  const fieldLabel = label ?? `WhatsApp group for ${w.noun} posts`;
   const isDeliveryGroupPostsEnabled = !!orgId || flagOn;
   const orgHeaders = orgId ? { "X-Active-Org-Id": orgId } : undefined;
   const [groups, setGroups] = useState<Group[]>([]);
@@ -114,7 +119,7 @@ export default function WhatsAppGroupPicker({
         renderInput={(params) => (
           <TextField
             {...params}
-            label={label}
+            label={fieldLabel}
             InputProps={{
               ...params.InputProps,
               startAdornment: (
@@ -135,7 +140,7 @@ export default function WhatsAppGroupPicker({
       />
       <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
         <Typography variant="caption" color={error ? "error" : saved ? "success.main" : "text.secondary"}>
-          {error || saved || HINT[target.kind]}
+          {error || saved || hintFor(target.kind, w.nouns)}
         </Typography>
       </Stack>
     </Box>

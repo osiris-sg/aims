@@ -40,7 +40,7 @@ export function finishProblem(mode: FinishMode, photoCount: number): string | nu
 }
 
 export function finishButtonLabel(mode: FinishMode): string {
-  return mode === "stamped_do" ? "Complete with stamped DO" : mode === "paper" ? "Mark completed" : "Complete delivery";
+  return mode === "stamped_do" ? "Complete with stamped DO" : mode === "paper" ? "Mark completed" : "Complete job";
 }
 
 /** The admin's reject needs a reason. */

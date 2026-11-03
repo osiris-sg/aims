@@ -313,7 +313,7 @@ describe('SiteClockLinkService', () => {
     await w.svc.onScheduleSaved(WCT, c.id, { workerId: null });
     await w.settle();
     expect(w.sc.jobs.get(`aims-delivery:${a.id}`)).toMatchObject({ status: 'CANCELLED', cancelReason: 'Delivery cancelled in AIMS' });
-    expect(w.sc.jobs.get(`aims-delivery:${b.id}`)).toMatchObject({ status: 'CANCELLED', cancelReason: 'Delivery deleted in AIMS' });
+    expect(w.sc.jobs.get(`aims-delivery:${b.id}`)).toMatchObject({ status: 'CANCELLED', cancelReason: 'Job deleted in AIMS' });
     expect(w.sc.jobs.get(`aims-delivery:${c.id}`)).toMatchObject({ status: 'CANCELLED', cancelReason: 'Worker removed in AIMS' });
     expect(w.linkOf(c.id)).toMatchObject({ workerId: null, workerName: null, lastPushedStatus: 'CANCELLED' });
 

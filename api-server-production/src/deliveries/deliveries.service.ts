@@ -61,6 +61,7 @@ import { applyOrderToDoConfig, isWctOrdersEnabled, refreshOrderStatus, refreshOr
 import { plannedRiderView, savePlannedRider } from './planned-rider';
 import { CompletionMode, WCT_FINISH_MODES_FLAG, finishModeProblem, initialVerification, isCompletionMode } from './finish-modes';
 import { checkJobFieldValues, isJobFieldsEnabled, jobFieldDefs, jobFieldValues, saveJobFieldValues } from './job-fields';
+import { runNoun } from './job-wording';
 @Injectable()
 export class DeliveriesService {
   private readonly logger = new Logger(DeliveriesService.name);
@@ -1636,11 +1637,11 @@ export class DeliveriesService {
     });
     if (!run) throw new NotFoundException('Delivery not found');
     if (run.status !== 'scheduled') {
-      throw new BadRequestException(`Delivery #${run.deliveryNumber} is not scheduled (status: ${run.status})`);
+      throw new BadRequestException(`${runNoun(run)} #${run.deliveryNumber} is not scheduled (status: ${run.status})`);
     }
     // A draft is an unfinished office note, not work: never claimable.
     if (run.isDraft) {
-      throw new BadRequestException(`Delivery #${run.deliveryNumber} is still a draft and cannot be started`);
+      throw new BadRequestException(`${runNoun(run)} #${run.deliveryNumber} is still a draft and cannot be started`);
     }
     const slot = run.items.find((i) => i.assetId === dto.assetId && !i.inventoryId);
     if (!slot) {
@@ -4246,10 +4247,11 @@ export class DeliveriesService {
   ) {
     const run = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
-      select: { id: true, status: true, direction: true, projectId: true, items: { select: { id: true, inventoryId: true, assetId: true, deliveryStatus: true, description: true } } },
+      select: { id: true, status: true, direction: true, projectId: true, orderId: true, items: { select: { id: true, inventoryId: true, assetId: true, deliveryStatus: true, description: true } } },
     });
     if (!run) throw new NotFoundException('Delivery not found');
-    if (run.status === 'cancelled') throw new BadRequestException('Cannot deliver on a cancelled delivery');
+    // A WCT order job reads "job" (deliveries/job-wording.ts).
+    if (run.status === 'cancelled') throw new BadRequestException(runNoun(run) === 'Job' ? 'Cannot work on a cancelled job' : 'Cannot deliver on a cancelled delivery');
     const isReturn = run.direction === DeliveryDirection.RETURN;
     // Every item mid-flow (started, not yet acknowledged/collected): unit-backed
     // lines AND FREE-TYPED lines (a cable etc., inventoryId + assetId both null,
@@ -4371,11 +4373,12 @@ export class DeliveriesService {
         id: true,
         status: true,
         direction: true,
+        orderId: true,
         items: { select: { id: true, inventoryId: true, assetId: true, deliveryStatus: true } },
       },
     });
     if (!run) throw new NotFoundException('Delivery not found');
-    if (run.status === 'cancelled') throw new BadRequestException('Cannot deliver on a cancelled delivery');
+    if (run.status === 'cancelled') throw new BadRequestException(runNoun(run) === 'Job' ? 'Cannot work on a cancelled job' : 'Cannot deliver on a cancelled delivery');
     if (run.direction === DeliveryDirection.RETURN) {
       throw new BadRequestException('Use the return collection flow on a RETURN run');
     }
@@ -4397,7 +4400,7 @@ export class DeliveriesService {
         deliveryItemId: item.id, // ties this proof to its exact line
         kind: 'DO_ACK',
         status: 'draft',
-        description: 'Delivery acknowledged',
+        description: `${runNoun(run)} acknowledged`,
         ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
         ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
         ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
@@ -6219,7 +6222,7 @@ export class DeliveriesService {
     // line just needs its photos, exactly like the outbound free-typed start.
     const runDir = await this.prisma.delivery.findUnique({
       where: { id: deliveryId },
-      select: { direction: true, status: true, isDraft: true, deliveryNumber: true },
+      select: { direction: true, status: true, isDraft: true, deliveryNumber: true, orderId: true },
     });
     const isReturn = runDir?.direction === DeliveryDirection.RETURN;
     // A still-SCHEDULED run is claimed by this start (below), exactly as a unit
@@ -6227,7 +6230,7 @@ export class DeliveriesService {
     // unfinished office note, never claimable.
     const claimsRun = runDir?.status === 'scheduled';
     if (claimsRun && runDir?.isDraft) {
-      throw new BadRequestException(`Delivery #${runDir.deliveryNumber} is still a draft and cannot be started`);
+      throw new BadRequestException(`${runNoun(runDir)} #${runDir.deliveryNumber} is still a draft and cannot be started`);
     }
     const photos = (dto.photos ?? []).map((k) => String(k).trim()).filter(Boolean);
     const required = minPhotosForAssetClass(item.assetClass);

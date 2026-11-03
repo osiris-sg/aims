@@ -12,10 +12,17 @@ import JobsCalendar from "@/components/Dashboard/JobsCalendar";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 export default function DashboardOverview() {
-  const { isJobsCalendarEnabled } = useOrganizationFeatures();
-  // Jobs calendar orgs (enableJobsCalendar, WCT): the calendar comes first and
-  // the org's usual dashboard sections follow below it. Everyone else: as before.
+  const { isJobsCalendarEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
+  // Jobs calendar orgs (enableJobsCalendar): the calendar comes first and the
+  // org's usual dashboard sections follow below it. Everyone else: as before.
   if (!isJobsCalendarEnabled) return <OrgDashboard />;
+  // WCT (enableWctOrders, 2026-11-03): the calendar alone, full height, nothing below.
+  if (isWctOrdersEnabled)
+    return (
+      <MainCard>
+        <JobsCalendar fullHeight />
+      </MainCard>
+    );
   return (
     <MainCard>
       <JobsCalendar />

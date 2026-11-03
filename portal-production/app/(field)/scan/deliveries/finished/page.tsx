@@ -12,6 +12,7 @@ import { CompletedRunCard } from "../../../components/DeliveryRunCards";
 import FieldBackButton from "../../../components/FieldBackButton";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 import { EmptyState } from "@/app/(field)/components/fieldUi";
+import { useRunWords } from "@/app/portal/hooks/useRunWords";
 
 /**
  * Rider "finished deliveries — reprint" list (field). The rider's own COMPLETED
@@ -25,9 +26,11 @@ import { EmptyState } from "@/app/(field)/components/fieldUi";
  */
 
 export default function FinishedDeliveriesPage() {
+  // WCT (enableWctOrders): "Job" wording (helpers/jobWording.ts).
+  const w = useRunWords();
   const router = useRouter();
   const { getToken } = useAuth();
-  useFieldAppBar({ title: "Reprint a delivery" });
+  useFieldAppBar({ title: `Reprint a ${w.noun}` });
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +47,7 @@ export default function FinishedDeliveriesPage() {
       // endpoint returns all completed runs; we only list recent ones for reprint.
       setRuns(await fetchCompletedRuns(token));
     } catch (e: any) {
-      setError(e?.message ?? "Failed to load deliveries");
+      setError(e?.message ?? `Failed to load ${w.nouns}`);
     } finally {
       setLoading(false);
     }
@@ -60,13 +63,13 @@ export default function FinishedDeliveriesPage() {
   return (
     <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
       <Typography variant="body2" color="text.secondary">
-        Deliveries you completed in the last 7 days. Tap one to view it and reprint the receipt.
+        {w.Nouns} you completed in the last 7 days. Tap one to view it and reprint the receipt.
       </Typography>
 
       {!loading && runs.length > 3 && (
         <TextField
           size="small"
-          placeholder="Search delivery # or unit serial"
+          placeholder={`Search ${w.noun} # or unit serial`}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           InputProps={{ startAdornment: <SearchIcon fontSize="small" sx={{ mr: 1, color: "text.disabled" }} /> }}
@@ -80,9 +83,9 @@ export default function FinishedDeliveriesPage() {
           <CircularProgress />
         </Box>
       ) : runs.length === 0 ? (
-        <EmptyState icon={<PrintIcon />} message="No deliveries completed in the last 7 days." />
+        <EmptyState icon={<PrintIcon />} message={`No ${w.nouns} completed in the last 7 days.`} />
       ) : filtered.length === 0 ? (
-        <EmptyState icon={<SearchOffIcon />} message={<>No delivery matches &quot;{q}&quot;.</>} />
+        <EmptyState icon={<SearchOffIcon />} message={<>No {w.noun} matches &quot;{q}&quot;.</>} />
       ) : (
         <Stack spacing={1.5}>
           {filtered.map((r) => (

@@ -9,6 +9,7 @@ import { ActionLogService } from '../action-log/action-log.service';
 import { SiteClockApiError, SiteClockClient, SiteClockJob } from './siteclock.client';
 import { backoffMs, externalRefFor, Plan, PlanLink, PlanRun, planSync, PushedStatus } from './siteclock-plan';
 import { hashInboundKey, newInboundKey } from '../job-photos/job-photos';
+import { runNoun } from '../deliveries/job-wording';
 
 export const SITECLOCK_LINK_FLAG = 'enableSiteClockLink';
 const ALERT_AFTER = 3; // failures in a row before the office bell rings
@@ -401,15 +402,17 @@ export class SiteClockLinkService {
     this.actionLog?.system('siteclock-sync', 'FAIL', 'deliveries', { organizationId: link.organizationId, resourceId: link.deliveryId, details: { error, attempts, steps: done } });
     if (alert) {
       const run = await runAsOrg(link.organizationId, () =>
-        this.prisma.delivery.findFirst({ where: { id: link.deliveryId, organizationId: link.organizationId }, select: { deliveryNumber: true } }),
+        this.prisma.delivery.findFirst({ where: { id: link.deliveryId, organizationId: link.organizationId }, select: { deliveryNumber: true, orderId: true } }),
       ).catch(() => null);
-      const label = run ? `Delivery #${run.deliveryNumber}` : 'A delivery';
+      // A WCT order job reads "Job" (deliveries/job-wording.ts).
+      const noun = runNoun(run);
+      const label = run ? `${noun} #${run.deliveryNumber}` : noun === 'Job' ? 'A job' : 'A delivery';
       await runAsOrg(link.organizationId, () =>
         this.notifications.emit({
           organizationId: link.organizationId,
           kind: 'SITECLOCK_SYNC_FAILED',
           title: `${label} is not in SiteClock`,
-          body: `SiteClock didn't take the job after ${attempts} tries: ${error}. AIMS keeps retrying; open the delivery to retry now.`,
+          body: `SiteClock didn't take the job after ${attempts} tries: ${error}. AIMS keeps retrying; open the ${noun.toLowerCase()} to retry now.`,
           entityType: 'delivery',
           entityId: link.deliveryId,
           linkUrl: `/portal/deliveries/${link.deliveryId}`,

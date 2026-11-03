@@ -9,6 +9,7 @@ import { uploadImage } from "@/helpers/imageUploader";
 import { capturePosition } from "@/helpers/geolocation";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import { useRunWords } from "@/app/portal/hooks/useRunWords";
 
 /**
  * Acknowledge Delivery — ACK-CAPTURE step of the reordered standalone flow:
@@ -22,6 +23,8 @@ import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
  * resumes from it (no MSR deletion by design).
  */
 export default function StandaloneDeliveryAckPage() {
+  // WCT (enableWctOrders): "Job" wording (helpers/jobWording.ts).
+  const w = useRunWords();
   const params = useParams();
   const router = useRouter();
   const search = useSearchParams();
@@ -38,7 +41,7 @@ export default function StandaloneDeliveryAckPage() {
   const [submitting, setSubmitting] = useState(false);
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useFieldAppBar({ title: "Confirm delivery" });
+  useFieldAppBar({ title: `Confirm ${w.noun}` });
 
   // Clerk-auth'd upload closure for the shared capture component (folder:
   // do-ack) — same pattern as the start/install steps.
@@ -51,14 +54,14 @@ export default function StandaloneDeliveryAckPage() {
   const continueToAssign = async () => {
     setError(null);
     if (!assetId) {
-      setError("Missing asset context — go back to the delivery and retry.");
+      setError(`Missing asset context. Go back to the ${w.noun} and retry.`);
       return;
     }
     setSubmitting(true);
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const description = notes.trim() || "Delivery acknowledged";
+      const description = notes.trim() || `${w.Noun} acknowledged`;
       // Best-effort one-shot GPS (same helper as the DO flow) — never blocks.
       setLocating(true);
       const coords = await capturePosition();
@@ -85,7 +88,7 @@ export default function StandaloneDeliveryAckPage() {
       }&ackMsrId=${encodeURIComponent(reportId)}`;
       router.replace(`/scan/delivery/${deliveryId}/after-ack?${q}${applyToAll ? "&applyToAll=1" : ""}`);
     } catch (e: any) {
-      setError(e?.message ?? "Failed to save delivery");
+      setError(e?.message ?? `Failed to save ${w.noun}`);
     } finally {
       setSubmitting(false);
     }
@@ -99,7 +102,7 @@ export default function StandaloneDeliveryAckPage() {
 
       <TextField
         label="Notes (optional)"
-        placeholder="Any condition issues or remarks at delivery"
+        placeholder={`Any condition issues or remarks at ${w.noun}`}
         multiline
         minRows={3}
         fullWidth
@@ -108,7 +111,7 @@ export default function StandaloneDeliveryAckPage() {
       />
 
       <PhotoCaptureField
-        label="Delivery photos (optional)"
+        label={`${w.Noun} photos (optional)`}
         photos={photos}
         onChange={setPhotos}
         upload={uploadDoAck}

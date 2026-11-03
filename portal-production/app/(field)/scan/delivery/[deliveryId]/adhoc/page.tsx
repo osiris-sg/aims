@@ -9,6 +9,7 @@ import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 import { ListCard } from "@/app/(field)/components/fieldUi";
+import { withNoAdhocForWct } from "@/app/(field)/lib/wctNoAdhoc";
 
 /**
  * AD-HOC DELIVERY — the two-button screen.
@@ -36,7 +37,7 @@ import { ListCard } from "@/app/(field)/components/fieldUi";
  *   Then the NORMAL signature page, which now sees an ordinary delivered run
  *   and needs no ad-hoc branch of its own.
  */
-export default function AdHocDeliveryPage() {
+function AdHocDeliveryPage() {
   const { deliveryId } = useParams<{ deliveryId: string }>();
   const router = useRouter();
   const { getToken } = useAuth();
@@ -188,3 +189,6 @@ export default function AdHocDeliveryPage() {
     </Box>
   );
 }
+
+// WCT: no ad-hoc / scan-a-unit start (every WCT job starts from an order).
+export default withNoAdhocForWct(AdHocDeliveryPage);

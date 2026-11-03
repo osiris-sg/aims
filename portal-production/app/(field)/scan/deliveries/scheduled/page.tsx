@@ -10,6 +10,7 @@ import { ScheduledRunCard } from "../../../components/DeliveryRunCards";
 import FieldBackButton from "../../../components/FieldBackButton";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 import { EmptyState } from "@/app/(field)/components/fieldUi";
+import { useRunWords } from "@/app/portal/hooks/useRunWords";
 
 /**
  * Rider "Scheduled deliveries" list. Org-wide scheduled runs waiting to be
@@ -36,6 +37,8 @@ import { EmptyState } from "@/app/(field)/components/fieldUi";
  */
 
 export default function ScheduledDeliveriesPage() {
+  // WCT (enableWctOrders): "Job" wording (helpers/jobWording.ts).
+  const w = useRunWords();
   const router = useRouter();
   const { getToken } = useAuth();
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
@@ -49,7 +52,7 @@ export default function ScheduledDeliveriesPage() {
         if (!token) throw new Error("Not signed in");
         setRuns(await fetchScheduledRuns(token));
       } catch (e: any) {
-        setError(e?.message ?? "Failed to load scheduled deliveries");
+        setError(e?.message ?? `Failed to load scheduled ${w.nouns}`);
       }
     })();
   }, [getToken]);

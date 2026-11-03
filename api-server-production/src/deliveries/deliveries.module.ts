@@ -1,4 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
+import { OrderJobsService } from './order-jobs.service';
 import { PrismaService } from 'src/common/prisma.service';
 import { DocumentsModule } from '../documents/documents.module';
 import { ProjectsModule } from '../projects/projects.module';
@@ -21,7 +22,7 @@ import { DeliveriesService } from './deliveries.service';
   // SiteClockModule exports SiteClockLinkService — the WCT SiteClock job sync.
   imports: [forwardRef(() => DocumentsModule), forwardRef(() => ProjectsModule), NotificationsModule, SiteClockModule],
   controllers: [DeliveriesController],
-  providers: [DeliveriesService, PrismaService],
+  providers: [DeliveriesService, OrderJobsService, PrismaService],
   // Exported so MaintenanceReportsService can bridge standalone-run MSRs
   // (deliveryId set, documentId null) into the DeliveryItem state machine.
   exports: [DeliveriesService],

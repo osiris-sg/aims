@@ -40,6 +40,7 @@ import DocumentUploadDialog from "@/app/portal/components/DocumentUploadDialog";
 import ProjectContactPicker, { ContactLite, ContactAssignment } from "@/app/portal/projects/components/ProjectContactPicker";
 import { useOrganization } from "@hooks/useOrganization";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { runWords } from "@/helpers/jobWording";
 import ExtractQuotationDialog from "@/containers/DocumentTemplates/components/ExtractQuotationDialog";
 import SiteClockSchedulePicker, { SiteClockPick } from "./SiteClockSchedulePicker";
 import type { AddJobPrefill } from "@/helpers/wctOrders";
@@ -142,7 +143,9 @@ export default function ScheduleDeliveryDialog({
 }) {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
-  const { isQuotationToDeliveryEnabled, isSiteClockLinkEnabled, isJobFieldsEnabled } = useOrganizationFeatures();
+  const { isQuotationToDeliveryEnabled, isSiteClockLinkEnabled, isJobFieldsEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
+  // WCT reads "job" (helpers/jobWording.ts).
+  const w = runWords(!!isWctOrdersEnabled);
   // Custom job fields (enableJobFields): the org's fields + this job's values.
   const [jobFieldDefs, setJobFieldDefs] = useState<JobFieldDef[]>([]);
   const [jobFieldValues, setJobFieldValues] = useState<Record<string, any>>({});
@@ -971,12 +974,12 @@ export default function ScheduleDeliveryDialog({
         },
         token,
       );
-      if (res?.success === false) throw new Error(res?.message ?? (asDraft ? "Failed to save the draft" : "Failed to schedule delivery"));
+      if (res?.success === false) throw new Error(res?.message ?? (asDraft ? "Failed to save the draft" : `Failed to schedule ${w.noun}`));
       onCreated();
       onClose();
     } catch (e: any) {
       const m = e?.message;
-      setError((Array.isArray(m) ? m.join(". ") : m) || "Failed to schedule delivery");
+      setError((Array.isArray(m) ? m.join(". ") : m) || `Failed to schedule ${w.noun}`);
     } finally {
       setSubmitting(false);
     }
@@ -997,7 +1000,7 @@ export default function ScheduleDeliveryDialog({
       maxWidth="sm"
       fullScreen={fullScreenDialog}
     >
-      <DialogTitle>{editRun ? "Edit scheduled delivery" : prefill ? `Add a job to ${prefill.orderNumber}` : "Schedule a delivery"}</DialogTitle>
+      <DialogTitle>{editRun ? `Edit scheduled ${w.noun}` : prefill ? `Add a job to ${prefill.orderNumber}` : `Schedule a ${w.noun}`}</DialogTitle>
       <DialogContent dividers>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           {serviceJobs
@@ -1209,7 +1212,7 @@ export default function ScheduleDeliveryDialog({
             (solid text + shrunk label + subtle highlight) so it never reads as a
             greyed placeholder. */}
         <TextField
-          label="Delivery address"
+          label={isWctOrdersEnabled ? "Site address" : "Delivery address"}
           placeholder="Where the goods go. It lands on the DO's Deliver To."
           value={address}
           onChange={(e) => {

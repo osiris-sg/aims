@@ -96,6 +96,21 @@ export const KIND_LABEL: Record<EventKind, string> = {
   siteclock: "SiteClock job",
 };
 
+/** An event's kind as the org reads it: WCT (enableWctOrders) calls deliveries and returns "Job". */
+export function kindLabel(kind: EventKind, jobWords: boolean): string {
+  return jobWords && (kind === "delivery" || kind === "return") ? "Job" : KIND_LABEL[kind];
+}
+
+/** The calendar's colour legend; WCT's first entry reads "Job". */
+export function calendarLegendItems(jobWords: boolean): Array<{ label: string; color: string }> {
+  return [
+    { label: jobWords ? "Job" : "Delivery / return", color: KIND_COLOR.delivery },
+    { label: "Service run", color: KIND_COLOR.service },
+    { label: "SiteClock job", color: KIND_COLOR.siteclock },
+    { label: "Cancelled", color: CANCELLED_COLOR },
+  ];
+}
+
 const ymd = (s: string) => s.slice(0, 10);
 const addDays = (date: string, n: number) => new Date(Date.parse(`${date}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 

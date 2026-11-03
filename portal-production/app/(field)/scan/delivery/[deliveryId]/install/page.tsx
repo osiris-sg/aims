@@ -9,6 +9,7 @@ import { uploadImage } from "@/helpers/imageUploader";
 import { capturePosition } from "@/helpers/geolocation";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import { useRunWords } from "@/app/portal/hooks/useRunWords";
 
 /**
  * Complete Installation — STANDALONE-run twin of install/[doId]/page.tsx
@@ -18,6 +19,8 @@ import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
  * the basket's per-item action.
  */
 export default function StandaloneInstallPage() {
+  // WCT (enableWctOrders): "Job" wording (helpers/jobWording.ts).
+  const w = useRunWords();
   const params = useParams();
   const router = useRouter();
   const search = useSearchParams();
@@ -44,7 +47,7 @@ export default function StandaloneInstallPage() {
   const continueToSign = async () => {
     setError(null);
     if (!assetId) {
-      setError("Missing asset context — go back to the delivery and retry.");
+      setError(`Missing asset context. Go back to the ${w.noun} and retry.`);
       return;
     }
     setSubmitting(true);
@@ -84,7 +87,7 @@ export default function StandaloneInstallPage() {
 
   return (
     <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2.5 }}>
-      <Typography variant="body2" color="text.secondary">Standalone delivery — no DO yet</Typography>
+      <Typography variant="body2" color="text.secondary">Standalone {w.noun}, no DO yet</Typography>
 
       <TextField
         label="Notes (optional)"

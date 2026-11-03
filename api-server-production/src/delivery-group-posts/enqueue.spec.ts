@@ -12,6 +12,7 @@ const SIGNED_AT = new Date('2026-11-02T10:02:23Z'); // 6:02 pm in Singapore
 type Fixture = {
   flag?: boolean;
   direction?: 'OUTBOUND' | 'RETURN';
+  orderId?: string | null;
   projectGroup?: string | null;
   customerGroup?: string | null;
   opsGroup?: string | null;
@@ -33,7 +34,7 @@ function fakePrisma(f: Fixture = {}) {
     posts,
     organizationUIConfig: { findUnique: async () => ({ features: { enableDeliveryGroupPosts: f.flag !== false } }) },
     delivery: {
-      findFirst: async () => ({ id: RUN, deliveryNumber: 88, direction: f.direction ?? 'RETURN', status: 'completed', projectId: 'p1', customerId: 'c1', siteAddress: null }),
+      findFirst: async () => ({ id: RUN, deliveryNumber: 88, direction: f.direction ?? 'RETURN', status: 'completed', projectId: 'p1', customerId: 'c1', siteAddress: null, orderId: f.orderId ?? null }),
     },
     maintenanceServiceReport: {
       findFirst: async ({ where }: any) => match(where).sort((a, b) => +b.signedAt - +a.signedAt)[0] ?? null,
@@ -135,5 +136,11 @@ describe('enqueueDeliveryGroupPost: return runs', () => {
     const post = prisma.posts[0];
     expect(post.caption).toMatch(/^Delivery #88, Singapore Sailing Port \(Nil\)\n\nDO: RDO202611-001 · signed by Azad at 2 Nov, 6:02 pm\nTrip 1 \(final\) · 2 x FIREFLY 4200$/);
     expect(post.photoKeys).toEqual(['start-1.jpg', 'start-2.jpg', 'start-3.jpg', 'install-1.jpg']);
+  });
+
+  it('a job of a WCT order says "Job #", the rest of the caption unchanged', async () => {
+    const prisma = fakePrisma({ direction: 'OUTBOUND', customerGroup: 'c@g.us', orderId: 'o1' });
+    await enqueueDeliveryGroupPost(prisma, ORG, RUN, ['i1', 'i2']);
+    expect(prisma.posts[0].caption).toMatch(/^Job #88, Singapore Sailing Port \(Nil\)\n\nDO: RDO202611-001 · signed by Azad at 2 Nov, 6:02 pm\nTrip 1 \(final\) · 2 x FIREFLY 4200$/);
   });
 });

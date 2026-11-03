@@ -30,6 +30,7 @@ import { minPhotosForAssetClass } from "@/helpers/assetClass";
 import { useBackgroundLocationContext } from "../../../../context/BackgroundLocationContext";
 import { FIELD_APP_BAR_OFFSET, useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
+import { withNoAdhocForWct } from "@/app/(field)/lib/wctNoAdhoc";
 
 /**
  * Start Delivery — first step of the two-step delivery flow. Enabled only
@@ -46,7 +47,7 @@ import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
  *       → bgLocationContext.start(reportId)  (foreground service + pings)
  *       → /scan/asset/:id/done
  */
-export default function StartDeliveryPage() {
+function StartDeliveryPage() {
   const params = useParams();
   const router = useRouter();
   const search = useSearchParams();
@@ -875,3 +876,6 @@ export default function StartDeliveryPage() {
     </Box>
   );
 }
+
+// WCT: no ad-hoc / scan-a-unit start (every WCT job starts from an order).
+export default withNoAdhocForWct(StartDeliveryPage);

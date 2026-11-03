@@ -12,6 +12,7 @@ import { useUiLang } from "@/i18n/UiLangProvider";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { hiddenFromMenu, menuOrderOverride } from "@/helpers/wctNav";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
 import { clientsNavModule, visibleSalesSubmenus, withoutSalesMonthly } from "@/helpers/shipmentsNav";
 
@@ -96,7 +97,7 @@ export function useNavModules() {
   const { modules, isModuleEnabled } = useConfiguration();
   const { isModuleAllowed, userRoles, hasPermission } = useUserPermissions();
   // Same rule as DynamicSidebarContent's Organization Settings group.
-  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled } = useOrganizationFeatures();
+  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
   const settingsMenu = SETTINGS_MENU.filter(
     (s) =>
       (s.path !== "/portal/settings/accounting-setup" || showAccountingSetup(isModuleEnabled)) &&
@@ -109,12 +110,15 @@ export function useNavModules() {
     userRoles.some((r: any) => ADMIN_ROLES.includes((r?.name || "").toLowerCase()));
   const isMasterTier = userRoles.length === 0 || userRoles.some((r: any) => !SCOPED_ROLES.includes(r?.name));
 
-  const orderKey = (m: any) => ORDER_OVERRIDE[m.moduleCode] ?? m.sortOrder ?? 999;
+  // WCT: Orders right after Sales, no Deliveries (helpers/wctNav.ts).
+  const orderOverride = isWctOrdersEnabled ? menuOrderOverride(true) : ORDER_OVERRIDE;
+  const orderKey = (m: any) => orderOverride[m.moduleCode] ?? m.sortOrder ?? 999;
   const { lang } = useUiLang();
   const built = (modules || [])
     .filter((m: any) => m.enabled)
     .filter((m: any) => isModuleAllowed(m.moduleCode))
     .filter((m: any) => !HIDDEN_MODULES.has(m.moduleCode))
+    .filter((m: any) => !hiddenFromMenu(m.moduleCode, !!isWctOrdersEnabled))
     .filter((m: any) => shownInMenu(m))
     .map((m: any) => {
       const hide = HIDDEN_SUBMENUS[m.moduleCode];

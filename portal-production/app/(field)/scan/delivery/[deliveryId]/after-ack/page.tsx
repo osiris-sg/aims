@@ -36,6 +36,7 @@ import { useDoA4Print } from "../../../../components/DoA4Print";
 import { Tooltip } from "@mui/material";
 import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import { useRunWords } from "@/app/portal/hooks/useRunWords";
 
 interface CustomerOption {
   id: string;
@@ -70,6 +71,9 @@ interface ProjectOption {
  * install prompt. No ack MSR at all → bounce to the ack page.
  */
 export default function AfterAckPage() {
+  // WCT (enableWctOrders): "Job" wording (helpers/jobWording.ts).
+  const w = useRunWords();
+  const wct = w.isWct;
   const params = useParams();
   const router = useRouter();
   const search = useSearchParams();
@@ -516,7 +520,7 @@ export default function AfterAckPage() {
         { signature, signedByName: name },
         token,
       );
-      if (signRes?.success === false) throw new Error(signRes?.message ?? "Failed to sign delivery");
+      if (signRes?.success === false) throw new Error(signRes?.message ?? `Failed to sign ${w.noun}`);
 
       if (installChoice === "no") {
         const res = await request(
@@ -638,7 +642,7 @@ export default function AfterAckPage() {
           : step === "install"
             ? { onBack: () => setStep("assign") }
             : { onBack: () => router.replace(`/scan/delivery/${deliveryId}`) };
-  useFieldAppBar({ title: isReturn ? "Finish return" : "Finish delivery", ...stepBack });
+  useFieldAppBar({ title: isReturn ? "Finish return" : `Finish ${w.noun}`, ...stepBack });
 
   if (resolving) {
     return (
@@ -658,8 +662,8 @@ export default function AfterAckPage() {
               ? "All returns collected"
               : "Return collected"
             : applyToAll
-              ? "All deliveries confirmed"
-              : "Delivery confirmed"}
+              ? `All ${w.nouns} confirmed`
+              : `${w.Noun} confirmed`}
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 360 }}>
           {isReturn ? (
@@ -668,7 +672,7 @@ export default function AfterAckPage() {
               : "Unit collected back to stock."
           ) : (
             <>
-              {applyToAll ? "Every unit still out on this run was signed with the same proof" : "Delivery signed"}
+              {applyToAll ? "Every unit still out on this run was signed with the same proof" : `${w.Noun} signed`}
               {installChoice === "no" ? ", installation not needed" : " and installation recorded"}.
             </>
           )}
@@ -751,7 +755,7 @@ export default function AfterAckPage() {
           fullWidth
           sx={{ ...FIELD_BUTTON_SX, maxWidth: 360 }}
         >
-          Back to delivery
+          Back to {w.noun}
         </Button>
         <Button variant="text" onClick={() => router.replace("/scan/new")} sx={{ color: "text.secondary" }}>
           Scan next
@@ -767,7 +771,7 @@ export default function AfterAckPage() {
         <Typography variant="body2" color="text.secondary">
           {isReturn
             ? "One signature confirms the collection."
-            : `One signature confirms the delivery${installChoice === "yes" ? " and the installation" : ""}.`}{" "}
+            : `One signature confirms the ${w.noun}${installChoice === "yes" ? " and the installation" : ""}.`}{" "}
           You&apos;ll review everything before it&apos;s committed.
         </Typography>
 
@@ -929,7 +933,7 @@ export default function AfterAckPage() {
         <Box>
           <Typography variant="h6" fontWeight={700}>Assign to project</Typography>
           <Typography variant="body2" color="text.secondary">
-            Delivered — record which project this unit now belongs to.
+            {wct ? "Done" : "Delivered"}: record which project this unit now belongs to.
           </Typography>
         </Box>
       </Stack>

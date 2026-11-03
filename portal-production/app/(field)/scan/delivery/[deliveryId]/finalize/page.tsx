@@ -19,6 +19,7 @@ import SignaturePadField, { SignaturePadHandle } from "@/components/delivery/Sig
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { FINISH_OPTIONS, FinishMode, finishButtonLabel, finishProblem } from "@/helpers/wctFinishModes";
+import { useRunWords } from "@/app/portal/hooks/useRunWords";
 
 /**
  * RUN FINALIZE (2026-08). The ONE closing sequence for the whole run, reached when
@@ -29,6 +30,8 @@ import { FINISH_OPTIONS, FinishMode, finishButtonLabel, finishProblem } from "@/
  * Backing out returns to the run page, where the finalize card re-enters.
  */
 export default function FinalizeDeliveryPage() {
+  // WCT (enableWctOrders): "Job" wording (helpers/jobWording.ts).
+  const w = useRunWords();
   const router = useRouter();
   const { deliveryId } = useParams() as { deliveryId: string };
   const { getToken } = useAuth();
@@ -65,7 +68,7 @@ export default function FinalizeDeliveryPage() {
   const [stampedPhotos, setStampedPhotos] = useState<CapturedPhoto[]>([]);
   const [completionNote, setCompletionNote] = useState("");
   useFieldAppBar({
-    title: isReturn ? "Finish return" : "Finish delivery",
+    title: isReturn ? "Finish return" : `Finish ${w.noun}`,
     onBack: () => (step === "sign" && !isReturn && !serviceRun ? setStep("install") : router.back()),
     backDisabled: working,
   });
@@ -135,7 +138,7 @@ export default function FinalizeDeliveryPage() {
       return;
     }
     if (!sigRef.current || sigRef.current.isEmpty()) {
-      setError(isReturn ? "The customer needs to sign to complete the return." : "The customer needs to sign to complete the delivery.");
+      setError(isReturn ? "The customer needs to sign to complete the return." : `The customer needs to sign to complete the ${w.noun}.`);
       return;
     }
     const signature = sigRef.current.toDataUrl();
@@ -170,7 +173,7 @@ export default function FinalizeDeliveryPage() {
                 },
             token,
           );
-      if (res?.success === false) throw new Error(res?.message ?? (isReturn ? "Could not finalize the return" : "Could not finalize the delivery"));
+      if (res?.success === false) throw new Error(res?.message ?? (isReturn ? "Could not finalize the return" : `Could not finalize the ${w.noun}`));
       // A RETURN has no printable DO receipt to land on, so go straight back to
       // the scan home. OUTBOUND lands on the finished screen (confirmation +
       // Print DO), the rider's chance to print at hand-off. A PARTIAL sign-off
@@ -189,7 +192,7 @@ export default function FinalizeDeliveryPage() {
       }
       router.replace(isReturn ? "/scan" : `/scan/deliveries/finished/${deliveryId}`);
     } catch (e: any) {
-      setError(e?.message ?? (isReturn ? "Could not finalize the return" : "Could not finalize the delivery"));
+      setError(e?.message ?? (isReturn ? "Could not finalize the return" : `Could not finalize the ${w.noun}`));
       setWorking(false);
     }
   };
@@ -210,8 +213,8 @@ export default function FinalizeDeliveryPage() {
           </Typography>
           <Typography variant="body2" color="text.secondary">
             {partial
-              ? "One answer for the items delivered on this trip. If yes, add installation photos below."
-              : "One answer for the whole delivery. If yes, add installation photos for the run below."}
+              ? `One answer for the items ${w.done} on this trip. If yes, add installation photos below.`
+              : `One answer for the whole ${w.noun}. If yes, add installation photos for the run below.`}
           </Typography>
 
           <Stack direction="row" spacing={1.5}>
@@ -310,7 +313,7 @@ export default function FinalizeDeliveryPage() {
             {isReturn
               ? "One signature covers the whole return. It completes the collection and creates the Return Delivery Order."
               : partial
-                ? `This signature covers the ${partialCount} ${partialCount === 1 ? "item" : "items"} delivered so far. The rest of this delivery stays open and is signed for when it arrives.`
+                ? `This signature covers the ${partialCount} ${partialCount === 1 ? "item" : "items"} ${w.done} so far. The rest of this ${w.noun} stays open and is signed for when it arrives.`
                 : orderJob && isWctOrderInvoiceEnabled
                   ? "One signature covers the whole job. It completes the job and the Delivery Order. The order is invoiced once every job is verified."
                   : "One signature covers the whole delivery. It completes the run and creates the Delivery Order and its invoice."}
@@ -334,7 +337,7 @@ export default function FinalizeDeliveryPage() {
             ) : partial ? (
               `Sign for ${partialCount} ${partialCount === 1 ? "item" : "items"}`
             ) : (
-              "Complete delivery"
+              `Complete ${w.noun}`
             )}
           </Button>
           </>

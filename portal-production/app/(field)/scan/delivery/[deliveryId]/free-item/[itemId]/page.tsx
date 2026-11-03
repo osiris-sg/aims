@@ -22,6 +22,7 @@ import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCap
 import GuidedPhotoCapture from "@/components/delivery/GuidedPhotoCapture";
 import SignaturePadField, { SignaturePadHandle } from "@/components/delivery/SignaturePadField";
 import { assetClassLabel, minPhotosForAssetClass } from "@/helpers/assetClass";
+import { useRunWords } from "@/app/portal/hooks/useRunWords";
 
 /**
  * FREE-TYPED line — full delivery flow (Route A). A description-only line (a
@@ -43,6 +44,8 @@ interface Item {
 }
 
 export default function FreeTypedItemFlowPage() {
+  // WCT (enableWctOrders): "Job" wording (helpers/jobWording.ts).
+  const w = useRunWords();
   const params = useParams();
   const router = useRouter();
   const { getToken } = useAuth();
@@ -80,7 +83,7 @@ export default function FreeTypedItemFlowPage() {
         if (cancelled) return;
         const run = res?.data ?? res;
         const found = (run?.items ?? []).find((i: Item) => i.id === itemId) ?? null;
-        if (!found) throw new Error("Item is not on this delivery");
+        if (!found) throw new Error(`Item is not on this ${w.noun}`);
         if (found.assetId || found.inventoryId) throw new Error("This screen is only for free-typed lines");
         setIsReturn(run?.direction === "RETURN");
         setItem(found);
@@ -131,10 +134,10 @@ export default function FreeTypedItemFlowPage() {
         },
         token,
       );
-      if (res?.success === false) throw new Error(res?.message ?? "Could not start delivery");
+      if (res?.success === false) throw new Error(res?.message ?? `Could not start ${w.noun}`);
       backToBasket();
     } catch (e: any) {
-      setError(e?.message ?? "Could not start delivery");
+      setError(e?.message ?? `Could not start ${w.noun}`);
       setSubmitting(false);
     }
   };
@@ -164,10 +167,10 @@ export default function FreeTypedItemFlowPage() {
         },
         token,
       );
-      if (res?.success === false) throw new Error(res?.message ?? (isReturn ? "Could not collect the item" : "Could not end delivery"));
+      if (res?.success === false) throw new Error(res?.message ?? (isReturn ? "Could not collect the item" : `Could not end ${w.noun}`));
       setDone(true);
     } catch (e: any) {
-      setError(e?.message ?? (isReturn ? "Could not collect the item" : "Could not end delivery"));
+      setError(e?.message ?? (isReturn ? "Could not collect the item" : `Could not end ${w.noun}`));
       setSubmitting(false);
     }
   };
@@ -176,8 +179,8 @@ export default function FreeTypedItemFlowPage() {
   const stepStart = item?.deliveryStatus === "not_delivered";
   useFieldAppBar({
     title: inMainView
-      ? stepStart ? (isReturn ? "Start Return" : "Start Delivery") : isReturn ? "End Return" : "End Delivery"
-      : isReturn ? "Return item" : "Delivery item",
+      ? stepStart ? (isReturn ? "Start Return" : `Start ${w.Noun}`) : isReturn ? "End Return" : `End ${w.Noun}`
+      : isReturn ? "Return item" : `${w.Noun} item`,
     // The old top-left Back, same handler and same disabled state.
     onBack: inMainView ? backToBasket : undefined,
     backDisabled: submitting,
@@ -195,7 +198,7 @@ export default function FreeTypedItemFlowPage() {
     return (
       <Box sx={{ p: 2 }}>
         <Alert severity="error">{loadError ?? "Could not load the item"}</Alert>
-        <Button sx={{ mt: 2 }} onClick={backToBasket}>Back to delivery</Button>
+        <Button sx={{ mt: 2 }} onClick={backToBasket}>Back to {w.noun}</Button>
       </Box>
     );
   }
@@ -204,10 +207,10 @@ export default function FreeTypedItemFlowPage() {
     return (
       <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2.5, alignItems: "center", textAlign: "center" }}>
         <CheckCircleIcon sx={{ fontSize: 96, color: "success.main", mt: 6 }} />
-        <Typography variant="h5">{isReturn ? "Collected" : "Delivered"}</Typography>
+        <Typography variant="h5">{isReturn ? "Collected" : w.Done}</Typography>
         <Typography variant="body2" color="text.secondary">{item.description || "Item"} is done.</Typography>
         <Button variant="contained" onClick={backToBasket} fullWidth sx={{ maxWidth: 360, minHeight: 48, mt: 2 }}>
-          {isReturn ? "Back to return" : "Back to delivery"}
+          {isReturn ? "Back to return" : `Back to ${w.noun}`}
         </Button>
       </Box>
     );
@@ -252,7 +255,7 @@ export default function FreeTypedItemFlowPage() {
             fullWidth
             sx={{ minHeight: 48 }}
           >
-            {submitting ? <CircularProgress size={20} color="inherit" /> : isReturn ? "Confirm and Start Return" : "Confirm and Start Delivery"}
+            {submitting ? <CircularProgress size={20} color="inherit" /> : isReturn ? "Confirm and Start Return" : `Confirm and Start ${w.Noun}`}
           </Button>
         </>
       ) : isReturn ? (
@@ -276,7 +279,7 @@ export default function FreeTypedItemFlowPage() {
       ) : (
         <>
           <PhotoCaptureField
-            label="Delivery photos (optional)"
+            label={`${w.Noun} photos (optional)`}
             photos={photos}
             onChange={setPhotos}
             upload={uploadPhoto("do-ack")}
@@ -300,7 +303,7 @@ export default function FreeTypedItemFlowPage() {
             fullWidth
             sx={{ minHeight: 48 }}
           >
-            {submitting ? <CircularProgress size={20} color="inherit" /> : "End Delivery"}
+            {submitting ? <CircularProgress size={20} color="inherit" /> : `End ${w.Noun}`}
           </Button>
         </>
       )}

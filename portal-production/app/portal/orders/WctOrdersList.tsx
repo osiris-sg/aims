@@ -27,7 +27,7 @@ interface WctOrderRow {
   createdAt: string;
 }
 
-export default function WctOrdersList() {
+export default function WctOrdersList({ embedded = false }: { embedded?: boolean }) {
   const router = useRouter();
   const { organization } = useOrganization();
   const { getToken } = useAuth();
@@ -90,8 +90,8 @@ export default function WctOrdersList() {
     { accessorKey: "createdAt", header: "Created", size: 9, cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY") },
   ];
 
-  return (
-    <MainCard>
+  const body = (
+    <>
       <Box sx={{ borderBottom: 1, borderColor: "divider", mb: 2 }}>
         <Tabs value={tab} onChange={(_, v) => { setTab(v as OrderTab); setPage(1); }} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile>
           {ORDER_TABS.map((t) => (
@@ -119,6 +119,8 @@ export default function WctOrdersList() {
         pageCount={1}
         totalDocs={filtered.length}
       />
-    </MainCard>
+    </>
   );
+  // Inside WctOrdersPage's tabs (2026-11-03) it is one tab of the page's card.
+  return embedded ? body : <MainCard>{body}</MainCard>;
 }

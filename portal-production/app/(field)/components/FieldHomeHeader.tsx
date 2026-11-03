@@ -33,7 +33,8 @@ export function FieldHomeHeader<T extends string>({
   addLabel: string;
   /** Visible text for the action; when set, a labelled button replaces the "+". */
   addButtonLabel?: string;
-  onAdd: () => void;
+  /** Leave out to show no add button (WCT's Jobs: all work starts from an order). */
+  onAdd?: () => void;
   tabs: { value: T; label: string }[];
   tab: T;
   onTab: (next: T) => void;
@@ -62,7 +63,7 @@ export function FieldHomeHeader<T extends string>({
           sx={{ "& .MuiInputBase-root": { minHeight: 44, bgcolor: "background.default" } }}
           InputProps={{ startAdornment: <SearchIcon fontSize="small" sx={{ mr: 1, color: "text.disabled" }} /> }}
         />
-        {addButtonLabel ? (
+        {!onAdd ? null : addButtonLabel ? (
           <Button
             aria-label={addLabel}
             onClick={onAdd}

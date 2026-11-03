@@ -16,7 +16,8 @@ import { Box, Button, Chip, Divider, Popover, Stack, Typography } from "@mui/mat
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
-import { CALENDAR_TZ, CANCELLED_COLOR, KIND_COLOR, KIND_LABEL, badgeTitle, crewLine, timeWindow, toCalendarInputs, type CalendarEvent } from "./calendarModel";
+import { CALENDAR_TZ, CANCELLED_COLOR, KIND_COLOR, badgeTitle, crewLine, kindLabel, timeWindow, toCalendarInputs, type CalendarEvent } from "./calendarModel";
+import { useRouter } from "next/navigation";
 import DoStatusTag from "@/components/DoStatusTag";
 
 interface Props {
@@ -26,10 +27,17 @@ interface Props {
   /** Fixture previews only: open on this day / view instead of today / month. */
   initialDate?: string;
   initialView?: "dayGridMonth" | "timeGridWeek" | "timeGridDay";
+  /** WCT (enableWctOrders): "Job" wording. */
+  jobWords?: boolean;
+  /** WCT: clicking a job opens its page (no card), when it has one. */
+  openOnClick?: boolean;
+  /** WCT: the calendar is the whole dashboard, so it fills the screen. */
+  fullHeight?: boolean;
 }
 
-export default function CalendarView({ events, showCancelled, onRange, initialDate, initialView = "dayGridMonth" }: Props) {
+export default function CalendarView({ events, showCancelled, onRange, initialDate, initialView = "dayGridMonth", jobWords = false, openOnClick = false, fullHeight = false }: Props) {
   const theme = useTheme();
+  const router = useRouter();
   const [viewType, setViewType] = useState<string>(initialView);
   const [open, setOpen] = useState<{ pos: { left: number; top: number }; event: CalendarEvent } | null>(null);
   const inputs = useMemo(() => toCalendarInputs(events, showCancelled), [events, showCancelled]);
@@ -37,6 +45,8 @@ export default function CalendarView({ events, showCancelled, onRange, initialDa
   const onClick = (arg: EventClickArg) => {
     arg.jsEvent.preventDefault();
     const e = arg.event.extendedProps.event as CalendarEvent;
+    // WCT: a job opens its page at once; a SiteClock-only job (no AIMS page) keeps the card.
+    if (openOnClick && e.href) return router.push(e.href);
     setOpen({ pos: { left: arg.jsEvent.clientX, top: arg.jsEvent.clientY }, event: e });
   };
 
@@ -81,7 +91,8 @@ export default function CalendarView({ events, showCancelled, onRange, initialDa
         // Month: filled blocks so the source colours read at a glance, page-high.
         // Week / Day: a fixed-height grid that opens at 07:00 and scrolls for night jobs.
         eventDisplay="block"
-        height={viewType === "dayGridMonth" ? "auto" : 760}
+        // WCT's dashboard is the calendar alone: it fills the screen in every view.
+        height={fullHeight ? "calc(100vh - 210px)" : viewType === "dayGridMonth" ? "auto" : 760}
         nowIndicator
         scrollTime="07:00:00"
         eventTimeFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
@@ -117,7 +128,7 @@ export default function CalendarView({ events, showCancelled, onRange, initialDa
         transformOrigin={{ vertical: "top", horizontal: "left" }}
         slotProps={{ paper: { sx: { maxWidth: 360, p: 2 } } }}
       >
-        {open && <EventCard event={open.event} />}
+        {open && <EventCard event={open.event} jobWords={jobWords} />}
       </Popover>
     </Box>
   );
@@ -136,14 +147,14 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function EventCard({ event: e }: { event: CalendarEvent }) {
+function EventCard({ event: e, jobWords }: { event: CalendarEvent; jobWords: boolean }) {
   const color = e.cancelled ? CANCELLED_COLOR : KIND_COLOR[e.kind];
   return (
     <Box>
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
         <Box sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: color, flexShrink: 0 }} />
         <Typography variant="caption" color="text.secondary">
-          {KIND_LABEL[e.kind]}
+          {kindLabel(e.kind, jobWords)}
         </Typography>
       </Stack>
       <Typography variant="subtitle1" sx={{ fontWeight: 600, lineHeight: 1.3, mb: 1, textDecoration: e.cancelled ? "line-through" : "none" }}>
@@ -211,7 +222,7 @@ function EventCard({ event: e }: { event: CalendarEvent }) {
       {e.href ? (
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           <Button component={Link} href={e.href} size="small" variant="contained" disableElevation>
-            Open delivery
+            {jobWords ? "Open job" : "Open delivery"}
           </Button>
           {e.doHref && (
             <Button component={Link} href={e.doHref} size="small" variant="outlined">
