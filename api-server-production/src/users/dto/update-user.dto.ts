@@ -17,9 +17,9 @@ export class UpdateUserDto {
     example: 'Doe',
     required: false,
   })
+  // Optional (owner 2026-11-03): an empty string clears it.
   @IsOptional()
   @IsString()
-  @IsNotEmpty({ message: 'Last name cannot be empty' })
   lastName?: string;
 
   @ApiProperty({

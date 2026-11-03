@@ -141,9 +141,8 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
         updateData.firstName = data.firstName.trim();
       }
 
-      if (data.lastName && data.lastName.trim()) {
-        updateData.lastName = data.lastName.trim();
-      }
+      // Last name is optional: an emptied field clears it.
+      updateData.lastName = (data.lastName || "").trim();
 
       if (data.email && data.email.trim()) {
         updateData.email = data.email.trim();
@@ -274,9 +273,6 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                     control={control}
                     name="lastName"
                     placeHolder="Enter last name"
-                    rules={{
-                      required: "Last name is required",
-                    }}
                     error={!!errors.lastName}
                     helperText={errors.lastName?.message as string}
                   />

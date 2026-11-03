@@ -79,3 +79,17 @@ test("set-password: a login with an admin-set password replaces it through the s
   assert.match(page, /\/users\/me\/first-password/);
   assert.match(page, /setViaServer\(true\)/);
 });
+
+test("last name is optional in Add user and both Edit User drawers; first name stays required; an emptied last name is sent to clear it", () => {
+  for (const p of ["app/portal/user-management/users/components/AddUser.tsx", "app/portal/user-management/users/components/EditUser.tsx", "app/portal/admin/users/components/EditUser.tsx"]) {
+    const src = read(p);
+    const last = src.slice(src.indexOf('name="lastName"'), src.indexOf('name="lastName"') + 300);
+    const first = src.slice(src.indexOf('name="firstName"'), src.indexOf('name="firstName"') + 300);
+    assert.doesNotMatch(last, /required:/, p);
+    assert.match(first, /required:/, p);
+  }
+  for (const p of ["app/portal/user-management/users/components/EditUser.tsx", "app/portal/admin/users/components/EditUser.tsx"]) {
+    assert.match(read(p), /updateData\.lastName = \(data\.lastName \|\| ""\)\.trim\(\);/, p);
+  }
+  assert.match(read("app/portal/user-management/users/components/EditUser.tsx"), /user\.lastName !== undefined/);
+});

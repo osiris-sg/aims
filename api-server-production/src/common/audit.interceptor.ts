@@ -150,7 +150,7 @@ export class AuditInterceptor implements NestInterceptor {
   private getResourceName(resource: string, body: any, params: any, query: any): string {
     // Try to get a meaningful name for the resource
     if (body?.name) return body.name;
-    if (body?.firstName && body?.lastName) return `${body.firstName} ${body.lastName}`;
+    if (body?.firstName) return [body.firstName, body.lastName].filter(Boolean).join(' ');
     if (body?.email) return body.email;
     if (params?.id) return `${resource} ${params.id}`;
     if (query?.id) return `${resource} ${query.id}`;

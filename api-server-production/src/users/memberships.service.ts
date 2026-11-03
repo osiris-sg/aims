@@ -249,11 +249,13 @@ export class MembershipsService {
    */
   private async sendSetPasswordEmail(email: string, userId: string, orgName: string, adminSetPassword: boolean) {
     let error: string | undefined;
+    let messageId: string | undefined;
     try {
       const t: any = await this.clerkClient.signInTokens.createSignInToken({ userId, expiresInSeconds: SET_PASSWORD_LINK_SECONDS });
       const link = `${portalOrigin()}/set-password?ticket=${encodeURIComponent(t.token)}`;
       const r = await this.email.sendSimpleEmail({ to: [email], ...setPasswordEmail(orgName, link, { adminSetPassword }) });
       if (!r.success) error = r.error || 'send failed';
+      messageId = r.messageId;
     } catch (e: any) {
       error = e?.message || String(e);
     }
@@ -261,7 +263,8 @@ export class MembershipsService {
     this.actionLog.system('add-user-welcome-email', error ? 'EMAIL_FAILED' : 'EMAIL_SENT', 'user', {
       resourceId: userId,
       status: error ? 'FAILURE' : 'SUCCESS',
-      details: error ? { error } : undefined,
+      // The Resend message id, so delivery can be looked up in Resend.
+      details: error ? { error } : { messageId },
     });
   }
 

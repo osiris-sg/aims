@@ -311,4 +311,13 @@ describe('MembershipsService', () => {
     expect(memberOfA(w, 'new_fresh@x.sg')).toEqual(expect.objectContaining({ salesmanCode: 'S008', salesmanMobile: null }));
     expect(w.clerk.users.createUser).toHaveBeenCalledWith(expect.not.objectContaining({ salesmanCode: expect.anything() }));
   });
+
+  it('a first name with no last name is fine; the welcome email row records the Resend message id', async () => {
+    const w = world();
+    await add(w, { email: 'solo@x.sg', firstName: 'Solo', lastName: '   ' });
+    const p = (w.clerk.users.createUser.mock.calls[0] as any[])[0];
+    expect(p.firstName).toBe('Solo');
+    expect(p.lastName).toBeUndefined();
+    expect(w.actionLog.system).toHaveBeenCalledWith('add-user-welcome-email', 'EMAIL_SENT', 'user', expect.objectContaining({ details: { messageId: 'm1' } }));
+  });
 });

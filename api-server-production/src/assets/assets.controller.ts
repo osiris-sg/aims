@@ -265,9 +265,8 @@ export class AssetsController {
     @Req() req: any,
   ) {
     const user = req.user;
-    const adjustedBy = user?.firstName && user?.lastName
-      ? `${user.firstName} ${user.lastName}`
-      : user?.emailAddresses?.[0]?.emailAddress || user?.id || 'Unknown';
+    // First name alone is a name too (last name is optional).
+    const adjustedBy = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || user?.emailAddresses?.[0]?.emailAddress || user?.id || 'Unknown';
     return this.assetsService.adjustQuantity(adjustQuantityDto, userOrganization.id, adjustedBy);
   }
 

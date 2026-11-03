@@ -121,10 +121,10 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
   // Populate form when user data is available
   useEffect(() => {
     if (user && open) {
-      // Parse the name field to extract first and last name
+      // The login's own first / last name (the list sends them); older rows: split the display name.
       const nameParts = user.name?.split(" ") || [];
-      const firstName = nameParts[0] || "";
-      const lastName = nameParts.slice(1).join(" ") || "";
+      const firstName = user.firstName !== undefined ? user.firstName || "" : nameParts[0] || "";
+      const lastName = user.lastName !== undefined ? user.lastName || "" : nameParts.slice(1).join(" ") || "";
 
       setValue("firstName", firstName);
       setValue("lastName", lastName);
@@ -188,9 +188,8 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
         updateData.firstName = data.firstName.trim();
       }
 
-      if (data.lastName && data.lastName.trim()) {
-        updateData.lastName = data.lastName.trim();
-      }
+      // Last name is optional: an emptied field clears it.
+      updateData.lastName = (data.lastName || "").trim();
 
       if (data.email && data.email.trim()) {
         updateData.email = data.email.trim();
@@ -334,9 +333,6 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                     control={control}
                     name="lastName"
                     placeHolder={t("lastNamePh")}
-                    rules={{
-                      required: t("lastNameReq"),
-                    }}
                     error={!!errors.lastName}
                     helperText={errors.lastName?.message as string}
                   />

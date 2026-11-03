@@ -150,6 +150,8 @@ export class UsersService {
             // A login with no email (e.g. a phone-only SiteClock worker) has none: never its id.
             email: primaryEmailOf(clerkUser),
             phone: prettyPhone(primaryPhoneOf(clerkUser)),
+            firstName: clerkUser.firstName || null,
+            lastName: clerkUser.lastName || null,
             // A login with no name shows its email (a person added by email shows like any other member).
             name: displayNameOf(clerkUser),
             whatsappNumber: profile?.whatsappNumber ?? null,
@@ -541,8 +543,9 @@ export class UsersService {
         clerkUpdateData.firstName = firstName.trim();
       }
 
-      if (lastName && lastName.trim() && lastName.trim() !== clerkUser.lastName) {
-        clerkUpdateData.lastName = lastName.trim();
+      // Last name is optional: an empty one clears it (undefined leaves it alone).
+      if (lastName !== undefined && lastName !== null && String(lastName).trim() !== (clerkUser.lastName || '')) {
+        clerkUpdateData.lastName = String(lastName).trim();
       }
 
       if (newPassword) {

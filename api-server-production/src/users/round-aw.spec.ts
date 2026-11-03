@@ -477,4 +477,20 @@ describe('Edit User: email', () => {
     expect(s.name).toBe('Shukkee Bong');
     for (const u of r.users) expect(String(u.email ?? '')).not.toMatch(/^user_|^sayaka$|^take$/);
   });
+
+  it('last name is optional: an empty one clears it, leaving it out keeps it; first-name-only shows just the first name', async () => {
+    const w = clerkWorld();
+    await w.users.updateUser('take', { firstName: 'Take', lastName: '', roleIds: ['rA-admin'] } as any, adhAdmin);
+    expect(w.clerk.users.updateUser).toHaveBeenCalledWith('take', expect.objectContaining({ lastName: '' }));
+    w.logins.take.lastName = null;
+    w.clerk.users.updateUser.mockClear();
+    await w.users.updateUser('take', { firstName: 'Take', roleIds: ['rA-admin'] } as any, adhAdmin);
+    expect(w.clerk.users.updateUser).not.toHaveBeenCalled();
+    const r: any = await w.users.getUsers({ page: 1, limit: 50 } as any, A);
+    const t = r.users.find((u: any) => u.id === 'take');
+    expect(t.name).toBe('Take');
+    expect(t.firstName).toBe('Take');
+    expect(t.lastName).toBeNull();
+    for (const u of r.users) expect(u.name).not.toMatch(/undefined|null|\s$/);
+  });
 });
