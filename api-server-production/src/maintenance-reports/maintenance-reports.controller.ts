@@ -143,6 +143,19 @@ export class MaintenanceReportsController {
     res.send(buffer);
   }
 
+  /**
+   * Several signed reports at once: ONE zip of separate PDFs, each the same
+   * file as GET :id/pdf, in the order given. Body { ids }, at most 50.
+   */
+  @Post('bulk-pdf')
+  @Permissions('maintenance-reports:read')
+  async getBulkPdf(@Body() body: { ids?: unknown }, @UserOrganization() org: { id: string }, @Res() res: Response) {
+    const { buffer, filename } = await this.service.getReportsZip(body?.ids, org.id);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    res.send(buffer);
+  }
+
   @Get('asset/:assetId')
   @Permissions('maintenance-reports:read')
   listByAsset(@Param('assetId') assetId: string, @UserOrganization() org: { id: string }) {

@@ -104,7 +104,7 @@ export default function MaintenanceHomePage() {
         ) : (
           <>
             <Typography variant="body2" color="text.secondary">
-              Signed reports created in the last {COMPLETED_REPORTS_WINDOW_DAYS} days. Tap one to view or print it.
+              Signed reports created in the last {COMPLETED_REPORTS_WINDOW_DAYS} days. Tap one to view or print it, or Select several to download.
             </Typography>
             {error && <Alert severity="error">{error}</Alert>}
             {completed === null ? (
@@ -121,7 +121,7 @@ export default function MaintenanceHomePage() {
             ) : shownCompleted.length === 0 ? (
               <EmptyState icon={<SearchOffIcon />} message={<>No report matches &quot;{q}&quot;.</>} />
             ) : (
-              <CompletedReportList reports={shownCompleted} />
+              <CompletedReportList reports={shownCompleted} barBottom={FIELD_BOTTOM_NAV_OFFSET} />
             )}
           </>
         )}

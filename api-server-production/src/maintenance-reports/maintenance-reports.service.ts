@@ -15,9 +15,13 @@ import { buildServiceReportHtml, MAX_SERVICE_REPORT_PHOTOS, servicePdfOptions } 
 import { templateFor } from './msr-templates';
 import type { WctOrgProfile } from './service-report-wct';
 import { minPhotosForAssetClass } from 'src/common/asset-class';
-import { orgTodayFor } from '../common/org-today';
+import { orgToday, orgTodayFor } from '../common/org-today';
+import { serviceReportFileName, uniqueFileName } from './service-report-filename';
 
 /** Org fields every renderer may need: name/logo for the stock sheets, the rest for the WCT letterhead + footer. */
+/** Most reports one bulk download may carry (POST /maintenance-reports/bulk-pdf). */
+export const MAX_BULK_REPORTS = 50;
+
 const REPORT_ORG_SELECT = { name: true, logo: true, address: true, phoneNumber: true, email: true, website: true, registrationNumber: true } as const;
 
 interface ReportForRender {
@@ -557,6 +561,54 @@ export class MaintenanceReportsService {
     const report = await this.loadForRender(id, organizationId);
     const buffer = await this.renderReportPdf(report);
     return { buffer, filename: `service-report-${report.reportNumber ?? report.id.slice(0, 8)}.pdf` };
+  }
+
+  /**
+   * POST /maintenance-reports/bulk-pdf → ONE zip of separate PDFs (2026-11-03:
+   * a browser blocks many downloads at once). Each PDF is renderReportPdf, the
+   * same file as GET :id/pdf and the emailed copy; files keep the request's
+   * order (the list's, newest first). Every id must be a SERVICE report of
+   * this org (else 404, so another org's id looks missing), at most
+   * MAX_BULK_REPORTS, and all signed: one draft rejects the whole request
+   * rather than leave it quietly out of the zip. Rendered one at a time.
+   */
+  async getReportsZip(rawIds: unknown, organizationId: string): Promise<{ buffer: Buffer; filename: string }> {
+    if (!Array.isArray(rawIds) || rawIds.some((id) => typeof id !== 'string' || !id)) {
+      throw new BadRequestException('ids must be a list of report ids');
+    }
+    const ids = [...new Set(rawIds as string[])];
+    if (!ids.length) throw new BadRequestException('Select at least one report');
+    if (ids.length > MAX_BULK_REPORTS) {
+      throw new BadRequestException(`At most ${MAX_BULK_REPORTS} reports can be downloaded at once (${ids.length} selected)`);
+    }
+    const rows = await this.prisma.maintenanceServiceReport.findMany({
+      where: { id: { in: ids }, organizationId, kind: MaintenanceReportKind.SERVICE },
+      include: {
+        asset: { select: { name: true, skuKey: true } },
+        inventory: { select: { sku: true, serialNumber: true } },
+        organization: { select: REPORT_ORG_SELECT },
+      },
+    });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    if (ids.some((id) => !byId.has(id))) throw new NotFoundException('Service report not found');
+    const drafts = ids.map((id) => byId.get(id)!).filter((r) => r.status !== 'completed');
+    if (drafts.length) {
+      const names = drafts.map((r) => (r.reportNumber != null ? `#${r.reportNumber}` : r.id.slice(0, 8))).join(', ');
+      throw new BadRequestException(`Only signed reports can be downloaded. Still drafts: ${names}`);
+    }
+
+    const tz = (
+      await this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { timeZone: true } }).catch(() => null)
+    )?.timeZone;
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const AdmZip = require('adm-zip');
+    const zip = new AdmZip({ noSort: true }); // keep the list's order, not A-Z
+    const taken = new Set<string>();
+    for (const id of ids) {
+      const report = byId.get(id)!;
+      zip.addFile(uniqueFileName(serviceReportFileName(report, tz), taken), await this.renderReportPdf(report));
+    }
+    return { buffer: zip.toBuffer(), filename: `Service reports ${orgToday(tz)} (${ids.length}).zip` };
   }
 
   /**

@@ -7,6 +7,7 @@ import {
   Alert,
   Box,
   Button,
+  Checkbox,
   Chip,
   CircularProgress,
   Paper,
@@ -23,7 +24,10 @@ import {
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import AddIcon from "@mui/icons-material/Add";
+import DownloadIcon from "@mui/icons-material/Download";
 import { request } from "@/helpers/request";
+import { MAX_BULK_REPORTS } from "@/helpers/serviceReportFiles";
+import { downloadServiceReportsZip } from "@/helpers/downloadServiceReportsZip";
 
 interface ServiceData {
   customerName?: string | null;
@@ -86,6 +90,10 @@ export default function MaintenanceReportsListPage() {
   const [data, setData] = useState<ListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Ticked SIGNED reports, kept across pages and searches (id -> createdAt, so
+  // the zip follows the list's newest-first order whatever the ticking order).
+  const [picked, setPicked] = useState<Map<string, string>>(new Map());
+  const [downloading, setDownloading] = useState(false);
 
   // Debounce typing — flush 300 ms after the last keystroke. Resets page to 1
   // so the user isn't stuck on (now-empty) page 4 of a filtered result.
@@ -133,6 +141,43 @@ export default function MaintenanceReportsListPage() {
   const startIdx = total === 0 ? 0 : (page - 1) * LIMIT + 1;
   const endIdx = (page - 1) * LIMIT + docs.length;
 
+  const signedOnPage = docs.filter((r) => r.status === "completed");
+  const allOnPage = signedOnPage.length > 0 && signedOnPage.every((r) => picked.has(r.id));
+  const someOnPage = !allOnPage && signedOnPage.some((r) => picked.has(r.id));
+  const togglePick = (row: MsrRow) =>
+    setPicked((m) => {
+      const next = new Map(m);
+      if (next.has(row.id)) next.delete(row.id);
+      else next.set(row.id, row.createdAt);
+      return next;
+    });
+  const togglePage = () =>
+    setPicked((m) => {
+      const next = new Map(m);
+      for (const r of signedOnPage) {
+        if (allOnPage) next.delete(r.id);
+        else next.set(r.id, r.createdAt);
+      }
+      return next;
+    });
+  const tooMany = picked.size > MAX_BULK_REPORTS;
+
+  const downloadSelected = async () => {
+    setDownloading(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const ids = [...picked.entries()].sort((a, b) => b[1].localeCompare(a[1])).map(([id]) => id);
+      await downloadServiceReportsZip(ids, token);
+      setPicked(new Map());
+    } catch (e: any) {
+      setError(e?.message ?? "Could not download the reports");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap" gap={2}>
@@ -170,12 +215,48 @@ export default function MaintenanceReportsListPage() {
         fullWidth
       />
 
+      {picked.size > 0 && (
+        <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
+          <Typography variant="body2" fontWeight={600}>
+            {picked.size} selected
+          </Typography>
+          {tooMany && (
+            <Typography variant="caption" color="error">
+              At most {MAX_BULK_REPORTS} at a time
+            </Typography>
+          )}
+          <Box sx={{ flex: 1 }} />
+          <Button size="small" onClick={() => setPicked(new Map())} disabled={downloading}>
+            Clear
+          </Button>
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={downloading ? <CircularProgress size={16} color="inherit" /> : <DownloadIcon />}
+            onClick={downloadSelected}
+            disabled={downloading || tooMany}
+          >
+            {downloading ? `Preparing ${picked.size} ${picked.size === 1 ? "report" : "reports"}…` : `Download selected (${picked.size})`}
+          </Button>
+        </Stack>
+      )}
+
       {error && <Alert severity="error">{error}</Alert>}
 
       <TableContainer component={Paper} variant="outlined">
         <Table>
           <TableHead>
             <TableRow>
+              <TableCell padding="checkbox">
+                <Checkbox
+                  size="small"
+                  checked={allOnPage}
+                  indeterminate={someOnPage}
+                  disabled={!signedOnPage.length || loading}
+                  onChange={togglePage}
+                  inputProps={{ "aria-label": "Select the signed reports on this page" }}
+                />
+              </TableCell>
               <TableCell sx={{ fontWeight: 600, width: 100 }}>Report #</TableCell>
               <TableCell sx={{ fontWeight: 600 }}>Customer</TableCell>
               <TableCell sx={{ fontWeight: 600 }}>Model</TableCell>
@@ -188,13 +269,13 @@ export default function MaintenanceReportsListPage() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={7} align="center" sx={{ py: 6 }}>
+                <TableCell colSpan={8} align="center" sx={{ py: 6 }}>
                   <CircularProgress size={28} />
                 </TableCell>
               </TableRow>
             ) : docs.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} align="center" sx={{ py: 6, color: "text.secondary" }}>
+                <TableCell colSpan={8} align="center" sx={{ py: 6, color: "text.secondary" }}>
                   {debouncedSearch ? "No reports match this search." : "No service reports yet."}
                 </TableCell>
               </TableRow>
@@ -206,6 +287,22 @@ export default function MaintenanceReportsListPage() {
                   onClick={() => router.push(`/portal/maintenance-reports/${row.id}`)}
                   sx={{ cursor: "pointer" }}
                 >
+                  <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+                    {row.status === "completed" ? (
+                      <Checkbox
+                        size="small"
+                        checked={picked.has(row.id)}
+                        onChange={() => togglePick(row)}
+                        inputProps={{ "aria-label": `Select report ${row.reportNumber ?? ""}` }}
+                      />
+                    ) : (
+                      <Tooltip title="Not signed yet">
+                        <span>
+                          <Checkbox size="small" disabled />
+                        </span>
+                      </Tooltip>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Typography variant="body2" fontWeight={600}>
                       {row.reportNumber ?? "—"}

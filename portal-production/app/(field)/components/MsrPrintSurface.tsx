@@ -137,6 +137,8 @@ export interface UseMsrPrintResult {
   surface: React.ReactNode;
   printReport: (reportId: string) => Promise<void>;
   downloadReport: (reportId: string) => Promise<{ uri: string; fileName: string }>;
+  /** Phone app only: the single download's PDF, saved to Downloads as `fileName` with NO share sheet. */
+  saveReportQuietly: (reportId: string, fileName: string) => Promise<{ uri: string; fileName: string }>;
   busy: string | null;
 }
 
@@ -264,6 +266,28 @@ export function useMsrPrint(): UseMsrPrintResult {
     [prepare, getToken],
   );
 
+  // Several reports in a row (the completed list's "Download (n)"): exactly
+  // downloadReport's native path, minus the share sheet, which would otherwise
+  // open once per file. No `busy` here: the caller shows "Saving 3 of 12…".
+  const saveReportQuietly = useCallback(
+    async (reportId: string, fileName: string) => {
+      if (!isSystemPrintAvailable()) throw new Error("Saving to Downloads needs the SiteJobs app");
+      try {
+        const prepared = await prepare(reportId);
+        const html =
+          prepared.html ??
+          (await serializeNodeToPrintHtml(prepared.node!, {
+            title: prepared.title,
+            pageStyle: MSR_PRINT_PAGE_STYLE,
+          }));
+        return await savePdfViaSystem(html, fileName, false);
+      } finally {
+        setReport(null);
+      }
+    },
+    [prepare],
+  );
+
   const sd = report?.serviceData ?? {};
   const templateId = templateFor(sd?.templateId);
   const isEss = templateId === "ESS_V1";
@@ -356,5 +380,5 @@ export function useMsrPrint(): UseMsrPrintResult {
     </OfficeThemeScope>
   );
 
-  return { surface, printReport, downloadReport, busy };
+  return { surface, printReport, downloadReport, saveReportQuietly, busy };
 }
