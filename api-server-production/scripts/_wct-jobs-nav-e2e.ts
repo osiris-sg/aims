@@ -7,6 +7,8 @@
  *   C a quotation that became an order: GET /documents/:id and the paginated list carry linkedOrder
  *
  *   AIMS_SECRETS_KEY=... TENANCY_MODE=per-org npx ts-node -r tsconfig-paths/register --transpile-only scripts/_wct-jobs-nav-e2e.ts
+ *
+ * Last run 2026-11-03 on dev: 13/13 (126 order jobs; 78 of 100 quotations carry their order).
  */
 import 'dotenv/config';
 import { Test } from '@nestjs/testing';
