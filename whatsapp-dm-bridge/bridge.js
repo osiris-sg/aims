@@ -163,7 +163,19 @@ function isWatchedGroup(groupId) {
  * only way to learn a group's jid without guessing. Runs at startup and then
  * hourly, since groups get created and renamed.
  */
+let linked = false; // set on ready, cleared on disconnect
+
 async function reportGroups(attempt = 1) {
+  // AN UNLINKED CLIENT HAS NO CHATS, WHICH IS NOT THE SAME AS NO GROUPS.
+  //
+  // When the device is logged out this function used to happily report zero,
+  // overwriting a known-good list with an empty one. Reading the endpoint then
+  // said "this phone is in no groups", which is a confident wrong answer to
+  // exactly the question the endpoint exists to settle (2026-11-03).
+  if (!linked) {
+    console.log('   ↷ group report skipped: device is not linked');
+    return;
+  }
   try {
     // Read WhatsApp's OWN collection rather than calling getChats().
     //
@@ -215,7 +227,10 @@ client.on('qr', async (qr) => {
 
 client.on('authenticated', () => console.log('🔐 authenticated'));
 client.on('auth_failure', (m) => console.error('✖ auth failure:', m));
-client.on('disconnected', (r) => console.error('✖ disconnected:', r));
+client.on('disconnected', (r) => {
+  linked = false;
+  console.error('✖ disconnected:', r);
+});
 
 // BETWEEN 'authenticated' AND 'ready' THERE WAS SILENCE.
 //
@@ -235,6 +250,7 @@ client.on('auth_failure', (m) => console.error('✖ auth failure:', m));
 client.on('ready', () => {
   const me = client.info?.wid?.user || 'unknown';
   const name = client.info?.pushname || '';
+  linked = true;
   console.log(`✅ ${LABEL} live — linked as +${me} ${name ? '(' + name + ')' : ''} for org ${ORG_ID}`);
   console.log(
     `   Relaying 1:1 messages${WATCH_GROUPS.length ? ` plus ${WATCH_GROUPS.length} watched group pattern(s)` : ' only'}. This bridge never sends.`,
