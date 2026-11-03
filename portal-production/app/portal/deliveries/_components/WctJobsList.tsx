@@ -21,7 +21,7 @@ import StatusPill from "@/app/portal/orders/_components/StatusPill";
 // first, then the status tabs ("To verify (n)" is the sign-off queue), the
 // filters, the table. GET /deliveries/order-jobs filters on the server. A row
 // opens the job; a job waiting for sign-off has Verify / Reject in its menu.
-interface JobRow {
+export interface JobRow {
   id: string;
   deliveryNumber: number;
   direction?: string;
@@ -38,7 +38,14 @@ interface JobRow {
   badges: Array<{ fieldId: string; label: string; icon: string; colour: string; text: string }>;
 }
 
-export default function WctJobsList() {
+export interface JobsFixture {
+  docs: JobRow[];
+  counts: Record<string, number>;
+  workers: string[];
+}
+
+/** fixture: /preview/wct-jobs only (screenshots without sign-in); the page itself always fetches. */
+export default function WctJobsList({ fixture }: { fixture?: JobsFixture } = {}) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -62,6 +69,14 @@ export default function WctJobsList() {
   const [working, setWorking] = useState(false);
 
   const load = useCallback(async () => {
+    if (fixture) {
+      const docs = fixture.docs.filter((d) => !state || d.state === state);
+      setRows(docs);
+      setTotal(docs.length);
+      setCounts(fixture.counts);
+      setWorkers(fixture.workers);
+      return;
+    }
     setLoading(true);
     try {
       const token = await getToken();
@@ -84,7 +99,7 @@ export default function WctJobsList() {
     } finally {
       setLoading(false);
     }
-  }, [getToken, page, limit, search, from, to, state, worker]);
+  }, [getToken, page, limit, search, from, to, state, worker, fixture]);
 
   useEffect(() => {
     void load();
@@ -126,8 +141,8 @@ export default function WctJobsList() {
       ),
     },
     { accessorKey: "order", header: "Order No.", size: 11, cell: ({ row }: any) => row.original.order?.orderNumber || "-" },
-    { accessorKey: "customer", header: "Customer", size: 13, cell: ({ row }: any) => row.original.customer?.name || "-" },
-    { accessorKey: "site", header: "Site", size: 14, cell: ({ row }: any) => row.original.site || "-" },
+    { accessorKey: "customer", header: "Customer", size: 12, cell: ({ row }: any) => row.original.customer?.name || "-" },
+    { accessorKey: "site", header: "Site", size: 12, cell: ({ row }: any) => row.original.site || "-" },
     { accessorKey: "scheduledFor", header: "Date / time", size: 11, cell: ({ row }: any) => (row.original.scheduledFor ? fmtJobWhen(row.original.scheduledFor) : "Not scheduled") },
     { accessorKey: "worker", header: "Worker", size: 9, cell: ({ row }: any) => row.original.worker || "-" },
     {
@@ -149,11 +164,11 @@ export default function WctJobsList() {
           "-"
         ),
     },
-    { accessorKey: "dos", header: "DO", size: 9, cell: ({ row }: any) => (row.original.dos?.length ? row.original.dos.map((d: any) => d.name || "DO").join(", ") : "-") },
+    { accessorKey: "dos", header: "DO", size: 8, cell: ({ row }: any) => (row.original.dos?.length ? row.original.dos.map((d: any) => d.name || "DO").join(", ") : "-") },
     {
       accessorKey: "state",
       header: "Status",
-      size: 8,
+      size: 12,
       cell: ({ row }: any) => <StatusPill label={ORDER_JOB_STATE_LABEL[row.original.state] ?? row.original.state} color={orderJobStateColor(row.original.state)} />,
     },
     {
@@ -184,7 +199,7 @@ export default function WctJobsList() {
         </Tabs>
       </Box>
       {state === "to_verify" && (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
           Jobs finished with a photo of the stamped DO, or marked completed with the paper copy to follow. Open a job to check its photos; verify it once the stamped DO or the paper copy is right, or reject it with a reason to send it back.
         </Typography>
       )}

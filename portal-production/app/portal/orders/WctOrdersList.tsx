@@ -27,11 +27,12 @@ interface WctOrderRow {
   createdAt: string;
 }
 
-export default function WctOrdersList() {
+/** fixture: /preview/wct-jobs only (screenshots without sign-in); the page itself always fetches. */
+export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } = {}) {
   const router = useRouter();
   const { organization } = useOrganization();
   const { getToken } = useAuth();
-  const [orders, setOrders] = useState<WctOrderRow[]>([]);
+  const [orders, setOrders] = useState<WctOrderRow[]>(fixture ?? []);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<OrderTab>("all");
   const [page, setPage] = useState(1);
@@ -40,7 +41,7 @@ export default function WctOrdersList() {
   const [filters, setFilters] = useState<any>({});
 
   const fetchOrders = useCallback(async () => {
-    if (!organization?.id) return;
+    if (fixture || !organization?.id) return;
     setLoading(true);
     try {
       const token = await getToken();
@@ -52,7 +53,7 @@ export default function WctOrdersList() {
     } finally {
       setLoading(false);
     }
-  }, [organization?.id, getToken]);
+  }, [organization?.id, getToken, fixture]);
 
   useEffect(() => {
     fetchOrders();
@@ -77,14 +78,14 @@ export default function WctOrdersList() {
         </Typography>
       ),
     },
-    { accessorKey: "customer", header: "Customer", size: 16, cell: ({ row }: any) => row.original.customer?.name || "—" },
+    { accessorKey: "customer", header: "Customer", size: 14, cell: ({ row }: any) => row.original.customer?.name || "—" },
     { accessorKey: "sourceQuotation", header: "Quotation", size: 12, cell: ({ row }: any) => row.original.sourceQuotation?.name || "—" },
     { accessorKey: "jobs", header: "Jobs", size: 14, cell: ({ row }: any) => jobCountsLine(row.original.jobCounts) },
     { accessorKey: "nextJobAt", header: "Next job", size: 12, cell: ({ row }: any) => (row.original.nextJobAt ? fmtJobWhen(row.original.nextJobAt) : "—") },
     {
       accessorKey: "status",
       header: "Status",
-      size: 9,
+      size: 12,
       cell: ({ row }: any) => <StatusPill label={orderStatusLabel(row.original.status)} color={orderStatusColor(row.original.status)} />,
     },
     { accessorKey: "createdAt", header: "Created", size: 9, cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY") },
