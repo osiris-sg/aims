@@ -133,6 +133,8 @@ const FEATURE_OVERRIDES: Record<string, boolean> = {
   // with built-in permissions; User Management shows no role editor. Roles are
   // materialised by scripts/apply-role-presets.ts (guru 2026-10-27).
   enableRolePresets: true,
+  enableAimsChat: true, // AIMEE on the dashboard (guru 2026-11-03), same brain as the WhatsApp line
+  enableWhatsAppAgent: true, // staff pushes + the AIMS WhatsApp line (2026-10-28)
 };
 // Role allowedModules codes that must not carry over (modules off on WCT).
 const DROP_FROM_ROLE_MODULES = new Set(['CRM', 'CUSTOMER_INFORMATION', 'AUDIT', 'ADMIN', 'USER_MANAGEMENT', 'PROJECTS']);
