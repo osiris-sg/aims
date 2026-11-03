@@ -8,6 +8,8 @@
  * The test SINs are voided and removed at the end.
  *
  *   AIMS_SECRETS_KEY=... TENANCY_MODE=per-org npx ts-node -r tsconfig-paths/register --transpile-only scripts/_sin-quotation-e2e.ts
+ *
+ * Last run 2026-11-03 on dev: 14/14 (posted SIN re-tagged; one real extraction pre-filled the exact quotation).
  */
 import 'dotenv/config';
 import { Test } from '@nestjs/testing';
