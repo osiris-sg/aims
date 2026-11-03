@@ -21,6 +21,8 @@ const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
   // "Set your password" from the Add user welcome email: the one-time Clerk ticket in the URL signs the person in.
   "/set-password(.*)",
+  // Deploy check: the commit this deployment was built from (no data).
+  "/api/version",
   // Fixture previews (round P): the page itself 404s unless PREVIEW_FIXTURES=1.
   "/preview(.*)",
   "/guest(.*)",
