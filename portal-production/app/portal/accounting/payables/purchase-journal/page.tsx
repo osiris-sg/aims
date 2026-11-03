@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Box,
@@ -34,7 +34,7 @@ import { kebabColumn } from "@/components/RowKebab";
 import Link from "next/link";
 import { Checkbox, FormControlLabel } from "@mui/material";
 import QuotationPicker from "../../bills/_components/QuotationPicker";
-import type { QuotationTag } from "@/helpers/sinQuotation";
+import { billQuotations, quotationsCell, type QuotationTag } from "@/helpers/sinQuotation";
 
 // Purchase Journal (supplier invoices) — lives under the AP path
 // /portal/accounting/payables/purchase-journal (guru 2026-08-01; the old
@@ -146,7 +146,8 @@ export default function BillsPage() {
   // slicing for pagination via its own page/limit props.
   const visible = useMemo(() => {
     let rows = tab === "all" ? items : items.filter((b) => b.status === tab);
-    if (quotationFilter) rows = rows.filter((b: any) => (quotationFilter === "none" ? !b.quotationId : b.quotationId === quotationFilter.id));
+    // 2026-11-04: per line — any line on that quotation; "Not tagged" = no line has one.
+    if (quotationFilter) rows = rows.filter((b: any) => (quotationFilter === "none" ? !billQuotations(b).length : billQuotations(b).some((q) => q.id === quotationFilter.id)));
     const q = (search || "").trim().toLowerCase();
     if (q) {
       rows = rows.filter(
@@ -154,7 +155,7 @@ export default function BillsPage() {
           b.billNumber.toLowerCase().includes(q) ||
           (b.supplier?.name || "").toLowerCase().includes(q) ||
           ((b as any).inboundChannel || "").toLowerCase().includes(q) ||
-          ((b as any).quotationNumber || "").toLowerCase().includes(q) ||
+          billQuotations(b as any).some((x) => (x.number || "").toLowerCase().includes(q)) ||
           (b.status || "").toLowerCase().includes(q),
       );
     }
@@ -263,14 +264,28 @@ export default function BillsPage() {
           {
             accessorKey: "quotationNumber",
             header: "Quotation No.",
-            cell: ({ row }: any) =>
-              row.original.quotationId ? (
-                <Link href={`/portal/documents/open/${row.original.quotationId}`} onClick={(e) => e.stopPropagation()} style={{ color: "inherit", fontWeight: 600 }}>
-                  {row.original.quotationNumber || "Quotation"}
-                </Link>
-              ) : (
-                "-"
-              ),
+            // 2026-11-04: the distinct quotations of its lines; more than two → the first plus "+N".
+            cell: ({ row }: any) => {
+              const qs = billQuotations(row.original);
+              if (!qs.length) return "-";
+              const { shown, more } = quotationsCell(qs.map((x) => x.number));
+              return (
+                <span title={qs.map((x) => x.number).join(", ")}>
+                  {shown.map((n, i) => {
+                    const q = qs.find((x) => x.number === n)!;
+                    return (
+                      <Fragment key={q.id}>
+                        {i > 0 && ", "}
+                        <Link href={`/portal/documents/open/${q.id}`} onClick={(e) => e.stopPropagation()} style={{ color: "inherit", fontWeight: 600 }}>
+                          {n || "Quotation"}
+                        </Link>
+                      </Fragment>
+                    );
+                  })}
+                  {more > 0 && ` +${more}`}
+                </span>
+              );
+            },
           },
         ]
       : []),

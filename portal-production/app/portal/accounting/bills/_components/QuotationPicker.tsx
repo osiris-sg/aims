@@ -10,17 +10,21 @@ import { quotationOptionLabel, quotationTotal, type QuotationTag } from "@/helpe
  * WCT (enableWctOrders, 2026-11-03): the "Quotation No." a supplier invoice's
  * cost belongs to. Searches WCT's own quotations by QO number, customer or
  * reference (POST /documents/paginated); shows "QO202611-0020 · Customer · S$1,234.00".
+ * `compact` (2026-11-04, the SIN line column): no label, the chosen quotation shows as its number only; the
+ * options still show number · customer · total.
  */
 export default function QuotationPicker({
   value,
   onChange,
   disabled,
   helperText,
+  compact,
 }: {
   value: QuotationTag | null;
   onChange: (next: QuotationTag | null) => void;
   disabled?: boolean;
   helperText?: string;
+  compact?: boolean;
 }) {
   const { request } = useAccountingApi();
   const [input, setInput] = useState("");
@@ -69,7 +73,12 @@ export default function QuotationPicker({
         if (reason === "input") setInput(v);
       }}
       isOptionEqualToValue={(a, b) => a.id === b.id}
-      getOptionLabel={(o) => o.label || o.number}
+      getOptionLabel={(o) => (compact ? o.number : o.label || o.number)}
+      renderOption={(props, o) => (
+        <li {...props} key={o.id}>
+          {o.label || o.number}
+        </li>
+      )}
       filterOptions={(x) => x}
       loading={loading}
       disabled={disabled}
@@ -77,13 +86,14 @@ export default function QuotationPicker({
       renderInput={(params) => (
         <TextField
           {...params}
-          label="Quotation No."
-          placeholder="Search QO number, customer, reference"
+          label={compact ? undefined : "Quotation No."}
+          placeholder={compact ? "Quotation" : "Search QO number, customer, reference"}
           helperText={helperText}
           InputProps={{ ...params.InputProps, endAdornment: <>{loading ? <CircularProgress size={14} /> : null}{params.InputProps.endAdornment}</> }}
         />
       )}
-      data-tour="sin-quotation-no"
+      data-tour={compact ? "sin-line-quotation" : "sin-quotation-no"}
+      sx={compact ? { minWidth: 150 } : undefined}
     />
   );
 }

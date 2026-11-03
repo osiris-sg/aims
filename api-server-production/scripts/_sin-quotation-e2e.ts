@@ -1,8 +1,8 @@
 /**
- * WCT: a supplier invoice's Quotation No. (2026-11-03), DEV database, real HTTP (+ one real AI extraction).
- *   A create a SIN with a WCT quotation: stored id + number; the list carries it; the filter finds it
- *   B a posted SIN's quotation changes through PATCH /bills/:id/quotation (no amounts change); clear works
- *   C the order of that quotation lists the SIN under supplierInvoices with the total
+ * WCT: a supplier invoice's Quotation No. (2026-11-03; PER LINE since 2026-11-04), DEV database, real HTTP (+ one real AI extraction).
+ *   A create a SIN whose two lines carry two quotations: each line stored with id + number; the list carries both; the filter finds it by either
+ *   B a posted SIN's line quotations change through PATCH /bills/:id/quotation { lines } (no amounts change); clearing works
+ *   C the order of a quotation lists the SIN under supplierInvoices with THAT quotation's line amount (and the invoice total)
  *   D another org: quotationId ignored on create; the tag endpoint refused
  *   E a PDF invoice printing the quotation number: /bills/extract pre-fills it (exact match), another number does not
  * The test SINs are voided and removed at the end.
@@ -10,6 +10,7 @@
  *   AIMS_SECRETS_KEY=... TENANCY_MODE=per-org npx ts-node -r tsconfig-paths/register --transpile-only scripts/_sin-quotation-e2e.ts
  *
  * Last run 2026-11-03 on dev: 14/14 (posted SIN re-tagged; one real extraction pre-filled the exact quotation).
+ * 2026-11-04 (per line): see the round's report.
  */
 import 'dotenv/config';
 import { Test } from '@nestjs/testing';
@@ -79,20 +80,26 @@ async function main() {
   try {
     const order = await runAsOrg(WCT, () => prisma.order.findFirst({ where: { organizationId: WCT, sourceQuotationId: { not: null } }, orderBy: { createdAt: 'desc' }, select: { id: true, orderNumber: true, sourceQuotationId: true } }));
     const quote = await runAsOrg(WCT, () => prisma.document.findFirst({ where: { id: order!.sourceQuotationId! }, select: { id: true, name: true } }));
+    // A second WCT quotation for the other line (the same one again when the org has only one).
+    const quote2 = (await runAsOrg(WCT, () => prisma.document.findFirst({ where: { organizationId: WCT, type: 'QUOTATION', id: { not: quote!.id } }, select: { id: true, name: true } }))) ?? quote!;
     // A test supplier per org (removed at the end).
     const supplier = await runAsOrg(WCT, () => prisma.supplier.create({ data: { organizationId: WCT, name: `E2E Supplier ${RUN}` } as any, select: { id: true, name: true } }));
     suppliers.push({ org: WCT, id: supplier.id });
     const line = [{ description: 'E2E ducting', quantity: 1, unitPrice: 100, amount: 100 }];
+    const twoSites = [
+      { description: 'E2E ducting (site A)', quantity: 1, unitPrice: 100, amount: 100, quotationId: quote!.id },
+      { description: 'E2E fan (site B)', quantity: 1, unitPrice: 40, amount: 40, quotationId: quote2.id },
+    ];
     // A
-    const a = await call(WCT, 'POST', '/bills', { supplierId: supplier!.id, billNumber: `E2E-SINQ-${RUN}-A`, billDate: '2026-11-03', lines: line, taxAmount: 9, quotationId: quote!.id });
+    const a = await call(WCT, 'POST', '/bills', { supplierId: supplier!.id, billNumber: `E2E-SINQ-${RUN}-A`, billDate: '2026-11-03', lines: twoSites, taxAmount: 12.6 });
     const aId = a.data?.id;
     if (aId) made.push({ org: WCT, id: aId });
-    ok(a.status < 300 && a.data?.quotationId === quote!.id && a.data?.quotationNumber === quote!.name, `A: SIN created tagged to ${quote!.name}`, a.data ?? a.body);
-    const list = await call(WCT, 'GET', `/bills?quotationId=${quote!.id}`);
-    ok((list.data ?? []).some((b: any) => b.id === aId && b.quotationNumber === quote!.name), 'A: the list filter finds it, with the number', (list.data ?? []).length);
+    ok(a.status < 300 && a.data?.lines?.[0]?.quotationNumber === quote!.name && a.data?.lines?.[1]?.quotationNumber === quote2.name && (a.data?.quotations ?? []).some((q: any) => q.id === quote2.id), `A: SIN created, line 1 → ${quote!.name}, line 2 → ${quote2.name}`, a.data ?? a.body);
+    const list = await call(WCT, 'GET', `/bills?quotationId=${quote2.id}`);
+    ok((list.data ?? []).some((b: any) => b.id === aId && (b.quotations ?? []).some((q: any) => q.number === quote!.name)), 'A: the list filter finds it by the second line\'s quotation, with every number', (list.data ?? []).length);
     const none = await call(WCT, 'GET', '/bills?quotationId=none&limit=50');
     ok(!(none.data ?? []).some((b: any) => b.id === aId), 'A: "Not tagged" leaves it out');
-    const bad = await call(WCT, 'POST', '/bills', { supplierId: supplier!.id, billNumber: `E2E-SINQ-${RUN}-X`, billDate: '2026-11-03', lines: line, quotationId: '00000000-0000-4000-8000-000000000000' });
+    const bad = await call(WCT, 'POST', '/bills', { supplierId: supplier!.id, billNumber: `E2E-SINQ-${RUN}-X`, billDate: '2026-11-03', lines: [{ ...line[0], quotationId: '00000000-0000-4000-8000-000000000000' }] });
     if (bad.data?.id) made.push({ org: WCT, id: bad.data.id });
     ok(bad.status === 400, 'A: a quotation that is not ours: 400', bad.status);
     // B: post it first (submit + approve), so the tag is changed on a POSTED SIN
@@ -102,23 +109,23 @@ async function main() {
     ok(before.data?.status === 'POSTED', 'B: the SIN is posted', before.data?.status);
     const locked = await call(WCT, 'PATCH', `/bills/${aId}`, { reference: 'changed' });
     ok(locked.status >= 400, 'B: a posted SIN stays locked for normal edits', locked.status);
-    const cleared = await call(WCT, 'PATCH', `/bills/${aId}/quotation`, { quotationId: null });
-    ok(cleared.status < 300 && cleared.data?.quotationId === null, `B: cleared on a ${before.data?.status} SIN`, cleared.body);
-    const again = await call(WCT, 'PATCH', `/bills/${aId}/quotation`, { quotationId: quote!.id });
-    ok(again.status < 300 && again.data?.quotationNumber === quote!.name && again.data?.totalAmount === before.data?.totalAmount && again.data?.status === before.data?.status, 'B: tagged again; amounts and status unchanged', again.data);
+    const cleared = await call(WCT, 'PATCH', `/bills/${aId}/quotation`, { lines: [null, null] });
+    ok(cleared.status < 300 && (cleared.data?.quotations ?? []).length === 0, `B: lines cleared on a ${before.data?.status} SIN`, cleared.body);
+    const again = await call(WCT, 'PATCH', `/bills/${aId}/quotation`, { lines: [quote!.id, quote2.id] });
+    ok(again.status < 300 && again.data?.lines?.[1]?.quotationNumber === quote2.name && again.data?.totalAmount === before.data?.totalAmount && again.data?.status === before.data?.status, 'B: lines tagged again; amounts and status unchanged', again.data);
     const log = await prisma.actionLog.findFirst({ where: { path: `/bills/${aId}/quotation` }, orderBy: { createdAt: 'desc' } });
     ok(log?.action === 'TAG_QUOTATION', 'B: Activity Log action TAG_QUOTATION', log?.action);
     // C
     const o = await call(WCT, 'GET', `/orders/${order!.id}`);
     const sin = (o.data?.supplierInvoices?.rows ?? []).find((r: any) => r.id === aId);
-    ok(sin && sin.supplierName && o.data.supplierInvoices.total >= sin.totalAmount, `C: order ${order!.orderNumber} lists it under Supplier invoices (total ${o.data?.supplierInvoices?.total})`, o.data?.supplierInvoices);
+    ok(sin && sin.supplierName && sin.quotationAmount === (quote2.id === quote!.id ? 140 : 100) && sin.totalAmount === before.data?.totalAmount, `C: order ${order!.orderNumber} lists it with its quotation's lines only (${sin?.quotationAmount} of ${sin?.totalAmount})`, o.data?.supplierInvoices);
     // D
     const osup = await runAsOrg(OSI, () => prisma.supplier.create({ data: { organizationId: OSI, name: `E2E Supplier ${RUN}` } as any, select: { id: true } }));
     suppliers.push({ org: OSI, id: osup.id });
     if (osup) {
-      const d = await call(OSI, 'POST', '/bills', { supplierId: osup.id, billNumber: `E2E-SINQ-${RUN}-D`, billDate: '2026-11-03', lines: line, quotationId: quote!.id });
+      const d = await call(OSI, 'POST', '/bills', { supplierId: osup.id, billNumber: `E2E-SINQ-${RUN}-D`, billDate: '2026-11-03', lines: [{ ...line[0], quotationId: quote!.id }] });
       if (d.data?.id) made.push({ org: OSI, id: d.data.id });
-      ok(d.status < 300 && !d.data?.quotationId, 'D: another org: quotationId ignored', d.data ?? d.body);
+      ok(d.status < 300 && !d.data?.lines?.[0]?.quotationId && !(d.data?.quotations ?? []).length, 'D: another org: a line quotationId is ignored', d.data ?? d.body);
       const dt = d.data?.id ? await call(OSI, 'PATCH', `/bills/${d.data.id}/quotation`, { quotationId: quote!.id }) : { status: 0 };
       ok(dt.status === 400, 'D: another org: the tag endpoint is refused', dt.status);
     }

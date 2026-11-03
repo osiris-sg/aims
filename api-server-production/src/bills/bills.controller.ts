@@ -56,8 +56,9 @@ export class BillsController {
   @Patch(':id/quotation')
   @Permissions('bills:update')
   @ApiOperation({ summary: 'WCT: set or clear the quotation a supplier invoice belongs to' })
-  tagQuotation(@Req() req: RequestWithOrganization, @Param('id') id: string, @Body() body: { quotationId?: string | null }) {
-    return this.service.tagQuotation(requireOrgId(req), id, body?.quotationId ?? null);
+  tagQuotation(@Req() req: RequestWithOrganization, @Param('id') id: string, @Body() body: { quotationId?: string | null; lines?: Array<string | null> }) {
+    // 2026-11-04: per line — `lines` (one quotation id or null per line), or `quotationId` for every line.
+    return this.service.tagQuotation(requireOrgId(req), id, { quotationId: body?.quotationId ?? null, ...(Array.isArray(body?.lines) ? { lines: body.lines.slice(0, 500).map((x) => (typeof x === 'string' && x ? x : null)) } : {}) });
   }
 
   @Get('aging')

@@ -81,7 +81,8 @@ interface WctOrder {
   // WCT service report on the order (Phase 5)
   attachments?: OrderAttachment[];
   // The supplier invoices tagged to this order's quotation (2026-11-03): job costs, read-only.
-  supplierInvoices?: { rows: Array<{ id: string; billNumber: string; supplierName: string | null; billDate: string | null; totalAmount: number; currency: string; void: boolean }>; total: number };
+  // 2026-11-04: quotations are per SIN line — quotationAmount = this quotation's lines only; total = their sum.
+  supplierInvoices?: { rows: Array<{ id: string; billNumber: string; supplierName: string | null; billDate: string | null; quotationAmount?: number; totalAmount: number; currency: string; void: boolean }>; total: number };
 }
 
 const INVOICE_STATUS: Record<string, string> = { draft: "Draft", unconfirmed: "Draft", confirmed: "Confirmed", pending_payment: "Confirmed, awaiting payment", paid: "Paid" };
@@ -430,7 +431,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
         </Typography>
         {!order.supplierInvoices?.rows?.length ? (
           <Typography variant="body2" color="text.secondary">
-            No supplier invoices tagged to {order.sourceQuotation?.name || "this order's quotation"} yet. Set the Quotation No. on a supplier invoice to list it here.
+            No supplier invoice lines tagged to {order.sourceQuotation?.name || "this order's quotation"} yet. Set the Quotation No. on a supplier invoice's lines to list it here.
           </Typography>
         ) : (
           <TableContainer sx={{ border: 1, borderColor: "divider", borderRadius: 1 }}>
@@ -453,7 +454,11 @@ export default function WctOrderDetail({ id }: { id: string }) {
                     <TableCell>{b.supplierName || "-"}</TableCell>
                     <TableCell>{b.billDate ? new Date(b.billDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "-"}</TableCell>
                     <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums", textDecoration: b.void ? "line-through" : "none" }}>
-                      {b.currency} {b.totalAmount.toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {/* This quotation's lines; the invoice's whole total under it, smaller. */}
+                      {b.currency} {(b.quotationAmount ?? b.totalAmount).toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <Typography component="div" variant="caption" color="text.secondary">
+                        of {b.currency} {b.totalAmount.toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </Typography>
                     </TableCell>
                   </TableRow>
                 ))}

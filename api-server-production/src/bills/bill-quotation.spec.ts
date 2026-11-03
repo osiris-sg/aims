@@ -1,4 +1,4 @@
-import { pickQuotation, quotationCandidates, taggedSinsView } from './bill-quotation';
+import { lineQuotationsOf, pickQuotation, quotationCandidates, quotationLinesAmount, quotationSummary, taggedSinsView } from './bill-quotation';
 
 // WCT: a supplier invoice's Quotation No. (2026-11-03).
 describe('quotation numbers on a supplier invoice', () => {
@@ -44,5 +44,31 @@ describe('quotation numbers on a supplier invoice', () => {
     expect(v.rows.find((r) => r.id === 'b')!.supplierName).toBe('Cool Air');
     expect(v.rows.find((r) => r.id === 'c')!.void).toBe(true);
     expect(v.total).toBe(150.35);
+  });
+});
+
+// 2026-11-04: the quotation is per line (one SIN can cover several job sites).
+describe('quotations per SIN line', () => {
+  const lines = [
+    { description: 'Site A fan', amount: 100, quotationId: 'q1', quotationNumber: 'QO202611-0001' },
+    { description: 'Site B duct', amount: 40.5, quotationId: 'q2', quotationNumber: 'QO202611-0002' },
+    { description: 'Site A labour', amount: 20, quotationId: 'q1', quotationNumber: 'QO202611-0001' },
+    { description: 'Delivery', amount: 5 },
+  ];
+  it('the summary keeps the distinct quotations in line order; the list reads it (lines are stripped there)', () => {
+    expect(quotationSummary(lines)).toEqual({ quotationIds: ['q1', 'q2'], quotationNumbers: ['QO202611-0001', 'QO202611-0002'] });
+    expect(lineQuotationsOf({ quotationIds: ['q1', 'q2'], quotationNumbers: ['QO202611-0001', 'QO202611-0002'] })).toEqual([{ id: 'q1', number: 'QO202611-0001' }, { id: 'q2', number: 'QO202611-0002' }]);
+    expect(lineQuotationsOf({ lines })).toEqual([{ id: 'q1', number: 'QO202611-0001' }, { id: 'q2', number: 'QO202611-0002' }]);
+    // A SIN saved before: the old header tag counts for every line.
+    expect(lineQuotationsOf({ quotationId: 'q9', quotationNumber: 'QO202611-0009', lines: [{ amount: 1 }] })).toEqual([{ id: 'q9', number: 'QO202611-0009' }]);
+    expect(lineQuotationsOf({ lines: [{ amount: 1 }] })).toEqual([]);
+  });
+  it("the amount of one quotation's lines; the order page lists the SIN with that amount and its whole total", () => {
+    expect(quotationLinesAmount({ lines }, 'q1')).toBe(120);
+    expect(quotationLinesAmount({ lines }, 'q2')).toBe(40.5);
+    expect(quotationLinesAmount({ quotationId: 'q9', lines: [{ amount: 3 }, { amount: 4 }] }, 'q9')).toBe(7);
+    const v = taggedSinsView([{ id: 'a', name: 'INV-1', status: 'confirmed', config: { supplierId: 's1', billDate: '2026-11-01', totalAmount: 178.07, lines, ...quotationSummary(lines) } }], new Map([['s1', 'Kool']]), 'q2');
+    expect(v.rows[0]).toMatchObject({ quotationAmount: 40.5, totalAmount: 178.07 });
+    expect(v.total).toBe(40.5);
   });
 });

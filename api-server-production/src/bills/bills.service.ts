@@ -7,7 +7,7 @@ import { refWith, documentReferenceOf } from '../common/doc-ref';
 import { ChartOfAccountsService } from '../accounting/chart-of-accounts.service';
 import { AccountMemoryService } from '../account-memory/account-memory.service';
 import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
-import { pickQuotation, QUOTATION_REFS_PROMPT, QUOTATION_TYPES, quotationCandidates, WCT_ORDERS_FLAG } from './bill-quotation';
+import { lineQuotationsOf, pickQuotation, QUOTATION_REFS_PROMPT, QUOTATION_TYPES, quotationCandidates, quotationSummary, WCT_ORDERS_FLAG } from './bill-quotation';
 import { isOrgFeatureEnabled } from '../common/org-features';
 
 // ---------------------------------------------------------------------------
@@ -49,6 +49,9 @@ type BillLine = {
   amount: number;
   accountId?: string;
   taxAmount?: number;
+  // WCT (enableWctOrders, 2026-11-04): the quotation this line's cost belongs to (bill-quotation.ts).
+  quotationId?: string | null;
+  quotationNumber?: string | null;
 };
 
 type BillStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'POSTED' | 'PAID' | 'VOID';
@@ -145,11 +148,14 @@ export class BillsService {
       currency: c.currency || c.documentInfo?.currency || 'SGD',
       taxCode: c.documentInfo?.taxCode || null,
       amountsAre: c.amountsAre || (c.documentInfo?.absorbTax ? 'INCLUSIVE' : 'EXCLUSIVE'),
-      lines: c.lines || c.items || [],
+      // WCT: a SIN saved before 2026-11-04 (header quotation only) shows that quotation on every line.
+      lines: Array.isArray(c.quotationIds) || !c.quotationId ? c.lines || c.items || [] : (c.lines || c.items || []).map((l: any) => (l?.quotationId ? l : { ...l, quotationId: c.quotationId, quotationNumber: c.quotationNumber || null })),
       sourcePoId: c.sourcePoId || null,
       // WCT: the quotation this cost belongs to (bill-quotation.ts).
       quotationId: c.quotationId || null,
       quotationNumber: c.quotationNumber || null,
+      // 2026-11-04: per line — the distinct quotations of its lines (the list strips lines, so the summary keys).
+      quotations: lineQuotationsOf(c),
       matchStatus: c.matchStatus || null,
       matchDetails: c.matchDetails || null,
       inboundChannel: c.inboundChannel || (c.xeroImported ? 'XERO' : 'MANUAL'),
@@ -215,7 +221,8 @@ export class BillsService {
     // Status / date filtering done in-memory (config-based fields aren't directly indexable here)
     if (opts?.status) bills = bills.filter((b) => b.status === opts.status);
     // WCT: Quotation No. filter ("none" = not tagged).
-    if (opts?.quotationId) bills = bills.filter((b) => (opts.quotationId === 'none' ? !b.quotationId : b.quotationId === opts.quotationId));
+    // 2026-11-04: any line on that quotation; "none" = no line has one.
+    if (opts?.quotationId) bills = bills.filter((b) => (opts.quotationId === 'none' ? !b.quotations.length : b.quotations.some((q) => q.id === opts.quotationId)));
     if (opts?.startDate || opts?.endDate) {
       bills = bills.filter((b) => {
         const d = new Date(b.billDate);
@@ -297,10 +304,12 @@ export class BillsService {
 
     const templateId = await this.getOrCreateBillTemplate(organizationId);
     const billStatus: BillStatus = 'DRAFT';
-    const quotationTag = await this.resolveQuotationTag(organizationId, dto.quotationId);
+    // WCT: the quotation per line (an older client's header quotationId fills the lines that have none).
+    const tagged = await this.resolveLineQuotations(organizationId, dto.lines, dto.quotationId);
+    if (tagged) dto.lines = tagged.lines;
 
     const config = {
-      ...(quotationTag ?? {}),
+      ...(tagged ? tagged.summary : {}),
       supplierId: supplier.id,
       supplier: { id: supplier.id, name: supplier.name },
       billDate: dto.billDate,
@@ -382,9 +391,16 @@ export class BillsService {
     if (dto.billDate !== undefined) { config.billDate = dto.billDate; config.date = dto.billDate; }
     if (dto.dueDate !== undefined) config.dueDate = dto.dueDate || null;
     if (dto.reference !== undefined) { config.reference = dto.reference; config.referenceNo = dto.reference; }
-    // WCT: the quotation tag (undefined = untouched; other orgs: ignored).
-    const quotationTag = await this.resolveQuotationTag(organizationId, dto.quotationId);
-    if (quotationTag) Object.assign(config, quotationTag);
+    // WCT: the quotation per line (undefined = untouched; other orgs: ignored). A header quotationId alone (an older
+    // client) puts that quotation on every line.
+    if (dto.lines !== undefined || dto.quotationId !== undefined) {
+      const tagged = await this.resolveLineQuotations(organizationId, dto.lines ?? config.lines ?? config.items ?? [], dto.lines === undefined && dto.quotationId !== undefined ? { all: dto.quotationId } : dto.quotationId);
+      if (tagged) {
+        if (dto.lines !== undefined) dto.lines = tagged.lines;
+        else { config.lines = tagged.lines; config.items = tagged.lines; }
+        Object.assign(config, tagged.summary);
+      }
+    }
     if (dto.description !== undefined) config.description = dto.description;
     if (dto.kind !== undefined) config.kind = dto.kind === 'SPR' ? 'SPR' : 'SIN';
     if (dto.amountsAre !== undefined) config.amountsAre = dto.amountsAre;
@@ -1006,29 +1022,44 @@ Use null when unreadable. STRICT JSON only, no prose, no trailing commas, never 
   }
 
   /**
-   * WCT: the quotation a SIN's cost belongs to, as stored on the bill. Null
-   * clears it. Other orgs: always undefined (nothing stored). Refuses a
-   * document that is not one of this org's quotations.
+   * WCT (2026-11-04): the quotation of each line. Each line's quotationId is checked to be one of this org's
+   * quotations and stamped with its number; `fallback` (an older client's header quotationId) fills lines that
+   * have none, `{ all }` sets every line. Returns the lines + the bill's summary keys; undefined for other orgs
+   * (their lines are stored without quotation keys).
    */
-  async resolveQuotationTag(organizationId: string, quotationId: unknown): Promise<{ quotationId: string | null; quotationNumber: string | null } | undefined> {
-    if (quotationId === undefined) return undefined;
-    if (!(await isOrgFeatureEnabled(this.prisma, organizationId, WCT_ORDERS_FLAG))) return undefined;
-    if (quotationId === null || quotationId === '') return { quotationId: null, quotationNumber: null };
-    const q = await this.prisma.document.findFirst({
-      where: { id: String(quotationId), organizationId, type: { in: QUOTATION_TYPES } },
-      select: { id: true, name: true },
+  async resolveLineQuotations(organizationId: string, lines: any[] | undefined, fallback?: unknown): Promise<{ lines: any[]; summary: { quotationIds: string[]; quotationNumbers: string[] } } | undefined> {
+    const wct = await isOrgFeatureEnabled(this.prisma, organizationId, WCT_ORDERS_FLAG).catch(() => false);
+    if (!wct) {
+      if (Array.isArray(lines)) for (const l of lines) if (l && typeof l === 'object') { delete l.quotationId; delete l.quotationNumber; }
+      return undefined;
+    }
+    const all = fallback && typeof fallback === 'object' && 'all' in (fallback as any) ? (fallback as any).all : undefined;
+    const header = all === undefined && fallback !== undefined && fallback !== null && fallback !== '' ? String(fallback) : null;
+    const want = (l: any): string | null => (all !== undefined ? (all ? String(all) : null) : l?.quotationId ? String(l.quotationId) : header);
+    const ids = [...new Set((lines || []).map(want).filter((x): x is string => !!x))];
+    const found = ids.length ? await this.prisma.document.findMany({ where: { organizationId, id: { in: ids }, type: { in: QUOTATION_TYPES } }, select: { id: true, name: true } }) : [];
+    if (found.length !== ids.length) throw new BadRequestException("A line's quotation is not one of this organisation's quotations");
+    const num = new Map(found.map((q) => [q.id, q.name ?? '']));
+    const out = (lines || []).map((l: any) => {
+      const q = want(l);
+      return { ...l, quotationId: q, quotationNumber: q ? num.get(q) ?? null : null };
     });
-    if (!q) throw new BadRequestException("That quotation is not one of this organisation's quotations");
-    return { quotationId: q.id, quotationNumber: q.name ?? null };
+    return { lines: out, summary: quotationSummary(out) };
   }
 
-  /** WCT: set / clear a SIN's quotation on any bill status (it changes no amounts and no journal). */
-  async tagQuotation(organizationId: string, id: string, quotationId: string | null) {
-    const tag = await this.resolveQuotationTag(organizationId, quotationId ?? null);
-    if (!tag) throw new BadRequestException('Quotation tags are not enabled for this organisation');
+  /**
+   * WCT: set / clear a SIN's quotations on any bill status (they change no amounts and no journal): `quotationId`
+   * for every line, or `lines` = one quotation id (or null) per line, in line order.
+   */
+  async tagQuotation(organizationId: string, id: string, body: { quotationId?: string | null; lines?: Array<string | null> }) {
+    if (!(await isOrgFeatureEnabled(this.prisma, organizationId, WCT_ORDERS_FLAG).catch(() => false))) throw new BadRequestException('Quotation tags are not enabled for this organisation');
     const doc = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'BILL' }, select: { id: true, config: true } });
     if (!doc) throw new NotFoundException('Supplier invoice not found');
-    await this.prisma.document.update({ where: { id: doc.id }, data: { config: { ...((doc.config as any) || {}), ...tag } } });
+    const cfg: any = (doc.config as any) || {};
+    const current: any[] = cfg.lines || cfg.items || [];
+    const lines = Array.isArray(body?.lines) ? current.map((l, i) => ({ ...l, quotationId: body.lines![i] ?? null })) : current;
+    const tagged = await this.resolveLineQuotations(organizationId, lines, Array.isArray(body?.lines) ? undefined : { all: body?.quotationId ?? null });
+    await this.prisma.document.update({ where: { id: doc.id }, data: { config: { ...cfg, lines: tagged!.lines, items: tagged!.lines, ...tagged!.summary } } });
     return this.findOne(organizationId, id);
   }
 

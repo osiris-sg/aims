@@ -44,7 +44,7 @@ import { expandUploadFiles, UPLOAD_ACCEPT } from "@/helpers/uploadExpand";
 import AttachmentUploader, { Attachment } from "@/components/AttachmentUploader";
 import { useFileDrop } from "@/hooks/useFileDrop";
 import QuotationPicker from "./QuotationPicker";
-import { tagOf, type QuotationTag } from "@/helpers/sinQuotation";
+import { lineTagOf, type QuotationTag } from "@/helpers/sinQuotation";
 import PostingPreviewDialog, { PreviewResult } from "@/components/PostingPreviewDialog";
 import { todayIso } from "@/helpers/orgToday";
 
@@ -66,6 +66,8 @@ type LineForm = {
   unitPrice: string;
   amount: string;
   accountId: string | null;
+  // WCT (2026-11-04): the quotation this line's cost belongs to (one SIN can cover several job sites).
+  quotation?: QuotationTag | null;
 };
 
 type Account = { id: string; code: string; name: string; category: "PNL" | "BALANCE_SHEET"; accountType?: string; isActive: boolean };
@@ -103,8 +105,7 @@ type FormSnapshot = {
   lines: LineForm[];
   inboundChannel: string;
   attachments: Attachment[];
-  // WCT: the quotation this cost belongs to; fromInvoice = pre-filled by the extraction.
-  quotation?: QuotationTag | null;
+  // WCT: the lines' quotations were pre-filled by the extraction.
   quotationFromInvoice?: boolean;
 };
 
@@ -151,7 +152,7 @@ export default function BillEditorDialog({
   const kindLabel = kind === "SPR" ? "Supplier Purchase Return" : "Supplier Invoice";
   // WCT (enableWctOrders, 2026-11-03): a supplier invoice's Quotation No. (the job its cost belongs to).
   const showQuotation = !!isWctOrdersEnabled && kind === "SIN";
-  const [quotation, setQuotation] = useState<QuotationTag | null>(null);
+  // 2026-11-04: the Quotation No. is per line (a column after Account); fromInvoice = the extraction filled it.
   const [quotationFromInvoice, setQuotationFromInvoice] = useState(false);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -220,7 +221,6 @@ export default function BillEditorDialog({
       setBillDate(editing.billDate ? editing.billDate.slice(0, 10) : todayIso());
       setDueDate(editing.dueDate ? editing.dueDate.slice(0, 10) : "");
       setReference(editing.reference || "");
-      setQuotation(tagOf(editing as any));
       setQuotationFromInvoice(false);
       setDescription(editing.description || "");
       setTaxAmount(String(editing.taxAmount || 0));
@@ -238,6 +238,7 @@ export default function BillEditorDialog({
               unitPrice: String(l.unitPrice ?? ""),
               amount: String(l.amount ?? ""),
               accountId: l.accountId || null,
+              quotation: lineTagOf(l),
             }))
           : [newLine()];
       if (editing.linesOmitted && editing.id) {
@@ -264,7 +265,6 @@ export default function BillEditorDialog({
       setBillDate(todayIso());
       setDueDate("");
       setReference("");
-      setQuotation(null);
       setQuotationFromInvoice(false);
       setDescription("");
       setTaxAmount("0");
@@ -387,9 +387,10 @@ export default function BillEditorDialog({
         );
       }
       setInboundChannel("UPLOAD");
-      // WCT: the invoice names one of our quotations (exact match on the server): pre-fill, the admin confirms.
-      if (extracted.quotationId) {
-        setQuotation({ id: extracted.quotationId, number: extracted.quotationNumber || "" });
+      // WCT: the invoice names one of our quotations (exact match on the server): on every line, the admin confirms.
+      if (showQuotation && extracted.quotationId) {
+        const tag = { id: extracted.quotationId, number: extracted.quotationNumber || "" };
+        setLines((rows) => rows.map((r) => ({ ...r, quotation: tag })));
         setQuotationFromInvoice(true);
       }
       toast.success(`Extracted${uploaded ? " & file attached" : ""} — review and save${extracted.supplierIdGuess ? "" : ". Pick a supplier."}`);
@@ -406,7 +407,7 @@ export default function BillEditorDialog({
   const captureForm = (): FormSnapshot => ({
     supplierId, billNumber, billDate, dueDate, reference, description,
     taxAmount, taxManual: taxManualRef.current, amountsAre, taxCode,
-    lines, inboundChannel, attachments, quotation, quotationFromInvoice,
+    lines, inboundChannel, attachments, quotationFromInvoice,
   });
 
   const restoreForm = (fm: FormSnapshot | null) => {
@@ -423,7 +424,6 @@ export default function BillEditorDialog({
     setLines(fm?.lines?.length ? fm.lines : [newLine()]);
     setInboundChannel(fm?.inboundChannel ?? "UPLOAD");
     setAttachments(fm?.attachments ?? []);
-    setQuotation(fm?.quotation ?? null);
     setQuotationFromInvoice(!!fm?.quotationFromInvoice);
   };
 
@@ -464,12 +464,12 @@ export default function BillEditorDialog({
               unitPrice: String(l.unitPrice ?? ""),
               amount: String(l.amount ?? ""),
               accountId: null,
+              quotation: showQuotation && extracted?.quotationId ? { id: extracted.quotationId, number: extracted.quotationNumber || "" } : null,
             }))
-          : [newLine()],
+          : [{ ...newLine(), quotation: showQuotation && extracted?.quotationId ? { id: extracted.quotationId, number: extracted.quotationNumber || "" } : null }],
       inboundChannel: "UPLOAD",
       attachments: uploaded ? [uploaded] : [],
-      quotation: extracted?.quotationId ? { id: extracted.quotationId, number: extracted.quotationNumber || "" } : null,
-      quotationFromInvoice: !!extracted?.quotationId,
+      quotationFromInvoice: showQuotation && !!extracted?.quotationId,
     };
     return {
       form,
@@ -548,16 +548,16 @@ export default function BillEditorDialog({
   // several at once). It used to say "Drop" without listening for a drop.
   const uploadDrop = useFileDrop({ accept: UPLOAD_ACCEPT, onFiles: (fs) => void handleFiles(fs), disabled: extracting || saving });
 
-  // WCT: a posted SIN's quotation tag saves on its own (PATCH /bills/:id/quotation; no amounts change).
-  const saveQuotationTag = async (next: QuotationTag | null) => {
+  // WCT: a posted SIN's line quotations save on their own (PATCH /bills/:id/quotation, one per line; no amounts change).
+  const saveLineQuotations = async (rows: LineForm[], prev: LineForm[]) => {
     if (!editing?.id) return;
     try {
-      await request(`/bills/${editing.id}/quotation`, { method: "PATCH", body: JSON.stringify({ quotationId: next?.id ?? null }) });
-      toast.success(next ? `Tagged to ${next.number}` : "Quotation removed");
+      await request(`/bills/${editing.id}/quotation`, { method: "PATCH", body: JSON.stringify({ lines: rows.map((r) => r.quotation?.id ?? null) }) });
+      toast.success("Quotation saved");
       onSaved?.();
     } catch (e: any) {
       toast.error(e?.message || "Could not save the quotation");
-      setQuotation(tagOf(editing as any));
+      setLines(prev);
     }
   };
 
@@ -653,7 +653,6 @@ export default function BillEditorDialog({
             billDate: fm.billDate,
             dueDate: fm.dueDate || undefined,
             reference: fm.reference.trim() || undefined,
-            ...(showQuotation ? { quotationId: fm.quotation?.id ?? null } : {}),
             description: fm.description || undefined,
             taxAmount: fm.amountsAre === "NO_TAX" ? 0 : parseFloat(fm.taxAmount) || 0,
             amountsAre: fm.amountsAre,
@@ -667,6 +666,7 @@ export default function BillEditorDialog({
                 unitPrice: parseFloat(l.unitPrice) || 0,
                 amount: parseFloat(l.amount) || 0,
                 accountId: l.accountId || undefined,
+                ...(showQuotation ? { quotationId: l.quotation?.id ?? null } : {}),
               })),
             inboundChannel: "UPLOAD",
           };
@@ -735,7 +735,6 @@ export default function BillEditorDialog({
         kind,
         dueDate: dueDate || undefined,
         reference: reference.trim() || undefined,
-        ...(showQuotation ? { quotationId: quotation?.id ?? null } : {}),
         description: description || undefined,
         taxAmount: amountsAre === "NO_TAX" ? 0 : parseFloat(taxAmount) || 0,
         amountsAre,
@@ -747,6 +746,7 @@ export default function BillEditorDialog({
           unitPrice: parseFloat(l.unitPrice) || 0,
           amount: parseFloat(l.amount) || 0,
           accountId: l.accountId || undefined,
+          ...(showQuotation ? { quotationId: l.quotation?.id ?? null } : {}),
         })),
         inboundChannel,
       };
@@ -1041,18 +1041,6 @@ export default function BillEditorDialog({
             onChange={(e) => setReference(e.target.value)}
             disabled={isReadOnly}
           />
-          {showQuotation && (
-            <QuotationPicker
-              value={quotation}
-              // A posted SIN keeps its amounts locked, but its quotation can still change (saved at once).
-              onChange={(next) => {
-                setQuotation(next);
-                setQuotationFromInvoice(false);
-                if (isReadOnly && editing?.id) void saveQuotationTag(next);
-              }}
-              helperText={quotationFromInvoice ? "From the invoice. Check it, then save." : isReadOnly ? "Changes save at once." : undefined}
-            />
-          )}
           <TextField
             size="small"
             label="Notes (optional)"
@@ -1120,6 +1108,7 @@ export default function BillEditorDialog({
                 <TableCell sx={{ fontWeight: 700, width: 40 }}>#</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
                 <TableCell sx={{ fontWeight: 700, width: 220 }}>Account</TableCell>
+                {showQuotation && <TableCell sx={{ fontWeight: 700, width: 170 }}>Quotation No.</TableCell>}
                 <TableCell align="right" sx={{ fontWeight: 700, width: 80 }}>Qty</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 700, width: 110 }}>Unit</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 700, width: 120 }}>Amount</TableCell>
@@ -1158,6 +1147,22 @@ export default function BillEditorDialog({
                       renderInput={(params) => <TextField {...params} placeholder="Auto" disabled={isReadOnly} />}
                     />
                   </TableCell>
+                  {showQuotation && (
+                    <TableCell>
+                      <QuotationPicker
+                        compact
+                        value={l.quotation ?? null}
+                        // A posted SIN keeps its amounts locked, but its lines' quotations can still change (saved at once).
+                        onChange={(next) => {
+                          const prev = lines;
+                          const rows = lines.map((r) => (r.uid === l.uid ? { ...r, quotation: next } : r));
+                          setLines(rows);
+                          setQuotationFromInvoice(false);
+                          if (isReadOnly && editing?.id) void saveLineQuotations(rows, prev);
+                        }}
+                      />
+                    </TableCell>
+                  )}
                   <TableCell align="right">
                     <TextField
                       size="small"
@@ -1209,9 +1214,15 @@ export default function BillEditorDialog({
             </TableBody>
           </Table>
         </Box>
+        {showQuotation && quotationFromInvoice && (
+          <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mt: 0.5 }}>
+            Quotation No. from the invoice. Check it, then save.
+          </Typography>
+        )}
 
         <Stack direction="row" alignItems="center" gap={2} sx={{ mt: 1.5, flexWrap: "wrap" }}>
-          <Button startIcon={<AddIcon />} size="small" onClick={() => setLines((r) => [...r, newLine()])} disabled={isReadOnly}>
+          {/* WCT: a new line starts on the line above's quotation (editable). */}
+          <Button startIcon={<AddIcon />} size="small" onClick={() => setLines((r) => [...r, showQuotation ? { ...newLine(), quotation: r[r.length - 1]?.quotation ?? null } : newLine()])} disabled={isReadOnly}>
             Add line
           </Button>
           <Box sx={{ flex: 1 }} />

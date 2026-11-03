@@ -506,16 +506,19 @@ export class OrdersService {
     };
   }
 
-  /** WCT: the SINs tagged with this quotation (bills/bill-quotation.ts), and their total. */
+  /**
+   * WCT: the SINs with a line on this quotation (bills/bill-quotation.ts; 2026-11-04 the quotation is per line —
+   * config.quotationIds — or, for a SIN saved before, the old header tag), each with that quotation's line amount.
+   */
   private async wctSupplierInvoices(organizationId: string, quotationId: string | null | undefined) {
     if (!quotationId) return { rows: [], total: 0 };
     const docs = await this.prisma.document.findMany({
-      where: { organizationId, type: 'BILL', config: { path: ['quotationId'], equals: quotationId } },
+      where: { organizationId, type: 'BILL', OR: [{ config: { path: ['quotationIds'], array_contains: [quotationId] } }, { config: { path: ['quotationId'], equals: quotationId } }] },
       select: { id: true, name: true, status: true, config: true },
     });
     const sids = [...new Set(docs.map((d: any) => d.config?.supplierId || d.config?.supplier?.id).filter(Boolean))] as string[];
     const sups = sids.length ? await this.prisma.supplier.findMany({ where: { organizationId, id: { in: sids } }, select: { id: true, name: true } }) : [];
-    return taggedSinsView(docs as any, new Map(sups.map((x) => [x.id, x.name])));
+    return taggedSinsView(docs as any, new Map(sups.map((x) => [x.id, x.name])), quotationId);
   }
 
   // ── WCT service report on the order (enableWctOrders, 2026-11-01, Phase 5) ──

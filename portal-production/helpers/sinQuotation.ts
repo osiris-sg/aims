@@ -25,3 +25,24 @@ export function quotationOptionLabel(number: string, customer: string | null | u
 export function tagOf(b: { quotationId?: string | null; quotationNumber?: string | null } | null | undefined): QuotationTag | null {
   return b?.quotationId ? { id: b.quotationId, number: b.quotationNumber || "" } : null;
 }
+
+/**
+ * 2026-11-04: the quotation is per LINE (one SIN can cover several job sites). The bill's distinct quotations, in
+ * line order: the API's `quotations`, else (an older response) the header tag.
+ */
+export function billQuotations(b: { quotations?: QuotationTag[] | null; quotationId?: string | null; quotationNumber?: string | null } | null | undefined): QuotationTag[] {
+  if (Array.isArray(b?.quotations)) return b!.quotations!;
+  const t = tagOf(b);
+  return t ? [t] : [];
+}
+
+/** The Purchase Journal cell: one or two numbers comma-separated; more → the first plus "+N". */
+export function quotationsCell(numbers: string[]): { shown: string[]; more: number } {
+  const ns = numbers.filter(Boolean);
+  return ns.length > 2 ? { shown: [ns[0]], more: ns.length - 1 } : { shown: ns, more: 0 };
+}
+
+/** A line's quotation as the API returns it (an old header-only bill already has it on every line). */
+export function lineTagOf(line: { quotationId?: string | null; quotationNumber?: string | null } | null | undefined): QuotationTag | null {
+  return line?.quotationId ? { id: line.quotationId, number: line.quotationNumber || "" } : null;
+}

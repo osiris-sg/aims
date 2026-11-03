@@ -1,7 +1,12 @@
 /**
  * WCT: tag a supplier invoice (SIN) with the quotation its cost belongs to
- * (enableWctOrders, 2026-11-03). Stored on the bill's config as quotationId +
- * quotationNumber (bills are BILL documents; no table change). Pure helpers:
+ * (enableWctOrders, 2026-11-03). 2026-11-04: PER LINE — one SIN can cover
+ * several job sites. Each line of config.lines carries quotationId +
+ * quotationNumber (lines live in the bill's config JSON; there is no line
+ * table), and the bill keeps the distinct ones as config.quotationIds /
+ * quotationNumbers (the list query strips lines, so it reads these). The old
+ * header keys config.quotationId / quotationNumber stay where they are and
+ * are read as "every line" for a bill saved before. Pure helpers:
  * which quotation numbers a supplier's invoice mentions, and the one exact
  * match among the org's quotations. Never a fuzzy guess.
  */
@@ -49,6 +54,8 @@ export const QUOTATION_REFS_PROMPT = `  - "quotationRefs": array of strings — 
 export interface TaggedSinRow {
   id: string;
   billNumber: string;
+  /** The lines of this order's quotation only (2026-11-04: quotations are per line). */
+  quotationAmount: number;
   supplierName: string | null;
   billDate: string | null;
   totalAmount: number;
@@ -57,11 +64,12 @@ export interface TaggedSinRow {
 }
 
 /**
- * The order page's "Supplier invoices" (read-only): the SINs tagged to the
- * order's quotation, newest first, and their total. A voided SIN is listed
- * (marked) but not counted.
+ * The order page's "Supplier invoices" (read-only): the SINs with a line on the
+ * order's quotation, newest first; each with the amount of that quotation's
+ * lines (and its whole total), and the sum of those amounts. A voided SIN is
+ * listed (marked) but not counted.
  */
-export function taggedSinsView(docs: Array<{ id: string; name: string | null; status: string; config: any }>, supplierNames: Map<string, string>) {
+export function taggedSinsView(docs: Array<{ id: string; name: string | null; status: string; config: any }>, supplierNames: Map<string, string>, quotationId?: string) {
   const rows: TaggedSinRow[] = docs.map((d) => {
     const c: any = d.config || {};
     const sid = c.supplierId || c.supplier?.id;
@@ -69,6 +77,7 @@ export function taggedSinsView(docs: Array<{ id: string; name: string | null; st
     return {
       id: d.id,
       billNumber: d.name || '',
+      quotationAmount: quotationId ? quotationLinesAmount(c, quotationId) : Number(c.totalAmount ?? c.totalWithTax ?? 0) || 0,
       supplierName: (sid && supplierNames.get(sid)) || c.supplier?.name || null,
       billDate: c.billDate || c.date || null,
       totalAmount: Number(c.totalAmount ?? c.totalWithTax ?? 0) || 0,
@@ -77,6 +86,37 @@ export function taggedSinsView(docs: Array<{ id: string; name: string | null; st
     };
   });
   rows.sort((a, b) => String(b.billDate || '').localeCompare(String(a.billDate || '')));
-  const total = Math.round(rows.filter((r) => !r.void).reduce((n, r) => n + r.totalAmount, 0) * 100) / 100;
+  const total = Math.round(rows.filter((r) => !r.void).reduce((n, r) => n + r.quotationAmount, 0) * 100) / 100;
   return { rows, total };
+}
+
+export type QuotationRef = { id: string; number: string };
+
+/**
+ * The distinct quotations a SIN's cost belongs to, in line order: the stored summary
+ * (quotationIds / quotationNumbers), else its lines, else the old header tag.
+ */
+export function lineQuotationsOf(c: any): QuotationRef[] {
+  const cfg = c || {};
+  if (Array.isArray(cfg.quotationIds)) return cfg.quotationIds.map((id: string, i: number) => ({ id, number: (cfg.quotationNumbers || [])[i] || '' }));
+  const out = new Map<string, string>();
+  for (const l of (cfg.lines || cfg.items || []) as any[]) if (l?.quotationId && !out.has(l.quotationId)) out.set(l.quotationId, l.quotationNumber || '');
+  if (!out.size && cfg.quotationId) out.set(cfg.quotationId, cfg.quotationNumber || '');
+  return [...out].map(([id, number]) => ({ id, number }));
+}
+
+/** The summary keys a bill stores for its lines' quotations (distinct, in line order). */
+export function quotationSummary(lines: any[]): { quotationIds: string[]; quotationNumbers: string[] } {
+  const out = new Map<string, string>();
+  for (const l of lines || []) if (l?.quotationId && !out.has(l.quotationId)) out.set(l.quotationId, l.quotationNumber || '');
+  return { quotationIds: [...out.keys()], quotationNumbers: [...out.values()] };
+}
+
+/** A line's quotation: its own, else (a bill saved before 2026-11-04) the old header tag. */
+export const lineQuotationId = (line: any, c: any): string | null => line?.quotationId || (Array.isArray(c?.quotationIds) ? null : c?.quotationId) || null;
+
+/** The amount of a SIN's lines that belong to this quotation (lines as stored; 2 dp). */
+export function quotationLinesAmount(c: any, quotationId: string): number {
+  const lines = ((c?.lines || c?.items || []) as any[]).filter((l) => lineQuotationId(l, c) === quotationId);
+  return Math.round(lines.reduce((n, l) => n + (Number(l?.amount) || 0), 0) * 100) / 100;
 }

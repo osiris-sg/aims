@@ -58,9 +58,12 @@ test("WCT Quotation No.: label, total, tag; shown only for WCT supplier invoices
   assert.equal(tagOf({}), null);
   const sin = read("app/portal/accounting/bills/_components/BillEditorDialog.tsx");
   assert.match(sin, /const showQuotation = !!isWctOrdersEnabled && kind === "SIN";/);
-  assert.match(sin, /if \(isReadOnly && editing\?\.id\) void saveQuotationTag\(next\)/);
+  // 2026-11-04: per line — a column after Account, the header field gone; a posted SIN saves the line tags at once.
+  assert.match(sin, /\{showQuotation && <TableCell sx=\{\{ fontWeight: 700, width: 170 \}\}>Quotation No\.<\/TableCell>\}/);
+  assert.match(sin, /if \(isReadOnly && editing\?\.id\) void saveLineQuotations\(rows, prev\)/);
+  assert.doesNotMatch(sin, /value=\{quotation\}/);
   const pj = read("app/portal/accounting/payables/purchase-journal/page.tsx");
   assert.match(pj, /header: "Quotation No\."/);
-  assert.match(pj, /\/portal\/documents\/open\/\$\{row\.original\.quotationId\}/);
+  assert.match(pj, /\/portal\/documents\/open\/\$\{q\.id\}/);
   assert.match(read("app/portal/orders/[id]/WctOrderDetail.tsx"), /Supplier invoices total/);
 });
