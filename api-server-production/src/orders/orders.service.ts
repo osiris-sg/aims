@@ -12,6 +12,7 @@ import { isVerifiedJob } from '../deliveries/finish-modes';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { doStatusTag } from '../deliveries/do-number';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
+import { taggedSinsView } from '../bills/bill-quotation';
 
 /**
  * Orders are auto-created when a quotation is confirmed (gated by the
@@ -500,7 +501,21 @@ export class OrdersService {
       prefill: { siteAddress, lines: quotationLines },
       ...(await this.wctBilling(organizationId, jobsRaw)),
       attachments: await this.orderAttachmentsView(organizationId, Array.isArray(order.attachments) ? (order.attachments as any[]) : []),
+      // The supplier invoices tagged to this order's quotation (job costs, read-only).
+      supplierInvoices: await this.wctSupplierInvoices(organizationId, order.sourceQuotationId),
     };
+  }
+
+  /** WCT: the SINs tagged with this quotation (bills/bill-quotation.ts), and their total. */
+  private async wctSupplierInvoices(organizationId: string, quotationId: string | null | undefined) {
+    if (!quotationId) return { rows: [], total: 0 };
+    const docs = await this.prisma.document.findMany({
+      where: { organizationId, type: 'BILL', config: { path: ['quotationId'], equals: quotationId } },
+      select: { id: true, name: true, status: true, config: true },
+    });
+    const sids = [...new Set(docs.map((d: any) => d.config?.supplierId || d.config?.supplier?.id).filter(Boolean))] as string[];
+    const sups = sids.length ? await this.prisma.supplier.findMany({ where: { organizationId, id: { in: sids } }, select: { id: true, name: true } }) : [];
+    return taggedSinsView(docs as any, new Map(sups.map((x) => [x.id, x.name])));
   }
 
   // ── WCT service report on the order (enableWctOrders, 2026-11-01, Phase 5) ──

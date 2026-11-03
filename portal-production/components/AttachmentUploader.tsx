@@ -8,6 +8,7 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { useAuth } from "@clerk/nextjs";
 import { uploadFile, publicFileUrl, UploadedFileMeta } from "@/helpers/fileUploader";
 import { toast } from "react-toastify";
+import { useFileDrop } from "@/hooks/useFileDrop";
 
 export type Attachment = {
   fileKey: string;
@@ -48,7 +49,7 @@ export default function AttachmentUploader({
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
-  const handleFiles = async (fileList: FileList | null) => {
+  const handleFiles = async (fileList: FileList | File[] | null) => {
     if (!fileList?.length) return;
     setUploading(true);
     try {
@@ -78,12 +79,26 @@ export default function AttachmentUploader({
     }
   };
 
+  // Drag-and-drop (2026-11-03): the whole section takes dropped files, same types as "Add file".
+  const { dragOver, bind } = useFileDrop({ accept, onFiles: (fs) => void handleFiles(fs), disabled: disabled || uploading });
+
   const removeAt = (idx: number) => {
     onChange(value.filter((_, i) => i !== idx));
   };
 
   return (
-    <Box>
+    <Box
+      {...bind}
+      data-testid="attachment-drop-zone"
+      sx={{
+        borderRadius: 1,
+        outline: dragOver ? "2px dashed" : "2px dashed transparent",
+        outlineColor: dragOver ? "primary.main" : "transparent",
+        outlineOffset: 4,
+        bgcolor: dragOver ? "action.hover" : "transparent",
+        transition: "background-color 120ms, outline-color 120ms",
+      }}
+    >
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
         <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary", textTransform: "uppercase", letterSpacing: 0.5 }}>
           {label}
@@ -112,7 +127,7 @@ export default function AttachmentUploader({
 
       {value.length === 0 ? (
         <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic" }}>
-          No files attached. PDFs and images supported.
+          {dragOver ? "Drop to attach." : "No files attached. Drop files here or use Add file. PDFs and images supported."}
         </Typography>
       ) : (
         <Stack gap={0.5}>

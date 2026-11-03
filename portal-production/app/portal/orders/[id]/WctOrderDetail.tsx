@@ -80,6 +80,8 @@ interface WctOrder {
   toInvoice?: number[];
   // WCT service report on the order (Phase 5)
   attachments?: OrderAttachment[];
+  // The supplier invoices tagged to this order's quotation (2026-11-03): job costs, read-only.
+  supplierInvoices?: { rows: Array<{ id: string; billNumber: string; supplierName: string | null; billDate: string | null; totalAmount: number; currency: string; void: boolean }>; total: number };
 }
 
 const INVOICE_STATUS: Record<string, string> = { draft: "Draft", unconfirmed: "Draft", confirmed: "Confirmed", pending_payment: "Confirmed, awaiting payment", paid: "Paid" };
@@ -415,6 +417,54 @@ export default function WctOrderDetail({ id }: { id: string }) {
                     </TableCell>
                   </TableRow>
                 ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+      </Box>
+
+      {/* Supplier invoices tagged with this order's quotation (their Quotation No.): what the job cost. Read-only. */}
+      <Box sx={{ mt: 3 }} data-tour="wct-order-supplier-invoices">
+        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+          Supplier invoices
+        </Typography>
+        {!order.supplierInvoices?.rows?.length ? (
+          <Typography variant="body2" color="text.secondary">
+            No supplier invoices tagged to {order.sourceQuotation?.name || "this order's quotation"} yet. Set the Quotation No. on a supplier invoice to list it here.
+          </Typography>
+        ) : (
+          <TableContainer sx={{ border: 1, borderColor: "divider", borderRadius: 1 }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Invoice #</TableCell>
+                  <TableCell>Supplier</TableCell>
+                  <TableCell>Date</TableCell>
+                  <TableCell align="right">Total</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {order.supplierInvoices.rows.map((b) => (
+                  <TableRow key={b.id} hover sx={{ cursor: "pointer", opacity: b.void ? 0.55 : 1 }} onClick={() => router.push(`/portal/accounting/payables/purchase-journal?bill=${b.id}`)}>
+                    <TableCell sx={{ fontWeight: 600 }}>
+                      {b.billNumber}
+                      {b.void ? " (void)" : ""}
+                    </TableCell>
+                    <TableCell>{b.supplierName || "-"}</TableCell>
+                    <TableCell>{b.billDate ? new Date(b.billDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "-"}</TableCell>
+                    <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums", textDecoration: b.void ? "line-through" : "none" }}>
+                      {b.currency} {b.totalAmount.toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                <TableRow>
+                  <TableCell colSpan={3} sx={{ fontWeight: 700 }}>
+                    Supplier invoices total
+                  </TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                    SGD {order.supplierInvoices.total.toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </TableCell>
+                </TableRow>
               </TableBody>
             </Table>
           </TableContainer>

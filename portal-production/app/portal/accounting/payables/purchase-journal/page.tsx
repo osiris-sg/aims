@@ -31,6 +31,10 @@ import RecordBillPaymentDialog from "../../bills/_components/RecordBillPaymentDi
 import PageTable from "@/components/PageTable";
 import { useClientSort } from "@/components/clientSort";
 import { kebabColumn } from "@/components/RowKebab";
+import Link from "next/link";
+import { Checkbox, FormControlLabel } from "@mui/material";
+import QuotationPicker from "../../bills/_components/QuotationPicker";
+import type { QuotationTag } from "@/helpers/sinQuotation";
 
 // Purchase Journal (supplier invoices) — lives under the AP path
 // /portal/accounting/payables/purchase-journal (guru 2026-08-01; the old
@@ -67,7 +71,9 @@ const fmt = (n: number) => (n || 0).toLocaleString(undefined, { minimumFractionD
 
 export default function BillsPage() {
   const { request } = useAccountingApi();
-  const { isXeroDocSyncEnabled } = useOrganizationFeatures();
+  const { isXeroDocSyncEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
+  // WCT (enableWctOrders, 2026-11-03): the Quotation No. column + filter ("none" = not tagged).
+  const [quotationFilter, setQuotationFilter] = useState<QuotationTag | "none" | null>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
   const [items, setItems] = useState<Bill[]>([]);
@@ -123,10 +129,24 @@ export default function BillsPage() {
     return c;
   }, [items]);
 
+  // ?bill=<id> (e.g. from an order's Supplier invoices): open that bill once the list is in.
+  const openedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const id = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("bill") : null;
+    if (!id || openedRef.current === id || !items.length) return;
+    const b = items.find((x) => x.id === id);
+    if (b) {
+      openedRef.current = id;
+      setEditing(b);
+      setEditorOpen(true);
+    }
+  }, [items]);
+
   // Filter by tab + search before passing to PageTable. PageTable handles
   // slicing for pagination via its own page/limit props.
   const visible = useMemo(() => {
     let rows = tab === "all" ? items : items.filter((b) => b.status === tab);
+    if (quotationFilter) rows = rows.filter((b: any) => (quotationFilter === "none" ? !b.quotationId : b.quotationId === quotationFilter.id));
     const q = (search || "").trim().toLowerCase();
     if (q) {
       rows = rows.filter(
@@ -134,14 +154,15 @@ export default function BillsPage() {
           b.billNumber.toLowerCase().includes(q) ||
           (b.supplier?.name || "").toLowerCase().includes(q) ||
           ((b as any).inboundChannel || "").toLowerCase().includes(q) ||
+          ((b as any).quotationNumber || "").toLowerCase().includes(q) ||
           (b.status || "").toLowerCase().includes(q),
       );
     }
     return rows;
-  }, [items, tab, search]);
+  }, [items, tab, search, quotationFilter]);
 
   // Reset to first page whenever the filtered set changes.
-  useEffect(() => { setPage(1); }, [tab, search]);
+  useEffect(() => { setPage(1); }, [tab, search, quotationFilter]);
 
   const totals = useMemo(() => {
     return visible.reduce(
@@ -236,6 +257,23 @@ export default function BillsPage() {
       header: "Reference",
       cell: ({ row }: any) => row.original.reference || "—",
     },
+    // WCT: the quotation this cost belongs to; the number opens the quotation.
+    ...(isWctOrdersEnabled
+      ? [
+          {
+            accessorKey: "quotationNumber",
+            header: "Quotation No.",
+            cell: ({ row }: any) =>
+              row.original.quotationId ? (
+                <Link href={`/portal/documents/open/${row.original.quotationId}`} onClick={(e) => e.stopPropagation()} style={{ color: "inherit", fontWeight: 600 }}>
+                  {row.original.quotationNumber || "Quotation"}
+                </Link>
+              ) : (
+                "-"
+              ),
+          },
+        ]
+      : []),
     {
       accessorKey: "billDate",
       header: "Invoice date",
@@ -323,7 +361,7 @@ export default function BillsPage() {
         ...(b.status !== "VOID" ? [{ label: "Void", destructive: true, onClick: () => voidIt(b) }] : []),
       ];
     }),
-  ], [request, isXeroDocSyncEnabled]);
+  ], [request, isXeroDocSyncEnabled, isWctOrdersEnabled]);
 
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
@@ -397,6 +435,19 @@ export default function BillsPage() {
         setSearch={setSearch}
         setFilters={setFilters}
         availableFilters={["status", "createdOn"]}
+        headerContent={
+          isWctOrdersEnabled ? (
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }} sx={{ mb: 2, maxWidth: 640 }}>
+              <Box sx={{ flex: 1, minWidth: 260 }}>
+                <QuotationPicker value={quotationFilter && quotationFilter !== "none" ? quotationFilter : null} onChange={(v) => setQuotationFilter(v)} disabled={quotationFilter === "none"} />
+              </Box>
+              <FormControlLabel
+                control={<Checkbox size="small" checked={quotationFilter === "none"} onChange={(e) => setQuotationFilter(e.target.checked ? "none" : null)} />}
+                label="Not tagged"
+              />
+            </Stack>
+          ) : undefined
+        }
         pageCount={pageCount}
         totalDocs={visible.length}
       />

@@ -42,6 +42,9 @@ import { useAuth } from "@clerk/nextjs";
 import { uploadFile } from "@/helpers/fileUploader";
 import { expandUploadFiles, UPLOAD_ACCEPT } from "@/helpers/uploadExpand";
 import AttachmentUploader, { Attachment } from "@/components/AttachmentUploader";
+import { useFileDrop } from "@/hooks/useFileDrop";
+import QuotationPicker from "./QuotationPicker";
+import { tagOf, type QuotationTag } from "@/helpers/sinQuotation";
 import PostingPreviewDialog, { PreviewResult } from "@/components/PostingPreviewDialog";
 import { todayIso } from "@/helpers/orgToday";
 
@@ -100,6 +103,9 @@ type FormSnapshot = {
   lines: LineForm[];
   inboundChannel: string;
   attachments: Attachment[];
+  // WCT: the quotation this cost belongs to; fromInvoice = pre-filled by the extraction.
+  quotation?: QuotationTag | null;
+  quotationFromInvoice?: boolean;
 };
 
 const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -139,10 +145,14 @@ export default function BillEditorDialog({
   // Phone: this editor is large — full-screen below sm
   const phoneDialog = useMediaQuery((t: any) => t.breakpoints.down("sm"));
   const { getToken } = useAuth();
-  const { isXeroDocSyncEnabled } = useOrganizationFeatures();
+  const { isXeroDocSyncEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
   // Editing keeps the bill's stored kind; new entries take the chooser's pick.
   const kind: "SIN" | "SPR" = (editing ? editing.kind : kindProp) === "SPR" ? "SPR" : "SIN";
   const kindLabel = kind === "SPR" ? "Supplier Purchase Return" : "Supplier Invoice";
+  // WCT (enableWctOrders, 2026-11-03): a supplier invoice's Quotation No. (the job its cost belongs to).
+  const showQuotation = !!isWctOrdersEnabled && kind === "SIN";
+  const [quotation, setQuotation] = useState<QuotationTag | null>(null);
+  const [quotationFromInvoice, setQuotationFromInvoice] = useState(false);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [saving, setSaving] = useState(false);
@@ -210,6 +220,8 @@ export default function BillEditorDialog({
       setBillDate(editing.billDate ? editing.billDate.slice(0, 10) : todayIso());
       setDueDate(editing.dueDate ? editing.dueDate.slice(0, 10) : "");
       setReference(editing.reference || "");
+      setQuotation(tagOf(editing as any));
+      setQuotationFromInvoice(false);
       setDescription(editing.description || "");
       setTaxAmount(String(editing.taxAmount || 0));
       setAmountsAre((editing.amountsAre as AmountsAre) || "EXCLUSIVE");
@@ -252,6 +264,8 @@ export default function BillEditorDialog({
       setBillDate(todayIso());
       setDueDate("");
       setReference("");
+      setQuotation(null);
+      setQuotationFromInvoice(false);
       setDescription("");
       setTaxAmount("0");
       setAmountsAre("EXCLUSIVE");
@@ -373,6 +387,11 @@ export default function BillEditorDialog({
         );
       }
       setInboundChannel("UPLOAD");
+      // WCT: the invoice names one of our quotations (exact match on the server): pre-fill, the admin confirms.
+      if (extracted.quotationId) {
+        setQuotation({ id: extracted.quotationId, number: extracted.quotationNumber || "" });
+        setQuotationFromInvoice(true);
+      }
       toast.success(`Extracted${uploaded ? " & file attached" : ""} — review and save${extracted.supplierIdGuess ? "" : ". Pick a supplier."}`);
     } catch (e: any) {
       toast.error(e?.message || "Extraction failed");
@@ -387,7 +406,7 @@ export default function BillEditorDialog({
   const captureForm = (): FormSnapshot => ({
     supplierId, billNumber, billDate, dueDate, reference, description,
     taxAmount, taxManual: taxManualRef.current, amountsAre, taxCode,
-    lines, inboundChannel, attachments,
+    lines, inboundChannel, attachments, quotation, quotationFromInvoice,
   });
 
   const restoreForm = (fm: FormSnapshot | null) => {
@@ -404,6 +423,8 @@ export default function BillEditorDialog({
     setLines(fm?.lines?.length ? fm.lines : [newLine()]);
     setInboundChannel(fm?.inboundChannel ?? "UPLOAD");
     setAttachments(fm?.attachments ?? []);
+    setQuotation(fm?.quotation ?? null);
+    setQuotationFromInvoice(!!fm?.quotationFromInvoice);
   };
 
   // Map one file's extraction into a full form snapshot (batch items always
@@ -447,6 +468,8 @@ export default function BillEditorDialog({
           : [newLine()],
       inboundChannel: "UPLOAD",
       attachments: uploaded ? [uploaded] : [],
+      quotation: extracted?.quotationId ? { id: extracted.quotationId, number: extracted.quotationNumber || "" } : null,
+      quotationFromInvoice: !!extracted?.quotationId,
     };
     return {
       form,
@@ -518,6 +541,24 @@ export default function BillEditorDialog({
       return;
     }
     startBatch(fs);
+  };
+
+  // Drag-and-drop (2026-11-03, reported by WCT): the "Drop PDFs or images…" box
+  // takes dropped files exactly as "Upload invoices" does (PDF / image / ZIP,
+  // several at once). It used to say "Drop" without listening for a drop.
+  const uploadDrop = useFileDrop({ accept: UPLOAD_ACCEPT, onFiles: (fs) => void handleFiles(fs), disabled: extracting || saving });
+
+  // WCT: a posted SIN's quotation tag saves on its own (PATCH /bills/:id/quotation; no amounts change).
+  const saveQuotationTag = async (next: QuotationTag | null) => {
+    if (!editing?.id) return;
+    try {
+      await request(`/bills/${editing.id}/quotation`, { method: "PATCH", body: JSON.stringify({ quotationId: next?.id ?? null }) });
+      toast.success(next ? `Tagged to ${next.number}` : "Quotation removed");
+      onSaved?.();
+    } catch (e: any) {
+      toast.error(e?.message || "Could not save the quotation");
+      setQuotation(tagOf(editing as any));
+    }
   };
 
   // Navigate the pager. Persists in-progress edits onto the item being left.
@@ -612,6 +653,7 @@ export default function BillEditorDialog({
             billDate: fm.billDate,
             dueDate: fm.dueDate || undefined,
             reference: fm.reference.trim() || undefined,
+            ...(showQuotation ? { quotationId: fm.quotation?.id ?? null } : {}),
             description: fm.description || undefined,
             taxAmount: fm.amountsAre === "NO_TAX" ? 0 : parseFloat(fm.taxAmount) || 0,
             amountsAre: fm.amountsAre,
@@ -693,6 +735,7 @@ export default function BillEditorDialog({
         kind,
         dueDate: dueDate || undefined,
         reference: reference.trim() || undefined,
+        ...(showQuotation ? { quotationId: quotation?.id ?? null } : {}),
         description: description || undefined,
         taxAmount: amountsAre === "NO_TAX" ? 0 : parseFloat(taxAmount) || 0,
         amountsAre,
@@ -876,12 +919,16 @@ export default function BillEditorDialog({
         {!editing && (
           <Paper
             variant="outlined"
+            {...uploadDrop.bind}
+            data-testid="sin-drop-zone"
             sx={{
               p: 1.5,
               mb: 2,
               borderStyle: "dashed",
-              borderColor: (t: any) => alpha(t.palette.primary.main, 0.4),
-              bgcolor: (t: any) => alpha(t.palette.primary.main, 0.03),
+              borderWidth: uploadDrop.dragOver ? 2 : 1,
+              borderColor: (t: any) => (uploadDrop.dragOver ? t.palette.primary.main : alpha(t.palette.primary.main, 0.4)),
+              bgcolor: (t: any) => alpha(t.palette.primary.main, uploadDrop.dragOver ? 0.12 : 0.03),
+              transition: "background-color 120ms, border-color 120ms",
               display: "flex",
               alignItems: "center",
               gap: 2,
@@ -904,7 +951,7 @@ export default function BillEditorDialog({
               ) : (
                 <>
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    Drop PDFs or images of supplier invoices — Claude will extract them for you.
+                    {uploadDrop.dragOver ? "Drop to extract." : "Drop PDFs or images of supplier invoices here, and Claude will extract them for you."}
                   </Typography>
                   <Typography variant="caption" sx={{ color: "text.secondary" }}>
                     Works on most invoices. Select multiple files or a ZIP to review them one by one.
@@ -994,6 +1041,18 @@ export default function BillEditorDialog({
             onChange={(e) => setReference(e.target.value)}
             disabled={isReadOnly}
           />
+          {showQuotation && (
+            <QuotationPicker
+              value={quotation}
+              // A posted SIN keeps its amounts locked, but its quotation can still change (saved at once).
+              onChange={(next) => {
+                setQuotation(next);
+                setQuotationFromInvoice(false);
+                if (isReadOnly && editing?.id) void saveQuotationTag(next);
+              }}
+              helperText={quotationFromInvoice ? "From the invoice. Check it, then save." : isReadOnly ? "Changes save at once." : undefined}
+            />
+          )}
           <TextField
             size="small"
             label="Notes (optional)"

@@ -299,6 +299,8 @@ export class ActionLogInterceptor implements NestInterceptor {
       if (i > 0 && segments[i - 1] === 'subtasks') return 'UPDATE';
       // GET .../sign-link reads the active link; only the POST mints one.
       if (s === 'sign-link' && method !== 'POST') return METHOD_ACTION[method] || 'UNKNOWN';
+      // PATCH /bills/:id/quotation (WCT): tag a supplier invoice with its quotation.
+      if (s === 'quotation' && segments[0] === 'bills' && method === 'PATCH') return 'TAG_QUOTATION';
       if (VERB_ACTIONS[s]) return VERB_ACTIONS[s];
       break;
     }

@@ -47,7 +47,17 @@ export class BillsController {
       startDate: q.startDate ? new Date(q.startDate) : undefined,
       endDate: q.endDate ? new Date(q.endDate) : undefined,
       limit: q.limit ? parseInt(q.limit) : undefined,
+      quotationId: q.quotationId || undefined,
     });
+  }
+
+  // WCT (enableWctOrders, 2026-11-03): tag a supplier invoice with the quotation
+  // its cost belongs to, on any status (it changes no amounts or journal).
+  @Patch(':id/quotation')
+  @Permissions('bills:update')
+  @ApiOperation({ summary: 'WCT: set or clear the quotation a supplier invoice belongs to' })
+  tagQuotation(@Req() req: RequestWithOrganization, @Param('id') id: string, @Body() body: { quotationId?: string | null }) {
+    return this.service.tagQuotation(requireOrgId(req), id, body?.quotationId ?? null);
   }
 
   @Get('aging')

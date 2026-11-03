@@ -7,6 +7,8 @@ import { refWith, documentReferenceOf } from '../common/doc-ref';
 import { ChartOfAccountsService } from '../accounting/chart-of-accounts.service';
 import { AccountMemoryService } from '../account-memory/account-memory.service';
 import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
+import { pickQuotation, QUOTATION_REFS_PROMPT, QUOTATION_TYPES, quotationCandidates, WCT_ORDERS_FLAG } from './bill-quotation';
+import { isOrgFeatureEnabled } from '../common/org-features';
 
 // ---------------------------------------------------------------------------
 // Bills (Accounts Payable) — supplier-side equivalent of invoices.
@@ -145,6 +147,9 @@ export class BillsService {
       amountsAre: c.amountsAre || (c.documentInfo?.absorbTax ? 'INCLUSIVE' : 'EXCLUSIVE'),
       lines: c.lines || c.items || [],
       sourcePoId: c.sourcePoId || null,
+      // WCT: the quotation this cost belongs to (bill-quotation.ts).
+      quotationId: c.quotationId || null,
+      quotationNumber: c.quotationNumber || null,
       matchStatus: c.matchStatus || null,
       matchDetails: c.matchDetails || null,
       inboundChannel: c.inboundChannel || (c.xeroImported ? 'XERO' : 'MANUAL'),
@@ -180,7 +185,7 @@ export class BillsService {
 
   async list(
     organizationId: string,
-    opts?: { status?: string; supplierId?: string; startDate?: Date; endDate?: Date; limit?: number },
+    opts?: { status?: string; supplierId?: string; startDate?: Date; endDate?: Date; limit?: number; quotationId?: string },
   ) {
     // The list never shows lines, so strip the heavy config keys IN THE
     // DATABASE (lines / items / images / extraction). Chong Aik's 3,353
@@ -209,6 +214,8 @@ export class BillsService {
 
     // Status / date filtering done in-memory (config-based fields aren't directly indexable here)
     if (opts?.status) bills = bills.filter((b) => b.status === opts.status);
+    // WCT: Quotation No. filter ("none" = not tagged).
+    if (opts?.quotationId) bills = bills.filter((b) => (opts.quotationId === 'none' ? !b.quotationId : b.quotationId === opts.quotationId));
     if (opts?.startDate || opts?.endDate) {
       bills = bills.filter((b) => {
         const d = new Date(b.billDate);
@@ -248,6 +255,8 @@ export class BillsService {
       dueDate?: string;
       reference?: string;
       description?: string;
+      // WCT (enableWctOrders): the quotation this cost belongs to (bill-quotation.ts).
+      quotationId?: string | null;
       lines: BillLine[];
       taxAmount?: number;
       taxCode?: string;
@@ -288,8 +297,10 @@ export class BillsService {
 
     const templateId = await this.getOrCreateBillTemplate(organizationId);
     const billStatus: BillStatus = 'DRAFT';
+    const quotationTag = await this.resolveQuotationTag(organizationId, dto.quotationId);
 
     const config = {
+      ...(quotationTag ?? {}),
       supplierId: supplier.id,
       supplier: { id: supplier.id, name: supplier.name },
       billDate: dto.billDate,
@@ -371,6 +382,9 @@ export class BillsService {
     if (dto.billDate !== undefined) { config.billDate = dto.billDate; config.date = dto.billDate; }
     if (dto.dueDate !== undefined) config.dueDate = dto.dueDate || null;
     if (dto.reference !== undefined) { config.reference = dto.reference; config.referenceNo = dto.reference; }
+    // WCT: the quotation tag (undefined = untouched; other orgs: ignored).
+    const quotationTag = await this.resolveQuotationTag(organizationId, dto.quotationId);
+    if (quotationTag) Object.assign(config, quotationTag);
     if (dto.description !== undefined) config.description = dto.description;
     if (dto.kind !== undefined) config.kind = dto.kind === 'SPR' ? 'SPR' : 'SIN';
     if (dto.amountsAre !== undefined) config.amountsAre = dto.amountsAre;
@@ -981,6 +995,43 @@ Use null when unreadable. STRICT JSON only, no prose, no trailing commas, never 
     }
   }
 
+  /** WCT: the one existing quotation among the invoice's candidate numbers (exact, case-insensitive), else null. */
+  private async matchQuotation(organizationId: string, candidates: string[]) {
+    if (!candidates.length) return null;
+    const docs = await this.prisma.document.findMany({
+      where: { organizationId, type: { in: QUOTATION_TYPES }, name: { in: candidates, mode: 'insensitive' } },
+      select: { id: true, name: true },
+    });
+    return pickQuotation(candidates, docs);
+  }
+
+  /**
+   * WCT: the quotation a SIN's cost belongs to, as stored on the bill. Null
+   * clears it. Other orgs: always undefined (nothing stored). Refuses a
+   * document that is not one of this org's quotations.
+   */
+  async resolveQuotationTag(organizationId: string, quotationId: unknown): Promise<{ quotationId: string | null; quotationNumber: string | null } | undefined> {
+    if (quotationId === undefined) return undefined;
+    if (!(await isOrgFeatureEnabled(this.prisma, organizationId, WCT_ORDERS_FLAG))) return undefined;
+    if (quotationId === null || quotationId === '') return { quotationId: null, quotationNumber: null };
+    const q = await this.prisma.document.findFirst({
+      where: { id: String(quotationId), organizationId, type: { in: QUOTATION_TYPES } },
+      select: { id: true, name: true },
+    });
+    if (!q) throw new BadRequestException("That quotation is not one of this organisation's quotations");
+    return { quotationId: q.id, quotationNumber: q.name ?? null };
+  }
+
+  /** WCT: set / clear a SIN's quotation on any bill status (it changes no amounts and no journal). */
+  async tagQuotation(organizationId: string, id: string, quotationId: string | null) {
+    const tag = await this.resolveQuotationTag(organizationId, quotationId ?? null);
+    if (!tag) throw new BadRequestException('Quotation tags are not enabled for this organisation');
+    const doc = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'BILL' }, select: { id: true, config: true } });
+    if (!doc) throw new NotFoundException('Supplier invoice not found');
+    await this.prisma.document.update({ where: { id: doc.id }, data: { config: { ...((doc.config as any) || {}), ...tag } } });
+    return this.findOne(organizationId, id);
+  }
+
   async extractFromFile(
     organizationId: string,
     base64Data: string,
@@ -995,6 +1046,8 @@ Use null when unreadable. STRICT JSON only, no prose, no trailing commas, never 
     const detectedMedia = (headerMatch?.[1] as any) ?? mediaType;
 
     const client = new Anthropic({ apiKey });
+    // WCT (enableWctOrders): also list the customer's quotation numbers the invoice mentions.
+    const wct = await isOrgFeatureEnabled(this.prisma, organizationId, WCT_ORDERS_FLAG).catch(() => false);
     const system = `You are extracting structured data from a supplier bill / invoice. Output ONLY a JSON object with:
   - "supplierName": string (vendor name from header)
   - "billNumber": string (their invoice number)
@@ -1007,7 +1060,7 @@ Use null when unreadable. STRICT JSON only, no prose, no trailing commas, never 
   - "totalAmount": number (subtotal + tax)
   - "siteAddress": string or null — any project / site / delivery / job address on the document (e.g. a "PROJECT:" or "SITE:" or "DELIVER TO:" line, or a block/unit/street/postal reference identifying WHERE the work is). Copy it verbatim. Null if none.
   - "billTo": string or null — the party the document is addressed to (the "Bill To" / "Customer" / "To:" name), never the issuer.
-"description" must be the line's COMPLETE text copied WORD-FOR-WORD from the
+${wct ? `${QUOTATION_REFS_PROMPT}\n` : ''}"description" must be the line's COMPLETE text copied WORD-FOR-WORD from the
 document — keep every sub-line (model, serial numbers, rental periods, DO/PO
 references, locations) joined with \n newlines, in the original order. NEVER
 summarize, shorten, or paraphrase a description. Text that belongs to a line
@@ -1044,8 +1097,11 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         .replace(/:\s*undefined\s*([,}\]])/g, ': null$1')
         .replace(/,\s*([}\]])/g, '$1');
       const parsed = JSON.parse(sanitized);
+      // WCT: a quotation number on the invoice that is exactly one of ours pre-fills the tag (the admin confirms).
+      const quotation = wct ? await this.matchQuotation(organizationId, quotationCandidates(parsed)) : null;
       return {
         ...parsed,
+        ...(quotation ? { quotationId: quotation.id, quotationNumber: quotation.name, quotationFromInvoice: true } : {}),
         supplierIdGuess: parsed.supplierName
           ? await this.matchSupplier(organizationId, parsed.supplierName)
           : null,
