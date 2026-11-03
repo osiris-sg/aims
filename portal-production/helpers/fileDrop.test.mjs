@@ -59,7 +59,10 @@ test("WCT Quotation No.: label, total, tag; shown only for WCT supplier invoices
   const sin = read("app/portal/accounting/bills/_components/BillEditorDialog.tsx");
   assert.match(sin, /const showQuotation = !!isWctOrdersEnabled && kind === "SIN";/);
   // 2026-11-04: per line — a column after Account, the header field gone; a posted SIN saves the line tags at once.
-  assert.match(sin, /\{showQuotation && <TableCell sx=\{\{ fontWeight: 700, width: 170 \}\}>Quotation No\.<\/TableCell>\}/);
+  assert.match(sin, /\{showQuotation && <TableCell sx=\{\{ fontWeight: 700, width: 300, minWidth: 300 \}\}>Quotation No\.<\/TableCell>\}/);
+  // 2026-11-04: wider WCT SIN only (~1400px dialog, the line table scrolls instead of squashing); other orgs keep "lg" / 760.
+  assert.match(sin, /PaperProps=\{showQuotation && !phoneDialog \? \{ sx: \{ maxWidth: 1400 \} \} : undefined\}/);
+  assert.match(sin, /minWidth: showQuotation \? 1230 : 760/);
   assert.match(sin, /if \(isReadOnly && editing\?\.id\) void saveLineQuotations\(rows, prev\)/);
   assert.doesNotMatch(sin, /value=\{quotation\}/);
   const pj = read("app/portal/accounting/payables/purchase-journal/page.tsx");

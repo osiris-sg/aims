@@ -848,7 +848,15 @@ export default function BillEditorDialog({
   };
 
   return (
-    <Dialog open={open} onClose={requestClose} fullWidth maxWidth="lg" fullScreen={phoneDialog}>
+    <Dialog
+      open={open}
+      onClose={requestClose}
+      fullWidth
+      maxWidth="lg"
+      fullScreen={phoneDialog}
+      // WCT SIN (per-line Quotation No.): ~1400px wide, still inside a 1366px laptop screen. Other dialogs stay "lg".
+      PaperProps={showQuotation && !phoneDialog ? { sx: { maxWidth: 1400 } } : undefined}
+    >
       <DialogTitle>
         <Stack direction="row" alignItems="center" justifyContent="space-between">
           <Stack direction="row" gap={1.5} alignItems="center">
@@ -1102,15 +1110,17 @@ export default function BillEditorDialog({
         {/* Lines */}
         {/* Phone: line-items table scrolls inside its container */}
         <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, overflowX: "auto" }}>
-          <Table size="small" sx={{ minWidth: 760 }}>
+          {/* WCT SIN: the line table scrolls sideways (instead of squashing columns) once Description would drop below its old ~270px. */}
+          <Table size="small" sx={{ minWidth: showQuotation ? 1230 : 760 }}>
             <TableHead>
               <TableRow sx={{ bgcolor: (t: any) => alpha(t.palette.text.primary, 0.03) }}>
                 <TableCell sx={{ fontWeight: 700, width: 40 }}>#</TableCell>
                 <TableCell sx={{ fontWeight: 700 }}>Description</TableCell>
-                <TableCell sx={{ fontWeight: 700, width: 220 }}>Account</TableCell>
-                {showQuotation && <TableCell sx={{ fontWeight: 700, width: 170 }}>Quotation No.</TableCell>}
+                {/* WCT SIN: Quotation No. gets ~300px (number plus the start of the customer); Account and Unit give some up. */}
+                <TableCell sx={{ fontWeight: 700, width: showQuotation ? 190 : 220 }}>Account</TableCell>
+                {showQuotation && <TableCell sx={{ fontWeight: 700, width: 300, minWidth: 300 }}>Quotation No.</TableCell>}
                 <TableCell align="right" sx={{ fontWeight: 700, width: 80 }}>Qty</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 700, width: 110 }}>Unit</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 700, width: showQuotation ? 100 : 110 }}>Unit</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 700, width: 120 }}>Amount</TableCell>
                 <TableCell sx={{ width: 40 }} />
               </TableRow>
@@ -1182,7 +1192,7 @@ export default function BillEditorDialog({
                       onChange={(e) => setLine(l.uid, { unitPrice: e.target.value })}
                       disabled={isReadOnly}
                       inputProps={{ step: "0.01", min: 0, style: { textAlign: "right" } }}
-                      sx={{ width: 100 }}
+                      sx={{ width: showQuotation ? 90 : 100 }}
                     />
                   </TableCell>
                   <TableCell align="right">
