@@ -164,6 +164,7 @@ describe('webhook filter modes', () => {
     expect(nonTradeReason({ from: 'Aluminium.Exports@vedanta.co.in', subject: 'BL DRAFT - Asia Deal(Kato)//454003598 // 198GX07288' })).toBeNull();
     // Vedanta in cc does not keep a price booking.
     expect(filterDecision({ from: 'sales.vedantametalbazaar@moglix.com', to: ['x@asiadealhub.com'], cc: ['a@vedanta.co.in'], subject: 'Aluminium || Price booking accepted', attachmentNames: [], threadOrder: null }, { allowDomains: ['vedanta.co.in'], allowAddresses: [] }, ['asiadealhub.com']).keep).toBe(false);
+    expect(nonTradeReason({ from: 'makoto_takemoto@st-grp.co.jp', subject: 'Re: MOVOマニュアルの送付' })).toBe('not trade mail: the MOVO manual');
     expect(isAimsOwnMail('AIMS <admin@osiris.sg>')).toBe(true);
     expect(isAimsOwnMail('elroy.lee@osiris.so')).toBe(false);
   });

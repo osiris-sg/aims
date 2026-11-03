@@ -6,19 +6,22 @@
 // drives an action); "Answer" (→ the round AA Choose-shipment dialog: nothing applies until Confirm) and "Show full
 // email" (→ the thread pop-up). Styled like the Operations dashboard's cards (outlined, same padding, small grey
 // labels, accent button). EN / JA from the API. No em dashes.
+// Round BC (owner: less text): the question with the guess, ONE evidence line, subject (1 line) and sender · date,
+// [Yes] [Other…] [Show full email]; "Yes:" only when Yes does more than filing; alternatives only after "Other…";
+// the full evidence list is in "Show full email". No hand-over button.
 // Round BB (owner) — one concrete best guess: the headline ("Is this the B/L of #26-1?"), the evidence with the
 // matching bit highlighted (a conflict in the error colour, the file as a small chip), "Yes: <what Yes does>", then
 // [Yes] (AIMS's guess; up to 2 alternatives as small buttons under it), [Other…] (the step-by-step dialog, as Answer
-// was) and [Not sure → ask Elroy/Take] (a note, then the card goes to the admins). A card handed to the admins shows
+// was) (round BC: the hand-over button was removed). A card handed to the admins shows
 // "Asked Elroy/Take" and no answer buttons to everyone else; an admin sees who asked and the normal buttons. A card
 // with no guess shows only Other… and Not sure. In a batch the card carries a checkbox ("Yes to the ticked ones").
 
 import React, { useState } from "react";
-import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, TextField, Typography } from "@mui/material";
+import { Box, Button, Checkbox, Chip, Paper, Stack, Typography } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
-import type { CardChoice, CardEvidence, InboxAnswer, InboxLang, InboxThread, InboxViewer } from "../../_lib/api";
-import { cardHeadline, cardSummary, cardWhoLine, choiceAction, evidenceFile, evidenceParts, fullSubject } from "../../_lib/inbox-cards";
+import type { CardChoice, CardEvidence, EvidenceSegment, InboxAnswer, InboxLang, InboxThread, InboxViewer } from "../../_lib/api";
+import { cardHeadline, cardWhoLine, choiceAction, evidenceFile, evidenceParts, fullSubject } from "../../_lib/inbox-cards";
 import { useInboxLabels } from "./useInboxLabels";
 import { ChooseShipmentDialog, type ChooseStart } from "./ChooseShipmentDialog";
 
@@ -39,8 +42,9 @@ export interface QuestionCardProps {
   compact?: boolean;
 }
 
-/** One evidence line: the mark highlighted (theme-aware), a conflict in the error colour, the file as a small chip. */
-function EvidenceLine({ e }: { e: CardEvidence }) {
+/** One evidence line: the mark highlighted (theme-aware), a conflict in the error colour, the file as a small chip.
+ *  Round BC: shown in "Show full email" (the card itself carries one short line). */
+export function EvidenceLine({ e }: { e: CardEvidence }) {
   const file = evidenceFile(e);
   return (
     <Box component="li" sx={{ color: e.conflict ? "error.main" : "text.primary", "&::marker": { color: e.conflict ? "error.main" : "text.secondary" } }} data-tour="question-evidence" data-conflict={e.conflict ? "1" : undefined}>
@@ -70,22 +74,35 @@ function EvidenceLine({ e }: { e: CardEvidence }) {
   );
 }
 
-export function QuestionCard({ t, lang, n, busy, onAnswer, onCreateOrder, onOpenThread, viewer, pick, compact }: QuestionCardProps) {
+/** Round BC (owner: less text) — the card's ONE evidence line: "B/L 198GX07112 ✓ · 6005 · 102.079 t · 454003255 ✓", conflicts in red. */
+function EvidenceSummary({ parts }: { parts: EvidenceSegment[] }) {
+  return (
+    <Typography variant="body2" noWrap sx={{ mt: 0.5, color: "text.secondary", fontVariantNumeric: "tabular-nums" }} title={parts.map((p) => p.text).join(" · ")} data-tour="question-evidence">
+      {parts.map((p, i) => (
+        <React.Fragment key={i}>
+          {i > 0 && " · "}
+          <Box component="span" sx={{ color: p.conflict ? "error.main" : p.ok ? "text.primary" : "inherit", fontWeight: p.conflict || p.ok ? 700 : undefined }}>
+            {p.text}
+          </Box>
+        </React.Fragment>
+      ))}
+    </Typography>
+  );
+}
+
+export function QuestionCard({ t, lang, n, busy, onAnswer, onCreateOrder, onOpenThread, pick, compact }: QuestionCardProps) {
   const q = t.question;
   // null = closed; {} = the dialog as Answer opened it; { start } = straight to a new shipment for that order.
   const [choose, setChoose] = useState<{ start?: ChooseStart } | null>(null);
-  const [ask, setAsk] = useState<string | null>(null);
+  // Round BC: the ≤2 alternatives show only after "Other…".
+  const [showAlts, setShowAlts] = useState(false);
   const newest = t.messages[0];
   const labels = useInboxLabels();
   if (!q || !newest) return null;
   const subject = fullSubject(t.subject ?? newest.subject, lang);
-  const summary = cardSummary(newest);
-  const evidence = q.evidence ?? [];
+  const line = q.evidenceLine ?? [];
   const guess = q.guess ?? null;
   const alternatives = (q.alternatives ?? []).slice(0, 2);
-  const admin = !!viewer?.admin;
-  const asked = q.asked ?? null;
-  const waitingOnAdmins = !!asked && !admin;
   const run = (c: CardChoice) => {
     const a = choiceAction(c);
     if (a.do === "answer") onAnswer(t, a.answer);
@@ -93,11 +110,7 @@ export function QuestionCard({ t, lang, n, busy, onAnswer, onCreateOrder, onOpen
     else if (a.do === "create_order") onCreateOrder(t);
     else setChoose({});
   };
-  const sendAsk = () => {
-    const note = (ask ?? "").trim();
-    setAsk(null);
-    onAnswer(t, { kind: "ask_admin", note: note || null });
-  };
+  const other = () => (alternatives.length && !showAlts ? setShowAlts(true) : setChoose({}));
   return (
     <Paper variant="outlined" sx={{ p: compact ? { xs: 1.25, md: 1.5 } : { xs: 1.5, md: 2 } }} data-tour="question-card" data-kind={q.kind}>
       <Stack direction="row" spacing={1.25} alignItems="flex-start">
@@ -112,34 +125,17 @@ export function QuestionCard({ t, lang, n, busy, onAnswer, onCreateOrder, onOpen
           {n}
         </Box>
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          {asked && admin && (
-            <Alert severity="info" sx={{ mb: 1, py: 0, "& .MuiAlert-message": { wordBreak: "break-word" } }} data-tour="question-asked-banner">
-              {labels.askedBy(asked.by, asked.note)}
-            </Alert>
-          )}
           <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.3, wordBreak: "break-word" }} data-tour="question-title">
             {cardHeadline(q)}
           </Typography>
-          <Typography variant="body2" sx={{ mt: 0.75, fontWeight: 600, wordBreak: "break-word", overflowWrap: "anywhere" }} lang={/[぀-ヿ一-鿿]/.test(subject) ? "ja" : undefined} data-tour="question-subject">
+          {line.length > 0 && <EvidenceSummary parts={line} />}
+          <Typography variant="body2" noWrap sx={{ mt: 0.5, fontWeight: 600 }} title={subject} lang={/[぀-ヿ一-鿿]/.test(subject) ? "ja" : undefined} data-tour="question-subject">
             {subject}
           </Typography>
           <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mt: 0.25 }} title={newest.from} data-tour="question-from">
             {cardWhoLine(newest, lang)}
           </Typography>
-          {evidence.length > 0 ? (
-            <Box component="ul" sx={{ m: 0, mt: 0.75, pl: 2.5, display: "flex", flexDirection: "column", gap: 0.25 }} data-tour="question-evidence-list">
-              {evidence.slice(0, 4).map((e, i) => (
-                <EvidenceLine key={i} e={e} />
-              ))}
-            </Box>
-          ) : (
-            summary && (
-              <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.5, wordBreak: "break-word", overflowWrap: "anywhere" }} data-tour="question-summary">
-                {summary}
-              </Typography>
-            )
-          )}
-          {q.yesLine && guess && !waitingOnAdmins && (
+          {q.yesLine && guess && (
             <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.75, wordBreak: "break-word" }} data-tour="question-yes-line">
               <Box component="span" sx={{ fontWeight: 700, mr: 0.5 }}>
                 {labels.yesPrefix}
@@ -147,63 +143,32 @@ export function QuestionCard({ t, lang, n, busy, onAnswer, onCreateOrder, onOpen
               {q.yesLine}
             </Typography>
           )}
-          {waitingOnAdmins && (
-            <Box sx={{ mt: 1 }} data-tour="question-asked">
-              <Chip size="small" color="info" variant="outlined" label={labels.askedChip} />
-              {asked?.note && (
-                <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mt: 0.5, wordBreak: "break-word" }}>
-                  {asked.note}
-                </Typography>
-              )}
-            </Box>
-          )}
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1.25 }}>
-            {!waitingOnAdmins && guess && (
+            {guess && (
               <Button size="small" variant="contained" disabled={busy} onClick={() => run(guess)} sx={{ textTransform: "none" }} title={guess.label} data-tour="question-yes">
                 {labels.yes}
               </Button>
             )}
-            {!waitingOnAdmins && (
-              <Button size="small" variant={guess ? "outlined" : "contained"} disabled={busy} onClick={() => setChoose({})} sx={{ textTransform: "none" }} data-tour="question-other">
-                {labels.other}
-              </Button>
-            )}
-            {!waitingOnAdmins && (
-              <Button size="small" variant="outlined" color="inherit" disabled={busy} onClick={() => setAsk("")} sx={{ textTransform: "none" }} data-tour="question-ask-admin">
-                {labels.askAdmin}
-              </Button>
-            )}
+            <Button size="small" variant={guess ? "outlined" : "contained"} disabled={busy} onClick={other} sx={{ textTransform: "none" }} data-tour="question-other">
+              {labels.other}
+            </Button>
             <Button size="small" variant="outlined" color="inherit" onClick={() => onOpenThread(t)} sx={{ textTransform: "none" }} data-tour="question-show-full">
               {labels.showFull}
             </Button>
           </Stack>
-          {!waitingOnAdmins && guess && alternatives.length > 0 && (
-            <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }} data-tour="question-alternatives">
+          {showAlts && (
+            <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap alignItems="center" sx={{ mt: 0.75 }} data-tour="question-alternatives">
               {alternatives.map((c, i) => (
-                <Chip key={i} size="small" variant="outlined" clickable disabled={busy} label={c.label} onClick={() => run(c)} sx={{ maxWidth: "100%", height: "auto", minHeight: 24, "& .MuiChip-label": { whiteSpace: "normal", wordBreak: "break-word", py: 0.25 } }} data-tour="question-alternative" />
+                <Chip key={i} size="small" variant="outlined" clickable disabled={busy} label={c.short ?? c.label} title={c.label} onClick={() => run(c)} data-tour="question-alternative" />
               ))}
+              <Button size="small" variant="text" disabled={busy} onClick={() => setChoose({})} sx={{ textTransform: "none" }} data-tour="question-more-choices">
+                {labels.moreChoices}
+              </Button>
             </Stack>
           )}
         </Box>
       </Stack>
       <ChooseShipmentDialog open={!!choose} start={choose?.start ?? null} t={t} lang={lang} busy={busy} onClose={() => setChoose(null)} onAnswer={onAnswer} onCreateOrder={onCreateOrder} />
-      <Dialog open={ask !== null} onClose={() => setAsk(null)} fullWidth maxWidth="xs" data-tour="question-ask-admin-dialog">
-        <DialogTitle sx={{ pb: 1 }}>{labels.askAdminTitle}</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" sx={{ color: "text.secondary", mb: 1.5 }}>
-            {labels.askAdminHelp}
-          </Typography>
-          <TextField autoFocus fullWidth multiline minRows={2} size="small" label={labels.askAdminNote} value={ask ?? ""} onChange={(e) => setAsk(e.target.value)} />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setAsk(null)} sx={{ textTransform: "none" }}>
-            {labels.cancel}
-          </Button>
-          <Button variant="contained" disabled={busy} onClick={sendAsk} sx={{ textTransform: "none" }} data-tour="question-ask-admin-send">
-            {labels.send}
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Paper>
   );
 }

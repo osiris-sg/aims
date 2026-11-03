@@ -111,7 +111,8 @@ export function allowListHit(e: Pick<FilterInput, 'from' | 'to' | 'cc'>, cfg: Fi
 /**
  * Round BB — mail that is never trade mail, whoever is on it (a DROP decision even when Vedanta is in cc):
  *   - a reply / forward of AIMS's own mail ("Re: AIMS · 45 due, 1 coming up", or quoting "From: AIMS <admin@osiris.sg>");
- *   - Vedanta Metal Bazaar (moglix.com) price-booking notices ("Price booking accepted", "Month average booking created").
+ *   - Vedanta Metal Bazaar (moglix.com) price-booking notices ("Price booking accepted", "Month average booking created");
+ *   - (round BC) the MOVO manual thread with Sankyo ("Re: MOVOマニュアルの送付").
  * Pure. null = not decided here (the allow-list decides).
  */
 export function nonTradeReason(e: { from: string; subject: string | null; body?: string | null }, aimsSenders: string[] = AIMS_SENDERS): string | null {
@@ -121,6 +122,8 @@ export function nonTradeReason(e: { from: string; subject: string | null; body?:
   const quoted = (e.body ?? '').slice(0, 20_000);
   const senders = aimsSenders.map((a) => a.toLowerCase());
   if (/^\s*((re|fw|fwd|転送|返信)\s*[:：]\s*)+/i.test(subject) && senders.some((a) => new RegExp(`(From|差出人)\\s*[:：]\\s*AIMS\\s*<${a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}>`, 'i').test(quoted))) return 'not trade mail: a reply to AIMS\'s own mail';
+  // Round BC (owner): Sankyo is allow-listed, but its MOVO (portal) manual mail is not trade mail.
+  if (/\bMOVO\b/i.test(subject)) return 'not trade mail: the MOVO manual';
   if ((/@moglix\.com$/.test(from) || /metalbazaar/.test(from)) && /price\s*book|booking (created|accepted|confirmed)|month(ly)?\s*average\s*booking/i.test(subject)) return 'not trade mail: a Vedanta Metal Bazaar price booking';
   return null;
 }

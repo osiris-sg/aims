@@ -79,28 +79,32 @@ describe('round BB — the card', () => {
   it('"New deal not in AIMS yet?" becomes "a new shipment of #27": one guess, ≤2 alternatives, the evidence marked, what Yes does', () => {
     const q = questionOf(base({ card: newShip }));
     expect(q.kind).toBe('NEW_SHIPMENT');
-    expect(q.title).toBe('This looks like a new shipment of #27 (Kato 6005 · 40 t). Create it with B/L 198GX07288?');
-    expect(q.guess).toEqual({ kind: 'new_shipment', orderId: 'o27', shipmentId: null, ref: '#27', label: 'New shipment of #27 (Kato 6005 · 40 t)' });
-    expect(q.alternatives).toEqual([{ kind: 'new_shipment', orderId: 'o28', shipmentId: null, ref: '#28', label: 'New shipment of #28 (Kato 6063 · 40 t)' }]);
+    expect(q.title).toBe('Create a new shipment of #27 (Kato 6005 · 40 t) with B/L 198GX07288?');
+    expect(q.guess).toEqual({ kind: 'new_shipment', orderId: 'o27', shipmentId: null, ref: '#27', label: 'New shipment of #27 (Kato 6005 · 40 t)', short: 'New shipment of #27' });
+    expect(q.alternatives).toEqual([{ kind: 'new_shipment', orderId: 'o28', shipmentId: null, ref: '#28', label: 'New shipment of #28 (Kato 6063 · 40 t)', short: 'New shipment of #28' }]);
     expect(q.evidence).toEqual([
       { text: 'B/L 198GX07288 in 198GX07288.pdf, not on any shipment yet', mark: '198GX07288', file: '198GX07288.pdf', conflict: false },
       { text: '198GX07288.pdf: 6005 · 40.855 t · ETD 2026-11-07', mark: '6005', file: '198GX07288.pdf', conflict: false },
       { text: '#27 has no shipment yet', mark: null, file: null, conflict: false },
     ]);
     expect(q.yesLine).toBe('Opens a new shipment of #27 with B/L 198GX07288 filled in from the email; you check it, then the documents are filed.');
+    // Round BC: ONE short evidence line on the card; alternatives as short chips.
+    expect(q.evidenceLine).toEqual([{ text: 'B/L 198GX07288', ok: false, conflict: false }, { text: '6005', ok: false, conflict: false }, { text: '40.855 t', ok: false, conflict: false }]);
+    expect(q.alternatives![0].short).toBe('New shipment of #28');
     expect(q.extras.createOrder).toBe(true);
     const ja = questionOf(base({ lang: 'ja', card: newShip }));
-    expect(ja.title).toBe('#27（Kato 6005 · 40 t）の新しい出荷のようです。B/L 198GX07288 で出荷を作成しますか？');
+    expect(ja.title).toBe('#27（Kato 6005 · 40 t）の新しい出荷をB/L 198GX07288 で作成しますか？');
     expect(ja.evidence![0].text).toBe('B/L 198GX07288：198GX07288.pdf（まだどの出荷にもありません）');
     expect(ja.yesLine).toBe('#27 の新しい出荷をメールの内容で開きます（B/L 198GX07288）。確認後に書類を登録します。');
   });
 
   it('a record guess with a conflict: the documents say 6005, the record 6063 — in red, first', () => {
     const q = questionOf(base({ reasonCode: 'CONFIRM', card: { guess: { kind: 'record', orderId: 'o19', shipmentId: 's192' }, alternatives: [], evidence: [{ t: 'key', key: 'bl', value: '198GX06523', where: 'attachment', file: 'ArrivalNotice.pdf', on: { orderId: 'o19', shipmentId: 's192' } }, { t: 'conflict', field: 'grade', email: '6005', record: '6063', on: { orderId: 'o19', shipmentId: 's192' } }], files: 1 } }));
-    expect(q.title).toBe('This looks like #19-2 (SUS 6063 · 15.3 t · WAN HAI 366 · ETA 29 Oct). File the document there?');
+    expect(q.title).toBe('File 1 document to #19-2 (SUS 6063 · 15.3 t · WAN HAI 366 · ETA 29 Oct)?');
     expect(q.evidence![0]).toEqual({ text: 'B/L 198GX06523 in ArrivalNotice.pdf = #19-2', mark: '198GX06523', file: 'ArrivalNotice.pdf', conflict: false });
     expect(q.evidence![1]).toMatchObject({ text: 'The documents say grade 6005; #19-2 has 6063', conflict: true });
-    expect(q.yesLine).toBe('Links 2 emails to #19-2 and files 1 document.');
+    expect(q.yesLine).toBeNull();
+    expect(q.evidenceLine).toEqual([{ text: '6005 ≠ 6063', ok: false, conflict: true }, { text: 'B/L 198GX06523 ✓', ok: true, conflict: false }]);
   });
 
   it('never "not in AIMS yet" when a record fits; "new deal" only when no open order fits; a handed-over card says so', () => {

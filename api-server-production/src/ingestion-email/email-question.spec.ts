@@ -12,9 +12,9 @@ describe('round W — question cards', () => {
     const q = questionOf(base({ candidates: [] }));
     expect(q.kind).toBe('CONFIRM');
     // Round BB: the title is the concrete question with AIMS's one guess, what Yes does, and the evidence.
-    expect(q.title).toBe('Is this about #18-2 (SUS 6005 · 20.4 t · WAN HAI 366 · ETA 29 Oct)?');
+    expect(q.title).toBe('Link to #18-2 (SUS 6005 · 20.4 t · WAN HAI 366 · ETA 29 Oct)?');
     expect(q.guess).toMatchObject({ kind: 'record', orderId: 'o18', shipmentId: 's18-2', ref: '#18-2' });
-    expect(q.yesLine).toBe('Links the email to #18-2.');
+    expect(q.yesLine).toBeNull();
     expect(q.evidence?.map((e) => [e.text, e.mark])).toEqual([['net 20.416 t in the subject', '20.416']]);
     expect(q.found).toBe('From Mitsui Soko · 1 file · mentions 6005 and 20.416 t · no B/L number · reply in the "ビレット案件（11月納入6005Cー220t, 6063ー3" thread');
     expect(q.options).toHaveLength(1);
@@ -27,7 +27,7 @@ describe('round W — question cards', () => {
   it('WHICH: several records fit → "Which shipment is this about?", the suggestion first, no record twice, at most 4', () => {
     const q = questionOf(base({ reasonCode: 'PICK_SHIPMENT', candidates: [{ orderId: 'o19', shipmentId: 's19-1', ref: '#19-1', why: ['grade 6063 (subject)'] }, { orderId: 'o18', shipmentId: 's18-2', ref: '#18-2', why: ['dup'] }] }));
     expect(q.kind).toBe('WHICH');
-    expect(q.title).toBe('Is this about #18-2 (SUS 6005 · 20.4 t · WAN HAI 366 · ETA 29 Oct)?');
+    expect(q.title).toBe('Link to #18-2 (SUS 6005 · 20.4 t · WAN HAI 366 · ETA 29 Oct)?');
     expect(q.alternatives?.map((a) => a.ref)).toEqual(['#19-1']);
     expect(questionOf(base({ reasonCode: 'PICK_SHIPMENT', suggested: null })).title).toBe('Which shipment is this about?');
     expect(q.options.map((o) => o.ref)).toEqual(['#18-2', '#19-1']);
@@ -43,7 +43,7 @@ describe('round W — question cards', () => {
   it('CHECK: "The subject says 6063, but AIMS matched #18-2. Which is right?"; NEW_DEAL: one card with the PI details and Create order / Not a deal', () => {
     const c = questionOf(base({ reasonCode: 'CHECK', check: ['grade 6063 ≠ 6005'] }));
     expect(c.kind).toBe('CHECK');
-    expect(c.title).toBe('Is this about #18-2 (SUS 6005 · 20.4 t · WAN HAI 366 · ETA 29 Oct)?');
+    expect(c.title).toBe('Link to #18-2 (SUS 6005 · 20.4 t · WAN HAI 366 · ETA 29 Oct)?');
     expect(c.evidence?.[0]).toEqual({ text: 'The subject says 6063, but AIMS matched #18-2. Which is right?', mark: '6063', file: null, conflict: true });
     const d = questionOf(base({ reasonCode: 'NO_ORDER', suggested: null, candidates: [], attachments: ['PI-26100906- Asia deal hub.pdf'], seed: { piNo: 'SIAE_PI_26100906', contractNo: null, grade: '6063', qtyMt: 50, customerKey: null, deliveryMonth: null } }));
     expect(d.kind).toBe('NEW_DEAL');
@@ -60,15 +60,15 @@ describe('round W — question cards', () => {
   it('RECHECK: what AIMS filed before vs the second pass, "AIMS re-checked this and isn\'t sure anymore"', () => {
     const q = questionOf(base({ recheck: { current: ['#18-2'], second: [{ orderId: 'o19', shipmentId: 's19-1', ref: '#19-1' }], secondText: 'names #19-1 (verified by a hard key)' } }));
     expect(q.kind).toBe('RECHECK');
-    expect(q.title).toBe('Is this about #18-2 (SUS 6005 · 20.4 t · WAN HAI 366 · ETA 29 Oct)?');
+    expect(q.title).toBe('Link to #18-2 (SUS 6005 · 20.4 t · WAN HAI 366 · ETA 29 Oct)?');
     expect(q.alternatives?.map((a) => a.ref)).toEqual(['#19-1']);
     expect(q.options.map((o) => [o.ref, o.why])).toEqual([['#18-2', 'what AIMS filed before'], ['#19-1', 'names #19-1 (verified by a hard key)']]);
   });
 
   it('Japanese follows the user: titles, "what AIMS found", why, reply hint', () => {
     const q = questionOf(base({ lang: 'ja' }));
-    expect(q.title).toBe('#18-2（SUS 6005 · 20.4 t · WAN HAI 366 · ETA 29 Oct）の件ですか？');
-    expect(q.yesLine).toBe('メール1件を #18-2 に紐付けします。');
+    expect(q.title).toBe('#18-2（SUS 6005 · 20.4 t · WAN HAI 366 · ETA 29 Oct）に紐付けますか？');
+    expect(q.yesLine).toBeNull();
     expect(questionOf(base({ lang: 'ja', suggested: null })).title).toBe('どの出荷の件ですか？');
     expect(q.found).toMatch(/^Mitsui Soko から · 添付 1 件 · 6005・20.416 t に言及 · B\/L番号なし · 「/);
     expect(q.options[0].why).toBe('件名に正味 20.416 t');
@@ -83,7 +83,7 @@ describe('round W — question cards', () => {
   it('WhatsApp: the question, the subject, what AIMS found, numbered options, the reply hint; 1 / 2 / 0 / X answer it', () => {
     const q = questionOf(base({ reasonCode: 'PICK_SHIPMENT' }));
     const text = questionWhatsAppText(q, 'Re: 11月納入 6005C 20.416t');
-    expect(text.split('\n')).toEqual(['❓ Is this about #18-2 (SUS 6005 · 20.4 t · WAN HAI 366 · ETA 29 Oct)?', '"Re: 11月納入 6005C 20.416t"', `— ${q.found}`, '1. #18-2 · SUS 6005 · 20.4 t · WAN HAI 366 · ETA 29 Oct — net 20.416 t in the subject', '2. #19-1 · SUS 6063 · 281.9 t · WAN HAI 366 · ETA 29 Oct — 6063 (subject) · the subject describes it', 'Reply 1 or 2 · 0 = ask later · X = not a shipment']);
+    expect(text.split('\n')).toEqual(['❓ Link to #18-2 (SUS 6005 · 20.4 t · WAN HAI 366 · ETA 29 Oct)?', '"Re: 11月納入 6005C 20.416t"', `— ${q.found}`, '1. #18-2 · SUS 6005 · 20.4 t · WAN HAI 366 · ETA 29 Oct — net 20.416 t in the subject', '2. #19-1 · SUS 6063 · 281.9 t · WAN HAI 366 · ETA 29 Oct — 6063 (subject) · the subject describes it', 'Reply 1 or 2 · 0 = ask later · X = not a shipment']);
     expect(parseNumberedReply('2', q)).toMatchObject({ kind: 'record', option: { ref: '#19-1' } });
     expect(parseNumberedReply(' 0 ', q)).toEqual({ kind: 'later' });
     expect(parseNumberedReply('x', q)).toEqual({ kind: 'not_shipment' });

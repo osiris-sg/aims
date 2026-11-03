@@ -48,6 +48,8 @@ export interface QuestionCard {
   guess?: CardChoice | null;
   alternatives?: CardChoice[];
   evidence?: CardEvidence[];
+  /** Round BC: the ONE evidence line on the card, ~80 characters: the strongest keys only. */
+  evidenceLine?: EvidenceSegment[];
   yesLine?: string | null;
   asked?: { by: string; at: string; note: string | null } | null;
   batchKey?: string | null;
@@ -61,6 +63,14 @@ export interface CardChoice {
   shipmentId: string | null;
   ref: string | null;
   label: string;
+  /** Round BC: the chip text ("#18-2 · 20.4 t"). */
+  short?: string;
+}
+/** Round BC: one part of the card's single evidence line — `ok` = it names the guess (✓), `conflict` = it contradicts it (red). */
+export interface EvidenceSegment {
+  text: string;
+  ok: boolean;
+  conflict: boolean;
 }
 /** One line of evidence in the user's language; `mark` = the part to highlight (a B/L, a grade); `conflict` = shown in red. */
 export interface CardEvidence {
@@ -263,12 +273,13 @@ export function questionOf(i: QuestionInput): QuestionCard {
 const BB = {
   en: {
     newShipment: (ref: string, rest: string) => `New shipment of ${ref}${rest ? ` (${rest})` : ''}`,
+    newShort: (ref: string) => `New shipment of ${ref}`,
     general: 'General issue',
     notShipment: 'Not about a shipment',
     newDeal: 'New deal',
-    hRecordFiles: (ref: string, rest: string, n: number) => `This looks like ${ref}${rest ? ` (${rest})` : ''}. File ${n === 1 ? 'the document' : `the ${n} documents`} there?`,
-    hRecord: (ref: string, rest: string) => `Is this about ${ref}${rest ? ` (${rest})` : ''}?`,
-    hNewShipment: (ref: string, rest: string, bl: string | null) => `This looks like a new shipment of ${ref}${rest ? ` (${rest})` : ''}. Create it${bl ? ` with B/L ${bl}` : ''}?`,
+    hRecordFiles: (ref: string, rest: string, n: number) => `File ${n === 1 ? '1 document' : `${n} documents`} to ${ref}${rest ? ` (${rest})` : ''}?`,
+    hRecord: (ref: string, rest: string) => `Link to ${ref}${rest ? ` (${rest})` : ''}?`,
+    hNewShipment: (ref: string, rest: string, bl: string | null) => `Create a new shipment of ${ref}${rest ? ` (${rest})` : ''}${bl ? ` with B/L ${bl}` : ''}?`,
     hNotShipment: "This doesn't look like a shipment email. Hide it?",
     hSplit: (refs: string) => `The documents name different shipments (${refs}). Check where each one goes?`,
     hOpen: 'What is this email about?',
@@ -290,12 +301,13 @@ const BB = {
   },
   ja: {
     newShipment: (ref: string, rest: string) => `${ref}${rest ? `（${rest}）` : ''}の新しい出荷`,
+    newShort: (ref: string) => `${ref} の新しい出荷`,
     general: '全般的な課題',
     notShipment: '出荷ではない',
     newDeal: '新しい案件',
-    hRecordFiles: (ref: string, rest: string, n: number) => `${ref}${rest ? `（${rest}）` : ''}の件のようです。書類${n}件をここに登録しますか？`,
-    hRecord: (ref: string, rest: string) => `${ref}${rest ? `（${rest}）` : ''}の件ですか？`,
-    hNewShipment: (ref: string, rest: string, bl: string | null) => `${ref}${rest ? `（${rest}）` : ''}の新しい出荷のようです。${bl ? `B/L ${bl} で` : ''}出荷を作成しますか？`,
+    hRecordFiles: (ref: string, rest: string, n: number) => `${ref}${rest ? `（${rest}）` : ''}に${n}件のファイルを登録しますか？`,
+    hRecord: (ref: string, rest: string) => `${ref}${rest ? `（${rest}）` : ''}に紐付けますか？`,
+    hNewShipment: (ref: string, rest: string, bl: string | null) => `${ref}${rest ? `（${rest}）` : ''}の新しい出荷を${bl ? `B/L ${bl} で` : ''}作成しますか？`,
     hNotShipment: '出荷のメールではないようです。非表示にしますか？',
     hSplit: (refs: string) => `書類ごとに出荷が異なります（${refs}）。それぞれの登録先を確認しますか？`,
     hOpen: 'このメールは何の件ですか？',
@@ -325,6 +337,47 @@ const splitSummary = (summary: string | null, ref: string): string => {
 };
 /** A long attachment name, shortened in the middle for an evidence line ("Remittance statement…en.pdf"). */
 const shortFile = (n: string) => (n.length > 40 ? `${n.slice(0, 26)}…${n.slice(-10)}` : n);
+/** "#18-2" + "#18-2 · SUS 6005 · 20.4 t · WAN HAI 366" → "#18-2 · 20.4 t". */
+const shortOf = (ref: string, summary: string | null) => {
+  const t = (summary ?? '').split(' · ').find((x) => /^\d[\d.,]* t$/.test(x));
+  return t ? `${ref} · ${t}` : ref;
+};
+
+/**
+ * Round BC (owner: less text) — the card's ONE evidence line, ~80 characters: the B/L / PI / CI, the grade, the net
+ * weight, the contract, each "✓" when it names the guess; a conflict ("6005 ≠ 6063") in red. Built from the stored
+ * evidence; rows matched before round BB fall back to the first evidence text.
+ */
+function evidenceLineOf(stored: StoredCard | null, guess: CardChoice | null, evidence: CardEvidence[], lang: Lang): EvidenceSegment[] {
+  const out: EvidenceSegment[] = [];
+  const onGuess = (on: RecordId | null) => !!on && !!guess?.orderId && on.orderId === guess.orderId && (!guess.shipmentId || !on.shipmentId || on.shipmentId === guess.shipmentId);
+  const seen = new Set<string>();
+  const push = (text: string, ok: boolean, conflict = false) => {
+    if (seen.has(text)) return;
+    seen.add(text);
+    out.push({ text: ok ? `${text} ✓` : text, ok, conflict });
+  };
+  const items = stored?.evidence ?? [];
+  for (const e of items) if (e.t === 'conflict') push(`${e.email} ≠ ${e.record}`, false, true);
+  for (const e of items) if (e.t === 'key' && e.key !== 'net' && e.key !== 'contract') push(`${e.key === 'bl' ? 'B/L' : e.key.toUpperCase()} ${e.value}`, onGuess(e.on));
+  const doc = items.find((e) => e.t === 'doc') as Extract<EvidenceItem, { t: 'doc' }> | undefined;
+  const conflictGrade = items.some((e) => e.t === 'conflict' && e.field === 'grade');
+  if (doc?.grade && !conflictGrade) push(doc.grade, false);
+  const net = items.find((e) => e.t === 'key' && e.key === 'net') as Extract<EvidenceItem, { t: 'key' }> | undefined;
+  if (net) push(`${net.value} t`, onGuess(net.on));
+  else if (doc?.netMt !== null && doc?.netMt !== undefined) push(`${doc.netMt} t`, false);
+  for (const e of items) if (e.t === 'key' && e.key === 'contract') push(e.value, onGuess(e.on));
+  if (!out.length && evidence[0]) out.push({ text: evidence[0].text, ok: false, conflict: evidence[0].conflict });
+  // ~80 characters: drop trailing parts, never a conflict.
+  while (out.length > 1 && out.map((p) => p.text).join(' · ').length > 80) {
+    const k = [...out].reverse().findIndex((p) => !p.conflict);
+    if (k < 0) break;
+    out.splice(out.length - 1 - k, 1);
+  }
+  void lang;
+  return out;
+}
+
 const KEY_RE = /\b(\d{3}[A-Z]{2}\d{5}|(?:KMTC|MEDU|SITG|GGVC)[A-Z0-9]{6,}|9331\d{6}|XP\d{10}|4540\d{5}|\d{1,4}\.\d{3})\b/;
 
 function decorate(q: QuestionCard, i: QuestionInput): QuestionCard {
@@ -348,11 +401,11 @@ function decorate(q: QuestionCard, i: QuestionInput): QuestionCard {
     const sh = c.shipmentId ?? null;
     if (c.kind === 'record' && o) {
       const ref = refOf(o, sh);
-      return { kind: 'record', orderId: o, shipmentId: sh, ref, label: i.summaryOf(o, sh) ?? ref };
+      return { kind: 'record', orderId: o, shipmentId: sh, ref, label: i.summaryOf(o, sh) ?? ref, short: shortOf(ref, i.summaryOf(o, sh)) };
     }
     if (c.kind === 'new_shipment' && o) {
       const ref = refOf(o, null);
-      return { kind: 'new_shipment', orderId: o, shipmentId: null, ref, label: W.newShipment(ref, splitSummary(i.summaryOf(o, null), ref)) };
+      return { kind: 'new_shipment', orderId: o, shipmentId: null, ref, label: W.newShipment(ref, splitSummary(i.summaryOf(o, null), ref)), short: W.newShort(ref) };
     }
     if (c.kind === 'general') return { kind: 'general', orderId: null, shipmentId: null, ref: null, label: q.issue?.title ?? W.general };
     if (c.kind === 'not_shipment') return { kind: 'not_shipment', orderId: null, shipmentId: null, ref: null, label: W.notShipment };
@@ -396,7 +449,8 @@ function decorate(q: QuestionCard, i: QuestionInput): QuestionCard {
   if (guess?.kind === 'record' && guess.ref) {
     const rest = splitSummary(guess.label, guess.ref);
     headline = files ? W.hRecordFiles(guess.ref, rest, files) : W.hRecord(guess.ref, rest);
-    yesLine = W.yRecord(guess.ref, n, files);
+    // Round BC: filing / linking is the question itself — no "Yes:" line.
+    void n;
   } else if (guess?.kind === 'new_shipment' && guess.ref) {
     headline = W.hNewShipment(guess.ref, splitSummary(i.summaryOf(guess.orderId!, null), guess.ref), bl);
     yesLine = W.yNewShipment(guess.ref, bl);
@@ -415,7 +469,7 @@ function decorate(q: QuestionCard, i: QuestionInput): QuestionCard {
   const kind: QuestionKind = guess?.kind === 'new_shipment' ? 'NEW_SHIPMENT' : guess?.kind === 'new_deal' ? 'NEW_DEAL' : q.kind === 'NEW_DEAL' && (guess || stored) ? (guess ? 'CONFIRM' : 'WHICH') : q.kind;
   // A card that no longer asks "new deal" offers the record answers, not "Create the order".
   const extras = kind === q.kind ? q.extras : { createOrder: true, notShipment: true, notDeal: false, askLater: true };
-  return { ...q, kind, extras, title: headline, headline, guess, alternatives, evidence, yesLine, asked: i.asked ?? null };
+  return { ...q, kind, extras, title: headline, headline, guess, alternatives, evidence, evidenceLine: evidenceLineOf(stored, guess, evidence, i.lang), yesLine, asked: i.asked ?? null };
 }
 
 /**

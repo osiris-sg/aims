@@ -743,7 +743,9 @@ export type InboxQuestionOption = { id: string; orderId: string; shipmentId: str
 /** Round AR: AIMS's reading of a general issue (process / policy change), proposed on the card. */
 export type IssueProposal = { title: string; summaryEn: string | null; summaryJa: string | null; effectiveFrom: string | null };
 /** Round BB: one concrete choice on a card (AIMS's best guess, or one of up to 2 alternatives). */
-export type CardChoice = { kind: "record" | "new_shipment" | "general" | "not_shipment" | "new_deal"; orderId: string | null; shipmentId: string | null; ref: string | null; label: string };
+export type CardChoice = { kind: "record" | "new_shipment" | "general" | "not_shipment" | "new_deal"; orderId: string | null; shipmentId: string | null; ref: string | null; label: string; /** Round BC: the chip text ("#18-2 · 20.4 t"). */ short?: string };
+/** Round BC: one part of the card's single evidence line — `ok` = it names AIMS's guess (✓), `conflict` = it contradicts it (red). */
+export type EvidenceSegment = { text: string; ok: boolean; conflict: boolean };
 /** Round BB: one line of evidence, already in the user's language; `mark` = the substring of `text` to highlight; `conflict` = the sources disagree. */
 export type CardEvidence = { text: string; mark: string | null; file: string | null; conflict: boolean };
 /** Round BB: the card handed to the admins ("分からない"). */
@@ -769,6 +771,8 @@ export type InboxQuestion = {
   guess?: CardChoice | null;
   alternatives?: CardChoice[];
   evidence?: CardEvidence[];
+  /** Round BC: the ONE evidence line on the card (the full `evidence` shows in "Show full email"). */
+  evidenceLine?: EvidenceSegment[];
   yesLine?: string | null;
   /** Round BB: handed to the admins; set until one of them answers. */
   asked?: CardAsked | null;

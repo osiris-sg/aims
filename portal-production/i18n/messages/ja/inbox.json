@@ -101,20 +101,13 @@
     "confirmNotMany": "この {n} 件のメールを「出荷の件ではない」にしますか？",
     "confirmNotDealOne": "このメールを「案件ではない」にしますか？",
     "confirmNotDealMany": "この {n} 件のメールを「案件ではない」にしますか？",
-    "aimsGuess": "AIMSの推測",
-    "askAdmin": "分からない → Elroy/Takeに聞く",
-    "askAdminHelp": "このカードをElroyとTakeに回します。二人が回答するか、どうすればよいか教えてくれます。",
-    "askAdminNote": "メモ（任意）",
-    "askAdminTitle": "Elroy/Takeに聞く",
-    "askedBy": "{by}さんからの質問: {note}",
-    "askedByNoNote": "{by}さんからの質問",
-    "askedChip": "Elroy・Takeに確認中",
     "batchDone": "{n}件を登録しました",
     "batchPick": "「チェックしたものを登録」に含める",
     "batchYes": "チェックしたものを登録（{n}件）",
     "other": "別の…",
     "send": "送信",
-    "yesPrefix": "はい:"
+    "yesPrefix": "はい:",
+    "moreChoices": "ほかを選ぶ…"
   },
   "emailsAll": {
     "unprocessed": "未処理",

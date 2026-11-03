@@ -886,11 +886,11 @@ describe('round W — question cards, one-tap answers, the nightly self-check (l
     expect(th.answerIds.sort()).toEqual([a.logId, b.logId].sort());
     expect(th.earlier).toBe(1);
     // Round BB: the concrete question with the one guess, what Yes does.
-    expect(th.question).toMatchObject({ kind: 'CONFIRM', title: 'This looks like #11-1. File the document there?', guess: { kind: 'record', ref: '#11-1' }, yesLine: 'Links 2 emails to #11-1 and files 1 document.', options: [{ ref: '#11-1', suggested: true }] });
+    expect(th.question).toMatchObject({ kind: 'CONFIRM', title: 'File 1 document to #11-1?', guess: { kind: 'record', ref: '#11-1' }, yesLine: null, options: [{ ref: '#11-1', suggested: true }] });
     expect(th.question!.found).toMatch(/^From Mitsui Soko · /);
     expect(th.question!.options[0].why).toBe('B/L 198GX04630 in the subject');
     const ja = (await x.triage.threads(ORG, 'UNPROCESSED', { lang: 'ja' })).threads.find((t) => t.answerIds.includes(a.logId))!;
-    expect(ja.question!.title).toBe('#11-1の件のようです。書類1件をここに登録しますか？');
+    expect(ja.question!.title).toBe('#11-1に1件のファイルを登録しますか？');
     // One tap: both emails go to #11-1, the COA is filed.
     const ans = await x.triage.answer(ORG, { ids: th.answerIds, answer: { kind: 'record', orderId: 'o-11', shipmentId: 's-11-1' } }, { id: 'u1', name: 'Sayaka' }, 'en');
     expect(ans).toMatchObject({ kind: 'record', refs: ['#11-1'], files: 1, text: 'Linked to #11-1 · 1 file filed (2 emails)' });
@@ -946,7 +946,7 @@ describe('round W — question cards, one-tap answers, the nightly self-check (l
     expect(row.question).toMatchObject({ kind: 'RECHECK', text: "AIMS re-checked this and isn't sure anymore", current: ['#11-1'], second: ['#20-1'] });
     const th = (await x.triage.threads(ORG, 'UNPROCESSED')).threads.find((t) => t.answerIds.includes(reply.logId))!;
     // Round BB: the card still asks about the one guess; the doubt is a red evidence line.
-    expect(th.question).toMatchObject({ kind: 'RECHECK', title: 'This looks like #11-1. File the document there?' });
+    expect(th.question).toMatchObject({ kind: 'RECHECK', title: 'File 1 document to #11-1?' });
     expect(th.question!.evidence![0]).toMatchObject({ text: 'AIMS checked again: it may be #20-1 instead', conflict: true });
     // Sent back once only: the next night leaves it alone.
     expect(await x.triage.selfCheck(ORG)).toEqual({ checked: 0, sentBack: 0 });

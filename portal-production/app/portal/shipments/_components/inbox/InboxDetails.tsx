@@ -29,6 +29,7 @@ import { fmtSize } from "../../_lib/email-html";
 import { toast } from "../../_lib/toast";
 import { EmailView } from "./EmailView";
 import { PiTablePanel } from "./PiTablePanel";
+import { EvidenceLine } from "./QuestionCard";
 import { ChooseShipmentDialog } from "./ChooseShipmentDialog";
 
 /** Inline signature / logo images never count as attachments in these lists (mirrors the backend's isInlineImage). */
@@ -306,6 +307,14 @@ export function InboxDetailsDialog({
             ) : waiting && thread && r ? (
               <>
                 <ResultBoxView r={{ tone: "wait", headline: labels.waiting, lines: thread.question?.title ? [{ text: thread.question.title, href: null }] : [] }} lang={lang} />
+                {(thread.question?.evidence ?? []).length > 0 && (
+                  // Round BC: the card's full evidence (keys highlighted) lives here; the card shows one short line.
+                  <Box component="ul" sx={{ m: 0, pl: 2.5, display: "flex", flexDirection: "column", gap: 0.25 }} data-tour="thread-evidence">
+                    {(thread.question?.evidence ?? []).map((e, i) => (
+                      <EvidenceLine key={i} e={e} />
+                    ))}
+                  </Box>
+                )}
                 <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                   <Button size="small" variant="contained" disabled={pending} onClick={() => setChoose(true)} sx={{ textTransform: "none" }} data-tour="question-choose">
                     {labels.answer}
