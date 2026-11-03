@@ -473,7 +473,7 @@ describe('Edit User: email', () => {
     const r: any = await w.users.getUsers({ page: 1, limit: 50 } as any, A);
     const s = r.users.find((u: any) => u.id === 'sayaka');
     expect(s.email).toBeNull();
-    expect(s.phone).toBe('+6588611512');
+    expect(s.phone).toBe('+65 8861 1512');
     expect(s.name).toBe('Shukkee Bong');
     for (const u of r.users) expect(String(u.email ?? '')).not.toMatch(/^user_|^sayaka$|^take$/);
   });

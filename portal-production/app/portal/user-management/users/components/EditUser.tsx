@@ -358,6 +358,12 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                     error={!!errors.email}
                     helperText={errors.email?.message as string}
                   />
+                  {/* The sign-in mobile (read only here; a phone-only login shows it in place of an email). */}
+                  {user?.phone && (
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                      {t("mobileLine", { phone: user.phone })}
+                    </Typography>
+                  )}
                 </Grid>
 
                 <Grid item xs={6}>

@@ -8,46 +8,72 @@ import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { EmailService } from '../email/email.service';
 import { ActionLogService } from '../action-log/action-log.service';
 
-/** The one success text "Add user" ever gives: the same whether the email already had a login (in any org) or not. */
-export const ADD_MEMBER_REPLY = (email: string, org: string) => `${email} has been added to ${org}. They'll get an email to set their password, or can sign in with Google/phone if set up.`;
+/** What the Add user form sends (owner 2026-11-03: email and/or SG mobile, names, roles, optional password). */
+export type AddMemberInput = { email?: string | null; phone?: string | null; firstName?: string | null; lastName?: string | null; password?: string | null; roleIds?: string[] };
+
+/** A Singapore mobile as E.164 (+65 then 8 digits starting with 8 or 9), or null. Spaces, dashes and a leading +65 / 65 are fine. */
+export const normSgMobile = (raw: unknown): string | null => {
+  const d = String(raw ?? '').replace(/[\s\-().]/g, '');
+  const m = d.match(/^(?:\+?65)?([89]\d{7})$/);
+  return m ? `+65${m[1]}` : null;
+};
+
+/** +6591234567 as "+65 9123 4567". */
+export const prettySgMobile = (e164: string) => `+65 ${e164.slice(3, 7)} ${e164.slice(7)}`;
+
+/** Who was added, as the admin typed it: "a@b.sg (+65 9123 4567)", or whichever one was entered. */
+export const memberLabel = (email: string | null, phone: string | null) => (email && phone ? `${email} (${prettySgMobile(phone)})` : email || (phone ? prettySgMobile(phone) : ''));
+
+/** The one success text "Add user" ever gives: the same whether a login already existed (in any org) or not. */
+export const ADD_MEMBER_REPLY = (who: string, org: string) => `${who} has been added to ${org}. They can sign in at app.ai-ms.io with their email or mobile.`;
+
+/** The one error text for anything that stops "Add user" after the form checks (it never says why). */
+export const ADD_MEMBER_FAILED = 'This person could not be added. Check the email address and try again.';
 
 /** How long the "set your password" link in a new login's welcome email works. */
 export const SET_PASSWORD_LINK_SECONDS = 7 * 24 * 3600;
 
+/** Clerk private metadata on a login whose password an admin set at Add user: it may be replaced once at /set-password without the current one. */
+export const ADMIN_SET_PASSWORD_FLAG = 'aimsPasswordSetByAdmin';
+
 const portalOrigin = () => (process.env.PORTAL_URL || process.env.FRONTEND_URL || 'https://app.ai-ms.io').replace(/\/+$/, '');
 const esc = (v: string) => v.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
-/** The welcome email a NEW login gets: a one-time link that signs them in and asks for a password. */
-export function setPasswordEmail(org: string, link: string) {
+/** The welcome email a NEW login with an email gets: a one-time link that signs them in and asks for a password. */
+export function setPasswordEmail(org: string, link: string, opts: { adminSetPassword?: boolean } = {}) {
   const signIn = `${portalOrigin()}/sign-in`;
+  const lead = opts.adminSetPassword ? '<p>Your admin has set a password for you. You can sign in with it, or choose your own using this link.</p>' : '<p>Choose a password to sign in:</p>';
   return {
     subject: `Set your AIMS password`,
     html: `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1f2937;max-width:520px">
 <p>You have been added to <b>${esc(org)}</b> on AIMS.</p>
-<p>Choose a password to sign in:</p>
+${lead}
 <p><a href="${esc(link)}" style="display:inline-block;background:#1d4ed8;color:#fff;text-decoration:none;padding:10px 18px;border-radius:6px">Set your password</a></p>
 <p style="color:#6b7280;font-size:12px">This link works once and expires in 7 days. If it has expired, use "Forgot password" on <a href="${esc(signIn)}">${esc(signIn)}</a> with this email address.</p>
 </div>`,
   };
 }
 
-/** The one error text for anything that stops "Add user" after the form checks (it never says why). */
-export const ADD_MEMBER_FAILED = 'This person could not be added. Check the email address and try again.';
+const listOf = (found: any): any[] => (Array.isArray(found) ? found : (found?.data ?? []));
 
 /**
  * Multi-organisation users (2026-11-02): the caller's own memberships and org
- * switch, and an org admin's "Add user" (email + role) for their OWN org. See
+ * switch, and an org admin's "Add user" for their OWN org. See
  * src/auth/active-org.ts for the request-side rules.
  *
- * "Add user" (owner 2026-11-02: no invitations, no emails, no accept step):
- *   - a login with that email (whatever org it is in) becomes a member of the
- *     caller's org with the role(s), at once;
- *   - no login: the login is created for that email the way User Management
- *     creates users (Clerk user, external_id stamped), then the membership,
- *     and (owner 2026-11-03) the person gets a "set your password" email: a
- *     one-time Clerk sign-in link to /set-password, sent by AIMS (Resend);
- *   - an existing login is sent nothing; the org simply appears in their picker;
- *   - the caller gets the SAME reply either way, and one error wording for
+ * "Add user" (owner 2026-11-03: the full form, the identical-response rule kept):
+ *   - email and/or SG mobile (at least one), first / last name, role(s), an
+ *     optional password;
+ *   - a login matching the email or the phone (whatever org it is in) becomes
+ *     a member of the caller's org with the role(s), at once. Nothing about
+ *     that login is changed (name, password, email, phone) and nothing is
+ *     sent. Email and phone matching two DIFFERENT logins is refused;
+ *   - no login: one is made with what was typed, then the membership. With an
+ *     email it ALWAYS gets the "Set your AIMS password" email (a one-time
+ *     Clerk sign-in link to /set-password, sent by AIMS via Resend), worded
+ *     for an admin-set password when one was given. Phone only: nothing is
+ *     sent, they sign in with an SMS code;
+ *   - the caller gets the SAME reply every way, and one error wording for
  *     anything that can't be done, so nothing tells them whether the login
  *     existed or which other orgs it belongs to.
  */
@@ -109,12 +135,22 @@ export class MembershipsService {
 
   // ── an org admin, for their own org ───────────────────────────────────────
 
-  /** "Add user": email + role(s), into the caller's org. See the class comment. */
-  async addByEmail(rawEmail: string, roleIds: string[], actor: AdminActor) {
-    const email = normEmail(rawEmail);
-    if (!isEmail(email)) throw new BadRequestException('Enter a valid email address');
+  /** "Add user" into the caller's org. See the class comment. */
+  async addMember(input: AddMemberInput, actor: AdminActor) {
+    const rawEmail = String(input?.email ?? '').trim();
+    const rawPhone = String(input?.phone ?? '').trim();
+    if (!rawEmail && !rawPhone) throw new BadRequestException('Enter an email or a mobile number');
+    const email = rawEmail ? normEmail(rawEmail) : null;
+    if (email && !isEmail(email)) throw new BadRequestException('Enter a valid email address');
+    const phone = rawPhone ? normSgMobile(rawPhone) : null;
+    if (rawPhone && !phone) throw new BadRequestException('Enter a Singapore mobile number: 8 digits starting with 8 or 9');
+    const password = input?.password ? String(input.password) : null;
+    if (password && password.length < 8) throw new BadRequestException('The password must be at least 8 characters');
+    const firstName = String(input?.firstName ?? '').trim() || undefined;
+    const lastName = String(input?.lastName ?? '').trim() || undefined;
+
     const organizationId = actor.orgId;
-    const ids = [...new Set((roleIds || []).filter(Boolean))];
+    const ids = [...new Set((input?.roleIds || []).filter(Boolean))];
     if (!ids.length) throw new BadRequestException('Pick at least one role');
     const roles = await this.prisma.role.findMany({ where: { id: { in: ids }, organizationId }, select: { id: true } });
     if (roles.length !== ids.length) throw new BadRequestException('Pick roles of this organisation');
@@ -124,11 +160,12 @@ export class MembershipsService {
     let userId: string;
     let created = false;
     try {
-      const existing = await this.existingLogin(email);
-      userId = existing ?? (await this.createLogin(email));
+      const existing = await this.existingLogin(email, phone);
+      if (existing === 'conflict') throw new Error('email and phone belong to different logins');
+      userId = existing ?? (await this.createLogin({ email, phone, firstName, lastName, password }));
       created = !existing;
     } catch (e: any) {
-      this.logger.error(`addByEmail: login lookup / create failed: ${e?.message}`);
+      this.logger.error(`addMember: login lookup / create failed: ${e?.message}`);
       throw new BadRequestException(ADD_MEMBER_FAILED);
     }
     // A platform admin's login is never added to an org this way.
@@ -147,16 +184,48 @@ export class MembershipsService {
       });
     }
     ClerkAuthGuard.invalidateUser(userId);
-    if (created) await this.sendSetPasswordEmail(email, userId, org.name);
-    return { ok: true, message: ADD_MEMBER_REPLY(email, org.name) };
+    if (created && email) await this.sendSetPasswordEmail(email, userId, org.name, !!password);
+    return { ok: true, message: ADD_MEMBER_REPLY(memberLabel(email, phone), org.name) };
+  }
+
+  /** The old email-only call (kept for the old path). */
+  addByEmail(email: string, roleIds: string[], actor: AdminActor) {
+    return this.addMember({ email, roleIds }, actor);
+  }
+
+  /**
+   * /set-password for a login whose password an admin set at Add user: the
+   * person replaces it once without the current one (Clerk asks for the
+   * current password otherwise). Then the flag is cleared; after that it is
+   * "Forgot password" like everyone else.
+   */
+  async setFirstPassword(userId: string, newPassword: string) {
+    if (!newPassword || String(newPassword).length < 8) throw new BadRequestException('Use at least 8 characters.');
+    const u: any = await this.clerkIdentity.toClerkUser(userId, { fresh: true });
+    if (u?.privateMetadata?.[ADMIN_SET_PASSWORD_FLAG] !== true) throw new ForbiddenException('To change your password, use "Forgot password" on the sign-in page.');
+    try {
+      await this.clerkClient.users.updateUser(u.id, { password: String(newPassword), skipPasswordChecks: true, signOutOfOtherSessions: false } as any);
+    } catch (e: any) {
+      const c = e?.errors?.[0];
+      throw new BadRequestException(c?.longMessage || c?.message || 'The password could not be saved. Please try again.');
+    }
+    await this.clerkClient.users.updateUserMetadata(u.id, { privateMetadata: { [ADMIN_SET_PASSWORD_FLAG]: null } });
+    this.clerkIdentity.invalidate(userId);
+    return { ok: true };
   }
 
   // ── internals ─────────────────────────────────────────────────────────────
 
-  /** The AIMS id of the login with this email, if there is one (an imported user's id is its external_id). */
-  private async existingLogin(email: string): Promise<string | null> {
-    const found: any = await this.clerkClient.users.getUserList({ emailAddress: [email] });
-    const u = (Array.isArray(found) ? found : (found?.data ?? []))[0];
+  /**
+   * The AIMS id of the login with this email or phone (an imported user's id
+   * is its external_id), null if none, 'conflict' if the email and the phone
+   * belong to two different logins.
+   */
+  private async existingLogin(email: string | null, phone: string | null): Promise<string | null | 'conflict'> {
+    const byEmail = email ? listOf(await this.clerkClient.users.getUserList({ emailAddress: [email] }))[0] : undefined;
+    const byPhone = phone ? listOf(await this.clerkClient.users.getUserList({ phoneNumber: [phone] }))[0] : undefined;
+    if (byEmail && byPhone && byEmail.id !== byPhone.id) return 'conflict';
+    const u = byEmail ?? byPhone;
     return u ? u.externalId || u.id : null;
   }
 
@@ -165,17 +234,17 @@ export class MembershipsService {
    * differ): a failure is logged as a platform-only System row (no org, so the
    * org's own Activity Log never shows whether the login was new).
    */
-  private async sendSetPasswordEmail(email: string, userId: string, orgName: string) {
+  private async sendSetPasswordEmail(email: string, userId: string, orgName: string, adminSetPassword: boolean) {
     let error: string | undefined;
     try {
       const t: any = await this.clerkClient.signInTokens.createSignInToken({ userId, expiresInSeconds: SET_PASSWORD_LINK_SECONDS });
       const link = `${portalOrigin()}/set-password?ticket=${encodeURIComponent(t.token)}`;
-      const r = await this.email.sendSimpleEmail({ to: [email], ...setPasswordEmail(orgName, link) });
+      const r = await this.email.sendSimpleEmail({ to: [email], ...setPasswordEmail(orgName, link, { adminSetPassword }) });
       if (!r.success) error = r.error || 'send failed';
     } catch (e: any) {
       error = e?.message || String(e);
     }
-    if (error) this.logger.error(`addByEmail: set-password email for ${userId} failed: ${error}`);
+    if (error) this.logger.error(`addMember: set-password email for ${userId} failed: ${error}`);
     this.actionLog.system('add-user-welcome-email', error ? 'EMAIL_FAILED' : 'EMAIL_SENT', 'user', {
       resourceId: userId,
       status: error ? 'FAILURE' : 'SUCCESS',
@@ -183,9 +252,17 @@ export class MembershipsService {
     });
   }
 
-  /** A new login for the email, made as UsersService.createUser makes one (no password; external_id = own id). */
-  private async createLogin(email: string): Promise<string> {
-    const u = await this.clerkClient.users.createUser({ emailAddress: [email], skipPasswordChecks: true, skipPasswordRequirement: true } as any);
+  /** A new login made from the form (external_id = own id). Admin-set identifiers are verified; a given password is flagged as admin-set. */
+  private async createLogin(p: { email: string | null; phone: string | null; firstName?: string; lastName?: string; password: string | null }): Promise<string> {
+    const u = await this.clerkClient.users.createUser({
+      ...(p.email ? { emailAddress: [p.email] } : {}),
+      ...(p.phone ? { phoneNumber: [p.phone] } : {}),
+      ...(p.firstName ? { firstName: p.firstName } : {}),
+      ...(p.lastName ? { lastName: p.lastName } : {}),
+      ...(p.password ? { password: p.password, privateMetadata: { [ADMIN_SET_PASSWORD_FLAG]: true } } : {}),
+      skipPasswordChecks: true,
+      skipPasswordRequirement: true,
+    } as any);
     await this.clerkIdentity.stampExternalId(u.id);
     return u.id;
   }

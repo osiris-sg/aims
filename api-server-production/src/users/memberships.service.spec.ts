@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { ADD_MEMBER_FAILED, ADD_MEMBER_REPLY, MembershipsService, SET_PASSWORD_LINK_SECONDS } from './memberships.service';
+
+import { ADD_MEMBER_FAILED, ADD_MEMBER_REPLY, ADMIN_SET_PASSWORD_FLAG, MembershipsService, SET_PASSWORD_LINK_SECONDS, memberLabel, normSgMobile } from './memberships.service';
 
 const A = 'org-a';
 const B = 'org-b';
@@ -15,7 +16,7 @@ function world() {
     { id: 'roleA', name: 'Admin', organizationId: A },
     { id: 'roleB', name: 'Accounts', organizationId: B },
   ];
-  const logins: Record<string, any> = { 'existing@x.sg': { id: 'existing' }, 'boss@osiris.sg': { id: 'boss' } };
+  const logins: Record<string, any> = { 'existing@x.sg': { id: 'existing' }, '+6591112222': { id: 'existing' }, '+6598887777': { id: 'phoneonly' }, 'boss@osiris.sg': { id: 'boss' } };
   const key = (w: any) => w.userId_organizationId ?? w;
   const prisma: any = {
     userOrganization: {
@@ -44,18 +45,25 @@ function world() {
     role: { findMany: async ({ where }: any) => roles.filter((r) => where.id.in.includes(r.id) && r.organizationId === where.organizationId) },
     organization: { findUnique: async ({ where }: any) => ({ id: where.id, name: where.id.toUpperCase() }) },
   };
+  // logins keyed by email AND by phone (one login can be under both keys)
   const clerk: any = {
     users: {
-      getUserList: jest.fn(async ({ emailAddress }: any) => ({ data: logins[emailAddress[0]] ? [logins[emailAddress[0]]] : [] })),
-      createUser: jest.fn(async ({ emailAddress }: any) => {
-        const u = { id: `new_${emailAddress[0]}` };
-        logins[emailAddress[0]] = u;
+      getUserList: jest.fn(async ({ emailAddress, phoneNumber }: any) => {
+        const k = (emailAddress ?? phoneNumber)[0];
+        return { data: logins[k] ? [logins[k]] : [] };
+      }),
+      createUser: jest.fn(async (p: any) => {
+        const u = { id: `new_${p.emailAddress?.[0] ?? p.phoneNumber[0]}` };
+        if (p.emailAddress) logins[p.emailAddress[0]] = u;
+        if (p.phoneNumber) logins[p.phoneNumber[0]] = u;
         return u;
       }),
+      updateUser: jest.fn(async () => ({})),
+      updateUserMetadata: jest.fn(async () => ({})),
     },
   };
   clerk.signInTokens = { createSignInToken: jest.fn(async ({ userId }: any) => ({ token: `tok-${userId}` })) };
-  const identity = { stampExternalId: jest.fn(async () => undefined) };
+  const identity: any = { stampExternalId: jest.fn(async () => undefined) };
   const email = { sendSimpleEmail: jest.fn(async () => ({ success: true, messageId: 'm1' })) };
   const actionLog = { system: jest.fn() };
   const svc = new MembershipsService(prisma, clerk, identity as any, email as any, actionLog as any);
@@ -132,7 +140,7 @@ describe('MembershipsService', () => {
   });
 
   it('the success text is the one the owner asked for, the same for every case', () => {
-    expect(ADD_MEMBER_REPLY('a@x.sg', 'WCT')).toBe("a@x.sg has been added to WCT. They'll get an email to set their password, or can sign in with Google/phone if set up.");
+    expect(ADD_MEMBER_REPLY('a@x.sg', 'WCT')).toBe('a@x.sg has been added to WCT. They can sign in at app.ai-ms.io with their email or mobile.');
     expect(ADD_MEMBER_REPLY('a@x.sg', 'WCT')).not.toMatch(/\u2014|\u2013/);
   });
 
@@ -163,5 +171,135 @@ describe('MembershipsService', () => {
     expect(w.actionLog.system).toHaveBeenCalledWith('add-user-welcome-email', 'EMAIL_FAILED', 'user', expect.objectContaining({ status: 'FAILURE', details: { error: 'resend down' } }));
     w.clerk.signInTokens.createSignInToken.mockRejectedValueOnce(new Error('clerk down'));
     await expect(w.svc.addByEmail('other@x.sg', ['roleA'], adminOfA)).resolves.toEqual({ ok: true, message: ADD_MEMBER_REPLY('other@x.sg', 'ORG-A') });
+  });
+
+  // ── the full form (2026-11-03) ──
+  const add = (w: any, input: any) => w.svc.addMember({ roleIds: ['roleA'], ...input }, adminOfA);
+  const sentTo = (w: any) => w.email.sendSimpleEmail.mock.calls.map((c: any[]) => c[0]);
+
+  it('SG mobile: 8 digits starting with 8 or 9, spaces / +65 / 65 accepted; the label shows both when both are entered', () => {
+    expect(normSgMobile('9123 4567')).toBe('+6591234567');
+    expect(normSgMobile('+65 8123-4567')).toBe('+6581234567');
+    expect(normSgMobile('6591234567')).toBe('+6591234567');
+    for (const bad of ['6123 4567', '912345', '+60 91234567', '91234567x', '']) expect(normSgMobile(bad)).toBeNull();
+    expect(memberLabel('a@b.sg', '+6591234567')).toBe('a@b.sg (+65 9123 4567)');
+    expect(memberLabel(null, '+6591234567')).toBe('+65 9123 4567');
+    expect(memberLabel('a@b.sg', null)).toBe('a@b.sg');
+  });
+
+  it('new vs existing: IDENTICAL responses, by email and by phone, with and without names / password', async () => {
+    const w = world();
+    const extras = [{}, { firstName: 'Hui', lastName: 'Kong' }, { firstName: 'Hui', lastName: 'Kong', password: 'secret123' }];
+    for (const x of extras) {
+      const ex = await add(w, { email: 'existing@x.sg', ...x });
+      const nu = await add(w, { email: `n${extras.indexOf(x)}@x.sg`, ...x });
+      expect(Object.keys(ex).sort()).toEqual(['message', 'ok']);
+      expect(ex.message.replace('existing@x.sg', 'E')).toBe(nu.message.replace(`n${extras.indexOf(x)}@x.sg`, 'E'));
+      const exP = await add(w, { phone: '9111 2222', ...x });
+      const nuP = await add(w, { phone: `9300 000${extras.indexOf(x)}`, ...x });
+      expect(Object.keys(exP).sort()).toEqual(['message', 'ok']);
+      expect(exP.message.replace('+65 9111 2222', 'P')).toBe(nuP.message.replace(`+65 9300 000${extras.indexOf(x)}`, 'P'));
+    }
+    const both = await add(w, { email: 'both@x.sg', phone: '91234567' });
+    expect(both).toEqual({ ok: true, message: 'both@x.sg (+65 9123 4567) has been added to ORG-A. They can sign in at app.ai-ms.io with their email or mobile.' });
+  });
+
+  it('an existing login (by email or by phone) is never changed and is sent nothing', async () => {
+    const w = world();
+    await add(w, { email: 'existing@x.sg', firstName: 'New', lastName: 'Name', password: 'override123' });
+    await add(w, { phone: '+65 9888 7777', firstName: 'X', password: 'override123' });
+    expect(w.clerk.users.createUser).not.toHaveBeenCalled();
+    expect(w.clerk.users.updateUser).not.toHaveBeenCalled();
+    expect(w.clerk.users.updateUserMetadata).not.toHaveBeenCalled();
+    expect(w.email.sendSimpleEmail).not.toHaveBeenCalled();
+    expect(w.clerk.signInTokens.createSignInToken).not.toHaveBeenCalled();
+    expect(memberOfA(w, 'existing')).toBeTruthy();
+    expect(memberOfA(w, 'phoneonly')).toBeTruthy();
+  });
+
+  it('email matching one login and phone matching ANOTHER: refused with the one generic error, nothing made', async () => {
+    const w = world();
+    const e = await add(w, { email: 'existing@x.sg', phone: '9888 7777' }).catch((x: any) => x);
+    expect(e).toBeInstanceOf(BadRequestException);
+    expect(e.message).toBe(ADD_MEMBER_FAILED);
+    expect(memberOfA(w, 'existing')).toBeFalsy();
+    expect(memberOfA(w, 'phoneonly')).toBeFalsy();
+    // email matches, phone is new: the existing login (its phone is not added)
+    await add(w, { email: 'existing@x.sg', phone: '9333 4444' });
+    expect(w.clerk.users.createUser).not.toHaveBeenCalled();
+    expect(memberOfA(w, 'existing')).toBeTruthy();
+  });
+
+  it('a new login is made with what was typed; a given password is flagged as admin-set', async () => {
+    const w = world();
+    await add(w, { email: 'Pw@x.sg', phone: '9123 4567', firstName: ' Hui ', lastName: 'Kong', password: 'secret123' });
+    expect(w.clerk.users.createUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        emailAddress: ['pw@x.sg'],
+        phoneNumber: ['+6591234567'],
+        firstName: 'Hui',
+        lastName: 'Kong',
+        password: 'secret123',
+        privateMetadata: { [ADMIN_SET_PASSWORD_FLAG]: true },
+      }),
+    );
+    await add(w, { email: 'nopw@x.sg' });
+    const p = (w.clerk.users.createUser.mock.calls[1] as any[])[0];
+    expect(p.password).toBeUndefined();
+    expect(p.privateMetadata).toBeUndefined();
+    expect(p.firstName).toBeUndefined();
+  });
+
+  it('new + email ALWAYS gets the email: normal wording without a password, the admin-set wording with one', async () => {
+    const w = world();
+    await add(w, { email: 'a1@x.sg' });
+    await add(w, { email: 'a2@x.sg', firstName: 'A', lastName: 'Two', password: 'secret123' });
+    const [plain, withPw] = sentTo(w);
+    expect(plain.to).toEqual(['a1@x.sg']);
+    expect(plain.html).toContain('Choose a password to sign in:');
+    expect(plain.html).not.toContain('Your admin has set a password');
+    expect(withPw.to).toEqual(['a2@x.sg']);
+    expect(withPw.html).toContain('Your admin has set a password for you. You can sign in with it, or choose your own using this link.');
+    for (const m of [plain, withPw]) {
+      expect(m.subject).toBe('Set your AIMS password');
+      expect(m.html).toMatch(/\/set-password\?ticket=tok-/);
+      expect(m.html).not.toMatch(/\u2014|\u2013/);
+    }
+    expect(w.clerk.signInTokens.createSignInToken).toHaveBeenCalledWith({ userId: 'new_a2@x.sg', expiresInSeconds: SET_PASSWORD_LINK_SECONDS });
+  });
+
+  it('phone only: a login with the phone, no email address, nothing sent', async () => {
+    const w = world();
+    const r = await add(w, { phone: '8123 4567', firstName: 'Ah', lastName: 'Tan' });
+    expect(r.message).toBe('+65 8123 4567 has been added to ORG-A. They can sign in at app.ai-ms.io with their email or mobile.');
+    const p = (w.clerk.users.createUser.mock.calls[0] as any[])[0];
+    expect(p.phoneNumber).toEqual(['+6581234567']);
+    expect(p.emailAddress).toBeUndefined();
+    expect(w.email.sendSimpleEmail).not.toHaveBeenCalled();
+    expect(w.clerk.signInTokens.createSignInToken).not.toHaveBeenCalled();
+    expect(memberOfA(w, 'new_+6581234567')).toBeTruthy();
+  });
+
+  it('form checks: at least one of email / mobile, a valid SG mobile, password of 8+', async () => {
+    const w = world();
+    await expect(add(w, {})).rejects.toThrow('Enter an email or a mobile number');
+    await expect(add(w, { phone: '6123 4567' })).rejects.toThrow('Enter a Singapore mobile number: 8 digits starting with 8 or 9');
+    await expect(add(w, { email: 'x@x.sg', password: 'short' })).rejects.toThrow('The password must be at least 8 characters');
+    expect(w.clerk.users.getUserList).not.toHaveBeenCalled();
+  });
+
+  it('first password: replaced once when the admin set it, then refused; refused for anyone else', async () => {
+    const w = world();
+    const meta: Record<string, any> = { flagged: { [ADMIN_SET_PASSWORD_FLAG]: true }, plain: {} };
+    w.identity.toClerkUser = jest.fn(async (id: string) => ({ id, privateMetadata: meta[id] }));
+    w.identity.invalidate = jest.fn();
+    w.clerk.users.updateUserMetadata = jest.fn(async (id: string, p: any) => Object.assign(meta[id], p.privateMetadata));
+    await expect(w.svc.setFirstPassword('flagged', 'mine12345')).resolves.toEqual({ ok: true });
+    expect(w.clerk.users.updateUser).toHaveBeenCalledWith('flagged', expect.objectContaining({ password: 'mine12345' }));
+    expect(meta.flagged[ADMIN_SET_PASSWORD_FLAG]).toBeNull();
+    await expect(w.svc.setFirstPassword('flagged', 'again12345')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(w.svc.setFirstPassword('plain', 'mine12345')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(w.svc.setFirstPassword('flagged', 'short')).rejects.toBeInstanceOf(BadRequestException);
+    expect(w.clerk.users.updateUser).toHaveBeenCalledTimes(1);
   });
 });

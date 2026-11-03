@@ -38,6 +38,29 @@ test("copy: both languages have the new strings, no em or en dashes in them", ()
       assert.doesNotMatch(s, /[–—]/, `${l}: ${s}`);
     }
   }
-  assert.equal(json("i18n/messages/en/users.json").addUser.done, "Added. They'll get an email to set their password, or can sign in with Google/phone if set up.");
+  assert.equal(json("i18n/messages/en/users.json").addUser.done, "Added. They can sign in at app.ai-ms.io with their email or mobile.");
   assert.doesNotMatch(read("app/set-password/page.tsx"), /[–—]/);
+});
+
+test("Add user: the full form (email and/or SG mobile, names, roles, optional password with show/hide) posts to add-member", () => {
+  const src = read("app/portal/user-management/users/components/AddUserDialog.tsx");
+  assert.match(src, /path: "\/users\/members\/add-member"/);
+  for (const f of ["phone: mobile", "firstName: firstName", "lastName: lastName", "password: password", "roleIds"]) assert.ok(src.includes(f), f);
+  assert.match(src, /t\("needOne"\)/);
+  assert.match(src, /setShowPassword/);
+  assert.match(src, />\+65</);
+});
+
+test("SG mobile check in the form", async () => {
+  const re = /^(?:\+?65)?[89]\d{7}$/;
+  const ok = (v) => re.test(v.replace(/[\s\-().]/g, ""));
+  for (const v of ["9123 4567", "+65 8123-4567", "6591234567"]) assert.ok(ok(v), v);
+  for (const v of ["6123 4567", "912345", "+60 91234567"]) assert.ok(!ok(v), v);
+  assert.ok(read("app/portal/user-management/users/components/AddUserDialog.tsx").includes("/^(?:\\+?65)?[89]\\d{7}$/"));
+});
+
+test("set-password: a login with an admin-set password replaces it through the server once", () => {
+  const page = read("app/set-password/page.tsx");
+  assert.match(page, /\/users\/me\/first-password/);
+  assert.match(page, /setViaServer\(true\)/);
 });

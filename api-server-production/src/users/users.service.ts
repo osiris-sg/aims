@@ -21,7 +21,10 @@ export const primaryEmailOf = (u: any): string | null => (u?.emailAddresses || [
 export const primaryPhoneOf = (u: any): string | null => (u?.phoneNumbers || []).find((p: any) => p.id === u?.primaryPhoneNumberId)?.phoneNumber || u?.phoneNumbers?.[0]?.phoneNumber || null;
 
 /** What a person is called in lists: name, else username, email or phone. Never a Clerk id. */
-export const displayNameOf = (u: any): string => `${u?.firstName || ''} ${u?.lastName || ''}`.trim() || u?.username || primaryEmailOf(u) || primaryPhoneOf(u) || 'Unnamed user';
+export const displayNameOf = (u: any): string => `${u?.firstName || ''} ${u?.lastName || ''}`.trim() || u?.username || primaryEmailOf(u) || prettyPhone(primaryPhoneOf(u)) || 'Unnamed user';
+
+/** A Singapore number as "+65 9123 4567"; any other number as it is. */
+export const prettyPhone = (p: string | null): string | null => (p && /^\+65\d{8}$/.test(p) ? `+65 ${p.slice(3, 7)} ${p.slice(7)}` : p);
 
 interface UserRoleWithDetails extends UserRole {
   role: Role & {
@@ -146,7 +149,7 @@ export class UsersService {
             id: userId,
             // A login with no email (e.g. a phone-only SiteClock worker) has none: never its id.
             email: primaryEmailOf(clerkUser),
-            phone: primaryPhoneOf(clerkUser),
+            phone: prettyPhone(primaryPhoneOf(clerkUser)),
             // A login with no name shows its email (a person added by email shows like any other member).
             name: displayNameOf(clerkUser),
             whatsappNumber: profile?.whatsappNumber ?? null,
@@ -624,7 +627,7 @@ export class UsersService {
     return {
       id: userId,
       email: primaryEmailOf(clerkUser),
-      phone: primaryPhoneOf(clerkUser),
+      phone: prettyPhone(primaryPhoneOf(clerkUser)),
       name: displayNameOf(clerkUser),
       roles: updatedUserRoles.map((ur) => ({
         id: ur.role.id,

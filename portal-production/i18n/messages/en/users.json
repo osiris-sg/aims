@@ -30,6 +30,7 @@
     "email": "Email Address",
     "emailPh": "Enter email address",
     "noEmailPh": "No email yet. Add one to let them sign in with email",
+    "mobileLine": "Mobile: {phone}",
     "emailReq": "Email is required",
     "emailInvalid": "Invalid email address",
     "password": "Password",
@@ -167,11 +168,17 @@
   },
   "addUser": {
     "title": "Add user",
-    "intro": "Enter the person's email and pick their role. They are added to this organisation right away.",
+    "intro": "Enter the person's email and/or Singapore mobile, their name and role. They are added to this organisation right away.",
     "pickRole": "Pick at least one role",
+    "mobile": "Mobile",
+    "mobileHelp": "Singapore mobile, 8 digits, e.g. 9123 4567",
+    "mobileInvalid": "Enter a Singapore mobile number: 8 digits starting with 8 or 9",
+    "needOne": "Enter an email or a mobile number",
+    "setPassword": "Set a password for them (optional)",
+    "setPasswordHelp": "At least 8 characters. With an email they can still choose their own from the email we send.",
     "submit": "Add",
     "close": "Close",
-    "done": "Added. They'll get an email to set their password, or can sign in with Google/phone if set up.",
+    "done": "Added. They can sign in at app.ai-ms.io with their email or mobile.",
     "failed": "This person could not be added. Check the email address and try again."
   }
 }

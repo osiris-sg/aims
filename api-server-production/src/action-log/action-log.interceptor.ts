@@ -96,7 +96,7 @@ const VERB_ACTIONS: Record<string, string> = {
   // Round AM: Clients → Document formats — a sample hidden (kept, never deleted).
   hide: 'HIDE',
   // Multi-org users (2026-11-02): switching org, and an org admin adding a person by email.
-  'active-org': 'SWITCH_ORG', 'add-by-email': 'ADD_MEMBER',
+  'active-org': 'SWITCH_ORG', 'add-by-email': 'ADD_MEMBER', 'add-member': 'ADD_MEMBER', 'first-password': 'SET_PASSWORD',
   // Round AR: the Answer flow's draft of a general issue read from the emails (nothing saved).
   'issue-draft': 'EXTRACT',
   // Deliveries: OsirisAdmin permanent delete of a cancelled run that committed nothing (2026-10-30).

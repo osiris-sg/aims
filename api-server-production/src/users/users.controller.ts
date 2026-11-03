@@ -34,8 +34,29 @@ export class UsersController {
     return this.memberships.setActiveOrg(req.user.id, String(body?.organizationId ?? ''), !!req.isOsirisAdmin);
   }
 
-  // "Add user": an org admin adds a person to THEIR org by email + role. An existing login
-  // (any org) or a new one gets the same reply, so it never tells whether the login existed.
+  // "Add user" (full form, 2026-11-03): email and/or SG mobile, names, role(s), optional
+  // password. An existing login (any org) or a new one gets the same reply, so it never
+  // tells whether the login existed; an existing login is never changed.
+  @Post('members/add-member')
+  @Permissions('users:create')
+  @ApiOperation({ summary: "Add a person to the caller's organisation (email and/or mobile, names, roles, optional password)" })
+  addMember(
+    @Body() body: { email?: string; phone?: string; firstName?: string; lastName?: string; password?: string; roleIds?: string[] },
+    @UserOrganization() organization: { id: string; name: string },
+    @Req() req: any,
+  ) {
+    return this.memberships.addMember(body ?? {}, actorOf(req, organization.id));
+  }
+
+  // /set-password: a login whose password the admin set at Add user replaces it once
+  // without the current one. Only the caller's own login; refused once used.
+  @Post('me/first-password')
+  @ApiOperation({ summary: 'Replace the admin-set password once (from the welcome email link)' })
+  setFirstPassword(@Req() req: any, @Body() body: { newPassword?: string }) {
+    return this.memberships.setFirstPassword(req.user.id, String(body?.newPassword ?? ''));
+  }
+
+  // The old email-only "Add user" path, kept as an alias.
   @Post('members/add-by-email')
   @Permissions('users:create')
   @ApiOperation({ summary: "Add a person to the caller's organisation by email, with roles" })

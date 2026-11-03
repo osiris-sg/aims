@@ -3,13 +3,16 @@
 
 import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useClerk, useSignIn, useUser } from "@clerk/nextjs";
+import { useAuth, useClerk, useSignIn, useUser } from "@clerk/nextjs";
+import { request } from "@/helpers/request";
 import { Alert, Box, Button, CircularProgress, Paper, Stack, TextField, Typography } from "@mui/material";
 
 /**
  * "Set your password" (2026-11-03). A person added with "Add user" whose email
  * had no login gets an email with a one-time link here (?ticket=<Clerk sign-in
  * token>, 7 days). The ticket signs them in, then they choose a password.
+ * A login whose password the admin set at Add user replaces it once through
+ * POST /users/me/first-password (Clerk itself would ask for the current one).
  * Public in middleware.ts: the visitor is not signed in when they arrive.
  */
 type Stage = "working" | "form" | "done" | "hasPassword" | "otherSession" | "badLink";
@@ -21,6 +24,9 @@ function SetPassword() {
   const { isLoaded: signInLoaded, signIn, setActive } = useSignIn();
   const { isLoaded: userLoaded, isSignedIn, user } = useUser();
   const { signOut } = useClerk();
+  const { getToken } = useAuth();
+  // Signed in by this page's ticket with a password already set: the admin set it, so the server replaces it.
+  const [viaServer, setViaServer] = useState(false);
   const [stage, setStage] = useState<Stage>("working");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -33,7 +39,13 @@ function SetPassword() {
     if (isSignedIn) {
       // Already signed in when the link was opened: a login with no password (the new person, e.g. after a
       // reload) chooses one; an account that has a password is someone else here, who must sign out first.
-      if (user?.passwordEnabled) return setStage(ticket && !usedTicket.current ? "otherSession" : "hasPassword");
+      if (user?.passwordEnabled) {
+        if (usedTicket.current) {
+          setViaServer(true);
+          return setStage("form");
+        }
+        return setStage(ticket ? "otherSession" : "hasPassword");
+      }
       return setStage("form");
     }
     if (!ticket) return setStage("badLink");
@@ -56,7 +68,17 @@ function SetPassword() {
     if (password !== confirm) return setError("The two passwords are not the same.");
     setBusy(true);
     try {
-      await user!.updatePassword({ newPassword: password, signOutOfOtherSessions: false } as any);
+      if (viaServer) {
+        const token = await getToken();
+        const res: any = await request({ method: "POST", path: "/users/me/first-password" }, { newPassword: password }, token ?? undefined);
+        if (res?.success === false) {
+          if (res?.details?.statusCode === 403 || /Forgot password/.test(String(res?.message))) return setStage("hasPassword");
+          throw new Error(res?.message || "The password could not be saved. Please try again.");
+        }
+        await user?.reload();
+      } else {
+        await user!.updatePassword({ newPassword: password, signOutOfOtherSessions: false } as any);
+      }
       setStage("done");
     } catch (e: any) {
       setError(clerkMessage(e, "The password could not be saved. Please try again."));
@@ -85,7 +107,11 @@ function SetPassword() {
       {stage === "form" && (
         <Stack spacing={2}>
           <Typography variant="body2" color="text.secondary">
-            {email ? `Choose a password for ${email}.` : "Choose a password for your AIMS login."}
+            {viaServer
+              ? "Your admin set a password for you. Choose your own to replace it."
+              : email
+                ? `Choose a password for ${email}.`
+                : "Choose a password for your AIMS login."}
           </Typography>
           <TextField label="New password" type="password" size="small" fullWidth autoFocus autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
           <TextField label="Confirm password" type="password" size="small" fullWidth autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
