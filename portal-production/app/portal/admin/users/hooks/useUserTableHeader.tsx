@@ -13,6 +13,8 @@ export default function useUserTableHeader() {
   const [selectedUser, setSelectedUser] = useState(null);
   const [userToDelete, setUserToDelete] = useState<string | null>(null);
   const [isDeleteInProgress, setIsDeleteInProgress] = useState(false);
+  // "Delete login everywhere" (2026-11-03): the only way a login is deleted.
+  const [loginToDelete, setLoginToDelete] = useState<string | null>(null);
   const { getToken } = useAuth();
 
   const handleEditUser = (user: any) => {
@@ -173,7 +175,9 @@ export default function useUserTableHeader() {
     }),
     kebabColumn((row: any) => [
       { label: "Edit", onClick: () => handleEditUser(row) },
-      { label: "Delete", destructive: true, onClick: () => handleDeleteUser(row.userId) },
+      // Removal takes away AIMS access only; the login itself is kept (shared with SiteClock).
+      { label: "Remove from organizations", destructive: true, onClick: () => handleDeleteUser(row.userId) },
+      { label: "Delete login everywhere", destructive: true, onClick: () => setLoginToDelete(row.userId) },
     ]),
   ];
 
@@ -188,5 +192,7 @@ export default function useUserTableHeader() {
     isDeleteInProgress,
     confirmDeleteUser,
     cancelDelete,
+    loginToDelete,
+    setLoginToDelete,
   };
 }

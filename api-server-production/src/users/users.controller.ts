@@ -151,6 +151,22 @@ export class UsersController {
     return this.usersService.getUsers(getUsersDto, organization.id);
   }
 
+  // "Delete login everywhere" (Osiris admin only, 2026-11-03). Removing someone from an org
+  // never deletes their login; this is the only way, after a check and a typed confirmation.
+  @Get(':userId/login-delete-check')
+  @ApiOperation({ summary: 'Osiris admin: what deleting this login everywhere would affect (SiteClock, other orgs)' })
+  loginDeleteCheck(@Param('userId') userId: string, @UserOrganization() organization: { id: string; name: string }, @Req() req: any) {
+    return this.usersService.loginDeleteCheck(userId, actorOf(req, organization.id));
+  }
+
+  @Post(':userId/delete-login')
+  @ApiOperation({ summary: 'Osiris admin: delete this login everywhere (typed confirmation; warnings acknowledged)' })
+  async deleteLoginEverywhere(@Param('userId') userId: string, @Body() body: { confirm?: string; acknowledgeWarnings?: boolean }, @UserOrganization() organization: { id: string; name: string }, @Req() req: any) {
+    const res = await this.usersService.deleteLoginEverywhere(userId, body ?? {}, actorOf(req, organization.id));
+    req.actionLogResult = { deletedLogin: true, siteclock: res.siteclock, membershipsRemoved: res.membershipsRemoved, rolesRemoved: res.rolesRemoved };
+    return res;
+  }
+
   @Delete(':userId')
   @Permissions('users:delete')
   @ApiOperation({ summary: "Remove a user from the caller's organization (membership + roles kept inactive)" })

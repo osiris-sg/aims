@@ -93,3 +93,15 @@ test("last name is optional in Add user and both Edit User drawers; first name s
   }
   assert.match(read("app/portal/user-management/users/components/EditUser.tsx"), /user\.lastName !== undefined/);
 });
+
+test("Osiris admin users: removal is labelled as removal; 'Delete login everywhere' needs the check, typed confirmation and acknowledged warnings", () => {
+  const menu = read("app/portal/admin/users/hooks/useUserTableHeader.tsx");
+  assert.match(menu, /label: "Remove from organizations"/);
+  assert.match(menu, /label: "Delete login everywhere"/);
+  assert.doesNotMatch(menu, /label: "Delete",/);
+  const dlg = read("app/portal/admin/users/components/DeleteLoginDialog.tsx");
+  assert.match(dlg, /\/login-delete-check/);
+  assert.match(dlg, /\/delete-login/);
+  assert.match(dlg, /norm\(typed\) === norm\(check\.confirmWith\) && \(!check\.warnings\.length \|\| ack\)/);
+  assert.doesNotMatch(dlg, /[–—]/);
+});

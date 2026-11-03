@@ -676,10 +676,14 @@ export class UsersService {
   /**
    * Round AW: "Delete user" removes the user from the caller's org only — the
    * membership and that org's role rows are kept and marked inactive (hidden,
-   * not deleted). The Clerk login is deleted only by a platform admin, only
-   * when no active membership is left anywhere, and never for a SiteClock user.
-   * A platform admin removing someone who is not in their current org removes
-   * them from every org (the admin panel's old reach).
+   * not deleted). A platform admin removing someone who is not in their
+   * current org removes them from every org (the admin panel's old reach).
+   *
+   * 2026-11-03 (owner): removal NEVER deletes the Clerk login, whatever is
+   * left. The Clerk instance is shared with SiteClock (workers sign in there
+   * by phone), and hh@wct.com.sg's login was deleted this way. Deleting a
+   * login is only deleteLoginEverywhere (Osiris admin, warnings + typed
+   * confirmation).
    */
   async deleteUser(userId: string, actor?: AdminActor) {
     if (actor && actor.userId && actor.userId === userId) throw new BadRequestException('You cannot remove yourself');
@@ -698,41 +702,74 @@ export class UsersService {
     // Access revoked — drop the guard's cached roles so it takes effect now.
     ClerkAuthGuard.invalidateUser(userId);
 
-    const left = await this.prisma.userOrganization.count({ where: { userId, isActive: true } })
-      + await this.prisma.userRole.count({ where: { userId, isActive: true } });
-    let clerkDeleted = false;
-    if (actor?.platform && left === 0) {
-      // The Clerk instance is shared with SiteClock — never delete a Clerk user
-      // SiteClock also uses (marked by publicMetadata.siteclock). If we can't
-      // tell, fail safe and keep the Clerk user.
-      let clerkUser;
-      try {
-        clerkUser = await this.clerkIdentity.toClerkUser(userId, { fresh: true });
-      } catch (error) {
-        console.error(`Kept Clerk user ${userId}: could not fetch it to check for SiteClock use:`, error);
-      }
-
-      if (clerkUser && clerkUser.publicMetadata?.siteclock != null) {
-        console.log(`Kept Clerk user ${userId}: also a SiteClock user`);
-      } else if (clerkUser) {
-        try {
-          await this.clerkClient.users.deleteUser(clerkUser.id);
-          this.clerkIdentity.invalidate(userId);
-          clerkDeleted = true;
-        } catch (error) {
-          console.error('Error deleting user from Clerk:', error);
-        }
-      }
-    }
+    const left = (await this.prisma.userOrganization.count({ where: { userId, isActive: true } })) + (await this.prisma.userRole.count({ where: { userId, isActive: true } }));
 
     return {
       message: everywhere ? `User ${userId} has been removed from every organization` : `User ${userId} has been removed from this organization`,
       success: true,
       removedFrom: everywhere ? 'all' : actor!.orgId,
       rolesRemoved: roles.count,
-      clerkDeleted,
+      // The login is never deleted here (see above).
+      clerkDeleted: false,
       otherMemberships: left,
     };
+  }
+
+  /**
+   * "Delete login everywhere" (Osiris admin only, 2026-11-03): what deleting
+   * this login would affect, and the text the admin must type to confirm.
+   */
+  async loginDeleteCheck(userId: string, actor?: AdminActor) {
+    if (!actor?.platform) throw new ForbiddenException('Only Osiris can delete a login');
+    let u: any;
+    try {
+      u = await this.clerkIdentity.toClerkUser(userId, { fresh: true });
+    } catch (error: any) {
+      if (error?.status === 404 || error instanceof NotFoundException) throw new NotFoundException('That login does not exist');
+      throw error;
+    }
+    const memberships = await this.prisma.userOrganization.findMany({ where: { userId, isActive: true }, select: { organizationId: true, organization: { select: { name: true } } } });
+    const organizations = memberships.map((m: any) => m.organization?.name || m.organizationId).filter(Boolean);
+    const sc = u?.publicMetadata?.siteclock;
+    const email = primaryEmailOf(u);
+    const phone = primaryPhoneOf(u);
+    const warnings: string[] = [];
+    if (sc != null) warnings.push(`This is also a SiteClock login${sc?.role ? ` (${sc.role})` : ''}. Deleting it stops them signing in to SiteClock too.`);
+    if (organizations.length) warnings.push(`It is still a member of ${organizations.join(', ')} in AIMS; deleting it removes them from all of them.`);
+    return {
+      userId,
+      name: displayNameOf(u),
+      email,
+      phone: prettyPhone(phone),
+      siteclock: sc != null,
+      organizations,
+      warnings,
+      // Typed to confirm: the email, else the mobile (+65…), else the id.
+      confirmWith: email || phone || u.id,
+    };
+  }
+
+  /** "Delete login everywhere": typed confirmation, warnings acknowledged; every AIMS membership + role off, then the Clerk login deleted. */
+  async deleteLoginEverywhere(userId: string, body: { confirm?: string; acknowledgeWarnings?: boolean }, actor?: AdminActor) {
+    if (!actor?.platform) throw new ForbiddenException('Only Osiris can delete a login');
+    if (actor.userId && actor.userId === userId) throw new BadRequestException('You cannot delete your own login');
+    if (await this.prisma.userRole.count({ where: { userId, isActive: true, ...PLATFORM_ADMIN_ROLE_WHERE } })) {
+      throw new ForbiddenException('An Osiris platform administrator login cannot be deleted here');
+    }
+    const check = await this.loginDeleteCheck(userId, actor);
+    const norm = (v: unknown) => String(v ?? '').replace(/\s+/g, '').toLowerCase();
+    if (!body?.confirm || norm(body.confirm) !== norm(check.confirmWith)) throw new BadRequestException(`Type ${check.confirmWith} to confirm`);
+    if (check.warnings.length && body?.acknowledgeWarnings !== true) throw new BadRequestException('Read and confirm the warnings first');
+
+    const [roles, memberships] = await Promise.all([
+      this.prisma.userRole.updateMany({ where: { userId, isActive: true }, data: { isActive: false } }),
+      this.prisma.userOrganization.updateMany({ where: { userId, isActive: true }, data: { isActive: false } }),
+    ]);
+    ClerkAuthGuard.invalidateUser(userId);
+    const clerkId = await this.clerkIdentity.toClerkId(userId);
+    await this.clerkClient.users.deleteUser(clerkId);
+    this.clerkIdentity.invalidate(userId);
+    return { deleted: true, userId, siteclock: check.siteclock, membershipsRemoved: memberships.count, rolesRemoved: roles.count };
   }
 
   /**

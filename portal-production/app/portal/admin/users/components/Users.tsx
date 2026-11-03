@@ -9,9 +9,10 @@ import EditUser from "./EditUser";
 import { useGetUsers } from "../hooks/useGetUser";
 import useAddUserStates from "../hooks/useAddUser";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
+import DeleteLoginDialog from "./DeleteLoginDialog";
 
 export default function Users() {
-  const { columns, handleEditUser, editUserOpen, selectedUser, handleCloseEditUser, userToDelete, isDeleteInProgress, confirmDeleteUser, cancelDelete } = useUserTableHeader();
+  const { columns, handleEditUser, editUserOpen, selectedUser, handleCloseEditUser, userToDelete, isDeleteInProgress, confirmDeleteUser, cancelDelete, loginToDelete, setLoginToDelete } = useUserTableHeader();
 
   // Use a custom hook for adminMode to fetch all users.
   // Header sorting is applied to the FULL filtered list inside the hook
@@ -71,6 +72,8 @@ export default function Users() {
       {selectedUser && <EditUser open={editUserOpen} onClose={handleCloseEditUser} user={selectedUser} onUserUpdated={handleUserUpdated} />}
 
       <DeleteItemDialogNoConfirm open={!!userToDelete} onCancel={cancelDelete} onConfirm={handleDeleteConfirm} loading={isDeleteInProgress} />
+
+      <DeleteLoginDialog userId={loginToDelete} onClose={() => setLoginToDelete(null)} onDeleted={refreshUsers} />
     </AdminCard>
   );
 }

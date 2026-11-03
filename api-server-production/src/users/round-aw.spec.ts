@@ -160,13 +160,16 @@ describe('round AW — users', () => {
     await expect(users.deleteUser('osiris', adhAdmin)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it('delete by a platform admin: Clerk login deleted only when no membership is left', async () => {
-    const { users, clerkClient } = setup();
+  it('removal NEVER deletes the Clerk login (2026-11-03), even by a platform admin with no membership left', async () => {
+    const { users, clerkClient, db } = setup();
     await users.deleteUser('shared', platformAdmin); // still in org B
+    const res = await users.deleteUser('sayaka', platformAdmin); // only in A: nothing left anywhere
+    expect(res.clerkDeleted).toBe(false);
+    expect(res.otherMemberships).toBe(0);
+    expect(db.userOrganization.find((m: any) => m.userId === 'sayaka')?.isActive).toBe(false);
+    const own = await users.deleteUser('take', { orgId: A, platform: false, userId: 'someone-else' } as any).catch((e) => e);
+    expect(own?.clerkDeleted ?? false).toBe(false);
     expect(clerkClient.users.deleteUser).not.toHaveBeenCalled();
-    const res = await users.deleteUser('sayaka', platformAdmin); // only in A
-    expect(res.clerkDeleted).toBe(true);
-    expect(clerkClient.users.deleteUser).toHaveBeenCalledWith('sayaka');
   });
 
   it('update: another org\'s user → 404 (no Clerk change); a role from another org → 404', async () => {
@@ -492,5 +495,53 @@ describe('Edit User: email', () => {
     expect(t.firstName).toBe('Take');
     expect(t.lastName).toBeNull();
     for (const u of r.users) expect(u.name).not.toMatch(/undefined|null|\s$/);
+  });
+
+});
+
+describe('Delete login everywhere (Osiris admin only)', () => {
+  const siteclockWorld = () => {
+    const w = clerkWorld();
+    w.logins.sayaka.publicMetadata = { siteclock: { role: 'WORKER', userId: 'sc1', companyId: 'c1' } };
+    w.clerk.users.deleteUser = jest.fn(async () => ({}));
+    (w.users as any).clerkIdentity.toClerkId = jest.fn(async (id: string) => id);
+    return w;
+  };
+
+  it('removing a SiteClock-linked login from its only org keeps the Clerk login', async () => {
+    const w = siteclockWorld();
+    const res = await w.users.deleteUser('sayaka', platformAdmin);
+    expect(res.clerkDeleted).toBe(false);
+    expect(w.clerk.users.deleteUser).not.toHaveBeenCalled();
+    expect(w.logins.sayaka).toBeTruthy();
+  });
+
+  it('the check warns about SiteClock and other orgs, and names what to type', async () => {
+    const w = siteclockWorld();
+    const c = await w.users.loginDeleteCheck('sayaka', platformAdmin);
+    expect(c.siteclock).toBe(true);
+    expect(c.organizations.length).toBe(1);
+    expect(c.warnings.join(' ')).toMatch(/SiteClock login \(WORKER\)/);
+    expect(c.warnings.join(' ')).toMatch(/still a member of/);
+    expect(c.confirmWith).toBe('+6588611512');
+    for (const t of c.warnings) expect(t).not.toMatch(/\u2014|\u2013/);
+  });
+
+  it('refused for an org admin, for yourself, without the typed confirmation, or without acknowledging warnings', async () => {
+    const w = siteclockWorld();
+    await expect(w.users.loginDeleteCheck('sayaka', adhAdmin)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(w.users.deleteLoginEverywhere('sayaka', { confirm: '+6588611512', acknowledgeWarnings: true }, adhAdmin)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(w.users.deleteLoginEverywhere('osiris', { confirm: 'x', acknowledgeWarnings: true }, platformAdmin)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(w.users.deleteLoginEverywhere('sayaka', { confirm: 'wrong', acknowledgeWarnings: true }, platformAdmin)).rejects.toThrow('Type +6588611512 to confirm');
+    await expect(w.users.deleteLoginEverywhere('sayaka', { confirm: '+65 8861 1512' }, platformAdmin)).rejects.toThrow('Read and confirm the warnings first');
+    expect(w.clerk.users.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it('with the typed confirmation and the warnings acknowledged: every membership off, then the login deleted', async () => {
+    const w = siteclockWorld();
+    const r = await w.users.deleteLoginEverywhere('sayaka', { confirm: '+65 8861 1512', acknowledgeWarnings: true }, platformAdmin);
+    expect(r).toMatchObject({ deleted: true, siteclock: true, membershipsRemoved: 1 });
+    expect(w.clerk.users.deleteUser).toHaveBeenCalledWith('sayaka');
+    expect(w.db.userOrganization.filter((m: any) => m.userId === 'sayaka' && m.isActive)).toHaveLength(0);
   });
 });
