@@ -1337,10 +1337,15 @@ export default function BillEditorDialog({
   );
 }
 
-// Local Paper import alias used inside the dropzone block.
-function Paper({ children, variant, sx }: { children: React.ReactNode; variant?: any; sx?: any }) {
+// Local Paper import alias used inside the dropzone block. It must forward the
+// REST of its props: the dropzone spreads useFileDrop's drag handlers (and a
+// data-testid) onto this component, and a signature that destructures only
+// children/variant/sx drops them silently — the box then says "Drop PDFs here"
+// and accepts nothing (2026-11-03).
+function Paper({ children, variant, sx, ...rest }: { children: React.ReactNode; variant?: any; sx?: any; [k: string]: any }) {
   return (
     <Box
+      {...rest}
       sx={{
         border: variant === "outlined" ? 1 : 0,
         borderColor: "divider",
