@@ -27,7 +27,7 @@ interface WctOrderRow {
   createdAt: string;
 }
 
-export default function WctOrdersList({ embedded = false }: { embedded?: boolean }) {
+export default function WctOrdersList() {
   const router = useRouter();
   const { organization } = useOrganization();
   const { getToken } = useAuth();
@@ -90,8 +90,8 @@ export default function WctOrdersList({ embedded = false }: { embedded?: boolean
     { accessorKey: "createdAt", header: "Created", size: 9, cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY") },
   ];
 
-  const body = (
-    <>
+  // Title + actions (PageTable's header) first, then the status tabs, then the table.
+  const statusTabs = (
       <Box sx={{ borderBottom: 1, borderColor: "divider", mb: 2 }}>
         <Tabs value={tab} onChange={(_, v) => { setTab(v as OrderTab); setPage(1); }} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile>
           {ORDER_TABS.map((t) => (
@@ -99,6 +99,10 @@ export default function WctOrdersList({ embedded = false }: { embedded?: boolean
           ))}
         </Tabs>
       </Box>
+  );
+
+  return (
+    <MainCard>
       <PageTable
         onRowClick={(r: any) => router.push(`/portal/orders/${r.id}`)}
         rowHref={(r: any) => `/portal/orders/${r.id}`}
@@ -106,6 +110,7 @@ export default function WctOrdersList({ embedded = false }: { embedded?: boolean
         data={filtered}
         tableName="Orders"
         subTitle="One order per accepted quotation. Open an order to see its jobs or add one."
+        headerContent={statusTabs}
         loading={loading}
         page={page}
         limit={limit}
@@ -119,8 +124,6 @@ export default function WctOrdersList({ embedded = false }: { embedded?: boolean
         pageCount={1}
         totalDocs={filtered.length}
       />
-    </>
+    </MainCard>
   );
-  // Inside WctOrdersPage's tabs (2026-11-03) it is one tab of the page's card.
-  return embedded ? body : <MainCard>{body}</MainCard>;
 }

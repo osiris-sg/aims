@@ -124,7 +124,7 @@ export default function VerificationQueue({ embedded = false }: { embedded?: boo
     <>
       {!embedded && (
         <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-          <IconButton size="small" onClick={() => router.push("/portal/orders?tab=jobs")} aria-label="Back to jobs">
+          <IconButton size="small" onClick={() => router.push("/portal/deliveries")} aria-label="Back to jobs">
             <ArrowBackIcon fontSize="small" />
           </IconButton>
           <Typography variant="h5" fontWeight={700}>

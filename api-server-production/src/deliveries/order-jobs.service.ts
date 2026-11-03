@@ -32,6 +32,8 @@ export class OrderJobsService {
           status: true,
           isDraft: true,
           verificationState: true,
+          verifiedByName: true,
+          verifiedAt: true,
           scheduledFor: true,
           siteAddress: true,
           plannedRiderName: true,
@@ -62,6 +64,8 @@ export class OrderJobsService {
         status: r.status,
         isDraft: r.isDraft,
         verificationState: r.verificationState,
+        verifiedByName: r.verifiedByName,
+        verifiedAt: r.verifiedAt,
         state: orderJobState(r),
         scheduledFor: r.scheduledFor,
         order: r.order,
@@ -72,7 +76,24 @@ export class OrderJobsService {
         badges: badgesByJob.get(r.id) ?? [],
       };
     });
-    return { docs, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)), workers: await this.workers(organizationId) };
+    const [workers, counts] = await Promise.all([this.workers(organizationId), this.counts(organizationId)]);
+    return { docs, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)), workers, counts };
+  }
+
+  /** The status tabs' counts (every order job of the org, whatever the other filters): { all, draft, …, to_verify, … }. */
+  private async counts(organizationId: string): Promise<Record<string, number>> {
+    const groups = await this.prisma.delivery.groupBy({
+      by: ['status', 'isDraft', 'verificationState'],
+      where: { organizationId, orderId: { not: null } },
+      _count: { _all: true },
+    });
+    const out: Record<string, number> = { all: 0 };
+    for (const g of groups as any[]) {
+      const k = orderJobState(g);
+      out[k] = (out[k] ?? 0) + g._count._all;
+      out.all += g._count._all;
+    }
+    return out;
   }
 
   /** The worker filter's choices: every name on this org's order jobs. */

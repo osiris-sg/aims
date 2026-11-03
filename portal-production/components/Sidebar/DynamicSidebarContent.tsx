@@ -47,7 +47,7 @@ import { usePathname } from "next/navigation";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
-import { hiddenFromMenu, menuOrderOverride } from "@/helpers/wctNav";
+import { menuOrderOverride, wctMenuModule } from "@/helpers/wctNav";
 import { getListRouteFromPathname } from "@/app/portal/components/documentRoutes";
 import { useSidebar } from "./SidebarContext";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
@@ -217,7 +217,7 @@ export default function DynamicSidebarContent() {
   };
   // Display-order overrides (win over each module's stored sortOrder). Sales sits
   // just below Dashboard so it appears above Inventory for every org; WCT's
-  // Orders right after Sales (helpers/wctNav.ts).
+  // Orders and Jobs right after Sales (helpers/wctNav.ts).
   const ORDER_OVERRIDE: Record<string, number> = menuOrderOverride(!!isWctOrdersEnabled);
   const orderKey = (m: any) => ORDER_OVERRIDE[m.moduleCode] ?? m.sortOrder ?? 999;
 
@@ -226,9 +226,9 @@ export default function DynamicSidebarContent() {
     .filter(m => m.enabled)
     .filter(m => isModuleAllowed(m.moduleCode))
     .filter(m => !HIDDEN_MODULES.has(m.moduleCode))
-    // WCT: no Deliveries in the menu (its jobs are under Orders).
-    .filter(m => !hiddenFromMenu(m.moduleCode, !!isWctOrdersEnabled))
       .filter(m => shownInMenu(m))
+    // WCT: the Deliveries entry reads "Jobs" (helpers/wctNav.ts).
+    .map(m => wctMenuModule(m, !!isWctOrdersEnabled))
     .map(m => {
       const hide = HIDDEN_SUBMENUS[m.moduleCode];
       const rawSubMenus = (m.config as any)?.subMenus;

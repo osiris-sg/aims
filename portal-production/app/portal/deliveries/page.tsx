@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useState } from "react";
+import WctJobsList from "./_components/WctJobsList";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
@@ -121,16 +122,18 @@ const rowActions = (r: DeliveryRow, realDo = false) => {
 const keepsDo = (r: DeliveryRow, realDo: boolean) => realDo && !r.isDraft && (r.items ?? []).some((i) => !!i.documentId);
 // A cancelled run offers "Delete permanently" to Osiris admins only (backend re-checks it committed nothing).
 
-// WCT (enableWctOrders, 2026-11-03): its jobs live at Orders → Jobs (and the
-// schedule buttons here are gone for it: every WCT job starts from an order),
-// so this old link goes there. Job pages (/portal/deliveries/<id>) still open.
+// WCT (enableWctOrders, 2026-11-03): this route is its Jobs page (the menu's
+// "Jobs"): every order job with status tabs incl. "To verify". No schedule
+// buttons for WCT: every WCT job starts from an order. Everyone else: as before.
 export default function DeliveriesQueuePage() {
-  const router = useRouter();
   const { isWctOrdersEnabled, isLoading } = useOrganizationFeatures();
-  useEffect(() => {
-    if (!isLoading && isWctOrdersEnabled) router.replace("/portal/orders?tab=jobs");
-  }, [isLoading, isWctOrdersEnabled, router]);
-  if (isLoading || isWctOrdersEnabled) return null;
+  if (isLoading) return null;
+  if (isWctOrdersEnabled)
+    return (
+      <Suspense fallback={null}>
+        <WctJobsList />
+      </Suspense>
+    );
   return <DeliveriesQueue />;
 }
 

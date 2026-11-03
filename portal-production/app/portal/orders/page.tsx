@@ -1,11 +1,13 @@
 "use client";
 
-import React, { Suspense } from "react";
+import React, { Suspense, useEffect } from "react";
 import { Box, CircularProgress } from "@mui/material";
 import { useOrganizationFeatures } from "../hooks/useOrganizationFeatures";
 import { CappitechOrdersList } from "./CappitechOrdersList";
 import SlimOrdersList from "./SlimOrdersList";
-import WctOrdersPage from "./WctOrdersPage";
+import WctOrdersList from "./WctOrdersList";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ordersTabRedirect } from "@/helpers/wctNav";
 
 // Routing seam (mirrors the order-detail seam): pick the Orders LIST variant by
 // org feature flag. enableCappitechOrders=true → the rich multi-column list;
@@ -26,12 +28,22 @@ export default function OrdersListRouter() {
     );
   }
 
-  // WCT: Orders | Jobs | To verify (WctOrdersPage reads ?tab=, so it needs a Suspense boundary).
+  // WCT: the orders list; its jobs are the Jobs page. The old ?tab=jobs / ?tab=verify
+  // links go there (reading ?tab= needs a Suspense boundary).
   if (isWctOrdersEnabled)
     return (
       <Suspense fallback={null}>
-        <WctOrdersPage />
+        <WctOrdersRoute />
       </Suspense>
     );
   return isCappitechOrdersEnabled ? <CappitechOrdersList /> : <SlimOrdersList />;
+}
+
+function WctOrdersRoute() {
+  const router = useRouter();
+  const to = ordersTabRedirect(useSearchParams().get("tab"));
+  useEffect(() => {
+    if (to) router.replace(to);
+  }, [to, router]);
+  return to ? null : <WctOrdersList />;
 }

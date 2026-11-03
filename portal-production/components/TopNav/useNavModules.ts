@@ -12,7 +12,7 @@ import { useUiLang } from "@/i18n/UiLangProvider";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
-import { hiddenFromMenu, menuOrderOverride } from "@/helpers/wctNav";
+import { menuOrderOverride, wctMenuModule } from "@/helpers/wctNav";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
 import { clientsNavModule, visibleSalesSubmenus, withoutSalesMonthly } from "@/helpers/shipmentsNav";
 
@@ -110,7 +110,7 @@ export function useNavModules() {
     userRoles.some((r: any) => ADMIN_ROLES.includes((r?.name || "").toLowerCase()));
   const isMasterTier = userRoles.length === 0 || userRoles.some((r: any) => !SCOPED_ROLES.includes(r?.name));
 
-  // WCT: Orders right after Sales, no Deliveries (helpers/wctNav.ts).
+  // WCT: Orders, then Jobs, right after Sales (helpers/wctNav.ts).
   const orderOverride = isWctOrdersEnabled ? menuOrderOverride(true) : ORDER_OVERRIDE;
   const orderKey = (m: any) => orderOverride[m.moduleCode] ?? m.sortOrder ?? 999;
   const { lang } = useUiLang();
@@ -118,8 +118,9 @@ export function useNavModules() {
     .filter((m: any) => m.enabled)
     .filter((m: any) => isModuleAllowed(m.moduleCode))
     .filter((m: any) => !HIDDEN_MODULES.has(m.moduleCode))
-    .filter((m: any) => !hiddenFromMenu(m.moduleCode, !!isWctOrdersEnabled))
     .filter((m: any) => shownInMenu(m))
+    // WCT: the Deliveries entry reads "Jobs" (helpers/wctNav.ts).
+    .map((m: any) => wctMenuModule(m, !!isWctOrdersEnabled))
     .map((m: any) => {
       const hide = HIDDEN_SUBMENUS[m.moduleCode];
       const rawSubMenus = (m.config as any)?.subMenus;

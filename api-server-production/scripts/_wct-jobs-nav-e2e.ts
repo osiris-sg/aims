@@ -8,7 +8,7 @@
  *
  *   AIMS_SECRETS_KEY=... TENANCY_MODE=per-org npx ts-node -r tsconfig-paths/register --transpile-only scripts/_wct-jobs-nav-e2e.ts
  *
- * Last run 2026-11-03 on dev: 13/13 (126 order jobs; 78 of 100 quotations carry their order).
+ * Last run 2026-11-03 on dev: 15/15 (126 order jobs; tab counts; 78 of 100 quotations carry their order).
  */
 import 'dotenv/config';
 import { Test } from '@nestjs/testing';
@@ -88,6 +88,11 @@ async function main() {
       const byW = await call(WCT, 'GET', `/deliveries/order-jobs?worker=${encodeURIComponent(withWorker.worker)}&limit=100`);
       ok(byW.data?.docs?.some((d: any) => d.id === withWorker.id) && (all.data?.workers ?? []).includes(withWorker.worker), `A: worker filter + choices (${withWorker.worker})`);
     }
+    const counts = all.data?.counts ?? {};
+    const sumStates = Object.entries(counts).filter(([k]) => k !== 'all').reduce((n, [, v]) => n + Number(v), 0);
+    ok(counts.all === total && sumStates === total, `A: status-tab counts add up (${JSON.stringify(counts)})`, counts);
+    const verified = docs.find((d: any) => d.verificationState === 'verified');
+    if (verified) ok('verifiedByName' in verified && 'verifiedAt' in verified, 'A: rows carry who verified (the Verified column)', verified);
     const bad = await call(WCT, 'GET', '/deliveries/order-jobs?state=nope');
     ok(bad.status === 400, 'A: unknown status: 400', bad.status);
     // B

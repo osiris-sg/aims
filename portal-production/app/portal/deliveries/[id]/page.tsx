@@ -700,7 +700,7 @@ export default function DeliveryDetailPage() {
     return (
       <Box sx={{ p: 3 }}>
         <Alert severity="error">{error ?? `${w.Noun} not found`}</Alert>
-        <Button startIcon={<ArrowBackIcon />} sx={{ mt: 2 }} onClick={() => router.push(w.isWct ? "/portal/orders?tab=jobs" : "/portal/deliveries")}>
+        <Button startIcon={<ArrowBackIcon />} sx={{ mt: 2 }} onClick={() => router.push("/portal/deliveries")}>
           Back to {w.nouns}
         </Button>
       </Box>
@@ -777,8 +777,8 @@ export default function DeliveryDetailPage() {
 
   return (
     <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3, maxWidth: 1100 }}>
-      {/* WCT: back to Orders → Jobs (its deliveries list moved there). */}
-      <Button startIcon={<ArrowBackIcon />} size="small" sx={{ mb: 1.5 }} onClick={() => router.push(w.isWct ? "/portal/orders?tab=jobs" : "/portal/deliveries")}>
+      {/* Back to the list (WCT: the Jobs page, same route). */}
+      <Button startIcon={<ArrowBackIcon />} size="small" sx={{ mb: 1.5 }} onClick={() => router.push("/portal/deliveries")}>
         {w.Nouns}
       </Button>
 
