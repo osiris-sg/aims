@@ -12,7 +12,7 @@ import { DocumentExtractionService, DocumentType } from '../document-extraction/
 import { runAsOrg } from '../common/tenancy/tenant-context';
 import { emailFolder, parseMailDate, reconstructEml, safeKeyName, StoredAttachment, StoredEmailMeta } from './email-store';
 import { EmailTriageService, hashedMessageId, ownDomainsOf } from './email-triage.service';
-import { allowListHit, filterDecision, FilterMode } from './email-filter.rules';
+import { AIMS_SENDERS, allowListHit, filterDecision, FilterMode, isAimsOwnMail } from './email-filter.rules';
 import { supplierKeyPatterns } from '../shipments/trade-profile';
 import { threadKeyOf } from './email-triage.rules';
 
@@ -65,6 +65,9 @@ interface RuleRouting {
   forcedType?: 'BILL' | 'INVOICE';
   ruleGuidance?: string;
 }
+
+/** Round BB: AIMS's own sending addresses (Resend sender, admin mailbox) — its mail is never ingested by the shipments intake. */
+export const aimsSenders = (): string[] => [process.env.RESEND_FROM_EMAIL, process.env.ADMIN_EMAIL, ...AIMS_SENDERS].filter((x): x is string => !!x);
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB per attachment
 const MAX_ZIP_BYTES = 25 * 1024 * 1024; // 25MB per zip archive
@@ -122,6 +125,10 @@ export class IngestionEmailService {
       return { ok: false, reason: 'sender-not-watched' };
     }
 
+    // Round BB (owner): AIMS's own outgoing mail (task digests, notifications) forwarded back from a mailbox is never
+    // ingested by the shipments intake — no row, nothing stored.
+    if (['STORE', 'TRIAGE', 'PARTIAL_AUTO', 'AUTO'].includes(config.routingMode) && isAimsOwnMail(fromEmail, aimsSenders())) return { ok: false, reason: 'aims-own-mail' };
+
     // 4. Dedup — the log row IS the idempotency anchor. A retry of the same
     //    message hits the (org, messageId) unique and short-circuits here. A
     //    purged (not shipment) email keeps only its hashed Message-ID: that dedupes too.
@@ -136,23 +143,22 @@ export class IngestionEmailService {
       const filter = await this.filterFor(organizationId, config, payload);
       if (filter) {
         if (filter.mode === 'ENFORCE' && !filter.keep) {
-          // Nothing stored (no S3 write): a minimal row — hashed Message-ID (dedupe), the from-domain, the subject's first 60.
+          // Round BB (owner): a DROP decision is stored and HIDDEN, never asked — it shows under "Not about a shipment"
+          // in the inbox, where "Actually it is" brings it back (unhide → triaged then). Nothing is filed or triaged now.
+          const stored = await this.storeOnly(organizationId, log.id, log.createdAt, messageId, payload);
           await this.prisma.emailIngestLog.update({
             where: { id: log.id },
             data: {
-              messageId: hashedMessageId(messageId),
-              fromAddress: `@${(/@([^>\s]+)/.exec(fromEmail)?.[1] ?? '').toLowerCase()}`,
-              subject: (payload.subject ?? '').replace(/\s+/g, ' ').trim().slice(0, 60) || null,
-              rawMeta: { filtered: true, date: payload.date ?? null } as any,
-              attachmentCount: 0,
-              status: 'IGNORED',
-              reason: 'filtered',
-              inboxState: 'PURGED',
               filterVerdict: 'DROP',
               filterReason: filter.reason,
+              inboxState: 'HIDDEN',
+              threadKey: threadKeyOf(payload.subject ?? null),
+              inReplyTo: payload.inReplyTo ?? null,
+              emailDate: payload.date && !Number.isNaN(Date.parse(payload.date)) ? new Date(payload.date) : null,
+              actions: { backlog: { kind: 'HIDE', reason: `not about a shipment (sender filter: ${filter.reason})`, filtered: true, at: new Date().toISOString() } } as any,
             },
           });
-          return { ok: false, reason: 'filtered', details: filter.reason };
+          return stored.ok ? { ok: false, reason: 'filtered', details: filter.reason } : stored;
         }
         await this.prisma.emailIngestLog.update({ where: { id: log.id }, data: { filterVerdict: filter.keep ? 'KEEP' : 'DROP', filterReason: filter.reason } });
       }
@@ -844,7 +850,7 @@ export class IngestionEmailService {
     const cfg = { allowDomains: config.allowDomains ?? [], allowAddresses: config.allowAddresses ?? [], keyPatterns: [...sk.pi, ...sk.contract, ...sk.ci] };
     const threadAllowed = threadOrder ? null : await this.threadAllowedBy(organizationId, payload, cfg, ownDomains);
     const d = filterDecision(
-      { from: payload.from, to: payload.headerTo ?? [], cc: payload.cc ?? [], subject: payload.subject ?? null, attachmentNames: (payload.attachments ?? []).map((a) => a.filename ?? ''), threadOrder, threadAllowed },
+      { from: payload.from, to: payload.headerTo ?? [], cc: payload.cc ?? [], subject: payload.subject ?? null, attachmentNames: (payload.attachments ?? []).map((a) => a.filename ?? ''), threadOrder, threadAllowed, body: payload.text ?? null },
       cfg,
       ownDomains,
     );

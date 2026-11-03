@@ -3,6 +3,7 @@ import { ClientsController } from './clients.controller';
 import { ClientsService } from './clients.service';
 import { MonthlyListController } from './monthly-list.controller';
 import { MonthlyListService } from './monthly-list.service';
+import { TradeRecordEvents } from './trade-record-events';
 import { Module } from '@nestjs/common';
 import { CommonModule } from '../common/common.module';
 import { DocumentExtractionModule } from '../document-extraction/document-extraction.module';
@@ -82,6 +83,7 @@ import { TradeStepsService } from './trade-steps.service';
     TradeExtractController,
   ],
   providers: [
+    TradeRecordEvents,
     ClientsService,
     MonthlyListService,
     ShipmentsNotifyService, // round S: WhatsApp staff notification queue
@@ -109,6 +111,6 @@ import { TradeStepsService } from './trade-steps.service';
     TradeCastIndexService,
     PrismaService,
   ],
-  exports: [TradeDueService, CarrierTrackingService, MonthlyListService, ShipmentsNotifyService, TradeAdminDashboardService, TradeGeneratedService, OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService, TradeExtractService, TradeIssuesService, TradeCastIndexService],
+  exports: [TradeRecordEvents, TradeDueService, CarrierTrackingService, MonthlyListService, ShipmentsNotifyService, TradeAdminDashboardService, TradeGeneratedService, OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService, TradeExtractService, TradeIssuesService, TradeCastIndexService],
 })
 export class ShipmentsModule {}

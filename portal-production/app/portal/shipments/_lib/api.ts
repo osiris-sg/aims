@@ -742,8 +742,14 @@ export type InboxLang = "en" | "ja";
 export type InboxQuestionOption = { id: string; orderId: string; shipmentId: string | null; ref: string; summary: string; why: string; suggested: boolean };
 /** Round AR: AIMS's reading of a general issue (process / policy change), proposed on the card. */
 export type IssueProposal = { title: string; summaryEn: string | null; summaryJa: string | null; effectiveFrom: string | null };
+/** Round BB: one concrete choice on a card (AIMS's best guess, or one of up to 2 alternatives). */
+export type CardChoice = { kind: "record" | "new_shipment" | "general" | "not_shipment" | "new_deal"; orderId: string | null; shipmentId: string | null; ref: string | null; label: string };
+/** Round BB: one line of evidence, already in the user's language; `mark` = the substring of `text` to highlight; `conflict` = the sources disagree. */
+export type CardEvidence = { text: string; mark: string | null; file: string | null; conflict: boolean };
+/** Round BB: the card handed to the admins ("分からない"). */
+export type CardAsked = { by: string; at: string; note: string | null };
 export type InboxQuestion = {
-  kind: "CONFIRM" | "WHICH" | "CHECK" | "NEW_DEAL" | "IS_SHIPMENT" | "RECHECK";
+  kind: "CONFIRM" | "WHICH" | "CHECK" | "NEW_DEAL" | "IS_SHIPMENT" | "RECHECK" | "NEW_SHIPMENT";
   lang: InboxLang;
   title: string;
   found: string;
@@ -757,6 +763,17 @@ export type InboxQuestion = {
   issue?: IssueProposal | null;
   /** Round AS: a file kept waiting from an earlier email, now proposed for options[0]. */
   waitingFile?: { emailId: string; index: number; name: string; docType: string } | null;
+  /** Round BB: the concrete question (`title` carries the same text for old callers). */
+  headline?: string;
+  /** Round BB: AIMS's one best guess, up to 2 alternatives, up to 4 evidence lines, what "Yes" does (no "Yes:" prefix). */
+  guess?: CardChoice | null;
+  alternatives?: CardChoice[];
+  evidence?: CardEvidence[];
+  yesLine?: string | null;
+  /** Round BB: handed to the admins; set until one of them answers. */
+  asked?: CardAsked | null;
+  /** Round BB: the batch this card belongs to (see InboxThreads.batches). */
+  batchKey?: string | null;
 };
 /** Round AR: one attachment placed — on its own targets (none = not filed), in a slot (doc type). */
 export type AnswerTarget = { orderId: string | null; shipmentId: string | null };
@@ -768,7 +785,9 @@ export type InboxAnswer =
   | { kind: "general"; issue: AnswerIssue; files?: AnswerFile[]; targets?: Array<{ orderId: string; shipmentId: string | null }> }
   | { kind: "not_shipment" }
   | { kind: "not_deal" }
-  | { kind: "later" };
+  | { kind: "later" }
+  /** Round BB: "分からない" → the card goes to the admins (ADH Manager / Admin), with an optional note. */
+  | { kind: "ask_admin"; note?: string | null };
 /** Round AR: the confirm screen's per-attachment default target (B/L / CI in the file, else its exact cast / bundle no.). */
 export type PlacementRef = { orderId: string | null; shipmentId: string | null; ref: string | null; why: string };
 export type Placement = { emailId: string; subject: string | null; index: number; name: string; size: number | null; docType: string | null; inline: boolean; keys: string[]; bundles: string[]; defaults: PlacementRef[]; holders: PlacementRef[]; outsidePick: boolean };
@@ -931,8 +950,12 @@ export type InboxThreadLink = { orderId: string | null; shipmentId: string | nul
 export type InboxThread = { id: string; by: "headers" | "subject" | "both"; section?: "NO_ORDER" | null; subject: string | null; latest: string | null; emails: number; files: number; link: InboxThreadLink | null; general?: { customerKey: string | null } | null; messages: InboxMessage[]; otherCount: number; /** Round W: one question per thread, the ids it answers for, the earlier-email count. */ question?: InboxQuestion | null; answerIds?: string[]; earlier?: number };
 export type HiddenEmail = { id: string; date: string; fromDomain: string; subject: string; reason: string | null };
 export type InboxThreadsTab = "UNPROCESSED" | "PROCESSED";
-export type InboxThreads = { tab: InboxThreadsTab; counts: { unprocessed: number; processed: number; snoozed?: number }; total: number; threads: InboxThread[] };
-export type InboxDashboard = { toConfirm: { emails: number; threads: InboxThread[]; total: number }; filedAuto: Array<InboxMessage & { threadSubject: string | null }> };
+/** Round BB: a group of ≥2 similar cards answered together (title localized). */
+export type InboxBatch = { key: string; title: string; threadIds: string[] };
+/** Round BB: what the viewer may do — `admin` = may answer cards handed to the admins. */
+export type InboxViewer = { admin: boolean };
+export type InboxThreads = { tab: InboxThreadsTab; counts: { unprocessed: number; processed: number; snoozed?: number }; total: number; threads: InboxThread[]; batches?: InboxBatch[]; viewer?: InboxViewer };
+export type InboxDashboard = { toConfirm: { emails: number; threads: InboxThread[]; total: number; batches?: InboxBatch[]; viewer?: InboxViewer }; filedAuto: Array<InboxMessage & { threadSubject: string | null }> };
 
 export type PiTablePlan = { rows: Array<{ row: NonNullable<InboxRow["supplierOrderSuggestions"]>[number]; month: string | null; orderId: string | null; orderLabel: string | null; fields: Record<string, string | number>; reason?: string }> };
 export type DeclarationResult = { created: Array<{ supplierOrderId: string; orderId: string; orderLabel: string | null; customerName: string | null }> };

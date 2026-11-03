@@ -100,13 +100,33 @@
     "confirmNotOne": "Mark this email as not about a shipment?",
     "confirmNotMany": "Mark these {n} emails as not about a shipment?",
     "confirmNotDealOne": "Mark this email as not a deal?",
-    "confirmNotDealMany": "Mark these {n} emails as not a deal?"
+    "confirmNotDealMany": "Mark these {n} emails as not a deal?",
+    "aimsGuess": "AIMS's guess",
+    "askAdmin": "Not sure → ask Elroy/Take",
+    "askAdminHelp": "The card goes to Elroy and Take. They answer it or tell you what to do.",
+    "askAdminNote": "Note (optional)",
+    "askAdminTitle": "Ask Elroy/Take",
+    "askedBy": "Asked by {by}: {note}",
+    "askedByNoNote": "Asked by {by}",
+    "askedChip": "Asked Elroy/Take",
+    "batchDone": "{n} answered",
+    "batchPick": "Include in \"Yes to the ticked ones\"",
+    "batchYes": "Yes to the ticked ones ({n})",
+    "other": "Other…",
+    "send": "Send",
+    "yesPrefix": "Yes:"
   },
   "emailsAll": {
     "unprocessed": "Unprocessed",
     "processed": "Processed",
     "couldNotLoad": "Could not load the emails",
-    "nothingProcessed": "Nothing processed yet."
+    "nothingProcessed": "Nothing processed yet.",
+    "notShipment": "Not about a shipment",
+    "notShipmentHelp": "Emails AIMS left out: calendar replies, newsletters and mail the sender filter dropped. If one is about a shipment, bring it back with \"Actually it is\".",
+    "actuallyIs": "Actually it is",
+    "nothingHidden": "Nothing here.",
+    "backInInbox": "Back in the inbox",
+    "couldNotUnhide": "Could not bring it back"
   },
   "emailDialog": {
     "noSubject": "(no subject)",
@@ -364,7 +384,8 @@
     "nothingHere": "Nothing here.",
     "filterCol": "Filter",
     "falseDrop": "false drop",
-    "triageSaid": "Triage said {v}"
+    "triageSaid": "Triage said {v}",
+    "actuallyIs": "Actually it is"
   },
   "issues": {
     "title": "Issues",

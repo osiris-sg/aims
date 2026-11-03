@@ -2,7 +2,7 @@
  * Sender filter (round K): the keep rule, SHADOW (decide + log, keep everything) and ENFORCE (drop before
  * storage — no S3 write, a minimal log row). Dummy content — never real email text.
  */
-import { addressOf, ADH_FILTER_ALLOW_DOMAINS, allowListHit, cleanAllowList, filterDecision, FilterInput, shipmentKeyIn } from './email-filter.rules';
+import { addressOf, ADH_FILTER_ALLOW_DOMAINS, allowListHit, cleanAllowList, filterDecision, FilterInput, isAimsOwnMail, nonTradeReason, shipmentKeyIn } from './email-filter.rules';
 import { IngestionEmailService, InboundEmailPayload } from './ingestion-email.service';
 
 const OWN = ['asiadealhub.com'];
@@ -141,23 +141,31 @@ describe('webhook filter modes', () => {
     await svc.handleInbound(mail({ from: 'Ops <ops@vedanta.co.in>' }));
     expect(logs[0]).toMatchObject({ filterVerdict: 'KEEP', filterReason: 'allowed domain vedanta.co.in' });
   });
-  it('ENFORCE: dropped before storage — no S3 write, no triage, a minimal row', async () => {
+  it('ENFORCE (round BB): a DROP is stored and HIDDEN — never triaged, never a question; "Actually it is" brings it back', async () => {
     const { svc, logs, uploads, triage } = makeService({ ...BASE, filterMode: 'ENFORCE' });
     const r = await svc.handleInbound(mail());
     expect(r).toMatchObject({ ok: false, reason: 'filtered' });
-    expect(uploads).toEqual([]);
+    expect(uploads.length).toBeGreaterThan(0);
     expect(triage.schedule).not.toHaveBeenCalled();
-    expect(logs[0]).toMatchObject({
-      status: 'IGNORED',
-      reason: 'filtered',
-      inboxState: 'PURGED',
-      filterVerdict: 'DROP',
-      fromAddress: '@newsletter.example.com',
-      subject: 'Big sale this week',
-      attachmentCount: 0,
-    });
-    expect(logs[0].messageId).not.toBe('<m1@example.com>');
-    expect(logs[0].rawMeta).toEqual({ filtered: true, date: 'Mon, 20 Oct 2026 10:00:00 +0900' });
+    expect(logs[0]).toMatchObject({ inboxState: 'HIDDEN', filterVerdict: 'DROP', subject: 'Big sale this week' });
+    expect(logs[0].actions.backlog).toMatchObject({ kind: 'HIDE', filtered: true });
+    expect(logs[0].actions.backlog.reason).toMatch(/^not about a shipment \(sender filter: not on the allow-list/);
+  });
+  it('round BB: AIMS\'s own mail (the task digest) is never ingested — no row at all; a reply to it and a Metal Bazaar price booking are DROP decisions', async () => {
+    const { svc, logs, uploads } = makeService({ ...BASE, filterMode: 'ENFORCE' });
+    const r = await svc.handleInbound(mail({ from: 'AIMS <admin@osiris.sg>', subject: 'AIMS · 27 due, 2 coming up', attachments: [] }));
+    expect(r).toMatchObject({ ok: false, reason: 'aims-own-mail' });
+    expect(logs).toEqual([]);
+    expect(uploads).toEqual([]);
+    expect(nonTradeReason({ from: 'toshiro@asiadealhub.com', subject: 'Re: AIMS · 45 due, 1 coming up' })).toBe("not trade mail: a reply to AIMS's own mail");
+    expect(nonTradeReason({ from: 'x@asiadealhub.com', subject: 'RE: clean up', body: 'From: AIMS <admin@osiris.sg>\nSent: …' })).toBe("not trade mail: a reply to AIMS's own mail");
+    expect(nonTradeReason({ from: 'sales.vedantametalbazaar@moglix.com', subject: 'Aluminium || Price booking accepted || ASIA DEAL HUB PTE. LTD.' })).toBe('not trade mail: a Vedanta Metal Bazaar price booking');
+    expect(nonTradeReason({ from: 'sales.vedantametalbazaar@moglix.com', subject: 'Aluminium || Month average booking created || ASIA DEAL HUB PTE. LTD.' })).toBe('not trade mail: a Vedanta Metal Bazaar price booking');
+    expect(nonTradeReason({ from: 'Aluminium.Exports@vedanta.co.in', subject: 'BL DRAFT - Asia Deal(Kato)//454003598 // 198GX07288' })).toBeNull();
+    // Vedanta in cc does not keep a price booking.
+    expect(filterDecision({ from: 'sales.vedantametalbazaar@moglix.com', to: ['x@asiadealhub.com'], cc: ['a@vedanta.co.in'], subject: 'Aluminium || Price booking accepted', attachmentNames: [], threadOrder: null }, { allowDomains: ['vedanta.co.in'], allowAddresses: [] }, ['asiadealhub.com']).keep).toBe(false);
+    expect(isAimsOwnMail('AIMS <admin@osiris.sg>')).toBe(true);
+    expect(isAimsOwnMail('elroy.lee@osiris.so')).toBe(false);
   });
   it('ENFORCE: an internal-only reply on a thread an allowed sender started is kept (not matched to an order yet)', async () => {
     const { svc, logs, uploads } = makeService({ ...BASE, allowAddresses: ['broker@gmail.com'], filterMode: 'ENFORCE' }, null, [

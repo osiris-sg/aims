@@ -885,11 +885,12 @@ describe('round W — question cards, one-tap answers, the nightly self-check (l
     const th = un.threads.find((t) => t.answerIds.includes(a.logId))!;
     expect(th.answerIds.sort()).toEqual([a.logId, b.logId].sort());
     expect(th.earlier).toBe(1);
-    expect(th.question).toMatchObject({ kind: 'CONFIRM', title: 'Is this email about #11-1?', options: [{ ref: '#11-1', suggested: true }] });
+    // Round BB: the concrete question with the one guess, what Yes does.
+    expect(th.question).toMatchObject({ kind: 'CONFIRM', title: 'This looks like #11-1. File the document there?', guess: { kind: 'record', ref: '#11-1' }, yesLine: 'Links 2 emails to #11-1 and files 1 document.', options: [{ ref: '#11-1', suggested: true }] });
     expect(th.question!.found).toMatch(/^From Mitsui Soko · /);
     expect(th.question!.options[0].why).toBe('B/L 198GX04630 in the subject');
     const ja = (await x.triage.threads(ORG, 'UNPROCESSED', { lang: 'ja' })).threads.find((t) => t.answerIds.includes(a.logId))!;
-    expect(ja.question!.title).toBe('このメールは #11-1 の件ですか？');
+    expect(ja.question!.title).toBe('#11-1の件のようです。書類1件をここに登録しますか？');
     // One tap: both emails go to #11-1, the COA is filed.
     const ans = await x.triage.answer(ORG, { ids: th.answerIds, answer: { kind: 'record', orderId: 'o-11', shipmentId: 's-11-1' } }, { id: 'u1', name: 'Sayaka' }, 'en');
     expect(ans).toMatchObject({ kind: 'record', refs: ['#11-1'], files: 1, text: 'Linked to #11-1 · 1 file filed (2 emails)' });
@@ -921,7 +922,8 @@ describe('round W — question cards, one-tap answers, the nightly self-check (l
     x.triage.reasonerAi = jest.fn(async () => ({ isShipmentMail: true, reason: 'no', decisions: [] }));
     // Auto-linked by itself: the B/L in the subject + the thread's accepted link (two sources).
     const first = await x.receiveRaw({ subject: '198GX04630 の件', text: 'start', messageId: '<sc1@x>', ai: shipmentAi({ blNo: '198GX04630' }) });
-    await x.triage.assign(ORG, first.logId, { shipmentId: 's-11-1', accept: true }, { id: 'u1', name: 'Sayaka' });
+    // (Linked by the intake, not by a person: round BB never re-asks a thread a person answered.)
+    await x.triage.assign(ORG, first.logId, { shipmentId: 's-11-1', accept: true }, { id: 'system:test', name: 'Email intake' });
     const reply = await x.receiveRaw({ subject: 'Re: 198GX04630 の件', text: 'B/L 198GX04630 permit attached', messageId: '<sc2@x>', inReplyTo: '<sc1@x>', attachments: [{ filename: 'permit.pdf', contentType: 'application/pdf', contentBase64: Buffer.from('%PDF-1.4 p').toString('base64') }], ai: { ...shipmentAi({ blNo: '198GX04630' }), attachments: [{ filename: 'permit.pdf', docType: 'IMPORT_PERMIT', confidence: 0.9 }] } });
     expect(reply.triaged.inboxState).toBe('PROCESSED');
     const stamp = (id: string) => {
@@ -943,7 +945,45 @@ describe('round W — question cards, one-tap answers, the nightly self-check (l
     expect(row.canUndo).toBe(false);
     expect(row.question).toMatchObject({ kind: 'RECHECK', text: "AIMS re-checked this and isn't sure anymore", current: ['#11-1'], second: ['#20-1'] });
     const th = (await x.triage.threads(ORG, 'UNPROCESSED')).threads.find((t) => t.answerIds.includes(reply.logId))!;
-    expect(th.question).toMatchObject({ kind: 'RECHECK', title: "AIMS re-checked this and isn't sure anymore. Which is right?" });
+    // Round BB: the card still asks about the one guess; the doubt is a red evidence line.
+    expect(th.question).toMatchObject({ kind: 'RECHECK', title: 'This looks like #11-1. File the document there?' });
+    expect(th.question!.evidence![0]).toMatchObject({ text: 'AIMS checked again: it may be #20-1 instead', conflict: true });
+    // Sent back once only: the next night leaves it alone.
+    expect(await x.triage.selfCheck(ORG)).toEqual({ checked: 0, sentBack: 0 });
     expect(th.question!.options.map((o) => o.ref)).toEqual(['#11-1', '#20-1']);
+  });
+});
+
+describe('round BB — a thread remembers its answer; "分からない" hands the card to the admins; an undone pick is never suggested again (live)', () => {
+  const ai = (keys: Record<string, unknown> = {}, counterparty = 'MITSUI_SOKO') => ({ verdict: 'SHIPMENT', direction: 'IN', counterparty, keys, attachments: [], suggestedSteps: [] });
+
+  it('answered "not a shipment" → a later reply of that thread is hidden too; answered #11-1 → a later reply follows it (nothing filed)', async () => {
+    const x = setup('PARTIAL_AUTO');
+    const a = await x.receiveRaw({ subject: 'Hello from the warehouse', text: 'see you', messageId: '<bb1@x>', ai: ai() });
+    expect(a.triaged.inboxState).not.toBe('PROCESSED');
+    await x.triage.answer(ORG, { ids: [a.logId], answer: { kind: 'not_shipment' } }, { id: 'u1', name: 'Sayaka' });
+    const b = await x.receiveRaw({ subject: 'Re: Hello from the warehouse', text: 'thanks', messageId: '<bb2@x>', inReplyTo: '<bb1@x>', ai: ai() });
+    expect(b.triaged.inboxState).toBe('HIDDEN');
+    expect((await x.triage.row(ORG, b.logId)).inboxState).toBe('HIDDEN');
+
+    const c = await x.receiveRaw({ subject: 'Delivery plan', text: 'plan attached later', messageId: '<bb3@x>', ai: ai() });
+    await x.triage.answer(ORG, { ids: [c.logId], answer: { kind: 'record', orderId: 'o-11', shipmentId: 's-11-1' } }, { id: 'u1', name: 'Sayaka' });
+    const d = await x.receiveRaw({ subject: 'Re: Delivery plan', text: 'OK, thank you', messageId: '<bb4@x>', inReplyTo: '<bb3@x>', ai: ai() });
+    expect(d.triaged.inboxState).toBe('PROCESSED');
+    const row: any = x.t.emailIngestLog.find((r: any) => r.id === d.logId);
+    expect(row.shipmentId).toBe('s-11-1');
+    expect(row.actions.done ?? []).toEqual([]);
+  });
+
+  it('"分からない → Elroy/Takeに聞く": the card stays, marked asked (with her note), and Undo takes it back', async () => {
+    const x = setup('TRIAGE');
+    const a = await x.receiveRaw({ subject: 'Question about packing', text: 'what feet should we use?', messageId: '<bb5@x>', ai: ai() });
+    const r = await x.triage.answer(ORG, { ids: [a.logId], answer: { kind: 'ask_admin', note: 'which order is this?' } }, { id: 'u1', name: 'Sayaka' }, 'ja');
+    expect(r.text).toBe('Elroy・Takeに確認を依頼しました');
+    const th = (await x.triage.threads(ORG, 'UNPROCESSED', { lang: 'en' })).threads.find((t) => t.answerIds.includes(a.logId))!;
+    expect(th.question!.asked).toMatchObject({ by: 'Sayaka', note: 'which order is this?' });
+    await x.triage.answerUndo(ORG, { ids: [a.logId], kind: 'ask_admin' }, { id: 'u1', name: 'Sayaka' });
+    const again = (await x.triage.threads(ORG, 'UNPROCESSED', { lang: 'en' })).threads.find((t) => t.answerIds.includes(a.logId))!;
+    expect(again.question!.asked).toBeNull();
   });
 });

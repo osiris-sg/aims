@@ -65,6 +65,10 @@ function answer(d: any, key: readonly unknown[]): unknown {
   if (k0 === "inbox-placements") return d.answer?.placements;
   if (k0 === "inbox-issue-draft") return d.answer?.draft;
   if (k0 === "trade-cast-search") return d.answer?.cast?.[key[1] as string] ?? [];
+  // Round BB: the inbox — the Unprocessed threads answer (`questions`), the hidden mail, the Sales dashboard.
+  if (k0 === "trade-inbox" && key[1] === "threads" && key[2] === "UNPROCESSED") return d.questions;
+  if (k0 === "trade-inbox" && key[1] === "hidden") return d.hidden ?? [];
+  if (k0 === "trade-inbox" && key[1] === "dashboard" && (d.dashboard || d.questions)) return d.dashboard ?? { toConfirm: { emails: d.questions.threads?.length ?? 0, threads: d.questions.threads ?? [], total: d.questions.total ?? 0, batches: d.questions.batches, viewer: d.questions.viewer }, filedAuto: [] };
   return undefined;
 }
 

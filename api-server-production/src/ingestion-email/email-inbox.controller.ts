@@ -65,7 +65,7 @@ export class EmailInboxController {
   @ApiOperation({ summary: 'Round W: undo an answer — files back out, hidden emails back, a snooze cleared.' })
   answerUndo(@Body() body: { ids?: unknown; kind?: unknown }, @Req() req: Req2) {
     const ids = Array.isArray(body?.ids) ? body.ids.filter((x: unknown): x is string => typeof x === 'string' && UUID.test(x)) : [];
-    const kind = ['record', 'general', 'not_shipment', 'not_deal', 'later'].includes(String(body?.kind)) ? (String(body!.kind) as AnswerBody['kind']) : null;
+    const kind = ['record', 'general', 'not_shipment', 'not_deal', 'later', 'ask_admin'].includes(String(body?.kind)) ? (String(body!.kind) as AnswerBody['kind']) : null;
     if (!ids.length || !kind) throw new BadRequestException('ids and kind are required');
     return this.triage.answerUndo(this.org(req), { ids, kind }, this.actor(req));
   }
@@ -203,15 +203,17 @@ export class EmailInboxController {
   @Get('threads')
   @Permissions('shipments:read')
   @ApiOperation({ summary: 'Round P: the inbox as threads — UNPROCESSED (to confirm, with the reason) or PROCESSED (done, with who / when). Message-ID chain, else the subject.' })
-  threads(@Query('tab') tab: string | undefined, @Query('lang') lang: string | undefined, @Req() req: Req2) {
-    return this.triage.threads(this.org(req), tab === 'PROCESSED' ? 'PROCESSED' : 'UNPROCESSED', { lang: this.lang(req, lang) });
+  async threads(@Query('tab') tab: string | undefined, @Query('lang') lang: string | undefined, @Req() req: Req2) {
+    const out = await this.triage.threads(this.org(req), tab === 'PROCESSED' ? 'PROCESSED' : 'UNPROCESSED', { lang: this.lang(req, lang) });
+    // Round BB: whether this user answers the cards handed to the admins.
+    return { ...out, viewer: await this.triage.viewerOf(this.org(req), req.user?.id, !!(req as any).isOsirisAdmin) };
   }
 
   @Get('dashboard')
   @Permissions('shipments:read')
   @ApiOperation({ summary: 'Round P: the Sales dashboard — emails to confirm (newest threads) and what was filed by itself in the last 3 days.' })
-  dashboard(@Query('lang') lang: string | undefined, @Req() req: Req2) {
-    return this.triage.dashboard(this.org(req), this.lang(req, lang));
+  async dashboard(@Query('lang') lang: string | undefined, @Req() req: Req2) {
+    return this.triage.dashboard(this.org(req), this.lang(req, lang), await this.triage.viewerOf(this.org(req), req.user?.id, !!(req as any).isOsirisAdmin));
   }
 
   @Get()
@@ -299,6 +301,8 @@ function cleanAnswer(a: unknown): AnswerBody | null {
     const targets = Array.isArray(o.targets) ? o.targets.map((t: any) => ({ orderId: id(t?.orderId), shipmentId: id(t?.shipmentId) })).filter((t: any) => t.orderId || t.shipmentId).slice(0, 10) : [];
     return { kind: 'general', issue, ...(files ? { files } : {}), ...(targets.length ? { targets } : {}) };
   }
+  // Round BB: hand the card to the admins, with an optional note.
+  if (o.kind === 'ask_admin') return { kind: 'ask_admin', note: typeof o.note === 'string' && o.note.trim() ? o.note.trim().slice(0, 500) : null };
   return o.kind === 'not_shipment' || o.kind === 'not_deal' || o.kind === 'later' ? { kind: o.kind } : null;
 }
 

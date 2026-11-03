@@ -9,7 +9,7 @@
 import React from "react";
 import { Box, Button, Chip, Paper, Stack, Typography } from "@mui/material";
 import AttachFileIcon from "@mui/icons-material/AttachFile";
-import type { InboxAnswer, InboxAnswerResult, InboxLang, InboxMessage, InboxThread } from "../../_lib/api";
+import type { InboxAnswer, InboxAnswerResult, InboxBatch, InboxLang, InboxMessage, InboxThread, InboxViewer } from "../../_lib/api";
 import { threadResult } from "../../_lib/inbox-cards";
 import { useTranslations } from "next-intl";
 import { useInboxLabels } from "./useInboxLabels";
@@ -97,10 +97,10 @@ export function ThreadCard({ t, actions }: { t: InboxThread; actions: InboxActio
   );
 }
 
-/** The list: the question list (Unprocessed) or thread cards (Processed). */
-export function InboxThreadList({ threads, actions, tab, emptyText, footer }: { threads: InboxThread[]; actions: InboxActions; tab: "UNPROCESSED" | "PROCESSED"; emptyText: string; footer?: React.ReactNode }) {
+/** The list: the question list (Unprocessed) or thread cards (Processed). Round BB: `batches` / `viewer` from the threads response. */
+export function InboxThreadList({ threads, actions, tab, emptyText, footer, batches, viewer }: { threads: InboxThread[]; actions: InboxActions; tab: "UNPROCESSED" | "PROCESSED"; emptyText: string; footer?: React.ReactNode; batches?: InboxBatch[] | null; viewer?: InboxViewer | null }) {
   if (tab === "UNPROCESSED") {
-    return <QuestionList threads={threads} lang={actions.lang} busy={actions.pending} onAnswer={actions.onAnswer} onUndo={actions.onAnswerUndo} onCreateOrder={actions.onCreateOrder} onOpenThread={(t) => actions.onOpen(t.messages[0], t)} footer={footer} />;
+    return <QuestionList threads={threads} lang={actions.lang} busy={actions.pending} onAnswer={actions.onAnswer} onUndo={actions.onAnswerUndo} onCreateOrder={actions.onCreateOrder} onOpenThread={(t) => actions.onOpen(t.messages[0], t)} footer={footer} batches={batches} viewer={viewer} />;
   }
   if (!threads.length) {
     return (

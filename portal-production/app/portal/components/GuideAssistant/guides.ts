@@ -281,7 +281,7 @@ export const GUIDES: Guide[] = [
     title: 'Answer the email questions (Dashboard)',
     module: 'SHIPMENTS',
     description:
-      'How the emails work now: AIMS files what it is sure about by itself (two independent clues must agree). Everything else becomes a QUESTION CARD on the Dashboard, under "Emails waiting for you": every question is its own numbered card (1, 2, 3; five shown, then "Show N more") with the question, the full subject, "Vedanta · 22 Oct 14:31", a one-line summary of the email, and two buttons: "Answer" (tick one or several shipments in a pop-up, then Confirm; nothing is applied before Confirm) and "Show full email" (the thread pop-up, the email first). The answer covers the whole thread, with Undo. "See all emails" opens the two-tab view (Unprocessed / Processed) with the thread timeline and the result of every email.',
+      'How the emails work now: AIMS files what it is sure about by itself (two independent clues must agree). Everything else becomes a QUESTION CARD on the Dashboard, under "Emails waiting for you": every question is its own numbered card (1, 2, 3; five shown, then "Show N more") with ONE concrete question (AIMS\'s best guess, e.g. "Is this the B/L of #26-1?"), the full subject, "Vedanta · 22 Oct 14:31", the evidence (the matching B/L / cast / grade highlighted, a disagreement in red, the file it came from), "Yes: what Yes does", and the buttons "Yes" (do what AIMS guessed: link to that shipment, or open the new-shipment form for that order), up to two alternatives under it, "Other…" (tick one or several shipments in a pop-up, then Confirm; nothing is applied before Confirm), "Not sure → ask Elroy/Take" (an optional note; the card goes to the admins and shows "Asked Elroy/Take" until they answer) and "Show full email". Similar cards come grouped with a checkbox each and "Yes to the ticked ones (n)". The answer covers the whole thread, with Undo. "See all emails" opens Unprocessed / Processed / Not about a shipment (mail AIMS left out, with "Actually it is" to bring one back).',
     route: '/portal',
     steps: [
       {
@@ -292,9 +292,9 @@ export const GUIDES: Guide[] = [
         patient: true,
       },
       {
-        selector: '[data-tour="question-choose"]',
-        title: 'Answer, then Confirm',
-        body: 'Opens a pop-up: search, then tick one or several shipments, AIMS\'s likely ones first ("Select all"), then every open shipment. Under the list: "Not about a shipment", "New deal → Create order" (new-deal cards), "Ask later". Nothing happens until you press Confirm; the result shows with Undo and the card leaves the list.',
+        selector: '[data-tour="question-other"]',
+        title: 'Yes, Other…, or Not sure',
+        body: '"Yes" does what the card says after "Yes:" (link to the shipment AIMS found, or open the new-shipment form for that order). "Other…" opens a pop-up: search, then tick one or several shipments, AIMS\'s likely ones first, then every open shipment, or "Not about a shipment" / "Ask later"; nothing happens until you press Confirm. "Not sure → ask Elroy/Take" hands the card to the admins with an optional note. The result shows with Undo and the card leaves the list.',
         patient: true,
       },
       {

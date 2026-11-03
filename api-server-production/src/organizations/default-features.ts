@@ -85,6 +85,9 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // shipment(s) per attachment; applied by itself only when a hard key or a unique product match is verified.
   // Default OFF (ADH: switched on by setup-adh-org after the owner's go).
   enableEmailReasoner: false,
+  // Round BB (ADH, 2026-11-03): when orders / shipments change, the open email question cards are matched again (rules
+  // only) — a card that now matches exactly is filed by the usual two-source gate. Default OFF (ADH: on after the owner's go).
+  enableEmailRematch: false,
   // Round AY (ADH, 2026-10-31): due dates per step (rules on ETD / ETA, editable per step) — the Overall process's due
   // dates, "Step" items in My tasks, the overdue bars and the Monthly "overdue" badge. OFF until the owner confirms the
   // default rules; while off the Overall process shows done / now / upcoming and the schedule only.

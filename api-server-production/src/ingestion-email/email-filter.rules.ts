@@ -26,6 +26,8 @@ export interface FilterInput {
   threadOrder: string | null;
   /** An earlier email of the thread was kept by the allow-list — the domain that allowed it ("vedanta.co.in"), else null. */
   threadAllowed?: string | null;
+  /** Round BB: the own text (a reply quoting AIMS's own mail is not trade mail). */
+  body?: string | null;
 }
 
 export interface FilterConfig {
@@ -106,7 +108,33 @@ export function allowListHit(e: Pick<FilterInput, 'from' | 'to' | 'cc'>, cfg: Fi
   return d.keep ? d.reason.replace(/^allowed (domain|address) /, '') : null;
 }
 
+/**
+ * Round BB — mail that is never trade mail, whoever is on it (a DROP decision even when Vedanta is in cc):
+ *   - a reply / forward of AIMS's own mail ("Re: AIMS · 45 due, 1 coming up", or quoting "From: AIMS <admin@osiris.sg>");
+ *   - Vedanta Metal Bazaar (moglix.com) price-booking notices ("Price booking accepted", "Month average booking created").
+ * Pure. null = not decided here (the allow-list decides).
+ */
+export function nonTradeReason(e: { from: string; subject: string | null; body?: string | null }, aimsSenders: string[] = AIMS_SENDERS): string | null {
+  const from = addressOf(e.from);
+  const subject = (e.subject ?? '').normalize('NFKC');
+  if (/^\s*((re|fw|fwd|転送|返信)\s*[:：]\s*)+AIMS\s*·/i.test(subject)) return 'not trade mail: a reply to AIMS\'s own mail';
+  const quoted = (e.body ?? '').slice(0, 20_000);
+  const senders = aimsSenders.map((a) => a.toLowerCase());
+  if (/^\s*((re|fw|fwd|転送|返信)\s*[:：]\s*)+/i.test(subject) && senders.some((a) => new RegExp(`(From|差出人)\\s*[:：]\\s*AIMS\\s*<${a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}>`, 'i').test(quoted))) return 'not trade mail: a reply to AIMS\'s own mail';
+  if ((/@moglix\.com$/.test(from) || /metalbazaar/.test(from)) && /price\s*book|booking (created|accepted|confirmed)|month(ly)?\s*average\s*booking/i.test(subject)) return 'not trade mail: a Vedanta Metal Bazaar price booking';
+  return null;
+}
+
+/** Round BB: AIMS's own outgoing mail (digests, notifications) — never ingested at all. */
+export const AIMS_SENDERS = ['admin@osiris.sg'];
+export function isAimsOwnMail(from: string, aimsSenders: string[] = AIMS_SENDERS): boolean {
+  const a = addressOf(from);
+  return !!a && aimsSenders.some((s) => addressOf(s) === a);
+}
+
 export function filterDecision(e: FilterInput, cfg: FilterConfig, ownDomains: string[]): FilterDecision {
+  const nonTrade = nonTradeReason({ from: e.from, subject: e.subject, body: e.body });
+  if (nonTrade) return { keep: false, reason: nonTrade };
   const own = (a: string) => ownDomains.some((o) => underDomain(domainOf(a), o));
   // The intake address itself (docs+…@) is never a participant that counts.
   const people = [e.from, ...e.to, ...e.cc].map(addressOf).filter((a) => a && !/^docs\+/i.test(a));

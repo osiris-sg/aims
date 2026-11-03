@@ -55,6 +55,12 @@ export interface MatchRecord {
   netMt: number | null;
   deliveryMonth: string | null;
   port: string | null;
+  /** Round BB: the supplier order's PI (Vedanta's 9331…), the order's contract no., ship month, the shipment's ETD / ETA. */
+  supplierPiNo?: string | null;
+  contractNo?: string | null;
+  shipMonth?: string | null;
+  etd?: Date | string | null;
+  eta?: Date | string | null;
 }
 
 export const recordRef = (r: Pick<MatchRecord, 'orderNo' | 'seqNo'>) => `#${r.orderNo}${r.seqNo ? `-${r.seqNo}` : ''}`;
@@ -134,6 +140,11 @@ export function findKeyHits(ev: EmailEvidence, records: MatchRecord[], ciPattern
     const bl = r.bl ? blCore(r.bl) : '';
     if (bl.length >= 8) add('bl', bl, r.orderId, r.shipmentId);
     if (r.piNo && r.piNo.length >= 6) add('pi', r.piNo, r.orderId, null);
+    // Round BB: a supplier's prefixed PI ("SIAE_PI_26100906") is often written "PI-26100906": its 8+-digit core counts too.
+    const core = r.piNo ? /^[A-Z][A-Z_ -]*?(\d{8,})$/i.exec(r.piNo)?.[1] : null;
+    if (core) add('pi', core, r.orderId, null);
+    // Round BB: the supplier order's PI (Vedanta's 9331…) names the customer order it belongs to.
+    if (r.supplierPiNo && r.supplierPiNo.length >= 6 && r.supplierPiNo !== r.piNo) add('pi', r.supplierPiNo, r.orderId, null);
     const ci = validCiNo(r.ciNo, ciPatterns);
     if (ci && (ciOwners.get(ci) ?? 0) <= 1) add('ci', ci, r.orderId, r.shipmentId);
   }
@@ -298,7 +309,8 @@ export interface Candidate {
 /** Round T: which cue decided (see MATCH_PRIORITY). */
 export type MatchSource = 'attachment' | 'own' | 'subject' | 'order-cues' | 'own-cues' | 'thread' | 'subject-cues' | null;
 /** Round W: the independent places a match can come from (a key and product words in the SAME text are one source). */
-export type SourceFamily = 'attachment' | 'own-text' | 'subject' | 'thread' | 'reasoner';
+export type SourceFamily = 'attachment' | 'own-text' | 'subject' | 'thread' | 'reasoner' | 'file';
+// 'file' (round BB): the B/L / CI printed INSIDE the attachment's own text (not only its name) — the document itself names its shipment.
 // 'reasoner' (round AD): the thread reasoner's verified reading, recorded as its own source next to the rule hit that agreed with it.
 
 /**
@@ -576,7 +588,10 @@ export function decideMatch(input: { ev: EmailEvidence; records: MatchRecord[]; 
   // to every one by itself (the service's MULTI_LINK); one that files a document asks a person to pick.
   // "Several" counts across the subject, the own text and the attachments together (not per place), so a reply
   // whose subject names #19-1 + #19-2 by tonnage and whose text names #18-1 by B/L links to all three.
-  const ownContent = strongHits.filter((h) => !(splitAttachments && h.where.every((w) => w === 'attachment' || w === 'quoted')));
+  // Round BB: an exact tonnage found only inside an attachment (a container weight on a packing list) never names a
+  // second record next to a B/L / CI that names one.
+  const blOrCi = strongHits.filter((h) => h.kind === 'bl' || h.kind === 'ci');
+  const ownContent = strongHits.filter((h) => !(splitAttachments && h.where.every((w) => w === 'attachment' || w === 'quoted'))).filter((h) => !(h.kind === 'net' && blOrCi.length && h.where.every((w) => w === 'attachment' || w === 'quoted') && !blOrCi.some((b) => b.orderId === h.orderId && b.shipmentId === h.shipmentId)));
   const namedKeys = new Map<string, { orderId: string; shipmentId: string | null; hit: KeyHit }>();
   for (const h of [...ownContent].sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind])) {
     // An order-level key (PI) of an order whose shipment is already named adds nothing.
@@ -780,4 +795,89 @@ export function telexTiedTo(ev: EmailEvidence, code: string, bl: string | null):
     }
   }
   return false;
+}
+
+// ── Round BB: a new shipment of an open order ─────────────────────────────────────────────────────────────
+/**
+ * Round BB (owner: "replace 'New deal not in AIMS yet?' with the real options"). A B/L draft / document set whose B/L
+ * is on no record is usually the NEXT shipment of an open order: the open orders of that customer and grade (and
+ * contract, when the email names one), nearest ship month first, not already shipped in full (shipped net under the
+ * order quantity + tolerance). Pure. Empty = truly no order fits → only then "new deal?".
+ */
+export interface NewShipmentFacts {
+  customerKey: string | null;
+  grade: string | null;
+  contractNo: string | null;
+  /** The month the goods ship (ETD) or, failing that, the email's month — "2026-11". */
+  month: string | null;
+  netMt: number | null;
+}
+export interface NewShipmentCandidate {
+  orderId: string;
+  orderNo: number;
+  why: string[];
+  score: number;
+}
+const monthIndex = (m: string | null | undefined) => (m && /^\d{4}-\d{2}/.test(m) ? Number(m.slice(0, 4)) * 12 + Number(m.slice(5, 7)) - 1 : null);
+export function newShipmentCandidates(f: NewShipmentFacts, records: MatchRecord[], tolerance = 0.05): NewShipmentCandidate[] {
+  const g4 = (g: string | null | undefined) => (g ? (/(\d{4})/.exec(g)?.[1] ?? g.toUpperCase()) : null);
+  const want = g4(f.grade);
+  const byOrder = new Map<string, MatchRecord[]>();
+  for (const r of records) if (r.orderStatus === 'OPEN') (byOrder.get(r.orderId) ?? byOrder.set(r.orderId, []).get(r.orderId)!).push(r);
+  const out: NewShipmentCandidate[] = [];
+  for (const [orderId, rows] of byOrder) {
+    const o = rows[0];
+    if (!f.customerKey || o.customerKey !== f.customerKey) continue;
+    if (want && g4(o.grade) !== want) continue;
+    const shipped = rows.filter((r) => r.shipmentId && r.bl).reduce((n, r) => n + (r.netMt ?? 0), 0);
+    if (o.qtyMt && f.netMt && shipped + f.netMt > o.qtyMt * (1 + tolerance) + 0.001) continue;
+    const why: string[] = [`customer ${f.customerKey}`];
+    let score = 2;
+    if (want) { why.push(`grade ${want}`); score += 2; }
+    if (f.contractNo && o.contractNo) {
+      if (o.contractNo === f.contractNo) { why.push(`contract ${f.contractNo}`); score += 2; }
+      else score -= 1;
+    }
+    const d = monthIndex(f.month) !== null && monthIndex(o.shipMonth) !== null ? Math.abs(monthIndex(f.month)! - monthIndex(o.shipMonth)!) : null;
+    if (d !== null) {
+      if (d === 0) { why.push(`ship month ${o.shipMonth}`); score += 2; }
+      else if (d === 1) { why.push(`ship month ${o.shipMonth}`); score += 1; }
+      else if (d > 2) continue;
+    }
+    if (!rows.some((r) => r.shipmentId && r.bl)) { why.push('no shipment yet'); score += 1; }
+    out.push({ orderId, orderNo: o.orderNo, why, score });
+  }
+  return out.sort((a, b) => b.score - a.score || a.orderNo - b.orderNo);
+}
+
+/**
+ * Round BB: a shipment the card may offer on soft cues — not cancelled / completed, and not one that sailed long ago
+ * (ETA, else ETD, more than `days` before the email). An exact key (B/L / PI / CI) may still point anywhere.
+ */
+export function offerable(r: Pick<MatchRecord, 'orderStatus' | 'shipStatus' | 'etd' | 'eta' | 'shipmentId'>, when: Date | null, days = 45): boolean {
+  if (r.orderStatus === 'CANCELLED' || r.orderStatus === 'COMPLETED') return false;
+  if (r.shipmentId && (r.shipStatus === 'COMPLETED' || r.shipStatus === 'CANCELLED')) return false;
+  const ref = r.eta ?? r.etd;
+  if (r.shipmentId && ref && when) return when.getTime() - new Date(ref).getTime() <= days * 86_400_000;
+  return true;
+}
+
+/**
+ * Round BB (owner: "trust B/L numbers named inside each attachment, per file") — the B/L / CI that the decision filed
+ * by is printed in the TEXT of a typed attachment (not only in a file name or the subject), and no typed attachment's
+ * text names another record's B/L / CI. Then the document itself is a second source. Pure.
+ */
+export function insideFileSource(ev: EmailEvidence, decision: Pick<MatchDecision, 'kind' | 'target' | 'keyLabel'>, records: MatchRecord[], typedIndexes: number[], ciPatterns: string[] = DEFAULT_CI_PATTERNS): { line: string } | null {
+  if ((decision.kind !== 'bl' && decision.kind !== 'ci') || !decision.target) return null;
+  const t = decision.target;
+  let named: string | null = null;
+  for (const i of typedIndexes) {
+    const a = ev.attachments[i];
+    if (!a?.text) continue;
+    const hits = findKeyHits({ subject: '', body: '', attachments: [{ name: '', text: a.text }], date: ev.date }, records, ciPatterns).filter((h) => h.kind === 'bl' || h.kind === 'ci');
+    if (hits.some((h) => h.orderId !== t.orderId || (t.shipmentId && h.shipmentId && h.shipmentId !== t.shipmentId))) return null;
+    const mine = hits.find((h) => h.orderId === t.orderId && (!t.shipmentId || !h.shipmentId || h.shipmentId === t.shipmentId));
+    if (mine && !named) named = `${mine.kind === 'bl' ? 'B/L' : 'CI'} ${mine.value} inside ${a.name}`;
+  }
+  return named ? { line: named } : null;
 }

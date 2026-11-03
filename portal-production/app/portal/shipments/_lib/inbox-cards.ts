@@ -1,6 +1,6 @@
 // Round W (2026-10-22) — the question cards, the result box and the thread timeline, in words. Pure, no React,
 // tested in helpers/inboxCards.test.mjs. English + Japanese follow the browser (uiLang).
-import type { InboxAnswer, InboxLang, InboxLinkedFile, InboxMessage, InboxQuestion, InboxQuestionOption, InboxThread } from "./api";
+import type { CardChoice, CardEvidence, InboxAnswer, InboxBatch, InboxLang, InboxLinkedFile, InboxMessage, InboxQuestion, InboxQuestionOption, InboxThread } from "./api";
 
 /** The UI language: Japanese when the browser is, else English (the API's cards follow the same `lang`). */
 export const uiLangOf = (navigatorLanguage: string | null | undefined): InboxLang => (/^ja\b/i.test(navigatorLanguage ?? "") ? "ja" : "en");
@@ -464,3 +464,95 @@ export function answerFor(sel: ChooseSelection, questionKind: InboxQuestion["kin
   if (!targets.length) return null;
   return { kind: "record", orderId: targets[0].orderId, shipmentId: targets[0].shipmentId, targets };
 }
+
+// ── Round BB: the card's best guess, evidence and batches ────────────────────────────────────────────────────────
+
+/** One piece of an evidence line: plain, or the highlighted `mark`. */
+export type EvidencePart = { text: string; mark: boolean };
+
+/**
+ * An evidence line split around its `mark` (the first exact match, else the first case-insensitive one) so the card
+ * can highlight it. No mark, or a mark not in the text → the whole text, unhighlighted. Empty pieces are dropped.
+ */
+export function evidenceParts(text: string, mark: string | null | undefined): EvidencePart[] {
+  const m = (mark ?? "").trim();
+  if (!text) return [];
+  let at = m ? text.indexOf(m) : -1;
+  if (m && at < 0) at = text.toLowerCase().indexOf(m.toLowerCase());
+  if (at < 0) return [{ text, mark: false }];
+  return [
+    { text: text.slice(0, at), mark: false },
+    { text: text.slice(at, at + m.length), mark: true },
+    { text: text.slice(at + m.length), mark: false },
+  ].filter((p) => p.text.length > 0);
+}
+
+/** The file chip of an evidence line: the attachment name when the text doesn't already say it. */
+export const evidenceFile = (e: Pick<CardEvidence, "text" | "file">): string | null => {
+  const f = (e.file ?? "").trim();
+  return f && !e.text.includes(f) ? f : null;
+};
+
+/** What answering a choice does: send an answer, open the dialog (normally / on a new shipment for an order), or the order form. */
+export type ChoiceAction = { do: "answer"; answer: InboxAnswer } | { do: "choose" } | { do: "new_shipment"; orderId: string } | { do: "create_order" };
+
+/**
+ * Round BB: "Yes" (or an alternative) on a card. A record → linked at once; a new shipment → the dialog opens on
+ * "Which shipment?" with the new-shipment form for that order; a general issue → the dialog (it pre-ticks AIMS's
+ * issue); not a shipment → answered at once; a new deal → the order form. A record / new shipment without an order
+ * falls back to the dialog.
+ */
+export function choiceAction(c: Pick<CardChoice, "kind" | "orderId" | "shipmentId">): ChoiceAction {
+  switch (c.kind) {
+    case "record":
+      return c.orderId ? { do: "answer", answer: { kind: "record", orderId: c.orderId, shipmentId: c.shipmentId, targets: [{ orderId: c.orderId, shipmentId: c.shipmentId }] } } : { do: "choose" };
+    case "new_shipment":
+      return c.orderId ? { do: "new_shipment", orderId: c.orderId } : { do: "choose" };
+    case "not_shipment":
+      return { do: "answer", answer: { kind: "not_shipment" } };
+    case "new_deal":
+      return { do: "create_order" };
+    default:
+      return { do: "choose" };
+  }
+}
+
+/** The card's headline: the concrete question, else the old title. */
+export const cardHeadline = (q: Pick<InboxQuestion, "title" | "headline">): string => (q.headline ?? "").trim() || q.title;
+
+/** One block of the question list: a single card, or a batch of similar cards answered together. */
+export type QuestionSegment<T> = { kind: "one"; t: T } | { kind: "batch"; key: string; title: string; threads: T[] };
+
+/**
+ * Round BB: the question list in order. Cards handed to the admins come FIRST for an admin (they are the admin's to
+ * answer) and LAST for everyone else (they wait on the admins); otherwise the API's order. A batch renders where its
+ * first card would, holding its cards in list order; a batch with fewer than 2 cards in the list renders them as
+ * single cards.
+ */
+export function questionSegments<T extends { id: string; question?: Pick<InboxQuestion, "asked"> | null }>(threads: T[], batches: InboxBatch[] | null | undefined, admin: boolean): Array<QuestionSegment<T>> {
+  const asked = (t: T) => !!t.question?.asked;
+  const ordered = [...threads].sort((a, b) => (admin ? Number(asked(b)) - Number(asked(a)) : Number(asked(a)) - Number(asked(b))));
+  const present = new Set(ordered.map((t) => t.id));
+  const batchOf = new Map<string, InboxBatch>();
+  for (const b of batches ?? []) {
+    const ids = b.threadIds.filter((id) => present.has(id) && !batchOf.has(id));
+    if (ids.length < 2) continue;
+    for (const id of ids) batchOf.set(id, b);
+  }
+  const out: Array<QuestionSegment<T>> = [];
+  const done = new Set<string>();
+  for (const t of ordered) {
+    const b = batchOf.get(t.id);
+    if (!b) {
+      out.push({ kind: "one", t });
+      continue;
+    }
+    if (done.has(b.key)) continue;
+    done.add(b.key);
+    out.push({ kind: "batch", key: b.key, title: b.title, threads: ordered.filter((x) => batchOf.get(x.id) === b) });
+  }
+  return out;
+}
+
+/** A batch card is ticked by default (and tickable at all) when AIMS's guess is an existing record with an order and the viewer may answer it (a card handed to the admins waits for them). */
+export const batchTickable = (q: Pick<InboxQuestion, "guess" | "asked"> | null | undefined, admin: boolean): boolean => !!q?.guess && q.guess.kind === "record" && !!q.guess.orderId && (admin || !q.asked);

@@ -63,7 +63,11 @@ export function stepOneQuestion(kind: InboxThread["question"] extends infer Q ? 
   return kind === "NEW_DEAL" ? title : L[lang].isShipmentQ;
 }
 
-export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, onCreateOrder }: { open: boolean; t: InboxThread; lang: InboxLang; busy?: boolean; onClose: () => void; onAnswer: (t: InboxThread, a: InboxAnswer) => void; onCreateOrder: (t: InboxThread) => void }) {
+/** Round BB: where the dialog opens. `newShipmentFor` (the card's "Yes" on a NEW_SHIPMENT guess) = straight to "Which
+ *  shipment?" with the new-shipment drawer open for that order; the saved shipment comes back ticked. */
+export type ChooseStart = { newShipmentFor: string };
+
+export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, onCreateOrder, start }: { open: boolean; t: InboxThread; lang: InboxLang; busy?: boolean; onClose: () => void; onAnswer: (t: InboxThread, a: InboxAnswer) => void; onCreateOrder: (t: InboxThread) => void; start?: ChooseStart | null }) {
   const q = t.question;
   const labels = useInboxLabels();
   const tc = useTranslations("inbox.choose");
@@ -91,7 +95,7 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
   const likely = useMemo(() => likelyOptions(q), [q]);
   useEffect(() => {
     if (!open) return;
-    setStep("q1");
+    setStep(start?.newShipmentFor ? "which" : "q1");
     setOutcome(null);
     setSearch("");
     // Round AR: several shipments named exactly → all ticked; a general issue AIMS read → ticked.
@@ -99,10 +103,10 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
     setIssueOn(!!q?.issue);
     setFiles({});
     setIssue(null);
-    setDrawer(null);
+    setDrawer(start?.newShipmentFor ? { kind: "new", orderId: start.newShipmentFor } : null);
     setMade(new Map());
     setShowCompleted(false);
-  }, [open, t.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, t.id, start?.newShipmentFor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const likelyKeys = useMemo(() => new Set(likely.map(optionKey)), [likely]);
   const allShips = useMemo(() => [...(ships.data?.items ?? []), ...(done.data?.items ?? [])].filter((s) => s.status !== "CANCELLED" && !!s.orderId), [ships.data, done.data]);

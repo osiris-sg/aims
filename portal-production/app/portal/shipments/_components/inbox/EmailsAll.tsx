@@ -5,7 +5,8 @@
 //                     no counts in the tab.
 //   Processed (n)   — one card per thread: the latest email + what was done ("✅ Added to #16-2 — …"), Undo,
 //                     "3 earlier emails" → the timeline.
-// Hidden / purged mail is not shown (Org Settings → Shipping → Email filter → Hidden brings a hidden one back).
+//   Not about a shipment (round BB) — the hidden mail (calendar replies, newsletters, what the sender filter
+//                     dropped) with "Actually it is" to bring one back; loads when opened.
 // The Unprocessed query always runs (its question count sits in the tab label); Processed loads when opened.
 
 import React, { useState } from "react";
@@ -15,11 +16,12 @@ import { useShipmentsApi, type InboxThreadsTab } from "../../_lib/api";
 import { useTranslations } from "next-intl";
 import { useInboxLabels } from "./useInboxLabels";
 import { InboxThreadList } from "./InboxThreadList";
+import { HiddenEmailsList } from "./HiddenEmailsList";
 import { useInboxActions } from "./useInboxActions";
 
 export default function EmailsAll() {
   const api = useShipmentsApi();
-  const [tab, setTab] = useState<InboxThreadsTab>("UNPROCESSED");
+  const [tab, setTab] = useState<InboxThreadsTab | "HIDDEN">("UNPROCESSED");
   const act = useInboxActions(async () => {
     await Promise.all([qu.refetch(), tab === "PROCESSED" ? qp.refetch() : null]);
   });
@@ -35,8 +37,17 @@ export default function EmailsAll() {
       <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2, borderBottom: 1, borderColor: "divider" }} data-tour="inbox-tabs">
         <Tab value="UNPROCESSED" label={unprocessedLabel} sx={{ textTransform: "none" }} />
         <Tab value="PROCESSED" label={`${t("processed")}${counts ? ` (${counts.processed})` : ""}`} sx={{ textTransform: "none" }} />
+        <Tab value="HIDDEN" label={t("notShipment")} sx={{ textTransform: "none" }} data-tour="inbox-tab-not-shipment" />
       </Tabs>
-      {q.isError ? <Alert severity="error">{(q.error as Error)?.message || t("couldNotLoad")}</Alert> : q.isLoading ? <CircularProgress /> : <InboxThreadList tab={tab} threads={q.data?.threads ?? []} actions={act.actions} emptyText={tab === "UNPROCESSED" ? labels.nothing : t("nothingProcessed")} />}
+      {tab === "HIDDEN" ? (
+        <HiddenEmailsList onChanged={() => qu.refetch()} />
+      ) : q.isError ? (
+        <Alert severity="error">{(q.error as Error)?.message || t("couldNotLoad")}</Alert>
+      ) : q.isLoading ? (
+        <CircularProgress />
+      ) : (
+        <InboxThreadList tab={tab} threads={q.data?.threads ?? []} batches={q.data?.batches} viewer={q.data?.viewer ?? qu.data?.viewer} actions={act.actions} emptyText={tab === "UNPROCESSED" ? labels.nothing : t("nothingProcessed")} />
+      )}
       {act.dialogs}
     </Box>
   );

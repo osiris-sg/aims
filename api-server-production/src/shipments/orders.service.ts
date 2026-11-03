@@ -1,3 +1,4 @@
+import { TradeRecordEvents } from './trade-record-events';
 import { maskedProfile } from './clients-company';
 import { TradeDueService } from './trade-due.service';
 import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
@@ -66,6 +67,8 @@ export class OrdersService {
     private readonly shipments: ShipmentsService,
     @Optional() private readonly actionLog?: ActionLogService,
     @Optional() private readonly due?: TradeDueService,
+    // Round BB: tells the email intake that orders changed (open question cards are matched again).
+    @Optional() private readonly events?: TradeRecordEvents,
   ) {}
 
   /** Round AY: records with a step past its due date join the ones with a due reminder (the bars' "overdue"). */
@@ -310,6 +313,7 @@ export class OrdersService {
   async create(organizationId: string, dto: CreateOrderDto, actor: TradeActor) {
     try {
       const id = await this.prisma.$transaction((tx: Db) => this.createInTx(tx, organizationId, dto, actor), { timeout: 30_000 });
+      this.events?.changed(organizationId, 'order created');
       return this.getById(organizationId, id, actor);
     } catch (e) {
       if (isUniqueViolation(e)) throw new BadRequestException('That order number is already used this year');
@@ -507,6 +511,7 @@ export class OrdersService {
     // Round AT: the renumber itself in the Activity Log, old → new (the PATCH row only carries the form).
     const m = moved as { from: number; to: number; year: number } | null;
     if (m) this.actionLog?.system('order-renumber', 'UPDATE', 'trade-orders', { organizationId, resourceId: id, details: { orderNo: { from: m.from, to: m.to }, year: m.year, by: actor?.name ?? actor?.id ?? null } });
+    this.events?.changed(organizationId, 'order updated');
     return this.getById(organizationId, id);
   }
 

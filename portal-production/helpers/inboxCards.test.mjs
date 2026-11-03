@@ -1,9 +1,9 @@
 // Run: npm test (node --test, Node's built-in TypeScript stripping).
 // Round W: the question cards' fixed labels (EN / JA), the result box per outcome, the thread timeline order,
-// the "n left" counter, the collapsed header line.
+// the "n left" counter, the collapsed header line. Round BB: the evidence highlight, Yes per guess, the list order + batches.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cardStatus, docPlainName, headerSummary, L, resultBox, threadResultLines, timeline, uiLangOf } from "../app/portal/shipments/_lib/inbox-cards.ts";
+import { batchTickable, cardHeadline, cardStatus, choiceAction, docPlainName, evidenceFile, evidenceParts, headerSummary, L, questionSegments, resultBox, threadResultLines, timeline, uiLangOf } from "../app/portal/shipments/_lib/inbox-cards.ts";
 
 const file = (o) => ({ name: "22AA198GX06003.pdf", docType: "BUNDLE_LIST", docLabel: "Bundle list (NO.取りリスト)", status: "done", ownerKind: "shipment", ownerId: "s16-2", ref: "#16-2", stepId: "st9", stepNo: "9", stepTitle: "Bundle list", ...o });
 const linked = (o) => ({ orderId: "o16", shipmentId: "s16-2", ref: "#16-2", label: "#16-2 · SUS 6005 20.4t · B/L 198GX06003", files: [], fields: [], linkOnly: true, ...o });
@@ -133,4 +133,56 @@ test("answer payload: several shipments → targets + the first as orderId/shipm
   assert.equal(L.ja.answer, "回答する");
   assert.equal(L.en.confirm, "Confirm");
   assert.equal(L.ja.confirm, "確定");
+});
+
+// ── Round BB: the best-guess card ───────────────────────────────────────────────────────────────────────────────
+
+test("evidence: the mark is split out for highlighting (exact, then any case); no mark or a missing one = plain text", () => {
+  assert.deepEqual(evidenceParts("B/L 198GX06523 in ArrivalNotice.pdf", "198GX06523"), [
+    { text: "B/L ", mark: false },
+    { text: "198GX06523", mark: true },
+    { text: " in ArrivalNotice.pdf", mark: false },
+  ]);
+  assert.deepEqual(evidenceParts("Grade 6005", "6005"), [{ text: "Grade ", mark: false }, { text: "6005", mark: true }]);
+  assert.deepEqual(evidenceParts("b/l 198gx06523", "198GX06523"), [{ text: "b/l ", mark: false }, { text: "198gx06523", mark: true }]);
+  assert.deepEqual(evidenceParts("Documents say 6005, #26-1 says 6063", null), [{ text: "Documents say 6005, #26-1 says 6063", mark: false }]);
+  assert.deepEqual(evidenceParts("Vessel WAN HAI 316", "MAERSK"), [{ text: "Vessel WAN HAI 316", mark: false }]);
+  assert.deepEqual(evidenceParts("6005", "6005"), [{ text: "6005", mark: true }]);
+  assert.deepEqual(evidenceParts("", "x"), []);
+  // The file chip only when the text doesn't already name the file.
+  assert.equal(evidenceFile({ text: "B/L 198GX06523 in ArrivalNotice.pdf", file: "ArrivalNotice.pdf" }), null);
+  assert.equal(evidenceFile({ text: "B/L 198GX06523", file: "ArrivalNotice.pdf" }), "ArrivalNotice.pdf");
+  assert.equal(evidenceFile({ text: "B/L 198GX06523", file: null }), null);
+});
+
+test("Yes per guess kind: record answers at once, new shipment opens the form for its order, the rest open the dialog / order form", () => {
+  assert.deepEqual(choiceAction({ kind: "record", orderId: "o26", shipmentId: "s26-1" }), { do: "answer", answer: { kind: "record", orderId: "o26", shipmentId: "s26-1", targets: [{ orderId: "o26", shipmentId: "s26-1" }] } });
+  assert.deepEqual(choiceAction({ kind: "record", orderId: "o26", shipmentId: null }).answer.targets, [{ orderId: "o26", shipmentId: null }]);
+  assert.deepEqual(choiceAction({ kind: "record", orderId: null, shipmentId: null }), { do: "choose" });
+  assert.deepEqual(choiceAction({ kind: "new_shipment", orderId: "o27", shipmentId: null }), { do: "new_shipment", orderId: "o27" });
+  assert.deepEqual(choiceAction({ kind: "new_shipment", orderId: null, shipmentId: null }), { do: "choose" });
+  assert.deepEqual(choiceAction({ kind: "general", orderId: null, shipmentId: null }), { do: "choose" });
+  assert.deepEqual(choiceAction({ kind: "not_shipment", orderId: null, shipmentId: null }), { do: "answer", answer: { kind: "not_shipment" } });
+  assert.deepEqual(choiceAction({ kind: "new_deal", orderId: null, shipmentId: null }), { do: "create_order" });
+  assert.equal(cardHeadline({ title: "Which shipment?", headline: "Is this the B/L of #26-1?" }), "Is this the B/L of #26-1?");
+  assert.equal(cardHeadline({ title: "Which shipment?" }), "Which shipment?");
+});
+
+test("question list order: asked cards first for an admin, last for everyone else; batches render where their first card is", () => {
+  const th = (id, asked = false, guess = null) => ({ id, question: { asked: asked ? { by: "Sayaka", at: "2026-11-03T00:00:00Z", note: null } : null, guess } });
+  const list = [th("a"), th("b", true), th("c"), th("d"), th("e")];
+  const ids = (segs) => segs.map((s) => (s.kind === "one" ? s.t.id : `[${s.threads.map((t) => t.id).join(",")}]`));
+  assert.deepEqual(ids(questionSegments(list, [], false)), ["a", "c", "d", "e", "b"]);
+  assert.deepEqual(ids(questionSegments(list, [], true)), ["b", "a", "c", "d", "e"]);
+  const batches = [{ key: "bl", title: "3 B/Ls for #26", threadIds: ["c", "e", "zz"] }, { key: "lonely", title: "x", threadIds: ["d", "gone"] }];
+  const segs = questionSegments(list, batches, false);
+  assert.deepEqual(ids(segs), ["a", "[c,e]", "d", "b"]);
+  assert.equal(segs[1].title, "3 B/Ls for #26");
+  // Ticked by default: a record guess with an order the viewer may answer.
+  const rec = { kind: "record", orderId: "o1", shipmentId: "s1", ref: "#1-1", label: "#1-1" };
+  assert.equal(batchTickable({ guess: rec, asked: null }, false), true);
+  assert.equal(batchTickable({ guess: { ...rec, kind: "new_shipment" }, asked: null }, false), false);
+  assert.equal(batchTickable({ guess: rec, asked: { by: "S", at: "", note: null } }, false), false);
+  assert.equal(batchTickable({ guess: rec, asked: { by: "S", at: "", note: null } }, true), true);
+  assert.equal(batchTickable({ guess: null }, true), false);
 });

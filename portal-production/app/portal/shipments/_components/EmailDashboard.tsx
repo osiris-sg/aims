@@ -121,7 +121,7 @@ export function EmailDashboardView({ data, actions, onTasksChanged, onRefreshTas
           {data.loading && !inbox ? (
             <CircularProgress size={22} />
           ) : (
-            <InboxThreadList tab="UNPROCESSED" threads={inbox?.toConfirm.threads ?? []} actions={actions} emptyText={labels.nothing} />
+            <InboxThreadList tab="UNPROCESSED" threads={inbox?.toConfirm.threads ?? []} batches={inbox?.toConfirm.batches} viewer={inbox?.toConfirm.viewer} actions={actions} emptyText={labels.nothing} />
           )}
         </Section>
         <Section title={t("filedAuto")} count={inbox ? t("last3", { n: inbox.filedAuto.length }) : ""} tour="dashboard-filed">

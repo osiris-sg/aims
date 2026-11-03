@@ -1,3 +1,4 @@
+import { TradeRecordEvents } from './trade-record-events';
 import { maskedProfile } from './clients-company';
 import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { etaChangedLine } from '../operator/push-text';
@@ -25,6 +26,8 @@ export class ShipmentsService {
     // Optional: unit tests and the smoke run build the service without it.
     @Optional() private readonly alerts?: TradeAlertsService,
     @Optional() private readonly whatsapp?: ShipmentsNotifyService,
+    // Round BB: tells the email intake that shipments changed (open question cards are matched again).
+    @Optional() private readonly events?: TradeRecordEvents,
   ) {}
 
   async list(organizationId: string, query: ListShipmentsQuery) {
@@ -216,6 +219,7 @@ export class ShipmentsService {
     try {
       const id = await this.prisma.$transaction((tx: Db) => this.createInTx(tx, organizationId, dto, actor));
       await this.config.syncSteps(this.prisma, organizationId, [{ shipmentId: id }], actor);
+      this.events?.changed(organizationId, 'shipment created');
       return this.getById(organizationId, id);
     } catch (e) {
       if (isUniqueViolation(e)) throw new BadRequestException(`B/L number "${blNumber}" is already used by another shipment`);
@@ -357,6 +361,7 @@ export class ShipmentsService {
       void when;
       await this.whatsapp.queue(organizationId, 'EVENT', etaChangedLine(ref, existingEta, s?.eta, 'en'), { textFor: (p) => etaChangedLine(ref, existingEta, s?.eta, p.lang), linkUrl: s?.order ? `/portal/shipments/orders/${(await this.prisma.shipment.findFirst({ where: { id }, select: { orderId: true } }))?.orderId}?shipment=${id}` : null, dedupeKey: `eta:${id}:${s?.eta ? new Date(s.eta).toISOString().slice(0, 10) : 'none'}` });
     }
+    this.events?.changed(organizationId, 'shipment updated');
     return this.getById(organizationId, id);
   }
 

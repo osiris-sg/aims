@@ -100,13 +100,33 @@
     "confirmNotOne": "このメールを「出荷の件ではない」にしますか？",
     "confirmNotMany": "この {n} 件のメールを「出荷の件ではない」にしますか？",
     "confirmNotDealOne": "このメールを「案件ではない」にしますか？",
-    "confirmNotDealMany": "この {n} 件のメールを「案件ではない」にしますか？"
+    "confirmNotDealMany": "この {n} 件のメールを「案件ではない」にしますか？",
+    "aimsGuess": "AIMSの推測",
+    "askAdmin": "分からない → Elroy/Takeに聞く",
+    "askAdminHelp": "このカードをElroyとTakeに回します。二人が回答するか、どうすればよいか教えてくれます。",
+    "askAdminNote": "メモ（任意）",
+    "askAdminTitle": "Elroy/Takeに聞く",
+    "askedBy": "{by}さんからの質問: {note}",
+    "askedByNoNote": "{by}さんからの質問",
+    "askedChip": "Elroy・Takeに確認中",
+    "batchDone": "{n}件を登録しました",
+    "batchPick": "「チェックしたものを登録」に含める",
+    "batchYes": "チェックしたものを登録（{n}件）",
+    "other": "別の…",
+    "send": "送信",
+    "yesPrefix": "はい:"
   },
   "emailsAll": {
     "unprocessed": "未処理",
     "processed": "処理済み",
     "couldNotLoad": "メールを読み込めませんでした",
-    "nothingProcessed": "処理済みのメールはまだありません。"
+    "nothingProcessed": "処理済みのメールはまだありません。",
+    "notShipment": "出荷ではないメール",
+    "notShipmentHelp": "AIMSが除外したメール（カレンダーの返信、ニュースレター、送信者フィルターで除外したメール）。出荷のメールがあれば「出荷のメールです」で戻せます。",
+    "actuallyIs": "出荷のメールです",
+    "nothingHidden": "ありません。",
+    "backInInbox": "受信箱に戻しました",
+    "couldNotUnhide": "戻せませんでした"
   },
   "emailDialog": {
     "noSubject": "（件名なし）",
@@ -364,7 +384,8 @@
     "nothingHere": "ありません。",
     "filterCol": "フィルター",
     "falseDrop": "誤除外",
-    "triageSaid": "仕分け結果：{v}"
+    "triageSaid": "仕分け結果：{v}",
+    "actuallyIs": "出荷のメールです"
   },
   "issues": {
     "title": "課題",

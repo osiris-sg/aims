@@ -14,7 +14,7 @@ import { fmtDateTime } from "../_lib/format";
 import { toast } from "../_lib/toast";
 import { Button } from "@mui/material";
 
-/** Round Q: the accept rate (moved from the Inbox) and the emails hidden as obvious non-shipment mail, with Unhide. */
+/** Round Q: the accept rate (moved from the Inbox) and the emails hidden as obvious non-shipment mail, with Unhide (round BB: labelled "Actually it is"). */
 export function EmailFilterExtras() {
   const api = useShipmentsApi();
   const stats = useQuery({ queryKey: ["trade-inbox", "stats"], queryFn: () => api.inboxStats(30), staleTime: 60_000 });
@@ -80,8 +80,8 @@ export function EmailFilterExtras() {
                     </Typography>
                   </TableCell>
                   <TableCell align="right">
-                    <Button size="small" disabled={busy === r.id} onClick={() => void unhide(r.id)}>
-                      {t("unhide")}
+                    <Button size="small" disabled={busy === r.id} onClick={() => void unhide(r.id)} sx={{ textTransform: "none", whiteSpace: "nowrap" }} data-tour="settings-hidden-actually">
+                      {t("actuallyIs")}
                     </Button>
                   </TableCell>
                 </TableRow>
