@@ -13,8 +13,9 @@ import { isPresetRole, presetLabel } from "./rolePresets";
  * "Add user" (multi-org users, 2026-11-02): an org admin adds a person to THIS
  * org by email + role. An existing AIMS login (in any org) becomes a member at
  * once; an email with no login gets one made for it the way users have always
- * been added. Nothing is sent to the person. The server answers the same either
- * way, so this dialog never learns whether the login existed or where else it is.
+ * been added, and (2026-11-03) that new login is emailed a "set your password"
+ * link. The server answers the same either way, so this dialog never learns
+ * whether the login existed or where else it is.
  */
 export default function AddUserDialog({ open, onClose, onDone }: { open: boolean; onClose: () => void; onDone: () => void }) {
   const t = useTranslations("users.addUser");

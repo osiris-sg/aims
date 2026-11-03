@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { ADD_MEMBER_FAILED, ADD_MEMBER_REPLY, MembershipsService } from './memberships.service';
+import { ADD_MEMBER_FAILED, ADD_MEMBER_REPLY, MembershipsService, SET_PASSWORD_LINK_SECONDS } from './memberships.service';
 
 const A = 'org-a';
 const B = 'org-b';
@@ -54,9 +54,12 @@ function world() {
       }),
     },
   };
+  clerk.signInTokens = { createSignInToken: jest.fn(async ({ userId }: any) => ({ token: `tok-${userId}` })) };
   const identity = { stampExternalId: jest.fn(async () => undefined) };
-  const svc = new MembershipsService(prisma, clerk, identity as any);
-  return { svc, memberships, userRoles, clerk, identity };
+  const email = { sendSimpleEmail: jest.fn(async () => ({ success: true, messageId: 'm1' })) };
+  const actionLog = { system: jest.fn() };
+  const svc = new MembershipsService(prisma, clerk, identity as any, email as any, actionLog as any);
+  return { svc, memberships, userRoles, clerk, identity, email, actionLog };
 }
 const adminOfA = { orgId: A, platform: false, userId: 'me' };
 const memberOfA = (w: any, userId: string) => w.memberships.find((m: any) => m.userId === userId && m.organizationId === A && m.isActive);
@@ -126,5 +129,39 @@ describe('MembershipsService', () => {
     await expect(w.svc.addByEmail('not-an-email', ['roleA'], adminOfA)).rejects.toBeInstanceOf(BadRequestException);
     await expect(w.svc.addByEmail('a@x.sg', [], adminOfA)).rejects.toBeInstanceOf(BadRequestException);
     expect(w.clerk.users.createUser).not.toHaveBeenCalled();
+  });
+
+  it('the success text is the one the owner asked for, the same for every case', () => {
+    expect(ADD_MEMBER_REPLY('a@x.sg', 'WCT')).toBe("a@x.sg has been added to WCT. They'll get an email to set their password, or can sign in with Google/phone if set up.");
+    expect(ADD_MEMBER_REPLY('a@x.sg', 'WCT')).not.toMatch(/\u2014|\u2013/);
+  });
+
+  it('a NEW login gets a "set your password" email (one-time link, 7 days); an existing login is sent nothing', async () => {
+    const w = world();
+    await w.svc.addByEmail('existing@x.sg', ['roleA'], adminOfA);
+    expect(w.email.sendSimpleEmail).not.toHaveBeenCalled();
+    expect(w.clerk.signInTokens.createSignInToken).not.toHaveBeenCalled();
+    await w.svc.addByEmail('new@x.sg', ['roleA'], adminOfA);
+    expect(w.clerk.signInTokens.createSignInToken).toHaveBeenCalledWith({ userId: 'new_new@x.sg', expiresInSeconds: SET_PASSWORD_LINK_SECONDS });
+    expect(w.email.sendSimpleEmail).toHaveBeenCalledTimes(1);
+    const sent = (w.email.sendSimpleEmail.mock.calls[0] as any[])[0];
+    expect(sent.to).toEqual(['new@x.sg']);
+    expect(sent.subject).toBe('Set your AIMS password');
+    expect(sent.html).toContain('/set-password?ticket=tok-new_new%40x.sg');
+    expect(sent.html).toContain('ORG-A');
+    expect(sent.html).not.toMatch(/\u2014|\u2013/);
+    // the outcome is logged without an org, so the org's Activity Log can't tell a new login from an existing one
+    expect(w.actionLog.system).toHaveBeenCalledWith('add-user-welcome-email', 'EMAIL_SENT', 'user', expect.not.objectContaining({ organizationId: expect.anything() }));
+  });
+
+  it('a failed welcome email never changes the reply (logged as a platform-only failure)', async () => {
+    const w = world();
+    w.email.sendSimpleEmail.mockResolvedValueOnce({ success: false, error: 'resend down' } as any);
+    const r = await w.svc.addByEmail('new@x.sg', ['roleA'], adminOfA);
+    expect(r).toEqual({ ok: true, message: ADD_MEMBER_REPLY('new@x.sg', 'ORG-A') });
+    expect(memberOfA(w, 'new_new@x.sg')).toBeTruthy();
+    expect(w.actionLog.system).toHaveBeenCalledWith('add-user-welcome-email', 'EMAIL_FAILED', 'user', expect.objectContaining({ status: 'FAILURE', details: { error: 'resend down' } }));
+    w.clerk.signInTokens.createSignInToken.mockRejectedValueOnce(new Error('clerk down'));
+    await expect(w.svc.addByEmail('other@x.sg', ['roleA'], adminOfA)).resolves.toEqual({ ok: true, message: ADD_MEMBER_REPLY('other@x.sg', 'ORG-A') });
   });
 });

@@ -1,5 +1,5 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { UsersService } from './users.service';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { EMAIL_TAKEN, UsersService } from './users.service';
 import { RolesService } from '../roles/roles.service';
 import { PermissionsController } from '../permissions/permissions.controller';
 import { UsersController } from './users.controller';
@@ -72,7 +72,7 @@ function fakePrisma(db: { userOrganization: Row[]; userRole: Row[]; role: Row[];
       return { count: before - db[name].length };
     },
   });
-  return { userOrganization: table('userOrganization'), userRole: table('userRole'), role: table('role'), permission: table('permission'), organizationMemberProfile: { upsert: async () => ({}) } } as any;
+  return { userOrganization: table('userOrganization'), userRole: table('userRole'), role: table('role'), permission: table('permission'), organizationMemberProfile: { upsert: async () => ({}), findMany: async () => [] } } as any;
 }
 
 const A = 'orgA', B = 'orgB', PLATFORM_ORG = 'osiris-platform';
@@ -124,7 +124,7 @@ function setup() {
   };
   const users = new UsersService(clerkClient as any, prisma, clerkIdentity as any);
   const roles = new RolesService(prisma);
-  return { db, users, roles, clerkClient };
+  return { db, users, roles, clerkClient, prisma };
 }
 const adhAdmin = { orgId: A, platform: false, userId: 'take' };
 const platformAdmin = { orgId: A, platform: true, userId: 'osiris' };
@@ -355,5 +355,126 @@ describe('round AW — ADH Admin\'s normal flows in ADH', () => {
     expect(gone).toMatchObject({ removedFrom: A, clerkDeleted: false });
     expect(db.userRole.filter((r) => r.userId === 'newbie' && r.isActive)).toHaveLength(0);
     expect(clerkClient.users.deleteUser).not.toHaveBeenCalled();
+  });
+});
+
+// Edit User's email (2026-11-03): Clerk's updateUser has no email field, so the
+// address goes through the email-address API (verified + primary), the old
+// primary is removed, and a clash or a Clerk refusal is a clear error.
+function clerkWorld() {
+  const base = setup();
+  let n = 0;
+  const logins: Record<string, any> = {
+    sayaka: {
+      id: 'sayaka',
+      firstName: 'Shukkee',
+      lastName: 'Bong',
+      primaryEmailAddressId: null,
+      emailAddresses: [],
+      phoneNumbers: [{ id: 'ph1', phoneNumber: '+6588611512' }],
+      primaryPhoneNumberId: 'ph1',
+    },
+    take: { id: 'take', firstName: 'Take', lastName: 'K', primaryEmailAddressId: 'e-take', emailAddresses: [{ id: 'e-take', emailAddress: 'take@adh.jp' }], phoneNumbers: [] },
+    bob: { id: 'bob', firstName: 'Bob', lastName: 'B', primaryEmailAddressId: 'e-bob', emailAddresses: [{ id: 'e-bob', emailAddress: 'bob@b.sg' }], phoneNumbers: [] },
+  };
+  const copy = (u: any) => (u === undefined ? undefined : JSON.parse(JSON.stringify(u)));
+  const owner = (email: string) => Object.values(logins).find((u: any) => u.emailAddresses.some((e: any) => e.emailAddress === email));
+  const clerk: any = {
+    users: {
+      getUser: jest.fn(async (uid: string) => copy(logins[uid])),
+      getUserList: jest.fn(async ({ emailAddress }: any) => ({ data: [owner(emailAddress[0])].filter(Boolean).map(copy) })),
+      updateUser: jest.fn(
+        async (uid: string, d: any) => Object.assign(logins[uid], { firstName: d.firstName ?? logins[uid].firstName, lastName: d.lastName ?? logins[uid].lastName }) && copy(logins[uid]),
+      ),
+    },
+    emailAddresses: {
+      createEmailAddress: jest.fn(async ({ userId, emailAddress, primary }: any) => {
+        if (owner(emailAddress)) throw Object.assign(new Error('taken'), { errors: [{ code: 'form_identifier_exists', message: 'taken' }] });
+        const e = { id: `e${++n}`, emailAddress };
+        logins[userId].emailAddresses.push(e);
+        if (primary) logins[userId].primaryEmailAddressId = e.id;
+        return e;
+      }),
+      updateEmailAddress: jest.fn(async (eid: string, { primary }: any) => {
+        const u: any = Object.values(logins).find((x: any) => x.emailAddresses.some((e: any) => e.id === eid));
+        if (primary) u.primaryEmailAddressId = eid;
+        return u.emailAddresses.find((e: any) => e.id === eid);
+      }),
+      deleteEmailAddress: jest.fn(async (eid: string) => {
+        for (const u of Object.values(logins) as any[]) u.emailAddresses = u.emailAddresses.filter((e: any) => e.id !== eid);
+        return { id: eid, deleted: true };
+      }),
+    },
+  };
+  const identity = {
+    toClerkUser: jest.fn(async (uid: string) => copy(logins[uid])),
+    toClerkUsers: jest.fn(async (ids: string[]) => new Map(ids.map((i) => [i, copy(logins[i])]))),
+    invalidate: jest.fn(),
+    stampExternalId: jest.fn(),
+  };
+  const users = new UsersService(clerk, base.prisma, identity as any);
+  return { ...base, users, clerk, logins };
+}
+
+describe('Edit User: email', () => {
+  it('a login with NO email (phone only) gets one: verified, primary, phone kept', async () => {
+    const w = clerkWorld();
+    const res = await w.users.updateUser('sayaka', { firstName: 'Shukkee', lastName: 'Bong', email: 'Support@WCT.com.sg', roleIds: ['rA-sales'] } as any, adhAdmin);
+    expect(w.clerk.emailAddresses.createEmailAddress).toHaveBeenCalledWith({ userId: 'sayaka', emailAddress: 'support@wct.com.sg', verified: true, primary: true });
+    expect(res.email).toBe('support@wct.com.sg');
+    expect(w.logins.sayaka.phoneNumbers).toHaveLength(1);
+    expect(w.clerk.emailAddresses.deleteEmailAddress).not.toHaveBeenCalled();
+  });
+
+  it('changing an existing email replaces it (the old address is removed)', async () => {
+    const w = clerkWorld();
+    const res = await w.users.updateUser('take', { email: 'take.new@adh.jp', roleIds: ['rA-admin'] } as any, adhAdmin);
+    expect(res.email).toBe('take.new@adh.jp');
+    expect(w.clerk.emailAddresses.deleteEmailAddress).toHaveBeenCalledWith('e-take');
+    expect(w.logins.take.emailAddresses.map((e: any) => e.emailAddress)).toEqual(['take.new@adh.jp']);
+  });
+
+  it('the same email sent back unchanged is not a change (nothing touched in Clerk)', async () => {
+    const w = clerkWorld();
+    await w.users.updateUser('take', { email: 'TAKE@adh.jp', firstName: 'Take', lastName: 'K', roleIds: ['rA-admin'] } as any, adhAdmin);
+    expect(w.clerk.emailAddresses.createEmailAddress).not.toHaveBeenCalled();
+    expect(w.clerk.emailAddresses.deleteEmailAddress).not.toHaveBeenCalled();
+    expect(w.clerk.users.updateUser).not.toHaveBeenCalled();
+  });
+
+  it('an email another login already has: 409 with a clear message; nothing changes (not even roles)', async () => {
+    const w = clerkWorld();
+    const e = await w.users.updateUser('sayaka', { email: 'bob@b.sg', roleIds: ['rA-admin'] } as any, adhAdmin).catch((x) => x);
+    expect(e).toBeInstanceOf(ConflictException);
+    expect(e.message).toBe(EMAIL_TAKEN);
+    expect(w.logins.sayaka.emailAddresses).toHaveLength(0);
+    expect(w.db.userRole.find((r: any) => r.userId === 'sayaka' && r.roleId === 'rA-admin')).toBeFalsy();
+  });
+
+  it('a Clerk refusal is an error with its reason, never a silent success', async () => {
+    const w = clerkWorld();
+    w.clerk.emailAddresses.createEmailAddress.mockRejectedValueOnce(
+      Object.assign(new Error('bad'), { errors: [{ code: 'form_param_format_invalid', longMessage: 'email address must be a valid email address' }] }),
+    );
+    const e = await w.users.updateUser('sayaka', { email: 'x@y.sg', roleIds: ['rA-sales'] } as any, adhAdmin).catch((x) => x);
+    expect(e).toBeInstanceOf(BadRequestException);
+    expect(e.message).toBe('The email could not be saved: email address must be a valid email address');
+  });
+
+  it('a role-only edit of a login shared with another org is allowed when the email is sent back unchanged', async () => {
+    const w = clerkWorld();
+    w.logins.shared = { id: 'shared', firstName: 'S', lastName: 'H', primaryEmailAddressId: 'e-s', emailAddresses: [{ id: 'e-s', emailAddress: 'finance@wct.com.sg' }], phoneNumbers: [] };
+    await expect(w.users.updateUser('shared', { email: 'finance@wct.com.sg', roleIds: ['rA-admin'] } as any, adhAdmin)).resolves.toBeTruthy();
+    await expect(w.users.updateUser('shared', { email: 'other@wct.com.sg', roleIds: ['rA-admin'] } as any, adhAdmin)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('the user list never shows a Clerk id as the email: a phone-only login has email null, its phone, its name', async () => {
+    const w = clerkWorld();
+    const r: any = await w.users.getUsers({ page: 1, limit: 50 } as any, A);
+    const s = r.users.find((u: any) => u.id === 'sayaka');
+    expect(s.email).toBeNull();
+    expect(s.phone).toBe('+6588611512');
+    expect(s.name).toBe('Shukkee Bong');
+    for (const u of r.users) expect(String(u.email ?? '')).not.toMatch(/^user_|^sayaka$|^take$/);
   });
 });

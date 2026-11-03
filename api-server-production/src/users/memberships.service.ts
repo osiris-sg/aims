@@ -5,9 +5,31 @@ import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { AdminActor, PLATFORM_ADMIN_ROLE_WHERE } from '../auth/admin-scope';
 import { DEFAULT_MEMBERSHIP_ORDER, isEmail, normEmail, NOT_A_MEMBER_MESSAGE } from '../auth/active-org';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
+import { EmailService } from '../email/email.service';
+import { ActionLogService } from '../action-log/action-log.service';
 
 /** The one success text "Add user" ever gives: the same whether the email already had a login (in any org) or not. */
-export const ADD_MEMBER_REPLY = (email: string, org: string) => `${email} has been added to ${org}.`;
+export const ADD_MEMBER_REPLY = (email: string, org: string) => `${email} has been added to ${org}. They'll get an email to set their password, or can sign in with Google/phone if set up.`;
+
+/** How long the "set your password" link in a new login's welcome email works. */
+export const SET_PASSWORD_LINK_SECONDS = 7 * 24 * 3600;
+
+const portalOrigin = () => (process.env.PORTAL_URL || process.env.FRONTEND_URL || 'https://app.ai-ms.io').replace(/\/+$/, '');
+const esc = (v: string) => v.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+
+/** The welcome email a NEW login gets: a one-time link that signs them in and asks for a password. */
+export function setPasswordEmail(org: string, link: string) {
+  const signIn = `${portalOrigin()}/sign-in`;
+  return {
+    subject: `Set your AIMS password`,
+    html: `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1f2937;max-width:520px">
+<p>You have been added to <b>${esc(org)}</b> on AIMS.</p>
+<p>Choose a password to sign in:</p>
+<p><a href="${esc(link)}" style="display:inline-block;background:#1d4ed8;color:#fff;text-decoration:none;padding:10px 18px;border-radius:6px">Set your password</a></p>
+<p style="color:#6b7280;font-size:12px">This link works once and expires in 7 days. If it has expired, use "Forgot password" on <a href="${esc(signIn)}">${esc(signIn)}</a> with this email address.</p>
+</div>`,
+  };
+}
 
 /** The one error text for anything that stops "Add user" after the form checks (it never says why). */
 export const ADD_MEMBER_FAILED = 'This person could not be added. Check the email address and try again.';
@@ -21,8 +43,10 @@ export const ADD_MEMBER_FAILED = 'This person could not be added. Check the emai
  *   - a login with that email (whatever org it is in) becomes a member of the
  *     caller's org with the role(s), at once;
  *   - no login: the login is created for that email the way User Management
- *     creates users (Clerk user, external_id stamped), then the membership;
- *   - nothing is sent to the person; the org simply appears in their picker;
+ *     creates users (Clerk user, external_id stamped), then the membership,
+ *     and (owner 2026-11-03) the person gets a "set your password" email: a
+ *     one-time Clerk sign-in link to /set-password, sent by AIMS (Resend);
+ *   - an existing login is sent nothing; the org simply appears in their picker;
  *   - the caller gets the SAME reply either way, and one error wording for
  *     anything that can't be done, so nothing tells them whether the login
  *     existed or which other orgs it belongs to.
@@ -35,6 +59,8 @@ export class MembershipsService {
     private readonly prisma: PrismaService,
     @Inject('ClerkClient') private readonly clerkClient: ClerkClient,
     private readonly clerkIdentity: ClerkIdentityService,
+    private readonly email: EmailService,
+    private readonly actionLog: ActionLogService,
   ) {}
 
   // ── the caller ────────────────────────────────────────────────────────────
@@ -96,8 +122,11 @@ export class MembershipsService {
     if (!org) throw new BadRequestException(ADD_MEMBER_FAILED);
 
     let userId: string;
+    let created = false;
     try {
-      userId = (await this.existingLogin(email)) ?? (await this.createLogin(email));
+      const existing = await this.existingLogin(email);
+      userId = existing ?? (await this.createLogin(email));
+      created = !existing;
     } catch (e: any) {
       this.logger.error(`addByEmail: login lookup / create failed: ${e?.message}`);
       throw new BadRequestException(ADD_MEMBER_FAILED);
@@ -118,6 +147,7 @@ export class MembershipsService {
       });
     }
     ClerkAuthGuard.invalidateUser(userId);
+    if (created) await this.sendSetPasswordEmail(email, userId, org.name);
     return { ok: true, message: ADD_MEMBER_REPLY(email, org.name) };
   }
 
@@ -128,6 +158,29 @@ export class MembershipsService {
     const found: any = await this.clerkClient.users.getUserList({ emailAddress: [email] });
     const u = (Array.isArray(found) ? found : (found?.data ?? []))[0];
     return u ? u.externalId || u.id : null;
+  }
+
+  /**
+   * The new login's welcome email. Never fails "Add user" (the reply must not
+   * differ): a failure is logged as a platform-only System row (no org, so the
+   * org's own Activity Log never shows whether the login was new).
+   */
+  private async sendSetPasswordEmail(email: string, userId: string, orgName: string) {
+    let error: string | undefined;
+    try {
+      const t: any = await this.clerkClient.signInTokens.createSignInToken({ userId, expiresInSeconds: SET_PASSWORD_LINK_SECONDS });
+      const link = `${portalOrigin()}/set-password?ticket=${encodeURIComponent(t.token)}`;
+      const r = await this.email.sendSimpleEmail({ to: [email], ...setPasswordEmail(orgName, link) });
+      if (!r.success) error = r.error || 'send failed';
+    } catch (e: any) {
+      error = e?.message || String(e);
+    }
+    if (error) this.logger.error(`addByEmail: set-password email for ${userId} failed: ${error}`);
+    this.actionLog.system('add-user-welcome-email', error ? 'EMAIL_FAILED' : 'EMAIL_SENT', 'user', {
+      resourceId: userId,
+      status: error ? 'FAILURE' : 'SUCCESS',
+      details: error ? { error } : undefined,
+    });
   }
 
   /** A new login for the email, made as UsersService.createUser makes one (no password; external_id = own id). */

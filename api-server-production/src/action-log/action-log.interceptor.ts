@@ -238,7 +238,9 @@ export class ActionLogInterceptor implements NestInterceptor {
 
   private resolveActor(req: AimsRequest, path: string): { actorType: ActorType; actorId: string; actorName?: string; actorEmail?: string; channel: string } {
     if (req.user?.id) {
-      const name = [req.user.firstName, req.user.lastName].filter(Boolean).join(' ') || undefined;
+      // A login with no name is named by its username or phone (never left blank, so the log never falls back to the id).
+      const u: any = req.user;
+      const name = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username || u.phoneNumbers?.[0]?.phoneNumber || undefined;
       return { actorType: 'USER', actorId: req.user.id, actorName: name, actorEmail: req.user.emailAddresses?.[0]?.emailAddress, channel: 'portal' };
     }
     if (req.apiKey?.id) {

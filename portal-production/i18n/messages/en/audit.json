@@ -28,7 +28,8 @@
     "duration": "Duration",
     "ip": "IP",
     "systemCreation": "System creation",
-    "ms": "{n} ms"
+    "ms": "{n} ms",
+    "unnamedUser": "Unnamed user"
   },
   "legacy": {
     "tableName": "Audit Logs",

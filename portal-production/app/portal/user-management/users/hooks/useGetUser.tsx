@@ -21,7 +21,8 @@ export function useGetUsers() {
 
   interface User {
     id: string;
-    email: string;
+    email: string | null;
+    phone?: string | null;
     name: string;
     roles: Role[];
     createdAt: string;

@@ -19,6 +19,8 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 // temp-signature module.
 const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
+  // "Set your password" from the Add user welcome email: the one-time Clerk ticket in the URL signs the person in.
+  "/set-password(.*)",
   // Fixture previews (round P): the page itself 404s unless PREVIEW_FIXTURES=1.
   "/preview(.*)",
   "/guest(.*)",

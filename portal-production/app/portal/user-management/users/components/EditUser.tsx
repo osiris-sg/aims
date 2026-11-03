@@ -347,9 +347,9 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                     label={t("email")}
                     control={control}
                     name="email"
-                    placeHolder={t("emailPh")}
+                    // A phone-only login (e.g. a SiteClock worker) has no email: the field starts blank.
+                    placeHolder={user?.email ? t("emailPh") : t("noEmailPh")}
                     rules={{
-                      required: t("emailReq"),
                       pattern: {
                         value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
                         message: t("emailInvalid"),

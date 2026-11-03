@@ -28,7 +28,8 @@
     "duration": "所要時間",
     "ip": "IP",
     "systemCreation": "システム作成",
-    "ms": "{n} ms"
+    "ms": "{n} ms",
+    "unnamedUser": "名前未設定のユーザー"
   },
   "legacy": {
     "tableName": "監査ログ",

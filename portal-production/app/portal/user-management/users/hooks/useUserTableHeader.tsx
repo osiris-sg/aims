@@ -82,10 +82,11 @@ export default function useUserTableHeader() {
             </Avatar>
             <Box>
               <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                {user.email}
+                {user.email || user.name}
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                {user.name}
+                {/* No email (a phone-only login): its name, then its phone; never its id. */}
+                {user.email ? user.name : [user.phone, t("noEmail")].filter(Boolean).join(" · ")}
               </Typography>
             </Box>
           </Box>

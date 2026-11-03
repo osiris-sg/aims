@@ -47,9 +47,10 @@ export default function useActivityTableHeader() {
               <Chip label={r.actorType === "API_KEY" ? "API" : r.actorType} size="small" variant="outlined" color={ACTOR_COLOR[r.actorType] || "default"} sx={{ fontSize: "0.7rem" }} />
               <Box>
                 <Typography variant="body2" sx={{ fontWeight: 500, fontSize: "0.85rem" }}>
-                  {r.actorName || (r.actorType === "SYSTEM" ? t("systemCreation") : r.actorId)}
+                  {/* A person with no name reads as their email, else "Unnamed user": never a Clerk id. */}
+                  {r.actorName || (r.actorType === "SYSTEM" ? t("systemCreation") : r.actorType === "USER" ? r.actorEmail || t("unnamedUser") : r.actorId)}
                 </Typography>
-                {r.actorEmail && (
+                {r.actorEmail && r.actorName && (
                   <Typography variant="caption" sx={{ color: "text.secondary", fontSize: "0.72rem" }}>
                     {r.actorEmail}
                   </Typography>

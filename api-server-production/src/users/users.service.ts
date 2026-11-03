@@ -1,5 +1,5 @@
 // src/users/users.service.ts
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, ConflictException, Inject } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { UserRole, Role, Permission } from '@prisma/client';
 import { GetUsersDto } from './dto/get-users.dto';
@@ -9,6 +9,19 @@ import { ClerkClient } from '@clerk/backend';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { AdminActor, PLATFORM_ADMIN_ROLE_WHERE } from '../auth/admin-scope';
+import { normEmail } from '../auth/active-org';
+
+/** Edit User: the new email already belongs to another login. */
+export const EMAIL_TAKEN = 'That email is already used by another login';
+
+/** A login's primary email (its first one if none is marked primary), or null. Never its id. */
+export const primaryEmailOf = (u: any): string | null => (u?.emailAddresses || []).find((e: any) => e.id === u?.primaryEmailAddressId)?.emailAddress || u?.emailAddresses?.[0]?.emailAddress || null;
+
+/** A login's primary phone number, or null. */
+export const primaryPhoneOf = (u: any): string | null => (u?.phoneNumbers || []).find((p: any) => p.id === u?.primaryPhoneNumberId)?.phoneNumber || u?.phoneNumbers?.[0]?.phoneNumber || null;
+
+/** What a person is called in lists: name, else username, email or phone. Never a Clerk id. */
+export const displayNameOf = (u: any): string => `${u?.firstName || ''} ${u?.lastName || ''}`.trim() || u?.username || primaryEmailOf(u) || primaryPhoneOf(u) || 'Unnamed user';
 
 interface UserRoleWithDetails extends UserRole {
   role: Role & {
@@ -131,9 +144,11 @@ export class UsersService {
 
           return {
             id: userId,
-            email: clerkUser.emailAddresses[0]?.emailAddress || userId,
+            // A login with no email (e.g. a phone-only SiteClock worker) has none: never its id.
+            email: primaryEmailOf(clerkUser),
+            phone: primaryPhoneOf(clerkUser),
             // A login with no name shows its email (a person added by email shows like any other member).
-            name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || clerkUser.username || clerkUser.emailAddresses[0]?.emailAddress || `User ${userId}`,
+            name: displayNameOf(clerkUser),
             whatsappNumber: profile?.whatsappNumber ?? null,
             whatsappPrefs: profile?.whatsappPrefs ?? null,
             commissionPct: profile?.commissionPct ?? null,
@@ -152,8 +167,9 @@ export class UsersService {
           // Fallback to placeholder data if Clerk fetch fails
           return {
             id: userId,
-            email: userId,
-            name: `User ${userId}`,
+            email: null,
+            phone: null,
+            name: 'Unnamed user',
             whatsappNumber: profile?.whatsappNumber ?? null,
             whatsappPrefs: profile?.whatsappPrefs ?? null,
             commissionPct: profile?.commissionPct ?? null,
@@ -444,7 +460,7 @@ export class UsersService {
       id: userId,
       email: clerkUser.emailAddresses[0]?.emailAddress || email || null,
       username: clerkUser.username || username || null,
-      name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || clerkUser.username || `User ${userId}`,
+      name: displayNameOf(clerkUser),
       roles: userRoles.map((ur) => ({
         id: ur.role.id,
         name: ur.role.name,
@@ -461,12 +477,6 @@ export class UsersService {
     const organizationId = this.orgFor(updateUserDto.organizationId, actor);
     await this.assertReach(userId, actor);
     await this.assertRolesInOrg(roleIds ?? [], organizationId, actor);
-    // A login shared with another org: only a platform admin changes its email / password.
-    if (actor && !actor.platform && ((email && email.trim()) || (password && password.trim()))) {
-      const elsewhere = await this.prisma.userOrganization.count({ where: { userId, isActive: true, organizationId: { not: organizationId } } });
-      const rolesElsewhere = await this.prisma.userRole.count({ where: { userId, isActive: true, organizationId: { not: organizationId } } });
-      if (elsewhere + rolesElsewhere > 0) throw new ForbiddenException('This login is also used in another organization; ask Osiris to change its email or password');
-    }
 
     // Check if user exists by looking for their roles
     const existingUserRoles = await this.prisma.userRole.findMany({
@@ -494,13 +504,33 @@ export class UsersService {
       }
     }
 
-    // Update user in Clerk if any profile information is provided
-    let clerkUser;
+    // The current login (fresh: the comparisons below must not run against a cached copy).
+    let clerkUser: any;
     try {
-      // First, get the current user to have existing data (fresh: the
-      // comparisons below must not run against a cached copy).
       clerkUser = await this.clerkIdentity.toClerkUser(userId, { fresh: true });
+    } catch (error: any) {
+      if (error?.status === 404) throw new NotFoundException('User not found in Clerk');
+      throw new BadRequestException(`The user could not be loaded: ${clerkErrorText(error)}`);
+    }
+    // The form sends the email back unchanged on every save: only a DIFFERENT one is a change.
+    const newEmail = email && email.trim() ? normEmail(email) : null;
+    const emailChange = !!newEmail && newEmail !== normEmail(primaryEmailOf(clerkUser) ?? '');
+    const newPassword = password && password.trim().length >= 8 ? password.trim() : null;
 
+    // A login shared with another org: only a platform admin changes its email / password.
+    if (actor && !actor.platform && (emailChange || newPassword)) {
+      const elsewhere = await this.prisma.userOrganization.count({ where: { userId, isActive: true, organizationId: { not: organizationId } } });
+      const rolesElsewhere = await this.prisma.userRole.count({ where: { userId, isActive: true, organizationId: { not: organizationId } } });
+      if (elsewhere + rolesElsewhere > 0) throw new ForbiddenException('This login is also used in another organization; ask Osiris to change its email or password');
+    }
+
+    // The email first: if it can't be saved nothing else changes, and the admin is told why.
+    if (emailChange) {
+      clerkUser = await this.setLoginEmail(clerkUser, newEmail!);
+      this.clerkIdentity.invalidate(userId);
+    }
+
+    try {
       const clerkUpdateData: any = {};
 
       // Only add fields if they are provided and different from current values
@@ -512,40 +542,23 @@ export class UsersService {
         clerkUpdateData.lastName = lastName.trim();
       }
 
-      if (email && email.trim() && email.trim() !== clerkUser.emailAddresses[0]?.emailAddress) {
-        clerkUpdateData.emailAddress = [email.trim()];
-      }
-
-      if (password && password.trim() && password.trim().length >= 8) {
-        clerkUpdateData.password = password.trim();
+      if (newPassword) {
+        clerkUpdateData.password = newPassword;
         clerkUpdateData.skipPasswordChecks = true;
         clerkUpdateData.skipPasswordRequirement = true;
       }
 
       // Only update if there are actual changes
       if (Object.keys(clerkUpdateData).length > 0) {
-        console.log('Updating Clerk user with data:', clerkUpdateData);
         clerkUser = await this.clerkClient.users.updateUser(clerkUser.id, clerkUpdateData);
         this.clerkIdentity.invalidate(userId);
       }
     } catch (error: any) {
-      console.error('Error updating user in Clerk:', error);
-      console.error('Clerk error details:', error.errors || error.response?.data);
-
+      console.error('Error updating user in Clerk:', error?.errors || error?.message);
       if (error.status === 404) {
         throw new NotFoundException('User not found in Clerk');
       }
-
-      // Provide more specific error messages based on Clerk's error response
-      let errorMessage = 'Failed to update user in Clerk';
-      if (error.errors && Array.isArray(error.errors)) {
-        const errorMessages = error.errors.map((err: any) => `${err.code}: ${err.message}`);
-        errorMessage += ': ' + errorMessages.join(', ');
-      } else if (error.message) {
-        errorMessage += ': ' + error.message;
-      }
-
-      throw new NotFoundException(errorMessage);
+      throw new BadRequestException(`The user could not be saved: ${clerkErrorText(error)}`);
     }
 
     // Update role assignments if provided
@@ -610,8 +623,9 @@ export class UsersService {
 
     return {
       id: userId,
-      email: clerkUser.emailAddresses[0]?.emailAddress || email,
-      name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || clerkUser.username || `User ${userId}`,
+      email: primaryEmailOf(clerkUser),
+      phone: primaryPhoneOf(clerkUser),
+      name: displayNameOf(clerkUser),
       roles: updatedUserRoles.map((ur) => ({
         id: ur.role.id,
         name: ur.role.name,
@@ -621,6 +635,36 @@ export class UsersService {
       createdAt: updatedUserRoles[0]?.createdAt || new Date(),
       updatedAt: new Date(),
     };
+  }
+
+  /**
+   * Edit User's email (2026-11-03). Clerk's updateUser has no email field (the
+   * old code sent `emailAddress` there and Clerk dropped it, so a save "worked"
+   * and the email never changed). The address is added to the login as
+   * verified + primary, and the previous primary email is removed (a change,
+   * not a second address). Phones, Google and other sign-ins are left alone.
+   * Another login already holding the address: 409 EMAIL_TAKEN, nothing changed.
+   */
+  private async setLoginEmail(clerkUser: any, email: string) {
+    const holders: any = await this.clerkClient.users.getUserList({ emailAddress: [email] });
+    const other = (Array.isArray(holders) ? holders : (holders?.data ?? [])).find((u: any) => u.id !== clerkUser.id);
+    if (other) throw new ConflictException(EMAIL_TAKEN);
+    const previous = (clerkUser.emailAddresses || []).find((e: any) => e.id === clerkUser.primaryEmailAddressId) ?? clerkUser.emailAddresses?.[0] ?? null;
+    const mine = (clerkUser.emailAddresses || []).find((e: any) => normEmail(e.emailAddress) === email);
+    try {
+      const saved: any = mine
+        ? await this.clerkClient.emailAddresses.updateEmailAddress(mine.id, { verified: true, primary: true })
+        : await this.clerkClient.emailAddresses.createEmailAddress({ userId: clerkUser.id, emailAddress: email, verified: true, primary: true });
+      if (previous && previous.id !== saved.id) await this.clerkClient.emailAddresses.deleteEmailAddress(previous.id);
+    } catch (error: any) {
+      console.error('Error saving email in Clerk:', error?.errors || error?.message);
+      const code = error?.errors?.[0]?.code;
+      if (code === 'form_identifier_exists' || code === 'duplicate_record') throw new ConflictException(EMAIL_TAKEN);
+      throw new BadRequestException(`The email could not be saved: ${clerkErrorText(error)}`);
+    }
+    const fresh = await this.clerkClient.users.getUser(clerkUser.id);
+    if (normEmail(primaryEmailOf(fresh) ?? '') !== email) throw new BadRequestException('The email could not be saved. Please try again.');
+    return fresh;
   }
 
   /**
@@ -713,11 +757,17 @@ export class UsersService {
       id: userId,
       email: clerkUser.emailAddresses?.[0]?.emailAddress || email || null,
       username: clerkUser.username || username || null,
-      name: `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || clerkUser.username || `User ${userId}`,
+      name: displayNameOf(clerkUser),
       roles: roles.map((ur) => ({ id: ur.role.id, name: ur.role.name, description: ur.role.description, permissions: ur.role.permissions })),
       readded: true,
       createdAt: roles[0]?.createdAt || new Date(),
       updatedAt: new Date(),
     };
   }
+}
+
+/** Clerk's own words for an API error (its long message, else short message, else the error text). */
+function clerkErrorText(error: any): string {
+  const e = error?.errors?.[0];
+  return e?.longMessage || e?.long_message || e?.message || error?.message || 'unknown error';
 }

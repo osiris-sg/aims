@@ -287,9 +287,9 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                     label="Email Address"
                     control={control}
                     name="email"
-                    placeHolder="Enter email address"
+                    // A phone-only login has no email: blank is allowed (it is left as it is).
+                    placeHolder={user?.email ? "Enter email address" : "No email yet. Add one to let them sign in with email"}
                     rules={{
-                      required: "Email is required",
                       pattern: {
                         value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
                         message: "Invalid email address",
