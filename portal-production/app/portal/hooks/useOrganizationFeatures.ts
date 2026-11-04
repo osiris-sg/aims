@@ -145,6 +145,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // WCT ERP import (2026-11-05): hold the GL journal of payments / receipts on invoices imported from
   // the previous ERP until the opening AR is booked; Posting Queue → "Post held journals" releases them.
   holdErpImportPaymentGl: false,
+  // WCT only (2026-11-05): document lists sort / search on the trigger-kept list keys
+  // (api scripts/document-list-keys.js turns it on; --rollback turns it off).
+  useDocumentListKeys: false,
   enableBankRecXeroCheckpoint: false,
   // NOTE: the "AIMS Guide" assistant (bottom-right bubble) is deliberately
   // NOT flagged — it's global for every org (guru, 2026-08-03).

@@ -37,6 +37,9 @@ import { assetKey, descKey, invoiceDiscountPercent, isDisplayRow, orderInvoiceRe
 import { quotationLinesForJob } from '../deliveries/quotation-to-delivery';
 import { orgTodayFor } from '../common/org-today';
 
+/** WCT only (2026-11-05): document lists sort / search on the trigger-kept list keys. */
+export const DOCUMENT_LIST_KEYS_FLAG = 'useDocumentListKeys';
+
 // Who performed a document action — derived from req.user in the controller.
 export interface DocumentActor {
   id?: string;
@@ -219,11 +222,18 @@ export class DocumentsService {
     if (!ok) throw new BadRequestException(`Add at least one line item before confirming this ${what}.`);
   }
 
-  // Orgs whose documents all carry the trigger-kept list keys (listIssueDate / listSearch /
-  // listCustomerId, scripts/document-list-keys.js). Until then the lists use the old in-memory
-  // path. A "ready" answer is cached for 5 minutes per org.
+  // Fast list path (WCT only, 2026-11-05): an org with the useDocumentListKeys setting ON whose
+  // documents all carry the trigger-kept list keys (listIssueDate / listSearch / listCustomerId,
+  // scripts/document-list-keys.js) sorts and searches on those columns. Every other org, and an
+  // org with any document missing its keys, keeps the existing list code unchanged. A "ready"
+  // answer is cached for 5 minutes per org.
   private readonly listKeysReadyAt = new Map<string, number>();
   private async listKeysReady(organizationId: string): Promise<boolean> {
+    // The setting is read on every call, so turning it off (rollback) takes effect at once.
+    if (!(await isOrgFeatureEnabled(this.prisma as any, organizationId, DOCUMENT_LIST_KEYS_FLAG))) {
+      this.listKeysReadyAt.delete(organizationId);
+      return false;
+    }
     const at = this.listKeysReadyAt.get(organizationId);
     if (at && Date.now() - at < 5 * 60_000) return true;
     try {
