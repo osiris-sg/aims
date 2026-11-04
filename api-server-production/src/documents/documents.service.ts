@@ -3690,6 +3690,39 @@ export class DocumentsService {
       delete duplicatedConfig.confirmedAt;
       delete duplicatedConfig.confirmedBy;
 
+      // Dated today, not the source's date (guru 2026-11-04): a duplicate is
+      // a new document, so it is issued today in the org's time zone. The due
+      // date keeps the source's gap (due − date) from the new date; a source
+      // with no parseable pair just drops its due date and the editor
+      // recomputes it from the payment terms on open.
+      {
+        const today = await orgTodayFor(this.prisma, organizationId);
+        const oldDate = documentIssueDate(originalConfig, original.createdAt);
+        const oldDue = [originalConfig.documentInfo?.dueDate, originalConfig.dueDate].find((v) => typeof v === 'string' && v.trim());
+        const addDays = (ymd: string, n: number) => {
+          const d = new Date(`${ymd}T00:00:00Z`);
+          d.setUTCDate(d.getUTCDate() + n);
+          return d.toISOString().slice(0, 10);
+        };
+        let newDue: string | null = null;
+        if (oldDue) {
+          const a = new Date(`${oldDate}T00:00:00Z`).getTime();
+          const b = new Date(String(oldDue).slice(0, 10) + 'T00:00:00Z').getTime();
+          if (Number.isFinite(a) && Number.isFinite(b)) newDue = addDays(today, Math.round((b - a) / 86_400_000));
+        }
+        duplicatedConfig.date = today;
+        if ('issueDate' in duplicatedConfig) duplicatedConfig.issueDate = today;
+        if ('invoiceDate' in duplicatedConfig) duplicatedConfig.invoiceDate = today;
+        duplicatedConfig.documentInfo = { ...(duplicatedConfig.documentInfo || {}), date: today };
+        if (newDue) {
+          duplicatedConfig.dueDate = newDue;
+          duplicatedConfig.documentInfo.dueDate = newDue;
+        } else {
+          delete duplicatedConfig.dueDate;
+          delete duplicatedConfig.documentInfo.dueDate;
+        }
+      }
+
       // Items born outside the editor (Xero sync, external API, EW flow) can
       // lack `id`s — and the editor keys delete/edit/drag on item.id, so an
       // id-less duplicate breaks row operations. Stamp unique ids on copy.
