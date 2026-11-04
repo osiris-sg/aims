@@ -32,6 +32,12 @@ describe('WCT imported documents print their stored totals', () => {
     expect(html).toContain('$1,048.00');
   });
 
+  it('a paid imported invoice previews as paid (stored paid / owed, not total − 0)', () => {
+    const html = render({ erpStoredTotals: { grossTotal: 850, discountAmount: 0, subTotal: 850, gstAmount: 198, nettTotal: 1048, gstPercent: 9, sig: '1.00x850.00=850.00', paid: 1048, outstanding: 0 } });
+    expect(html).toMatch(/Amount Paid:<\/td><td class="v">\$1,048\.00/);
+    expect(html).toMatch(/Amount Due:<\/td><td class="v">\$0\.00/);
+  });
+
   it('recalculates once the lines change, and for any other document', () => {
     const changed = [{ description: 'x', quantity: 2, unitPrice: 850, amount: 1700 }];
     expect(renderWctBody('invoice', { name: 'I-010944', config, documentInfo: { gstPercent: 9 }, items: changed }, org, design)).toContain('$153.00');

@@ -180,7 +180,16 @@ function erpTotalsOf(data: any, cfg: any, di: (k: string, d?: any) => any, items
   const s: ErpStoredTotals | null = data?.erpStoredTotals ?? erpStoredTotalsOf(cfg);
   if (!s || s.sig !== moneySignature(items)) return null;
   const currency = String(di('currency', 'SGD') || 'SGD').toUpperCase();
-  return { currency, gstPercent: s.gstPercent, gstAmount: s.gstAmount, discountAmount: s.discountAmount, displayNet: s.subTotal, total: s.nettTotal };
+  return {
+    currency,
+    gstPercent: s.gstPercent,
+    gstAmount: s.gstAmount,
+    discountAmount: s.discountAmount,
+    displayNet: s.subTotal,
+    total: s.nettTotal,
+    paid: s.paid ?? amountPaidOf(cfg),
+    outstanding: s.outstanding !== undefined ? s.outstanding : outstandingOf(cfg),
+  };
 }
 
 /** Totals maths — the same formulas as the standard invoice renderer. */
@@ -415,9 +424,11 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   const cfg = data?.config && typeof data.config === 'object' ? data.config : data;
   // ERP-imported documents print their stored subtotal / GST / total while the lines' money is
   // unchanged (common/erp-import.ts); the editor paths pass them as data.erpStoredTotals.
-  const t = erpTotalsOf(data, cfg, di, items) ?? totalsOf(di, items);
-  const paid = amountPaidOf(cfg) ?? 0;
-  const outstanding = outstandingOf(cfg);
+  const erp = erpTotalsOf(data, cfg, di, items);
+  const t = erp ?? totalsOf(di, items);
+  // …and its stored paid / owed amounts (the editor's form data does not carry them).
+  const paid = (erp?.paid ?? amountPaidOf(cfg)) ?? 0;
+  const outstanding = erp && erp.outstanding !== undefined ? erp.outstanding : outstandingOf(cfg);
   const due = outstanding !== null ? Math.max(0, outstanding) : Math.max(0, Math.round((t.total - paid) * 100) / 100);
   // Invoice Rev = the document's revision from "Create Revision" (Document.
   // revisionNumber: R0 = the original, R1… each revision); a legacy typed

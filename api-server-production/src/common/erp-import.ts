@@ -1,3 +1,5 @@
+import { amountPaidOf, outstandingOf } from './document-money';
+
 // Documents imported from a customer's previous ERP (WCT 2026-11, scripts/wct-erp-import.ts).
 // History only: they carry their own numbers, totals and paid / owed amounts, and never post
 // to the GL, never enter the posting queue, the Xero confirm or the AI index. Payments
@@ -58,6 +60,9 @@ export interface ErpStoredTotals {
   gstPercent: number;
   /** moneySignature of the stored lines. */
   sig: string;
+  /** Invoices: what is paid / still owed (the live stamps); null when never stamped. */
+  paid?: number | null;
+  outstanding?: number | null;
 }
 
 /** An imported document's stored totals (null for any other document). */
@@ -80,5 +85,7 @@ export function erpStoredTotalsOf(config: any): ErpStoredTotals | null {
     nettTotal,
     gstPercent: pick('gstPercent') ?? 0,
     sig: moneySignature(config?.items),
+    paid: amountPaidOf(config) ?? null,
+    outstanding: outstandingOf(config) ?? null,
   };
 }
