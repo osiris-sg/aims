@@ -27,21 +27,23 @@ interface Props {
   onChange: (next: Attachment[]) => void;
   // Optional label for the section header.
   label?: string;
-  // Limit MIME types via the file picker — default accepts PDFs + images.
+  // Limit MIME types via the file picker — default accepts PDFs, images + ZIPs.
   accept?: string;
   // True to render a compact single-line variant (used inside dialogs).
   compact?: boolean;
   disabled?: boolean;
 }
 
-const DEFAULT_ACCEPT = "application/pdf,image/*";
+// PDFs, images and ZIPs (guru 2026-11-04: a ZIP of supporting files attaches
+// as one file here — unlike the AI intake dropzone, nothing is unpacked).
+export const ATTACHMENT_ACCEPT = "application/pdf,image/*,.zip,application/zip,application/x-zip-compressed";
 
 export default function AttachmentUploader({
   folder,
   value,
   onChange,
   label = "Attachments",
-  accept = DEFAULT_ACCEPT,
+  accept = ATTACHMENT_ACCEPT,
   compact = false,
   disabled,
 }: Props) {
@@ -127,7 +129,7 @@ export default function AttachmentUploader({
 
       {value.length === 0 ? (
         <Typography variant="caption" sx={{ color: "text.disabled", fontStyle: "italic" }}>
-          {dragOver ? "Drop to attach." : "No files attached. Drop files here or use Add file. PDFs and images supported."}
+          {dragOver ? "Drop to attach." : "No files attached. Drop files here or use Add file. PDFs, images and ZIPs supported."}
         </Typography>
       ) : (
         <Stack gap={0.5}>

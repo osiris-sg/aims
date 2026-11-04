@@ -26,10 +26,13 @@ import {
   PictureAsPdf as PdfIcon,
   Image as ImageIcon,
   InsertDriveFile as FileIcon,
+  FolderZip as ZipIcon,
 } from "@mui/icons-material";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { uploadFile, publicFileUrl } from "@/helpers/fileUploader";
+import { ATTACHMENT_ACCEPT } from "@/components/AttachmentUploader";
+import { useFileDrop } from "@/hooks/useFileDrop";
 
 type AttachmentRow = {
   fileKey: string;
@@ -40,9 +43,11 @@ type AttachmentRow = {
   uploadedBy?: string;
 };
 
-const fileIcon = (mimeType?: string) => {
-  if ((mimeType || "").includes("pdf")) return <PdfIcon fontSize="small" color="error" />;
-  if ((mimeType || "").startsWith("image/")) return <ImageIcon fontSize="small" color="info" />;
+const fileIcon = (mimeType?: string, fileName?: string) => {
+  const mt = mimeType || "";
+  if (mt.includes("pdf")) return <PdfIcon fontSize="small" color="error" />;
+  if (mt.startsWith("image/")) return <ImageIcon fontSize="small" color="info" />;
+  if (mt.includes("zip") || /\.zip$/i.test(fileName || "")) return <ZipIcon fontSize="small" color="warning" />;
   return <FileIcon fontSize="small" color="action" />;
 };
 
@@ -87,7 +92,7 @@ export default function DocumentAttachmentsDialog({
     if (open) fetchRows();
   }, [open, fetchRows]);
 
-  const handleFiles = async (files: FileList | null) => {
+  const handleFiles = async (files: FileList | File[] | null) => {
     if (!files || files.length === 0 || !documentId) return;
     setUploading(true);
     setError(null);
@@ -115,6 +120,13 @@ export default function DocumentAttachmentsDialog({
     }
   };
 
+  // Drag-and-drop, same types and same path as "Add files".
+  const { dragOver, bind } = useFileDrop({
+    accept: ATTACHMENT_ACCEPT,
+    onFiles: (fs) => void handleFiles(fs),
+    disabled: uploading,
+  });
+
   const handleRemove = async (row: AttachmentRow) => {
     if (!confirm(`Remove "${row.fileName}" from this document?`)) return;
     try {
@@ -141,14 +153,27 @@ export default function DocumentAttachmentsDialog({
           <CloseIcon fontSize="small" />
         </IconButton>
       </DialogTitle>
-      <DialogContent dividers sx={{ minHeight: 180 }}>
+      <DialogContent
+        dividers
+        {...bind}
+        sx={{
+          minHeight: 180,
+          outline: dragOver ? "2px dashed" : "none",
+          outlineColor: "primary.main",
+          outlineOffset: -6,
+          bgcolor: dragOver ? "action.hover" : "transparent",
+          transition: "background-color 120ms",
+        }}
+      >
         {loading ? (
           <Box sx={{ py: 5, textAlign: "center" }}>
             <CircularProgress size={22} />
           </Box>
         ) : rows.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
-            No files attached. PDFs and images supported — supplier documents, signed copies, payment proof, anything supporting this document.
+            {dragOver
+              ? "Drop to attach."
+              : "No files attached. Drop files here or use Add files. PDFs, images and ZIPs supported — supplier documents, signed copies, payment proof, anything supporting this document."}
           </Typography>
         ) : (
           <Stack gap={0.5}>
@@ -160,7 +185,7 @@ export default function DocumentAttachmentsDialog({
                 gap={1}
                 sx={{ px: 1, py: 0.75, borderRadius: 1, border: 1, borderColor: "divider" }}
               >
-                {fileIcon(r.mimeType)}
+                {fileIcon(r.mimeType, r.fileName)}
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Typography variant="body2" noWrap sx={{ fontWeight: 600 }}>{r.fileName}</Typography>
                   {r.uploadedAt && (
@@ -203,7 +228,7 @@ export default function DocumentAttachmentsDialog({
           type="file"
           hidden
           multiple
-          accept="application/pdf,image/*"
+          accept={ATTACHMENT_ACCEPT}
           onChange={(e) => handleFiles(e.target.files)}
         />
       </DialogActions>
