@@ -321,49 +321,28 @@ export class JournalService {
     const entry = await this.findOne(organizationId, id);
     if (entry.status === 'VOID') return entry;
 
-    return this.prisma.$transaction(async (tx) => {
-      // Mark original as void
-      const voided = await tx.journalEntry.update({
-        where: { id },
-        data: { status: 'VOID', voidedAt: new Date(), voidedBy: userId },
-      });
-
-      // Create reversing entry only if it had been posted AND confirmed.
-      // Unconfirmed JEs aren't in the official books yet (two-layer model) —
-      // voiding one in place is enough; a reversal would just clutter the
-      // ledger with paired phantom entries (guru 2026-08-19).
-      if (entry.status === 'POSTED' && !(entry as any).isUnconfirmed) {
-        const reverseNumber = await this.nextJournalNumber(organizationId);
-        await tx.journalEntry.create({
-          data: {
-            organizationId,
-            journalNumber: reverseNumber,
-            entryDate: new Date(),
-            type: 'ADJUSTMENT',
-            reference: `Reversal of ${entry.journalNumber}`,
-            description: `Reversing entry for ${entry.journalNumber}`,
-            currency: entry.currency,
-            totalDebit: entry.totalCredit, // swapped
-            totalCredit: entry.totalDebit,
-            status: 'POSTED',
-            postedAt: new Date(),
-            postedBy: userId,
-            reversesEntryId: entry.id,
-            createdBy: userId,
-            lines: {
-              create: entry.lines.map((l, i) => ({
-                accountId: l.accountId,
-                lineNumber: i + 1,
-                description: `Reversal: ${l.description ?? ''}`.trim(),
-                debit: l.credit,
-                credit: l.debit,
-              })),
-            },
-          },
-        });
-      }
-
-      return voided;
+    // Void IN PLACE — never also post a reversing entry.
+    //
+    // This used to do both: flip the original to VOID *and* post a reversal.
+    // That cancels the transaction twice. A VOID entry contributes nothing to
+    // the ledger (every reader filters status='POSTED'), so the live reversal
+    // was left standing alone as a one-sided entry — subtracting revenue that
+    // was never added. On Biofuel this had accumulated to $947,295.48 across
+    // 39 orphaned reversals and pushed whole revenue accounts below Xero
+    // (guru 2026-11-04; cleanup in scripts/void-orphaned-reversals.ts).
+    //
+    // A reversal would only be right if the original STAYED posted, and it
+    // cannot: almost every caller here is a void-then-repost
+    // (`if (existing) await void(...)` then post the new journal), and
+    // aims_je_guard blocks a second active native journal for the same
+    // (org, sourceDocumentId, type). So the original must go VOID, and the
+    // void is the cancellation.
+    //
+    // The audit trail is preserved by the VOID row itself: it keeps all its
+    // lines plus voidedAt / voidedBy. Nothing read `reversesEntryId`.
+    return this.prisma.journalEntry.update({
+      where: { id },
+      data: { status: 'VOID', voidedAt: new Date(), voidedBy: userId },
     });
   }
 

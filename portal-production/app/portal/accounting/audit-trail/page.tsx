@@ -140,7 +140,7 @@ export default function AuditTrailPage() {
   };
 
   const voidEntry = async (id: string) => {
-    if (!confirm("Void this entry? A reversing entry will be created if it was already posted.")) return;
+    if (!confirm("Void this entry? It stops counting towards every report, but stays on the audit trail with its lines and who voided it.")) return;
     try {
       await request(`/journal/entries/${id}/void`, { method: "POST" });
       toast.success("Voided");
