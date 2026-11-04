@@ -222,6 +222,8 @@ export default function page() {
       documentData.name = response.data.name;
       documentData.documentNumber = response.data.name;
       documentData.status = response.data.status;
+      // Imported from the previous ERP: the editor header shows an "Imported" tag (config.erpImport).
+      documentData.erpImport = config.erpImport ?? null;
       // Project link lives on the Document ROW (set via link-project), not in
       // config — without this the picker renders empty after every reload even
       // though the link is persisted.
