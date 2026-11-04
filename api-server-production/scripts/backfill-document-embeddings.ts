@@ -14,6 +14,7 @@
  */
 import { PrismaClient } from '@prisma/client';
 import OpenAI from 'openai';
+import { isErpImported } from '../src/common/erp-import';
 
 const EMBED_MODEL = 'text-embedding-3-small';
 const prisma = new PrismaClient();
@@ -67,6 +68,11 @@ async function main() {
   let failed = 0;
 
   for (const d of docs) {
+    // ERP-imported history is not indexed for AI search (src/common/erp-import.ts).
+    if (isErpImported(d.config)) {
+      skipped += 1;
+      continue;
+    }
     const emb = byDoc.get(d.id);
     if (emb && emb >= d.updatedAt) {
       skipped += 1;

@@ -1,6 +1,7 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { amountPaidOf, grossOf, outstandingOf, owedOf } from '../common/document-money';
+import { erpPaidAtImport } from '../common/erp-import';
 import { docRef, documentReferenceOf, refWith } from '../common/doc-ref';
 import { GenerateSOADto } from './dto/generate-soa.dto';
 
@@ -92,6 +93,13 @@ export class StatementsService {
           const paid = R(gross - R(outstandingOf(c) ?? gross));
           if (isXero && paid > 0.005) {
             add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: `Payment / credits applied — ${doc.name || ''}`.trim(), transactionType: 'PAYMENT', debit: 0, credit: paid, balance: 0, documentType: 'PAYMENT', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId }, -paid);
+          }
+          // ERP-imported invoices (common/erp-import.ts): what was paid in the previous ERP has no
+          // AIMS Payment row, so credit it here (the import-time balance, so payments recorded in
+          // AIMS since are not counted twice; they come from the payments loop below).
+          const erpPaid = isXero ? 0 : erpPaidAtImport(c, gross);
+          if (erpPaid > 0.005) {
+            add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: `Paid in previous system — ${doc.name || ''}`.trim(), transactionType: 'PAYMENT', debit: 0, credit: erpPaid, balance: 0, documentType: 'PAYMENT', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId }, -erpPaid);
           }
         } else if (doc.type === 'CREDIT_NOTE' && !isXero) {
           const ref = documentReferenceOf(c);

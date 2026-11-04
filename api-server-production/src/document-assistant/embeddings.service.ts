@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { PrismaService } from '../common/prisma.service';
+import { isErpImported } from '../common/erp-import';
 
 // ---------------------------------------------------------------------------
 // Semantic memory over an org's past documents. Each Document gets a small
@@ -134,6 +135,8 @@ export class EmbeddingsService {
 
     const stale = docs
       .filter((d) => {
+        // ERP-imported history is not indexed for AI search (common/erp-import.ts).
+        if (isErpImported(d.config)) return false;
         const emb = byDoc.get(d.id);
         return !emb || emb < d.updatedAt;
       })
@@ -165,6 +168,7 @@ export class EmbeddingsService {
     snippet: string,
     vector: number[],
   ): Promise<void> {
+    if (isErpImported(doc.config)) return;
     const customerId = (doc.config as any)?.customer?.id || (doc.config as any)?.customerId || null;
     await this.prisma.documentEmbedding.upsert({
       where: { documentId: doc.id },

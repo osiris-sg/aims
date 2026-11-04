@@ -25,6 +25,7 @@ import {
   Typography,
   Menu,
   MenuItem,
+  Tooltip,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
@@ -353,6 +354,11 @@ export default function DocumentListView({
           <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap>
             <StatusChip status={r.status} />
             {needsInfo && <Chip size="small" color="warning" variant="outlined" label="Needs info" sx={{ height: 20, fontSize: "0.7rem" }} />}
+            {(r.imported || c?.erpImport?.source) && (
+              <Tooltip title="Imported from the previous system: kept as history, never posted to the GL">
+                <Chip size="small" variant="outlined" label="Imported" sx={{ height: 20, fontSize: "0.7rem" }} />
+              </Tooltip>
+            )}
           </Stack>
         );
       },

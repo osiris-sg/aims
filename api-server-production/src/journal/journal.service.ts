@@ -4,6 +4,7 @@ import { CreateJournalEntryDto, JournalLineDto, UpdateJournalEntryDto } from './
 import { AnomaliesService } from '../anomalies/anomalies.service';
 import { docRef } from '../common/doc-ref';
 import { isUnconfirmedDoc } from '../common/doc-status';
+import { isErpImported } from '../common/erp-import';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 
@@ -160,8 +161,13 @@ export class JournalService {
     if (dto.sourceDocumentId) {
       const src = await this.prisma.document.findFirst({
         where: { id: dto.sourceDocumentId, organizationId },
-        select: { type: true, status: true },
+        select: { type: true, status: true, config: true },
       });
+      // ERP-imported history (common/erp-import.ts) never posts its own journal. Payments
+      // recorded later against an open imported invoice (type PAYMENT) are still allowed.
+      if (src && dto.type !== 'PAYMENT' && isErpImported(src.config)) {
+        throw new BadRequestException('AIMS guard: this document was imported from the previous ERP and does not post to the GL.');
+      }
       if (src?.type && dto.reference && dto.type !== 'PAYMENT') {
         dto.reference = docRef(src.type, dto.reference);
       }

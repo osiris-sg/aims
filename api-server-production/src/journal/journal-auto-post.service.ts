@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { JournalService } from './journal.service';
 import { refWith } from '../common/doc-ref';
+import { isErpImported } from '../common/erp-import';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 
@@ -239,6 +240,13 @@ export class JournalAutoPostService {
 
     if (gross <= 0) {
       this.logger.warn(`[postFromInvoice] gross <= 0 (gross=${gross}); skipping`);
+      return null;
+    }
+
+    // ERP-imported history never posts (common/erp-import.ts).
+    const srcDoc = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { config: true } });
+    if (srcDoc && isErpImported(srcDoc.config)) {
+      this.logger.log(`[postFromInvoice] doc=${documentId} was imported from the previous ERP; not posted`);
       return null;
     }
 

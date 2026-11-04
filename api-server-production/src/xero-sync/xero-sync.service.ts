@@ -5,6 +5,7 @@ import { PrismaService } from '../common/prisma.service';
 import { ActionLogService } from '../action-log/action-log.service';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { stampDocumentMoney } from '../common/document-money';
+import { isErpImported } from '../common/erp-import';
 
 // Per-org gate for confirm-from-Xero (admin panel toggle).
 export const XERO_CONFIRM_SYNC_FLAG = 'enableXeroConfirmSync';
@@ -754,6 +755,8 @@ Return JSON array.`;
     const byName = new Map<string, any>();
     for (const d of docs) {
       const c: any = d.config || {};
+      // ERP-imported history is never matched to Xero (common/erp-import.ts).
+      if (isErpImported(c)) continue;
       if (c.xeroInvoiceId) byXeroId.set(c.xeroInvoiceId, d);
       if (d.name) byName.set(d.name, d);
     }

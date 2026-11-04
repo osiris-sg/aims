@@ -2,6 +2,7 @@ import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { refreshOrderStatus } from '../orders/wct-orders';
 import { PrismaService } from '../common/prisma.service';
 import { amountPaidOf, grossStampOf, outstandingOf, owedOf, stampDocumentMoney } from '../common/document-money';
+import { erpPaidAtImport, isErpImported } from '../common/erp-import';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { UpdatePaymentDto } from './dto/update-payment.dto';
 import { Prisma, DocumentStatus } from '@prisma/client';
@@ -502,7 +503,10 @@ export class PaymentsService {
       const isXeroImported = !!config?.xeroImported;
       let importPaid = 0;
       let importBalanceStamp: Record<string, number> = {};
-      if (isXeroImported) {
+      // ERP-imported invoices (common/erp-import.ts) keep what the ERP had paid in
+      // erpImport.balanceAtImport, so a new payment adds to it instead of replacing it.
+      if (isErpImported(config)) importPaid = erpPaidAtImport(config, invoiceAmount);
+      else if (isXeroImported) {
         let importBalance = Number(config?.xeroImportBalance);
         if (!Number.isFinite(importBalance)) {
           importBalance = Number(outstandingOf(config));

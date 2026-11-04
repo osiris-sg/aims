@@ -4697,6 +4697,11 @@ export default function TabbedDocumentCreator({
               {confirmedEditUnlocked ? 'Editing confirmed document' : 'Document Confirmed'}
             </Typography>
           )}
+          {existingData?.config?.erpImport?.source && (
+            <Tooltip title={`Imported from the previous system${existingData.config.erpImport.originalNumber ? ` (${existingData.config.erpImport.originalNumber}` : ""}${existingData.config.erpImport.status ? `, ${existingData.config.erpImport.status})` : existingData.config.erpImport.originalNumber ? ")" : ""}: kept as history, never posted to the GL`}>
+              <Chip size="small" variant="outlined" label="Imported" />
+            </Tooltip>
+          )}
           {confirmedReadOnly && !isTemplateEditMode && (
             <Button
               size="small"

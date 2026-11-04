@@ -5,6 +5,7 @@ import { JournalService } from '../journal/journal.service';
 import { BillsService } from '../bills/bills.service';
 import { JournalAutoPostService } from '../journal/journal-auto-post.service';
 import { PostingPreviewService } from '../posting-preview/posting-preview.service';
+import { isErpImported } from '../common/erp-import';
 
 // ---------------------------------------------------------------------------
 // Posting-Review Queue (Feature B) + Batch Post (Feature C).
@@ -77,7 +78,8 @@ export class PostingQueueService {
       }),
     ]);
 
-    const rows: any[] = docs.map((d) => this.shapeRow(d));
+    // ERP-imported history never queues (never draft / unconfirmed; this keeps it that way).
+    const rows: any[] = docs.filter((d) => !isErpImported(d.config)).map((d) => this.shapeRow(d));
 
     // Standalone unconfirmed journal vouchers (manual JVs; doc-sourced JEs are
     // already represented by their documents above). Rendered RED in the UI.
@@ -204,6 +206,11 @@ export class PostingQueueService {
       const doc = await this.loadInvoice(organizationId, documentId);
       const c = (doc.config || {}) as any;
       invoiceNumber = doc.name ?? c.documentNumber ?? documentId;
+
+      // ERP-imported history never posts (common/erp-import.ts).
+      if (isErpImported(c)) {
+        return { documentId, invoiceNumber, ok: false, error: 'Imported from the previous ERP; it does not post to the GL' };
+      }
 
       if (c.glPosting?.status === 'posted') {
         return { documentId, invoiceNumber, ok: true, skipped: true, journalEntryId: c.glPosting.journalEntryId };

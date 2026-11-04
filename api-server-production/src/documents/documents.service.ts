@@ -28,6 +28,7 @@ import * as moment from 'moment';
 import { pdfOptionsFor, isWctLayout } from '../common/services/document-html';
 import { resolveDesign } from '../common/services/document-html/design';
 import { outstandingOf, grossStampOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
+import { erpPaidAtImport, isErpImported } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
 import { refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
 import { isOrgFeatureEnabled } from '../common/org-features';
@@ -228,6 +229,8 @@ export class DocumentsService {
   ): Promise<void> {
     const jeType = DocumentsService.SAVE_GL_TYPES[(docType || '').toUpperCase()];
     if (!jeType) return;
+    // ERP-imported history never posts (common/erp-import.ts), even when edited and saved.
+    if (isErpImported(config)) return;
     try {
       const cfg: any = config || {};
       const di: any = cfg.documentInfo || {};
@@ -1276,6 +1279,14 @@ export class DocumentsService {
             existingConfig[k] !== undefined
           ) {
             (configAsPlainObject as any)[k] = existingConfig[k];
+          }
+        }
+        // ERP-imported history (common/erp-import.ts): the marker and the paid / owed amounts are
+        // server-owned, so an edit-after-confirm save can't drop the "Imported" mark (and with it
+        // the GL guard) or reset what the ERP had paid.
+        if (isErpImported(existingConfig)) {
+          for (const k of ['erpImport', 'outstandingBalance', 'xeroBalance', 'paidToDate', 'xeroAmountPaid', 'totalWithTax', 'xeroGross']) {
+            if (existingConfig[k] !== undefined) (configAsPlainObject as any)[k] = existingConfig[k];
           }
         }
         // Reference canonicalisation (guru 2026-09-09): config.referenceNo is
@@ -4127,6 +4138,8 @@ export class DocumentsService {
           config: doc.config,
           // WCT: the order a confirmed quotation became (the list shows its number).
           ...(orderByQuotation.has(doc.id) ? { linkedOrder: orderByQuotation.get(doc.id) } : {}),
+          // Imported from the previous ERP (common/erp-import.ts): the list shows an "Imported" tag.
+          ...(isErpImported(config) ? { imported: true } : {}),
         };
       });
 
@@ -7081,7 +7094,9 @@ export class DocumentsService {
           0;
         return sum + amount;
       }, 0);
-      const isXero = !!config?.xeroImported;
+      // ERP-imported invoices (common/erp-import.ts) work the same way: the live outstanding
+      // stamp already includes what was paid in the ERP and every native payment since.
+      const isXero = !!config?.xeroImported || isErpImported(config);
       // Native invoices: prefer the editor's GROSS (documentInfo.nettTotal —
       // items sum alone is the NET on tax-exclusive docs, so the summary
       // understated the balance by the GST portion).
