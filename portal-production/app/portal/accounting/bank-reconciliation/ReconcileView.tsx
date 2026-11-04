@@ -38,6 +38,7 @@ import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { toast } from "react-toastify";
+import { withActiveOrg } from "@/helpers/request";
 
 type StatementLine = {
   id: string;
@@ -194,8 +195,17 @@ function PreviewDialog({ open, loading, data, onClose }: { open: boolean; loadin
                       <Typography variant="caption" sx={{ display: "block", fontFamily: "monospace" }}>{doc.reference}</Typography>
                     )}
                   </Box>
+                  {/* The admin's "viewing as org" lives in sessionStorage
+                      ("aims-admin-active-org"), the source of X-Active-Org-Id. A tab
+                      opened with "noopener" starts in a fresh browsing context that
+                      does NOT inherit it, so the document loaded under the admin's
+                      default org and the editor showed "Failed to load document"
+                      (guru 2026-11-04, BI202609072). withActiveOrg carries the org in
+                      the URL (?aorg=), which request.ts re-seeds into the new tab's
+                      sessionStorage — so the link survives without giving up
+                      "noopener". Same pattern as the chip in page.tsx. */}
                   {openUrl && (
-                    <Button size="small" variant="outlined" endIcon={<OpenInNewIcon fontSize="small" />} onClick={() => window.open(openUrl, "_blank", "noopener")}>
+                    <Button size="small" variant="outlined" endIcon={<OpenInNewIcon fontSize="small" />} onClick={() => window.open(withActiveOrg(openUrl), "_blank", "noopener")}>
                       Open
                     </Button>
                   )}
