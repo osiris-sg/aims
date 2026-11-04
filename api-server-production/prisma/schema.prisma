@@ -3303,6 +3303,15 @@ model Delivery {
   // (a "claim:" token first, then the invoice id), so a job is never billed
   // twice; null = not invoiced yet. Plain pointer, no FK.
   orderInvoiceId     String?
+  // WCT jobs calendar (enableWctOrders + enableJobsCalendar, 2026-11-04): the
+  // permit-to-work state NOT_NEEDED / REQUIRED / SUBMITTED / APPROVED (null =
+  // not needed) and a short remark; replaces the "Permit required / approved"
+  // job fields. crewWorkers: the job's extra SiteClock workers beyond the
+  // assignee, [{ id, name }] (SiteClock takes one assignee; the rest go in the
+  // job's notes). All nullable + additive (safe db push).
+  ptwStatus          String?
+  ptwRemark          String?
+  crewWorkers        Json?
   // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
   // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
   // for zero-downtime deploys (Render db-pushes on deploy while old code may
@@ -4637,6 +4646,32 @@ model SiteClockConnection {
 /// One SiteClock job per delivery run. worker/duration are the office's choice;
 /// the rest of the job (time, address, title) is read from the run at sync time,
 /// so every path that changes a run is covered by one sweep.
+/// WCT jobs calendar (enableWctOrders + enableJobsCalendar, 2026-11-04): a note on
+/// the calendar that is not a job: leave, a permit window, a site blockage. No
+/// SiteClock sync, no billing. Dates are Singapore days (yyyy-MM-dd, end
+/// inclusive); allDay false = startTime..endTime (HH:mm) on each day.
+model CalendarNote {
+  id             String   @id @default(uuid())
+  organizationId String
+  title          String
+  type           String // LEAVE | PTW | BLOCKAGE | OTHER
+  staffId        String? // SiteClock worker id (the same list the job form picks from)
+  staffName      String?
+  startDate      String // yyyy-MM-dd
+  endDate        String // yyyy-MM-dd, inclusive
+  allDay         Boolean  @default(true)
+  startTime      String? // HH:mm
+  endTime        String? // HH:mm
+  remark         String?
+  createdById    String?
+  createdByName  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId, startDate])
+  @@index([organizationId, endDate])
+}
+
 model DeliverySiteClockJob {
   id               String    @id @default(uuid())
   organizationId   String

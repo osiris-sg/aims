@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { isOrgFeatureEnabled } from 'src/common/org-features';
 import { runAsOrg } from 'src/common/tenancy/tenant-context';
 import { ensureOrderNumberFormat, isWctOrdersEnabled, issueOrderNumberInTx, lockQuotation } from 'src/orders/wct-orders';
@@ -242,14 +243,7 @@ async function createOrderWithFirstJob(
   logger?: { warn: (m: string) => void; log?: (m: string) => void },
 ): Promise<{ id: string; deliveryNumber: number; orderId: string; orderNumber: string } | null> {
   const format = await ensureOrderNumberFormat(prisma, organizationId);
-  const items = lines.map((l) => ({
-    itemCode: l.itemCode ?? '',
-    description: plainText(l.description),
-    quantity: Number(l.quantity) || 1,
-    unitPrice: Number(l.unitPrice) || 0,
-    uom: l.uom ?? '',
-    ...(l.accountCode ? { accountCode: l.accountCode } : {}),
-  }));
+  const items = orderItemsOf(lines);
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const out = await runAsOrg(organizationId, () =>
@@ -287,6 +281,78 @@ async function createOrderWithFirstJob(
   }
   logger?.warn(`quotation→order: could not allocate numbers for quotation ${doc.id}`);
   return null;
+}
+
+/** The order's item snapshot from the quotation's lines (Order.items). */
+function orderItemsOf(lines: any[]) {
+  return lines.map((l) => ({
+    itemCode: l.itemCode ?? '',
+    description: plainText(l.description),
+    quantity: Number(l.quantity) || 1,
+    unitPrice: Number(l.unitPrice) || 0,
+    uom: l.uom ?? '',
+    ...(l.accountCode ? { accountCode: l.accountCode } : {}),
+  }));
+}
+
+/**
+ * WCT jobs calendar "Link to… quotation" (2026-11-04): put an existing job (one
+ * made from the calendar, no order yet) under the quotation's order. A
+ * quotation with no order gets one WITHOUT the automatic first job: this job
+ * is its first job. Same per-quotation lock and same transaction as
+ * createOrderWithFirstJob, so a confirm landing at the same moment sees the
+ * order already has a job and adds none (no duplicate first job). The job is
+ * attached only while it still has no order (updateMany on orderId null).
+ */
+export async function attachJobToQuotationOrder(
+  prisma: any,
+  organizationId: string,
+  quotation: { id: string; name: string | null; config: any },
+  deliveryId: string,
+): Promise<{ orderId: string; orderNumber: string; created: boolean; sourceQuotationId: string }> {
+  const format = await ensureOrderNumberFormat(prisma, organizationId);
+  const cfg: any = quotation.config || {};
+  const customerRef = cfg.customerId || cfg.customer?.id || null;
+  const customer = customerRef ? await prisma.customer.findFirst({ where: { id: customerRef, organizationId }, select: { id: true } }) : null;
+  const items = orderItemsOf(quotationLines(cfg));
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await runAsOrg(organizationId, () =>
+        prisma.$transaction(async (tx: any) => {
+          await lockQuotation(tx, quotation.id);
+          let order = await tx.order.findFirst({ where: { organizationId, sourceQuotationId: quotation.id }, select: { id: true, orderNumber: true } });
+          let created = false;
+          if (!order) {
+            const orderNumber = await issueOrderNumberInTx(prisma, tx, organizationId, format.id);
+            order = await tx.order.create({
+              data: {
+                organizationId,
+                orderNumber,
+                customerId: customer?.id ?? null,
+                sourceQuotationId: quotation.id,
+                status: 'OPEN',
+                items,
+                linkedDocuments: { po: [], do: [], invoice: [], salesOrder: [] },
+                notes: `Created when a calendar job was linked to quotation ${quotation.name || quotation.id}`,
+              },
+              select: { id: true, orderNumber: true },
+            });
+            created = true;
+          }
+          const moved = await tx.delivery.updateMany({
+            where: { id: deliveryId, organizationId, orderId: null },
+            data: { orderId: order.id, sourceQuotationId: quotation.id },
+          });
+          if (moved.count !== 1) throw new ConflictException('This job is already under an order');
+          return { orderId: order.id, orderNumber: order.orderNumber as string, created, sourceQuotationId: quotation.id };
+        }),
+      );
+    } catch (err: any) {
+      if (err?.code === 'P2002') continue; // the order number raced: retry the whole transaction
+      throw err;
+    }
+  }
+  throw new ConflictException('Could not allocate an order number, please try again');
 }
 
 /**

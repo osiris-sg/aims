@@ -10,6 +10,13 @@ import { SiteClockApiError, SiteClockClient, SiteClockJob } from './siteclock.cl
 import { backoffMs, externalRefFor, Plan, PlanLink, PlanRun, planSync, PushedStatus } from './siteclock-plan';
 import { hashInboundKey, newInboundKey } from '../job-photos/job-photos';
 import { runNoun } from '../deliveries/job-wording';
+import { crewOf, siteclockExtraNotes } from '../deliveries/quick-jobs';
+
+/** PTW + the other workers, as extra note lines (absent when there are none, so other jobs hash as before). */
+function extraNotesOf(r: any): { extraNotes?: string[] } {
+  const lines = siteclockExtraNotes(r.ptwStatus, r.ptwRemark, crewOf(r.crewWorkers));
+  return lines.length ? { extraNotes: lines } : {};
+}
 
 export const SITECLOCK_LINK_FLAG = 'enableSiteClockLink';
 const ALERT_AFTER = 3; // failures in a row before the office bell rings
@@ -185,6 +192,9 @@ export class SiteClockLinkService {
           customer: { select: { name: true } },
           project: { select: { name: true } },
           order: { select: { orderNumber: true } },
+          ptwStatus: true,
+          ptwRemark: true,
+          crewWorkers: true,
           items: { select: { description: true, quantity: true, assetId: true, documentId: true }, orderBy: { sortOrder: 'asc' } },
         },
       }),
@@ -214,6 +224,7 @@ export class SiteClockLinkService {
       doNumber: doc?.name ?? null,
       doUrl: doc ? await this.doLink(organizationId, doc.id, mintLink) : null,
       orderNumber: r.order?.orderNumber ?? null,
+      ...extraNotesOf(r),
     };
   }
 

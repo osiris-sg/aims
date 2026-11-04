@@ -43,6 +43,9 @@ export interface CalendarEvent {
   verificationLabel?: string | null;
   /** Custom job fields (enableJobFields): the icons drawn on the event. */
   badges?: CalendarBadge[];
+  /** WCT calendar add: PTW badge (only when needed) and the "Untagged" mark (no order yet). */
+  ptw?: { status: string; label: string; remark: string | null };
+  untagged?: boolean;
 }
 
 export interface CalendarBadge {
@@ -68,6 +71,8 @@ export interface CalendarPayload {
   siteclock: { state: "ok" | "off" | "unavailable"; error?: string; fetchedAt?: string };
   /** Custom job fields (enableJobFields): what the event icons mean. */
   legend?: CalendarLegendEntry[];
+  /** WCT calendar add (enableWctOrders + enableJobsCalendar): notes in range; absent for every other org. */
+  notes?: import("@/helpers/calendarAdd").CalendarNote[];
 }
 
 /** "Permit approved: Yes" — an event icon's tooltip. */

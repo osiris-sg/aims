@@ -101,6 +101,7 @@ Spotlight anchors you may use in walkthrough steps (anchor field):
 - SiteClock job photos (2026-11-02): "job-photos" (the Job photos box on a delivery page), "order-photos" (the Photos section on an order page), "siteclock-inbound-key" (the Generate SiteClock key button, Admin → organisation → SiteClock tab).
 - WCT my jobs (2026-11-01): "field-my-jobs" (the My jobs / All chips on the field app's Pending tab).
 - Custom job fields (2026-11-01): "job-fields-add" (Add field on Settings → Job fields), "job-fields-editor" (the Job details block in the schedule dialog), "job-fields-panel" (the Job details box on a delivery page), "jobs-calendar-field-legend" (the job field legend above the jobs calendar).
+- Jobs calendar add (2026-11-04, WCT): "jobs-calendar-add" (the Job / Note menu after clicking an empty day or slot), "quick-job-ptw" (PTW in the quick job form), "job-ptw" (the PTW box on a job page), "job-link-to" (Link to… on an Untagged job), "orders-untagged-jobs" (the Untagged jobs tab on Orders).
 - WCT service report on the order (2026-11-01): "wct-order-upload-report" (Upload file) and "wct-order-link-report" (Link a service report) in the order page's Service report section.
 - WCT invoice per order (2026-11-01): "wct-order-invoice-now" (the Invoice now button in the order page's Invoices section).
 - WCT orders (2026-11-01): "wct-order-add-job" (the "Add job" button at the top right of a WCT order page, /portal/orders/<id>).

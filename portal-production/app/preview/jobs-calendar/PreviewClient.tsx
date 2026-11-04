@@ -7,6 +7,9 @@ import { Box, CssBaseline } from "@mui/material";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import { JobsCalendarPanel } from "@/components/Dashboard/JobsCalendar";
 import type { CalendarEvent, CalendarPayload } from "@/components/Dashboard/jobs-calendar/calendarModel";
+import type { CalendarNote } from "@/helpers/calendarAdd";
+import QuickJobDialog from "@/components/Dashboard/jobs-calendar/QuickJobDialog";
+import NoteDialog from "@/components/Dashboard/jobs-calendar/NoteDialog";
 
 const at = (day: number, hh: number, mm = 0) => new Date(Date.parse(`2026-11-${String(day).padStart(2, "0")}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:00+08:00`)).toISOString();
 const base: Pick<CalendarEvent, "allDay" | "completed" | "cancelled" | "rider" | "crew" | "siteclockUrl" | "deliveryNumber"> = { allDay: false, completed: false, cancelled: false, rider: null, crew: [], siteclockUrl: null, deliveryNumber: null };
@@ -35,18 +38,57 @@ const EVENTS: CalendarEvent[] = [
   sc("s5", "Duct cleaning", 17, 10, 240, { worker: "Team C" }),
 ];
 
-export default function PreviewClient({ mode, view, cancelled, down }: { mode: "light" | "dark"; view: "dayGridMonth" | "timeGridWeek" | "timeGridDay"; cancelled: boolean; down: boolean }) {
+// WCT calendar add (?add=1): an Untagged quick job with a PTW badge, PTW on an order job, and notes.
+const ADD_EVENTS: CalendarEvent[] = [
+  aims("q1", "delivery", 29, "Domino's Pizza (Tampines)", 4, 15, 60, { untagged: true, ptw: { status: "REQUIRED", label: "Required", remark: "MCST form" }, worker: "Kumar Raj" }),
+  aims("q2", "service", 30, "Changi Airport T3", 10, 16, 60, { orderNumber: "ORD202611-004", title: "ORD202611-004 · #30 Changi Airport T3", ptw: { status: "APPROVED", label: "Approved", remark: null } }),
+];
+const NOTES: CalendarNote[] = [
+  { id: "n1", title: "Ali on leave", type: "LEAVE", staffId: "w1", staffName: "Muhammad Ali", startDate: "2026-11-09", endDate: "2026-11-11", allDay: true, startTime: null, endTime: null, remark: null },
+  { id: "n2", title: "Loading bay closed", type: "BLOCKAGE", staffId: null, staffName: null, startDate: "2026-11-03", endDate: "2026-11-03", allDay: false, startTime: "09:00", endTime: "12:00", remark: "Tuas site" },
+  { id: "n3", title: "PTW window, Jewel", type: "PTW", staffId: null, staffName: null, startDate: "2026-11-05", endDate: "2026-11-06", allDay: true, startTime: null, endTime: null, remark: null },
+];
+
+export default function PreviewClient({ mode, view, cancelled, down, add = false }: { mode: "light" | "dark"; view: "dayGridMonth" | "timeGridWeek" | "timeGridDay"; cancelled: boolean; down: boolean; add?: boolean }) {
   const theme = useMemo(() => createTheme({ palette: { mode } }), [mode]);
   const [showCancelled, setShowCancelled] = useState(cancelled);
+  const [adding, setAdding] = useState<{ kind: "job" | "note"; slot: { date: string; time: string } } | null>(null);
+  const [editNote, setEditNote] = useState<CalendarNote | null>(null);
   const data: CalendarPayload = useMemo(
-    () => ({ from: "2026-10-26", to: "2026-12-06", timezone: "Asia/Singapore", events: down ? EVENTS.filter((e) => e.source === "aims") : EVENTS, siteclock: { state: down ? "unavailable" : "ok" } }),
-    [down],
+    () => ({
+      from: "2026-10-26",
+      to: "2026-12-06",
+      timezone: "Asia/Singapore",
+      events: [...(down ? EVENTS.filter((e) => e.source === "aims") : EVENTS), ...(add ? ADD_EVENTS : [])],
+      siteclock: { state: down ? "unavailable" : "ok" },
+      ...(add ? { notes: NOTES } : {}),
+    }),
+    [down, add],
   );
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <Box sx={{ p: 3, maxWidth: 1280, mx: "auto", bgcolor: "background.default", minHeight: "100vh" }}>
-        <JobsCalendarPanel data={data} loading={false} error="" showCancelled={showCancelled} onShowCancelled={setShowCancelled} onRange={() => undefined} initialDate="2026-11-03" initialView={view} />
+        <JobsCalendarPanel
+          data={data}
+          loading={false}
+          error=""
+          showCancelled={showCancelled}
+          onShowCancelled={setShowCancelled}
+          onRange={() => undefined}
+          initialDate="2026-11-03"
+          initialView={view}
+          jobWords={add}
+          canAdd={add}
+          onAdd={(kind, slot) => setAdding({ kind, slot })}
+          onNoteClick={setEditNote}
+        />
+        {add && (
+          <>
+            <QuickJobDialog open={adding?.kind === "job"} slot={adding?.slot} onClose={() => setAdding(null)} onSaved={() => setAdding(null)} />
+            <NoteDialog open={adding?.kind === "note" || !!editNote} slot={adding?.kind === "note" ? adding.slot : null} note={editNote} onClose={() => { setAdding(null); setEditNote(null); }} onSaved={() => undefined} />
+          </>
+        )}
       </Box>
     </ThemeProvider>
   );

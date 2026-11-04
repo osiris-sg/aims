@@ -12,6 +12,18 @@ import StatusPill from "./_components/StatusPill";
 import moment from "moment";
 import { toast } from "react-toastify";
 import { ORDER_TABS, OrderTab, fmtJobWhen, jobCountsLine, orderMatchesSearch, orderMatchesTab, orderStatusColor, orderStatusLabel } from "@/helpers/wctOrders";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+
+// WCT calendar add (2026-11-04): jobs made from the calendar with no order yet, so nothing gets forgotten.
+interface UntaggedJob {
+  id: string;
+  deliveryNumber: number;
+  scheduledFor: string | null;
+  customer: { id: string; name: string } | null;
+  site: string | null;
+  worker: string | null;
+  state: string;
+}
 
 // WCT orders (enableWctOrders, 2026-11-01): one order per accepted quotation,
 // each with its jobs. GET /orders returns the WCT shape for these orgs
@@ -34,7 +46,11 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
   const { getToken } = useAuth();
   const [orders, setOrders] = useState<WctOrderRow[]>(fixture ?? []);
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<OrderTab>("all");
+  const [tab, setTab] = useState<OrderTab | "untagged">("all");
+  const { isWctOrdersEnabled, features } = useOrganizationFeatures();
+  const calendarAdd = !fixture && !!isWctOrdersEnabled && !!features?.enableJobsCalendar;
+  const [untagged, setUntagged] = useState<UntaggedJob[]>([]);
+  const [untaggedCount, setUntaggedCount] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
@@ -59,13 +75,37 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
     fetchOrders();
   }, [fetchOrders]);
 
+  useEffect(() => {
+    if (!calendarAdd || !organization?.id) return;
+    (async () => {
+      const token = await getToken();
+      const res: any = await request({ path: "/deliveries/order-jobs?untagged=1&limit=100", method: "GET" }, {}, token ?? undefined);
+      const d = res?.data ?? res;
+      if (res?.success === false) return;
+      setUntagged(Array.isArray(d?.docs) ? d.docs : []);
+      setUntaggedCount(typeof d?.counts?.untagged === "number" ? d.counts.untagged : (d?.docs?.length ?? 0));
+    })();
+  }, [calendarAdd, organization?.id, getToken]);
+
   const counts = useMemo(() => {
     const c = {} as Record<OrderTab, number>;
     for (const t of ORDER_TABS) c[t.key] = orders.filter((o) => orderMatchesTab(o, t.key)).length;
     return c;
   }, [orders]);
 
-  const filtered = useMemo(() => orders.filter((o) => orderMatchesTab(o, tab) && orderMatchesSearch(o, search || "")), [orders, tab, search]);
+  const filtered = useMemo(() => (tab === "untagged" ? [] : orders.filter((o) => orderMatchesTab(o, tab) && orderMatchesSearch(o, search || ""))), [orders, tab, search]);
+  const untaggedRows = useMemo(() => {
+    const term = (search || "").trim().toLowerCase();
+    return untagged.filter((j) => !term || [String(j.deliveryNumber), j.customer?.name, j.site, j.worker].some((v) => (v || "").toLowerCase().includes(term)));
+  }, [untagged, search]);
+  const jobColumns: any[] = [
+    { accessorKey: "deliveryNumber", header: "Job", size: 8, cell: ({ row }: any) => <Typography variant="body2" sx={{ fontWeight: 600 }}>#{row.original.deliveryNumber}</Typography> },
+    { accessorKey: "scheduledFor", header: "When", size: 12, cell: ({ row }: any) => (row.original.scheduledFor ? fmtJobWhen(row.original.scheduledFor) : "—") },
+    { accessorKey: "customer", header: "Customer", size: 16, cell: ({ row }: any) => row.original.customer?.name || "—" },
+    { accessorKey: "site", header: "Site", size: 18, cell: ({ row }: any) => row.original.site || "—" },
+    { accessorKey: "worker", header: "Worker", size: 12, cell: ({ row }: any) => row.original.worker || "—" },
+    { accessorKey: "state", header: "Status", size: 10, cell: ({ row }: any) => <StatusPill label={String(row.original.state).replace(/_/g, " ").replace(/^./, (c: string) => c.toUpperCase())} color="default" /> },
+  ];
 
   const columns: any[] = [
     {
@@ -98,6 +138,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
           {ORDER_TABS.map((t) => (
             <Tab key={t.key} value={t.key} label={`${t.label} (${counts[t.key] ?? 0})`} sx={{ textTransform: "none", minHeight: 48 }} />
           ))}
+          {calendarAdd && <Tab value="untagged" label={`Untagged jobs (${untaggedCount ?? 0})`} sx={{ textTransform: "none", minHeight: 48 }} data-tour="orders-untagged-jobs" />}
         </Tabs>
       </Box>
   );
@@ -105,12 +146,16 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
   return (
     <MainCard>
       <PageTable
-        onRowClick={(r: any) => router.push(`/portal/orders/${r.id}`)}
-        rowHref={(r: any) => `/portal/orders/${r.id}`}
-        columns={columns}
-        data={filtered}
+        onRowClick={(r: any) => router.push(tab === "untagged" ? `/portal/deliveries/${r.id}` : `/portal/orders/${r.id}`)}
+        rowHref={(r: any) => (tab === "untagged" ? `/portal/deliveries/${r.id}` : `/portal/orders/${r.id}`)}
+        columns={tab === "untagged" ? jobColumns : columns}
+        data={tab === "untagged" ? untaggedRows : filtered}
         tableName="Orders"
-        subTitle="One order per accepted quotation. Open an order to see its jobs or add one."
+        subTitle={
+          tab === "untagged"
+            ? "Jobs added from the calendar with no quotation or order yet. Open one and use Link to… to put it under an order."
+            : "One order per accepted quotation. Open an order to see its jobs or add one."
+        }
         headerContent={statusTabs}
         loading={loading}
         page={page}
@@ -123,7 +168,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
         setFilters={setFilters}
         filterConfig={[]}
         pageCount={1}
-        totalDocs={filtered.length}
+        totalDocs={tab === "untagged" ? untaggedRows.length : filtered.length}
       />
     </MainCard>
   );

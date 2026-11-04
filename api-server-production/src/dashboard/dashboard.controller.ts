@@ -1,6 +1,7 @@
-import { Controller, Get, Post, Body, Query, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Req } from '@nestjs/common';
 import { DashboardService } from './dashboard.service';
 import { JobsCalendarService } from './jobs-calendar.service';
+import { CalendarNotesService } from './calendar-notes.service';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
@@ -23,6 +24,7 @@ export class DashboardController {
   constructor(
     private readonly dashboardService: DashboardService,
     private readonly jobsCalendar: JobsCalendarService,
+    private readonly calendarNotes: CalendarNotesService,
   ) {}
 
   @Get('overview')
@@ -160,6 +162,30 @@ export class DashboardController {
   @ApiOperation({ summary: 'Jobs calendar: AIMS runs and SiteClock jobs in a date range' })
   async getJobsCalendar(@Req() req: RequestWithOrganization, @Query('from') from: string, @Query('to') to: string) {
     return await this.jobsCalendar.get(this.orgOf(req), from, to);
+  }
+
+  // Calendar notes (WCT 2026-11-04, enableWctOrders + enableJobsCalendar):
+  // leave / PTW / blockage bars; anyone with the calendar can manage them.
+
+  @Post('jobs-calendar/notes')
+  @Permissions('dashboard:read')
+  @ApiOperation({ summary: 'Jobs calendar: add a note (not a job)' })
+  async createCalendarNote(@Req() req: RequestWithOrganization, @Body() body: any) {
+    return await this.calendarNotes.create(this.orgOf(req), req.user?.id ?? null, body);
+  }
+
+  @Patch('jobs-calendar/notes/:id')
+  @Permissions('dashboard:read')
+  @ApiOperation({ summary: 'Jobs calendar: edit a note' })
+  async updateCalendarNote(@Req() req: RequestWithOrganization, @Param('id') id: string, @Body() body: any) {
+    return await this.calendarNotes.update(this.orgOf(req), id, body);
+  }
+
+  @Delete('jobs-calendar/notes/:id')
+  @Permissions('dashboard:read')
+  @ApiOperation({ summary: 'Jobs calendar: delete a note' })
+  async deleteCalendarNote(@Req() req: RequestWithOrganization, @Param('id') id: string) {
+    return await this.calendarNotes.remove(this.orgOf(req), id);
   }
 
   private userOf(req: RequestWithOrganization): string {

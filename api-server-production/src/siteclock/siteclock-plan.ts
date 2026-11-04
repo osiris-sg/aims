@@ -46,6 +46,8 @@ export interface PlanRun {
   doUrl: string | null;
   /** WCT orders: the job's order number (Order.orderNumber), null / absent outside that flow. */
   orderNumber?: string | null;
+  /** WCT jobs calendar: "PTW: Required (…)" / "Also on this job: …" lines; absent when there are none. */
+  extraNotes?: string[];
 }
 
 export interface PlanLink {
@@ -147,6 +149,7 @@ export function jobTitle(run: PlanRun) {
 export function jobNotes(run: PlanRun): string | null {
   const lines = run.items.filter((i) => i.description.trim()).map((i) => (i.quantity > 1 ? `${i.quantity} × ${i.description.trim()}` : i.description.trim()));
   if (run.notes?.trim()) lines.push('', run.notes.trim());
+  if (run.extraNotes?.length) lines.push('', ...run.extraNotes);
   const text = lines.join('\n').trim();
   return text ? clip(text, 2000) : null;
 }

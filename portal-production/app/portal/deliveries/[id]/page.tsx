@@ -60,6 +60,8 @@ import type { JobFieldDef } from "@/helpers/jobFields";
 import VerificationPanel, { JobVerification } from "@/components/delivery/VerificationPanel";
 import { DeliveryJobPhotos } from "@/components/delivery/JobPhotos";
 import { runDoTag } from "@/helpers/doStatusTag";
+import JobPtwLinkPanel from "@/app/portal/deliveries/_components/JobPtwLinkPanel";
+import QuickJobDialog from "@/components/Dashboard/jobs-calendar/QuickJobDialog";
 
 /**
  * Delivery run detail (office). Items + the field PROOF (photos, signature,
@@ -110,6 +112,10 @@ interface RunDetail {
   customer: { id: string; name: string; customerCode?: string | null } | null;
   // WCT orders (enableWctOrders): the order this job belongs to.
   order?: { id: string; orderNumber: string; status: string } | null;
+  // WCT calendar add: permit-to-work and the extra SiteClock workers (the assignee is siteclock.workerId).
+  ptwStatus?: string | null;
+  ptwRemark?: string | null;
+  crewWorkers?: { id: string; name: string }[] | null;
   // WCT finish modes (enableWctFinishModes): the sign-off and its office check.
   verification?: JobVerification | null;
   // Custom job fields (enableJobFields): the org's fields + this run's values.
@@ -274,7 +280,9 @@ export default function DeliveryDetailPage() {
   // Service-job org (enableQuotationToDelivery — WCT 2026-10-27): runs are jobs
   // from an accepted quotation, not rental deployments. No project to attach,
   // and a line is Equipment or SERVICE (work on site) instead of Rental / Sale.
-  const { isQuotationToDeliveryEnabled: serviceJobs, isRealDoOnScheduleEnabled: realDoNumbers } = useOrganizationFeatures();
+  const { isQuotationToDeliveryEnabled: serviceJobs, isRealDoOnScheduleEnabled: realDoNumbers, isWctOrdersEnabled, features } = useOrganizationFeatures();
+  // WCT calendar add (enableWctOrders + enableJobsCalendar): PTW, "Link to…", and quick jobs edited with their own form.
+  const calendarAdd = !!isWctOrdersEnabled && !!features?.enableJobsCalendar;
   const deliveryId = params?.id as string;
 
   const [run, setRun] = useState<RunDetail | null>(null);
@@ -299,6 +307,7 @@ export default function DeliveryDetailPage() {
   const [showAllDos, setShowAllDos] = useState(false);
   // Edit a still-scheduled DELIVERY run (same form, prefilled).
   const [editOpen, setEditOpen] = useState(false);
+  const [quickEditOpen, setQuickEditOpen] = useState(false);
   // Attach-project (ad-hoc runs only).
   const [attachOpen, setAttachOpen] = useState(false);
   const [attachProjects, setAttachProjects] = useState<Array<{ id: string; name: string; customerId: string | null }>>([]);
@@ -807,7 +816,8 @@ export default function DeliveryDetailPage() {
         {run.status === "scheduled" && run.direction !== "RETURN" && (
           <>
             <Box sx={{ flex: 1 }} />
-            <Button size="small" variant="outlined" onClick={() => setEditOpen(true)}>
+            {/* A quick job (calendar, no order, no lines) is edited with the quick form. */}
+            <Button size="small" variant="outlined" onClick={() => (calendarAdd && !run.order && run.items.length === 0 ? setQuickEditOpen(true) : setEditOpen(true))}>
               Edit
             </Button>
           </>
@@ -847,6 +857,8 @@ export default function DeliveryDetailPage() {
         {run.customer ? ` · Customer: ${run.customer.name}` : ""}
         {run.siteAddress ? ` · Site: ${run.siteAddress}` : ""}
       </Typography>
+
+      {calendarAdd && run.direction !== "RETURN" && <JobPtwLinkPanel run={run} onChanged={() => void load()} />}
 
       {/* Custom job fields (enableJobFields): edit the job's own fields here. */}
       {run.jobFields && run.jobFields.fields.length > 0 && <JobFieldsPanel deliveryId={run.id} jobFields={run.jobFields} onSaved={() => void load()} />}
@@ -1569,6 +1581,36 @@ export default function DeliveryDetailPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {calendarAdd && (
+        <QuickJobDialog
+          open={quickEditOpen}
+          onClose={() => setQuickEditOpen(false)}
+          onSaved={() => {
+            setQuickEditOpen(false);
+            void load();
+          }}
+          onDeleted={() => router.push("/portal")}
+          edit={
+            quickEditOpen
+              ? {
+                  id: run.id,
+                  customer: run.customer ? ({ id: run.customer.id, name: run.customer.name, customerCode: run.customer.customerCode ?? null } as any) : null,
+                  siteAddress: run.siteAddress,
+                  scheduledFor: run.scheduledFor,
+                  notes: run.notes,
+                  ptwStatus: run.ptwStatus ?? null,
+                  ptwRemark: run.ptwRemark ?? null,
+                  workers: [
+                    ...(run.siteclock?.workerId ? [{ id: run.siteclock.workerId, name: run.siteclock.workerName ?? run.siteclock.workerId }] : []),
+                    ...(Array.isArray(run.crewWorkers) ? run.crewWorkers : []),
+                  ],
+                  durationMin: run.siteclock?.durationMin ?? null,
+                }
+              : null
+          }
+        />
+      )}
 
       <ScheduleDeliveryDialog
         open={editOpen}

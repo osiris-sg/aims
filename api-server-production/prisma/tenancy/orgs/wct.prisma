@@ -1843,6 +1843,9 @@ model Delivery {
   verificationNote   String?
   // WCT invoice per order (enableWctOrderInvoice): mirrors schema.prisma.
   orderInvoiceId     String?
+  ptwStatus          String?
+  ptwRemark          String?
+  crewWorkers        Json?
   // LEGACY run-level link — FROZEN (per-item linking, 2026-08): new code
   // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
   // for zero-downtime deploys (Render db-pushes on deploy while old code may

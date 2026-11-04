@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'crypto';
 import * as QRCode from 'qrcode';
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional, forwardRef } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional, forwardRef } from '@nestjs/common';
 import { AssetClass, DeliveryDirection, DeliveryOrigin, DeliveryStatus, DeploymentStatus, DeploymentType, InventoryStatus, Prisma } from '@prisma/client';
 import { restampDeploymentTypeOnDocuments } from '../common/do-deployment-type';
 import { PrismaService } from 'src/common/prisma.service';
@@ -54,7 +54,8 @@ export function parseAdHocReturnNotes(notes: string | null | undefined): { custo
 
 import { enqueueDeliveryGroupPost } from '../delivery-group-posts/enqueue';
 import { isOrgFeatureEnabled } from 'src/common/org-features';
-import { QUOTATION_TO_DELIVERY_FLAG, applyQuotationLinkToDoConfig } from './quotation-to-delivery';
+import { QUOTATION_TO_DELIVERY_FLAG, applyQuotationLinkToDoConfig, attachJobToQuotationOrder, quotationLinesForJob } from './quotation-to-delivery';
+import { isCalendarAddEnabled, parseLinkKind, parsePtwRemark, parsePtwStatus, parseWorkers } from './quick-jobs';
 import { REAL_DO_ON_SCHEDULE_FLAG, cancelledDoConfig, isIssuedOnSchedule } from './do-number';
 import { SiteClockLinkService, SiteClockScheduleInput } from '../siteclock/siteclock-link.service';
 import { applyOrderToDoConfig, isWctOrdersEnabled, refreshOrderStatus, refreshOrderStatusForRun } from '../orders/wct-orders';
@@ -812,6 +813,231 @@ export class DeliveriesService {
     });
     if (!order) throw new NotFoundException('Order not found in this organization');
     return order;
+  }
+
+  // ── WCT jobs calendar: quick jobs, PTW, "Link to…" (deliveries/quick-jobs.ts) ──
+
+  private async assertCalendarAdd(organizationId: string) {
+    if (!(await isCalendarAddEnabled(this.prisma, organizationId))) throw new NotFoundException('Adding jobs from the calendar is not enabled for this organisation');
+  }
+
+  /** Customer (org-scoped) + the quick-job form's fields, checked before anything is written. */
+  private async quickJobFields(organizationId: string, body: any) {
+    const customerId = typeof body?.customerId === 'string' && body.customerId ? body.customerId : null;
+    if (!customerId) throw new BadRequestException('Pick a customer');
+    const customer = await this.prisma.customer.findFirst({ where: { id: customerId, organizationId }, select: { id: true } });
+    if (!customer) throw new NotFoundException('Customer not found in this organization');
+    const when = typeof body?.scheduledFor === 'string' ? new Date(body.scheduledFor) : null;
+    if (!when || Number.isNaN(when.getTime())) throw new BadRequestException('Pick a date and time');
+    const durationMin = body?.durationMin === undefined || body?.durationMin === null ? null : Math.round(Number(body.durationMin));
+    if (durationMin !== null && !(durationMin >= 15 && durationMin <= 24 * 60)) throw new BadRequestException('The job must last between 15 minutes and 24 hours');
+    const siteAddress = typeof body?.siteAddress === 'string' ? body.siteAddress.trim().slice(0, 500) : '';
+    const notes = typeof body?.remarks === 'string' ? body.remarks.trim().slice(0, 2000) : '';
+    const workers = parseWorkers(body?.workers);
+    return {
+      customerId,
+      scheduledFor: when,
+      durationMin,
+      siteAddress: siteAddress || null,
+      notes: notes || null,
+      ptwStatus: parsePtwStatus(body?.ptwStatus),
+      ptwRemark: parsePtwRemark(body?.ptwRemark),
+      assignee: workers[0] ?? null,
+      crew: workers.slice(1),
+    };
+  }
+
+  /**
+   * Quick job from an empty calendar slot: a real scheduled job with no order,
+   * no lines and NO Delivery Order (so no DO number is taken). It syncs to
+   * SiteClock like any job: the first worker is the assignee.
+   */
+  async createQuickJob(organizationId: string, body: any) {
+    await this.assertCalendarAdd(organizationId);
+    const f = await this.quickJobFields(organizationId, body);
+    let run: { id: string; deliveryNumber: number } | null = null;
+    for (let attempt = 0; attempt < 3 && !run; attempt++) {
+      const latest = await this.prisma.delivery.findFirst({ where: { organizationId }, orderBy: { deliveryNumber: 'desc' }, select: { deliveryNumber: true } });
+      try {
+        run = await this.prisma.delivery.create({
+          data: {
+            organizationId,
+            deliveryNumber: (latest?.deliveryNumber ?? 0) + 1,
+            status: 'scheduled',
+            riderUserId: null,
+            riderName: null,
+            isDraft: false,
+            scheduledFor: f.scheduledFor,
+            customerId: f.customerId,
+            siteAddress: f.siteAddress,
+            notes: f.notes,
+            ptwStatus: f.ptwStatus,
+            ptwRemark: f.ptwRemark,
+            crewWorkers: f.crew,
+          },
+          select: { id: true, deliveryNumber: true },
+        });
+      } catch (err: any) {
+        if (err?.code === 'P2002') continue;
+        throw err;
+      }
+    }
+    if (!run) throw new BadRequestException('Could not allocate a job number, please retry');
+    const input = { siteclockWorkerId: f.assignee?.id ?? null, siteclockWorkerName: f.assignee?.name ?? null };
+    await savePlannedRider(this.prisma, organizationId, run.id, input);
+    await this.siteclock?.onScheduleSaved(organizationId, run.id, { workerId: input.siteclockWorkerId, workerName: input.siteclockWorkerName, durationMin: f.durationMin });
+    return run;
+  }
+
+  /** Edit a quick job (still scheduled, still without an order): same fields as the add form. */
+  async updateQuickJob(id: string, organizationId: string, body: any) {
+    await this.assertCalendarAdd(organizationId);
+    const run = await this.prisma.delivery.findFirst({ where: { id, organizationId }, select: { id: true, status: true, orderId: true } });
+    if (!run) throw new NotFoundException('Job not found');
+    if (run.orderId) throw new BadRequestException('This job is under an order now: edit it from its page with the full form');
+    if (run.status !== 'scheduled') throw new BadRequestException(`Only a scheduled job can be edited (this one is ${run.status})`);
+    const f = await this.quickJobFields(organizationId, body);
+    await this.prisma.delivery.update({
+      where: { id },
+      data: {
+        scheduledFor: f.scheduledFor,
+        customerId: f.customerId,
+        siteAddress: f.siteAddress,
+        notes: f.notes,
+        ptwStatus: f.ptwStatus,
+        ptwRemark: f.ptwRemark,
+        crewWorkers: f.crew,
+      },
+    });
+    const input = { siteclockWorkerId: f.assignee?.id ?? null, siteclockWorkerName: f.assignee?.name ?? null };
+    await savePlannedRider(this.prisma, organizationId, id, input);
+    await this.siteclock?.onScheduleSaved(organizationId, id, { workerId: input.siteclockWorkerId, workerName: input.siteclockWorkerName, durationMin: f.durationMin });
+    return { id };
+  }
+
+  /** PTW status + remark on any job of the org (calendar-add orgs); re-syncs the SiteClock notes. */
+  async setPtw(id: string, organizationId: string, body: any) {
+    await this.assertCalendarAdd(organizationId);
+    const run = await this.prisma.delivery.findFirst({ where: { id, organizationId }, select: { id: true } });
+    if (!run) throw new NotFoundException('Job not found');
+    const ptwStatus = parsePtwStatus(body?.ptwStatus);
+    const ptwRemark = ptwStatus ? parsePtwRemark(body?.ptwRemark) : null;
+    await this.prisma.delivery.update({ where: { id }, data: { ptwStatus, ptwRemark } });
+    await this.siteclock?.touch(organizationId, id);
+    return { id, ptwStatus: ptwStatus ?? 'NOT_NEEDED', ptwRemark };
+  }
+
+  /**
+   * "Link to…": put a job with no order under the order of a quotation, an
+   * order, an order invoice or a DO. A quotation with no order yet gets its
+   * order WITHOUT the automatic first job (this job is the first one). When the
+   * job becomes its order's only job and has no lines, it takes the
+   * quotation's lines and gets its DO through the normal schedule path (and
+   * its counter). A different customer needs confirmCustomer: true.
+   */
+  async linkJobToOrder(id: string, organizationId: string, body: any) {
+    await this.assertCalendarAdd(organizationId);
+    const kind = parseLinkKind(body?.kind);
+    const targetId = typeof body?.id === 'string' ? body.id : '';
+    if (!targetId) throw new BadRequestException('Pick what to link the job to');
+    const run = await this.prisma.delivery.findFirst({
+      where: { id, organizationId },
+      select: { id: true, status: true, orderId: true, orderInvoiceId: true, customerId: true, direction: true, scheduledFor: true, siteAddress: true, projectId: true, notes: true, _count: { select: { items: true } } },
+    });
+    if (!run) throw new NotFoundException('Job not found');
+    if (run.orderId) throw new BadRequestException('This job is already under an order');
+    if (run.status === 'cancelled') throw new BadRequestException('A cancelled job cannot be linked');
+    if (run.orderInvoiceId) throw new BadRequestException('This job is already invoiced');
+
+    // The target's order (a quotation may not have one yet).
+    let order: { id: string; orderNumber: string; customerId: string | null; sourceQuotationId: string | null } | null = null;
+    let quotation: { id: string; name: string | null; config: any; customerId: string | null } | null = null;
+    const orderSelect = { id: true, orderNumber: true, customerId: true, sourceQuotationId: true };
+    if (kind === 'order') {
+      order = await this.prisma.order.findFirst({ where: { id: targetId, organizationId }, select: orderSelect });
+      if (!order) throw new NotFoundException('Order not found');
+    } else {
+      const doc = await this.prisma.document.findFirst({ where: { id: targetId, organizationId }, select: { id: true, name: true, type: true, status: true, config: true } });
+      if (!doc) throw new NotFoundException('Document not found');
+      const type = String(doc.type).toUpperCase();
+      const cfg: any = doc.config || {};
+      if (kind === 'quotation') {
+        if (!['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(type)) throw new BadRequestException('That document is not a quotation');
+        if (['draft', 'unconfirmed'].includes(String(doc.status))) throw new BadRequestException('Confirm the quotation first, then link the job to it');
+        order = await this.prisma.order.findFirst({ where: { organizationId, sourceQuotationId: doc.id }, select: orderSelect });
+        if (!order) quotation = { id: doc.id, name: doc.name, config: cfg, customerId: cfg.customerId || cfg.customer?.id || null };
+      } else if (kind === 'invoice') {
+        if (!['INVOICE', 'TAX_INVOICE', 'INV'].includes(type)) throw new BadRequestException('That document is not an invoice');
+        order = await this.prisma.order.findFirst({
+          where: { organizationId, OR: [{ invoiceDocumentId: doc.id }, ...(typeof cfg.orderId === 'string' ? [{ id: cfg.orderId }] : [])] },
+          select: orderSelect,
+        });
+        if (!order) throw new BadRequestException('That invoice does not belong to an order');
+      } else {
+        if (!['DELIVERY_ORDER', 'DO'].includes(type)) throw new BadRequestException('That document is not a DO');
+        const viaJob = await this.prisma.deliveryItem.findFirst({ where: { documentId: doc.id, delivery: { organizationId, orderId: { not: null } } }, select: { delivery: { select: { orderId: true } } } });
+        const orderId = viaJob?.delivery?.orderId ?? (typeof cfg.orderId === 'string' ? cfg.orderId : null);
+        order = orderId ? await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: orderSelect }) : null;
+        if (!order) throw new BadRequestException('That DO does not belong to an order');
+      }
+    }
+
+    const targetCustomer = order?.customerId ?? quotation?.customerId ?? null;
+    if (run.customerId && targetCustomer && run.customerId !== targetCustomer && body?.confirmCustomer !== true) {
+      throw new ConflictException('The job and the order are for different customers. Link anyway?');
+    }
+
+    let orderId: string;
+    let orderNumber: string;
+    let sourceQuotationId: string | null;
+    let createdOrder = false;
+    if (order) {
+      const moved = await this.prisma.delivery.updateMany({
+        where: { id, organizationId, orderId: null },
+        data: { orderId: order.id, ...(order.sourceQuotationId ? { sourceQuotationId: order.sourceQuotationId } : {}) },
+      });
+      if (moved.count !== 1) throw new ConflictException('This job is already under an order');
+      orderId = order.id;
+      orderNumber = order.orderNumber;
+      sourceQuotationId = order.sourceQuotationId;
+    } else {
+      const r = await attachJobToQuotationOrder(this.prisma, organizationId, quotation!, id);
+      orderId = r.orderId;
+      orderNumber = r.orderNumber;
+      sourceQuotationId = r.sourceQuotationId;
+      createdOrder = r.created;
+    }
+    if (!run.customerId && targetCustomer) await this.prisma.delivery.update({ where: { id }, data: { customerId: targetCustomer } });
+
+    // The order's first job with no lines: take the quotation's lines, and its DO through the normal schedule path.
+    let linesAdded = 0;
+    const otherJobs = await this.prisma.delivery.count({ where: { organizationId, orderId, id: { not: id } } });
+    if (run._count.items === 0 && otherJobs === 0 && sourceQuotationId && run.status === 'scheduled' && run.scheduledFor) {
+      const qo = await this.prisma.document.findFirst({ where: { id: sourceQuotationId, organizationId }, select: { config: true } });
+      const lines = qo ? await quotationLinesForJob(this.prisma, organizationId, qo.config) : [];
+      if (lines.length) {
+        try {
+          await this.updateScheduled(
+            id,
+            {
+              items: lines.map((l) => ({ assetId: l.asset?.id, description: l.description, quantity: l.quantity, ...(l.assetClass ? { assetClass: l.assetClass as AssetClass } : {}) })),
+              scheduledFor: run.scheduledFor.toISOString(),
+              customerId: run.customerId ?? targetCustomer ?? undefined,
+              address: run.siteAddress ?? undefined,
+              projectId: run.projectId ?? undefined,
+            } as ScheduleDeliveryDto,
+            organizationId,
+          );
+          linesAdded = lines.length;
+        } catch (e: any) {
+          // The link stands; the office adds the lines from the job page.
+          this.logger.warn(`linkJobToOrder: lines/DO for ${id} not added: ${e?.message}`);
+        }
+      }
+    }
+    await refreshOrderStatus(this.prisma, organizationId, orderId);
+    await this.siteclock?.touch(organizationId, id);
+    return { id, orderId, orderNumber, createdOrder, linesAdded };
   }
 
   /**

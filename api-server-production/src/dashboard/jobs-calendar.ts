@@ -19,6 +19,7 @@
 import { DoStatusTag, doStatusTag } from '../deliveries/do-number';
 import { VERIFICATION_LABEL } from '../deliveries/finish-modes';
 import { deliveredLabel, runNoun } from '../deliveries/job-wording';
+import { PTW_LABEL, PtwStatus, ptwShown } from '../deliveries/quick-jobs';
 
 export const CALENDAR_TZ = 'Asia/Singapore';
 export const CALENDAR_MAX_DAYS = 62;
@@ -48,6 +49,10 @@ export interface CalendarRun {
   verificationState?: string | null;
   /** Custom job fields (enableJobFields): the icons this run shows. */
   badges?: CalendarBadge[];
+  /** WCT calendar add: permit-to-work state (null = not needed). */
+  ptw?: { status: string; remark: string | null } | null;
+  /** WCT calendar add: the job has no order yet. */
+  untagged?: boolean;
 }
 
 /** One custom job field's icon on an event (icon key, colour, "Permit approved: Yes"). */
@@ -129,6 +134,9 @@ export interface CalendarEvent {
   verificationLabel?: string | null;
   /** Custom job fields (enableJobFields): the icons drawn on the event. */
   badges?: CalendarBadge[];
+  /** WCT calendar add: PTW badge (only when not "Not needed") and the "Untagged" mark. */
+  ptw?: { status: string; label: string; remark: string | null };
+  untagged?: boolean;
 }
 
 /** The DO block of a run's popup: number, tag (from the DO itself) and the office DO page. */
@@ -275,6 +283,8 @@ export function buildCalendarEvents(runs: CalendarRun[], links: CalendarLink[], 
         ? { verificationLabel: VERIFICATION_LABEL[r.verificationState as keyof typeof VERIFICATION_LABEL] }
         : {}),
       ...(r.badges?.length ? { badges: r.badges } : {}),
+      ...(r.ptw && ptwShown(r.ptw.status) ? { ptw: { status: r.ptw.status, label: PTW_LABEL[r.ptw.status as PtwStatus] ?? r.ptw.status, remark: r.ptw.remark } } : {}),
+      ...(r.untagged ? { untagged: true } : {}),
     });
   }
 

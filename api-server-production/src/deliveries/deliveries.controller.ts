@@ -181,8 +181,34 @@ export class DeliveriesController {
     @Query('worker') worker?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('untagged') untagged?: string,
   ) {
-    return this.orderJobs.list(org.id, { q, from, to, state, worker, page: page ? parseInt(page, 10) : undefined, limit: limit ? parseInt(limit, 10) : undefined });
+    return this.orderJobs.list(org.id, {
+      q,
+      from,
+      to,
+      state,
+      worker,
+      untagged: untagged === '1' || untagged === 'true',
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
+  }
+
+  // WCT jobs calendar (enableWctOrders + enableJobsCalendar, 2026-11-04): a
+  // quick job from an empty slot (no quotation, no order, no DO), its edit, the
+  // PTW state of any job, and "Link to…" a quotation / order / invoice / DO.
+  // Same office persona as the schedule endpoints. Declared before :id.
+  @Post('quick-job')
+  @Permissions('documents:create-basic')
+  createQuickJob(@Body() body: any, @UserOrganization() org: { id: string }) {
+    return this.service.createQuickJob(org.id, body);
+  }
+
+  @Patch('quick-job/:id')
+  @Permissions('documents:create-basic')
+  updateQuickJob(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }) {
+    return this.service.updateQuickJob(id, org.id, body);
   }
 
   // SiteClock link (WCT): the schedule form's switch + default duration, and the
@@ -269,6 +295,18 @@ export class DeliveriesController {
   @Permissions('maintenance-reports:create')
   resubmitEvidence(@Param('id') id: string, @Body() dto: ResubmitEvidenceDto, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
     return this.service.resubmitEvidence(id, org.id, actorOf(req), dto);
+  }
+
+  @Patch(':id/ptw')
+  @Permissions('documents:create-basic')
+  setPtw(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }) {
+    return this.service.setPtw(id, org.id, body);
+  }
+
+  @Post(':id/link-order')
+  @Permissions('documents:create-basic')
+  linkJobToOrder(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }) {
+    return this.service.linkJobToOrder(id, org.id, body);
   }
 
   @Post(':id/link')

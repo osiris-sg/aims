@@ -16,6 +16,8 @@ export interface OrderJobFilters {
   to?: string;
   state?: string;
   worker?: string; // exact worker name (planned worker, rider or the SiteClock worker)
+  /** WCT calendar add (2026-11-04): jobs with NO order yet ("Untagged"), cancelled ones left out. */
+  untagged?: boolean;
 }
 
 /** The state a job reads in the list (mirrors the order page's jobStatusLabel). */
@@ -69,7 +71,7 @@ export function checkOrderJobFilters(f: OrderJobFilters): string | null {
  * are the jobs whose SiteClock worker matches the worker filter.
  */
 export function orderJobsWhere(organizationId: string, f: OrderJobFilters, workerJobIds: string[] = []): any {
-  const and: any[] = [{ organizationId }, { orderId: { not: null } }];
+  const and: any[] = [{ organizationId }, f.untagged ? { orderId: null, status: { not: 'cancelled' } } : { orderId: { not: null } }];
   const q = (f.q || '').trim();
   if (q) {
     const n = /^#?\d+$/.test(q) ? Number(q.replace('#', '')) : null;

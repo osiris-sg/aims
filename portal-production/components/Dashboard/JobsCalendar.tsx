@@ -15,6 +15,11 @@ import { request } from "@/helpers/request";
 import { unwrap } from "@/app/portal/admin/organizations/_lib/siteclock-connection";
 import { calendarLegendItems, legendTitle, rangeOf, siteclockBanner, type CalendarPayload } from "./jobs-calendar/calendarModel";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { useRouter } from "next/navigation";
+import { toast } from "react-toastify";
+import { NOTE_TYPES, type CalendarNote } from "@/helpers/calendarAdd";
+import QuickJobDialog from "./jobs-calendar/QuickJobDialog";
+import NoteDialog from "./jobs-calendar/NoteDialog";
 
 const CalendarView = dynamic(() => import("./jobs-calendar/CalendarView"), {
   ssr: false,
@@ -33,6 +38,12 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
   const [error, setError] = useState("");
   const [showCancelled, setShowCancelled] = useState(false);
   const latest = useRef("");
+  const router = useRouter();
+  const [reloadKey, setReloadKey] = useState(0);
+  // WCT calendar add: the server sends `notes` only to orgs with WCT orders + the calendar.
+  const canAdd = !!isWctOrdersEnabled && Array.isArray(data?.notes);
+  const [adding, setAdding] = useState<{ kind: "job" | "note"; slot: { date: string; time: string } } | null>(null);
+  const [editNote, setEditNote] = useState<CalendarNote | null>(null);
 
   const onRange = useCallback((startStr: string, endStr: string) => {
     const r = rangeOf(startStr, endStr);
@@ -59,9 +70,54 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
         if (latest.current === key) setLoading(false);
       }
     })();
-  }, [range, getToken]);
+  }, [range, getToken, reloadKey]);
 
-  return <JobsCalendarPanel data={data} loading={loading} error={error} showCancelled={showCancelled} onShowCancelled={setShowCancelled} onRange={onRange} jobWords={!!isWctOrdersEnabled} fullHeight={fullHeight} />;
+  const reload = () => setReloadKey((k) => k + 1);
+  return (
+    <>
+      <JobsCalendarPanel
+        data={data}
+        loading={loading}
+        error={error}
+        showCancelled={showCancelled}
+        onShowCancelled={setShowCancelled}
+        onRange={onRange}
+        jobWords={!!isWctOrdersEnabled}
+        fullHeight={fullHeight}
+        canAdd={canAdd}
+        onAdd={(kind, slot) => setAdding({ kind, slot })}
+        onNoteClick={setEditNote}
+      />
+      {canAdd && (
+        <>
+          <QuickJobDialog
+            open={adding?.kind === "job"}
+            slot={adding?.kind === "job" ? adding.slot : null}
+            onClose={() => setAdding(null)}
+            onSaved={(id) => {
+              setAdding(null);
+              reload();
+              toast.success("Job added. It shows as Untagged until you link it.", { onClick: () => router.push(`/portal/deliveries/${id}`) });
+            }}
+          />
+          <NoteDialog
+            open={adding?.kind === "note" || !!editNote}
+            slot={adding?.kind === "note" ? adding.slot : null}
+            note={editNote}
+            onClose={() => {
+              setAdding(null);
+              setEditNote(null);
+            }}
+            onSaved={() => {
+              setAdding(null);
+              setEditNote(null);
+              reload();
+            }}
+          />
+        </>
+      )}
+    </>
+  );
 }
 
 /** The calendar block itself (also rendered from fixtures by /preview/jobs-calendar). */
@@ -76,6 +132,9 @@ export function JobsCalendarPanel({
   initialView,
   jobWords = false,
   fullHeight = false,
+  canAdd = false,
+  onAdd,
+  onNoteClick,
 }: {
   data: CalendarPayload | null;
   loading: boolean;
@@ -87,6 +146,9 @@ export function JobsCalendarPanel({
   initialView?: "dayGridMonth" | "timeGridWeek" | "timeGridDay";
   jobWords?: boolean;
   fullHeight?: boolean;
+  canAdd?: boolean;
+  onAdd?: (kind: "job" | "note", slot: { date: string; time: string }) => void;
+  onNoteClick?: (note: CalendarNote) => void;
 }) {
   const banner = siteclockBanner(data);
   return (
@@ -118,6 +180,16 @@ export function JobsCalendarPanel({
               </Stack>
             </Tooltip>
           ))}
+          {/* WCT calendar add: the note colours. */}
+          {canAdd &&
+            NOTE_TYPES.map((t) => (
+              <Stack key={t.value} direction="row" spacing={0.75} alignItems="center">
+                <Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: t.color, opacity: 0.85 }} />
+                <Typography variant="caption" color="text.secondary">
+                  {t.value === "PTW" ? "PTW note" : t.label}
+                </Typography>
+              </Stack>
+            ))}
           <FormControlLabel
             sx={{ mr: 0 }}
             control={<Checkbox size="small" checked={showCancelled} onChange={(e) => onShowCancelled(e.target.checked)} />}
@@ -135,7 +207,25 @@ export function JobsCalendarPanel({
           {error}
         </Alert>
       )}
-      <CalendarView events={data?.events ?? []} showCancelled={showCancelled} onRange={onRange} initialDate={initialDate} initialView={initialView} jobWords={jobWords} openOnClick={jobWords} fullHeight={fullHeight} />
+      {canAdd && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+          Click an empty day or time to add a job or a note.
+        </Typography>
+      )}
+      <CalendarView
+        events={data?.events ?? []}
+        showCancelled={showCancelled}
+        onRange={onRange}
+        initialDate={initialDate}
+        initialView={initialView}
+        jobWords={jobWords}
+        openOnClick={jobWords}
+        fullHeight={fullHeight}
+        notes={data?.notes}
+        canAdd={canAdd}
+        onAdd={onAdd}
+        onNoteClick={onNoteClick}
+      />
     </Box>
   );
 }

@@ -106,6 +106,8 @@ const VERB_ACTIONS: Record<string, string> = {
   verify: 'VERIFY', 'resubmit-evidence': 'SUBMIT',
   // WCT invoice per order: the admin's "Invoice now" on an order.
   'invoice-now': 'CREATE',
+  // WCT jobs calendar (2026-11-04): "Link to…" puts a calendar job under an order.
+  'link-order': 'LINK',
   // Quotation e-sign link sent to the customer (WhatsApp / email) from the editor or the agent (2026-10-28).
   send: 'SEND',
   deliver: 'DELIVER', 'collect-return': 'COLLECT', 'off-hire': 'OFF_HIRE',
@@ -301,6 +303,8 @@ export class ActionLogInterceptor implements NestInterceptor {
       if (s === 'sign-link' && method !== 'POST') return METHOD_ACTION[method] || 'UNKNOWN';
       // PATCH /bills/:id/quotation (WCT): tag a supplier invoice with its quotation.
       if (s === 'quotation' && segments[0] === 'bills' && method === 'PATCH') return 'TAG_QUOTATION';
+      // WCT jobs calendar notes (2026-11-04): add / edit / delete, not a document "NOTE".
+      if (s === 'notes' && segments.includes('jobs-calendar')) return METHOD_ACTION[method] || 'UNKNOWN';
       if (VERB_ACTIONS[s]) return VERB_ACTIONS[s];
       break;
     }

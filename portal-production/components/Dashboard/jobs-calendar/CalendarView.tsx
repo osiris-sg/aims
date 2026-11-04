@@ -4,15 +4,22 @@
 // next/dynamic from JobsCalendar.tsx). Month by default, week and day views,
 // Singapore time via the Luxon plugin. Clicking an event opens a small card at
 // the click position.
+// WCT calendar add (2026-11-04, canAdd): a click on an empty day / slot offers
+// "Job" or "Note"; notes are all-day bars listed above the jobs; job chips show a
+// PTW badge and an "Untagged" mark.
 
 import React, { useMemo, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import luxonPlugin from "@fullcalendar/luxon3";
+import interactionPlugin, { type DateClickArg } from "@fullcalendar/interaction";
 import type { DatesSetArg, EventClickArg, EventContentArg } from "@fullcalendar/core";
 import JobFieldIcon from "@/components/jobFields/JobFieldIcon";
-import { Box, Button, Chip, Divider, Popover, Stack, Typography } from "@mui/material";
+import { Box, Button, Chip, Divider, ListItemIcon, ListItemText, Menu, MenuItem, Popover, Stack, Typography } from "@mui/material";
+import WorkOutlineIcon from "@mui/icons-material/WorkOutline";
+import StickyNote2OutlinedIcon from "@mui/icons-material/StickyNote2Outlined";
+import { noteToCalendarInput, ptwColor, slotOf, type CalendarNote } from "@/helpers/calendarAdd";
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
@@ -33,17 +40,46 @@ interface Props {
   openOnClick?: boolean;
   /** WCT: the calendar is the whole dashboard, so it fills the screen. */
   fullHeight?: boolean;
+  /** WCT calendar add: notes to draw, and what a click on an empty slot / a note does. */
+  notes?: CalendarNote[];
+  canAdd?: boolean;
+  onAdd?: (kind: "job" | "note", slot: { date: string; time: string }) => void;
+  onNoteClick?: (note: CalendarNote) => void;
 }
 
-export default function CalendarView({ events, showCancelled, onRange, initialDate, initialView = "dayGridMonth", jobWords = false, openOnClick = false, fullHeight = false }: Props) {
+export default function CalendarView({
+  events,
+  showCancelled,
+  onRange,
+  initialDate,
+  initialView = "dayGridMonth",
+  jobWords = false,
+  openOnClick = false,
+  fullHeight = false,
+  notes,
+  canAdd = false,
+  onAdd,
+  onNoteClick,
+}: Props) {
   const theme = useTheme();
   const router = useRouter();
   const [viewType, setViewType] = useState<string>(initialView);
   const [open, setOpen] = useState<{ pos: { left: number; top: number }; event: CalendarEvent } | null>(null);
-  const inputs = useMemo(() => toCalendarInputs(events, showCancelled), [events, showCancelled]);
+  const [addMenu, setAddMenu] = useState<{ pos: { left: number; top: number }; slot: { date: string; time: string } } | null>(null);
+  // Notes first on each day (displayOrder 0), then the jobs.
+  const inputs = useMemo(
+    () => [...(notes ?? []).map(noteToCalendarInput), ...toCalendarInputs(events, showCancelled).map((i) => ({ ...i, displayOrder: 1 }))],
+    [events, showCancelled, notes],
+  );
+
+  const onDateClick = (arg: DateClickArg) => {
+    setAddMenu({ pos: { left: arg.jsEvent.clientX, top: arg.jsEvent.clientY }, slot: slotOf(arg.dateStr, arg.allDay) });
+  };
 
   const onClick = (arg: EventClickArg) => {
     arg.jsEvent.preventDefault();
+    const note = arg.event.extendedProps.note as CalendarNote | undefined;
+    if (note) return onNoteClick?.(note);
     const e = arg.event.extendedProps.event as CalendarEvent;
     // WCT: a job opens its page at once; a SiteClock-only job (no AIMS page) keeps the card.
     if (openOnClick && e.href) return router.push(e.href);
@@ -74,13 +110,16 @@ export default function CalendarView({ events, showCancelled, onRange, initialDa
         "& .fc .fc-col-header-cell-cushion, & .fc .fc-daygrid-day-number": { color: "text.primary", textDecoration: "none" },
         "& .fc a": { color: "inherit" },
         "& .aims-jc-event": { cursor: "pointer" },
+        ...(canAdd ? { "& .fc-daygrid-day, & .fc-timegrid-slot-lane": { cursor: "copy" } } : {}),
         "& .aims-jc-completed": { opacity: 0.5 },
         "& .aims-jc-cancelled .fc-event-title, & .aims-jc-cancelled .fc-event-time": { textDecoration: "line-through" },
         "@media (max-width: 600px)": { "& .fc .fc-toolbar": { flexDirection: "column", gap: 1 } },
       }}
     >
       <FullCalendar
-        plugins={[dayGridPlugin, timeGridPlugin, luxonPlugin]}
+        plugins={[dayGridPlugin, timeGridPlugin, luxonPlugin, interactionPlugin]}
+        dateClick={canAdd ? onDateClick : undefined}
+        eventOrder="displayOrder,start,-duration,allDay,title"
         timeZone={CALENDAR_TZ}
         initialView={initialView}
         initialDate={initialDate}
@@ -101,12 +140,22 @@ export default function CalendarView({ events, showCancelled, onRange, initialDa
         // Custom job fields: the job's icons after its time + title (default rendering otherwise).
         eventContent={(arg: EventContentArg) => {
           const e = arg.event.extendedProps.event as CalendarEvent;
-          if (!e?.badges?.length) return true;
+          if (!e?.badges?.length && !e?.ptw && !e?.untagged) return true;
           return (
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, overflow: "hidden", px: 0.25 }}>
               {arg.timeText && <Box component="span" sx={{ fontWeight: 600, flexShrink: 0 }}>{arg.timeText}</Box>}
               <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{arg.event.title}</Box>
-              {e.badges.map((b) => (
+              {e.untagged && (
+                <Box component="span" title="No quotation or order yet" sx={{ flexShrink: 0, fontSize: 10, fontWeight: 700, lineHeight: "14px", px: 0.5, borderRadius: "3px", bgcolor: "#fff", color: "#424242" }}>
+                  Untagged
+                </Box>
+              )}
+              {e.ptw && (
+                <Box component="span" title={`PTW: ${e.ptw.label}${e.ptw.remark ? ` (${e.ptw.remark})` : ""}`} sx={{ flexShrink: 0, fontSize: 10, fontWeight: 700, lineHeight: "14px", px: 0.5, borderRadius: "3px", bgcolor: "#fff", color: ptwColor(e.ptw.status) }}>
+                  PTW
+                </Box>
+              )}
+              {(e.badges ?? []).map((b) => (
                 <Box key={b.fieldId} component="span" title={badgeTitle(b)} sx={{ display: "inline-flex", bgcolor: "#fff", borderRadius: "50%", p: "1px", flexShrink: 0 }}>
                   <JobFieldIcon icon={b.icon} sx={{ fontSize: 13, color: b.colour }} />
                 </Box>
@@ -130,6 +179,34 @@ export default function CalendarView({ events, showCancelled, onRange, initialDa
       >
         {open && <EventCard event={open.event} jobWords={jobWords} />}
       </Popover>
+
+      {/* WCT calendar add: what to add on the clicked day / slot. */}
+      <Menu open={!!addMenu} onClose={() => setAddMenu(null)} anchorReference="anchorPosition" anchorPosition={addMenu?.pos} data-tour="jobs-calendar-add">
+        <MenuItem
+          onClick={() => {
+            const slot = addMenu!.slot;
+            setAddMenu(null);
+            onAdd?.("job", slot);
+          }}
+        >
+          <ListItemIcon>
+            <WorkOutlineIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary="Job" secondary="Quick job, no quotation needed" />
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            const slot = addMenu!.slot;
+            setAddMenu(null);
+            onAdd?.("note", slot);
+          }}
+        >
+          <ListItemIcon>
+            <StickyNote2OutlinedIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary="Note" secondary="Leave, PTW, blockage or other" />
+        </MenuItem>
+      </Menu>
     </Box>
   );
 }
@@ -197,6 +274,8 @@ function EventCard({ event: e, jobWords }: { event: CalendarEvent; jobWords: boo
         />
       </Row>
       {e.verificationLabel && <Row label="Sign-off">{e.verificationLabel}</Row>}
+      {e.ptw && <Row label="PTW">{`${e.ptw.label}${e.ptw.remark ? ` (${e.ptw.remark})` : ""}`}</Row>}
+      {e.untagged && <Row label="Order">Untagged: link it from the job page</Row>}
       {(e.badges ?? []).map((b) => (
         <Row key={b.fieldId} label={b.label}>
           <Stack direction="row" spacing={0.5} alignItems="center">

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../common/prisma.service';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { calendarBadge, isJobFieldsEnabled, jobFieldDefs, jobFieldValues } from './job-fields';
+import { isCalendarAddEnabled } from './quick-jobs';
 import { checkOrderJobFilters, OrderJobFilters, orderJobState, orderJobsWhere, orderJobWorker } from './order-jobs';
 
 /** WCT Orders → Jobs. See order-jobs.ts. */
@@ -11,6 +12,7 @@ export class OrderJobsService {
 
   async list(organizationId: string, f: OrderJobFilters & { page?: number; limit?: number }) {
     if (!(await isOrgFeatureEnabled(this.prisma, organizationId, 'enableWctOrders'))) throw new NotFoundException('Order jobs are not enabled for this organisation');
+    if (f.untagged && !(await isCalendarAddEnabled(this.prisma, organizationId))) throw new NotFoundException('Untagged jobs are not enabled for this organisation');
     const bad = checkOrderJobFilters(f);
     if (bad) throw new BadRequestException(bad);
     const page = Math.max(1, f.page ?? 1);
@@ -76,7 +78,8 @@ export class OrderJobsService {
         badges: badgesByJob.get(r.id) ?? [],
       };
     });
-    const [workers, counts] = await Promise.all([this.workers(organizationId), this.counts(organizationId)]);
+    const [workers, counts, untagged] = await Promise.all([this.workers(organizationId), this.counts(organizationId), this.untaggedCount(organizationId)]);
+    if (untagged !== null) counts.untagged = untagged;
     return { docs, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)), workers, counts };
   }
 
@@ -94,6 +97,12 @@ export class OrderJobsService {
       out.all += g._count._all;
     }
     return out;
+  }
+
+  /** WCT calendar add: how many jobs still have no order (null when the feature is off). */
+  private async untaggedCount(organizationId: string): Promise<number | null> {
+    if (!(await isCalendarAddEnabled(this.prisma, organizationId))) return null;
+    return this.prisma.delivery.count({ where: { organizationId, orderId: null, status: { not: 'cancelled' } } });
   }
 
   /** The worker filter's choices: every name on this org's order jobs. */

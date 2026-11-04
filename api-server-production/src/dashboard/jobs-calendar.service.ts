@@ -5,6 +5,7 @@ import { isOrgFeatureEnabled } from '../common/org-features';
 import { SiteClockLinkService } from '../siteclock/siteclock-link.service';
 import { buildCalendarEvents, CalendarEvent, CalendarSiteClockJob, CALENDAR_TZ, checkRange, rangeInstants } from './jobs-calendar';
 import { calendarBadge, calendarLegend, isJobFieldsEnabled, jobFieldDefs, jobFieldValues } from '../deliveries/job-fields';
+import { CalendarNoteView, CalendarNotesService } from './calendar-notes.service';
 
 export const JOBS_CALENDAR_FLAG = 'enableJobsCalendar';
 const SITECLOCK_TTL_MS = 60_000;
@@ -19,6 +20,8 @@ export interface JobsCalendarResponse {
   siteclock: { state: 'ok' | 'off' | 'unavailable'; error?: string; fetchedAt?: string };
   /** Custom job fields (enableJobFields): what each event icon means (absent without the flag). */
   legend?: ReturnType<typeof calendarLegend>;
+  /** WCT calendar add (enableWctOrders + enableJobsCalendar): the notes overlapping the range (absent otherwise). */
+  notes?: CalendarNoteView[];
 }
 
 /**
@@ -35,6 +38,7 @@ export class JobsCalendarService {
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly siteclock?: SiteClockLinkService,
+    @Optional() private readonly notes?: CalendarNotesService,
   ) {}
 
   async get(organizationId: string, from: string, to: string): Promise<JobsCalendarResponse> {
@@ -44,7 +48,14 @@ export class JobsCalendarService {
     const bad = checkRange(from, to);
     if (bad) throw new BadRequestException(bad);
 
-    const [runs, sc] = await Promise.all([this.runs(organizationId, from, to), this.siteclockJobs(organizationId, from, to)]);
+    const [runs, sc, notes] = await Promise.all([
+      this.runs(organizationId, from, to),
+      this.siteclockJobs(organizationId, from, to),
+      this.notes ? this.notes.inRange(organizationId, from, to) : Promise.resolve(null),
+    ]);
+    // Calendar add on (notes is not null): jobs show PTW and an "Untagged" mark when they have no order.
+    if (notes) for (const r of runs as any[]) r.untagged = !r.order;
+    else for (const r of runs as any[]) delete r.ptw;
     const links = runs.length
       ? await this.prisma.deliverySiteClockJob.findMany({
           where: { organizationId, deliveryId: { in: runs.map((r) => r.id) } },
@@ -69,6 +80,7 @@ export class JobsCalendarService {
       events: buildCalendarEvents(runs, links, sc.jobs),
       siteclock: sc.status,
       ...(legend ? { legend } : {}),
+      ...(notes ? { notes } : {}),
     };
   }
 
@@ -89,6 +101,8 @@ export class JobsCalendarService {
           project: { select: { name: true } },
           order: { select: { id: true, orderNumber: true } },
           verificationState: true,
+          ptwStatus: true,
+          ptwRemark: true,
           items: { where: { assetClass: 'SERVICE' }, select: { id: true }, take: 1 },
         },
         orderBy: { scheduledFor: 'asc' },
@@ -110,6 +124,7 @@ export class JobsCalendarService {
       deliveryOrder: dos.get(r.id) ?? null,
       order: r.order ?? null,
       verificationState: r.verificationState ?? null,
+      ptw: r.ptwStatus ? { status: r.ptwStatus, remark: r.ptwRemark ?? null } : null,
     }));
   }
 
