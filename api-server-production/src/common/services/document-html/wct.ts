@@ -86,8 +86,6 @@ const CSS = `
   .wct .sign { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-top: 36px; page-break-inside: avoid; break-inside: avoid; }
   .wct .sign .l p { margin-bottom: 12px; }
   .wct .sign .r { text-align: right; padding-bottom: 12px; }
-  .wct .sign .r .accept { font-size: 11.5px; }
-  .wct .sign .r .accept img { display: block; max-height: 48px; max-width: 170px; margin: 6px 0 2px auto; }
   /* Delivery order: the customer's sign-off under the lines (field app /
      guest link), then the condition photos on a page of their own. */
   .wct .rcv { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-top: 28px; page-break-inside: avoid; break-inside: avoid; }
@@ -107,6 +105,14 @@ const CSS = `
   .wct .proof .grid .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .wct .closing { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; margin-top: 56px; page-break-inside: avoid; break-inside: avoid; }
   .wct .closing .director { font-weight: 700; }
+  /* E-signed quotation: the client's signature sits in the blank space between "Confirmation of Order" and
+     "Company Stamp & Authorized Signature" (absolutely placed, so the left column and the label do not move),
+     the signer and date in small type under the label (the only added height, ~16px). Unsigned quotations keep
+     the plain layout. */
+  .wct .closing.signed { padding-bottom: 16px; }
+  .wct .closing .stamp { position: relative; }
+  .wct .closing .stamp .sigimg { position: absolute; right: 0; bottom: 100%; display: block; max-width: 180px; max-height: 68px; }
+  .wct .closing .stamp .who { position: absolute; right: 0; top: 100%; white-space: nowrap; font-size: 10.5px; color: #333; }
   .wct .footnote { margin-top: 10px; font-weight: 700; }
   .wct .doboxes { display: flex; gap: 40px; margin: 14px 0 16px; }
   .wct .doboxes .bx { flex: 1; border: 1.2px solid #000; padding: 5px 8px 12px; min-height: 86px; white-space: pre-line; }
@@ -263,17 +269,10 @@ function jobBoxes(di: (k: string, d?: any) => any): string {
   }</div>`;
 }
 
-function signBlock(di: (k: string, d?: any) => any, cfg?: any): string {
+function signBlock(di: (k: string, d?: any) => any): string {
   const sales = first(di('salesPersonName'), typeof di('salesPerson') === 'string' ? di('salesPerson') : di('salesPerson')?.name);
   const contact = first(di('salesContact'), di('salesPersonContact'));
-  // E-signed quotation (public /sign link): the client's drawn signature
-  // prints under "Confirmation of Order". The data URL is re-validated here
-  // so only the shape public-sign stores can reach the src attribute.
-  const sig: any = cfg?.clientSignature;
-  const sigImg = typeof sig?.image === 'string' && /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(sig.image) ? sig.image : '';
-  const accepted = sigImg
-    ? `<div class="accept"><img src="${sigImg}" alt="" /><div>Accepted by ${escapeHtml(sig.name || '')}${sig.signedAt ? ` on ${escapeHtml(paperDate(sig.signedAt))}` : ''}</div></div>`
-    : '';
+  // The e-signature (public /sign link) prints in the closing block, see clientSignatureOf / closing.
   return `
   <div class="sign">
     <div class="l">
@@ -281,8 +280,19 @@ function signBlock(di: (k: string, d?: any) => any, cfg?: any): string {
       <p>Contact: ${escapeHtml(contact)}</p>
       <p style="margin-bottom:0;">Yours Sincerely</p>
     </div>
-    <div class="r">Confirmation of Order${accepted}</div>
+    <div class="r">Confirmation of Order</div>
   </div>`;
+}
+
+/**
+ * E-signed quotation (public /sign link): the client's drawn signature, or null. The data URL is re-validated
+ * here so only the shape public-sign stores can reach the src attribute.
+ */
+function clientSignatureOf(cfg: any): { image: string; who: string } | null {
+  const sig: any = cfg?.clientSignature;
+  if (typeof sig?.image !== 'string' || !SIG_RE.test(sig.image)) return null;
+  const who = [first(sig.name), sig.signedAt ? paperDate(sig.signedAt) : ''].filter(Boolean).map((x) => escapeHtml(x)).join(' &nbsp;·&nbsp; ');
+  return { image: sig.image, who };
 }
 
 /** A field photo key → URL. Keys are S3 object keys (public-read bucket, the
@@ -445,18 +455,25 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   const tnc = first(data?.termsAndConditions, di('termsAndConditions'));
   const tncBlock = tnc ? `<div class="tnc"><h3>Terms and Conditions:</h3>${richContent(tnc, 'font-size:12px;line-height:1.6;')}</div>` : '';
 
+  const signature = isInvoice ? null : clientSignatureOf(cfg);
   const closing = isInvoice
     ? footerMessage
       ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>`
       : ''
-    : `<div class="closing">
+    : `<div class="closing${signature ? ' signed' : ''}">
         <div><div class="director">Director of ${escapeHtml(first(org?.name, data?.company?.name))}</div>${
           footerMessage ? `<div class="screen-only">${escapeHtml(footerMessage)}</div>` : ''
         }</div>
-        <div>Company Stamp &amp; Authorized Signature</div>
+        ${
+          signature
+            ? `<div class="stamp"><img class="sigimg" src="${signature.image}" alt="" />Company Stamp &amp; Authorized Signature${
+                signature.who ? `<div class="who">${signature.who}</div>` : ''
+              }</div>`
+            : '<div>Company Stamp &amp; Authorized Signature</div>'
+        }
       </div>`;
 
-  const body = `${header}${linesTable(data, items, kind, t.currency)}${totals}${remarksBlock}${tncBlock}${signBlock(di, cfg)}${closing}`;
+  const body = `${header}${linesTable(data, items, kind, t.currency)}${totals}${remarksBlock}${tncBlock}${signBlock(di)}${closing}`;
   return sheet(letterhead(org, data, isInvoice ? 'Invoice No' : 'Quotation No', docNumber), body);
 }
 
