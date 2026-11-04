@@ -69,7 +69,7 @@ const VIEW_POST_RE =
 const VERB_ACTIONS: Record<string, string> = {
   'confirm-do': 'CONFIRM', 'confirm-invoice': 'CONFIRM', 'confirm-pr': 'CONFIRM',
   'bulk-complete-do': 'CONFIRM', approve: 'APPROVE', reject: 'REJECT', submit: 'SUBMIT',
-  void: 'VOID', post: 'POST_GL', 'post-batch': 'POST_GL', confirm: 'CONFIRM',
+  void: 'VOID', post: 'POST_GL', 'post-batch': 'POST_GL', 'post-held': 'POST_GL', confirm: 'CONFIRM',
   'send-email': 'SEND', 'sync-to-xero': 'SYNC', sync: 'SYNC', 'confirm-from-xero': 'CONFIRM', duplicate: 'DUPLICATE',
   revisions: 'CREATE_REVISION', notes: 'NOTE', sign: 'SIGN', 'generate-pdf': 'EXPORT',
   'run-due': 'RUN', run: 'RUN', 'generate-now': 'RUN', cancel: 'CANCEL', assign: 'ASSIGN',

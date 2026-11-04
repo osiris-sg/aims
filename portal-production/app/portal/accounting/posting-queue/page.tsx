@@ -7,6 +7,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   Box,
   Button,
   Checkbox,
@@ -264,6 +265,8 @@ export default function PostingQueuePage() {
         </Button>
       </Stack>
 
+      <HeldErpPayments />
+
       {loading && !items.length ? (
         <Box sx={{ display: "flex", justifyContent: "center", p: 8 }}>
           <CircularProgress />
@@ -405,5 +408,70 @@ export default function PostingQueuePage() {
         </DialogActions>
       </Dialog>
     </Box>
+  );
+}
+
+/** Payment / receipt journals held for invoices imported from the previous ERP (org flag holdErpImportPaymentGl). */
+function HeldErpPayments() {
+  const { request } = useAccountingApi();
+  const [held, setHeld] = useState<{ flagOn: boolean; count: number; total: number } | null>(null);
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    try {
+      setHeld(await request<any>("/journal/erp-held"));
+    } catch {
+      setHeld(null);
+    }
+  }, [request]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  if (!held || held.count === 0) return null;
+  const money = held.total.toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const post = async () => {
+    setBusy(true);
+    try {
+      const res = await request<{ posted: number; failed: number }>("/journal/erp-held/post-held", { method: "POST" });
+      toast[res.failed ? "warning" : "success"](`${res.posted} journal(s) posted${res.failed ? `, ${res.failed} still held (see the server log)` : ""}`);
+      setConfirm(false);
+      load();
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't post the held journals");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <Alert
+        severity="info"
+        action={
+          <Button color="inherit" size="small" onClick={() => setConfirm(true)}>
+            Post held journals
+          </Button>
+        }
+      >
+        {held.count} payment journal(s) on invoices imported from the previous system are held (S${money}). They wait for the opening AR to be booked;
+        the invoices are already marked paid.{held.flagOn ? " Turn off \"holdErpImportPaymentGl\" first so new payments post as usual." : ""}
+      </Alert>
+      <Dialog open={confirm} onClose={() => !busy && setConfirm(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Post held journals?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            Posts {held.count} journal(s), S${money} in total: Dr Bank, Cr Trade Receivables, each on its payment date. Do this only after the opening AR for the
+            imported invoices is booked.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirm(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant="contained" onClick={post} disabled={busy}>
+            {busy ? "Posting…" : "Post them"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
   );
 }

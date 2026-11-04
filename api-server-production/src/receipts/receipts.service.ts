@@ -373,8 +373,12 @@ export class ReceiptsService {
       });
     });
 
+    // A receipt paying ERP-imported invoices waits for the opening AR when the org holds those
+    // journals (holdErpImportPaymentGl): any journal it had is voided and it is marked held.
+    const holdGl = await this.journalAutoPost.holdsErpPaymentGl(organizationId, allocations.map((a) => a.documentId));
+    if (holdGl) await this.journalAutoPost.holdReceipt(organizationId, id, actor?.id);
     // ONE journal for the receipt (void + repost inside).
-    const entry = await this.journalAutoPost.postFromReceipt({
+    const entry = holdGl ? null : await this.journalAutoPost.postFromReceipt({
       organizationId,
       receiptDocumentId: id,
       receiptNumber: doc.name,
@@ -391,7 +395,7 @@ export class ReceiptsService {
     if (entry) {
       await this.prisma.document.update({
         where: { id },
-        data: { config: { ...((await this.prisma.document.findUnique({ where: { id }, select: { config: true } }))?.config as any), journalNumber: entry.journalNumber } as any },
+        data: { config: { ...((await this.prisma.document.findUnique({ where: { id }, select: { config: true } }))?.config as any), journalNumber: entry.journalNumber, glHeld: null } as any },
       });
     }
 

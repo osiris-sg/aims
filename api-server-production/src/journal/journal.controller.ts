@@ -4,6 +4,7 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { JournalService } from './journal.service';
+import { JournalAutoPostService } from './journal-auto-post.service';
 import { CreateJournalEntryDto } from './dto/journal-entry.dto';
 
 interface RequestWithOrganization extends Request {
@@ -35,7 +36,10 @@ const endOfDay = (s: string): Date => (DATE_ONLY.test(s) ? new Date(`${s}T23:59:
 @Controller('journal')
 @UseGuards(ClerkAuthGuard)
 export class JournalController {
-  constructor(private readonly service: JournalService) {}
+  constructor(
+    private readonly service: JournalService,
+    private readonly autoPost: JournalAutoPostService,
+  ) {}
 
   @Get('entries')
   @Permissions('journal:read')
@@ -89,6 +93,21 @@ export class JournalController {
   @Permissions('journal:void')
   void(@Req() req: RequestWithOrganization, @Param('id') id: string) {
     return this.service.void(requireOrgId(req), id, req.auth?.userId);
+  }
+
+  // Payment / receipt journals held for ERP-imported invoices (flag holdErpImportPaymentGl).
+  @Get('erp-held')
+  @Permissions('journal:read')
+  @ApiOperation({ summary: 'Payment journals held for ERP-imported invoices' })
+  erpHeld(@Req() req: RequestWithOrganization) {
+    return this.autoPost.listHeldErpPayments(requireOrgId(req));
+  }
+
+  @Post('erp-held/post-held')
+  @Permissions('journal:post')
+  @ApiOperation({ summary: 'Post every held payment journal (after the opening AR is booked)' })
+  postErpHeld(@Req() req: RequestWithOrganization) {
+    return this.autoPost.postHeldErpPayments(requireOrgId(req), req.auth?.userId);
   }
 
   @Get('reports/trial-balance')

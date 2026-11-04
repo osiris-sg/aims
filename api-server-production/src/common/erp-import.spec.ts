@@ -82,3 +82,35 @@ describe('payments on an open imported invoice', () => {
     expect(data.status).toBe('paid');
   });
 });
+
+describe('held payment journals (holdErpImportPaymentGl)', () => {
+  const mk = (flag: boolean) => {
+    const update = jest.fn().mockResolvedValue({});
+    const prisma: any = {
+      organizationUIConfig: { findUnique: jest.fn().mockResolvedValue({ features: { holdErpImportPaymentGl: flag } }) },
+      document: {
+        findMany: jest.fn().mockResolvedValue([{ config: imported() }]),
+        findFirst: jest.fn().mockResolvedValue({ config: imported() }),
+        update,
+      },
+      accountingSetting: { findUnique: jest.fn().mockResolvedValue(null) },
+    };
+    const journal: any = { create: jest.fn() };
+    return { auto: new JournalAutoPostService(prisma, journal), update, journal };
+  };
+  const args = { organizationId: 'org', paymentId: 'p1', documentId: 'd1', paymentDate: new Date('2026-11-06'), amount: 200, cashAccountCode: 'CA001' };
+
+  it('holds the journal and records it on the invoice when the flag is on', async () => {
+    const { auto, update, journal } = mk(true);
+    expect(await auto.postFromPayment(args)).toBeNull();
+    expect(journal.create).not.toHaveBeenCalled();
+    const held = update.mock.calls[0][0].data.config.erpImport.heldPayments;
+    expect(held).toEqual([expect.objectContaining({ paymentId: 'p1', amount: 200, cashAccountCode: 'CA001' })]);
+  });
+
+  it('does not hold when the flag is off (posting goes on as before)', async () => {
+    const { auto, update } = mk(false);
+    await auto.postFromPayment(args); // no accounting setup in the mock, so nothing posts either way
+    expect(update).not.toHaveBeenCalled();
+  });
+});

@@ -3,6 +3,10 @@ import { PrismaService } from '../common/prisma.service';
 import { JournalService } from './journal.service';
 import { refWith } from '../common/doc-ref';
 import { isErpImported } from '../common/erp-import';
+import { isOrgFeatureEnabled } from '../common/org-features';
+
+/** Hold the GL journal of payments / receipts on ERP-imported invoices until the opening AR is booked. */
+export const HOLD_ERP_PAYMENT_GL_FLAG = 'holdErpImportPaymentGl';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 
@@ -406,6 +410,8 @@ export class JournalAutoPostService {
     amount: number;
     userId?: string;
     cashAccountCode?: string; // optional override
+    /** postHeldErpPayments: post a journal that was held (skips the hold check). */
+    release?: boolean;
   }) {
     const { organizationId, paymentId, documentId, paymentReference, paymentMethod, paymentDate, customerName } = args;
     const amount = ROUND(args.amount);
@@ -414,6 +420,21 @@ export class JournalAutoPostService {
     );
     if (amount <= 0) {
       this.logger.warn(`[postFromPayment] amount <= 0 (amount=${amount}); skipping`);
+      return null;
+    }
+    // A payment on an ERP-imported invoice: the invoice never reached Trade Receivables, so with
+    // the hold flag on the journal waits (the payment still settles the invoice).
+    if (!args.release && documentId && (await this.holdsErpPaymentGl(organizationId, [documentId]))) {
+      await this.recordHeldPayment(organizationId, documentId, {
+        paymentId,
+        amount,
+        paymentDate: paymentDate.toISOString(),
+        paymentMethod: paymentMethod ?? null,
+        reference: paymentReference ?? null,
+        cashAccountCode: args.cashAccountCode ?? null,
+        heldAt: new Date().toISOString(),
+      });
+      this.logger.log(`[postFromPayment] payment=${paymentId} on ERP-imported doc=${documentId}: journal held (${HOLD_ERP_PAYMENT_GL_FLAG})`);
       return null;
     }
 
@@ -1131,5 +1152,137 @@ export class JournalAutoPostService {
       this.logger.error(`[postFromPurchaseReturn] journal.create threw: ${e?.message || e}`);
       throw e;
     }
+  }
+
+  // ── ERP-imported invoices: held payment journals (flag holdErpImportPaymentGl) ──────────────
+  // Imported invoices (common/erp-import.ts) never posted to Trade Receivables. Until the
+  // accountant books the opening AR, a payment's Cr Trade Receivables would push the control
+  // account below zero, so with the flag on the journal is HELD: the payment / receipt still
+  // settles the invoice (balance and status), and the hold is recorded on the invoice
+  // (config.erpImport.heldPayments) or on the receipt (config.glHeld). postHeldErpPayments posts
+  // them all later (Posting Queue → "Post held journals", or POST /journal/erp-held/post-held).
+
+  /** True when the org holds these journals and any of the documents was imported from the ERP. */
+  async holdsErpPaymentGl(organizationId: string, documentIds: string[]): Promise<boolean> {
+    const ids = [...new Set(documentIds.filter(Boolean))];
+    if (!ids.length) return false;
+    if (!(await isOrgFeatureEnabled(this.prisma as any, organizationId, HOLD_ERP_PAYMENT_GL_FLAG))) return false;
+    const docs = await this.prisma.document.findMany({ where: { organizationId, id: { in: ids } }, select: { config: true } });
+    return docs.some((d) => isErpImported(d.config));
+  }
+
+  private async recordHeldPayment(organizationId: string, documentId: string, held: Record<string, any>) {
+    const doc = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { config: true } });
+    const cfg: any = doc?.config || {};
+    if (!isErpImported(cfg)) return;
+    const list: any[] = Array.isArray(cfg.erpImport.heldPayments) ? cfg.erpImport.heldPayments : [];
+    const next = [...list.filter((h) => h?.paymentId !== held.paymentId), held];
+    await this.prisma.document.update({ where: { id: documentId }, data: { config: { ...cfg, erpImport: { ...cfg.erpImport, heldPayments: next } } as any } });
+  }
+
+  /** A deleted payment's hold goes with it (payments.service remove). */
+  async dropHeldPayment(organizationId: string, documentId: string, paymentId: string) {
+    const doc = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { config: true } });
+    const cfg: any = doc?.config || {};
+    const list: any[] = cfg?.erpImport?.heldPayments;
+    if (!Array.isArray(list) || !list.some((h) => h?.paymentId === paymentId)) return;
+    await this.prisma.document.update({ where: { id: documentId }, data: { config: { ...cfg, erpImport: { ...cfg.erpImport, heldPayments: list.filter((h) => h?.paymentId !== paymentId) } } as any } });
+  }
+
+  /** A receipt whose journal is held: void any journal it already had and mark it held. */
+  async holdReceipt(organizationId: string, receiptDocumentId: string, userId?: string) {
+    const existing = await this.prisma.journalEntry.findFirst({
+      where: { organizationId, sourceDocumentId: receiptDocumentId, type: 'PAYMENT', status: { not: 'VOID' } },
+      select: { id: true },
+    });
+    if (existing) await this.journal.void(organizationId, existing.id, userId);
+    const doc = await this.prisma.document.findFirst({ where: { id: receiptDocumentId, organizationId }, select: { config: true } });
+    const cfg: any = doc?.config || {};
+    const { journalNumber: _drop, ...rest } = cfg;
+    await this.prisma.document.update({
+      where: { id: receiptDocumentId },
+      data: { config: { ...rest, glHeld: { reason: 'erp-import', flag: HOLD_ERP_PAYMENT_GL_FLAG, at: new Date().toISOString() } } as any },
+    });
+    this.logger.log(`[postFromReceipt] receipt=${receiptDocumentId} pays ERP-imported invoices: journal held (${HOLD_ERP_PAYMENT_GL_FLAG})`);
+  }
+
+  /** What is held now: payments on imported invoices and receipts. */
+  async listHeldErpPayments(organizationId: string) {
+    const invoices = await this.prisma.$queryRaw<Array<{ id: string; name: string | null; held: any }>>`
+      select id::text, name, config->'erpImport'->'heldPayments' as held from "Document"
+      where "organizationId" = ${organizationId} and jsonb_typeof(config->'erpImport'->'heldPayments') = 'array'
+        and jsonb_array_length(config->'erpImport'->'heldPayments') > 0`;
+    const receipts = await this.prisma.$queryRaw<Array<{ id: string; name: string | null; amount: any; date: any }>>`
+      select id::text, name, config->>'receiptAmount' as amount, config->>'date' as date from "Document"
+      where "organizationId" = ${organizationId} and type = 'OFFICIAL_RECEIPT' and config->'glHeld' is not null and config->'glHeld' <> 'null'::jsonb`;
+    const payments = invoices.flatMap((d) => (d.held as any[]).map((h) => ({ invoiceId: d.id, invoice: d.name, ...h })));
+    const total = ROUND(payments.reduce((s, p) => s + (Number(p.amount) || 0), 0) + receipts.reduce((s, r) => s + (Number(r.amount) || 0), 0));
+    return {
+      flagOn: await isOrgFeatureEnabled(this.prisma as any, organizationId, HOLD_ERP_PAYMENT_GL_FLAG),
+      count: payments.length + receipts.length,
+      total,
+      payments,
+      receipts: receipts.map((r) => ({ receiptId: r.id, receipt: r.name, amount: Number(r.amount) || 0, date: r.date })),
+    };
+  }
+
+  /** Post every held journal (once the opening AR is booked). Each one posts on its own; failures stay held. */
+  async postHeldErpPayments(organizationId: string, userId?: string) {
+    const held = await this.listHeldErpPayments(organizationId);
+    const results: Array<{ kind: 'payment' | 'receipt'; id: string; ref: string | null; ok: boolean; journalNumber?: string; error?: string }> = [];
+    for (const h of held.payments) {
+      const pay = await this.prisma.payment.findFirst({ where: { id: h.paymentId, organizationId }, include: { customer: { select: { name: true } } } });
+      if (!pay) {
+        await this.dropHeldPayment(organizationId, h.invoiceId, h.paymentId);
+        results.push({ kind: 'payment', id: h.paymentId, ref: h.invoice, ok: true, error: 'payment no longer exists; hold removed' });
+        continue;
+      }
+      try {
+        const entry = await this.postFromPayment({
+          organizationId,
+          paymentId: pay.id,
+          documentId: pay.documentId,
+          paymentReference: pay.reference,
+          paymentMethod: pay.paymentMethod,
+          paymentDate: pay.paymentDate,
+          customerName: pay.customer?.name,
+          amount: Number(pay.amount),
+          cashAccountCode: h.cashAccountCode || undefined,
+          userId,
+          release: true,
+        });
+        if (!entry) throw new Error('not posted (check the control / bank accounts)');
+        await this.dropHeldPayment(organizationId, h.invoiceId, h.paymentId);
+        results.push({ kind: 'payment', id: pay.id, ref: h.invoice, ok: true, journalNumber: (entry as any).journalNumber });
+      } catch (e: any) {
+        results.push({ kind: 'payment', id: pay.id, ref: h.invoice, ok: false, error: e?.message || String(e) });
+      }
+    }
+    for (const r of held.receipts) {
+      const doc = await this.prisma.document.findFirst({ where: { id: r.receiptId, organizationId }, select: { name: true, config: true } });
+      const c: any = doc?.config || {};
+      try {
+        const entry = await this.postFromReceipt({
+          organizationId,
+          receiptDocumentId: r.receiptId,
+          receiptNumber: doc?.name,
+          entryDate: new Date(c.date),
+          customerName: c.customerName,
+          bankAccountCode: c.debitAccountCode,
+          creditAccountCode: c.creditAccountCode || null,
+          currency: c.currency || 'SGD',
+          rate: Number(c.rate) || 1,
+          amount: Number(c.receiptAmount) || 0,
+          allocations: (Array.isArray(c.allocations) ? c.allocations : []).map((a: any) => ({ documentId: a.documentId, amount: Number(a.amount) || 0 })),
+          userId,
+        });
+        if (!entry) throw new Error('not posted (check the bank / debtor accounts)');
+        await this.prisma.document.update({ where: { id: r.receiptId }, data: { config: { ...c, glHeld: null, journalNumber: (entry as any).journalNumber } as any } });
+        results.push({ kind: 'receipt', id: r.receiptId, ref: doc?.name ?? null, ok: true, journalNumber: (entry as any).journalNumber });
+      } catch (e: any) {
+        results.push({ kind: 'receipt', id: r.receiptId, ref: doc?.name ?? null, ok: false, error: e?.message || String(e) });
+      }
+    }
+    return { posted: results.filter((x) => x.ok && x.journalNumber).length, failed: results.filter((x) => !x.ok).length, results };
   }
 }

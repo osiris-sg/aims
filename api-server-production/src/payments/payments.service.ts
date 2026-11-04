@@ -420,6 +420,8 @@ export class PaymentsService {
 
       // Refresh the invoice Document's outstanding balance after removing the payment.
       await this.updateInvoiceStatusAfterPayment(payment.documentId, organizationId);
+      // A held journal (ERP-imported invoice) goes with the payment.
+      await this.journalAutoPost.dropHeldPayment(organizationId, payment.documentId, id).catch(() => undefined);
 
       return {
         success: true,
