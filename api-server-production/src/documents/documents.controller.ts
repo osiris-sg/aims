@@ -538,9 +538,12 @@ export class DocumentsController {
     // The WCT invoice prints "Invoice Rev" from the real revision feature
     // (Document.revisionNumber), which the editor's form state does not carry.
     const revisionNumber = docId ? await this.documentsService.revisionNumberOf(docId, organizationId) : null;
+    // ERP-imported documents preview their stored totals (common/erp-import.ts).
+    const erpStoredTotals = docId ? await this.documentsService.erpStoredTotalsForDocument(docId, organizationId) : null;
     const html = this.pdfGeneratorService.generateInvoiceHtml({
       documentType: body.documentType,
       ...(body.data || {}),
+      ...(erpStoredTotals ? { erpStoredTotals } : {}),
       revisionNumber,
       design: styled.design,
       logoUrl: styled.logoUrl,
@@ -570,9 +573,12 @@ export class DocumentsController {
       // documentType. The template's design knobs ride along.
       const docId = body.documentId && !String(body.documentId).startsWith('temp_') ? body.documentId : undefined;
       const styled = await this.documentsService.designForDocument(docId, organizationId, body.templateId);
+      // ERP-imported documents print their stored totals (common/erp-import.ts).
+      const erpStoredTotals = docId ? await this.documentsService.erpStoredTotalsForDocument(docId, organizationId) : null;
       const renderData = {
         documentType: body.documentType,
         ...body.data,
+        ...(erpStoredTotals ? { erpStoredTotals } : {}),
         design: styled.design,
         logoUrl: styled.logoUrl,
         organization: req.userOrganization,

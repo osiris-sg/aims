@@ -391,8 +391,8 @@ async function main() {
     if (v.existing) continue;
     if (!plan.some((d) => d.newCustomer && d.config.customerId === v.id)) continue;
     await c.query(
-      `insert into "Customer" (id, name, "customerCode", address, "organizationId", "externalRef", currency, "createdAt", "updatedAt") values ($1,$2,$3,$4,$5,$6,'SGD',$7,$7)`,
-      [v.id, v.name, v.code, v.address, WCT, `erp-import:${BATCH}`, now],
+      `insert into "Customer" (id, name, "customerCode", address, "organizationId", "externalRef", currency, "createdAt", "updatedAt") values ($1,$2,$3,$4,$5,$6,'SGD',($7::timestamptz AT TIME ZONE 'UTC'),($7::timestamptz AT TIME ZONE 'UTC'))`,
+      [v.id, v.name, v.code, v.address, WCT, `erp-import:${BATCH}`, now.toISOString()],
     );
     log.writes.push({ op: 'INSERT Customer', id: v.id, code: v.code, name: v.name, erpName: erp });
   }
@@ -405,9 +405,11 @@ async function main() {
     try {
       const vals = [];
       const ph = part.map((d, k) => {
-        vals.push(d.id, d.createdAt, JSON.stringify(d.config), d.templateId, d.type, WCT, d.name, d.status);
+        // ISO text read as UTC: node-pg would write a Date as this machine's local time (8 h off, fixed
+        // for the first batch by scripts/wct-erp-import-fix-created.js).
+        vals.push(d.id, d.createdAt.toISOString(), JSON.stringify(d.config), d.templateId, d.type, WCT, d.name, d.status);
         const b = k * 8;
-        return `($${b + 1}::uuid,$${b + 2},$${b + 2},$${b + 3}::jsonb,$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8}::"DocumentStatus",0,0)`;
+        return `($${b + 1}::uuid,($${b + 2}::timestamptz AT TIME ZONE 'UTC'),($${b + 2}::timestamptz AT TIME ZONE 'UTC'),$${b + 3}::jsonb,$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8}::"DocumentStatus",0,0)`;
       });
       const res = await c.query(
         `insert into "Document" (id, "createdAt", "updatedAt", config, "documentTemplateId", type, "organizationId", name, status, "revisionNumber", version) values ${ph.join(',')}`,

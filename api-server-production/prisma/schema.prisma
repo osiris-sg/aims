@@ -433,6 +433,12 @@ model Document {
   type               String // Document type: INVOICE, QUOTATION, etc.
   organizationId     String
   name               String? // Document number/identifier
+  // List keys (2026-11-05), kept by the aims_doc_list_keys trigger (scripts/document-list-keys.js)
+  // from config so the document lists sort / search in the database: the issue date (yyyy-MM-dd,
+  // documentIssueDate), the searched text (lower-case) and the customer id.
+  listIssueDate  String?
+  listSearch     String?
+  listCustomerId String?
   status             DocumentStatus @default(unconfirmed)
 
   // Revision fields for document versioning
@@ -486,6 +492,8 @@ model Document {
   embedding DocumentEmbedding? // Semantic-search vector for the AI assistant
 
   @@unique([name, organizationId, documentTemplateId])
+
+  @@index([organizationId, type, listIssueDate])
   @@index([baseDocumentId])
   @@index([organizationId, type])
   @@index([organizationId, status])

@@ -32,6 +32,7 @@
 import { DocumentDesign } from './design';
 import { amountPaidOf, outstandingOf } from '../../document-money';
 import { billToText, descriptionText, escapeHtml, makeDi, money, richContent } from './shared';
+import { erpStoredTotalsOf, moneySignature, type ErpStoredTotals } from '../../erp-import';
 
 export type WctDocKind = 'quotation' | 'invoice' | 'do';
 
@@ -172,6 +173,14 @@ function letterhead(org: any, data: any, numberLabel: string, docNumber: string)
   </div>
   <div class="docno">${escapeHtml(numberLabel)}: ${escapeHtml(docNumber)}</div>
   <div class="rule"></div>`;
+}
+
+/** An imported document's stored totals, when its lines' money still matches them. */
+function erpTotalsOf(data: any, cfg: any, di: (k: string, d?: any) => any, items: any[]) {
+  const s: ErpStoredTotals | null = data?.erpStoredTotals ?? erpStoredTotalsOf(cfg);
+  if (!s || s.sig !== moneySignature(items)) return null;
+  const currency = String(di('currency', 'SGD') || 'SGD').toUpperCase();
+  return { currency, gstPercent: s.gstPercent, gstAmount: s.gstAmount, discountAmount: s.discountAmount, displayNet: s.subTotal, total: s.nettTotal };
 }
 
 /** Totals maths — the same formulas as the standard invoice renderer. */
@@ -403,8 +412,10 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
 
   // ── quotation / tax invoice ─────────────────────────────────────────────
   const isInvoice = kind === 'invoice';
-  const t = totalsOf(di, items);
   const cfg = data?.config && typeof data.config === 'object' ? data.config : data;
+  // ERP-imported documents print their stored subtotal / GST / total while the lines' money is
+  // unchanged (common/erp-import.ts); the editor paths pass them as data.erpStoredTotals.
+  const t = erpTotalsOf(data, cfg, di, items) ?? totalsOf(di, items);
   const paid = amountPaidOf(cfg) ?? 0;
   const outstanding = outstandingOf(cfg);
   const due = outstanding !== null ? Math.max(0, outstanding) : Math.max(0, Math.round((t.total - paid) * 100) / 100);

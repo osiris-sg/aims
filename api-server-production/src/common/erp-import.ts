@@ -31,3 +31,54 @@ export function erpPaidAtImport(config: any, gross: number): number {
   if (!Number.isFinite(bal)) return 0;
   return Math.max(0, Math.round((gross - Math.max(0, bal)) * 100) / 100);
 }
+
+// ── Stored totals (WCT 2026-11-05): an imported document shows, prints and keeps the ERP's own
+// subtotal / GST / total (19 ERP documents carry a GST that is not rate × subtotal). They are
+// recalculated only when the lines' money actually changes.
+
+/** The lines' money only (count + qty / unit price / amount per line), so a reformatted description is not a change. */
+export function moneySignature(items: any): string {
+  const list: any[] = Array.isArray(items) ? items : [];
+  const n = (v: any) => {
+    const x = Number(String(v ?? '').replace(/,/g, ''));
+    return Number.isFinite(x) ? x.toFixed(2) : '0.00';
+  };
+  return list
+    .filter((it) => it && !it.isGroupHeader && !it.isTagGroup)
+    .map((it) => `${n(it.quantity)}x${n(it.unitPrice)}=${n(it.amount)}`)
+    .join('|');
+}
+
+export interface ErpStoredTotals {
+  grossTotal: number;
+  discountAmount: number;
+  subTotal: number;
+  gstAmount: number;
+  nettTotal: number;
+  gstPercent: number;
+  /** moneySignature of the stored lines. */
+  sig: string;
+}
+
+/** An imported document's stored totals (null for any other document). */
+export function erpStoredTotalsOf(config: any): ErpStoredTotals | null {
+  if (!isErpImported(config)) return null;
+  const pick = (k: string) => {
+    const v = config?.[k] ?? config?.documentInfo?.[k];
+    const x = Number(v);
+    return v === undefined || v === null || v === '' || !Number.isFinite(x) ? null : x;
+  };
+  const nettTotal = pick('nettTotal');
+  const gstAmount = pick('gstAmount');
+  const subTotal = pick('subTotal');
+  if (nettTotal === null || gstAmount === null || subTotal === null) return null;
+  return {
+    grossTotal: pick('grossTotal') ?? subTotal,
+    discountAmount: pick('discountAmount') ?? 0,
+    subTotal,
+    gstAmount,
+    nettTotal,
+    gstPercent: pick('gstPercent') ?? 0,
+    sig: moneySignature(config?.items),
+  };
+}

@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { erpImportOf, erpPaidAtImport, isErpImported } from './erp-import';
+import { erpImportOf, erpPaidAtImport, erpStoredTotalsOf, isErpImported, moneySignature } from './erp-import';
 import { JournalService } from '../journal/journal.service';
 import { JournalAutoPostService } from '../journal/journal-auto-post.service';
 import { PaymentsService } from '../payments/payments.service';
@@ -112,5 +112,25 @@ describe('held payment journals (holdErpImportPaymentGl)', () => {
     const { auto, update } = mk(false);
     await auto.postFromPayment(args); // no accounting setup in the mock, so nothing posts either way
     expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe('stored totals of imported documents', () => {
+  const cfg = {
+    ...imported(),
+    items: [{ description: 'a', quantity: 1, unitPrice: 850, amount: 850 }],
+    grossTotal: 850,
+    subTotal: 850,
+    gstAmount: 198,
+    nettTotal: 1048,
+    gstPercent: 9,
+  };
+  it('reads the ERP totals as stored (no recalculation)', () => {
+    expect(erpStoredTotalsOf(cfg)).toMatchObject({ subTotal: 850, gstAmount: 198, nettTotal: 1048, gstPercent: 9, sig: '1.00x850.00=850.00' });
+    expect(erpStoredTotalsOf({ ...cfg, erpImport: undefined })).toBeNull();
+  });
+  it('the signature ignores descriptions and number formatting, not money', () => {
+    expect(moneySignature([{ description: '<p>a</p>', quantity: '1', unitPrice: '850.00', amount: '850' }])).toBe(moneySignature(cfg.items));
+    expect(moneySignature([{ quantity: 2, unitPrice: 850, amount: 1700 }])).not.toBe(moneySignature(cfg.items));
   });
 });

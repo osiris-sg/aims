@@ -15,6 +15,7 @@ import { useGetSiteOffices } from "@/containers/DocumentTemplates/hooks/useGetSi
 import { useGetSalesmen } from "@/containers/DocumentTemplates/hooks/useGetSalesmen";
 import { getTemplateFormFields, TemplateFieldConfig } from "@/containers/DocumentTemplates/utils/templateFieldSync";
 import { transformBackendDataForForm } from "@/containers/DocumentTemplates/utils/documentDataTransformer";
+import { erpStoredTotalsOf } from "@/helpers/erpImport";
 
 export default function ViewDocumentPage() {
   const params = useParams();
@@ -94,6 +95,8 @@ export default function ViewDocumentPage() {
       documentData.status = response.data.status;
       // Imported from the previous ERP: the editor header shows an "Imported" tag (config.erpImport).
       documentData.erpImport = config.erpImport ?? null;
+      // …and its stored subtotal / GST / total, which the editor shows instead of recalculating.
+      documentData.erpStoredTotals = erpStoredTotalsOf(config);
       // Forward linked field-tech delivery reports so the DO preview/print can
       // render the Proof of Delivery section (see CleanDocumentPreview DO block).
       documentData.maintenanceReports = response.data.maintenanceReports;

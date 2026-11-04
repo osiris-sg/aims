@@ -160,6 +160,7 @@ import {
 import { getDocumentListRoute, getListRouteFromPathname } from "@/app/portal/components/documentRoutes"; // co-pkg: depends on fa8351c
 import { useAimsUserId } from "@hooks/useAimsUserId";
 import { todayIso } from "@/helpers/orgToday";
+import { storedTotalsFor } from "@/helpers/erpImport";
 
 // Helper to determine the parent route based on document type
 const getParentRoute = (docType: string): string => {
@@ -2647,12 +2648,24 @@ export default function TabbedDocumentCreator({
       return;
     }
 
+    // ERP-imported document (helpers/erpImport.ts): show the stored subtotal / GST / total, never
+    // recalculated on open; only a change to the lines' money recalculates (keeping the stored
+    // discount amount, which the ERP gave as a figure, not a percent).
+    const erpStored = existingData?.erpStoredTotals ?? null;
+    const keepStored = storedTotalsFor(existingData?.erpStoredTotals, items);
+    if (keepStored) {
+      setFormDataState((prev: any) => ({ ...prev, documentInfo: { ...prev.documentInfo, ...keepStored } }));
+      return;
+    }
+
     const grossTotal = subtotal;
     // Per-document discount: either a % of the gross or a flat $ amount (capped at gross).
     // Project PO: the discount lives on the item lines (cascaded), so don't apply it
     // again at the document level.
     const discountAmount = isProjectPO
       ? 0
+      : erpStored && !discountValue && erpStored.discountAmount > 0
+      ? Math.min(erpStored.discountAmount, grossTotal)
       : discountType === "amount"
       ? Math.min(discountValue, grossTotal)
       : grossTotal * (discountValue / 100);
@@ -2690,7 +2703,7 @@ export default function TabbedDocumentCreator({
         nettTotal: r2(nettTotal),
       },
     }));
-  }, [subtotal, items, isFcuCuVariant, isProjectQuote, isNettRoundDownEnabled, poPointsRedeemed, (formData?.documentInfo as any)?.discountPercent, (formData?.documentInfo as any)?.discountType, (formData?.documentInfo as any)?.discountedPriceOverride, (formData?.documentInfo as any)?.gstPercent, formData?.documentInfo?.taxApplicable, formData?.documentInfo?.absorbTax, isTaxApplicable, isAbsorbTax]);
+  }, [subtotal, items, isFcuCuVariant, isProjectQuote, isNettRoundDownEnabled, poPointsRedeemed, (formData?.documentInfo as any)?.discountPercent, (formData?.documentInfo as any)?.discountType, (formData?.documentInfo as any)?.discountedPriceOverride, (formData?.documentInfo as any)?.gstPercent, formData?.documentInfo?.taxApplicable, formData?.documentInfo?.absorbTax, isTaxApplicable, isAbsorbTax, existingData?.erpStoredTotals]);
 
   // Project PO: when the top Discount % changes, cascade it into every item's
   // discount (applied once at item level — the document-level discount is then

@@ -28,7 +28,7 @@ import * as moment from 'moment';
 import { pdfOptionsFor, isWctLayout } from '../common/services/document-html';
 import { resolveDesign } from '../common/services/document-html/design';
 import { outstandingOf, grossStampOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
-import { erpPaidAtImport, isErpImported } from '../common/erp-import';
+import { erpPaidAtImport, erpStoredTotalsOf, isErpImported, moneySignature } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
 import { refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
 import { isOrgFeatureEnabled } from '../common/org-features';
@@ -217,6 +217,31 @@ export class DocumentsService {
     const strip = (v: any) => String(v ?? '').replace(/<[^>]*>/g, '').trim();
     const ok = items.some((it) => it && !it.isGroupHeader && !it.isTagGroup && (strip(it.description) !== '' || Number(it.amount) > 0 || Number(it.unitPrice) > 0));
     if (!ok) throw new BadRequestException(`Add at least one line item before confirming this ${what}.`);
+  }
+
+  // Orgs whose documents all carry the trigger-kept list keys (listIssueDate / listSearch /
+  // listCustomerId, scripts/document-list-keys.js). Until then the lists use the old in-memory
+  // path. A "ready" answer is cached for 5 minutes per org.
+  private readonly listKeysReadyAt = new Map<string, number>();
+  private async listKeysReady(organizationId: string): Promise<boolean> {
+    const at = this.listKeysReadyAt.get(organizationId);
+    if (at && Date.now() - at < 5 * 60_000) return true;
+    try {
+      const r: Array<{ missing: boolean }> = await this.prisma.$queryRaw`
+        SELECT EXISTS (SELECT 1 FROM "Document" WHERE "organizationId" = ${organizationId} AND "listIssueDate" IS NULL) AS missing`;
+      const ready = r[0]?.missing === false;
+      if (ready) this.listKeysReadyAt.set(organizationId, Date.now());
+      else this.listKeysReadyAt.delete(organizationId);
+      return ready;
+    } catch {
+      return false; // column not there yet (before the schema push)
+    }
+  }
+
+  /** An ERP-imported document's stored totals, for the editor's preview / PDF (null otherwise). */
+  async erpStoredTotalsForDocument(documentId: string, organizationId: string) {
+    const doc = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { config: true } });
+    return erpStoredTotalsOf(doc?.config);
   }
 
   async repostGlForDocument(
@@ -1281,12 +1306,31 @@ export class DocumentsService {
             (configAsPlainObject as any)[k] = existingConfig[k];
           }
         }
-        // ERP-imported history (common/erp-import.ts): the marker and the paid / owed amounts are
-        // server-owned, so an edit-after-confirm save can't drop the "Imported" mark (and with it
-        // the GL guard) or reset what the ERP had paid.
+        // ERP-imported history (common/erp-import.ts): the marker is server-owned, so an
+        // edit-after-confirm save can't drop the "Imported" mark (and with it the GL guard). The
+        // stored totals and paid / owed amounts stay as the ERP had them while the lines' money is
+        // unchanged; when the lines do change, the new totals stand and the balance follows them
+        // (what was paid, in the ERP and since, is kept).
         if (isErpImported(existingConfig)) {
-          for (const k of ['erpImport', 'outstandingBalance', 'xeroBalance', 'paidToDate', 'xeroAmountPaid', 'totalWithTax', 'xeroGross']) {
-            if (existingConfig[k] !== undefined) (configAsPlainObject as any)[k] = existingConfig[k];
+          const next: any = configAsPlainObject;
+          next.erpImport = existingConfig.erpImport;
+          const stored = erpStoredTotalsOf(existingConfig);
+          const linesSame = !Array.isArray(next.items) || !stored || moneySignature(next.items) === stored.sig;
+          const MONEY = ['outstandingBalance', 'xeroBalance', 'paidToDate', 'xeroAmountPaid', 'totalWithTax', 'xeroGross'];
+          if (linesSame) {
+            for (const k of ['grossTotal', 'discountAmount', 'subTotal', 'gstAmount', 'nettTotal', 'gstPercent', 'taxApplicable', 'absorbTax', ...MONEY]) {
+              if (existingConfig[k] !== undefined) next[k] = existingConfig[k];
+              if (next.documentInfo && typeof next.documentInfo === 'object' && k in next.documentInfo && existingConfig[k] !== undefined) next.documentInfo[k] = existingConfig[k];
+            }
+          } else if (existingDocument.type === 'INVOICE' || existingDocument.type === 'TI' || existingDocument.type === 'TI2') {
+            const oldGross = Number(grossStampOf(existingConfig) ?? existingConfig.nettTotal) || 0;
+            const newGross = Number(next.nettTotal ?? next.documentInfo?.nettTotal);
+            if (Number.isFinite(newGross)) {
+              const paid = Number(amountPaidOf(existingConfig) ?? 0) || 0;
+              const erpPaid = erpPaidAtImport(existingConfig, oldGross);
+              next.erpImport = { ...existingConfig.erpImport, balanceAtImport: Math.max(0, Math.round((newGross - erpPaid) * 100) / 100) };
+              Object.assign(next, stampDocumentMoney({}, { gross: newGross, paid, outstanding: Math.max(0, Math.round((newGross - paid) * 100) / 100) }));
+            }
           }
         }
         // Reference canonicalisation (guru 2026-09-09): config.referenceNo is
@@ -4043,7 +4087,22 @@ export class DocumentsService {
         // Match the JSON paths with real SQL ILIKE instead and feed the ids
         // back into the Prisma where-clause.
         const like = `%${term.replace(/[\\%_]/g, (ch) => '\\' + ch)}%`;
-        const hits: Array<{ id: string }> = await this.prisma.$queryRaw`
+        // Once the org's list keys are filled (aims_doc_list_keys trigger), search the small
+        // listSearch / listCustomerId columns instead of unpacking every config (WCT's 24k
+        // documents took 2-4 s per search). Same fields, same customer-name match.
+        const hits: Array<{ id: string }> = (await this.listKeysReady(organizationId))
+          ? await this.prisma.$queryRaw`
+          SELECT d.id FROM "Document" d
+          WHERE d."organizationId" = ${organizationId}
+            AND (
+              d."listSearch" ILIKE ${like} ESCAPE '\\'
+              OR d."listCustomerId" IN (
+                SELECT c.id::text FROM "Customer" c
+                WHERE c."organizationId" = ${organizationId} AND c.name ILIKE ${like} ESCAPE '\\'
+              )
+            )
+          LIMIT 5000`
+          : await this.prisma.$queryRaw`
           SELECT d.id FROM "Document" d
           WHERE d."organizationId" = ${organizationId}
             AND (
@@ -4080,7 +4139,24 @@ export class DocumentsService {
       const sortDir = opts.sortDir === 'asc' ? 'asc' : 'desc';
       let rows: any[];
       let total: number;
-      if (opts.sortBy === 'issueDate') {
+      if (opts.sortBy === 'issueDate' && (await this.listKeysReady(organizationId))) {
+        // Issue date sorted in the database on the trigger-kept listIssueDate (same key as
+        // documentIssueDate; ties by createdAt, as before), then just this page is loaded.
+        const ids = (await this.prisma.document.findMany({ where, select: { id: true } })).map((d) => d.id);
+        const dir = Prisma.raw(sortDir === 'asc' ? 'ASC' : 'DESC');
+        const ordered: Array<{ id: string }> = ids.length
+          ? await this.prisma.$queryRaw`
+              SELECT id::text AS id FROM "Document"
+              WHERE "organizationId" = ${organizationId} AND id = ANY(${ids}::uuid[])
+              ORDER BY "listIssueDate" ${dir}, "createdAt" ${dir}, id ${dir}
+              LIMIT ${limit} OFFSET ${skip}`
+          : [];
+        const pageIds = ordered.map((x) => x.id);
+        const page = pageIds.length ? await this.prisma.document.findMany({ where: { id: { in: pageIds }, organizationId } }) : [];
+        const byId = new Map(page.map((d: any) => [d.id, d]));
+        rows = pageIds.map((id) => byId.get(id)).filter(Boolean);
+        total = ids.length;
+      } else if (opts.sortBy === 'issueDate') {
         // The issue date lives in config JSON (documentInfo.date / date / issueDate):
         // order the matching ids in memory, then load just this page.
         const keys = await this.prisma.document.findMany({ where, select: { id: true, createdAt: true, config: true } });

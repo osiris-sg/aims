@@ -16,6 +16,7 @@ import { useGetDeliveryOrders } from "@/containers/DocumentTemplates/hooks/useGe
 import { useGetSiteOffices } from "@/containers/DocumentTemplates/hooks/useGetSiteOffices";
 import { useGetSalesmen } from "@/containers/DocumentTemplates/hooks/useGetSalesmen";
 import { getTemplateFormFields, TemplateFieldConfig } from "@/containers/DocumentTemplates/utils/templateFieldSync";
+import { erpStoredTotalsOf } from "@/helpers/erpImport";
 import {
   transformFormDataForBackend,
   transformBackendDataForForm
@@ -224,6 +225,8 @@ export default function page() {
       documentData.status = response.data.status;
       // Imported from the previous ERP: the editor header shows an "Imported" tag (config.erpImport).
       documentData.erpImport = config.erpImport ?? null;
+      // …and its stored subtotal / GST / total, which the editor shows instead of recalculating.
+      documentData.erpStoredTotals = erpStoredTotalsOf(config);
       // Project link lives on the Document ROW (set via link-project), not in
       // config — without this the picker renders empty after every reload even
       // though the link is persisted.
