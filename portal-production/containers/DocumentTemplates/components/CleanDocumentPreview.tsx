@@ -2840,9 +2840,12 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                               shared strip cannot say which unit a photo is of.
                               The serial caption is omitted on an unmerged line
                               (one group, and the description already names it).
-                              The 4-photo cap is PER STRIP, matching the guided
-                              capture sequence, so an 8-photo two-unit line now
-                              shows all 8 as 4 + 4 instead of silently 4. */}
+                              EVERY photo is shown (guru 2026-11-05: ten were
+                              attached and only four appeared). The strip used
+                              to stop at four — the field app's guided capture
+                              takes exactly four per unit, so the cap was
+                              invisible there, but the office can attach as many
+                              as the job needs. They now wrap four to a row. */}
                           {(() => {
                             const groups: Array<{ serial: string | null; photos: string[] }> =
                               Array.isArray(item.proofGroups) && item.proofGroups.length > 0
@@ -2861,8 +2864,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                                     {g.serial ?? `Unit ${gi + 1}`}
                                   </Typography>
                                 )}
-                                <Box sx={{ display: "flex", gap: 0.5, mt: labelled ? 0.25 : 0, flexWrap: "nowrap" }}>
-                                  {g.photos.slice(0, 4).map((key: string, photoIdx: number) => (
+                                <Box sx={{ display: "flex", gap: 0.5, rowGap: 0.5, mt: labelled ? 0.25 : 0, flexWrap: "wrap" }}>
+                                  {g.photos.map((key: string, photoIdx: number) => (
                                     // eslint-disable-next-line @next/next/no-img-element
                                     <img key={key} src={resolvePhotoSrc(key)} alt="" onClick={() => openZoom(g.photos, photoIdx)} style={{ width: "23%", aspectRatio: "4 / 3", objectFit: "cover", border: "1px solid #ccc", cursor: "pointer" }} />
                                   ))}
