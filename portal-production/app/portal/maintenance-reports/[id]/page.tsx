@@ -89,8 +89,16 @@ interface MsrDetail {
   asset: { id: string; name: string; skuKey: string } | null;
   inventory: { id: string; sku: string; serialNumber: string | null } | null;
   invoiceDocument: { id: string; documentTemplateId: string; name: string | null; status: string } | null;
-  /** Owning org's logo (S3 key or URL) for the header; none = no logo. */
-  organization?: { logo: string | null } | null;
+  /** Owning org's letterhead for the printed header; absent parts print nothing. */
+  organization?: {
+    logo: string | null;
+    name?: string | null;
+    address?: string | null;
+    phoneNumber?: string | null;
+    email?: string | null;
+    website?: string | null;
+    registrationNumber?: string | null;
+  } | null;
 }
 
 const formatDateTime = (iso?: string | null) => {
@@ -206,7 +214,8 @@ export default function MaintenanceReportDetailPage() {
   const checkedSet = new Set(sd.checklist ?? []);
   const techSigUrl = sd.techSignatureKey ? `${RESOURCE_URL}${sd.techSignatureKey}` : null;
   const clientSigUrl = sd.clientSignatureKey ? `${RESOURCE_URL}${sd.clientSignatureKey}` : null;
-  const orgLogo = report.organization?.logo;
+  const org = report.organization ?? null;
+  const orgLogo = org?.logo;
   const logoUrl = orgLogo ? (/^(https?:|data:)/i.test(orgLogo) ? orgLogo : `${RESOURCE_URL}${orgLogo}`) : null;
 
   return (
@@ -306,15 +315,52 @@ export default function MaintenanceReportDetailPage() {
       <Paper variant="outlined" sx={{ p: 3 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 2 }}>
           <Box>
-            {/* White backing keeps a dark logo legible in dark mode. */}
-            {logoUrl && (
-              <Box
-                component="img"
-                src={logoUrl}
-                alt=""
-                sx={{ display: "block", maxHeight: 40, maxWidth: 160, objectFit: "contain", mb: 1, bgcolor: "#fff", p: 0.5, borderRadius: 0.5 }}
-              />
-            )}
+            {/* COMPANY LETTERHEAD (guru 2026-11-05) — logo + contact details,
+                the same block a delivery order carries. This page is what the
+                Print button sends to the browser, so the printed report has to
+                say who issued it and how to reach them. Every part is optional
+                and an absent one renders nothing. */}
+            <Stack direction="row" spacing={1.5} alignItems="flex-start" sx={{ mb: 1.5 }}>
+              {/* White backing keeps a dark logo legible in dark mode. */}
+              {logoUrl && (
+                <Box
+                  component="img"
+                  src={logoUrl}
+                  alt=""
+                  sx={{ display: "block", maxHeight: 52, maxWidth: 150, objectFit: "contain", bgcolor: "#fff", p: 0.5, borderRadius: 0.5, flex: "none" }}
+                />
+              )}
+              <Box>
+                {org?.name && (
+                  <Typography sx={{ fontWeight: 700, fontSize: "0.95rem", letterSpacing: "0.3px" }}>
+                    {org.name.toUpperCase()}
+                  </Typography>
+                )}
+                {org?.address && (
+                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.75rem", lineHeight: 1.45 }}>
+                    {org.address}
+                  </Typography>
+                )}
+                {(org?.phoneNumber || org?.email) && (
+                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.75rem", lineHeight: 1.45 }}>
+                    {[org?.phoneNumber ? `Tel: ${org.phoneNumber}` : null, org?.email ? `Email: ${org.email}` : null]
+                      .filter(Boolean)
+                      .join("  ·  ")}
+                  </Typography>
+                )}
+                {org?.website && (
+                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.75rem", lineHeight: 1.45 }}>
+                    {org.website}
+                  </Typography>
+                )}
+                {org?.registrationNumber && (
+                  <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.7rem" }}>
+                    UEN: {org.registrationNumber}
+                  </Typography>
+                )}
+              </Box>
+            </Stack>
+            <Divider sx={{ mb: 1.5 }} />
             <Typography variant="h5" fontWeight={700}>{TEMPLATE_LABELS[templateId]}</Typography>
             <Typography variant="body2" color="text.secondary">
               Created {formatDateTime(report.createdAt)}

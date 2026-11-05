@@ -1169,8 +1169,11 @@ export class MaintenanceReportsService {
         // button can construct /portal/documents/INVOICE/{templateId}/{docId}
         // without a second round-trip.
         invoiceDocument: { select: { id: true, documentTemplateId: true, name: true, status: true } },
-        // Logo for the printed header (office page + field download).
-        organization: { select: { logo: true } },
+        // Letterhead for the printed header (office page + field print): logo
+        // AND the contact details, so a printed report identifies the company
+        // the way a delivery order does (guru 2026-11-05). Same field set the
+        // server PDF uses.
+        organization: { select: REPORT_ORG_SELECT },
       },
     });
     if (!report) throw new NotFoundException('Service report not found');

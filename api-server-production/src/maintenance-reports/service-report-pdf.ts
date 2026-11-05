@@ -102,20 +102,54 @@ export function servicePdfOptions(
 }
 
 /**
- * Org logo, top-left of the title bar (2026-10-26). Only emitted when the org
- * HAS a logo, so a logo-less report stays byte-for-byte what it was. Absolute
- * so the title stays centred and the bar keeps its height (a 40px logo fits
- * inside it), so nothing below moves.
+ * COMPANY LETTERHEAD (guru 2026-11-05) — logo + contact details above the
+ * report, the same block our delivery orders and invoices carry.
+ *
+ * A service report is sent to the customer like any other document, so it has
+ * to say who issued it and how to reach them. It used to print the org's logo
+ * tucked inside the title bar and nothing else: no address, no phone, no UEN.
+ * The fields come from the owning Organization row (REPORT_ORG_SELECT already
+ * loads all of them for the WCT paper), so nothing new is fetched.
+ *
+ * Every part is optional and an absent one prints nothing — an org with only a
+ * name still renders exactly one line, and the block is skipped entirely when
+ * there is nothing at all to show.
  */
-const LOGO_CSS = `
-    .title-bar { position: relative; }
-    .title-logo { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); max-height: 40px; max-width: 140px; object-fit: contain; }
+const LETTERHEAD_CSS = `
+    .letterhead { display: flex; align-items: flex-start; gap: 12px; padding-bottom: 8px; margin-bottom: 10px; border-bottom: 1.5px solid #000; }
+    .letterhead-logo { max-height: 52px; max-width: 150px; object-fit: contain; flex: none; }
+    .letterhead-co { flex: 1; }
+    .letterhead-name { font-size: 14px; font-weight: 700; letter-spacing: 0.3px; }
+    .letterhead-line { font-size: 10px; color: #333; line-height: 1.45; }
+    .letterhead-uen { font-size: 9.5px; color: #555; margin-top: 2px; }
 `;
 
 const logoSrc = (logo?: string | null): string | null => {
   if (!logo) return null;
   return /^(https?:|data:)/i.test(logo) ? logo : `${S3_PREFIX}${logo}`;
 };
+
+/** The letterhead block, or '' when the org has nothing to print. */
+function letterheadHtml(org: WctOrgProfile | null | undefined, fallbackName: string, logoUrl: string | null): string {
+  const name = (org?.name || fallbackName || '').trim();
+  const lines = [
+    org?.address ? esc(org.address) : '',
+    [org?.phoneNumber ? `Tel: ${esc(org.phoneNumber)}` : '', org?.email ? `Email: ${esc(org.email)}` : '']
+      .filter(Boolean)
+      .join(' &nbsp;·&nbsp; '),
+    org?.website ? esc(org.website) : '',
+  ].filter(Boolean);
+  if (!name && !lines.length && !logoUrl) return '';
+  return `
+    <div class="letterhead">${logoUrl ? `
+      <img class="letterhead-logo" src="${esc(logoUrl)}" alt="" />` : ''}
+      <div class="letterhead-co">
+        ${name ? `<div class="letterhead-name">${esc(name).toUpperCase()}</div>` : ''}
+        ${lines.map((l) => `<div class="letterhead-line">${l}</div>`).join('')}
+        ${org?.registrationNumber ? `<div class="letterhead-uen">UEN: ${esc(org.registrationNumber)}</div>` : ''}
+      </div>
+    </div>`;
+}
 
 /** Most photos a service report carries (field app + API enforce it). */
 export const MAX_SERVICE_REPORT_PHOTOS = 12;
@@ -420,7 +454,10 @@ export function buildServiceReportHtml(input: ServiceReportPdfInput): string {
   // Stamped at capture; absent => GENERIC_V1, which is every pre-template row.
   const templateId = templateFor(sd.templateId);
   const isEss = templateId === 'ESS_V1';
-  const logoUrl = logoSrc(input.orgLogo);
+  const logoUrl = logoSrc(input.orgLogo ?? input.org?.logo);
+  // Letterhead replaces the old logo-in-the-title-bar + org-name line: the
+  // company now identifies itself above the report the way it does on a DO.
+  const letterhead = letterheadHtml(input.org, input.orgName, logoUrl);
   const photos = (input.photos ?? []).filter((k) => typeof k === 'string' && k && !k.startsWith('data:')).slice(0, MAX_SERVICE_REPORT_PHOTOS);
 
   const checklistCellsHtml = CHECKLIST_LABELS.map((item) => {
@@ -442,7 +479,6 @@ export function buildServiceReportHtml(input: ServiceReportPdfInput): string {
 
     .title-bar { text-align: center; border: 2px solid #000; padding: 8px 0; margin-bottom: 14px; }
     .title-bar h1 { font-size: 16px; letter-spacing: 0.5px; }
-    .org-line { font-size: 11px; margin-top: 2px; color: #444; }
 
     .report-no-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; }
     .report-no { font-size: 13px; font-weight: 700; }
@@ -474,14 +510,13 @@ export function buildServiceReportHtml(input: ServiceReportPdfInput): string {
     .sig-name { font-size: 11px; font-weight: 600; }
 
     .footer-text { margin-top: 18px; font-size: 10px; color: #444; line-height: 1.4; }
-${isEss ? ESS_PRINT_CSS : ''}${photos.length ? PHOTOS_PRINT_CSS : ''}${logoUrl ? LOGO_CSS : ''}  </style>
+${isEss ? ESS_PRINT_CSS : ''}${photos.length ? PHOTOS_PRINT_CSS : ''}${letterhead ? LETTERHEAD_CSS : ''}  </style>
 </head>
 <body>
   <div class="page">
-    <div class="title-bar">${logoUrl ? `
-      <img class="title-logo" src="${esc(logoUrl)}" alt="" />` : ''}
+${letterhead}
+    <div class="title-bar">
       <h1>${esc(TEMPLATE_LABELS[templateId].toUpperCase())}</h1>
-      <div class="org-line">${esc(input.orgName)}</div>
     </div>
 
     <div class="report-no-row">

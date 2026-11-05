@@ -294,7 +294,8 @@ export function useMsrPrint(): UseMsrPrintResult {
   const checkedSet = new Set<number>(sd?.checklist ?? []);
   const techSigUrl = sd?.techSignatureKey ? `${RESOURCE_URL}${sd.techSignatureKey}` : null;
   const clientSigUrl = sd?.clientSignatureKey ? `${RESOURCE_URL}${sd.clientSignatureKey}` : null;
-  const orgLogo: string | null = report?.organization?.logo ?? null;
+  const org: any = report?.organization ?? null;
+  const orgLogo: string | null = org?.logo ?? null;
   const logoUrl = orgLogo ? (/^(https?:|data:)/i.test(orgLogo) ? orgLogo : `${RESOURCE_URL}${orgLogo}`) : null;
 
   const surface = (
@@ -308,9 +309,26 @@ export function useMsrPrint(): UseMsrPrintResult {
         {report && (
           <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <Box sx={{ border: 1, borderColor: "divider", p: 2 }} className="msr-section">
-              {logoUrl && (
-                <img src={logoUrl} alt="" style={{ display: "block", maxHeight: 40, maxWidth: 160, objectFit: "contain", marginBottom: 8 }} />
-              )}
+              {/* COMPANY LETTERHEAD (guru 2026-11-05) — logo + contact details,
+                  matching the office page and the server PDF so a report
+                  printed from the field says who issued it. Absent parts
+                  render nothing. */}
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 12, borderBottom: "1.5px solid #000", paddingBottom: 8, marginBottom: 10 }}>
+                {logoUrl && (
+                  <img src={logoUrl} alt="" style={{ display: "block", maxHeight: 52, maxWidth: 150, objectFit: "contain", flex: "none" }} />
+                )}
+                <div>
+                  {org?.name && <div style={{ fontWeight: 700, fontSize: 14, letterSpacing: "0.3px" }}>{String(org.name).toUpperCase()}</div>}
+                  {org?.address && <div style={{ fontSize: 10, color: "#333", lineHeight: 1.45 }}>{org.address}</div>}
+                  {(org?.phoneNumber || org?.email) && (
+                    <div style={{ fontSize: 10, color: "#333", lineHeight: 1.45 }}>
+                      {[org?.phoneNumber ? `Tel: ${org.phoneNumber}` : null, org?.email ? `Email: ${org.email}` : null].filter(Boolean).join("  \u00b7  ")}
+                    </div>
+                  )}
+                  {org?.website && <div style={{ fontSize: 10, color: "#333", lineHeight: 1.45 }}>{org.website}</div>}
+                  {org?.registrationNumber && <div style={{ fontSize: 9.5, color: "#555", marginTop: 2 }}>UEN: {org.registrationNumber}</div>}
+                </div>
+              </div>
               <h2 style={{ margin: 0 }}>{TEMPLATE_LABELS[templateId]}</h2>
               <div style={{ fontSize: 12, color: "#555" }}>Report #{report.reportNumber ?? "—"}</div>
               <Box sx={{ display: "flex", gap: 4, mt: 1 }}>
