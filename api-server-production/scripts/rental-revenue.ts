@@ -29,6 +29,10 @@ const SCHEMA = arg('schema', 'org_biofuel');
 const FROM = arg('from', '2026-10-01');
 const TO = arg('to', '2026-11-01');
 const ALL_INCOME = process.argv.includes('--all-income');
+/** The other half of the question (guru 2026-11-05: "how much i earn from
+ *  sales not rental in october") — every income account whose name does NOT
+ *  say Rental: sales of units, transport, servicing, manpower and the rest. */
+const SALES_ONLY = process.argv.includes('--sales');
 const m = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 (async () => {
@@ -46,9 +50,10 @@ const m = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 2, m
       ORDER BY a.code`, FROM, TO);
 
   const isRental = (n: string) => /rental/i.test(n);
-  const shown = ALL_INCOME ? rows : rows.filter((r) => isRental(r.name));
+  const shown = ALL_INCOME ? rows : rows.filter((r) => (SALES_ONLY ? !isRental(r.name) : isRental(r.name)));
 
-  console.log(`\n${ALL_INCOME ? 'Income' : 'Rental revenue'} billed ${FROM} → ${TO}   [schema ${SCHEMA}]`);
+  const heading = ALL_INCOME ? 'Income' : SALES_ONLY ? 'Non-rental income (sales, transport, servicing…)' : 'Rental revenue';
+  console.log(`\n${heading} billed ${FROM} → ${TO}   [schema ${SCHEMA}]`);
   console.log(`(POSTED journals only; credits less debits, so credit notes reduce the month)\n`);
   console.log(`  ${'Code'.padEnd(8)}${'Account'.padEnd(46)}${'Lines'.padStart(8)}${'Revenue'.padStart(18)}`);
   console.log(`  ${'-'.repeat(80)}`);
@@ -61,11 +66,13 @@ const m = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 2, m
     console.log(`  ${String(r.code).padEnd(8)}${String(r.name).slice(0, 44).padEnd(46)}${String(r.lines).padStart(8)}${m(r.revenue).padStart(18)}${mark}`);
   }
   console.log(`  ${'-'.repeat(80)}`);
-  console.log(`  ${'RENTAL REVENUE'.padEnd(54)}${''.padStart(8)}${m(rentalTotal).padStart(18)}`);
-  if (ALL_INCOME) {
-    console.log(`  ${'ALL INCOME'.padEnd(54)}${''.padStart(8)}${m(allTotal).padStart(18)}`);
-    console.log(`  ${'rental share'.padEnd(54)}${''.padStart(8)}${(allTotal ? (100 * rentalTotal / allTotal).toFixed(1) : '0.0').padStart(17)}%`);
-  }
+  // Always print BOTH halves and the whole, whichever half was asked for: the
+  // interesting number is usually the split, not one side of it.
+  const salesTotal = allTotal - rentalTotal;
+  console.log(`  ${'RENTAL'.padEnd(54)}${''.padStart(8)}${m(rentalTotal).padStart(18)}`);
+  console.log(`  ${'NON-RENTAL (sales, transport, servicing…)'.padEnd(54)}${''.padStart(8)}${m(salesTotal).padStart(18)}`);
+  console.log(`  ${'ALL INCOME'.padEnd(54)}${''.padStart(8)}${m(allTotal).padStart(18)}`);
+  console.log(`  ${'rental share'.padEnd(54)}${''.padStart(8)}${(allTotal ? (100 * rentalTotal / allTotal).toFixed(1) : '0.0').padStart(17)}%`);
   // CROSS-CHECK from the other side: the invoices themselves. The two should
   // agree; when they don't, something was posted by hand or an invoice never
   // reached the ledger, and the gap is the thing worth looking at.
@@ -73,7 +80,12 @@ const m = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 2, m
     `SELECT name, type, status, config FROM "${SCHEMA}"."Document"
       WHERE type IN ('INVOICE', 'CREDIT_NOTE') AND config->>'date' >= $1 AND config->>'date' < $2`, FROM, TO);
   const coa: any[] = await prisma.$queryRawUnsafe(`SELECT code, name FROM "${SCHEMA}"."ChartOfAccount"`);
-  const rentalCodes = new Set(coa.filter((a: any) => isRental(String(a.name))).map((a: any) => String(a.code)));
+  // Cross-check the side that was asked for.
+  const sideCodes = new Set(
+    rows.filter((r: any) => (SALES_ONLY ? !isRental(r.name) : isRental(r.name))).map((r: any) => String(r.code)),
+  );
+  const rentalCodes = sideCodes;
+  const sideTotal = SALES_ONLY ? salesTotal : rentalTotal;
   const ISSUED = new Set(['paid', 'pending_payment', 'confirmed', 'partially_paid', 'overdue']);
   let invTotal = 0, invCount = 0, cnTotal = 0, cnCount = 0, skippedDraft = 0;
   for (const d of inv) {
@@ -86,12 +98,12 @@ const m = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 2, m
     if (d.type === 'CREDIT_NOTE') { cnTotal += t; cnCount++; } else { invTotal += t; invCount++; }
   }
   const docSide = invTotal - cnTotal;
-  const gap = rentalTotal - docSide;
+  const gap = sideTotal - docSide;
   console.log(`\n  Cross-check — the same period from the documents instead:`);
   console.log(`    invoices  (${String(invCount).padStart(4)} issued)     ${m(invTotal).padStart(16)}${skippedDraft ? `   (${skippedDraft} draft/unconfirmed skipped)` : ''}`);
   console.log(`    less credit notes (${String(cnCount).padStart(3)})     ${m(-cnTotal).padStart(16)}`);
   console.log(`    documents, net              ${m(docSide).padStart(16)}`);
-  console.log(`    ledger (above)              ${m(rentalTotal).padStart(16)}`);
+  console.log(`    ${`ledger (${SALES_ONLY ? 'non-rental' : 'rental'})`.padEnd(28)}${m(sideTotal).padStart(16)}`);
   console.log(`    difference                  ${m(gap).padStart(16)}  ${Math.abs(gap) < 0.01 ? '✓ agree' : '← manual journals, or a document that never reached the ledger. Run with --journals to see them.'}`);
 
   if (process.argv.includes('--journals')) {
@@ -103,7 +115,8 @@ const m = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 2, m
          JOIN "${SCHEMA}"."ChartOfAccount" a ON a.id = l."accountId"
         WHERE j.status = 'POSTED' AND j."sourceDocumentId" IS NULL
           AND j."entryDate" >= $1::timestamp AND j."entryDate" < $2::timestamp
-          AND a.category = 'PNL' AND a."normalBalance" = 'CREDIT' AND a.name ILIKE '%rental%'
+          AND a.category = 'PNL' AND a."normalBalance" = 'CREDIT'
+          AND a.name ${SALES_ONLY ? 'NOT ILIKE' : 'ILIKE'} '%rental%'
         GROUP BY 1,2,3,4 ORDER BY ABS(SUM(l.credit - l.debit)) DESC LIMIT 25`, FROM, TO);
     console.log(`\n  Journals on rental accounts with no source document (${manual.length}):`);
     for (const j of manual)
