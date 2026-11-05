@@ -24,6 +24,7 @@
       "unconfirmed": "未確定",
       "confirmed": "確定済",
       "pending_payment": "入金待ち",
+      "partially_paid": "一部入金済",
       "paid": "入金済"
     },
     "notIncluded": "{n, plural, other {{c}件の書類を含められませんでした}}",

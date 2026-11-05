@@ -24,6 +24,7 @@
       "unconfirmed": "Unconfirmed",
       "confirmed": "Confirmed",
       "pending_payment": "Awaiting Payment",
+      "partially_paid": "Partially Paid",
       "paid": "Paid"
     },
     "notIncluded": "{n, plural, one {{c} document} other {{c} documents}} could not be included",

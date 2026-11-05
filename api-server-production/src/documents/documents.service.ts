@@ -4143,8 +4143,37 @@ export class DocumentsService {
       if (opts.templateId) where.documentTemplateId = opts.templateId;
 
       if (opts.status) {
-        const s = (Array.isArray(opts.status) ? opts.status : [opts.status]).filter(Boolean);
-        if (s.length === 1) where.status = s[0];
+        const all = (Array.isArray(opts.status) ? opts.status : [opts.status]).filter(Boolean);
+        // "partially_paid" is not a stored status: it is an unpaid document with
+        // money paid AND money still owed (the stamps document-money.ts writes
+        // after every payment). Filtering by it, or by pending_payment, splits
+        // those rows the way the lists' chips do. Matched in SQL with COALESCE:
+        // a Prisma JSON `gt` on a missing key is NULL, and NOT(NULL) drops the
+        // row, so the never-stamped invoices vanished from Awaiting Payment.
+        const PARTIAL = 'partially_paid';
+        const s = all.filter((x) => x !== PARTIAL);
+        const wantsPartial = all.includes(PARTIAL);
+        const splitsPending = s.length === 1 && s[0] === 'pending_payment';
+        if (wantsPartial || splitsPending) {
+          const partial: Array<{ id: string }> = await this.prisma.$queryRaw`
+            SELECT d.id FROM "Document" d
+            WHERE d."organizationId" = ${organizationId}
+              -- Same exclusions the chip makes (components/StatusChip.tsx
+              -- docDisplayStatus), so the filter cannot hand back a row that
+              -- then renders as Paid or Cancelled.
+              AND d.status NOT IN ('paid', 'returned', 'cancelled', 'voided')
+              AND COALESCE((d.config ->> 'paidToDate')::numeric, (d.config ->> 'xeroAmountPaid')::numeric, 0) > 0.005
+              AND COALESCE((d.config ->> 'outstandingBalance')::numeric, (d.config ->> 'xeroBalance')::numeric, 0) > 0.005
+            LIMIT 5000`;
+          const partialIds = partial.map((h) => h.id);
+          if (wantsPartial) {
+            const inPartial = { id: { in: partialIds } };
+            and.push(s.length ? { OR: [inPartial, { status: { in: s } }] } : inPartial);
+          } else {
+            where.status = 'pending_payment';
+            if (partialIds.length) and.push({ id: { notIn: partialIds } });
+          }
+        } else if (s.length === 1) where.status = s[0];
         else if (s.length > 1) where.status = { in: s };
       }
 

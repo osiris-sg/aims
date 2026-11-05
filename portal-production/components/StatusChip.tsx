@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Chip } from "@mui/material";
+import { Chip, Tooltip } from "@mui/material";
 
 // Bills-style status pill, shared by every document table so statuses read the
 // same everywhere (outlined chip, uppercase-ish short label, semantic color).
@@ -29,17 +29,50 @@ const STATUS_LABEL: Record<string, string> = {
   unconfirmed: "Unconfirmed",
   pending_payment: "Awaiting Payment",
   posted: "Awaiting Payment", // bills: POSTED = confirmed, awaiting payment
+  partially_paid: "Partially Paid",
 };
 
-export default function StatusChip({ status }: { status?: string | null }) {
-  const s = (status || "unconfirmed").toLowerCase();
+const num = (v: any): number | null => {
+  if (v === undefined || v === null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+// Money stamped on the document by the server after every payment
+// (common/document-money.ts: canonical paidToDate / outstandingBalance,
+// legacy xeroAmountPaid / xeroBalance twins).
+export const docPaidOf = (config: any): number | null => num(config?.paidToDate) ?? num(config?.xeroAmountPaid);
+export const docOutstandingOf = (config: any): number | null => num(config?.outstandingBalance) ?? num(config?.xeroBalance);
+
+// A partly paid invoice stays `pending_payment` in the database (there is no
+// such enum value); what makes it "partially paid" is money stamped on it:
+// something paid AND something still owed. Derive the display status here so
+// every list reads the same (guru 2026-11-06, BIPL-JPSG-20260929-0002: a part
+// payment showed as plain "Awaiting Payment").
+export const PARTIALLY_PAID = "partially_paid";
+export function docDisplayStatus(doc: { status?: string | null; config?: any } | null | undefined): string {
+  const s = (doc?.status || "unconfirmed").toLowerCase();
+  if (["paid", "cancelled", "voided", "returned"].includes(s)) return s;
+  const c = doc?.config || {};
+  if (c.voided) return s;
+  const paid = docPaidOf(c);
+  const outstanding = docOutstandingOf(c);
+  if (paid !== null && paid > 0.005 && outstanding !== null && outstanding > 0.005) return PARTIALLY_PAID;
+  return s;
+}
+
+const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+export default function StatusChip({ status, doc }: { status?: string | null; doc?: { status?: string | null; config?: any } | null }) {
+  // With the document in hand the chip derives "Partially Paid" itself.
+  const s = doc ? docDisplayStatus({ status: status ?? doc.status, config: doc.config }) : (status || "unconfirmed").toLowerCase();
   const label =
     STATUS_LABEL[s] ||
     s
       .split("_")
       .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
       .join(" ");
-  return (
+  const chip = (
     <Chip
       size="small"
       variant="outlined"
@@ -55,5 +88,14 @@ export default function StatusChip({ status }: { status?: string | null }) {
         "& .MuiChip-label": { whiteSpace: "normal", display: "block", textAlign: "center", lineHeight: 1.3 },
       }}
     />
+  );
+  if (s !== PARTIALLY_PAID || !doc) return chip;
+  // Hover shows how much came in and how much is still owed.
+  const paid = docPaidOf(doc.config) ?? 0;
+  const outstanding = docOutstandingOf(doc.config) ?? 0;
+  return (
+    <Tooltip title={`Paid ${money(paid)} · Outstanding ${money(outstanding)}`} arrow>
+      <span style={{ display: "inline-flex" }}>{chip}</span>
+    </Tooltip>
   );
 }

@@ -48,7 +48,8 @@ const DOC_STATUS_OPTIONS = [
   { value: "pending_delivery", label: "Pending Delivery" },
   { value: "delivered_not_installed", label: "Delivered (Not Installed)" },
   { value: "delivered_installed", label: "Delivered & Installed" },
-  { value: "pending_payment", label: "Pending Payment" },
+  { value: "pending_payment", label: "Awaiting Payment" },
+  { value: "partially_paid", label: "Partially Paid" },
   { value: "paid", label: "Paid" },
   { value: "pending_return", label: "Pending Return" },
   { value: "returned", label: "Returned" },
@@ -92,6 +93,7 @@ const formatStatus = (status: string) => {
   if (!status) return "Unconfirmed";
   if (status === "draft" || status === "unconfirmed") return "Unconfirmed";
   if (status === "pending_payment") return "Awaiting Payment";
+  if (status === "partially_paid") return "Partially Paid";
   return status
     .split("_")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
@@ -109,6 +111,7 @@ const getStatusColor = (status: string) => {
       return "success.main";
     case "pending_delivery":
     case "pending_payment":
+    case "partially_paid":
     case "pending_return":
       return "warning.main";
     case "delivered_not_installed":
@@ -352,7 +355,7 @@ export default function DocumentListView({
         const needsInfo = isRdo && (!(c?.customer?.id || c?.customerId) || !r.projectId);
         return (
           <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap>
-            <StatusChip status={r.status} />
+            <StatusChip status={r.status} doc={r} />
             {needsInfo && <Chip size="small" color="warning" variant="outlined" label="Needs info" sx={{ height: 20, fontSize: "0.7rem" }} />}
             {(r.imported || c?.erpImport?.source) && (
               <Tooltip title="Imported from the previous system: kept as history, never posted to the GL">

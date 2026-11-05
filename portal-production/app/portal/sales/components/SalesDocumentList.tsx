@@ -169,6 +169,7 @@ export default function SalesDocumentList({
       case "delivered_installed":
         return "success.main";
       case "pending_payment":
+      case "partially_paid":
         return "warning.main";
       case "paid":
         return "success.main";
@@ -217,7 +218,7 @@ export default function SalesDocumentList({
       header: "Status",
       // wrap: chip may take two lines (no "…" — guru 2026-08-27)
       pxWidth: 150,
-      cell: ({ row }: any) => <StatusChip status={row.original.status} />,
+      cell: ({ row }: any) => <StatusChip status={row.original.status} doc={row.original} />,
     },
     ...additionalColumns,
     {

@@ -20,7 +20,7 @@ import { useCustomerById } from "@/app/portal/hooks/api/useCustomerPicker";
 import { useRouter } from "next/navigation";
 import { useCreateDocumentFlow } from "@/app/portal/components/useCreateDocumentFlow";
 import moment from "moment";
-import StatusChip from "@/components/StatusChip";
+import StatusChip, { docDisplayStatus } from "@/components/StatusChip";
 import { toast } from "react-toastify";
 import { DOCUMENT_API } from "../documents/constants";
 import { ROUTES } from "@/routes";
@@ -87,6 +87,7 @@ const INVOICE_STATUS_OPTIONS = [
   { value: "unconfirmed", label: "Unconfirmed" },
   { value: "confirmed", label: "Confirmed" },
   { value: "pending_payment", label: "Awaiting Payment" },
+  { value: "partially_paid", label: "Partially Paid" },
   { value: "paid", label: "Paid" },
 ];
 
@@ -317,7 +318,7 @@ export default function InvoicesPage() {
       header: t("colStatus"),
       // wrap: chip may take two lines (no "…" — guru 2026-08-27)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      cell: ({ row }: any) => <StatusChip status={row.original.status} />,
+      cell: ({ row }: any) => <StatusChip status={row.original.status} doc={row.original} />,
     },
     {
       // Xero sync state: grey until the invoice is pushed to / imported from
@@ -555,7 +556,9 @@ export default function InvoicesPage() {
     // Apply the filter-drawer selections (previously stored but never applied).
     const statusFilter = filters.status;
     if (statusFilter) {
-      docs = docs.filter((d) => (d.status || "").toLowerCase() === statusFilter.toLowerCase());
+      // Derived display status: "Partially Paid" is a pending_payment invoice
+      // with money in AND money owed, so the two filters split those rows.
+      docs = docs.filter((d) => docDisplayStatus(d) === statusFilter.toLowerCase());
     }
     const customerFilter = filters.customerId;
     if (customerFilter) {
