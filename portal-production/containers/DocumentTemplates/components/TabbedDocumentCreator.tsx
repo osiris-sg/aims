@@ -6110,7 +6110,7 @@ export default function TabbedDocumentCreator({
                         <TableHead
                           sx={{
                             "& .MuiTableCell-root": {
-                              fontFamily: "'Helvetica Neue', Arial, sans-serif",
+                              fontFamily: "var(--app-font, 'Helvetica Neue', Arial, sans-serif)",
                               fontSize: "13px",
                               fontWeight: 700,
                               letterSpacing: 0,

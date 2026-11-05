@@ -153,8 +153,11 @@ function OrgTheme({ children }: { children: React.ReactNode }) {
             styles={{
               // Plain (non-MUI) text and the page behind the app.
               body: { fontFamily: DEMO_FONT, ...(light ? { backgroundColor: theme.palette.background.default, color: theme.palette.text.primary } : {}) },
+              // --app-font: read by the few places that name a typeface
+              // themselves (editor fields, list-page titles). Both modes.
+              ":root": { "--app-font": DEMO_FONT },
               // The CSS custom properties pages read directly (globals.css).
-              ...(light ? { ":root, :root[data-theme='light']": DEMO_CSS_VARS_LIGHT } : {}),
+              ...(light ? { ":root[data-theme='light']": DEMO_CSS_VARS_LIGHT } : {}),
             }}
           />
         )}

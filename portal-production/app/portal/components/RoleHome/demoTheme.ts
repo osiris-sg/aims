@@ -32,6 +32,7 @@ export function buildDemoTheme(base: Theme): Theme {
   // Dark keeps the base palette's surfaces (the mock-up is light-only) and
   // takes the typeface, shapes and accents.
   const primaryMain = dark ? "#B9B0F2" : NAVY;
+  const family = { fontFamily: DEMO_FONT };
   const heading = { fontFamily: DEMO_FONT, letterSpacing: "-0.01em" };
 
   return createTheme(base, {
@@ -60,15 +61,24 @@ export function buildDemoTheme(base: Theme): Theme {
           }),
     },
     shape: { borderRadius: 12 },
+    // Every variant is named: the base theme is already BUILT, so each variant
+    // carries its own baked-in fontFamily and the root key alone changes
+    // nothing a Typography actually renders with.
     typography: {
       fontFamily: DEMO_FONT,
       h1: heading,
       h2: heading,
       h3: heading,
       h4: heading,
-      h5: { fontFamily: DEMO_FONT },
-      h6: { fontFamily: DEMO_FONT },
-      ...(dark ? {} : { body2: { color: MUTED } }),
+      h5: family,
+      h6: family,
+      subtitle1: family,
+      subtitle2: family,
+      body1: family,
+      body2: dark ? family : { ...family, color: MUTED },
+      button: family,
+      caption: family,
+      overline: family,
     },
     components: {
       MuiCssBaseline: {

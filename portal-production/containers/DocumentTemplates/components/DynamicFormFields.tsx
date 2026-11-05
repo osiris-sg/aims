@@ -952,7 +952,10 @@ const YES_NO = [
 ];
 
 // Compact input styles - blend into the row, subtle focus state
-const fieldFontFamily = "'Helvetica Neue', Arial, sans-serif";
+// --app-font: an org app-theme overlay (role-home orgs, app/portal/layout.tsx
+// OrgTheme) sets it so the editor's fields match the rest of that org's UI.
+// Unset everywhere else, where the fallback is the face these fields always had.
+const fieldFontFamily = "var(--app-font, 'Helvetica Neue', Arial, sans-serif)";
 
 // Xero-style field border: 1px medium grey at rest (not near-black),
 // slightly darker on hover. Focus still snaps to primary. CSS vars so the
