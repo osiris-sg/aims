@@ -35,6 +35,10 @@ export type SaveReceiptDto = {
   receiptAmount: number;
   paymentMethod?: string | null;
   allocations: ReceiptAllocation[];
+  // Typed-over receipt number (guru 2026-11-05: accountants may edit the
+  // running number). Must be unique among the org's receipts; the next
+  // auto-issued number continues from the highest in that series.
+  receiptNumber?: string | null;
 };
 
 export type CreateOffsetDto = {
@@ -348,6 +352,16 @@ export class ReceiptsService {
     // change of bank keeps the number — it is already on the journal and the
     // customer's statement.
     let receiptNumber = doc.name || '';
+    const typed = String(dto.receiptNumber || '').trim();
+    if (typed && typed !== receiptNumber && !ReceiptsService.isPending(typed)) {
+      const clash = await this.prisma.document.findFirst({
+        where: { organizationId, type: 'OFFICIAL_RECEIPT', name: typed, NOT: { id } },
+        select: { id: true },
+      });
+      if (clash) throw new BadRequestException(`Receipt number ${typed} is already used`);
+      receiptNumber = typed;
+      await this.prisma.document.update({ where: { id }, data: { name: receiptNumber } });
+    }
     if (ReceiptsService.isPending(receiptNumber)) {
       const bank = await this.prisma.chartOfAccount.findFirst({
         where: { organizationId, code: dto.debitAccountCode },

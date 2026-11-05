@@ -37,6 +37,9 @@ export type SaveVoucherDto = {
   voucherAmount: number;
   paymentMethod?: string | null;
   allocations: VoucherAllocation[];
+  // Typed-over voucher number (guru 2026-11-05) — unique among the org's
+  // vouchers; the next auto number continues from the highest in its series.
+  voucherNumber?: string | null;
 };
 
 type Actor = { id?: string; name?: string; email?: string };
@@ -311,6 +314,16 @@ export class PaymentVouchersService {
     // Placeholder → real number once the paid-from bank is known ({BANK}
     // pattern). Issued once; a later bank change keeps the number.
     let voucherNumber = doc.name || '';
+    const typed = String(dto.voucherNumber || '').trim();
+    if (typed && typed !== voucherNumber && !PaymentVouchersService.isPending(typed)) {
+      const clash = await this.prisma.document.findFirst({
+        where: { organizationId, type: 'PAYMENT_VOUCHER', name: typed, NOT: { id } },
+        select: { id: true },
+      });
+      if (clash) throw new BadRequestException(`Voucher number ${typed} is already used`);
+      voucherNumber = typed;
+      await this.prisma.document.update({ where: { id }, data: { name: voucherNumber } });
+    }
     if (PaymentVouchersService.isPending(voucherNumber)) {
       const issued = await this.numbering.issueNumberLocked(organizationId, 'PAYMENT_VOUCHER', null, new Date(dto.date), undefined, {
         bankCode: bankCodeOf(bank.name || bank.code),

@@ -108,6 +108,7 @@ export default function OfficialReceiptPage() {
     const response = await request(
       { path: `/receipts/${documentId}`, method: "PUT" },
       {
+        receiptNumber: data?.documentInfo?.documentNumber || data?.name || null,
         date: od.date,
         chequeNo: od.chequeNo || null,
         remarks: od.remarks || null,

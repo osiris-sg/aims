@@ -149,12 +149,24 @@ const AccountEcho = ({ currency, name }: { currency: string; name: string }) =>
     </Typography>
   ) : null;
 
-export function OrReceiptNoInput({ formData }: RowProps) {
+// Editable (guru 2026-11-05): the accountant can type over the running
+// number; the server checks it is unused and the next auto number continues
+// from the highest in that series. An OR-PENDING… name means "issued on save".
+export function OrReceiptNoInput({ formData, setFormData }: RowProps) {
+  // A provisional OR-PENDING… name is not a number anyone should see or type
+  // over: show the box empty so the placeholder explains itself, and the
+  // server issues the real number on save.
+  const raw = formData?.documentInfo?.documentNumber || formData?.name || "";
+  const value = raw.startsWith("OR-PENDING") ? "" : raw;
   return (
     <TextField
       size="small"
-      value={formData?.documentInfo?.documentNumber || formData?.name || ""}
-      InputProps={{ readOnly: true }}
+      value={value}
+      onChange={(e) => {
+        const v = e.target.value;
+        setFormData({ ...formData, name: v, documentInfo: { ...(formData?.documentInfo || {}), documentNumber: v } });
+      }}
+      placeholder="Issued on save"
       sx={{ ...headerInputSx, width: 220 }}
     />
   );

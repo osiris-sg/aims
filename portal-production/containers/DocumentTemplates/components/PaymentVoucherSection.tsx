@@ -104,12 +104,22 @@ const AccountEcho = ({ currency, name }: { currency: string; name: string }) =>
     </Typography>
   ) : null;
 
-export function PvVoucherNoInput({ formData }: RowProps) {
+// Editable (guru 2026-11-05) — see OrReceiptNoInput.
+export function PvVoucherNoInput({ formData, setFormData }: RowProps) {
+  // A provisional PV-PENDING… name is not a number anyone should see or type
+  // over: show the box empty so the placeholder explains itself, and the
+  // server issues the real number on save.
+  const raw = formData?.documentInfo?.documentNumber || formData?.name || "";
+  const value = raw.startsWith("PV-PENDING") ? "" : raw;
   return (
     <TextField
       size="small"
-      value={formData?.documentInfo?.documentNumber || formData?.name || ""}
-      InputProps={{ readOnly: true }}
+      value={value}
+      onChange={(e) => {
+        const v = e.target.value;
+        setFormData({ ...formData, name: v, documentInfo: { ...(formData?.documentInfo || {}), documentNumber: v } });
+      }}
+      placeholder="Issued on save"
       sx={{ ...headerInputSx, width: 220 }}
     />
   );

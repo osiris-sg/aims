@@ -102,6 +102,7 @@ export default function PaymentVoucherPage() {
     const response = await request(
       { path: `/payment-vouchers/${documentId}`, method: "PUT" },
       {
+        voucherNumber: data?.documentInfo?.documentNumber || data?.name || null,
         date: pd.date,
         chequeNo: pd.chequeNo || null,
         remarks: pd.remarks || null,
