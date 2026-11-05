@@ -1186,7 +1186,16 @@ export default function BillEditorDialog({
                           // posting. On a bill that is already posted nothing
                           // more will be chosen, so an empty box there means the
                           // account could not be determined, not "pending".
-                          placeholder={isReadOnly ? "Not recorded" : "Auto"}
+                          // A row with no amount is a narrative row — it is
+                          // never posted, so it has no account to record and
+                          // an empty box there is correct, not a gap.
+                          placeholder={
+                            Number(l.amount || 0) === 0 && l.description.trim()
+                              ? "Not posted"
+                              : isReadOnly
+                                ? "Not recorded"
+                                : "Auto"
+                          }
                           disabled={isReadOnly}
                         />
                       )}

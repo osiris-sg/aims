@@ -258,7 +258,7 @@ export class BillsService {
   private async fillLineAccountsFromJournal(organizationId: string, billId: string, bill: any) {
     try {
       const lines: any[] = Array.isArray(bill?.lines) ? bill.lines : [];
-      if (!lines.length || !lines.some((l) => !l?.accountId)) return bill;
+      if (!lines.length || !lines.some((l) => !l?.accountId && ROUND(l?.amount || 0) !== 0)) return bill;
 
       const entry = await this.prisma.journalEntry.findFirst({
         where: { organizationId, sourceDocumentId: billId, type: 'BILL' as any, status: 'POSTED' },
@@ -281,8 +281,14 @@ export class BillsService {
 
       const norm = (v: any) => String(v ?? '').trim().toLowerCase();
       const used = new Set<number>();
+      // Zero rows are narrative, not postings — they were never journalled, so
+      // they take no account and must not consume a journal line's position.
+      const valued: number[] = [];
+      lines.forEach((l: any, i: number) => {
+        if (ROUND(l?.amount || 0) !== 0) valued.push(i);
+      });
       const filled = lines.map((l: any, i: number) => {
-        if (l?.accountId) return l;
+        if (l?.accountId || !valued.includes(i)) return l;
         let hit = -1;
         const d = norm(l?.description);
         if (d) {
@@ -291,7 +297,8 @@ export class BillsService {
             .filter(({ e, ei }) => !used.has(ei) && norm(e.description) === d);
           if (ms.length === 1) hit = ms[0].ei;
         }
-        if (hit < 0 && i < expense.length && !used.has(i)) hit = i;
+        const pos = valued.indexOf(i);
+        if (hit < 0 && pos >= 0 && pos < expense.length && !used.has(pos)) hit = pos;
         if (hit < 0) return l;
         used.add(hit);
         const a = expense[hit].account!;
@@ -747,17 +754,41 @@ export class BillsService {
     // way to see what it had actually posted to (guru 2026-11-05). The resolved
     // ids are written back onto the stored lines below, so the bill records the
     // account it posted to.
-    const resolvedAccountIds: string[] = [];
+    const resolvedAccountIds: Array<string | null> = [];
     for (const [i, l] of (bill.lines as any[]).entries()) {
+      // NARRATIVE LINES CARRY NO VALUE (guru 2026-11-05). Supplier invoices
+      // routinely spell the charge out over several rows — one priced row and
+      // then sub-rows naming the units it covers ("NCI 810171-5 (Milkyway
+      // Depot)"), exactly as the supplier's own PDF reads. A zero row is not a
+      // posting: it used to become a 0/0 journal line and the ledger rejected
+      // the whole bill with "Line 2: must have either a debit or a credit", so
+      // the bill could not be submitted at all. Zero rows stay on the bill and
+      // are simply not posted.
+      const amount = ROUND((l.amount || 0) * netFactor);
+      if (amount === 0) {
+        resolvedAccountIds.push(null);
+        continue;
+      }
       const accountId = l.accountId || fallbackPurchase?.id;
       if (!accountId) throw new BadRequestException(`Bill line ${i + 1}: no accountId and no fallback PURCHASE account in chart`);
       resolvedAccountIds.push(accountId);
-      lines.push({ accountId, debit: ROUND((l.amount || 0) * netFactor), credit: 0, description: l.description || `Bill ${bill.billNumber}` });
+      // A negative line (a discount or an allowance the supplier nets off)
+      // posts on the opposite side — the ledger refuses a negative debit.
+      lines.push({
+        accountId,
+        debit: amount > 0 ? amount : 0,
+        credit: amount < 0 ? -amount : 0,
+        description: l.description || `Bill ${bill.billNumber}`,
+      });
+    }
+    if (lines.length === 0) {
+      throw new BadRequestException('This bill has no line with an amount, so there is nothing to post.');
     }
     if (inclusive) {
       const targetNet = ROUND(linesSum - bill.taxAmount);
-      const drift = ROUND(targetNet - lines.reduce((s, l) => s + l.debit, 0));
-      if (drift !== 0 && lines.length > 0) lines[lines.length - 1].debit = ROUND(lines[lines.length - 1].debit + drift);
+      const drift = ROUND(targetNet - lines.reduce((s, l) => s + l.debit - l.credit, 0));
+      const last = lines.filter((l) => l.debit > 0).pop();
+      if (drift !== 0 && last) last.debit = ROUND(last.debit + drift);
     }
     if (bill.taxAmount > 0 && taxAccount) {
       lines.push({ accountId: taxAccount.id, debit: bill.taxAmount, credit: 0, description: `Input tax — ${bill.billNumber}` });
@@ -890,7 +921,7 @@ export class BillsService {
 
     // Suggest accounts only for lines that don't already have one. Learned
     // corrections (accountant memory) win; the rest go to the AI.
-    const needIdx = billLines.map((l, i) => ({ l, i })).filter(({ l }) => !l.accountId);
+    const needIdx = billLines.map((l, i) => ({ l, i })).filter(({ l }) => !l.accountId && ROUND(l.amount || 0) !== 0);
     const suggestions: Array<{ accountId: string | null; code: string; name: string; confidence: number; reason: string; source: 'learned' | 'ai' } | null> =
       billLines.map(() => null);
     if (needIdx.length > 0) {
@@ -925,6 +956,9 @@ export class BillsService {
     let sumDebit = 0;
     for (const [i, l] of billLines.entries()) {
       const amt = ROUND(l.amount || 0);
+      // Narrative rows (no amount) aren't postings — post() skips them, so the
+      // preview must not show a phantom 0.00 line against a guessed account.
+      if (amt === 0) continue;
       sumDebit += amt;
       const desc = l.description || `Bill ${billNumber}`.trim();
 
