@@ -877,7 +877,16 @@ export type DocFormatView = {
   docType: "CUSTOMER_COA" | "CUSTOMER_PL" | "SGJP_IV_PL" | "SHIPPING_INSTRUCTIONS" | "INVOICE"; step: string; title: string; titleJa: string;
   generator: string; generatorLabel: string; formatConfirmed: boolean; options: Array<{ key: string; label: string; formatConfirmed: boolean }>;
   choose: "variant" | "billing" | "fixed"; previewable: boolean; language: "ja" | "en"; addressee: string | null; effectiveAddressee: string; notes: string | null; samples: FormatSampleView[];
+  /** Round BF — 出庫・納入依頼書 only: the customer's SI settings and ADH's uploaded .xlsx template. */
+  si?: SiFormat | null;
+  xlsxTemplate?: FormatSampleView | null;
 };
+/** Round BF — Clients › Document formats › 出庫・納入依頼書 (new SIs only). */
+export type SiFormat = {
+  productStyle?: "JA" | "JA_EN"; weightMode?: "NET_GROSS" | "GROSS"; defaultRemarks?: string; carrier?: string; warehouseName?: string;
+  xlsxMapping?: Record<string, string>;
+};
+export type SiMappingEntry = { field: string; cell: string | null; how: "placeholder" | "label" | "manual" | "none" };
 /** Round BA — Clients › Products / Packing (customers and suppliers). */
 export type ProductForm = "BILLET" | "INGOT" | "REMELT_INGOT" | "SCRAP" | "OTHER";
 export const PRODUCT_FORMS: ProductForm[] = ["BILLET", "INGOT", "REMELT_INGOT", "SCRAP", "OTHER"];
@@ -887,6 +896,8 @@ export type ClientProductInput = {
   grade?: string | null; form?: ProductForm | null; diameterMm?: number | null; lengthMm?: number | null; sizeText?: string | null;
   standard?: string | null; chemistry?: ChemLimit[]; tolerances?: string | null; piecesPerBundle?: number | null; bundleWeightKg?: number | null;
   monthlyQtyMt?: number | null; priceBasis?: string | null; notes?: string | null;
+  /** Round BF: how it prints on the 出庫・納入依頼書 (JA lines, EN lines, size). */
+  docNameJa?: string | null; docNameEn?: string | null; docSize?: string | null;
 };
 export type ClientProductView = ClientProductInput & {
   id: string; label: string; size: string; specFiles: ProfileFileView[]; packingImages: ProfileFileView[];
@@ -1685,7 +1696,7 @@ export function useShipmentsApi() {
       setStepDue: (stepId: string, dueAt: string | null) => call<{ stepId: string; from: string | null; to: string | null }>(`/trade-steps/${stepId}/due`, "PATCH", { dueAt }),
       clientProcessPreview: (id: string, skipSteps: string[]) => call<ProcessImpact>(`/trade-clients/customers/${id}/process/preview`, "POST", { skipSteps }),
       clientUpdateProcess: (id: string, skipSteps: string[]) => call<{ impact: ProcessImpact; customer: ClientCustomerDetail }>(`/trade-clients/customers/${id}/process`, "PATCH", { skipSteps }),
-      clientUpdateFormat: (id: string, docType: string, body: { generator?: string | null; language?: string | null; addressee?: string | null; notes?: string | null }) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}/formats/${docType}`, "PATCH", body),
+      clientUpdateFormat: (id: string, docType: string, body: { generator?: string | null; language?: string | null; addressee?: string | null; notes?: string | null; si?: SiFormat | null }) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}/formats/${docType}`, "PATCH", body),
       clientHideSample: (id: string, docType: string, sampleId: string) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}/formats/${docType}/samples/${sampleId}/hide`, "PATCH", {}),
       clientSampleUrl: (id: string, docType: string, sampleId: string) => call<{ url: string; fileName: string; mimeType: string }>(`/trade-clients/customers/${id}/formats/${docType}/samples/${sampleId}/url`),
       clientPreviewShipments: (id: string) => call<Array<{ id: string; ref: string; blNumber: string | null; hasCoa: boolean; hasPl: boolean }>>(`/trade-clients/customers/${id}/preview-shipments`),
@@ -1706,6 +1717,26 @@ export function useShipmentsApi() {
           throw new Error(errorText(e?.response?.data?.message ?? e?.message, "Upload failed"));
         }
       },
+      // Round BF — 出庫・納入依頼書: ADH's own .xlsx template (filled by "Download .xlsx").
+      clientSetSiTemplate: async (id: string, file: File): Promise<ClientCustomerDetail & { siTemplate?: { fileName: string; found: number; replaced: string | null } }> => {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const form = new FormData();
+        form.append("file", file);
+        const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+        const activeOrgId = typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null;
+        if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
+        try {
+          const res = await axios.post(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/trade-clients/customers/${id}/formats/SHIPPING_INSTRUCTIONS/xlsx-template`, form, { headers, timeout: 120000 });
+          return (res.data?.data ?? res.data) as ClientCustomerDetail;
+        } catch (e: any) {
+          if (e?.response?.status === 413) throw new Error("File is larger than 25 MB");
+          throw new Error(errorText(e?.response?.data?.message ?? e?.message, "Upload failed"));
+        }
+      },
+      clientHideSiTemplate: (id: string) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}/formats/SHIPPING_INSTRUCTIONS/xlsx-template/hide`, "PATCH", {}),
+      clientSiTemplateMapping: (id: string) =>
+        call<{ template: { id: string; fileName: string; uploadedAt: string; uploadedByName: string | null } | null; mapping: SiMappingEntry[] }>(`/trade-clients/customers/${id}/formats/SHIPPING_INSTRUCTIONS/xlsx-template/mapping`),
       // Round BA — Products / Packing (customers and suppliers).
       clientSaveProduct: (kind: ClientKind, id: string, productId: string | null, body: ClientProductInput) =>
         call<ClientCatalog>(productId ? `/trade-clients/${kind}/${id}/products/${productId}` : `/trade-clients/${kind}/${id}/products`, productId ? "PATCH" : "POST", body),
@@ -1917,6 +1948,37 @@ export function useShipmentsApi() {
       costSuggestion: (id: string, fxRate?: number | null) =>
         call<{ fxRate: number | null; shipments: number; taxableJpy: number; nonTaxableJpy: number; taxableUsd: number | null; nonTaxableUsd: number | null }>(`/trade-generated/${id}/cost-suggestion${qs({ fxRate: fxRate ?? undefined })}`),
       /** Download PDF: the stored PDF when final, else a render of the draft (no watermark). Saves it to the user's downloads. */
+      /** Round BF: a 出庫・納入依頼書 as .xlsx (the customer's template when it has one). */
+      downloadGeneratedXlsx: async (id: string) => {
+        const token = await getToken();
+        if (!token) throw new Error("Not signed in");
+        const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+        const activeOrgId = typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null;
+        if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
+        let res;
+        try {
+          res = await axios.get(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}/trade-generated/${id}/xlsx`, { headers, responseType: "blob", timeout: 120000 });
+        } catch (e: any) {
+          let msg = e?.message;
+          try {
+            msg = JSON.parse(await (e?.response?.data as Blob).text())?.message ?? msg;
+          } catch {
+            /* keep the axios message */
+          }
+          throw new Error(errorText(msg, "Could not download the .xlsx"));
+        }
+        const cd = String(res.headers["content-disposition"] ?? "");
+        const name = decodeURIComponent(/filename\*=UTF-8''([^;]+)/i.exec(cd)?.[1] ?? "document.xlsx");
+        const url = URL.createObjectURL(new Blob([res.data as Blob], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+        return name;
+      },
       downloadGeneratedPdf: async (id: string) => {
         const { blob, name } = await generatedPdf(id);
         const url = URL.createObjectURL(blob);

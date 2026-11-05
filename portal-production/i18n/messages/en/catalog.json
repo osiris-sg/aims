@@ -34,7 +34,11 @@
     "bundleWeightKg": "Bundle weight (kg)",
     "monthlyQtyMt": "Monthly quantity (t)",
     "priceBasis": "Price basis",
-    "notes": "Notes"
+    "notes": "Notes",
+    "docNameJa": "出庫・納入依頼書: Japanese lines",
+    "docNameEn": "出庫・納入依頼書: English lines",
+    "docSize": "出庫・納入依頼書: size",
+    "docName": "出庫・納入依頼書"
   },
   "chem": {
     "element": "Element",

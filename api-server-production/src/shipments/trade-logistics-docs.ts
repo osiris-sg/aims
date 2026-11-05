@@ -7,6 +7,7 @@
  */
 import { roundDown, roundTo } from './trade-invoice';
 import { docShell, enDate, esc, jpDate, lines as br, money, qty } from './trade-doc-shell';
+import { fitCell } from './trade-si';
 
 const has = (v: unknown) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
 const num = (v: unknown) => (has(v) ? Number(v) : null);
@@ -385,6 +386,11 @@ export interface SiHeaderV2 {
   deliveryProfileId?: string | null;
   /** Round N: 倉庫名 left blank to confirm (a Nagoya delivery has no known warehouse yet) — the editor shows "check". */
   warehouseCheck?: boolean;
+  /** Round BF: GROSS prints 総重量 only (the customer's SI format); default both. */
+  weightMode?: 'NET_GROSS' | 'GROSS';
+  /** Round BF: the last edit of this SI (editor only, never printed). */
+  editedBy?: string | null;
+  editedAt?: string | null;
 }
 export interface SiRowV2 {
   shipDate: string;
@@ -418,11 +424,13 @@ const md = (d: string) => {
 };
 
 export function renderSiV2Html(h: SiHeaderV2, rows: SiRowV2[], opts: { draft?: boolean } = {}): string {
-  const weight = [has(h.grossWeightMt) ? `総重量\n${money(num(h.grossWeightMt), 3)}トン` : '', has(h.netWeightMt) ? `(正味重量\n${money(num(h.netWeightMt), 3)}トン)` : ''].filter(Boolean).join('\n');
-  const billet = (b: string) =>
-    br(b)
-      .replace(/(\d+\s*X\s*\d+)/, '<br>$1')
-      .replace(/^<br>/, '');
+  const weight = [has(h.grossWeightMt) ? `総重量\n${money(num(h.grossWeightMt), 3)}トン` : '', h.weightMode !== 'GROSS' && has(h.netWeightMt) ? `(正味重量\n${money(num(h.netWeightMt), 3)}トン)` : ''].filter(Boolean).join('\n');
+  // Round BF: one line each, never broken inside a word (ハイスピード / (High speed) / ビレット / (billet) / 152×5800);
+  // the font shrinks only when the widest line needs it. The column is 16% of the 188 mm table less the padding.
+  const billet = (b: string) => {
+    const f = fitCell(b, 27.5, 9.5, 6.5);
+    return `<div class="bl" style="font-size:${f.pt}pt">${f.lines.map((l) => `<div>${esc(l)}</div>`).join('')}</div>`;
+  };
   const notes = (h.remarks ?? '').split(/\r?\n/);
   const body = `
 <div class="req">手配依頼日<span>${slashDay(h.requestDate)}</span></div>
@@ -462,6 +470,7 @@ table.grid { width: 100%; table-layout: fixed; }
 .grid td { border: 1px solid #111; padding: 1mm; vertical-align: top; height: 10mm; }
 .grid td.c { text-align: center; }
 .grid td.w { font-size: 8.5pt; }
+.grid .bl div { white-space: nowrap; line-height: 1.3; }
 table.kv2 { width: 76%; margin-top: 6mm; } .kv2 th, .kv2 td { border: 1px solid #111; padding: 1mm 3mm; font-weight: 400; } .kv2 th { width: 30%; text-align: center; }
 table.rem { width: 100%; margin-top: 6mm; } .rem th { width: 24%; border: 1px solid #111; font-weight: 400; vertical-align: top; padding: 1mm; }
 .rem td { border-bottom: 1px solid #111; padding: 1mm 0 1mm 4mm; height: 6.5mm; } .rem td.ind { padding-left: 9mm; } .rem td.nb { border: 0; }

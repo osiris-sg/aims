@@ -34,7 +34,11 @@
     "bundleWeightKg": "1束の重量 (kg)",
     "monthlyQtyMt": "月間数量 (t)",
     "priceBasis": "価格基準",
-    "notes": "備考"
+    "notes": "備考",
+    "docNameJa": "出庫・納入依頼書: 日本語",
+    "docNameEn": "出庫・納入依頼書: 英語",
+    "docSize": "出庫・納入依頼書: サイズ",
+    "docName": "出庫・納入依頼書での表記"
   },
   "chem": {
     "element": "元素",

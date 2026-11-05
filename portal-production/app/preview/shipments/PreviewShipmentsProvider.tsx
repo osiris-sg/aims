@@ -69,6 +69,10 @@ function answer(d: any, key: readonly unknown[]): unknown {
   if (k0 === "trade-inbox" && key[1] === "threads" && key[2] === "UNPROCESSED") return d.questions;
   if (k0 === "trade-inbox" && key[1] === "hidden") return d.hidden ?? [];
   if (k0 === "trade-inbox" && key[1] === "dashboard" && (d.dashboard || d.questions)) return d.dashboard ?? { toConfirm: { emails: d.questions.threads?.length ?? 0, threads: d.questions.threads ?? [], total: d.questions.total ?? 0, batches: d.questions.batches, viewer: d.questions.viewer }, filedAuto: [] };
+  // Round BF: a generated document (the 出庫・納入依頼書 editor), the trade settings and the document types.
+  if (k0 === "trade-generated" && key[2] === "detail") return d.generated?.[key[3] as string];
+  if (k0 === "trade-config" && key[2] === "settings") return d.settings;
+  if (k0 === "trade-config" && key[2] === "doc-types") return d.docTypes;
   return undefined;
 }
 

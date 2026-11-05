@@ -52,6 +52,7 @@ import {
   SiHeaderV2,
   SiRowV2,
 } from './trade-logistics-docs';
+import { fillSiTemplate, productDocLines, siProductFor, siRemarks, siXlsx, SiSheetHeader, SiSheetRow } from './trade-si';
 import { buildCustomerPl, CUSTOMER_PL_COLUMNS, GenColumn, GenRow, parseSheetFile, plTotals, SheetFormatError } from './trade-sheet.parser';
 import { Db, ownerWhere, TradeConfigService } from './trade-config.service';
 import { TradeFilesService } from './trade-files.service';
@@ -517,8 +518,16 @@ export class TradeGeneratedService {
   }
 
   /** Edit a DRAFT (header / columns / rows). */
-  async update(organizationId: string, id: string, body: { header?: unknown; columns?: unknown; rows?: unknown; issuingEntity?: string }) {
+  async update(organizationId: string, id: string, body: { header?: unknown; columns?: unknown; rows?: unknown; issuingEntity?: string }, actor?: TradeActor | null, note?: (summary: Record<string, unknown>) => void) {
     const g = await this.get(organizationId, id);
+    // Round BF: an SI edit is stamped on that SI only (who / when) and the Activity Log row says what changed.
+    if (g.docType === 'SHIPPING_INSTRUCTIONS' && g.status === 'DRAFT' && body.header && typeof body.header === 'object' && !Array.isArray(body.header)) {
+      const changed = siChanges(g.header, body.header, g.rows, body.rows);
+      if (changed.length) {
+        body = { ...body, header: { ...(body.header as object), editedBy: actor?.name ?? actor?.id ?? null, editedAt: new Date().toISOString() } };
+        note?.({ docRef: g.docRef, changed });
+      }
+    }
     if (g.status !== 'DRAFT') throw new BadRequestException('This document is final — use "Edit again" first');
     if (body.issuingEntity !== undefined) {
       const problem = entityProblem(g.docType, body.issuingEntity);
@@ -767,6 +776,7 @@ export class TradeGeneratedService {
       this.assertOpen(s.status, 'shipment');
       // The customer's profile delivery site first (Org Settings → Customers), else the legacy delivery profiles.
       const cp = await this.profileForShipment(organizationId, s.id);
+      const siFmt = cp.docFormats?.SHIPPING_INSTRUCTIONS?.si ?? {};
       const profile = cp.deliveryProfile
         ? { id: `profile:${cp.customerId}`, customerName: s.customer?.name ?? '', ...cp.deliveryProfile }
         : (deliveryProfileFor(defaults.deliveryProfiles, s.customer?.name ?? '') ?? deliveryProfileFor(defaults.deliveryProfiles, s.customer?.jpName ?? ''));
@@ -782,19 +792,26 @@ export class TradeGeneratedService {
         blNumber: s.blNumber ?? '',
         // Round N: the site's own 倉庫名; a non-Yokohama port (Kato, Nagoya) never gets the Yokohama default — blank + check.
         ...siWarehouse(profile, cp.port, defaults.siWarehouseName),
+        // Round BF: the customer's 出庫・納入依頼書 settings (Clients › Document formats) — new SIs only.
+        ...(siFmt.warehouseName ? { warehouseName: siFmt.warehouseName, warehouseCheck: false } : {}),
         grossWeightMt: dec(s.grossWeightMt),
         netWeightMt: dec(s.netWeightMt),
+        ...(siFmt.weightMode ? { weightMode: siFmt.weightMode } : {}),
         shipper: defaults.siIssuerName ?? org?.name ?? '',
-        carrier: defaults.siCarrier ?? '',
-        remarks: profile ? deliveryRemarks(profile) : '',
+        carrier: siFmt.carrier ?? defaults.siCarrier ?? '',
+        remarks: siRemarks(profile ? deliveryRemarks(profile) : '', siFmt.defaultRemarks),
         deliveryProfileId: profile?.id ?? null,
       };
       header = h;
+      // Round BF: the customer's product "document name" (Clients › Products), one line each; else today's text.
+      const grade = s.order?.grade ?? s.contractLine?.grade ?? null;
+      const size = s.sizeSpec ?? s.order?.size ?? s.contractLine?.sizeSpec;
+      const named = productDocLines(siProductFor(cp.products, grade, size), siFmt.productStyle ?? 'JA_EN');
       const row: SiRowV2 = {
         shipDate: '',
         deliveryDate: '',
         destination: profile?.siteName ?? (s.customer?.jpName || s.customer?.name || ''),
-        billet: `${defaults.siBilletLabel ?? ''}${billetSize(s.sizeSpec ?? s.contractLine?.sizeSpec)}`,
+        billet: named ? named.join('\n') : `${defaults.siBilletLabel ?? ''}${billetSize(s.sizeSpec ?? s.contractLine?.sizeSpec)}`,
         bundles: null,
       };
       rows = [row];
@@ -897,6 +914,51 @@ export class TradeGeneratedService {
     const header = await this.hydrate(organizationId, g.docType, g.header);
     const buffer = await this.pdf.generatePdfFromHtml(this.render(g.docType, header, g.columns, g.rows, { draft: true, seal }), { margin: marginFor(g.docType), landscape: isLandscape(g.docType, header) });
     return { buffer, fileName: `${g.number ?? t.short}-DRAFT.pdf` };
+  }
+
+  /**
+   * Round BF — "Download .xlsx" of a 出庫・納入依頼書 (draft or final, from its stored fields): the customer's uploaded
+   * template filled through the field → cell mapping, else AIMS's A4 sheet. Read-only.
+   */
+  async xlsxFor(organizationId: string, id: string): Promise<{ buffer: Buffer; fileName: string; template: string | null }> {
+    const g = await this.get(organizationId, id);
+    if (g.docType !== 'SHIPPING_INSTRUCTIONS') throw new BadRequestException('Only a 出庫・納入依頼書 has an .xlsx');
+    const h = (g.header ?? {}) as Record<string, unknown>;
+    if (h.layout !== 2) throw new BadRequestException('This 出庫・納入依頼書 was made with the old layout — make a new one for the .xlsx');
+    const str = (v: unknown) => (v === null || v === undefined ? '' : String(v));
+    const n = (v: unknown) => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+    const header: SiSheetHeader = {
+      requestDate: str(h.requestDate),
+      toName: str(h.toName),
+      issuerName: str(h.issuerName),
+      title: str(h.title),
+      vessel: str(h.vessel),
+      voyageNo: str(h.voyageNo),
+      blNumber: str(h.blNumber),
+      warehouseName: str(h.warehouseName),
+      grossWeightMt: n(h.grossWeightMt),
+      netWeightMt: n(h.netWeightMt),
+      weightMode: h.weightMode === 'GROSS' ? 'GROSS' : 'NET_GROSS',
+      shipper: str(h.shipper),
+      carrier: str(h.carrier),
+      remarks: str(h.remarks),
+    };
+    const rows: SiSheetRow[] = (Array.isArray(g.rows) ? (g.rows as Array<Record<string, unknown>>) : []).map((r) => ({
+      shipDate: str(r.shipDate),
+      deliveryDate: str(r.deliveryDate),
+      destination: str(r.destination),
+      billet: str(r.billet),
+      bundles: n(r.bundles),
+    }));
+    const base = `${g.number ?? `SI-${header.blNumber || 'draft'}`}${g.status === 'FINAL' ? '' : '-DRAFT'}`;
+    const cp = g.shipmentId ? await this.profileForShipment(organizationId, g.shipmentId) : null;
+    const f = cp?.docFormats?.SHIPPING_INSTRUCTIONS;
+    const tpl = f?.xlsxTemplate && !f.xlsxTemplate.hidden && f.xlsxTemplate.s3Key.startsWith(TradeFilesService.keyPrefix(organizationId)) ? f.xlsxTemplate : null;
+    if (tpl) {
+      const filled = await fillSiTemplate(await this.s3.downloadFile(tpl.s3Key), header, rows, f?.si?.xlsxMapping ?? {});
+      return { buffer: filled.buffer, fileName: `${base}.xlsx`, template: tpl.fileName };
+    }
+    return { buffer: await siXlsx(header, rows), fileName: `${base}.xlsx`, template: null };
   }
 
   // ── finalize / edit again / delete ──────────────────────────────────────
@@ -2339,4 +2401,14 @@ export function siWarehouse(profile: { warehouseName?: string | null; warehouseC
 /** Round AN: step 4 for a customer who gets Vedanta's own COA / PL (Hoei). */
 function asReceivedMessage(templateKey: string): string {
   return `This customer gets Vedanta's ${templateKey === AS_RECEIVED_COA ? 'COA' : 'packing list'} as received (Clients → Document formats) — nothing to create; send Vedanta's file from step 3b`;
+}
+
+/** Round BF: the SI fields an edit changed ("vessel", "rows", …) — for the Activity Log; edit stamps ignored. */
+export function siChanges(before: unknown, after: unknown, rowsBefore: unknown, rowsAfter: unknown): string[] {
+  const a = (before ?? {}) as Record<string, unknown>;
+  const b = (after ?? {}) as Record<string, unknown>;
+  const skip = new Set(['editedBy', 'editedAt']);
+  const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => !skip.has(k) && JSON.stringify(a[k] ?? null) !== JSON.stringify(b[k] ?? null));
+  if (rowsAfter !== undefined && JSON.stringify(rowsBefore ?? []) !== JSON.stringify(rowsAfter ?? [])) keys.push('rows');
+  return keys.sort();
 }

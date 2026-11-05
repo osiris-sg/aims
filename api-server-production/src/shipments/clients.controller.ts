@@ -111,8 +111,32 @@ export class ClientsController {
   /** Document formats: generator (Customer COA / PL), language, 宛先, note — saved on the customer profile. */
   @Patch('customers/:id/formats/:docType')
   @Permissions('shipments:update')
-  updateFormat(@Param('id', ParseUUIDPipe) id: string, @Param('docType') docType: string, @Body() body: { generator?: string | null; language?: string | null; addressee?: string | null; notes?: string | null }, @Req() req: TradeRequest) {
+  updateFormat(@Param('id', ParseUUIDPipe) id: string, @Param('docType') docType: string, @Body() body: { generator?: string | null; language?: string | null; addressee?: string | null; notes?: string | null; si?: unknown }, @Req() req: TradeRequest) {
     return this.clients.updateFormat(orgIdOf(req), id, docType, body ?? {});
+  }
+
+  /** Round BF: multipart "file" — ADH's own .xlsx for the 出庫・納入依頼書 ("Download .xlsx" fills it). */
+  @Post('customers/:id/formats/SHIPPING_INSTRUCTIONS/xlsx-template')
+  @Permissions('shipments:update')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: TRADE_FILE_MAX_BYTES, files: 1 } }))
+  async setSiTemplate(@Param('id', ParseUUIDPipe) id: string, @UploadedFile() file: Express.Multer.File, @Req() req: TradeRequest) {
+    const r = await this.clients.setSiTemplate(orgIdOf(req), id, file, actorOf(req));
+    (req as any).actionLogResult = r.siTemplate;
+    return r;
+  }
+
+  /** Stop using the template (kept, hidden). */
+  @Patch('customers/:id/formats/SHIPPING_INSTRUCTIONS/xlsx-template/hide')
+  @Permissions('shipments:update')
+  hideSiTemplate(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {
+    return this.clients.hideSiTemplate(orgIdOf(req), id);
+  }
+
+  /** The template's field → cell mapping. Read-only. */
+  @Get('customers/:id/formats/SHIPPING_INSTRUCTIONS/xlsx-template/mapping')
+  @Permissions('shipments:read')
+  siTemplateMapping(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {
+    return this.clients.siTemplateMapping(orgIdOf(req), id);
   }
 
   // ── Round BA: Products / Packing (customers and suppliers) ─────────────

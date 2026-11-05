@@ -370,6 +370,20 @@ export const GUIDES: Guide[] = [
     ],
   },
   {
+    id: 'trade-si-format',
+    title: 'Set up a customer\'s 出庫・納入依頼書 (wording, weights, Excel)',
+    module: 'SHIPMENTS',
+    description:
+      'How to change how the 出庫・納入依頼書 (step 9) looks for a customer: Clients › Customers → the customer → Document formats → the 出庫・納入依頼書 card — product lines (Japanese + English or Japanese only), weights (net + gross or gross only), default 備考, 運送会社, 倉庫名 (new documents only), and ADH\'s own .xlsx template with its field → cell table. The product wording itself is on the Products tab. NOT for changing one document: open it on the shipment\'s step 9 and edit the form before Finalize.',
+    route: '/portal/shipments/clients/customers',
+    steps: [
+      { route: '/portal/shipments/clients/customers', selector: '[data-tour="clients-customers"]', title: 'Customers', body: 'Open the customer (Kato, SUS …).' },
+      { selector: '[data-tour="client-tab-formats"]', title: 'Document formats', body: 'One card per document AIMS makes for this customer.', patient: true },
+      { selector: '[data-tour="client-format-si-settings"]', title: '出庫・納入依頼書 settings', body: 'Product lines, weights, default 備考, 運送会社 and 倉庫名 — used for new documents. Save settings.', patient: true },
+      { selector: '[data-tour="client-format-si-xlsx"]', title: 'Excel', body: 'Upload ADH\'s own .xlsx; AIMS fills it and shows which cell each field goes to. Without one, Download .xlsx makes the A4 sheet.', patient: true },
+    ],
+  },
+  {
     id: 'trade-shipments-list',
     title: 'See every shipment (Shipments)',
     module: 'SHIPMENTS',

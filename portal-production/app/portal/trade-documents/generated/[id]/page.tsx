@@ -10,7 +10,8 @@
 // (which ticks the step; invoices also create + confirm the Sales invoice) and
 // locks it; "Edit again" unlocks it (refused while a done step still needs it).
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useContext, useEffect, useMemo, useState } from "react";
+import { PreviewHtmlContext } from "../_forms/previewHtml";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Alert, Box, Button, Chip, CircularProgress, Grid2, IconButton, Menu, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -27,6 +28,8 @@ import InvoiceDocForm from "../_forms/InvoiceDocForm";
 import { SgjpDocForm, SiDocForm } from "../_forms/LogisticsDocForms";
 import SingleInvoiceForm from "../_forms/SingleInvoiceForm";
 import PriceCheckPanel from "../../../shipments/_components/PriceCheckPanel";
+import { useTranslations } from "next-intl";
+import { fmtDateTime } from "@/app/portal/shipments/_lib/format";
 
 type Kind = "table" | "invoice" | "single" | "sgjp" | "si";
 const KIND: Record<string, Kind> = {
@@ -54,6 +57,8 @@ export default function GeneratedDocEditorPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"finalize" | "revert" | "delete" | null>(null);
   const [html, setHtml] = useState<string>("");
+  const tsi = useTranslations("si.editor");
+  const previewOverride = useContext(PreviewHtmlContext);
 
   // Load once per document (and again after finalize / edit-again).
   const loadedKey = q.data ? `${q.data.id}:${q.data.status}:${q.data.updatedAt}` : "";
@@ -89,14 +94,13 @@ export default function GeneratedDocEditorPage() {
   useEffect(() => {
     if (!previewInput) return;
     let cancelled = false;
-    api
-      .previewGenerated(previewInput)
+    (previewOverride ?? api.previewGenerated)(previewInput)
       .then((r) => !cancelled && setHtml(r.html))
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [previewInput, api]);
+  }, [previewInput, api, previewOverride]);
 
   // Every form edit goes through these: nothing changes once final, and the draft becomes dirty.
   const editHeader = (patch: any) => {
@@ -153,6 +157,20 @@ export default function GeneratedDocEditorPage() {
       toast.success(`Downloaded ${name}`);
     } catch (e: any) {
       toast.error(e?.message || "Could not download the PDF");
+    } finally {
+      setBusy(null);
+    }
+  };
+  /** Round BF — 出庫・納入依頼書: the .xlsx (saves pending edits first, like the PDF). */
+  const downloadXlsx = async () => {
+    if (!g) return;
+    setBusy("xlsx");
+    try {
+      await persist();
+      const name = await api.downloadGeneratedXlsx(g.id);
+      toast.success(tsi("downloadedXlsx", { name }));
+    } catch (e: any) {
+      toast.error(e?.message || tsi("xlsxFailed"));
     } finally {
       setBusy(null);
     }
@@ -247,6 +265,11 @@ export default function GeneratedDocEditorPage() {
         <Button variant="outlined" startIcon={busy === "download" ? <CircularProgress size={14} /> : <DownloadIcon />} onClick={download} disabled={!!busy}>
           {isFinal ? "Download PDF" : "Download draft PDF"}
         </Button>
+        {kind === "si" && header?.layout === 2 && (
+          <Button variant="outlined" startIcon={busy === "xlsx" ? <CircularProgress size={14} /> : <DownloadIcon />} onClick={downloadXlsx} disabled={!!busy} data-tour="si-download-xlsx">
+            {tsi("downloadXlsx")}
+          </Button>
+        )}
         {isFinal ? (
           <Button variant="contained" onClick={() => setConfirm("revert")} disabled={!!busy}>
             Edit again
@@ -260,6 +283,16 @@ export default function GeneratedDocEditorPage() {
 
       <Grid2 container spacing={2}>
         <Grid2 size={{ xs: 12, lg: 7 }}>
+          {kind === "si" && header?.layout === 2 && (
+            <Alert severity="info" sx={{ mb: 2, py: 0.25 }} data-tour="si-edit-form">
+              {tsi("editHint")}
+              {header.editedAt && (
+                <Typography variant="caption" display="block" color="text.secondary">
+                  {tsi("edited", { who: header.editedBy || "—", when: fmtDateTime(header.editedAt) })}
+                </Typography>
+              )}
+            </Alert>
+          )}
           {(kind === "invoice" || kind === "single") && (
             <Box sx={{ mb: 2 }}>
               <PriceCheckPanel kind="generated" id={g.id} title="Invoice price check vs contract" />

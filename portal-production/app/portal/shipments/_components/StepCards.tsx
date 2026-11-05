@@ -155,6 +155,7 @@ export default function StepCards({
   const router = useRouter();
   const t = useTranslations("shipments.stepCards");
   const tc = useTranslations("common");
+  const tsi = useTranslations("si.editor");
   const stepName = useStepName();
   const label = useDocTypeLabels();
   /** The translated helper line under a document title (English DOC_HINTS for other types). */
@@ -442,6 +443,12 @@ export default function StepCards({
                 <Button size="small" variant="outlined" startIcon={<DownloadIcon />} onClick={() => void api.downloadGeneratedPdf(g.id).catch((e) => toast.error(e?.message || t("pdfError")))}>
                   {t("pdf")}
                 </Button>
+                {/* Round BF: the 出庫・納入依頼書 also as an editable .xlsx (the customer's template when it has one). */}
+                {docType === "SHIPPING_INSTRUCTIONS" && (
+                  <Button size="small" variant="outlined" startIcon={<DownloadIcon />} onClick={() => void api.downloadGeneratedXlsx(g.id).catch((e) => toast.error(e?.message || tsi("xlsxFailed")))}>
+                    .xlsx
+                  </Button>
+                )}
               </Stack>
             </Stack>
           ))}

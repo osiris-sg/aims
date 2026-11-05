@@ -20,6 +20,7 @@ import { SHIPMENT_KEYS, useTradeSettings } from "@/app/portal/shipments/_lib/hoo
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import type { DocFormProps } from "./types";
+import { useTranslations } from "next-intl";
 import { roundDown, roundTo, toNum, usd } from "./invoiceCalc";
 import { guardDate, tradeDateError } from "@/app/portal/shipments/_lib/dates";
 
@@ -48,7 +49,7 @@ function Grid({
   footer,
   check,
 }: {
-  cols: Array<{ key: string; label: string; num?: boolean; date?: boolean; width?: number }>;
+  cols: Array<{ key: string; label: string; num?: boolean; date?: boolean; width?: number; multiline?: boolean; minWidth?: number }>;
   rows: any[];
   disabled: boolean;
   setRows: (fn: (rs: any[]) => any[]) => void;
@@ -76,11 +77,12 @@ function Grid({
             {rows.map((r, i) => (
               <TableRow key={i}>
                 {cols.map((c) => (
-                  <TableCell key={c.key} sx={{ p: 0.5 }}>
+                  <TableCell key={c.key} sx={{ p: 0.5, minWidth: c.minWidth }}>
                     <TextField
                       size="small"
                       fullWidth
                       variant="standard"
+                      multiline={!!c.multiline}
                       value={r[c.key] ?? ""}
                       disabled={disabled}
                       type={c.num ? "number" : c.date ? "date" : "text"}
@@ -247,6 +249,7 @@ function SgjpAdhForm({ header: h, rows, disabled, setHeader, setRows }: DocFormP
 function SiAdhForm({ doc, header: h, rows, disabled, setHeader, setRows }: DocFormProps<any, any>) {
   const api = useShipmentsApi();
   const qc = useQueryClient();
+  const t = useTranslations("si.editor");
   const tf = field(h, setHeader, disabled);
   const nf = numField(h, setHeader, disabled);
   const settings = useTradeSettings();
@@ -272,26 +275,32 @@ function SiAdhForm({ doc, header: h, rows, disabled, setHeader, setRows }: DocFo
     <>
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
         <Typography variant="subtitle2" sx={{ mb: 1.5 }}>
-          出庫・納入依頼書
+          {t("section")}
         </Typography>
         <Grid2 container spacing={1.5}>
-          <Grid2 size={{ xs: 12, sm: 8 }}>{tf("title", "Title")}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 4 }}>{tf("requestDate", "手配依頼日", { type: "date", InputLabelProps: { shrink: true } })}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("toName", "宛先 (御中)")}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("issuerName", "Issuer")}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("vessel", "本船")}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("voyageNo", "海事№ (voyage)")}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("blNumber", "B/L №")}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 8 }}>{tf("title", t("title"))}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 4 }}>{tf("requestDate", t("requestDate"), { type: "date", InputLabelProps: { shrink: true } })}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("toName", t("toName"))}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("issuerName", t("issuer"))}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("vessel", t("vessel"))}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("voyageNo", t("voyage"))}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("blNumber", t("bl"))}</Grid2>
           <Grid2 size={{ xs: 12, sm: 6 }}>
-            {tf("warehouseName", "倉庫名", (h as any).warehouseCheck && !h.warehouseName ? { helperText: "check — the Nagoya warehouse isn't known yet; ask Mitsui Soko (中部支社)", FormHelperTextProps: { sx: { color: "warning.main" } } } : {})}
+            {tf("warehouseName", t("warehouse"), (h as any).warehouseCheck && !h.warehouseName ? { helperText: t("warehouseCheck"), FormHelperTextProps: { sx: { color: "warning.main" } } } : {})}
           </Grid2>
-          <Grid2 size={{ xs: 6, sm: 3 }}>{nf("grossWeightMt", "総重量 (MT)")}</Grid2>
-          <Grid2 size={{ xs: 6, sm: 3 }}>{nf("netWeightMt", "正味重量 (MT)")}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("shipper", "出荷主")}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("carrier", "運送会社")}</Grid2>
+          <Grid2 size={{ xs: 6, sm: 3 }}>{nf("grossWeightMt", t("gross"))}</Grid2>
+          <Grid2 size={{ xs: 6, sm: 3 }}>{nf("netWeightMt", t("net"))}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 6 }}>
+            <TextField select size="small" fullWidth label={t("weightMode")} value={h.weightMode === "GROSS" ? "GROSS" : "NET_GROSS"} disabled={disabled} onChange={(e) => setHeader({ weightMode: e.target.value })}>
+              <MenuItem value="NET_GROSS">{t("weightBoth")}</MenuItem>
+              <MenuItem value="GROSS">{t("weightGross")}</MenuItem>
+            </TextField>
+          </Grid2>
+          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("shipper", t("shipper"))}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("carrier", t("carrier"))}</Grid2>
           {profiles.length > 0 && (
             <Grid2 size={{ xs: 12, sm: 6 }}>
-              <TextField select size="small" fullWidth label="Delivery profile (納入先)" value={profiles.some((p) => p.id === h.deliveryProfileId) ? h.deliveryProfileId : ""} disabled={disabled} onChange={(e) => applyProfile(e.target.value)} helperText="Fills 納入先 and 備考">
+              <TextField select size="small" fullWidth label={t("deliveryProfile")} value={profiles.some((p) => p.id === h.deliveryProfileId) ? h.deliveryProfileId : ""} disabled={disabled} onChange={(e) => applyProfile(e.target.value)} helperText={t("deliveryProfileHelp")}>
                 {profiles.map((p) => (
                   <MenuItem key={p.id} value={p.id}>
                     {p.label ? `${p.label} — ${p.siteName}` : `${p.siteName} — ${p.customerName}`}
@@ -304,15 +313,15 @@ function SiAdhForm({ doc, header: h, rows, disabled, setHeader, setRows }: DocFo
       </Paper>
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle2" sx={{ mb: 1 }}>
-          Deliveries (one row per truck day)
+          {t("deliveries")}
         </Typography>
         <Grid
           cols={[
-            { key: "shipDate", label: "出荷日", date: true, width: 150 },
-            { key: "deliveryDate", label: "納入日", date: true, width: 150 },
-            { key: "destination", label: "納入先" },
-            { key: "billet", label: "ビレット" },
-            { key: "bundles", label: "束数", num: true, width: 90 },
+            { key: "shipDate", label: t("shipDate"), date: true, width: 150 },
+            { key: "deliveryDate", label: t("deliveryDate"), date: true, width: 150 },
+            { key: "destination", label: t("destination") },
+            { key: "billet", label: t("billet"), multiline: true, minWidth: 170 },
+            { key: "bundles", label: t("bundles"), num: true, width: 90 },
           ]}
           rows={rows}
           disabled={disabled}
@@ -320,7 +329,7 @@ function SiAdhForm({ doc, header: h, rows, disabled, setHeader, setRows }: DocFo
           blank={() => ({ shipDate: "", deliveryDate: "", destination: rows[rows.length - 1]?.destination ?? "", billet: rows[rows.length - 1]?.billet ?? "", bundles: null })}
           check={{
             key: "delivered",
-            label: "Delivered",
+            label: t("delivered"),
             onChange: (i, v) => {
               if (disabled) {
                 // Final SI: saved on its own (deliveries happen after the SI is sent).
@@ -333,14 +342,17 @@ function SiAdhForm({ doc, header: h, rows, disabled, setHeader, setRows }: DocFo
           }}
           footer={
             <TableRow sx={{ "& td": { fontWeight: 700, fontVariantNumeric: "tabular-nums" } }}>
-              <TableCell colSpan={4}>Total</TableCell>
+              <TableCell colSpan={4}>{t("total")}</TableCell>
               <TableCell align="right">{sum(rows, "bundles") || ""}</TableCell>
               <TableCell align="left">{sum(rows.filter((r: any) => r.delivered), "bundles") || ""}</TableCell>
               <TableCell />
             </TableRow>
           }
         />
-        <Stack sx={{ mt: 2 }}>{tf("remarks", "備考 (one line each)", { multiline: true, minRows: 4 })}</Stack>
+        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+          {t("billetHelp")}
+        </Typography>
+        <Stack sx={{ mt: 2 }}>{tf("remarks", t("remarks"), { multiline: true, minRows: 4 })}</Stack>
       </Paper>
     </>
   );

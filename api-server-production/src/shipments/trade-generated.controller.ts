@@ -76,6 +76,18 @@ export class TradeGeneratedController {
     res.end(buffer);
   }
 
+  /** Round BF: the 出庫・納入依頼書 as an .xlsx (ADH's own template when the customer has one, else AIMS's A4 sheet). */
+  @Get(':id/xlsx')
+  @Permissions('shipments:read')
+  async xlsx(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest, @Res() res: Response) {
+    const { buffer, fileName } = await this.gen.xlsxFor(orgIdOf(req), id);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+    res.setHeader('Content-Length', String(buffer.length));
+    res.end(buffer);
+  }
+
   /** The in-app 請求書 behind a Sales invoice (Invoices tab → View), with the contracts / shipments it bills. */
   @Get('by-document/:documentId')
   @Permissions('shipments:read')
@@ -135,7 +147,7 @@ export class TradeGeneratedController {
   @Patch(':id')
   @Permissions('shipments:update')
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateGeneratedDocDto, @Req() req: TradeRequest) {
-    return this.gen.update(orgIdOf(req), id, dto);
+    return this.gen.update(orgIdOf(req), id, dto, actorOf(req), (summary) => ((req as any).actionLogResult = summary));
   }
 
   @Post(':id/finalize')

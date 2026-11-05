@@ -20,6 +20,7 @@ import { cleanSkipSteps, ImpactRecord, PROCESS_STEPS, processImpact } from './tr
 import { cleanCompany, cleanContacts, cleanLogistics, cleanShippingLine, companyView, ContactInfo, lineCode, maskedProfile, ShippingLineInfo, typesOf } from './clients-company';
 import { carrierCatalog, carrierOf } from './trade-carrier';
 import { defaultProfile, defaultSupplierProfile, SupplierProfile } from './trade-profile';
+import { cleanSiFormat, siTemplateMappingOf } from './trade-si';
 import { cleanPacking, cleanProduct, ClientProduct, PackingInfo, productLabel, productMatch, productSize, ProfileFile } from './clients-products';
 
 type Party = 'customer' | 'supplier';
@@ -344,7 +345,7 @@ export class ClientsService {
   }
 
   /** Generator (Customer COA / PL), language, 宛先 and note of one document — saved on the customer profile. */
-  async updateFormat(organizationId: string, customerId: string, docType: string, body: { generator?: string | null; language?: string | null; addressee?: string | null; notes?: string | null }) {
+  async updateFormat(organizationId: string, customerId: string, docType: string, body: { generator?: string | null; language?: string | null; addressee?: string | null; notes?: string | null; si?: unknown }) {
     const t = this.assertFormatType(docType);
     const slot = DOC_FORMAT_SLOTS.find((s) => s.docType === t)!;
     const p = await this.profileFor(organizationId, customerId);
@@ -367,8 +368,87 @@ export class ClientsService {
       ...(body.addressee !== undefined ? { addressee: body.addressee ?? undefined } : {}),
       ...(body.notes !== undefined ? { notes: body.notes ?? undefined } : {}),
     };
+    // Round BF — 出庫・納入依頼書 settings (new SIs only). Written straight to the stored profile (a settings save keeps
+    // si / xlsxTemplate as they are, like the samples).
+    if (body.si !== undefined) {
+      if (t !== 'SHIPPING_INSTRUCTIONS') throw new BadRequestException('These settings are for the 出庫・納入依頼書');
+      const si = body.si === null ? null : cleanSiFormat(body.si, this.bad);
+      await this.config.updateSettings(organizationId, { customerProfiles: { [customerId]: next } });
+      await this.writeFormat(organizationId, customerId, t, (cur) => {
+        const out = { ...cur };
+        if (si && Object.keys(si).length) out.si = si;
+        else delete out.si;
+        return out;
+      });
+      return this.customer(organizationId, customerId);
+    }
     await this.config.updateSettings(organizationId, { customerProfiles: { [customerId]: next } });
     return this.customer(organizationId, customerId);
+  }
+
+  /** Round BF: ADH's own .xlsx for the 出庫・納入依頼書 — "Download .xlsx" fills it (replaces the previous one, which is kept in S3). */
+  async setSiTemplate(organizationId: string, customerId: string, file: Express.Multer.File | undefined, actor: TradeActor) {
+    await this.profileFor(organizationId, customerId);
+    if (!file) throw new BadRequestException('Please attach a file');
+    const fileName = decodeUploadName(file.originalname || 'template.xlsx');
+    if (!/\.xlsx$/i.test(fileName)) throw new BadRequestException('The template must be an .xlsx file');
+    if (file.size > TRADE_FILE_MAX_BYTES) throw new BadRequestException('File is larger than 25 MB');
+    let mapping;
+    try {
+      mapping = await siTemplateMappingOf(file.buffer);
+    } catch {
+      throw new BadRequestException(`${fileName} could not be read as an .xlsx`);
+    }
+    const id = randomUUID();
+    const s3Key = `${TradeFilesService.keyPrefix(organizationId)}format-samples/${customerId}/si-template_${id}_${sanitizeFileName(fileName)}`;
+    const mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    await this.s3.uploadFile(s3Key, file.buffer, mimeType);
+    const tpl: FormatSample = { id, fileName, mimeType, sizeBytes: file.size, s3Key, uploadedAt: new Date().toISOString(), uploadedByName: actor.name };
+    let replaced: string | null = null;
+    await this.writeFormat(organizationId, customerId, 'SHIPPING_INSTRUCTIONS', (cur) => {
+      // The previous template stays a (hidden) sample: nothing is deleted.
+      if (cur.xlsxTemplate && !cur.xlsxTemplate.hidden) {
+        replaced = cur.xlsxTemplate.fileName;
+        return { ...cur, samples: [...(cur.samples ?? []), { ...cur.xlsxTemplate, hidden: true }], xlsxTemplate: tpl };
+      }
+      return { ...cur, xlsxTemplate: tpl };
+    });
+    return { ...(await this.customer(organizationId, customerId)), siTemplate: { fileName, found: mapping.filter((m) => m.cell).length, replaced } };
+  }
+
+  /** Stop using the uploaded template (kept, hidden): "Download .xlsx" goes back to AIMS's own sheet. */
+  async hideSiTemplate(organizationId: string, customerId: string) {
+    await this.profileFor(organizationId, customerId);
+    let found = false;
+    await this.writeFormat(organizationId, customerId, 'SHIPPING_INSTRUCTIONS', (cur) => {
+      if (!cur.xlsxTemplate || cur.xlsxTemplate.hidden) return cur;
+      found = true;
+      return { ...cur, xlsxTemplate: { ...cur.xlsxTemplate, hidden: true } };
+    });
+    if (!found) throw new NotFoundException('No template to hide');
+    return this.customer(organizationId, customerId);
+  }
+
+  /** The template's field → cell mapping (placeholders / printed labels, then the typed overrides). Read-only. */
+  async siTemplateMapping(organizationId: string, customerId: string) {
+    const p = await this.profileFor(organizationId, customerId);
+    const f = p.docFormats?.SHIPPING_INSTRUCTIONS;
+    const tpl = f?.xlsxTemplate && !f.xlsxTemplate.hidden ? f.xlsxTemplate : null;
+    if (!tpl || !tpl.s3Key.startsWith(TradeFilesService.keyPrefix(organizationId))) return { template: null, mapping: [] };
+    const buf = await this.s3.downloadFile(tpl.s3Key);
+    return { template: { id: tpl.id, fileName: tpl.fileName, uploadedAt: tpl.uploadedAt, uploadedByName: tpl.uploadedByName ?? null }, mapping: await siTemplateMappingOf(buf, f?.si?.xlsxMapping ?? {}) };
+  }
+
+  /** One document format of the stored profile, rewritten (si / xlsxTemplate / samples — the Clients service's keys). */
+  private async writeFormat(organizationId: string, customerId: string, t: DocFormatType, fn: (cur: NonNullable<CustomerProfile['docFormats']>[DocFormatType] & object) => NonNullable<CustomerProfile['docFormats']>[DocFormatType] & object) {
+    const row = await this.prisma.tradeSetting.findUnique({ where: { organizationId }, select: { id: true, customerProfiles: true } });
+    const profiles = (row?.customerProfiles as unknown as Record<string, CustomerProfile> | null) ?? {};
+    const p = profiles[customerId] ?? profileFor({}, customerId);
+    const formats = { ...(p.docFormats ?? {}) };
+    formats[t] = fn({ ...(formats[t] ?? {}) });
+    const next = { ...profiles, [customerId]: { ...p, docFormats: formats } };
+    if (row) await this.prisma.tradeSetting.update({ where: { organizationId }, data: { customerProfiles: next as any } });
+    else await this.prisma.tradeSetting.create({ data: { organizationId, customerProfiles: next as any } });
   }
 
   /** A sample / template file the customer gave for one document type (S3 + the profile's docFormats). */

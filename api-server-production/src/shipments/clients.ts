@@ -139,6 +139,9 @@ export interface FormatView {
   effectiveAddressee: string;
   notes: string | null;
   samples: Array<Omit<FormatSample, 's3Key'>>;
+  /** Round BF — 出庫・納入依頼書: the customer's SI settings and the uploaded .xlsx template (null = AIMS's own sheet). */
+  si?: import('./trade-si').SiFormat | null;
+  xlsxTemplate?: Omit<FormatSample, 's3Key'> | null;
 }
 
 const FIXED_LABELS: Record<string, string> = {
@@ -185,6 +188,9 @@ export function formatViews(profile: CustomerProfile, legalName: string): Format
       effectiveAddressee: addressee || profile.docAddressee || legalName,
       notes: f?.notes ?? null,
       samples: (f?.samples ?? []).filter((s) => !s.hidden).map(({ s3Key: _k, ...s }) => s),
+      ...(slot.docType === 'SHIPPING_INSTRUCTIONS'
+        ? { si: f?.si ?? null, xlsxTemplate: f?.xlsxTemplate && !f.xlsxTemplate.hidden ? (({ s3Key: _k, ...x }) => x)(f.xlsxTemplate) : null }
+        : {}),
     };
   });
 }

@@ -101,6 +101,10 @@ export interface DocFormat {
   addressee?: string;
   notes?: string;
   samples?: FormatSample[];
+  /** Round BF — 出庫・納入依頼書 only: product line style, weights, default 備考 / 運送会社 / 倉庫名 (new SIs) and the .xlsx mapping. */
+  si?: import('./trade-si').SiFormat;
+  /** Round BF — 出庫・納入依頼書 only: ADH's own .xlsx the "Download .xlsx" fills (hidden = kept, not used). */
+  xlsxTemplate?: FormatSample;
 }
 
 /** The format settings of one document type (INVOICE_SINGLE / INVOICE_2 → INVOICE). */
@@ -435,6 +439,9 @@ export function mergeDocFormats(current: CustomerProfile['docFormats'], patch: u
       ...(typeof raw.addressee === 'string' && raw.addressee.trim() ? { addressee: raw.addressee.trim() } : {}),
       ...(typeof raw.notes === 'string' && raw.notes.trim() ? { notes: raw.notes.trim() } : {}),
       ...(cur.samples?.length ? { samples: cur.samples } : {}),
+      // Round BF: the SI settings / template are the Clients service's (a settings save keeps them).
+      ...(cur.si ? { si: cur.si } : {}),
+      ...(cur.xlsxTemplate ? { xlsxTemplate: cur.xlsxTemplate } : {}),
     };
     if (Object.keys(next).length) out[t] = next;
   }

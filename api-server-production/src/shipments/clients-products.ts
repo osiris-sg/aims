@@ -52,6 +52,13 @@ export interface ClientProduct {
   /** "LME + premium", "MJP + premium", "upcharge 30 USD/t"… */
   priceBasis?: string | null;
   notes?: string | null;
+  /**
+   * Round BF: how the product prints on the 出庫・納入依頼書 — Japanese lines, English lines (one per line, printed
+   * "(High speed)" under its Japanese line) and the size ("152×5800"). Empty = today's text.
+   */
+  docNameJa?: string | null;
+  docNameEn?: string | null;
+  docSize?: string | null;
   specFiles?: ProfileFile[];
   packingImages?: ProfileFile[];
   /** Where a seeded row came from ("order #21, contract 454003255") and what is still to confirm. */
@@ -142,6 +149,10 @@ export function cleanProduct(raw: unknown, prev: ClientProduct | undefined, id: 
     monthlyQtyMt: num(r.monthlyQtyMt, 1e6),
     priceBasis: text(r.priceBasis, 200),
     notes: text(r.notes, 4000),
+    // A caller that doesn't send the document name (older screens) keeps it.
+    docNameJa: r.docNameJa === undefined ? (prev?.docNameJa ?? null) : text(r.docNameJa, 200),
+    docNameEn: r.docNameEn === undefined ? (prev?.docNameEn ?? null) : text(r.docNameEn, 200),
+    docSize: r.docSize === undefined ? (prev?.docSize ?? null) : text(r.docSize, 40),
     specFiles: prev?.specFiles ?? [],
     packingImages: prev?.packingImages ?? [],
     source: prev?.source ?? null,

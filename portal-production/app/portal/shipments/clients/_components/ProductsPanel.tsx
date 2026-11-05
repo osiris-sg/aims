@@ -15,13 +15,14 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import { PRODUCT_FORMS, useShipmentsApi, type ChemLimit, type ClientCatalog, type ClientKind, type ClientProductInput, type ClientProductView, type ProductForm } from "../../_lib/api";
 import { toast } from "../../_lib/toast";
+import { docLines } from "@/helpers/siDocLines";
 import { t3 } from "./ClientsBits";
 import { ConfirmHide, FileChip, PhotoThumb, PhotoUploader, SpecUploader, useRefreshClients } from "./ProfileFiles";
 
 const GRADES = ["6063", "6005", "6061", "P1020", "P0507", "1070", "HSB"];
 const PRICE_BASES = ["LME + premium", "MJP + premium", "upcharge"];
 /** Product fields with a label (a seeded row's toConfirm names these). */
-const FIELD_KEYS = new Set(["grade", "form", "size", "diameterMm", "lengthMm", "sizeText", "standard", "chemistry", "tolerances", "piecesPerBundle", "bundleWeightKg", "monthlyQtyMt", "priceBasis", "notes"]);
+const FIELD_KEYS = new Set(["grade", "form", "size", "diameterMm", "lengthMm", "sizeText", "standard", "chemistry", "tolerances", "piecesPerBundle", "bundleWeightKg", "monthlyQtyMt", "priceBasis", "notes", "docNameJa", "docNameEn", "docSize"]);
 
 /** The product form's label ("billet", "remelt ingot"…) in the portal language. */
 export function useFormLabel() {
@@ -33,6 +34,7 @@ type ChemRow = { element: string; min: string; max: string };
 type Draft = {
   grade: string; form: ProductForm | ""; diameterMm: string; lengthMm: string; sizeText: string; standard: string; chemistry: ChemRow[];
   tolerances: string; piecesPerBundle: string; bundleWeightKg: string; monthlyQtyMt: string; priceBasis: string; notes: string;
+  docNameJa: string; docNameEn: string; docSize: string;
 };
 const s = (v: unknown) => (v === null || v === undefined ? "" : String(v));
 const toDraft = (p?: ClientProductView | null): Draft => ({
@@ -40,6 +42,7 @@ const toDraft = (p?: ClientProductView | null): Draft => ({
   chemistry: (p?.chemistry ?? []).map((c) => ({ element: c.element, min: s(c.min), max: s(c.max) })),
   tolerances: s(p?.tolerances), piecesPerBundle: s(p?.piecesPerBundle), bundleWeightKg: s(p?.bundleWeightKg), monthlyQtyMt: s(p?.monthlyQtyMt),
   priceBasis: s(p?.priceBasis), notes: s(p?.notes),
+  docNameJa: s(p?.docNameJa), docNameEn: s(p?.docNameEn), docSize: s(p?.docSize),
 });
 const n = (v: string) => (v.trim() === "" ? null : Number(v.replace(/,/g, "")));
 const txt = (v: string) => v.trim() || null;
@@ -48,11 +51,13 @@ const toInput = (d: Draft): ClientProductInput => ({
   chemistry: d.chemistry.filter((c) => c.element.trim()).map((c): ChemLimit => ({ element: c.element.trim(), min: n(c.min), max: n(c.max) })),
   tolerances: txt(d.tolerances), piecesPerBundle: n(d.piecesPerBundle), bundleWeightKg: n(d.bundleWeightKg), monthlyQtyMt: n(d.monthlyQtyMt),
   priceBasis: txt(d.priceBasis), notes: txt(d.notes),
+  docNameJa: txt(d.docNameJa), docNameEn: txt(d.docNameEn), docSize: txt(d.docSize),
 });
 
 /** Add / edit one product. */
 function ProductDialog({ open, onClose, kind, id, product }: { open: boolean; onClose: () => void; kind: ClientKind; id: string; product: ClientProductView | null }) {
   const t = useTranslations("catalog");
+  const ts = useTranslations("si.product");
   const api = useShipmentsApi();
   const refresh = useRefreshClients();
   const formLabel = useFormLabel();
@@ -150,6 +155,23 @@ function ProductDialog({ open, onClose, kind, id, product }: { open: boolean; on
           </Stack>
           <Autocomplete freeSolo options={PRICE_BASES} value={d.priceBasis} onInputChange={(_, v) => set("priceBasis", v)} renderInput={(p) => <TextField {...p} size="small" label={t("fields.priceBasis")} />} />
           <TextField size="small" multiline minRows={2} label={t("fields.notes")} value={d.notes} onChange={(e) => set("notes", e.target.value)} />
+          {/* Round BF: how the product prints on the 出庫・納入依頼書 (one line each, never broken inside a word). */}
+          <Box data-tour="client-product-docname">
+            <Typography variant="subtitle2">{ts("docName")}</Typography>
+            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+              {ts("docNameHelp")}
+            </Typography>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+              <TextField size="small" multiline minRows={2} label={ts("docNameJa")} placeholder={ts("docNameJaPh")} value={d.docNameJa} onChange={(e) => set("docNameJa", e.target.value)} sx={{ flex: 1 }} />
+              <TextField size="small" multiline minRows={2} label={ts("docNameEn")} placeholder={ts("docNameEnPh")} value={d.docNameEn} onChange={(e) => set("docNameEn", e.target.value)} sx={{ flex: 1 }} />
+              <TextField size="small" label={ts("docSize")} placeholder={ts("docSizePh")} value={d.docSize} onChange={(e) => set("docSize", e.target.value)} sx={{ width: { sm: 140 } }} />
+            </Stack>
+            {docLines(d).length > 0 && (
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                {ts("printsAs", { text: docLines(d).join(" / ") })}
+              </Typography>
+            )}
+          </Box>
           {bad && <Typography color="error" variant="body2">{t("products.badNumber")}</Typography>}
         </Stack>
       </DialogContent>
@@ -207,6 +229,7 @@ function ProductCard({ kind, id, p, onMenu }: { kind: ClientKind; id: string; p:
         {row("monthlyQtyMt", p.monthlyQtyMt === null || p.monthlyQtyMt === undefined ? null : `${t3(p.monthlyQtyMt)} t`)}
         {row("priceBasis", p.priceBasis)}
         {row("notes", p.notes)}
+        {row("docName", docLines({ docNameJa: s(p.docNameJa), docNameEn: s(p.docNameEn), docSize: s(p.docSize) }).join(" / ") || null)}
       </Stack>
       <Box sx={{ mt: 1.5 }}>
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>

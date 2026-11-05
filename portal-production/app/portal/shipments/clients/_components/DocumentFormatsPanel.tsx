@@ -14,8 +14,9 @@ import VisibilityIcon from "@mui/icons-material/Visibility";
 import DownloadIcon from "@mui/icons-material/Download";
 import { useTranslations } from "next-intl";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useShipmentsApi, type DocFormatView, type FormatPreview } from "../../_lib/api";
-import { CLIENT_KEYS } from "../../_lib/hooks";
+import { useShipmentsApi, type DocFormatView, type FormatPreview, type SiFormat } from "../../_lib/api";
+import { CLIENT_KEYS, useTradeSettings } from "../../_lib/hooks";
+import { Table, TableBody, TableCell, TableHead, TableRow } from "@mui/material";
 import { fmtDay } from "../../_lib/format";
 import { toast } from "../../_lib/toast";
 import { ConfirmDialog } from "../../_components/bits";
@@ -178,6 +179,7 @@ function FormatCard({ customerId, f, lang, shipments }: { customerId: string; f:
           {saving ? t("saving") : t("save")}
         </Button>
       </Stack>
+      {f.docType === "SHIPPING_INSTRUCTIONS" && <SiSettings customerId={customerId} f={f} />}
       {f.previewable && (
         <Box sx={{ mt: 2, pt: 1.5, borderTop: "1px solid", borderColor: "divider" }} data-tour="client-format-preview">
           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
@@ -225,5 +227,182 @@ function FormatCard({ customerId, f, lang, shipments }: { customerId: string; f:
         }}
       />
     </Paper>
+  );
+}
+
+/**
+ * Round BF — 出庫・納入依頼書 settings for this customer (new SIs only): product line style, weights, default 備考,
+ * 運送会社, 倉庫名; and ADH's own .xlsx template with its field → cell mapping (found from {{field}} placeholders or
+ * the printed labels; a typed cell overrides).
+ */
+function SiSettings({ customerId, f }: { customerId: string; f: DocFormatView }) {
+  const api = useShipmentsApi();
+  const qc = useQueryClient();
+  const t = useTranslations("si.formats");
+  const settings = useTradeSettings();
+  const orgCarrier = ((settings.data as any)?.docDefaults?.siCarrier as string | undefined) ?? "";
+  const init = (si: SiFormat | null | undefined) => ({
+    productStyle: si?.productStyle ?? "JA_EN",
+    weightMode: si?.weightMode ?? "NET_GROSS",
+    defaultRemarks: si?.defaultRemarks ?? "",
+    carrier: si?.carrier ?? "",
+    warehouseName: si?.warehouseName ?? "",
+  });
+  const [d, setD] = useState(init(f.si));
+  const [cells, setCells] = useState<Record<string, string>>(f.si?.xlsxMapping ?? {});
+  const [busy, setBusy] = useState<string | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    setD(init(f.si));
+    setCells(f.si?.xlsxMapping ?? {});
+  }, [f.si]);
+  const mapping = useQuery({ queryKey: [...CLIENT_KEYS.all, "si-mapping", customerId, f.xlsxTemplate?.id ?? "none"], queryFn: () => api.clientSiTemplateMapping(customerId), enabled: !!f.xlsxTemplate });
+  const refresh = () => qc.invalidateQueries({ queryKey: CLIENT_KEYS.all });
+  const dirty = JSON.stringify(d) !== JSON.stringify(init(f.si));
+  const cellsDirty = JSON.stringify(cells) !== JSON.stringify(f.si?.xlsxMapping ?? {});
+  const save = async (withCells: boolean) => {
+    setBusy(withCells ? "cells" : "save");
+    try {
+      await api.clientUpdateFormat(customerId, "SHIPPING_INSTRUCTIONS", { si: { ...d, xlsxMapping: withCells ? cells : (f.si?.xlsxMapping ?? {}) } as SiFormat });
+      await refresh();
+      toast.success(t("saved"));
+    } catch (e: any) {
+      toast.error(e?.message || "Could not save");
+    } finally {
+      setBusy(null);
+    }
+  };
+  const upload = async (file: File) => {
+    setBusy("upload");
+    try {
+      const r = await api.clientSetSiTemplate(customerId, file);
+      await refresh();
+      toast.success(t("xlsxUploaded", { name: file.name, found: String(r.siTemplate?.found ?? 0) }));
+    } catch (e: any) {
+      toast.error(e?.message || "Upload failed");
+    } finally {
+      setBusy(null);
+      if (input.current) input.current.value = "";
+    }
+  };
+  const stop = async () => {
+    setBusy("stop");
+    try {
+      await api.clientHideSiTemplate(customerId);
+      await refresh();
+      toast.success(t("xlsxStopped"));
+    } catch (e: any) {
+      toast.error(e?.message || "Could not save");
+    } finally {
+      setBusy(null);
+    }
+  };
+  const how = (h: string) => t(h === "placeholder" ? "howPlaceholder" : h === "label" ? "howLabel" : h === "manual" ? "howManual" : "howNone");
+  return (
+    <Box sx={{ mt: 2, pt: 1.5, borderTop: "1px solid", borderColor: "divider" }} data-tour="client-format-si-settings">
+      <Typography variant="subtitle2" sx={{ mb: 1 }}>
+        {t("title")}
+      </Typography>
+      <Grid2 container spacing={1.5}>
+        <Grid2 size={{ xs: 6, md: 3 }}>
+          <TextField select fullWidth size="small" label={t("productStyle")} value={d.productStyle} onChange={(e) => setD({ ...d, productStyle: e.target.value as any })}>
+            <MenuItem value="JA_EN">{t("styleJaEn")}</MenuItem>
+            <MenuItem value="JA">{t("styleJa")}</MenuItem>
+          </TextField>
+        </Grid2>
+        <Grid2 size={{ xs: 6, md: 3 }}>
+          <TextField select fullWidth size="small" label={t("weightMode")} value={d.weightMode} onChange={(e) => setD({ ...d, weightMode: e.target.value as any })}>
+            <MenuItem value="NET_GROSS">{t("weightBoth")}</MenuItem>
+            <MenuItem value="GROSS">{t("weightGross")}</MenuItem>
+          </TextField>
+        </Grid2>
+        <Grid2 size={{ xs: 12, md: 3 }}>
+          <TextField fullWidth size="small" label={t("carrier")} value={d.carrier} onChange={(e) => setD({ ...d, carrier: e.target.value })} placeholder={orgCarrier ? t("carrierPh", { v: orgCarrier }) : undefined} />
+        </Grid2>
+        <Grid2 size={{ xs: 12, md: 3 }}>
+          <TextField fullWidth size="small" label={t("warehouse")} value={d.warehouseName} onChange={(e) => setD({ ...d, warehouseName: e.target.value })} placeholder={t("warehousePh")} />
+        </Grid2>
+        <Grid2 size={12}>
+          <TextField fullWidth size="small" multiline minRows={2} label={t("defaultRemarks")} value={d.defaultRemarks} onChange={(e) => setD({ ...d, defaultRemarks: e.target.value })} />
+        </Grid2>
+      </Grid2>
+      <Stack direction="row" sx={{ mt: 1 }}>
+        <Box sx={{ flex: 1 }} />
+        <Button size="small" variant="contained" disabled={!dirty || !!busy} onClick={() => void save(false)} sx={{ textTransform: "none" }}>
+          {busy === "save" ? "…" : t("save")}
+        </Button>
+      </Stack>
+      <Box sx={{ mt: 1.5 }} data-tour="client-format-si-xlsx">
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+            {t("xlsxTitle")}
+          </Typography>
+          {f.xlsxTemplate ? (
+            <Chip size="small" color="success" variant="outlined" label={t("xlsxUsing", { name: f.xlsxTemplate.fileName })} title={`${fmtDay(f.xlsxTemplate.uploadedAt)}${f.xlsxTemplate.uploadedByName ? ` · ${f.xlsxTemplate.uploadedByName}` : ""}`} />
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              {t("xlsxNone")}
+            </Typography>
+          )}
+          <input ref={input} type="file" accept=".xlsx" hidden onChange={(e) => e.target.files?.[0] && void upload(e.target.files[0])} />
+          <Button size="small" startIcon={busy === "upload" ? <CircularProgress size={14} /> : <UploadFileIcon />} disabled={!!busy} onClick={() => input.current?.click()} sx={{ textTransform: "none" }}>
+            {f.xlsxTemplate ? t("xlsxReplace") : t("xlsxUpload")}
+          </Button>
+          {f.xlsxTemplate && (
+            <Button size="small" color="inherit" disabled={!!busy} onClick={() => void stop()} sx={{ textTransform: "none" }}>
+              {t("xlsxStop")}
+            </Button>
+          )}
+        </Stack>
+        {f.xlsxTemplate && (
+          <Box sx={{ mt: 1 }}>
+            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+              <b>{t("mappingTitle")}</b> · {t("mappingHelp", { example: "{{vessel}}" })}
+            </Typography>
+            {mapping.isLoading ? (
+              <CircularProgress size={18} />
+            ) : (
+              <Box sx={{ overflowX: "auto", border: 1, borderColor: "divider", borderRadius: 1 }}>
+                <Table size="small" sx={{ "& td, & th": { py: 0.4 } }}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 700 }}>{t("field")}</TableCell>
+                      <TableCell sx={{ fontWeight: 700, width: 130 }}>{t("cell")}</TableCell>
+                      <TableCell sx={{ fontWeight: 700 }}>{t("how")}</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {(mapping.data?.mapping ?? []).map((m) => (
+                      <TableRow key={m.field}>
+                        <TableCell>{t(`fields.${m.field}` as any)}</TableCell>
+                        <TableCell>
+                          <TextField
+                            size="small"
+                            variant="standard"
+                            value={cells[m.field] ?? ""}
+                            placeholder={m.how === "manual" ? "" : (m.cell ?? "—")}
+                            onChange={(e) => setCells((c) => ({ ...c, [m.field]: e.target.value.toUpperCase() }))}
+                            inputProps={{ "aria-label": `${m.field} cell`, style: { fontFamily: "monospace" } }}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Chip size="small" variant="outlined" color={m.how === "none" ? "warning" : "default"} label={how(m.how)} />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            )}
+            <Stack direction="row" sx={{ mt: 1 }}>
+              <Box sx={{ flex: 1 }} />
+              <Button size="small" variant="outlined" disabled={!cellsDirty || !!busy} onClick={() => void save(true)} sx={{ textTransform: "none" }}>
+                {t("saveMapping")}
+              </Button>
+            </Stack>
+          </Box>
+        )}
+      </Box>
+    </Box>
   );
 }
