@@ -286,10 +286,14 @@ export class OperatorWebController {
   }
 
   @Patch('threads/:id')
-  @ApiOperation({ summary: 'Dashboard chat: rename a conversation' })
-  async rename(@Req() req: WebRequest, @Param('id') id: string, @Body() body: { title?: string }) {
+  @ApiOperation({ summary: 'Dashboard chat: rename a conversation, or forget its side panel' })
+  async rename(@Req() req: WebRequest, @Param('id') id: string, @Body() body: { title?: string; closePanel?: boolean }) {
     const session = await this.sessionFor(req, id);
     if (!session || session.channel !== 'web') return { error: 'Not found' };
+    if (body?.closePanel) {
+      await this.operator.patchThreadMeta(session.channel, session.channelUserId, { lastPanel: null }, { quiet: true });
+      return { ok: true };
+    }
     const title = String(body?.title || '').trim().slice(0, 60);
     if (!title) return { error: 'Title required' };
     await this.operator.patchThreadMeta(session.channel, session.channelUserId, { title });

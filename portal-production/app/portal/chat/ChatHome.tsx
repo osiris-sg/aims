@@ -24,6 +24,9 @@ import AimeeFace, { type AimeeMood } from "./AimeeFace";
 
 const RAIL_KEY = "aims:chat-rail";
 const PANEL_KEY = "aims:chat-panel-width";
+// Width the conversation always keeps when the side panel is open: the
+// thread rail plus enough for the composer to stay a single line.
+const PANEL_RESERVE = 680;
 const NAV_H = 52;
 
 interface Props {
@@ -68,6 +71,14 @@ export default function ChatHome({ onClose, initialPrompt }: Props) {
   const [railDrawer, setRailDrawer] = useState(false);
   const [panelWidth, setPanelWidth] = useState(520);
   const dragging = useRef(false);
+  // While the divider is dragged the panel ignores the mouse: its embedded
+  // page is an iframe, which swallows mousemove, so dragging towards it
+  // (to shrink or close) used to stop dead (guru 2026-11-05: "can open but
+  // not close"). Dragging it most of the way shut closes the panel.
+  const [resizing, setResizing] = useState(false);
+  const [closeOnUp, setCloseOnUp] = useState(false);
+  const latestWidth = useRef(520);
+  const closeOnUpRef = useRef(false);
   const shellRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -79,6 +90,30 @@ export default function ChatHome({ onClose, initialPrompt }: Props) {
       /* no storage */
     }
   }, []);
+
+  // Keep the panel inside the window. A width dragged out on a wide monitor
+  // used to come back as-is on a laptop, push the panel's Close button past
+  // the right edge and squeeze the conversation to a strip: the panel could
+  // be opened but never closed (guru 2026-11-05).
+  useEffect(() => {
+    const clamp = () => {
+      const w = shellRef.current?.getBoundingClientRect().width || window.innerWidth;
+      setPanelWidth((p) => Math.min(p, Math.max(360, Math.floor(w - PANEL_RESERVE))));
+    };
+    clamp();
+    window.addEventListener("resize", clamp);
+    return () => window.removeEventListener("resize", clamp);
+  }, []);
+
+  // Esc closes the panel (the conversation stays).
+  useEffect(() => {
+    if (!chat.panel) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !(e.target as HTMLElement | null)?.closest?.("input, textarea, [contenteditable]")) chat.setPanel(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [chat.panel, chat.setPanel]);
   const toggleRail = (open: boolean) => {
     setRailOpen(open);
     try {
@@ -93,16 +128,29 @@ export default function ChatHome({ onClose, initialPrompt }: Props) {
     const move = (e: MouseEvent) => {
       if (!dragging.current || !shellRef.current) return;
       const rect = shellRef.current.getBoundingClientRect();
-      const w = Math.min(Math.max(rect.right - e.clientX, 360), rect.width * 0.7);
+      const raw = rect.right - e.clientX;
+      if (closeOnUpRef.current !== raw < 240) {
+        closeOnUpRef.current = raw < 240;
+        setCloseOnUp(closeOnUpRef.current);
+      }
+      const w = Math.min(Math.max(raw, 360), Math.max(360, rect.width - PANEL_RESERVE));
+      latestWidth.current = w;
       setPanelWidth(w);
     };
     const up = () => {
       if (!dragging.current) return;
       dragging.current = false;
+      setResizing(false);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      if (closeOnUpRef.current) {
+        closeOnUpRef.current = false;
+        setCloseOnUp(false);
+        chat.setPanel(null);
+        return;
+      }
       try {
-        window.localStorage.setItem(PANEL_KEY, String(Math.round(panelWidth)));
+        window.localStorage.setItem(PANEL_KEY, String(Math.round(latestWidth.current)));
       } catch {
         /* ignore */
       }
@@ -113,7 +161,7 @@ export default function ChatHome({ onClose, initialPrompt }: Props) {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
     };
-  }, [panelWidth]);
+  }, [chat.setPanel]);
 
   const openThread = useCallback(
     (t: ThreadSummary | null) => {
@@ -265,14 +313,30 @@ export default function ChatHome({ onClose, initialPrompt }: Props) {
             onMouseDown={(e) => {
               e.preventDefault();
               dragging.current = true;
+              setResizing(true);
               document.body.style.cursor = "col-resize";
               document.body.style.userSelect = "none";
             }}
-            sx={{ width: 6, cursor: "col-resize", flexShrink: 0, bgcolor: "divider", "&:hover": { bgcolor: "primary.main" }, transition: "background .15s" }}
+            sx={{ width: 6, cursor: "col-resize", flexShrink: 0, bgcolor: resizing ? "primary.main" : "divider", "&:hover": { bgcolor: "primary.main" }, transition: "background .15s" }}
+            title="Drag to resize, drag all the way to close"
             aria-label="Resize panel"
             role="separator"
           />
-          <Box sx={{ width: panelWidth, flexShrink: 0, minWidth: 0, bgcolor: "background.paper", display: "flex", flexDirection: "column" }} data-tour="chat-panel">
+          <Box
+            sx={{
+              width: panelWidth,
+              maxWidth: `calc(100% - ${PANEL_RESERVE}px)`,
+              flexShrink: 0,
+              minWidth: 0,
+              bgcolor: "background.paper",
+              display: "flex",
+              flexDirection: "column",
+              pointerEvents: resizing ? "none" : "auto",
+              opacity: closeOnUp && resizing ? 0.4 : 1,
+              transition: "opacity .15s",
+            }}
+            data-tour="chat-panel"
+          >
             <SidePanel event={chat.panel!} onClose={() => chat.setPanel(null)} />
           </Box>
         </>

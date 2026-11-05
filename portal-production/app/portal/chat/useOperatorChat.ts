@@ -109,7 +109,15 @@ export function useOperatorChat(screens: Array<{ label: string; path: string }>,
   const setPanel = useCallback((p: PanelEvent | null) => {
     panelRef.current = p;
     setPanelState(p);
-  }, []);
+    // Closing is remembered too, so the panel does not come straight back
+    // when the conversation is reopened.
+    if (!p && threadRef.current) {
+      const id = threadRef.current;
+      getToken()
+        .then((token) => token && request({ path: `/operator/web/threads/${encodeURIComponent(id)}`, method: "PATCH" }, { closePanel: true }, token))
+        .catch(() => null);
+    }
+  }, [getToken]);
   const abortRef = useRef<AbortController | null>(null);
   const screensRef = useRef(screens);
   screensRef.current = screens;

@@ -2648,7 +2648,7 @@ export class OperatorToolsService {
       {
         name: 'search_documents',
         description:
-          "Search ALL of this organization's documents (any age) by free text across the document number, customer name, reference and every line description, with optional type, status and date filters. Use this for 'invoices for April', 'the ones for Biofuel', 'anything mentioning ESS maintenance', 'INV-059'. Never say a document does not exist without searching here first.",
+          "Search ALL of this organization's documents (any age) by free text across the document number, customer name, reference and every line description, with optional type, status and date filters. Use this for 'invoices for April', 'the ones for Biofuel', 'anything mentioning ESS maintenance', 'INV-059'. Never say a document does not exist without searching here first. The reply always carries `total`, the true number of matches regardless of the limit: when asked how many, answer from `total`, never by counting the rows you can see. Pass a limit up to 200 to list them all (rows come back compact).",
         permissions: ['documents:read'],
         input_schema: {
           type: 'object',
@@ -2658,7 +2658,7 @@ export class OperatorToolsService {
             status: { type: 'string', description: 'unconfirmed, confirmed, pending_payment, paid, void...' },
             dateFrom: { type: 'string', description: 'ISO date; document date on or after' },
             dateTo: { type: 'string', description: 'ISO date; document date on or before' },
-            limit: { type: 'number', description: 'Up to 50, default 25' },
+            limit: { type: 'number', description: 'Up to 200, default 25. Above 30 the rows are compact (number, date, customer, total, matched line).' },
           },
         },
         run: async (ctx, { query, type, status, dateFrom, dateTo, limit }) => {
@@ -2691,7 +2691,14 @@ export class OperatorToolsService {
             params.push(`%${w.replace(/[%_\\]/g, (m) => `\\${m}`)}%`);
             where.push(`(name ILIKE $${params.length} OR config::text ILIKE $${params.length})`);
           }
-          const take = Math.min(Math.max(Number(limit) || 25, 1), 50);
+          const take = Math.min(Math.max(Number(limit) || 25, 1), 200);
+          // The true count, independent of the limit, so "how many" is never
+          // answered off a cut list (2026-11-05: 39 October rentals read as 22).
+          const countRows: any[] = await this.prisma.$queryRawUnsafe(
+            `SELECT count(*)::int AS n FROM "Document" WHERE ${where.join(' AND ')}`,
+            ...params,
+          );
+          const total = Number(countRows?.[0]?.n) || 0;
           const rows: any[] = await this.prisma.$queryRawUnsafe(
             `SELECT id, name, type, status, "createdAt", config->>'customerName' AS "customerName", config->'customer'->>'name' AS "customerName2",
                     ${dateExpr} AS "docDate", config->>'referenceNo' AS "referenceNo",
@@ -2703,14 +2710,29 @@ export class OperatorToolsService {
             ...params,
           );
           const lc = words.map((w) => w.toLowerCase());
+          // Many rows: a compact shape, so the whole list fits in one reply.
+          const compact = rows.length > 30;
           return {
             result: {
-              count: rows.length,
-              note: rows.length >= take ? `Showing the first ${take}; narrow the search for more.` : undefined,
+              total,
+              shown: rows.length,
+              note:
+                total > rows.length
+                  ? `${total} match in all; only the first ${rows.length} are listed. Raise the limit (up to 200) or narrow the search to see the rest. Answer counts from total.`
+                  : undefined,
               documents: rows.map((d) => {
                 const items: any[] = Array.isArray(d.items) ? d.items : [];
                 const descs = items.map((i) => String(i?.description || i?.itemDescription || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
                 const hit = descs.find((t) => lc.some((w) => t.toLowerCase().includes(w)));
+                if (compact) {
+                  return {
+                    documentNumber: d.name,
+                    date: d.docDate ? new Date(d.docDate).toISOString().slice(0, 10) : null,
+                    customer: d.customerName || d.customerName2 || null,
+                    total: Number(d.totalWithTax ?? d.nettTotal ?? d.nettTotal2) || null,
+                    matchedLine: hit ? hit.slice(0, 110) : descs[0]?.slice(0, 110) || null,
+                  };
+                }
                 return {
                   id: d.id,
                   documentNumber: d.name,

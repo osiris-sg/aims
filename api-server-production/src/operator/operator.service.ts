@@ -69,6 +69,23 @@ export function titleFromText(text: string): string {
   return title.charAt(0).toUpperCase() + title.slice(1);
 }
 
+// How much of a tool's result the model gets to read. The old flat 6000 cut
+// long lists mid-JSON with no warning, so a 43-row search read as 22 rows and
+// the model reported that as the answer. Lists get room; everything else stays
+// small, and a cut is always labelled so the model knows to ask for less.
+const TOOL_RESULT_CHARS: Record<string, number> = {
+  search_documents: 48000,
+  api_get: 16000,
+  api_write: 16000,
+  list_recent_documents: 12000,
+  list_customers: 12000,
+};
+const capToolResult = (tool: string, json: string): string => {
+  const max = TOOL_RESULT_CHARS[tool] ?? 8000;
+  if (json.length <= max) return json;
+  return json.slice(0, max) + `\n…[CUT OFF: ${json.length - max} more characters did not fit. This list is INCOMPLETE; do not count or summarise from it. Call again with narrower filters or fewer rows.]`;
+};
+
 const PANEL_DOC_TOOLS: Record<string, boolean> = {
   create_quotation: true,
   create_invoice: true,
@@ -935,7 +952,7 @@ export class OperatorService {
             ? 'A Confirm/Cancel button has been shown to the user. STOP now: do not call this tool again, do not ask for confirmation yourself, and do not say it is done. The system will finalize it when the user taps Confirm.'
             : (outcome as any).choice
               ? 'The buttons have been shown to the user. STOP now and say nothing further: their tap arrives as the next message.'
-              : JSON.stringify(outcome.result ?? {}).slice(0, 6000),
+              : capToolResult(use.name, JSON.stringify(outcome.result ?? {})),
         });
       }
       messages.push({ role: 'user', content: results });
@@ -1135,6 +1152,7 @@ export class OperatorService {
       `6. If a tool returns an error, tell the user plainly what went wrong and what you need from them.`,
       `7. If the user refers to something loosely ("send it again", "that quotation", "the last one") and it isn't in this conversation, DON'T ask them to repeat themselves. Call list_recent_documents and act on the most recent matching document. Only ask when there is genuine ambiguity (e.g. several plausible matches).`,
       `7c. FINDING DOCUMENTS: list_recent_documents shows only the newest 20. To find documents by month, period, customer, wording on a line, reference or number ("the April invoice", "anything for Biofuel", "INV-059"), call search_documents. NEVER tell the user a document does not exist, or that a month was never billed, unless search_documents came back empty for it. A document's period is usually in its line descriptions ("ESS Maintenance for April 2026"), not its date, so search by the words.`,
+      `7d. COUNTING: when the user asks how many, which ones, or wants a complete list, use search_documents with the filters (type, dateFrom, dateTo, words) and a limit of 200, and answer from its total. Never count rows you can see in a reply that was cut off, and never give a number you know is incomplete: if a result says it was truncated, call again with narrower filters or a higher limit until total and shown agree. Do not ask the user which ones are missing; finding them is your job.`,
       `7b. BE SHORT (guru 2026-09-22: "always short and sweet, get to the point"). Lead with the answer or the gap, never a paragraph of preamble. When something is missing, say which field is missing in a few words and stop; do not explain the consequences at length or restate what the user just told you. When you need the user to pick between options, DO NOT write them out as "1. ... 2. ..." — call ask_choice and they tap a button. Offer to take an upload when a document would fill the gap.`,
       `8. PUNCTUATION: never use em dashes or en dashes ("—", "–") in your replies OR in any text you write into a document (line item descriptions, notes, terms). Use a comma, a full stop, a colon or brackets instead. Ordinary hyphens inside words (e.g. "Fan-Coil") are fine.`,
       `9. FULL DASHBOARD ACCESS: you can read ANYTHING the user's web dashboard shows, even without a dedicated tool. When asked about commissions, earnings, targets, dashboards, reports, schedules, quests, leads or any other screen's numbers: call api_docs with keywords to find the right GET endpoint, then api_get to fetch it (their permissions are enforced automatically). Examples: designer commissions/revenue live at /id-projects/dashboard; a project's P&L incl. commission at /projects/<id>/costing. NEVER answer "I don't have a tool for that" before trying api_docs.`,
@@ -1786,7 +1804,14 @@ export class OperatorService {
   }
 
   /** Rename / tag a web thread without touching its conversation. */
-  async patchThreadMeta(channel: OperatorChannel, channelUserId: string, meta: { title?: string; organizationId?: string; lastPanel?: any }): Promise<void> {
+  async patchThreadMeta(
+    channel: OperatorChannel,
+    channelUserId: string,
+    meta: { title?: string; organizationId?: string; lastPanel?: any },
+    // quiet: housekeeping (closing the side panel) must not bump the thread
+    // to the top of the list, so its updatedAt is kept.
+    opts: { quiet?: boolean } = {},
+  ): Promise<void> {
     const row = await this.prisma.operatorSession.findUnique({
       where: { channel_channelUserId: { channel, channelUserId } },
     });
@@ -1794,7 +1819,7 @@ export class OperatorService {
     Object.assign(state, meta);
     await this.prisma.operatorSession.upsert({
       where: { channel_channelUserId: { channel, channelUserId } },
-      update: { state },
+      update: { state, ...(opts.quiet && row ? { updatedAt: row.updatedAt } : {}) },
       create: { channel, channelUserId, state, expiresAt: new Date(Date.now() + SESSION_TTL_MS) },
     });
   }
