@@ -7,8 +7,6 @@
 // data (guru: sample, like the demo) so the screen reads properly on a fresh
 // org; swap a `value` for a live query when a card graduates.
 
-import type { AppId } from "./apps";
-
 export type RoleId = "owner" | "hrfin" | "ops";
 
 export type IconKey =
@@ -56,10 +54,6 @@ export type QuickAction = {
 export type RoleDef = {
   id: RoleId;
   title: string;
-  /** Top-nav modules this role keeps. Everything else is folded away. */
-  nav: string[];
-  /** Apps in this role's launcher (the first six are its default favourites). */
-  apps: AppId[];
   summary: { label: string; unit: string; count: number; href: string }[];
   prioritiesTitle?: string;
   prioritiesBadge?: string;
@@ -114,8 +108,6 @@ export const ROLES: Record<RoleId, RoleDef> = {
   owner: {
     id: "owner",
     title: "Business Owner",
-    nav: ["DASHBOARD", "SALES", "ACCOUNTING", "INVENTORY", "PROJECTS", "DELIVERIES", "CUSTOMERS", "SUPPLIERS"],
-    apps: ["accounting", "finance", "sales", "inventory", "delivery", "hr", "ops", "settings"],
     summary: [
       { label: "Due today", unit: "items", count: 4, href: R.postingQueue },
       { label: "Pending", unit: "items", count: 7, href: R.receivables },
@@ -137,8 +129,6 @@ export const ROLES: Record<RoleId, RoleDef> = {
   hrfin: {
     id: "hrfin",
     title: "HR + Finance Manager",
-    nav: ["DASHBOARD", "ACCOUNTING", "CUSTOMERS", "SUPPLIERS", "USER_MANAGEMENT"],
-    apps: ["accounting", "finance", "hr", "settings"],
     summary: [
       { label: "Due today", unit: "items", count: 2, href: R.postingQueue },
       { label: "Pending", unit: "items", count: 8, href: R.payables },
@@ -160,8 +150,6 @@ export const ROLES: Record<RoleId, RoleDef> = {
   ops: {
     id: "ops",
     title: "Ops Manager",
-    nav: ["DASHBOARD", "INVENTORY", "DELIVERIES", "SALES", "PROJECTS", "MAINTENANCE"],
-    apps: ["sales", "inventory", "delivery", "ops", "settings"],
     summary: [
       { label: "Jobs today", unit: "jobs", count: 5, href: R.deliveries },
       { label: "Upcoming jobs", unit: "next 5 days", count: 6, href: R.deliveries },

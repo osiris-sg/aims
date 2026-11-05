@@ -5,20 +5,21 @@
 // 64px bar with the AIMS mark, AIMEE beside it, text menus with dropdowns, and
 // the profile chip on the right carrying the role switcher.
 //
-// What it SHOWS is the mock-up's; what it OPENS is AIMS's. The menus are the
-// org's real modules and submenus from useNavModules() — the same list, routes
-// and permission rules as the normal bar — filtered to the modules the chosen
-// role cares about. Everything filtered out is still reachable under "More",
-// so no module is ever stranded.
+// What it LOOKS like is the mock-up's; what it CONTAINS is the normal AIMS
+// menu, item for item (guru 2026-11-06: "make the navigation the same as how
+// we do it now"): every module from useNavModules() with its usual dropdown,
+// then Org Settings — same list, order, routes and permission rules as
+// TopNavBar. The role chosen on the profile chip changes the HOME SCREEN
+// only; it does not filter this menu. (An app-launcher / per-app menu from the
+// mock-up was tried and removed the same day.)
 
 import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  Box, Button, Divider, IconButton, Menu, MenuItem, Stack,
+  Box, Button, IconButton, Menu, MenuItem, Stack,
   Tooltip, Typography, alpha, useTheme,
 } from "@mui/material";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
-import HomeOutlinedIcon from "@mui/icons-material/HomeOutlined";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import CheckIcon from "@mui/icons-material/Check";
@@ -31,9 +32,10 @@ import { AimeeBot, AimeeKeyframes } from "./Aimee";
 import { HOME_VIEW_EVENT, closeAimee, openAimee, readHomeView } from "@/app/portal/chat/homeView";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { ROLES, ROLE_ORDER } from "./roles";
-import { readOpenedApp, useRoleView, writeOpenedApp } from "./useRoleView";
-import AppGrid, { AppTile } from "./AppGrid";
-import { appForPath, isFnActive } from "./apps";
+import { useRoleView } from "./useRoleView";
+import AppSwitcher from "@/components/TopNav/AppSwitcher";
+import { useTranslations } from "next-intl";
+import { isClientsPath } from "@/helpers/shipmentsNav";
 
 const TEAL = "#1BA39C";
 const NAVY = "#2B2257";
@@ -52,14 +54,19 @@ export default function RoleTopBar() {
   const { roleId, setRoleId, role } = useRoleView();
   const [menu, setMenu] = React.useState<{ code: string; anchor: HTMLElement } | null>(null);
 
-  // Inside an app (opened from the launcher, or reached by any link) the bar
-  // shows that app's functions instead of the role menus — the mock-up's
-  // FeatureButton + AppFunctions. Apps outside the role's launcher never take
-  // over the bar.
-  const [openedApp, setOpenedApp] = React.useState<ReturnType<typeof readOpenedApp>>(null);
-  React.useEffect(() => setOpenedApp(readOpenedApp()), [pathname]);
-  const matched = pathname === "/portal" ? null : appForPath(pathname, openedApp);
-  const app = matched && role.apps.includes(matched.id) ? matched : null;
+  const tn = useTranslations("shell.nav");
+  // A record opened from a list carries ?from=<list path>: the menu it came
+  // from stays highlighted (same rule as the normal bar).
+  const [fromPath, setFromPath] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    try {
+      const f = new URLSearchParams(window.location.search).get("from");
+      setFromPath(f && f.startsWith("/portal") && !f.startsWith("//") ? f.split("?")[0] : null);
+    } catch {
+      setFromPath(null);
+    }
+  }, [pathname]);
+  const navPath = fromPath ?? pathname;
 
   // AIMEE's open/closed state, so the face can toggle it like the normal bar.
   const [homeView, setHomeView] = React.useState(readHomeView());
@@ -84,19 +91,16 @@ export default function RoleTopBar() {
 
   const go = (path: string) => {
     setMenu(null);
-    if (path === "/portal") writeOpenedApp(null);
     router.push(path);
   };
 
-  // Modules this role keeps, in the org's own order; the rest go under "More".
-  const wanted = new Set(role.nav);
-  const mine = navModules.filter((m: any) => m.moduleCode !== "DASHBOARD" && wanted.has(m.moduleCode));
-  const rest = navModules.filter((m: any) => m.moduleCode !== "DASHBOARD" && !wanted.has(m.moduleCode));
-
-  const isActive = (m: any) => {
+  // Same highlight rule as the normal bar.
+  const isActive = (m: any): boolean => {
     const route: string = m.config?.route || "";
-    if (!route || route === "/portal") return false;
-    return pathname === route || pathname.startsWith(route + "/");
+    if (!route) return false;
+    if (route === "/portal") return navPath === "/portal";
+    if (m.moduleCode === "SHIPMENTS" && isClientsPath(navPath)) return false;
+    return navPath === route || navPath.startsWith(route + "/");
   };
 
   const initials =
@@ -107,14 +111,17 @@ export default function RoleTopBar() {
   // sits on #EEF0F8 with a 2px teal underline (AppNav.jsx `active`).
   const navBtnSx = (active: boolean, open: boolean) => ({
     color: dark ? "text.primary" : INK,
-    px: 1.5,
+    // Tight enough that the full AIMS menu (nine-odd items) fits beside the
+    // right-hand cluster on a laptop screen.
+    px: 1.25,
     py: 1,
+    minWidth: 0,
     minHeight: 0,
     borderRadius: 3,
     whiteSpace: "nowrap",
     flexShrink: 0,
     fontWeight: active ? 500 : 400,
-    fontSize: "0.9375rem",
+    fontSize: "0.875rem",
     lineHeight: 1.4,
     textTransform: "none" as const,
     bgcolor: active ? (dark ? alpha("#fff", 0.1) : "#EEF0F8") : open ? (dark ? alpha("#fff", 0.08) : "#F2F4FA") : "transparent",
@@ -152,8 +159,8 @@ export default function RoleTopBar() {
           backdropFilter: "blur(8px)",
           borderBottom: "1px solid",
           borderColor: dark ? alpha("#fff", 0.08) : "#F1F5F9",
-          px: { md: 2, lg: 4 },
-          gap: 2,
+          px: { md: 2, lg: 3 },
+          gap: 1.5,
         }}
       >
         <Stack direction="row" alignItems="center" gap={1} sx={{ flexShrink: 0, cursor: "pointer" }} onClick={() => go("/portal")}>
@@ -181,101 +188,78 @@ export default function RoleTopBar() {
           </Tooltip>
         )}
 
-        <Stack direction="row" alignItems="center" gap={0.5} sx={{ ml: 1, flex: 1, minWidth: 0, overflowX: "auto", scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" } }}>
-          {app ? (
+        {/* Scrolls silently if an org has more modules than fit (as the normal
+            bar does); the right edge fades so a cut-off item reads as "more". */}
+        <Stack
+          direction="row"
+          alignItems="center"
+          gap={0.25}
+          sx={{
+            flex: 1, minWidth: 0, overflowX: "auto", scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" },
+            pr: 3,
+            maskImage: "linear-gradient(to right, black calc(100% - 28px), transparent)",
+            WebkitMaskImage: "linear-gradient(to right, black calc(100% - 28px), transparent)",
+          }}
+        >
+          {/* The SAME menu as the normal AIMS bar (guru 2026-11-06): every
+              module the org has and the user may open, in the org's order,
+              each with its usual dropdown, then Org Settings. Only the
+              styling is the role-home bar's. */}
+          {navModules.map((m: any) => {
+            const subs: any[] = (m.config as any)?.subMenus || [];
+            return (
+              <React.Fragment key={m.moduleCode}>
+                <Button
+                  size="small"
+                  onClick={(e) =>
+                    subs.length
+                      ? setMenu(menu?.code === m.moduleCode ? null : { code: m.moduleCode, anchor: e.currentTarget })
+                      : go(m.config?.route || "/portal")
+                  }
+                  endIcon={subs.length ? <KeyboardArrowDownIcon sx={{ fontSize: "1rem !important", opacity: 0.7 }} /> : undefined}
+                  sx={navBtnSx(isActive(m), menu?.code === m.moduleCode)}
+                >
+                  {moduleName(m)}
+                </Button>
+                {!!subs.length &&
+                  dropdown(
+                    m.moduleCode,
+                    subs.map((s: any, i: number) => (
+                      <MenuItem key={i} onClick={() => go(resolveSubmenuRoute(m, s))} sx={{ fontSize: "0.875rem", py: 1 }}>
+                        {subLabel(m, s, submenuLabel(s))}
+                      </MenuItem>
+                    )),
+                  )}
+              </React.Fragment>
+            );
+          })}
+
+          {/* Organization Settings — master tier only, as on the normal bar. */}
+          {isMasterTier && (
             <>
-              {/* The app's own button (tile + name) goes to its first screen. */}
               <Button
                 size="small"
-                onClick={() => go(app.home)}
-                data-testid="role-bar-app"
-                // The app button names where you are; the underline belongs to
-                // the function below it, so it never doubles up.
-                sx={{ ...navBtnSx(false, false), fontWeight: 500, gap: 1, bgcolor: dark ? alpha("#fff", 0.06) : "#F4F6FB" }}
+                onClick={(e) => setMenu(menu?.code === "ORG_SETTINGS" ? null : { code: "ORG_SETTINGS", anchor: e.currentTarget })}
+                endIcon={<KeyboardArrowDownIcon sx={{ fontSize: "1rem !important", opacity: 0.7 }} />}
+                sx={navBtnSx(pathname.startsWith("/portal/settings") || pathname.startsWith("/portal/masterfiles"), menu?.code === "ORG_SETTINGS")}
               >
-                <AppTile id={app.id} size={24} />
-                {app.name}
+                {tn("orgSettings")}
               </Button>
-              {app.functions.map((fn) => {
-                const active = isFnActive(fn, pathname, app.functions);
-                return (
-                  <Button
-                    key={fn.href}
-                    size="small"
-                    onClick={() => go(fn.href)}
-                    sx={{ ...navBtnSx(false, false), fontWeight: active ? 500 : 400, boxShadow: active ? `inset 0 -2px 0 ${TEAL}` : "none" }}
-                  >
-                    {fn.label}
-                  </Button>
-                );
-              })}
-            </>
-          ) : (
-            <>
-            <Button size="small" onClick={() => go("/portal")} startIcon={<HomeOutlinedIcon />} sx={navBtnSx(pathname === "/portal", false)}>
-              Home
-            </Button>
-
-            {mine.map((m: any) => {
-              const subs: any[] = (m.config as any)?.subMenus || [];
-              return (
-                <React.Fragment key={m.moduleCode}>
-                  <Button
-                    size="small"
-                    onClick={(e) =>
-                      subs.length
-                        ? setMenu(menu?.code === m.moduleCode ? null : { code: m.moduleCode, anchor: e.currentTarget })
-                        : go(m.config?.route || "/portal")
-                    }
-                    endIcon={subs.length ? <KeyboardArrowDownIcon sx={{ fontSize: "1rem !important", opacity: 0.7 }} /> : undefined}
-                    sx={navBtnSx(isActive(m), menu?.code === m.moduleCode)}
-                  >
-                    {moduleName(m)}
-                  </Button>
-                  {!!subs.length &&
-                    dropdown(
-                      m.moduleCode,
-                      subs.map((s: any, i: number) => (
-                        <MenuItem key={i} onClick={() => go(resolveSubmenuRoute(m, s))} sx={{ fontSize: "0.875rem", py: 1 }}>
-                          {subLabel(m, s, submenuLabel(s))}
-                        </MenuItem>
-                      )),
-                    )}
-                </React.Fragment>
-              );
-            })}
-
-            {/* More — the modules this role does not lead with, plus Org Settings. */}
-            <Button
-              size="small"
-              onClick={(e) => setMenu(menu?.code === "MORE" ? null : { code: "MORE", anchor: e.currentTarget })}
-              endIcon={<KeyboardArrowDownIcon sx={{ fontSize: "1rem !important", opacity: 0.7 }} />}
-              sx={navBtnSx(pathname.startsWith("/portal/settings") || pathname.startsWith("/portal/masterfiles"), menu?.code === "MORE")}
-            >
-              More
-            </Button>
-            {dropdown("MORE", [
-              ...rest.map((m: any) => (
-                <MenuItem key={m.moduleCode} onClick={() => go(m.config?.route || "/portal")} sx={{ fontSize: "0.875rem", py: 1 }}>
-                  {moduleName(m)}
-                </MenuItem>
-              )),
-              ...(isMasterTier && rest.length ? [<Divider key="div" />] : []),
-              ...(isMasterTier
-                ? settingsMenu.map((s) => (
-                    <MenuItem key={s.path} onClick={() => go(s.path)} sx={{ fontSize: "0.875rem", py: 1 }}>
-                      {settingLabel(s)}
-                    </MenuItem>
-                  ))
-                : []),
-            ])}
+              {dropdown(
+                "ORG_SETTINGS",
+                settingsMenu.map((s) => (
+                  <MenuItem key={s.path} onClick={() => go(s.path)} sx={{ fontSize: "0.875rem", py: 1 }}>
+                    {settingLabel(s)}
+                  </MenuItem>
+                )),
+              )}
             </>
           )}
         </Stack>
 
         <Stack direction="row" alignItems="center" gap={0.5} sx={{ flexShrink: 0 }}>
           <TopNavOrgSwitcher light />
-          <AppGrid />
+          <AppSwitcher iconColor={dark ? "rgba(255,255,255,0.7)" : "#94A3B8"} />
           <NotificationBell iconColor={dark ? "rgba(255,255,255,0.85)" : INK} />
           <Tooltip title={mode === "dark" ? "Light mode" : "Dark mode"}>
             <IconButton size="small" onClick={toggleMode} sx={{ color: "text.secondary" }}>

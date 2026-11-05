@@ -131,6 +131,9 @@ export function TopNavOrgSwitcher({ light = false }: { light?: boolean } = {}) {
             // white pill with invisible text was the light-mode result).
             ...(light
               ? {
+                  // Narrower than the dark bar's 210: the role-home bar also
+                  // carries a profile chip, and the menu needs the room.
+                  width: 170,
                   "& .MuiOutlinedInput-root.MuiInputBase-root": {
                     fontSize: "0.8125rem",
                     borderRadius: 999,
