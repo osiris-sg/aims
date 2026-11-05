@@ -106,18 +106,24 @@ export function useOperatorChat(screens: Array<{ label: string; path: string }>,
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [panel, setPanelState] = useState<PanelEvent | null>(null);
-  const setPanel = useCallback((p: PanelEvent | null) => {
-    panelRef.current = p;
-    setPanelState(p);
-    // Closing is remembered too, so the panel does not come straight back
-    // when the conversation is reopened.
-    if (!p && threadRef.current) {
-      const id = threadRef.current;
-      getToken()
-        .then((token) => token && request({ path: `/operator/web/threads/${encodeURIComponent(id)}`, method: "PATCH" }, { closePanel: true }, token))
-        .catch(() => null);
-    }
-  }, [getToken]);
+  // `remember` defaults to true: a close the USER performed is persisted, so
+  // the panel does not come straight back when the conversation is reopened.
+  // Housekeeping passes false — openThread clears the panel while threadRef
+  // still points at the thread being LEFT, so persisting there would forget
+  // that conversation's panel on every switch, a close nobody asked for.
+  const setPanel = useCallback(
+    (p: PanelEvent | null, opts: { remember?: boolean } = {}) => {
+      panelRef.current = p;
+      setPanelState(p);
+      if (!p && opts.remember !== false && threadRef.current) {
+        const id = threadRef.current;
+        getToken()
+          .then((token) => token && request({ path: `/operator/web/threads/${encodeURIComponent(id)}`, method: "PATCH" }, { closePanel: true }, token))
+          .catch(() => null);
+      }
+    },
+    [getToken],
+  );
   const abortRef = useRef<AbortController | null>(null);
   const screensRef = useRef(screens);
   screensRef.current = screens;
@@ -192,7 +198,7 @@ export function useOperatorChat(screens: Array<{ label: string; path: string }>,
       abortRef.current?.abort();
       setError(null);
       setStatus(null);
-      setPanel(null);
+      setPanel(null, { remember: false });
       setPending([]);
       setThreadId(id);
       setChannel(ch);
