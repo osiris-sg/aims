@@ -321,8 +321,10 @@ function buildHistory(docs) {
       rule = `${reason || '(no reason)'} → invoice revenue ${b.code}`;
       lines = [{ code: b.code, dr: R2(total - gst), cr: 0 }, ...(gst ? [{ code: '2-2310', dr: gst, cr: 0 }] : []), { code: '1-3100', dr: 0, cr: total }];
     }
+    const cnSeen = (seq.get(`CN ${c.credit_note_no}`) || 0) + 1; // the ERP reuses a number (V-000365 ×2)
+    seq.set(`CN ${c.credit_note_no}`, cnSeen);
     journals.push({
-      number: `ERP-CN-${c.credit_note_no}`, type: 'CREDIT_NOTE', date: at(c.date), docId: null, reference: c.credit_note_no,
+      number: `ERP-CN-${c.credit_note_no}${cnSeen > 1 ? `-${cnSeen}` : ''}`, type: 'CREDIT_NOTE', date: at(c.date), docId: null, reference: c.credit_note_no,
       description: `ERP credit note ${c.credit_note_no} on ${c.invoice_no} · ${reason || 'no reason'} · ${c.customer}`.slice(0, 250), cnRule: rule,
       lines,
     });
