@@ -89,3 +89,18 @@ export function erpStoredTotalsOf(config: any): ErpStoredTotals | null {
     outstanding: outstandingOf(config) ?? null,
   };
 }
+
+/**
+ * Imported invoices that carry no money (zero total in the ERP): their ERP history has nothing to
+ * post, so "confirmed invoice without a GL entry" checks must not count them. Empty for any org
+ * without imported documents.
+ */
+export async function erpImportedZeroInvoiceIds(prisma: { $queryRawUnsafe: (sql: string, ...p: any[]) => Promise<any> }, organizationId: string): Promise<string[]> {
+  const rows: Array<{ id: string }> = await prisma.$queryRawUnsafe(
+    `SELECT id FROM "Document"
+      WHERE "organizationId" = $1 AND type IN ('INVOICE', 'TI') AND config ? 'erpImport'
+        AND COALESCE((config->>'totalWithTax')::numeric, (config->>'xeroGross')::numeric, 0) = 0`,
+    organizationId,
+  );
+  return rows.map((r) => r.id);
+}

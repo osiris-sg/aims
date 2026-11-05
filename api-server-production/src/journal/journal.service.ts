@@ -4,7 +4,7 @@ import { CreateJournalEntryDto, JournalLineDto, UpdateJournalEntryDto } from './
 import { AnomaliesService } from '../anomalies/anomalies.service';
 import { docRef } from '../common/doc-ref';
 import { isUnconfirmedDoc } from '../common/doc-status';
-import { isErpImported } from '../common/erp-import';
+import { erpImportedZeroInvoiceIds, isErpImported } from '../common/erp-import';
 import { HEADER_ACCOUNT_TYPE } from '../accounting/default-chart-of-accounts';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
@@ -584,7 +584,8 @@ export class JournalService {
                 })
               )
                 .map((j) => j.sourceDocumentId)
-                .filter((id): id is string => !!id),
+                .filter((id): id is string => !!id)
+                .concat(await erpImportedZeroInvoiceIds(this.prisma, organizationId)),
             },
           },
         },

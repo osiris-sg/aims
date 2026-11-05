@@ -89,6 +89,25 @@ describe('wct-abss-gl trial balance + cutover', () => {
     expect(Object.fromEntries(tb)).toEqual({ '1-3100': 327, '4-2000': -200, '2-2310': -27, '3-8000': -100 });
   });
 
+  it('closes each earlier financial year into retained earnings', () => {
+    const closes = gl.planCloses(postings, '2026-11-05', fy, '3-8000');
+    expect(closes).toEqual([
+      { date: '2025-12-31T00:00:00.000Z', year: '2025', lines: [{ code: '4-2000', dr: 100, cr: 0 }, { code: '3-8000', dr: 0, cr: 100 }], total: 100 },
+    ]);
+  });
+
+  it('zeroes an account outside the ABSS chart into 3-9999', () => {
+    const plan = gl.planCutover(
+      [{ code: '3-9999', name: 'Historical Balancing', isHeader: false, debitBalance: 0 }],
+      new Map([['CS001', -2000]]),
+      new Map([['CS001', 'Purchases']]),
+    );
+    expect(plan.lines.map((l: any) => [l.code, l.dr, l.cr])).toEqual([
+      ['CS001', 2000, 0],
+      ['3-9999', 0, 2000],
+    ]);
+  });
+
   it('brings every ABSS detail account to its ABSS balance, offset to 3-9999', () => {
     const abss = [
       { code: '1-3100', name: 'Customer Payment', isHeader: false, debitBalance: 300 },

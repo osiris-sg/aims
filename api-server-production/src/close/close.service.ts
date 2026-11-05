@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { erpImportedZeroInvoiceIds } from '../common/erp-import';
 import { PrismaService } from '../common/prisma.service';
 import { JournalService } from '../journal/journal.service';
 import { FixedAssetsService } from '../fixed-assets/fixed-assets.service';
@@ -75,6 +76,8 @@ export class CloseService {
       select: { sourceDocumentId: true },
     });
     const postedSet = new Set(postedInvoiceDocIds.map((j) => j.sourceDocumentId).filter(Boolean));
+    // Imported ERP invoices with a zero total have no history journal to post.
+    for (const id of await erpImportedZeroInvoiceIds(this.prisma, organizationId)) postedSet.add(id);
     const unpostedInvoices = await this.prisma.document.count({
       where: {
         organizationId,
