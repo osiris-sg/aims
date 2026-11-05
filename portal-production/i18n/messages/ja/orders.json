@@ -102,7 +102,12 @@
     "delete": "削除",
     "deleteTitle": "注文 {label} を削除しますか?",
     "deleteBody": "ステップ、空の出荷、書類のリンクが削除されます（出荷に書類がある注文は削除できません）。ファイル自体は書類ライブラリに残ります。この操作は元に戻せません。",
-    "deleted": "注文を削除しました"
+    "deleted": "注文を削除しました",
+    "cancelled": "キャンセル",
+    "emptyCancelled": "キャンセルされた注文はありません",
+    "reopenMenu": "注文を再開",
+    "monthlyNoCancelled": "キャンセルされた注文は月次表示には出ません（ADHの表と同じ）。リストで確認できます。",
+    "showList": "リストで表示"
   },
   "columns": {
     "was": "旧 {no}",
@@ -119,7 +124,9 @@
     "shipments": "出荷",
     "progress": "進捗",
     "status": "状態",
-    "actions": "注文の操作"
+    "actions": "注文の操作",
+    "cancelledBadge": "キャンセル",
+    "reopen": "再開"
   },
   "progress": {
     "partial": "一部の出荷で完了",
@@ -372,5 +379,31 @@
     "openExisting": "既存の注文を開く",
     "retry": "再試行",
     "close": "閉じる"
+  },
+  "reopen": {
+    "title": "注文 {label} を再開しますか？",
+    "body": "ステップ・出荷・書類はそのままで「未完了」に戻ります。後でまたキャンセルすることもできます。",
+    "confirm": "再開",
+    "reopenLabel": "{label} を再開",
+    "openLabel": "{label} を開く",
+    "done": "注文 {label} を再開しました",
+    "banner": "{date} に {by} さんがキャンセルしました",
+    "bannerNoName": "{date} にキャンセルされました",
+    "bannerPlain": "この注文はキャンセルされています",
+    "bannerHint": "どこにも集計されず、番号はそのまま残ります。続ける場合は再開してください。",
+    "piOnOrder": "PI {pi} は既に {label} に登録されています（{by} さん作成、{date}）。",
+    "piOnOrderNoBy": "PI {pi} は既に {label} に登録されています（{date} 作成）。",
+    "piOnCancelled": "その注文はキャンセル済みです。新しく作らずに再開してください。",
+    "likeOrder": "{label}（{status}：{grade}・{qty} t、{month}）は同じ契約で、まだPIがありません。このPIはその注文のものかもしれません。",
+    "likeOrderCancelled": "{label}（キャンセル済み：{grade}・{qty} t、{month}）は同じ契約で、まだPIがありません。このPIはその注文のものかもしれません。新しく作らずに再開してください。",
+    "status": {
+      "OPEN": "未完了",
+      "COMPLETED": "完了",
+      "CANCELLED": "キャンセル済み"
+    },
+    "takenCancelled": "{label} はキャンセル済みの注文（{what}）の番号です。キャンセル済み注文の番号は再利用できません。開くか再開するか、次の空き番号を使ってください。",
+    "takenOther": "{label} は他の注文（{what}）で使用中です。次の空き番号を使ってください。",
+    "useNext": "#{no} を使う",
+    "noMonth": "出荷月なし"
   }
 }

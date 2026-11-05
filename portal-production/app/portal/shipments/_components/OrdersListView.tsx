@@ -7,7 +7,9 @@
 // shipments, a segmented progress bar ("Step 7 · … 9/14"; hover = each
 // shipment's bar) and the status. Round Q: no expand chevron — the row opens
 // the order (each shipment's bar is in the progress hover). Tabs split Pending (open) from Completed
-// (completed or cancelled). "New Order" opens the order form; "+ New monthly
+// (completed or cancelled). Round BF: Pending / Completed / Cancelled / All — cancelled orders have their own tab, All
+// shows them greyed with a "Cancelled" badge, and a search ("#30", PI no., contract, B/L) finds them on every tab with
+// "Cancelled · Reopen" on the row. "New Order" opens the order form; "+ New monthly
 // order" makes the month's orders from a small grid; "New orders from PIs"
 // reads PIs in bulk. "Tasks (n)" (round O — no Home page) opens "My tasks
 // today" in a side panel, the overdue count in red.
@@ -36,12 +38,13 @@ import { useDebounced } from "./useDebounced";
 import { TasksButton } from "./TradeTasks";
 import MonthlyView from "./MonthlyView";
 import OrdersViewToggle, { type OrdersView } from "./OrdersViewToggle";
+import { useReopenOrder } from "./OrderReopen";
 
 type Row = OrderRow;
 
 const orderHref = (id: string, shipmentId?: string) => `/portal/shipments/orders/${id}${shipmentId ? `?shipment=${shipmentId}` : ""}`;
 
-type Bucket = "pending" | "completed" | "all";
+type Bucket = "pending" | "completed" | "cancelled" | "all";
 
 /** Round AM: the Orders list as a component — the Orders page's List view, and a client's Orders tab (pre-filtered, no create buttons).
  * Round AN: with `view` it is the whole Orders page (or Orders tab) for both views — the shared header + the List table or the Monthly view. */
@@ -50,7 +53,7 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
   const router = useRouter();
   const params = useSearchParams();
   const tabParam = params?.get("tab");
-  const [bucket, setBucket] = useState<Bucket>(tabParam === "completed" || tabParam === "all" ? tabParam : "pending");
+  const [bucket, setBucket] = useState<Bucket>(tabParam === "completed" || tabParam === "cancelled" || tabParam === "all" ? tabParam : "pending");
   const monthly = view === "monthly";
   const [monthlyCounts, setMonthlyCounts] = useState<{ pending: number; completed: number; all: number } | null>(null);
   const [page, setPage] = useState(1);
@@ -69,6 +72,7 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
   const [menu, setMenu] = useState<{ pos: { left: number; top: number }; row: OrderListItem } | null>(null);
   const [toDelete, setToDelete] = useState<OrderListItem | null>(null);
   const del = useTradeMutation((api, id: string) => api.deleteOrder(id));
+  const reopen = useReopenOrder();
 
   const filterConfig: FilterField[] = useMemo(
     () => [
@@ -94,11 +98,16 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
   }, [list.data]);
 
   const tc = useTranslations("orders.columns");
-  const columns = useMemo(() => orderColumns({ onMenu: (e, row) => setMenu({ pos: { left: e.clientX, top: e.clientY }, row }), t: tc }), [tc]);
+  const askReopen = reopen.ask;
+  const columns = useMemo(() => orderColumns({ onMenu: (e, row) => setMenu({ pos: { left: e.clientX, top: e.clientY }, row }), onReopen: fixed ? undefined : (row) => askReopen({ id: row.id, label: row.label }), t: tc }), [tc, askReopen, fixed]);
 
   const filtered = !!(q || filters.contractId || filters.customerId || filters.shipMonth);
   const listCounts = list.data?.counts;
-  const counts = monthly ? monthlyCounts : listCounts ? { ...listCounts, all: listCounts.pending + listCounts.completed } : null;
+  const counts: { pending: number; completed: number; cancelled?: number; all: number } | null = monthly
+    ? monthlyCounts
+    : listCounts
+      ? { ...listCounts, all: listCounts.pending + listCounts.completed + (listCounts.cancelled ?? 0) }
+      : null;
   const tabs = (
     <Tabs
       value={bucket}
@@ -110,6 +119,8 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
     >
       <Tab value="pending" label={`${t("pending")}${counts ? ` (${counts.pending})` : ""}`} data-tour="shipments-tab-pending" />
       <Tab value="completed" label={`${t("completed")}${counts ? ` (${counts.completed})` : ""}`} data-tour="shipments-tab-completed" />
+      {/* Round BF: the Monthly view never shows cancelled orders (ADH's sheet) — the tab then points to the List. */}
+      <Tab value="cancelled" label={`${t("cancelled")}${counts && counts.cancelled !== undefined ? ` (${counts.cancelled})` : ""}`} data-tour="shipments-tab-cancelled" />
       <Tab value="all" label={`${t("all")}${counts ? ` (${counts.all})` : ""}`} data-tour="shipments-tab-all" />
     </Tabs>
   );
@@ -167,9 +178,23 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
         headerContent={
           <>
             {tabsRow}
-            {monthly ? (
+            {monthly && bucket === "cancelled" ? (
+              <Alert
+                severity="info"
+                sx={{ mt: 1.5 }}
+                action={
+                  onViewChange ? (
+                    <Button color="inherit" size="small" onClick={() => onViewChange("list")}>
+                      {t("showList")}
+                    </Button>
+                  ) : undefined
+                }
+              >
+                {t("monthlyNoCancelled")}
+              </Alert>
+            ) : monthly ? (
               <Box sx={{ mt: 1.5 }}>
-                <MonthlyView customerId={fixedCustomerId} supplierId={fixedSupplierId} bucket={bucket} search={q} mainFilters={filters} onClientChange={fixedCustomerId ? undefined : (id) => setFilters((f) => ({ ...f, customerId: id }))} onCounts={setMonthlyCounts} />
+                <MonthlyView customerId={fixedCustomerId} supplierId={fixedSupplierId} bucket={bucket === "cancelled" ? "all" : bucket} search={q} mainFilters={filters} onClientChange={fixedCustomerId ? undefined : (id) => setFilters((f) => ({ ...f, customerId: id }))} onCounts={setMonthlyCounts} />
               </Box>
             ) : list.isError ? (
               <Alert severity="error">{(list.error as Error)?.message || t("loadError")}</Alert>
@@ -177,7 +202,9 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
               filtered ? (
                 <EmptyState title={t("emptyFiltered")} />
               ) : fixed ? (
-                <EmptyState title={bucket === "completed" ? t("emptyCompleted") : t("emptyPending")} />
+                <EmptyState title={bucket === "completed" ? t("emptyCompleted") : bucket === "cancelled" ? t("emptyCancelled") : t("emptyPending")} />
+              ) : bucket === "cancelled" ? (
+                <EmptyState title={t("emptyCancelled")} />
               ) : bucket === "completed" ? (
                 <EmptyState title={t("emptyCompletedYet")} />
               ) : (
@@ -205,6 +232,17 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
         >
           {t("open")}
         </MenuItem>
+        {menu?.row.status === "CANCELLED" && (
+          <MenuItem
+            onClick={() => {
+              const r = menu!.row;
+              setMenu(null);
+              reopen.ask({ id: r.id, label: r.label });
+            }}
+          >
+            {t("reopenMenu")}
+          </MenuItem>
+        )}
         <MenuItem
           sx={{ color: "error.main" }}
           onClick={() => {
@@ -230,6 +268,7 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
         }}
       />
 
+      {reopen.dialog}
       <PiBulkDialog open={bulkOpen} onClose={() => setBulkOpen(false)} />
       <MonthlyOrderDialog
         open={monthlyOpen}

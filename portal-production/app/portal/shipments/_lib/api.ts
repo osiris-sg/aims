@@ -267,7 +267,9 @@ export type Extraction = {
   costUsd: number | null;
   file: { id: string; fileName: string; mimeType: string; docType: string };
 };
-export type PiExtraction = Extraction & { result: { raw: Record<string, unknown>; draft: ContractDraft; existingContractId: string | null } | null };
+/** Round BF: an order a PI read points at — already made from this PI, or the same contract / grade / month without a PI yet. */
+export type PiOrderHint = { id: string; label: string; year: number; status: RecordStatus; grade: string | null; qtyMt: number | null; shipMonth: string | null; createdAt: string; createdByName: string | null };
+export type PiExtraction = Extraction & { result: { raw: Record<string, unknown>; draft: ContractDraft; existingContractId: string | null; existingOrder?: PiOrderHint | null; likeOrders?: PiOrderHint[] } | null };
 export type BlExtraction = Extraction & {
   result: { raw: Record<string, unknown>; draft: ShipmentDraft; contractId: string | null; contractLineId: string | null; existingShipmentId: string | null } | null;
 };
@@ -549,6 +551,8 @@ export type OrderListItem = {
   isTest?: boolean;
 };
 export type Order = OrderListItem & {
+  /** Round BF: a cancelled order — who cancelled it and when (from the Activity Log). */
+  cancelled?: { byName: string | null; at: string | null } | null;
   /** Round N: the shipments' net total vs the order quantity ± tolerance. */
   tolerance?: { qtyMt: number; tolPct: number; min: number; max: number; netTotal: number; withNet: number; status: "within" | "over" | "unknown"; message: string | null } | null;
   tolPct: Num;
@@ -620,7 +624,7 @@ export type OrderInput = Partial<{
 export type EmailFactKey = "blNumber" | "vessel" | "voyageNo" | "etd" | "eta" | "netWeightMt" | "grossWeightMt" | "totalBundles" | "containerCount" | "ciNumber";
 export type EmailFactField = { value: string | null; candidates: Array<{ value: string; sources: string[] }> };
 export type EmailShipmentFacts = { emailId: string; subject: string | null; fields: Partial<Record<EmailFactKey, EmailFactField>>; containers: string[] };
-export type OrderFilters = { bucket?: "pending" | "completed" | "all"; customerId?: string; supplierId?: string; contractId?: string; shipMonth?: string; includeTest?: "true"; q?: string; page?: number; pageSize?: number };
+export type OrderFilters = { bucket?: "pending" | "completed" | "cancelled" | "all"; customerId?: string; supplierId?: string; contractId?: string; shipMonth?: string; includeTest?: "true"; q?: string; page?: number; pageSize?: number };
 /** Orders list month headers ("Sep 2026 — 4 orders, 600 MT"), counted over the whole filtered list. */
 export type OrderMonth = { month: string | null; orders: number; qtyMt: number | null; label: string };
 /** "+ New monthly order": one order per row. */
@@ -1600,7 +1604,8 @@ export function useShipmentsApi() {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const res = await request({ path, method, ...(timeout ? { timeout } : {}) }, body, token);
-      if (!res || res.success === false) throw new Error(errorText(res?.message, "Request failed"));
+      // Round BF: a structured refusal keeps its code and body (e.g. ORDER_NO_TAKEN → [Open] [Reopen] in the form).
+      if (!res || res.success === false) throw Object.assign(new Error(errorText(res?.message, "Request failed")), { code: res?.code, details: res?.details });
       return (res.data ?? res) as T;
     };
 
@@ -1742,7 +1747,7 @@ export function useShipmentsApi() {
 
       // ── Orders ───────────────────────────────────────────────────────────
       setOrderTest: (id: string, isTest: boolean) => call<{ id: string; isTest: boolean }>(`/trade-orders/${id}/test`, "PATCH", { isTest }),
-      listOrders: (f: OrderFilters = {}) => call<Paged<OrderListItem> & { counts?: { pending: number; completed: number }; months?: OrderMonth[] }>(`/trade-orders${qs(f)}`),
+      listOrders: (f: OrderFilters = {}) => call<Paged<OrderListItem> & { counts?: { pending: number; completed: number; cancelled?: number }; months?: OrderMonth[] }>(`/trade-orders${qs(f)}`),
       createMonthlyOrders: (body: { month: string; rows: MonthlyOrderRow[] }) => call<MonthlyOrderResult>(`/trade-orders/monthly`, "POST", body),
       getOrder: (id: string) => call<Order>(`/trade-orders/${id}`),
       nextOrderNo: (year?: number) => call<{ year: number; orderNo: number }>(`/trade-orders/next-no${qs({ year })}`),

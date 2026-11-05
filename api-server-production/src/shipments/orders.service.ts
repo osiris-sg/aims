@@ -59,6 +59,25 @@ export function monthHeader(month: string | null, orders: number, qtyMt: number 
 /** Round AT: order numbers from here up are parked ranges (history #1001…, test #9001…), never the next number. */
 export const LIVE_ORDER_NO_END = 1000;
 
+/**
+ * Round BF: the Orders tabs — Pending (open) / Completed / Cancelled / All. A search finds cancelled orders on every
+ * tab (they show greyed with "Cancelled · Reopen"), so "#30" always finds the cancelled #30.
+ */
+export function orderBucketWhere(bucket: string | undefined, searching: boolean): Record<string, unknown> {
+  const own = bucket === 'pending' ? 'OPEN' : bucket === 'completed' ? 'COMPLETED' : bucket === 'cancelled' ? 'CANCELLED' : null;
+  if (!own) return {};
+  if (searching && own !== 'CANCELLED') return { status: { in: [own, 'CANCELLED'] } };
+  return { status: own };
+}
+
+/** Round AT / BF: the refusal when an order number is in use, with the next free number. */
+export function takenText(o: { orderNo: number; year: number; status: string; isTest: boolean; history: boolean; what: string; nextFree: number }): string {
+  const next = ` — the next free number is #${o.nextFree}`;
+  if (!o.isTest && !o.history && o.status === 'CANCELLED') return `#${o.orderNo} (${o.year}) belongs to a cancelled order (${o.what}). Open or reopen it instead; a cancelled order's number is not reused${next}`;
+  const kind = o.isTest ? 'a hidden test order' : o.history ? 'a history order (backfilled from the Drive)' : o.status === 'OPEN' ? 'an open order' : `a ${String(o.status).toLowerCase()} order`;
+  return `#${o.orderNo} (${o.year}) is taken by ${kind} (${o.what})${next}`;
+}
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -86,8 +105,9 @@ export class OrdersService {
     // (rankByOrderNo: the exact order number first, then the other matches in list order.)
     const { page, pageSize, skip, take } = pageArgs(query.page, query.pageSize);
     const q = query.q?.trim();
-    const qNo = q && /^#?\d+(-\d+)?$/.test(q) ? Number(q.replace('#', '').split('-')[0]) : null;
-    const bucket = query.bucket === 'completed' ? { status: { in: ['COMPLETED', 'CANCELLED'] as Array<'COMPLETED' | 'CANCELLED'> } } : query.bucket === 'pending' ? { status: 'OPEN' as const } : {};
+    // Round BF: an order number has at most 6 digits — "9331004393" is a PI no. (it overflowed the INT order no. → 500).
+    const qNo = q && /^#?\d{1,6}(-\d+)?$/.test(q) ? Number(q.replace('#', '').split('-')[0]) : null;
+    const bucket = orderBucketWhere(query.bucket, !!q);
     const base = {
       organizationId,
       // Round N: test orders only with "Show test orders".
@@ -102,6 +122,9 @@ export class OrdersService {
               // Round AT: an old number (before a renumber) finds the order too.
               ...(qNo ? [{ orderNo: qNo }, { previousOrderNos: { has: qNo } }] : []),
               { piNo: { contains: q, mode: 'insensitive' as const } },
+              // Round BF: the contract's PI no. (an order made before its PI was read has none of its own).
+              { contract: { piNumber: { contains: q, mode: 'insensitive' as const } } },
+              { customerPoNo: { contains: q, mode: 'insensitive' as const } },
               { grade: { contains: q, mode: 'insensitive' as const } },
               { contract: { contractNo: { contains: q, mode: 'insensitive' as const } } },
               { customer: { name: { contains: q, mode: 'insensitive' as const } } },
@@ -115,7 +138,7 @@ export class OrdersService {
     // The Ship month filter's options: every month of the list without that filter.
     const monthsWhere: Record<string, unknown> = { ...where };
     delete monthsWhere.shipMonth;
-    const [rows, dueAlerts, total, pending, completed, months] = await Promise.all([
+    const [rows, dueAlerts, total, pending, completed, cancelled, months] = await Promise.all([
       this.prisma.tradeOrder.findMany({
         where,
         // Flat list (round K): ship month newest first, then order no. newest first.
@@ -137,7 +160,8 @@ export class OrdersService {
       this.prisma.tradeAlert.findMany({ where: { organizationId, status: 'DUE' }, select: { orderId: true, shipmentId: true } }),
       this.prisma.tradeOrder.count({ where }),
       this.prisma.tradeOrder.count({ where: { ...base, status: 'OPEN' } }),
-      this.prisma.tradeOrder.count({ where: { ...base, status: { in: ['COMPLETED', 'CANCELLED'] } } }),
+      this.prisma.tradeOrder.count({ where: { ...base, status: 'COMPLETED' } }),
+      this.prisma.tradeOrder.count({ where: { ...base, status: 'CANCELLED' } }),
       this.prisma.tradeOrder.groupBy({ by: ['shipMonth'], where: monthsWhere, _count: { _all: true }, _sum: { qtyMt: true } }),
     ]);
     if (qNo) {
@@ -180,7 +204,7 @@ export class OrdersService {
         return { month: m.shipMonth, orders: m._count._all, qtyMt: qty, label: monthHeader(m.shipMonth, m._count._all, qty) };
       })
       .sort((a, b) => (b.month ?? '').localeCompare(a.month ?? ''));
-    return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize), counts: { pending, completed }, months: monthTotals };
+    return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize), counts: { pending, completed, cancelled }, months: monthTotals };
   }
 
   /** Detail; with an actor, auto-complete runs first on the order and its shipments. */
@@ -228,6 +252,8 @@ export class OrdersService {
     return {
       ...rest,
       label: orderLabel(o),
+      // Round BF: the order page's "Cancelled by X on date · Reopen" banner.
+      ...(o.status === 'CANCELLED' ? { cancelled: await this.cancelledInfo(organizationId, o.id, o.updatedAt) } : {}),
       supplierProfile: maskedProfile(supplierProfile),
       steps,
       docLinks,
@@ -301,13 +327,32 @@ export class OrdersService {
     return (last?.orderNo ?? 0) + 1;
   }
 
-  /** Round AT: "#28 is taken by a hidden test order (SUS Co., Ltd. · 6063 · 300 t)" — which order holds a number. */
-  private async takenMessage(db: Db, organizationId: string, year: number, orderNo: number, notId?: string): Promise<string | null> {
-    const o: any = await db.tradeOrder.findFirst({ where: { organizationId, year, orderNo, ...(notId ? { NOT: { id: notId } } : {}) }, select: { isTest: true, status: true, grade: true, qtyMt: true, notes: true, customer: { select: { name: true } } } });
+  /**
+   * Round BF: the order holding a number, for a refusal the portal can act on — "#30 belongs to a cancelled order"
+   * with [Open] [Reopen] and the next free number. A cancelled order's number is never reused (history stays clean).
+   */
+  async takenBy(db: Db, organizationId: string, year: number, orderNo: number, notId?: string) {
+    const o: any = await db.tradeOrder.findFirst({ where: { organizationId, year, orderNo, ...(notId ? { NOT: { id: notId } } : {}) }, select: { id: true, isTest: true, status: true, grade: true, qtyMt: true, notes: true, customer: { select: { name: true } } } });
     if (!o) return null;
     const what = [o.customer?.name, o.grade, o.qtyMt !== null && o.qtyMt !== undefined ? `${Number(o.qtyMt)} t` : null].filter(Boolean).join(' · ');
-    const kind = o.isTest ? 'a hidden test order' : /Backfilled from Drive/.test(o.notes ?? '') ? 'a history order (backfilled from the Drive)' : o.status === 'OPEN' ? 'an open order' : `a ${String(o.status).toLowerCase()} order`;
-    return `#${orderNo} (${year}) is taken by ${kind} (${what})`;
+    const nextFree = await this.nextOrderNo(organizationId, year, db);
+    const message = takenText({ orderNo, year, status: o.status, isTest: !!o.isTest, history: /Backfilled from Drive/.test(o.notes ?? ''), what, nextFree });
+    return { message, code: 'ORDER_NO_TAKEN' as const, order: { id: o.id as string, orderNo, year, label: `#${orderNo}`, status: o.status as string, isTest: !!o.isTest, what }, nextFreeOrderNo: nextFree };
+  }
+
+  /** Round BF: who cancelled the order and when — the Activity Log row of the cancel (PATCH status CANCELLED). */
+  async cancelledInfo(organizationId: string, id: string, fallbackAt: Date | null = null): Promise<{ byName: string | null; at: string | null }> {
+    try {
+      const row: any = await (this.prisma as any).actionLog?.findFirst?.({
+        where: { organizationId, resourceId: id, status: 'SUCCESS', OR: [{ details: { path: ['body', 'status'], equals: 'CANCELLED' } }, { action: 'CANCEL' }] },
+        orderBy: { createdAt: 'desc' },
+        select: { actorName: true, createdAt: true },
+      });
+      if (row) return { byName: row.actorName ?? null, at: new Date(row.createdAt).toISOString() };
+    } catch {
+      /* the banner falls back to the last change */
+    }
+    return { byName: null, at: fallbackAt ? new Date(fallbackAt).toISOString() : null };
   }
 
   async create(organizationId: string, dto: CreateOrderDto, actor: TradeActor) {
@@ -352,7 +397,7 @@ export class OrdersService {
         await this.assertParties(tx, organizationId, supplierId, customerId);
         const year = dto.year ?? (dto.shipMonth ? Number(dto.shipMonth.slice(0, 4)) : Number(tradeToday().slice(0, 4)));
         const orderNo = dto.orderNo ?? (await this.nextOrderNo(organizationId, year, tx));
-        const taken = await this.takenMessage(tx, organizationId, year, orderNo);
+        const taken = await this.takenBy(tx, organizationId, year, orderNo);
         if (taken) throw new BadRequestException(taken);
         // Premiums default from the contract line of the same grade (else its only line); typed values win.
         const line = defaultLine((contract?.lines ?? []) as ContractLineRow[], dto.grade);
@@ -479,7 +524,7 @@ export class OrdersService {
       const year = dto.year ?? existing.year;
       const orderNo = dto.orderNo ?? existing.orderNo;
       if (year !== existing.year || orderNo !== existing.orderNo) {
-        const taken = await this.takenMessage(tx, organizationId, year, orderNo, id);
+        const taken = await this.takenBy(tx, organizationId, year, orderNo, id);
         if (taken) throw new BadRequestException(taken);
       }
       // Round AT: a renumbered order keeps its old number as an alias (search, the WhatsApp agent).

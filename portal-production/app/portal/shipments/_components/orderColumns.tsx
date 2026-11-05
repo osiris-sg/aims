@@ -7,7 +7,7 @@
 // chip. Rows: an order, or (expanded) one of its shipments.
 
 import React from "react";
-import { Box, Chip, IconButton, Typography } from "@mui/material";
+import { Box, Button, Chip, IconButton, Typography } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import type { OrderListItem, OrderShipmentRow } from "../_lib/api";
 import { fmtDay, fmtMt, monthShort, shortCustomer } from "../_lib/format";
@@ -20,9 +20,11 @@ export type OrderRow = ({ kind: "order" } & OrderListItem) | ({ kind: "shipment"
 type Row = OrderRow;
 
 /** `t` = useTranslations("orders.columns") from the caller (headers are plain strings for PageTable). */
-export function orderColumns(o: { onMenu: (e: React.MouseEvent, row: OrderListItem) => void; t: (key: string, values?: Record<string, string | number>) => string }) {
+export function orderColumns(o: { onMenu: (e: React.MouseEvent, row: OrderListItem) => void; onReopen?: (row: OrderListItem) => void; t: (key: string, values?: Record<string, string | number>) => string }) {
   const t = o.t;
-  return [
+  // Round BF: a cancelled order (found by a search, or on All / Cancelled) is greyed; its Status cell says "Cancelled · Reopen".
+  const dimmed = (r: Row) => r.kind === "order" && r.status === "CANCELLED";
+  const cols = [
       {
         id: "no",
         header: "#",
@@ -117,11 +119,31 @@ export function orderColumns(o: { onMenu: (e: React.MouseEvent, row: OrderListIt
         id: "status",
         header: t("status"),
         pxWidth: ORDERS_COLUMN_PX.status,
-        cell: ({ row }: any) => (
-          <Box sx={{ whiteSpace: "nowrap" }} data-testid="status-cell">
-            <RecordStatusChip status={row.original.status} />
-          </Box>
-        ),
+        cell: ({ row }: any) =>
+          row.original.kind === "order" && row.original.status === "CANCELLED" ? (
+            <Box sx={{ whiteSpace: "nowrap", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 0.25 }} data-testid="status-cell">
+              <Typography variant="caption" sx={{ fontWeight: 700, color: "text.secondary", border: 1, borderColor: "divider", borderRadius: 1, px: 0.75, lineHeight: 1.7 }}>
+                {t("cancelledBadge")}
+              </Typography>
+              {o.onReopen && (
+                <Button
+                  size="small"
+                  sx={{ minWidth: 0, px: 0.5, py: 0, textTransform: "none", fontSize: 12, lineHeight: 1.6 }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    o.onReopen!(row.original);
+                  }}
+                  data-tour="order-row-reopen"
+                >
+                  {t("reopen")}
+                </Button>
+              )}
+            </Box>
+          ) : (
+            <Box sx={{ whiteSpace: "nowrap" }} data-testid="status-cell">
+              <RecordStatusChip status={row.original.status} />
+            </Box>
+          ),
       },
       {
         id: "actions",
@@ -143,4 +165,16 @@ export function orderColumns(o: { onMenu: (e: React.MouseEvent, row: OrderListIt
           ) : null,
       },
     ];
+  // Grey every cell of a cancelled order except Status (its badge + Reopen stay readable) and the ⋮.
+  return cols.map((c: any) =>
+    c.id === "status" || c.id === "actions"
+      ? c
+      : {
+          ...c,
+          cell: (ctx: any) => {
+            const node = c.cell(ctx);
+            return dimmed(ctx.row.original) ? <Box sx={{ opacity: 0.5 }}>{node}</Box> : node;
+          },
+        }
+  );
 }

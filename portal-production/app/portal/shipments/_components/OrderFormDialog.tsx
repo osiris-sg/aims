@@ -15,7 +15,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Grid, MenuItem, TextField, Typography, useMediaQuery } from "@mui/material";
 import { toast } from "../_lib/toast";
 import { defaultDeliveryMonth, premiumHelp, premiumRowFor } from "../_lib/order-form";
-import { useShipmentsApi, type Contract, type Order, type OrderInput, type PiExtraction } from "../_lib/api";
+import { useShipmentsApi, type Contract, type Order, type OrderInput, type PiExtraction, type PiOrderHint } from "../_lib/api";
+import { useRouter } from "next/navigation";
+import { fmtDay, fmtMt, monthShort } from "../_lib/format";
+import { useReopenOrder } from "./OrderReopen";
 import { useContracts, useCustomers, useSuppliers, useTradeMutation } from "../_lib/hooks";
 import { filledSx, PdfDropZone, SourcePdfPane } from "./PdfDrop";
 import AddFlowProductPicker, { orderFieldsFrom } from "./AddFlowProductPicker";
@@ -108,12 +111,17 @@ export default function OrderFormDialog({
   const [deliveryTouched, setDeliveryTouched] = useState(false);
   const [reading, setReading] = useState(false);
   const [readingFile, setReadingFile] = useState<File | null>(null);
-  const [source, setSource] = useState<{ fileId: string; fileName: string; owned: boolean; existingOrder?: { id: string; label: string } | null } | null>(null);
+  const [source, setSource] = useState<{ fileId: string; fileName: string; owned: boolean; existingOrder?: PiOrderHint | null; likeOrders?: PiOrderHint[] } | null>(null);
+  // Round BF: the number is taken — which order holds it ([Open] / [Reopen]) and the next free number.
+  const [taken, setTaken] = useState<{ order: { id: string; label: string; status: string; what: string }; nextFreeOrderNo: number } | null>(null);
+  const tr = useTranslations("orders.reopen");
+  const router = useRouter();
   const save = useTradeMutation((a, body: OrderInput) => (order ? a.updateOrder(order.id, body) : a.createOrder(body)));
 
   useEffect(() => {
     if (!open) return;
     setError(null);
+    setTaken(null);
     setFilled(new Set());
     setSource(null);
     setPremiumTouched(!!order);
@@ -273,7 +281,7 @@ export default function OrderFormDialog({
     setForm((f) => ({ ...f, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== "")) }));
     setFilled(new Set(keys));
     // A PI from the bulk dialog belongs to that dialog (it removes unsaved ones); one read here is ours.
-    setSource({ fileId: x.fileId, fileName: (x as any).fileName ?? "PI", owned: !prefill, existingOrder: (x.result as any)?.existingOrder ?? null });
+    setSource({ fileId: x.fileId, fileName: (x as any).fileName ?? "PI", owned: !prefill, existingOrder: x.result?.existingOrder ?? null, likeOrders: x.result?.likeOrders ?? [] });
     if (d.contractNo && !contractId) toast.info(t("contractMissing", { no: d.contractNo }));
   };
 
@@ -304,6 +312,7 @@ export default function OrderFormDialog({
 
   const submit = async () => {
     setError(null);
+    setTaken(null);
     if (!form.customerId) return setError(t("pickCustomer"));
     if (!form.supplierId) return setError(t("pickSupplier"));
     const body: OrderInput = {
@@ -337,9 +346,36 @@ export default function OrderFormDialog({
       onSaved?.(o);
       onClose();
     } catch (e: any) {
-      setError(e?.message || t("couldNotSave"));
+      if (e?.code === "ORDER_NO_TAKEN" && e?.details?.order) setTaken({ order: e.details.order, nextFreeOrderNo: e.details.nextFreeOrderNo });
+      else setError(e?.message || t("couldNotSave"));
     }
   };
+
+  // Round BF: [Open #30] / [Reopen #30] from the form — leave the form (an unsaved PI read is discarded) for that order.
+  const reopenAsk = useReopenOrder({ openAfter: true, onDone: () => cancel() });
+  const openOrder = (id: string) => {
+    cancel();
+    router.push(`/portal/shipments/orders/${id}`);
+  };
+  const orderButtons = (o: { id: string; label: string; status: string }) => (
+    <Box sx={{ display: "flex", gap: 1, mt: 1, flexWrap: "wrap" }}>
+      <Button size="small" variant="outlined" color="inherit" onClick={() => openOrder(o.id)} data-tour="order-form-open-existing">
+        {tr("openLabel", { label: o.label })}
+      </Button>
+      {o.status === "CANCELLED" && (
+        <Button size="small" variant="contained" color="warning" onClick={() => reopenAsk.ask({ id: o.id, label: o.label })} data-tour="order-form-reopen">
+          {tr("reopenLabel", { label: o.label })}
+        </Button>
+      )}
+    </Box>
+  );
+  const hintLine = (h: PiOrderHint) => ({
+    label: h.label,
+    status: tr(`status.${h.status}`),
+    grade: h.grade ?? "—",
+    qty: h.qtyMt !== null ? fmtMt(h.qtyMt) : "—",
+    month: h.shipMonth ? monthShort(h.shipMonth) : tr("noMonth"),
+  });
 
   const contractOptions = useMemo(() => contracts.data?.items ?? [], [contracts.data]);
   const side = (!!source || !!readingFile) && wide;
@@ -355,10 +391,47 @@ export default function OrderFormDialog({
           <Grid item xs={12} md={side ? 6 : 12}>
             {!order && <PdfDropZone title={t("fillFromPi")} busy={reading} busyText={t("readingPi")} onFiles={(f) => void readPi(f[0])} dataTour="order-fill-from-pi" />}
             {source?.existingOrder && (
-              <Alert severity="warning" sx={{ mt: 1.5 }}>
-                {t("piOnOrder", { label: source.existingOrder.label })}
+              <Alert severity="warning" sx={{ mt: 1.5 }} data-tour="order-form-pi-on-order">
+                {source.existingOrder.createdByName
+                  ? tr("piOnOrder", { pi: form.piNo || "", label: source.existingOrder.label, by: source.existingOrder.createdByName, date: fmtDay(source.existingOrder.createdAt) })
+                  : tr("piOnOrderNoBy", { pi: form.piNo || "", label: source.existingOrder.label, date: fmtDay(source.existingOrder.createdAt) })}
+                {source.existingOrder.status === "CANCELLED" && <> {tr("piOnCancelled")}</>}
+                {orderButtons(source.existingOrder)}
               </Alert>
             )}
+            {!source?.existingOrder &&
+              (source?.likeOrders ?? []).map((h) => (
+                <Alert key={h.id} severity={h.status === "CANCELLED" ? "warning" : "info"} sx={{ mt: 1.5 }} data-tour="order-form-like-order">
+                  {tr(h.status === "CANCELLED" ? "likeOrderCancelled" : "likeOrder", hintLine(h))}
+                  {orderButtons(h)}
+                </Alert>
+              ))}
+            {taken && (
+              <Alert severity="error" sx={{ mt: 1.5 }} data-tour="order-form-number-taken">
+                {tr(taken.order.status === "CANCELLED" ? "takenCancelled" : "takenOther", { label: taken.order.label, what: taken.order.what })}
+                <Box sx={{ display: "flex", gap: 1, mt: 1, flexWrap: "wrap" }}>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    onClick={() => {
+                      setForm((f) => ({ ...f, orderNo: String(taken.nextFreeOrderNo) }));
+                      setTaken(null);
+                    }}
+                  >
+                    {tr("useNext", { no: taken.nextFreeOrderNo })}
+                  </Button>
+                  <Button size="small" variant="outlined" color="inherit" onClick={() => openOrder(taken.order.id)}>
+                    {tr("openLabel", { label: taken.order.label })}
+                  </Button>
+                  {taken.order.status === "CANCELLED" && (
+                    <Button size="small" variant="outlined" color="warning" onClick={() => reopenAsk.ask({ id: taken.order.id, label: taken.order.label })}>
+                      {tr("reopenLabel", { label: taken.order.label })}
+                    </Button>
+                  )}
+                </Box>
+              </Alert>
+            )}
+            {reopenAsk.dialog}
             {error && (
               <Alert severity="error" sx={{ mt: 1.5 }}>
                 {error}

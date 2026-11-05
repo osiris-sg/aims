@@ -37,6 +37,7 @@ import LinkedDocuments from "../../_components/LinkedDocuments";
 import { ConfirmDialog, CurrentStepCell, Field, ProgressCell, RecordStatusChip } from "../../_components/bits";
 import ExtractApplyDialog, { type ApplyRow } from "../../_components/ExtractApplyDialog";
 import OrderFormDialog from "../../_components/OrderFormDialog";
+import { useReopenOrder } from "../../_components/OrderReopen";
 import EstimatorPanel, { ESTIMATOR_STEPS } from "../../_components/EstimatorPanel";
 import ReconciliationPanel from "../../_components/ReconciliationPanel";
 import PriceCheckPanel from "../../_components/PriceCheckPanel";
@@ -95,6 +96,9 @@ export default function OrderPage() {
   const complete = useTradeMutation((a, oid: string) => a.completeOrder(oid));
   const reopen = useTradeMutation((a, oid: string) => a.reopenOrder(oid));
   const cancel = useTradeMutation((a, oid: string) => a.updateOrder(oid, { status: "CANCELLED" }));
+  // Round BF: the cancelled banner's [Reopen] (same confirm as the list row).
+  const reopenBanner = useReopenOrder();
+  const tr = useTranslations("orders.reopen");
   const addShipment = useTradeMutation((a, oid: string) => a.addOrderShipment(oid));
   const shipAction = useTradeMutation(
     (a, v: { id: string; act: "complete" | "cancel" | "reopen" | "delete" }): Promise<unknown> =>
@@ -398,6 +402,28 @@ export default function OrderPage() {
         }
       />
 
+      {o.status === "CANCELLED" && (
+        <Alert
+          severity="warning"
+          sx={{ mb: 2 }}
+          data-tour="order-cancelled-banner"
+          action={
+            <Button color="inherit" size="small" variant="outlined" onClick={() => reopenBanner.ask({ id: o.id, label: o.label })} data-tour="order-banner-reopen">
+              {tr("confirm")}
+            </Button>
+          }
+        >
+          <b>
+            {o.cancelled?.at
+              ? o.cancelled.byName
+                ? tr("banner", { by: o.cancelled.byName, date: fmtDay(o.cancelled.at) })
+                : tr("bannerNoName", { date: fmtDay(o.cancelled.at) })
+              : tr("bannerPlain")}
+          </b>{" "}
+          · {tr("bannerHint")}
+        </Alert>
+      )}
+      {reopenBanner.dialog}
       {o.tolerance?.status === "over" && (
         <Alert severity="warning" sx={{ mb: 2 }} data-tour="order-tolerance">
           {o.tolerance.message}

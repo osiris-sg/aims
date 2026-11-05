@@ -102,7 +102,12 @@
     "delete": "Delete",
     "deleteTitle": "Delete order {label}?",
     "deleteBody": "Its steps, empty shipments and document links are removed (an order whose shipments have documents can't be deleted). The files themselves stay in the Documents library. This can't be undone.",
-    "deleted": "Order deleted"
+    "deleted": "Order deleted",
+    "cancelled": "Cancelled",
+    "emptyCancelled": "No cancelled orders",
+    "reopenMenu": "Reopen order",
+    "monthlyNoCancelled": "Cancelled orders are not on the Monthly view (as on ADH's sheet) — they are in the List.",
+    "showList": "Show in List"
   },
   "columns": {
     "was": "was {no}",
@@ -119,7 +124,9 @@
     "shipments": "Shipments",
     "progress": "Progress",
     "status": "Status",
-    "actions": "Order actions"
+    "actions": "Order actions",
+    "cancelledBadge": "Cancelled",
+    "reopen": "Reopen"
   },
   "progress": {
     "partial": "Done on some shipments",
@@ -372,5 +379,31 @@
     "openExisting": "Open existing",
     "retry": "Retry",
     "close": "Close"
+  },
+  "reopen": {
+    "title": "Reopen order {label}?",
+    "body": "It goes back to Pending with its steps, shipments and documents as they were. It can be cancelled again later.",
+    "confirm": "Reopen",
+    "reopenLabel": "Reopen {label}",
+    "openLabel": "Open {label}",
+    "done": "Order {label} reopened",
+    "banner": "Cancelled by {by} on {date}",
+    "bannerNoName": "Cancelled on {date}",
+    "bannerPlain": "This order is cancelled",
+    "bannerHint": "It does not count anywhere and its number is kept. Reopen it to carry on.",
+    "piOnOrder": "PI {pi} is already on {label} (created by {by}, {date}).",
+    "piOnOrderNoBy": "PI {pi} is already on {label} (created {date}).",
+    "piOnCancelled": "That order is cancelled — reopen it instead of making a new one.",
+    "likeOrder": "{label} ({status}: {grade} · {qty} t, {month}) is on the same contract and has no PI yet — this PI may belong to it.",
+    "likeOrderCancelled": "{label} (cancelled: {grade} · {qty} t, {month}) is on the same contract and has no PI yet — this PI may belong to it. Reopen it instead of making a new one.",
+    "status": {
+      "OPEN": "open",
+      "COMPLETED": "completed",
+      "CANCELLED": "cancelled"
+    },
+    "takenCancelled": "{label} belongs to a cancelled order ({what}). A cancelled order's number is not reused — open or reopen it, or use the next free number.",
+    "takenOther": "{label} is already used by another order ({what}). Use the next free number.",
+    "useNext": "Use #{no}",
+    "noMonth": "no ship month"
   }
 }

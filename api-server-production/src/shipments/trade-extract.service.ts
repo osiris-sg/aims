@@ -1,3 +1,4 @@
+import { likeOrders, PiOrderRow, toHint } from './order-pi-hints';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { S3Service } from '../common/services/s3.service';
@@ -280,8 +281,27 @@ export class TradeExtractService {
     draft.lines = draft.lines.map((l) => ({ ...l, supplierPremium: fixedPremiumFromPi(l.piPremium, draft.shipmentMonth, qmjpByQuarter) }));
     const existing = draft.contractNo ? await this.prisma.contract.findFirst({ where: { organizationId, contractNo: draft.contractNo }, select: { id: true, contractNo: true } }) : null;
     // An order already made from this PI (same PI no.) — the New Order form warns instead of creating it twice.
-    const order = draft.piNumber ? await this.prisma.tradeOrder.findFirst({ where: { organizationId, piNo: draft.piNumber }, select: { id: true, orderNo: true, year: true } }) : null;
-    return { raw: pi, draft, existingContractId: existing?.id ?? null, existingOrder: order ? { id: order.id, label: `#${order.orderNo}`, year: order.year } : null };
+    // Round BF: with its status and who made it, and the orders of the same contract / grade / month without a PI yet.
+    const sel = { id: true, orderNo: true, year: true, status: true, isTest: true, piNo: true, grade: true, qtyMt: true, shipMonth: true, createdAt: true, createdById: true };
+    const order: PiOrderRow | null = draft.piNumber ? await this.prisma.tradeOrder.findFirst({ where: { organizationId, piNo: draft.piNumber, isTest: false }, orderBy: { createdAt: 'asc' }, select: sel }) : null;
+    const sameContract: PiOrderRow[] = existing && !order ? await this.prisma.tradeOrder.findMany({ where: { organizationId, contractId: existing.id, isTest: false, piNo: null }, select: sel }) : [];
+    const like = likeOrders(sameContract, { shipmentMonth: draft.shipmentMonth, lines: draft.lines }).slice(0, 3);
+    const names = await this.actorNames([order, ...like].map((o) => o?.createdById).filter((x): x is string => !!x));
+    return { raw: pi, draft, existingContractId: existing?.id ?? null, existingOrder: order ? toHint(order, names) : null, likeOrders: like.map((o) => toHint(o, names)) };
+  }
+
+  /** Round BF: display names of the users who made orders — the name their Activity Log rows carry. */
+  private async actorNames(ids: string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    for (const id of [...new Set(ids)]) {
+      try {
+        const r: any = await (this.prisma as any).actionLog?.findFirst?.({ where: { actorId: id, actorName: { not: null } }, orderBy: { createdAt: 'desc' }, select: { actorName: true } });
+        if (r?.actorName) out.set(id, r.actorName);
+      } catch {
+        /* no name — the hint shows the date only */
+      }
+    }
+    return out;
   }
 
   /** Order PI fields from a read PI — blanks only (PI no. / date / amount). Returns the field names filled. */

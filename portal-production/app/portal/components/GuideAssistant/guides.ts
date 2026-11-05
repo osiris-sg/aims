@@ -357,6 +357,19 @@ export const GUIDES: Guide[] = [
     ],
   },
   {
+    id: 'trade-reopen-cancelled-order',
+    title: 'Find and reopen a cancelled order (Orders › Cancelled)',
+    module: 'SHIPMENTS',
+    description:
+      'How to get a cancelled order back: Sales › Orders → the Cancelled tab (or type its number, PI no., contract or B/L in Search — a search finds cancelled orders on every tab, greyed with "Cancelled · Reopen"), then Reopen on the row, or open the order and press Reopen in the yellow "Cancelled by … on …" banner. It goes back to Pending with its steps, shipments and documents as they were. Do NOT make a new order with the same number: a cancelled order keeps its number.',
+    route: '/portal/shipments',
+    steps: [
+      { route: '/portal/shipments', selector: '[data-tour="shipments-tab-cancelled"]', title: 'Cancelled tab', body: 'Every cancelled order. Or type "#30", the PI no., contract or B/L in Search — cancelled orders are found on every tab.' },
+      { selector: '[data-tour="order-row-reopen"]', title: 'Reopen', body: 'On the row: "Cancelled · Reopen". It asks first, then the order is back in Pending with its steps, shipments and documents.', patient: true },
+      { selector: '[data-tour="order-cancelled-banner"]', title: 'Or on the order page', body: 'A cancelled order shows "Cancelled by … on …" with Reopen (also in the ⋮ menu → Reopen order).', patient: true },
+    ],
+  },
+  {
     id: 'trade-shipments-list',
     title: 'See every shipment (Shipments)',
     module: 'SHIPMENTS',
