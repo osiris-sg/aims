@@ -280,6 +280,18 @@ export class XeroSyncService {
     let suppliersCreated = 0;
     let suppliersUpdated = 0;
 
+    // A Xero AccountNumber can collide with a code AIMS already generated for
+    // a different row (both are unique per org). One clashing contact must not
+    // abort the whole sync — write the row without the code instead.
+    const keepCode = async <T>(withCode: () => Promise<T>, withoutCode: () => Promise<T>): Promise<T> => {
+      try {
+        return await withCode();
+      } catch (e: any) {
+        if (e?.code !== 'P2002') throw e;
+        return withoutCode();
+      }
+    };
+
     for (const c of contacts) {
       if (!c.contactID || !c.name) continue;
       const email = c.emailAddress || undefined;
@@ -289,67 +301,55 @@ export class XeroSyncService {
             .filter(Boolean)
             .join(', ')
         : undefined;
+      // Xero calls the contact code AccountNumber ("LT Sambo (NSC106)" in its
+      // UI). Nothing used to read it, so every contact imported from Xero
+      // landed in AIMS with a null customerCode/supplierCode.
+      const code = c.accountNumber?.trim() || undefined;
+
+      const base = {
+        name: c.name,
+        email,
+        phone,
+        address: addressLines,
+        gstRegNo: c.taxNumber || undefined,
+        xeroLastSyncAt: new Date(),
+      };
 
       if (c.isCustomer) {
         const existing = await this.prisma.customer.findUnique({ where: { xeroId: c.contactID } });
+        // Only fill the code when AIMS has none — a code already in AIMS is
+        // what its documents print, so the sync must not renumber it
+        // underneath them.
+        const withCode = code && !existing?.customerCode ? { customerCode: code } : {};
         if (existing) {
-          await this.prisma.customer.update({
-            where: { id: existing.id },
-            data: {
-              name: c.name,
-              email,
-              phone,
-              address: addressLines,
-              gstRegNo: c.taxNumber || undefined,
-              xeroLastSyncAt: new Date(),
-            },
-          });
+          await keepCode(() => this.prisma.customer.update({ where: { id: existing.id }, data: { ...base, ...withCode } }), () =>
+            this.prisma.customer.update({ where: { id: existing.id }, data: base }),
+          );
           customersUpdated += 1;
         } else {
-          await this.prisma.customer.create({
-            data: {
-              organizationId,
-              name: c.name,
-              email,
-              phone,
-              address: addressLines,
-              gstRegNo: c.taxNumber || undefined,
-              xeroId: c.contactID,
-              xeroLastSyncAt: new Date(),
-            },
-          });
+          const data = { organizationId, ...base, xeroId: c.contactID };
+          await keepCode(
+            () => this.prisma.customer.create({ data: { ...data, ...withCode } }),
+            () => this.prisma.customer.create({ data }),
+          );
           customersCreated += 1;
         }
       }
 
       if (c.isSupplier) {
         const existing = await this.prisma.supplier.findUnique({ where: { xeroId: c.contactID } });
+        const withCode = code && !existing?.supplierCode ? { supplierCode: code } : {};
         if (existing) {
-          await this.prisma.supplier.update({
-            where: { id: existing.id },
-            data: {
-              name: c.name,
-              email,
-              phone,
-              address: addressLines,
-              gstRegNo: c.taxNumber || undefined,
-              xeroLastSyncAt: new Date(),
-            },
-          });
+          await keepCode(() => this.prisma.supplier.update({ where: { id: existing.id }, data: { ...base, ...withCode } }), () =>
+            this.prisma.supplier.update({ where: { id: existing.id }, data: base }),
+          );
           suppliersUpdated += 1;
         } else {
-          await this.prisma.supplier.create({
-            data: {
-              organizationId,
-              name: c.name,
-              email,
-              phone,
-              address: addressLines,
-              gstRegNo: c.taxNumber || undefined,
-              xeroId: c.contactID,
-              xeroLastSyncAt: new Date(),
-            },
-          });
+          const data = { organizationId, ...base, xeroId: c.contactID };
+          await keepCode(
+            () => this.prisma.supplier.create({ data: { ...data, ...withCode } }),
+            () => this.prisma.supplier.create({ data }),
+          );
           suppliersCreated += 1;
         }
       }

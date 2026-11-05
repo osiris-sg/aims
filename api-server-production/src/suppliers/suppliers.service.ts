@@ -97,20 +97,28 @@ export class SuppliersService {
   }
 
   private async generateSupplierCode(supplierName: string, organizationId: string): Promise<string> {
-    const firstLetter = supplierName?.trim().charAt(0).toUpperCase() || 'X';
+    // Same prefix rule as CustomersService: first A-Z/0-9 of the name with
+    // accents folded, 'X' when there is none (empty or non-Latin names).
+    const firstLetter = supplierName?.normalize('NFD').toUpperCase().match(/[A-Z0-9]/)?.[0] || 'X';
     const prefix = `S${firstLetter}`;
 
-    const existingCount = await this.prisma.supplier.count({
-      where: {
-        organizationId,
-        supplierCode: {
-          startsWith: prefix,
-        },
-      },
+    // MAX(existing suffix) + 1, NOT count + 1 — count+1 regenerates a code
+    // that already exists the moment a letter group has a gap (SZ001-005 +
+    // SZ007 → count 6 → SZ006 is free but SZ007 is reissued next time), and
+    // then every insert in that group is a P2002. Fixed for customers in the
+    // E2E sweep; suppliers kept the old shape until now.
+    const existing = await this.prisma.supplier.findMany({
+      where: { organizationId, supplierCode: { startsWith: prefix } },
+      select: { supplierCode: true },
     });
-
-    const sequentialNumber = String(existingCount + 1).padStart(3, '0');
-    return `${prefix}${sequentialNumber}`;
+    const literal = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const codeRe = new RegExp(`^${literal}(\\d+)$`);
+    let max = 0;
+    for (const s of existing) {
+      const m = s.supplierCode?.match(codeRe);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return `${prefix}${String(max + 1).padStart(3, '0')}`;
   }
 
   async updateSupplier(updateSupplierDto: UpdateSupplierDto, organizationId: string) {

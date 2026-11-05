@@ -39,6 +39,8 @@ type XeroPhone = {
 type XeroContact = {
   ContactID: string;
   Name: string;
+  /** Xero's contact code — "NSC106" in "LT Sambo (NSC106)". */
+  AccountNumber?: string;
   EmailAddress?: string;
   IsCustomer?: boolean;
   IsSupplier?: boolean;
@@ -100,6 +102,9 @@ async function main() {
       const email = c.EmailAddress?.trim() || null;
       const gstRegNo = c.TaxNumber || null;
       const name = c.Name?.trim() || "(unnamed contact)";
+      // Xero's contact code lives in AccountNumber ("LT Sambo (NSC106)").
+      // Without it every imported contact lands in AIMS with a null code.
+      const code = c.AccountNumber?.trim() || null;
       // Xero defaults IsCustomer=true if neither is set (manual contacts).
       // We treat that conservatively: insert as customer only.
       const isCustomer = c.IsCustomer !== false;
@@ -115,6 +120,8 @@ async function main() {
             phone,
             address,
             gstRegNo,
+            // Never overwrite a code AIMS already has — its documents print it.
+            ...(code && !existing?.customerCode ? { customerCode: code } : {}),
             xeroId: c.ContactID,
             xeroLastSyncAt: new Date(),
           };
@@ -160,6 +167,7 @@ async function main() {
             phone,
             address,
             gstRegNo,
+            ...(code && !existing?.supplierCode ? { supplierCode: code } : {}),
             xeroId: c.ContactID,
             xeroLastSyncAt: new Date(),
           };
