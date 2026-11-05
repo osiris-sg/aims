@@ -58,6 +58,7 @@ function Grid({
   /** A tick column saved on its own (e.g. SI "delivered" — works on a final document too). */
   check?: { key: string; label: string; onChange: (rowIndex: number, value: boolean) => void };
 }) {
+  const tsiRow = useTranslations("si.toolbar");
   return (
     <>
       <Box sx={{ overflowX: "auto", border: 1, borderColor: "divider", borderRadius: 1 }}>
@@ -115,7 +116,7 @@ function Grid({
       </Box>
       {!disabled && (
         <Button size="small" startIcon={<AddIcon />} sx={{ mt: 1 }} onClick={() => setRows((rs) => [...rs, blank()])}>
-          Add row
+          {tsiRow("addRow")}
         </Button>
       )}
     </>

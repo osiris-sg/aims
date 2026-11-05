@@ -98,5 +98,37 @@
       "rows.billet": "ビレット (行)",
       "rows.bundles": "束数 (行)"
     }
+  },
+  "toolbar": {
+    "deleteDraft": "下書きを削除",
+    "saving": "保存中…",
+    "saveDraft": "下書きを保存",
+    "saved": "保存済み",
+    "preview": "プレビュー",
+    "downloadPdf": "PDFをダウンロード",
+    "downloadDraftPdf": "下書きPDFをダウンロード",
+    "editAgain": "再編集",
+    "finalize": "確定",
+    "finalizeTitle": "{doc} を確定しますか？",
+    "editAgainTitle": "再編集しますか？",
+    "deleteTitle": "この下書きを削除しますか？",
+    "deleteBodyInvoice": "下書きと未確定の売上請求書が削除されます。",
+    "deleteBody": "下書きが削除されます。元になったサプライヤーのファイルは出荷に残ります。",
+    "delete": "削除",
+    "draftSaved": "下書きを保存しました",
+    "couldNotSave": "保存できませんでした",
+    "downloaded": "{name} をダウンロードしました",
+    "couldNotDownload": "PDFをダウンロードできませんでした",
+    "backToDraft": "下書きに戻しました",
+    "draftDeleted": "下書きを削除しました",
+    "finalizedInvoice": "確定しました — 請求書 {no} を確定",
+    "finalizedPdf": "確定しました — PDFを {where} に保存",
+    "notFound": "書類が見つかりません",
+    "issuedBy": "発行元",
+    "couldNotChangeEntity": "発行元を変更できませんでした",
+    "addRow": "行を追加",
+    "costs": "費用（AIMS内のみ）",
+    "costsActual": "実績",
+    "costsEstimated": "見積"
   }
 }

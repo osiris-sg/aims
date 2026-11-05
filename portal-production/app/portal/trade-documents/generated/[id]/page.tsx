@@ -58,6 +58,7 @@ export default function GeneratedDocEditorPage() {
   const [confirm, setConfirm] = useState<"finalize" | "revert" | "delete" | null>(null);
   const [html, setHtml] = useState<string>("");
   const tsi = useTranslations("si.editor");
+  const tb = useTranslations("si.toolbar");
   const previewOverride = useContext(PreviewHtmlContext);
 
   // Load once per document (and again after finalize / edit-again).
@@ -139,10 +140,10 @@ export default function GeneratedDocEditorPage() {
     setBusy("save");
     try {
       await persist();
-      toast.success("Draft saved");
+      toast.success(tb("draftSaved"));
       await refresh();
     } catch (e: any) {
-      toast.error(e?.message || "Could not save");
+      toast.error(e?.message || tb("couldNotSave"));
     } finally {
       setBusy(null);
     }
@@ -154,9 +155,9 @@ export default function GeneratedDocEditorPage() {
     try {
       await persist();
       const name = await api.downloadGeneratedPdf(g.id);
-      toast.success(`Downloaded ${name}`);
+      toast.success(tb("downloaded", { name }));
     } catch (e: any) {
-      toast.error(e?.message || "Could not download the PDF");
+      toast.error(e?.message || tb("couldNotDownload"));
     } finally {
       setBusy(null);
     }
@@ -193,7 +194,7 @@ export default function GeneratedDocEditorPage() {
   if (q.isError || !g || !header) {
     return (
       <Box sx={{ p: 3 }}>
-        <Alert severity="error">{(q.error as Error)?.message || "Document not found"}</Alert>
+        <Alert severity="error">{(q.error as Error)?.message || tb("notFound")}</Alert>
       </Box>
     );
   }
@@ -231,15 +232,15 @@ export default function GeneratedDocEditorPage() {
           <TextField
             select
             size="small"
-            label="Costs (AIMS only)"
+            label={tb("costs")}
             value={header.costsBasis ?? "ACTUAL"}
             disabled={isFinal}
             sx={{ minWidth: 150 }}
             onChange={(e) => editHeader({ costsBasis: e.target.value })}
             data-tour="invoice-costs-basis"
           >
-            <MenuItem value="ACTUAL">actual</MenuItem>
-            <MenuItem value="ESTIMATED">estimated</MenuItem>
+            <MenuItem value="ACTUAL">{tb("costsActual")}</MenuItem>
+            <MenuItem value="ESTIMATED">{tb("costsEstimated")}</MenuItem>
           </TextField>
         )}
         <CreditStatus docId={g.id} docType={g.docType} />
@@ -251,19 +252,19 @@ export default function GeneratedDocEditorPage() {
         <Box sx={{ flex: 1 }} />
         {!isFinal && (
           <Button color="error" onClick={() => setConfirm("delete")} disabled={!!busy}>
-            Delete draft
+            {tb("deleteDraft")}
           </Button>
         )}
         {!isFinal && (
           <Button variant="outlined" onClick={save} disabled={!!busy || !dirty}>
-            {busy === "save" ? "Saving…" : dirty ? "Save draft" : "Saved"}
+            {busy === "save" ? tb("saving") : dirty ? tb("saveDraft") : tb("saved")}
           </Button>
         )}
         <Button variant="outlined" startIcon={<OpenInNewIcon />} onClick={openPreview} disabled={!html}>
-          Preview
+          {tb("preview")}
         </Button>
         <Button variant="outlined" startIcon={busy === "download" ? <CircularProgress size={14} /> : <DownloadIcon />} onClick={download} disabled={!!busy}>
-          {isFinal ? "Download PDF" : "Download draft PDF"}
+          {isFinal ? tb("downloadPdf") : tb("downloadDraftPdf")}
         </Button>
         {kind === "si" && header?.layout === 2 && (
           <Button variant="outlined" startIcon={busy === "xlsx" ? <CircularProgress size={14} /> : <DownloadIcon />} onClick={downloadXlsx} disabled={!!busy} data-tour="si-download-xlsx">
@@ -272,11 +273,11 @@ export default function GeneratedDocEditorPage() {
         )}
         {isFinal ? (
           <Button variant="contained" onClick={() => setConfirm("revert")} disabled={!!busy}>
-            Edit again
+            {tb("editAgain")}
           </Button>
         ) : (
           <Button variant="contained" color="success" onClick={() => setConfirm("finalize")} disabled={!!busy || (!rows.length && !attachBody)}>
-            Finalize
+            {tb("finalize")}
           </Button>
         )}
       </Stack>
@@ -324,37 +325,37 @@ export default function GeneratedDocEditorPage() {
 
       <ConfirmDialog
         open={confirm === "finalize"}
-        title={`Finalize ${label(g.docType)}?`}
-        confirmLabel="Finalize"
+        title={tb("finalizeTitle", { doc: label(g.docType) })}
+        confirmLabel={tb("finalize")}
         onClose={() => setConfirm(null)}
         onConfirm={async () => {
           await persist();
           const f = await api.finalizeGenerated(g.id);
-          toast.success(kind === "invoice" || kind === "single" ? `Finalized — invoice ${f.number ?? ""} confirmed` : `Finalized — PDF stored on ${where}`);
+          toast.success(kind === "invoice" || kind === "single" ? tb("finalizedInvoice", { no: f.number ?? "" }) : tb("finalizedPdf", { where }));
           await refresh();
         }}
       />
       <ConfirmDialog
         open={confirm === "revert"}
-        title="Edit again?"
-        confirmLabel="Edit again"
+        title={tb("editAgainTitle")}
+        confirmLabel={tb("editAgain")}
         onClose={() => setConfirm(null)}
         onConfirm={async () => {
           await api.revertGenerated(g.id);
-          toast.success("Back to draft");
+          toast.success(tb("backToDraft"));
           await refresh();
         }}
       />
       <ConfirmDialog
         open={confirm === "delete"}
-        title="Delete this draft?"
-        body={(kind === "invoice" || kind === "single") && g.documentId ? "The draft and its unconfirmed Sales invoice are removed." : "The draft is removed. Any supplier file it was created from stays on the shipment."}
-        confirmLabel="Delete"
+        title={tb("deleteTitle")}
+        body={(kind === "invoice" || kind === "single") && g.documentId ? tb("deleteBodyInvoice") : tb("deleteBody")}
+        confirmLabel={tb("delete")}
         destructive
         onClose={() => setConfirm(null)}
         onConfirm={async () => {
           await api.deleteGenerated(g.id);
-          toast.success("Draft deleted");
+          toast.success(tb("draftDeleted"));
           await refresh();
           router.push(backHref);
         }}
@@ -369,12 +370,13 @@ function EntityPicker({ docId, docType, entity, disabled }: { docId: string; doc
   const api = useShipmentsApi();
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
+  const tb = useTranslations("si.toolbar");
   const value = entity ?? (docType === "SGJP_IV_PL" ? "ADH_SG" : "ADH_JP");
   return (
     <TextField
       select
       size="small"
-      label="Issued by"
+      label={tb("issuedBy")}
       value={value}
       disabled={disabled || busy}
       sx={{ minWidth: 170 }}
@@ -385,7 +387,7 @@ function EntityPicker({ docId, docType, entity, disabled }: { docId: string; doc
           await api.updateGenerated(docId, { issuingEntity: e.target.value as IssuingEntity });
           await qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.generated });
         } catch (err: any) {
-          toast.error(err?.message || "Could not change the entity");
+          toast.error(err?.message || tb("couldNotChangeEntity"));
         } finally {
           setBusy(false);
         }

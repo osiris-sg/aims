@@ -98,5 +98,37 @@
       "rows.billet": "ビレット (rows)",
       "rows.bundles": "束数 (rows)"
     }
+  },
+  "toolbar": {
+    "deleteDraft": "Delete draft",
+    "saving": "Saving…",
+    "saveDraft": "Save draft",
+    "saved": "Saved",
+    "preview": "Preview",
+    "downloadPdf": "Download PDF",
+    "downloadDraftPdf": "Download draft PDF",
+    "editAgain": "Edit again",
+    "finalize": "Finalize",
+    "finalizeTitle": "Finalize {doc}?",
+    "editAgainTitle": "Edit again?",
+    "deleteTitle": "Delete this draft?",
+    "deleteBodyInvoice": "The draft and its unconfirmed Sales invoice are removed.",
+    "deleteBody": "The draft is removed. Any supplier file it was created from stays on the shipment.",
+    "delete": "Delete",
+    "draftSaved": "Draft saved",
+    "couldNotSave": "Could not save",
+    "downloaded": "Downloaded {name}",
+    "couldNotDownload": "Could not download the PDF",
+    "backToDraft": "Back to draft",
+    "draftDeleted": "Draft deleted",
+    "finalizedInvoice": "Finalized — invoice {no} confirmed",
+    "finalizedPdf": "Finalized — PDF stored on {where}",
+    "notFound": "Document not found",
+    "issuedBy": "Issued by",
+    "couldNotChangeEntity": "Could not change the entity",
+    "addRow": "Add row",
+    "costs": "Costs (AIMS only)",
+    "costsActual": "actual",
+    "costsEstimated": "estimated"
   }
 }
