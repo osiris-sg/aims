@@ -50,7 +50,9 @@ const CIEL_NAV_LOGO = "https://aims-osiris.s3.ap-southeast-1.amazonaws.com/logos
 // ✕ resets to home (guru 2026-08-30).
 // Osiris admins pick any org; a member of 2+ orgs picks one of THEIR orgs
 // (multi-org users, 2026-11-02), with each org's unread bell count.
-function TopNavOrgSwitcher() {
+// `light`: for a bar that follows the theme instead of staying dark navy (the
+// role-home bar) — the field takes theme colours rather than white-on-navy.
+export function TopNavOrgSwitcher({ light = false }: { light?: boolean } = {}) {
   const { isOsirisAdmin, organization, realOrganization, setActiveOrgId, memberships } = useOrganization();
   const { getToken } = useAuth();
   const t = useTranslations("shell.org");
@@ -127,19 +129,29 @@ function TopNavOrgSwitcher() {
             // Doubled-up class selector out-specifies the light theme's white
             // input fill — the bar field must stay dark in BOTH themes (the
             // white pill with invisible text was the light-mode result).
-            "& .MuiOutlinedInput-root.MuiInputBase-root": {
-              color: "#FFFFFF",
-              fontSize: "0.78rem",
-              backgroundColor: "rgba(255,255,255,0.06)",
-              "& fieldset": { borderColor: isOverride ? "#4da3ff" : "rgba(255,255,255,0.25)" },
-              "&:hover fieldset": { borderColor: isOverride ? "#4da3ff" : "rgba(255,255,255,0.45)" },
-              "&.Mui-focused": { backgroundColor: "rgba(255,255,255,0.10)", boxShadow: "none" },
-            },
-            "& .MuiOutlinedInput-input": {
-              color: "#FFFFFF",
-              "&::placeholder": { color: "rgba(255,255,255,0.6)", opacity: 1 },
-            },
-            "& .MuiSvgIcon-root": { color: "rgba(255,255,255,0.7)" },
+            ...(light
+              ? {
+                  "& .MuiOutlinedInput-root.MuiInputBase-root": {
+                    fontSize: "0.8125rem",
+                    borderRadius: 999,
+                    "& fieldset": { borderColor: isOverride ? "#4da3ff" : "divider" },
+                  },
+                }
+              : {
+                  "& .MuiOutlinedInput-root.MuiInputBase-root": {
+                    color: "#FFFFFF",
+                    fontSize: "0.78rem",
+                    backgroundColor: "rgba(255,255,255,0.06)",
+                    "& fieldset": { borderColor: isOverride ? "#4da3ff" : "rgba(255,255,255,0.25)" },
+                    "&:hover fieldset": { borderColor: isOverride ? "#4da3ff" : "rgba(255,255,255,0.45)" },
+                    "&.Mui-focused": { backgroundColor: "rgba(255,255,255,0.10)", boxShadow: "none" },
+                  },
+                  "& .MuiOutlinedInput-input": {
+                    color: "#FFFFFF",
+                    "&::placeholder": { color: "rgba(255,255,255,0.6)", opacity: 1 },
+                  },
+                  "& .MuiSvgIcon-root": { color: "rgba(255,255,255,0.7)" },
+                }),
           }}
           renderInput={(params) => <TextField {...params} placeholder={t("switchPlaceholder")} variant="outlined" />}
         />

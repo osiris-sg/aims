@@ -59,6 +59,9 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // Chat home (2026-10-13): the portal landing page is the AIMS assistant
   // (same brain as the WhatsApp operator) with a Dashboard toggle. Default OFF.
   enableAimsChat: false,
+  // Role home (2026-11-06): /portal lands on the role-based home screen and
+  // the org wears the role-home look on every page. Default OFF.
+  enableRoleHome: false,
   // Admin → org → Manage Templates → Design: per-template look knobs (colour, font, logo, blocks).
   enableTemplateDesign: false,
   // Maintenance Dates (Biofuel, 2026-09): Service Reports -> Maintenance Dates.

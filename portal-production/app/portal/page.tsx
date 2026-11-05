@@ -9,6 +9,7 @@ import { HOME_VIEW_EVENT, closeAimee, openAimee, readHomeView, type AimeeOpenDet
 import ChatHome from "./chat/ChatHome";
 import AimeeBar from "./chat/AimeeBar";
 import SalesDashboard from "./shipments/_components/SalesDashboard";
+import RoleHome from "./components/RoleHome/RoleHome";
 
 // Landing page. Every org sees the dashboard. Orgs with enableAimsChat also
 // get AIMEE on top of it: a strip with her face and an "Ask AIMEE" pill.
@@ -24,7 +25,7 @@ type Phase = "dashboard" | "opening" | "aimee" | "closing";
 const REVEAL_MS = 640;
 
 export default function Page() {
-  const { isAimsChatEnabled, isLoading } = useOrganizationFeatures();
+  const { isAimsChatEnabled, isRoleHomeEnabled, isLoading } = useOrganizationFeatures();
   const router = useRouter();
   const { loading: configLoading, isModuleEnabled } = useConfiguration();
   // Round Z: /portal renders the active org's OWN dashboard — the Sales dashboard (Overview / Admin, emails, tasks,
@@ -115,7 +116,10 @@ export default function Page() {
 
   if (isLoading || phase === null || configLoading) return null;
   if (tradeHome) return <SalesDashboard />;
-  if (!isAimsChatEnabled) return <DashboardOverview />;
+  // Role home (enableRoleHome) replaces the dashboard as the landing screen;
+  // it carries its own assistant panel, so AimeeBar is left off below.
+  const Home = isRoleHomeEnabled ? <RoleHome /> : <DashboardOverview />;
+  if (!isAimsChatEnabled) return Home;
 
   const aimeeShown = phase !== "dashboard";
 
@@ -125,9 +129,9 @@ export default function Page() {
         aria-hidden={phase === "aimee"}
         sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, visibility: phase === "aimee" ? "hidden" : "visible" }}
       >
-        <AimeeBar />
-        <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", "& > div:first-of-type": { pt: 2 } }}>
-          <DashboardOverview />
+        {!isRoleHomeEnabled && <AimeeBar />}
+        <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", ...(isRoleHomeEnabled ? { overflowY: "auto" } : { "& > div:first-of-type": { pt: 2 } }) }}>
+          {Home}
         </Box>
       </Box>
 

@@ -1,7 +1,11 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import styles from "./layout.module.scss";
-import { Box } from "@mui/material";
+import { Box, GlobalStyles } from "@mui/material";
+import { ThemeProvider, useTheme } from "@mui/material/styles";
+import { BaseThemeProvider } from "@/themes/BaseTheme";
+import { buildDemoTheme, DEMO_CSS_VARS_LIGHT } from "./components/RoleHome/demoTheme";
+import { DEMO_FONT } from "./components/RoleHome/demoFont";
 import AppNavbar from "@/components/Appnavbar";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -17,6 +21,7 @@ import FieldOnlyGuard from "./components/FieldOnlyGuard";
 import ModuleRouteGuard from "./components/ModuleRouteGuard";
 import GuideAssistant from "./components/GuideAssistant/GuideAssistant";
 import TopNavBar from "@/components/TopNav/TopNavBar";
+import RoleTopBar from "./components/RoleHome/RoleTopBar";
 import { useOrganizationFeatures } from "./hooks/useOrganizationFeatures";
 import { HOME_VIEW_EVENT, readHomeView } from "./chat/homeView";
 
@@ -90,6 +95,7 @@ export default function Layout(props: Props) {
           {/* Round AZ: EN / 日本語 (SHIPMENTS orgs; everyone else English). */}
           <UiLangProvider>
           <SidebarProvider>
+            <OrgTheme>
             <Box
               className={styles.PORTAL_LAYOUT}
               sx={{
@@ -111,7 +117,7 @@ export default function Layout(props: Props) {
                   height: "100%",
                 }}
               >
-                {!embed && <TopNavBar />}
+                {!embed && <PortalTopBar />}
                 {/* A page renders only when its module is on for the org being viewed (round Y). */}
                 <ModuleRouteGuard>{children}</ModuleRouteGuard>
               </Box>
@@ -119,12 +125,53 @@ export default function Layout(props: Props) {
               {!embed && <GuideBubble pathname={pathname} />}
               <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable pauseOnHover theme={mode} />
             </Box>
+            </OrgTheme>
           </SidebarProvider>
           </UiLangProvider>
         </ConfigurationProvider>
       </FieldOnlyGuard>
     </OrganizationProvider>
   );
+}
+
+// Org app-theme overlay. An org with enableRoleHome wears the role-home look
+// on EVERY page (guru 2026-11-06): the same components, different tokens —
+// typeface, page and card surfaces, pill buttons, indigo/teal accents. Every
+// other org gets the theme it always had, through the same provider, so the
+// tree is identical either way. The pre-overlay theme is handed down through
+// BaseThemeProvider for paper documents, which must print the same in any org.
+function OrgTheme({ children }: { children: React.ReactNode }) {
+  const { isRoleHomeEnabled } = useOrganizationFeatures();
+  const outer = useTheme();
+  const theme = React.useMemo(() => (isRoleHomeEnabled ? buildDemoTheme(outer) : outer), [isRoleHomeEnabled, outer]);
+  const light = outer.palette.mode === "light";
+  return (
+    <BaseThemeProvider value={isRoleHomeEnabled ? outer : null}>
+      <ThemeProvider theme={theme}>
+        {isRoleHomeEnabled && (
+          <GlobalStyles
+            styles={{
+              // Plain (non-MUI) text and the page behind the app.
+              body: { fontFamily: DEMO_FONT, ...(light ? { backgroundColor: theme.palette.background.default, color: theme.palette.text.primary } : {}) },
+              // The CSS custom properties pages read directly (globals.css).
+              ...(light ? { ":root, :root[data-theme='light']": DEMO_CSS_VARS_LIGHT } : {}),
+            }}
+          />
+        )}
+        {children}
+      </ThemeProvider>
+    </BaseThemeProvider>
+  );
+}
+
+// Desktop top bar. Orgs with enableRoleHome get the role-home bar (white,
+// role-filtered menus, profile chip with the role switcher); everyone else
+// keeps the Xero-style dark bar. Same modules, routes and permissions either
+// way — only the presentation differs. While the flags are still loading the
+// normal bar shows, exactly as it always has, so no other org sees a change.
+function PortalTopBar() {
+  const { isRoleHomeEnabled } = useOrganizationFeatures();
+  return isRoleHomeEnabled ? <RoleTopBar /> : <TopNavBar />;
 }
 
 // Sidebar + navbar: always the regular chrome. Editor-first mode used to swap

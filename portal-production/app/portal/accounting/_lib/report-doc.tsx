@@ -9,6 +9,7 @@
 
 import React, { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Paper, Typography } from "@mui/material";
+import { BaseTheme } from "@/themes/BaseTheme";
 
 // Paper typography — shared by the visible sheets AND the off-screen
 // measuring pass, so measured heights match what prints.
@@ -40,7 +41,10 @@ export const formatShortDate = (d: Date | string) =>
 // starts the next sheet on a fresh page (single-sheet reports pass nothing).
 export function PaperSheet({ children, breakAfter }: { children: React.ReactNode; breakAfter?: boolean }) {
   return (
-    // Phone: the A4 sheet scrolls inside this container, page body doesn't
+    // BaseTheme: the sheet keeps the standard paper typography under any
+    // org app-theme overlay. Phone: the A4 sheet scrolls inside this
+    // container, page body doesn't
+    <BaseTheme>
     <Box sx={{ display: "flex", justifyContent: { xs: "flex-start", md: "center" }, py: 1, overflowX: "auto" }}>
       <Paper
         data-print-paper
@@ -59,6 +63,7 @@ export function PaperSheet({ children, breakAfter }: { children: React.ReactNode
         {children}
       </Paper>
     </Box>
+    </BaseTheme>
   );
 }
 
@@ -131,7 +136,7 @@ export function PaginatedPaper({
   const pageCount = pages?.length ?? 1;
 
   return (
-    <>
+    <BaseTheme>
       {/* Off-screen measuring pass — same width + typography as the paper. */}
       <Box
         ref={measureRef}
@@ -170,7 +175,7 @@ export function PaginatedPaper({
           </PaperSheet>
         );
       })}
-    </>
+    </BaseTheme>
   );
 }
 

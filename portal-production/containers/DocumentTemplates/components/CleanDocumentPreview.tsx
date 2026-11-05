@@ -7,6 +7,7 @@ import { Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, Ta
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { createTheme, ThemeProvider, useTheme } from "@mui/material/styles";
+import { useBaseTheme } from "@/themes/BaseTheme";
 import { BIOFUEL_SIGNATURE_DATA_URI, BIOFUEL_STAMP_DATA_URI, BIOFUEL_LOGO_DATA_URI } from "../../DocumentsTemplateView/biofuelAssets";
 import DeliveryRouteDialog from "@/components/DeliveryRouteDialog";
 import { resolveRateMerges } from "./quotationItemGroups";
@@ -228,7 +229,9 @@ function resolvePhotoSrc(key: string | null | undefined): string {
 export default function CleanDocumentPreview(props: CleanDocumentPreviewProps) {
   // Create a scoped theme that resets all typography weights back to normal
   // so the global bold (fontWeight 600) theme doesn't leak into print output.
-  const parentTheme = useTheme();
+  // useBaseTheme, not useTheme: a document must not pick up an org's app-theme
+  // overlay (role-home orgs restyle the chrome, never the paper).
+  const parentTheme = useBaseTheme();
   // The design knobs' font has to live in the THEME: MUI Typography variants
   // carry the theme family and would override a Paper-level fontFamily.
   const designFont = DESIGN_FONTS[resolveDesign(props.design ?? props.data?.design).fontFamily];

@@ -135,6 +135,12 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // assistant (same brain as the WhatsApp operator), with a Chat/Dashboard
   // toggle in the top bar. Default OFF.
   enableAimsChat: false,
+  // Role home (guru 2026-11-06): the portal landing page is the role-based
+  // home screen — greeting banner, Due today / Pending, priorities, business
+  // overview, quick actions and the assistant, with a "viewing as" role
+  // switcher that re-cuts the whole screen. AIMS functions underneath are
+  // unchanged; only the home UI differs. Default OFF.
+  enableRoleHome: false,
   enableTemplateDesign: false,
   // Maintenance Dates (Biofuel, 2026-09): Service Reports -> Maintenance Dates.
   // A maintenance date per asset, which deployed units are done this cycle, and
@@ -287,6 +293,7 @@ export function useOrganizationFeatures() {
     isPostingQueueEnabled: features.enablePostingQueue ?? false,
     isOpsDashboardEnabled: features.enableOpsDashboard ?? false,
     isAimsChatEnabled: features.enableAimsChat ?? false,
+    isRoleHomeEnabled: features.enableRoleHome ?? FEATURE_FLAG_DEFAULTS.enableRoleHome,
     isTemplateDesignEnabled: features.enableTemplateDesign ?? FEATURE_FLAG_DEFAULTS.enableTemplateDesign,
     isShipmentsHomeEnabled: features.enableShipmentsHome ?? FEATURE_FLAG_DEFAULTS.enableShipmentsHome,
     isMaintenanceDatesEnabled: features.enableMaintenanceDates ?? false,
