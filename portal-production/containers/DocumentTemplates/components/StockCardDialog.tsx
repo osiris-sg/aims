@@ -22,11 +22,20 @@ import {
   Chip,
   Tooltip,
   alpha,
+  Button,
+  Collapse,
+  MenuItem,
+  CircularProgress,
+  Divider,
 } from "@mui/material";
 import {
   Close as CloseIcon,
   Search as SearchIcon,
+  Add as AddIcon,
 } from "@mui/icons-material";
+import { useAuth } from "@clerk/nextjs";
+import { toast } from "react-toastify";
+import { request } from "@/helpers/request";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import ProductDetailDialog from "./ProductDetailDialog";
 import { RowKebab } from "@/components/RowKebab";
@@ -92,6 +101,13 @@ interface StockCardDialogProps {
   onSearch?: (term: string) => Promise<InventoryItem[]>;
   catalogueComplete?: boolean;
   catalogueTotal?: number;
+  // ADD A PRODUCT WITHOUT LEAVING THE PICKER (guru 2026-11-05). When the item
+  // being delivered/quoted is not in the catalogue yet, the user had to abandon
+  // the document, go to Master Files → Products, create it, and come back. With
+  // this on, the picker grows a "New item" form that creates the product and
+  // selects it straight onto the line. Off by default so narrowed pickers (the
+  // QF FCU/CU slot picker) stay a pure choice from a fixed set.
+  allowCreate?: boolean;
 }
 
 export default function StockCardDialog({
@@ -107,6 +123,7 @@ export default function StockCardDialog({
   onSearch,
   catalogueComplete = true,
   catalogueTotal = 0,
+  allowCreate = false,
 }: StockCardDialogProps) {
   const getPoints = (it: InventoryItem) => {
     const p = it.points ?? it.asset?.points;
@@ -178,6 +195,89 @@ export default function StockCardDialog({
     : revenueModeLock === "sales" && hasSales ? "sales"
     : undefined;
   const [revenueMode, setRevenueMode] = useState<"sales" | "rental">("sales");
+
+  // ── New item, created from inside the picker (allowCreate) ───────────────
+  const { getToken } = useAuth();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
+  const [form, setForm] = useState({ skuKey: "", name: "", categoryId: "", price: "", uom: "" });
+
+  // Categories are only needed once the form is opened, so they load then.
+  useEffect(() => {
+    if (!createOpen || categories.length) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res: any = await request({ path: "/categories", method: "GET" }, undefined, token);
+        const rows = res?.data?.docs ?? res?.data ?? res ?? [];
+        if (!cancelled && Array.isArray(rows)) {
+          setCategories(rows.map((c: any) => ({ id: c.id, name: c.name })).filter((c: any) => c.id && c.name));
+        }
+      } catch {
+        /* the category select simply stays empty; it is optional below */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [createOpen, categories.length, getToken]);
+
+  // Opening the form pre-fills the description with whatever was searched for:
+  // the user types the item name, finds nothing, and clicks New item.
+  const openCreate = () => {
+    setForm((f) => ({ ...f, name: f.name || searchTerm.trim() }));
+    setCreateOpen(true);
+  };
+
+  const submitNewItem = async () => {
+    const skuKey = form.skuKey.trim();
+    const name = form.name.trim();
+    if (!skuKey || !name) {
+      toast.error("Code and description are both needed.");
+      return;
+    }
+    setCreating(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      const priceNum = form.price.trim() ? Number(form.price) : undefined;
+      if (priceNum != null && !Number.isFinite(priceNum)) throw new Error("That unit price is not a number.");
+      const res: any = await request(
+        { path: "/assets/create", method: "POST" },
+        {
+          name,
+          description: name,
+          skuKey,
+          ...(form.categoryId ? { categoryId: form.categoryId } : {}),
+          ...(priceNum != null ? { price: priceNum } : {}),
+          ...(form.uom.trim() ? { uom: form.uom.trim() } : {}),
+        },
+        token,
+      );
+      const created = res?.data ?? res;
+      if (!created?.id) throw new Error(res?.message || "The item could not be created");
+      toast.success(`${skuKey} added`);
+      // Straight onto the line: adding it here means it is wanted NOW. Shaped
+      // like a picked row so the caller reads price/uom the usual way.
+      onSelectItem({
+        id: created.id,
+        sku: created.skuKey ?? skuKey,
+        name: created.name ?? name,
+        description: created.description ?? name,
+        unitPrice: priceNum,
+        uom: form.uom.trim() || undefined,
+        assetId: created.id,
+        asset: created,
+      } as InventoryItem);
+      setForm({ skuKey: "", name: "", categoryId: "", price: "", uom: "" });
+      setCreateOpen(false);
+    } catch (e: any) {
+      toast.error(e?.message || "The item could not be created");
+    } finally {
+      setCreating(false);
+    }
+  };
   useEffect(() => {
     if (!showRevenueTabs) return;
     // Template lock wins (e.g. a Rental quotation template → rental only);
@@ -374,6 +474,96 @@ export default function StockCardDialog({
               {hasSales && effectiveLock !== "rental" && <ToggleButton value="sales" sx={{ px: 2 }}>Sales</ToggleButton>}
               {hasRental && effectiveLock !== "sales" && <ToggleButton value="rental" sx={{ px: 2 }}>Rental</ToggleButton>}
             </ToggleButtonGroup>
+          )}
+
+          {/* NEW ITEM (allowCreate, guru 2026-11-05) — create the product here
+              rather than abandoning the document for Master Files. It is saved
+              to the catalogue like any other product and selected onto the
+              line straight away. */}
+          {allowCreate && (
+            <Box sx={{ mt: 1 }}>
+              <Button
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={() => (createOpen ? setCreateOpen(false) : openCreate())}
+                sx={{ textTransform: "none", fontWeight: 600 }}
+              >
+                {createOpen ? "Cancel new item" : "New item"}
+              </Button>
+              <Collapse in={createOpen} unmountOnExit>
+                <Box
+                  sx={{
+                    mt: 1,
+                    p: 1.5,
+                    border: 1,
+                    borderColor: "divider",
+                    borderRadius: 1,
+                    display: "flex",
+                    gap: 1,
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    bgcolor: (t) => alpha(t.palette.primary.main, t.palette.mode === "dark" ? 0.08 : 0.04),
+                  }}
+                >
+                  <TextField
+                    size="small"
+                    label="Code"
+                    required
+                    value={form.skuKey}
+                    onChange={(e) => setForm((f) => ({ ...f, skuKey: e.target.value }))}
+                    sx={{ width: 140 }}
+                  />
+                  <TextField
+                    size="small"
+                    label="Description"
+                    required
+                    value={form.name}
+                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                    sx={{ flex: 1, minWidth: 220 }}
+                  />
+                  <TextField
+                    size="small"
+                    select
+                    label="Category"
+                    value={form.categoryId}
+                    onChange={(e) => setForm((f) => ({ ...f, categoryId: e.target.value }))}
+                    sx={{ width: 170 }}
+                  >
+                    <MenuItem value="">
+                      <em>None</em>
+                    </MenuItem>
+                    {categories.map((c) => (
+                      <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField
+                    size="small"
+                    label={priceColumnLabel}
+                    value={form.price}
+                    onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
+                    sx={{ width: 120 }}
+                    inputProps={{ inputMode: "decimal" }}
+                  />
+                  <TextField
+                    size="small"
+                    label="UoM"
+                    value={form.uom}
+                    onChange={(e) => setForm((f) => ({ ...f, uom: e.target.value }))}
+                    sx={{ width: 90 }}
+                  />
+                  <Button
+                    variant="contained"
+                    size="small"
+                    onClick={submitNewItem}
+                    disabled={creating || !form.skuKey.trim() || !form.name.trim()}
+                    startIcon={creating ? <CircularProgress size={14} color="inherit" /> : undefined}
+                  >
+                    {creating ? "Adding..." : "Add and use"}
+                  </Button>
+                </Box>
+                <Divider sx={{ mt: 1.5 }} />
+              </Collapse>
+            </Box>
           )}
 
         </Box>

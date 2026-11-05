@@ -8122,6 +8122,9 @@ export default function TabbedDocumentCreator({
           handleStockCardItemSelect(picked);
         }}
         inventoryItems={inventoriesForDocument}
+        // A product missing from the catalogue can be created right here
+        // instead of abandoning the document for Master Files.
+        allowCreate
         priceMode={
           documentType === "PO" || documentType === "PURCHASE_ORDER" ||
           documentType === "PR" || documentType === "PURCHASE_RETURN"
