@@ -42,9 +42,17 @@ export class ReceiptsController {
 
   @Get()
   @Permissions('payments:read')
-  @ApiOperation({ summary: 'List Official Receipts' })
-  list(@Req() req: RequestWithOrganization) {
-    return this.service.list(requireOrgId(req));
+  @ApiOperation({ summary: 'List Official Receipts (optionally a date range)' })
+  list(
+    @Req() req: RequestWithOrganization,
+    // The Receipts Listing report asks for one period at a time. Without these
+    // it took the newest 500 and filtered in the browser, which silently hides
+    // older receipts the moment an org has more than 500 of them.
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('bank') bank?: string,
+  ) {
+    return this.service.list(requireOrgId(req), { from, to, bank });
   }
 
   @Get('open-invoices/:customerId')

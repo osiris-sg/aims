@@ -212,12 +212,46 @@ export class ReceiptsService {
     return this.toReceipt(doc);
   }
 
-  async list(organizationId: string) {
-    const docs = await this.prisma.document.findMany({
-      where: { organizationId, type: 'OFFICIAL_RECEIPT' },
-      orderBy: { createdAt: 'desc' },
-      take: 500,
-    });
+  /**
+   * List receipts, optionally one period at a time.
+   *
+   * The 500-row cap was safe while a receipt was something a person typed by
+   * hand. Once Xero's payment history is backfilled an org has thousands, and
+   * a report that fetches "the newest 500" and filters by date in the browser
+   * shows an empty May when May is real — so the date range is applied HERE,
+   * in the query, and the cap only guards a request that names no range.
+   *
+   * config.date is a 'YYYY-MM-DD' string, so string comparison is date
+   * comparison; Prisma cannot order or filter inside Json, hence the raw ids.
+   */
+  async list(organizationId: string, opts?: { from?: string; to?: string; bank?: string }) {
+    const from = opts?.from?.trim() || null;
+    const to = opts?.to?.trim() || null;
+    const bank = opts?.bank?.trim() && opts.bank !== 'all' ? opts.bank.trim() : null;
+
+    if (!from && !to && !bank) {
+      const docs = await this.prisma.document.findMany({
+        where: { organizationId, type: 'OFFICIAL_RECEIPT' },
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+      });
+      return docs.map((d) => this.toReceipt(d));
+    }
+
+    const ids = await this.prisma.$queryRawUnsafe<Array<{ id: string }>>(
+      `SELECT id FROM "Document"
+        WHERE "organizationId" = $1 AND type = 'OFFICIAL_RECEIPT'
+          AND ($2::text IS NULL OR config->>'date' >= $2)
+          AND ($3::text IS NULL OR config->>'date' <= $3)
+          AND ($4::text IS NULL OR config->>'debitAccountCode' = $4)
+        ORDER BY config->>'date' DESC NULLS LAST
+        LIMIT 5000`,
+      organizationId, from, to, bank,
+    );
+    if (!ids.length) return [];
+    const docs = await this.prisma.document.findMany({ where: { id: { in: ids.map((r) => r.id) } } });
+    const order = new Map(ids.map((r, i) => [r.id, i]));
+    docs.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
     return docs.map((d) => this.toReceipt(d));
   }
 

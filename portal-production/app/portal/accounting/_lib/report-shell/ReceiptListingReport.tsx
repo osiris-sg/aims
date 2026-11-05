@@ -57,7 +57,16 @@ export default function ReceiptListingReport() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [listRaw, accRaw] = await Promise.all([request(`/receipts`), request(`/accounting/accounts`)]);
+      // Ask the server for THIS period. Fetching everything and filtering here
+      // worked only while receipts were hand-typed: with Xero's payment history
+      // backfilled an org has thousands, the endpoint returns the newest 500,
+      // and an older month renders empty though its receipts exist. The bank
+      // filter stays client-side so its dropdown still lists every bank in the
+      // period rather than only the one already chosen.
+      const [listRaw, accRaw] = await Promise.all([
+        request(`/receipts?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+        request(`/accounting/accounts`),
+      ]);
       const list: Receipt[] = (unwrap(listRaw) || []).filter((r: Receipt) => r.customerId); // shells excluded
       setReceipts(list);
       const accs: any[] = unwrap(accRaw) || [];
@@ -67,7 +76,7 @@ export default function ReceiptListingReport() {
     } finally {
       setLoading(false);
     }
-  }, [request]);
+  }, [request, from, to]);
 
   useEffect(() => {
     void load();
