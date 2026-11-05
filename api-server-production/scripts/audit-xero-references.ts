@@ -122,6 +122,46 @@ let tokens: Promise<any>;
     else differs.push({ ...r, xref: b });
   }
 
+  // ---- Is the LINK itself sound? --------------------------------------
+  // Everything below compares the reference of an AIMS document against the
+  // reference of the Xero document it claims to be. That comparison is only
+  // meaningful if the link is 1:1 and points at the same invoice number. The
+  // first prod run showed two AIMS invoices resolving to one Xero reference,
+  // so check the link before reading anything into the text.
+  const byXeroId = new Map<string, Row[]>();
+  for (const r of linked) {
+    const list = byXeroId.get(r.xeroId!) || [];
+    list.push(r);
+    byXeroId.set(r.xeroId!, list);
+  }
+  const shared = Array.from(byXeroId.values()).filter((g) => g.length > 1);
+  const renumbered = linked.filter((r) => {
+    const x = xero.get(r.xeroId!);
+    return x && x.number && r.name && x.number !== r.name;
+  });
+
+  console.log('Link health — before comparing any text');
+  console.log('  ' + '-'.repeat(78));
+  console.log(`  AIMS documents sharing one Xero document   ${String(shared.reduce((n, g) => n + g.length, 0)).padStart(6)}   in ${shared.length} group(s)`);
+  console.log(`  AIMS number != Xero invoice number         ${String(renumbered.length).padStart(6)}`);
+  console.log('  ' + '-'.repeat(78));
+  if (shared.length) {
+    console.log(`\n  Same Xero document claimed by several AIMS documents (showing ${Math.min(SHOW, shared.length)}):`);
+    for (const g of shared.slice(0, SHOW))
+      console.log(`    Xero ${xero.get(g[0].xeroId!)?.number || g[0].xeroId}  ←  ${g.map((r) => r.name).join(' , ')}`);
+  }
+  if (renumbered.length) {
+    console.log(`\n  AIMS document number differs from the Xero invoice it is linked to (showing ${Math.min(SHOW, renumbered.length)}):`);
+    for (const r of renumbered.slice(0, SHOW))
+      console.log(`    AIMS ${r.name.padEnd(18)} →  Xero ${xero.get(r.xeroId!)?.number}`);
+  }
+  if (shared.length || renumbered.length)
+    console.log(
+      `\n  ⚠ Until these are resolved the reference comparison below is not\n` +
+        `    trustworthy for the affected rows: a "different reference" may just\n` +
+        `    be the reference of a different invoice, correctly stored.\n`,
+    );
+
   // ---- Whose reference is it? ----------------------------------------
   // A reference that went missing and a reference that belongs to a DIFFERENT
   // document are not the same bug. Xero's text is indexed here so a mismatch
@@ -213,11 +253,15 @@ let tokens: Promise<any>;
 
   // Held back: Xero's own text names a different document, so copying it
   // would file the wrong number in AIMS. A human has to pick the right text.
-  const unsafe = candidates.filter((r) => noteFor(r).xeroNamesOther);
-  const fixable = FORCE ? candidates : candidates.filter((r) => !noteFor(r).xeroNamesOther);
+  const suspectLink = new Set<string>();
+  for (const g of shared) for (const r of g) suspectLink.add(r.id);
+  for (const r of renumbered) suspectLink.add(r.id);
+  const isUnsafe = (r: Row & { xref?: string }) => !!noteFor(r).xeroNamesOther || suspectLink.has(r.id);
+  const unsafe = candidates.filter(isUnsafe);
+  const fixable = FORCE ? candidates : candidates.filter((r) => !isUnsafe(r));
   if (unsafe.length)
     console.log(
-      `\n${unsafe.length} row(s) held back — Xero's reference opens with another document's number` +
+      `\n${unsafe.length} row(s) held back — the link is suspect, or Xero's reference opens with another document's number` +
         `${FORCE ? ', but --force was given so they WILL be written' : ' (--force overrides)'}:` +
         `\n  ${unsafe.slice(0, 10).map((r) => `${r.name} → "${cut(r.xref, 40)}"`).join('\n  ')}`,
     );
