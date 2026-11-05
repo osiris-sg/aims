@@ -6,6 +6,7 @@ import { PaymentsService } from '../payments/payments.service';
 import { AuditService } from 'src/common/audit.service';
 import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
 import { documentReferenceOf } from '../common/doc-ref';
+import { DocumentNumberingService, bankCodeOf, patternNeedsBank } from '../document-numbering/document-numbering.service';
 import { orgToday } from '../common/org-today';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
@@ -55,6 +56,7 @@ export class ReceiptsService {
     private readonly journalService: JournalService,
     private readonly paymentsService: PaymentsService,
     private readonly auditService: AuditService,
+    private readonly numbering: DocumentNumberingService,
   ) {}
 
   private logEvent(opts: { documentId: string; organizationId: string; action: string; detail: string; documentName?: string; actor?: Actor }) {
@@ -91,7 +93,40 @@ export class ReceiptsService {
     return created.id;
   }
 
+  // Per-org custom numbering (Heimen 2026-11-05: "SCBOR2610-001 … UOB when
+  // it's the UOB bank"). An active OFFICIAL_RECEIPT format in Accounting
+  // Setup → Document Numbers replaces the legacy OR-###### series. A pattern
+  // with the {BANK} token needs the deposit-to bank first, so such a receipt
+  // opens as OR-PENDING and takes its real number on the first save; any
+  // other pattern is issued at creation like before.
+  static readonly PENDING_NUMBER = 'OR-PENDING';
+
+  /**
+   * A placeholder still has to be UNIQUE. Document is
+   * `@@unique([name, organizationId, documentTemplateId])` and every receipt in
+   * an org shares ONE Official Receipt template, so a flat 'OR-PENDING' would
+   * fail the index the moment a second receipt is started while the first is
+   * still unnumbered — including the ordinary case of an abandoned draft, which
+   * would then block every new receipt in the org. The suffix keeps the name
+   * obviously provisional; `isPending` matches on the prefix.
+   */
+  private static pendingNumber(): string {
+    const t = Date.now().toString(36).slice(-4);
+    const r = Math.random().toString(36).slice(2, 4);
+    return `${ReceiptsService.PENDING_NUMBER}-${(t + r).toUpperCase()}`;
+  }
+
+  private static isPending(name: string | null | undefined): boolean {
+    return String(name || '').startsWith(ReceiptsService.PENDING_NUMBER);
+  }
+
   private async nextReceiptNumber(organizationId: string): Promise<string> {
+    const format = await this.numbering.activeFormat(organizationId, 'OFFICIAL_RECEIPT');
+    if (format) {
+      if (patternNeedsBank(format.pattern)) return ReceiptsService.pendingNumber();
+      const issued = await this.numbering.generateNumber(organizationId, 'OFFICIAL_RECEIPT', format.id);
+      if (issued) return issued;
+    }
     const rows = await this.prisma.document.findMany({
       where: { organizationId, type: 'OFFICIAL_RECEIPT', name: { startsWith: 'OR-' } },
       select: { name: true },
@@ -308,6 +343,24 @@ export class ReceiptsService {
     });
     if (!customer) throw new BadRequestException('Customer not found');
 
+    // A receipt still on its placeholder number takes the real one now that
+    // the deposit-to bank is known ({BANK} pattern). Issued once; a later
+    // change of bank keeps the number — it is already on the journal and the
+    // customer's statement.
+    let receiptNumber = doc.name || '';
+    if (ReceiptsService.isPending(receiptNumber)) {
+      const bank = await this.prisma.chartOfAccount.findFirst({
+        where: { organizationId, code: dto.debitAccountCode },
+        select: { name: true },
+      });
+      const issued = await this.numbering.issueNumberLocked(organizationId, 'OFFICIAL_RECEIPT', null, new Date(dto.date), undefined, {
+        bankCode: bankCodeOf(bank?.name || dto.debitAccountCode),
+      });
+      if (!issued) throw new BadRequestException('No active Official Receipt number format — set one in Accounting Setup → Document Numbers');
+      receiptNumber = issued;
+      await this.prisma.document.update({ where: { id }, data: { name: receiptNumber } });
+    }
+
     // Per-invoice cap: allocation ≤ outstanding (this receipt's own prior rows excluded).
     const open = await this.openInvoices(organizationId, dto.customerId, { excludeReceiptId: id });
     const openById = new Map(open.map((o) => [o.documentId, o]));
@@ -337,7 +390,7 @@ export class ReceiptsService {
             amount: a.amount,
             paymentDate: new Date(dto.date),
             paymentMethod: dto.paymentMethod || 'transfer',
-            reference: doc.name || undefined,
+            reference: receiptNumber || undefined,
             notes: dto.remarks || undefined,
             receiptId: id,
             createdBy: actor?.id || 'system',
@@ -381,7 +434,7 @@ export class ReceiptsService {
     const entry = holdGl ? null : await this.journalAutoPost.postFromReceipt({
       organizationId,
       receiptDocumentId: id,
-      receiptNumber: doc.name,
+      receiptNumber,
       entryDate: new Date(dto.date),
       customerName: customer.name,
       bankAccountCode: dto.debitAccountCode,
@@ -413,7 +466,7 @@ export class ReceiptsService {
       organizationId,
       action: 'EDITED',
       detail: `Receipt saved — ${receiptAmount.toFixed(2)} allocated across ${allocations.length} invoice(s)${entry ? `; ${entry.journalNumber} posted` : ''}`,
-      documentName: doc.name || undefined,
+      documentName: receiptNumber || undefined,
       actor,
     });
 

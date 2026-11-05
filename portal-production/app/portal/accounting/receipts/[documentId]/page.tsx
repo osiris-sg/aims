@@ -21,6 +21,38 @@ import { todayIso } from "@/helpers/orgToday";
 
 const unwrap = (r: any) => (r && typeof r === "object" && r.data !== undefined ? r.data : r);
 
+// Shape a receipt into the editor's existingData contract. Receipt state
+// rides in orData (see OfficialReceiptSection). Used on load AND after a save
+// that assigned the real number (custom {BANK} numbering issues it on the
+// first save), so the editor re-mounts on the saved state.
+const toExisting = (r: any) => ({
+    id: r.id,
+    name: r.receiptNumber,
+    status: r.status,
+    documentTemplateId: r.documentTemplateId,
+    customerId: r.customerId,
+    customer: r.customerId ? { id: r.customerId, name: r.customerName || "" } : undefined,
+    documentInfo: { documentNumber: r.receiptNumber, date: r.date },
+    savedBy: r.savedBy,
+    savedAt: r.savedAt,
+    lastUsedBy: r.savedBy,
+    lastUsedAt: r.savedAt,
+    updatedAt: r.updatedAt,
+    orData: {
+      date: r.date || todayIso(),
+      chequeNo: r.chequeNo || "",
+      remarks: r.remarks || "",
+      creditAccountCode: r.creditAccountCode || null,
+      debitAccountCode: r.debitAccountCode || null,
+      depositLabel: r.debitAccountCode || "",
+      currency: r.currency || "SGD",
+      rate: r.rate || 1,
+      receiptAmount: r.receiptAmount || 0,
+      allocations: r.allocations || [],
+    },
+});
+
+
 export default function OfficialReceiptPage() {
   const params = useParams();
   const router = useRouter();
@@ -53,32 +85,7 @@ export default function OfficialReceiptPage() {
         setReceipts(unwrap(listRes) || []);
         // Shape the receipt into the editor's existingData contract. Receipt
         // state rides in orData (see OfficialReceiptSection).
-        setExistingData({
-          id: r.id,
-          name: r.receiptNumber,
-          status: r.status,
-          documentTemplateId: r.documentTemplateId,
-          customerId: r.customerId,
-          customer: r.customerId ? { id: r.customerId, name: r.customerName || "" } : undefined,
-          documentInfo: { documentNumber: r.receiptNumber, date: r.date },
-          savedBy: r.savedBy,
-          savedAt: r.savedAt,
-          lastUsedBy: r.savedBy,
-          lastUsedAt: r.savedAt,
-          updatedAt: r.updatedAt,
-          orData: {
-            date: r.date || todayIso(),
-            chequeNo: r.chequeNo || "",
-            remarks: r.remarks || "",
-            creditAccountCode: r.creditAccountCode || null,
-            debitAccountCode: r.debitAccountCode || null,
-            depositLabel: r.debitAccountCode || "",
-            currency: r.currency || "SGD",
-            rate: r.rate || 1,
-            receiptAmount: r.receiptAmount || 0,
-            allocations: r.allocations || [],
-          },
-        });
+        setExistingData(toExisting(r));
       } catch (e: any) {
         console.error("Error loading receipt:", e);
         toast.error(e?.message || "Failed to load receipt");
@@ -122,7 +129,15 @@ export default function OfficialReceiptPage() {
       toast.error(response?.message || "Failed to save receipt");
       throw new Error(response?.message || "Failed to save receipt");
     }
-    return unwrap(response);
+    const saved = unwrap(response);
+    // OR-PENDING → real number on the first save (custom {BANK} numbering):
+    // re-mount the editor on the saved receipt so the toolbar shows it.
+    if (saved?.receiptNumber && saved.receiptNumber !== existingData?.name) {
+      toast.info(`Receipt numbered ${saved.receiptNumber}`);
+      setExistingData(toExisting(saved));
+      setReceipts((prev) => prev.map((x: any) => (x.id === saved.id ? { ...x, ...saved } : x)));
+    }
+    return saved;
   };
 
   // ‹ › browse saved receipts (newest first — Previous goes to the older one).
@@ -157,6 +172,7 @@ export default function OfficialReceiptPage() {
 
   return (
     <TabbedDocumentCreator
+      key={existingData.name || documentId}
       documentType="OFFICIAL_RECEIPT"
       actualDocumentType="OFFICIAL_RECEIPT"
       documentId={documentId}

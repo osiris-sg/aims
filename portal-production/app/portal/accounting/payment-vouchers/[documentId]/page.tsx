@@ -22,6 +22,36 @@ import { todayIso } from "@/helpers/orgToday";
 
 const unwrap = (r: any) => (r && typeof r === "object" && r.data !== undefined ? r.data : r);
 
+// Shape a voucher into the editor's existingData contract (pvData). Used on
+// load AND after a save that assigned the real number (custom {BANK}
+// numbering issues it on the first save).
+const toExisting = (r: any) => ({
+    id: r.id,
+    name: r.voucherNumber,
+    status: r.status,
+    documentTemplateId: r.documentTemplateId,
+    supplier: r.supplierId ? { id: r.supplierId, name: r.supplierName || "", supplierCode: r.supplierCode || "" } : undefined,
+    documentInfo: { documentNumber: r.voucherNumber, date: r.date },
+    savedBy: r.savedBy,
+    savedAt: r.savedAt,
+    lastUsedBy: r.savedBy,
+    lastUsedAt: r.savedAt,
+    updatedAt: r.updatedAt,
+    pvData: {
+      date: r.date || todayIso(),
+      chequeNo: r.chequeNo || "",
+      remarks: r.remarks || "",
+      debitAccountCode: r.debitAccountCode || null,
+      creditAccountCode: r.creditAccountCode || null,
+      paidFromLabel: r.creditAccountCode || "",
+      currency: r.currency || "SGD",
+      rate: r.rate || 1,
+      voucherAmount: r.voucherAmount || 0,
+      allocations: r.allocations || [],
+    },
+});
+
+
 export default function PaymentVoucherPage() {
   const params = useParams();
   const router = useRouter();
@@ -49,31 +79,7 @@ export default function PaymentVoucherPage() {
         if (!v?.id) throw new Error("Payment voucher not found");
         if (cancelled) return;
         setVouchers(unwrap(listRes) || []);
-        setExistingData({
-          id: v.id,
-          name: v.voucherNumber,
-          status: v.status,
-          documentTemplateId: v.documentTemplateId,
-          supplier: v.supplierId ? { id: v.supplierId, name: v.supplierName || "", supplierCode: v.supplierCode || "" } : undefined,
-          documentInfo: { documentNumber: v.voucherNumber, date: v.date },
-          savedBy: v.savedBy,
-          savedAt: v.savedAt,
-          lastUsedBy: v.savedBy,
-          lastUsedAt: v.savedAt,
-          updatedAt: v.updatedAt,
-          pvData: {
-            date: v.date || todayIso(),
-            chequeNo: v.chequeNo || "",
-            remarks: v.remarks || "",
-            debitAccountCode: v.debitAccountCode || null,
-            creditAccountCode: v.creditAccountCode || null,
-            paidFromLabel: v.creditAccountCode || "",
-            currency: v.currency || "SGD",
-            rate: v.rate || 1,
-            voucherAmount: v.voucherAmount || 0,
-            allocations: v.allocations || [],
-          },
-        });
+        setExistingData(toExisting(v));
       } catch (e: any) {
         console.error("Error loading payment voucher:", e);
         toast.error(e?.message || "Failed to load payment voucher");
@@ -117,7 +123,14 @@ export default function PaymentVoucherPage() {
       toast.error(response?.message || "Failed to save payment voucher");
       throw new Error(response?.message || "Failed to save payment voucher");
     }
-    return unwrap(response);
+    const saved = unwrap(response);
+    // PV-PENDING → real number on the first save (custom {BANK} numbering).
+    if (saved?.voucherNumber && saved.voucherNumber !== existingData?.name) {
+      toast.info(`Voucher numbered ${saved.voucherNumber}`);
+      setExistingData(toExisting(saved));
+      setVouchers((prev) => prev.map((x: any) => (x.id === saved.id ? { ...x, ...saved } : x)));
+    }
+    return saved;
   };
 
   const savedVouchers = useMemo(() => vouchers.filter((v: any) => v.supplierId || v.id === documentId), [vouchers, documentId]);
@@ -150,6 +163,7 @@ export default function PaymentVoucherPage() {
 
   return (
     <TabbedDocumentCreator
+      key={existingData.name || documentId}
       documentType="PAYMENT_VOUCHER"
       actualDocumentType="PAYMENT_VOUCHER"
       documentId={documentId}

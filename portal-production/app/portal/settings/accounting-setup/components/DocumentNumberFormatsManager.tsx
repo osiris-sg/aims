@@ -47,7 +47,7 @@ export const NUMBERING_DOC_TYPES: { value: string; label: string }[] = [
   { value: "PURCHASE_RETURN", label: "Purchase Return" },
   { value: "STOCK_ADJUSTMENT", label: "Stock Adjustment" },
   { value: "PAYMENT_VOUCHER", label: "Payment Voucher" },
-  { value: "RECEIPT", label: "Receipt" },
+  { value: "OFFICIAL_RECEIPT", label: "Official Receipt" },
 ];
 // WCT orders (enableWctOrders): the Order number (ORD…) is a format too. Offered
 // in the picker only for that flag; never in "apply to all".
@@ -58,22 +58,30 @@ const labelOf = (v: string) => (v === ORDER_NUMBER_TYPE.value ? ORDER_NUMBER_TYP
 export const DOC_CODE: Record<string, string> = {
   QUOTATION: "QO", SALES_ORDER: "SO", DELIVERY_ORDER: "DO", INVOICE: "INV",
   CREDIT_NOTE: "CN", DEBIT_NOTE: "DN", PROFORMA: "PF", PURCHASE_ORDER: "PO",
-  PURCHASE_RETURN: "PR", STOCK_ADJUSTMENT: "SA", PAYMENT_VOUCHER: "PV", RECEIPT: "RCP",
+  PURCHASE_RETURN: "PR", STOCK_ADJUSTMENT: "SA", PAYMENT_VOUCHER: "PV", OFFICIAL_RECEIPT: "OR",
   ORDER: "ORD",
 };
 
+// {BANK} — Official Receipt / Payment Voucher only: the short code of the bank
+// the money went to / came from (SCBOR2610-001, UOBOR2610-001 — Heimen
+// 2026-11-05). The server derives it from the bank account's name; the
+// preview shows SCB. Each bank runs its own series.
+const BANK_TYPES = new Set(["OFFICIAL_RECEIPT", "PAYMENT_VOUCHER"]);
+const SAMPLE_BANK = "SCB";
+
 // ---------- block builder <-> pattern ----------
-type Seg = { kind: "text" | "year" | "month" | "day" | "serial" | "doc"; value?: string; pad?: number };
+type Seg = { kind: "text" | "year" | "month" | "day" | "serial" | "doc" | "bank"; value?: string; pad?: number; short?: boolean };
 
 function segsToPattern(segs: Seg[]): string {
   return segs
     .map((s) => {
       switch (s.kind) {
         case "text": return s.value || "";
-        case "year": return "{YYYY}";
+        case "year": return s.short ? "{YY}" : "{YYYY}";
         case "month": return "{MM}";
         case "day": return "{DD}";
         case "doc": return "{DOC}";
+        case "bank": return "{BANK}";
         case "serial": return "{" + "#".repeat(s.pad || 4) + "}";
         default: return "";
       }
@@ -91,9 +99,10 @@ function patternToSegs(pattern: string): Seg[] {
     const tok = m[1];
     if (/^#+$/.test(tok)) segs.push({ kind: "serial", pad: tok.length });
     else if (tok === "DOC") segs.push({ kind: "doc" });
+    else if (tok === "BANK") segs.push({ kind: "bank" });
     else if (/^Y{2,4}(MM)?(DD)?$/.test(tok) || /^(YY|YYYY)?(MM)?(DD)?$/.test(tok)) {
       // split a combined date token like YYYYMMDD into individual chips
-      if (/Y/.test(tok)) segs.push({ kind: "year" });
+      if (/Y/.test(tok)) segs.push({ kind: "year", short: !/YYYY/.test(tok) });
       if (/MM/.test(tok)) segs.push({ kind: "month" });
       if (/DD/.test(tok)) segs.push({ kind: "day" });
     } else segs.push({ kind: "text", value: "{" + tok + "}" });
@@ -104,7 +113,7 @@ function patternToSegs(pattern: string): Seg[] {
 }
 
 // Live preview — mirror of the backend engine.
-export function formatPattern(pattern: string, serial: number, date: Date, docCode = ""): string {
+export function formatPattern(pattern: string, serial: number, date: Date, docCode = "", bankCode = SAMPLE_BANK): string {
   const YYYY = String(date.getFullYear());
   const YY = YYYY.slice(2);
   const MM = String(date.getMonth() + 1).padStart(2, "0");
@@ -112,6 +121,7 @@ export function formatPattern(pattern: string, serial: number, date: Date, docCo
   return (pattern || "").replace(/\{([^}]+)\}/g, (_m, tok: string) => {
     if (/^#+$/.test(tok)) return String(serial).padStart(tok.length, "0");
     if (tok === "DOC") return docCode;
+    if (tok === "BANK") return bankCode;
     return tok.replace(/YYYY/g, YYYY).replace(/YY/g, YY).replace(/MM/g, MM).replace(/DD/g, DD);
   });
 }
@@ -362,11 +372,21 @@ export default function DocumentNumberFormatsManager() {
                       />
                     ) : (
                       <Chip
-                        color={s.kind === "doc" ? "info" : "secondary"}
+                        color={s.kind === "doc" || s.kind === "bank" ? "info" : "secondary"}
                         variant="outlined"
                         onDelete={() => removeSeg(i)}
                         sx={{ height: 36, fontSize: 13 }}
-                        label={s.kind === "year" ? "Year (YYYY)" : s.kind === "month" ? "Month (MM)" : s.kind === "day" ? "Day (DD)" : `Doc Code (${DOC_CODE[documentType] || "?"})`}
+                        label={
+                          s.kind === "year" ? (
+                            <Stack direction="row" alignItems="center" gap={0.5}>
+                              <span>Year</span>
+                              <Select variant="standard" disableUnderline value={s.short ? "YY" : "YYYY"} onChange={(e) => setSegVal(i, { short: e.target.value === "YY" })} sx={{ fontSize: 13, fontWeight: 700 }}>
+                                <MenuItem value="YYYY">YYYY</MenuItem>
+                                <MenuItem value="YY">YY</MenuItem>
+                              </Select>
+                            </Stack>
+                          ) : s.kind === "month" ? "Month (MM)" : s.kind === "day" ? "Day (DD)" : s.kind === "bank" ? `Bank (${SAMPLE_BANK} / UOB…)` : `Doc Code (${DOC_CODE[documentType] || "?"})`
+                        }
                       />
                     )}
                   </Box>
@@ -384,8 +404,16 @@ export default function DocumentNumberFormatsManager() {
                 <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => addSeg({ kind: "month" })}>Month</Button>
                 <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => addSeg({ kind: "day" })}>Day</Button>
                 <Button size="small" variant="outlined" color="info" startIcon={<AddIcon />} onClick={() => addSeg({ kind: "doc" })}>Doc Code</Button>
+                {BANK_TYPES.has(documentType) && (
+                  <Button size="small" variant="outlined" color="info" startIcon={<AddIcon />} onClick={() => addSeg({ kind: "bank" })}>Bank</Button>
+                )}
                 <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => addSeg({ kind: "serial", pad: 4 })}>Number</Button>
               </Stack>
+              {BANK_TYPES.has(documentType) && segs.some((s) => s.kind === "bank") && (
+                <Typography variant="caption" sx={{ display: "block", mt: 0.75, color: "text.secondary" }}>
+                  Bank = short code of the {documentType === "OFFICIAL_RECEIPT" ? "deposit-to" : "paid-from"} bank account (Standard Chartered Bank → SCB, United Overseas Bank → UOB, DBS → DBS). Each bank runs its own series, and the number is issued on the first save, once the bank is chosen.
+                </Typography>
+              )}
             </Box>
 
             <Box sx={{ p: 1.5, borderRadius: 1, bgcolor: (t) => alpha(t.palette.primary.main, 0.06) }}>

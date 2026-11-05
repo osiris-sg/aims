@@ -25,8 +25,53 @@ export const DOC_CODE: Record<string, string> = {
   PURCHASE_RETURN: 'PR',
   STOCK_ADJUSTMENT: 'SA',
   PAYMENT_VOUCHER: 'PV',
-  RECEIPT: 'RCP',
+  // Official Receipt (the AR receipt document, type OFFICIAL_RECEIPT). The
+  // old 'RECEIPT' key never matched a real document type; rows seeded under
+  // it are inert (guru/Heimen 2026-11-05).
+  OFFICIAL_RECEIPT: 'OR',
 };
+
+/**
+ * {BANK} token (Heimen 2026-11-05: "SCBOR2610-001 … if it's UOB the first
+ * three change to UOB"). An Official Receipt / Payment Voucher number can
+ * carry the short code of the bank it was deposited to / paid from. The code
+ * comes from the bank's chart-of-account NAME: a known-bank table first, then
+ * the name's own acronym (an all-caps word such as "DBS", or the initials of
+ * the remaining words), then its first three letters. Shared with the Setup
+ * builder's preview, which shows the same derivation for "Standard Chartered
+ * Bank" → SCB.
+ */
+const KNOWN_BANKS: Array<[RegExp, string]> = [
+  [/standard\s*chartered|\bscb\b/i, 'SCB'],
+  [/united\s*overseas|\buob\b/i, 'UOB'],
+  [/\bdbs\b|posb/i, 'DBS'],
+  [/\bocbc\b|oversea.?chinese/i, 'OCBC'],
+  [/maybank|malayan\s*banking|\bmbb\b/i, 'MBB'],
+  [/\bhsbc\b|hongkong\s*and\s*shanghai/i, 'HSBC'],
+  [/citi/i, 'CITI'],
+  [/airwallex|\bawx\b/i, 'AWX'],
+  [/aspire/i, 'ASP'],
+  [/\bwise\b|transferwise/i, 'WISE'],
+  [/paypal/i, 'PPL'],
+  [/petty\s*cash/i, 'PC'],
+  [/\bcash\b/i, 'CASH'],
+];
+const BANK_NOISE = /^(bank|pte|ltd|limited|account|a\/c|acct|current|savings|sgd|usd|eur|jpy|myr|the|of|and|&|-|\d+)$/i;
+
+export function bankCodeOf(accountName: string | null | undefined): string {
+  const name = String(accountName || '').trim();
+  if (!name) return '';
+  for (const [re, code] of KNOWN_BANKS) if (re.test(name)) return code;
+  const words = name.split(/[\s()/,.-]+/).filter((w) => w && !BANK_NOISE.test(w));
+  const acronym = words.find((w) => /^[A-Z]{3,5}$/.test(w));
+  if (acronym) return acronym;
+  const initials = words.map((w) => w[0].toUpperCase()).join('');
+  if (initials.length >= 2) return initials.slice(0, 4);
+  return (words[0] || name).replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase();
+}
+
+/** True when a pattern carries the {BANK} token — its number needs the bank account first. */
+export const patternNeedsBank = (pattern: string | null | undefined) => /\{BANK\}/.test(pattern || '');
 
 /**
  * WCT orders (enableWctOrders, 2026-11-01): the Order number is issued from an
@@ -53,7 +98,7 @@ export class DocumentNumberingService {
   // Replace {YYYY}{YY}{MM}{DD} (and combos like {YYYYMMDD}) with date parts,
   // {DOC} with the document-type short code, and {####} with the zero-padded
   // serial (padding = number of #).
-  static format(pattern: string, serial: number, date: Date, docCode = ''): string {
+  static format(pattern: string, serial: number, date: Date, docCode = '', bankCode = ''): string {
     const YYYY = String(date.getFullYear());
     const YY = YYYY.slice(2);
     const MM = String(date.getMonth() + 1).padStart(2, '0');
@@ -61,6 +106,7 @@ export class DocumentNumberingService {
     return (pattern || '').replace(/\{([^}]+)\}/g, (_m, tok: string) => {
       if (/^#+$/.test(tok)) return String(serial).padStart(tok.length, '0');
       if (tok === 'DOC') return docCode;
+      if (tok === 'BANK') return bankCode;
       return tok
         .replace(/YYYY/g, YYYY)
         .replace(/YY/g, YY)
@@ -99,15 +145,17 @@ export class DocumentNumberingService {
     when: Date,
     db: NamesDb = this.prisma,
     documentType?: string,
+    bankCode = '',
   ): Promise<number> {
     const serialToken = /\{(#+)\}/.exec(pattern);
     if (!serialToken) return 0;
-    const prefix = DocumentNumberingService.format(pattern.slice(0, serialToken.index), 0, when, docCode);
+    const prefix = DocumentNumberingService.format(pattern.slice(0, serialToken.index), 0, when, docCode, bankCode);
     const suffix = DocumentNumberingService.format(
       pattern.slice(serialToken.index + serialToken[0].length),
       0,
       when,
       docCode,
+      bankCode,
     );
     if (!prefix) return 0;
     const existing =
@@ -136,6 +184,7 @@ export class DocumentNumberingService {
     documentType: string,
     formatId?: string | null,
     when: Date = new Date(),
+    opts: { bankCode?: string } = {},
   ): Promise<string | null> {
     let format = formatId
       ? await this.prisma.documentNumberFormat.findFirst({ where: { id: formatId, organizationId } })
@@ -151,15 +200,21 @@ export class DocumentNumberingService {
 
     const key = this.resetKey(format.resetPolicy, when);
     const docCode = docCodeOf(format.documentType);
-    const maxExisting = await this.maxExistingSerial(organizationId, format.pattern, docCode, when, this.prisma, format.documentType);
+    const bankCode = opts.bankCode || '';
+    const perBank = patternNeedsBank(format.pattern);
+    const maxExisting = await this.maxExistingSerial(organizationId, format.pattern, docCode, when, this.prisma, format.documentType, bankCode);
 
     // Atomically claim the serial: reset if the reset-window changed, else use
     // nextSerial — never below one past the highest existing number; then bump.
+    // A {BANK} pattern runs ONE SERIES PER BANK (SCBOR2611-001 and
+    // UOBOR2611-001 both exist): the series is read off the documents that
+    // already carry that bank's prefix, so the shared counter row only
+    // records the last number issued.
     const claimed = await this.prisma.$transaction(async (tx) => {
       const f = await tx.documentNumberFormat.findUnique({ where: { id: format!.id } });
       if (!f) throw new NotFoundException('Number format not found');
       const restart = key != null && f.lastResetKey !== key;
-      const serial = Math.max(restart ? 1 : f.nextSerial, maxExisting + 1);
+      const serial = perBank ? maxExisting + 1 : Math.max(restart ? 1 : f.nextSerial, maxExisting + 1);
       await tx.documentNumberFormat.update({
         where: { id: f.id },
         data: { nextSerial: serial + 1, ...(key != null ? { lastResetKey: key } : {}) },
@@ -167,7 +222,16 @@ export class DocumentNumberingService {
       return serial;
     });
 
-    return DocumentNumberingService.format(format.pattern, claimed, when, docCode);
+    return DocumentNumberingService.format(format.pattern, claimed, when, docCode, bankCode);
+  }
+
+  /** The active format for a type, or null — lets OR/PV decide whether a number
+   *  can be issued at creation or must wait for the bank account ({BANK}). */
+  async activeFormat(organizationId: string, documentType: string) {
+    return this.prisma.documentNumberFormat.findFirst({
+      where: { organizationId, documentType, isActive: true },
+      orderBy: { sortOrder: 'asc' },
+    });
   }
 
   /**
@@ -191,6 +255,7 @@ export class DocumentNumberingService {
     formatId?: string | null,
     when: Date = new Date(),
     tx?: any,
+    opts: { bankCode?: string } = {},
   ): Promise<string | null> {
     let format = formatId
       ? await this.prisma.documentNumberFormat.findFirst({ where: { id: formatId, organizationId } })
@@ -204,16 +269,18 @@ export class DocumentNumberingService {
     }
     const docCode = docCodeOf(format.documentType);
     const key = this.resetKey(format.resetPolicy, when);
+    const bankCode = opts.bankCode || '';
     const claim = async (db: any) => {
       const f = await db.documentNumberFormat.update({ where: { id: format!.id }, data: { nextSerial: { increment: 0 } } });
-      const maxExisting = await this.maxExistingSerial(organizationId, f.pattern, docCode, when, db, f.documentType);
+      const maxExisting = await this.maxExistingSerial(organizationId, f.pattern, docCode, when, db, f.documentType, bankCode);
       const restart = key != null && f.lastResetKey !== key;
-      const serial = Math.max(restart ? 1 : f.nextSerial, maxExisting + 1);
+      // {BANK}: one series per bank — see generateNumber.
+      const serial = patternNeedsBank(f.pattern) ? maxExisting + 1 : Math.max(restart ? 1 : f.nextSerial, maxExisting + 1);
       await db.documentNumberFormat.update({
         where: { id: f.id },
         data: { nextSerial: serial + 1, ...(key != null ? { lastResetKey: key } : {}) },
       });
-      return DocumentNumberingService.format(f.pattern, serial, when, docCode);
+      return DocumentNumberingService.format(f.pattern, serial, when, docCode, bankCode);
     };
     return tx ? claim(tx) : this.prisma.$transaction((t) => claim(t));
   }

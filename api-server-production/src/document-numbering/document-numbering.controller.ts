@@ -32,8 +32,8 @@ export class DocumentNumberingController {
   // and today's date; does NOT touch any counter.
   @Post('preview')
   @Permissions('documents:read')
-  preview(@Body() body: { pattern: string; sampleSerial?: number }) {
-    return { preview: DocumentNumberingService.format(body?.pattern || '', body?.sampleSerial ?? 1, new Date()) };
+  preview(@Body() body: { pattern: string; sampleSerial?: number; docCode?: string; bankCode?: string }) {
+    return { preview: DocumentNumberingService.format(body?.pattern || '', body?.sampleSerial ?? 1, new Date(), body?.docCode || '', body?.bankCode || 'SCB') };
   }
 
   // Mutations are Accounting Setup (accountant/admin) → accounting:update.

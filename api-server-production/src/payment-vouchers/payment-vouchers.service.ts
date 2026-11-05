@@ -6,6 +6,7 @@ import { BillsService } from '../bills/bills.service';
 import { AuditService } from 'src/common/audit.service';
 import { outstandingOf, grossStampOf } from '../common/document-money';
 import { documentReferenceOf } from '../common/doc-ref';
+import { DocumentNumberingService, bankCodeOf, patternNeedsBank } from '../document-numbering/document-numbering.service';
 import { orgToday } from '../common/org-today';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
@@ -48,6 +49,7 @@ export class PaymentVouchersService {
     private readonly journalService: JournalService,
     private readonly bills: BillsService,
     private readonly auditService: AuditService,
+    private readonly numbering: DocumentNumberingService,
   ) {}
 
   private logEvent(opts: { documentId: string; organizationId: string; action: string; detail: string; documentName?: string; actor?: Actor }) {
@@ -77,7 +79,32 @@ export class PaymentVouchersService {
     return created.id;
   }
 
+  // Per-org custom numbering (Heimen 2026-11-05: "SCBPV2610-001"). An active
+  // PAYMENT_VOUCHER format replaces the legacy PV-###### series; a {BANK}
+  // pattern waits for the paid-from bank, so the voucher opens as PV-PENDING
+  // and is numbered on its first save (mirror of ReceiptsService).
+  static readonly PENDING_NUMBER = 'PV-PENDING';
+
+  /** Unique placeholder — see ReceiptsService.pendingNumber: every voucher in an
+   *  org shares one template and Document's (name, org, template) index would
+   *  reject a second unnumbered voucher. */
+  private static pendingNumber(): string {
+    const t = Date.now().toString(36).slice(-4);
+    const r = Math.random().toString(36).slice(2, 4);
+    return `${PaymentVouchersService.PENDING_NUMBER}-${(t + r).toUpperCase()}`;
+  }
+
+  private static isPending(name: string | null | undefined): boolean {
+    return String(name || '').startsWith(PaymentVouchersService.PENDING_NUMBER);
+  }
+
   private async nextVoucherNumber(organizationId: string): Promise<string> {
+    const format = await this.numbering.activeFormat(organizationId, 'PAYMENT_VOUCHER');
+    if (format) {
+      if (patternNeedsBank(format.pattern)) return PaymentVouchersService.pendingNumber();
+      const issued = await this.numbering.generateNumber(organizationId, 'PAYMENT_VOUCHER', format.id);
+      if (issued) return issued;
+    }
     const rows = await this.prisma.document.findMany({
       where: { organizationId, type: 'PAYMENT_VOUCHER', name: { startsWith: 'PV-' } },
       select: { name: true },
@@ -281,6 +308,18 @@ export class PaymentVouchersService {
     });
     if (!bank) throw new BadRequestException(`Paid-from account ${dto.creditAccountCode} not found`);
 
+    // Placeholder → real number once the paid-from bank is known ({BANK}
+    // pattern). Issued once; a later bank change keeps the number.
+    let voucherNumber = doc.name || '';
+    if (PaymentVouchersService.isPending(voucherNumber)) {
+      const issued = await this.numbering.issueNumberLocked(organizationId, 'PAYMENT_VOUCHER', null, new Date(dto.date), undefined, {
+        bankCode: bankCodeOf(bank.name || bank.code),
+      });
+      if (!issued) throw new BadRequestException('No active Payment Voucher number format — set one in Accounting Setup → Document Numbers');
+      voucherNumber = issued;
+      await this.prisma.document.update({ where: { id }, data: { name: voucherNumber } });
+    }
+
     // Per-bill cap: allocation ≤ outstanding (this voucher's own prior rows excluded).
     const open = await this.openBills(organizationId, dto.supplierId, { excludeVoucherId: id });
     const openById = new Map(open.map((o) => [o.documentId, o]));
@@ -305,7 +344,7 @@ export class PaymentVouchersService {
     const entry = await this.journalAutoPost.postFromPaymentVoucher({
       organizationId,
       voucherDocumentId: id,
-      voucherNumber: doc.name,
+      voucherNumber,
       entryDate: new Date(dto.date),
       supplierName: supplier.name,
       bankAccountCode: dto.creditAccountCode,
@@ -333,7 +372,7 @@ export class PaymentVouchersService {
             amount: a.amount,
             paymentDate: new Date(dto.date),
             paymentMethod: dto.paymentMethod || 'transfer',
-            reference: doc.name || undefined,
+            reference: voucherNumber || undefined,
             notes: dto.remarks || undefined,
             bankAccountId: bank.id,
             journalEntryId: entry.id,
@@ -383,7 +422,7 @@ export class PaymentVouchersService {
       organizationId,
       action: 'EDITED',
       detail: `Payment voucher saved — ${voucherAmount.toFixed(2)} allocated across ${allocations.length} supplier invoice(s); ${entry.journalNumber} posted`,
-      documentName: doc.name || undefined,
+      documentName: voucherNumber || undefined,
       actor,
     });
 
