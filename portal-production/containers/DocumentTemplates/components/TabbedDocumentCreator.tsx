@@ -760,9 +760,16 @@ export default function TabbedDocumentCreator({
       const res = await request(
         { path: `/documents/${docId}/item-photos`, method: "POST" },
         {
+          // Send EVERY identifier this row has. The server tries them in turn,
+          // so a stale or empty one cannot strand the call (it used to commit
+          // to the first id sent and fail with "that line is not on this
+          // document" even when the description matched).
           ...(item.deliveryItemId ? { deliveryItemId: item.deliveryItemId } : {}),
           ...(item.inventoryItemId ? { inventoryItemId: item.inventoryItemId } : {}),
+          ...(item.id != null ? { lineId: item.id } : {}),
+          ...(item.itemCode ? { itemCode: item.itemCode } : {}),
           ...(item.description ? { description: item.description } : {}),
+          lineIndex: items.findIndex((it: any) => it.id === item.id),
           photos: keys,
         },
         token,

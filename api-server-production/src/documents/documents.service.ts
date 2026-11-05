@@ -2430,7 +2430,17 @@ export class DocumentsService {
   async addFieldPhotosToDocumentLine(
     documentId: string,
     organizationId: string,
-    body: { deliveryItemId?: string | null; inventoryItemId?: string | null; description?: string | null; photos: string[] },
+    body: {
+      deliveryItemId?: string | null;
+      inventoryItemId?: string | null;
+      description?: string | null;
+      // Extra identifiers the editor sends so a stale id cannot strand the call
+      // (see FIND THE LINE below).
+      lineId?: string | number | null;
+      itemCode?: string | null;
+      lineIndex?: number | null;
+      photos: string[];
+    },
     actor: { userId: string | null; name: string | null },
   ) {
     const keys = (body.photos ?? []).map((k) => String(k ?? '').trim()).filter(Boolean);
@@ -2454,18 +2464,76 @@ export class DocumentsService {
       throw new HttpException('This document is cancelled', HttpStatus.BAD_REQUEST);
     }
 
+    // ── FIND THE LINE ───────────────────────────────────────────────────────
+    // Every identifier the editor can see is tried IN TURN, best first. This
+    // used to be an if/else chain on which identifier was SENT: the editor
+    // sends all of them, so one present-but-stale id (a unit picked but not yet
+    // saved, or an empty-string inventoryItemId on the stored line) made the
+    // whole call fail with "that line is not on this document" even though the
+    // description matched perfectly (guru 2026-11-05).
+    //
+    // Description matching is also tolerant now. These lines are RICH TEXT:
+    // "<div>G045/0661</div><div>Generator 45KVA</div>" never equalled the plain
+    // text the editor round-trips, and a trailing newline was enough to miss.
+    // Tags are stripped, entities unescaped and whitespace collapsed on both
+    // sides before comparing.
+    const plainText = (v: any) =>
+      String(v ?? '')
+        .replace(/<br\s*\/?>/gi, ' ')
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
     const norm = (v: any) => String(v ?? '').trim().toLowerCase();
     const lines: any[] = Array.isArray((doc.config as any)?.items) ? (doc.config as any).items : [];
-    const line = lines.find((l) =>
-      body.deliveryItemId
-        ? l.deliveryItemId === body.deliveryItemId
-        : body.inventoryItemId
-          ? l.inventoryItemId === body.inventoryItemId
-          : body.description
-            ? norm(l.description) === norm(body.description)
-            : false,
-    );
-    if (!line) throw new HttpException('That line is not on this document', HttpStatus.NOT_FOUND);
+    if (!lines.length) {
+      throw new HttpException(
+        'This delivery order has no saved lines yet. Save the document first, then add the photos.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const has = (v: any) => v != null && String(v).trim() !== '';
+    const finders: Array<() => any> = [
+      // Exact ids first.
+      () => (has(body.deliveryItemId) ? lines.find((l) => has(l.deliveryItemId) && l.deliveryItemId === body.deliveryItemId) : null),
+      () => (has(body.inventoryItemId) ? lines.find((l) => has(l.inventoryItemId) && l.inventoryItemId === body.inventoryItemId) : null),
+      // The editor's own row id, which is saved with the line.
+      () => (has(body.lineId) ? lines.find((l) => has(l.id) && String(l.id) === String(body.lineId)) : null),
+      // Product code, when it is unambiguous on this document.
+      () => {
+        if (!has(body.itemCode)) return null;
+        const ms = lines.filter((l) => norm(l.itemCode) === norm(body.itemCode) || norm(l.sku) === norm(body.itemCode) || norm(l.skuKey) === norm(body.itemCode));
+        return ms.length === 1 ? ms[0] : null;
+      },
+      // Text of the line, compared as plain text.
+      () => {
+        if (!has(body.description)) return null;
+        const want = plainText(body.description);
+        if (!want) return null;
+        const ms = lines.filter((l) => plainText(l.description) === want);
+        return ms.length === 1 ? ms[0] : null;
+      },
+      // Position, when the editor says which row it was.
+      () => (typeof body.lineIndex === 'number' && body.lineIndex >= 0 && body.lineIndex < lines.length ? lines[body.lineIndex] : null),
+      // A one-line document can only mean that line.
+      () => (lines.length === 1 ? lines[0] : null),
+    ];
+    let line: any = null;
+    for (const find of finders) {
+      line = find();
+      if (line) break;
+    }
+    if (!line) {
+      // Say what went wrong. The old message named no cause, so the usual
+      // reason — edits not saved yet — was impossible to guess.
+      throw new HttpException(
+        'Could not match that line to this delivery order. If the line was just added or edited, save the document first, then add the photos.',
+        HttpStatus.NOT_FOUND,
+      );
+    }
 
     const deliveryItemId: string | null = line.deliveryItemId ?? body.deliveryItemId ?? null;
     const inventoryId: string | null = line.inventoryItemId ?? body.inventoryItemId ?? null;
@@ -2478,12 +2546,25 @@ export class DocumentsService {
       orderBy: { createdAt: 'asc' },
       select: { id: true, deliveryItemId: true, inventoryId: true, description: true, photos: true },
     });
+    // Same fall-through as FIND THE LINE above, and for the same reason. This
+    // used to require BOTH ids to be absent before it would compare the text,
+    // so a line carrying a STALE inventoryItemId never matched its own earlier
+    // row: that row was written with a null inventoryId (every id is verified
+    // before insert, see below), the id rung found nothing, and the text rung
+    // was skipped. Each "add photos" therefore created ANOTHER DO_START.
+    //
+    // That is not just untidy. getById attaches photos to a line by matching
+    // DO_START rows, and its description rung only accepts an UNAMBIGUOUS
+    // match — so the second row made the line's photos vanish from the DO
+    // entirely. Appending to the row that is already there keeps one row per
+    // line, which is what both the display and the field app expect.
+    const sameLineText = (r: { description: string | null }) =>
+      plainText(String(r.description ?? '').replace(/^(delivery|return) started:\s*/i, '')) === plainText(line.description);
     const existing =
       (deliveryItemId ? candidates.find((r) => r.deliveryItemId === deliveryItemId) : null) ??
       (inventoryId ? candidates.find((r) => r.inventoryId === inventoryId) : null) ??
-      (!deliveryItemId && !inventoryId && line.description
-        ? candidates.find((r) => !r.inventoryId && norm(String(r.description ?? '').replace(/^(delivery|return) started:\s*/i, '')) === norm(line.description))
-        : null) ??
+      (line.description ? candidates.find((r) => !r.deliveryItemId && !r.inventoryId && sameLineText(r)) : null) ??
+      (line.description ? candidates.find(sameLineText) : null) ??
       null;
 
     if (existing) {

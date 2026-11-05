@@ -276,7 +276,17 @@ export class DocumentsController {
   async addItemPhotos(
     @Param('id') id: string,
     @Body()
-    body: { deliveryItemId?: string | null; inventoryItemId?: string | null; description?: string | null; photos: string[] },
+    body: {
+      deliveryItemId?: string | null;
+      inventoryItemId?: string | null;
+      description?: string | null;
+      // Extra identifiers so one stale id cannot strand the call — the service
+      // tries each in turn.
+      lineId?: string | number | null;
+      itemCode?: string | null;
+      lineIndex?: number | null;
+      photos: string[];
+    },
     @Req() req: RequestWithOrganization,
   ) {
     const organizationId = req.userOrganization?.id;
