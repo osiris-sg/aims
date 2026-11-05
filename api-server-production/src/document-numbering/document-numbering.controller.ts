@@ -28,6 +28,19 @@ export class DocumentNumberingController {
     return this.service.list(orgId(req), documentType);
   }
 
+  // The next number for a type WITHOUT claiming it — the OR/PV editors fill
+  // the number box with it the moment the bank account is chosen.
+  @Get('peek')
+  @Permissions('documents:read')
+  peek(
+    @Req() req: RequestWithOrganization,
+    @Query('documentType') documentType: string,
+    @Query('bankAccountCode') bankAccountCode?: string,
+    @Query('date') date?: string,
+  ) {
+    return this.service.peekNumber(orgId(req), documentType, { bankAccountCode: bankAccountCode || null, when: date ? new Date(date) : undefined });
+  }
+
   // Stateless preview for the builder UI — formats a pattern with a sample serial
   // and today's date; does NOT touch any counter.
   @Post('preview')

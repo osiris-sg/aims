@@ -225,6 +225,39 @@ export class DocumentNumberingService {
     return DocumentNumberingService.format(format.pattern, claimed, when, docCode, bankCode);
   }
 
+  /**
+   * The number the next issue WOULD mint, without claiming it (guru
+   * 2026-11-05: "when I select the bank I want the first three to auto
+   * fill"). The OR/PV editors show it in the number box as soon as the bank
+   * is chosen; the save then sends it back as the typed number, and the
+   * server re-checks it is still free. `bankAccountCode` is resolved to the
+   * bank's short code here so the client never has to know the mapping.
+   */
+  async peekNumber(
+    organizationId: string,
+    documentType: string,
+    opts: { bankAccountCode?: string | null; when?: Date } = {},
+  ): Promise<{ number: string; bankCode: string } | null> {
+    const format = await this.activeFormat(organizationId, documentType);
+    if (!format) return null;
+    const when = opts.when && !isNaN(opts.when.getTime()) ? opts.when : new Date();
+    let bankCode = '';
+    if (opts.bankAccountCode) {
+      const acc = await this.prisma.chartOfAccount.findFirst({
+        where: { organizationId, code: opts.bankAccountCode },
+        select: { name: true, code: true },
+      });
+      bankCode = bankCodeOf(acc?.name || opts.bankAccountCode);
+    }
+    if (patternNeedsBank(format.pattern) && !bankCode) return null;
+    const docCode = docCodeOf(format.documentType);
+    const maxExisting = await this.maxExistingSerial(organizationId, format.pattern, docCode, when, this.prisma, format.documentType, bankCode);
+    const key = this.resetKey(format.resetPolicy, when);
+    const restart = key != null && format.lastResetKey !== key;
+    const serial = patternNeedsBank(format.pattern) ? maxExisting + 1 : Math.max(restart ? 1 : format.nextSerial, maxExisting + 1);
+    return { number: DocumentNumberingService.format(format.pattern, serial, when, docCode, bankCode), bankCode };
+  }
+
   /** The active format for a type, or null — lets OR/PV decide whether a number
    *  can be issued at creation or must wait for the bank account ({BANK}). */
   async activeFormat(organizationId: string, documentType: string) {

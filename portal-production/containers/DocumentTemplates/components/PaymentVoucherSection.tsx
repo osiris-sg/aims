@@ -42,7 +42,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
 import { headerInputSx } from "./DynamicFormFields";
-import { AccountSelectDialog, useOrAccounts, type OrAccount } from "./OfficialReceiptSection";
+import { AccountSelectDialog, numberIsPending, peekDocumentNumber, useOrAccounts, type OrAccount } from "./OfficialReceiptSection";
 import type { TemplateFieldConfig } from "../types/templateFieldTypes";
 import { todayIso } from "@/helpers/orgToday";
 
@@ -225,14 +225,25 @@ export function PvDebitInput({ formData, setFormData }: RowProps) {
 // Accounts to CREDIT — paid-from bank/cash only.
 export function PvCreditInput({ formData, setFormData }: RowProps) {
   const accounts = useOrAccounts();
+  const { getToken } = useAuth();
   const banks = useMemo(() => accounts.filter(isBankish), [accounts]);
   const code = formData?.pvData?.creditAccountCode || "";
   const [input, setInput] = useState(code);
   const [dialogOpen, setDialogOpen] = useState(false);
   useEffect(() => setInput(code), [code]);
   const selected = accounts.find((a) => a.code === code);
-  const commit = (acc: OrAccount) =>
-    setPvData(formData, setFormData, { creditAccountCode: acc.code, paidFromLabel: `${acc.code} — ${acc.name}` });
+  const commit = (acc: OrAccount) => {
+    const patch = { creditAccountCode: acc.code, paidFromLabel: `${acc.code} — ${acc.name}` };
+    setPvData(formData, setFormData, patch);
+    // Unsaved voucher: show the number this bank would get (guru 2026-11-05).
+    if (!formData?.savedAt || numberIsPending(formData?.name)) {
+      void (async () => {
+        const n = await peekDocumentNumber("PAYMENT_VOUCHER", acc.code, formData?.pvData?.date, await getToken());
+        // Merge onto the LATEST state — see OrDebitInput.
+        if (n) setFormData((prev: any) => ({ ...prev, name: n, documentInfo: { ...(prev?.documentInfo || {}), documentNumber: n } }));
+      })();
+    }
+  };
   return (
     <>
       <TextField

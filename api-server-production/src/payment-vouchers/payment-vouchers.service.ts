@@ -320,9 +320,13 @@ export class PaymentVouchersService {
         where: { organizationId, type: 'PAYMENT_VOUCHER', name: typed, NOT: { id } },
         select: { id: true },
       });
-      if (clash) throw new BadRequestException(`Voucher number ${typed} is already used`);
-      voucherNumber = typed;
-      await this.prisma.document.update({ where: { id }, data: { name: voucherNumber } });
+      // Previewed number taken meanwhile on a still-pending voucher → issue
+      // the next one; on a saved voucher it is a real conflict.
+      if (clash && !PaymentVouchersService.isPending(voucherNumber)) throw new BadRequestException(`Voucher number ${typed} is already used`);
+      if (!clash) {
+        voucherNumber = typed;
+        await this.prisma.document.update({ where: { id }, data: { name: voucherNumber } });
+      }
     }
     if (PaymentVouchersService.isPending(voucherNumber)) {
       const issued = await this.numbering.issueNumberLocked(organizationId, 'PAYMENT_VOUCHER', null, new Date(dto.date), undefined, {

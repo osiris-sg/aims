@@ -101,6 +101,27 @@ export type OrAccount = { code: string; name: string; accountType?: string; isAc
 // Chart of accounts, fetched once per editor mount and shared by the CREDIT /
 // DEBIT rows (module-level cache keyed by active org).
 let accountsCache: { key: string; accounts: OrAccount[] } | null = null;
+// Next number for the chosen bank, previewed from the server (not claimed).
+// Fills the Receipt / Voucher No. box the moment the bank is picked (guru
+// 2026-11-05) — only while the document has never been saved, so a saved
+// number is never silently replaced; the save sends it back as the typed
+// number and the server re-checks it.
+export async function peekDocumentNumber(
+  documentType: "OFFICIAL_RECEIPT" | "PAYMENT_VOUCHER",
+  bankAccountCode: string,
+  date: string | null | undefined,
+  token: string | null,
+): Promise<string | null> {
+  try {
+    const q = new URLSearchParams({ documentType, bankAccountCode, ...(date ? { date } : {}) });
+    const res = await apiFetch(`/document-numbering/peek?${q.toString()}`, token);
+    return res?.number || null;
+  } catch {
+    return null;
+  }
+}
+export const numberIsPending = (name: any) => /^(OR|PV)-PENDING/.test(String(name || ""));
+
 export function useOrAccounts(): OrAccount[] {
   const { getToken } = useAuth();
   const [accounts, setAccounts] = useState<OrAccount[]>(() => accountsCache?.accounts || []);
@@ -391,17 +412,28 @@ export function OrCreditInput({ formData, setFormData }: RowProps) {
 // commits directly. Same field pattern as Customer code.
 export function OrDebitInput({ formData, setFormData }: RowProps) {
   const accounts = useOrAccounts();
+  const { getToken } = useAuth();
   const banks = useMemo(() => accounts.filter(isBankish), [accounts]);
   const code = formData?.orData?.debitAccountCode || "";
   const [input, setInput] = useState(code);
   const [dialogOpen, setDialogOpen] = useState(false);
   useEffect(() => setInput(code), [code]);
   const selected = accounts.find((a) => a.code === code);
-  const commit = (acc: OrAccount) =>
-    setOrData(formData, setFormData, {
-      debitAccountCode: acc.code,
-      depositLabel: `${acc.code} — ${acc.name}`,
-    });
+  const commit = (acc: OrAccount) => {
+    const patch = { debitAccountCode: acc.code, depositLabel: `${acc.code} — ${acc.name}` };
+    setOrData(formData, setFormData, patch);
+    // Unsaved receipt: show the number this bank would get.
+    if (!formData?.savedAt || numberIsPending(formData?.name)) {
+      void (async () => {
+        const n = await peekDocumentNumber("OFFICIAL_RECEIPT", acc.code, formData?.orData?.date, await getToken());
+        // Merge onto the LATEST state, not the formData captured when the
+        // bank was picked: the peek is a round trip, and anything typed
+        // while it was in flight (an amount, a remark) would be thrown away
+        // by a write built from the stale snapshot.
+        if (n) setFormData((prev: any) => ({ ...prev, name: n, documentInfo: { ...(prev?.documentInfo || {}), documentNumber: n } }));
+      })();
+    }
+  };
   return (
     <>
       <TextField

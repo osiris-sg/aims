@@ -358,9 +358,14 @@ export class ReceiptsService {
         where: { organizationId, type: 'OFFICIAL_RECEIPT', name: typed, NOT: { id } },
         select: { id: true },
       });
-      if (clash) throw new BadRequestException(`Receipt number ${typed} is already used`);
-      receiptNumber = typed;
-      await this.prisma.document.update({ where: { id }, data: { name: receiptNumber } });
+      // A clash on a still-pending receipt means the previewed number was
+      // taken meanwhile — fall through and issue the next one; on a saved
+      // receipt it is a real conflict.
+      if (clash && !ReceiptsService.isPending(receiptNumber)) throw new BadRequestException(`Receipt number ${typed} is already used`);
+      if (!clash) {
+        receiptNumber = typed;
+        await this.prisma.document.update({ where: { id }, data: { name: receiptNumber } });
+      }
     }
     if (ReceiptsService.isPending(receiptNumber)) {
       const bank = await this.prisma.chartOfAccount.findFirst({
