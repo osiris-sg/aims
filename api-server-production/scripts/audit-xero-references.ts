@@ -25,6 +25,7 @@
  *                   nothing is ever written back to Xero by this script.
  */
 import { createScriptPrisma, getXeroTokens, xeroGet, BIOFUEL_ORG_ID } from './xero-migration/_common';
+import { grossOf } from '../src/common/document-money';
 
 const prisma = createScriptPrisma();
 const arg = (k: string, d = '') =>
@@ -79,7 +80,7 @@ let tokens: Promise<any>;
   });
 
   // Only rows that are actually linked to Xero can be compared at all.
-  type Row = { id: string; name: string; type: string; ref: string; xeroId: string | null; date: string };
+  type Row = { id: string; name: string; type: string; ref: string; xeroId: string | null; date: string; gross: number | null };
   const linked: Row[] = [];
   let unlinked = 0;
   for (const d of docs) {
@@ -89,18 +90,26 @@ let tokens: Promise<any>;
     const xeroId = c.xeroInvoiceId || c.xeroCreditNoteId || c.xeroBillId || null;
     if (!xeroId && !d.name) continue;
     if (!xeroId) { unlinked++; continue; }
-    linked.push({ id: d.id, name: d.name || '', type: d.type, ref: refOf(c), xeroId: String(xeroId), date });
+    linked.push({ id: d.id, name: d.name || '', type: d.type, ref: refOf(c), xeroId: String(xeroId), date, gross: grossOf(c) });
   }
 
   console.log(`\nAIMS documents of type ${types.join('/')}${FROM ? ` dated >= ${FROM}` : ''}: ${docs.length}`);
   console.log(`  linked to Xero: ${linked.length}     not linked (AIMS-only, nothing to compare): ${unlinked}\n`);
 
   console.log('Pulling Xero references…');
-  const xero = new Map<string, { ref: string; number: string }>();
+  const xero = new Map<string, { ref: string; number: string; total: number }>();
   for (const inv of await pullAll('/Invoices', 'Invoices'))
-    xero.set(String(inv.InvoiceID), { ref: String(inv.Reference ?? ''), number: String(inv.InvoiceNumber ?? '') });
+    xero.set(String(inv.InvoiceID), {
+      ref: String(inv.Reference ?? ''),
+      number: String(inv.InvoiceNumber ?? ''),
+      total: Number(inv.Total ?? 0),
+    });
   for (const cn of await pullAll('/CreditNotes', 'CreditNotes'))
-    xero.set(String(cn.CreditNoteID), { ref: String(cn.Reference ?? ''), number: String(cn.CreditNoteNumber ?? '') });
+    xero.set(String(cn.CreditNoteID), {
+      ref: String(cn.Reference ?? ''),
+      number: String(cn.CreditNoteNumber ?? ''),
+      total: Number(cn.Total ?? 0),
+    });
   console.log(`  ${xero.size} Xero documents read\n`);
 
   const agree: Row[] = [];
@@ -135,9 +144,13 @@ let tokens: Promise<any>;
     byXeroId.set(r.xeroId!, list);
   }
   const shared = Array.from(byXeroId.values()).filter((g) => g.length > 1);
+  // Xero's InvoiceNumber is often the same number with trailing space, or
+  // with a note appended after a separator ("JP2605120044 · BIPL-JPSG-INV-…").
+  // Neither is a renumbering, so compare the leading segment only.
+  const headNumber = (n: string) => n.trim().split(/\s*[·|]\s*/)[0].trim();
   const renumbered = linked.filter((r) => {
     const x = xero.get(r.xeroId!);
-    return x && x.number && r.name && x.number !== r.name;
+    return x && x.number && r.name && headNumber(x.number) !== headNumber(r.name);
   });
 
   console.log('Link health — before comparing any text');
@@ -187,14 +200,34 @@ let tokens: Promise<any>;
    *  AIMS, so the row is held back unless --force. */
   const leadingNumber = (ref: string) => ref.match(/^([A-Z]{2,}[0-9][A-Z0-9-]*)/i)?.[1] || '';
 
-  type Note = { belongsTo: string; xeroNamesOther: string; aimsShared: number };
+  // Xero total per invoice number — the tie-breaker. When AIMS quotes another
+  // document's reference, the money says which document AIMS actually IS.
+  const xeroTotalByNumber = new Map<string, number>();
+  for (const x of Array.from(xero.values())) if (x.number) xeroTotalByNumber.set(headNumber(x.number), x.total);
+
+  type Note = { belongsTo: string; xeroNamesOther: string; aimsShared: number; money: string };
   const noteFor = (r: Row & { xref?: string }): Note => {
-    const owners = (xeroRefOwner.get(norm(r.ref)) || []).filter((n) => n !== r.name);
+    const owners = (xeroRefOwner.get(norm(r.ref)) || []).filter((n) => headNumber(n) !== headNumber(r.name));
     const lead = leadingNumber(r.xref || '');
+    // Does AIMS's amount match the Xero document it is LINKED to, or the one
+    // whose reference text it is carrying? That decides whether the reference
+    // is wrong or the link is.
+    let money = '';
+    const linkedTotal = xero.get(r.xeroId!)?.total;
+    if (r.gross != null && linkedTotal != null) {
+      const near = (a: number, b: number) => Math.abs(a - b) < 0.01;
+      const other = owners[0] ? xeroTotalByNumber.get(headNumber(owners[0])) : undefined;
+      if (near(r.gross, linkedTotal))
+        money = `amount ${r.gross.toFixed(2)} matches the linked Xero doc — the LINK is right, the reference text is wrong`;
+      else if (other != null && near(r.gross, other))
+        money = `amount ${r.gross.toFixed(2)} matches ${owners[0]}, not the linked doc (${linkedTotal.toFixed(2)}) — the LINK is wrong`;
+      else money = `amount ${r.gross.toFixed(2)} vs linked Xero ${linkedTotal.toFixed(2)} — neither matches`;
+    }
     return {
       belongsTo: owners.slice(0, 3).join(', '),
-      xeroNamesOther: lead && lead !== r.name ? lead : '',
+      xeroNamesOther: lead && headNumber(lead) !== headNumber(r.name) ? lead : '',
       aimsShared: aimsRefCount.get(norm(r.ref)) || 0,
+      money,
     };
   };
 
@@ -237,8 +270,23 @@ let tokens: Promise<any>;
       if (n.belongsTo) console.log(`     ↳ this AIMS text is Xero's reference for ${n.belongsTo} — the series is SHIFTED, not blank`);
       if (n.xeroNamesOther) console.log(`     ⚠ Xero's own text opens with ${n.xeroNamesOther}, not ${r.name} — Xero is mislabelled here`);
       if (n.aimsShared > 1) console.log(`     ⚠ ${n.aimsShared} AIMS documents share this exact reference`);
+      if (n.money) console.log(`     $ ${n.money}`);
     }
   };
+  const verdict = { refWrong: 0, linkWrong: 0, neither: 0, unknown: 0 };
+  for (const r of differs) {
+    const m = noteFor(r).money;
+    if (!m) verdict.unknown++;
+    else if (m.includes('LINK is right')) verdict.refWrong++;
+    else if (m.includes('LINK is wrong')) verdict.linkWrong++;
+    else verdict.neither++;
+  }
+  console.log(`\nWhat the amounts say about the ${differs.length} "different text" rows:`);
+  console.log(`  link right, reference text wrong   ${String(verdict.refWrong).padStart(6)}   ← safe to copy from Xero`);
+  console.log(`  link wrong (amount is another doc) ${String(verdict.linkWrong).padStart(6)}   ← fix the link, do NOT copy text`);
+  console.log(`  neither amount matches             ${String(verdict.neither).padStart(6)}   ← look by hand`);
+  console.log(`  no amount stamped in AIMS          ${String(verdict.unknown).padStart(6)}`);
+
   dump('DIFFERENT text', differs);
   dump('Blank in AIMS, present in Xero', missingInAims);
   dump('Present in AIMS, blank in Xero', extraInAims.slice(0, SHOW));
