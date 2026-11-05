@@ -144,12 +144,14 @@ export class JournalController {
   @ApiQuery({ name: 'startDate', required: false })
   @ApiQuery({ name: 'endDate', required: false })
   @ApiQuery({ name: 'orderBy', required: false, description: 'journalNumber | entryDate | postedAt' })
+  @ApiQuery({ name: 'source', required: false, description: 'manual (hand-keyed J/Vs only) | auto (document-posted only); default all' })
   journalReport(@Req() req: RequestWithOrganization, @Query() q: any) {
     return this.service.journalReport(requireOrgId(req), {
       startDate: q.startDate ? startOfDay(q.startDate) : undefined,
       endDate: q.endDate ? endOfDay(q.endDate) : undefined,
       orderBy: q.orderBy,
       includeUnposted: q.includeUnposted === 'true' || q.includeUnposted === '1',
+      source: q.source === 'manual' || q.source === 'auto' ? q.source : undefined,
     });
   }
 

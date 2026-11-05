@@ -837,6 +837,13 @@ export class JournalService {
       // Journal Voucher Listing (legacy): DRAFT entries too — rendered as the
       // red "Unconfirmed Journal Voucher(s)" section. Default stays POSTED-only.
       includeUnposted?: boolean;
+      // Journal Voucher Listing "Source" filter (guru 2026-11-05: "is there a
+      // way to look at manual JV entries?"): manual = type MANUAL (keyed on
+      // the Journal Voucher screen, or a Xero manual journal), auto = every
+      // other type (posted from invoices, receipts, vouchers, notes…).
+      // Applied in the query, BEFORE the 500-journal cap — a client-side
+      // filter would lose the manual ones, which sort after the cap.
+      source?: 'manual' | 'auto';
     },
   ) {
     const MAX_JOURNALS = 500;
@@ -854,6 +861,7 @@ export class JournalService {
         organizationId,
         status: opts.includeUnposted ? { in: ['POSTED', 'DRAFT'] } : 'POSTED',
         entryDate: { ...(opts.startDate ? { gte: opts.startDate } : {}), lte: eod },
+        ...(opts.source === 'manual' ? { type: 'MANUAL' } : opts.source === 'auto' ? { type: { not: 'MANUAL' } } : {}),
       },
       include: {
         lines: { include: { account: { select: { code: true, name: true } } }, orderBy: { lineNumber: 'asc' } },
