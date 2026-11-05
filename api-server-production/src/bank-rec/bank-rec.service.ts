@@ -1129,6 +1129,30 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
     });
     const glBalance = ROUND(lines.reduce((s, l) => s + l.debit - l.credit, 0));
 
+    // ---- Books vs bank -------------------------------------------------
+    // The question is only ever: does the GL balance at period end equal the
+    // closing balance printed on the statement?
+    //
+    // The old sum answered a different one. It computed
+    // `endingBalance - glBalance - pendingTotal`, treating every unmatched
+    // statement line as missing from the books — so SCB July, where both sides
+    // are 2,932,003.88 to the cent, still read "Out by 115,888.72" purely
+    // because batch payments had not been linked line by line.
+    //
+    // Xero's Bank Reconciliation Summary bridges the two with outstanding
+    // payments / receipts, but that does NOT translate here: Xero has every
+    // transaction reconciled, so anything unreconciled is genuinely not yet at
+    // the bank. AIMS only holds statements for the periods actually imported,
+    // so "no statement line claims this journal line" mostly means "no
+    // statement covers that month" — deriving outstanding items that way gave
+    // $70m of phantom payments. And within an imported period the unmatched
+    // journal lines and the unmatched statement lines are the SAME
+    // transactions seen from both sides (both net to -115,888.72 in July), so
+    // counting both double-counts them.
+    //
+    // Hence the direct comparison, with the unmatched lines reported as
+    // information rather than folded into the arithmetic (guru 2026-11-04).
+    const hasEnding = imp.endingBalance !== null && imp.endingBalance !== undefined;
     return {
       importId,
       bankAccountId: imp.bankAccountId,
@@ -1143,14 +1167,11 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
       ignoredCount: imp.lines.filter((l) => l.status === 'IGNORED').length,
       matchedTotal: ROUND(matchedTotal),
       pendingTotal: ROUND(pendingTotal),
-      reconciles:
-        imp.endingBalance !== null && imp.endingBalance !== undefined
-          ? Math.abs(glBalance - imp.endingBalance + pendingTotal) < 0.01
-          : null,
-      diff:
-        imp.endingBalance !== null && imp.endingBalance !== undefined
-          ? ROUND(imp.endingBalance - glBalance - pendingTotal)
-          : null,
+      // Reconciled when the books equal the statement — NOT when every line
+      // happens to be linked. Linking is bookkeeping hygiene; agreement of the
+      // two balances is the actual reconciliation.
+      reconciles: hasEnding ? Math.abs(glBalance - (imp.endingBalance as number)) < 0.01 : null,
+      diff: hasEnding ? ROUND((imp.endingBalance as number) - glBalance) : null,
     };
   }
 

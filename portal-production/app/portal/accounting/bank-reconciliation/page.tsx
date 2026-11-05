@@ -785,7 +785,6 @@ export default function BankReconciliationPage() {
                   </Typography>
                   <Typography variant="body2" sx={{ color: "text.secondary" }}>
                     Bank says {fmt(recon.bankEndingBalance || 0)} · books say {fmt(recon.glBalance)}
-                    {recon.pendingCount > 0 ? ` · ${recon.pendingCount} line${recon.pendingCount === 1 ? "" : "s"} still unmatched` : ""}
                   </Typography>
                 </>
               ) : (
@@ -822,26 +821,90 @@ export default function BankReconciliationPage() {
             </Stack>
           </Stack>
 
-          <Stack direction="row" gap={3} sx={{ mt: 1.5, flexWrap: "wrap" }}>
-            <Box>
-              <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>
-                Books (GL)
+          {/* The bridge from the books to the bank, the way an accountant reads
+              it and the way Xero's Bank Reconciliation Summary prints it
+              (guru 2026-11-04). Two tiles used to sit here — "Books (GL)" and
+              "Unmatched" — which could not explain WHY the two sides differed,
+              and the verdict above subtracted every unlinked statement line as
+              if it were missing from the books. Outstanding items are in the
+              books but not yet at the bank; unreconciled statement lines are at
+              the bank but not yet in the books. */}
+          <Box sx={{ mt: 2, maxWidth: 520 }}>
+            {[
+              { label: "Balance in your books", value: recon.glBalance, strong: true, hint: "the general ledger for this bank account at the statement's end date" },
+            ].map((r) => (
+              <Stack
+                key={r.label}
+                direction="row"
+                alignItems="baseline"
+                gap={1}
+                sx={{ py: 0.5, borderBottom: 1, borderColor: "divider" }}
+              >
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography variant="body2" sx={{ fontWeight: r.strong ? 700 : 400 }}>
+                    {r.label}
+                  </Typography>
+                  {r.hint && (
+                    <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                      {r.hint}
+                    </Typography>
+                  )}
+                </Box>
+                <Typography
+                  variant="body2"
+                  sx={{ fontWeight: r.strong ? 700 : 600, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}
+                >
+                  {r.value === 0 ? "—" : fmt(r.value)}
+                </Typography>
+              </Stack>
+            ))}
+            <Stack direction="row" alignItems="baseline" gap={1} sx={{ py: 0.75, borderBottom: 3, borderColor: "divider" }}>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                  Closing balance on the statement
+                </Typography>
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                  what the bank printed at the end of the period
+                </Typography>
+              </Box>
+              <Typography
+                variant="body2"
+                sx={{
+                  fontWeight: 800,
+                  fontVariantNumeric: "tabular-nums",
+                  color: recon.reconciles === true ? "success.main" : recon.reconciles === false ? "error.main" : "text.secondary",
+                }}
+              >
+                {recon.bankEndingBalance === null || recon.bankEndingBalance === undefined ? "not entered" : fmt(recon.bankEndingBalance)}
               </Typography>
-              <Typography variant="body2" sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
-                {fmt(recon.glBalance)}
-              </Typography>
-            </Box>
-            <Box>
-              <Typography variant="caption" sx={{ color: "text.secondary", display: "block" }}>
-                Unmatched
+            </Stack>
+            <Stack direction="row" alignItems="baseline" gap={1} sx={{ py: 0.75 }}>
+              <Typography variant="body2" sx={{ flex: 1, fontWeight: 700 }}>
+                Difference
               </Typography>
               <Typography
                 variant="body2"
-                sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums", color: recon.pendingCount > 0 ? "warning.main" : "text.primary" }}
+                sx={{
+                  fontWeight: 700,
+                  fontVariantNumeric: "tabular-nums",
+                  color: recon.reconciles === true ? "success.main" : recon.reconciles === false ? "error.main" : "text.secondary",
+                }}
               >
-                {fmt(recon.pendingTotal)}{recon.pendingCount > 0 ? ` · ${recon.pendingCount} line${recon.pendingCount === 1 ? "" : "s"}` : ""}
+                {recon.diff === null || recon.diff === undefined ? "—" : recon.diff === 0 ? "0.00" : fmt(recon.diff)}
               </Typography>
-            </Box>
+            </Stack>
+            {/* Linking lines is bookkeeping hygiene; it is NOT what makes the
+                month reconcile. Say so, or an agreeing month looks broken. */}
+            {recon.pendingCount > 0 && (
+              <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mt: 0.5 }}>
+                {recon.reconciles === true
+                  ? `Reconciled. ${recon.pendingCount} statement line${recon.pendingCount === 1 ? " is" : "s are"} still unlinked — they are already in your books, they just have not been tied to a specific entry yet.`
+                  : `${recon.pendingCount} statement line${recon.pendingCount === 1 ? "" : "s"} not yet linked to an entry.`}
+              </Typography>
+            )}
+          </Box>
+
+          <Stack direction="row" gap={3} sx={{ mt: 1.5, flexWrap: "wrap" }}>
             <Box sx={{ flex: 1 }} />
             <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={runAutoMatch}>
               Re-run match
