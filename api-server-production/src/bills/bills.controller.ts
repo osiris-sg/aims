@@ -108,6 +108,16 @@ export class BillsController {
     return this.service.update(requireOrgId(req), id, body);
   }
 
+  // Duplicate a bill as a fresh DRAFT (the supplier-invoice twin of the
+  // document ⋮ → Duplicate). Dated today, "-COPY" number for the user to
+  // replace, nothing posted to the GL until the copy is submitted.
+  @Post(':id/duplicate')
+  @Permissions('bills:create')
+  @ApiOperation({ summary: 'Copy a bill into a new DRAFT (today\'s date, -COPY number, not posted)' })
+  duplicate(@Req() req: RequestWithOrganization, @Param('id') id: string) {
+    return this.service.duplicate(requireOrgId(req), req.auth?.userId, id);
+  }
+
   @Post(':id/submit')
   @Permissions('bills:create')
   @ApiOperation({ summary: 'Submit a DRAFT — routes to PENDING_APPROVAL or posts immediately based on threshold' })

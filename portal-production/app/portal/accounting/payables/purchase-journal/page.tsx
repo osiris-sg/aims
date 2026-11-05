@@ -208,6 +208,19 @@ export default function BillsPage() {
     try { await request(`/bills/${b.id}/submit`, { method: "POST" }); toast.success("Submitted"); load(); }
     catch (e: any) { toast.error(e?.message || "Submit failed"); }
   };
+  // Duplicate (guru 2026-11-05) — the supplier-invoice twin of the document
+  // ⋮ → Duplicate. The copy comes back dated today with a "-COPY" number for
+  // the user to replace, and is opened straight away so it can be finished.
+  const duplicateBill = async (b: Bill) => {
+    try {
+      const copy: any = await request(`/bills/${b.id}/duplicate`, { method: "POST" });
+      toast.success("Copied. Replace the invoice number, then submit.");
+      load();
+      if (copy?.id) { setEditing(copy); setEditorOpen(true); }
+    } catch (e: any) {
+      toast.error(e?.message || "Could not duplicate this bill");
+    }
+  };
   const approve = async (b: Bill) => {
     try { await request(`/bills/${b.id}/approve`, { method: "POST" }); toast.success("Approved + posted"); load(); }
     catch (e: any) { toast.error(e?.message || "Approve failed"); }
@@ -363,6 +376,7 @@ export default function BillsPage() {
         : 0;
       return [
         { label: "View / edit", onClick: () => { setEditing(b); setEditorOpen(true); } },
+        { label: "Duplicate", onClick: () => duplicateBill(b) },
         ...(b.status === "DRAFT" ? [{ label: "Submit", onClick: () => submitDraft(b) }] : []),
         ...(b.status === "PENDING_APPROVAL"
           ? [
@@ -524,6 +538,7 @@ export default function BillsPage() {
         onClose={() => { setEditorOpen(false); setBatchFiles(null); }}
         onSaved={() => { setEditorOpen(false); setBatchFiles(null); load(); }}
         onRefresh={load}
+        onDuplicate={(b: any) => duplicateBill(b)}
       />
 
       {payingBill && (

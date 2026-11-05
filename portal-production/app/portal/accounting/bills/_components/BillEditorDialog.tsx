@@ -33,6 +33,7 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { accountTypeLabel, sortAccountsByType } from "@/components/glAccountGrouping";
 import CloudSyncIcon from "@mui/icons-material/CloudSync";
 import { toast } from "react-toastify";
@@ -66,6 +67,10 @@ type LineForm = {
   unitPrice: string;
   amount: string;
   accountId: string | null;
+  // Filled by the server for a POSTED bill whose line never stored an account
+  // (read back off the bill's journal). Display only — cleared on any edit.
+  accountCode?: string | null;
+  accountName?: string | null;
   // WCT (2026-11-04): the quotation this line's cost belongs to (one SIN can cover several job sites).
   quotation?: QuotationTag | null;
 };
@@ -127,12 +132,17 @@ export default function BillEditorDialog({
   onSaved,
   batchFiles,
   onRefresh,
+  onDuplicate,
   kind: kindProp,
 }: {
   open: boolean;
   editing: any | null;
   onClose: () => void;
   onSaved: () => void;
+  // Copy this bill into a new draft (⋮ → Duplicate on the list does the same).
+  // Offered here because a POSTED bill is read-only, and "make another like
+  // this one" is the usual reason to open one.
+  onDuplicate?: (bill: any) => void;
   // Pre-expanded files from the "Upload Bills" bulk entry point — opens the
   // dialog straight into batch mode.
   batchFiles?: File[] | null;
@@ -238,6 +248,12 @@ export default function BillEditorDialog({
               unitPrice: String(l.unitPrice ?? ""),
               amount: String(l.amount ?? ""),
               accountId: l.accountId || null,
+              // The server fills these for a POSTED bill whose line never stored
+              // an account, by reading it back off the bill's journal. Kept so
+              // the box can still name the account when it is not in the
+              // dropdown (an inactive account is not offered as an option).
+              accountCode: l.accountCode || null,
+              accountName: l.accountName || null,
               quotation: lineTagOf(l),
             }))
           : [newLine()];
@@ -1151,10 +1167,29 @@ export default function BillEditorDialog({
                       // options pre-sorted so each group renders contiguously.
                       options={sortAccountsByType(accounts)}
                       groupBy={(o) => accountTypeLabel(o.accountType)}
-                      value={accounts.find((a) => a.id === l.accountId) || null}
-                      onChange={(_, v) => setLine(l.uid, { accountId: v?.id || null })}
-                      getOptionLabel={(o) => `${o.code} — ${o.name}`}
-                      renderInput={(params) => <TextField {...params} placeholder="Auto" disabled={isReadOnly} />}
+                      // Fall back to the code/name the server derived from the
+                      // journal when the account is not among the options, so a
+                      // posted bill never shows a blank account box.
+                      value={
+                        accounts.find((a) => a.id === l.accountId) ||
+                        (l.accountId && (l.accountCode || l.accountName)
+                          ? ({ id: l.accountId, code: l.accountCode || "", name: l.accountName || "", accountType: "" } as any)
+                          : null)
+                      }
+                      onChange={(_, v) => setLine(l.uid, { accountId: v?.id || null, accountCode: null, accountName: null })}
+                      getOptionLabel={(o) => (o.code || o.name ? `${o.code}${o.code && o.name ? " — " : ""}${o.name}` : "")}
+                      isOptionEqualToValue={(o, v) => o.id === v.id}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          // "Auto" promises the account will be chosen on
+                          // posting. On a bill that is already posted nothing
+                          // more will be chosen, so an empty box there means the
+                          // account could not be determined, not "pending".
+                          placeholder={isReadOnly ? "Not recorded" : "Auto"}
+                          disabled={isReadOnly}
+                        />
+                      )}
                     />
                   </TableCell>
                   {showQuotation && (
@@ -1314,6 +1349,24 @@ export default function BillEditorDialog({
           >
             {syncingXero ? "Syncing..." : "Sync to Xero"}
           </Button>
+        )}
+        {editing?.id && onDuplicate && (
+          // Any saved bill can be copied, draft or posted. The server reads the
+          // SAVED bill, so on a draft that is still being edited the copy is of
+          // the last save — said plainly here rather than silently copying
+          // something other than what is on screen. (A posted bill is
+          // read-only, so there is nothing unsaved for it to miss.)
+          <Tooltip title={isReadOnly ? "Copy this bill into a new draft" : "Copies this bill as it was last saved"}>
+            <Button
+              variant="outlined"
+              startIcon={<ContentCopyIcon />}
+              onClick={() => onDuplicate(editing)}
+              disabled={saving || extracting || flushing}
+              sx={{ mr: 1 }}
+            >
+              Duplicate
+            </Button>
+          </Tooltip>
         )}
         <Button onClick={requestClose} disabled={saving || extracting || flushing}>
           Cancel

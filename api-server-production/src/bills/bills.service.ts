@@ -9,6 +9,7 @@ import { AccountMemoryService } from '../account-memory/account-memory.service';
 import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
 import { lineQuotationsOf, pickQuotation, QUOTATION_REFS_PROMPT, QUOTATION_TYPES, quotationCandidates, quotationSummary, WCT_ORDERS_FLAG } from './bill-quotation';
 import { isOrgFeatureEnabled } from '../common/org-features';
+import { orgTodayFor } from '../common/org-today';
 
 // ---------------------------------------------------------------------------
 // Bills (Accounts Payable) — supplier-side equivalent of invoices.
@@ -234,6 +235,75 @@ export class BillsService {
     return bills;
   }
 
+  /**
+   * Show the account a POSTED bill actually posted to, even when the line never
+   * stored one.
+   *
+   * A bill line's accountId is optional: when it is absent, posting falls back
+   * to the org's first PURCHASE account. That fallback used to live only in the
+   * journal, so reopening a posted bill showed an empty "Auto" account box with
+   * no way to see where the money went (guru 2026-11-05). Posting now stamps the
+   * resolved id back onto the line, and this fills in every bill posted BEFORE
+   * that, with no migration: the account is read back off the bill's own journal.
+   *
+   * Control lines (Trade Payables, input tax) are excluded by ACCOUNT, read from
+   * the org's accounting settings, so a bill line that happens to be described
+   * "Input tax" is never mistaken for one. The remaining lines were built in bill
+   * -line order by postBillJournal, so they pair by position; description is
+   * preferred when it is unambiguous. A Xero-imported bill whose mirror journal
+   * is unlinked simply has nothing to read, and its lines stay blank.
+   *
+   * Display only — nothing is written here.
+   */
+  private async fillLineAccountsFromJournal(organizationId: string, billId: string, bill: any) {
+    try {
+      const lines: any[] = Array.isArray(bill?.lines) ? bill.lines : [];
+      if (!lines.length || !lines.some((l) => !l?.accountId)) return bill;
+
+      const entry = await this.prisma.journalEntry.findFirst({
+        where: { organizationId, sourceDocumentId: billId, type: 'BILL' as any, status: 'POSTED' },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          lines: {
+            select: { description: true, account: { select: { id: true, code: true, name: true } } },
+          },
+        },
+      });
+      if (!entry?.lines?.length) return bill;
+
+      const settings = await this.prisma.accountingSetting.findUnique({ where: { organizationId } });
+      const controls = (settings?.controlAccounts as any) || {};
+      const controlCodes = new Set(
+        [controls.creditorControl || 'CL001', controls.taxLiabilities || 'CL900'].filter(Boolean),
+      );
+      const expense = entry.lines.filter((l) => l.account && !controlCodes.has(l.account.code));
+      if (!expense.length) return bill;
+
+      const norm = (v: any) => String(v ?? '').trim().toLowerCase();
+      const used = new Set<number>();
+      const filled = lines.map((l: any, i: number) => {
+        if (l?.accountId) return l;
+        let hit = -1;
+        const d = norm(l?.description);
+        if (d) {
+          const ms = expense
+            .map((e, ei) => ({ e, ei }))
+            .filter(({ e, ei }) => !used.has(ei) && norm(e.description) === d);
+          if (ms.length === 1) hit = ms[0].ei;
+        }
+        if (hit < 0 && i < expense.length && !used.has(i)) hit = i;
+        if (hit < 0) return l;
+        used.add(hit);
+        const a = expense[hit].account!;
+        return { ...l, accountId: a.id, accountCode: a.code, accountName: a.name };
+      });
+      return { ...bill, lines: filled };
+    } catch (err: any) {
+      this.logger?.warn?.(`fillLineAccountsFromJournal failed for bill ${billId}: ${err?.message}`);
+      return bill;
+    }
+  }
+
   async findOne(organizationId: string, id: string) {
     const doc = await this.prisma.document.findFirst({
       where: { id, organizationId, type: 'BILL' },
@@ -241,7 +311,8 @@ export class BillsService {
     });
     if (!doc) throw new NotFoundException('Bill not found');
     const supplierMap = await this.hydrateSupplierNames([doc]);
-    return this.toBill(doc, supplierMap.get(((doc.config as any)?.supplierId || (doc.config as any)?.supplier?.id) as string));
+    const bill = this.toBill(doc, supplierMap.get(((doc.config as any)?.supplierId || (doc.config as any)?.supplier?.id) as string));
+    return this.fillLineAccountsFromJournal(organizationId, id, bill);
   }
 
   async create(
@@ -373,6 +444,96 @@ export class BillsService {
       }
       throw e;
     }
+  }
+
+  /**
+   * DUPLICATE A BILL (guru 2026-11-05) — the supplier-invoice twin of the
+   * document ⋮ → Duplicate.
+   *
+   * Copies the supplier, the lines (descriptions, quantities, prices AND their
+   * accounts), the tax treatment and the quotation tags, and leaves the copy as
+   * a DRAFT for the user to finish. Deliberately different from the original in
+   * three ways:
+   *
+   *   DATE   — dated TODAY in the org's time zone, not the source's date, the
+   *            same rule the document duplicate follows. The due date keeps the
+   *            source's gap (due − date) so the payment terms survive.
+   *   NUMBER — (billNumber, supplier) is UNIQUE, so the copy cannot reuse the
+   *            number. It takes a "<number>-COPY" suffix (then -COPY2, -COPY3…)
+   *            which the user replaces with the real supplier invoice number.
+   *            Inventing a plausible-looking number would be worse: a bill
+   *            number is the SUPPLIER's reference, not ours to mint.
+   *   GL     — created with postOnSave:false, so nothing reaches the ledger
+   *            until the copy is submitted. A duplicate is a starting point and
+   *            is usually edited; posting a "-COPY" placeholder to the GL first
+   *            would put a junk entry in the posting queue every time.
+   *
+   * Payments, attachments, the source journal and the posted/approval state are
+   * NOT copied — they belong to the original bill.
+   */
+  async duplicate(organizationId: string, userId: string | undefined, id: string) {
+    const src: any = await this.findOne(organizationId, id);
+
+    // A free slot for the copy's number. Bounded, and it never overwrites: the
+    // unique index is still the authority, this only avoids the obvious clash.
+    const base = String(src.billNumber || '').trim() || 'BILL';
+    const supplierId = src.supplierId ?? src.supplier?.id ?? null;
+    if (!supplierId) throw new BadRequestException('This bill has no supplier to copy.');
+    let billNumber = `${base}-COPY`;
+    for (let n = 2; n <= 50; n++) {
+      const clash = await this.prisma.document.findFirst({
+        where: { organizationId, type: 'BILL', name: billNumber },
+        select: { id: true },
+      });
+      if (!clash) break;
+      billNumber = `${base}-COPY${n}`;
+    }
+
+    // Today, and the due date moved by the same gap the source had.
+    const today = await orgTodayFor(this.prisma, organizationId);
+    const srcDate = String(src.billDate || '').slice(0, 10);
+    const srcDue = String(src.dueDate || '').slice(0, 10);
+    let dueDate: string | undefined;
+    if (srcDate && srcDue) {
+      const gap = Math.round(
+        (new Date(`${srcDue}T00:00:00Z`).getTime() - new Date(`${srcDate}T00:00:00Z`).getTime()) / 86400000,
+      );
+      if (Number.isFinite(gap)) {
+        const d = new Date(`${today}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + gap);
+        dueDate = d.toISOString().slice(0, 10);
+      }
+    }
+
+    const lines = (Array.isArray(src.lines) ? src.lines : []).map((l: any) => ({
+      description: l?.description ?? '',
+      quantity: l?.quantity ?? 1,
+      unitPrice: l?.unitPrice ?? 0,
+      amount: l?.amount ?? 0,
+      ...(l?.accountId ? { accountId: l.accountId } : {}),
+      ...(l?.quotationId ? { quotationId: l.quotationId, quotationNumber: l.quotationNumber ?? null } : {}),
+    }));
+
+    const created = await this.create(
+      organizationId,
+      userId,
+      {
+        supplierId,
+        billNumber,
+        billDate: today,
+        ...(dueDate ? { dueDate } : {}),
+        reference: src.reference || undefined,
+        description: src.description || undefined,
+        lines,
+        taxAmount: src.taxAmount ?? 0,
+        taxCode: src.taxCode || undefined,
+        amountsAre: src.amountsAre || 'EXCLUSIVE',
+        kind: src.kind === 'SPR' ? 'SPR' : 'SIN',
+        ...(src.quotationId ? { quotationId: src.quotationId } : {}),
+      } as any,
+      { postOnSave: false },
+    );
+    return created;
   }
 
   async update(organizationId: string, id: string, dto: Partial<any>, opts?: { postOnSave?: boolean }) {
@@ -579,9 +740,18 @@ export class BillsService {
     const netFactor = inclusive ? (linesSum - bill.taxAmount) / linesSum : 1;
 
     const lines: Array<{ accountId: string; debit: number; credit: number; description: string }> = [];
+    // RESOLVED ACCOUNT PER LINE. A line that carries no accountId falls back to
+    // the org's first PURCHASE account — which used to be invisible afterwards:
+    // the fallback was used for the journal and thrown away, so reopening the
+    // bill showed an empty "Auto" account box on a POSTED bill and there was no
+    // way to see what it had actually posted to (guru 2026-11-05). The resolved
+    // ids are written back onto the stored lines below, so the bill records the
+    // account it posted to.
+    const resolvedAccountIds: string[] = [];
     for (const [i, l] of (bill.lines as any[]).entries()) {
       const accountId = l.accountId || fallbackPurchase?.id;
       if (!accountId) throw new BadRequestException(`Bill line ${i + 1}: no accountId and no fallback PURCHASE account in chart`);
+      resolvedAccountIds.push(accountId);
       lines.push({ accountId, debit: ROUND((l.amount || 0) * netFactor), credit: 0, description: l.description || `Bill ${bill.billNumber}` });
     }
     if (inclusive) {
@@ -613,7 +783,23 @@ export class BillsService {
       userId,
       opts.confirmed ? { confirmedSource: true } : undefined,
     );
-    return this.journal.post(organizationId, entry.id, userId);
+    const postedEntry = await this.journal.post(organizationId, entry.id, userId);
+
+    // Record the account each line posted to, so the editor can show it. Only
+    // fills a line that had none — an explicit choice is never overwritten.
+    // Best-effort: the journal is already posted and correct, and the read path
+    // falls back to deriving the account from that journal anyway.
+    try {
+      if (resolvedAccountIds.some((a, i) => a && !(bill.lines as any[])[i]?.accountId)) {
+        const stamped = (bill.lines as any[]).map((l: any, i: number) =>
+          l?.accountId ? l : { ...l, accountId: resolvedAccountIds[i] ?? null },
+        );
+        await this.patchConfig(id, { lines: stamped });
+      }
+    } catch (err: any) {
+      this.logger?.warn?.(`postBillJournal: could not stamp resolved accounts on bill ${id}: ${err?.message}`);
+    }
+    return postedEntry;
   }
 
   // ---- AI posting preview (dry-run — does NOT write anything) ----
