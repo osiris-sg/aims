@@ -458,8 +458,8 @@ export class BillsService {
    *   DATE   — dated TODAY in the org's time zone, not the source's date, the
    *            same rule the document duplicate follows. The due date keeps the
    *            source's gap (due − date) so the payment terms survive.
-   *   NUMBER — (billNumber, supplier) is UNIQUE, so the copy cannot reuse the
-   *            number. It takes a "<number>-COPY" suffix (then -COPY2, -COPY3…)
+   *   NUMBER — Document is @@unique([name, organizationId, documentTemplateId]),
+   *            so the copy cannot reuse the number. It takes a "<number>-COPY" suffix (then -COPY2, -COPY3…)
    *            which the user replaces with the real supplier invoice number.
    *            Inventing a plausible-looking number would be worse: a bill
    *            number is the SUPPLIER's reference, not ours to mint.
