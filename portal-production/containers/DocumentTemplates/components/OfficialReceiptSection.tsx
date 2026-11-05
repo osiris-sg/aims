@@ -185,7 +185,9 @@ export function OrReceiptNoInput({ formData, setFormData }: RowProps) {
       value={value}
       onChange={(e) => {
         const v = e.target.value;
-        setFormData({ ...formData, name: v, documentInfo: { ...(formData?.documentInfo || {}), documentNumber: v } });
+        // numberTouched stops the bank/date preview from overwriting a
+        // number the user typed on purpose.
+        setFormData({ ...formData, name: v, numberTouched: true, documentInfo: { ...(formData?.documentInfo || {}), documentNumber: v } });
       }}
       placeholder="Issued on save"
       sx={{ ...headerInputSx, width: 220 }}
@@ -419,21 +421,28 @@ export function OrDebitInput({ formData, setFormData }: RowProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   useEffect(() => setInput(code), [code]);
   const selected = accounts.find((a) => a.code === code);
-  const commit = (acc: OrAccount) => {
-    const patch = { debitAccountCode: acc.code, depositLabel: `${acc.code} — ${acc.name}` };
-    setOrData(formData, setFormData, patch);
-    // Unsaved receipt: show the number this bank would get.
-    if (!formData?.savedAt || numberIsPending(formData?.name)) {
-      void (async () => {
-        const n = await peekDocumentNumber("OFFICIAL_RECEIPT", acc.code, formData?.orData?.date, await getToken());
-        // Merge onto the LATEST state, not the formData captured when the
-        // bank was picked: the peek is a round trip, and anything typed
-        // while it was in flight (an amount, a remark) would be thrown away
-        // by a write built from the stale snapshot.
-        if (n) setFormData((prev: any) => ({ ...prev, name: n, documentInfo: { ...(prev?.documentInfo || {}), documentNumber: n } }));
-      })();
-    }
-  };
+  const commit = (acc: OrAccount) =>
+    setOrData(formData, setFormData, { debitAccountCode: acc.code, depositLabel: `${acc.code} — ${acc.name}` });
+  // Unsaved receipt: the number box follows the bank AND the date (guru
+  // 2026-11-05) — SCBOR2611-001 becomes SCBOR2610-001 when the date is moved
+  // into October. Re-peeked whenever either changes; a saved receipt keeps
+  // its number. The peek is a round trip, so the result is merged onto the
+  // LATEST state (setFormData takes an updater), never onto the snapshot.
+  const date = formData?.orData?.date || "";
+  // A number typed by hand is the user's, not the series' — the preview
+  // stands down for good once they have edited the box.
+  const unsaved = (!formData?.savedAt || numberIsPending(formData?.name)) && !formData?.numberTouched;
+  useEffect(() => {
+    if (!code || !unsaved) return;
+    let cancelled = false;
+    void (async () => {
+      const n = await peekDocumentNumber("OFFICIAL_RECEIPT", code, date, await getToken());
+      if (cancelled || !n) return;
+      setFormData((prev: any) => (prev?.name === n ? prev : { ...prev, name: n, documentInfo: { ...(prev?.documentInfo || {}), documentNumber: n } }));
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, date, unsaved]);
   return (
     <>
       <TextField

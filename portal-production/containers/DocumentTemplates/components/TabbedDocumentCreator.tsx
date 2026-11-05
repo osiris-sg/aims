@@ -1038,6 +1038,10 @@ export default function TabbedDocumentCreator({
   const [formData, setFormDataState] = useState({
     // Document name/number from database
     name: existingData?.name || "",
+    // Save stamp rides in the form so OR/PV row inputs can tell a saved
+    // document from a fresh shell (the number preview must never touch a
+    // saved number — guru 2026-11-05). The save handler overwrites it.
+    savedAt: existingData?.savedAt || null,
     // General tab data - use organization data as defaults
     company: {
       name: existingData?.company?.name || organization?.name || existingData?.config?.defaultValues?.companyName || "",

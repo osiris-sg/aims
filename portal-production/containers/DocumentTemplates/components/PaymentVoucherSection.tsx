@@ -117,7 +117,9 @@ export function PvVoucherNoInput({ formData, setFormData }: RowProps) {
       value={value}
       onChange={(e) => {
         const v = e.target.value;
-        setFormData({ ...formData, name: v, documentInfo: { ...(formData?.documentInfo || {}), documentNumber: v } });
+        // numberTouched stops the bank/date preview from overwriting a
+        // number the user typed on purpose.
+        setFormData({ ...formData, name: v, numberTouched: true, documentInfo: { ...(formData?.documentInfo || {}), documentNumber: v } });
       }}
       placeholder="Issued on save"
       sx={{ ...headerInputSx, width: 220 }}
@@ -232,18 +234,26 @@ export function PvCreditInput({ formData, setFormData }: RowProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   useEffect(() => setInput(code), [code]);
   const selected = accounts.find((a) => a.code === code);
-  const commit = (acc: OrAccount) => {
-    const patch = { creditAccountCode: acc.code, paidFromLabel: `${acc.code} — ${acc.name}` };
-    setPvData(formData, setFormData, patch);
-    // Unsaved voucher: show the number this bank would get (guru 2026-11-05).
-    if (!formData?.savedAt || numberIsPending(formData?.name)) {
-      void (async () => {
-        const n = await peekDocumentNumber("PAYMENT_VOUCHER", acc.code, formData?.pvData?.date, await getToken());
-        // Merge onto the LATEST state — see OrDebitInput.
-        if (n) setFormData((prev: any) => ({ ...prev, name: n, documentInfo: { ...(prev?.documentInfo || {}), documentNumber: n } }));
-      })();
-    }
-  };
+  const commit = (acc: OrAccount) =>
+    setPvData(formData, setFormData, { creditAccountCode: acc.code, paidFromLabel: `${acc.code} — ${acc.name}` });
+  // Unsaved voucher: the number box follows the bank AND the date (guru
+  // 2026-11-05) — see OrDebitInput.
+  const date = formData?.pvData?.date || "";
+  // A number typed by hand is the user's, not the series' — the preview
+  // stands down for good once they have edited the box.
+  const unsaved = (!formData?.savedAt || numberIsPending(formData?.name)) && !formData?.numberTouched;
+  useEffect(() => {
+    if (!code || !unsaved) return;
+    let cancelled = false;
+    void (async () => {
+      const n = await peekDocumentNumber("PAYMENT_VOUCHER", code, date, await getToken());
+      if (cancelled || !n) return;
+      // Merge onto the LATEST state.
+      setFormData((prev: any) => (prev?.name === n ? prev : { ...prev, name: n, documentInfo: { ...(prev?.documentInfo || {}), documentNumber: n } }));
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, date, unsaved]);
   return (
     <>
       <TextField
