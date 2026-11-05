@@ -11,6 +11,10 @@ export type SeedAccount = {
   isControlAccount?: boolean;
 };
 
+// accountType of a header (group) account in an imported chart, e.g. ABSS "1-2100 Cash On Hand":
+// it only totals its sub-accounts (parentAccountId) and never takes a posting.
+export const HEADER_ACCOUNT_TYPE = 'HEADER';
+
 export const DEFAULT_CHART_OF_ACCOUNTS: SeedAccount[] = [
   // ---------- P&L: SALES ----------
   { code: 'SS001', name: 'Credit Sales', accountType: 'SALES', category: 'PNL', normalBalance: 'CREDIT' },

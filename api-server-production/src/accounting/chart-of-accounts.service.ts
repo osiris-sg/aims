@@ -2,18 +2,19 @@ import { BadRequestException, ConflictException, HttpException, HttpStatus, Inje
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
 import { CreateChartOfAccountDto, UpdateChartOfAccountDto } from './dto/chart-of-account.dto';
-import { DEFAULT_CHART_OF_ACCOUNTS } from './default-chart-of-accounts';
+import { DEFAULT_CHART_OF_ACCOUNTS, HEADER_ACCOUNT_TYPE } from './default-chart-of-accounts';
 
 @Injectable()
 export class ChartOfAccountsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(organizationId: string, opts?: { category?: string; accountType?: string; includeInactive?: boolean }) {
+  async findAll(organizationId: string, opts?: { category?: string; accountType?: string; includeInactive?: boolean; includeHeaders?: boolean }) {
     return this.prisma.chartOfAccount.findMany({
       where: {
         organizationId,
         ...(opts?.category && { category: opts.category }),
-        ...(opts?.accountType && { accountType: opts.accountType }),
+        // Header accounts never take a posting, so pickers don't get them; the chart editor asks.
+        ...(opts?.accountType ? { accountType: opts.accountType } : opts?.includeHeaders ? {} : { accountType: { not: HEADER_ACCOUNT_TYPE } }),
         ...(opts?.includeInactive ? {} : { isActive: true }),
       },
       orderBy: { code: 'asc' },
@@ -140,7 +141,7 @@ export class ChartOfAccountsService {
         organizationId,
         isActive: true,
         category: 'PNL',
-        ...(allowedTypes && { accountType: { in: allowedTypes } }),
+        ...(allowedTypes ? { accountType: { in: allowedTypes } } : { accountType: { not: HEADER_ACCOUNT_TYPE } }),
       },
       select: { id: true, code: true, name: true, accountType: true },
       orderBy: { code: 'asc' },

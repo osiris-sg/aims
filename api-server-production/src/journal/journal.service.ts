@@ -5,6 +5,7 @@ import { AnomaliesService } from '../anomalies/anomalies.service';
 import { docRef } from '../common/doc-ref';
 import { isUnconfirmedDoc } from '../common/doc-status';
 import { isErpImported } from '../common/erp-import';
+import { HEADER_ACCOUNT_TYPE } from '../accounting/default-chart-of-accounts';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 
@@ -124,10 +125,18 @@ export class JournalService {
     const unique = Array.from(new Set(accountIds));
     const found = await this.prisma.chartOfAccount.findMany({
       where: { id: { in: unique }, organizationId, isActive: true },
-      select: { id: true },
+      select: { id: true, code: true, accountType: true },
     });
     if (found.length !== unique.length) {
       throw new BadRequestException('One or more lines reference an unknown or inactive account');
+    }
+    // Header accounts (an imported chart's group rows, e.g. ABSS "1-2100 Cash On Hand") only
+    // total their sub-accounts and never take a posting.
+    const headers = found.filter((a) => a.accountType === HEADER_ACCOUNT_TYPE).map((a) => a.code);
+    if (headers.length) {
+      throw new BadRequestException(
+        `${headers.join(', ')} ${headers.length === 1 ? 'is a header account' : 'are header accounts'}: post to a sub-account instead`,
+      );
     }
   }
 
@@ -1478,15 +1487,22 @@ export class JournalService {
     organizationId: string,
     opts?: { startDate?: Date; endDate?: Date; category?: string },
   ) {
-    // Resolve the org's tax control account — fall back to seeded default CL900.
+    // Resolve the org's tax control account — fall back to seeded default CL900. An org with a
+    // separate GST input account (controlAccounts.taxInput, e.g. ABSS 2-2320 GST Paid) reads both.
     const settings = await this.prisma.accountingSetting.findUnique({ where: { organizationId } });
     const taxCode =
       (settings?.controlAccounts as any)?.taxLiabilities ||
       'CL900';
+    const taxInputCode: string | undefined = (settings?.controlAccounts as any)?.taxInput;
 
     const taxAccount = await this.prisma.chartOfAccount.findFirst({
       where: { organizationId, code: taxCode },
     });
+    const taxAccountIds = new Set<string>(taxAccount ? [taxAccount.id] : []);
+    if (taxAccount && taxInputCode && taxInputCode !== taxCode) {
+      const input = await this.prisma.chartOfAccount.findFirst({ where: { organizationId, code: taxInputCode }, select: { id: true } });
+      if (input) taxAccountIds.add(input.id);
+    }
 
     const empty = {
       period: { from: opts?.startDate ?? null, to: opts?.endDate ?? null },
@@ -1519,7 +1535,7 @@ export class JournalService {
         organizationId,
         status: 'POSTED',
         ...(opts?.startDate || opts?.endDate ? { entryDate: dateWhere } : {}),
-        lines: { some: { accountId: taxAccount.id } },
+        lines: { some: { accountId: { in: [...taxAccountIds] } } },
       },
       include: {
         lines: { include: { account: true } },
@@ -1553,7 +1569,7 @@ export class JournalService {
     let totalPurchases = 0;
 
     for (const e of entries) {
-      const taxLine = e.lines.find((l) => l.accountId === taxAccount.id);
+      const taxLine = e.lines.find((l) => taxAccountIds.has(l.accountId));
       if (!taxLine) continue;
 
       // Direction: tax credit = output (collected from customer);

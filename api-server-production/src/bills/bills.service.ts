@@ -315,7 +315,7 @@ export class BillsService {
       const settings = await this.prisma.accountingSetting.findUnique({ where: { organizationId } });
       const controls = (settings?.controlAccounts as any) || {};
       const controlCodes = new Set(
-        [controls.creditorControl || 'CL001', controls.taxLiabilities || 'CL900'].filter(Boolean),
+        [controls.creditorControl || 'CL001', controls.taxInput || controls.taxLiabilities || 'CL900'].filter(Boolean),
       );
       const expense = entry.lines.filter((l) => l.account && !controlCodes.has(l.account.code));
       if (!expense.length) return bill;
@@ -761,7 +761,7 @@ export class BillsService {
     const settings = await this.prisma.accountingSetting.findUnique({ where: { organizationId } });
     const controls = (settings?.controlAccounts as any) || {};
     const creditorCode = controls.creditorControl || 'CL001';
-    const taxCode = controls.taxLiabilities || 'CL900';
+    const taxCode = controls.taxInput || controls.taxLiabilities || 'CL900'; // GST input (purchases) when the org keeps it apart
 
     const creditor = await this.prisma.chartOfAccount.findFirst({
       where: { organizationId, code: creditorCode, isActive: true },
@@ -928,7 +928,7 @@ export class BillsService {
     const settings = await this.prisma.accountingSetting.findUnique({ where: { organizationId } });
     const controls = (settings?.controlAccounts as any) || {};
     const creditorCode = controls.creditorControl || 'CL001';
-    const taxCode = controls.taxLiabilities || 'CL900';
+    const taxCode = controls.taxInput || controls.taxLiabilities || 'CL900'; // GST input (purchases) when the org keeps it apart
 
     const [creditor, taxAccount, fallbackPurchase] = await Promise.all([
       this.prisma.chartOfAccount.findFirst({

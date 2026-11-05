@@ -30,11 +30,13 @@ export class ChartOfAccountsController {
   @ApiQuery({ name: 'category', required: false, description: 'PNL | BALANCE_SHEET' })
   @ApiQuery({ name: 'accountType', required: false })
   @ApiQuery({ name: 'includeInactive', required: false, type: Boolean })
+  @ApiQuery({ name: 'includeHeaders', required: false, type: Boolean })
   findAll(@Req() req: RequestWithOrganization, @Query() q: any) {
     return this.service.findAll(requireOrgId(req), {
       category: q.category,
       accountType: q.accountType,
       includeInactive: q.includeInactive === 'true',
+      includeHeaders: q.includeHeaders === 'true',
     });
   }
 

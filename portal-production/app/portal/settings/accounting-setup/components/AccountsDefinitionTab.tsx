@@ -65,6 +65,8 @@ const ACCOUNT_TYPES = [
   { value: "DEPRECIATION_PROVISION", label: "Provision for Depreciation", category: "BALANCE_SHEET", normalBalance: "CREDIT" },
   { value: "FOREIGN_BANK", label: "Foreign Bank Account", category: "BALANCE_SHEET", normalBalance: "DEBIT" },
   { value: "WORK_IN_PROGRESS", label: "Work In Progress", category: "BALANCE_SHEET", normalBalance: "DEBIT" },
+  // Group row of an imported chart (e.g. ABSS "1-2100 Cash On Hand"): totals its sub-accounts, never posted to.
+  { value: "HEADER", label: "Header (non-posting)", category: "", normalBalance: "" },
 ];
 
 const PNL_RANGES: { key: string; label: string }[] = [
@@ -89,6 +91,8 @@ const BS_RANGES: { key: string; label: string }[] = [
 const CONTROL_ACCOUNTS: { key: string; label: string }[] = [
   { key: "creditorControl", label: "Creditor Control Account" },
   { key: "debtorControl", label: "Debtor Control Account" },
+  { key: "salesAccount", label: "Default Sales Account" },
+  { key: "taxInput", label: "GST Input (purchases), if kept apart from Tax Liabilities" },
   { key: "dividends", label: "Dividends" },
   { key: "shareCapitals", label: "Share Capitals" },
   { key: "provisionForDepreciation", label: "Provision for Depreciation" },
@@ -402,8 +406,9 @@ function AccountDialog({
       name: name.trim(),
       description: description.trim() || undefined,
       accountType,
-      category: meta.category,
-      normalBalance: meta.normalBalance,
+      // A header keeps the category / normal side of the section it heads.
+      category: meta.category || account?.category || "BALANCE_SHEET",
+      normalBalance: meta.normalBalance || account?.normalBalance || "DEBIT",
       isControlAccount,
       ...(account ? { isActive } : {}),
     });

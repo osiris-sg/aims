@@ -1021,7 +1021,7 @@ export class JournalAutoPostService {
     }
 
     const creditor = await this.resolveAccountByCode(organizationId, controls.creditorControl);
-    const taxAccount = tax > 0 ? await this.resolveAccountByCode(organizationId, controls.taxLiabilities) : null;
+    const taxAccount = tax > 0 ? await this.resolveAccountByCode(organizationId, controls.taxInput || controls.taxLiabilities) : null;
 
     // Perpetual flips the debit side of a PO: stock goes onto the BS as
     // Inventory (asset) instead of being expensed to Purchases. Falls back to
@@ -1106,7 +1106,7 @@ export class JournalAutoPostService {
 
     const creditor = await this.resolveAccountByCode(organizationId, controls.creditorControl);
     const purchase = await this.firstPurchaseAccount(organizationId);
-    const taxAccount = tax > 0 ? await this.resolveAccountByCode(organizationId, controls.taxLiabilities) : null;
+    const taxAccount = tax > 0 ? await this.resolveAccountByCode(organizationId, controls.taxInput || controls.taxLiabilities) : null;
 
     if (!creditor || !purchase || (tax > 0 && !taxAccount)) {
       this.logger.warn(`[postFromPurchaseReturn] missing accounts (creditor=${creditor?.code}, purchase=${purchase?.code}, tax=${taxAccount?.code}); skipping`);

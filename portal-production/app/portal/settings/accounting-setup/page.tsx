@@ -102,7 +102,7 @@ function AccountingSetupContent() {
     try {
       const [settingsRes, accountsRes] = await Promise.all([
         authedFetch("/accounting/settings"),
-        authedFetch("/accounting/accounts"),
+        authedFetch("/accounting/accounts?includeHeaders=true"),
       ]);
       if (settingsRes.ok) {
         const json = await settingsRes.json();
