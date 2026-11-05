@@ -3130,19 +3130,60 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               justifyContent: "center",
               mb: 0.5,
             } as const;
+            // GUEST SIGNING on the generic layout (2026-11-05). The Biofuel
+            // replica has offered this since 2026-09 through its RECEIVED BY
+            // box; every other org's DO ends in these ruled lines instead, so
+            // "Chop & Sign" is the one that becomes clickable. Same rule as the
+            // replica: only on the public page (a token is present) and only
+            // while nothing is signed yet. The backend re-checks both — this
+            // only decides whether to OFFER it. Matters most for an OFFICE DO
+            // (enableOfficeDoSign), which is shared for signing and never
+            // passes through the field app at all.
+            const canSignHere =
+              Boolean(publicShareToken) && !doAck?.signature && Boolean(onSignRequest);
             return (
               <Box sx={{ display: "flex", justifyContent: "space-between", mt: 4 }}>
                 {/* Chop & Sign — customer signature from DO_ACK */}
                 <Box sx={{ textAlign: "center", flex: 1 }}>
-                  <Box sx={slotSx}>
-                    {doAck?.signature && (
+                  <Box
+                    onClick={canSignHere ? onSignRequest : undefined}
+                    sx={{
+                      ...slotSx,
+                      ...(canSignHere
+                        ? {
+                            cursor: "pointer",
+                            border: "1px dashed",
+                            borderColor: "primary.main",
+                            borderRadius: 1,
+                            "&:hover": { backgroundColor: "#fafafa" },
+                            // A printed page cannot be clicked, and an
+                            // invitation to sign must never appear on the paper
+                            // copy or in the PDF.
+                            "@media print": { border: "none" },
+                          }
+                        : {}),
+                    }}
+                  >
+                    {doAck?.signature ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={resolvePhotoSrc(doAck.signature)}
                         alt="Customer signature"
                         style={{ maxHeight: 64, maxWidth: "80%", objectFit: "contain" }}
                       />
-                    )}
+                    ) : canSignHere ? (
+                      <Typography
+                        sx={{
+                          fontSize: "0.75rem",
+                          fontWeight: 600,
+                          color: "primary.main",
+                          alignSelf: "center",
+                          "@media print": { display: "none" },
+                        }}
+                      >
+                        Click to sign
+                      </Typography>
+                    ) : null}
                   </Box>
                   <Box sx={{ borderTop: "1px solid #000", width: "80%", mx: "auto", pt: 0.5 }}>
                     <Typography sx={{ fontSize: "0.8125rem" }}>

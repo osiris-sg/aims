@@ -26,6 +26,9 @@ interface OrganizationFeatures {
   enableWctFinishModes?: boolean;
   enableWctOrderInvoice?: boolean;
   enableJobFields?: boolean;
+  // Office-signed delivery orders (2026-11-05): a DO raised in the office, with
+  // no field run behind it, can be shared for the customer to sign.
+  enableOfficeDoSign?: boolean;
   // Customer UEN + old code (2026-11-02): fields, columns, picker line. WCT on.
   enableCustomerUen?: boolean;
   // Preset roles with built-in permissions; no role / permission editor for the client.
@@ -185,6 +188,10 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableWctFinishModes: false,
   // WCT invoice per order (2026-11-01): one invoice per order, "Invoice now". Default OFF.
   enableWctOrderInvoice: false,
+  // Office-signed delivery orders (2026-11-05): a DO created in the office — no
+  // rider, no field app — can be shared for the customer to sign on the link.
+  // Default OFF.
+  enableOfficeDoSign: false,
   // Custom job fields (2026-11-01): Settings → Job fields; on the schedule form,
   // the delivery page and the jobs calendar. Default OFF.
   enableJobFields: false,
@@ -264,6 +271,7 @@ export function useOrganizationFeatures() {
     isWctFinishModesEnabled: features.enableWctFinishModes ?? false,
     isWctOrderInvoiceEnabled: features.enableWctOrderInvoice ?? false,
     isJobFieldsEnabled: features.enableJobFields ?? false,
+    isOfficeDoSignEnabled: features.enableOfficeDoSign ?? false,
     isCustomerUenEnabled: features.enableCustomerUen ?? false,
     isRolePresetsEnabled: features.enableRolePresets ?? false,
     isCappitechOrdersEnabled: features.enableCappitechOrders ?? false,

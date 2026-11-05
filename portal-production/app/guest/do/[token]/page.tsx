@@ -101,6 +101,10 @@ interface PublicDocView {
   maintenanceReports?: any[];
   // True for a view-only link (Operator PA): no signing offered.
   viewOnly?: boolean;
+  // Whether this DO can actually be signed, decided by the SERVER (it is the
+  // only side that knows the signature has somewhere to land). Absent on an
+  // older backend, which is treated as "offer it", exactly as before.
+  canSign?: boolean;
 }
 
 function NeutralMessage() {
@@ -430,8 +434,11 @@ export default function PublicDocumentViewPage() {
                 maintenanceReports={view.maintenanceReports}
                 publicShareToken={token}
                 // A view-only link (shared by the Operator PA) never offers
-                // signing; the server refuses it too.
-                onSignRequest={view.viewOnly ? undefined : openSignDialog}
+                // signing, and the server also says whether signing is possible
+                // at all — a DO with nowhere to put the signature must not
+                // invite the customer to sign and then fail. The server refuses
+                // either case too; this only decides whether to offer it.
+                onSignRequest={view.viewOnly || view.canSign === false ? undefined : openSignDialog}
               />
               )}
             </div>

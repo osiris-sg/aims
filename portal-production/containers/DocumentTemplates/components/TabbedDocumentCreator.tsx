@@ -4870,13 +4870,13 @@ export default function TabbedDocumentCreator({
             {(documentType === "DO" || documentType === "DELIVERY_ORDER" || documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER") && (existingData?.id || documentId) && (
               <MenuItem onClick={() => { closeMoreMenu(); handleShareDoViewLink(); }}>
                 <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
-                <ListItemText>Share DO link (view only)</ListItemText>
+                <ListItemText>Share DO link (view / sign)</ListItemText>
               </MenuItem>
             )}
             {(documentType === "DO" || documentType === "DELIVERY_ORDER" || documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER") && (existingData?.id || documentId) && (
               <MenuItem onClick={() => { closeMoreMenu(); handleRevokeDoViewLink(); }}>
                 <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
-                <ListItemText>Revoke DO link (view only)</ListItemText>
+                <ListItemText>Revoke DO link</ListItemText>
               </MenuItem>
             )}
             {(documentType === "DO" || documentType === "DELIVERY_ORDER") && (existingData?.id || documentId) && (
@@ -7760,14 +7760,18 @@ export default function TabbedDocumentCreator({
         </DialogActions>
       </Dialog>
 
-      {/* View-only DO link — a read-only render of this DO. Deliberately worded
-          and kept separate from the signing "delivery link" above. Never expires;
-          revoke to disable it. */}
+      {/* DO link — a render of this DO the customer opens with no login, and
+          signs if it is still unsigned. Kept separate from the "delivery link"
+          above, which drives a whole field RUN (deliver each item, finalize).
+          The copy used to say the holder could not sign; that stopped being
+          true when guest signing shipped (2026-09), and an OFFICE DO with no
+          run behind it is signable too (enableOfficeDoSign, 2026-11-05).
+          Never expires; revoke to disable it. */}
       <Dialog open={!!doViewLinkUrl} onClose={() => setDoViewLinkUrl(null)} maxWidth="sm" fullWidth>
-        <DialogTitle>View-only DO link</DialogTitle>
+        <DialogTitle>DO link</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            Anyone with this link can VIEW this delivery order, with no login. They cannot sign, finalize, or change anything. This link does not expire; revoke it to disable it.
+            Anyone with this link can open this delivery order with no login, and sign it if it has not been signed yet. They cannot change anything else. The link does not expire. Revoke it to disable it.
           </Typography>
           <TextField
             value={doViewLinkUrl ?? ""}

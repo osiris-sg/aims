@@ -12,9 +12,25 @@ import {
   DESCRIPTION_HAS_SERIAL,
 } from '../common/services/document-html/shared';
 import { DocumentsService } from '../documents/documents.service';
+import { OFFICE_DO_SIGN_FLAG, isOrgFeatureEnabled } from '../common/org-features';
 
 // Only delivery orders (outbound + return) get a view-only link.
 const DO_TYPES = ['DO', 'DELIVERY_ORDER', 'RDO', 'RETURN_DELIVERY_ORDER'];
+
+// ── OFFICE-SIGNED DOs (enableOfficeDoSign) ──────────────────────────────────
+// A DO raised in the office has no delivery run, so none of the field app's
+// DO_ACK proof rows exist — and those rows are where a DO's signature lives.
+// One document-scoped proof row stands in for them: same kind (DO_ACK) so every
+// existing reader (the preview's RECEIVED BY box, the server PDF, getById's
+// report join on documentId) finds the signature with no changes, but
+// deliveryId / assetId / inventoryId all null because there is no run, no asset
+// and no unit behind it.
+//
+// technicianUserId is NOT NULL and means "Clerk user id" in the field flow. The
+// office path has no technician, so it stores a fixed non-secret marker — the
+// same approach the guest delivery surface takes with 'GUEST'.
+const OFFICE_TECHNICIAN = 'OFFICE';
+const OFFICE_PROOF_DESCRIPTION = 'Delivery order issued from the office';
 
 // ── IN-MEMORY rate limiter ──────────────────────────────────────────────────
 // Same per-process limiter as the guest delivery surface. ⚠️ Lives in THIS Node
@@ -82,6 +98,11 @@ type TokenState = 'ok' | 'revoked' | 'notfound';
  * token, and never filters on run status or direction — a completed DO, an RDO,
  * or a DO with no run at all all render. Links never expire; revocation is the
  * only control.
+ *
+ * There is ONE mutating public route (2026-09): the customer signing an unsigned
+ * DO. It writes signature fields and nothing else. Since 2026-11-05 it also
+ * covers a DO raised in the OFFICE with no delivery run behind it
+ * (enableOfficeDoSign) — see the office-proof-row block below.
  */
 @Injectable()
 export class PublicDocumentService {
@@ -239,6 +260,74 @@ export class PublicDocumentService {
     return cfg;
   }
 
+  // ── OFFICE-SIGNED DOs (enableOfficeDoSign) ────────────────────────────────
+
+  /**
+   * Is a delivery RUN behind this DO? A field DO's items each carry the run
+   * (DeliveryItem.documentId), so one row is enough to tell. An office DO has
+   * none — which is exactly what makes it an office DO.
+   */
+  private async runBehindDocument(documentId: string): Promise<string | null> {
+    const item = await this.prisma.deliveryItem.findFirst({
+      where: { documentId },
+      select: { deliveryId: true },
+    });
+    return item?.deliveryId ?? null;
+  }
+
+  /**
+   * Make sure an OFFICE DO has the one proof row its signature will land on.
+   *
+   * It carries the signature and NOTHING else. Condition photos are NOT its
+   * job: they belong to each ITEM LINE and already work on a run-less DO
+   * through the editor's per-row camera button (POST /documents/:id/item-photos
+   * → documents.service.addFieldPhotosToDocumentLine), which writes a DO_START
+   * row per line. getById then stamps those onto the lines as proofPhotos and
+   * the preview draws them inline under the item, grouped per serial — the same
+   * output a field DO produces. Photos hung off THIS row instead would print in
+   * the wrong place, and on the Biofuel replica layout (which renders only the
+   * inline per-line strip) would not print at all.
+   *
+   * Called when the office mints a share link, and again at sign time as a
+   * fallback for a link minted before the flag was switched on. Idempotent: it
+   * reuses the existing unsigned row, and once signed it touches NOTHING.
+   *
+   * Written through raw Prisma on purpose. MaintenanceReportsService.sign()
+   * carries the field flow's side effects (advance the DO's status, deduct
+   * stock, off-hire, water-sg) and NONE of them apply to a DO that was never
+   * delivered by a rider — the office still confirms and invoices it by hand.
+   * publicSign already writes this way for the same reason.
+   */
+  private async ensureOfficeProofRow(documentId: string, organizationId: string): Promise<string | null> {
+    const existing = await this.prisma.maintenanceServiceReport.findFirst({
+      where: { documentId, deliveryId: null, kind: 'DO_ACK' },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    if (existing) return existing.id;
+    const created = await this.prisma.maintenanceServiceReport.create({
+      data: {
+        organizationId,
+        documentId,
+        deliveryId: null,
+        assetId: null,
+        inventoryId: null,
+        technicianUserId: OFFICE_TECHNICIAN,
+        kind: 'DO_ACK',
+        status: 'draft',
+        description: OFFICE_PROOF_DESCRIPTION,
+      },
+      select: { id: true },
+    });
+    return created.id;
+  }
+
+  /** Office signing on for this org AND no run behind the DO (a field DO keeps the field path). */
+  private async officeSignApplies(documentId: string, organizationId: string): Promise<boolean> {
+    if (await this.runBehindDocument(documentId)) return false;
+    return isOrgFeatureEnabled(this.prisma, organizationId, OFFICE_DO_SIGN_FLAG);
+  }
+
   /**
    * AUTHENTICATED (office) — mint or reuse a view-only link for a DO/RDO in the
    * caller's org. Reuses the newest active (non-revoked) link so re-sharing is
@@ -269,6 +358,18 @@ export class PublicDocumentService {
           select: { token: true },
         })
       ).token;
+
+    // OFFICE DO (enableOfficeDoSign): no run means no field proof row, so mint
+    // the one the customer's signature will land on and seed it with whatever
+    // images the office attached. Best-effort — the link is already valid, and a
+    // failure here only means publicSign creates the row at sign time instead.
+    try {
+      if (await this.officeSignApplies(documentId, organizationId)) {
+        await this.ensureOfficeProofRow(documentId, organizationId);
+      }
+    } catch {
+      /* the link stands on its own; sign time has the same fallback */
+    }
 
     const base = (process.env.PORTAL_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');
     const path = `/guest/do/${token}`;
@@ -332,10 +433,13 @@ export class PublicDocumentService {
    * PUBLIC — the customer signs an UNSIGNED DO from the share link.
    *
    * This is the only mutating route behind this token, and it is deliberately
-   * narrow: it writes signature fields on the run's DO_ACK rows and NOTHING
-   * else. It does NOT call finalizeRun — that flips run status, mints the DO and
-   * triggers the invoice, none of which belongs to a customer clicking a link
-   * (and its `status: not completed` guard would skip these rows regardless).
+   * narrow: it writes signature fields on the DO's DO_ACK proof rows and NOTHING
+   * else — the run's rows for a field DO, the one document-scoped office row for
+   * an office DO (enableOfficeDoSign). It does NOT call finalizeRun — that flips
+   * run status, mints the DO and triggers the invoice, none of which belongs to a
+   * customer clicking a link (and its `status: not completed` guard would skip
+   * these rows regardless). An OFFICE DO likewise stays a DO: the office still
+   * confirms it and raises the invoice, exactly as before the customer signed.
    *
    * WRITE-ONCE is enforced by the WHERE clause, not by a read-then-write: the
    * precondition `signature: null` lives in the same statement as the update, so
@@ -409,14 +513,30 @@ export class PublicDocumentService {
       signedDateText = d.toISOString().slice(0, 10);
     }
 
-    // ── resolve the run FROM THE TOKEN ──────────────────────────────────────
-    const item = await this.prisma.deliveryItem.findFirst({
-      where: { documentId: link.documentId },
-      select: { deliveryId: true },
-    });
-    if (!item?.deliveryId) {
+    // ── resolve WHERE THE SIGNATURE LANDS, FROM THE TOKEN ───────────────────
+    // Two shapes of DO reach this point:
+    //   FIELD DO  — a rider delivered it, so the run's unsigned DO_ACK rows (one
+    //               per unit) are the signature's home, matched by deliveryId.
+    //   OFFICE DO — raised in the office with no run at all (enableOfficeDoSign,
+    //               guru 2026-11-05). Its home is the single document-scoped
+    //               proof row, minted with the share link; it is created here
+    //               too, for a link minted before the flag went on.
+    // The office branch is reachable ONLY when there is genuinely no run, so a
+    // field DO's signature path is untouched.
+    const runId = await this.runBehindDocument(link.documentId);
+    const officeSign = !runId && (await isOrgFeatureEnabled(this.prisma, link.organizationId, OFFICE_DO_SIGN_FLAG));
+    if (!runId && !officeSign) {
       throw new BadRequestException('This document has no delivery run to sign against.');
     }
+    if (officeSign) await this.ensureOfficeProofRow(link.documentId, link.organizationId);
+    // The rows this signature may claim. Document-scoped for an office DO,
+    // run-scoped for a field DO — never both, so one DO's signature can never
+    // reach another's proof.
+    // One annotated shape rather than two, so it spreads into a Prisma `where`
+    // without TypeScript widening it into a union.
+    const proofScope: { kind: 'DO_ACK'; deliveryId: string | null; documentId?: string } = runId
+      ? { kind: 'DO_ACK', deliveryId: runId }
+      : { kind: 'DO_ACK', deliveryId: null, documentId: link.documentId };
 
     const now = new Date();
     const provenance = {
@@ -431,14 +551,14 @@ export class PublicDocumentService {
     // The precondition IS the WHERE clause. status is deliberately absent from
     // the SET: the run stays exactly as finalized as it already was.
     const targets = await this.prisma.maintenanceServiceReport.findMany({
-      where: { deliveryId: item.deliveryId, kind: 'DO_ACK', signature: null },
+      where: { ...proofScope, signature: null },
       select: { id: true, serviceData: true },
     });
     if (targets.length === 0) {
       // Either already signed, or the run has no DO_ACK at all. Say so instead
       // of returning a success that wrote nothing.
       const signed = await this.prisma.maintenanceServiceReport.count({
-        where: { deliveryId: item.deliveryId, kind: 'DO_ACK', signature: { not: null } },
+        where: { ...proofScope, signature: { not: null } },
       });
       return {
         ok: false,
@@ -458,7 +578,18 @@ export class PublicDocumentService {
         const merged = { ...((t.serviceData as Record<string, unknown>) ?? {}), ...provenance };
         const res = await tx.maintenanceServiceReport.updateMany({
           where: { id: t.id, signature: null }, // re-asserted at write time
-          data: { signature, signedByName: name, signedAt: now, serviceData: merged },
+          data: {
+            signature,
+            signedByName: name,
+            signedAt: now,
+            serviceData: merged,
+            // An OFFICE proof row is created `draft` and is complete once it
+            // carries the signature — it records nothing else. A FIELD row's
+            // status stays untouched (see above): the run is exactly as
+            // finalized as it already was, and signing must not re-open or
+            // re-complete any part of it.
+            ...(officeSign ? { status: 'completed' as const } : {}),
+          },
         });
         signedCount += res.count;
       }
@@ -571,10 +702,45 @@ export class PublicDocumentService {
       )
       .catch(() => null);
 
+    // CAN THIS BE SIGNED? Decided on the SERVER, because only the server knows
+    // whether the signature has anywhere to land. The page used to decide on its
+    // own ("a token is present and nothing is signed yet") and so offered "click
+    // to sign" on a DO with no proof rows behind it — the customer signed and
+    // got an error back. This mirrors publicSign's preconditions exactly, branch
+    // for branch, so the offer and the write can never disagree.
+    const viewOnly = PublicDocumentService.isViewOnly(token);
+    const alreadySigned = reports.some(
+      (r: any) => (r.kind === 'DO_ACK' || r.kind === 'DO_INSTALL') && r.signature,
+    );
+    let canSign = false;
+    if (!viewOnly && !alreadySigned) {
+      const runId = await this.runBehindDocument(link.documentId);
+      if (runId) {
+        // FIELD DO — the signature lands on the run's UNSIGNED DO_ACK rows, and
+        // a run only grows them as the rider acknowledges each unit. A run
+        // part-way through has none yet, and publicSign would answer
+        // "has no DO_ACK at all" — so asking the scope directly (the same scope
+        // publicSign writes through) is what keeps the offer honest. Counting
+        // `reports` instead would not do: those are joined on documentId, and a
+        // standalone-flow row can carry deliveryId with documentId still null.
+        canSign =
+          (await this.prisma.maintenanceServiceReport.count({
+            where: { deliveryId: runId, kind: 'DO_ACK', signature: null },
+          })) > 0;
+      } else {
+        // OFFICE DO — the one proof row is minted on demand (at share time, and
+        // again at sign time), so there is nothing to count: the flag is the
+        // whole question.
+        canSign = await isOrgFeatureEnabled(this.prisma, link.organizationId, OFFICE_DO_SIGN_FLAG);
+      }
+    }
+
     return {
       state: 'ok' as const,
       // View-only links (Operator PA): the page must not offer signing.
-      viewOnly: PublicDocumentService.isViewOnly(token),
+      viewOnly,
+      // Whether the page should offer signing at all (see above).
+      canSign,
       documentType,
       data,
       serverHtml: served?.html ?? null,

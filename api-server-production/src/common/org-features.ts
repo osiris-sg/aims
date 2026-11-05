@@ -9,6 +9,15 @@ export const AUTO_POST_INGEST_FLAG = 'enableAutoPostIngest';
 // no use for (guru 2026-10-04).
 export const CHAT_UPLOAD_PROJECT_COST_FLAG = 'enableChatUploadProjectCost';
 
+// OFFICE-SIGNED DELIVERY ORDERS (2026-11-05, guru). A DO raised in the office —
+// no field run, no rider, no field app — can be shared for the customer to sign.
+// The signature needs somewhere to live: field DOs put it on the run's DO_ACK
+// proof rows, so an office DO gets ONE document-scoped proof row instead
+// (public-document.service.ts). Flag-gated because it changes what a shared DO
+// link offers: with it off, a DO with no run behind it stays unsignable exactly
+// as before.
+export const OFFICE_DO_SIGN_FLAG = 'enableOfficeDoSign';
+
 export async function isOrgFeatureEnabled(
   prisma: { organizationUIConfig: { findUnique: (args: any) => Promise<any> } },
   organizationId: string,
