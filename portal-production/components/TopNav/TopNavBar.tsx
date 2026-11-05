@@ -125,15 +125,16 @@ export function TopNavOrgSwitcher({ light = false }: { light?: boolean } = {}) {
             </li>
           )}
           sx={{
-            width: 210,
+            // The role-home bar also carries a profile chip, so its field is
+            // narrower than the dark bar's. One key, not a second one in the
+            // branch below: a duplicated `width` is a type error (the build
+            // fails) even though the spread would have won at runtime.
+            width: light ? 170 : 210,
             // Doubled-up class selector out-specifies the light theme's white
             // input fill — the bar field must stay dark in BOTH themes (the
             // white pill with invisible text was the light-mode result).
             ...(light
               ? {
-                  // Narrower than the dark bar's 210: the role-home bar also
-                  // carries a profile chip, and the menu needs the room.
-                  width: 170,
                   "& .MuiOutlinedInput-root.MuiInputBase-root": {
                     fontSize: "0.8125rem",
                     borderRadius: 999,
