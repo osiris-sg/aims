@@ -105,15 +105,15 @@ export function renderInvoiceBody(data: any, organization: any, design: Document
     infoRow('TERMS', di('paymentTerms', '0 DAYS'), '85px') +
     infoRow('CURRENCY', di('currency', 'USD'), '85px');
 
-  // Biofuel: Attention/Mobile/Email from the linked point of contact — same
-  // rows (and auto-hide behaviour) as the portal preview.
-  const attentionBlock = isBiofuelInvoice
-    ? `<div style="margin-top:4px;">
-         ${infoRow('Attention', data?.attention?.name, '70px', '13px')}
-         ${infoRow('Mobile', data?.attention?.phoneNumber || data?.attention?.phone || data?.contactNumber, '70px', '13px')}
+  // Attention/Mobile/Email from the linked point of contact — every org, same
+  // rows (and auto-hide behaviour) as the portal preview. Until 2026-11-05
+  // this was Biofuel-only, so a contact picked in the editor's "Attn To" never
+  // reached anyone else's invoice.
+  const attentionBlock = `<div style="margin-top:4px;">
+         ${infoRow('Attention', data?.attention?.name || data?.documentInfo?.contactName, '70px', '13px')}
+         ${infoRow('Mobile', data?.attention?.phoneNumber || data?.attention?.phone || data?.documentInfo?.contactNumber || data?.contactNumber, '70px', '13px')}
          ${infoRow('Email', data?.attention?.email, '70px', '13px')}
-       </div>`
-    : '';
+       </div>`;
 
   const partyRow = `
   <div style="display:flex;justify-content:space-between;margin-bottom:8px;align-items:flex-start;">

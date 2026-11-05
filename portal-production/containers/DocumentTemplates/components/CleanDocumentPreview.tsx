@@ -1864,14 +1864,16 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 {billToText(data.billTo || data.customer?.address || data.customerAddress || "", data.customer?.name || data.customerName)}
               </Typography>
               {/* Attention — from the linked point of contact (attention.*), the
-                  same source the Biofuel quotation uses. Empty rows auto-hide. */}
-              {isBiofuelInvoice && (
-                <Box sx={{ mt: 0.5 }}>
-                  <InfoRow label="Attention" value={data.attention?.name} minWidth="70px" fontSize="0.8125rem" />
-                  <InfoRow label="Mobile" value={data.attention?.phoneNumber || data.attention?.phone || data.contactNumber} minWidth="70px" fontSize="0.8125rem" />
-                  <InfoRow label="Email" value={data.attention?.email} minWidth="70px" fontSize="0.8125rem" />
-                </Box>
-              )}
+                  same source the Biofuel quotation uses. Every org, not just
+                  Biofuel (guru 2026-11-05: a contact picked in the editor's
+                  "Attn To" simply never printed on anyone else's invoice).
+                  Empty rows auto-hide, so an invoice with no contact is
+                  unchanged. */}
+              <Box sx={{ mt: 0.5 }}>
+                <InfoRow label="Attention" value={data.attention?.name || data.documentInfo?.contactName} minWidth="70px" fontSize="0.8125rem" />
+                <InfoRow label="Mobile" value={data.attention?.phoneNumber || data.attention?.phone || data.documentInfo?.contactNumber || data.contactNumber} minWidth="70px" fontSize="0.8125rem" />
+                <InfoRow label="Email" value={data.attention?.email} minWidth="70px" fontSize="0.8125rem" />
+              </Box>
             </Box>
 
             {/* Deliver To - hidden when deliver to address is empty */}
