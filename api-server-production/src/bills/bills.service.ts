@@ -250,15 +250,56 @@ export class BillsService {
    * the org's accounting settings, so a bill line that happens to be described
    * "Input tax" is never mistaken for one. The remaining lines were built in bill
    * -line order by postBillJournal, so they pair by position; description is
-   * preferred when it is unambiguous. A Xero-imported bill whose mirror journal
-   * is unlinked simply has nothing to read, and its lines stay blank.
+   * preferred when it is unambiguous.
+   *
+   * XERO-IMPORTED BILLS COME FIRST (guru 2026-11-05, "wasn't this in Xero
+   * already?"). The importer stores its lines under config.items carrying
+   * Xero's own AccountCode ("334") and no accountId, and the GL is appended by
+   * a separate script whose journals are not linked back to the document — so
+   * there was no journal to read AND the code the bill already carried was
+   * ignored, leaving every imported bill showing "Not recorded". The code is
+   * the better answer anyway: it is what Xero itself posted to, not an
+   * inference. So resolve accountCode against the org's chart first, and fall
+   * back to the journal only for lines that still have nothing.
    *
    * Display only — nothing is written here.
    */
   private async fillLineAccountsFromJournal(organizationId: string, billId: string, bill: any) {
     try {
-      const lines: any[] = Array.isArray(bill?.lines) ? bill.lines : [];
+      let lines: any[] = Array.isArray(bill?.lines) ? bill.lines : [];
       if (!lines.length || !lines.some((l) => !l?.accountId && ROUND(l?.amount || 0) !== 0)) return bill;
+
+      // 1. The line's own account code (Xero imports, and any other writer that
+      //    records a code rather than an id).
+      const codes = Array.from(
+        new Set(
+          lines
+            .filter((l) => !l?.accountId && l?.accountCode)
+            .map((l) => String(l.accountCode).trim())
+            .filter(Boolean),
+        ),
+      );
+      if (codes.length) {
+        const byCode = new Map(
+          (
+            await this.prisma.chartOfAccount.findMany({
+              where: { organizationId, code: { in: codes } },
+              select: { id: true, code: true, name: true },
+            })
+          ).map((a) => [a.code, a]),
+        );
+        if (byCode.size) {
+          lines = lines.map((l: any) => {
+            if (l?.accountId || !l?.accountCode) return l;
+            const a = byCode.get(String(l.accountCode).trim());
+            return a ? { ...l, accountId: a.id, accountCode: a.code, accountName: a.name } : l;
+          });
+          bill = { ...bill, lines };
+        }
+      }
+      if (!lines.some((l) => !l?.accountId && ROUND(l?.amount || 0) !== 0)) return bill;
+
+      // 2. Otherwise read the account back off the bill's own journal.
 
       const entry = await this.prisma.journalEntry.findFirst({
         where: { organizationId, sourceDocumentId: billId, type: 'BILL' as any, status: 'POSTED' },

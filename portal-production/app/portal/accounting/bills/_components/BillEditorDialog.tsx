@@ -1172,6 +1172,12 @@ export default function BillEditorDialog({
                       // posted bill never shows a blank account box.
                       value={
                         accounts.find((a) => a.id === l.accountId) ||
+                        // A Xero-imported line carries Xero's account CODE and
+                        // no id — match the chart on the code so it still
+                        // names the account.
+                        (!l.accountId && l.accountCode
+                          ? accounts.find((a) => a.code === l.accountCode) || null
+                          : null) ||
                         (l.accountId && (l.accountCode || l.accountName)
                           ? ({ id: l.accountId, code: l.accountCode || "", name: l.accountName || "", accountType: "" } as any)
                           : null)
