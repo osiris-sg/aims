@@ -55,6 +55,7 @@ import LinkInvoiceDialog from "./LinkInvoiceDialog";
 import { DocLinkChip } from "./LinkedDocuments";
 import BulkDropDialog, { bulkDocTypes } from "./BulkDropDialog";
 import IssueBanner from "./IssueBanner";
+import NewerVersionLine from "./NewerVersionLine";
 import { useStepName } from "@/i18n/hooks";
 
 /** One short line under each document title (what it is / where it comes from). */
@@ -192,6 +193,9 @@ export default function StepCards({
   // Step 11 is the order's (round H): its Invoice #2 / single invoice is made for the order's shipments.
   const canCreate = (docType: string) => GENERATED_DOC_TYPES[docType]?.scope === owner.kind || (owner.kind === "order" && !!GENERATED_DOC_TYPES[docType]?.covers && orderShipmentIds.length > 0);
 
+  // Round BF: on a shipment, filed files an email later brought a newer version of ("Newer version received … · Replace?").
+  const newer = useQuery({ queryKey: ["trade-files", "newer-versions", owner.id], enabled: owner.kind === "shipment" && fileLinks.length > 0, queryFn: () => api.newerVersions(owner.id), staleTime: 60_000, retry: false });
+  const newerOf = (linkId: string) => newer.data?.items.find((x) => x.linkId === linkId) ?? null;
   const reqOf = (s: TradeStep, docType: string) => s.requirements?.find((r) => r.docType === docType);
   const byAge = (a: RecordFileLink, b: RecordFileLink) => a.file.createdAt.localeCompare(b.file.createdAt);
   const isOptional = (s: TradeStep, docType: string) => (s.optionalDocTypes ?? []).includes(docType);
@@ -377,7 +381,10 @@ export default function StepCards({
                   )}
                 </Stack>
               </Stack>
-            ))}
+            )).flatMap((row, i) => {
+              const nv = newerOf(st.files[i].id);
+              return nv ? [row, <NewerVersionLine key={`newer-${st.files[i].id}`} item={nv} link={st.files[i]} canReplace={recordOpen} />] : [row];
+            })}
             {recordOpen && (
               <Box>
                 <Button size="small" startIcon={<UploadFileIcon />} onClick={() => setUpload({ step: s, docType, optional })}>

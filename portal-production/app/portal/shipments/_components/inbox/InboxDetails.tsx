@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 // Round W — an email opens as its THREAD TIMELINE. First the RESULT, big and in plain words ("✅ Added to #16-2 —
@@ -14,10 +13,8 @@
 // emails AIMS never received. Clicking a filed document opens the order page on that shipment, step and file.
 
 import React, { useEffect, useState } from "react";
-import { Alert, Box, Button, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Link as MuiLink, Stack, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Button, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Link as MuiLink, Stack, Typography } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
-import DownloadIcon from "@mui/icons-material/Download";
-import VisibilityIcon from "@mui/icons-material/Visibility";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useShipmentsApi, type InboxAnswer, type InboxAnswerResult, type InboxLang, type InboxMessage, type InboxRow, type InboxThread, type InboxThreadFile } from "../../_lib/api";
@@ -25,12 +22,13 @@ import { cardFromLine, resultBox, threadResult, timeline, type ResultBox } from 
 import { useTranslations } from "next-intl";
 import { useInboxLabels } from "./useInboxLabels";
 import { fromParts, orderHref, whenShort } from "../../_lib/inbox-threads";
-import { fmtSize } from "../../_lib/email-html";
 import { toast } from "../../_lib/toast";
 import { EmailView } from "./EmailView";
 import { PiTablePanel } from "./PiTablePanel";
 import { EvidenceLine } from "./QuestionCard";
 import { ChooseShipmentDialog } from "./ChooseShipmentDialog";
+import { AttachmentRow, type AttachmentView } from "./AttachmentRow";
+import { compareWith, versionKey } from "../../_lib/file-versions";
 
 /** Inline signature / logo images never count as attachments in these lists (mirrors the backend's isInlineImage). */
 export const isInlineImageName = (name: string) => /^(image\d*|Outlook-[A-Za-z0-9]+|~?WRD\d*|oledata)\.(png|jpe?g|gif|bmp|emz)$/i.test((name ?? "").trim());
@@ -62,88 +60,19 @@ export function ResultBoxView({ r, lines, lang }: { r: ResultBox; lines?: Array<
   );
 }
 
-/** One file of the thread: name · date · sender, with Preview (PDF / image, inline) and Download — the URL is fetched on demand. */
-function ThreadFileRow({ f, lang }: { f: InboxThreadFile; lang: InboxLang }) {
+/** One file of the thread (round BF): name · size · pages · date · sender, version badges, Preview / Download / Compare. */
+function ThreadFileRow({ f, lang, compareTo }: { f: InboxThreadFile; lang: InboxLang; compareTo?: InboxThreadFile | null }) {
   const api = useShipmentsApi();
-  const labels = useInboxLabels();
-  const t = useTranslations("inbox.details");
-  const [url, setUrl] = useState<string | null>(null);
-  const [preview, setPreview] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const isPdf = /pdf/i.test(f.contentType ?? "") || /\.pdf$/i.test(f.name);
-  const isImage = /^image\//i.test(f.contentType ?? "") || /\.(png|jpe?g|gif|webp)$/i.test(f.name);
-  const fetchUrl = async (): Promise<string | null> => {
-    if (url) return url;
-    setBusy(true);
-    try {
-      const r = await api.inboxAttachmentUrl(f.emailId, f.index);
-      setUrl(r.url);
-      return r.url;
-    } catch (e: any) {
-      toast.error(e?.message || t("couldNotGetFile"));
-      return null;
-    } finally {
-      setBusy(false);
-    }
-  };
-  const who = (f.company ?? "").trim() || fromParts(f.from).name;
+  const view = (x: InboxThreadFile): AttachmentView => ({ key: `${x.emailId}:${x.index}`, name: x.name, contentType: x.contentType, size: x.size, pages: x.pages, date: x.date, from: x.from, company: x.company, version: x.version, getUrl: async () => (await api.inboxAttachmentUrl(x.emailId, x.index)).url });
   return (
     <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, px: 1, py: 0.5 }} data-tour="thread-file">
-      <Stack direction="row" spacing={1} alignItems="center">
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: "break-word" }}>
-            📎 {f.name}
-            {f.size ? <span style={{ opacity: 0.6, fontWeight: 400 }}> · {fmtSize(f.size)}</span> : null}
-          </Typography>
-          <Typography variant="caption" color="text.secondary" component="div">
-            {whenShort(f.date, lang)} · {who}
-          </Typography>
-        </Box>
-        {(isPdf || isImage) && (
-          <Tooltip title={labels.preview}>
-            <IconButton
-              size="small"
-              disabled={busy}
-              aria-label={labels.preview}
-              onClick={async () => {
-                if (preview) return setPreview(false);
-                if (await fetchUrl()) setPreview(true);
-              }}
-            >
-              <VisibilityIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        )}
-        <Tooltip title={labels.download}>
-          <IconButton
-            size="small"
-            disabled={busy}
-            aria-label={labels.download}
-            onClick={async () => {
-              const u = await fetchUrl();
-              if (u) window.open(u, "_blank", "noopener,noreferrer");
-            }}
-          >
-            <DownloadIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      </Stack>
-      <Collapse in={preview && !!url} unmountOnExit>
-        <Box sx={{ mt: 1, borderRadius: 1, overflow: "hidden", bgcolor: "background.default" }}>
-          {isImage ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={url!} alt={f.name} style={{ maxWidth: "100%", display: "block" }} />
-          ) : (
-            <iframe title={f.name} src={url!} sandbox="" style={{ width: "100%", height: 900, border: 0 }} />
-          )}
-        </Box>
-      </Collapse>
+      <AttachmentRow f={view(f)} lang={lang} compareTo={compareTo ? view(compareTo) : null} />
     </Box>
   );
 }
 
 /** "All files in this thread (n)": every attachment of every stored email, newest first; the gap line when the replies quote emails AIMS never received. */
-function ThreadFiles({ files, quotedMissing, lang }: { files: InboxThreadFile[]; quotedMissing: number; lang: InboxLang }) {
+export function ThreadFiles({ files, quotedMissing, lang }: { files: InboxThreadFile[]; quotedMissing: number; lang: InboxLang }) {
   const labels = useInboxLabels();
   const [open, setOpen] = useState(true);
   if (!files.length && !quotedMissing) return null;
@@ -157,7 +86,7 @@ function ThreadFiles({ files, quotedMissing, lang }: { files: InboxThreadFile[];
           <Collapse in={open}>
             <Stack spacing={0.75} sx={{ mt: 0.5 }}>
               {files.map((f) => (
-                <ThreadFileRow key={`${f.emailId}:${f.index}`} f={f} lang={lang} />
+                <ThreadFileRow key={`${f.emailId}:${f.index}`} f={f} lang={lang} compareTo={compareWith(f, files, (x, y) => versionKey(x.name) === versionKey(y.name))} />
               ))}
             </Stack>
           </Collapse>

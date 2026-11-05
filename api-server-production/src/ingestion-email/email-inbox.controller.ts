@@ -109,6 +109,28 @@ export class EmailInboxController {
     return this.triage.recordEmails(this.org(req), { shipmentId: sid, orderId: oid });
   }
 
+  @Get('newer-versions')
+  @Permissions('shipments:read')
+  @ApiOperation({ summary: "Round BF: a shipment's filed files that an email later brought a newer version of (same name, different bytes) — the slot's \"Newer version received · Replace?\". Read-only." })
+  newerVersions(@Query('shipmentId') shipmentId: string | undefined, @Req() req: Req2) {
+    if (!shipmentId || !UUID.test(shipmentId)) throw new BadRequestException('shipmentId is required');
+    return this.triage.newerVersions(this.org(req), shipmentId);
+  }
+
+  @Post('newer-versions/replace')
+  @Permissions('shipments:update')
+  @ApiOperation({ summary: 'Round BF: replace a filed shipment document with its newer version from an email — the new file is filed on the same step / slot, the old link is hidden (kept, never deleted).' })
+  async replaceWithNewer(@Body() body: { linkId?: unknown; emailId?: unknown; index?: unknown }, @Req() req: Req2) {
+    const linkId = typeof body?.linkId === 'string' && UUID.test(body.linkId) ? body.linkId : null;
+    const emailId = typeof body?.emailId === 'string' && UUID.test(body.emailId) ? body.emailId : null;
+    const index = Number(body?.index);
+    if (!linkId || !emailId || !Number.isInteger(index) || index < 0) throw new BadRequestException('linkId, emailId and index are required');
+    const r = await this.triage.replaceWithNewer(this.org(req), { linkId, emailId, index }, this.actor(req));
+    // The Activity Log row says what was replaced by what (old → new file, the email's received time).
+    (req as any).actionLogResult = { replaced: r.replaced.fileName, oldFileId: r.replaced.fileId, newFileId: r.by.fileId, emailId: r.by.emailId, received: r.by.received, shipmentId: r.shipmentId };
+    return r;
+  }
+
   @Get('filter-preview')
   @Permissions('shipments:read')
   @ApiOperation({ summary: "Sender filter preview: what the filter kept / would drop in the last N days (from-domain + subject only)." })

@@ -157,6 +157,8 @@ const VERB_ACTIONS: Record<string, string> = {
   // link are mapped above; trade-file and trade-document links are resolved in
   // resolveAction.
   reopen: 'REOPEN', unlink: 'UNLINK',
+  // Round BF: a shipment document replaced by its newer version from an email (old link hidden).
+  replace: 'REPLACE',
   update: 'UPDATE', create: 'CREATE', delete: 'DELETE',
 };
 

@@ -29,6 +29,8 @@ import SearchIcon from "@mui/icons-material/Search";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useInboxLabels } from "./useInboxLabels";
+import { AttachmentRow, type AttachmentView } from "./AttachmentRow";
+import { compareWith, olderVersion, versionKey } from "../../_lib/file-versions";
 import { useShipmentsApi, type AnswerFile, type AnswerIssue, type AnswerTarget, type InboxAnswer, type InboxLang, type InboxThread, type Placement, type ShipmentListItem } from "../../_lib/api";
 import { useCustomers, useOrders, useShipments, useSuppliers } from "../../_lib/hooks";
 import type { OrderListItem, Shipment } from "../../_lib/api";
@@ -164,7 +166,8 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
       for (const f of placements.data.files) {
         const k = fileKey(f);
         if (prev[k]) next[k] = prev[k];
-        else next[k] = { targets: f.inline ? [] : f.defaults.map((d) => optionKey({ orderId: d.orderId ?? "", shipmentId: d.shipmentId })), docType: f.docType, skip: f.inline, wait: !f.inline && f.keys.length > 0 && !f.defaults.length && !f.holders.length };
+        // Round BF: an older version of a file in this answer (same name / same bytes, a newer one is here) is not filed by default — switchable.
+        else next[k] = { targets: f.inline ? [] : f.defaults.map((d) => optionKey({ orderId: d.orderId ?? "", shipmentId: d.shipmentId })), docType: f.docType, skip: f.inline || olderVersion(f.version), wait: !f.inline && !olderVersion(f.version) && f.keys.length > 0 && !f.defaults.length && !f.holders.length };
       }
       return next;
     });
@@ -176,6 +179,7 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
     const d = f ? [...f.defaults, ...f.holders].find((x) => optionKey({ orderId: x.orderId ?? "", shipmentId: x.shipmentId }) === key) : null;
     return d ? { key, orderId: d.orderId, shipmentId: d.shipmentId, ref: d.ref ?? tc("shipment"), label: d.ref ?? tc("shipment") } : null;
   };
+  const fileView = (x: Placement): AttachmentView => ({ key: fileKey(x), name: x.name, size: x.size, pages: x.pages, date: x.date, from: x.from, company: x.company, version: x.version, getUrl: async () => (await api.inboxAttachmentUrl(x.emailId, x.index)).url });
   const unplaced = fileRows.filter((f) => { const s = files[fileKey(f)]; return !s || (!s.skip && (!s.targets.length || !s.docType)); }).length;
 
   // ── issue (round AR) ──
@@ -559,10 +563,14 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
                 const warn = !f.inline && !f.defaults.length;
                 return (
                   <Box key={k} data-tour="answer-file-row">
-                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }} justifyContent="space-between">
-                      <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: "break-word" }}>{f.name}</Typography>
-                      <FormControlLabel control={<Checkbox size="small" checked={s.skip} onChange={(e) => set({ skip: e.target.checked })} />} label={<Typography variant="body2">{labels.dontFile}</Typography>} sx={{ mr: 0, flexShrink: 0 }} />
-                    </Stack>
+                    {/* Round BF: when it arrived, who sent it, size · pages, Latest / Older version / Identical to …, preview and Compare. */}
+                    <AttachmentRow
+                      f={fileView(f)}
+                      lang={lang}
+                      dense
+                      compareTo={(() => { const o = compareWith(f, fileRows, (x, y) => versionKey(x.name) === versionKey(y.name)); return o ? fileView(o) : null; })()}
+                      right={<FormControlLabel control={<Checkbox size="small" checked={s.skip} onChange={(e) => set({ skip: e.target.checked })} />} label={<Typography variant="body2">{labels.dontFile}</Typography>} sx={{ mr: 0, ml: 0.5, flexShrink: 0 }} />}
+                    />
                     <Typography variant="caption" color={warn ? "warning.main" : "text.secondary"} sx={{ display: "block", mb: 0.75, wordBreak: "break-word" }}>
                       {hint}
                       {f.outsidePick && !s.skip ? ` · ${labels.outsidePick}` : ""}

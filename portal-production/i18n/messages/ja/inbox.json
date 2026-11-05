@@ -419,5 +419,30 @@
     "neverDeleted": "課題は削除されません — 解決済みにしてください。",
     "cancel": "キャンセル",
     "save": "保存"
+  },
+  "fileVersions": {
+    "latest": "最新",
+    "older": "旧版（{at}）",
+    "identical": "{at} のファイルと同一",
+    "pages": "{n}ページ",
+    "preview": "プレビュー",
+    "hidePreview": "プレビューを閉じる",
+    "download": "ダウンロード",
+    "compare": "比較",
+    "compareTitle": "比較：{name}",
+    "compareHint": "同じファイル名で別の時刻に届いたファイルです。右が新しい方です。",
+    "close": "閉じる",
+    "couldNotGetFile": "ファイルを取得できませんでした。",
+    "newerSlot": "新しい版を受信 {at}",
+    "newerFrom": "送信者 {who}",
+    "replace": "差し替えますか？",
+    "replaceTitle": "新しい版に差し替えますか？",
+    "replaceBody": "{at} に受信したファイルをここに登録します。今のファイルはこの欄から非表示になります（削除はされません）。",
+    "replaceConfirm": "差し替える",
+    "keep": "今のままにする",
+    "replaced": "{at} 受信の版に差し替えました",
+    "replaceError": "ファイルを差し替えできませんでした。",
+    "filedNow": "登録中（{at}）",
+    "newer": "新しい版（{at}）"
   }
 }

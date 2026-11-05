@@ -419,5 +419,30 @@
     "neverDeleted": "Issues are never deleted — mark them resolved.",
     "cancel": "Cancel",
     "save": "Save"
+  },
+  "fileVersions": {
+    "latest": "Latest",
+    "older": "Older version ({at})",
+    "identical": "Identical to the {at} file",
+    "pages": "{n, plural, one {# page} other {# pages}}",
+    "preview": "Preview",
+    "hidePreview": "Hide preview",
+    "download": "Download",
+    "compare": "Compare",
+    "compareTitle": "Compare: {name}",
+    "compareHint": "Same file name, sent at different times. Newer on the right.",
+    "close": "Close",
+    "couldNotGetFile": "Could not get the file.",
+    "newerSlot": "Newer version received {at}",
+    "newerFrom": "from {who}",
+    "replace": "Replace?",
+    "replaceTitle": "Replace with the newer version?",
+    "replaceBody": "The file received {at} is filed here instead. The current file is hidden from this slot (it is kept, not deleted).",
+    "replaceConfirm": "Replace",
+    "keep": "Keep current",
+    "replaced": "Replaced with the version received {at}",
+    "replaceError": "Could not replace the file.",
+    "filedNow": "Filed now ({at})",
+    "newer": "Newer ({at})"
   }
 }

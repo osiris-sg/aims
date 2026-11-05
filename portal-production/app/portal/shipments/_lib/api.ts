@@ -6,6 +6,7 @@
 // X-Active-Org-Id + {success,data} envelope); the upload uses axios directly
 // so it can report progress, with the same two headers injected.
 
+import type { FileVersion } from "./file-versions";
 import axios from "axios";
 import { useAuth } from "@clerk/nextjs";
 import { useMemo } from "react";
@@ -798,7 +799,7 @@ export type InboxAnswer =
   | { kind: "ask_admin"; note?: string | null };
 /** Round AR: the confirm screen's per-attachment default target (B/L / CI in the file, else its exact cast / bundle no.). */
 export type PlacementRef = { orderId: string | null; shipmentId: string | null; ref: string | null; why: string };
-export type Placement = { emailId: string; subject: string | null; index: number; name: string; size: number | null; docType: string | null; inline: boolean; keys: string[]; bundles: string[]; defaults: PlacementRef[]; holders: PlacementRef[]; outsidePick: boolean };
+export type Placement = { emailId: string; subject: string | null; index: number; name: string; size: number | null; docType: string | null; inline: boolean; keys: string[]; bundles: string[]; defaults: PlacementRef[]; holders: PlacementRef[]; outsidePick: boolean; /** Round BF: the email's received time, sender, PDF pages, and its version among these files. */ date?: string | null; from?: string | null; company?: string | null; pages?: number | null; version?: FileVersion | null };
 export type IssueDraft = IssueProposal & { docTypes: string[]; supplierId: string | null; customerId: string | null; counterpartyName: string | null };
 /** Round AR — a general issue on a customer / supplier (Clients profile, the order, the step banner). */
 export type TradeIssue = {
@@ -952,7 +953,9 @@ export type ClientSupplierDetail = {
 };
 export type FormatPreview = { generator: string; source: string | null; notes: string[]; pdf: { fileName: string; contentType: string; base64: string }; xlsx: { fileName: string; contentType: string; base64: string } | null };
 /** Round AF: one attachment of a thread (inline signature images left out), with the email it came in. */
-export type InboxThreadFile = { emailId: string; index: number; name: string; contentType: string | null; size: number | null; date: string; from: string; company: string | null };
+export type InboxThreadFile = { emailId: string; index: number; name: string; contentType: string | null; size: number | null; date: string; from: string; company: string | null; /** Round BF */ pages?: number | null; version?: FileVersion | null };
+/** Round BF: a filed shipment document an email later brought a newer version of (same name, other bytes). */
+export type NewerVersion = { linkId: string; fileId: string; fileName: string; docType: string; linkedAt: string | null; newer: { emailId: string; index: number; name: string; date: string | null; from: string | null; company: string | null; size: number | null; pages: number | null; subject: string | null } };
 export type InboxThreadDetail = { id: string; messages: InboxMessage[]; files: InboxThreadFile[]; /** Quoted earlier emails AIMS never received. */ quotedMissing: number; quotedTotal: number };
 export type InboxThreadLink = { orderId: string | null; shipmentId: string | null; ref: string | null; label: string | null; from: "processed" | "suggested"; combined: Array<{ orderId: string | null; shipmentId: string | null; ref: string | null; label: string | null }> };
 export type InboxThread = { id: string; by: "headers" | "subject" | "both"; section?: "NO_ORDER" | null; subject: string | null; latest: string | null; emails: number; files: number; link: InboxThreadLink | null; general?: { customerKey: string | null } | null; messages: InboxMessage[]; otherCount: number; /** Round W: one question per thread, the ids it answers for, the earlier-email count. */ question?: InboxQuestion | null; answerIds?: string[]; earlier?: number };
@@ -2006,6 +2009,9 @@ export function useShipmentsApi() {
       /** Round T: the whole email (headers, text, defused HTML, attachments) and its thread. */
       inboxMessage: (id: string) => call<EmailMessage>(`/email-inbox/${id}/message`),
       inboxThread: (id: string) => call<InboxThreadDetail>(`/email-inbox/${id}/thread`),
+      /** Round BF: a shipment's filed files with a newer version in a later email; Replace files it there and hides the old link. */
+      newerVersions: (shipmentId: string) => call<{ items: NewerVersion[] }>(`/email-inbox/newer-versions${qs({ shipmentId })}`),
+      replaceWithNewer: (body: { linkId: string; emailId: string; index: number }) => call<{ replaced: { linkId: string; fileId: string; fileName: string }; by: { fileId: string; fileName: string; emailId: string; received: string } }>(`/email-inbox/newer-versions/replace`, "POST", body),
       inboxAttachmentUrl: (id: string, index: number) => call<{ name: string; contentType: string; size: number; url: string }>(`/email-inbox/${id}/attachments/${index}/url`),
       inboxDashboard: (lang?: InboxLang) => call<InboxDashboard>(`/email-inbox/dashboard${qs({ lang })}`),
       inboxHidden: () => call<HiddenEmail[]>(`/email-inbox/hidden`),

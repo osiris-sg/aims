@@ -19,6 +19,7 @@ import { TradeStepsService } from '../shipments/trade-steps.service';
 import { TradeRecordEvents } from '../shipments/trade-record-events';
 import { ShipmentsNotifyService } from '../shipments/shipments-notify.service';
 import { StoredEmailMeta } from './email-store';
+import { attachmentFacts, distinctiveName, mapLimit, markVersions, newerVersionOf, versionKey, type FileFacts, type VersionMark } from './email-file-versions';
 import { companyOf, companyOverridesOf } from './email-companies';
 import { attachmentHits, attachmentTarget, autoTier, DEFAULT_CI_PATTERNS, DEFAULT_CONTRACT_PATTERNS, decideMatch, EmailEvidence, findKeyHits, MatchDecision, MatchRecord, insideFileSource, newShipmentCandidates, offerable, orderCuesMatch, ownTextCues, recordRef, SourceFamily, subjectCues, telexTiedTo, ThreadContext, validCiNo } from './email-match.rules';
 import { auditLink, AuditResult, RECHECK_TEXT } from './email-audit';
@@ -771,7 +772,45 @@ export class EmailTriageService {
     }
     const named = await this.refs(organizationId, [...new Set(rows.flatMap((r) => [...r.defaults, ...r.holders].map((d) => d.orderId)).filter((x): x is string => !!x))], [...new Set(rows.flatMap((r) => [...r.defaults, ...r.holders].map((d) => d.shipmentId)).filter((x): x is string => !!x))]);
     const ref = (d: { orderId: string | null; shipmentId: string | null }) => (d.shipmentId ? named.ship.get(d.shipmentId) : d.orderId ? named.order.get(d.orderId) : null) ?? null;
-    return { files: rows.map((r) => ({ ...r, defaults: r.defaults.map((d) => ({ ...d, ref: ref(d) })), holders: r.holders.map((d) => ({ ...d, ref: ref(d) })) })) };
+    // Round BF: when each file arrived, from whom, its size / pages, and which ones are versions of one another (newest first).
+    const info = await this.fileInfo(organizationId, logs, rows);
+    return {
+      files: rows
+        .map((r) => ({ ...r, ...info.get(`${r.emailId}:${r.index}`), defaults: r.defaults.map((d) => ({ ...d, ref: ref(d) })), holders: r.holders.map((d) => ({ ...d, ref: ref(d) })) }))
+        .sort((a, b) => new Date(b.date ?? 0).getTime() - new Date(a.date ?? 0).getTime() || a.index - b.index),
+    };
+  }
+
+  /**
+   * Round BF: per attachment `${emailId}:${index}` — the email's received time, sender (+ company), size, PDF pages,
+   * and its version mark among the given files (same name or same bytes: Latest / Older version / Identical to …).
+   * Facts are read once per stored file and cached in memory. Display data only.
+   */
+  private async fileInfo(organizationId: string, logs: any[], files: Array<{ emailId: string; index: number; name: string; inline?: boolean }>) {
+    const byLog = new Map(logs.map((l) => [l.id as string, l]));
+    const companies = await this.companyOverrides(organizationId);
+    const facts = await mapLimit(files.slice(0, 80), 4, async (f): Promise<FileFacts | null> => {
+      const att = (((byLog.get(f.emailId)?.rawMeta ?? {}) as Partial<StoredEmailMeta>).attachments ?? [])[f.index];
+      return att?.key && !f.inline ? attachmentFacts((k) => this.s3.downloadFile(k), att) : null;
+    });
+    const dateOf = (id: string) => { const l = byLog.get(id); return (l?.emailDate ?? l?.createdAt ?? null) as Date | null; };
+    const marks = markVersions(files.flatMap((f, i) => (f.inline ? [] : [{ id: `${f.emailId}:${f.index}`, name: f.name, date: dateOf(f.emailId), sha256: facts[i]?.sha256 ?? null }])));
+    const out = new Map<string, { date: string | null; from: string | null; company: string | null; pages: number | null; version: (Omit<VersionMark, 'identicalTo'> & { identicalTo: { emailId: string; index: number; name: string; date: string | null } | null }) | null }>();
+    files.forEach((f, i) => {
+      const k = `${f.emailId}:${f.index}`;
+      const l = byLog.get(f.emailId);
+      const m = marks.get(k) ?? null;
+      const twin = m?.identicalTo ? files.find((x) => `${x.emailId}:${x.index}` === m.identicalTo) ?? null : null;
+      const d = dateOf(f.emailId);
+      out.set(k, {
+        date: d ? new Date(d).toISOString() : null,
+        from: l?.fromAddress ?? null,
+        company: l?.fromAddress ? companyOf(l.fromAddress, companies).name : null,
+        pages: facts[i]?.pages ?? null,
+        version: m && m.versions > 1 ? { ...m, identicalTo: twin ? { emailId: twin.emailId, index: twin.index, name: twin.name, date: dateOf(twin.emailId) ? new Date(dateOf(twin.emailId)!).toISOString() : null } : null } : null,
+      });
+    });
+    return out;
   }
 
   /**
@@ -790,6 +829,112 @@ export class EmailTriageService {
     }
     const newest = logs[logs.length - 1];
     return { emailId: newest.id, subject: newest.subject ?? null, ...mergeFacts(per) };
+  }
+
+  /**
+   * Round BF — a shipment's document slots: for each linked file, a NEWER version an email brought later (same file
+   * name, different bytes) that is not filed here yet — "Newer version received 5/11 14:02 · Replace?". Looks at the
+   * emails tied to the shipment, the threads its filed files came from, and (for names with a B/L / contract-like
+   * token) any email carrying exactly that file name. Read-only; never replaces anything by itself.
+   */
+  async newerVersions(organizationId: string, shipmentId: string) {
+    const links: any[] = await this.prisma.tradeFileLink.findMany({
+      where: { organizationId, shipmentId, hiddenAt: null },
+      select: { id: true, stepId: true, createdAt: true, file: { select: { id: true, fileName: true, docType: true, sha256: true, emailLogId: true, createdAt: true } } },
+    });
+    if (!links.length) return { items: [] };
+    const sourceIds = [...new Set(links.map((l) => l.file.emailLogId).filter((x: string | null): x is string => !!x))];
+    const sources: any[] = sourceIds.length ? await this.prisma.emailIngestLog.findMany({ where: { organizationId, id: { in: sourceIds } } }) : [];
+    const related: any[] = await this.prisma.emailIngestLog.findMany({
+      where: { organizationId, OR: [{ shipmentId }, { actions: { path: ['targets'], array_contains: [{ shipmentId }] } }] },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    const threadRows: any[] = [];
+    for (const src of sources.slice(0, 10)) threadRows.push(...(await this.threadRows(organizationId, src).catch(() => [])));
+    const byName: any[] = [];
+    const since = new Date(Date.now() - 180 * 86_400_000);
+    for (const name of [...new Set(links.map((l) => l.file.fileName as string))].filter(distinctiveName).slice(0, 20)) {
+      byName.push(...(await this.prisma.emailIngestLog.findMany({ where: { organizationId, createdAt: { gte: since }, rawMeta: { path: ['attachmentNames'], array_contains: [name] } }, take: 20 }).catch(() => [])));
+    }
+    const pool = new Map<string, any>();
+    for (const l of [...sources, ...related, ...threadRows, ...byName]) if (l?.id && !pool.has(l.id)) pool.set(l.id, l);
+    // Full rows for the thread rows (threadRows may select only a few columns).
+    const missing = [...pool.values()].filter((l) => !l.rawMeta).map((l) => l.id);
+    if (missing.length) for (const l of await this.prisma.emailIngestLog.findMany({ where: { organizationId, id: { in: missing } } })) pool.set(l.id, l);
+    const dateOf = (l: any) => (l?.emailDate ?? l?.createdAt ?? null) as Date | null;
+    const filedSha = new Set(links.map((l) => l.file.sha256).filter(Boolean));
+    const companies = await this.companyOverrides(organizationId);
+    const items: any[] = [];
+    for (const link of links) {
+      const k = versionKey(link.file.fileName);
+      const cands = [...pool.values()]
+        .flatMap((l) =>
+          (((l.rawMeta ?? {}) as Partial<StoredEmailMeta>).attachments ?? []).map((a, index) => ({ emailId: l.id as string, index, name: a.name, date: dateOf(l), sha256: null as string | null, facts: null as FileFacts | null, att: a, log: l })),
+        )
+        .filter((c) => !isInlineImage(c.name) && versionKey(c.name) === k)
+        .slice(0, 12);
+      if (!cands.length) continue;
+      for (const c of cands) {
+        c.facts = c.att?.key ? await attachmentFacts((key) => this.s3.downloadFile(key), c.att) : null;
+        c.sha256 = c.facts?.sha256 ?? null;
+      }
+      // The version that is filed: the email carrying the same bytes (a hand upload of an emailed file counts from
+      // that email), else the email it was filed from, else when it was uploaded.
+      const same = cands.filter((c) => c.sha256 && c.sha256 === link.file.sha256).sort((x, y) => new Date(x.date ?? 0).getTime() - new Date(y.date ?? 0).getTime())[0];
+      const src = link.file.emailLogId ? pool.get(link.file.emailLogId) : null;
+      const linkedAt = same?.date ?? dateOf(src) ?? link.file.createdAt;
+      const hit = newerVersionOf({ name: link.file.fileName, date: linkedAt, sha256: link.file.sha256 ?? null }, cands.filter((c) => !c.sha256 || !filedSha.has(c.sha256)));
+      if (!hit) continue;
+      const c = cands.find((x) => x.emailId === hit.emailId && x.index === hit.index)!;
+      items.push({
+        linkId: link.id,
+        fileId: link.file.id,
+        fileName: link.file.fileName,
+        docType: link.file.docType,
+        linkedAt: linkedAt ? new Date(linkedAt).toISOString() : null,
+        newer: { emailId: c.emailId, index: c.index, name: c.name, date: c.date ? new Date(c.date).toISOString() : null, from: c.log.fromAddress ?? null, company: c.log.fromAddress ? companyOf(c.log.fromAddress, companies).name : null, size: c.facts?.size ?? c.att?.size ?? null, pages: c.facts?.pages ?? null, subject: c.log.subject ?? null },
+      });
+    }
+    return { items };
+  }
+
+  /**
+   * Round BF — "Replace?" on a slot: file the newer version from its email on the same shipment / step and slot, then
+   * HIDE the old file's link (kept, never deleted; hidden reason names the email). Only a same-name file is accepted.
+   */
+  async replaceWithNewer(organizationId: string, body: { linkId: string; emailId: string; index: number }, actor: EmailActor) {
+    const link: any = await this.prisma.tradeFileLink.findFirst({
+      where: { id: body.linkId, organizationId, hiddenAt: null },
+      select: { id: true, stepId: true, shipmentId: true, orderId: true, supplierOrderId: true, file: { select: { id: true, fileName: true, docType: true } } },
+    });
+    if (!link) throw new NotFoundException('That file is no longer on this record');
+    if (!link.shipmentId) throw new BadRequestException('Only a shipment document can be replaced from an email');
+    const log: any = await this.prisma.emailIngestLog.findFirst({ where: { id: body.emailId, organizationId } });
+    const att = (((log?.rawMeta ?? {}) as Partial<StoredEmailMeta>).attachments ?? [])[body.index];
+    if (!log || !att) throw new NotFoundException('Attachment not found');
+    if (versionKey(att.name) !== versionKey(link.file.fileName)) throw new BadRequestException('That attachment is not a version of this file');
+    const buf = await this.s3.downloadFile(att.key);
+    const sha = sha256Of(buf);
+    const have: any = await this.prisma.tradeFile.findFirst({ where: { organizationId, sha256: sha }, select: { id: true } });
+    let fileId: string;
+    if (have) {
+      await this.files.addLinks(organizationId, have.id, { shipmentIds: [link.shipmentId], ...(link.stepId ? { stepId: link.stepId } : {}) } as any, actor as any, { completedShipmentsOk: true });
+      fileId = have.id;
+    } else {
+      const f = await this.files.upload(
+        organizationId,
+        { originalname: att.name, mimetype: att.contentType, size: buf.length, buffer: buf } as Express.Multer.File,
+        { docType: link.file.docType, shipmentIds: [link.shipmentId], ...(link.stepId ? { stepId: link.stepId } : {}), notes: `From email: ${log.subject ?? ''}`.slice(0, 2000) } as any,
+        actor as any,
+        { source: 'EMAIL', emailLogId: log.id, sha256: sha, completedShipmentsOk: true },
+      );
+      fileId = f.id;
+    }
+    const at = (log.emailDate ?? log.createdAt) as Date;
+    await this.prisma.tradeFileLink.update({ where: { id: link.id }, data: { hiddenAt: new Date(), hiddenReason: `Replaced by a newer version (received ${new Date(at).toISOString()}) from email "${String(log.subject ?? '').slice(0, 120)}"${actor?.name ? ` by ${actor.name}` : ''}` } });
+    await this.config.syncSteps(this.prisma, organizationId, [{ shipmentId: link.shipmentId }], actor as any).catch(() => undefined);
+    return { replaced: { linkId: link.id, fileId: link.file.id, fileName: link.file.fileName }, by: { fileId, fileName: att.name, emailId: log.id, received: new Date(at).toISOString() }, shipmentId: link.shipmentId };
   }
 
   /** Round AR: the emails linked to a shipment / order (the email's own link, any of its targets, or a file it filed there). */
@@ -2412,10 +2557,13 @@ export class EmailTriageService {
     // Round AF (owner): every attachment of every stored email in the thread (inline signature images left out), newest
     // first, with its date and sender; and how many earlier emails the replies QUOTE that AIMS never received.
     const companies = await this.companyOverrides(organizationId);
-    const files = full
+    const listed = full
       .flatMap((r) => (((r.rawMeta ?? {}) as Partial<StoredEmailMeta>).attachments ?? []).map((a, index) => ({ emailId: r.id as string, index, name: a.name, contentType: a.contentType ?? null, size: a.size ?? null, date: (r.emailDate ?? r.createdAt) as Date, from: r.fromAddress as string, company: companyOf(r.fromAddress, companies).name })))
       .filter((f) => !isInlineImage(f.name))
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    // Round BF: pages and the version marks (Latest / Older version / Identical to …) on the same list.
+    const info = await this.fileInfo(organizationId, full, listed);
+    const files = listed.map((f) => { const x = info.get(`${f.emailId}:${f.index}`); return { ...f, pages: x?.pages ?? null, version: x?.version ?? null }; });
     const quotedHeaders = quotedEmailHeaders(full.map((r) => splitQuoted(String(((r.rawMeta ?? {}) as { bodyText?: string }).bodyText ?? '')).quoted).join('\n\n'));
     const quotedMissing = missingQuotedEmails(quotedHeaders, full.map((r) => ({ from: r.fromAddress, date: r.emailDate ?? r.createdAt })));
     return { id: l.id, messages: rows.map((r) => this.shapeMessage(byId.get(r.id), refs, labels, rows.length)), files, quotedMissing, quotedTotal: quotedHeaders.length };
