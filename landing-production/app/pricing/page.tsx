@@ -4,7 +4,7 @@ import { Footer } from "../_components/Footer";
 import { Cta } from "../_components/Cta";
 import { DEMO_URL, MODULES, BADGE_LABEL } from "../_content/site";
 import { ArrowIcon, CheckIcon } from "../_components/Icons";
-import { MODULE_ICONS } from "../_components/Modules";
+import { MODULE_ICONS } from "../_components/ModuleIcons";
 
 export const metadata: Metadata = {
   title: "Pricing | AIMS",
@@ -57,7 +57,7 @@ export default function PricingPage() {
               </div>
               <div className="plan-price">{p.price}</div>
               <ul className="feature-bullets">
-                {p.features.map((f) => <li key={f}><CheckIcon size={16} stroke="#00a572" strokeWidth={2.2} />{f}</li>)}
+                {p.features.map((f) => <li key={f}><CheckIcon size={16} className="tick" strokeWidth={2.2} />{f}</li>)}
               </ul>
               <a className={`btn ${p.featured ? "btn-primary" : "btn-ghost"}`} href={DEMO_URL}>{p.cta} <ArrowIcon /></a>
             </div>
@@ -70,9 +70,9 @@ export default function PricingPage() {
           </div>
           <div className="more-grid more-grid-5">
             {MODULES.map((m) => (
-              <a key={m.key} href={`/modules/${m.key}`} className="card more-card">
+              <a key={m.key} href={`/modules/${m.key}`} className="card card-hover more-card">
                 <div className="module-top">
-                  <div className="module-icon">{MODULE_ICONS[m.key]}</div>
+                  <div className="tile">{MODULE_ICONS[m.key]}</div>
                   {m.badge ? <span className={`badge badge-${m.badge}`}>{BADGE_LABEL[m.badge]}</span> : null}
                 </div>
                 <strong className="module-name">{m.name}</strong>

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { DEMO_URL, MODULES, BADGE_LABEL } from "../_content/site";
 import { ArrowIcon, CheckIcon } from "./Icons";
 import { Screenshot, hasScreen } from "./Screenshot";
-import { MODULE_ICONS } from "./Modules";
+import { MODULE_ICONS } from "./ModuleIcons";
 import type { Feature } from "../_content/modules";
 
 export function PageHero({ eyebrow, title, lede, screen, badge, children }: { eyebrow: string; title: string; lede: string; screen?: string; badge?: string; children?: React.ReactNode }) {
@@ -43,12 +43,12 @@ export function FeatureRows({ features }: { features: Feature[] }) {
       {features.map((f, i) => { const shot = hasScreen(f.screen); return (
         <div key={f.title} className={`feature-row${i % 2 ? " feature-row-flip" : ""}${shot ? "" : " feature-row-text"}`}>
           <div className="feature-copy">
-            <span className="mono feature-n">{String(i + 1).padStart(2, "0")}</span>
+            <span className="feature-n">{String(i + 1).padStart(2, "0")}</span>
             <h2 className="feature-title">{f.title}</h2>
             <p className="feature-body">{f.body}</p>
             {f.bullets ? (
               <ul className="feature-bullets">
-                {f.bullets.map((b) => <li key={b}><CheckIcon size={16} stroke="#00a572" strokeWidth={2.2} />{b}</li>)}
+                {f.bullets.map((b) => <li key={b}><CheckIcon size={16} className="tick" strokeWidth={2.2} />{b}</li>)}
               </ul>
             ) : null}
           </div>
@@ -87,9 +87,9 @@ export function MoreModules({ current }: { current?: string }) {
       </div>
       <div className="more-grid">
         {others.map((m) => (
-          <Link key={m.key} href={`/modules/${m.key}`} className="card more-card">
+          <Link key={m.key} href={`/modules/${m.key}`} className="card card-hover more-card">
             <div className="module-top">
-              <div className="module-icon">{MODULE_ICONS[m.key]}</div>
+              <div className="tile">{MODULE_ICONS[m.key]}</div>
               {m.badge ? <span className={`badge badge-${m.badge}`}>{BADGE_LABEL[m.badge]}</span> : null}
             </div>
             <strong className="module-name">{m.name}</strong>

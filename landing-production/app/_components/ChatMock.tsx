@@ -1,6 +1,6 @@
-import Image from "next/image";
 import { CHAT, QUOTE_FILE, QUOTE_LINES, QUOTE_TOTAL } from "../_content/site";
 import { FileIcon, SendIcon } from "./Icons";
+import { LogoMark } from "./Logo";
 
 /** Static rendering of a sample operator conversation, the hero's product shot. */
 export function ChatMock({ animate = false }: { animate?: boolean } = {}) {
@@ -9,7 +9,7 @@ export function ChatMock({ animate = false }: { animate?: boolean } = {}) {
       <div className={`phone${animate ? " phone-anim" : ""}`} role="img" aria-label="Sample conversation with the AIMS agent on WhatsApp">
         <div className="phone-screen">
           <div className="chat-head">
-            <Image src="/aims-logo.png" alt="" width={32} height={32} />
+            <span className="chat-avatar"><LogoMark size={16} onDark /></span>
             <div>
               <div className="chat-head-name">AIMS Operator</div>
               <div className="chat-head-status">online · Osiris Technology</div>

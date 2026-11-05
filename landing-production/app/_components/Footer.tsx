@@ -1,5 +1,5 @@
-import Image from "next/image";
-import { FOOTER } from "../_content/site";
+import { FOOTER, TAGLINE } from "../_content/site";
+import { Logo } from "./Logo";
 
 export function Footer() {
   return (
@@ -7,10 +7,8 @@ export function Footer() {
       <div className="wrap footer-inner">
         <div className="footer-cols">
           <div className="footer-brand">
-            <div className="brand">
-              <Image src="/aims-logo.png" alt="" width={24} height={24} unoptimized />
-              <span>AIMS</span>
-            </div>
+            <Logo onDark height={28} />
+            <p className="footer-tag">Artificial Intelligence Management Systems</p>
             <p className="footer-blurb">{FOOTER.blurb}</p>
           </div>
           {FOOTER.columns.map((c) => (
@@ -23,8 +21,8 @@ export function Footer() {
           ))}
         </div>
         <div className="footer-legal">
-          <span>{FOOTER.legal}</span>
-          <span>{FOOTER.site}</span>
+          <span>{FOOTER.legal} · {FOOTER.site}</span>
+          <span>{TAGLINE}</span>
         </div>
       </div>
     </footer>

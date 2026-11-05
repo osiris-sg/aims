@@ -37,7 +37,7 @@ export default function AgentPage() {
               </div>
               <div className="hero-proofs">
                 {["27 actions today, growing", "Telegram and WhatsApp", "Confirm before anything commits"].map((p) => (
-                  <span key={p}><CheckIcon stroke="#00a572" strokeWidth={2.2} />{p}</span>
+                  <span key={p}><CheckIcon className="tick" strokeWidth={2.2} />{p}</span>
                 ))}
               </div>
             </div>
@@ -57,7 +57,7 @@ export default function AgentPage() {
               <div key={g.title} className="card tools-card">
                 <strong className="module-name">{g.title}</strong>
                 <ul className="feature-bullets">
-                  {g.items.map((i) => <li key={i}><CheckIcon size={16} stroke="#00a572" strokeWidth={2.2} />{i}</li>)}
+                  {g.items.map((i) => <li key={i}><CheckIcon size={16} className="tick" strokeWidth={2.2} />{i}</li>)}
                 </ul>
               </div>
             ))}
