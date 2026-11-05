@@ -249,7 +249,9 @@ export class ReceiptsService {
       organizationId, from, to, bank,
     );
     if (!ids.length) return [];
-    const docs = await this.prisma.document.findMany({ where: { id: { in: ids.map((r) => r.id) } } });
+    // Re-assert the org on the fetch: the ids come from an org-scoped query
+    // above, and this keeps that true if the two are ever separated.
+    const docs = await this.prisma.document.findMany({ where: { organizationId, id: { in: ids.map((r) => r.id) } } });
     const order = new Map(ids.map((r, i) => [r.id, i]));
     docs.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
     return docs.map((d) => this.toReceipt(d));
