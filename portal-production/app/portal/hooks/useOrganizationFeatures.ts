@@ -30,6 +30,7 @@ interface OrganizationFeatures {
   // no field run behind it, can be shared for the customer to sign.
   enableOfficeDoSign?: boolean;
   enableApCreditOffset?: boolean;
+  enableContraOffset?: boolean;
   // Customer UEN + old code (2026-11-02): fields, columns, picker line. WCT on.
   enableCustomerUen?: boolean;
   // Preset roles with built-in permissions; no role / permission editor for the client.
@@ -205,6 +206,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableOfficeDoSign: false,
   // Supplier credit notes in the Payment Voucher's offset grid.
   enableApCreditOffset: false,
+  // Contra set-off: net a customer's invoices against the same company's bills.
+  enableContraOffset: false,
   // Custom job fields (2026-11-01): Settings → Job fields; on the schedule form,
   // the delivery page and the jobs calendar. Default OFF.
   enableJobFields: false,
@@ -285,6 +288,7 @@ export function useOrganizationFeatures() {
     isWctOrderInvoiceEnabled: features.enableWctOrderInvoice ?? false,
     isJobFieldsEnabled: features.enableJobFields ?? false,
     isOfficeDoSignEnabled: features.enableOfficeDoSign ?? false,
+    isContraOffsetEnabled: features.enableContraOffset ?? false,
     isCustomerUenEnabled: features.enableCustomerUen ?? false,
     isRolePresetsEnabled: features.enableRolePresets ?? false,
     isCappitechOrdersEnabled: features.enableCappitechOrders ?? false,

@@ -767,6 +767,74 @@ export class JournalAutoPostService {
    *   ± Realised FX on the difference.
    * Re-save = void the previous voucher journal and repost.
    */
+  /**
+   * CONTRA SET-OFF (guru 2026-11-06) — the same company owes us as a customer
+   * and is owed by us as a supplier, and the two are netted:
+   *
+   *   Dr Trade Creditors   (we stop owing them)
+   *   Cr Trade Debtors     (they stop owing us)
+   *
+   * Unlike a Manual Offset this is never a no-op: the two control accounts are
+   * different, so real balances move between the AP and AR ledgers. Re-save
+   * voids the previous journal and reposts, same as every other document.
+   */
+  async postFromContraOffset(args: {
+    organizationId: string;
+    contraDocumentId: string;
+    contraNumber?: string | null;
+    entryDate: Date;
+    customerName?: string | null;
+    supplierName?: string | null;
+    amount: number;
+    userId?: string;
+  }) {
+    const { organizationId, contraDocumentId, contraNumber, entryDate } = args;
+    const amount = ROUND(args.amount);
+    if (amount <= 0) {
+      this.logger.warn(`[postFromContraOffset] amount ${amount} is not positive; skipping`);
+      return null;
+    }
+    const controls = await this.getControlAccounts(organizationId);
+    if (!controls) {
+      this.logger.warn(`[postFromContraOffset] org=${organizationId} has no controlAccounts; skipping`);
+      return null;
+    }
+    const debtor = await this.resolveAccountByCode(organizationId, controls.debtorControl);
+    const creditor = await this.resolveAccountByCode(organizationId, controls.creditorControl);
+    if (!debtor || !creditor) {
+      this.logger.warn(
+        `[postFromContraOffset] missing control accounts (debtor=${controls.debtorControl}, creditor=${controls.creditorControl}); skipping`,
+      );
+      return null;
+    }
+
+    const existing = await this.prisma.journalEntry.findFirst({
+      where: { organizationId, sourceDocumentId: contraDocumentId, type: 'ADJUSTMENT', status: { not: 'VOID' } },
+      select: { id: true },
+    });
+    if (existing) await this.journal.void(organizationId, existing.id, args.userId);
+
+    const who = [args.customerName, args.supplierName].filter(Boolean).join(' / ');
+    const created = await this.journal.create(
+      organizationId,
+      {
+        entryDate: entryDate.toISOString(),
+        type: 'ADJUSTMENT',
+        reference: contraNumber ? refWith('C/T', contraNumber) : undefined,
+        description: `Contra set-off ${contraNumber ?? ''} — ${who}`.trim(),
+        sourceDocumentId: contraDocumentId,
+        lines: [
+          { accountId: creditor.id, debit: amount, credit: 0, description: `Contra — bills settled (${args.supplierName ?? ''})`.trim() },
+          { accountId: debtor.id, debit: 0, credit: amount, description: `Contra — invoices settled (${args.customerName ?? ''})`.trim() },
+        ],
+      },
+      args.userId,
+      { autoPost: true },
+    );
+    this.logger.log(`[postFromContraOffset] created journal=${created.journalNumber} for ${contraNumber}`);
+    return created;
+  }
+
   async postFromPaymentVoucher(args: {
     organizationId: string;
     voucherDocumentId: string;

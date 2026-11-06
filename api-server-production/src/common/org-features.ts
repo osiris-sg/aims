@@ -27,6 +27,13 @@ export const OFFICE_DO_SIGN_FLAG = 'enableOfficeDoSign';
 // creditor control, and a voucher with no bank line).
 export const AP_CREDIT_OFFSET_FLAG = 'enableApCreditOffset';
 
+// CONTRA SET-OFF (2026-11-06, guru) — the same company is a customer AND a
+// supplier ("we bill them and they bill us"), and the two ledgers are netted.
+// Distinct from the Manual Offset, which never leaves the debtors control.
+// A contra moves balance between the debtor and creditor controls, so it is
+// flag-gated per org and the customer↔supplier pairing is confirmed by hand.
+export const CONTRA_OFFSET_FLAG = 'enableContraOffset';
+
 export async function isOrgFeatureEnabled(
   prisma: { organizationUIConfig: { findUnique: (args: any) => Promise<any> } },
   organizationId: string,

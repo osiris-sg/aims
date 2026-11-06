@@ -43,11 +43,14 @@ import CloseIcon from "@mui/icons-material/Close";
 import SearchIcon from "@mui/icons-material/Search";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
+import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import DebtorStatementDialog from "./DebtorStatementDialog";
 import ManualOffsetDialog from "./ManualOffsetDialog";
+import ContraOffsetDialog from "./ContraOffsetDialog";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { toast } from "react-toastify";
 import { headerInputSx } from "./DynamicFormFields";
 import type { TemplateFieldConfig } from "../types/templateFieldTypes";
@@ -619,6 +622,8 @@ export function OfficialReceiptOffsetSection({
   // Offset are live; Audit Trail awaits guru's spec.
   const [debtorStatementOpen, setDebtorStatementOpen] = useState(false);
   const [manualOffsetOpen, setManualOffsetOpen] = useState(false);
+  const [contraOpen, setContraOpen] = useState(false);
+  const { isContraOffsetEnabled } = useOrganizationFeatures();
   const needCustomer = (fn: () => void) => () => {
     if (!customerId) {
       toast.warn("Select a customer first");
@@ -629,6 +634,10 @@ export function OfficialReceiptOffsetSection({
   const railButtons = [
     { label: "Debtor Statement", icon: <DescriptionOutlinedIcon />, onClick: needCustomer(() => setDebtorStatementOpen(true)) },
     { label: "Manual Offset", icon: <CompareArrowsIcon />, onClick: needCustomer(() => setManualOffsetOpen(true)) },
+    // Contra: the same company as customer AND supplier — invoices vs bills.
+    ...(isContraOffsetEnabled
+      ? [{ label: "Contra Set-off", icon: <SwapHorizIcon />, onClick: needCustomer(() => setContraOpen(true)) }]
+      : []),
     {
       label: "Audit Trail",
       icon: <ManageSearchIcon />,
@@ -829,6 +838,16 @@ export function OfficialReceiptOffsetSection({
         customer={formData?.customer?.id ? formData.customer : null}
         onSaved={() => setRefreshTick((t) => t + 1)}
       />
+
+      {/* Contra set-off (side rail) — their invoices ↔ our bills, no cash */}
+      {isContraOffsetEnabled && (
+        <ContraOffsetDialog
+          open={contraOpen}
+          onClose={() => setContraOpen(false)}
+          customer={formData?.customer?.id ? formData.customer : null}
+          onSaved={() => setRefreshTick((t) => t + 1)}
+        />
+      )}
     </Box>
   );
 }

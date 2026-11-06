@@ -91,6 +91,11 @@ model Permission {
 model Customer {
   id              String            @id @default(uuid()) @db.Uuid
   customerCode    String? // Auto-generated code like CA001, CB002
+  // CONTRA SET-OFF (2026-11-06, guru): the Supplier row that is the SAME legal
+  // entity as this customer — "we bill them and they bill us". Set once, then
+  // a Contra Offset nets their open invoices against their open bills.
+  // Plain UUID, no FK — mirrors how DocumentItem/DeliveryItem reference across.
+  contraSupplierId  String?           @db.Uuid
   name            String
   email           String?
   phone           String?
