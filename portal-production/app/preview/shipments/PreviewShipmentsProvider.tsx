@@ -9,6 +9,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TradeTheme from "@/app/portal/shipments/_components/TradeTheme";
 import { StaticUiLang } from "@/i18n/UiLangProvider";
 import type { UiLang } from "@/i18n/lang";
+import { setPreviewExtract } from "@/app/portal/shipments/_lib/api";
 
 // Round AN: the shared-header variants (tab, search) are keyed by the normalised query (scripts/_an-preview-fixtures.ts).
 const norm = (q: Record<string, unknown>) =>
@@ -94,6 +95,8 @@ export default function PreviewShipmentsProvider({ data, children }: { data: any
     });
     return c;
   });
+  // Round BJ: "Fill from B/L draft" (and other reads) answered from the fixture's `extraction`.
+  useState(() => setPreviewExtract(data.extraction ? () => data.extraction : null));
   // Round AZ: ?lang=ja renders the page in Japanese (the screenshots of both languages).
   const [lang, setLang] = useState<UiLang>("en");
   React.useEffect(() => setLang(new URLSearchParams(window.location.search).get("lang") === "ja" ? "ja" : "en"), []);

@@ -59,6 +59,8 @@ export interface ClientProduct {
   docNameJa?: string | null;
   docNameEn?: string | null;
   docSize?: string | null;
+  /** Round BJ: customs HS code ("7601.20" = aluminium, unwrought, alloyed); used when a B/L / CI prints none, and to warn on a different one. */
+  hsCode?: string | null;
   specFiles?: ProfileFile[];
   packingImages?: ProfileFile[];
   /** Where a seeded row came from ("order #21, contract 454003255") and what is still to confirm. */
@@ -88,6 +90,14 @@ const num = (v: unknown, max = 1e9): number | null => {
   const n = typeof v === 'number' ? v : Number(String(v).replace(/,/g, ''));
   return Number.isFinite(n) && n >= 0 && n <= max ? n : null;
 };
+
+/** An HS code as typed: digits with dots / spaces ("7601.20", "7601.20.00"); empty clears it. */
+function hsText(v: unknown, bad: (m: string) => never): string | null {
+  const t = text(v, 20);
+  if (!t) return null;
+  if (!/^\d{4}(?:[.\s]?\d{2}){1,3}$/.test(t)) bad(`"${t}" is not an HS code (e.g. 7601.20)`);
+  return t.replace(/\s+/g, '.');
+}
 
 /** "152 × 5800", "152x5800 mm", "203 MM X 5800 MM" → { d: 152, l: 5800 }. */
 export function parseSize(s: string | null | undefined): { diameterMm: number; lengthMm: number } | null {
@@ -153,6 +163,7 @@ export function cleanProduct(raw: unknown, prev: ClientProduct | undefined, id: 
     docNameJa: r.docNameJa === undefined ? (prev?.docNameJa ?? null) : text(r.docNameJa, 200),
     docNameEn: r.docNameEn === undefined ? (prev?.docNameEn ?? null) : text(r.docNameEn, 200),
     docSize: r.docSize === undefined ? (prev?.docSize ?? null) : text(r.docSize, 40),
+    hsCode: r.hsCode === undefined ? (prev?.hsCode ?? null) : hsText(r.hsCode, bad),
     specFiles: prev?.specFiles ?? [],
     packingImages: prev?.packingImages ?? [],
     source: prev?.source ?? null,

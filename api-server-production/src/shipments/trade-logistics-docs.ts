@@ -272,6 +272,27 @@ export function sgjpUnitPrice(i: Pick<SgjpItem, 'lme' | 'qmjp' | 'premium' | 'up
 /** Ports and places print in capitals, as on ADH's SG→JP invoice ("VISAKHAPATNAM PORT, INDIA"); the stored value stays as typed. */
 const upper = (v: string | null | undefined) => (v ?? '').toUpperCase();
 
+/** Round BJ — Japanese ports ADH ships to; a port without its country gets ", JAPAN". */
+const JP_PORTS = ['YOKOHAMA', 'NAGOYA', 'TOKYO', 'OSAKA', 'KOBE', 'HAKATA', 'MOJI', 'SHIMIZU', 'CHIBA', 'KAWASAKI', 'YOKKAICHI', 'TOYOHASHI', 'SENDAI', 'NIIGATA', 'KITAKYUSHU'];
+const PORT_COUNTRY: Record<string, string> = { 'LAEM CHABANG': 'THAILAND', BANGKOK: 'THAILAND', SINGAPORE: 'SINGAPORE', BUSAN: 'KOREA' };
+const cap = (w: string) => w.toLowerCase().replace(/(^|[\s-])([a-z])/g, (m) => m.toUpperCase());
+
+/**
+ * Round BJ — a discharge port / place of delivery as ADH writes it on the SG→JP invoice: "Yokohama, JAPAN"
+ * (port in title case, country in capitals). "YOKOHAMA, JAPAN" and "Yokohama" both give "Yokohama, JAPAN".
+ */
+export function portWithCountry(v: string | null | undefined): string {
+  const t = (v ?? '').trim();
+  if (!t) return '';
+  const [port, ...rest] = t.split(',').map((x) => x.trim()).filter(Boolean);
+  const key = port.toUpperCase().replace(/\s+PORT$/, '');
+  const country = rest.join(', ') || (JP_PORTS.includes(key) ? 'JAPAN' : PORT_COUNTRY[key] ?? '');
+  return country ? `${cap(port)}, ${country.toUpperCase()}` : cap(port);
+}
+
+/** "HS CODE : 7601.20 CIF" — the label only when there is a code. */
+const hsLine = (hs: string | null | undefined, terms?: string | null) => [hs ? `HS CODE : ${esc(hs)}` : '', terms ? esc(terms) : ''].filter(Boolean).join(' ');
+
 /** ROUNDDOWN(unit price × quantity, 2), as ADH's sheet. */
 export function sgjpItemAmount(i: SgjpItem): number | null {
   const p = sgjpUnitPrice(i);
@@ -311,8 +332,8 @@ export function renderSgjpV2Html(h: SgjpHeaderV2, items: SgjpItem[], opts: { dra
 <table class="route">
   <tr><td>${cell('(Place Of receipt)', upper(h.placeOfReceipt))}</td><td>${cell('(Payment)', h.payment)}</td><td rowspan="4" class="marks">${cell('(Shipping Marks)', h.shippingMarks)}</td></tr>
   <tr><td>${cell('(Port Of Loading)', upper(h.portOfLoading))}</td><td>${cell('(Country Of Origin)', upper(h.countryOfOrigin))}</td></tr>
-  <tr><td>${cell('(Port Of Discharge)', upper(h.portOfDischarge))}</td><td>${cell('(Vessel)', h.vessel)}</td></tr>
-  <tr><td>${cell('(Place Of Delivery)', upper(h.placeOfDelivery))}</td><td>${cell('(Others)', h.others)}</td></tr>
+  <tr><td>${cell('(Port Of Discharge)', h.portOfDischarge)}</td><td>${cell('(Vessel)', h.vessel)}</td></tr>
+  <tr><td>${cell('(Place Of Delivery)', h.placeOfDelivery)}</td><td>${cell('(Others)', h.others)}</td></tr>
 </table>
 <table class="grid inv">
   <colgroup><col style="width:9%"><col style="width:41%"><col style="width:16%"><col style="width:16%"><col style="width:18%"></colgroup>
@@ -320,7 +341,7 @@ export function renderSgjpV2Html(h: SgjpHeaderV2, items: SgjpItem[], opts: { dra
   <tbody>${items
     .map(
       (i, k) =>
-        `<tr><td class="c">${k + 1}</td><td class="pre">${br(i.goods)}<br>HS Code: ${esc(i.hsCode)}${i.terms ? ` ${esc(i.terms)}` : ''}</td><td class="num">${money(sgjpUnitPrice(i))}</td><td class="num">${money(num(i.quantity), 3)}</td><td class="num">${usdAmount(sgjpItemAmount(i))}</td></tr>`,
+        `<tr><td class="c">${k + 1}</td><td class="pre">${br(i.goods)}<br>${hsLine(i.hsCode, i.terms)}</td><td class="num">${money(sgjpUnitPrice(i))}</td><td class="num">${money(num(i.quantity), 3)}</td><td class="num">${usdAmount(sgjpItemAmount(i))}</td></tr>`,
     )
     .join('')}
   <tr class="tot"><td colspan="3">TOTAL</td><td class="num">${money(t.quantity, 3)}</td><td class="num">${usdAmount(t.amount)}</td></tr></tbody>
@@ -332,7 +353,7 @@ export function renderSgjpV2Html(h: SgjpHeaderV2, items: SgjpItem[], opts: { dra
   <tbody>${items
     .map(
       (i, k) =>
-        `<tr><td class="c">${k + 1}</td><td class="pre">${br(i.goods)}${has(i.bundles) ? `- ${qty(num(i.bundles))} Bundles` : ''}<br>HS Code: ${esc(i.hsCode)}</td><td class="num">${has(i.pieces) ? `${qty(num(i.pieces))} PCS` : ''}</td><td class="num">${money(num(i.netMt), 3)}</td><td class="num">${money(num(i.grossMt), 3)}</td><td class="pre">${br(i.dimension)}</td></tr>`,
+        `<tr><td class="c">${k + 1}</td><td class="pre">${br(i.goods)}${has(i.bundles) ? `- ${qty(num(i.bundles))} Bundles` : ''}<br>${hsLine(i.hsCode)}</td><td class="num">${has(i.pieces) ? `${qty(num(i.pieces))} PCS` : ''}</td><td class="num">${money(num(i.netMt), 3)}</td><td class="num">${money(num(i.grossMt), 3)}</td><td class="pre">${br(i.dimension)}</td></tr>`,
     )
     .join('')}
   <tr class="tot"><td>TOTAL :</td><td>${qty(t.bundles)}  Bundle only</td><td></td><td class="num">${money(t.netMt, 3)}</td><td class="num">${money(t.grossMt, 3)}</td><td></td></tr></tbody>

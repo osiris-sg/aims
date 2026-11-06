@@ -178,11 +178,12 @@ export default function DealPage() {
   /** A B/L draft / arrival notice uploaded on its step row: read it and offer its values. */
   const readUploaded = async (docType: string, files: TradeFile[]) => {
     const f = files[0];
-    if (!s || !f || (docType !== "BL_DRAFT" && docType !== "ARRIVAL_NOTICE")) return;
-    const what = docType === "BL_DRAFT" ? t("blDraft") : t("arrivalNotice");
+    const isBl = docType === "BL_DRAFT" || ((docType === "BL" || docType === "BL_SCAN") && /pdf|image/i.test(f?.mimeType ?? ""));
+    if (!s || !f || (!isBl && docType !== "ARRIVAL_NOTICE")) return;
+    const what = isBl ? t("blDraft") : t("arrivalNotice");
     const tid = toast.info(t("reading", { what, file: f.fileName }), { autoClose: false });
     try {
-      if (docType === "BL_DRAFT") {
+      if (isBl) {
         const x = await api.extractBlDraft({ fileId: f.id, shipmentId: s.id });
         if (x.status !== "DONE" || !x.result) throw new Error(x.error || t("aiFailed"));
         setOffer({

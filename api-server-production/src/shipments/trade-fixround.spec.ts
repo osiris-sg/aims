@@ -133,7 +133,9 @@ describe('#7 COA analysis date is never "today"', () => {
   });
 });
 
-describe('#8 SG→JP ports and places print in capitals; stored values unchanged', () => {
+// Round BJ: discharge port / place of delivery print as ADH writes them ("Yokohama, JAPAN" — set by the generator);
+// loading port, place of receipt and origin stay in capitals.
+describe('#8 SG→JP loading port / origin print in capitals; discharge / delivery as stored', () => {
   const h = {
     layout: 2,
     invoiceNo: 'ADH20260820',
@@ -155,11 +157,12 @@ describe('#8 SG→JP ports and places print in capitals; stored values unchanged
     currency: 'USD',
     lmeMonth: '2026-07',
   } as SgjpHeaderV2;
-  it('renders VISAKHAPATNAM, INDIA / YOKOHAMA, JAPAN', () => {
-    const text = strip(renderSgjpV2Html(h, []));
+  it('renders VISAKHAPATNAM, INDIA / Yokohama, JAPAN', () => {
+    const text = strip(renderSgjpV2Html({ ...h, portOfDischarge: 'Yokohama, JAPAN', placeOfDelivery: 'Yokohama, JAPAN' }, []));
     expect(text).toContain('VISAKHAPATNAM, INDIA');
-    expect(text).toContain('YOKOHAMA, JAPAN');
-    expect(text).not.toContain('Yokohama, Japan');
+    expect(text).toContain('INDIA');
+    expect(text).toContain('Yokohama, JAPAN');
+    expect(text).not.toContain('YOKOHAMA, JAPAN');
     expect(h.portOfDischarge).toBe('Yokohama, Japan');
   });
 });

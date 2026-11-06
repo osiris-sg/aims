@@ -291,6 +291,9 @@ export default function OrderPage() {
         if (x.status !== "DONE" || !x.result) throw new Error(x.error || t("aiReadFailed"));
         const filled: string[] = x.result.filled ?? [];
         toast.success(filled.length ? t("ciReadFilled", { fields: filled.map(fieldName).join(", ") }) : t("ciReadNone"));
+        // Round BJ: a newer CI version than the stored amount — proposed under the CI amount, never written.
+        const p = x.result.ciProposal;
+        if (p && p.from !== null) toast.warning(t("ciRevised", { from: fmtMoney(p.from, s.currency), to: fmtMoney(p.to, s.currency) }), { autoClose: 12000 });
       } catch (e: any) {
         toast.error(t("ciReadError", { error: e?.message || t("unknownError") }));
       } finally {
@@ -300,11 +303,13 @@ export default function OrderPage() {
       }
       return;
     }
-    if (!s || !f || (docType !== "BL_DRAFT" && docType !== "ARRIVAL_NOTICE" && docType !== "IMPORT_PERMIT")) return;
-    const what = docType === "BL_DRAFT" ? t("docBlDraft") : docType === "IMPORT_PERMIT" ? t("docImportPermit") : t("docArrivalNotice");
+    // Round BJ: the carrier's final / scanned B/L is read like a draft (#18-1's OBL on step 3a was never read).
+    const isBl = docType === "BL_DRAFT" || ((docType === "BL" || docType === "BL_SCAN") && /pdf|image/i.test(f?.mimeType ?? ""));
+    if (!s || !f || (!isBl && docType !== "ARRIVAL_NOTICE" && docType !== "IMPORT_PERMIT")) return;
+    const what = isBl ? t("docBlDraft") : docType === "IMPORT_PERMIT" ? t("docImportPermit") : t("docArrivalNotice");
     const tid = toast.info(t("readingDoc", { what, file: f.fileName }), { autoClose: false });
     try {
-      if (docType === "BL_DRAFT") {
+      if (isBl) {
         const x = await api.extractBlDraft({ fileId: f.id, shipmentId: s.id });
         if (x.status !== "DONE" || !x.result) throw new Error(x.error || t("aiReadFailed"));
         setOffer({ title: t("applyBlTitle"), intro: t("applyBlIntro", { file: f.fileName }), warning: null, rows: blRows(s, x, t) });

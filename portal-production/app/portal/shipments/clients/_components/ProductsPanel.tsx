@@ -22,7 +22,7 @@ import { ConfirmHide, FileChip, PhotoThumb, PhotoUploader, SpecUploader, useRefr
 const GRADES = ["6063", "6005", "6061", "P1020", "P0507", "1070", "HSB"];
 const PRICE_BASES = ["LME + premium", "MJP + premium", "upcharge"];
 /** Product fields with a label (a seeded row's toConfirm names these). */
-const FIELD_KEYS = new Set(["grade", "form", "size", "diameterMm", "lengthMm", "sizeText", "standard", "chemistry", "tolerances", "piecesPerBundle", "bundleWeightKg", "monthlyQtyMt", "priceBasis", "notes", "docNameJa", "docNameEn", "docSize"]);
+const FIELD_KEYS = new Set(["grade", "form", "size", "diameterMm", "lengthMm", "sizeText", "standard", "chemistry", "tolerances", "piecesPerBundle", "bundleWeightKg", "monthlyQtyMt", "priceBasis", "notes", "docNameJa", "docNameEn", "docSize", "hsCode"]);
 
 /** The product form's label ("billet", "remelt ingot"…) in the portal language. */
 export function useFormLabel() {
@@ -34,7 +34,7 @@ type ChemRow = { element: string; min: string; max: string };
 type Draft = {
   grade: string; form: ProductForm | ""; diameterMm: string; lengthMm: string; sizeText: string; standard: string; chemistry: ChemRow[];
   tolerances: string; piecesPerBundle: string; bundleWeightKg: string; monthlyQtyMt: string; priceBasis: string; notes: string;
-  docNameJa: string; docNameEn: string; docSize: string;
+  docNameJa: string; docNameEn: string; docSize: string; hsCode: string;
 };
 const s = (v: unknown) => (v === null || v === undefined ? "" : String(v));
 const toDraft = (p?: ClientProductView | null): Draft => ({
@@ -42,7 +42,7 @@ const toDraft = (p?: ClientProductView | null): Draft => ({
   chemistry: (p?.chemistry ?? []).map((c) => ({ element: c.element, min: s(c.min), max: s(c.max) })),
   tolerances: s(p?.tolerances), piecesPerBundle: s(p?.piecesPerBundle), bundleWeightKg: s(p?.bundleWeightKg), monthlyQtyMt: s(p?.monthlyQtyMt),
   priceBasis: s(p?.priceBasis), notes: s(p?.notes),
-  docNameJa: s(p?.docNameJa), docNameEn: s(p?.docNameEn), docSize: s(p?.docSize),
+  docNameJa: s(p?.docNameJa), docNameEn: s(p?.docNameEn), docSize: s(p?.docSize), hsCode: s(p?.hsCode),
 });
 const n = (v: string) => (v.trim() === "" ? null : Number(v.replace(/,/g, "")));
 const txt = (v: string) => v.trim() || null;
@@ -51,7 +51,7 @@ const toInput = (d: Draft): ClientProductInput => ({
   chemistry: d.chemistry.filter((c) => c.element.trim()).map((c): ChemLimit => ({ element: c.element.trim(), min: n(c.min), max: n(c.max) })),
   tolerances: txt(d.tolerances), piecesPerBundle: n(d.piecesPerBundle), bundleWeightKg: n(d.bundleWeightKg), monthlyQtyMt: n(d.monthlyQtyMt),
   priceBasis: txt(d.priceBasis), notes: txt(d.notes),
-  docNameJa: txt(d.docNameJa), docNameEn: txt(d.docNameEn), docSize: txt(d.docSize),
+  docNameJa: txt(d.docNameJa), docNameEn: txt(d.docNameEn), docSize: txt(d.docSize), hsCode: txt(d.hsCode),
 });
 
 /** Add / edit one product. */
@@ -106,7 +106,11 @@ function ProductDialog({ open, onClose, kind, id, product }: { open: boolean; on
             <Typography color="text.secondary">{t("fields.or")}</Typography>
             <TextField size="small" label={t("fields.sizeText")} placeholder={t("fields.sizeTextPlaceholder")} value={d.sizeText} onChange={(e) => set("sizeText", e.target.value)} sx={{ flex: 1 }} />
           </Stack>
-          <TextField size="small" label={t("fields.standard")} placeholder={t("fields.standardPlaceholder")} value={d.standard} onChange={(e) => set("standard", e.target.value)} />
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+            <TextField size="small" label={t("fields.standard")} placeholder={t("fields.standardPlaceholder")} value={d.standard} onChange={(e) => set("standard", e.target.value)} sx={{ flex: 1 }} />
+            {/* Round BJ: customs HS code — used when a B/L / CI prints none; a different code on a shipment is warned about. */}
+            <TextField size="small" label={t("fields.hsCode")} placeholder="7601.20" helperText={t("fields.hsCodeHelp")} value={d.hsCode} onChange={(e) => set("hsCode", e.target.value)} sx={{ width: { sm: 220 } }} inputProps={{ "data-tour": "client-product-hs" }} />
+          </Stack>
           <Box>
             <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
               {t("fields.chemistry")}
@@ -222,6 +226,7 @@ function ProductCard({ kind, id, p, onMenu }: { kind: ClientKind; id: string; p:
         {row("form", formLabel(p.form))}
         {row("size", p.size)}
         {row("standard", p.standard)}
+        {row("hsCode", p.hsCode)}
         {row("chemistry", chem)}
         {row("tolerances", p.tolerances)}
         {row("piecesPerBundle", p.piecesPerBundle === null || p.piecesPerBundle === undefined ? null : t3(p.piecesPerBundle))}

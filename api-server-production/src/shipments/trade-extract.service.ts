@@ -35,7 +35,10 @@ import {
   PI_USER_PROMPT,
   ShipmentDraft,
   shipmentDraftFromBl,
+  withTextFields,
 } from './trade-extract.rules';
+import { hsWarning, productHsForShipment } from './trade-hs';
+import { ciAmountOf, ciHistory, ciProposal, CiText, ciVersionOf, ciVersionsFor, latestCi, parseCiText } from './trade-ci';
 import { fixedPremiumFromPi } from './trade-contract';
 import { TradeFilesService } from './trade-files.service';
 import { AnData, importTax, parseAnText, parsePermitText, PermitData, permitChecks, permitTotalFromFileName, sameBl } from './trade-customs';
@@ -61,8 +64,36 @@ const PROMPTS: Record<ExtractKind, [string, string]> = {
 const TEXT_FIRST: Partial<Record<ExtractKind, (text: string) => { data: unknown; complete: boolean }>> = {
   AN: parseAnText,
   IMPORT_PERMIT: parsePermitText,
+  // Round BJ: Vedanta's CIs carry a text layer — no., date, FINAL / PROVISIONAL and the Sub Total read exactly.
+  CI: (text) => {
+    const c = parseCiText(text);
+    return { data: c, complete: !!c.ciNumber && ciAmountOf(c) !== null };
+  },
 };
+/** A text-layer CI read in the AI read's shape (+ Sub Total, advance, FINAL / PROVISIONAL, shipper). */
+const ciRawFromText = (c: CiText): CiRaw & Record<string, unknown> => ({
+  ciNumber: c.ciNumber,
+  ciDate: c.ciDate,
+  blNumber: null,
+  currency: 'USD',
+  totalAmount: c.total,
+  subTotal: c.subTotal,
+  advance: c.advance,
+  status: c.status,
+  netWeightMt: c.netMt,
+  unitPrice: c.rate,
+  lme: c.lme,
+  premium: c.premium,
+  shipperBlock: c.shipperBlock,
+  countryOfOrigin: c.countryOfOrigin,
+  hsCode: c.hsCode,
+});
 const READABLE = /^(application\/pdf|image\/(png|jpe?g|webp))$/;
+/**
+ * Round BJ — the filed types each reader accepts. "Fill from B/L draft" also reads the carrier's final / original B/L
+ * and its scan (#18-1: the OBL uploaded on step 3a was refused as "filed as BL, not BL_DRAFT", so nothing was read).
+ */
+const READS_DOC_TYPES: Partial<Record<ExtractKind, string[]>> = { BL_DRAFT: ['BL_DRAFT', 'BL', 'BL_SCAN'] };
 
 /** Sonnet list price (USD per million tokens) — only for the cost shown in reports/logs. */
 export const PRICE_PER_MTOK = { input: 3, output: 15 };
@@ -125,9 +156,9 @@ export class TradeExtractService {
       fileId = uploaded.id;
     }
     if (!fileId) throw new BadRequestException('Attach the PDF or pick an uploaded file');
-    const file = await this.prisma.tradeFile.findFirst({ where: { id: fileId, organizationId }, select: { id: true, docType: true, s3Key: true, mimeType: true, fileName: true } });
+    const file = await this.prisma.tradeFile.findFirst({ where: { id: fileId, organizationId }, select: { id: true, docType: true, s3Key: true, mimeType: true, fileName: true, createdAt: true } });
     if (!file) throw new NotFoundException('File not found');
-    if (file.docType !== DOC_TYPE[kind]) throw new BadRequestException(`${file.fileName} is filed as ${file.docType}, not ${DOC_TYPE[kind]}`);
+    if (!(READS_DOC_TYPES[kind] ?? [DOC_TYPE[kind]]).includes(file.docType)) throw new BadRequestException(`${file.fileName} is filed as ${file.docType}, not ${DOC_TYPE[kind]}`);
     if (!READABLE.test(file.mimeType)) throw new BadRequestException(`${file.fileName} is not a PDF or image the reader can open`);
 
     const row = await this.prisma.tradeExtraction.create({
@@ -154,16 +185,23 @@ export class TradeExtractService {
             : kind === 'IMPORT_PERMIT'
               ? await this.permitResult(organizationId, via === 'text' ? (out.data as PermitData) : permitFromRaw(parseWith(PERMIT_SCHEMA, out.data, 'import permit')), input, file.fileName, via)
               : kind === 'CI'
-                ? { raw: parseWith(CI_SCHEMA, out.data, 'CI') }
-                : await this.blResult(organizationId, out.data, input);
+                ? { raw: via === 'text' ? ciRawFromText(out.data as CiText) : parseWith(CI_SCHEMA, out.data, 'CI') }
+                : await this.blResult(organizationId, out.data, input, file.mimeType === 'application/pdf' ? await pdfText(buffer).catch(() => '') : '');
       // Read on upload (round H click-through): blank record fields are filled from the document — typed values are kept.
       const filled =
         kind === 'PI' && input.orderId
           ? await this.fillOrderFromPi(organizationId, input.orderId, (result as { draft: { piNumber?: string | null; piDate?: string | null; piAmount?: number | null } }).draft)
           : kind === 'CI' && input.shipmentId
-            ? await this.fillShipmentFromCi(organizationId, input.shipmentId, (result as { raw: CiRaw }).raw)
+            ? await this.fillShipmentFromCi(organizationId, input.shipmentId, (result as { raw: CiRaw }).raw, file)
             : [];
       if (filled.length) (result as Record<string, unknown>).filled = filled;
+      if (kind === 'CI' && input.shipmentId) {
+        // A CI version newer than the stored amount: proposed on the shipment, never written over it.
+        const versions = ciHistory([...(await ciVersionsFor(this.prisma, organizationId, input.shipmentId)).filter((v) => v.fileId !== file.id), ciVersionOf((result as { raw: CiRaw }).raw as Record<string, unknown>, file)]);
+        const stored = await this.prisma.shipment.findFirst({ where: { id: input.shipmentId, organizationId }, select: { ciAmount: true } });
+        const proposal = ciProposal(stored?.ciAmount === null || stored?.ciAmount === undefined ? null : Number(stored.ciAmount), versions);
+        if (proposal) (result as Record<string, unknown>).ciProposal = proposal;
+      }
       const checks = kind === 'BL_DRAFT' && input.shipmentId ? await computeBlChecks(this.prisma, organizationId, input.shipmentId, (result as { draft: ShipmentDraft }).draft) : null;
       await this.prisma.tradeExtraction.update({
         where: { id: row.id },
@@ -319,15 +357,22 @@ export class TradeExtractService {
     return Object.keys(data);
   }
 
-  /** Shipment CI fields from a read CI — blanks only (CI no. / amount). */
-  private async fillShipmentFromCi(organizationId: string, shipmentId: string, ci: CiRaw) {
+  /**
+   * Shipment CI fields from a read CI — blanks only (CI no. / amount). Round BJ: the amount is the LATEST CI version's
+   * Sub Total (FINAL after PROVISIONAL, later date, "REVISED" file) — reading an older version never fills it.
+   */
+  private async fillShipmentFromCi(organizationId: string, shipmentId: string, ci: CiRaw, file: { id: string; fileName: string }) {
     const s = await this.prisma.shipment.findFirst({ where: { id: shipmentId, organizationId }, select: { ciNumber: true, ciAmount: true } });
     if (!s) return [];
+    const self = ciVersionOf(ci as Record<string, unknown>, { ...file, createdAt: new Date() });
+    const latest = latestCi([...(await ciVersionsFor(this.prisma, organizationId, shipmentId)).filter((v) => v.fileId !== file.id), self]);
     const data: Record<string, unknown> = {};
     if (!s.ciNumber && ci.ciNumber) data.ciNumber = ci.ciNumber;
-    if (s.ciAmount === null && typeof ci.totalAmount === 'number' && ci.totalAmount > 0) data.ciAmount = ci.totalAmount;
-    if (Object.keys(data).length) await this.prisma.shipment.update({ where: { id: shipmentId, organizationId }, data });
-    return Object.keys(data);
+    if (s.ciAmount === null && latest?.fileId === file.id && latest.amount !== null && latest.amount > 0) data.ciAmount = latest.amount;
+    if (!Object.keys(data).length) return [];
+    // Blank-only even under a concurrent edit (the request itself is in the Activity Log).
+    const r = await this.prisma.shipment.updateMany({ where: { id: shipmentId, organizationId, ...(data.ciAmount !== undefined ? { ciAmount: null } : {}), ...(data.ciNumber !== undefined ? { ciNumber: null } : {}) }, data });
+    return r.count ? Object.keys(data) : [];
   }
 
   /** A PDF's text layer through a layout reader; null when there's no text / the reader fails. */
@@ -395,9 +440,14 @@ export class TradeExtractService {
     return { permit, totalFrom: data.total !== null ? via : fromName !== null ? 'fileName' : null, checks, formulaOk, recomputed, sgjpInvoiceNo: sgjpNo, fill, via };
   }
 
-  private async blResult(organizationId: string, raw: unknown, input: { shipmentId?: string; contractId?: string }) {
-    const bl = parseWith(BL_SCHEMA, raw, 'B/L draft');
+  private async blResult(organizationId: string, raw: unknown, input: { shipmentId?: string; contractId?: string }, text = '') {
+    // The AI read, with what the text layer states filling its gaps (HS code, origin, containers).
+    const bl = withTextFields(parseWith(BL_SCHEMA, raw, 'B/L draft'), text);
     const draft = shipmentDraftFromBl(bl);
+    // HS code: the B/L's, else the product's (Clients › Products); a different one is only warned about.
+    const productHs = input.shipmentId ? await productHsForShipment(this.prisma, organizationId, input.shipmentId) : null;
+    if (draft.hsCode) draft.hsCodeFrom = 'bl';
+    else if (productHs) Object.assign(draft, { hsCode: productHs.hsCode, hsCodeFrom: 'product' as const });
     // Contract: the record it was run for, else the one whose number the B/L prints.
     let contractId = input.contractId ?? null;
     if (!contractId && input.shipmentId) {
@@ -409,8 +459,19 @@ export class TradeExtractService {
     const lines: Array<{ id: string; grade: string | null }> = contractId
       ? await this.prisma.contractLine.findMany({ where: { organizationId, contractId }, orderBy: { sortOrder: 'asc' }, select: { id: true, grade: true } })
       : [];
-    const existingShipment = draft.blNumber ? await this.prisma.shipment.findFirst({ where: { organizationId, blNumber: draft.blNumber }, select: { id: true } }) : null;
-    return { raw: bl, draft, contractId, contractLineId: lineForGrade(lines, draft.grade)?.id ?? null, existingShipmentId: existingShipment?.id ?? null };
+    // Another shipment with this B/L (the one being read for doesn't count — re-reading its own B/L is fine).
+    const existingShipment = draft.blNumber
+      ? await this.prisma.shipment.findFirst({ where: { organizationId, blNumber: draft.blNumber, ...(input.shipmentId ? { NOT: { id: input.shipmentId } } : {}) }, select: { id: true } })
+      : null;
+    return {
+      raw: bl,
+      draft,
+      contractId,
+      contractLineId: lineForGrade(lines, draft.grade)?.id ?? null,
+      existingShipmentId: existingShipment?.id ?? null,
+      productHs: productHs?.hsCode ?? null,
+      hsWarning: hsWarning(draft.hsCode, productHs?.hsCode),
+    };
   }
 }
 

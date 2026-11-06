@@ -450,7 +450,8 @@
       "charge": "費用",
       "mismatchShipment": "✗（出荷：{expected}）",
       "nothingToCompare": "（照合対象なし）"
-    }
+    },
+    "ciRevised": "CI改訂: {from} → {to} — 未反映です。CI金額の下から反映できます（3a）"
   },
   "shipmentPage": {
     "notFound": "出荷が見つかりません"
@@ -519,7 +520,9 @@
     "ciAmount": "CI金額",
     "currency": "通貨",
     "lastUpdated": "最終更新",
-    "notes": "備考"
+    "notes": "備考",
+    "hsFromProduct": "{code}（製品より）",
+    "hsDiffers": "HSコードが製品と異なります（{code}）"
   },
   "shipmentFormDialog": {
     "sameAsEmail": "メールと同じ",
@@ -588,7 +591,10 @@
     "createRef": "{ref} を作成",
     "createShipment": "出荷を作成",
     "editTitle": "出荷を編集 {bl}",
-    "newShipment": "新規出荷"
+    "newShipment": "新規出荷",
+    "blSays": "B/L: ",
+    "hsDiffers": "HSコードが製品と異なります（{code}）",
+    "hsFromProduct": "製品のHSコード（B/Lに記載なし）"
   },
   "trackingPasteDialog": {
     "status": {
@@ -845,5 +851,14 @@
     "unlinkTitle": "{number}の紐付けを解除しますか？",
     "thisInvoice": "この請求書",
     "unlinked": "請求書の紐付けを解除しました"
+  },
+  "ciVersions": {
+    "revised": "CI改訂: {from} → {to}",
+    "latestIs": "最新CI: {to}",
+    "useThis": "これを使う",
+    "history": "版:",
+    "provisional": "暫定",
+    "final": "確定",
+    "version": "CI"
   }
 }

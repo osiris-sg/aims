@@ -206,11 +206,12 @@ describe('SG→JP INVOICE & PACKING LIST (ADH layout)', () => {
       '(Country Of Origin)',
       '(Vessel) RACHA BHUM / 211E',
       'C/No. DESCRIPTION UNIT PRICE QUANTITY TOTAL PRICE',
-      'Aluminium Billet Alloy 6063-8 inch HS Code: 7601.20 CIF 3,780.98 305.804 US$1,156,238.80',
+      // Round BJ: "HS CODE : 7601.20 CIF" as on ADH's own invoice (ADH20261012).
+      'Aluminium Billet Alloy 6063-8 inch HS CODE : 7601.20 CIF 3,780.98 305.804 US$1,156,238.80',
       'TOTAL 305.804 US$1,156,238.80',
       'PACKING DETAILS',
       "Q'TY Net Weight(MT) Gross Weight(MT) Dimention",
-      'Aluminium Billet Alloy 6063-8 inch- 120 Bundles HS Code: 7601.20 600 PCS 305.804 307.004 5800mm length, 8 inch diameter',
+      'Aluminium Billet Alloy 6063-8 inch- 120 Bundles HS CODE : 7601.20 600 PCS 305.804 307.004 5800mm length, 8 inch diameter',
       'TOTAL : 120 Bundle only 305.804 307.004',
     ])
       expect(text).toContain(s);

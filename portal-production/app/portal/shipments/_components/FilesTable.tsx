@@ -114,7 +114,7 @@ export function useFileActions(currentId?: string) {
     <>
       <Menu anchorReference="anchorPosition" anchorPosition={menu?.pos} open={!!menu} onClose={() => setMenu(null)} onClick={(e) => e.stopPropagation()}>
         <MenuItem onClick={pick(view)}>{t("view")}</MenuItem>
-        {menu?.file.docType === "BL_DRAFT" && <MenuItem onClick={pick((f) => void recheck(f))}>{t("recheck")}</MenuItem>}
+        {["BL_DRAFT", "BL", "BL_SCAN"].includes(menu?.file.docType ?? "") && /pdf|image/i.test(menu?.file.mimeType ?? "") && <MenuItem onClick={pick((f) => void recheck(f))}>{t("recheck")}</MenuItem>}
         <MenuItem onClick={pick(setAddFor)}>{t("addLink")}</MenuItem>
         <MenuItem onClick={pick(setUnlinkFor)} disabled={!menu?.file.links.length}>
           {t("unlink")}

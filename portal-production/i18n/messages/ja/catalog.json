@@ -38,7 +38,9 @@
     "docNameJa": "出庫・納入依頼書: 日本語",
     "docNameEn": "出庫・納入依頼書: 英語",
     "docSize": "出庫・納入依頼書: サイズ",
-    "docName": "出庫・納入依頼書での表記"
+    "docName": "出庫・納入依頼書での表記",
+    "hsCode": "HSコード",
+    "hsCodeHelp": "B/L・CIに記載がない時に使用"
   },
   "chem": {
     "element": "元素",

@@ -83,6 +83,7 @@ export const BL_SCHEMA = z.object({
   vessel: nstr.default(null),
   voyageNo: nstr.default(null),
   etd: nstr.default(null),
+  placeOfReceipt: nstr.default(null),
   portOfLoading: nstr.default(null),
   portOfDischarge: nstr.default(null),
   placeOfDelivery: nstr.default(null),
@@ -98,6 +99,7 @@ export const BL_SCHEMA = z.object({
   sizeSpec: nstr.default(null),
   containers: z.array(BL_CONTAINER_SCHEMA).default([]),
   containerCount: nint.default(null),
+  shipperText: nstr.default(null),
   consigneeText: nstr.default(null),
   notifyPartyText: nstr.default(null),
   freightTerms: nstr.default(null),
@@ -111,6 +113,10 @@ export const CI_SCHEMA = z.object({
   blNumber: nstr.default(null),
   currency: nstr.default(null),
   totalAmount: nnum.default(null),
+  /** Round BJ: the Sub Total before the advance (the CI amount AIMS stores) and PROVISIONAL / FINAL. */
+  subTotal: nnum.default(null),
+  advance: nnum.default(null),
+  status: z.enum(['FINAL', 'PROVISIONAL']).nullable().catch(null).default(null),
   netWeightMt: nnum.default(null),
   unitPrice: nnum.default(null),
   lme: nnum.default(null),
@@ -127,7 +133,10 @@ export const CI_USER_PROMPT = `Extract this Commercial Invoice into exactly this
   "ciDate": "invoice date as YYYY-MM-DD (the document prints DD/MM/YYYY or DD.MM.YYYY)",
   "blNumber": "bill of lading no. if printed",
   "currency": "e.g. \\"USD\\"",
-  "totalAmount": "the invoice total payable as a number (no separators)",
+  "totalAmount": "the invoice TOTAL payable (after any advance) as a number (no separators)",
+  "subTotal": "the Sub Total (quantity × rate, before the advance is deducted) as a number",
+  "advance": "the advance deducted, as a number (0 when none)",
+  "status": "FINAL or PROVISIONAL — from the title (\\"FINAL COMMERCIAL INVOICE\\" / \\"PROVISIONAL …\\") or \\"PRICE IS FINAL / PROVISIONAL\\"",
   "netWeightMt": "total net weight in metric tons as a number (convert kg to MT)",
   "unitPrice": "price per MT as a number",
   "lme": "the LME price per MT used, as a number, if printed",
@@ -185,7 +194,7 @@ export const PI_USER_PROMPT = `Extract this Proforma Invoice into exactly this J
 Numbers are plain JSON numbers without thousands separators or currency symbols.`;
 
 export const BL_SYSTEM_PROMPT =
-  'You read draft Bills of Lading (B/L) for containerised aluminium billet shipments. The PDF may be a scanned image — read the page images. Transcribe exactly what is printed (keep line breaks in the consignee and notify-party boxes as \\n); never invent values — use null when absent. Output STRICT JSON only.';
+  'You read Bills of Lading (B/L, draft or original / scanned) for containerised aluminium billet shipments. The PDF may be a scanned image — read the page images. Transcribe exactly what is printed (keep line breaks in the consignee and notify-party boxes as \\n); never invent values — use null when absent. Output STRICT JSON only.';
 
 export const BL_USER_PROMPT = `Extract this draft Bill of Lading into exactly this JSON (null when absent):
 {
@@ -195,26 +204,30 @@ export const BL_USER_PROMPT = `Extract this draft Bill of Lading into exactly th
   "vessel": "vessel name only",
   "voyageNo": "voyage number only",
   "etd": "shipped-on-board / laden-on-board date (else ETD) as YYYY-MM-DD",
-  "portOfLoading": "as printed",
-  "portOfDischarge": "as printed",
-  "placeOfDelivery": "as printed",
+  "placeOfReceipt": "Place of Receipt as printed",
+  "portOfLoading": "Port of Loading (POL) as printed, e.g. \\"VISAKHAPATNAM PORT, INDIA\\"",
+  "portOfDischarge": "Port of Discharge (POD) as printed, e.g. \\"YOKOHAMA, JAPAN\\"",
+  "placeOfDelivery": "Place of Delivery as printed",
   "netWeight": number (total net weight),
   "grossWeight": number (total gross weight),
   "weightUnit": "KG or MT — the unit those two weights are printed in",
   "totalBundles": integer (packages / bundles),
   "totalPieces": integer (pieces / billets, if printed),
-  "hsCode": "as printed, e.g. \\"7601.20\\"",
-  "countryOfOrigin": "as printed",
+  "hsCode": "HS code as printed (\\"HS CODE : 7601.20\\", \\"H.S. CODE 76012000\\"), e.g. \\"7601.20\\"",
+  "countryOfOrigin": "country of origin as printed (\\"COUNTRY OF ORIGIN : INDIA\\", \\"Origin: INDIA\\"), e.g. \\"INDIA\\"",
   "commodity": "goods description as printed, short (e.g. \\"ALUMINIUM ALLOY BILLETS 6063\\")",
   "grade": "alloy grade digits, e.g. \\"6063\\"",
   "sizeSpec": "billet size as printed, e.g. \\"203 MM X 5800 MM\\"",
   "containers": [ { "containerNo": "e.g. WHLU0636631", "sealNo": "", "packages": integer, "grossKg": number } ],
-  "containerCount": integer,
+  "containerCount": integer (number of containers: "9 CTRS", "9 X 20' CTR", "9 x 20GP", "SAY : NINE CONTAINERS ONLY" → 9),
+  "shipperText": "full shipper box text, line breaks as \\\\n",
   "consigneeText": "full consignee box text, line breaks as \\\\n",
   "notifyPartyText": "full notify party box text, line breaks as \\\\n",
   "freightTerms": "e.g. FREIGHT PREPAID"
 }
 Party boxes are often too small: when the consignee or notify-party box ends with "***", "**", "CONT'D" or similar, the rest of that party's text is printed elsewhere on the document (e.g. in the goods-description area or an attached rider page, starting with the same marker). Append that continuation to the party text (without the marker) so the text is complete.
+Read EVERY page, including attached lists / rider pages ("*** B/L Attached List ***", "DESCRIPTION AS ATTACHED LIST"): the HS code, country of origin, totals and goods description are often printed only there. Pages may be scanned sideways — read them rotated.
+Abbreviations: POL = Port of Loading, POD = Port of Discharge, CTR / CTRS / CNTR = container(s), BDLS = bundles, PCS = pieces, NW / GW = net / gross weight.
 Numbers are plain JSON numbers without thousands separators.`;
 
 // ── normalisers ─────────────────────────────────────────────────────────────
@@ -418,7 +431,13 @@ export interface ShipmentDraft {
   totalPieces: number | null;
   containerCount: number | null;
   hsCode: string | null;
+  /** Round BJ: "product" when the B/L prints no HS code and the product's (Clients › Products) was used. */
+  hsCodeFrom?: 'bl' | 'product' | null;
   countryOfOrigin: string | null;
+  /** Round BJ: read for the SG→JP invoice / checks; not stored on the shipment. */
+  placeOfReceipt?: string | null;
+  placeOfDelivery?: string | null;
+  shipperText?: string | null;
   commodity: string | null;
   grade: string | null;
   sizeSpec: string | null;
@@ -437,6 +456,68 @@ export function toMt(v: number | null, unit: string | null): number | null {
   return round3(v);
 }
 
+const NUMBER_WORDS: Record<string, number> = {
+  ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5, SIX: 6, SEVEN: 7, EIGHT: 8, NINE: 9, TEN: 10, ELEVEN: 11, TWELVE: 12, THIRTEEN: 13,
+  FOURTEEN: 14, FIFTEEN: 15, SIXTEEN: 16, SEVENTEEN: 17, EIGHTEEN: 18, NINETEEN: 19, TWENTY: 20,
+};
+
+/**
+ * Round BJ — the container count as B/Ls print it: "9 CTRS", "9 CTR", "9 X 20' CTR", "9 x 20GP", "9 CNTRS",
+ * "SAY : NINE CONTAINERS ONLY", "15 X 20'". Null when none of these is found.
+ */
+export function containerCountOf(text: string | null | undefined): number | null {
+  const t = (text ?? '').toUpperCase();
+  const m =
+    /\b(\d{1,3})\s*(?:X|×)\s*(?:20|40|45)\s*(?:'|FT|GP|HC|DV|SD|\b)/.exec(t) ??
+    /\b(\d{1,3})\s*(?:CTRS?|CNTRS?|CONTAINERS?)\b/.exec(t);
+  if (m) return Number(m[1]) || null;
+  const w = /SAY\s*:?\s*([A-Z]+(?:[\s-][A-Z]+)?)\s+(?:\(\d+\)\s*)?CONTAINERS?\b/.exec(t);
+  if (w) {
+    const parts = w[1].split(/[\s-]+/);
+    const n = parts.reduce((a, p) => a + (NUMBER_WORDS[p] ?? NaN), 0);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
+/** "HS CODE : 7601.20", "H.S. CODE 76012000", "HS Code: 7601.20.00" → "7601.20" (first 6 digits); else null. */
+export function hsCodeIn(text: string | null | undefined): string | null {
+  const m = /\bH\.?\s*S\.?\s*(?:CODE|NO\.?)\s*[:：.]?\s*(\d{4})[.\s]?(\d{2})/i.exec(text ?? '');
+  return m ? `${m[1]}.${m[2]}` : null;
+}
+
+/** "COUNTRY OF ORIGIN : INDIA", "Origin: INDIA", "MADE IN INDIA" → "INDIA"; else null. */
+export function originIn(text: string | null | undefined): string | null {
+  const m = /(?:COUNTRY\s+OF\s+ORIGIN|\bORIGIN)\s*[:：]\s*([A-Z][A-Z .]{1,30}?)\s*(?:$|\n|,|HS\b|H\.S)/im.exec(text ?? '');
+  return m ? m[1].trim().toUpperCase() : null;
+}
+
+/**
+ * Round BJ — what a B/L's text layer states for the fields the AI read sometimes leaves empty (HS code, origin,
+ * containers). Only the parts found are returned; port labels are not used (a text layer separates labels from values).
+ */
+export function blFieldsFromText(text: string | null | undefined): Partial<Pick<BlRaw, 'hsCode' | 'countryOfOrigin' | 'containerCount'>> {
+  const out: Partial<Pick<BlRaw, 'hsCode' | 'countryOfOrigin' | 'containerCount'>> = {};
+  const hs = hsCodeIn(text);
+  if (hs) out.hsCode = hs;
+  const origin = originIn(text);
+  if (origin) out.countryOfOrigin = origin;
+  const n = containerCountOf(text);
+  if (n) out.containerCount = n;
+  return out;
+}
+
+/** The AI read with its gaps filled from the text layer (the AI's own values are kept). */
+export function withTextFields(bl: BlRaw, text: string | null | undefined): BlRaw {
+  const t = blFieldsFromText(text);
+  return {
+    ...bl,
+    hsCode: bl.hsCode ?? t.hsCode ?? null,
+    countryOfOrigin: bl.countryOfOrigin ?? t.countryOfOrigin ?? null,
+    containerCount: bl.containerCount ?? t.containerCount ?? null,
+  };
+}
+
 export function shipmentDraftFromBl(bl: BlRaw): ShipmentDraft {
   const containers = bl.containers.filter((c) => c.containerNo || c.sealNo);
   return {
@@ -453,8 +534,11 @@ export function shipmentDraftFromBl(bl: BlRaw): ShipmentDraft {
     totalBundles: bl.totalBundles,
     totalPieces: bl.totalPieces,
     containerCount: bl.containerCount ?? (containers.length || null),
-    hsCode: bl.hsCode,
-    countryOfOrigin: bl.countryOfOrigin,
+    hsCode: hsCodeIn(`HS CODE ${bl.hsCode ?? ''}`) ?? (bl.hsCode?.trim() || null),
+    countryOfOrigin: bl.countryOfOrigin?.trim() ? bl.countryOfOrigin.trim().replace(/^ORIGIN\s*[:：]\s*/i, '') : null,
+    placeOfReceipt: bl.placeOfReceipt ?? null,
+    placeOfDelivery: bl.placeOfDelivery ?? null,
+    shipperText: bl.shipperText ?? null,
     commodity: bl.commodity,
     grade: gradeOf(bl.grade, bl.commodity, bl.sizeSpec),
     sizeSpec: bl.sizeSpec && /INCH|"/i.test(bl.sizeSpec) ? sizeSpecOf(bl.sizeSpec) : bl.sizeSpec,

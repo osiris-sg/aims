@@ -450,7 +450,8 @@
       "charge": "Charge",
       "mismatchShipment": "✗ (shipment: {expected})",
       "nothingToCompare": "(nothing to compare)"
-    }
+    },
+    "ciRevised": "CI revised: {from} → {to} — not applied; use it under CI amount (step 3a)"
   },
   "shipmentPage": {
     "notFound": "Shipment not found"
@@ -519,7 +520,9 @@
     "ciAmount": "CI amount",
     "currency": "Currency",
     "lastUpdated": "Last updated",
-    "notes": "Notes"
+    "notes": "Notes",
+    "hsFromProduct": "{code} (from the product)",
+    "hsDiffers": "HS code differs from the product ({code})"
   },
   "shipmentFormDialog": {
     "sameAsEmail": "Same as the email",
@@ -588,7 +591,10 @@
     "createRef": "Create {ref}",
     "createShipment": "Create shipment",
     "editTitle": "Edit shipment {bl}",
-    "newShipment": "New shipment"
+    "newShipment": "New shipment",
+    "blSays": "B/L: ",
+    "hsDiffers": "HS code differs from the product ({code})",
+    "hsFromProduct": "from the product (the B/L prints no HS code)"
   },
   "trackingPasteDialog": {
     "status": {
@@ -845,5 +851,14 @@
     "unlinkTitle": "Unlink {number}?",
     "thisInvoice": "this invoice",
     "unlinked": "Invoice unlinked"
+  },
+  "ciVersions": {
+    "revised": "CI revised: {from} → {to}",
+    "latestIs": "Latest CI: {to}",
+    "useThis": "Use this",
+    "history": "Versions:",
+    "provisional": "Provisional",
+    "final": "Final",
+    "version": "CI"
   }
 }

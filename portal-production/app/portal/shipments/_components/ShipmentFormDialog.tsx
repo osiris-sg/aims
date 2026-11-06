@@ -23,8 +23,10 @@ import { useShipmentsApi, type BlExtraction, type ContractLine, type ContractLis
 import { useContracts, useTradeMutation } from "../_lib/hooks";
 import { commodityOf, lineLabel, toDateInput } from "../_lib/format";
 import { filledSx, PdfDropZone, SourcePdfPane } from "./PdfDrop";
+import CiVersionsNote from "./CiVersionsNote";
 import { anyDateError, guardDate } from "../_lib/dates";
 import { factPrefill, factSuggestion } from "../_lib/shipment-picker";
+import { hsDiffers, normHs, sameFieldValue } from "../_lib/hs";
 import { useTranslations } from "next-intl";
 
 /** The contract line whose grade matches the B/L (the only line, or exactly one match). */
@@ -115,6 +117,10 @@ export default function ShipmentFormDialog({
   // The B/L draft read in this dialog: removed again (file + extraction + S3) if the dialog is cancelled.
   const [source, setSource] = useState<{ fileId: string; fileName: string; draft: ShipmentDraft | null; existingShipmentId: string | null } | null>(null);
   const [filled, setFilled] = useState<Set<string>>(new Set());
+  // Round BJ: B/L values that differ from a value already in the field — shown with "Use this", never written over it.
+  const [blDiff, setBlDiff] = useState<Partial<Record<Key, string>>>({});
+  const [blProductHs, setBlProductHs] = useState<string | null>(null);
+  const [hsFromProduct, setHsFromProduct] = useState(false);
   const [reading, setReading] = useState(false);
   // The PDF being read right now: shown in the side panel at once (not the previous source).
   const [readingFile, setReadingFile] = useState<File | null>(null);
@@ -135,6 +141,9 @@ export default function ShipmentFormDialog({
     setTouched(false);
     setSource(null);
     setFilled(new Set());
+    setBlDiff({});
+    setBlProductHs(null);
+    setHsFromProduct(false);
     setFromEmail(new Set());
     setAskOver(false);
     if (shipment) {
@@ -196,6 +205,7 @@ export default function ShipmentFormDialog({
     });
   const set = (k: Key) => (e: React.ChangeEvent<HTMLInputElement>) => {
     unfill(k);
+    if (k === "hsCode") setHsFromProduct(false);
     if (fromEmail.has(k)) setFromEmail((x) => { const n = new Set(x); n.delete(k); return n; });
     if (k === "netWeightMt") setAskOver(false);
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -238,16 +248,27 @@ export default function ShipmentFormDialog({
   const netNum = form.netWeightMt.trim() === "" ? null : Number(form.netWeightMt);
   const overQty = !!qtyLimit && netNum !== null && Number.isFinite(netNum) && netNum > qtyLimit.remainingMt + 1e-9;
 
-  /** Put a B/L draft read into the form; the B/L's commodity / size win over the line's. */
+  /**
+   * Put a B/L draft read into the form: empty fields are filled (the B/L's commodity / size win over the line's
+   * prefill on a new shipment); a field that already holds a different value keeps it and shows "B/L: … · Use this".
+   */
   const applyBl = (x: BlExtraction) => {
     const r = x.result;
     if (!r) return;
     const d = r.draft;
     const hit = new Set<string>();
     const patch: Partial<Form> = {};
+    const diff: Partial<Record<Key, string>> = {};
+    const keep = !!shipment;
     const put = (k: Key, v: unknown) => {
       if (v === null || v === undefined || v === "") return;
-      patch[k] = String(v);
+      const cur = form[k];
+      const next = String(v);
+      if (keep && cur.trim() !== "") {
+        if (!sameFieldValue(cur, next)) diff[k] = next;
+        return;
+      }
+      patch[k] = next;
       hit.add(k);
     };
     (["blNumber", "shippingLine", "vessel", "voyageNo", "etd", "portOfLoading", "portOfDischarge", "netWeightMt", "grossWeightMt", "totalBundles", "totalPieces", "containerCount", "hsCode", "countryOfOrigin", "commodity", "sizeSpec"] as const).forEach((k) =>
@@ -264,6 +285,9 @@ export default function ShipmentFormDialog({
     }
     setForm((f) => ({ ...f, ...patch }));
     setFilled(hit);
+    setBlDiff(diff);
+    setBlProductHs(r.productHs ?? null);
+    setHsFromProduct(d.hsCodeFrom === "product" && hit.has("hsCode"));
     setSource({ fileId: x.fileId, fileName: x.file?.fileName ?? "B/L draft", draft: d, existingShipmentId: r.existingShipmentId });
   };
 
@@ -339,7 +363,39 @@ export default function ShipmentFormDialog({
     }
   };
 
+  /** "Use this": the B/L's value into a field that held another one (only on the user's click). */
+  const takeBlValue = (k: Key, v: string) => {
+    setForm((f) => ({ ...f, [k]: v }));
+    setFilled((f) => new Set(f).add(k));
+    setBlDiff((d) => { const n = { ...d }; delete n[k]; return n; });
+    if (k === "netWeightMt") setAskOver(false);
+  };
+  const blHint = (k: Key): React.ReactNode => {
+    const v = blDiff[k];
+    if (v === undefined || sameFieldValue(form[k], v)) return null;
+    return (
+      <Box component="span" data-tour="bl-suggestion">
+        {t("blSays")}
+        <b>{v}</b>{" "}
+        <MuiLink component="button" type="button" variant="caption" onClick={() => takeBlValue(k, v)} sx={{ verticalAlign: "baseline", fontWeight: 700 }}>
+          {t("useThis")}
+        </MuiLink>
+      </Box>
+    );
+  };
+  // Round BJ: an HS code that isn't the product's is warned about (never blocked).
+  const productHs = blProductHs ?? shipment?.productHs?.hsCode ?? null;
+  const hsHelp: React.ReactNode = hsDiffers(form.hsCode, productHs) ? (
+    <Box component="span" sx={{ color: "warning.main", fontWeight: 600 }} data-tour="hs-warning">
+      {t("hsDiffers", { code: normHs(productHs) ?? "" })}
+    </Box>
+  ) : hsFromProduct ? (
+    <Box component="span" sx={{ color: "info.main", fontWeight: 600 }}>{t("hsFromProduct")}</Box>
+  ) : null;
+
   const tf = (k: Key, label: string, extra: Partial<React.ComponentProps<typeof TextField>> = {}) => {
+    const bl = blHint(k);
+    if (bl) extra = { ...extra, helperText: extra.helperText ? <>{extra.helperText} · {bl}</> : bl, FormHelperTextProps: { component: "div" } as any };
     const hint = emailFacts ? emailHint(k) : null;
     const merged = hint ? { ...extra, helperText: extra.helperText ? <>{extra.helperText} · {hint}</> : hint, FormHelperTextProps: { component: "div" } as any } : extra;
     return <TextField label={label} fullWidth size="small" value={form[k]} onChange={set(k)} sx={filledSx(filled.has(k) || fromEmail.has(k))} {...guardDate(merged, form[k])} />;
@@ -365,7 +421,7 @@ export default function ShipmentFormDialog({
             {t("noContractNo")}
           </Alert>
         )}
-        {source?.existingShipmentId && (
+        {source?.existingShipmentId && source.existingShipmentId !== shipment?.id && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {t("blUsed", { bl: form.blNumber })}
           </Alert>
@@ -495,7 +551,7 @@ export default function ShipmentFormDialog({
           <Grid2 size={{ xs: 6, sm: 3 }}>{tf("totalBundles", t("bundles"), { type: "number", inputProps: { min: 0, step: 1 }, error: badInt(form.totalBundles) })}</Grid2>
           <Grid2 size={{ xs: 6, sm: 3 }}>{tf("totalPieces", t("pieces"), { type: "number", inputProps: { min: 0, step: 1 }, error: badInt(form.totalPieces) })}</Grid2>
           <Grid2 size={{ xs: 6, sm: 3 }}>{tf("containerCount", t("containers"), { type: "number", inputProps: { min: 0, step: 1 }, error: badInt(form.containerCount) })}</Grid2>
-          <Grid2 size={{ xs: 6, sm: 3 }}>{tf("hsCode", t("hsCode"))}</Grid2>
+          <Grid2 size={{ xs: 6, sm: 3 }}>{tf("hsCode", t("hsCode"), hsHelp ? { helperText: hsHelp, FormHelperTextProps: { component: "div" } as any } : {})}</Grid2>
           <Grid2 size={{ xs: 12, sm: 6 }}>{tf("countryOfOrigin", t("countryOfOrigin"))}</Grid2>
           <Grid2 size={{ xs: 12, sm: 6 }}>{tf("commodity", t("commodity"))}</Grid2>
           <Grid2 size={{ xs: 12, sm: 6 }}>{tf("sizeSpec", t("sizeSpec"))}</Grid2>
@@ -508,7 +564,24 @@ export default function ShipmentFormDialog({
             </Divider>
           </Grid2>
           <Grid2 size={{ xs: 12, sm: 4 }}>{tf("ciNumber", t("ciNo"))}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 4 }}>{tf("ciAmount", t("ciAmount"), { type: "number", inputProps: { min: 0, step: "0.01" }, error: badDecimal(form.ciAmount) })}</Grid2>
+          <Grid2 size={{ xs: 12, sm: 4 }}>{tf("ciAmount", t("ciAmount"), {
+              type: "number",
+              inputProps: { min: 0, step: "0.01" },
+              error: badDecimal(form.ciAmount),
+              ...(shipment?.ciProposal || (shipment?.ciVersions?.length ?? 0) > 1
+                ? {
+                    helperText: (
+                      <CiVersionsNote
+                        versions={shipment?.ciVersions}
+                        proposal={shipment?.ciProposal && Number(form.ciAmount) !== shipment.ciProposal.to ? shipment.ciProposal : null}
+                        currency={form.currency}
+                        onUse={(amount) => setForm((f) => ({ ...f, ciAmount: String(amount) }))}
+                      />
+                    ),
+                    FormHelperTextProps: { component: "div" } as any,
+                  }
+                : {}),
+            })}</Grid2>
           <Grid2 size={{ xs: 12, sm: 4 }}>
             <TextField
               label={t("currency")}

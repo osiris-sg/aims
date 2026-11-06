@@ -15,6 +15,8 @@ import { actualsTable, cleanCosts, estimate, ShipmentCosts } from './trade-estim
 import { ORDER_SUMMARY_SELECT } from './trade-selects';
 import { ShipmentsNotifyService } from './shipments-notify.service';
 import { latestBlCheck } from './trade-extract.service';
+import { hsWarning, productHsForShipment } from './trade-hs';
+import { ciProposal, ciVersionsFor } from './trade-ci';
 import { Db, DOC_LINK_SELECT, isUniqueViolation, optText, pageArgs, TradeConfigService } from './trade-config.service';
 
 /** Shipments: one per Bill of Lading, under an order ("#19-1"; before orders: under a contract). */
@@ -183,6 +185,9 @@ export class ShipmentsService {
     // Telex code / SI delivery dates / in-app tax estimate meet those documents too.
     const { steps, docLinks } = await this.config.decorateRecord(organizationId, s, this.prisma, await this.config.shipmentFieldTypes(this.prisma, organizationId, id));
     const blCheck = await latestBlCheck(this.prisma, organizationId, id);
+    // Round BJ: the product's HS code (warning when the shipment's differs) and the CI versions (latest = the CI amount).
+    const productHs = await productHsForShipment(this.prisma, organizationId, id);
+    const ciVersions = await ciVersionsFor(this.prisma, organizationId, id);
     // Steps 7 / 8 / 12: the cost + import tax estimate and the actuals, with the customer's truck size and customs rate.
     const settings = await this.config.getSettings(organizationId);
     const profile = await this.config.profileOf(organizationId, s.order?.customerId ?? s.customerId);
@@ -202,6 +207,10 @@ export class ShipmentsService {
       progress: progressOf(s.steps),
       currentStep: currentStepOf(s.steps),
       blCheck,
+      productHs,
+      hsWarning: hsWarning(s.hsCode, productHs?.hsCode),
+      ciVersions,
+      ciProposal: ciProposal(s.ciAmount === null ? null : Number(s.ciAmount), ciVersions),
       /** "8/6 → 8/16 → 8/17" — every ETA the shipment has had. */
       etaTrail: etaTrail(s.etaHistory),
       carrier: carrierOf(s.blNumber, s.shippingLine),

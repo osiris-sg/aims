@@ -238,7 +238,11 @@ export type ShipmentDraft = {
   totalPieces: number | null;
   containerCount: number | null;
   hsCode: string | null;
+  /** Round BJ: "product" = the B/L printed none and the product's HS code (Clients › Products) was used. */
+  hsCodeFrom?: "bl" | "product" | null;
   countryOfOrigin: string | null;
+  placeOfReceipt?: string | null;
+  placeOfDelivery?: string | null;
   commodity: string | null;
   grade: string | null;
   sizeSpec: string | null;
@@ -272,8 +276,15 @@ export type Extraction = {
 export type PiOrderHint = { id: string; label: string; year: number; status: RecordStatus; grade: string | null; qtyMt: number | null; shipMonth: string | null; createdAt: string; createdByName: string | null };
 export type PiExtraction = Extraction & { result: { raw: Record<string, unknown>; draft: ContractDraft; existingContractId: string | null; existingOrder?: PiOrderHint | null; likeOrders?: PiOrderHint[] } | null };
 export type BlExtraction = Extraction & {
-  result: { raw: Record<string, unknown>; draft: ShipmentDraft; contractId: string | null; contractLineId: string | null; existingShipmentId: string | null } | null;
+  result: {
+    raw: Record<string, unknown>; draft: ShipmentDraft; contractId: string | null; contractLineId: string | null; existingShipmentId: string | null;
+    /** Round BJ: the product's HS code and the warning when the B/L's differs. */
+    productHs?: string | null; hsWarning?: string | null;
+  } | null;
 };
+/** Round BJ — one read CI version (PROVISIONAL → FINAL; the latest is the CI amount). */
+export type CiVersion = { fileId: string; fileName: string; uploadedAt: string; ciNumber: string | null; ciDate: string | null; status: "FINAL" | "PROVISIONAL" | null; amount: number | null; lme?: number | null; premium?: number | null };
+export type CiProposal = { from: number | null; to: number; fileId: string; fileName: string; ciNumber: string | null; ciDate: string | null; status: "FINAL" | "PROVISIONAL" | null };
 /** Arrival notice read (AI): the arriving vessel, containers, weights, charges collect. */
 export type ArrivalNoticeDraft = {
   blNumber: string | null;
@@ -898,6 +909,8 @@ export type ClientProductInput = {
   monthlyQtyMt?: number | null; priceBasis?: string | null; notes?: string | null;
   /** Round BF: how it prints on the 出庫・納入依頼書 (JA lines, EN lines, size). */
   docNameJa?: string | null; docNameEn?: string | null; docSize?: string | null;
+  /** Round BJ: customs HS code ("7601.20"). */
+  hsCode?: string | null;
 };
 export type ClientProductView = ClientProductInput & {
   id: string; label: string; size: string; specFiles: ProfileFileView[]; packingImages: ProfileFileView[];
@@ -1493,6 +1506,12 @@ export type Shipment = {
   progress: Progress;
   currentStep: CurrentStep;
   blCheck: BlCheckSummary | null;
+  /** Round BJ: the product's HS code (customer's, else supplier's product) and the warning when the shipment's differs. */
+  productHs?: { hsCode: string; product: string; party: "customer" | "supplier" } | null;
+  hsWarning?: string | null;
+  /** Round BJ: CI versions oldest → latest, and the latest's amount when it isn't the stored one. */
+  ciVersions?: CiVersion[];
+  ciProposal?: CiProposal | null;
 };
 
 export type TradeFileLink = {
@@ -1631,6 +1650,12 @@ export const errorText = (m: unknown, fallback = "Something went wrong"): string
   return fallback;
 };
 
+/** Round BJ — /preview/shipments only (PREVIEW_FIXTURES=1): a document read answered from the fixture, nothing sent. */
+let previewExtract: ((kind: string) => unknown) | null = null;
+export const setPreviewExtract = (f: ((kind: string) => unknown) | null) => {
+  previewExtract = f;
+};
+
 export function useShipmentsApi() {
   const { getToken } = useAuth();
 
@@ -1663,6 +1688,7 @@ export function useShipmentsApi() {
 
     // Multipart POST with the Clerk token + admin org header (like uploadFile).
     const postExtract = async <T>(kind: "pi" | "bl-draft" | "an" | "import-permit" | "ci", input: { file?: File; fileId?: string; shipmentId?: string; contractId?: string; orderId?: string }): Promise<T> => {
+      if (previewExtract) return previewExtract(kind) as T;
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const form = new FormData();

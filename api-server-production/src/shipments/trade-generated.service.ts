@@ -48,6 +48,7 @@ import {
   sgjpTotals,
   sgjpFinalizeProblems,
   sgjpInvoiceNo,
+  portWithCountry,
   SiHeader,
   SiHeaderV2,
   SiRowV2,
@@ -74,6 +75,8 @@ import {
   singleLineCalc,
 } from './trade-invoice-single';
 import { attachPiecesPng, containerPlFacts } from './trade-attach';
+import { ciAmountOf, ciRank, CiText, CiVersion, parseCiText } from './trade-ci';
+import { normHs, productHsForShipment } from './trade-hs';
 import {
   AS_RECEIVED_COA,
   HOEI_INVOICE_TEMPLATE,
@@ -726,21 +729,25 @@ export class TradeGeneratedService {
         header = d.header;
         rows = d.items;
       } else {
+      // Round BJ: shipper / origin / HS code as this shipment's own CI (latest version) and B/L state them; the supplier record only without them.
+      const facts = await this.shipmentDocFacts(organizationId, s.id);
+      const productHs = s.hsCode ? null : await productHsForShipment(this.prisma, organizationId, s.id);
+      const pod = portWithCountry(s.portOfDischarge ?? destPort);
       const h: SgjpHeaderV2 = {
         layout: 2,
         invoiceNo: sgjpInvoiceNo(today),
         invoiceDate: today,
-        // The supplier's master record when it has an address, else the org's default Shipper block.
-        shipperBlock: supplier?.address ? `${supplier.name}\n${supplier.address}` : (defaults.sgjpShipperBlock ?? supplier?.name ?? ''),
+        shipperBlock: facts.shipperBlock ?? (supplier?.address ? `${supplier.name}\n${supplier.address}` : (defaults.sgjpShipperBlock ?? supplier?.name ?? '')),
         consigneeBlock: defaults.sgjpConsigneeBlock ?? settings.defaultConsignee ?? consignee ?? '',
         sellerBlock: defaults.sgjpSellerBlock ?? defaults.sgSellerBlock ?? org?.name ?? '',
         buyerBlock: defaults.sgjpBuyerBlock ?? defaults.sgjpConsigneeBlock ?? settings.defaultConsignee ?? consignee ?? '',
         placeOfReceipt: s.portOfLoading ?? '',
         portOfLoading: s.portOfLoading ?? '',
-        portOfDischarge: s.portOfDischarge ?? destPort ?? '',
-        placeOfDelivery: s.portOfDischarge ?? destPort ?? '',
-        payment: '',
-        countryOfOrigin: (s.countryOfOrigin ?? '').toUpperCase(),
+        portOfDischarge: pod,
+        placeOfDelivery: facts.placeOfDelivery ? portWithCountry(facts.placeOfDelivery) : pod,
+        // Empty unless the customer's profile states payment terms (Clients › Details).
+        payment: cp.company?.paymentTerms?.trim() ?? '',
+        countryOfOrigin: (s.countryOfOrigin ?? facts.countryOfOrigin ?? '').toUpperCase(),
         vessel: [s.vessel, s.voyageNo].filter(Boolean).join(' / '),
         others: '',
         shippingMarks: '',
@@ -755,7 +762,7 @@ export class TradeGeneratedService {
       const net = dec(s.netWeightMt) ?? pl?.netMt ?? null;
       const item: SgjpItem = {
         goods: sgjpGoods(o?.product ?? s.contractLine?.product ?? s.commodity, o?.grade ?? s.contractLine?.grade, s.sizeSpec ?? o?.size ?? s.contractLine?.sizeSpec, defaults),
-        hsCode: s.hsCode ?? '',
+        hsCode: normHs(s.hsCode ?? facts.hsCode ?? productHs?.hsCode) ?? '',
         terms: o?.incoterm ?? s.contract?.incoterm ?? 'CIF',
         // The LME of the shipment month from the org's table when it has it (else typed).
         lme: lmeForMonth(defaults, shipMonth),
@@ -1599,6 +1606,42 @@ export class TradeGeneratedService {
   }
 
   /** The customer profile of a shipment's order (else its own customer). */
+  /**
+   * Round BJ — what the shipment's own documents say for the SG→JP invoice: the shipper, origin and HS code of its
+   * latest CI version (read from the CI's text layer), else its latest B/L read; the place of delivery from the B/L.
+   */
+  private async shipmentDocFacts(organizationId: string, shipmentId: string): Promise<{ shipperBlock: string | null; countryOfOrigin: string | null; hsCode: string | null; placeOfDelivery: string | null }> {
+    const out = { shipperBlock: null as string | null, countryOfOrigin: null as string | null, hsCode: null as string | null, placeOfDelivery: null as string | null };
+    const cis = await this.prisma.tradeFile.findMany({
+      where: { organizationId, docType: 'CI', mimeType: 'application/pdf', links: { some: { shipmentId, hiddenAt: null } } },
+      select: { id: true, fileName: true, s3Key: true, createdAt: true },
+    });
+    const read: Array<{ v: CiVersion; c: CiText }> = [];
+    for (const f of cis.slice(0, 6)) {
+      try {
+        const c = parseCiText(await pdfText(await this.s3.downloadFile(f.s3Key)));
+        read.push({ c, v: { fileId: f.id, fileName: f.fileName, uploadedAt: f.createdAt.toISOString(), ciNumber: c.ciNumber, ciDate: c.ciDate, status: c.status, amount: ciAmountOf(c) } });
+      } catch {
+        /* unreadable CI: the next source decides */
+      }
+    }
+    const latest = read.sort((a, b) => ciRank(a.v, b.v)).at(-1)?.c;
+    if (latest) Object.assign(out, { shipperBlock: latest.shipperBlock, countryOfOrigin: latest.countryOfOrigin, hsCode: latest.hsCode });
+    const bl = await this.prisma.tradeExtraction.findFirst({
+      where: { organizationId, kind: 'BL_DRAFT', status: 'DONE', OR: [{ shipmentId }, { file: { links: { some: { shipmentId, hiddenAt: null } } } }] },
+      orderBy: { createdAt: 'desc' },
+      select: { result: true },
+    });
+    const d = (bl?.result as { draft?: { shipperText?: string | null; countryOfOrigin?: string | null; hsCode?: string | null; hsCodeFrom?: string | null; placeOfDelivery?: string | null } } | null)?.draft;
+    if (d) {
+      out.shipperBlock ??= d.shipperText?.trim() || null;
+      out.countryOfOrigin ??= d.countryOfOrigin?.trim() || null;
+      if (d.hsCodeFrom !== 'product') out.hsCode ??= d.hsCode?.trim() || null;
+      out.placeOfDelivery = d.placeOfDelivery?.trim() || null;
+    }
+    return out;
+  }
+
   private async profileForShipment(organizationId: string, shipmentId: string): Promise<CustomerProfile> {
     const s = await this.prisma.shipment.findFirst({ where: { id: shipmentId, organizationId }, select: { customerId: true, order: { select: { customerId: true } } } });
     return this.config.profileOf(organizationId, s?.order?.customerId ?? s?.customerId ?? null);
