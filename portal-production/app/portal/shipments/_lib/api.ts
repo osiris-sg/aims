@@ -470,6 +470,10 @@ export type ShipmentCosts = {
   fxRate?: number | null;
   /** 加算運賃 (JPY); null = the A/N's EQMC. */
   customsAddOnJpy?: number | null;
+  /** Round BK: add 加算運賃 as on the permit (off by default, as ADH's sheet). */
+  includeAddOn?: boolean | null;
+  /** Round BK: estimated import clearance date (YYYY-MM-DD; empty = ETA) for the customs weekly rate. */
+  clearanceDate?: string | null;
   importTaxFunded?: number | null;
   importTaxActual?: number | null;
   actual?: Partial<Record<"customs" | "blFee" | "trucking" | "storage" | "washingContainers" | "detentionContainers" | "washing" | "detention" | "other", number | null>>;
@@ -492,10 +496,20 @@ export type Estimate = {
   total: number | null;
   importTax: {
     cifUsd: number | null;
+    /** Round BK: typed, or the SG→JP invoice (FINAL / ADH's filed one / a draft) — never Vedanta's CI. */
+    cifSource?: { kind: "typed" | "final" | "file" | "draft"; invoiceNo: string | null; ref: string | null; sgjpAmount?: number | null } | null;
     fxRate: number | null;
+    fxSource?: { kind: "typed" | "customs"; start: string | null; end: string | null; url: string | null; provisional: boolean; customsRate?: number | null } | null;
+    clearanceDate?: string | null;
+    clearanceFrom?: "typed" | "eta" | null;
     cifJpy: number | null;
     addOnJpy: number;
-    addOnSource: "typed" | "EQMC" | null;
+    addOnIncluded?: boolean;
+    addOnValue?: number | null;
+    addOnSource: "typed" | "EQMC" | "containers" | null;
+    addOnEffect?: number | null;
+    nationalRaw?: number | null;
+    localRaw?: number | null;
     customsValue: number | null;
     taxBase: number | null;
     national: number | null;

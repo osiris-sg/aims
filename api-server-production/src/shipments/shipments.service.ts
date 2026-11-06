@@ -17,6 +17,7 @@ import { ShipmentsNotifyService } from './shipments-notify.service';
 import { latestBlCheck } from './trade-extract.service';
 import { hsWarning, productHsForShipment } from './trade-hs';
 import { ciProposal, ciVersionsFor } from './trade-ci';
+import { TradeTaxInputsService } from './trade-tax-inputs';
 import { Db, DOC_LINK_SELECT, isUniqueViolation, optText, pageArgs, TradeConfigService } from './trade-config.service';
 
 /** Shipments: one per Bill of Lading, under an order ("#19-1"; before orders: under a contract). */
@@ -30,6 +31,8 @@ export class ShipmentsService {
     @Optional() private readonly whatsapp?: ShipmentsNotifyService,
     // Round BB: tells the email intake that shipments changed (open question cards are matched again).
     @Optional() private readonly events?: TradeRecordEvents,
+    // Round BK: the SG→JP invoice total and the customs weekly rate for the import tax estimate.
+    @Optional() private readonly taxInputs?: TradeTaxInputsService,
   ) {}
 
   async list(organizationId: string, query: ListShipmentsQuery) {
@@ -192,7 +195,14 @@ export class ShipmentsService {
     const settings = await this.config.getSettings(organizationId);
     const profile = await this.config.profileOf(organizationId, s.order?.customerId ?? s.customerId);
     const costs = (s.costs ?? {}) as ShipmentCosts;
-    const est = estimate(s, costs, settings.estimatorRates, profile);
+    const clearance = (typeof costs.clearanceDate === 'string' && costs.clearanceDate) || (s.eta ? s.eta.toISOString().slice(0, 10) : null);
+    const taxCtx = this.taxInputs
+      ? {
+          cif: await this.taxInputs.cifFor(organizationId, id, s.netWeightMt === null ? null : Number(s.netWeightMt)).catch(() => null),
+          rate: await this.taxInputs.usdRateFor(clearance).catch(() => null),
+        }
+      : {};
+    const est = estimate(s, costs, settings.estimatorRates, profile, taxCtx);
     return {
       ...s,
       steps,

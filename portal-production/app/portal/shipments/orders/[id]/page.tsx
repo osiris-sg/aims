@@ -772,7 +772,7 @@ function shipmentContext(o: Order, s: Shipment, t: Tr): StepContext {
       // File OR field (prod click-through): the code from Vedanta's email, the SI's delivery dates, the in-app estimate.
       if (d === "TELEX_RELEASE") return s.telexReleaseCode ? t("telexCode", { code: s.telexReleaseCode }) : t("telexUpload");
       if (d === "DELIVERY_SCHEDULE") return t("deliverySchedule");
-      if (d === "TAX_ESTIMATE") return (s.costs as any)?.cifUsd && (s.costs as any)?.fxRate ? t("taxEstimateOk") : t("taxEstimateFill");
+      if (d === "TAX_ESTIMATE") return ((s.costs as any)?.cifUsd && (s.costs as any)?.fxRate) || (s.costs as any)?.importTaxFunded ? t("taxEstimateOk") : t("taxEstimateFill");
       return null;
     },
   };

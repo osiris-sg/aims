@@ -148,11 +148,11 @@ describe('estimator (task-list formulas, JPY)', () => {
 
   it('import tax (step 8): the permit formula — #11 SG→JP IV CIF 1,156,238.80 × 159.00 + 加算運賃 ¥27,000 (= EQMC) → ¥18,386,700', () => {
     expect(importTaxEstimate(1156238.8, 159, 27000)).toMatchObject({ customsValue: 183868969, national: 14341700, local: 4045000, total: 18386700 });
-    // The add-on defaults to the A/N's EQMC …
-    const e = estimate({ netWeightMt: 305.804 }, { equipmentFee: 27000, cifUsd: 1156238.8, fxRate: 159, importTaxFunded: 20000000, importTaxActual: 18386700 }, rates, {});
+    // With 加算運賃 switched on (round BK: off by default, as ADH's sheet) the add-on defaults to the A/N's EQMC …
+    const e = estimate({ netWeightMt: 305.804 }, { equipmentFee: 27000, cifUsd: 1156238.8, fxRate: 159, importTaxFunded: 20000000, importTaxActual: 18386700, includeAddOn: true }, rates, {});
     expect(e.importTax).toMatchObject({ addOnJpy: 27000, addOnSource: 'EQMC', customsValue: 183868969, estimate: 18386700, funded: 20000000, actual: 18386700, variance: 0 });
     // … and a typed 加算運賃 wins.
-    const typed = estimate({ netWeightMt: 305.804 }, { equipmentFee: 27000, customsAddOnJpy: 0, cifUsd: 1156238.8, fxRate: 159 }, rates, {});
+    const typed = estimate({ netWeightMt: 305.804 }, { equipmentFee: 27000, customsAddOnJpy: 0, cifUsd: 1156238.8, fxRate: 159, includeAddOn: true }, rates, {});
     expect(typed.importTax).toMatchObject({ addOnJpy: 0, addOnSource: 'typed', customsValue: 183841969 });
   });
 

@@ -1,3 +1,4 @@
+import { TradeTaxInputsService } from './trade-tax-inputs';
 import { TradeDueService } from './trade-due.service';
 import { ClientsController } from './clients.controller';
 import { ClientsService } from './clients.service';
@@ -84,6 +85,7 @@ import { TradeStepsService } from './trade-steps.service';
   ],
   providers: [
     TradeRecordEvents,
+    TradeTaxInputsService, // round BK: SG→JP total + customs weekly rate for the import tax estimate
     ClientsService,
     MonthlyListService,
     ShipmentsNotifyService, // round S: WhatsApp staff notification queue

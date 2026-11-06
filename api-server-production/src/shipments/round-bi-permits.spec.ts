@@ -14,8 +14,8 @@ describe('round BI: import tax = the real permits, to the yen', () => {
     it(`${pm.ref} ${pm.no}: 申告価格 ¥${pm.customsValue.toLocaleString('en-US')} → 納税額合計 ¥${pm.total.toLocaleString('en-US')}`, () => {
       const t = importTax(pm.cif, pm.fx, pm.addOn);
       expect([t.customsValue, t.national, t.local, t.total]).toEqual([pm.customsValue, pm.national, pm.local, pm.total]);
-      // The step 7 / 8 estimator gives the same from Shipment.costs.
-      const e = estimate({ netWeightMt: 1 }, { cifUsd: pm.cif, fxRate: pm.fx, customsAddOnJpy: pm.addOn }, ratesOf(null));
+      // The step 7 / 8 estimator gives the same from Shipment.costs with 加算運賃 switched on (round BK: off by default).
+      const e = estimate({ netWeightMt: 1 }, { cifUsd: pm.cif, fxRate: pm.fx, customsAddOnJpy: pm.addOn, includeAddOn: true }, ratesOf(null));
       expect(e.importTax.estimate).toBe(pm.total);
     });
   }

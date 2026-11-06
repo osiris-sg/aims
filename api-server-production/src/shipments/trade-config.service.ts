@@ -252,7 +252,8 @@ export class TradeConfigService {
    * Required documents a shipment can meet with a field instead of a file (prod click-through, round H):
    * the telex release code (Vedanta's email has only the code) → TELEX_RELEASE; the 出庫・納入依頼書 rows with
    * delivery dates (the schedule agreed by email) → DELIVERY_SCHEDULE; the in-app import-tax estimate
-   * (CIF + rate filled) → TAX_ESTIMATE (the broker's file becomes optional).
+   * (CIF + rate filled, or — round BK — its total taken for the step 8 funds) → TAX_ESTIMATE (the broker's file
+   * becomes optional).
    */
   async shipmentFieldTypes(db: Db, organizationId: string, shipmentId: string): Promise<string[]> {
     if (!db.shipment?.findFirst) return []; // a partial client (unit tests' mocks)
@@ -262,7 +263,7 @@ export class TradeConfigService {
     if (s.telexReleaseCode?.trim()) out.push('TELEX_RELEASE');
     const c = (s.costs ?? {}) as Record<string, unknown>;
     const filled = (v: unknown) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0;
-    if (filled(c.cifUsd) && filled(c.fxRate)) out.push('TAX_ESTIMATE');
+    if ((filled(c.cifUsd) && filled(c.fxRate)) || filled(c.importTaxFunded)) out.push('TAX_ESTIMATE');
     const sis: Array<{ rows: unknown }> = !db.tradeGeneratedDoc?.findMany ? [] : await db.tradeGeneratedDoc.findMany({ where: { organizationId, shipmentId, docType: 'SHIPPING_INSTRUCTIONS' }, select: { rows: true } });
     if (sis.some((g) => Array.isArray(g.rows) && (g.rows as Array<{ deliveryDate?: unknown }>).some((r) => typeof r?.deliveryDate === 'string' && r.deliveryDate.trim() !== ''))) out.push('DELIVERY_SCHEDULE');
     return out;
