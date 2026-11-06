@@ -374,7 +374,12 @@ export default function GLWorkspace() {
                 })}>
                   <TableHead>
                     <TableRow>
+                      {/* Reference = the voucher/document number (SIN / P/V /
+                          J/V / REC / INV …); X-Reference = what the user keyed
+                          into the Ref field (supplier inv no, "DBS FAST") — the
+                          legacy GL's two columns (guru 2026-11-06). */}
                       <TableCell sx={headCellSx}>Reference</TableCell>
+                      <TableCell sx={headCellSx}>X-Reference</TableCell>
                       <TableCell sx={{ ...headCellSx, width: 110 }}>Date</TableCell>
                       <TableCell sx={headCellSx}>Description</TableCell>
                       <TableCell sx={{ ...headCellSx, textAlign: "right", width: 130 }}>Debit</TableCell>
@@ -386,8 +391,9 @@ export default function GLWorkspace() {
                     {(ledger?.rows || []).map((t, i) => (
                       <TableRow key={i} hover>
                         <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
-                          {t.reference || t.journalNumber || "—"}
+                          {t.journalNumber || "—"}
                         </TableCell>
+                        <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{t.reference || ""}</TableCell>
                         <TableCell sx={{ whiteSpace: "nowrap" }}>{dmy(t.entryDate)}</TableCell>
                         <TableCell>{t.description || ""}</TableCell>
                         <TableCell sx={monoRight}>{t.debit ? fmt(t.debit) : ""}</TableCell>
@@ -397,7 +403,7 @@ export default function GLWorkspace() {
                     ))}
                     {(ledger?.rows || []).length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={6}>
+                        <TableCell colSpan={7}>
                           <Typography variant="body2" sx={{ color: "text.secondary", py: 2, textAlign: "center" }}>
                             No transactions in this period.
                           </Typography>
@@ -852,9 +858,9 @@ function buildGlItems(doc: GlDoc): GlDocItem[] {
         kind: "line",
         cells: [
           formatShortDate(r.date),
-          r.reference || r.journalNumber || "",
-          r.description || "",
           r.journalNumber || "",
+          r.description || "",
+          r.reference || "",
           r.debit ? docFmt(r.debit) : "",
           r.credit ? docFmt(r.credit) : "",
           docFmt(r.runningBalance),
