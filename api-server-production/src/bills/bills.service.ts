@@ -1636,7 +1636,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       : [];
     const bankById = new Map(banks.map((b) => [b.id, b]));
     const jeById = new Map(jes.map((j) => [j.id, j]));
-    return rows.map((r) => {
+    const fromBills = rows.map((r) => {
       const je = r.journalEntryId ? jeById.get(r.journalEntryId) : null;
       // Foreign leg lives on the bank (credit) line when the payment was FX.
       const bankLine = je?.lines?.find((l) => l.credit > 0 && l.foreignAmount != null);
@@ -1650,6 +1650,66 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
           : null,
       };
     });
+
+    // Vouchers that exist ONLY as a PAYMENT journal — imported books (Chong
+    // Aik's 715 legacy P/V journals carry no BillPayment row) and direct
+    // expense payments — were invisible here (guru 2026-11-06: "how come there
+    // is no payment voucher listing"). A voucher = a PAYMENT journal that
+    // CREDITS a cash/bank account (money out; receipts debit the bank, so
+    // they drop out) and that no BillPayment already represents. Payee is the
+    // journal narration; the cross-reference stays in journal.reference.
+    const linkedJeIds = rows.map((r) => r.journalEntryId).filter(Boolean) as string[];
+    const journalOnly = await this.prisma.journalEntry.findMany({
+      where: {
+        organizationId,
+        type: 'PAYMENT',
+        status: { not: 'VOID' },
+        ...(linkedJeIds.length ? { id: { notIn: linkedJeIds } } : {}),
+        ...(opts?.from || opts?.to
+          ? {
+              entryDate: {
+                ...(opts?.from ? { gte: new Date(opts.from) } : {}),
+                ...(opts?.to ? { lte: new Date(`${opts.to}T23:59:59.999Z`) } : {}),
+              },
+            }
+          : {}),
+        lines: { some: { credit: { gt: 0 }, account: { accountType: { in: ['CURRENT_ASSET', 'FOREIGN_BANK'] } } } },
+      },
+      select: {
+        id: true, journalNumber: true, reference: true, description: true, status: true, isUnconfirmed: true, currency: true, entryDate: true, createdBy: true,
+        lines: { select: { credit: true, foreignAmount: true, account: { select: { id: true, code: true, name: true, accountType: true } } } },
+      },
+      orderBy: { entryDate: 'asc' },
+    });
+    const fromJournals = journalOnly.flatMap((je) => {
+      const bankLines = je.lines.filter((l) => l.credit > 0 && this.journal.isCashOrBankAccount(l.account));
+      if (!bankLines.length) return [];
+      const amount = ROUND(bankLines.reduce((t, l) => t + l.credit, 0));
+      const first = bankLines[0];
+      return [{
+        id: je.id,
+        organizationId,
+        billId: null as string | null,
+        supplierId: null as string | null,
+        amount,
+        paymentDate: je.entryDate,
+        paymentMethod: /giro/i.test(je.reference || '') ? 'giro' : /chq|cheque/i.test(je.reference || '') ? 'cheque' : 'transfer',
+        reference: je.reference,
+        notes: null as string | null,
+        bankAccountId: first.account.id,
+        journalEntryId: je.id,
+        attachments: null,
+        createdAt: je.entryDate,
+        updatedAt: je.entryDate,
+        createdBy: je.createdBy,
+        billNumber: null as string | null,
+        supplierName: je.description || null,
+        bankAccount: { id: first.account.id, code: first.account.code, name: first.account.name },
+        journal: { journalNumber: je.journalNumber, reference: je.reference, status: je.status, isUnconfirmed: (je as any).isUnconfirmed ?? false, currency: je.currency, foreignAmount: first.foreignAmount ?? null },
+        journalOnly: true,
+      }];
+    });
+    return [...fromBills, ...fromJournals].sort((a, b) => +new Date(a.paymentDate) - +new Date(b.paymentDate));
   }
 
   async listPayments(organizationId: string, billId: string) {

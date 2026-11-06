@@ -91,10 +91,18 @@ export default function PvListingReport() {
     ];
   }, [vouchers]);
 
-  // The voucher number: the P/V journal reference when present (already
-  // prefixed "P/V …"), else the journal number.
+  // The voucher number. Native vouchers stamp "P/V …" into the journal
+  // REFERENCE (journal number is the JV-000123 running number); imported books
+  // carry it as the journal NUMBER ("P/V OCBC2605006") with the keyed
+  // cross-reference ("OCBC GIRO") in journal.reference — never show that as the
+  // voucher number (guru 2026-11-06).
+  const isPv = (s?: string | null) => !!s && /^P\/?V\b/i.test(s);
   const pvNo = (v: Voucher) =>
-    v.journal?.reference || v.journal?.journalNumber || (v.billNumber ? `P/V ${v.billNumber}` : v.reference || "—");
+    (isPv(v.journal?.journalNumber) && v.journal!.journalNumber) ||
+    (isPv(v.journal?.reference) && v.journal!.reference) ||
+    v.journal?.journalNumber ||
+    v.journal?.reference ||
+    (v.billNumber ? `P/V ${v.billNumber}` : v.reference || "—");
   const isUnconfirmed = (v: Voucher) => !!v.journal?.isUnconfirmed;
   const currency = (v: Voucher) => (v.journal?.currency || "SGD").toUpperCase();
   const foreignAmount = (v: Voucher) =>
