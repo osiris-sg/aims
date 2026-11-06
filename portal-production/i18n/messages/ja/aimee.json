@@ -68,5 +68,11 @@
     "send": "AIMEEに送信",
     "greeting": "{greet}{hasName, select, yes {、{name}さん} other {}}。何をしましょうか？",
     "sub": "質問や依頼をどうぞ。下書きは横に開き、OKを押すまで実行されません。"
+  },
+  "chat": {
+    "hint": "Enterで送信 · Shift+Enterで改行 · 確定する操作は必ず確認します",
+    "working": "処理中…",
+    "waiting": "確認待ち: {summary}",
+    "thinking": "考え中…"
   }
 }

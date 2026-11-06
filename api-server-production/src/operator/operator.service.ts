@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { AiUsageService } from './ai-usage.service';
 import { stripEmoji } from './push-text';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
@@ -179,6 +180,8 @@ export class OperatorService {
     private readonly whatsapp: WhatsAppAdapter,
     private readonly web: WebAdapter,
     private readonly shipTools: ShipmentsToolsService,
+    // Round BM: token usage per org / user / day in the database (the Admin AI usage page).
+    @Optional() private readonly usage?: AiUsageService,
   ) {
     const key = process.env.ANTHROPIC_API_KEY;
     this.anthropic = key ? new Anthropic({ apiKey: key }) : null;
@@ -906,6 +909,7 @@ export class OperatorService {
 
       // Token accounting per round, so cache hits can be checked in the log.
       const u: any = resp.usage || {};
+      void this.usage?.record({ organizationId: ctx.organizationId, userId: ctx.clerkUserId || ctx.actor.id, userName: ctx.actor.name ?? ctx.actor.email ?? null, channel: ctx.channel, model: MODEL, usage: u });
       this.logger.log(
         `tokens in=${u.input_tokens ?? 0} cache_write=${u.cache_creation_input_tokens ?? 0} cache_read=${u.cache_read_input_tokens ?? 0} out=${u.output_tokens ?? 0}`,
       );
@@ -1597,6 +1601,10 @@ export class OperatorService {
       `For a list or report the user asked about, prefer show_view (a table or stat tiles in the side panel) over a long chat message, then summarise in one line.`,
       `Screens this user may open (label: path):`,
       screens || '(none sent)',
+      // Round BM: the Guide walkthroughs this user may run (sent by the portal; the ✦ Guide button is gone on AIMEE orgs).
+      ``,
+      `WALKTHROUGHS (start_walkthrough ids): for "show me how / walk me through" use start_walkthrough with the matching id; when none fits, open the screen and explain in one or two lines.`,
+      (ctx.web?.aimee?.guides ?? []).map((g) => `- ${g.id}: ${g.title}`).join('\n') || '(none)',
       ``,
       `HOW THE APP WORKS (for "how do I" questions; answer in one or two lines and open the screen):`,
       APP_KNOWLEDGE,
@@ -1780,7 +1788,7 @@ export class OperatorService {
   /** A conversation's stored state, for the web chat to render. */
   /** Name a chat the way ChatGPT does: a few words from what the user
    *  wanted, written by a small model. Falls back to the heuristic title. */
-  async suggestTitle(userText: string, reply?: string): Promise<string> {
+  async suggestTitle(userText: string, reply?: string, who?: { organizationId: string; userId: string; userName?: string | null }): Promise<string> {
     const fallback = titleFromText(userText) || 'New chat';
     if (!this.anthropic) return fallback;
     try {
@@ -1796,6 +1804,7 @@ export class OperatorService {
           },
         ],
       });
+      if (who) void this.usage?.record({ ...who, channel: 'web', model: 'claude-haiku-4-5', usage: res.usage as any });
       const text = res.content.find((b) => b.type === 'text');
       const title = (text && 'text' in text ? String((text as any).text) : '')
         .split('\n')[0]

@@ -25,7 +25,6 @@ import AimeeDockHost from "./shipments/_components/aimee/AimeeDockHost";
 import TopNavBar from "@/components/TopNav/TopNavBar";
 import RoleTopBar from "./components/RoleHome/RoleTopBar";
 import { useOrganizationFeatures } from "./hooks/useOrganizationFeatures";
-import { HOME_VIEW_EVENT, readHomeView } from "./chat/homeView";
 
 interface Props {
   children: React.ReactNode;
@@ -123,8 +122,8 @@ export default function Layout(props: Props) {
                 {/* A page renders only when its module is on for the org being viewed (round Y). */}
                 <ModuleRouteGuard>{children}</ModuleRouteGuard>
               </Box>
-              {/* AIMS Guide bubble (bottom-right) — global for every org. */}
-              {!embed && <GuideBubble pathname={pathname} />}
+              {/* AIMS Guide bubble (bottom-right) — orgs without AIMEE only (round BM). */}
+              {!embed && <GuideBubble />}
               {/* Round BL: Guide walkthroughs started from AIMEE (the same engine as the bubble). */}
               {!embed && <GuideHost />}
               {/* Round BL: the AIMEE side panel — orgs with the SHIPMENTS module and AIMEE on only (renders nothing elsewhere). */}
@@ -193,17 +192,11 @@ function PortalChrome({ isDocumentPage: _isDocumentPage }: { isDocumentPage: boo
   return <AppNavbar />;
 }
 
-// The Guide bubble stays hidden while AIMEE is open: AIMEE answers "how do
-// I" itself and can open the screen. Everywhere else it shows.
-function GuideBubble({ pathname }: { pathname: string | null }) {
-  const { isAimsChatEnabled } = useOrganizationFeatures();
-  const [view, setView] = useState<"aimee" | "dashboard">("dashboard");
-  useEffect(() => {
-    const sync = () => setView(readHomeView());
-    sync();
-    window.addEventListener(HOME_VIEW_EVENT, sync);
-    return () => window.removeEventListener(HOME_VIEW_EVENT, sync);
-  }, [pathname]);
-  if (pathname === "/portal" && isAimsChatEnabled && view === "aimee") return null;
+// Round BM: the ✦ Guide bubble shows only on orgs WITHOUT AIMEE. Where AIMEE is on (enableAimsChat) it is hidden
+// everywhere: AIMEE answers "how do I", opens the screen and starts the same walkthroughs (GuideHost). Switching
+// AIMEE on for an org hides the bubble there; switching it off brings it back.
+function GuideBubble() {
+  const { isAimsChatEnabled, isLoading } = useOrganizationFeatures();
+  if (isLoading || isAimsChatEnabled) return null;
   return <GuideAssistant />;
 }

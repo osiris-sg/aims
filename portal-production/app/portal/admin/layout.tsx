@@ -45,6 +45,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { label: "Users", value: "/portal/admin/users", route: ROUTES.ADMIN_USERS },
     { label: "Roles", value: "/portal/admin/roles", route: ROUTES.ADMIN_ROLES },
     { label: "Audit Logs", value: "/portal/admin/audit", route: ROUTES.ADMIN_AUDIT_LOGS },
+    // Round BM: AIMEE token usage per org / user.
+    { label: "AI usage", value: "/portal/admin/ai-usage", route: "/portal/admin/ai-usage" },
   ];
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: string) => {

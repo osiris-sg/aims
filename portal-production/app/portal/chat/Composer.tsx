@@ -8,6 +8,7 @@ import StopRoundedIcon from "@mui/icons-material/StopRounded";
 import CloseIcon from "@mui/icons-material/Close";
 import type { SendInput } from "./useOperatorChat";
 import AimeeFace, { type AimeeMood } from "./AimeeFace";
+import { useTranslations } from "next-intl";
 
 // AIMEE's eye colour, used for every live accent on the box.
 const CYAN = "85,233,255";
@@ -30,6 +31,8 @@ interface Props {
 }
 
 export default function Composer({ disabled, sending, placeholder, onSend, onStop, onTyping }: Props) {
+  // Round BM: EN / JA through the "aimee.chat" catalog (English unchanged).
+  const tc = useTranslations("aimee.chat");
   const [text, setTextState] = useState("");
   const [focused, setFocused] = useState(false);
   const setText = (v: string) => {
@@ -275,7 +278,7 @@ export default function Composer({ disabled, sending, placeholder, onSend, onSto
         </Stack>
       </Box>
       <Typography sx={{ mt: 0.75, fontSize: "0.68rem", color: fileError ? "error.main" : "text.secondary", opacity: fileError ? 1 : 0.7, textAlign: "center" }}>
-        {fileError || "Enter to send · Shift+Enter for a new line · anything final asks you first"}
+        {fileError || tc("hint")}
       </Typography>
     </Box>
   );

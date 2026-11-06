@@ -68,5 +68,11 @@
     "send": "Send to AIMEE",
     "greeting": "{greet}{hasName, select, yes {, {name}} other {}}. What shall we do?",
     "sub": "Ask anything or say what you need. Drafts open on the side and wait for your OK."
+  },
+  "chat": {
+    "hint": "Enter to send · Shift+Enter for a new line · anything final asks you first",
+    "working": "Working…",
+    "waiting": "Waiting for your confirmation: {summary}",
+    "thinking": "Thinking…"
   }
 }

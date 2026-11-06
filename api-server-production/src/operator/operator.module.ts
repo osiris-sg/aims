@@ -36,6 +36,8 @@ import { TelegramAdapter } from './adapters/telegram.adapter';
 import { WhatsAppAdapterModule } from './adapters/whatsapp-adapter.module';
 import { PublicSignModule } from '../public-sign/public-sign.module';
 import { WebAdapter } from './adapters/web.adapter';
+import { AiUsageService } from './ai-usage.service';
+import { AiUsageController } from './ai-usage.controller';
 
 /**
  * AIMS Operator — a chat agent (Telegram first, WhatsApp later) that executes
@@ -77,8 +79,8 @@ import { AuthModule } from '../auth/auth.module';
     WhatsAppAdapterModule, // the one WhatsApp sender (shared with PublicSignModule)
     PublicSignModule, // send_for_signature tool → the quotation e-sign link
   ],
-  controllers: [OperatorController, OperatorWebController],
-  providers: [OperatorService, OperatorAuthService, OperatorToolsService, ShipmentsToolsService, ShipmentsOutboxService, TelegramAdapter, WebAdapter, PrismaService],
+  controllers: [OperatorController, OperatorWebController, AiUsageController],
+  providers: [AiUsageService, OperatorService, OperatorAuthService, OperatorToolsService, ShipmentsToolsService, ShipmentsOutboxService, TelegramAdapter, WebAdapter, PrismaService],
   exports: [OperatorService, OperatorAuthService, WebAdapter, WhatsAppAdapterModule],
 })
 export class OperatorModule {}

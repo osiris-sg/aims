@@ -306,6 +306,32 @@ model OperatorLinkCode {
   @@index([clerkUserId])
 }
 
+/// Round BM: AIMEE / operator token usage per org, user, day (UTC), channel and model — the Admin AI usage page.
+/// Written by AiUsageService after every model call of the operator (counters only, no text).
+model AiUsageDaily {
+  id               String   @id @default(uuid())
+  organizationId   String
+  /// Clerk user id ("unknown" when the caller had none).
+  userId           String
+  /// The user's name as last seen (for the Admin page; Clerk holds the real record).
+  userName         String?
+  /// YYYY-MM-DD (UTC).
+  day              String
+  /// web (AIMEE) | whatsapp | telegram
+  channel          String
+  model            String
+  requests         Int      @default(0)
+  inputTokens      Int      @default(0)
+  outputTokens     Int      @default(0)
+  cacheWriteTokens Int      @default(0)
+  cacheReadTokens  Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([organizationId, userId, day, channel, model])
+  @@index([day])
+}
+
 model OperatorSession {
   id            String   @id @default(uuid())
   channel       String

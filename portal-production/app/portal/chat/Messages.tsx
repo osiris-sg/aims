@@ -11,6 +11,8 @@ import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { marked } from "marked";
 import type { ChatItem, PendingAction } from "./useOperatorChat";
+import { useTranslations } from "next-intl";
+import { useUiLang } from "@/i18n/UiLangProvider";
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -91,6 +93,11 @@ interface Props {
 }
 
 export default function Messages({ items, pending, status, sending, channel, onTap, onOpenDocument }: Props) {
+  // Round BM: EN / JA through the "aimee.chat" catalog (English unchanged). The server's "💭 Thinking..." status is
+  // shown in Japanese for a Japanese user; every English line stays exactly as the server sends it.
+  const tc = useTranslations("aimee.chat");
+  const { lang } = useUiLang();
+  const statusText = status && lang === "ja" && /^\W*Thinking\.\.\.$/.test(status) ? tc("thinking") : status;
   const endRef = useRef<HTMLDivElement | null>(null);
   // Keep the newest line in view: a new message, a status change, the
   // Confirm card appearing, or a long reply still streaming in.
@@ -264,7 +271,7 @@ export default function Messages({ items, pending, status, sending, channel, onT
           <Box sx={{ display: "flex", gap: 0.5, "& span": { width: 6, height: 6, borderRadius: "50%", bgcolor: "text.secondary", animation: "aimsDot 1.2s infinite" }, "& span:nth-of-type(2)": { animationDelay: "0.2s" }, "& span:nth-of-type(3)": { animationDelay: "0.4s" }, "@keyframes aimsDot": { "0%, 80%, 100%": { opacity: 0.25 }, "40%": { opacity: 1 } } }}>
             <span /><span /><span />
           </Box>
-          <Typography sx={{ fontSize: "0.8rem", color: "text.secondary" }}>{status || "Working…"}</Typography>
+          <Typography sx={{ fontSize: "0.8rem", color: "text.secondary" }}>{statusText || tc("working")}</Typography>
         </Stack>
       )}
       {!!pending.length && !sending && (
@@ -273,7 +280,7 @@ export default function Messages({ items, pending, status, sending, channel, onT
             <Chip
               key={p.id || p.summary}
               size="small"
-              label={`Waiting for your confirmation: ${p.summary.split("\n")[0].slice(0, 70)}`}
+              label={tc("waiting", { summary: p.summary.split("\n")[0].slice(0, 70) })}
               sx={{ bgcolor: (t) => alpha(t.palette.warning.main, 0.15), color: "text.primary", maxWidth: "100%" }}
             />
           ))}

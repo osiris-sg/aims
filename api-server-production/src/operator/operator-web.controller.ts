@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Logger, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, Logger, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
+import { isOrgFeatureEnabled } from '../common/org-features';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { PrismaService } from '../common/prisma.service';
@@ -78,6 +79,15 @@ export class OperatorWebController {
     return null;
   }
 
+  /** Round BM: AIMEE only for orgs with enableAimsChat (platform admins pass, as on every other route). */
+  private async assertAimeeOn(req: WebRequest): Promise<void> {
+    if (req.isOsirisAdmin) return;
+    const orgId = req.userOrganization?.id;
+    if (!orgId || !(await isOrgFeatureEnabled(this.prisma, orgId, 'enableAimsChat').catch(() => false))) {
+      throw new ForbiddenException('AIMEE is not switched on for this organization.');
+    }
+  }
+
   private newThreadId(): string {
     return `${WEB_PREFIX}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
   }
@@ -85,6 +95,8 @@ export class OperatorWebController {
   @Post('message')
   @ApiOperation({ summary: 'Dashboard chat: send a message, stream the reply (SSE)' })
   async message(@Req() req: WebRequest, @Body() body: WebMessageBody, @Res() res: Response): Promise<void> {
+    // Before the stream opens, so a refusal is a plain 403.
+    await this.assertAimeeOn(req);
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
@@ -176,7 +188,7 @@ export class OperatorWebController {
         const reply = (thread?.state.transcript || [])
           .filter((t) => t.role === 'assistant' && t.text)
           .slice(-1)[0]?.text;
-        const title = await this.operator.suggestTitle(firstLine, reply);
+        const title = await this.operator.suggestTitle(firstLine, reply, { organizationId: org.id, userId: req.user!.id, userName: ctx.actor.name ?? null });
         await this.operator.patchThreadMeta('web', session.channelUserId, { title });
         emit({ type: 'title', id: threadId, title });
       }
@@ -199,6 +211,7 @@ export class OperatorWebController {
   @Get('documents/:id/preview')
   @ApiOperation({ summary: 'Dashboard chat: side-panel preview of a document (PDF url + editor path)' })
   async preview(@Req() req: WebRequest, @Param('id') id: string, @Query('fresh') fresh?: string) {
+    await this.assertAimeeOn(req);
     const org = req.userOrganization;
     if (!org) return { error: 'No organization' };
     const ctx = await this.auth.contextForWeb(req.user!.id, org, this.actorOf(req), !!req.isOsirisAdmin);
@@ -234,6 +247,7 @@ export class OperatorWebController {
   @Get('threads')
   @ApiOperation({ summary: 'Dashboard chat: list my conversations (web + my WhatsApp thread)' })
   async threads(@Req() req: WebRequest) {
+    await this.assertAimeeOn(req);
     const userId = req.user!.id;
     const orgId = req.userOrganization?.id || '';
     const [rows, waIds] = await Promise.all([
@@ -285,6 +299,7 @@ export class OperatorWebController {
   @Get('threads/:id')
   @ApiOperation({ summary: 'Dashboard chat: one conversation (display transcript + held confirmations)' })
   async thread(@Req() req: WebRequest, @Param('id') id: string) {
+    await this.assertAimeeOn(req);
     const session = await this.sessionFor(req, id);
     if (!session) return { error: 'Not found' };
     const t = await this.operator.readThread(session.channel, session.channelUserId);
@@ -304,6 +319,7 @@ export class OperatorWebController {
   @Patch('threads/:id')
   @ApiOperation({ summary: 'Dashboard chat: rename a conversation, or forget its side panel' })
   async rename(@Req() req: WebRequest, @Param('id') id: string, @Body() body: { title?: string; closePanel?: boolean }) {
+    await this.assertAimeeOn(req);
     const session = await this.sessionFor(req, id);
     if (!session || session.channel !== 'web') return { error: 'Not found' };
     if (body?.closePanel) {
@@ -319,6 +335,7 @@ export class OperatorWebController {
   @Delete('threads/:id')
   @ApiOperation({ summary: 'Dashboard chat: delete a web conversation' })
   async remove(@Req() req: WebRequest, @Param('id') id: string) {
+    await this.assertAimeeOn(req);
     const session = await this.sessionFor(req, id);
     // The WhatsApp thread belongs to the phone; it cannot be deleted from here.
     if (!session || session.channel !== 'web') return { error: 'Not found' };

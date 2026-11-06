@@ -1,9 +1,10 @@
 "use client";
 
-// Round BL — mounts the AIMEE side panel on an org with the SHIPMENTS module AND AIMEE on (enableAimsChat); renders
-// nothing anywhere else, so no other org changes. Registers the `aimee` payload useOperatorChat sends for this org
-// (the page in view, the walkthroughs this user may run, the conversation's scope) and hides the panel while full
-// AIMEE is open on the dashboard.
+// Round BL — mounts the AIMEE side panel on an org with the SHIPMENTS module AND AIMEE on (enableAimsChat), and
+// registers the `aimee` payload useOperatorChat sends (the page in view, the walkthroughs this user may run, the
+// conversation's scope); the panel steps aside while full AIMEE is open on the dashboard.
+// Round BM: every other AIMEE org registers the walkthroughs only (no page, no scope, no panel) so its AIMEE can start
+// Guide walkthroughs now that the ✦ button is hidden there. Orgs without AIMEE: nothing.
 
 import React, { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -35,11 +36,11 @@ export default function AimeeDockHost() {
   const pathname = usePathname();
   const { isAimsChatEnabled, isLoading } = useOrganizationFeatures();
   const { loading, modules, isModuleEnabled } = useConfiguration();
-  const on = !isLoading && !loading && isAimsChatEnabled && isModuleEnabled("SHIPMENTS");
-  return on ? <Gated pathname={pathname} modules={modules} /> : null;
+  if (isLoading || loading || !isAimsChatEnabled) return null;
+  return <Gated pathname={pathname} modules={modules} shipments={isModuleEnabled("SHIPMENTS")} />;
 }
 
-function Gated({ pathname, modules }: { pathname: string | null; modules: Array<{ moduleCode: string; enabled: boolean }> }) {
+function Gated({ pathname, modules, shipments }: { pathname: string | null; modules: Array<{ moduleCode: string; enabled: boolean }>; shipments: boolean }) {
   const { isModuleAllowed } = useUserPermissions();
   // The walkthroughs this user may run: the Guide's own rule (modules on for the org and allowed for the role).
   const guides = useMemo(() => {
@@ -49,12 +50,13 @@ function Gated({ pathname, modules }: { pathname: string | null; modules: Array<
 
   useEffect(() => {
     registerAimeePayload(() => {
+      if (!shipments) return { page: null, guides };
       const page = readAimeeContext();
       // Full AIMEE (the dashboard chat) keeps its own unscoped conversations.
       return { page: { ...(page ?? {}), path: page?.path ?? window.location.pathname }, guides, scope: readHomeView() === "aimee" ? undefined : scopeOf(page) };
     });
     return () => registerAimeePayload(null);
-  }, [guides]);
+  }, [guides, shipments]);
 
   // An email card's context belongs to the page it was asked on.
   useEffect(() => {
@@ -69,6 +71,6 @@ function Gated({ pathname, modules }: { pathname: string | null; modules: Array<
     window.addEventListener(HOME_VIEW_EVENT, sync);
     return () => window.removeEventListener(HOME_VIEW_EVENT, sync);
   }, [pathname]);
-  if (!pathname?.startsWith("/portal") || full) return null;
+  if (!shipments || !pathname?.startsWith("/portal") || full) return null;
   return <LiveDock />;
 }

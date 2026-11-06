@@ -277,7 +277,7 @@ export class OperatorToolsService {
   }
 
   /** Tool definitions handed to Claude (schema only — no implementations). */
-  private static readonly WEB_ONLY = new Set(['open_screen', 'show_view']);
+  private static readonly WEB_ONLY = new Set(['open_screen', 'show_view', 'start_walkthrough']);
 
   definitions(ctx: OperatorContext): Anthropic.Tool[] {
     return this.tools()
@@ -2225,6 +2225,19 @@ export class OperatorToolsService {
           const isDoc = /^\/portal\/(documents|invoices|sales|accounting)\//.test(p);
           if (!allowed && !isDoc) return { result: { error: 'That screen is not available to this user.' } };
           return { result: { opened: p }, ui: { type: 'screen', path: p, title } };
+        },
+      },
+      {
+        // Round BM: every AIMEE org can start a Guide walkthrough (the ✦ Guide button is hidden where AIMEE is on).
+        name: 'start_walkthrough',
+        description:
+          'WEB ONLY. Start a Guide walkthrough in the portal: spotlight steps on the real screens ("show me how to create a delivery order"). guideId must be one of the walkthrough ids listed under WALKTHROUGHS in your instructions. Say one short line after it starts.',
+        permissions: [],
+        input_schema: { type: 'object', properties: { guideId: { type: 'string' } }, required: ['guideId'] },
+        run: async (ctx, { guideId }) => {
+          const g = (ctx.web?.aimee?.guides ?? []).find((x) => x.id === String(guideId || ''));
+          if (!g) return { result: { error: 'No such walkthrough for this user. Pick an id from WALKTHROUGHS, or explain in words and open the screen.' } };
+          return { result: { started: g.title }, ui: { type: 'guide', guideId: g.id, title: g.title } };
         },
       },
       {

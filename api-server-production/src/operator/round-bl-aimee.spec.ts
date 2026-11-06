@@ -283,7 +283,7 @@ describe('AIMEE web controller — other orgs unchanged', () => {
     };
     const auth: any = { contextForWeb: jest.fn(async () => ({ organizationId: 'org', organizationName: 'Org', clerkUserId: 'u1', actor: { id: 'u1' }, roles: [], isOsirisAdmin: false, channel: 'web', channelUserId: 'u1' })) };
     const web: any = { open: jest.fn(), close: jest.fn() };
-    const prisma: any = { operatorSession: { findUnique: jest.fn(async () => ({ state: { title: 'x' } })) }, organizationMemberProfile: { findFirst: jest.fn(async () => (uiLang ? { uiLang } : null)) } };
+    const prisma: any = { organizationUIConfig: { findUnique: jest.fn(async () => ({ features: { enableAimsChat: true } })) }, operatorSession: { findUnique: jest.fn(async () => ({ state: { title: 'x' } })) }, organizationMemberProfile: { findFirst: jest.fn(async () => (uiLang ? { uiLang } : null)) } };
     const c = new OperatorWebController(operator, auth, web, prisma, {} as any);
     const res: any = { setHeader: jest.fn(), flushHeaders: jest.fn(), write: jest.fn(), end: jest.fn() };
     const req: any = { user: { id: 'u1', firstName: 'Sayaka' }, userOrganization: { id: 'org', name: 'Org' }, on: jest.fn() };

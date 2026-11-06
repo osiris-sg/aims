@@ -92,6 +92,7 @@ export default function AdminDashboard() {
     { title: "Total Projects", value: stats?.totalProjects || 0, icon: <ProjectIcon />, color: "text.primary", path: "projects" },
     { title: "Total Users", value: stats?.totalUsers || 0, icon: <PeopleIcon />, color: "text.primary", path: "users" },
     { title: "Uploads log", value: "→", icon: <DocumentIcon />, color: "info.main", path: "uploads" },
+    { title: "AI usage (AIMEE tokens)", value: "→", icon: <ProjectIcon />, color: "info.main", path: "ai-usage" },
   ];
 
   return (
