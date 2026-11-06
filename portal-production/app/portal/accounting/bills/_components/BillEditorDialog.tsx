@@ -187,6 +187,18 @@ export default function BillEditorDialog({
   // True while the Tax field holds a user-typed / extracted / stored value we
   // must not clobber; changing tax code or amounts-are recomputes.
   const taxManualRef = useRef(false);
+  // The line total the kept tax figure belongs to. A stored, extracted or typed
+  // GST is only authoritative for the amounts it was keyed against: once the
+  // lines change, the box goes back to the rate. Without this anchor a
+  // duplicated or reopened bill kept its OLD tax after the amounts were retyped
+  // (guru 2026-11-06, PCP008638-COPY: 151.30 at 9% showed 10.70 instead of
+  // 13.62 — the second time it happened).
+  const taxManualSumRef = useRef<number | null>(null);
+  const sumOf = (ls: Array<{ amount?: any }>) => ls.reduce((t, l) => t + (parseFloat(String(l?.amount ?? "")) || 0), 0);
+  const keepTaxFor = (ls: Array<{ amount?: any }>) => {
+    taxManualRef.current = true;
+    taxManualSumRef.current = sumOf(ls);
+  };
   const [lines, setLines] = useState<LineForm[]>([newLine()]);
   const [inboundChannel, setInboundChannel] = useState<string>("MANUAL");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -236,7 +248,9 @@ export default function BillEditorDialog({
       setTaxAmount(String(editing.taxAmount || 0));
       setAmountsAre((editing.amountsAre as AmountsAre) || "EXCLUSIVE");
       setTaxCode(editing.taxCode || (editing.amountsAre === "NO_TAX" ? "12" : "4"));
-      taxManualRef.current = true; // keep the stored tax until code/mode changes
+      // Keep the stored tax while the amounts stay as stored; the first change
+      // to a line amount recomputes it at the rate (see taxManualSumRef).
+      keepTaxFor(Array.isArray(editing.lines) ? editing.lines : []);
       setInboundChannel(editing.inboundChannel || "MANUAL");
       setAttachments(Array.isArray(editing.attachments) ? editing.attachments : []);
       const toRows = (ls: any[]) =>
@@ -266,7 +280,9 @@ export default function BillEditorDialog({
         request<any>(`/bills/${editing.id}`)
           .then((full) => {
             if (cancelled || !full) return;
-            setLines(toRows(Array.isArray(full.lines) ? full.lines : []));
+            const fullLines = Array.isArray(full.lines) ? full.lines : [];
+            setLines(toRows(fullLines));
+            keepTaxFor(fullLines); // the stored tax belongs to THESE amounts
             if (full.attachments) setAttachments(Array.isArray(full.attachments) ? full.attachments : []);
           })
           .catch((e: any) => toast.error(e?.message || "Failed to load bill lines"));
@@ -306,7 +322,18 @@ export default function BillEditorDialog({
   // Recompute tax from the selected code whenever amounts change — unless the
   // user typed a tax figure (or it came from extraction / a stored bill).
   useEffect(() => {
-    if (isReadOnly || taxManualRef.current) return;
+    if (isReadOnly) return;
+    if (taxManualRef.current) {
+      const anchor = taxManualSumRef.current;
+      if (anchor === null) {
+        taxManualSumRef.current = linesSum; // typed tax: belongs to the current amounts
+        return;
+      }
+      if (Math.abs(anchor - linesSum) < 0.005) return; // amounts untouched → keep the figure
+      // Amounts changed → the kept figure is stale; back to the rate.
+      taxManualRef.current = false;
+      taxManualSumRef.current = null;
+    }
     let t = 0;
     if (amountsAre === "EXCLUSIVE") t = (linesSum * selRate) / 100;
     else if (amountsAre === "INCLUSIVE") t = (linesSum * selRate) / (100 + selRate);
@@ -388,7 +415,9 @@ export default function BillEditorDialog({
       if (extracted.dueDate) setDueDate(String(extracted.dueDate).slice(0, 10));
       if (extracted.taxAmount !== undefined) {
         setTaxAmount(String(extracted.taxAmount || 0));
-        taxManualRef.current = true; // extracted actuals win over the computed rate
+        // Extracted actuals win over the computed rate — for the extracted
+        // amounts; retyping a line recomputes.
+        keepTaxFor(Array.isArray(extracted.lines) ? extracted.lines : []);
       }
       if (Array.isArray(extracted.lines) && extracted.lines.length > 0) {
         setLines(
@@ -435,6 +464,7 @@ export default function BillEditorDialog({
     setDescription(fm?.description ?? "");
     setTaxAmount(fm?.taxAmount ?? "0");
     taxManualRef.current = fm?.taxManual ?? false;
+    taxManualSumRef.current = fm?.taxManual ? sumOf(fm?.lines ?? []) : null;
     setAmountsAre(fm?.amountsAre ?? "EXCLUSIVE");
     setTaxCode(fm?.taxCode ?? "4");
     setLines(fm?.lines?.length ? fm.lines : [newLine()]);
@@ -1082,6 +1112,7 @@ export default function BillEditorDialog({
               const v = e.target.value as AmountsAre;
               setAmountsAre(v);
               taxManualRef.current = false; // mode change → recompute from code
+              taxManualSumRef.current = null;
               if (v === "NO_TAX") setTaxCode("12"); // Out-of-Scope Purchases / No GST
               else if (taxCode === "12") setTaxCode("4");
             }}
@@ -1099,6 +1130,7 @@ export default function BillEditorDialog({
             onChange={(e) => {
               setTaxCode(e.target.value);
               taxManualRef.current = false; // code change → recompute
+              taxManualSumRef.current = null;
             }}
             disabled={isReadOnly || amountsAre === "NO_TAX"}
             SelectProps={{ renderValue: (v) => String(v) }}
@@ -1117,6 +1149,7 @@ export default function BillEditorDialog({
             onChange={(e) => {
               setTaxAmount(e.target.value);
               taxManualRef.current = true;
+              taxManualSumRef.current = linesSum; // typed for THESE amounts
             }}
             disabled={isReadOnly || amountsAre === "NO_TAX"}
             inputProps={{ step: "0.01", min: 0 }}
