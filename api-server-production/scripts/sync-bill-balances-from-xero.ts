@@ -22,6 +22,12 @@
  *     npx ts-node --transpile-only scripts/sync-bill-balances-from-xero.ts
  *
  *   --supplier=Jurong    only suppliers whose name contains this
+ *   --fix-status         instead of balances, correct bills stamped
+ *                        billStatus=DRAFT that Xero has AUTHORISED or PAID.
+ *                        A DRAFT bill is hidden from the Payment Voucher's
+ *                        offset grid, so its money cannot be allocated.
+ *   --credit-notes       do the SUPPLIER CREDIT NOTES instead of the bills
+ *                        (Xero's RemainingCredit is the unused credit)
  *   --show=40            rows to list (default 20)
  *   --apply              write the stamps
  */
@@ -33,6 +39,10 @@ const arg = (k: string, d = '') => process.argv.find((a) => a.startsWith(`--${k}
 const ORG = arg('org', BIOFUEL_ORG_ID);
 const SUPPLIER = arg('supplier', '');
 const SHOW = parseInt(arg('show', '20'), 10);
+/** Supplier credit notes rather than bills. Their stamp drifts the same way:
+ *  AIMS shows every note fully unused while Xero has long since applied it. */
+const CREDIT_NOTES = process.argv.includes('--credit-notes');
+const FIX_STATUS = process.argv.includes('--fix-status');
 const APPLY = process.argv.includes('--apply');
 const m = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 /** Xero's InvoiceNumber often carries a note after a separator. */
@@ -40,7 +50,7 @@ const head = (s: string) => String(s || '').trim().split(/\s*[·|(]\s*/)[0].trim
 
 (async () => {
   const bills = await prisma.document.findMany({
-    where: { organizationId: ORG, type: 'BILL' },
+    where: { organizationId: ORG, type: CREDIT_NOTES ? 'CREDIT_NOTE' : 'BILL' },
     select: { id: true, name: true, status: true, config: true },
   });
   // A bill identifies its supplier by config.supplierId; supplierName is not
@@ -60,20 +70,70 @@ const head = (s: string) => String(s || '').trim().split(/\s*[·|(]\s*/)[0].trim
       return ids.has(String(c.supplierId)) || re.test(String(c.supplierName ?? ''));
     });
   }
-  console.log(`AIMS bills${SUPPLIER ? ` for suppliers matching /${SUPPLIER}/i` : ''}: ${scoped.length}`);
+  // A customer credit note has no supplierId — only the AP side is in scope.
+  if (CREDIT_NOTES) scoped = scoped.filter((b) => (b.config as any)?.supplierId);
+  const what = CREDIT_NOTES ? 'supplier credit notes' : 'bills';
+  console.log(`AIMS ${what}${SUPPLIER ? ` for suppliers matching /${SUPPLIER}/i` : ''}: ${scoped.length}`);
+
+  // ---- --fix-status: unhide bills the grid refuses to show ------------
+  // PaymentVouchersService.openBills drops any bill with billStatus DRAFT.
+  // Bills imported while still draft in Xero, and later authorised there,
+  // keep the stale DRAFT here — so their money never reaches the offset grid
+  // and cannot be paid off (guru 2026-11-06, Jurong Port: 67 bills, 86,839.02).
+  if (FIX_STATUS) {
+    const rows = scoped
+      .map((b) => ({ b, c: b.config as any }))
+      .filter(({ c }) => String(c?.billStatus ?? '').toUpperCase() === 'DRAFT')
+      .map(({ b, c }) => ({ b, c, xs: String(c?.xeroStatus ?? '').toUpperCase() }))
+      .filter(({ xs }) => xs === 'AUTHORISED' || xs === 'PAID');
+    console.log(`\nStamped DRAFT in AIMS but live in Xero: ${rows.length}`);
+    console.log(`  ${'Bill'.padEnd(18)}${'Xero'.padEnd(12)}${'owed'.padStart(14)}   billStatus →`);
+    let owed = 0;
+    for (const { b, c, xs } of rows) {
+      owed += owedOf(c);
+      if (rows.indexOf(rows.find((r) => r.b.id === b.id)!) < SHOW)
+        console.log(`  ${String(b.name).padEnd(18)}${xs.padEnd(12)}${m(owedOf(c)).padStart(14)}   DRAFT → ${xs === 'PAID' ? 'PAID' : 'POSTED'}`);
+    }
+    if (rows.length > SHOW) console.log(`  … and ${rows.length - SHOW} more`);
+    console.log(`  total hidden from the offset grid: ${m(owed)}`);
+    if (!rows.length) { await prisma.$disconnect(); return; }
+    if (!APPLY) {
+      console.log('\nDRY RUN — re-run with --apply. This only corrects billStatus; no money moves.\n');
+      await prisma.$disconnect();
+      return;
+    }
+    let n = 0;
+    for (const { b, c, xs } of rows) {
+      await prisma.document.update({
+        where: { id: b.id },
+        data: { config: { ...c, billStatus: xs === 'PAID' ? 'PAID' : 'POSTED', billStatusSource: 'xero-sync' } },
+      });
+      n++;
+    }
+    console.log(`\n  ${n} bill(s) un-drafted.\n`);
+    await prisma.$disconnect();
+    return;
+  }
 
   const tokens = await getXeroTokens(prisma, ORG);
   const xb: any[] = [];
   for (let page = 1; ; page++) {
-    const j: any = await xeroGet(tokens, '/Invoices', { page, where: 'Type=="ACCPAY"', summaryOnly: 'true' });
-    const list = j?.Invoices || [];
+    const j: any = CREDIT_NOTES
+      ? await xeroGet(tokens, '/CreditNotes', { page, where: 'Type=="ACCPAYCREDIT"' })
+      : await xeroGet(tokens, '/Invoices', { page, where: 'Type=="ACCPAY"', summaryOnly: 'true' });
+    const list = (CREDIT_NOTES ? j?.CreditNotes : j?.Invoices) || [];
     xb.push(...list);
-    process.stdout.write(`\r  Xero bills page ${page}: ${xb.length}   `);
+    process.stdout.write(`\r  Xero ${what} page ${page}: ${xb.length}   `);
     if (list.length < 100) break;
   }
   console.log('\n');
-  const xById = new Map(xb.map((b) => [String(b.InvoiceID), b]));
-  const xByNum = new Map(xb.map((b) => [head(b.InvoiceNumber), b]));
+  // A credit note's "still owed" is Xero's RemainingCredit — what is left to
+  // apply — which is the same idea as a bill's AmountDue.
+  const dueOf = (x: any) => Number((CREDIT_NOTES ? x.RemainingCredit : x.AmountDue) ?? 0);
+  const idOf = (x: any) => String(CREDIT_NOTES ? x.CreditNoteID : x.InvoiceID);
+  const numOf = (x: any) => head(CREDIT_NOTES ? x.CreditNoteNumber : x.InvoiceNumber);
+  const xById = new Map(xb.map((b) => [idOf(b), b]));
+  const xByNum = new Map(xb.map((b) => [numOf(b), b]));
 
   type Fix = { id: string; name: string; gross: number; owed: number; due: number; status: string; xStatus: string };
   const fixes: Fix[] = [];
@@ -81,11 +141,12 @@ const head = (s: string) => String(s || '').trim().split(/\s*[·|(]\s*/)[0].trim
   for (const b of scoped) {
     const c: any = b.config || {};
     if (c.voided) continue;
-    const x = xById.get(String(c.xeroBillId || c.xeroInvoiceId || '')) || xByNum.get(head(b.name || ''));
+    const x =
+      xById.get(String(c.xeroCreditNoteId || c.xeroBillId || c.xeroInvoiceId || '')) || xByNum.get(head(b.name || ''));
     if (!x) { unmatched++; continue; }
     if (String(x.Status) === 'DELETED' || String(x.Status) === 'VOIDED') continue;
     const owed = owedOf(c);
-    const due = Number(x.AmountDue || 0);
+    const due = dueOf(x);
     if (Math.abs(owed - due) < 0.01) continue;
     fixes.push({ id: b.id, name: b.name || '', gross: grossOf(c) ?? Number(x.Total || 0), owed, due, status: b.status, xStatus: String(x.Status) });
   }
@@ -93,7 +154,9 @@ const head = (s: string) => String(s || '').trim().split(/\s*[·|(]\s*/)[0].trim
   const drift = fixes.reduce((s, f) => s + (f.owed - f.due), 0);
   console.log(`Balance disagrees with Xero on ${fixes.length} bill(s); AIMS is out by ${m(drift)}`);
   console.log(`  (not matched to any Xero bill, left alone: ${unmatched})\n`);
-  console.log(`  ${'Bill'.padEnd(16)}${'AIMS status'.padEnd(18)}${'gross'.padStart(12)}${'AIMS owed'.padStart(12)}${'Xero due'.padStart(12)}  Xero`);
+  const owedLabel = CREDIT_NOTES ? 'AIMS unused' : 'AIMS owed';
+  const dueLabel = CREDIT_NOTES ? 'Xero left' : 'Xero due';
+  console.log(`  ${'Document'.padEnd(16)}${'AIMS status'.padEnd(18)}${'gross'.padStart(12)}${owedLabel.padStart(12)}${dueLabel.padStart(12)}  Xero`);
   for (const f of fixes.slice(0, SHOW))
     console.log(`  ${f.name.padEnd(16)}${f.status.padEnd(18)}${m(f.gross).padStart(12)}${m(f.owed).padStart(12)}${m(f.due).padStart(12)}  ${f.xStatus}`);
   if (fixes.length > SHOW) console.log(`  … and ${fixes.length - SHOW} more`);
@@ -115,6 +178,9 @@ const head = (s: string) => String(s || '').trim().split(/\s*[·|(]\s*/)[0].trim
     next.balanceSource = 'xero-sync';
     next.balanceSyncedAt = new Date().toISOString();
     // Settled in Xero → settled here. A part-payment stays pending_payment.
+    // A fully applied credit note is spent, not "paid" — but the document
+    // status vocabulary has no better word, and `paid` is what the AP reports
+    // read as settled. A bill behaves the same way.
     const status = f.due < 0.01 ? 'paid' : 'pending_payment';
     await prisma.document.update({ where: { id: f.id }, data: { config: next, status: status as any } });
     done++;
