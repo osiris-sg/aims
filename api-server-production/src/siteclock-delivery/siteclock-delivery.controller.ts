@@ -275,6 +275,16 @@ export class SiteClockDeliveryController {
     return this.reports.findById(reportId, this.org(req));
   }
 
+  @Get('jobs/:ref/reports/:reportId/pdf')
+  @ApiOperation({ summary: "The service report PDF, the file emailed to the customer (the field page's Print report / Download PDF)." })
+  async reportPdf(@Req() req: WorkerReq, @Param('reportId') reportId: string, @Res() res: Response) {
+    await this.ownReport(req, reportId);
+    const { buffer, filename } = await this.reports.getReportPdf(reportId, this.org(req));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${String(filename).replace(/"/g, '')}"`);
+    res.send(buffer);
+  }
+
   @Patch('jobs/:ref/reports/:reportId/draft')
   @UseInterceptors(IdempotencyInterceptor)
   async saveDraft(@Req() req: WorkerReq, @Param('reportId') reportId: string, @Body() body: { draft?: Record<string, any> }) {
