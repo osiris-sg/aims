@@ -1,0 +1,565 @@
+[
+ {
+  "at": "2026-11-06T20:03:52.652Z",
+  "mode": "APPLY",
+  "org": "5c700000-0000-4000-8000-5c7000000003",
+  "searchPath": null,
+  "before": "55d371cca5c8",
+  "after": "737561bae9c0",
+  "journals": "3ef95661de42",
+  "changes": [
+   {
+    "id": "b6b129a4-d4c6-4161-b493-28e3d0a968f4",
+    "name": "OCBC Account - BHOP",
+    "from": "1-2120",
+    "to": "1-2111",
+    "parentFrom": "a9869330-38cd-4c52-be5a-27bb7ff10026",
+    "parentTo": "a9869330-38cd-4c52-be5a-27bb7ff10026"
+   },
+   {
+    "id": "610435f6-4b9d-4817-846a-91c414f489cd",
+    "name": "DBS Account - PBTB",
+    "from": "1-2130",
+    "to": "1-2112",
+    "parentFrom": "a9869330-38cd-4c52-be5a-27bb7ff10026",
+    "parentTo": "a9869330-38cd-4c52-be5a-27bb7ff10026"
+   },
+   {
+    "id": "4e61b846-0e10-453d-8216-8a8843fdbf26",
+    "name": "Payroll Cheque Account",
+    "from": "1-2140",
+    "to": "1-2120",
+    "parentFrom": "a9869330-38cd-4c52-be5a-27bb7ff10026",
+    "parentTo": "a9869330-38cd-4c52-be5a-27bb7ff10026"
+   },
+   {
+    "id": "f3e4c708-82a6-4d99-a123-886ccbf91aa6",
+    "name": "Cash Drawer",
+    "from": "1-2150",
+    "to": "1-2130",
+    "parentFrom": "a9869330-38cd-4c52-be5a-27bb7ff10026",
+    "parentTo": "a9869330-38cd-4c52-be5a-27bb7ff10026"
+   },
+   {
+    "id": "53e88b51-990c-42de-8e54-89e1ffb3c655",
+    "name": "Petty Cash",
+    "from": "1-2160",
+    "to": "1-2140",
+    "parentFrom": "a9869330-38cd-4c52-be5a-27bb7ff10026",
+    "parentTo": "a9869330-38cd-4c52-be5a-27bb7ff10026"
+   },
+   {
+    "id": "f4df88c2-4775-40d7-8575-1b9ec2a446a2",
+    "name": "Henry Petty Cash",
+    "from": "1-2170",
+    "to": "1-2150",
+    "parentFrom": "a9869330-38cd-4c52-be5a-27bb7ff10026",
+    "parentTo": "a9869330-38cd-4c52-be5a-27bb7ff10026"
+   },
+   {
+    "id": "b7477e7a-e5ab-4870-9317-44e3e59035cc",
+    "name": "Undeposited Funds",
+    "from": "1-2180",
+    "to": "1-2160",
+    "parentFrom": "a9869330-38cd-4c52-be5a-27bb7ff10026",
+    "parentTo": "a9869330-38cd-4c52-be5a-27bb7ff10026"
+   },
+   {
+    "id": "fedef561-228d-4bef-bf7d-6ce46ba58d50",
+    "name": "Isadora Petty Cash",
+    "from": "1-2190",
+    "to": "1-2170",
+    "parentFrom": "a9869330-38cd-4c52-be5a-27bb7ff10026",
+    "parentTo": "a9869330-38cd-4c52-be5a-27bb7ff10026"
+   },
+   {
+    "id": "5f98ee3c-dbb5-4557-b711-64045111959f",
+    "name": "Less Prov'n for Doubtful Debts",
+    "from": "1-2300",
+    "to": "1-2210",
+    "parentFrom": "df2ff251-94cc-46bd-97c0-681c9093cc70",
+    "parentTo": "df2ff251-94cc-46bd-97c0-681c9093cc70"
+   },
+   {
+    "id": "22dd2d3b-7f23-4180-a77c-f9142855be63",
+    "name": "A/P Accrual - Inventory",
+    "from": "2-2300",
+    "to": "2-2210",
+    "parentFrom": "ea235f99-0ac8-4a05-ba6d-ef940c6b5c38",
+    "parentTo": "ea235f99-0ac8-4a05-ba6d-ef940c6b5c38"
+   },
+   {
+    "id": "324590e2-cb3d-4b5d-a1b8-bc473b994846",
+    "name": "GST Liabilities",
+    "from": "2-2400",
+    "to": "2-2300",
+    "parentFrom": "ea235f99-0ac8-4a05-ba6d-ef940c6b5c38",
+    "parentTo": "ea235f99-0ac8-4a05-ba6d-ef940c6b5c38"
+   },
+   {
+    "id": "044660a1-dd24-4864-a083-f7ac495ec7da",
+    "name": "GST Collected",
+    "from": "2-2410",
+    "to": "2-2310",
+    "parentFrom": "324590e2-cb3d-4b5d-a1b8-bc473b994846",
+    "parentTo": "324590e2-cb3d-4b5d-a1b8-bc473b994846"
+   },
+   {
+    "id": "5355ec74-077b-461c-9187-8db3a4ba8447",
+    "name": "GST Paid",
+    "from": "2-2420",
+    "to": "2-2330",
+    "parentFrom": "324590e2-cb3d-4b5d-a1b8-bc473b994846",
+    "parentTo": "324590e2-cb3d-4b5d-a1b8-bc473b994846"
+   },
+   {
+    "id": "39158328-6379-4f33-ab76-db6f53179c5d",
+    "name": "Sales Tax Payable",
+    "from": "2-2500",
+    "to": "2-2350",
+    "parentFrom": "ea235f99-0ac8-4a05-ba6d-ef940c6b5c38",
+    "parentTo": "ea235f99-0ac8-4a05-ba6d-ef940c6b5c38"
+   },
+   {
+    "id": "8e6d44ed-e279-48c2-aedc-ab52a5d4b256",
+    "name": "Import Duty Payable",
+    "from": "2-2600",
+    "to": "2-2360",
+    "parentFrom": "ea235f99-0ac8-4a05-ba6d-ef940c6b5c38",
+    "parentTo": "ea235f99-0ac8-4a05-ba6d-ef940c6b5c38"
+   },
+   {
+    "id": "a555af30-ac05-4c13-80b9-11020b416c97",
+    "name": "Payroll Liabilities",
+    "from": "2-2700",
+    "to": "2-2400",
+    "parentFrom": "ea235f99-0ac8-4a05-ba6d-ef940c6b5c38",
+    "parentTo": "ea235f99-0ac8-4a05-ba6d-ef940c6b5c38"
+   },
+   {
+    "id": "ccb35a46-f4a9-4ebb-a1a6-4b510c9be6c2",
+    "name": "Payroll Deductions Payable",
+    "from": "2-2710",
+    "to": "2-2410",
+    "parentFrom": "a555af30-ac05-4c13-80b9-11020b416c97",
+    "parentTo": "a555af30-ac05-4c13-80b9-11020b416c97"
+   },
+   {
+    "id": "f43a5f59-114e-4a2e-8ebc-57062fbfe7de",
+    "name": "PAYE Tax Payable",
+    "from": "2-2720",
+    "to": "2-2420",
+    "parentFrom": "a555af30-ac05-4c13-80b9-11020b416c97",
+    "parentTo": "ea235f99-0ac8-4a05-ba6d-ef940c6b5c38"
+   },
+   {
+    "id": "58e7e539-6bc8-4885-bdd2-584bc0106c3f",
+    "name": "Client Deposits",
+    "from": "2-2800",
+    "to": "2-2600",
+    "parentFrom": "ea235f99-0ac8-4a05-ba6d-ef940c6b5c38",
+    "parentTo": "ea235f99-0ac8-4a05-ba6d-ef940c6b5c38"
+   },
+   {
+    "id": "fff0fa6a-a81a-4e57-91b3-ba730e286f19",
+    "name": "Other Current Liabilities",
+    "from": "2-2900",
+    "to": "2-2700",
+    "parentFrom": "ea235f99-0ac8-4a05-ba6d-ef940c6b5c38",
+    "parentTo": "ea235f99-0ac8-4a05-ba6d-ef940c6b5c38"
+   },
+   {
+    "id": "5a2e8054-e679-4cb4-81df-45d5d0a61767",
+    "name": "Payroll Liabilities",
+    "from": "2-3000",
+    "to": "2-5000",
+    "parentFrom": "32fe71c0-ffc2-49df-afe6-85978508f091",
+    "parentTo": "32fe71c0-ffc2-49df-afe6-85978508f091"
+   },
+   {
+    "id": "7c3d292d-fc7a-4f1a-aafc-b8406d9bb567",
+    "name": "Wages & Salaries Payable -BHOP",
+    "from": "2-3100",
+    "to": "2-5100",
+    "parentFrom": "5a2e8054-e679-4cb4-81df-45d5d0a61767",
+    "parentTo": "5a2e8054-e679-4cb4-81df-45d5d0a61767"
+   },
+   {
+    "id": "5c77e657-d5f0-44de-9ff1-8db2cf860116",
+    "name": "CPF/Levy/SDL Payable -BHOP",
+    "from": "2-3200",
+    "to": "2-5200",
+    "parentFrom": "5a2e8054-e679-4cb4-81df-45d5d0a61767",
+    "parentTo": "5a2e8054-e679-4cb4-81df-45d5d0a61767"
+   },
+   {
+    "id": "a2e62c79-e558-4409-8c00-56fbecda3972",
+    "name": "Income",
+    "from": "4-4000",
+    "to": "4-3100",
+    "parentFrom": "eeca8ef7-5b3f-4e5b-9431-ba90c27292ae",
+    "parentTo": "eeca8ef7-5b3f-4e5b-9431-ba90c27292ae"
+   },
+   {
+    "id": "a56e9fc7-5865-4d10-8b95-a031936fd407",
+    "name": "Miscellaneous Income",
+    "from": "4-5000",
+    "to": "4-4000",
+    "parentFrom": "eeca8ef7-5b3f-4e5b-9431-ba90c27292ae",
+    "parentTo": "eeca8ef7-5b3f-4e5b-9431-ba90c27292ae"
+   },
+   {
+    "id": "d587db84-49d7-4906-8aff-10b07bbb6d63",
+    "name": "CPF/Levy/SDL - BHOP",
+    "from": "5-2100",
+    "to": "5-2010",
+    "parentFrom": "68ab0bae-faf6-450f-9a4e-315922a0f510",
+    "parentTo": "68ab0bae-faf6-450f-9a4e-315922a0f510"
+   },
+   {
+    "id": "75a65af5-960a-4db6-9516-b025e13b65c7",
+    "name": "Staff Allowance- BHOP",
+    "from": "5-2200",
+    "to": "5-2020",
+    "parentFrom": "68ab0bae-faf6-450f-9a4e-315922a0f510",
+    "parentTo": "68ab0bae-faf6-450f-9a4e-315922a0f510"
+   },
+   {
+    "id": "842a1c66-8f33-4694-9308-330d6d42e087",
+    "name": "Staff Benefits- BHOP",
+    "from": "5-2300",
+    "to": "5-2030",
+    "parentFrom": "68ab0bae-faf6-450f-9a4e-315922a0f510",
+    "parentTo": "68ab0bae-faf6-450f-9a4e-315922a0f510"
+   },
+   {
+    "id": "d7a7eef7-f5cc-411f-8880-ab622aee1b06",
+    "name": "MOM Application - BHOP",
+    "from": "5-2400",
+    "to": "5-2040",
+    "parentFrom": "68ab0bae-faf6-450f-9a4e-315922a0f510",
+    "parentTo": "68ab0bae-faf6-450f-9a4e-315922a0f510"
+   },
+   {
+    "id": "27898294-1b41-45d2-9380-2bf461eb1466",
+    "name": "Staff Medical- BHOP",
+    "from": "5-2500",
+    "to": "5-2050",
+    "parentFrom": "68ab0bae-faf6-450f-9a4e-315922a0f510",
+    "parentTo": "68ab0bae-faf6-450f-9a4e-315922a0f510"
+   },
+   {
+    "id": "aa1b450f-f2c5-4b9f-9757-cda2f2b8809e",
+    "name": "Insurance - BHOP",
+    "from": "5-2600",
+    "to": "5-2100",
+    "parentFrom": "68ab0bae-faf6-450f-9a4e-315922a0f510",
+    "parentTo": "68ab0bae-faf6-450f-9a4e-315922a0f510"
+   },
+   {
+    "id": "c31dd2d6-d776-442a-98f3-b8a998599b7f",
+    "name": "Seafreight Charge - BHOP",
+    "from": "5-2700",
+    "to": "5-2200",
+    "parentFrom": "68ab0bae-faf6-450f-9a4e-315922a0f510",
+    "parentTo": "68ab0bae-faf6-450f-9a4e-315922a0f510"
+   },
+   {
+    "id": "01ff628f-d246-4c2d-a0f2-06aece837130",
+    "name": "Nets / Visa Charges - BHOP",
+    "from": "5-2800",
+    "to": "5-2500",
+    "parentFrom": "68ab0bae-faf6-450f-9a4e-315922a0f510",
+    "parentTo": "68ab0bae-faf6-450f-9a4e-315922a0f510"
+   },
+   {
+    "id": "4eda0e19-e36b-41b9-bdb0-137cf60fdc2f",
+    "name": "GST 9% - BHOP",
+    "from": "5-2900",
+    "to": "5-2600",
+    "parentFrom": "68ab0bae-faf6-450f-9a4e-315922a0f510",
+    "parentTo": "68ab0bae-faf6-450f-9a4e-315922a0f510"
+   },
+   {
+    "id": "a638abbc-95e7-4eac-9430-3f4b9883e681",
+    "name": "Transaction Fee - BHOP",
+    "from": "5-3000",
+    "to": "5-2700",
+    "parentFrom": "68ab0bae-faf6-450f-9a4e-315922a0f510",
+    "parentTo": "68ab0bae-faf6-450f-9a4e-315922a0f510"
+   },
+   {
+    "id": "aec73cc1-ac84-4117-9c26-d9cab5e58aa1",
+    "name": "Discounts",
+    "from": "6-1600",
+    "to": "6-2000",
+    "parentFrom": "c96064c0-b7d3-4814-be88-2f2e6824da91",
+    "parentTo": "c96064c0-b7d3-4814-be88-2f2e6824da91"
+   },
+   {
+    "id": "3b48bbf1-cfff-450e-baa3-c62483696da0",
+    "name": "Discounts Given",
+    "from": "6-1610",
+    "to": "6-2010",
+    "parentFrom": "aec73cc1-ac84-4117-9c26-d9cab5e58aa1",
+    "parentTo": "aec73cc1-ac84-4117-9c26-d9cab5e58aa1"
+   },
+   {
+    "id": "68bc2a33-38c0-47a7-8b97-49fe8283c719",
+    "name": "Discounts Taken",
+    "from": "6-1620",
+    "to": "6-2020",
+    "parentFrom": "aec73cc1-ac84-4117-9c26-d9cab5e58aa1",
+    "parentTo": "aec73cc1-ac84-4117-9c26-d9cab5e58aa1"
+   },
+   {
+    "id": "55f569ba-58cc-4fbb-b390-9a901841fd44",
+    "name": "Printing & Stationary",
+    "from": "6-1630",
+    "to": "6-2100",
+    "parentFrom": "aec73cc1-ac84-4117-9c26-d9cab5e58aa1",
+    "parentTo": "aec73cc1-ac84-4117-9c26-d9cab5e58aa1"
+   },
+   {
+    "id": "d42526ab-4b84-4be9-837b-396e1cc5aa3e",
+    "name": "Electricity",
+    "from": "6-1700",
+    "to": "6-2200",
+    "parentFrom": "c96064c0-b7d3-4814-be88-2f2e6824da91",
+    "parentTo": "c96064c0-b7d3-4814-be88-2f2e6824da91"
+   },
+   {
+    "id": "14af6302-1b49-4800-9d19-141bae0e7542",
+    "name": "Freight Charges",
+    "from": "6-1800",
+    "to": "6-2300",
+    "parentFrom": "c96064c0-b7d3-4814-be88-2f2e6824da91",
+    "parentTo": "c96064c0-b7d3-4814-be88-2f2e6824da91"
+   },
+   {
+    "id": "88686b2f-5b3b-48cf-a8a6-9af8bd7c3179",
+    "name": "Insurance",
+    "from": "6-1900",
+    "to": "6-2400",
+    "parentFrom": "c96064c0-b7d3-4814-be88-2f2e6824da91",
+    "parentTo": "c96064c0-b7d3-4814-be88-2f2e6824da91"
+   },
+   {
+    "id": "eaca77e2-8f87-4151-9fc6-0308b42e0adb",
+    "name": "Late Fees Paid",
+    "from": "6-2000",
+    "to": "6-2500",
+    "parentFrom": "c96064c0-b7d3-4814-be88-2f2e6824da91",
+    "parentTo": "c96064c0-b7d3-4814-be88-2f2e6824da91"
+   },
+   {
+    "id": "76a48952-21bc-4ca8-9cc7-b101fc5d1763",
+    "name": "Office Supplies",
+    "from": "6-2100",
+    "to": "6-2600",
+    "parentFrom": "c96064c0-b7d3-4814-be88-2f2e6824da91",
+    "parentTo": "c96064c0-b7d3-4814-be88-2f2e6824da91"
+   },
+   {
+    "id": "6dc20bd0-e42a-4f89-b447-24e32152f418",
+    "name": "Dormitory Rental",
+    "from": "6-2200",
+    "to": "6-2700",
+    "parentFrom": "c96064c0-b7d3-4814-be88-2f2e6824da91",
+    "parentTo": "c96064c0-b7d3-4814-be88-2f2e6824da91"
+   },
+   {
+    "id": "2c9b2ae3-d1fe-4e89-a5ea-26bfdc459afc",
+    "name": "Subscriptions",
+    "from": "6-2300",
+    "to": "6-2900",
+    "parentFrom": "c96064c0-b7d3-4814-be88-2f2e6824da91",
+    "parentTo": "c96064c0-b7d3-4814-be88-2f2e6824da91"
+   },
+   {
+    "id": "bf045a75-7281-4653-85d0-c0dc0d1aa078",
+    "name": "Telephone",
+    "from": "6-2400",
+    "to": "6-3000",
+    "parentFrom": "c96064c0-b7d3-4814-be88-2f2e6824da91",
+    "parentTo": "c96064c0-b7d3-4814-be88-2f2e6824da91"
+   },
+   {
+    "id": "ff6b7d4d-32fd-4b39-a329-b9f920f68448",
+    "name": "Travel & Entertainment",
+    "from": "6-2500",
+    "to": "6-3100",
+    "parentFrom": "c96064c0-b7d3-4814-be88-2f2e6824da91",
+    "parentTo": "c96064c0-b7d3-4814-be88-2f2e6824da91"
+   },
+   {
+    "id": "73b67bd4-c84d-478d-baaf-5ff19df36aa4",
+    "name": "Gifts",
+    "from": "6-2600",
+    "to": "6-3200",
+    "parentFrom": "c96064c0-b7d3-4814-be88-2f2e6824da91",
+    "parentTo": "c96064c0-b7d3-4814-be88-2f2e6824da91"
+   },
+   {
+    "id": "cd175c5d-4cae-45b3-a8f7-4d6ad50f7301",
+    "name": "Professional Fee",
+    "from": "6-2700",
+    "to": "6-3300",
+    "parentFrom": "c96064c0-b7d3-4814-be88-2f2e6824da91",
+    "parentTo": "c96064c0-b7d3-4814-be88-2f2e6824da91"
+   },
+   {
+    "id": "85e92e04-5823-41d9-b0ec-0e9dcc852ed7",
+    "name": "Staff Course Cost",
+    "from": "6-2800",
+    "to": "6-3400",
+    "parentFrom": "c96064c0-b7d3-4814-be88-2f2e6824da91",
+    "parentTo": "c96064c0-b7d3-4814-be88-2f2e6824da91"
+   },
+   {
+    "id": "57ff77a1-8304-44fd-ad0f-70558d00567f",
+    "name": "License & Permit Fees",
+    "from": "6-2900",
+    "to": "6-3500",
+    "parentFrom": "c96064c0-b7d3-4814-be88-2f2e6824da91",
+    "parentTo": "c96064c0-b7d3-4814-be88-2f2e6824da91"
+   },
+   {
+    "id": "d96cfc7a-11a3-449f-8a1e-94f22154d699",
+    "name": "Operating Expenses",
+    "from": "6-3000",
+    "to": "6-4000",
+    "parentFrom": "c96064c0-b7d3-4814-be88-2f2e6824da91",
+    "parentTo": "c96064c0-b7d3-4814-be88-2f2e6824da91"
+   },
+   {
+    "id": "9bb4da69-5b08-42ca-968f-bc5241c0d668",
+    "name": "Alcohol Commission",
+    "from": "6-3010",
+    "to": "6-4100",
+    "parentFrom": "d96cfc7a-11a3-449f-8a1e-94f22154d699",
+    "parentTo": "d96cfc7a-11a3-449f-8a1e-94f22154d699"
+   },
+   {
+    "id": "738b801c-6d90-4e85-a8c8-11c893ed9bc6",
+    "name": "Employment Expenses",
+    "from": "6-3100",
+    "to": "6-5100",
+    "parentFrom": "c96064c0-b7d3-4814-be88-2f2e6824da91",
+    "parentTo": "c96064c0-b7d3-4814-be88-2f2e6824da91"
+   },
+   {
+    "id": "cd769740-ca7c-4095-8ac2-aa9175b907ca",
+    "name": "Staff Amenities",
+    "from": "6-3110",
+    "to": "6-5110",
+    "parentFrom": "738b801c-6d90-4e85-a8c8-11c893ed9bc6",
+    "parentTo": "738b801c-6d90-4e85-a8c8-11c893ed9bc6"
+   },
+   {
+    "id": "1bc7dd61-07c1-443a-aebe-676c1b67c4b1",
+    "name": "Agent Fee",
+    "from": "6-3120",
+    "to": "6-5120",
+    "parentFrom": "738b801c-6d90-4e85-a8c8-11c893ed9bc6",
+    "parentTo": "738b801c-6d90-4e85-a8c8-11c893ed9bc6"
+   },
+   {
+    "id": "359fca40-ba2f-4342-8823-c754aaa27a47",
+    "name": "Wages & Salaries",
+    "from": "6-3130",
+    "to": "6-5130",
+    "parentFrom": "738b801c-6d90-4e85-a8c8-11c893ed9bc6",
+    "parentTo": "738b801c-6d90-4e85-a8c8-11c893ed9bc6"
+   },
+   {
+    "id": "9d6bc131-339d-42a6-a1ee-73a25c7df0f2",
+    "name": "Workers' Compensation",
+    "from": "6-3140",
+    "to": "6-5140",
+    "parentFrom": "738b801c-6d90-4e85-a8c8-11c893ed9bc6",
+    "parentTo": "738b801c-6d90-4e85-a8c8-11c893ed9bc6"
+   },
+   {
+    "id": "a4978928-8e08-4060-a34a-dcbb662bc6ba",
+    "name": "Other Employer Expenses",
+    "from": "6-3150",
+    "to": "6-5150",
+    "parentFrom": "738b801c-6d90-4e85-a8c8-11c893ed9bc6",
+    "parentTo": "738b801c-6d90-4e85-a8c8-11c893ed9bc6"
+   },
+   {
+    "id": "60237e2a-e897-40f1-9d64-8c84579d11ac",
+    "name": "GST Not Claimable",
+    "from": "6-3200",
+    "to": "6-6000",
+    "parentFrom": "c96064c0-b7d3-4814-be88-2f2e6824da91",
+    "parentTo": "c96064c0-b7d3-4814-be88-2f2e6824da91"
+   }
+  ],
+  "previousControls": {
+   "taxInput": "2-2420",
+   "dividends": "3-1120",
+   "bankAccount": "1-2110",
+   "cashAccount": "1-2150",
+   "salesAccount": "4-4000",
+   "debtorControl": "1-2200",
+   "shareCapitals": "3-1110",
+   "taxLiabilities": "2-2410",
+   "creditorControl": "2-2200",
+   "retainedProfits": "3-8000",
+   "currentYearEarnings": "3-9000",
+   "historicalBalancing": "3-9999"
+  },
+  "previousRanges": {
+   "tax": {
+    "to": "9-2000",
+    "from": "9-2000"
+   },
+   "sales": {
+    "to": "4-9999",
+    "from": "4-0000"
+   },
+   "income": {
+    "to": "8-9999",
+    "from": "8-0000"
+   },
+   "expenses": {
+    "to": "9-9999",
+    "from": "6-0000"
+   },
+   "purchase": {
+    "to": "5-9999",
+    "from": "5-0000"
+   },
+   "fixedAssets": {
+    "to": "1-1999",
+    "from": "1-1000"
+   },
+   "currentAssets": {
+    "to": "1-9999",
+    "from": "1-2000"
+   },
+   "shareCapitals": {
+    "to": "3-1999",
+    "from": "3-1000"
+   },
+   "capitalReserve": {
+    "to": "3-9999",
+    "from": "3-9999"
+   },
+   "taxLiabilities": {
+    "to": "2-2499",
+    "from": "2-2400"
+   },
+   "retainedProfits": {
+    "to": "3-8000",
+    "from": "3-8000"
+   },
+   "currentLiabilities": {
+    "to": "2-9999",
+    "from": "2-0000"
+   }
+  }
+ }
+]

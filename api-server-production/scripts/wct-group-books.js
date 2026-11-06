@@ -17,6 +17,10 @@
  *   cutover-bcair    year-end closes + one balancing journal at the cutover: every account =
  *                    BC Air ABSS + WCT Cleaning ABSS, offset 3-9999; then the hold flag OFF
  *   cutover-ymm      one balancing journal: every account = the YMM file
+ *   recode-ymm       (2026-11-07) YMM's generated codes → the real ABSS codes from
+ *                    ymm-accounts-list-2026-11-06.pdf, in place (same rows: journals untouched),
+ *                    ABSS's hierarchy, control roles / code ranges follow their accounts. From
+ *                    then on the YMM chart file is ymm-abss-coa-2026-11-06.txt
  *   report           everything above simulated in memory, read-only
  *
  *   DBURL=… node scripts/wct-group-books.js report
@@ -80,6 +84,7 @@ const CHART = {
   COMBINED: path.join(ABSS, `bcair-combined-coa-${CUTOVER}.txt`),
   YMM: path.join(ABSS, `ymm-coa-${CUTOVER}.txt`),
   RACK: path.join(ABSS, `wctr-coa-${CUTOVER}.txt`),
+  YMM_ABSS: path.join(ABSS, `ymm-abss-coa-${CUTOVER}.txt`),
 };
 
 /** ABSS "Accounts List [Summary]" PDF → rows (level from the code's indent). */
@@ -1364,6 +1369,141 @@ async function stepWctNotes() {
   } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; } finally { await c.end(); }
 }
 
+// ================================================================ step: recode-ymm
+
+// The YMM accounts were created with generated codes (only the Excel, names only, was to hand);
+// ABSS's printout with the real codes came on 2026-11-07. Same 132 accounts in the same print
+// order with the same balances, so each row pairs with its ABSS line by position, name and
+// balance. Codes (and the parent where ABSS differs) change in place; journal lines point at
+// account ids, so no posting moves.
+async function planRecode(q, orgId) {
+  const abss = await readAbssPdf(path.join(ABSS, 'ymm-accounts-list-2026-11-06.pdf'));
+  writeChart(CHART.YMM_ABSS, 'ABSS "Accounts List [Summary]" YMM Kitchen Pte Ltd, 06/11/2026 20:47:39 (real codes)', abss);
+  const neu = gl.readAbss(CHART.YMM_ABSS); // header sums + Dr = Cr proven here
+  const old = gl.readAbss(CHART.YMM);
+  if (neu.length !== old.length) throw new Error(`ABSS has ${neu.length} accounts, the generated chart ${old.length}`);
+  const accounts = await q(`SELECT id, code, name, "accountType", "isActive", "parentAccountId" FROM "ChartOfAccount" WHERE "organizationId" = $1`, [orgId]);
+  const byCode = new Map(accounts.map((a) => [a.code, a]));
+  const byId = new Map(accounts.map((a) => [a.id, a]));
+  const pairs = old.map((o, i) => {
+    const n = neu[i];
+    const a = byCode.get(o.code);
+    const why = [];
+    if (o.name !== n.name) why.push(`name "${o.name}" vs ABSS "${n.name}"`);
+    if (Math.abs(o.balance - n.balance) >= 0.005) why.push(`balance ${o.balance} vs ABSS ${n.balance}`);
+    if (o.code[0] !== n.code[0]) why.push('section');
+    if (!a) why.push('not in AIMS');
+    else if (a.name !== n.name || !a.isActive) why.push(`AIMS row "${a.name}" ${a.isActive ? '' : '(inactive)'}`);
+    if (why.length) throw new Error(`row ${i + 1} ${o.code} → ${n.code}: ${why.join(', ')}`);
+    return { id: a.id, name: n.name, from: o.code, to: n.code, level: n.level, isHeader: n.isHeader, accountType: a.accountType, parentFrom: a.parentAccountId, parentFromCode: byId.get(a.parentAccountId)?.code ?? null, parentToCode: n.parentCode, oldParentCode: o.parentCode, abss: n };
+  });
+  const idOfNew = new Map(pairs.map((p) => [p.to, p.id]));
+  for (const p of pairs) p.parentTo = p.parentToCode ? idOfNew.get(p.parentToCode) : null;
+  const paired = new Set(pairs.map((p) => p.id));
+  const unmatched = accounts.filter((a) => !paired.has(a.id));
+  // the new codes may only collide with rows that are themselves being re-coded
+  const clash = pairs.filter((p) => byCode.has(p.to) && !paired.has(byCode.get(p.to).id));
+  if (clash.length) throw new Error(`new codes held by other accounts: ${clash.map((p) => p.to).join(', ')}`);
+  const headerBad = pairs.filter((p) => (p.isHeader || p.to === '3-9000') !== (p.accountType === 'HEADER'));
+  if (headerBad.length) throw new Error(`header / posting mismatch: ${headerBad.map((p) => `${p.from}→${p.to}`).join(', ')}`);
+  const setting = (await q(`SELECT "controlAccounts", "accountCodeRanges" FROM "AccountingSetting" WHERE "organizationId" = $1`, [orgId]))[0];
+  const map = new Map(pairs.map((p) => [p.from, p.to]));
+  const controls = Object.fromEntries(Object.entries(setting.controlAccounts || {}).map(([k, v]) => [k, map.get(v) ?? v]));
+  const strayControls = Object.entries(setting.controlAccounts || {}).filter(([, v]) => !map.has(v));
+  // code ranges: the GST range keeps the same three accounts (GST Liabilities, Collected, Paid);
+  // every other YMM range is a whole section or a fixed code that does not move.
+  const g = pairs.find((p) => p.name === 'GST Liabilities');
+  const kids = pairs.filter((p) => p.parentToCode === g.to).map((p) => p.to).sort();
+  const ranges = { ...(setting.accountCodeRanges || {}), taxLiabilities: { from: g.to, to: kids[kids.length - 1] } };
+  for (const [k, r] of Object.entries(ranges)) for (const e of ['from', 'to']) if (k !== 'taxLiabilities' && map.has(r[e]) && map.get(r[e]) !== r[e]) throw new Error(`code range ${k}.${e} ${r[e]} moves: review`);
+  return { pairs, unmatched, setting, controls, strayControls, ranges, neu, old, map };
+}
+
+/** Each account's balance by account id, at the cutover (per-account ledger, no P&L roll). */
+async function balancesById(q, orgId) {
+  const rows = await q(`SELECT l."accountId" id, sum(l.debit) - sum(l.credit) b FROM "JournalEntryLine" l JOIN "JournalEntry" j ON j.id = l."journalEntryId" WHERE j."organizationId" = $1 AND j.status = 'POSTED' GROUP BY 1`, [orgId]);
+  return new Map(rows.map((r) => [r.id, R2(r.b)]));
+}
+
+async function stepRecodeYmm() {
+  const { c, q } = await connect();
+  const orgId = target('YMM');
+  const step = 'recode-ymm';
+  try {
+    await guardOrg(q, 'YMM');
+    if (ROLLBACK) {
+      const e = lastApply(step, orgId);
+      if (!e) throw new Error(`no ${step} APPLY for this org in ${LOG(step)}`);
+      const now = new Map((await q(`SELECT id, code FROM "ChartOfAccount" WHERE "organizationId" = $1`, [orgId])).map((a) => [a.id, a.code]));
+      const off = e.changes.filter((x) => now.get(x.id) !== x.to);
+      console.log(`rollback ${step} applied ${e.at}: ${e.changes.length} accounts back to their generated codes · not at the applied code now: ${off.length}`);
+      if (off.length) throw new Error(`accounts changed since the apply: ${off.map((x) => x.to).join(', ')}`);
+      if (!APPLY) return;
+      await c.query('BEGIN');
+      await recode(c, orgId, e.changes.map((x) => ({ id: x.id, code: x.from, parent: x.parentFrom })));
+      await c.query(`UPDATE "AccountingSetting" SET "controlAccounts" = $1, "accountCodeRanges" = $2, "updatedAt" = now() WHERE "organizationId" = $3`, [e.previousControls, e.previousRanges, orgId]);
+      await actionLog(c, orgId, 'UPDATE', { resource: 'chart-of-accounts', note: `Rolled back ${step}: generated codes restored`, accounts: e.changes.length });
+      await c.query('COMMIT');
+      markRolledBack(step, e.at);
+      const fp = await fingerprint(q, orgId);
+      console.log(`ROLLED BACK · fingerprint ${fp.h} ${fp.h === e.before ? '= before the apply ✓' : `≠ before (${e.before})`}`);
+      return;
+    }
+    const done = lastApply(step, orgId);
+    if (done) throw new Error(`already applied ${done.at} (roll back first to run it again)`);
+    const p = await planRecode(q, orgId);
+    const bal = await balancesById(q, orgId);
+    const headerLines = p.pairs.filter((x) => x.accountType === 'HEADER' && bal.has(x.id));
+    if (headerLines.length) throw new Error(`journal lines on header accounts: ${headerLines.map((x) => x.from).join(', ')}`);
+    // proof: per account, before (old code) = after (new code, same row) = ABSS (new code)
+    const proof = p.pairs.filter((x) => x.accountType !== 'HEADER').map((x) => ({ ...x, before: bal.get(x.id) || 0, oldTarget: p.old.find((o) => o.code === x.from).debitBalance, abssTarget: x.abss.debitBalance }));
+    const bad = proof.filter((x) => Math.abs(x.before - x.abssTarget) >= 0.005 || Math.abs(x.before - x.oldTarget) >= 0.005);
+    const changed = p.pairs.filter((x) => x.from !== x.to || x.parentFrom !== x.parentTo);
+    const reparent = p.pairs.filter((x) => x.parentFrom !== x.parentTo);
+    const led = await ledger(q, orgId);
+    const fy = { month: led.setting.m || 12, day: led.setting.d || 31 };
+    const tbAfter = gl.trialBalance(led.postings.map((l) => ({ ...l, code: p.map.get(l.code) ?? l.code })), CUTOVER, fy, '3-8000');
+    const tbDiffs = p.neu.filter((r) => r.accountType !== 'HEADER').filter((r) => Math.abs(r.debitBalance - R2(tbAfter.get(r.code) || 0)) >= 0.005);
+    const dr = R2([...tbAfter.values()].reduce((a, v) => a + (v > 0 ? v : 0), 0));
+    const cr = R2([...tbAfter.values()].reduce((a, v) => a + (v < 0 ? -v : 0), 0));
+    console.log(`YMM: ${p.pairs.length} accounts paired with ABSS (position + name + balance) · code changes ${p.pairs.filter((x) => x.from !== x.to).length} · parent changes ${reparent.length} · unchanged ${p.pairs.length - changed.length}`);
+    console.log(`ABSS accounts missing in AIMS: 0 · AIMS YMM accounts not in ABSS: ${p.unmatched.length} (${p.unmatched.filter((a) => a.isActive).length} active)`);
+    console.log(`balances: ${proof.length} posting accounts · before = ABSS = after ${bad.length ? `✗ ${bad.length} differ` : '✓ all, to the cent'} · trial balance after (codes remapped) diffs ${tbDiffs.length}, Dr ${money(dr)} Cr ${money(cr)} ${dr === cr ? '✓' : '✗'}`);
+    if (bad.length) console.table(bad.map((x) => ({ from: x.from, to: x.to, name: x.name, before: x.before, abss: x.abssTarget })));
+    if (p.strayControls.length) console.log('control roles not on a paired account:', p.strayControls);
+    console.table(Object.keys(p.setting.controlAccounts || {}).map((k) => ({ role: k, from: p.setting.controlAccounts[k], to: p.controls[k], account: p.pairs.find((x) => x.to === p.controls[k])?.name ?? '?' })));
+    console.log(`code range taxLiabilities: ${JSON.stringify(p.setting.accountCodeRanges?.taxLiabilities)} → ${JSON.stringify(p.ranges.taxLiabilities)}`);
+    fs.writeFileSync(path.resolve(__dirname, `wct-group-books.${step}${SEARCH_PATH ? '.dev' : ''}.plan.json`), JSON.stringify({ pairs: p.pairs.map(({ abss, ...x }) => ({ ...x, balance: x.isHeader ? abss.balance : bal.get(x.id) || 0, abss: abss.balance })), unmatched: p.unmatched, controls: { from: p.setting.controlAccounts, to: p.controls }, ranges: { from: p.setting.accountCodeRanges, to: p.ranges }, tb: { dr, cr, diffs: tbDiffs.length } }, null, 1));
+    if (bad.length || tbDiffs.length || dr !== cr) throw new Error('balances do not prove out: not applying');
+    if (!APPLY) return;
+    const before = await fingerprint(q, orgId);
+    const jBefore = await journalsHash(q, orgId);
+    await c.query('BEGIN');
+    await recode(c, orgId, changed.map((x) => ({ id: x.id, code: x.to, parent: x.parentTo })));
+    await c.query(`UPDATE "AccountingSetting" SET "controlAccounts" = $1, "accountCodeRanges" = $2, "updatedAt" = now() WHERE "organizationId" = $3`, [p.controls, p.ranges, orgId]);
+    await actionLog(c, orgId, 'UPDATE', { resource: 'chart-of-accounts', note: 'Chart of accounts re-coded to the ABSS codes (ymm-accounts-list-2026-11-06.pdf); same accounts, no journals', accounts: changed.length });
+    await c.query('COMMIT');
+    const after = await fingerprint(q, orgId);
+    const jAfter = await journalsHash(q, orgId);
+    writeLog(step, { at: new Date().toISOString(), mode: 'APPLY', org: orgId, searchPath: SEARCH_PATH, before: before.h, after: after.h, journals: jBefore, changes: changed.map((x) => ({ id: x.id, name: x.name, from: x.from, to: x.to, parentFrom: x.parentFrom, parentTo: x.parentTo })), previousControls: p.setting.controlAccounts, previousRanges: p.setting.accountCodeRanges });
+    console.log(`APPLIED ${changed.length} accounts re-coded · fingerprint ${before.h} → ${after.h} · journals + lines ${jBefore === jAfter ? 'unchanged ✓' : `CHANGED ✗ (${jBefore} → ${jAfter})`}`);
+    await verify(q, 'YMM', gl.readAbss(CHART.YMM_ABSS), orgId);
+  } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; } finally { await c.end(); }
+}
+
+/** Codes through a temporary "~<id>" (the (org, code) unique index), then code + parent. */
+async function recode(c, orgId, rows) {
+  const ids = rows.map((r) => r.id);
+  const t = await c.query(`UPDATE "ChartOfAccount" SET code = '~' || id, "updatedAt" = now() WHERE id = ANY($1::text[]) AND "organizationId" = $2`, [ids, orgId]);
+  if (t.rowCount !== rows.length) throw new Error(`staged ${t.rowCount} of ${rows.length}`);
+  for (const r of rows) {
+    const u = await c.query(`UPDATE "ChartOfAccount" SET code = $1, "parentAccountId" = $2, "updatedAt" = now() WHERE id = $3 AND "organizationId" = $4`, [r.code, r.parent, r.id, orgId]);
+    if (u.rowCount !== 1) throw new Error(`account ${r.id} not updated`);
+  }
+}
+
+const journalsHash = async (q, orgId) => crypto.createHash('sha1').update(JSON.stringify(await q(`SELECT j.id, j."journalNumber", j.status, j."entryDate", j."totalDebit", j."totalCredit", (SELECT json_agg(json_build_array(l.id, l."accountId", l.debit, l.credit, l.description) ORDER BY l.id) FROM "JournalEntryLine" l WHERE l."journalEntryId" = j.id) lines FROM "JournalEntry" j WHERE j."organizationId" = $1 ORDER BY j.id`, [orgId]))).digest('hex').slice(0, 12);
+
 // ================================================================ step: ymm-delete-shell
 
 // The empty invoice the page check left in YMM (2026-11-06). Deleted as the app's delete does
@@ -1690,7 +1830,7 @@ const steps = {
   'docs-bcair': () => stepDocs('BCAIR'), 'docs-racking': () => stepDocs('RACK'), 'post-bcair': () => stepPost('BCAIR'),
   'cutover-bcair': () => stepCutover('BCAIR'), 'cutover-ymm': () => stepCutover('YMM'), report,
   'coa-racking': () => stepCoa('RACK'), 'post-racking': () => stepPost('RACK'), 'cutover-racking': () => stepCutover('RACK'),
-  'wct-notes': stepWctNotes, 'ymm-delete-shell': stepYmmShell,
+  'wct-notes': stepWctNotes, 'ymm-delete-shell': stepYmmShell, 'recode-ymm': stepRecodeYmm,
   // read-only: the rollback proof's before / after hash of everything the steps touch
   fingerprint: async () => { const { c, q } = await connect(); try { for (const k of AS ? ['BCAIR'] : ['BCAIR', 'RACK', 'YMM']) { const f = await fingerprint(q, target(k)); console.log(`${AS ? 'stand-in' : k} ${f.h} ${JSON.stringify(f.counts)}`); } } finally { await c.end(); } },
 };
