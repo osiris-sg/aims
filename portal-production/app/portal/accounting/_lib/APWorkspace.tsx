@@ -409,7 +409,9 @@ export default function APWorkspace() {
         {card("Payments (month)", payments, "success.main")}
       </Stack>
 
-      <Stack direction="row" gap={1.5} alignItems="center" sx={{ mb: 1.5, flexWrap: "wrap" }}>
+      {/* Buttons that wrap to a second line stay on the RIGHT, under the
+          other actions (the spacer only pushes the first line apart). */}
+      <Stack direction="row" gap={1.5} alignItems="center" sx={{ mb: 1.5, flexWrap: "wrap", justifyContent: { xs: "flex-start", md: "flex-end" } }}>
         <TextField
           size="small"
           type="date"
