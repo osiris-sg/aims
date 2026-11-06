@@ -6,7 +6,7 @@
 // Round AV: "+ New shipment…" and, when the email is linked to a shipment, "Edit #n-m" — the same side drawer as
 // the Answer flow (prefilled from this email where exact). It does not link the email; Answer does that.
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Button, Dialog, DialogContent, DialogTitle, IconButton, Stack, Typography } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import AddIcon from "@mui/icons-material/Add";
@@ -19,6 +19,8 @@ import { resultBox } from "../../_lib/inbox-cards";
 import { fromParts, whenShort } from "../../_lib/inbox-threads";
 import { EmailView } from "./EmailView";
 import { ResultBoxView } from "./InboxDetails";
+import AimeeButton from "../aimee/AimeeButton";
+import { setAimeeContext } from "../aimee/bridge";
 
 export function EmailDialog({ message, lang, open, onClose }: { message: InboxMessage | null; lang: InboxLang; open: boolean; onClose: () => void }) {
   const m = message;
@@ -26,8 +28,15 @@ export function EmailDialog({ message, lang, open, onClose }: { message: InboxMe
   const [drawer, setDrawer] = useState<DrawerMode | null>(null);
   const linkedShipment = m?.linked?.shipmentId ? { id: m.linked.shipmentId, ref: m.linked.ref ?? "" } : null;
   const t = useTranslations("inbox.emailDialog");
+  // Round BL: while the email is open, the AIMEE side panel is about it.
+  useEffect(() => {
+    if (!open || !m) return;
+    setAimeeContext("dialog", { email: { id: m.id, subject: m.subject ?? null }, view: "Email" });
+    return () => setAimeeContext("dialog", null);
+  }, [open, m]);
   return (
-    <Dialog open={open && !!m} onClose={onClose} maxWidth="md" fullWidth transitionDuration={{ enter: 225, exit: 0 }} disableRestoreFocus data-tour="email-popup">
+    // Round BL: disableEnforceFocus so the AIMEE side panel (opened above the pop-up) can take the keyboard.
+    <Dialog open={open && !!m} onClose={onClose} maxWidth="md" fullWidth transitionDuration={{ enter: 225, exit: 0 }} disableRestoreFocus disableEnforceFocus data-tour="email-popup">
       <DialogTitle sx={{ pr: 7 }}>
         <Typography variant="h6" component="div" sx={{ fontWeight: 700, minWidth: 0, wordBreak: "break-word", overflowWrap: "anywhere" }}>
           {m?.subject || t("noSubject")}
@@ -49,6 +58,7 @@ export function EmailDialog({ message, lang, open, onClose }: { message: InboxMe
               <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => setDrawer({ kind: "new" })} sx={{ textTransform: "none" }} data-tour="email-popup-new-shipment">
                 {t("newShipment")}
               </Button>
+              <AimeeButton variant="email" aboveModal dataTour="aimee-email-popup-button" />
               {linkedShipment && (
                 <Button size="small" variant="outlined" startIcon={<EditOutlinedIcon />} onClick={() => setDrawer({ kind: "edit", shipmentId: linkedShipment.id })} sx={{ textTransform: "none" }} data-tour="email-popup-edit-shipment">
                   {t("editRef", { ref: linkedShipment.ref })}

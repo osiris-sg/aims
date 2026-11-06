@@ -79,7 +79,7 @@ describe('ShipmentsToolsService — what the agent may call', () => {
     const names = svc.names();
     for (const banned of ['api_get', 'api_write', 'api_docs', 'confirm_invoice', 'finalize', 'delete', 'settings', 'email_filter', 'test_flag', 'user']) expect(names.some((n) => n.includes(banned))).toBe(false);
     expect(names).toEqual(expect.arrayContaining(['emails_recent', 'find_email', 'email_text', 'record_status', 'arriving', 'shipments_by_step', 'orders_list', 'tasks_due', 'needs_me', 'list_documents', 'send_document', 'draft_reply', 'order_earnings', 'money_totals', 'email_link', 'email_not_shipment', 'task_done', 'task_snooze', 'reminder_create', 'set_eta', 'shipment_update', 'shipment_add', 'order_create', 'order_from_pi', 'step_done', 'add_note', 'payment_record', 'generated_doc_create', 'tracking_from_text']));
-    expect(names).toHaveLength(30); // round AG: monthly_list · round AL: tracking_from_text
+    expect(names).toHaveLength(37); // round AG: monthly_list · round AL: tracking_from_text · round BL: 7 AIMEE (web-only) tools
     const cat = svc.catalogue();
     expect(cat.filter((t) => t.mode === 'money').map((t) => t.name).sort()).toEqual(['money_totals', 'order_earnings', 'payment_record']);
     expect(cat.every((t) => t.origin === 'biofuel' || t.origin === 'adh')).toBe(true);

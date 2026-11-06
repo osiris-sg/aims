@@ -21,6 +21,7 @@ import LegacyHome from "./LegacyHome";
 import AdminDashboard from "./AdminDashboard";
 import EmailsAll from "./inbox/EmailsAll";
 import { SHIPMENTS_HOME } from "@/helpers/shipmentsNav";
+import { setAimeeContext } from "./aimee/bridge";
 
 type View = "overview" | "admin";
 const KEY = "aims-sales-dashboard-view";
@@ -57,6 +58,11 @@ function SalesDashboardInner() {
     } catch {
       /* per-viewer convenience only */
     }
+  }, []);
+  // Round BL: AIMEE's side panel knows it is on the dashboard (an email card's "Ask AIMEE" adds the email on top).
+  useEffect(() => {
+    setAimeeContext("page", { view: "Dashboard", path: "/portal" });
+    return () => setAimeeContext("page", null);
   }, []);
   const pick = (v: View) => {
     setView(v);

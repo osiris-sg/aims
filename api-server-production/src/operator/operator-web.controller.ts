@@ -7,6 +7,7 @@ import { OperatorService, titleFromText } from './operator.service';
 import { OperatorAuthService } from './operator-auth.service';
 import { WebAdapter } from './adapters/web.adapter';
 import { InboundMessage, OperatorChannel, TranscriptItem } from './operator.types';
+import { cleanAimee } from './shipments-web';
 
 interface WebRequest extends Request {
   user?: { id: string; firstName?: string | null; lastName?: string | null; emailAddresses?: Array<{ emailAddress: string }>; email?: string };
@@ -25,6 +26,9 @@ interface WebMessageBody {
   screens?: Array<{ label: string; path: string }>;
   /** What the side panel shows at send time (null = closed). */
   panel?: { type: 'document'; documentId: string } | { type: 'screen'; path: string } | { type: 'view'; title: string } | null;
+  /** Round BL: AIMEE on a shipments org (ADH) — the page in view, the walkthroughs allowed, the conversation's scope.
+   *  Sent only by orgs with the SHIPMENTS module; other orgs' messages never carry it. */
+  aimee?: unknown;
 }
 
 /** Thread ids as the portal sees them: `w:<short>` (a web chat) or `wa:<digits>`
@@ -114,10 +118,11 @@ export class OperatorWebController {
       res.end();
       return;
     }
+    const aimee = body.aimee ? cleanAimee(body.aimee) : null;
     if (!session) {
       threadId = this.newThreadId();
       session = { channel: 'web', channelUserId: `${req.user!.id}:${threadId.slice(WEB_PREFIX.length)}` };
-      await this.operator.patchThreadMeta(session.channel, session.channelUserId, { organizationId: org.id });
+      await this.operator.patchThreadMeta(session.channel, session.channelUserId, { organizationId: org.id, ...(aimee?.scope ? { scope: aimee.scope } : {}) });
     }
     emit({ type: 'thread', id: threadId });
 
@@ -125,7 +130,10 @@ export class OperatorWebController {
     ctx.web = {
       screens: (body.screens || []).filter((s) => s && typeof s.path === 'string' && s.path.startsWith('/portal')).slice(0, 400),
       panel: body.panel && typeof body.panel === 'object' && typeof (body.panel as any).type === 'string' ? body.panel : null,
+      ...(aimee ? { aimee } : {}),
     };
+    // Round BL: AIMEE answers in the user's language setting (Profile › language), not the language typed.
+    if (aimee) ctx.lang = await this.uiLangOf(req.user!.id, org.id);
 
     const chatId = `${session.channel}:${session.channelUserId}:${Date.now().toString(36)}`;
     this.web.open(chatId, emit);
@@ -180,6 +188,12 @@ export class OperatorWebController {
       emit({ type: 'done' });
       res.end();
     }
+  }
+
+  /** The user's language setting in this org (OrganizationMemberProfile.uiLang), English when unset. */
+  private async uiLangOf(userId: string, organizationId: string): Promise<'ja' | 'en'> {
+    const p = await this.prisma.organizationMemberProfile.findFirst({ where: { userId, organizationId }, select: { uiLang: true } }).catch(() => null);
+    return p?.uiLang === 'ja' ? 'ja' : 'en';
   }
 
   @Get('documents/:id/preview')
@@ -243,6 +257,8 @@ export class OperatorWebController {
         id: `${WEB_PREFIX}${r.channelUserId.slice(userId.length + 1)}`,
         channel: 'web',
         title: (r.state as any)?.title || 'New chat',
+        // Round BL: the AIMEE side panel keeps one conversation per order / email.
+        ...((r.state as any)?.scope ? { scope: (r.state as any).scope } : {}),
         preview: preview(r.state),
         updatedAt: r.updatedAt,
         createdAt: r.createdAt,

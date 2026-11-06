@@ -10,6 +10,7 @@ import { OperatorAuthService } from './operator-auth.service';
 import { OperatorToolsService } from './operator-tools.service';
 import { ShipmentsToolsService } from './shipments-tools.service';
 import { forbiddenAsk, refusalText, replyLanguage, shipmentsSystemPrompt } from './shipments-agent.rules';
+import { shipmentsPageBlock, shipmentsWebPrompt } from './shipments-web';
 import { TelegramAdapter } from './adapters/telegram.adapter';
 import { WhatsAppAdapter } from './adapters/whatsapp.adapter';
 import { WebAdapter } from './adapters/web.adapter';
@@ -304,11 +305,12 @@ export class OperatorService {
         this.logger.log(`whatsapp agent off for ${ctx.organizationName}: ignored a message from a linked user`);
         return;
       }
-      const lang = replyLanguage(text);
+      // Round BL: AIMEE (web) answers in the user's language setting; WhatsApp follows the latest message.
+      const lang = ctx.lang ?? replyLanguage(text);
       if (!msg.callbackData && text) {
         const what = forbiddenAsk(text);
         if (what) {
-          await adapter.sendText(msg.chatId, refusalText(what, lang));
+          await adapter.sendText(msg.chatId, refusalText(what, lang, msg.channel));
           return;
         }
       }
@@ -872,8 +874,20 @@ export class OperatorService {
       ];
       if (ctx.profile === 'shipments') {
         // The latest message decides the language; the history (often mixed JP / EN) must not.
-        const lang = replyLanguage(text);
-        systemBlocks.push({ type: 'text', text: lang === 'ja' ? 'REPLY LANGUAGE NOW: Japanese (日本語で答える). The latest message is Japanese.' : 'REPLY LANGUAGE NOW: English. The latest message is English, whatever language the earlier turns were in.' });
+        // Round BL: on the web (AIMEE) the user's language setting decides instead.
+        const lang = ctx.lang ?? replyLanguage(text);
+        systemBlocks.push({
+          type: 'text',
+          text: ctx.lang
+            ? lang === 'ja'
+              ? "REPLY LANGUAGE NOW: Japanese (日本語で答える). The user's AIMS language setting is Japanese."
+              : "REPLY LANGUAGE NOW: English. The user's AIMS language setting is English, whatever language they type in."
+            : lang === 'ja'
+              ? 'REPLY LANGUAGE NOW: Japanese (日本語で答える). The latest message is Japanese.'
+              : 'REPLY LANGUAGE NOW: English. The latest message is English, whatever language the earlier turns were in.',
+        });
+        // Round BL: AIMEE's page block (the record / step / email in view, the walkthroughs), per message, not cached.
+        if (ctx.channel === 'web') systemBlocks.push({ type: 'text', text: shipmentsPageBlock(ctx.web?.aimee, lang) });
       }
       if (serviceJobOrg) systemBlocks.push({ type: 'text', text: this.serviceJobPrompt() });
       if (session.bulkInvoiceMode) {
@@ -1036,7 +1050,10 @@ export class OperatorService {
 
   private shipmentsPrompt(ctx: OperatorContext, latest: string): string {
     const perms = ctx.isOsirisAdmin ? 'all permissions (admin)' : ctx.roles.flatMap((r) => r.permissions.map((p) => `${p.resource}:${p.action}`)).join(', ') || 'none';
-    return shipmentsSystemPrompt({ actorName: ctx.actor.name || ctx.actor.email || 'a staff member', orgName: ctx.organizationName, now: new Date(), lang: replyLanguage(latest), perms });
+    const lang = ctx.lang ?? replyLanguage(latest);
+    const base = shipmentsSystemPrompt({ actorName: ctx.actor.name || ctx.actor.email || 'a staff member', orgName: ctx.organizationName, now: new Date(), lang, perms, channel: ctx.channel });
+    // Round BL: AIMEE in the portal — the web rules (links, walkthroughs, the page block, drafts in the panel).
+    return ctx.channel === 'web' ? base + shipmentsWebPrompt(lang) : base;
   }
 
   /** A PDF / photo sent on WhatsApp: the same intake as an email attachment, then a Confirm card (or the result). */
@@ -1666,8 +1683,8 @@ export class OperatorService {
     if (adapter.sendUi) {
       w.sendUi = async (c, e) => {
         await adapter.sendUi!(c, e);
-        // Remembered so reopening the chat brings its panel back.
-        await this.patchThreadMeta(channel, channelUserId, { lastPanel: e }).catch(() => null);
+        // Remembered so reopening the chat brings its panel back. Round BL: a walkthrough start is not a panel.
+        if (e.type !== 'guide') await this.patchThreadMeta(channel, channelUserId, { lastPanel: e }).catch(() => null);
       };
     }
     return w;
@@ -1807,7 +1824,7 @@ export class OperatorService {
   async patchThreadMeta(
     channel: OperatorChannel,
     channelUserId: string,
-    meta: { title?: string; organizationId?: string; lastPanel?: any },
+    meta: { title?: string; organizationId?: string; lastPanel?: any; scope?: string },
     // quiet: housekeeping (closing the side panel) must not bump the thread
     // to the top of the list, so its updatedAt is kept.
     opts: { quiet?: boolean } = {},
@@ -1872,7 +1889,7 @@ export class OperatorService {
       .findUnique({ where: { channel_channelUserId: { channel, channelUserId } }, select: { state: true } })
       .catch(() => null);
     const prev: any = (stored?.state as any) || {};
-    state = { ...state, transcript: prev.transcript, title: prev.title, organizationId: prev.organizationId, lastPanel: prev.lastPanel } as SessionState;
+    state = { ...state, transcript: prev.transcript, title: prev.title, organizationId: prev.organizationId, lastPanel: prev.lastPanel, ...(prev.scope ? { scope: prev.scope } : {}) } as SessionState;
     await this.prisma.operatorSession
       .upsert({
         where: { channel_channelUserId: { channel, channelUserId } },

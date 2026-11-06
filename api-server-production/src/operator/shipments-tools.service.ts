@@ -47,6 +47,11 @@ import { currentStepOf, freeTimeLeft, missingDocTypes, shipmentTab, tradeToday }
 import { OperatorAuthService } from './operator-auth.service';
 import { OperatorContext, PendingAction, WebUiEvent } from './operator.types';
 import { parseRecordRef, shipmentRefOf } from './shipments-agent.rules';
+import { TradeDueService } from '../shipments/trade-due.service';
+import { TradePriceCheckService } from '../shipments/trade-price-check.service';
+import { productLabel } from '../shipments/clients-products';
+import { cleanLmeAuto, provisionalMonths } from '../shipments/lme-feed';
+import { recordLink, searchKnowledge, shipmentsChunks, STEP_NAMES } from './shipments-web';
 
 export interface ShipToolOutcome {
   result: any;
@@ -67,10 +72,59 @@ interface ToolDef {
   origin: 'biofuel' | 'adh';
   input_schema: Anthropic.Tool['input_schema'];
   run: (ctx: OperatorContext, args: any) => Promise<ShipToolOutcome>;
+  /** Round BL: AIMEE (web) only — hidden from the WhatsApp agent, whose tool list stays as it was. */
+  web?: boolean;
 }
 
 /** The write operations a Confirm card can carry (the model never names these; the tools do). */
-export type ShipOp = 'email_accept' | 'email_assign' | 'email_answer' | 'email_dismiss' | 'task_status' | 'task_snooze' | 'reminder_create' | 'set_eta' | 'shipment_add' | 'order_create' | 'step_done' | 'add_note' | 'payment_record' | 'generated_doc_create' | 'tracking_apply';
+export type ShipOp = 'email_accept' | 'email_assign' | 'email_answer' | 'email_dismiss' | 'task_status' | 'task_snooze' | 'reminder_create' | 'set_eta' | 'shipment_add' | 'order_create' | 'step_done' | 'add_note' | 'payment_record' | 'generated_doc_create' | 'tracking_apply' | 'fill_fields';
+
+/** Round BL: the shipment fields fill_fields may write — only while EMPTY (never overwrites what someone typed). */
+export const FILLABLE_FIELDS: Record<string, { kind: 'text' | 'int' | 'num' | 'date'; label: string }> = {
+  blNumber: { kind: 'text', label: 'B/L no.' },
+  vessel: { kind: 'text', label: 'Vessel' },
+  voyageNo: { kind: 'text', label: 'Voyage' },
+  etd: { kind: 'date', label: 'ETD' },
+  eta: { kind: 'date', label: 'ETA' },
+  portOfLoading: { kind: 'text', label: 'Port of loading' },
+  portOfDischarge: { kind: 'text', label: 'Port of discharge' },
+  containerCount: { kind: 'int', label: 'Containers' },
+  netWeightMt: { kind: 'num', label: 'Net weight (MT)' },
+  grossWeightMt: { kind: 'num', label: 'Gross weight (MT)' },
+  totalBundles: { kind: 'int', label: 'Bundles' },
+  hsCode: { kind: 'text', label: 'HS code' },
+  countryOfOrigin: { kind: 'text', label: 'Origin' },
+  ciNumber: { kind: 'text', label: 'CI no.' },
+  ciAmount: { kind: 'num', label: 'CI amount' },
+};
+
+/** The fields of `proposed` that may be filled on `current`: known, valid, and empty now. The rest are skipped with a reason. */
+export function fillPlan(current: Record<string, unknown>, proposed: Record<string, unknown>): { fill: Record<string, string | number>; skipped: Array<{ field: string; why: string }> } {
+  const fill: Record<string, string | number> = {};
+  const skipped: Array<{ field: string; why: string }> = [];
+  for (const [k, raw] of Object.entries(proposed ?? {})) {
+    const def = FILLABLE_FIELDS[k];
+    if (!def) {
+      skipped.push({ field: k, why: 'not a field AIMEE may fill' });
+      continue;
+    }
+    const cur = current[k];
+    if (cur !== null && cur !== undefined && String(cur).trim() !== '') {
+      skipped.push({ field: k, why: `already has a value (${cur instanceof Date ? cur.toISOString().slice(0, 10) : String(cur).slice(0, 40)})` });
+      continue;
+    }
+    let v: string | number | null = null;
+    if (def.kind === 'text') v = typeof raw === 'string' && raw.trim() ? raw.trim().slice(0, 100) : null;
+    else if (def.kind === 'date') v = typeof raw === 'string' && ISO_DATE.test(raw.trim()) ? raw.trim() : null;
+    else {
+      const n = typeof raw === 'number' ? raw : Number(String(raw ?? '').replace(/,/g, ''));
+      v = Number.isFinite(n) && n >= 0 && (def.kind === 'num' || Number.isInteger(n)) ? n : null;
+    }
+    if (v === null) skipped.push({ field: k, why: 'not a valid value' });
+    else fill[k] = v;
+  }
+  return { fill, skipped };
+}
 
 export const SHIPMENTS_READ = 'shipments:read';
 export const SHIPMENTS_WRITE = 'shipments:update';
@@ -112,12 +166,14 @@ export class ShipmentsToolsService {
     private readonly config: TradeConfigService,
     private readonly monthly: MonthlyListService,
     @Optional() private readonly tracking?: CarrierTrackingService,
+    @Optional() private readonly due?: TradeDueService,
+    @Optional() private readonly priceCheck?: TradePriceCheckService,
   ) {}
 
   /** Tool definitions handed to Claude — only the ones this user's permissions allow. */
   definitions(ctx: OperatorContext): Anthropic.Tool[] {
     return this.tools()
-      .filter((t) => this.auth.hasPermission(ctx, t.permissions))
+      .filter((t) => this.auth.hasPermission(ctx, t.permissions) && (!t.web || ctx.channel === 'web'))
       .map((t) => ({ name: t.name, description: t.description, input_schema: t.input_schema }));
   }
 
@@ -132,7 +188,7 @@ export class ShipmentsToolsService {
 
   async execute(ctx: OperatorContext, name: string, args: any): Promise<ShipToolOutcome> {
     const tool = this.tools().find((t) => t.name === name);
-    if (!tool) return { result: { error: `No such tool: ${name}` } };
+    if (!tool || (tool.web && ctx.channel !== 'web')) return { result: { error: `No such tool: ${name}` } };
     if (!this.auth.hasPermission(ctx, tool.permissions)) return { result: { error: tool.mode === 'money' ? "You don't have access to financials." : `You do not have permission for ${name} (${tool.permissions.join(', ')})` } };
     try {
       return await tool.run(ctx, args || {});
@@ -187,12 +243,12 @@ export class ShipmentsToolsService {
         return { ok: true, message: `${r?.title ?? 'Task'} moved to ${dmy(a.until)}.` };
       }
       case 'reminder_create': {
-        const r: any = await this.alerts.createCustom(org, { title: a.title, dueAt: new Date(a.dueAt), orderId: a.orderId ?? null, shipmentId: a.shipmentId ?? null, linkUrl: a.orderId ? `/portal/shipments/orders/${a.orderId}${a.shipmentId ? `?shipment=${a.shipmentId}` : ''}` : null, by: `${actor.name ?? 'WhatsApp'} via WhatsApp` });
+        const r: any = await this.alerts.createCustom(org, { title: a.title, dueAt: new Date(a.dueAt), orderId: a.orderId ?? null, shipmentId: a.shipmentId ?? null, linkUrl: a.orderId ? `/portal/shipments/orders/${a.orderId}${a.shipmentId ? `?shipment=${a.shipmentId}` : ''}` : null, by: `${actor.name ?? viaWord(ctx)} via ${viaWord(ctx)}` });
         this.log(ctx, 'CREATE', 'TradeAlert', r?.id, a.title, `reminder for ${a.dueAt}`);
         return { ok: true, message: `Reminder set for ${new Date(a.dueAt).toLocaleString('en-GB', { timeZone: 'Asia/Tokyo', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} JST: ${a.title}` };
       }
       case 'set_eta': {
-        const dto: any = { etaSource: 'whatsapp' };
+        const dto: any = { etaSource: ctx.channel === 'web' ? 'aimee' : 'whatsapp' };
         if (a.eta) dto.eta = a.eta;
         if (a.arrived) dto.actualArrivalDate = a.arrived;
         if (a.vessel) dto.vessel = a.vessel;
@@ -221,7 +277,7 @@ export class ShipmentsToolsService {
       }
       case 'add_note': {
         const cur = await this.prisma.shipment.findFirst({ where: { id: a.shipmentId, organizationId: org }, select: { notes: true } });
-        const stamp = `[${tradeToday()} ${actor.name ?? 'WhatsApp'} via WhatsApp]`;
+        const stamp = `[${tradeToday()} ${actor.name ?? viaWord(ctx)} via ${viaWord(ctx)}]`;
         const notes = `${cur?.notes ? `${cur.notes}\n` : ''}${stamp} ${String(a.note).slice(0, 1000)}`.slice(0, 5000);
         await this.shipments.update(org, a.shipmentId, { notes } as any, actor);
         this.log(ctx, 'UPDATE', 'Shipment', a.shipmentId, a.ref, `note added: ${String(a.note).slice(0, 120)}`);
@@ -238,6 +294,18 @@ export class ShipmentsToolsService {
         const g: any = await this.generated.createBlank(org, { docType: a.docType, shipmentId: a.shipmentId ?? undefined, orderId: a.orderId ?? undefined }, actor);
         this.log(ctx, 'CREATE', 'TradeGeneratedDoc', g?.id, `${a.docLabel} ${a.ref}`, 'draft created on WhatsApp');
         return { ok: true, message: `Draft ${a.docLabel} created for ${a.ref} (${g?.number ?? 'no number yet'}). I will send the preview. Finalising stays in AIMS.` };
+      }
+      case 'fill_fields': {
+        // Round BL: re-read at Confirm time — a field someone filled since the card was shown is skipped, never overwritten.
+        const cur: any = await this.prisma.shipment.findFirst({ where: { id: a.shipmentId, organizationId: org }, select: Object.fromEntries(Object.keys(FILLABLE_FIELDS).map((k) => [k, true])) as any });
+        if (!cur) return { ok: false, message: 'That shipment is no longer there.' };
+        const plan = fillPlan(cur, a.fields ?? {});
+        const names = Object.keys(plan.fill);
+        if (!names.length) return { ok: false, message: `${a.ref}: nothing filled, every field already has a value now.` };
+        await this.shipments.update(org, a.shipmentId, plan.fill as any, actor);
+        this.log(ctx, 'UPDATE', 'Shipment', a.shipmentId, a.ref, `filled empty fields: ${names.map((k) => `${FILLABLE_FIELDS[k].label} = ${plan.fill[k]}`).join(', ')}${a.source ? ` (from ${a.source})` : ''}`);
+        const skipped = plan.skipped.length ? ` Skipped (filled meanwhile): ${plan.skipped.map((x) => FILLABLE_FIELDS[x.field]?.label ?? x.field).join(', ')}.` : '';
+        return { ok: true, message: `${a.ref}: filled ${names.map((k) => FILLABLE_FIELDS[k].label).join(', ')}.${skipped}` };
       }
       case 'tracking_apply': {
         if (!this.tracking) return { ok: false, message: 'Tracking is not available.' };
@@ -644,7 +712,268 @@ export class ShipmentsToolsService {
         input_schema: { type: 'object', properties: { ref: { type: 'string' }, docType: { type: 'string' } }, required: ['ref', 'docType'] },
         run: async (ctx, a) => this.generatedDocCreate(ctx, String(a.ref ?? ''), String(a.docType ?? '')),
       },
+
+      // ── Round BL: AIMEE (web) only ──
+      {
+        name: 'record_detail',
+        description:
+          'Details of an order ("#18") or shipment ("#18-1") with links to cite: part "steps" = every step with its state, due date and WHY it is due / overdue, and what each open step still misses (documents, fields); "tax" = the import tax estimate (CIF and which SG→JP invoice it came from, the customs weekly rate and its week, 加算運賃 on/off, national / local, the permit actual); "bl" = the B/L fields and the B/L draft check (what is missing or different); "ci" = the CI amount and every CI version read; "files" = the files with their step; "all" = everything (larger).',
+        permissions: [SHIPMENTS_READ],
+        mode: 'read',
+        origin: 'adh',
+        web: true,
+        input_schema: { type: 'object', properties: { ref: { type: 'string' }, part: { type: 'string', enum: ['steps', 'tax', 'bl', 'ci', 'files', 'all'] } }, required: ['ref'] },
+        run: async (ctx, a) => this.recordDetail(ctx, String(a.ref ?? ''), String(a.part ?? 'steps')),
+      },
+      {
+        name: 'clients_products',
+        description: 'Customers and suppliers with their products (Clients › Products): grade, form, size, HS code and where the HS code came from. name: part of a company name (optional; leave out for all).',
+        permissions: [SHIPMENTS_READ],
+        mode: 'read',
+        origin: 'adh',
+        web: true,
+        input_schema: { type: 'object', properties: { name: { type: 'string' } } },
+        run: async (ctx, a) => this.clientsProducts(ctx, a.name ? String(a.name) : null),
+      },
+      {
+        name: 'lme_prices',
+        description: 'LME aluminium cash monthly averages (US$/MT) AIMS keeps (provisional months marked), and for a record ("#18" / "#18-1") the price check (LME month used, premium expected vs found).',
+        permissions: [SHIPMENTS_READ],
+        mode: 'read',
+        origin: 'adh',
+        web: true,
+        input_schema: { type: 'object', properties: { ref: { type: 'string' }, months: { type: 'integer', description: 'how many recent months, default 6' } } },
+        run: async (ctx, a) => this.lmePrices(ctx, a.ref ? String(a.ref) : null, Math.min(24, Math.max(1, Number(a.months) || 6))),
+      },
+      {
+        name: 'guide_lookup',
+        description: 'How the Shipments screens work (the AIMS Guide knowledge): which screen, tab, button or rule. query: English keywords ("import tax estimate CIF SG→JP", "reopen cancelled order", "due rules customer"). Use for every "how do I / where is / what does X do" question.',
+        permissions: [SHIPMENTS_READ],
+        mode: 'read',
+        origin: 'adh',
+        web: true,
+        input_schema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
+        run: async (_ctx, a) => {
+          const hits = searchKnowledge(String(a.query ?? ''), shipmentsChunks());
+          return { result: hits.length ? { excerpts: hits } : { excerpts: [], note: 'Nothing in the Guide knowledge matches; say so rather than guess.' } };
+        },
+      },
+      {
+        name: 'start_walkthrough',
+        description: 'Start a Guide walkthrough in the portal (spotlight steps on the real screens): "show me how to reopen a cancelled order". guideId must be one of the walkthrough ids in the page block.',
+        permissions: [SHIPMENTS_READ],
+        mode: 'read',
+        origin: 'adh',
+        web: true,
+        input_schema: { type: 'object', properties: { guideId: { type: 'string' } }, required: ['guideId'] },
+        run: async (ctx, a) => {
+          const id = String(a.guideId ?? '');
+          const g = (ctx.web?.aimee?.guides ?? []).find((x) => x.id === id);
+          if (!g) return { result: { error: `No walkthrough "${id.slice(0, 64)}" for this user. Pick an id from the page block, or explain in words.` } };
+          this.log(ctx, 'VIEW', 'Guide', g.id, g.title, 'walkthrough started from AIMEE');
+          return { result: { started: g.title, instruction: 'Say one short line: the walkthrough is starting on the screen.' }, ui: { type: 'guide', guideId: g.id, title: g.title } };
+        },
+      },
+      {
+        name: 'open_record',
+        description: 'Open an order / shipment page for the user, optionally at a step ("3a", "7" or words) and a file name: "open #18-1 step 7", "show me the B/L draft of #18-1".',
+        permissions: [SHIPMENTS_READ],
+        mode: 'read',
+        origin: 'adh',
+        web: true,
+        input_schema: { type: 'object', properties: { ref: { type: 'string' }, step: { type: 'string' }, fileName: { type: 'string' } }, required: ['ref'] },
+        run: async (ctx, a) => this.openRecord(ctx, String(a.ref ?? ''), a.step ? String(a.step) : null, a.fileName ? String(a.fileName) : null),
+      },
+      {
+        name: 'fill_fields',
+        description: `Fill EMPTY fields of a shipment ("fill these 3 fields" from the B/L draft / CI / record_detail): fields = { ${Object.keys(FILLABLE_FIELDS).join(', ')} } (dates YYYY-MM-DD, numbers plain). Fields that already have a value are never changed (say so). source = where the values come from ("B/L draft 198GX06522"). Shows a Confirm card.`,
+        permissions: [SHIPMENTS_WRITE],
+        mode: 'write',
+        origin: 'adh',
+        web: true,
+        input_schema: { type: 'object', properties: { ref: { type: 'string' }, fields: { type: 'object' }, source: { type: 'string' } }, required: ['ref', 'fields'] },
+        run: async (ctx, a) => this.fillFields(ctx, String(a.ref ?? ''), a.fields && typeof a.fields === 'object' ? a.fields : {}, a.source ? String(a.source).slice(0, 80) : null),
+      },
     ];
+  }
+
+  // ── Round BL: AIMEE (web) reads + the fill card ─────────────────────────────
+
+  private lang(ctx: OperatorContext): 'ja' | 'en' {
+    return ctx.lang === 'ja' ? 'ja' : 'en';
+  }
+
+  private async recordDetail(ctx: OperatorContext, raw: string, part: string): Promise<ShipToolOutcome> {
+    const org = ctx.organizationId;
+    const hit = await this.resolve(org, raw);
+    if (!hit) return { result: { error: `Nothing found for "${raw.slice(0, 60)}"` } };
+    if ('many' in hit) return { result: { several: hit.many } };
+    const want = (p: string) => part === 'all' || part === p;
+    const ja = this.lang(ctx) === 'ja';
+    const shipmentId = hit.shipment?.id ?? null;
+    const orderId = hit.shipment?.orderId ?? hit.order?.id ?? null;
+    const ref = hit.shipment?.ref ?? hit.order!.label;
+    const s: any = shipmentId ? await this.shipments.getById(org, shipmentId) : null;
+    const o: any = !shipmentId && orderId ? await this.orders.getById(org, orderId) : null;
+    const out: Record<string, any> = { ref, link: recordLink({ orderId, shipmentId }) };
+
+    if (want('steps')) {
+      const proc: any = orderId && this.due ? await this.due.orderProcess(org, orderId).catch(() => null) : null;
+      const reqOf = new Map<string, any>();
+      for (const st of [...(s?.steps ?? []), ...(o?.steps ?? [])]) reqOf.set(st.id, st);
+      const cells: any[] = [];
+      for (const row of proc?.rows ?? []) {
+        for (const c of Object.values(row.cells ?? {}) as any[]) {
+          if (c.kind === 'shipment' && shipmentId && c.recordId !== shipmentId) continue;
+          if (c.kind === 'shipment' && !shipmentId) continue;
+          cells.push({ row, c });
+        }
+      }
+      out.today = proc?.today ?? tradeToday();
+      out.dueDatesOn = proc?.dueDates ?? false;
+      out.steps = cells.map(({ row, c }) => {
+        const st = reqOf.get(c.stepId);
+        const missingDocs = (st?.requirements ?? []).filter((r: any) => !r.satisfied).map((r: any) => r.docType);
+        const missingFields = (st?.fieldRequirements ?? []).filter((r: any) => !r.satisfied).map((r: any) => r.label);
+        return {
+          no: c.no,
+          step: STEP_NAMES[c.code]?.[ja ? 'ja' : 'en'] ?? (ja ? c.titleJa : null) ?? c.title,
+          code: c.code,
+          on: c.kind === 'order' ? `#${String(ref).replace(/^#/, '').split('-')[0]}` : ref,
+          state: c.state,
+          status: c.status,
+          ...(c.due ? { due: c.due, why: (ja ? c.dueWhyJa : null) ?? c.dueWhy ?? null } : {}),
+          ...(c.daysLate ? { daysLate: c.daysLate } : {}),
+          ...(c.doneAt ? { doneAt: String(c.doneAt).slice(0, 10) } : {}),
+          ...(c.state !== 'done' && c.state !== 'na' && missingDocs.length ? { missingDocuments: missingDocs } : {}),
+          ...(c.state !== 'done' && c.state !== 'na' && missingFields.length ? { missingFields } : {}),
+          link: recordLink({ orderId, shipmentId: c.shipmentId ?? null, stepId: c.stepId }),
+        };
+      });
+    }
+    if (s && want('tax')) {
+      const t = s.estimate?.importTax ?? null;
+      const step8 = (s.steps ?? []).find((x: any) => x.code === 'CUSTOMS_TAX_ESTIMATE') ?? null;
+      out.tax = t
+        ? {
+            cifUsd: t.cifUsd,
+            // kind: typed = typed on the step; final / draft = the AIMS SG→JP invoice (finalised or still a draft); file = ADH's uploaded SG→JP PDF.
+            cifFrom: t.cifSource ? { kind: t.cifSource.kind, invoiceNo: t.cifSource.invoiceNo, ref: t.cifSource.ref } : null,
+            usdJpyRate: t.fxRate,
+            rateFrom: t.fxSource ? { kind: t.fxSource.kind, week: t.fxSource.start && t.fxSource.end ? `${t.fxSource.start} to ${t.fxSource.end}` : null, provisional: t.fxSource.provisional, url: t.fxSource.url } : null,
+            clearanceDate: t.clearanceDate,
+            clearanceFrom: t.clearanceFrom,
+            cifJpy: t.cifJpy,
+            addOn: { included: t.addOnIncluded, yen: t.addOnJpy, from: t.addOnSource },
+            taxBase: t.taxBase,
+            national: t.national,
+            local: t.local,
+            estimate: t.estimate,
+            funded: t.funded,
+            permitActual: t.actual,
+            difference: t.variance,
+            method: 'CIF USD x the customs weekly USD rate, rounded down to 1,000 yen = tax base (plus 加算運賃 only when the switch is on); national 7.8% rounded down to 100 yen; local = national x 22/78 rounded down to 100 yen; total = national + local.',
+          }
+        : null;
+      out.taxLink = recordLink({ orderId, shipmentId, stepId: step8?.id ?? null });
+      // Where the CIF came from, to cite: the step with the SG→JP invoice (the uploaded file highlighted when it is one).
+      if (t?.cifSource) out.cifLink = recordLink({ orderId, shipmentId, stepId: step8?.id ?? null, fileName: t.cifSource.kind === 'file' ? t.cifSource.ref : null });
+    }
+    if (s && want('bl')) {
+      const empty = Object.keys(FILLABLE_FIELDS).filter((k) => !['ciNumber', 'ciAmount'].includes(k) && (s[k] === null || s[k] === undefined || s[k] === ''));
+      const draftStep = (s.steps ?? []).find((x: any) => x.code === 'BL_DRAFT_APPROVAL') ?? null;
+      out.bl = {
+        fields: { blNumber: s.blNumber, vessel: s.vessel, voyageNo: s.voyageNo, portOfLoading: s.portOfLoading, portOfDischarge: s.portOfDischarge, containerCount: s.containerCount, netWeightMt: s.netWeightMt === null ? null : Number(s.netWeightMt), grossWeightMt: s.grossWeightMt === null ? null : Number(s.grossWeightMt), hsCode: s.hsCode, countryOfOrigin: s.countryOfOrigin },
+        emptyFields: empty.map((k) => FILLABLE_FIELDS[k].label),
+        hsWarning: s.hsWarning ?? null,
+        draftCheck: s.blCheck
+          ? { file: s.blCheck.fileName, read: String(s.blCheck.extractedAt ?? '').slice(0, 10), issues: s.blCheck.issueCount, acknowledgedBy: s.blCheck.acknowledgedByName ?? null, checks: (s.blCheck.checks ?? []).filter((c: any) => c.status !== 'ok').map((c: any) => ({ check: c.label, status: c.status, detail: String(c.detail ?? '').slice(0, 200), items: (c.items ?? []).filter((i: any) => i.status !== 'ok').slice(0, 6).map((i: any) => `${i.item}: expected ${i.expected}, found ${i.found ?? 'nothing'}`) })) }
+          : null,
+        link: recordLink({ orderId, shipmentId, stepId: draftStep?.id ?? null, fileName: s.blCheck?.fileName ?? null }),
+      };
+    }
+    if (s && want('ci')) {
+      out.ci = { ciNumber: s.ciNumber, ciAmount: s.ciAmount === null ? null : Number(s.ciAmount), currency: s.currency, versions: (s.ciVersions ?? []).slice(0, 8), proposal: s.ciProposal ?? null };
+    }
+    if (want('files')) {
+      const links: any[] = s?.fileLinks ?? o?.fileLinks ?? [];
+      out.files = links.slice(0, 40).map((l: any) => ({ docType: l.file?.docType ?? l.docType, name: l.file?.fileName ?? l.fileName, step: l.stepId ? (reqStepTitle(s?.steps ?? o?.steps ?? [], l.stepId)) : null, link: recordLink({ orderId, shipmentId, stepId: l.stepId ?? null, fileName: l.file?.fileName ?? l.fileName ?? null }) }));
+    }
+    return { result: out };
+  }
+
+  private async clientsProducts(ctx: OperatorContext, name: string | null): Promise<ShipToolOutcome> {
+    const org = ctx.organizationId;
+    const settings: any = await this.config.getSettings(org);
+    const want = (name ?? '').toLowerCase().trim();
+    const parties = async (kind: 'customer' | 'supplier') => {
+      const profiles: Record<string, any> = (kind === 'customer' ? settings.customerProfiles : settings.supplierProfiles) ?? {};
+      const ids = Object.keys(profiles);
+      const rows: any[] = ids.length ? await (kind === 'customer' ? this.prisma.customer : (this.prisma as any).supplier).findMany({ where: { organizationId: org, id: { in: ids } }, select: { id: true, name: true } }) : [];
+      return rows
+        .filter((r) => !want || r.name.toLowerCase().includes(want))
+        .map((r) => ({
+          kind,
+          name: r.name,
+          products: (profiles[r.id]?.products ?? []).filter((p: any) => !p.hidden).map((p: any) => ({ product: productLabel(p), grade: p.grade ?? null, form: p.form ?? null, hsCode: p.hsCode ?? null, hsCodeSource: p.hsCodeSource ?? null })),
+          link: `/portal/shipments/clients/${kind === 'customer' ? 'customers' : 'suppliers'}/${r.id}?tab=products`,
+        }));
+    };
+    const all = [...(await parties('customer')), ...(await parties('supplier'))];
+    return { result: all.length ? { companies: all.slice(0, 30) } : { error: name ? `No client or supplier "${name.slice(0, 40)}"` : 'No client profiles yet' } };
+  }
+
+  private async lmePrices(ctx: OperatorContext, ref: string | null, months: number): Promise<ShipToolOutcome> {
+    const org = ctx.organizationId;
+    const settings: any = await this.config.getSettings(org);
+    const by: Record<string, number> = settings.docDefaults?.lmeByMonth ?? {};
+    const provisional = new Set(provisionalMonths(by, cleanLmeAuto(settings.docDefaults?.lmeAuto)));
+    const recent = Object.keys(by).sort().slice(-months).map((m) => ({ month: m, cashAvgUsd: by[m], provisional: provisional.has(m) }));
+    const out: Record<string, any> = { lmeCashMonthlyAverage: recent, source: 'Settings › LME (the LME feed fills it from Westmetall)' };
+    if (ref && this.priceCheck) {
+      const hit = await this.resolve(org, ref);
+      if (hit && !('many' in hit)) {
+        const check: any = hit.shipment ? await this.priceCheck.forShipment(org, hit.shipment.id).catch(() => null) : await this.priceCheck.forOrder(org, hit.order!.id).catch(() => null);
+        if (check) out.priceCheck = { ref: hit.shipment?.ref ?? hit.order!.label, side: check.side, basisMonth: check.basisMonth, ok: check.ok, read: check.read, source: check.source, notes: check.notes, lines: check.lines };
+      }
+    }
+    return { result: out };
+  }
+
+  private async openRecord(ctx: OperatorContext, raw: string, stepWant: string | null, fileName: string | null): Promise<ShipToolOutcome> {
+    const org = ctx.organizationId;
+    const hit = await this.resolve(org, raw);
+    if (!hit) return { result: { error: `Nothing found for "${raw.slice(0, 60)}"` } };
+    if ('many' in hit) return { result: { several: hit.many } };
+    const shipmentId = hit.shipment?.id ?? null;
+    const orderId = hit.shipment?.orderId ?? hit.order?.id ?? null;
+    let stepId: string | null = null;
+    if (stepWant) {
+      const steps: any[] = await this.prisma.tradeStep.findMany({ where: { organizationId: org, OR: [...(shipmentId ? [{ shipmentId }] : []), ...(orderId ? [{ orderId }] : [])] }, select: { id: true, ...STEP_SEL } });
+      const w = stepWant.toLowerCase().normalize('NFKC').replace(/^step\s*/, '');
+      const ordered = [...steps].sort((a, b) => a.sortOrder - b.sortOrder);
+      const m = ordered.find((x) => (x.displayNo ?? '').toLowerCase() === w) ?? ordered.find((x) => `${x.title} ${x.code} ${STEP_NAMES[x.code]?.ja ?? ''}`.toLowerCase().normalize('NFKC').includes(w));
+      stepId = m?.id ?? null;
+    }
+    const path = recordLink({ orderId, shipmentId, stepId, fileName });
+    if (!path) return { result: { error: 'That record has no order page.' } };
+    return { result: { opened: hit.shipment?.ref ?? hit.order!.label, link: path, ...(stepWant && !stepId ? { note: `No step "${stepWant.slice(0, 30)}" on it; opened the record.` } : {}) }, ui: { type: 'screen', path, title: hit.shipment?.ref ?? hit.order!.label } };
+  }
+
+  private async fillFields(ctx: OperatorContext, raw: string, fields: Record<string, unknown>, source: string | null): Promise<ShipToolOutcome> {
+    const org = ctx.organizationId;
+    const hit = await this.resolve(org, raw);
+    if (!hit) return { result: { error: `Nothing found for "${raw.slice(0, 60)}"` } };
+    if ('many' in hit) return { result: { several: hit.many } };
+    if (!hit.shipment) return { result: { error: 'fill_fields works on a shipment ("#18-1"), not an order.' } };
+    const cur: any = await this.prisma.shipment.findFirst({ where: { id: hit.shipment.id, organizationId: org }, select: Object.fromEntries(Object.keys(FILLABLE_FIELDS).map((k) => [k, true])) as any });
+    if (!cur) return { result: { error: 'Shipment not found' } };
+    const plan = fillPlan(cur, fields);
+    const names = Object.keys(plan.fill);
+    if (!names.length) return { result: { nothingToFill: true, skipped: plan.skipped, instruction: 'Tell the user nothing can be filled and why (one line per field). Values someone typed are never changed by AIMEE.' } };
+    const lines = names.map((k) => `${FILLABLE_FIELDS[k].label}: (empty) → ${plan.fill[k]}`);
+    const skip = plan.skipped.length ? `\nNot changed: ${plan.skipped.map((x) => `${FILLABLE_FIELDS[x.field]?.label ?? x.field} (${x.why})`).join('; ')}` : '';
+    return { result: { card: true, skipped: plan.skipped }, pending: pend(`Fill ${names.length} empty field${names.length > 1 ? 's' : ''} on ${hit.shipment.ref}${source ? ` from ${source}` : ''}:\n${lines.join('\n')}${skip}`, { op: 'fill_fields', shipmentId: hit.shipment.id, ref: hit.shipment.ref, fields: plan.fill, source }) };
   }
 
   // ── reads ──────────────────────────────────────────────────────────────────
@@ -1054,7 +1383,7 @@ export class ShipmentsToolsService {
       if (hit && !('many' in hit) && hit.shipment) shipmentId = hit.shipment.id;
     }
     try {
-      const r = await this.tracking.read(ctx.organizationId, { shipmentId, text: input.text ?? null, image: input.image ?? null, source: input.image ? 'SCREENSHOT' : 'PASTE' }, { id: ctx.actor.id, name: `${ctx.actor.name ?? 'WhatsApp'} via WhatsApp` });
+      const r = await this.tracking.read(ctx.organizationId, { shipmentId, text: input.text ?? null, image: input.image ?? null, source: input.image ? 'SCREENSHOT' : 'PASTE' }, { id: ctx.actor.id, name: `${ctx.actor.name ?? viaWord(ctx)} via ${viaWord(ctx)}` });
       const lines = diffLines(r.rows, lang);
       const fields = r.rows.filter((x) => x.suggested).map((x) => x.field);
       this.log(ctx, 'VIEW', 'Shipment', r.shipmentId, r.ref, `tracking ${input.image ? 'screenshot' : 'text'} read: ${fields.length} field(s) differ`);
@@ -1233,14 +1562,15 @@ export class ShipmentsToolsService {
     return n ? ` · ${n} document${n > 1 ? 's' : ''} filed` : '';
   }
 
-  private actorOf(ctx: OperatorContext): { id: string | null; name: string | null; via: 'whatsapp' } {
-    return { id: ctx.actor.id, name: ctx.actor.name ?? ctx.actor.email ?? null, via: 'whatsapp' };
+  private actorOf(ctx: OperatorContext): { id: string | null; name: string | null; via?: 'whatsapp' } {
+    // Round BL: on AIMEE (web) the user is in the portal — no "via WhatsApp" on the email's history.
+    return ctx.channel === 'web' ? { id: ctx.actor.id, name: ctx.actor.name ?? ctx.actor.email ?? null } : { id: ctx.actor.id, name: ctx.actor.name ?? ctx.actor.email ?? null, via: 'whatsapp' };
   }
 
   /** Audit trail (legacy AuditLog) + Activity Log row as the user, channel chat:whatsapp, via whatsapp. */
   private log(ctx: OperatorContext, action: string, resource: string, resourceId?: string, resourceName?: string | null, detail?: string) {
     this.audit
-      .logAction({ userId: ctx.actor.id || 'whatsapp', userName: ctx.actor.name, userEmail: ctx.actor.email, action, resource, resourceId, resourceName: resourceName ?? undefined, organizationId: ctx.organizationId, details: { detail, channel: ctx.channel, via: 'whatsapp' } })
+      .logAction({ userId: ctx.actor.id || 'whatsapp', userName: ctx.actor.name, userEmail: ctx.actor.email, action, resource, resourceId, resourceName: resourceName ?? undefined, organizationId: ctx.organizationId, details: { detail, channel: ctx.channel, via: ctx.channel === 'web' ? 'aimee' : 'whatsapp' } })
       .catch(() => null);
     void this.actionLog.log({
       actorType: 'USER',
@@ -1254,12 +1584,19 @@ export class ShipmentsToolsService {
       action,
       resource,
       resourceId,
-      details: { name: resourceName, detail, via: 'whatsapp', channel: ctx.channel },
+      details: { name: resourceName, detail, via: ctx.channel === 'web' ? 'aimee' : 'whatsapp', channel: ctx.channel },
     });
   }
 }
 
 const STEP_SEL = { code: true, title: true, displayNo: true, sortOrder: true, status: true, isOngoing: true, notApplicable: true };
+/** "7 Customs documents & tax estimate" for a file's step (record_detail files). */
+const reqStepTitle = (steps: Array<{ id: string; title: string; displayNo?: string | null }>, stepId: string) => {
+  const st = steps.find((x) => x.id === stepId);
+  return st ? `${st.displayNo ? `${st.displayNo} ` : ''}${st.title}` : null;
+};
+/** Round BL: where a change was made — "WhatsApp" or "AIMEE" (the web chat), for notes, reminders and the logs. */
+const viaWord = (ctx: OperatorContext) => (ctx.channel === 'web' ? 'AIMEE' : 'WhatsApp');
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, '') || 'user';
 const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
 const monthWords = (ym: string | null | undefined) => {

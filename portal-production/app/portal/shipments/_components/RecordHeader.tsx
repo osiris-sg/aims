@@ -38,6 +38,7 @@ export default function RecordHeader({
   badge,
   blockers = [],
   onActed,
+  actions,
 }: {
   kind: "contract" | "shipment" | "order" | "supplierOrder";
   title: string;
@@ -60,6 +61,8 @@ export default function RecordHeader({
   blockers?: string[];
   /** Called before a manual action runs (so the page can tell it from an auto-complete). */
   onActed?: (act: Act) => void;
+  /** Round BL: buttons before the ⋮ menu (the AIMEE button). */
+  actions?: React.ReactNode;
 }) {
   const router = useRouter();
   const t = useTranslations("shipments.recordHeader");
@@ -122,6 +125,7 @@ export default function RecordHeader({
           </Typography>
         )}
         <Box sx={{ flex: 1 }} />
+        {actions}
         <IconButton aria-label={kind === "contract" ? t("dealActions") : t("actions", { kind: kindLabel(kind) })} data-tour="deal-actions-menu" onClick={(e) => setMenu({ left: e.clientX, top: e.clientY })}>
           <MoreVertIcon />
         </IconButton>

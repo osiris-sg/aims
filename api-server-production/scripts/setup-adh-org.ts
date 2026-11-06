@@ -227,6 +227,7 @@ const FEATURE_OVERRIDES: Record<string, boolean> = {
   enableEmailReasoner: true, // round R: the thread reasoner — live on ADH since the owner's go (2026-10-21)
   enableWhatsAppAgent: true, // round S: WhatsApp shipments agent + pushes — live on ADH since the owner's go (2026-10-22)
   enableStepDueDates: true, // round AZ: due dates per step — the owner approved the rules (2026-11-01); only dates from the switch-on day are flagged
+  enableAimsChat: true, // round BL: AIMEE (the dashboard assistant + the side panel next to an order) — the owner's go (2026-11-06)
 };
 
 const NUMBER_FORMATS = [

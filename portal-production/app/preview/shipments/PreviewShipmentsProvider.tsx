@@ -10,6 +10,7 @@ import TradeTheme from "@/app/portal/shipments/_components/TradeTheme";
 import { StaticUiLang } from "@/i18n/UiLangProvider";
 import type { UiLang } from "@/i18n/lang";
 import { setPreviewExtract } from "@/app/portal/shipments/_lib/api";
+import PreviewDock from "./PreviewDock";
 
 // Round AN: the shared-header variants (tab, search) are keyed by the normalised query (scripts/_an-preview-fixtures.ts).
 const norm = (q: Record<string, unknown>) =>
@@ -75,6 +76,7 @@ function answer(d: any, key: readonly unknown[]): unknown {
   // Round BB: the inbox — the Unprocessed threads answer (`questions`), the hidden mail, the Sales dashboard.
   if (k0 === "trade-inbox" && key[1] === "threads" && key[2] === "UNPROCESSED") return d.questions;
   if (k0 === "trade-inbox" && key[1] === "hidden") return d.hidden ?? [];
+  if (k0 === "trade-inbox" && key[1] === "dashboard" && d.dashboardJa && key.includes("ja")) return d.dashboardJa;
   if (k0 === "trade-inbox" && key[1] === "dashboard" && (d.dashboard || d.questions)) return d.dashboard ?? { toConfirm: { emails: d.questions.threads?.length ?? 0, threads: d.questions.threads ?? [], total: d.questions.total ?? 0, batches: d.questions.batches, viewer: d.questions.viewer }, filedAuto: [] };
   // Round BF: a generated document (the 出庫・納入依頼書 editor), the trade settings and the document types.
   if (k0 === "trade-generated" && key[2] === "detail") return d.generated?.[key[3] as string];
@@ -99,11 +101,20 @@ export default function PreviewShipmentsProvider({ data, children }: { data: any
   useState(() => setPreviewExtract(data.extraction ? () => data.extraction : null));
   // Round AZ: ?lang=ja renders the page in Japanese (the screenshots of both languages).
   const [lang, setLang] = useState<UiLang>("en");
-  React.useEffect(() => setLang(new URLSearchParams(window.location.search).get("lang") === "ja" ? "ja" : "en"), []);
+  // Round BL: ?aimee=<scenario> opens the AIMEE side panel on a fixture conversation (data.aimee).
+  const [aimee, setAimee] = useState<string | null>(null);
+  React.useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    setLang(q.get("lang") === "ja" ? "ja" : "en");
+    setAimee(q.get("aimee"));
+  }, []);
   return (
     <QueryClientProvider client={qc}>
       <StaticUiLang lang={lang}>
-        <TradeTheme key={lang}>{children}</TradeTheme>
+        <TradeTheme key={lang}>
+          {children}
+          {aimee && data.aimee?.[aimee] && <PreviewDock scenario={data.aimee[aimee]} />}
+        </TradeTheme>
       </StaticUiLang>
     </QueryClientProvider>
   );

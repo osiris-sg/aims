@@ -128,6 +128,8 @@ const FORBIDDEN: Array<{ re: RegExp; what: string }> = [
   { re: /\b(delete|remove|purge)\b.{0,30}\b(order|shipment|file|document|email|user)\b|(削除)/i, what: 'deleting a record' },
   { re: /\b(change|update|edit|set)\b.{0,25}\b(settings?|email filter|filter|allow ?list|feature flag|flag)\b|(設定|フィルター?).{0,8}(変更|更新)/i, what: 'changing settings or the email filter' },
   { re: /\btest (flag|mode|order)\b|\bmark\b.{0,20}\bas test\b/i, what: 'test flags' },
+  // Round BL: AIMEE never manages users (whatever the role); Org Settings › Users does.
+  { re: /\b(add|invite|create|disable|deactivate)\b.{0,20}\b(users?|members?|logins?|accounts?)\b|\b(change|reset|set|give)\b.{0,25}\b(password|role|permissions?)\b|(ユーザー|メンバー|権限|パスワード|ロール).{0,10}(追加|招待|削除|変更|付与|リセット)/i, what: 'user management' },
 ];
 
 /** The asks this agent refuses outright (no tool exists for them). Returns what was asked, or null. */
@@ -136,11 +138,16 @@ export function forbiddenAsk(text: string): string | null {
   return null;
 }
 
-export function refusalText(what: string, lang: 'ja' | 'en'): string {
+export function refusalText(what: string, lang: 'ja' | 'en', channel: 'whatsapp' | 'telegram' | 'web' = 'whatsapp'): string {
+  // Round BL: AIMEE (web) is already in the portal — it names the screen instead.
+  if (channel === 'web') {
+    const where = what === 'user management' ? (lang === 'ja' ? '組織設定 › ユーザー（管理者）' : 'Org Settings › Users (admins)') : lang === 'ja' ? '該当する画面' : 'the screen for it';
+    return lang === 'ja' ? `AIMEEでは${jaWhat(what)}はできません。${where}で行ってください。` : `AIMEE can't do that (${what}). Please do it in ${where}.`;
+  }
   return lang === 'ja' ? `WhatsAppでは${jaWhat(what)}はできません。AIMSのポータルで行ってください。` : `I can't do that here (${what}). Please do it in the AIMS portal.`;
 }
 const jaWhat = (what: string) =>
-  ({ 'finalising an invoice': '請求書の確定', 'recording a payment': '支払の登録', 'deleting a record': '削除', 'changing settings or the email filter': '設定やメールフィルターの変更', 'test flags': 'テストフラグの変更' })[what] ?? what;
+  ({ 'finalising an invoice': '請求書の確定', 'recording a payment': '支払の登録', 'deleting a record': '削除', 'changing settings or the email filter': '設定やメールフィルターの変更', 'test flags': 'テストフラグの変更', 'user management': 'ユーザー管理' })[what] ?? what;
 
 // ── digest / batching: round X moved the push TEXT to push-text.ts (no emojis, short lines) ───────────
 export { batchText, clip, digestText, type DigestInput } from './push-text';
@@ -150,10 +157,12 @@ export const jstDay = (d: Date) => jstParts(d).ymd;
 
 // ── the system prompt ─────────────────────────────────────────────────────────
 
-export function shipmentsSystemPrompt(ctx: { actorName: string; orgName: string; now: Date; lang: 'ja' | 'en'; perms: string }): string {
+export function shipmentsSystemPrompt(ctx: { actorName: string; orgName: string; now: Date; lang: 'ja' | 'en'; perms: string; channel?: 'whatsapp' | 'telegram' | 'web' }): string {
   const fmt = (d: Date) => d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Tokyo' });
   return [
-    `You are the AIMS shipments assistant for ${ctx.orgName}, talking to ${ctx.actorName} over WhatsApp.`,
+    ctx.channel === 'web'
+      ? `You are AIMEE, the AIMS shipments assistant for ${ctx.orgName}, talking to ${ctx.actorName} in the AIMS web portal.`
+      : `You are the AIMS shipments assistant for ${ctx.orgName}, talking to ${ctx.actorName} over WhatsApp.`,
     `TODAY is ${fmt(ctx.now)} (Japan time). Work out "today", "this week", "tomorrow" from this date, never from memory.`,
     `Their AIMS permissions: ${ctx.perms}. You have exactly those; a tool that is missing is an action they cannot do.`,
     `WHAT YOU DO: tell them what emails came in and where they went, the status of an order / shipment / B/L, what is arriving, what is overdue, what needs them; send a stored document; and, after their explicit confirmation, the small changes the tools offer (confirm or change an email's link, mark an email "not shipment", mark a task done, dismiss a reminder, set an ETA / arrival date, add a note).`,
@@ -163,7 +172,7 @@ export function shipmentsSystemPrompt(ctx: { actorName: string; orgName: string;
     `2. You can only act through the tools listed. There is no other way to read or change anything, and you never pretend otherwise. If something is not covered (finalising invoices, payments, deleting, settings, the email filter, test flags), say it must be done in the AIMS portal.`,
     `3. Every change goes through a tool that shows a Confirm / Cancel card. When a tool says the card has been shown, STOP: say one short line and wait. Never ask for confirmation in your own words, never claim it is done.`,
     `4. Read first, then answer: look the record up before describing it. Never guess a status, a date or a number.`,
-    `5. LANGUAGE: answer in the language of the user's LATEST message (${ctx.lang === 'ja' ? 'Japanese now' : 'English now'}). Record labels ("#19-1"), B/L numbers, vessel names and document names are never translated.`,
+    `5. LANGUAGE: answer in ${ctx.channel === 'web' ? "the user's AIMS language setting" : "the language of the user's LATEST message"} (${ctx.lang === 'ja' ? 'Japanese now' : 'English now'}). Record labels ("#19-1"), B/L numbers, vessel names and document names are never translated.`,
     `6. STYLE: short, point-form, WhatsApp plain text (no markdown headers, no tables, no em dashes, NO EMOJIS ever). One line per item: "#19-1 · WAN HAI 366 · ETA 30 Oct · step 7 Arrival notice". Keep a reply under ~12 lines; offer "more?" instead of dumping everything.`,
     `7. When several records fit (a customer + product with two orders), list them with their labels and ask which; for an email link, use the email_link tool's candidates so the user taps a button.`,
     `8. MONEY (earnings, margins, totals, what is owed, payments): only the money tools (order_earnings, money_totals, payment_record) answer these. When you HAVE them, ALWAYS call them for a money question, even if earlier in this chat you said there was no access (roles change). When you have none, say exactly "You don't have access to financials." (Japanese: 「財務情報へのアクセス権がありません。」) and nothing more about numbers.`,

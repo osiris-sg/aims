@@ -357,6 +357,20 @@ export const GUIDES: Guide[] = [
     ],
   },
   {
+    id: 'trade-aimee-panel',
+    title: 'Ask AIMEE next to an order (the AIMEE side panel)',
+    module: 'SHIPMENTS',
+    description:
+      'How to use AIMEE while working on an order: the AIMEE button in the order header opens the side panel on the right; it knows the shipment and the open step, suggests questions for that step, cites the record with links, and shows any change as a Confirm / Cancel card. Also "Ask AIMEE" on the Dashboard email cards and in the Answer flow.',
+    route: '/portal/shipments',
+    steps: [
+      { selector: '[data-tour="aimee-record-button"]', title: 'AIMEE on this order', body: 'Open an order, then press AIMEE here. The side panel opens on the right and the page stays usable.', advanceOn: 'click', patient: true },
+      { selector: '[data-tour="aimee-dock-context"]', title: 'It knows what you are looking at', body: 'The shipment and the open step ("#18-1 · Step 7"). Open another step and the questions follow.', patient: true },
+      { selector: '[data-tour="aimee-dock-suggestions"]', title: 'Suggested questions', body: 'Press one, or type your own. Answers link to the record, field or file they come from.', patient: true },
+      { selector: '[data-tour="aimee-dock-collapse"]', title: 'Nothing changes without your OK', body: 'A change shows as a Confirm / Cancel card in the panel. Fold the panel away here; it remembers the conversation for this order.', patient: true },
+    ],
+  },
+  {
     id: 'trade-reopen-cancelled-order',
     title: 'Find and reopen a cancelled order (Orders › Cancelled)',
     module: 'SHIPMENTS',

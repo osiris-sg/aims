@@ -1,3 +1,5 @@
+import type { AimeeRequest } from './shipments-web';
+
 // Channel-agnostic contracts for the AIMS Operator. The agent core only ever
 // speaks these types — every Telegram/WhatsApp specific lives in an adapter, so
 // adding a channel is a new adapter, not a change to the brain.
@@ -32,7 +34,9 @@ export type WebUiEvent =
       columns?: string[];
       rows?: Array<Array<string | number | null>>;
       note?: string;
-    };
+    }
+  /** Round BL: start a Guide walkthrough in the portal (AIMEE on a shipments org). Never stored as the panel. */
+  | { type: 'guide'; guideId: string; title?: string };
 
 export interface InboundMessage {
   channel: OperatorChannel;
@@ -122,12 +126,16 @@ export interface OperatorContext {
   channelUserId: string;
   /** Round S (2026-10-21): a shipments org (SHIPMENTS module on) talks to the shipments tool set only. */
   profile?: 'shipments' | null;
+  /** Round BL: the user's language setting (web, shipments orgs) — answers follow it instead of the latest message. */
+  lang?: 'ja' | 'en';
   /** Web chat only: the dashboard screens this user's org + role can open,
    *  sent by the portal (the same filtered list its navigation shows). */
   web?: {
     screens: Array<{ label: string; path: string }>;
     /** What the side panel shows right now, so the model never assumes. */
     panel?: { type: 'document'; documentId: string } | { type: 'screen'; path: string } | { type: 'view'; title: string } | null;
+    /** Round BL: AIMEE on a shipments org — the page in view, the walkthroughs allowed, the conversation's scope. */
+    aimee?: AimeeRequest | null;
   };
   /** Set for the turn in which the user uploaded a file: the extracted data and
    *  the stored original, so a tool called this turn can build a project cost. */
@@ -218,4 +226,6 @@ export interface SessionState {
   organizationId?: string;
   /** Web: the last side-panel event, restored when the chat is reopened. */
   lastPanel?: WebUiEvent | null;
+  /** Round BL: web threads started from the AIMEE side panel — "order:<id>", "email:<id>" or "general". */
+  scope?: string | null;
 }

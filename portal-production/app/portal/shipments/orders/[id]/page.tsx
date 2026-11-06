@@ -28,6 +28,8 @@ import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { recordFileCount, STEP_PAYMENT, useShipmentsApi, type AnExtraction, type BlExtraction, type Order, type PermitCheck, type PermitExtraction, type Shipment, type TradeFile, type TradeStep } from "../../_lib/api";
 import { blLabel, depositTermLabel, fmtDay, fmtDmy, fmtMoney, fmtMt, fmtYen, shortParty, stepLabel, shortCustomer } from "../../_lib/format";
 import RecordHeader from "../../_components/RecordHeader";
+import AimeeButton from "../../_components/aimee/AimeeButton";
+import { setAimeeContext } from "../../_components/aimee/bridge";
 import OverallProcess from "../../_components/OverallProcess";
 import ShipmentOverview from "../../_components/ShipmentOverview";
 import StepCards, { type StepContext } from "../../_components/StepCards";
@@ -130,6 +132,22 @@ export default function OrderPage() {
     setUserPicked(true);
     setOpenId(stepId);
   };
+  // Round BL: tell AIMEE what is in view — the shipment (or the order), the open step card.
+  useEffect(() => {
+    if (!o) return;
+    const st = [...earlySteps, ...shipSteps, ...lateSteps].find((x) => x.id === shown) ?? null;
+    const onShipment = !!st && shipSteps.some((x) => x.id === st.id) && !!s;
+    setAimeeContext("page", {
+      path: pathname,
+      ref: onShipment || (!st && s) ? (s?.ref ?? null) : `#${o.orderNo}`,
+      orderId: o.id,
+      shipmentId: s?.id ?? null,
+      step: st ? { id: st.id, code: st.code, no: st.displayNo ?? null, title: stepName(st.code, st.title) } : null,
+      file: wantedFile ? { name: wantedFile } : null,
+      view: "Order",
+    });
+  }, [o, s, shown, earlySteps, shipSteps, lateSteps, pathname, wantedFile, stepName]);
+  useEffect(() => () => setAimeeContext("page", null), []);
   // Round AF: a ?step= deep link (a filed document line, the order chip) WINS over the default open step — before, this
   // reset fired on mount and the page fell back to the current step, so the link only scrolled without opening the card.
   useEffect(() => {
@@ -391,6 +409,7 @@ export default function OrderPage() {
             : undefined
         }
         onActed={() => (manual.current = true)}
+        actions={<AimeeButton />}
         badge={
           // Round AB (owner): "status" in checkFields = ADH has not confirmed the order yet (the INALM sample) — no reminders until "Mark confirmed".
           unconfirmed ? (

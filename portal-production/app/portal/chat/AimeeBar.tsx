@@ -8,17 +8,20 @@ import React, { useRef, useState } from "react";
 import { Box, IconButton, InputBase, Stack, Typography } from "@mui/material";
 import ArrowUpwardRoundedIcon from "@mui/icons-material/ArrowUpwardRounded";
 import { useUser } from "@clerk/nextjs";
+import { useTranslations } from "next-intl";
 import AimeeFace, { type AimeeMood } from "./AimeeFace";
 import { openAimee } from "./homeView";
 
 export default function AimeeBar() {
   const { user } = useUser();
+  // Round BL: EN / JA through the "aimee.bar" catalog (the English values are the old text: no change for other orgs).
+  const t = useTranslations("aimee.bar");
   const faceRef = useRef<HTMLButtonElement | null>(null);
   const [text, setText] = useState("");
   const [focused, setFocused] = useState(false);
   const first = user?.firstName || "";
   const hour = new Date().getHours();
-  const greet = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const greet = hour < 12 ? t("morning") : hour < 18 ? t("afternoon") : t("evening");
   const mood: AimeeMood = focused && text.trim() ? "listening" : "idle";
 
   const originOf = (el: HTMLElement | null) => {
@@ -81,7 +84,7 @@ export default function AimeeBar() {
           ref={faceRef}
           type="button"
           onClick={() => open()}
-          aria-label="Open AIMEE"
+          aria-label={t("open")}
           data-tour="aimee-face"
           sx={{
             all: "unset",
@@ -98,10 +101,10 @@ export default function AimeeBar() {
       <Box sx={{ minWidth: 0, flex: { xs: "1 1 160px", md: "0 1 auto" } }}>
         <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, letterSpacing: "0.12em", color: "text.secondary" }}>AIMEE</Typography>
         <Typography noWrap sx={{ fontWeight: 700, fontSize: { xs: "1rem", md: "1.1rem" }, letterSpacing: "-0.01em" }}>
-          {greet}{first ? `, ${first}` : ""}. What shall we do?
+          {t("greeting", { greet, name: first, hasName: first ? "yes" : "no" })}
         </Typography>
         <Typography noWrap sx={{ fontSize: "0.8rem", color: "text.secondary", display: { xs: "none", sm: "block" } }}>
-          Ask anything or say what you need. Drafts open on the side and wait for your OK.
+          {t("sub")}
         </Typography>
       </Box>
 
@@ -127,7 +130,7 @@ export default function AimeeBar() {
         <InputBase
           fullWidth
           value={text}
-          placeholder="Ask AIMEE…"
+          placeholder={t("ask")}
           onChange={(e) => setText(e.target.value)}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
@@ -137,7 +140,7 @@ export default function AimeeBar() {
               open(text);
             }
           }}
-          inputProps={{ "aria-label": "Ask AIMEE", "data-tour": "aimee-ask" }}
+          inputProps={{ "aria-label": t("ask").replace(/…$/, ""), "data-tour": "aimee-ask" }}
           sx={{ fontSize: "0.95rem" }}
         />
         <IconButton
@@ -146,7 +149,7 @@ export default function AimeeBar() {
             e.stopPropagation();
             open(text);
           }}
-          aria-label={text.trim() ? "Send to AIMEE" : "Open AIMEE"}
+          aria-label={text.trim() ? t("send") : t("open")}
           sx={{
             bgcolor: "primary.main",
             color: "primary.contrastText",

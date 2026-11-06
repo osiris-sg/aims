@@ -39,6 +39,8 @@ import { nextShipmentRef, orderGroups, orderHaystack, orderLine as orderLineOf, 
 import { fmtDay, shortCustomer } from "../../_lib/format";
 import { answerFor, docPlainName, L, likelyOptions, optionKey } from "../../_lib/inbox-cards";
 import { LinkChecklistButton } from "../LinkChecklist";
+import AimeeButton from "../aimee/AimeeButton";
+import { setAimeeContext } from "../aimee/bridge";
 
 type Step = "q1" | "what" | "which" | "files" | "issue" | "confirm";
 type Outcome = { kind: "shipments" } | { kind: "not_shipment" };
@@ -88,6 +90,13 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
   const [made, setMade] = useState<Map<string, Opt>>(new Map());
   const [showCompleted, setShowCompleted] = useState(false);
   const ids = useMemo(() => (t.answerIds?.length ? t.answerIds : t.messages.filter((m) => m.inboxState !== "PROCESSED").map((m) => m.id)), [t]);
+  // Round BL: while the Answer flow is open, the AIMEE side panel is about this email ("which shipment is this?").
+  useEffect(() => {
+    const emailId = ids[0] ?? t.messages[0]?.id;
+    if (!open || !emailId) return;
+    setAimeeContext("dialog", { email: { id: emailId, subject: t.subject ?? null }, view: "Answer" });
+    return () => setAimeeContext("dialog", null);
+  }, [open, ids, t]);
   const inList = open && (step === "which" || step === "files" || step === "issue" || step === "confirm");
   const ships = useShipments({ status: "OPEN", pageSize: 200 }, inList);
   const done = useShipments({ status: "COMPLETED", pageSize: 200 }, inList);
@@ -367,7 +376,8 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
     : outcome?.kind === "shipments" ? (picked.length && !issueOn ? labels.confirmLink(emails, pickedRefs) : labels.confirmTitle)
     : isDeal ? labels.confirmNotDeal(emails) : labels.confirmNot(emails);
   return (
-    <Dialog open={open} onClose={onClose} maxWidth={step === "files" || step === "issue" ? "md" : "sm"} fullWidth transitionDuration={{ enter: 225, exit: 0 }} disableRestoreFocus onKeyDown={onKeyDown} data-tour="answer-flow" data-step={step}>
+    // Round BL: disableEnforceFocus so the AIMEE side panel (opened above the dialog) can take the keyboard.
+    <Dialog open={open} onClose={onClose} maxWidth={step === "files" || step === "issue" ? "md" : "sm"} fullWidth transitionDuration={{ enter: 225, exit: 0 }} disableRestoreFocus disableEnforceFocus onKeyDown={onKeyDown} data-tour="answer-flow" data-step={step}>
       <DialogTitle sx={{ pr: 7 }}>
         <Typography variant="h6" component="div" sx={{ fontWeight: 700, wordBreak: "break-word" }} data-tour="answer-step-title">
           {title}
@@ -377,6 +387,9 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
             {t.subject || ""}
           </Typography>
         )}
+        <Box sx={{ mt: 0.75 }}>
+          <AimeeButton variant="email" aboveModal dataTour="aimee-answer-button" />
+        </Box>
         <IconButton aria-label={tc("close")} onClick={onClose} sx={{ position: "absolute", right: 8, top: 8 }} data-tour="answer-flow-close">
           <CloseIcon />
         </IconButton>

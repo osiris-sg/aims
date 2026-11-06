@@ -113,6 +113,6 @@ import { TradeStepsService } from './trade-steps.service';
     TradeCastIndexService,
     PrismaService,
   ],
-  exports: [TradeRecordEvents, TradeDueService, CarrierTrackingService, MonthlyListService, ShipmentsNotifyService, TradeAdminDashboardService, TradeGeneratedService, OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService, TradeExtractService, TradeIssuesService, TradeCastIndexService],
+  exports: [TradePriceCheckService, TradeRecordEvents, TradeDueService, CarrierTrackingService, MonthlyListService, ShipmentsNotifyService, TradeAdminDashboardService, TradeGeneratedService, OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService, TradeExtractService, TradeIssuesService, TradeCastIndexService],
 })
 export class ShipmentsModule {}

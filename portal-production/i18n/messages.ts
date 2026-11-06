@@ -31,10 +31,12 @@ import enAddflow from "./messages/en/addflow.json";
 import jaAddflow from "./messages/ja/addflow.json";
 import enSi from "./messages/en/si.json";
 import jaSi from "./messages/ja/si.json";
+import enAimee from "./messages/en/aimee.json";
+import jaAimee from "./messages/ja/aimee.json";
 
 type Tree = { [k: string]: string | Tree };
-const EN: Tree = { common: enCommon, shell: enShell, steps: enSteps, shipments: enShipments, clients: enClients, settings: enSettings, users: enUsers, audit: enAudit, invoices: enInvoices, orders: enOrders, inbox: enInbox, contracts: enContracts, catalog: enCatalog, addflow: enAddflow, si: enSi } as Tree;
-const JA: Tree = { common: jaCommon, shell: jaShell, steps: jaSteps, shipments: jaShipments, clients: jaClients, settings: jaSettings, users: jaUsers, audit: jaAudit, invoices: jaInvoices, orders: jaOrders, inbox: jaInbox, contracts: jaContracts, catalog: jaCatalog, addflow: jaAddflow, si: jaSi } as Tree;
+const EN: Tree = { common: enCommon, shell: enShell, steps: enSteps, shipments: enShipments, clients: enClients, settings: enSettings, users: enUsers, audit: enAudit, invoices: enInvoices, orders: enOrders, inbox: enInbox, contracts: enContracts, catalog: enCatalog, addflow: enAddflow, si: enSi, aimee: enAimee } as Tree;
+const JA: Tree = { common: jaCommon, shell: jaShell, steps: jaSteps, shipments: jaShipments, clients: jaClients, settings: jaSettings, users: jaUsers, audit: jaAudit, invoices: jaInvoices, orders: jaOrders, inbox: jaInbox, contracts: jaContracts, catalog: jaCatalog, addflow: jaAddflow, si: jaSi, aimee: jaAimee } as Tree;
 
 /** English under Japanese, key by key. */
 export function withFallback(base: Tree, over: Tree): Tree {

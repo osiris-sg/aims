@@ -115,10 +115,11 @@ export default function Page() {
   }, [router]);
 
   if (isLoading || phase === null || configLoading) return null;
-  if (tradeHome) return <SalesDashboard />;
+  // Round BL: a SHIPMENTS org's Sales dashboard gets AIMEE on top too when the org has AIMEE on (ADH); without the
+  // flag it renders alone, as before.
   // Role home (enableRoleHome) replaces the dashboard as the landing screen;
   // it carries its own assistant panel, so AimeeBar is left off below.
-  const Home = isRoleHomeEnabled ? <RoleHome /> : <DashboardOverview />;
+  const Home = tradeHome ? <SalesDashboard /> : isRoleHomeEnabled ? <RoleHome /> : <DashboardOverview />;
   if (!isAimsChatEnabled) return Home;
 
   const aimeeShown = phase !== "dashboard";
@@ -129,8 +130,8 @@ export default function Page() {
         aria-hidden={phase === "aimee"}
         sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, visibility: phase === "aimee" ? "hidden" : "visible" }}
       >
-        {!isRoleHomeEnabled && <AimeeBar />}
-        <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", ...(isRoleHomeEnabled ? { overflowY: "auto" } : { "& > div:first-of-type": { pt: 2 } }) }}>
+        {(tradeHome || !isRoleHomeEnabled) && <AimeeBar />}
+        <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", ...(isRoleHomeEnabled && !tradeHome ? { overflowY: "auto" } : { "& > div:first-of-type": { pt: 2 } }) }}>
           {Home}
         </Box>
       </Box>

@@ -34,6 +34,7 @@ import { resolveSubmenuRoute, submenuLabel, useNavLabels, useNavModules } from "
 import { useTranslations } from "next-intl";
 import { HOME_VIEW_EVENT, closeAimee, openAimee, readHomeView, type HomeView } from "@/app/portal/chat/homeView";
 import AimeeFace from "@/app/portal/chat/AimeeFace";
+import { dockAvailable, toggleDock } from "@/app/portal/shipments/_components/aimee/bridge";
 import { isClientsPath } from "@/helpers/shipmentsNav";
 
 // Deliberate hardcoded org check pending a general per-org nav-logo solution.
@@ -209,6 +210,12 @@ export default function TopNavBar() {
     if (aimeeOpen) {
       router.replace("/portal", { scroll: false });
       closeAimee();
+      return;
+    }
+    // Round BL: where the AIMEE side panel exists (a SHIPMENTS org with AIMEE on) the face opens / folds it on the
+    // page you are on; every other org keeps the full AIMEE screen.
+    if (dockAvailable()) {
+      toggleDock();
       return;
     }
     if (rawPathname === "/portal") {

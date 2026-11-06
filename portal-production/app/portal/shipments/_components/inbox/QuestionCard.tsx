@@ -24,6 +24,8 @@ import type { CardChoice, CardEvidence, EvidenceSegment, InboxAnswer, InboxLang,
 import { cardHeadline, cardWhoLine, choiceAction, evidenceFile, evidenceParts, fullSubject } from "../../_lib/inbox-cards";
 import { useInboxLabels } from "./useInboxLabels";
 import { ChooseShipmentDialog, type ChooseStart } from "./ChooseShipmentDialog";
+import AimeeButton from "../aimee/AimeeButton";
+import { setAimeeContext } from "../aimee/bridge";
 
 export interface QuestionCardProps {
   t: InboxThread;
@@ -155,6 +157,8 @@ export function QuestionCard({ t, lang, n, busy, onAnswer, onCreateOrder, onOpen
             <Button size="small" variant="outlined" color="inherit" onClick={() => onOpenThread(t)} sx={{ textTransform: "none" }} data-tour="question-show-full">
               {labels.showFull}
             </Button>
+            {/* Round BL: ask AIMEE about this email ("which shipment is this?") in the side panel. */}
+            <AimeeButton variant="email" onOpen={() => setAimeeContext("email", { email: { id: newest.id, subject }, view: "Dashboard" })} />
           </Stack>
           {showAlts && (
             <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap alignItems="center" sx={{ mt: 0.75 }} data-tour="question-alternatives">

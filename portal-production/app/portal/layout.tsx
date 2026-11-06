@@ -20,6 +20,8 @@ import { useAuth } from "@clerk/nextjs";
 import FieldOnlyGuard from "./components/FieldOnlyGuard";
 import ModuleRouteGuard from "./components/ModuleRouteGuard";
 import GuideAssistant from "./components/GuideAssistant/GuideAssistant";
+import GuideHost from "./components/GuideAssistant/GuideHost";
+import AimeeDockHost from "./shipments/_components/aimee/AimeeDockHost";
 import TopNavBar from "@/components/TopNav/TopNavBar";
 import RoleTopBar from "./components/RoleHome/RoleTopBar";
 import { useOrganizationFeatures } from "./hooks/useOrganizationFeatures";
@@ -123,6 +125,10 @@ export default function Layout(props: Props) {
               </Box>
               {/* AIMS Guide bubble (bottom-right) — global for every org. */}
               {!embed && <GuideBubble pathname={pathname} />}
+              {/* Round BL: Guide walkthroughs started from AIMEE (the same engine as the bubble). */}
+              {!embed && <GuideHost />}
+              {/* Round BL: the AIMEE side panel — orgs with the SHIPMENTS module and AIMEE on only (renders nothing elsewhere). */}
+              {!embed && <AimeeDockHost />}
               <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable pauseOnHover theme={mode} />
             </Box>
             </OrgTheme>

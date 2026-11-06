@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { request } from "@/helpers/request";
+import { aimeePayload, startGuide } from "@/app/portal/shipments/_components/aimee/bridge";
 
 export type ChatChannel = "web" | "whatsapp" | "telegram";
 
@@ -39,6 +40,8 @@ export interface ThreadSummary {
   number?: string;
   preview: string;
   updatedAt: string;
+  /** Round BL: AIMEE side panel threads — "order:<id>", "email:<id>" or "general". */
+  scope?: string;
 }
 
 export interface PendingAction {
@@ -89,10 +92,22 @@ function activeOrgHeader(headers: Record<string, string>) {
   return headers;
 }
 
-export function useOperatorChat(screens: Array<{ label: string; path: string }>, opts: { restorePanel?: boolean } = {}) {
+export function useOperatorChat(
+  screens: Array<{ label: string; path: string }>,
+  opts: {
+    restorePanel?: boolean;
+    /** Round BL: false for the AIMEE side panel — it lives on other pages, so it never writes ?chat= into the URL. */
+    urlSync?: boolean;
+    /** Round BL: a panel event the caller handles itself (the side panel navigates the page for a screen). */
+    onUi?: (event: PanelEvent) => boolean;
+  } = {},
+) {
   const { getToken } = useAuth();
   const router = useRouter();
-  const writeChatParam = useCallback((id: string | null) => router.replace(chatUrl(id), { scroll: false }), [router]);
+  const urlSync = opts.urlSync !== false;
+  const onUiRef = useRef(opts.onUi);
+  onUiRef.current = opts.onUi;
+  const writeChatParam = useCallback((id: string | null) => (urlSync ? router.replace(chatUrl(id), { scroll: false }) : undefined), [router, urlSync]);
   const [threads, setThreads] = useState<ThreadSummary[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(true);
   const [threadsError, setThreadsError] = useState(false);
@@ -184,6 +199,7 @@ export function useOperatorChat(screens: Array<{ label: string; path: string }>,
 
   // Restore the chat named in the URL on first load.
   useEffect(() => {
+    if (!urlSync) return;
     const id = readChatParam();
     if (!id) return;
     threadRef.current = id;
@@ -247,6 +263,9 @@ export function useOperatorChat(screens: Array<{ label: string; path: string }>,
       try {
         const token = await getToken();
         const headers = activeOrgHeader({ "Content-Type": "application/json", Authorization: `Bearer ${token}` });
+        // Round BL: only an org with the SHIPMENTS module and AIMEE registers a payload (the page in view, the
+        // walkthroughs, the conversation's scope); every other org's message is sent exactly as before.
+        const aimee = aimeePayload();
         const resp = await fetch(`${API}/operator/web/message`, {
           method: "POST",
           headers,
@@ -265,6 +284,7 @@ export function useOperatorChat(screens: Array<{ label: string; path: string }>,
                   ? { type: "screen", path: panelRef.current.path }
                   : { type: "view", title: panelRef.current.title }
               : null,
+            ...(aimee ? { aimee } : {}),
           }),
         });
         if (!resp.ok || !resp.body) throw new Error(`The assistant is unavailable (${resp.status}).`);
@@ -302,7 +322,9 @@ export function useOperatorChat(screens: Array<{ label: string; path: string }>,
             } else if (evt.type === "status") {
               setStatus(evt.text || null);
             } else if (evt.type === "ui") {
-              setPanel(evt.event);
+              // Round BL: a walkthrough start is not a panel; the side panel may take a screen itself.
+              if (evt.event?.type === "guide") startGuide(evt.event.guideId);
+              else if (!onUiRef.current?.(evt.event)) setPanel(evt.event);
             } else if (evt.type === "title") {
               // The chat got its real name after the first exchange.
               setThreads((prev) => prev.map((t) => (t.id === evt.id ? { ...t, title: evt.title } : t)));
