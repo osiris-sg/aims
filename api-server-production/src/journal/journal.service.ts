@@ -483,15 +483,25 @@ export class JournalService {
         description: true,
         debit: true,
         credit: true,
-        journalEntry: { select: { journalNumber: true, entryDate: true, type: true, reference: true, description: true } },
+        journalEntry: { select: { journalNumber: true, entryDate: true, type: true, reference: true, description: true, sourceDocumentId: true } },
       },
       orderBy: { journalEntry: { entryDate: 'asc' } },
     });
+
+    // The document each line came from, so the ledger can open it on click
+    // (guru 2026-11-06: "click it goes to that document, then go back"). One
+    // lookup for the distinct ids — never a join per line.
+    const docIds = [...new Set(lines.map((l) => l.journalEntry.sourceDocumentId).filter((id): id is string => !!id))];
+    const docs = docIds.length
+      ? await this.prisma.document.findMany({ where: { organizationId, id: { in: docIds } }, select: { id: true, type: true, name: true, documentTemplateId: true } })
+      : [];
+    const docById = new Map(docs.map((d) => [d.id, d]));
 
     let running = openingBalance;
     const rows = lines.map((l) => {
       const delta = account.normalBalance === 'DEBIT' ? l.debit - l.credit : l.credit - l.debit;
       running += delta;
+      const src = l.journalEntry.sourceDocumentId ? docById.get(l.journalEntry.sourceDocumentId) : undefined;
       return {
         journalEntryId: l.journalEntryId,
         journalNumber: l.journalEntry.journalNumber,
@@ -502,6 +512,10 @@ export class JournalService {
         debit: ROUND(l.debit),
         credit: ROUND(l.credit),
         balance: ROUND(running),
+        sourceDocumentId: src?.id ?? null,
+        sourceDocumentType: src?.type ?? null,
+        sourceDocumentName: src?.name ?? null,
+        sourceTemplateId: src?.documentTemplateId ?? null,
       };
     });
 

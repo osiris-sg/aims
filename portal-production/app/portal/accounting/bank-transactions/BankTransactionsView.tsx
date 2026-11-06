@@ -50,6 +50,14 @@ export function BankTransactionsView({ kind }: { kind: BankTransactionKind }) {
   // ?new=1 → straight into a blank editor; the flag is dropped from the URL so
   // a refresh does not reopen it.
   useEffect(() => {
+    // ?open=<id> (a ledger row posted from this transaction — guru 2026-11-06):
+    // open it straight away; closing returns to ?from=.
+    const openId = searchParams.get("open");
+    if (openId) {
+      request<BankTransactionRow>(`/bank-transactions/${openId}`)
+        .then((r) => { if (r?.id) { setEditing(r); setEditorOpen(true); } })
+        .catch((e: any) => toast.error(e?.message || "Couldn't open that transaction"));
+    }
     if (searchParams.get("new") === "1") {
       setEditing(null);
       setEditorOpen(true);
@@ -59,6 +67,13 @@ export function BankTransactionsView({ kind }: { kind: BankTransactionKind }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
+
+  // A ledger-opened transaction goes back to ?from= when its dialog closes.
+  const returnTo = (() => { const f = searchParams.get("from"); return f && f.startsWith("/portal") ? f : null; })();
+  const closeEditor = () => {
+    setEditorOpen(false);
+    if (returnTo) router.push(returnTo);
+  };
 
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -183,8 +198,8 @@ export function BankTransactionsView({ kind }: { kind: BankTransactionKind }) {
         open={editorOpen}
         kind={kind}
         editing={editing}
-        onClose={() => setEditorOpen(false)}
-        onSaved={() => { setEditorOpen(false); void load(); }}
+        onClose={closeEditor}
+        onSaved={() => { void load(); closeEditor(); }}
       />
       <Dialog open={!!voiding} onClose={voidBusy ? undefined : () => setVoiding(null)} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>Void {voiding?.number}?</DialogTitle>

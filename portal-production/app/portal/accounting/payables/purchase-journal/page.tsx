@@ -121,8 +121,23 @@ export default function BillsPage() {
       setNewKind("SIN");
       setEditorOpen(true);
     }
+    // ?bill=<id> (a ledger row that was posted from this bill — guru
+    // 2026-11-06): open that bill straight away; closing it returns to ?from=.
+    const billId = searchParams.get("bill");
+    if (billId) {
+      request<any>(`/bills/${billId}`)
+        .then((b) => { if (b?.id) { setEditing(b); setEditorOpen(true); } })
+        .catch((e: any) => toast.error(e?.message || "Couldn't open that bill"));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Where a ledger-opened bill goes back to when its dialog closes.
+  const returnTo = (() => { const f = searchParams.get("from"); return f && f.startsWith("/portal") ? f : null; })();
+  const closeEditor = () => {
+    setEditorOpen(false);
+    setBatchFiles(null);
+    if (returnTo) router.push(returnTo);
+  };
 
   const counts = useMemo(() => {
     const c = { all: items.length, DRAFT: 0, PENDING_APPROVAL: 0, POSTED: 0, PAID: 0, VOID: 0 };
@@ -551,8 +566,8 @@ export default function BillsPage() {
         editing={editing}
         kind={newKind}
         batchFiles={batchFiles}
-        onClose={() => { setEditorOpen(false); setBatchFiles(null); }}
-        onSaved={() => { setEditorOpen(false); setBatchFiles(null); load(); }}
+        onClose={closeEditor}
+        onSaved={() => { load(); closeEditor(); }}
         onRefresh={load}
         onDuplicate={(b: any) => duplicateBill(b)}
       />

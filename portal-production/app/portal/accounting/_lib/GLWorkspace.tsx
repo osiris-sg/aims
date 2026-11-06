@@ -8,8 +8,8 @@
 // (running balance for a period). Reports live in a View Reports dialog —
 // same pattern as ARWorkspace / APWorkspace.
 
-import React, { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import React, { useEffect, useMemo, useState, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Autocomplete,
   Box,
@@ -43,6 +43,7 @@ import PrintIcon from "@mui/icons-material/Print";
 import SearchIcon from "@mui/icons-material/Search";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./api";
+import { clickableRowSx, sourceHref } from "./open-source";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { PaperSheet, ReportHeader, ReportPrintCss, fmt as docFmt, formatShortDate } from "./report-doc";
 import { ReportPrintExportButton, type ReportExportModel, type ReportExportTable } from "./report-export";
@@ -88,6 +89,7 @@ type TbRow = {
 };
 
 type LedgerRow = {
+  journalEntryId?: string | null;
   journalNumber: string;
   entryDate: string;
   reference?: string | null;
@@ -95,6 +97,11 @@ type LedgerRow = {
   debit: number;
   credit: number;
   balance: number;
+  // The document the line was posted from (null on a manual J/V) — the row
+  // click opens it (guru 2026-11-06).
+  sourceDocumentId?: string | null;
+  sourceDocumentType?: string | null;
+  sourceTemplateId?: string | null;
 };
 
 // Legacy tile groups: each card carries two label/value lines.
@@ -222,6 +229,42 @@ export default function GLWorkspace() {
   const [selected, setSelected] = useState<{ id: string; code: string; name: string } | null>(null);
   const [fromPeriod, setFromPeriod] = useState("");
   const [toPeriod, setToPeriod] = useState(todayISO());
+
+  // Deep link back INTO the ledger (?account=<id>&fromPeriod=&toPeriod=): a
+  // row opened a document or journal with ?from= pointing here, so Back
+  // lands on the same account ledger, same period (guru 2026-11-06).
+  const searchParams = useSearchParams();
+  const reopenedRef = useRef(false);
+  useEffect(() => {
+    if (reopenedRef.current || !netRows.length) return;
+    const accountId = searchParams.get("account");
+    if (!accountId) return;
+    const acc = netRows.find((r) => r.accountId === accountId);
+    if (!acc) return;
+    reopenedRef.current = true;
+    const f = searchParams.get("fromPeriod");
+    const t = searchParams.get("toPeriod");
+    if (f) setFromPeriod(f);
+    if (t) setToPeriod(t);
+    setSelected({ id: acc.accountId, code: acc.code, name: acc.name });
+  }, [netRows, searchParams]);
+  // What a row's target carries as ?from= — this page with the drawer state.
+  const ledgerReturnPath = () => {
+    const q = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+    if (selected) q.set("account", selected.id);
+    else q.delete("account");
+    if (fromPeriod) q.set("fromPeriod", fromPeriod);
+    else q.delete("fromPeriod");
+    q.set("toPeriod", toPeriod);
+    return `${typeof window !== "undefined" ? window.location.pathname : "/portal/accounting/ledger"}?${q.toString()}`;
+  };
+  const openLedgerRow = (t: LedgerRow) => {
+    const href = sourceHref(
+      { journalEntryId: t.journalEntryId, documentId: t.sourceDocumentId, documentType: t.sourceDocumentType, templateId: t.sourceTemplateId },
+      ledgerReturnPath(),
+    );
+    if (href) router.push(href);
+  };
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledger, setLedger] = useState<{ opening: number; closing: number; rows: LedgerRow[] } | null>(null);
 
@@ -389,7 +432,7 @@ export default function GLWorkspace() {
                   </TableHead>
                   <TableBody>
                     {(ledger?.rows || []).map((t, i) => (
-                      <TableRow key={i} hover>
+                      <TableRow key={i} hover sx={clickableRowSx} onClick={() => openLedgerRow(t)} title="Open the document behind this line (a manual J/V opens the journal)">
                         <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
                           {t.journalNumber || "—"}
                         </TableCell>

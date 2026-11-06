@@ -6,8 +6,8 @@
 // "Debtor Historical Listing": running-balance transactions for a period);
 // every AR report is reachable from a "View Reports" dialog.
 
-import React, { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import React, { useEffect, useMemo, useState, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import {
   Box,
@@ -40,6 +40,7 @@ import AccountBalanceWalletOutlinedIcon from "@mui/icons-material/AccountBalance
 import SearchIcon from "@mui/icons-material/Search";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./api";
+import { clickableRowSx, sourceHref } from "./open-source";
 import { useCustomersByIds } from "@/app/portal/hooks/api/useCustomerPicker";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import JournalEntryDialog from "./JournalEntryDialog";
@@ -111,6 +112,27 @@ export default function ARWorkspace() {
   const [search, setSearch] = useState("");
   const [reportsOpen, setReportsOpen] = useState(false);
   const [selected, setSelected] = useState<{ id: string; name: string; code: string } | null>(null);
+  // Deep link back into the ledger (?contact=<id>&fromPeriod=&toPeriod=) —
+  // set as ?from= on whatever a ledger row opened, so Back lands here with
+  // the same contact drawer open (guru 2026-11-06).
+  const searchParams = useSearchParams();
+  const reopenedRef = useRef(false);
+  const contactReturnPath = () => {
+    const q = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+    if (selected) q.set("contact", selected.id);
+    else q.delete("contact");
+    if (fromPeriod) q.set("fromPeriod", fromPeriod);
+    else q.delete("fromPeriod");
+    q.set("toPeriod", toPeriod);
+    return `${typeof window !== "undefined" ? window.location.pathname : "/portal/accounting/receivables"}?${q.toString()}`;
+  };
+  const openLedgerRow = (t: any) => {
+    const href = sourceHref(
+      { documentId: t.docId || t.documentId || null, documentType: t.docTypeKey || null, templateId: t.templateId || null, journalEntryId: t.journalEntryId || null },
+      contactReturnPath(),
+    );
+    if (href) router.push(href);
+  };
   // Legacy AR home's two primary actions (header buttons, Option A).
   const [jvOpen, setJvOpen] = useState(false);
   const [openingReceipt, setOpeningReceipt] = useState(false);
@@ -191,6 +213,21 @@ export default function ARWorkspace() {
   const [toPeriod, setToPeriod] = useState(todayISO());
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledger, setLedger] = useState<{ opening: number; txs: SoaTx[]; totalDebit: number; totalCredit: number; closing: number } | null>(null);
+
+  useEffect(() => {
+    if (reopenedRef.current || !rows.length) return;
+    const contactId = searchParams.get("contact");
+    if (!contactId) return;
+    const r = rows.find((x) => x.contactId === contactId);
+    if (!r) return;
+    reopenedRef.current = true;
+    const f = searchParams.get("fromPeriod");
+    const t = searchParams.get("toPeriod");
+    if (f) setFromPeriod(f);
+    if (t) setToPeriod(t);
+    setSelected({ id: r.contactId, name: r.contactName, code: r.contactCode || codeById.get(r.contactId) || "" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, searchParams]);
 
   useEffect(() => {
     if (!selected) return;
@@ -332,7 +369,7 @@ export default function ARWorkspace() {
               </TableHead>
               <TableBody>
                 {(ledger?.txs || []).map((t, i) => (
-                  <TableRow key={i} hover>
+                  <TableRow key={i} hover sx={clickableRowSx} onClick={() => openLedgerRow(t)} title="Open the document behind this line">
                     <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{t.reference || "—"}</TableCell>
                     <TableCell sx={{ whiteSpace: "nowrap" }}>{dmy(t.date)}</TableCell>
                     <TableCell>{t.description || ""}</TableCell>
