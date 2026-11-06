@@ -99,7 +99,7 @@ export const REPORTS: ReportEntry[] = [
   { key: "detailed-ageing", label: "Detailed Ageing Analysis", description: "Every outstanding document per customer, aged by calendar month with running balance", category: "Receivables", Component: DetailedAgeing },
   { key: "debtor-listing", label: "Debtor Listing", description: "Every debtor's balance as at a cut-off date — local and foreign amounts, DR/CR", category: "Receivables", Component: DebtorListing },
   { key: "historical-listing", label: "Historical Listing", description: "Per-debtor transaction history for a period with BALANCE B/F and sub-totals", category: "Receivables", Component: HistoricalListing },
-  { key: "jv-listing", label: "Journal Voucher Listing", description: "Every journal line for a period — Unconfirmed and Confirmed vouchers with foreign amounts", category: "Ledger", Component: JvListing },
+  { key: "jv-listing", label: "Journal Voucher Listing", description: "Hand-keyed journal vouchers for a period — Unconfirmed and Confirmed, with foreign amounts (document journals list under their own prefixes)", category: "Ledger", Component: JvListing },
   { key: "sbc", label: "Sales by Customer", description: "Revenue breakdown by customer", category: "Receivables", Component: SalesByCustomerPage },
   { key: "contact-transactions", label: "Contact Transactions", description: "Opening, movement and closing balance for one contact", category: "Receivables", Component: ContactTransactionsSummary },
   { key: "income-expense-by-contact", label: "Income and Expenses by Contact", description: "Per-contact income and spend across comparison months", category: "Receivables", Component: IncomeExpensesByContact },

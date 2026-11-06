@@ -14,7 +14,7 @@ import { toast } from "react-toastify";
 import { useAccountingApi } from "../api";
 import ReportShell, { downloadCsv } from "./ReportShell";
 import ReportTable, { ReportRow, fmtDate } from "./ReportTable";
-import { DateRangeSelect, FilterSelect } from "./DateRangeSelect";
+import { DateRangeSelect } from "./DateRangeSelect";
 
 const R = (n: number) => Math.round(n * 100) / 100;
 // Debit side = positive signed amounts; credit side = negatives (shown as
@@ -52,12 +52,12 @@ export default function JvListingReport() {
   // Legacy dialog defaults: From Period 01/01/2018, To Period today.
   const [from, setFrom] = useState("2018-01-01");
   const [to, setTo] = useState(todayISO());
-  // Source filter (guru 2026-11-05: "is there a way to look at manual JV
-  // entries?"). MANUAL = journals keyed in on the Journal Voucher screen;
-  // everything else was auto-posted from a document (invoice, receipt,
-  // voucher, credit note…) or imported.
-  const [source, setSource] = useState<"all" | "manual" | "auto">("all");
-  const sourceLabel = source === "manual" ? "Manual J/V only" : source === "auto" ? "Auto-posted only" : "All journals";
+  // J/V = the journals keyed in by hand on the Journal Voucher screen, and
+  // ONLY those (guru 2026-11-06: "JV is only for the manual double entries").
+  // Journals AIMS posts from documents already list under their own prefixes
+  // — SIN / INV / CN / REC / P/V — in the Audit Trail and the document
+  // listings, so they never belong here. The server filters by type MANUAL
+  // before its 500-journal cap.
   const [loading, setLoading] = useState(false);
   const [sections, setSections] = useState<{ unconfirmed: JvLine[]; confirmed: JvLine[] } | null>(null);
   const [truncated, setTruncated] = useState(false);
@@ -66,17 +66,14 @@ export default function JvListingReport() {
     setLoading(true);
     try {
       const res = await request<any>(
-        `/journal/reports/journal?startDate=${from}&endDate=${to}&orderBy=journalNumber&includeUnposted=true${source === "all" ? "" : `&source=${source}`}`,
+        `/journal/reports/journal?startDate=${from}&endDate=${to}&orderBy=journalNumber&includeUnposted=true&source=manual`,
       );
       const data = (res as any)?.data ?? res;
       const unconfirmed: JvLine[] = [];
       const confirmed: JvLine[] = [];
       for (const j of data?.journals || []) {
-        // The server already filters by source (before its 500-journal
-        // cap); this is only a guard for an older API.
-        const isManual = String(j.type || "").toUpperCase() === "MANUAL";
-        if (source === "manual" && j.type && !isManual) continue;
-        if (source === "auto" && isManual) continue;
+        // Guard for an older API that ignores ?source=: hand-keyed only.
+        if (j.type && String(j.type).toUpperCase() !== "MANUAL") continue;
         // Unconfirmed = draft JVs AND posted journals born from unconfirmed
         // documents (guru 2026-07-24 status model).
         const bucket = (j.status || "POSTED") === "DRAFT" || j.isUnconfirmed ? unconfirmed : confirmed;
@@ -105,7 +102,7 @@ export default function JvListingReport() {
     } finally {
       setLoading(false);
     }
-  }, [request, from, to, source]);
+  }, [request, from, to]);
 
   useEffect(() => {
     void load();
@@ -186,20 +183,9 @@ export default function JvListingReport() {
       filters={
         <Stack direction="row" gap={1.5} alignItems="flex-end" flexWrap="wrap">
           <DateRangeSelect label="Period" from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />
-          <FilterSelect
-            label="Source"
-            value={source}
-            onChange={(v) => setSource(v as any)}
-            options={[
-              { value: "all", label: "All journals" },
-              { value: "manual", label: "Manual J/V only" },
-              { value: "auto", label: "Auto-posted only" },
-            ]}
-            width={170}
-          />
         </Stack>
       }
-      headerLines={sections ? [`From Date : ${fmtDate(from)}   To Date : ${fmtDate(to)}   Source : ${sourceLabel}`] : []}
+      headerLines={sections ? [`From Date : ${fmtDate(from)}   To Date : ${fmtDate(to)}`] : []}
       footerInfo={sections ? `${lineCount} line${lineCount === 1 ? "" : "s"}${truncated ? " · truncated at 500 journals" : ""}` : ""}
       onExportCsv={sections ? exportCsv : undefined}
     >
