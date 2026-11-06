@@ -5,6 +5,7 @@ import { JournalService } from '../journal/journal.service';
 import { BillsService } from '../bills/bills.service';
 import { AuditService } from 'src/common/audit.service';
 import { outstandingOf, grossStampOf } from '../common/document-money';
+import { AP_CREDIT_OFFSET_FLAG, isOrgFeatureEnabled } from '../common/org-features';
 import { documentReferenceOf } from '../common/doc-ref';
 import { DocumentNumberingService, bankCodeOf, patternNeedsBank } from '../document-numbering/document-numbering.service';
 import { orgToday } from '../common/org-today';
@@ -208,11 +209,18 @@ export class PaymentVouchersService {
   // Unpaid bills for the allocation grid: outstanding = total − payments,
   // stamped-balance aware (same rule as the AP reports). Only payable bills
   // (POSTED / AUTHORISED) — drafts and voids never appear.
+  //
+  // Supplier CREDIT NOTES ride in the same grid (guru 2026-11-06: "supplier
+  // credit notes are not here"). A credit note is money the supplier owes
+  // back, so it reduces the cash paid: its row carries kind 'credit' and a
+  // POSITIVE `outstanding` meaning "credit left to use", and the voucher
+  // stores its allocation NEGATIVE. Bills + credits still sum to the cash.
   async openBills(organizationId: string, supplierId: string, opts?: { excludeVoucherId?: string }) {
+    const withCredits = await isOrgFeatureEnabled(this.prisma, organizationId, AP_CREDIT_OFFSET_FLAG);
     const docs = await this.prisma.document.findMany({
       where: {
         organizationId,
-        type: 'BILL',
+        type: { in: withCredits ? ['BILL', 'CREDIT_NOTE'] : ['BILL'] },
         OR: [
           { config: { path: ['supplierId'], equals: supplierId } },
           { config: { path: ['supplier', 'id'], equals: supplierId } },
@@ -240,11 +248,12 @@ export class PaymentVouchersService {
       paidByBill.set(p.billId, ROUND((paidByBill.get(p.billId) || 0) + (Number(p.amount) || 0)));
     }
 
-    const rows: Array<{ documentId: string; reference: string; type: string; templateId: string | null; date: string | null; remarks: string; gross: number; outstanding: number; currency: string | null }> = [];
+    const rows: Array<{ documentId: string; reference: string; type: string; kind: 'bill' | 'credit'; templateId: string | null; date: string | null; remarks: string; gross: number; outstanding: number; currency: string | null }> = [];
     for (const d of docs) {
       const c: any = d.config || {};
       if (c.voided) continue;
-      const billStatus = String(c.billStatus || '').toUpperCase();
+      const isCredit = d.type === 'CREDIT_NOTE';
+      const billStatus = isCredit ? '' : String(c.billStatus || '').toUpperCase();
       const xs = String(c.xeroStatus || '');
       const docStatus = String(d.status || '').toLowerCase();
       if (billStatus === 'VOID' || billStatus === 'DRAFT' || billStatus === 'PENDING_APPROVAL') continue;
@@ -252,8 +261,11 @@ export class PaymentVouchersService {
       if (!billStatus && !xs && (docStatus === 'draft' || docStatus === 'unconfirmed')) continue;
       const gross = ROUND(Number(c.totalAmount ?? grossStampOf(c) ?? c.nettTotal ?? 0) || 0);
       if (gross <= 0) continue;
-      const recorded = paidByBill.get(d.id) || 0;
-      const own = ownByBill.get(d.id) || 0;
+      // A credit note's allocations are stored NEGATIVE, so the credit it has
+      // already given away is −Σ(rows). Same shape as a bill's `recorded`,
+      // opposite sign.
+      const recorded = isCredit ? -(paidByBill.get(d.id) || 0) : paidByBill.get(d.id) || 0;
+      const own = isCredit ? -(ownByBill.get(d.id) || 0) : ownByBill.get(d.id) || 0;
       const stamped = outstandingOf(c);
       const outstanding =
         stamped !== null && stamped !== undefined
@@ -264,11 +276,12 @@ export class PaymentVouchersService {
         documentId: d.id,
         reference: d.name || '(no #)',
         type: d.type,
+        kind: isCredit ? 'credit' : 'bill',
         templateId: d.documentTemplateId ?? null,
         date: (c.billDate || c.date) ? String(c.billDate || c.date).slice(0, 10) : null,
         // Remarks = the bill's own reference text; the legacy word only when
         // the document carries none (guru 2026-11-02).
-        remarks: documentReferenceOf(c) || 'SUPPLIER INVOICE',
+        remarks: documentReferenceOf(c) || (isCredit ? 'SUPPLIER CREDIT NOTE' : 'SUPPLIER INVOICE'),
         gross,
         outstanding,
         currency: c.currency || c.documentInfo?.currency || null,
@@ -287,11 +300,24 @@ export class PaymentVouchersService {
     if (!dto.supplierId) throw new BadRequestException('Supplier is required');
     if (!dto.creditAccountCode) throw new BadRequestException('Paid-from (credit) account is required');
     const voucherAmount = ROUND(Number(dto.voucherAmount) || 0);
-    if (voucherAmount <= 0) throw new BadRequestException('Voucher amount must be greater than zero');
+    // A NEGATIVE allocation is a supplier credit note being used up. Keep the
+    // sign: bills + credits sum to the cash actually paid.
     const allocations = (dto.allocations || [])
       .map((a) => ({ documentId: a.documentId, amount: ROUND(Number(a.amount) || 0) }))
-      .filter((a) => a.documentId && a.amount > 0);
+      .filter((a) => a.documentId && a.amount !== 0);
     if (!allocations.length) throw new BadRequestException('Allocate the voucher to at least one supplier invoice');
+    // With the flag off a negative allocation cannot come from the grid, so
+    // treat one as a bad request rather than posting something unexpected.
+    if (allocations.some((a) => a.amount < 0) && !(await isOrgFeatureEnabled(this.prisma, organizationId, AP_CREDIT_OFFSET_FLAG)))
+      throw new BadRequestException('Supplier credit notes are not enabled for this organisation');
+    const hasBill = allocations.some((a) => a.amount > 0);
+    if (!hasBill) throw new BadRequestException('Allocate at least one supplier invoice — a voucher cannot be credit notes alone');
+    // Zero cash is legal when a credit note settles the bills outright (the AP
+    // equivalent of a Manual Offset): nothing leaves the bank, the credit does
+    // the paying. Negative cash never is.
+    if (voucherAmount < 0) throw new BadRequestException('Voucher amount cannot be negative');
+    if (voucherAmount === 0 && !allocations.some((a) => a.amount < 0))
+      throw new BadRequestException('Voucher amount must be greater than zero');
     const offset = ROUND(allocations.reduce((s, a) => s + a.amount, 0));
     if (Math.abs(offset - voucherAmount) > 0.005) {
       throw new BadRequestException(
@@ -343,8 +369,15 @@ export class PaymentVouchersService {
     for (const a of allocations) {
       const bill = openById.get(a.documentId);
       if (!bill) throw new BadRequestException('An allocated supplier invoice is not open for this supplier');
-      if (a.amount > bill.outstanding + 0.005) {
-        throw new BadRequestException(`Allocation to ${bill.reference} (${a.amount.toFixed(2)}) exceeds its outstanding ${bill.outstanding.toFixed(2)}`);
+      // A credit note may only be used NEGATIVE, a bill only POSITIVE —
+      // otherwise a mis-signed row would silently invert the posting.
+      if (bill.kind === 'credit' && a.amount > 0)
+        throw new BadRequestException(`${bill.reference} is a credit note — it reduces the payment, so its amount must be negative`);
+      if (bill.kind === 'bill' && a.amount < 0)
+        throw new BadRequestException(`${bill.reference} is a supplier invoice — its amount cannot be negative`);
+      if (Math.abs(a.amount) > bill.outstanding + 0.005) {
+        const what = bill.kind === 'credit' ? 'credit left' : 'outstanding';
+        throw new BadRequestException(`Allocation to ${bill.reference} (${Math.abs(a.amount).toFixed(2)}) exceeds its ${what} ${bill.outstanding.toFixed(2)}`);
       }
     }
 

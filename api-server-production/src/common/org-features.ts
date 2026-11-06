@@ -18,6 +18,15 @@ export const CHAT_UPLOAD_PROJECT_COST_FLAG = 'enableChatUploadProjectCost';
 // as before.
 export const OFFICE_DO_SIGN_FLAG = 'enableOfficeDoSign';
 
+// SUPPLIER CREDIT NOTES ON A PAYMENT VOUCHER (2026-11-06, guru). The voucher's
+// offset grid lists supplier invoices only, so a supplier credit note can
+// never be applied — the AP side has no equivalent of the AR Manual Offset.
+// With this on, credit notes join the grid and allocate NEGATIVE: they reduce
+// the cash paid, and on their own they settle bills with no cash at all.
+// Flag-gated because it changes what a voucher may post (a credit line on the
+// creditor control, and a voucher with no bank line).
+export const AP_CREDIT_OFFSET_FLAG = 'enableApCreditOffset';
+
 export async function isOrgFeatureEnabled(
   prisma: { organizationUIConfig: { findUnique: (args: any) => Promise<any> } },
   organizationId: string,

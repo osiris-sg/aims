@@ -18,6 +18,7 @@ import {
   Card,
   CardContent,
   Checkbox,
+  Chip,
   CircularProgress,
   IconButton,
   InputAdornment,
@@ -333,7 +334,11 @@ type OpenBill = {
   date: string | null;
   remarks: string;
   gross: number;
+  /** Bills: what is still owed. Credit notes: how much credit is left to use.
+   *  Always positive — the SIGN of the allocation is what distinguishes them. */
   outstanding: number;
+  /** 'credit' = a supplier credit note; it REDUCES the cash paid. */
+  kind?: "bill" | "credit";
 };
 
 export function PaymentVoucherOffsetSection({
@@ -391,30 +396,46 @@ export function PaymentVoucherOffsetSection({
 
   const writeAllocations = (next: any[]) => setPvData(formData, setFormData, { allocations: next });
 
+  const isCredit = (b: OpenBill) => b.kind === "credit";
+  // A credit note needs no cash to allocate, and once one is on the voucher
+  // the bills it settles can be ticked with the payment still at zero (the
+  // AP equivalent of a Manual Offset).
+  const creditOn = allocations.some((a) => (Number(a.amount) || 0) < 0);
+
   const entryFor = (b: OpenBill, amount: number) => ({
     documentId: b.documentId,
     amount,
     reference: b.reference,
     date: b.date,
-    description: b.remarks || "SUPPLIER INVOICE",
+    description: b.remarks || (isCredit(b) ? "SUPPLIER CREDIT NOTE" : "SUPPLIER INVOICE"),
   });
 
   // Tick = allocate the remaining pool top-down (partial on the last).
+  // A credit note goes in NEGATIVE: it is not paid, it pays. Ticking one
+  // therefore does not consume the cash pool — it ENLARGES what the bills
+  // must cover, so the voucher still balances to the cash leaving the bank.
   const toggle = (b: OpenBill, checked: boolean) => {
     if (!checked) {
       writeAllocations(allocations.filter((a) => a.documentId !== b.documentId));
       return;
     }
-    const othersTotal = R(allocations.reduce((s, a) => (a.documentId === b.documentId ? s : s + (Number(a.amount) || 0)), 0));
+    const rest = allocations.filter((a) => a.documentId !== b.documentId);
+    if (isCredit(b)) {
+      writeAllocations([...rest, entryFor(b, R(-b.outstanding))]);
+      return;
+    }
+    const othersTotal = R(rest.reduce((s, a) => s + (Number(a.amount) || 0), 0));
     const remaining = R(Math.max(0, paid - othersTotal));
     const amt = R(Math.min(b.outstanding, remaining));
-    writeAllocations([...allocations.filter((a) => a.documentId !== b.documentId), entryFor(b, amt)]);
+    writeAllocations([...rest, entryFor(b, amt)]);
   };
 
   const setLineAmount = (b: OpenBill, raw: string) => {
-    const v = R(Math.max(0, Math.min(parseFloat(raw) || 0, b.outstanding)));
+    // The box is typed as a positive figure on both kinds; a credit is stored
+    // negative so the allocations still add up to the cash paid.
+    const typed = R(Math.max(0, Math.min(Math.abs(parseFloat(raw) || 0), b.outstanding)));
     const rest = allocations.filter((a) => a.documentId !== b.documentId);
-    writeAllocations(v <= 0 ? rest : [...rest, entryFor(b, v)]);
+    writeAllocations(typed <= 0 ? rest : [...rest, entryFor(b, isCredit(b) ? -typed : typed)]);
   };
 
   const headCellSx = { fontWeight: 700, fontSize: "0.75rem", color: "text.secondary", whiteSpace: "nowrap" as const };
@@ -495,7 +516,8 @@ export function PaymentVoucherOffsetSection({
             )}
             {!disabled && supplierId && bills.length > 0 && paid <= 0 && (
               <Alert severity="info" variant="outlined" sx={{ mb: 1, alignSelf: "flex-start" }}>
-                Enter the payment amount first — allocations unlock once there is money to allocate.
+                Enter the payment amount first — allocations unlock once there is money to allocate. A supplier credit
+                note can be ticked straight away: it reduces what you pay, and on its own it settles bills with no cash.
               </Alert>
             )}
             {!supplierId ? (
@@ -537,18 +559,48 @@ export function PaymentVoucherOffsetSection({
                       const ticked = allocById.has(b.documentId);
                       return (
                         <TableRow key={b.documentId} hover sx={ticked ? { bgcolor: (t) => alpha(t.palette.primary.main, 0.06) } : undefined}>
-                          <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{b.reference}</TableCell>
+                          <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
+                            {b.reference}
+                            {isCredit(b) && (
+                              <Chip
+                                label="Credit note"
+                                size="small"
+                                sx={{
+                                  ml: 1,
+                                  height: 18,
+                                  fontSize: "0.65rem",
+                                  color: "success.main",
+                                  borderColor: "success.main",
+                                }}
+                                variant="outlined"
+                              />
+                            )}
+                          </TableCell>
                           <TableCell>{b.date ? new Date(b.date).toLocaleDateString("en-GB") : "—"}</TableCell>
                           <TableCell>{b.remarks}</TableCell>
-                          <TableCell sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(b.outstanding)}</TableCell>
+                          <TableCell
+                            sx={{
+                              textAlign: "right",
+                              fontVariantNumeric: "tabular-nums",
+                              ...(isCredit(b) ? { color: "success.main" } : {}),
+                            }}
+                          >
+                            {isCredit(b) ? `(${fmt(b.outstanding)})` : fmt(b.outstanding)}
+                          </TableCell>
                           <TableCell padding="checkbox">
-                            <Checkbox size="small" checked={ticked} onChange={(_, c) => toggle(b, c)} disabled={disabled || paid <= 0} />
+                            <Checkbox
+                              size="small"
+                              checked={ticked}
+                              onChange={(_, c) => toggle(b, c)}
+                              disabled={disabled || (paid <= 0 && !isCredit(b) && !creditOn)}
+                            />
                           </TableCell>
                           <TableCell sx={{ textAlign: "right" }}>
                             <TextField
                               size="small"
                               type="number"
-                              value={ticked ? allocById.get(b.documentId) : ""}
+                              // Stored negative for a credit note; typed and shown positive.
+                              value={ticked ? Math.abs(Number(allocById.get(b.documentId)) || 0) : ""}
                               onChange={(e) => setLineAmount(b, e.target.value)}
                               disabled={disabled || !ticked}
                               inputProps={{ step: "0.01", min: 0, max: b.outstanding, style: { textAlign: "right" } }}

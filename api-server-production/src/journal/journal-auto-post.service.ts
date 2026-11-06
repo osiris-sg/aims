@@ -818,23 +818,34 @@ export class JournalAutoPostService {
     for (const a of args.allocations) {
       const hist = isForeign ? (await this.historicalRateForDocument(organizationId, a.documentId)) ?? rate : 1;
       const apBase = ROUND(a.amount * hist);
+      if (apBase === 0) continue;
       apBaseTotal = ROUND(apBaseTotal + apBase);
+      // A NEGATIVE allocation is a supplier credit note being applied: it puts
+      // the liability BACK, so it credits the creditor control. The ledger
+      // refuses a negative debit, so the sign picks the column.
+      const isCredit = apBase < 0;
       lines.push({
         accountId: creditor.id,
-        debit: apBase,
-        credit: 0,
-        description: `Settle supplier invoice — ${supplierName ?? ''}`.trim(),
-        ...(isForeign ? { foreignAmount: ROUND(a.amount), exchangeRate: hist } : {}),
+        debit: isCredit ? 0 : apBase,
+        credit: isCredit ? -apBase : 0,
+        description: isCredit
+          ? `Apply supplier credit note — ${supplierName ?? ''}`.trim()
+          : `Settle supplier invoice — ${supplierName ?? ''}`.trim(),
+        ...(isForeign ? { foreignAmount: ROUND(Math.abs(a.amount)), exchangeRate: hist } : {}),
       });
     }
     const bankBase = ROUND(args.amount * rate);
-    lines.push({
-      accountId: bank.id,
-      debit: 0,
-      credit: bankBase,
-      description: `Payment Voucher ${voucherNumber ?? ''}`.trim(),
-      ...(isForeign ? { foreignAmount: ROUND(args.amount), exchangeRate: rate } : {}),
-    });
+    // Zero cash (a credit note settling the bills outright) posts no bank line
+    // — a 0/0 line is rejected by the ledger.
+    if (bankBase !== 0) {
+      lines.push({
+        accountId: bank.id,
+        debit: 0,
+        credit: bankBase,
+        description: `Payment Voucher ${voucherNumber ?? ''}`.trim(),
+        ...(isForeign ? { foreignAmount: ROUND(args.amount), exchangeRate: rate } : {}),
+      });
+    }
     // Paid more base than the liability relieved → realised LOSS (debit FX).
     const diff = ROUND(bankBase - apBaseTotal);
     if (Math.abs(diff) > 0.005) {
