@@ -201,7 +201,8 @@
     "since": "Overdue counted from {date}",
     "before": "Before due dates were switched on — not flagged",
     "collapse": "Collapse",
-    "expand": "Expand"
+    "expand": "Expand",
+    "ownRule": "this customer's rule"
   },
   "orderCashPanel": {
     "title": "Cash",

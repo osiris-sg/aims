@@ -201,7 +201,8 @@
     "since": "{date}以降の期限から超過を表示",
     "before": "期限機能の開始前のため超過表示なし",
     "collapse": "折りたたむ",
-    "expand": "展開"
+    "expand": "展開",
+    "ownRule": "この顧客のルール"
   },
   "orderCashPanel": {
     "title": "入出金",

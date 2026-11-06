@@ -78,7 +78,7 @@ export function TradeTasksList({
     const p = a.step;
     if (lang !== "ja" || a.kind !== "STEP_DUE" || !p) return null;
     const title = t("stepTitle", { ref: p.ref, no: p.no, name: stepName(p.code, a.title) }) + (p.daysLate ? t("stepLate", { n: p.daysLate }) : "");
-    const detail = p.setBy !== null ? t("stepSetBy", { who: p.setBy || t("byHand") }) : p.rule && tr.has(p.rule) ? tr(p.rule, { n: p.ruleDays ?? 0 }) : a.detail;
+    const detail = p.setBy !== null ? t("stepSetBy", { who: p.setBy || t("byHand") }) : p.rule === "CUSTOM" && p.ruleJa ? p.ruleJa : p.rule && tr.has(p.rule) ? tr(p.rule, { n: p.ruleDays ?? 0 }) : a.detail;
     return { title, detail };
   };
   const today = tradeTodayYmd();

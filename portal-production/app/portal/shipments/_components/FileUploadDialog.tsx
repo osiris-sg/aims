@@ -10,10 +10,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
-  Autocomplete,
   Box,
   Button,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -33,11 +31,15 @@ import { useTranslations } from "next-intl";
 import CloseIcon from "@mui/icons-material/Close";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
-import { linkTargetsOf, targetGroup, TRADE_FILE_EXTENSIONS, TRADE_FILE_MAX_BYTES, type TradeFile } from "../_lib/api";
+import { linkTargetsOf, TRADE_FILE_EXTENSIONS, TRADE_FILE_MAX_BYTES, type TradeFile } from "../_lib/api";
 import { toast } from "../_lib/toast";
 import { LocalPreview } from "./FilePreview";
 import { useOrders, useDocTypes, useShipments, useTradeMutation } from "../_lib/hooks";
 import { fmtBytes } from "../_lib/format";
+import LinkChecklist, { CiTotals, targetKey, tradeCheckItems } from "./LinkChecklist";
+
+/** Round BG: payment proofs — the checklist lists the ticked shipments' CIs with their total. */
+const PROOF_TYPES = ["CI_PAYMENT_PROOF", "PAYMENT_PROOF", "DEPOSIT_PROOF"];
 
 export type LinkTarget = { kind: "contract" | "shipment" | "order" | "supplierOrder"; id: string; label: string };
 
@@ -88,6 +90,7 @@ export default function FileUploadDialog({
   const [docType, setDocType] = useState("");
   const [targets, setTargets] = useState<LinkTarget[]>([]);
   const [notes, setNotes] = useState("");
+  const [proofAmount, setProofAmount] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,6 +116,7 @@ export default function FileUploadDialog({
     setDocType(presetDocType ?? "");
     setTargets(defaultTargets);
     setNotes("");
+    setProofAmount("");
     setRows([]);
     if (initialFiles?.length) addFiles(initialFiles);
     setError(null);
@@ -120,18 +124,21 @@ export default function FileUploadDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, presetDocType, defaultKey]);
 
-  const options: LinkTarget[] = useMemo(() => {
-    const out: LinkTarget[] = [
-      ...(orders.data?.items ?? []).map((o) => ({ kind: "order" as const, id: o.id, label: `${t("linkOrder", { no: o.label })}${o.customerName ? ` · ${o.customerName}` : ""}` })),
-      ...(shipments.data?.items ?? []).map((s) => ({ kind: "shipment" as const, id: s.id, label: `${t("linkShipment", { no: s.ref || s.blNumber || t("blPending") })}${s.blNumber && s.ref ? ` · B/L ${s.blNumber}` : ""}` })),
-    ];
-    // Keep defaults selectable even if they're not in the first page of results.
-    defaultTargets.forEach((d) => {
-      if (!out.some((o) => o.id === d.id)) out.unshift(d);
-    });
-    return out;
+  // Round BG: one checklist (Orders / Shipments) instead of adding one chip at a time; the record it was opened from is pre-ticked.
+  const items = useMemo(
+    () => tradeCheckItems((orders.data?.items ?? []) as any[], (shipments.data?.items ?? []) as any[], [...defaultTargets, ...targets], t("blPending")),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orders.data, shipments.data, defaultKey]);
+    [orders.data, shipments.data, defaultKey, targets],
+  );
+  const keys = targets.map(targetKey);
+  const setKeys = (ks: string[]) =>
+    setTargets(
+      ks.map((k) => {
+        const [kind, id] = [k.slice(0, k.indexOf(":")), k.slice(k.indexOf(":") + 1)] as [LinkTarget["kind"], string];
+        const it = items.find((i) => i.key === k);
+        return targets.find((x) => targetKey(x) === k) ?? { kind, id, label: it?.ref ?? id };
+      }),
+    );
 
   const activeDocTypes = (docTypes.data ?? []).filter((d) => d.isActive || d.code === docType);
 
@@ -197,19 +204,8 @@ export default function FileUploadDialog({
               </MenuItem>
             ))}
           </TextField>
-          <Autocomplete
-            multiple
-            options={options}
-            value={targets}
-            onChange={(_, v) => setTargets(v)}
-            groupBy={(o) => targetGroup(o.kind)}
-            getOptionLabel={(o) => o.label}
-            isOptionEqualToValue={(a, b) => a.id === b.id}
-            loading={orders.isLoading || shipments.isLoading}
-            disabled={busy}
-            renderTags={(value, getTagProps) => value.map((o, i) => <Chip size="small" label={o.label} {...getTagProps({ index: i })} key={o.id} />)}
-            renderInput={(p) => <TextField {...p} label={t("linkTo")} size="small" />}
-          />
+          <LinkChecklist items={items} value={keys} onChange={setKeys} loading={orders.isLoading || shipments.isLoading} disabled={busy} label={t("linkTo")} />
+          {PROOF_TYPES.includes(docType) && <CiTotals items={items} value={keys} proofAmount={proofAmount} onProofAmount={setProofAmount} />}
           <TextField label={t("notes")} size="small" multiline minRows={2} value={notes} onChange={(e) => setNotes(e.target.value)} disabled={busy} />
 
           <Box>

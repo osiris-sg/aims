@@ -388,6 +388,8 @@ export interface SiHeaderV2 {
   warehouseCheck?: boolean;
   /** Round BF: GROSS prints 総重量 only (the customer's SI format); default both. */
   weightMode?: 'NET_GROSS' | 'GROSS';
+  /** Round BG: each row prints its own net / gross. */
+  weightsPerRow?: boolean;
   /** Round BF: the last edit of this SI (editor only, never printed). */
   editedBy?: string | null;
   editedAt?: string | null;
@@ -398,6 +400,13 @@ export interface SiRowV2 {
   destination: string;
   billet: string;
   bundles: number | null;
+  /** Round BG (editor only, never printed): the LOT (6005 / 6063), trucks counted from the paste, 出荷日 typed by hand. */
+  lot?: string | null;
+  trucks?: number | null;
+  shipDateEdited?: boolean;
+  /** Round BG: per-row weights (header.weightsPerRow). */
+  netMt?: number | null;
+  grossMt?: number | null;
 }
 
 /**
@@ -432,6 +441,8 @@ export function renderSiV2Html(h: SiHeaderV2, rows: SiRowV2[], opts: { draft?: b
     return `<div class="bl" style="font-size:${f.pt}pt">${f.lines.map((l) => `<div>${esc(l)}</div>`).join('')}</div>`;
   };
   const notes = (h.remarks ?? '').split(/\r?\n/);
+  // Round BG: weights per row (bundles × the LOT's average bundle weight).
+  const rowWeight = (r: SiRowV2) => [has(r.grossMt) ? `総重量\n${money(num(r.grossMt), 3)}トン` : '', h.weightMode !== 'GROSS' && has(r.netMt) ? `(正味重量\n${money(num(r.netMt), 3)}トン)` : ''].filter(Boolean).join('\n');
   const body = `
 <div class="req">手配依頼日<span>${slashDay(h.requestDate)}</span></div>
 <div class="to">${esc(addressee(h.toName))}</div>
@@ -447,7 +458,7 @@ export function renderSiV2Html(h: SiHeaderV2, rows: SiRowV2[], opts: { draft?: b
   <tbody>${rows
     .map(
       (r, i) =>
-        `<tr><td class="c">${md(r.shipDate)}</td><td class="c">${md(r.deliveryDate)}</td><td class="c">${esc(r.destination)}</td><td class="c">${billet(r.billet)}</td><td class="c">${qty(num(r.bundles))}</td>${i === 0 ? `<td class="w pre" rowspan="${rows.length}">${br(weight)}</td>` : ''}</tr>`,
+        `<tr><td class="c">${md(r.shipDate)}</td><td class="c">${md(r.deliveryDate)}</td><td class="c">${esc(r.destination)}</td><td class="c">${billet(r.billet)}</td><td class="c">${qty(num(r.bundles))}</td>${h.weightsPerRow ? `<td class="w pre">${br(rowWeight(r))}</td>` : i === 0 ? `<td class="w pre" rowspan="${rows.length}">${br(weight)}</td>` : ''}</tr>`,
     )
     .join('')}</tbody>
 </table>

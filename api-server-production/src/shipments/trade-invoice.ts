@@ -357,6 +357,16 @@ export function addBusinessDays(date: string, days: number): string {
   return iso(d);
 }
 
+/** Round BG: where the Japanese public holidays come from (shown in the SI editor). */
+export const JP_HOLIDAY_SOURCE = '@holiday-jp/holiday_jp (Japanese public holidays, bundled data)';
+/** Round BG: Japanese public holidays between two days (YYYY-MM-DD, inclusive) — the SI editor's working days. */
+export function jpHolidaysBetween(from: string, to: string): Array<{ date: string; name: string }> {
+  const [a, b] = [parse(from), parse(to)];
+  return holidayJp
+    .between(new Date(a.getUTCFullYear(), a.getUTCMonth(), a.getUTCDate()), new Date(b.getUTCFullYear(), b.getUTCMonth(), b.getUTCDate()))
+    .map((h: { date: Date; name: string }) => ({ date: `${h.date.getFullYear()}-${String(h.date.getMonth() + 1).padStart(2, '0')}-${String(h.date.getDate()).padStart(2, '0')}`, name: h.name }));
+}
+
 /** The customs weekly FX period (Sunday–Saturday) containing `date`: "7/5～7/11". */
 export function customsWeek(date: string): string {
   const d = parse(date);

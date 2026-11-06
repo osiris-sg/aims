@@ -108,6 +108,22 @@ export class ClientsController {
     return res;
   }
 
+  /** Round BG: what the customer's due-date rules would change on its open orders (read-only). */
+  @Post('customers/:id/due-rules/preview')
+  @Permissions('shipments:read')
+  dueRulesPreview(@Param('id', ParseUUIDPipe) id: string, @Body() body: { dueRules?: unknown }, @Req() req: TradeRequest) {
+    return this.clients.dueRulesPreview(orgIdOf(req), id, body?.dueRules ?? {});
+  }
+
+  /** Round BG: save the customer's due-date rules (step code → rule; a step left out uses the default). */
+  @Patch('customers/:id/due-rules')
+  @Permissions('shipments:update')
+  async updateDueRules(@Param('id', ParseUUIDPipe) id: string, @Body() body: { dueRules?: unknown }, @Req() req: TradeRequest) {
+    const res = await this.clients.updateDueRules(orgIdOf(req), id, body?.dueRules ?? {});
+    (req as any).actionLogResult = { from: res.from, to: res.to, dueDatesMoved: res.changes.length };
+    return res;
+  }
+
   /** Document formats: generator (Customer COA / PL), language, 宛先, note — saved on the customer profile. */
   @Patch('customers/:id/formats/:docType')
   @Permissions('shipments:update')

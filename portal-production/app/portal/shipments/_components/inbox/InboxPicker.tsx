@@ -8,11 +8,12 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
-import { Autocomplete, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, Typography } from "@mui/material";
+import { Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, Typography } from "@mui/material";
 import { useShipmentsApi, type InboxRow } from "../../_lib/api";
 import { useOrders, useShipments } from "../../_lib/hooks";
 import { fmtDateTime } from "../../_lib/format";
 import { toast } from "../../_lib/toast";
+import LinkChecklist, { type CheckItem } from "../LinkChecklist";
 
 /** One planned / done action in words. */
 type Tr = (key: string, values?: Record<string, string | number>) => string;
@@ -33,7 +34,7 @@ export function PickerDialog({ row, onClose, onDone }: { row: InboxRow | null; o
   const t = useTranslations("inbox.picker");
   const orders = useOrders({ pageSize: 100 }, !!row);
   const ships = useShipments({ pageSize: 100 }, !!row);
-  type Opt = { key: string; orderId: string; shipmentId: string | null; label: string; group: string };
+  type Opt = { key: string; orderId: string; shipmentId: string | null; label: string; group: string; ref: string; orderRef: string | null; detail: string; bl: string | null; customer: string | null };
   const options: Opt[] = useMemo(() => {
     const out: Opt[] = [];
     for (const s of ships.data?.items ?? []) {
@@ -44,11 +45,18 @@ export function PickerDialog({ row, onClose, onDone }: { row: InboxRow | null; o
         shipmentId: s.id,
         group: t("groupShipments"),
         label: [s.ref || t("shipment"), s.customerName, s.blNumber ? `B/L ${s.blNumber}` : t("blPending"), s.productLine, s.eta ? `ETA ${fmtDateTime(s.eta).slice(0, 10)}` : null].filter(Boolean).join(" · "),
+        ref: s.ref || t("shipment"),
+        orderRef: s.order ? `#${s.order.orderNo}` : null,
+        detail: [s.customerName, s.blNumber ? `B/L ${s.blNumber}` : t("blPending"), s.productLine, s.eta ? `ETA ${fmtDateTime(s.eta).slice(0, 10)}` : null].filter(Boolean).join(" · "),
+        bl: s.blNumber,
+        customer: s.customerName,
       });
     }
-    for (const o of orders.data?.items ?? []) if (!o.shipmentCount) out.push({ key: `o:${o.id}`, orderId: o.id, shipmentId: null, group: t("groupOrders"), label: [o.label, o.customerName, o.productLabel].filter(Boolean).join(" · ") });
+    for (const o of orders.data?.items ?? []) if (!o.shipmentCount) out.push({ key: `o:${o.id}`, orderId: o.id, shipmentId: null, group: t("groupOrders"), label: [o.label, o.customerName, o.productLabel].filter(Boolean).join(" · "), ref: `#${o.orderNo}`, orderRef: null, detail: [o.customerName, o.productLabel].filter(Boolean).join(" · "), bl: null, customer: o.customerName });
     return out;
   }, [orders.data, ships.data, t]);
+  // Round BG: the same checklist as the upload dialog (Orders / Shipments, search, select all shipments of #n).
+  const checkItems: CheckItem[] = useMemo(() => options.map((o) => ({ key: o.key, kind: o.shipmentId ? ("shipment" as const) : ("order" as const), ref: o.ref, orderRef: o.orderRef, detail: o.detail, bl: o.bl, customer: o.customer })), [options]);
   const optOf = (orderId: string, shipmentId: string | null) => options.find((o) => o.orderId === orderId && o.shipmentId === shipmentId) ?? options.find((o) => o.orderId === orderId);
   const [picked, setPicked] = useState<Opt[]>([]);
   const [assignOf, setAssignOf] = useState<Record<number, string>>({});
@@ -119,17 +127,7 @@ export function PickerDialog({ row, onClose, onDone }: { row: InboxRow | null; o
               </Stack>
             </Box>
           )}
-          <Autocomplete
-            multiple
-            options={options}
-            value={picked}
-            onChange={(_, v) => setPicked(v)}
-            groupBy={(o) => o.group}
-            getOptionLabel={(o) => o.label}
-            isOptionEqualToValue={(a, b) => a.key === b.key}
-            filterSelectedOptions
-            renderInput={(p) => <TextField {...p} label={t("searchLabel")} size="small" />}
-          />
+          <LinkChecklist items={checkItems} value={picked.map((p) => p.key)} onChange={(ks) => setPicked(ks.map((k) => options.find((o) => o.key === k)).filter((o): o is Opt => !!o))} loading={orders.isLoading || ships.isLoading} label={t("searchLabel")} />
           {picked.length > 1 && row && row.attachments.length > 0 && (
             <Box>
               <Typography variant="overline" color="text.secondary">

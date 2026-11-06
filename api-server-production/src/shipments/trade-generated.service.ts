@@ -52,7 +52,8 @@ import {
   SiHeaderV2,
   SiRowV2,
 } from './trade-logistics-docs';
-import { fillSiTemplate, productDocLines, siProductFor, siRemarks, siXlsx, SiSheetHeader, SiSheetRow } from './trade-si';
+import { fillSiTemplate, productDocLines, siPrintRows, siProductFor, siRemarks, siXlsx, SiSheetHeader, SiSheetRow } from './trade-si';
+import { jpHolidaysBetween, JP_HOLIDAY_SOURCE } from './trade-invoice';
 import { buildCustomerPl, CUSTOMER_PL_COLUMNS, GenColumn, GenRow, parseSheetFile, plTotals, SheetFormatError } from './trade-sheet.parser';
 import { Db, ownerWhere, TradeConfigService } from './trade-config.service';
 import { TradeFilesService } from './trade-files.service';
@@ -856,7 +857,12 @@ export class TradeGeneratedService {
     if (t.kind === 'sgjp' && isHoeiLayout(header)) return renderHoeiIvPlHtml(header as HoeiIvPlHeader, list as SgjpItem[], opts);
     // Documents created before the ADH layouts keep their original template.
     if (t.kind === 'sgjp') return layout2 ? renderSgjpV2Html(header as SgjpHeaderV2, list as SgjpItem[], opts) : renderSgjpHtml(header as SgjpHeader, list as PackingRow[], opts);
-    if (t.kind === 'si') return layout2 ? renderSiV2Html(header as SiHeaderV2, list as SiRowV2[], opts) : renderSiHtml(header as SiHeader, list as ScheduleRow[], opts);
+    if (t.kind === 'si' && layout2) {
+      // Round BG: rows without a date never print; the rest by 納入日.
+      const printed = siPrintRows(list as SiRowV2[]);
+      return renderSiV2Html(header as SiHeaderV2, printed.length ? printed : [{ shipDate: '', deliveryDate: '', destination: '', billet: '', bundles: null }], opts);
+    }
+    if (t.kind === 'si') return renderSiHtml(header as SiHeader, list as ScheduleRow[], opts);
     return renderGeneratedHtml(docType, header as GenHeader, (columns as GenColumn[]) ?? [], list as GenRow[], opts);
   }
 
@@ -939,17 +945,22 @@ export class TradeGeneratedService {
       grossWeightMt: n(h.grossWeightMt),
       netWeightMt: n(h.netWeightMt),
       weightMode: h.weightMode === 'GROSS' ? 'GROSS' : 'NET_GROSS',
+      weightsPerRow: h.weightsPerRow === true,
       shipper: str(h.shipper),
       carrier: str(h.carrier),
       remarks: str(h.remarks),
     };
-    const rows: SiSheetRow[] = (Array.isArray(g.rows) ? (g.rows as Array<Record<string, unknown>>) : []).map((r) => ({
-      shipDate: str(r.shipDate),
-      deliveryDate: str(r.deliveryDate),
-      destination: str(r.destination),
-      billet: str(r.billet),
-      bundles: n(r.bundles),
-    }));
+    const rows: SiSheetRow[] = siPrintRows(
+      (Array.isArray(g.rows) ? (g.rows as Array<Record<string, unknown>>) : []).map((r) => ({
+        shipDate: str(r.shipDate),
+        deliveryDate: str(r.deliveryDate),
+        destination: str(r.destination),
+        billet: str(r.billet),
+        bundles: n(r.bundles),
+        netMt: n(r.netMt),
+        grossMt: n(r.grossMt),
+      })),
+    );
     const base = `${g.number ?? `SI-${header.blNumber || 'draft'}`}${g.status === 'FINAL' ? '' : '-DRAFT'}`;
     const cp = g.shipmentId ? await this.profileForShipment(organizationId, g.shipmentId) : null;
     const f = cp?.docFormats?.SHIPPING_INSTRUCTIONS;
@@ -959,6 +970,63 @@ export class TradeGeneratedService {
       return { buffer: filled.buffer, fileName: `${base}.xlsx`, template: tpl.fileName };
     }
     return { buffer: await siXlsx(header, rows), fileName: `${base}.xlsx`, template: null };
+  }
+
+  /**
+   * Round BG — what the 出庫・納入依頼書 editor needs for fast truck-day entry: the SI's shipments by LOT (grade) with
+   * the product line, the B/L bundles and weights (average bundle weight), the delivery site, and the Japanese public
+   * holidays (出荷日 = 納入日 − 1 working day). The SI's shipments: its own, the ones it covers and every shipment of the
+   * customer whose B/L is on the SI's B/L line (ADH's combined SIs, e.g. #18-1 … #19-2).
+   */
+  async siContext(organizationId: string, id: string) {
+    const g = await this.get(organizationId, id);
+    if (g.docType !== 'SHIPPING_INSTRUCTIONS') throw new BadRequestException('Only for a 出庫・納入依頼書');
+    const h = (g.header ?? {}) as Record<string, unknown>;
+    const own = await this.prisma.shipment.findFirst({ where: { id: g.shipmentId ?? '', organizationId }, select: { customerId: true, order: { select: { customerId: true } } } });
+    const customerId = own?.order?.customerId ?? own?.customerId ?? null;
+    const bls = String(h.blNumber ?? '')
+      .split(/[\s,;/・、]+/)
+      .map((x) => x.trim())
+      .filter((x) => /^[A-Z0-9]{6,}$/i.test(x));
+    const SEL = { id: true, seqNo: true, blNumber: true, totalBundles: true, netWeightMt: true, grossWeightMt: true, sizeSpec: true, status: true, order: { select: { orderNo: true, grade: true, size: true } }, contractLine: { select: { grade: true, sizeSpec: true } } } as const;
+    const ships: any[] = await this.prisma.shipment.findMany({
+      where: {
+        organizationId,
+        status: { not: 'CANCELLED' },
+        OR: [{ id: { in: [g.shipmentId, ...(g.coversShipmentIds ?? [])].filter((x): x is string => !!x) } }, ...(bls.length && customerId ? [{ blNumber: { in: bls }, OR: [{ customerId }, { order: { customerId } }] }] : [])],
+      },
+      select: SEL,
+    });
+    const settings = await this.config.getSettings(organizationId);
+    const defaults = (settings.docDefaults ?? {}) as DocDefaults;
+    const cp = g.shipmentId ? await this.profileForShipment(organizationId, g.shipmentId) : null;
+    const style = cp?.docFormats?.SHIPPING_INSTRUCTIONS?.si?.productStyle ?? 'JA_EN';
+    const lotOf = (grade: string | null | undefined) => /\d{4}/.exec(grade ?? '')?.[0] ?? (grade ?? '').trim();
+    const byLot = new Map<string, any>();
+    for (const s of ships.sort((a, b) => (a.order?.orderNo ?? 0) - (b.order?.orderNo ?? 0) || (a.seqNo ?? 0) - (b.seqNo ?? 0))) {
+      const grade = s.order?.grade ?? s.contractLine?.grade ?? null;
+      const size = s.sizeSpec ?? s.order?.size ?? s.contractLine?.sizeSpec ?? null;
+      const lot = lotOf(grade) || '—';
+      const named = productDocLines(siProductFor(cp?.products, grade, size), style);
+      const cur = byLot.get(lot) ?? { lot, billet: named ? named.join('\n') : `${lot} ${defaults.siBilletLabel ?? 'ロングビレット'}${billetSize(size)}`.trim(), shipments: [], bundles: 0, netMt: 0, grossMt: 0, missing: 0 };
+      const b = s.totalBundles ?? null;
+      cur.shipments.push({ id: s.id, ref: s.order ? `#${s.order.orderNo}-${s.seqNo}` : (s.blNumber ?? ''), blNumber: s.blNumber, bundles: b, netMt: dec(s.netWeightMt), grossMt: dec(s.grossWeightMt) });
+      if (b === null) cur.missing++;
+      cur.bundles += b ?? 0;
+      cur.netMt += dec(s.netWeightMt) ?? 0;
+      cur.grossMt += dec(s.grossWeightMt) ?? 0;
+      byLot.set(lot, cur);
+    }
+    const lots = [...byLot.values()].map((l) => ({ ...l, netMt: Math.round(l.netMt * 1000) / 1000, grossMt: Math.round(l.grossMt * 1000) / 1000, avgNetMt: l.bundles ? l.netMt / l.bundles : null, avgGrossMt: l.bundles ? l.grossMt / l.bundles : null }));
+    const today = tradeToday();
+    const y = Number(today.slice(0, 4));
+    return {
+      lots,
+      bundles: lots.reduce((a, l) => a + l.bundles, 0),
+      destination: cp?.deliveryProfile?.siteName ?? null,
+      holidays: jpHolidaysBetween(`${y - 1}-01-01`, `${y + 2}-12-31`),
+      holidaySource: JP_HOLIDAY_SOURCE,
+    };
   }
 
   // ── finalize / edit again / delete ──────────────────────────────────────

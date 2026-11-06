@@ -54,13 +54,18 @@ export default function OverallProcess({ orderId, lang: langProp }: { orderId: s
     }
   };
 
+  // Round BG: the rule in the user's language, marked when it is the customer's own.
+  const whyOf = (c: ProcessCell) => {
+    const w = lang === "ja" && c.dueWhyJa ? c.dueWhyJa : c.dueWhy;
+    return w ? `${w}${c.dueOrigin === "customer" ? ` (${t("ownRule")})` : ""}` : null;
+  };
   const cell = (c: ProcessCell | undefined) => {
     if (!c) return <Typography variant="caption" color="text.disabled">{t("none")}</Typography>;
     const v = cellView(c, lang, year);
     // Without due dates (the org flag off) a not-done step shows only "Now" or nothing.
     if (!d?.dueDates && c.state !== "done" && !c.ongoing) v.sub = "";
     const editable = !!d?.dueDates && canEdit && c.state !== "done" && c.state !== "na";
-    const tip = [c.flagged === false && c.due && c.state !== "done" ? t("before") : null, c.dueSource === "manual" ? byHand(c.dueSetByName, c.dueSetAt) : null, c.dueWhy ? `${t("ruleIs")}: ${c.dueWhy}` : null].filter(Boolean).join(" · ");
+    const tip = [c.flagged === false && c.due && c.state !== "done" ? t("before") : null, c.dueSource === "manual" ? byHand(c.dueSetByName, c.dueSetAt) : null, whyOf(c) ? `${t("ruleIs")}: ${whyOf(c)}` : null].filter(Boolean).join(" · ");
     return (
       <Stack spacing={0.25} alignItems="flex-start" data-state={c.state}>
         {v.head ? <Chip size="small" color={v.tone} variant={c.state === "upcoming" ? "outlined" : "filled"} label={v.head} sx={{ height: 20, "& .MuiChip-label": { px: 0.75, fontSize: 11, fontWeight: 700 } }} /> : null}
@@ -136,7 +141,7 @@ export default function OverallProcess({ orderId, lang: langProp }: { orderId: s
         {edit && (
           <Box sx={{ p: 2, width: 280 }} data-tour="process-due-editor">
             <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{edit.cell.ref} · {edit.cell.no} {stepName(edit.cell.code, lang === "ja" && edit.cell.titleJa ? edit.cell.titleJa : edit.cell.title)}</Typography>
-            {edit.cell.dueWhy && <Typography variant="caption" color="text.secondary" component="div">{t("ruleIs")}: {edit.cell.dueWhy}</Typography>}
+            {whyOf(edit.cell) && <Typography variant="caption" color="text.secondary" component="div">{t("ruleIs")}: {whyOf(edit.cell)}</Typography>}
             <TextField type="date" size="small" fullWidth label={t("set")} value={edit.value} onChange={(e) => setEdit({ ...edit, value: e.target.value })} InputLabelProps={{ shrink: true }} sx={{ mt: 1.5 }} />
             <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
               <Button variant="contained" size="small" disabled={busy || !/^\d{4}-\d{2}-\d{2}$/.test(edit.value)} onClick={() => save(edit.value)}>{t("save")}</Button>

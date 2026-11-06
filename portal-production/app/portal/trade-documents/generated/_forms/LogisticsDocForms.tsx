@@ -23,6 +23,8 @@ import type { DocFormProps } from "./types";
 import { useTranslations } from "next-intl";
 import { roundDown, roundTo, toNum, usd } from "./invoiceCalc";
 import { guardDate, tradeDateError } from "@/app/portal/shipments/_lib/dates";
+import { useUiLang } from "@/i18n/UiLangProvider";
+import SiDeliveries from "./SiDeliveries";
 
 /** Text field bound to header[k]. */
 function field(h: any, setH: (p: any) => void, disabled: boolean) {
@@ -248,6 +250,7 @@ function SgjpAdhForm({ header: h, rows, disabled, setHeader, setRows }: DocFormP
 }
 
 function SiAdhForm({ doc, header: h, rows, disabled, setHeader, setRows }: DocFormProps<any, any>) {
+  const { lang } = useUiLang();
   const api = useShipmentsApi();
   const qc = useQueryClient();
   const t = useTranslations("si.editor");
@@ -316,39 +319,25 @@ function SiAdhForm({ doc, header: h, rows, disabled, setHeader, setRows }: DocFo
         <Typography variant="subtitle2" sx={{ mb: 1 }}>
           {t("deliveries")}
         </Typography>
-        <Grid
-          cols={[
-            { key: "shipDate", label: t("shipDate"), date: true, width: 150 },
-            { key: "deliveryDate", label: t("deliveryDate"), date: true, width: 150 },
-            { key: "destination", label: t("destination") },
-            { key: "billet", label: t("billet"), multiline: true, minWidth: 170 },
-            { key: "bundles", label: t("bundles"), num: true, width: 90 },
-          ]}
-          rows={rows}
+        {/* Round BG: paste from Excel, fill days, 出荷日 from the 納入日, rows by 納入日, totals vs the B/L. */}
+        <SiDeliveries
+          docId={doc.id}
+          rows={rows as any}
+          setRows={setRows as any}
           disabled={disabled}
-          setRows={setRows}
-          blank={() => ({ shipDate: "", deliveryDate: "", destination: rows[rows.length - 1]?.destination ?? "", billet: rows[rows.length - 1]?.billet ?? "", bundles: null })}
-          check={{
-            key: "delivered",
-            label: t("delivered"),
-            onChange: (i, v) => {
-              if (disabled) {
-                // Final SI: saved on its own (deliveries happen after the SI is sent).
-                void api
-                  .setDelivered(doc.id, i, v)
-                  .then(() => qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.generated }))
-                  .catch((e: any) => toast.error(e?.message || "Could not save"));
-              } else setRows((rs) => rs.map((x, j) => (j === i ? { ...x, delivered: v } : x)));
-            },
+          lang={lang}
+          requestDate={h.requestDate}
+          weightsPerRow={h.weightsPerRow === true}
+          setWeightsPerRow={(v) => setHeader({ weightsPerRow: v })}
+          onDelivered={(i, v) => {
+            if (disabled) {
+              // Final SI: saved on its own (deliveries happen after the SI is sent).
+              void api
+                .setDelivered(doc.id, i, v)
+                .then(() => qc.invalidateQueries({ queryKey: SHIPMENT_KEYS.generated }))
+                .catch((e: any) => toast.error(e?.message || "Could not save"));
+            } else setRows((rs) => rs.map((x, j) => (j === i ? { ...x, delivered: v } : x)));
           }}
-          footer={
-            <TableRow sx={{ "& td": { fontWeight: 700, fontVariantNumeric: "tabular-nums" } }}>
-              <TableCell colSpan={4}>{t("total")}</TableCell>
-              <TableCell align="right">{sum(rows, "bundles") || ""}</TableCell>
-              <TableCell align="left">{sum(rows.filter((r: any) => r.delivered), "bundles") || ""}</TableCell>
-              <TableCell />
-            </TableRow>
-          }
         />
         <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
           {t("billetHelp")}

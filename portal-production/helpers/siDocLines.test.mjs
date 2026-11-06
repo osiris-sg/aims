@@ -16,7 +16,9 @@ test("SI editor, Products, Document formats and step cards are wired", () => {
   const editor = read("app/portal/trade-documents/generated/[id]/page.tsx");
   assert.match(editor, /downloadGeneratedXlsx/);
   assert.match(editor, /data-tour="si-download-xlsx"/);
-  assert.match(read("app/portal/trade-documents/generated/_forms/LogisticsDocForms.tsx"), /key: "billet", label: t\("billet"\), multiline: true/);
+  // Round BG: the delivery rows moved to SiDeliveries — the billet cell is still several lines.
+  assert.match(read("app/portal/trade-documents/generated/_forms/LogisticsDocForms.tsx"), /<SiDeliveries/);
+  assert.match(read("app/portal/trade-documents/generated/_forms/SiDeliveries.tsx"), /fullWidth multiline value=\{r\.billet/);
   assert.match(read("app/portal/shipments/clients/_components/ProductsPanel.tsx"), /data-tour="client-product-docname"/);
   assert.match(read("app/portal/shipments/clients/_components/DocumentFormatsPanel.tsx"), /f\.docType === "SHIPPING_INSTRUCTIONS" && <SiSettings/);
   assert.match(read("app/portal/shipments/_components/StepCards.tsx"), /docType === "SHIPPING_INSTRUCTIONS" && \(/);

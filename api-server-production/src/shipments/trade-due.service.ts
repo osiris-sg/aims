@@ -10,7 +10,8 @@ import { alertRulesOf } from './trade-alerts';
 import { profileFor } from './trade-profile';
 import { processStep } from './trade-process';
 import { ALERTABLE_ORDER } from './trade-test-orders';
-import { daysLate, DueContext, dueOf, dayOf, flaggable, ruleFor, StepState, stepState } from './trade-due';
+import { CustomerDueRule, daysLate, DueContext, dueChanges, dueOf, dayOf, flaggable, ruleFor, StepState, stepState } from './trade-due';
+import { PROCESS_STEPS } from './trade-process';
 import { isMovedToOrder } from './trade-process';
 
 const STEP = {
@@ -29,9 +30,10 @@ const STEP = {
   dueSetAt: true,
 };
 const SHIP = { id: true, seqNo: true, status: true, etd: true, eta: true, tsPort: true, tsEta: true, tsEtd: true, actualArrivalDate: true, dischargeDate: true, steps: { select: STEP } };
-const ORDER = {
+export const DUE_ORDER_SELECT = {
   id: true,
   orderNo: true,
+  shipMonth: true,
   status: true,
   createdAt: true,
   customerId: true,
@@ -69,6 +71,9 @@ export interface DueItem {
   /** Round AZ: which rule gave the date (the step code, or INVOICE_2_SINGLE) and its days — the portal words it in the user's language. */
   dueRule: string | null;
   dueRuleDays: number | null;
+  /** Round BG: the rule in Japanese, and whether it is the global default or this customer's own. */
+  dueWhyJa: string | null;
+  dueOrigin: 'default' | 'customer' | null;
 }
 
 @Injectable()
@@ -110,14 +115,21 @@ export class TradeDueService {
       const ships = (o.shipments ?? []) as any[];
       const etds = ships.map((s) => dayOf(s.etd)).filter((x): x is string => !!x).sort();
       const etas = ships.map((s) => dayOf(s.eta)).filter((x): x is string => !!x).sort();
+      const prof = profileFor(set.profiles, o.customerId);
+      // Round BG: step 3b done on every live shipment → the latest done date (Kato's single invoice).
+      const docs = ships.map((sh) => (sh.steps ?? []).find((x: any) => x.code === 'SHIPPING_DOCS')).filter((x: any) => x && !x.notApplicable && !isMovedToOrder(x));
+      const docsDone = docs.length && docs.every((x: any) => x.status === 'DONE' && x.completedAt) ? docs.map((x: any) => dayOf(x.completedAt)!).sort().pop()! : null;
       const base: DueContext = {
+        shipMonth: o.shipMonth ?? null,
+        shippingDocsDone: docsDone,
+        customRules: (prof as any).dueRules ?? null,
         orderCreatedAt: o.createdAt,
         piDate: o.piDate,
         depositDueDays: o.depositDueDays,
         depositDueUnit: o.depositDueUnit,
         firstEtd: etds[0] ?? null,
         lastEta: etas[etas.length - 1] ?? null,
-        billingMode: profileFor(set.profiles, o.customerId).billingMode,
+        billingMode: prof.billingMode,
         taxFundingDaysBefore: set.taxDays,
       };
       const push = (steps: any[], kind: 'order' | 'shipment', recordId: string, ref: string, shipmentId: string | null, ctx: DueContext) => {
@@ -149,8 +161,10 @@ export class TradeDueService {
             dueSetAt: s.dueSetAt ? new Date(s.dueSetAt).toISOString() : null,
             daysLate: state === 'overdue' && d.due ? daysLate(d.due, today) : null,
             flagged: flaggable(d.due, since),
-            dueRule: d.source === 'rule' ? (s.code === 'INVOICE_2' && ctx.billingMode === 'SINGLE' ? 'INVOICE_2_SINGLE' : s.code) : null,
-            dueRuleDays: d.source === 'rule' ? Math.abs(ruleFor(s.code, ctx.billingMode, ctx.taxFundingDaysBefore)?.days ?? 0) : null,
+            dueRule: d.source === 'rule' ? (d.rule?.origin === 'customer' ? 'CUSTOM' : s.code === 'INVOICE_2' && ctx.billingMode === 'SINGLE' ? 'INVOICE_2_SINGLE' : s.code) : null,
+            dueRuleDays: d.source === 'rule' ? Math.abs(d.rule?.days ?? 0) : null,
+            dueWhyJa: d.rule?.whyJa ?? null,
+            dueOrigin: d.rule ? (d.rule.origin === 'customer' ? 'customer' : 'default') : null,
           });
         }
       };
@@ -164,7 +178,7 @@ export class TradeDueService {
   async openItems(organizationId: string, today = tradeToday()): Promise<DueItem[]> {
     const cfg = await this.dueConfig(organizationId);
     if (!cfg.on) return [];
-    const orders: any[] = await this.prisma.tradeOrder.findMany({ where: { organizationId, status: 'OPEN', ...ALERTABLE_ORDER }, select: ORDER });
+    const orders: any[] = await this.prisma.tradeOrder.findMany({ where: { organizationId, status: 'OPEN', ...ALERTABLE_ORDER }, select: DUE_ORDER_SELECT });
     for (const o of orders) o.shipments = o.shipments.filter((s: any) => s.status !== 'CANCELLED');
     const items = this.itemsOf(orders, await this.settings(organizationId), today, true, cfg.since);
     // A completed shipment's leftover steps aren't tasks.
@@ -204,13 +218,13 @@ export class TradeDueService {
         stepId: i.stepId,
         overdue: i.state === 'overdue',
         // Round AZ: the parts of the title / detail, so the portal can show them in Japanese.
-        step: { code: i.code, no: i.no, ref: i.ref, daysLate: i.daysLate, rule: i.dueRule, ruleDays: i.dueRuleDays, setBy: i.dueSource === 'manual' ? (i.dueSetByName ?? '') : null },
+        step: { code: i.code, no: i.no, ref: i.ref, daysLate: i.daysLate, rule: i.dueRule, ruleDays: i.dueRuleDays, ruleJa: i.dueWhyJa, setBy: i.dueSource === 'manual' ? (i.dueSetByName ?? '') : null },
       }));
   }
 
   /** The order page's Overall process: one column per record (order, then each live shipment), one row per step. */
   async orderProcess(organizationId: string, orderId: string, today = tradeToday()) {
-    const o: any = await this.prisma.tradeOrder.findFirst({ where: { id: orderId, organizationId }, select: ORDER });
+    const o: any = await this.prisma.tradeOrder.findFirst({ where: { id: orderId, organizationId }, select: DUE_ORDER_SELECT });
     if (!o) throw new NotFoundException('Order not found');
     const cfg = await this.dueConfig(organizationId);
     const dueOn = cfg.on;
@@ -238,6 +252,39 @@ export class TradeDueService {
     const nos = [...new Map(items.map((i) => [i.no || i.code, { no: i.no, code: i.code, title: i.title, titleJa: i.titleJa }])).values()].sort((a, b) => order(a.no) - order(b.no));
     const rows = nos.map((r) => ({ ...r, cells: Object.fromEntries(items.filter((i) => (i.no || i.code) === (r.no || r.code)).map((i) => [i.recordId, i])) }));
     return { today, dueDates: dueOn, dueSince: cfg.since, columns, rows, overdue: items.filter((i) => i.state === 'overdue').length };
+  }
+
+  /**
+   * Round BG: what a customer's due-date rules would change on its open orders (nothing is written): every open step
+   * whose due date or overdue badge moves, before → after. Computed with due dates on even when the flag is off.
+   */
+  async customerRuleChanges(organizationId: string, customerId: string, dueRules: Record<string, CustomerDueRule>, today = tradeToday()) {
+    const cfg = await this.dueConfig(organizationId);
+    const set = await this.settings(organizationId);
+    const orders: any[] = await this.prisma.tradeOrder.findMany({ where: { organizationId, customerId, status: 'OPEN', ...ALERTABLE_ORDER }, select: DUE_ORDER_SELECT, orderBy: { orderNo: 'asc' } });
+    const closed = new Set(orders.flatMap((o) => o.shipments.filter((s: any) => s.status !== 'OPEN').map((s: any) => s.id)));
+    const profiles = { ...((set.profiles as Record<string, any>) ?? {}) };
+    profiles[customerId] = { ...(profiles[customerId] ?? { customerId, billingMode: 'TWO_STAGE' }), dueRules };
+    const live = (xs: DueItem[]) => xs.filter((i) => !(i.shipmentId && closed.has(i.shipmentId)));
+    const before = live(this.itemsOf(orders, set, today, true, cfg.since));
+    const after = live(this.itemsOf(orders, { ...set, profiles }, today, true, cfg.since));
+    return { today, since: cfg.since, dueDatesOn: cfg.on, openOrders: orders.length, changes: dueChanges(before, after) };
+  }
+
+  /** Round BG: the rule each step uses for this customer (default or its own), for the Process tab. */
+  async customerRules(organizationId: string, customerId: string) {
+    const set = await this.settings(organizationId);
+    const p: any = profileFor(set.profiles, customerId);
+    const own: Record<string, CustomerDueRule> = p.dueRules ?? {};
+    return {
+      own,
+      steps: PROCESS_STEPS.map((s) => {
+        if (s.ongoing) return { code: s.code, origin: null, key: null, days: null, en: null, ja: null };
+        const r = ruleFor(s.code, p.billingMode, set.taxDays, own);
+        const def = s.code === 'INVOICE_2' && p.billingMode === 'SINGLE' ? 'INVOICE_2_SINGLE' : s.code;
+        return { code: s.code, origin: r?.origin === 'customer' ? 'customer' : r ? 'default' : null, key: r?.origin === 'customer' ? 'CUSTOM' : def, days: r ? Math.abs(r.days) : null, en: r?.why ?? null, ja: r?.whyJa ?? null, defaultEn: ruleFor(s.code, p.billingMode, set.taxDays)?.why ?? null, defaultKey: def };
+      }),
+    };
   }
 
   /** Set (YYYY-MM-DD) or clear (null → back to the rule) one step's due date. */

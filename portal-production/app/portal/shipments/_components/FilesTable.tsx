@@ -9,16 +9,17 @@
 
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
-import { Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, Menu, MenuItem, Radio, RadioGroup, Stack, TextField, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, Menu, MenuItem, Radio, RadioGroup, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import { useTranslations } from "next-intl";
 import { toast } from "../_lib/toast";
 import Table from "@/components/Table";
-import { linkTargetsOf, targetGroup, type FileFilters, type TradeFile, type TradeFileLink } from "../_lib/api";
+import { linkTargetsOf, type FileFilters, type TradeFile, type TradeFileLink } from "../_lib/api";
 import { useOrders, useShipments, useTradeFiles, useTradeMutation } from "../_lib/hooks";
 import { fmtBytes, fmtDate, fmtDateTime } from "../_lib/format";
 import { ConfirmDialog, EmptyState } from "./bits";
+import LinkChecklist, { targetKey, tradeCheckItems } from "./LinkChecklist";
 import FileUploadDialog, { type LinkTarget } from "./FileUploadDialog";
 import { FileThumb, useFileViewer } from "./FilePreview";
 
@@ -266,10 +267,11 @@ export function AddLinkDialog({ file, onClose }: { file: TradeFile | null; onClo
   const add = useTradeMutation((a, v: { id: string; targets: LinkTarget[] }) => a.addLinks(v.id, linkTargetsOf(v.targets)));
 
   const linked = new Set((file?.links ?? []).map((l) => l.orderId ?? l.contractId ?? l.shipmentId));
-  const options: LinkTarget[] = [
-    ...(orders.data?.items ?? []).map((o) => ({ kind: "order" as const, id: o.id, label: `${t("linkOrder", { no: o.label })}${o.customerName ? ` · ${o.customerName}` : ""}` })),
-    ...(shipments.data?.items ?? []).map((s) => ({ kind: "shipment" as const, id: s.id, label: `${t("linkShipment", { no: s.ref || s.blNumber || t("blPending") })}${s.blNumber && s.ref ? ` · B/L ${s.blNumber}` : ""}` })),
-  ].filter((o) => !linked.has(o.id));
+  // Round BG: tick several orders / shipments at once (the ones the file is already on are listed as such).
+  const items = tradeCheckItems((orders.data?.items ?? []) as any[], (shipments.data?.items ?? []) as any[], [], t("blPending"));
+  const options = items.filter((o) => !linked.has(o.key.slice(o.key.indexOf(":") + 1)));
+  const already = items.filter((o) => linked.has(o.key.slice(o.key.indexOf(":") + 1))).map((o) => o.ref);
+  const setKeys = (ks: string[]) => setTargets(ks.map((k) => ({ kind: k.slice(0, k.indexOf(":")) as LinkTarget["kind"], id: k.slice(k.indexOf(":") + 1), label: items.find((i) => i.key === k)?.ref ?? "" })));
 
   const close = () => {
     if (add.isPending) return;
@@ -298,17 +300,8 @@ export function AddLinkDialog({ file, onClose }: { file: TradeFile | null; onClo
             {error}
           </Alert>
         )}
-        <Autocomplete
-          multiple
-          options={options}
-          value={targets}
-          onChange={(_, v) => setTargets(v)}
-          groupBy={(o) => targetGroup(o.kind)}
-          getOptionLabel={(o) => o.label}
-          isOptionEqualToValue={(a, b) => a.id === b.id}
-          loading={orders.isLoading || shipments.isLoading}
-          renderInput={(p) => <TextField {...p} label={t("alsoLinkTo")} size="small" sx={{ mt: 1 }} />}
-        />
+        {already.length > 0 && <Typography variant="caption" color="text.secondary" component="div" sx={{ mb: 1 }}>{t("alreadyOn", { list: already.join(", ") })}</Typography>}
+        <LinkChecklist items={options} value={targets.map(targetKey)} onChange={setKeys} loading={orders.isLoading || shipments.isLoading} label={t("alsoLinkTo")} />
       </DialogContent>
       <DialogActions>
         <Button onClick={close} disabled={add.isPending}>

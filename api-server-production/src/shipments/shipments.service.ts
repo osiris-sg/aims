@@ -71,6 +71,10 @@ export class ShipmentsService {
       demFreeDays: true,
       shippingLine: true,
       netWeightMt: true,
+      // Round BG: the link checklist's CI amounts (a payment proof covering several CIs).
+      ciNumber: true,
+      ciAmount: true,
+      currency: true,
       status: true,
       createdAt: true,
       contractId: true,

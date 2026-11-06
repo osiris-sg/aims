@@ -26,6 +26,8 @@ function answer(d: any, key: readonly unknown[]): unknown {
     if (key[1] === "preview-shipments") return d.previewShipments?.[key[2] as string] ?? [];
     // Round AY: Clients › a customer › Process — the effect of a change (keyed by customer, then the skip list).
     if (key[1] === "process-preview") return d.processImpact?.[key[2] as string]?.[key[3] as string] ?? d.processImpact?.[key[2] as string]?.["*"];
+    // Round BG: a customer's due-rule change (keyed by customer).
+    if (key[1] === "due-preview") return d.duePreview?.[key[2] as string];
     if (key[2] === "customers") return d.customers;
     if (key[2] === "suppliers") return d.suppliers;
     if (key[2] === "customer") return d.detail?.[key[3] as string];
@@ -60,7 +62,11 @@ function answer(d: any, key: readonly unknown[]): unknown {
   if (k0 === "trade-shipments" && key[2] === "list") {
     const f: any = key[3] ?? {};
     if (d.answer) return f.status === "COMPLETED" ? d.answer.shipsDone : d.answer.shipsOpen;
+    // Round BG: the link checklist's open shipments.
+    if (d.shipsAll) return d.shipsAll;
   }
+  // Round BG: the 出庫・納入依頼書 editor's LOTs / B/L totals / holidays.
+  if (k0 === "si-context") return d.siContext?.[key[1] as string];
   if (k0 === "trade-parties") return key[2] === "suppliers" ? (d.answer?.suppliers ?? d.suppliers) : (d.answer?.customers ?? d.customers);
   if (k0 === "inbox-placements") return d.answer?.placements;
   if (k0 === "inbox-issue-draft") return d.answer?.draft;

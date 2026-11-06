@@ -10,6 +10,9 @@ import { PrismaService } from '../common/prisma.service';
 import { S3Service } from '../common/services/s3.service';
 import { tradeToday, decodeUploadName, resolveTradeFileMime, sanitizeFileName, TRADE_FILE_MAX_BYTES } from './shipments.rules';
 import { TradeConfigService } from './trade-config.service';
+import { TradeDueService } from './trade-due.service';
+import { cleanDueRules, describeRule } from './trade-due';
+import { processStep } from './trade-process';
 import { TradeFilesService } from './trade-files.service';
 import { TradeGeneratedService } from './trade-generated.service';
 import { TradeActor } from './shipments.request';
@@ -40,6 +43,7 @@ export class ClientsService {
     private readonly config: TradeConfigService,
     private readonly s3: S3Service,
     private readonly generated: TradeGeneratedService,
+    private readonly due: TradeDueService,
   ) {}
 
   private async ordersOf(organizationId: string, where: Record<string, unknown>) {
@@ -147,7 +151,7 @@ export class ClientsService {
       ports: [...new Set([profile.port, ...shipPorts.map((s) => s.portOfDischarge)].filter((x): x is string => !!x))],
       deliverySites: [...(profile.deliveryProfile ? [{ ...profile.deliveryProfile, source: 'profile' }] : []), ...legacy.map((d) => ({ ...d, source: 'documents defaults' }))],
       formats: formatViews(profile, c.jpName || c.name),
-      process: { steps: PROCESS_STEPS, skipSteps: profile.skipSteps ?? [] },
+      process: { steps: PROCESS_STEPS, skipSteps: profile.skipSteps ?? [], due: await this.due.customerRules(organizationId, id) },
       // Round BA: Products / Packing tabs.
       catalog: await this.catalogView(organizationId, 'customer', id),
     };
@@ -186,6 +190,30 @@ export class ClientsService {
     const p = await this.profileFor(organizationId, customerId);
     await this.config.updateSettings(organizationId, { customerProfiles: { [customerId]: { ...p, skipSteps: impact.skipSteps } } } as any);
     return { impact, customer: await this.customer(organizationId, customerId) };
+  }
+
+  // ── Round BG: the customer's own due-date rules ─────────────────────────
+  private cleanRules(v: unknown) {
+    return cleanDueRules(v, (c) => !!processStep(c), (m) => {
+      throw new BadRequestException(m);
+    });
+  }
+
+  /** What these rules would change on the customer's open orders (nothing is written). */
+  async dueRulesPreview(organizationId: string, customerId: string, dueRules: unknown) {
+    await this.profileFor(organizationId, customerId);
+    const rules = this.cleanRules(dueRules);
+    const words = Object.fromEntries(Object.entries(rules).map(([code, r]) => [code, { en: describeRule(r, 'en'), ja: describeRule(r, 'ja') }]));
+    return { dueRules: rules, words, ...(await this.due.customerRuleChanges(organizationId, customerId, rules)) };
+  }
+
+  /** Save the customer's due-date rules (the whole map; a step left out uses the default). */
+  async updateDueRules(organizationId: string, customerId: string, dueRules: unknown) {
+    const p = await this.profileFor(organizationId, customerId);
+    const preview = await this.dueRulesPreview(organizationId, customerId, dueRules);
+    const from = p.dueRules ?? {};
+    await this.config.updateSettings(organizationId, { customerProfiles: { [customerId]: { ...p, dueRules: preview.dueRules } } } as any);
+    return { from, to: preview.dueRules, changes: preview.changes, customer: await this.customer(organizationId, customerId) };
   }
 
   private async contracts(organizationId: string, where: { customerId?: string; supplierId?: string }) {

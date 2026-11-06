@@ -20,7 +20,7 @@
 // selection. "All shipments" is grouped by order (newest ETA first), completed orders behind "Show completed".
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, IconButton, InputAdornment, List, ListItemButton, ListItemIcon, ListItemText, MenuItem, Stack, Switch, TextField, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, IconButton, InputAdornment, List, ListItemButton, ListItemIcon, ListItemText, MenuItem, Stack, Switch, TextField, Tooltip, Typography } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import CloseIcon from "@mui/icons-material/Close";
@@ -38,6 +38,7 @@ import { ShipmentDrawer, type DrawerMode } from "./ShipmentDrawer";
 import { nextShipmentRef, orderGroups, orderHaystack, orderLine as orderLineOf, shipmentLine as shipmentLineOf } from "../../_lib/shipment-picker";
 import { fmtDay, shortCustomer } from "../../_lib/format";
 import { answerFor, docPlainName, L, likelyOptions, optionKey } from "../../_lib/inbox-cards";
+import { LinkChecklistButton } from "../LinkChecklist";
 
 type Step = "q1" | "what" | "which" | "files" | "issue" | "confirm";
 type Outcome = { kind: "shipments" } | { kind: "not_shipment" };
@@ -580,17 +581,16 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
                     )}
                     {!s.skip && (
                       <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-                        <Autocomplete
-                          multiple
-                          size="small"
-                          sx={{ flex: 2, minWidth: 0 }}
-                          options={options}
+                        <LinkChecklistButton
+                          items={options.map((key) => {
+                            const o = optOf(key, f);
+                            const ref = o?.ref ?? key;
+                            return { key, kind: o?.shipmentId ? ("shipment" as const) : ("order" as const), ref, orderRef: /^(#\d+)-/.exec(ref)?.[1] ?? null, detail: o && o.label !== ref ? o.label.replace(`${ref} · `, "") : null };
+                          })}
                           value={s.targets}
-                          onChange={(_e, v) => set({ targets: v })}
-                          getOptionLabel={(key) => optOf(key, f)?.label ?? key}
-                          renderTags={(value, getTagProps) => value.map((key, i) => <Chip {...getTagProps({ index: i })} key={key} size="small" label={optOf(key, f)?.ref ?? key} />)}
-                          renderInput={(p) => <TextField {...p} label={labels.fileTargets} error={!s.targets.length} />}
-                          data-tour="answer-file-targets"
+                          onChange={(v) => set({ targets: v })}
+                          label={labels.fileTargets}
+                          error={!s.targets.length}
                         />
                         <TextField select size="small" label={labels.fileSlot} value={s.docType ?? ""} onChange={(e) => set({ docType: e.target.value || null })} sx={{ flex: 1, minWidth: 180 }} error={!s.docType}>
                           {SLOTS.map((c) => (

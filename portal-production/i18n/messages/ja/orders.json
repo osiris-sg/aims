@@ -278,7 +278,8 @@
     "addLinks": "リンクを追加",
     "removeLinkError": "リンクを解除できませんでした",
     "unlinkTitle": "「{name}」のリンク解除",
-    "removing": "解除中…"
+    "removing": "解除中…",
+    "alreadyOn": "紐付け済み：{list}"
   },
   "upload": {
     "typeNotAllowed": "このファイル形式は使用できません。使用できる形式: {list}",
@@ -405,5 +406,34 @@
     "takenOther": "{label} は他の注文（{what}）で使用中です。次の空き番号を使ってください。",
     "useNext": "#{no} を使う",
     "noMonth": "出荷月なし"
+  },
+  "linkChecklist": {
+    "label": "紐付け先",
+    "search": "#18、#18-2、B/L、顧客で検索",
+    "ticked": "{n}件選択",
+    "clear": "クリア",
+    "orders": "注文",
+    "shipments": "出荷",
+    "other": "契約・仕入注文",
+    "none": "該当なし",
+    "loading": "読み込み中…",
+    "selectAll": "{ref}の出荷をすべて選択（{n}件）",
+    "unselectAll": "{ref}の出荷の選択をすべて外す",
+    "nothing": "未選択",
+    "done": "完了",
+    "ciTitle": "この支払証明で支払うCI",
+    "ciNo": "CI {no}",
+    "ciNoMissing": "CI番号未入力",
+    "noAmount": "CI金額なし",
+    "ciTotal": "合計（CI {n}件）",
+    "mixed": "複数通貨",
+    "missing": "{n}件の出荷にCI金額がまだありません",
+    "proofAmount": "支払証明の金額（{cur}）",
+    "matches": "合計と一致",
+    "difference": "差額：{amount}（{dir}）",
+    "more": "CIより多い",
+    "less": "CIより少ない",
+    "noBlock": "確認用です。アップロードは止まりません。",
+    "optional": "任意"
   }
 }

@@ -130,6 +130,13 @@ export class TradeGeneratedController {
     return this.gen.issueAdjustment(orgIdOf(req), id, actorOf(req));
   }
 
+  /** Round BG: the 出庫・納入依頼書 editor's LOTs (product line, B/L bundles / weights), delivery site and JP holidays. */
+  @Get(':id/si-context')
+  @Permissions('shipments:read')
+  siContext(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {
+    return this.gen.siContext(orgIdOf(req), id);
+  }
+
   @Get(':id')
   @Permissions('shipments:read')
   get(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {

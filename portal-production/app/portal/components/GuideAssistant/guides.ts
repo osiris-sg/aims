@@ -370,6 +370,45 @@ export const GUIDES: Guide[] = [
     ],
   },
   {
+    id: 'trade-customer-due-rules',
+    title: 'Set a customer\'s own due date for a step (Clients › Process)',
+    module: 'SHIPMENTS',
+    description:
+      'How to change WHEN a step is due for one customer (e.g. SUS Invoice #1 on the 9th of the ship month, Kato\'s invoice 1–2 days after the shipping documents): Clients › Customers → the customer → Process → the pencil next to the step\'s Due date → This customer\'s own rule → check the open orders it changes → Save rule. Use the default to go back. NOT for one order: on the order page\'s Overall process, click the step\'s date to set it by hand.',
+    route: '/portal/shipments/clients/customers',
+    steps: [
+      { route: '/portal/shipments/clients/customers', selector: '[data-tour="clients-customers"]', title: 'Customers', body: 'Open the customer (SUS, Kato …).' },
+      { selector: '[data-tour="client-tab-process"]', title: 'Process tab', body: 'The steps of this customer\'s process, each with the due-date rule it uses (Default or This customer).', patient: true },
+      { selector: '[data-tour="client-process"]', title: 'Due date rule', body: 'Press the pencil next to a step\'s rule, choose This customer\'s own rule, check the open orders it changes, then Save rule.', patient: true },
+    ],
+  },
+  {
+    id: 'trade-link-file-several',
+    title: 'Link one file to several orders / shipments (e.g. one payment proof for several CIs)',
+    module: 'SHIPMENTS',
+    description:
+      'How to upload one file (a bank slip paying several CIs, a B/L copy for two shipments) and link it to several records at once: on the step press Upload, pick the document type, then tick the orders / shipments in the Link to checklist (search #18, #18-2, a B/L or the customer; Select all shipments of #18 ticks them all). For a payment proof the ticked CIs and their total show; type the amount on the proof to see the difference. Upload. To add links to a file that is already uploaded: the file\'s ⋮ → Add link.',
+    route: '/portal/shipments',
+    steps: [
+      { route: '/portal/shipments', selector: '[data-tour="shipments-tab-all"]', title: 'Open the order', body: 'Open the order or shipment and press Upload on the step (e.g. step 6, CI payment proof).' },
+      { selector: '[data-tour="link-checklist"]', title: 'Tick every record', body: 'Search #18, #18-2, a B/L or the customer; tick each record, or Select all shipments of #18.', patient: true },
+      { selector: '[data-tour="link-checklist-ci"]', title: 'CIs and total', body: 'For a payment proof: each ticked CI with its amount and the total; type the proof\'s amount to see any difference. Never blocks the upload.', patient: true },
+    ],
+  },
+  {
+    id: 'trade-si-truck-days',
+    title: 'Fill the 出庫・納入依頼書 delivery rows from the Excel schedule',
+    module: 'SHIPMENTS',
+    description:
+      'How to enter the truck days of a 出庫・納入依頼書 fast: open the draft (step 9) → Deliveries → Paste from Excel, paste the 納品日 · LOT · バンドル数/台 columns (one line per truck), check the preview (one row per day + LOT, bundles summed, trucks counted, 出荷日 = the working day before) and Add rows. Add row adds the next working day; Fill days… adds a range. Bundles vs the B/L show under the table; tick Weights per row to print each row\'s weight.',
+    route: '/portal/shipments',
+    steps: [
+      { selector: '[data-tour="si-deliveries"]', title: 'Deliveries', body: 'The truck days of this 出庫・納入依頼書, always in 納入日 order.', patient: true },
+      { selector: '[data-tour="si-paste"]', title: 'Paste from Excel', body: 'Paste 納品日 · LOT · バンドル数/台 (one line per truck), check the preview, then Add rows.', patient: true },
+      { selector: '[data-tour="si-bundle-totals"]', title: 'Bundles vs the B/L', body: 'Per LOT and in all: the rows\' bundles against the B/L bundles, with the difference.', patient: true },
+    ],
+  },
+  {
     id: 'trade-si-format',
     title: 'Set up a customer\'s 出庫・納入依頼書 (wording, weights, Excel)',
     module: 'SHIPMENTS',

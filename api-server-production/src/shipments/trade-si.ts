@@ -182,6 +182,8 @@ export interface SiSheetHeader {
   grossWeightMt: number | null;
   netWeightMt: number | null;
   weightMode?: SiWeightMode;
+  /** Round BG: each row carries its own net / gross (the 重量 column per row). */
+  weightsPerRow?: boolean;
   shipper: string;
   carrier: string;
   remarks: string;
@@ -192,6 +194,9 @@ export interface SiSheetRow {
   destination: string;
   billet: string;
   bundles: number | null;
+  /** Round BG: per-row weights (header.weightsPerRow) — bundles × the LOT's average bundle weight. */
+  netMt?: number | null;
+  grossMt?: number | null;
 }
 
 const has = (v: unknown) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
@@ -303,8 +308,13 @@ export async function siXlsx(h: SiSheetHeader, rows: SiSheetRow[]): Promise<Buff
     ws.getRow(n).height = Math.max(28, 15 * billet.length + 4);
   });
   const last = head + list.length;
-  if (list.length > 1) ws.mergeCells(`F${head + 1}:F${last}`);
-  put(`F${head + 1}`, v.weight, { align: 'center', border: box, size: 9.5 });
+  if (h.weightsPerRow) {
+    // Round BG: weights per row (bundles × the LOT's average bundle weight).
+    list.forEach((r, i) => put(`F${head + 1 + i}`, siRowWeightLines(r, h.weightMode).join('\n'), { align: 'center', border: box, size: 9.5, valign: 'top' }));
+  } else {
+    if (list.length > 1) ws.mergeCells(`F${head + 1}:F${last}`);
+    put(`F${head + 1}`, v.weight, { align: 'center', border: box, size: 9.5 });
+  }
   for (let n = head + 1; n <= last; n++) ws.getCell(`F${n}`).border = box;
   let r = last + 2;
   for (const [label, value] of [
@@ -450,4 +460,28 @@ export async function siTemplateMappingOf(template: Buffer, manual: Record<strin
   const ws = wb.worksheets[0];
   if (!ws) throw new Error('The template has no sheet');
   return siTemplateMapping(ws, manual);
+}
+
+// ── Round BG: delivery rows (paste from Excel / fill days) ──────────────────
+const ymd = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : '');
+/**
+ * The rows the PDF / .xlsx print: rows without a date (出荷日 or 納入日) are left out, the rest sorted by 納入日 (then
+ * 出荷日; a typed non-date text keeps its place at the end). Never prints an empty row.
+ */
+export function siPrintRows<T extends { shipDate?: unknown; deliveryDate?: unknown }>(rows: T[]): T[] {
+  const dated = rows.filter((r) => String(r?.shipDate ?? '').trim() || String(r?.deliveryDate ?? '').trim());
+  return dated
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => {
+      const da = ymd(a.r.deliveryDate) || ymd(a.r.shipDate);
+      const db = ymd(b.r.deliveryDate) || ymd(b.r.shipDate);
+      if (da && db) return da.localeCompare(db) || ymd(a.r.shipDate).localeCompare(ymd(b.r.shipDate)) || a.i - b.i;
+      return da ? -1 : db ? 1 : a.i - b.i;
+    })
+    .map((x) => x.r);
+}
+
+/** One row's 重量 lines (weights per row): "総重量 20.150トン" / "(正味重量 20.080トン)". */
+export function siRowWeightLines(r: { netMt?: unknown; grossMt?: unknown }, weightMode?: SiWeightMode | null): string[] {
+  return siWeightLines({ grossWeightMt: r.grossMt as any, netWeightMt: r.netMt as any, weightMode: weightMode ?? 'NET_GROSS' } as any);
 }

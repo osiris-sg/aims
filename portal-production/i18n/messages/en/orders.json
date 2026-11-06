@@ -278,7 +278,8 @@
     "addLinks": "Add links",
     "removeLinkError": "Could not remove the link",
     "unlinkTitle": "Unlink “{name}”",
-    "removing": "Removing…"
+    "removing": "Removing…",
+    "alreadyOn": "Already on: {list}"
   },
   "upload": {
     "typeNotAllowed": "File type not allowed. Allowed: {list}",
@@ -405,5 +406,34 @@
     "takenOther": "{label} is already used by another order ({what}). Use the next free number.",
     "useNext": "Use #{no}",
     "noMonth": "no ship month"
+  },
+  "linkChecklist": {
+    "label": "Link to",
+    "search": "Search #18, #18-2, B/L, customer",
+    "ticked": "{n} ticked",
+    "clear": "Clear",
+    "orders": "Orders",
+    "shipments": "Shipments",
+    "other": "Contracts & supplier orders",
+    "none": "Nothing matches",
+    "loading": "Loading…",
+    "selectAll": "Select all shipments of {ref} ({n})",
+    "unselectAll": "Untick all shipments of {ref}",
+    "nothing": "nothing yet",
+    "done": "Done",
+    "ciTitle": "CIs this proof pays",
+    "ciNo": "CI {no}",
+    "ciNoMissing": "CI no. not filled",
+    "noAmount": "no CI amount",
+    "ciTotal": "Total ({n, plural, one {# CI} other {# CIs}})",
+    "mixed": "several currencies",
+    "missing": "{n, plural, one {# shipment has} other {# shipments have}} no CI amount yet",
+    "proofAmount": "Amount on the proof ({cur})",
+    "matches": "Matches the total",
+    "difference": "Difference: {amount} {dir}",
+    "more": "more than the CIs",
+    "less": "less than the CIs",
+    "noBlock": "Only a check: the upload is never blocked.",
+    "optional": "optional"
   }
 }

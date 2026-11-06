@@ -16,7 +16,7 @@ describe('round AY — due date rules', () => {
   it('a new ETA moves the rule dates; a hand-set date stays', () => {
     const later = { ...ship, eta: '2026-11-12' };
     expect(dueOf('AN_INSTRUCTIONS', later).due).toBe('2026-11-11');
-    expect(dueOf('AN_INSTRUCTIONS', later, '2026-11-03T00:00:00.000Z')).toEqual({ due: '2026-11-03', source: 'manual', why: DEFAULT_DUE_RULES.AN_INSTRUCTIONS.why });
+    expect(dueOf('AN_INSTRUCTIONS', later, '2026-11-03T00:00:00.000Z')).toMatchObject({ due: '2026-11-03', source: 'manual', why: DEFAULT_DUE_RULES.AN_INSTRUCTIONS.why });
   });
   it('business days skip weekends (CI payment 3 bank days after a Friday ETD → Wednesday)', () => {
     expect(dueOf('CI_PAYMENT', { etd: '2026-10-02' }).due).toBe('2026-10-07');

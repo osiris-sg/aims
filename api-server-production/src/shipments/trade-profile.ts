@@ -12,6 +12,7 @@
  */
 import type { DeliveryProfile } from './trade-invoice';
 import { cleanSkipSteps, processStep } from './trade-process';
+import { cleanDueRules } from './trade-due';
 import { keepAccount } from './clients-company';
 
 export type BillingMode = 'TWO_STAGE' | 'SINGLE';
@@ -69,6 +70,8 @@ export interface CustomerProfile {
   partyBlocks?: PartyBlocks;
   /** Round AY: step codes that are not part of this customer's process (Clients → Process); absent = every step. */
   skipSteps?: string[];
+  /** Round BG: this customer's own due-date rules per step code (Clients → Process); absent = the global default. */
+  dueRules?: Record<string, import('./trade-due').CustomerDueRule>;
   /** Round AY part 3 (Clients → Details): country, website, payment terms, bank, notes — see clients-company.ts. */
   company?: import('./clients-company').CompanyInfo;
   /** Round AY part 3: shipping lines used, B/L / booking patterns, ports, incoterm. */
@@ -365,6 +368,8 @@ export function mergeProfiles(current: unknown, patch: Record<string, unknown>, 
     // A save without partyBlocks (Org Settings → Customers doesn't know them) keeps the stored ones.
     // Round AY: a save without skipSteps (Org Settings → Customers doesn't know them) keeps the stored process.
     const skipSteps = (p as { skipSteps?: unknown }).skipSteps === undefined ? ((out[id] as CustomerProfile | undefined)?.skipSteps ?? []) : cleanSkipSteps((p as { skipSteps?: unknown }).skipSteps, fail);
+    // Round BG: same for the customer's due-date rules.
+    const dueRules = (p as { dueRules?: unknown }).dueRules === undefined ? ((out[id] as CustomerProfile | undefined)?.dueRules ?? {}) : cleanDueRules((p as { dueRules?: unknown }).dueRules, (c) => !!processStep(c), fail);
     const parties = pb === undefined ? { ...((out[id] as CustomerProfile | undefined)?.partyBlocks ?? {}) } : pb ? Object.fromEntries(Object.entries(pb).filter(([, v]) => typeof v === 'string' && v.trim()).map(([k, v]) => [k, (v as string).trim()])) : {};
     out[id] = {
       customerId: id,
@@ -386,6 +391,7 @@ export function mergeProfiles(current: unknown, patch: Record<string, unknown>, 
       ...(formats ? { docFormats: formats } : {}),
       ...(Object.keys(parties).length ? { partyBlocks: parties as PartyBlocks } : {}),
       ...(skipSteps.length ? { skipSteps } : {}),
+      ...(Object.keys(dueRules).length ? { dueRules } : {}),
       // Round AY part 3: Clients → Details keeps these; a save without them (Org Settings → Customers) keeps the stored ones.
       ...keepExtra(out[id] as CustomerProfile | undefined, p as Partial<CustomerProfile>),
       // Round BA: products / packing are the Clients service's alone — a settings save always keeps the stored ones.

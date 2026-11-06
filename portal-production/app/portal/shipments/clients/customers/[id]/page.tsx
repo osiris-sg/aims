@@ -117,7 +117,7 @@ export default function ClientCustomerPage() {
             </Grid2>
             </Stack>
           )}
-          {tab === "process" && <ProcessPanel customerId={d.customer.id} steps={d.process?.steps ?? []} skipSteps={d.process?.skipSteps ?? []} lang={lang} />}
+          {tab === "process" && <ProcessPanel customerId={d.customer.id} steps={d.process?.steps ?? []} skipSteps={d.process?.skipSteps ?? []} lang={lang} due={d.process?.due} />}
           {tab === "formats" && <DocumentFormatsPanel customerId={d.customer.id} formats={d.formats} lang={lang} />}
           {tab === "issues" && <IssuesPanel customerId={d.customer.id} title={t("issues")} />}
         </>

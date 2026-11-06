@@ -926,17 +926,34 @@ export type ClientCustomerDetail = {
   deliverySites: Array<{ siteName: string; address: string; notes?: string; label?: string | null; warehouseName?: string | null; warehouseCheck?: boolean; source: string }>;
   formats: DocFormatView[];
   /** Round AY: the customer's process — every step, and the ones left out. */
-  process: { steps: ProcessStepDef[]; skipSteps: string[] };
+  process: { steps: ProcessStepDef[]; skipSteps: string[]; due?: CustomerDueRules };
   /** Round AY part 3. */
   company?: CompanyInfo; logistics?: LogisticsInfo; contactList?: ContactInfo[];
   /** Round BA: Products / Packing. */
   catalog?: ClientCatalog;
 };
 /** Round AY: one step of the order process (Clients → a customer → Process). */
+/** Round BG: due-date rules per customer (Clients › customer › Process). */
+/** Round BG: the 出庫・納入依頼書 editor's LOTs, B/L bundles / weights, delivery site and JP holidays. */
+export type SiContext = {
+  lots: Array<{ lot: string; billet: string; bundles: number; netMt: number; grossMt: number; avgNetMt: number | null; avgGrossMt: number | null; missing: number; shipments: Array<{ id: string; ref: string; blNumber: string | null; bundles: number | null; netMt: number | null; grossMt: number | null }> }>;
+  bundles: number;
+  destination: string | null;
+  holidays: Array<{ date: string; name: string }>;
+  holidaySource: string;
+};
+export type DueAnchorCode = "ORDER_CREATED" | "ETD" | "ETA" | "FIRST_ETD" | "LAST_ETA" | "SHIP_MONTH_DAY" | "SHIPPING_DOCS_DONE";
+export type CustomerDueRule = { anchor: DueAnchorCode; days: number; business?: boolean; day?: number; daysText?: string };
+export type CustomerDueRules = {
+  own: Record<string, CustomerDueRule>;
+  steps: Array<{ code: string; origin: "default" | "customer" | null; key: string | null; days: number | null; en: string | null; ja: string | null; defaultEn?: string | null; defaultKey?: string }>;
+};
+export type DueRuleChange = { stepId: string; orderId: string; ref: string; no: string; code: string; title: string; before: { due: string | null; badge: string | null; why: string | null }; after: { due: string | null; badge: string | null; why: string | null } };
+export type DueRulesPreview = { dueRules: Record<string, CustomerDueRule>; words: Record<string, { en: string; ja: string }>; today: string; since: string | null; dueDatesOn: boolean; openOrders: number; changes: DueRuleChange[] };
 export type ProcessStepDef = { scope: "ORDER" | "SHIPMENT"; code: string; no: string; en: string; ja: string; ongoing?: boolean };
 /** Round AY part 2: the order page's Overall process. */
 export type StepDueState = "done" | "current" | "upcoming" | "overdue" | "na";
-export type ProcessCell = { stepId: string; code: string; no: string; title: string; titleJa: string | null; kind: "order" | "shipment"; recordId: string; orderId: string; shipmentId: string | null; ref: string; status: string; ongoing?: boolean; state: StepDueState; doneAt: string | null; due: string | null; dueSource: "manual" | "rule" | null; dueWhy: string | null; dueSetByName: string | null; dueSetAt: string | null; daysLate: number | null; flagged?: boolean };
+export type ProcessCell = { stepId: string; code: string; no: string; title: string; titleJa: string | null; kind: "order" | "shipment"; recordId: string; orderId: string; shipmentId: string | null; ref: string; status: string; ongoing?: boolean; state: StepDueState; doneAt: string | null; due: string | null; dueSource: "manual" | "rule" | null; dueWhy: string | null; dueSetByName: string | null; dueSetAt: string | null; daysLate: number | null; flagged?: boolean; dueWhyJa?: string | null; dueOrigin?: "default" | "customer" | null };
 export type ProcessSchedule = { etd: string | null; tsPort: string | null; tsEta: string | null; tsEtd: string | null; eta: string | null; arrived: string | null; deliveries: string[] };
 export type OrderProcess = {
   today: string; overdue: number;
@@ -987,7 +1004,7 @@ export type PremiumRow = { from: string; to: string | null; grade?: string | nul
 export type TradeAlert = {
   id: string; kind: string; key: string; dueAt: string; title: string; detail: string | null; shipmentId: string | null; orderId: string | null; supplierOrderId: string | null; linkUrl: string | null; status: "SCHEDULED" | "DUE" | "DONE" | "DISMISSED"; notifiedAt: string | null;
   /** Round AZ: a STEP_DUE task's parts (the portal words the title / detail in the user's language). */
-  step?: { code: string; no: string; ref: string; daysLate: number | null; rule: string | null; ruleDays: number | null; setBy: string | null };
+  step?: { code: string; no: string; ref: string; daysLate: number | null; rule: string | null; ruleDays: number | null; ruleJa?: string | null; setBy: string | null };
 };
 export type CellState = "done" | "in_progress" | "na" | "overdue" | "not_started" | "none";
 export type Pipeline = { rows: Array<{ no: string; title: string }>; months: Array<{ month: string | null; orders: Array<{ id: string; label: string; customerName: string | null; status: RecordStatus; cells: Record<string, CellState> }> }> };
@@ -1376,6 +1393,10 @@ export type ShipmentListItem = {
   eta: string | null;
   actualArrivalDate: string | null;
   netWeightMt?: Num;
+  /** Round BG: the CI on the shipment (the link checklist's proof total). */
+  ciNumber?: string | null;
+  ciAmount?: Num;
+  currency?: string | null;
   status: RecordStatus;
   createdAt: string;
   contract: { id: string; contractNo: string } | null;
@@ -1695,6 +1716,8 @@ export function useShipmentsApi() {
       orderProcess: (id: string) => call<OrderProcess>(`/trade-orders/${id}/process`),
       setStepDue: (stepId: string, dueAt: string | null) => call<{ stepId: string; from: string | null; to: string | null }>(`/trade-steps/${stepId}/due`, "PATCH", { dueAt }),
       clientProcessPreview: (id: string, skipSteps: string[]) => call<ProcessImpact>(`/trade-clients/customers/${id}/process/preview`, "POST", { skipSteps }),
+      clientDueRulesPreview: (id: string, dueRules: Record<string, CustomerDueRule>) => call<DueRulesPreview>(`/trade-clients/customers/${id}/due-rules/preview`, "POST", { dueRules }),
+      clientUpdateDueRules: (id: string, dueRules: Record<string, CustomerDueRule>) => call<{ changes: DueRuleChange[]; customer: ClientCustomerDetail }>(`/trade-clients/customers/${id}/due-rules`, "PATCH", { dueRules }),
       clientUpdateProcess: (id: string, skipSteps: string[]) => call<{ impact: ProcessImpact; customer: ClientCustomerDetail }>(`/trade-clients/customers/${id}/process`, "PATCH", { skipSteps }),
       clientUpdateFormat: (id: string, docType: string, body: { generator?: string | null; language?: string | null; addressee?: string | null; notes?: string | null; si?: SiFormat | null }) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}/formats/${docType}`, "PATCH", body),
       clientHideSample: (id: string, docType: string, sampleId: string) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}/formats/${docType}/samples/${sampleId}/hide`, "PATCH", {}),
@@ -1811,6 +1834,7 @@ export function useShipmentsApi() {
       applyCredit: (id: string, creditId: string) => call<GeneratedDoc>(`/trade-generated/${id}/apply-credit`, "POST", { creditId }),
       costVariance: (id: string) => call<CostVariance>(`/trade-generated/${id}/cost-variance`),
       issueAdjustment: (id: string) => call<GeneratedDoc>(`/trade-generated/${id}/adjustment`, "POST"),
+      siContext: (id: string) => call<SiContext>(`/trade-generated/${id}/si-context`),
       setDelivered: (id: string, rowIndex: number, delivered: boolean) => call<GeneratedDoc>(`/trade-generated/${id}/delivered`, "POST", { rowIndex, delivered }),
       listPayments: (f: PaymentFilters = {}) => call<Paged<TradePayment>>(`/trade-payments${qs(f)}`),
       paymentTargets: (direction?: "IN" | "OUT", q?: string) => call<PaymentTarget[]>(`/trade-payments/targets${qs({ direction, q })}`),
