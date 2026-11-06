@@ -39,10 +39,13 @@ import {
 import SearchIcon from "@mui/icons-material/Search";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
+import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
 import { headerInputSx } from "./DynamicFormFields";
+import ContraOffsetDialog from "./ContraOffsetDialog";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { AccountSelectDialog, numberIsPending, peekDocumentNumber, useOrAccounts, type OrAccount } from "./OfficialReceiptSection";
 import type { TemplateFieldConfig } from "../types/templateFieldTypes";
 import { todayIso } from "@/helpers/orgToday";
@@ -365,6 +368,8 @@ export function PaymentVoucherOffsetSection({
 
   const [bills, setBills] = useState<OpenBill[]>([]);
   const [loading, setLoading] = useState(false);
+  // Bumped when a contra saves — the bills it settled are no longer open.
+  const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
     if (!supplierId) {
@@ -388,7 +393,7 @@ export function PaymentVoucherOffsetSection({
     return () => {
       cancelled = true;
     };
-  }, [supplierId, voucherId, getToken]);
+  }, [supplierId, voucherId, getToken, refreshTick]);
 
   const paid = R(parseFloat(pd.voucherAmount) || 0);
   const offset = R(allocations.reduce((s, a) => s + (Number(a.amount) || 0), 0));
@@ -441,6 +446,8 @@ export function PaymentVoucherOffsetSection({
   const headCellSx = { fontWeight: 700, fontSize: "0.75rem", color: "text.secondary", whiteSpace: "nowrap" as const };
 
   // Legacy left rail — the AP twins of the receipt's modules.
+  const { isContraOffsetEnabled } = useOrganizationFeatures();
+  const [contraOpen, setContraOpen] = useState(false);
   const needSupplier = (fn: () => void) => () => {
     if (!supplierId) {
       toast.warn("Select a supplier first");
@@ -450,6 +457,17 @@ export function PaymentVoucherOffsetSection({
   };
   const back = () => encodeURIComponent(window.location.pathname + window.location.search);
   const railButtons = [
+    ...(isContraOffsetEnabled
+      ? [
+          {
+            // The same contra as the receipt's, entered from the supplier —
+            // the AP clerk works here, not on the receipt.
+            label: "Contra Set-off",
+            icon: <SwapHorizIcon />,
+            onClick: needSupplier(() => setContraOpen(true)),
+          },
+        ]
+      : []),
     {
       label: "Creditor Statement",
       icon: <DescriptionOutlinedIcon />,
@@ -651,6 +669,17 @@ export function PaymentVoucherOffsetSection({
           </Box>
         </CardContent>
       </Card>
+
+      {/* Contra set-off (side rail) — their invoices ↔ our bills, no cash */}
+      {isContraOffsetEnabled && (
+        <ContraOffsetDialog
+          open={contraOpen}
+          onClose={() => setContraOpen(false)}
+          supplier={formData?.supplier?.id ? formData.supplier : null}
+          // A contra just settled some of these bills — reload the grid.
+          onSaved={() => setRefreshTick((t) => t + 1)}
+        />
+      )}
     </Box>
   );
 }

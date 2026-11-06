@@ -59,6 +59,13 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // Chat home (2026-10-13): the portal landing page is the AIMS assistant
   // (same brain as the WhatsApp operator) with a Dashboard toggle. Default OFF.
   enableAimsChat: false,
+  // Supplier credit notes on a Payment Voucher (2026-11-06): the voucher's
+  // offset grid also lists the supplier's credit notes, allocated negative.
+  // Default OFF.
+  enableApCreditOffset: false,
+  // Contra set-off (2026-11-06): when the same company is both a customer and
+  // a supplier, net their invoices against our bills with no cash. Default OFF.
+  enableContraOffset: false,
   // Spend Money / Receive Money (2026-11-06): direct bank transactions with no
   // invoice behind them, under AP / AR. Default OFF.
   enableSpendMoney: false,

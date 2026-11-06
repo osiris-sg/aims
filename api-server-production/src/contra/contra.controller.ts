@@ -66,6 +66,13 @@ export class ContraController {
     return this.service.items(requireOrgId(req), customerId);
   }
 
+  @Get('items-for-supplier/:supplierId')
+  @Permissions('payments:read')
+  @ApiOperation({ summary: 'The same contra grid, reached from the supplier (Payment Voucher)' })
+  itemsForSupplier(@Req() req: RequestWithOrganization, @Param('supplierId') supplierId: string) {
+    return this.service.itemsForSupplier(requireOrgId(req), supplierId);
+  }
+
   @Get('offsets')
   @Permissions('payments:read')
   @ApiOperation({ summary: 'Contra set-offs already recorded' })

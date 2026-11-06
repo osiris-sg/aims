@@ -6,6 +6,7 @@ import { PaymentVouchersService } from '../payment-vouchers/payment-vouchers.ser
 import { PaymentsService } from '../payments/payments.service';
 import { BillsService } from '../bills/bills.service';
 import { orgToday } from '../common/org-today';
+import { grossOf, owedOf, stampDocumentMoney } from '../common/document-money';
 import { CONTRA_OFFSET_FLAG, isOrgFeatureEnabled } from '../common/org-features';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
@@ -161,6 +162,24 @@ export class ContraService {
     };
   }
 
+  /** Same two sides, reached from the SUPPLIER (the Payment Voucher rail).
+   *  The AP clerk works there, not on the receipt. */
+  async itemsForSupplier(organizationId: string, supplierId: string) {
+    await this.requireEnabled(organizationId);
+    const customer = await this.prisma.customer.findFirst({
+      where: { organizationId, contraSupplierId: supplierId },
+      select: { id: true, name: true },
+    });
+    if (!customer) {
+      const supplier = await this.prisma.supplier.findFirst({
+        where: { id: supplierId, organizationId },
+        select: { name: true },
+      });
+      throw new BadRequestException(`${supplier?.name ?? 'That supplier'} is not paired with a customer yet — pair them first`);
+    }
+    return this.items(organizationId, customer.id);
+  }
+
   async create(organizationId: string, dto: CreateContraDto, actor?: Actor) {
     await this.requireEnabled(organizationId);
     const debtor = (dto.debtorItems || [])
@@ -306,6 +325,25 @@ export class ContraService {
     }
     for (const a of creditor) {
       try {
+        // Re-stamp the bill's balance ourselves. refreshBillAfterPayments
+        // writes config.amountPaid but leaves the canonical
+        // outstandingBalance alone, and a Xero-imported bill carries that
+        // stamp — so owedOf() would keep returning the pre-contra figure and
+        // the bill would still look unpaid (seen on dev: BIOFUEL/IN006/26
+        // stayed at 38,790.92 after a 1,526.00 contra). Decrement the stamp
+        // rather than recomputing gross − payments: Xero's own payments are
+        // not all BillPayment rows here, so a recompute would inflate it.
+        const before = await this.prisma.document.findUnique({
+          where: { id: a.documentId },
+          select: { config: true },
+        });
+        const bc: any = before?.config || {};
+        const gross = grossOf(bc) ?? 0;
+        const left = ROUND(Math.max(0, owedOf(bc) - a.amount));
+        await this.prisma.document.update({
+          where: { id: a.documentId },
+          data: { config: stampDocumentMoney(bc, { outstanding: left, paid: ROUND(Math.max(0, gross - left)) }) },
+        });
         await this.bills.refreshBillAfterPayments(organizationId, a.documentId);
       } catch (e) {
         console.error('Contra: AP status refresh failed for', a.documentId, e);

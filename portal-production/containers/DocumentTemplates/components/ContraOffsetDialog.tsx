@@ -86,13 +86,16 @@ export default function ContraOffsetDialog({
   open,
   onClose,
   customer,
+  supplier,
   onSaved,
 }: {
   open: boolean;
   onClose: () => void;
-  /** The customer the contra is for. When it has no supplier paired yet the
-   *  dialog offers the name match first. */
-  customer: { id: string; name?: string; customerCode?: string } | null;
+  /** Reached from the Official Receipt — the customer side. */
+  customer?: { id: string; name?: string; customerCode?: string } | null;
+  /** Reached from the Payment Voucher — the supplier side. The contra is the
+   *  same thing either way; only the record you start from differs. */
+  supplier?: { id: string; name?: string; supplierCode?: string } | null;
   onSaved?: () => void;
 }) {
   const { getToken } = useAuth();
@@ -102,13 +105,22 @@ export default function ContraOffsetDialog({
   /** Set when the customer has no pair yet — the suggestion to confirm. */
   const [suggestion, setSuggestion] = useState<Pair | null>(null);
   const [supplierName, setSupplierName] = useState<string | null>(null);
+  /** The customer the contra resolves to — given directly, or found from the
+   *  supplier's pairing. Everything downstream works off this. */
+  const [customerId, setCustomerId] = useState<string | null>(null);
+  const [customerName, setCustomerName] = useState<string | null>(null);
   const [arItems, setArItems] = useState<OpenItem[]>([]);
   const [apItems, setApItems] = useState<OpenItem[]>([]);
   const [ar, setAr] = useState<Side>({});
   const [ap, setAp] = useState<Side>({});
 
   const load = React.useCallback(async () => {
-    if (!customer?.id) return;
+    const path = customer?.id
+      ? `/contra/items/${customer.id}`
+      : supplier?.id
+        ? `/contra/items-for-supplier/${supplier.id}`
+        : null;
+    if (!path) return;
     setLoading(true);
     setAr({});
     setAp({});
@@ -116,7 +128,9 @@ export default function ContraOffsetDialog({
     try {
       const token = await getToken();
       try {
-        const res = await apiCall(`/contra/items/${customer.id}`, token);
+        const res = await apiCall(path, token);
+        setCustomerId(res?.customer?.id ?? null);
+        setCustomerName(res?.customer?.name ?? null);
         setSupplierName(res?.supplier?.name ?? null);
         setArItems(res?.debtorItems || []);
         setApItems(res?.creditorItems || []);
@@ -124,10 +138,15 @@ export default function ContraOffsetDialog({
         // Not paired yet — offer the name match instead of an error.
         if (!/not paired/i.test(e?.message || "")) throw e;
         const pairs = await apiCall(`/contra/pairs`, token);
-        const hit = (pairs?.suggested || []).find((p: Pair) => p.customerId === customer.id) || null;
+        const hit =
+          (pairs?.suggested || []).find((p: Pair) =>
+            customer?.id ? p.customerId === customer.id : p.supplierId === supplier?.id,
+          ) || null;
         setSuggestion(hit);
         setArItems([]);
         setApItems([]);
+        setCustomerId(null);
+        setCustomerName(null);
         setSupplierName(null);
       }
     } catch (e: any) {
@@ -135,7 +154,7 @@ export default function ContraOffsetDialog({
     } finally {
       setLoading(false);
     }
-  }, [customer?.id, getToken]);
+  }, [customer?.id, supplier?.id, getToken]);
 
   useEffect(() => {
     if (open) void load();
@@ -179,14 +198,14 @@ export default function ContraOffsetDialog({
   };
 
   const save = async () => {
-    if (!canSave || !customer?.id) return;
+    if (!canSave || !customerId) return;
     setSaving(true);
     try {
       const token = await getToken();
       const res = await apiCall(`/contra/offsets`, token, {
         method: "POST",
         body: JSON.stringify({
-          customerId: customer.id,
+          customerId,
           date: todayIso(),
           debtorItems: Object.entries(ar).map(([documentId, amount]) => ({ documentId, amount })),
           creditorItems: Object.entries(ap).map(([documentId, amount]) => ({ documentId, amount })),
@@ -299,7 +318,7 @@ export default function ContraOffsetDialog({
         }}
       >
         <Typography variant="h6" fontWeight={500}>
-          Contra Set-off{customer?.name ? ` — ${customer.name}` : ""}
+          Contra Set-off{customerName || customer?.name || supplier?.name ? ` — ${customerName || customer?.name || supplier?.name}` : ""}
         </Typography>
         <IconButton onClick={() => !saving && onClose()} size="small" sx={{ color: "#fafafa" }}>
           <CloseIcon />
@@ -314,26 +333,26 @@ export default function ContraOffsetDialog({
         ) : suggestion ? (
           <Alert severity="info" variant="outlined" sx={{ mt: 1 }}>
             <Typography variant="body2" sx={{ mb: 1 }}>
-              <strong>{suggestion.customerName}</strong> is not paired with a supplier yet. The closest match by name is{" "}
-              <strong>{suggestion.supplierName}</strong>
-              {suggestion.supplierCode ? ` (${suggestion.supplierCode})` : ""}.
+              <strong>{suggestion.customerName}</strong> and <strong>{suggestion.supplierName}</strong>
+              {suggestion.supplierCode ? ` (${suggestion.supplierCode})` : ""} are not paired yet — they match by name.
             </Typography>
             <Typography variant="caption" sx={{ display: "block", mb: 1.5, color: "text.secondary" }}>
               Confirm only if they are the same legal entity — the pairing is remembered, and everything owed either way
               becomes offsettable.
             </Typography>
             <Button size="small" variant="contained" onClick={confirmPair} disabled={linking}>
-              {linking ? "Pairing…" : `Pair with ${suggestion.supplierName}`}
+              {linking ? "Pairing…" : "Pair them"}
             </Button>
           </Alert>
         ) : !supplierName ? (
           <Alert severity="warning" variant="outlined" sx={{ mt: 1 }}>
-            No supplier matches this customer by name. Pair them in Masterfiles first, then come back.
+            No counterpart matches this record by name — nothing to contra. Pair them by hand first if they really are
+            the same company.
           </Alert>
         ) : (
           <>
             <Stack direction="row" gap={1} alignItems="center" sx={{ mb: 1.5 }}>
-              <Chip size="small" label={`Customer: ${customer?.name ?? ""}`} variant="outlined" />
+              <Chip size="small" label={`Customer: ${customerName ?? customer?.name ?? ""}`} variant="outlined" />
               <Typography variant="body2" sx={{ color: "text.secondary" }}>
                 ↔
               </Typography>
