@@ -764,11 +764,18 @@ export default function BillEditorDialog({
   };
 
   const currentItem = batch?.[batchIdx] ?? null;
+  // Submit is for drafts only (the server refuses anything else); bulk-upload
+  // review keeps its own save-and-next flow.
+  const canSubmitHere = !isReadOnly && !batch && (!editing || editing.status === "DRAFT");
   const currentExtracting = !!currentItem && (currentItem.status === "pending" || currentItem.status === "extracting");
   const batchBusyCount = batch ? batch.filter((b) => b.status === "pending" || b.status === "extracting").length : 0;
   const batchSavedCount = batch ? batch.filter((b) => b.status === "saved").length : 0;
 
-  const submit = async () => {
+  // andSubmit (guru 2026-11-06: "there's no button to submit, can only
+  // save"): Save, then the same Submit the row menu offers — above the
+  // approval threshold the bill goes to Pending Approval, otherwise it is
+  // confirmed and posted straight away.
+  const submit = async (andSubmit = false) => {
     if (!supplierId) return toast.error("Supplier is required");
     if (!billNumber.trim()) return toast.error("Invoice number is required");
     if (lines.length === 0 || lines.every((l) => !l.amount)) return toast.error("Add at least one line");
@@ -791,7 +798,11 @@ export default function BillEditorDialog({
           quantity: parseFloat(l.quantity) || 0,
           unitPrice: parseFloat(l.unitPrice) || 0,
           amount: parseFloat(l.amount) || 0,
-          accountId: l.accountId || undefined,
+          // A stored id that is no longer in the chart (deleted account, data
+          // copied between environments) shows as "Auto" here, so save it as
+          // Auto too — sending it back made Submit fail with "unknown or
+          // inactive account" while the editor showed nothing wrong.
+          accountId: l.accountId && (accounts.length === 0 || accounts.some((a) => a.id === l.accountId)) ? l.accountId : undefined,
           ...(showQuotation ? { quotationId: l.quotation?.id ?? null } : {}),
         })),
         inboundChannel,
@@ -816,6 +827,14 @@ export default function BillEditorDialog({
           });
         } catch (e: any) {
           toast.warn(`Bill saved but attachment update failed: ${e?.message || "unknown"}`);
+        }
+      }
+      if (andSubmit && billId) {
+        try {
+          const after: any = await request(`/bills/${billId}/submit`, { method: "POST" });
+          toast.success(after?.status === "PENDING_APPROVAL" ? `${kindLabel} sent for approval` : `${kindLabel} confirmed and posted`);
+        } catch (e: any) {
+          toast.error(e?.message || "Saved, but submit failed — submit it from the row menu");
         }
       }
       // Batch mode: mark this item saved, refresh the list behind the dialog,
@@ -1431,13 +1450,27 @@ export default function BillEditorDialog({
         )}
         {!isReadOnly && (
           <Button
-            variant="contained"
-            onClick={submit}
+            variant={canSubmitHere ? "outlined" : "contained"}
+            onClick={() => submit(false)}
             disabled={saving || extracting || flushing || currentExtracting || currentItem?.status === "saved"}
             startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}
           >
             {editing ? "Save changes" : currentItem?.status === "saved" ? "Saved" : batch ? `Save invoice ${batchIdx + 1} of ${batch.length}` : "Save"}
           </Button>
+        )}
+        {/* Save and submit — a draft (new or reopened) can be finished here
+            instead of saving and then hunting for Submit in the row menu. */}
+        {canSubmitHere && (
+          <Tooltip title="Saves, then submits: above the approval threshold it goes to Pending Approval, otherwise it is confirmed and posted">
+            <Button
+              variant="contained"
+              onClick={() => submit(true)}
+              disabled={saving || extracting || flushing || currentExtracting || currentItem?.status === "saved"}
+              startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}
+            >
+              Save and submit
+            </Button>
+          </Tooltip>
         )}
       </DialogActions>
 
