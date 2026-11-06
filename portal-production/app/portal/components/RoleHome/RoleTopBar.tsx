@@ -16,14 +16,16 @@
 import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  Box, Button, IconButton, Menu, MenuItem, Stack,
+  Box, Button, Divider, IconButton, Menu, MenuItem, Stack,
   Tooltip, Typography, alpha, useTheme,
 } from "@mui/material";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import CheckIcon from "@mui/icons-material/Check";
-import { useUser } from "@clerk/nextjs";
+import LogoutIcon from "@mui/icons-material/Logout";
+import ManageAccountsOutlinedIcon from "@mui/icons-material/ManageAccountsOutlined";
+import { useClerk, useUser } from "@clerk/nextjs";
 import { useThemeMode } from "@/contexts/ThemeModeContext";
 import NotificationBell from "@/components/NotificationBell";
 import { TopNavOrgSwitcher } from "@/components/TopNav/TopNavBar";
@@ -48,6 +50,7 @@ export default function RoleTopBar() {
   const dark = t.palette.mode === "dark";
   const { mode, toggleMode } = useThemeMode();
   const { user } = useUser();
+  const { signOut, openUserProfile } = useClerk();
   const { navModules, settingsMenu, isMasterTier } = useNavModules();
   const { moduleName, subLabel, settingLabel } = useNavLabels();
   const { isAimsChatEnabled } = useOrganizationFeatures();
@@ -301,13 +304,34 @@ export default function RoleTopBar() {
                 data-testid={`role-chip-option-${id}`}
                 sx={{ gap: 1.5, py: 1 }}
               >
-                <Box sx={{ height: 32, width: 32, borderRadius: "50%", bgcolor: alpha(NAVY, 0.12), color: NAVY, display: "grid", placeItems: "center", fontSize: 12, fontWeight: 600 }}>
+                <Box sx={{ height: 32, width: 32, borderRadius: "50%", bgcolor: dark ? alpha("#B9B0F2", 0.18) : alpha(NAVY, 0.12), color: dark ? "#D3CCFA" : NAVY, display: "grid", placeItems: "center", fontSize: 12, fontWeight: 600 }}>
                   {ROLES[id].title.split(" ").filter((w) => /^[A-Za-z]/.test(w)).map((w) => w[0]).slice(0, 2).join("")}
                 </Box>
                 <Typography sx={{ flex: 1, fontSize: "0.875rem" }}>{ROLES[id].title}</Typography>
                 {id === roleId && <CheckIcon sx={{ fontSize: "1.1rem", color: TEAL }} />}
               </MenuItem>
             )),
+            // The account half of the menu — what the normal bar's Clerk
+            // avatar offers (this bar draws its own chip, so it has to).
+            <Divider key="acct-div" sx={{ my: 0.75 }} />,
+            <MenuItem
+              key="account"
+              onClick={() => { setMenu(null); openUserProfile(); }}
+              data-testid="role-chip-manage-account"
+              sx={{ gap: 1.5, py: 1, fontSize: "0.875rem" }}
+            >
+              <ManageAccountsOutlinedIcon sx={{ fontSize: "1.2rem", color: "text.secondary" }} />
+              Manage account
+            </MenuItem>,
+            <MenuItem
+              key="logout"
+              onClick={() => { setMenu(null); signOut({ redirectUrl: "/" }); }}
+              data-testid="role-chip-logout"
+              sx={{ gap: 1.5, py: 1, fontSize: "0.875rem", color: "error.main" }}
+            >
+              <LogoutIcon sx={{ fontSize: "1.2rem" }} />
+              Log out
+            </MenuItem>,
           ])}
         </Stack>
       </Box>
