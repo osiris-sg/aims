@@ -226,7 +226,7 @@ function ProductCard({ kind, id, p, onMenu }: { kind: ClientKind; id: string; p:
         {row("form", formLabel(p.form))}
         {row("size", p.size)}
         {row("standard", p.standard)}
-        {row("hsCode", p.hsCode)}
+        {row("hsCode", p.hsCode ? (p.hsCodeSource ? `${p.hsCode} — ${p.hsCodeSource}` : p.hsCode) : null)}
         {row("chemistry", chem)}
         {row("tolerances", p.tolerances)}
         {row("piecesPerBundle", p.piecesPerBundle === null || p.piecesPerBundle === undefined ? null : t3(p.piecesPerBundle))}

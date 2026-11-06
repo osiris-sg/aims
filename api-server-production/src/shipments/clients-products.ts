@@ -61,6 +61,8 @@ export interface ClientProduct {
   docSize?: string | null;
   /** Round BJ: customs HS code ("7601.20" = aluminium, unwrought, alloyed); used when a B/L / CI prints none, and to warn on a different one. */
   hsCode?: string | null;
+  /** Round BJ go: where the HS code came from ("Vedanta CI XP… prints 7601.10"); cleared when someone types another code. */
+  hsCodeSource?: string | null;
   specFiles?: ProfileFile[];
   packingImages?: ProfileFile[];
   /** Where a seeded row came from ("order #21, contract 454003255") and what is still to confirm. */
@@ -164,6 +166,7 @@ export function cleanProduct(raw: unknown, prev: ClientProduct | undefined, id: 
     docNameEn: r.docNameEn === undefined ? (prev?.docNameEn ?? null) : text(r.docNameEn, 200),
     docSize: r.docSize === undefined ? (prev?.docSize ?? null) : text(r.docSize, 40),
     hsCode: r.hsCode === undefined ? (prev?.hsCode ?? null) : hsText(r.hsCode, bad),
+    hsCodeSource: r.hsCode === undefined || hsText(r.hsCode, bad) === (prev?.hsCode ?? null) ? (prev?.hsCodeSource ?? null) : null,
     specFiles: prev?.specFiles ?? [],
     packingImages: prev?.packingImages ?? [],
     source: prev?.source ?? null,

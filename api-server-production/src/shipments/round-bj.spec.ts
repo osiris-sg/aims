@@ -147,6 +147,11 @@ describe('Round BJ — HS code per product', () => {
     expect(cleanProduct({ grade: '6005', notes: 'x' }, prev, 'p', 'now', bad).hsCode).toBe('7601.20');
     expect(cleanProduct({ grade: '6005', hsCode: '' }, prev, 'p', 'now', bad).hsCode).toBeNull();
     expect(() => cleanProduct({ grade: '6005', hsCode: 'aluminium' }, prev, 'p', 'now', bad)).toThrow(/not an HS code/);
+    // The source note stays while the code stays; another typed code clears it.
+    const sourced = { ...prev, hsCodeSource: 'Vedanta CI XP2652102340 prints 7601.20' };
+    expect(cleanProduct({ grade: '6005', notes: 'y' }, sourced, 'p', 'now', bad).hsCodeSource).toBe('Vedanta CI XP2652102340 prints 7601.20');
+    expect(cleanProduct({ grade: '6005', hsCode: '7601.20' }, sourced, 'p', 'now', bad).hsCodeSource).toBe('Vedanta CI XP2652102340 prints 7601.20');
+    expect(cleanProduct({ grade: '6005', hsCode: '7601.10' }, sourced, 'p', 'now', bad).hsCodeSource).toBeNull();
   });
 });
 

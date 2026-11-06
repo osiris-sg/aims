@@ -925,6 +925,8 @@ export type ClientProductInput = {
   docNameJa?: string | null; docNameEn?: string | null; docSize?: string | null;
   /** Round BJ: customs HS code ("7601.20"). */
   hsCode?: string | null;
+  /** Where the HS code came from (read-only; set by AIMS). */
+  hsCodeSource?: string | null;
 };
 export type ClientProductView = ClientProductInput & {
   id: string; label: string; size: string; specFiles: ProfileFileView[]; packingImages: ProfileFileView[];

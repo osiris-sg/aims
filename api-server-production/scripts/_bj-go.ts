@@ -8,6 +8,8 @@
  *   3. CI amount = the latest CI version's Sub Total, per shipment (text layer of each CI PDF).
  *   4. CI versions stored as reads (TradeExtraction kind CI, text layer) so the history shows under CI amount.
  *   5. #12-1: ADH's SG→JP invoice ADH20260825 into step 7's empty SG→JP slot (not already in AIMS by hash).
+ *   6. #18-1: the actual tax of permit IM3Z6A0568 (+ the permit facts as the file's note), empty only.
+ *   7. #18-1's SG→JP PDF also filed on #18-3: that link hidden when its weight isn't #18-3's (kept on #18-1).
  * Files are untrusted data: only numbers / codes are taken from them.
  */
 import 'dotenv/config';
@@ -22,6 +24,8 @@ import { TradeThumbsService } from '../src/shipments/trade-thumbs.service';
 import { pdfText } from '../src/shipments/trade-coa';
 import { ciAmountOf, ciRank, CiText, CiVersion, parseCiText } from '../src/shipments/trade-ci';
 import { normHs } from '../src/shipments/trade-hs';
+import { parsePermitText } from '../src/shipments/trade-customs';
+import { sgjpFileFacts } from '../src/shipments/trade-tax-inputs';
 
 const ORG = '056ed6da-42d3-438e-895b-84bb4df47a4c';
 const APPLY = process.argv.includes('--apply');
@@ -63,22 +67,29 @@ async function main() {
       const profiles = (st?.[col] ?? {}) as Record<string, any>;
       for (const [id, prof] of Object.entries(profiles))
         for (const pr of prof.products ?? []) {
-          const code = UNALLOYED && UNALLOYED_GRADE.test(pr.grade ?? '') ? UNALLOYED : '7601.20';
+          const unalloyed = UNALLOYED && UNALLOYED_GRADE.test(pr.grade ?? '');
+          const code = unalloyed ? UNALLOYED : '7601.20';
+          const source = !unalloyed
+            ? 'aluminium, unwrought, alloyed — as Vedanta\'s billet CIs print (e.g. XP2652102340, #18-1); owner 2026-11-06'
+            : /^1070/.test(pr.grade ?? '')
+              ? 'unalloyed — Vedanta CI XP2532100057 (#1006-1, 2025) prints 7601.10.20 for 1070 (the 2024 CI XP2332100419 printed 7601.20); owner 2026-11-06'
+              : 'unalloyed — as Vedanta\'s ingot CIs print (XP2652102281 #14-1, XP2652101288 #10-1); owner 2026-11-06';
           const flag = UNALLOYED_GRADE.test(pr.grade ?? '') ? '  ⚠ unalloyed (Vedanta prints 7601.10 on P1020 ingot CIs)' : '';
           const label = `${col === 'customerProfiles' ? 'customer' : 'supplier'} ${names.get(id) ?? id} · ${[pr.grade, pr.form?.toLowerCase(), pr.diameterMm && pr.lengthMm ? `${pr.diameterMm}×${pr.lengthMm}` : ''].filter(Boolean).join(' ')}${pr.hidden ? ' (hidden)' : ''}`;
           if (normHs(pr.hsCode)) {
             add(`${label}: HS ${pr.hsCode} already set — kept`);
             continue;
           }
-          add(`${label}: HS (empty) → ${code}${flag}`, async () => {
+          add(`${label}: HS (empty) → ${code}${unalloyed ? '' : flag}  [${source}]`, async () => {
             const cur = await p.tradeSetting.findFirst({ where: { organizationId: ORG }, select: { id: true, [col]: true } as any });
             const all = ((cur as any)?.[col] ?? {}) as Record<string, any>;
             const row = (all[id]?.products ?? []).find((x: any) => x.id === pr.id);
             if (!row || normHs(row.hsCode)) return; // filled meanwhile: never overwrite
             row.hsCode = code;
+            row.hsCodeSource = source;
             row.updatedAt = new Date().toISOString();
             await p.tradeSetting.update({ where: { id: (cur as any).id }, data: { [col]: all } as any });
-            await logWrite('UPDATE', 'trade-product', pr.id, { party: col, partyId: id, product: label, field: 'hsCode', from: null, to: code });
+            await logWrite('UPDATE', 'trade-product', pr.id, { party: col, partyId: id, product: label, field: 'hsCode', from: null, to: code, source });
           });
         }
     }
@@ -198,6 +209,62 @@ async function main() {
           await logWrite('CREATE', 'trade-file', (up as any).id, { ref: '#12-1', step: st7.displayNo, docType: 'SGJP_IV_PL', file: SGJP_12_1.split('/').pop(), sha256: sha });
         });
     }
+  }
+
+  // ── 6. #18-1 import permit IM3Z6A0568 → the actual tax (empty fields only)
+  if (on(6)) {
+    plan.push('── 6. #18-1 permit IM3Z6A0568 → actual import tax (empty only)');
+    const s = await p.shipment.findFirst({ where: { organizationId: ORG, order: { orderNo: 18, isTest: false }, seqNo: 1 }, select: { id: true, costs: true } });
+    const link = await p.tradeFileLink.findFirst({ where: { organizationId: ORG, shipmentId: s!.id, hiddenAt: null, file: { docType: 'IMPORT_PERMIT', fileName: { startsWith: 'IM3Z6A0568' } } }, select: { file: { select: { id: true, fileName: true, s3Key: true, notes: true } } } });
+    if (!link) plan.push('      permit file not on #18-1 — skipped');
+    else {
+      const d: any = (parsePermitText(await pdfText(await s3.downloadFile(link.file.s3Key))) as any).data;
+      const ok = d.invoiceNo === 'ADH20261012' && d.total === 11257300 && d.national + d.local === d.total;
+      const facts = `Permit IM3Z6A0568 (申告番号 ${d.declarationNo}, ${d.declarationDate}): 消費税 ¥${d.national?.toLocaleString('en-US')} + 地方消費税 ¥${d.local?.toLocaleString('en-US')} = ¥${d.total?.toLocaleString('en-US')} · invoice ${d.invoiceNo} US$${d.invoiceAmount} × ${d.fxRate} + 加算運賃 ¥${d.addOnJpy?.toLocaleString('en-US')}`;
+      if (!ok) plan.push(`      permit text does not read as expected (${facts}) — skipped`);
+      else {
+        const costs = (s!.costs ?? {}) as Record<string, unknown>;
+        if (costs.importTaxActual != null) add(`#18-1 importTaxActual: ${costs.importTaxActual} — kept`);
+        else
+          add(`#18-1 importTaxActual: (empty) → ${d.total}   [${facts}]`, async () => {
+            const cur = await p.shipment.findFirst({ where: { id: s!.id }, select: { costs: true } });
+            const c = (cur?.costs ?? {}) as Record<string, unknown>;
+            if (c.importTaxActual != null) return;
+            await p.shipment.update({ where: { id: s!.id }, data: { costs: { ...c, importTaxActual: d.total } as any } });
+            await logWrite('UPDATE', 'shipment', s!.id, { ref: '#18-1', field: 'costs.importTaxActual', from: null, to: d.total, source: facts });
+          });
+        if (link.file.notes?.trim()) add(`#18-1 permit file notes: "${link.file.notes}" — kept`);
+        else
+          add(`#18-1 permit file notes: (empty) → "${facts}"`, async () => {
+            const r = await p.tradeFile.updateMany({ where: { id: link.file.id, organizationId: ORG, OR: [{ notes: null }, { notes: '' }] }, data: { notes: facts } });
+            if (r.count) await logWrite('UPDATE', 'trade-file', link.file.id, { ref: '#18-1', field: 'notes', from: null, to: facts });
+          });
+      }
+    }
+  }
+
+  // ── 7. #18-1's SG→JP PDF also filed on #18-3: hide that link when the weight isn't #18-3's (the file stays on #18-1)
+  if (on(7)) {
+    plan.push('── 7. SG→JP PDF (183.693 t) filed on #18-3');
+    const s3_ = await p.shipment.findFirst({ where: { organizationId: ORG, order: { orderNo: 18, isTest: false }, seqNo: 3 }, select: { id: true, netWeightMt: true } });
+    const links = await p.tradeFileLink.findMany({ where: { organizationId: ORG, shipmentId: s3_!.id, hiddenAt: null, file: { docType: 'SGJP_IV_PL', fileName: { contains: '183.693t' } } }, select: { id: true, file: { select: { id: true, fileName: true, s3Key: true } } } });
+    for (const l of links) {
+      const buf = await s3.downloadFile(l.file.s3Key);
+      const facts = sgjpFileFacts(await pdfText(buf), Number(s3_!.netWeightMt));
+      const h = createHash('sha256').update(buf).digest('hex');
+      const on181 = await p.tradeFile.findMany({ where: { organizationId: ORG, docType: 'SGJP_IV_PL', links: { some: { hiddenAt: null, shipment: { seqNo: 1, order: { orderNo: 18 } } } } }, select: { s3Key: true, fileName: true } });
+      let copy: string | null = null;
+      for (const f of on181) if (createHash('sha256').update(await s3.downloadFile(f.s3Key)).digest('hex') === h) copy = f.fileName;
+      const why = `${facts.invoiceNo} US$${facts.total} is 183.693 t (#18-1); #18-3 net ${s3_!.netWeightMt} t`;
+      if (facts.netMatches) plan.push(`      ${l.file.fileName}: matches #18-3's weight — kept`);
+      else if (!copy) plan.push(`      ${l.file.fileName}: no identical copy on #18-1 — not hidden (would leave #18-1 without it)`);
+      else
+        add(`#18-3 link to "${l.file.fileName}": visible → hidden   [${why}; the same file stays on #18-1]`, async () => {
+          const r = await p.tradeFileLink.updateMany({ where: { id: l.id, organizationId: ORG, hiddenAt: null }, data: { hiddenAt: new Date(), hiddenReason: `Round BJ: ${why} — owner's go 2026-11-06` } });
+          if (r.count) await logWrite('HIDE', 'trade-file-link', l.id, { ref: '#18-3', file: l.file.fileName, fileId: l.file.id, reason: why });
+        });
+    }
+    if (!links.length) plan.push('      no visible link — nothing');
   }
 
   console.log(`${APPLY ? 'APPLY' : 'DRY RUN'} · Round BJ\n` + plan.join('\n'));
