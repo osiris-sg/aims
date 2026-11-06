@@ -9,6 +9,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import {
   Box,
   Button,
@@ -36,6 +37,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
 import PostAddOutlinedIcon from "@mui/icons-material/PostAddOutlined";
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
+import AccountBalanceWalletOutlinedIcon from "@mui/icons-material/AccountBalanceWalletOutlined";
 import SearchIcon from "@mui/icons-material/Search";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./api";
@@ -91,6 +93,7 @@ type LedgerTx = {
 
 export default function APWorkspace() {
   const router = useRouter();
+  const { isSpendMoneyEnabled } = useOrganizationFeatures();
   const { request } = useAccountingApi();
   const { organization } = useOrganization();
   // Phone: the creditor-ledger dialog goes full-screen below sm
@@ -426,6 +429,18 @@ export default function APWorkspace() {
         >
           Payment Voucher
         </Button>
+        {/* Spend Money (enableSpendMoney): a payment with NO supplier invoice
+            behind it — bank charge, petty purchase, reimbursement. */}
+        {isSpendMoneyEnabled && (
+          <Button
+            data-tour="ap-spend-money"
+            variant="contained"
+            startIcon={<AccountBalanceWalletOutlinedIcon />}
+            onClick={() => router.push("/portal/accounting/payables?tab=spend-money&new=1")}
+          >
+            Spend Money
+          </Button>
+        )}
         <Button variant="contained" startIcon={<PostAddOutlinedIcon />} onClick={() => setJvOpen(true)}>
           Journal Voucher
         </Button>

@@ -871,6 +871,87 @@ export class JournalAutoPostService {
   }
 
   /**
+   * Spend Money / Receive Money (guru 2026-11-06) — a direct bank transaction
+   * with no invoice behind it (Xero's Spend/Receive Money). ONE journal:
+   *   SPEND:   Dr each line's account (net)  + Dr input GST   / Cr bank (gross)
+   *   RECEIVE: Dr bank (gross)               / Cr each line's account (net) + Cr output GST
+   * A negative line (a refund netted off) posts on the opposite side.
+   * Re-save = void the previous journal and repost.
+   */
+  async postFromBankTransaction(args: {
+    organizationId: string;
+    documentId: string;
+    number?: string | null;
+    kind: 'SPEND' | 'RECEIVE';
+    entryDate: Date;
+    payee?: string | null;
+    bankAccountCode: string;
+    lines: Array<{ accountId: string; amount: number; description?: string | null }>; // NET amounts
+    taxAmount: number;
+    userId?: string;
+  }) {
+    const { organizationId, documentId, number, kind } = args;
+    const controls = await this.getControlAccounts(organizationId);
+    if (!controls) {
+      this.logger.warn(`[postFromBankTransaction] org=${organizationId} has no controlAccounts; skipping`);
+      return null;
+    }
+    const bank = await this.resolveAccountByCode(organizationId, args.bankAccountCode);
+    if (!bank) {
+      this.logger.warn(`[postFromBankTransaction] bank account ${args.bankAccountCode} missing; skipping`);
+      return null;
+    }
+    const tax = ROUND(args.taxAmount || 0);
+    // Spend = input GST (kept apart from output when the org's chart does);
+    // Receive = output GST — the same accounts bills and invoices post to.
+    const taxCode = kind === 'SPEND' ? controls.taxInput || controls.taxLiabilities || 'CL900' : controls.taxLiabilities || 'CL900';
+    const taxAccount = tax > 0 ? await this.resolveAccountByCode(organizationId, taxCode) : null;
+    if (tax > 0 && !taxAccount) {
+      this.logger.warn(`[postFromBankTransaction] tax account ${taxCode} missing; skipping`);
+      return null;
+    }
+
+    const existing = await this.prisma.journalEntry.findFirst({
+      where: { organizationId, sourceDocumentId: documentId, type: 'PAYMENT', status: { not: 'VOID' } },
+      select: { id: true },
+    });
+    if (existing) await this.journal.void(organizationId, existing.id, args.userId);
+
+    const label = kind === 'SPEND' ? 'Spend Money' : 'Receive Money';
+    const who = args.payee ? ` — ${args.payee}` : '';
+    const lines: Array<{ accountId: string; debit: number; credit: number; description: string }> = [];
+    let net = 0;
+    for (const l of args.lines) {
+      const amt = ROUND(l.amount);
+      if (amt === 0) continue;
+      net = ROUND(net + amt);
+      const dr = kind === 'SPEND' ? amt > 0 : amt < 0;
+      lines.push({ accountId: l.accountId, debit: dr ? Math.abs(amt) : 0, credit: dr ? 0 : Math.abs(amt), description: l.description || `${label} ${number ?? ''}${who}`.trim() });
+    }
+    if (taxAccount && tax > 0) {
+      lines.push({ accountId: taxAccount.id, debit: kind === 'SPEND' ? tax : 0, credit: kind === 'SPEND' ? 0 : tax, description: `${kind === 'SPEND' ? 'Input' : 'Output'} tax — ${number ?? ''}`.trim() });
+    }
+    const gross = ROUND(net + tax);
+    lines.push({ accountId: bank.id, debit: kind === 'SPEND' ? 0 : gross, credit: kind === 'SPEND' ? gross : 0, description: `${label} ${number ?? ''}${who}`.trim() });
+
+    const created = await this.journal.create(
+      organizationId,
+      {
+        entryDate: args.entryDate.toISOString(),
+        type: 'PAYMENT',
+        reference: number ? refWith(kind === 'SPEND' ? 'SPM' : 'RCM', number) : undefined,
+        description: `${label} ${number ?? ''}${who}`.trim(),
+        sourceDocumentId: documentId,
+        lines,
+      },
+      args.userId,
+      { autoPost: true },
+    );
+    this.logger.log(`[postFromBankTransaction] created journal=${created.journalNumber} (${lines.length} lines)`);
+    return created;
+  }
+
+  /**
    * Credit note (sales return): mirror of an invoice.
    *   Dr Sales (net)
    *   Dr GST Payable (tax, if any)

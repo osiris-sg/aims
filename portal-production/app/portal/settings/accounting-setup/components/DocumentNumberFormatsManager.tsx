@@ -48,6 +48,8 @@ export const NUMBERING_DOC_TYPES: { value: string; label: string }[] = [
   { value: "STOCK_ADJUSTMENT", label: "Stock Adjustment" },
   { value: "PAYMENT_VOUCHER", label: "Payment Voucher" },
   { value: "OFFICIAL_RECEIPT", label: "Official Receipt" },
+  { value: "SPEND_MONEY", label: "Spend Money" },
+  { value: "RECEIVE_MONEY", label: "Receive Money" },
 ];
 // WCT orders (enableWctOrders): the Order number (ORD…) is a format too. Offered
 // in the picker only for that flag; never in "apply to all".
@@ -59,6 +61,7 @@ export const DOC_CODE: Record<string, string> = {
   QUOTATION: "QO", SALES_ORDER: "SO", DELIVERY_ORDER: "DO", INVOICE: "INV",
   CREDIT_NOTE: "CN", DEBIT_NOTE: "DN", PROFORMA: "PF", PURCHASE_ORDER: "PO",
   PURCHASE_RETURN: "PR", STOCK_ADJUSTMENT: "SA", PAYMENT_VOUCHER: "PV", OFFICIAL_RECEIPT: "OR",
+  SPEND_MONEY: "SM", RECEIVE_MONEY: "RM",
   ORDER: "ORD",
 };
 
@@ -66,7 +69,7 @@ export const DOC_CODE: Record<string, string> = {
 // the money went to / came from (SCBOR2610-001, UOBOR2610-001 — Heimen
 // 2026-11-05). The server derives it from the bank account's name; the
 // preview shows SCB. Each bank runs its own series.
-const BANK_TYPES = new Set(["OFFICIAL_RECEIPT", "PAYMENT_VOUCHER"]);
+const BANK_TYPES = new Set(["OFFICIAL_RECEIPT", "PAYMENT_VOUCHER", "SPEND_MONEY", "RECEIVE_MONEY"]);
 const SAMPLE_BANK = "SCB";
 
 // ---------- block builder <-> pattern ----------

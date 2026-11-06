@@ -8,6 +8,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import {
   Box,
   Button,
@@ -35,6 +36,7 @@ import AssessmentOutlinedIcon from "@mui/icons-material/AssessmentOutlined";
 import CloseIcon from "@mui/icons-material/Close";
 import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
 import PostAddOutlinedIcon from "@mui/icons-material/PostAddOutlined";
+import AccountBalanceWalletOutlinedIcon from "@mui/icons-material/AccountBalanceWalletOutlined";
 import SearchIcon from "@mui/icons-material/Search";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./api";
@@ -99,6 +101,7 @@ type SoaTx = {
 
 export default function ARWorkspace() {
   const router = useRouter();
+  const { isSpendMoneyEnabled } = useOrganizationFeatures();
   const { request } = useAccountingApi();
   const { organization } = useOrganization();
   // Phone: the debtor-ledger dialog goes full-screen below sm
@@ -451,6 +454,18 @@ export default function ARWorkspace() {
         >
           Official Receipt
         </Button>
+        {/* Receive Money (enableSpendMoney): money in with NO customer invoice
+            behind it — interest, a refund, a grant. */}
+        {isSpendMoneyEnabled && (
+          <Button
+            data-tour="ar-receive-money"
+            variant="contained"
+            startIcon={<AccountBalanceWalletOutlinedIcon />}
+            onClick={() => router.push("/portal/accounting/receivables?tab=receive-money&new=1")}
+          >
+            Receive Money
+          </Button>
+        )}
         <Button variant="contained" startIcon={<PostAddOutlinedIcon />} onClick={() => setJvOpen(true)}>
           Journal Voucher
         </Button>

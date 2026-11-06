@@ -29,6 +29,9 @@ export const DOC_CODE: Record<string, string> = {
   // old 'RECEIPT' key never matched a real document type; rows seeded under
   // it are inert (guru/Heimen 2026-11-05).
   OFFICIAL_RECEIPT: 'OR',
+  // Spend Money / Receive Money (direct bank transactions, 2026-11-06); {BANK} works for both.
+  SPEND_MONEY: 'SM',
+  RECEIVE_MONEY: 'RM',
 };
 
 /**

@@ -19,6 +19,7 @@ import {
 } from "@mui/material";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
+import AccountBalanceWalletOutlinedIcon from "@mui/icons-material/AccountBalanceWalletOutlined";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../../_lib/api";
 import { useOrganizationFeatures } from "../../../hooks/useOrganizationFeatures";
@@ -71,7 +72,7 @@ const fmt = (n: number) => (n || 0).toLocaleString(undefined, { minimumFractionD
 
 export default function BillsPage() {
   const { request } = useAccountingApi();
-  const { isXeroDocSyncEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
+  const { isXeroDocSyncEnabled, isWctOrdersEnabled, isSpendMoneyEnabled } = useOrganizationFeatures();
   // WCT (enableWctOrders, 2026-11-03): the Quotation No. column + filter ("none" = not tagged).
   const [quotationFilter, setQuotationFilter] = useState<QuotationTag | "none" | null>(null);
   const router = useRouter();
@@ -527,6 +528,21 @@ export default function BillsPage() {
               secondary="Supplier credit/debit note — posts reversed, reduces payables"
             />
           </ListItemButton>
+          {/* Spend Money (enableSpendMoney): no supplier invoice at all — the
+              money simply left the bank (bank charge, petty purchase,
+              reimbursement). Lives on its own list under Payables. */}
+          {isSpendMoneyEnabled && (
+            <ListItemButton
+              sx={{ border: 1, borderColor: "divider", borderRadius: 1.5, mt: 1 }}
+              onClick={() => { setKindPickerOpen(false); router.push("/portal/accounting/payables?tab=spend-money&new=1"); }}
+            >
+              <AccountBalanceWalletOutlinedIcon sx={{ mr: 1.5, color: "success.main" }} />
+              <ListItemText
+                primary="Spend Money"
+                secondary="Paid straight from the bank, no supplier invoice — posts Dr expense / Cr bank"
+              />
+            </ListItemButton>
+          )}
         </DialogContent>
       </Dialog>
 

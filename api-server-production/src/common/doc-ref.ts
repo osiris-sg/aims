@@ -35,6 +35,8 @@ export const DOC_TYPE_PREFIX: Record<string, string> = {
   PR: 'PR',
   OFFICIAL_RECEIPT: 'REC',
   PAYMENT_VOUCHER: 'P/V',
+  SPEND_MONEY: 'SPM', // Spend Money (direct bank payment, no supplier invoice)
+  RECEIVE_MONEY: 'RCM', // Receive Money (direct bank receipt, no customer invoice)
   STOCK_ADJUSTMENT_IN: 'AJI',
   SAI: 'AJI',
   STOCK_ADJUSTMENT_OUT: 'AJO',

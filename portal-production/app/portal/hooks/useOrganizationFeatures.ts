@@ -142,6 +142,10 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // unchanged; only the home UI differs. Default OFF.
   enableRoleHome: false,
   enableTemplateDesign: false,
+  // Spend Money / Receive Money (2026-11-06): direct bank transactions with
+  // no invoice behind them (Xero's Spend/Receive Money) under AP / AR.
+  // Default OFF; toggle per org in Admin → Configuration → Advanced.
+  enableSpendMoney: false,
   // Maintenance Dates (Biofuel, 2026-09): Service Reports -> Maintenance Dates.
   // A maintenance date per asset, which deployed units are done this cycle, and
   // a reminder 7 days before (push to field techs + office bell). Default OFF.
@@ -295,6 +299,7 @@ export function useOrganizationFeatures() {
     isAimsChatEnabled: features.enableAimsChat ?? false,
     isRoleHomeEnabled: features.enableRoleHome ?? FEATURE_FLAG_DEFAULTS.enableRoleHome,
     isTemplateDesignEnabled: features.enableTemplateDesign ?? FEATURE_FLAG_DEFAULTS.enableTemplateDesign,
+    isSpendMoneyEnabled: features.enableSpendMoney ?? FEATURE_FLAG_DEFAULTS.enableSpendMoney,
     isShipmentsHomeEnabled: features.enableShipmentsHome ?? FEATURE_FLAG_DEFAULTS.enableShipmentsHome,
     isMaintenanceDatesEnabled: features.enableMaintenanceDates ?? false,
     isDeliveryGroupPostsEnabled: features.enableDeliveryGroupPosts ?? false,
