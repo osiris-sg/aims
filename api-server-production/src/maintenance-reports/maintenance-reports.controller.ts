@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, Res, UnauthorizedException, UseGuards, UseInterceptors } from '@nestjs/common';
+import { IdempotencyInterceptor } from 'src/common/idempotency/idempotency.interceptor';
 import { ApiTags } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
@@ -46,6 +47,7 @@ export class MaintenanceReportsController {
   }
 
   @Post()
+  @UseInterceptors(IdempotencyInterceptor) // Idempotency-Key: a resent start runs once
   @Permissions('maintenance-reports:create')
   create(
     @Body() dto: CreateMaintenanceReportDto,

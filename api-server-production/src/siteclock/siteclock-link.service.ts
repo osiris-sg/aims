@@ -11,6 +11,8 @@ import { backoffMs, externalRefFor, Plan, PlanLink, PlanRun, planSync, PushedSta
 import { hashInboundKey, newInboundKey } from '../job-photos/job-photos';
 import { runNoun } from '../deliveries/job-wording';
 import { crewOf, siteclockExtraNotes } from '../deliveries/quick-jobs';
+import { SITECLOCK_DELIVERIES_FLAG } from '../common/org-features';
+import { resolveSiteClockWorker } from './siteclock-worker';
 
 /** PTW + the other workers, as extra note lines (absent when there are none, so other jobs hash as before). */
 function extraNotesOf(r: any): { extraNotes?: string[] } {
@@ -77,6 +79,8 @@ export class SiteClockLinkService {
   private workersCache = new Map<string, { at: number; data: any }>();
   private inFlight = new Set<string>();
   private sweeping = false;
+  /** SiteClock deliveries: each linked org's flag as the last sweep saw it (null = not checked since boot). */
+  private deliveriesFlagSeen: Map<string, boolean> | null = null;
   /** Tests swap SiteClock's HTTP for a fake; production uses global fetch. */
   fetchImpl?: typeof fetch;
 
@@ -228,6 +232,49 @@ export class SiteClockLinkService {
     };
   }
 
+  /**
+   * SiteClock deliveries: does this job's worker get the Delivery section?
+   * The org flag AND the worker being an active AIMS member with a field role
+   * (siteclock-worker.ts, the same check the worker delivery API makes).
+   */
+  async deliveryEnabledFor(organizationId: string, workerId: string | null): Promise<boolean> {
+    if (!workerId) return false;
+    try {
+      const ui = await this.prisma.organizationUIConfig.findUnique({ where: { organizationId }, select: { features: true } });
+      if (((ui?.features as any) || {})[SITECLOCK_DELIVERIES_FLAG] !== true) return false;
+      return (await runAsOrg(organizationId, () => resolveSiteClockWorker(this.prisma, organizationId, workerId))).ok;
+    } catch (e: any) {
+      this.logger.warn(`deliveryEnabled for ${organizationId}/${workerId}: ${e?.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * SiteClock deliveries: the flag flipped (or the API just booted): every job
+   * of the org that is not cancelled is re-checked, so deliveryEnabled follows.
+   * Jobs whose section doesn't change make no SiteClock call.
+   */
+  async resyncOrg(organizationId: string): Promise<number> {
+    const r = await this.prisma.deliverySiteClockJob.updateMany({
+      where: { organizationId, lastPushedStatus: { in: ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED'] } },
+      data: { syncState: 'PENDING', nextAttemptAt: new Date() },
+    });
+    if (r.count) this.actionLog?.system('siteclock-sync', 'SYNC', 'deliveries', { organizationId, details: { resync: r.count, reason: 'SiteClock deliveries flag' } });
+    return r.count;
+  }
+
+  /** Orgs whose enableSiteClockDeliveries changed since the last sweep (on the first sweep after boot: the orgs that have it on). */
+  private async deliveriesFlagChanges(orgs: Set<string>): Promise<string[]> {
+    const now = new Map<string, boolean>();
+    for (const id of orgs) {
+      const ui = await this.prisma.organizationUIConfig.findUnique({ where: { organizationId: id }, select: { features: true } });
+      now.set(id, ((ui?.features as any) || {})[SITECLOCK_DELIVERIES_FLAG] === true);
+    }
+    const seen = this.deliveriesFlagSeen;
+    this.deliveriesFlagSeen = now;
+    return [...now.keys()].filter((id) => (seen ? seen.get(id) !== now.get(id) : now.get(id) === true));
+  }
+
   /** The run as the next sync would see it, WITHOUT minting a guest link (the backfill dry run). */
   loadRunForDryRun(organizationId: string, deliveryId: string): Promise<PlanRun | null> {
     return this.loadRun(organizationId, deliveryId, false);
@@ -294,6 +341,7 @@ export class SiteClockLinkService {
     }
 
     const run = await this.loadRun(org, link.deliveryId);
+    if (run) run.deliveryEnabled = await this.deliveryEnabledFor(org, link.workerId);
     const doNumber = run?.doNumber ?? null;
     const done: string[] = [];
     // A step can teach us SiteClock's real state (e.g. the job was already
@@ -445,6 +493,7 @@ export class SiteClockLinkService {
     try {
       const orgs = await this.linkedOrgIds();
       if (!orgs.size) return;
+      for (const org of await this.deliveriesFlagChanges(orgs)) await this.resyncOrg(org);
       const due = await this.prisma.deliverySiteClockJob.findMany({
         where: { organizationId: { in: [...orgs] }, syncState: { in: ['PENDING', 'FAILED'] }, nextAttemptAt: { lte: new Date() } },
         select: { id: true },

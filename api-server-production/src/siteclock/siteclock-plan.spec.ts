@@ -238,6 +238,42 @@ describe('siteclock plan', () => {
     });
   });
 
+  describe('deliveryEnabled (SiteClock deliveries)', () => {
+    it('a job that never had it sends and hashes exactly as before', () => {
+      const p = planSync(run(), link(), D);
+      expect((p.steps[1] as any).fields).not.toHaveProperty('deliveryEnabled');
+      expect((p.steps[1] as any).hash).toHaveLength(32);
+      expect(planSync(run({ deliveryEnabled: false }), link(), D)).toEqual(p);
+    });
+
+    it('on: created with it; turning it on later re-pushes the job once (also when started or finished)', () => {
+      const created = planSync(run({ deliveryEnabled: true }), link(), D);
+      expect((created.steps[1] as any).fields.deliveryEnabled).toBe(true);
+      for (const status of ['scheduled', 'in_progress', 'completed']) {
+        let l = applied(link(), planSync(run(), link(), D));
+        if (status !== 'scheduled') l = applied(l, planSync(run({ status }), l, D));
+        const p = planSync(run({ status, deliveryEnabled: true }), l, D);
+        expect(kinds(p)).toEqual([status === 'scheduled' ? 'patch' : 'patchText']);
+        expect((p.steps[0] as any).fields.deliveryEnabled).toBe(true);
+        l = applied(l, p);
+        expect(kinds(planSync(run({ status, deliveryEnabled: true }), l, D))).toEqual([]);
+      }
+    });
+
+    it('off again: false goes only to the job that had it, even when its wording changed meanwhile', () => {
+      let l = applied(link(), planSync(run({ status: 'in_progress', deliveryEnabled: true }), applied(link(), planSync(run(), link(), D)), D));
+      l = applied(l, planSync(run({ status: 'in_progress', deliveryEnabled: true }), l, D));
+      const p = planSync(run({ status: 'in_progress', notes: 'gate code 1234' }), l, D);
+      expect(kinds(p)).toEqual(['patchText']);
+      expect((p.steps[0] as any).fields).toMatchObject({ deliveryEnabled: false, notes: expect.stringContaining('gate code 1234') });
+      l = applied(l, p);
+      // back to a plain hash: nothing more to send, and no false on later wording changes
+      expect(kinds(planSync(run({ status: 'in_progress', notes: 'gate code 1234' }), l, D))).toEqual([]);
+      const later = planSync(run({ status: 'in_progress', notes: 'gate code 9999' }), l, D);
+      expect((later.steps[0] as any).fields).not.toHaveProperty('deliveryEnabled');
+    });
+  });
+
   it('backs off 1, 2, 5, 15, 30 min then hourly', () => {
     expect([1, 2, 3, 4, 5, 6, 9].map((n) => backoffMs(n) / 60_000)).toEqual([1, 2, 5, 15, 30, 60, 60]);
   });

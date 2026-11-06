@@ -1,4 +1,6 @@
 jest.mock('../delivery-group-posts/enqueue', () => ({ enqueueDeliveryGroupPost: jest.fn(async () => null) }));
+// The run lease is raw SQL on a real database (run-lease.ts; covered by the dev concurrency e2e): run straight through here.
+jest.mock('./run-lease', () => ({ withRunLease: (_prisma: unknown, _lease: unknown, fn: () => Promise<unknown>) => fn() }));
 
 import { enqueueDeliveryGroupPost } from '../delivery-group-posts/enqueue';
 import { DeliveriesService } from './deliveries.service';

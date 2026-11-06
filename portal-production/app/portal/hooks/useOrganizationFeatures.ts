@@ -19,6 +19,7 @@ interface OrganizationFeatures {
   enableQuotationESign?: boolean;
   enableQuotationToDelivery?: boolean;
   enableSiteClockLink?: boolean;
+  enableSiteClockDeliveries?: boolean;
   enableJobsCalendar?: boolean;
   enableRealDoOnSchedule?: boolean;
   enableWctOrders?: boolean;
@@ -182,6 +183,10 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // its SiteClock state. Also needs the org's SiteClock connection (Admin →
   // organisation → SiteClock). Default OFF.
   enableSiteClockLink: false,
+  // SiteClock deliveries (2026-11-06): the worker does the delivery flow inside
+  // the SiteClock app on jobs AIMS put on their schedule (needs the SiteClock
+  // link). Osiris admins only. Default OFF.
+  enableSiteClockDeliveries: false,
   // Jobs calendar (WCT 2026-10-30): the Dashboard opens with a month / week /
   // day calendar of scheduled deliveries, returns, service runs and the org's
   // SiteClock jobs; the usual dashboard sections sit below it. Default OFF.
@@ -280,6 +285,7 @@ export function useOrganizationFeatures() {
     isQuotationESignEnabled: features.enableQuotationESign ?? false,
     isQuotationToDeliveryEnabled: features.enableQuotationToDelivery ?? false,
     isSiteClockLinkEnabled: features.enableSiteClockLink ?? false,
+    isSiteClockDeliveriesEnabled: features.enableSiteClockDeliveries ?? false,
     isJobsCalendarEnabled: features.enableJobsCalendar ?? false,
     isRealDoOnScheduleEnabled: features.enableRealDoOnSchedule ?? false,
     isWctOrdersEnabled: features.enableWctOrders ?? false,

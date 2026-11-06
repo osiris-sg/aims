@@ -16,6 +16,13 @@ import { runNoun } from '../deliveries/job-wording';
  * (the DO's view-only guest page). Those keep following the DO after work has
  * started or finished (a wording-only PATCH), so a renumbered DO shows up in
  * SiteClock too; who / when / where stay fixed once started.
+ *
+ * deliveryEnabled (SiteClock deliveries, 2026-11-06): whether SiteClock shows
+ * the job's Delivery section. It rides with the wording (a started or finished
+ * job still takes it). While it is true the stored hash ends in "+D" (a marker
+ * no plain hash has), so jobs that never had it hash and send exactly as
+ * before: turning the flag on re-pushes just the jobs that get it, and turning
+ * it off sends `false` only to jobs whose last push carried `true`.
  */
 
 // WCT is in Singapore and AIMS has no per-org time zone; SGT has no DST, so the
@@ -48,6 +55,8 @@ export interface PlanRun {
   orderNumber?: string | null;
   /** WCT jobs calendar: "PTW: Required (…)" / "Also on this job: …" lines; absent when there are none. */
   extraNotes?: string[];
+  /** SiteClock deliveries: flag on AND the job's worker is an AIMS member with a field role. */
+  deliveryEnabled?: boolean;
 }
 
 export interface PlanLink {
@@ -70,10 +79,12 @@ export interface JobFields {
   notes: string | null;
   externalUrl: string | null;
   externalUrlLabel: string | null;
+  /** Sent only when true, or as false to a job whose last push had it true. */
+  deliveryEnabled?: boolean;
 }
 
 /** The wording SiteClock still takes after a job has started or finished. */
-export type JobText = Pick<JobFields, 'title' | 'notes' | 'externalUrl' | 'externalUrlLabel'>;
+export type JobText = Pick<JobFields, 'title' | 'notes' | 'externalUrl' | 'externalUrlLabel' | 'deliveryEnabled'>;
 
 export const DO_LINK_LABEL = 'View DO';
 
@@ -125,7 +136,10 @@ export function siteRefFor(organizationId: string, customerId: string | null, ad
 const sha16 = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex').slice(0, 16);
 /** Schedule half (who / where / when) + wording half (title, notes, link): a started job compares only the second. */
 const schedHash = (f: JobFields) => sha16([f.workerId, f.siteRef, f.startAt, f.endAt]);
-const textHash = (f: JobText) => sha16([f.title, f.notes, f.externalUrl, f.externalUrlLabel]);
+const DELIVERY_MARK = '+D';
+const textHash = (f: JobText) => `${sha16([f.title, f.notes, f.externalUrl, f.externalUrlLabel])}${f.deliveryEnabled ? DELIVERY_MARK : ''}`;
+/** The last push to this job carried deliveryEnabled: true. */
+const deliveryWasOn = (synced: string | null) => !!synced && synced.endsWith(DELIVERY_MARK);
 const hashFields = (f: JobFields) => `${schedHash(f)}${textHash(f)}`;
 /** After a wording-only PATCH: SiteClock's schedule is what it was, the wording is new. */
 const afterTextPatch = (synced: string | null, f: JobText) => `${(synced ?? '').slice(0, 16).padEnd(16, '0')}${textHash(f)}`;
@@ -210,8 +224,13 @@ export function planSync(run: PlanRun | null, link: PlanLink, deliveryId: string
     externalUrl: doUrl,
     externalUrlLabel: doUrl ? DO_LINK_LABEL : null,
   };
+  // Delivery section: on → sent as true (and marked on the hash); off → sent as
+  // false only to a job whose last push carried true.
+  const base: JobText = { title: fields.title, notes: fields.notes, externalUrl: fields.externalUrl, externalUrlLabel: fields.externalUrlLabel };
+  if (r.deliveryEnabled) fields.deliveryEnabled = true;
+  else if (!fresh && deliveryWasOn(link.syncedHash)) fields.deliveryEnabled = false;
   const hash = hashFields(fields);
-  const text: JobText = { title: fields.title, notes: fields.notes, externalUrl: fields.externalUrl, externalUrlLabel: fields.externalUrlLabel };
+  const text: JobText = { ...base, ...(fields.deliveryEnabled !== undefined ? { deliveryEnabled: fields.deliveryEnabled } : {}) };
   // A finished job is final on both sides, except its wording: the DO number
   // in the title and the View DO link still follow the document.
   if (last === 'COMPLETED') {

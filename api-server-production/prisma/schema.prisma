@@ -4744,3 +4744,38 @@ model JobPhoto {
   @@unique([organizationId, source, sourcePhotoId])
   @@index([organizationId, deliveryId])
 }
+
+// Field delivery concurrency (2026-11-06, SiteClock deliveries): a short lease
+// on a run while a multi-step sign-off runs (finalize / finalize-return), so a
+// second device's sign-off waits its turn instead of running the completion
+// side effects (DO, invoice, WhatsApp post) twice. One row per run; a lease
+// whose expiresAt has passed is free to take (a crashed holder never blocks a
+// run for longer than its TTL). Written with raw SQL (deliveries/run-lease.ts).
+model DeliveryOpLease {
+  id             String   @id // the run (Delivery.id)
+  organizationId String
+  op             String // what holds it: finalize | finalize-return
+  holder         String // random per acquisition, so only the holder releases it
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+// Idempotency-Key replay store (2026-11-06): a POST sent with an
+// Idempotency-Key runs once per (org, route, key); a repeat with the same body
+// gets the first answer back, a repeat with a different body is refused.
+// Rows older than 24 h are reused (common/idempotency).
+model IdempotencyRecord {
+  id             String   @id // sha256(org | scope | key)
+  organizationId String
+  scope          String // the route, e.g. POST /deliveries/:id/finalize
+  requestHash    String
+  state          String // PENDING | DONE
+  statusCode     Int?
+  response       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+}

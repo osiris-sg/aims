@@ -34,6 +34,14 @@ export const AP_CREDIT_OFFSET_FLAG = 'enableApCreditOffset';
 // flag-gated per org and the customer↔supplier pairing is confirmed by hand.
 export const CONTRA_OFFSET_FLAG = 'enableContraOffset';
 
+// SITECLOCK DELIVERIES (2026-11-06). A worker does the AIMS delivery flow
+// (start + condition photos, items, sign-off, DO, returns) inside the SiteClock
+// app, on the job AIMS put on their schedule. With it on, the job sync sends
+// deliveryEnabled per job (the worker maps to an AIMS member with a field role)
+// and the SiteClock worker delivery API answers; off = neither. Osiris admins
+// only; needs the SiteClock link (enableSiteClockLink + an enabled connection).
+export const SITECLOCK_DELIVERIES_FLAG = 'enableSiteClockDeliveries';
+
 export async function isOrgFeatureEnabled(
   prisma: { organizationUIConfig: { findUnique: (args: any) => Promise<any> } },
   organizationId: string,

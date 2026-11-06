@@ -63,6 +63,7 @@ import { plannedRiderView, savePlannedRider } from './planned-rider';
 import { CompletionMode, WCT_FINISH_MODES_FLAG, finishModeProblem, initialVerification, isCompletionMode } from './finish-modes';
 import { checkJobFieldValues, isJobFieldsEnabled, jobFieldDefs, jobFieldValues, saveJobFieldValues } from './job-fields';
 import { runNoun } from './job-wording';
+import { withRunLease } from './run-lease';
 @Injectable()
 export class DeliveriesService {
   private readonly logger = new Logger(DeliveriesService.name);
@@ -1883,7 +1884,19 @@ export class DeliveriesService {
     // fail before mutating the run (matches create()'s reserve-before-create).
     await this.reserveUnit(dto.inventoryId, organizationId, run.deliveryNumber);
 
+    try {
     await this.prisma.$transaction(async (tx) => {
+      // Claim the run FIRST, conditional on it still being `scheduled`: two
+      // claims at once (two riders, SiteJobs + SiteClock, a retried tap) can
+      // both pass the check above, and only the first may bind the slot and
+      // become the rider. The loser rolls back and its unit is released below.
+      const claimed = await tx.delivery.updateMany({
+        where: { id: deliveryId, organizationId, status: 'scheduled' },
+        data: { riderUserId, ...(dto.riderName ? { riderName: dto.riderName } : {}), status: 'in_progress', startedAt: new Date() },
+      });
+      if (claimed.count !== 1) {
+        throw new ConflictException(`${runNoun(run)} #${run.deliveryNumber} was just started on another device.`);
+      }
       if ((slot.quantity ?? 1) > 1) {
         // Split: shrink the open slot, mint a bound qty-1 item for this unit. The
         // new item INHERITS the slot's documentId so a scheduled (born-linked)
@@ -1901,17 +1914,25 @@ export class DeliveriesService {
           },
         });
       } else {
-        await tx.deliveryItem.update({ where: { id: slot.id }, data: { inventoryId: dto.inventoryId } });
+        const bound = await tx.deliveryItem.updateMany({ where: { id: slot.id, inventoryId: null }, data: { inventoryId: dto.inventoryId } });
+        if (bound.count !== 1) throw new ConflictException('That slot was just filled on another device.');
       }
-      // Claim the run: assign the rider + start it. Only the FIRST claimant sets
-      // the rider; a run already claimed by an earlier scan stays with that
-      // rider (status is no longer `scheduled`, so a second claim is rejected
-      // above and the unit routes through the normal open-run path instead).
-      await tx.delivery.update({
-        where: { id: deliveryId },
-        data: { riderUserId, ...(dto.riderName ? { riderName: dto.riderName } : {}), status: 'in_progress', startedAt: new Date() },
-      });
+      // (The run was claimed above: only the FIRST claimant sets the rider; a
+      // run already claimed stays with that rider and the unit routes through
+      // the normal open-run path instead.)
     });
+    } catch (err) {
+      // Nothing on the run changed: give back the reservation taken above.
+      await this.prisma.inventory
+        .updateMany({ where: { id: dto.inventoryId, organizationId, status: InventoryStatus.reserved }, data: { status: InventoryStatus.instock } })
+        .then((r) =>
+          r.count
+            ? this.prisma.timelineItem.create({ data: { message: `Reservation released — Delivery #${run.deliveryNumber} was started on another device`, inventoryId: dto.inventoryId, pdfUrl: null } })
+            : null,
+        )
+        .catch(() => undefined);
+      throw err;
+    }
 
     // Bind this unit into the scheduled DO's matching ASSET-level slot (turns an
     // asset-level line into a serial-bound one), if the run has a pre-created DO.
@@ -2970,7 +2991,17 @@ export class DeliveriesService {
             ? { installSkipped: true } // stays not_installed; finalize completes it
             : {}; // 'install': stays not_installed; the DO_INSTALL MSR is the record
     if (Object.keys(data).length) {
-      await this.prisma.deliveryItem.update({ where: { id: target.id }, data });
+      // Conditional on the step we found it at: a second request for the same
+      // unit (two devices, a retried tap) moves nothing and is treated like a
+      // repeated scan, so the hand-off flip below runs once.
+      const moved = await this.prisma.deliveryItem.updateMany({
+        where: { id: target.id, deliveryStatus: predecessor[action] },
+        data: data as Prisma.DeliveryItemUpdateManyMutationInput,
+      });
+      if (moved.count !== 1) {
+        this.logger.warn(`advanceDeliveryItem: unit ${inventoryId} on delivery ${deliveryId} moved meanwhile (${action})`);
+        return null;
+      }
     }
 
     // Hand-off flip (assign-at-start deferral): at ACK the unit has been handed
@@ -3390,13 +3421,17 @@ export class DeliveriesService {
           : ('in_progress' as const);
 
     if (target !== delivery.status) {
-      await this.prisma.delivery.update({
-        where: { id: deliveryId },
+      // Conditional on the status we read: when two requests fold the same run
+      // at once only ONE moves it, and only that one runs the completion hook
+      // below (DO / invoice / RDO), so it can never fire twice.
+      const moved = await this.prisma.delivery.updateMany({
+        where: { id: deliveryId, organizationId, status: delivery.status },
         data: {
           status: target,
           ...(target === 'completed' && !delivery.completedAt ? { completedAt: new Date() } : {}),
         },
       });
+      if (moved.count !== 1) return;
       void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: status follows the run
       await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
       // Completion hook: the FIRST time a run reaches `completed`. Exactly ONE
@@ -4671,6 +4706,21 @@ export class DeliveriesService {
     // this without it, so a guest still can only sign a fully delivered run.
     opts: { allowPartial?: boolean } = {},
   ) {
+    // One sign-off at a time per run (SiteJobs, SiteClock, the driver's link):
+    // the second waits for the lease, then re-reads the run below and stops at
+    // "already finalized" before any side effect.
+    return withRunLease(this.prisma, { organizationId, deliveryId, op: 'finalize' }, () =>
+      this.finalizeRunLocked(deliveryId, dto, organizationId, technicianUserId, opts),
+    );
+  }
+
+  private async finalizeRunLocked(
+    deliveryId: string,
+    dto: Parameters<DeliveriesService['finalizeRun']>[1],
+    organizationId: string,
+    technicianUserId: string,
+    opts: { allowPartial?: boolean },
+  ) {
     const run = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
       select: { id: true, status: true, direction: true },
@@ -5417,6 +5467,17 @@ export class DeliveriesService {
     dto: { signature?: string; recipientName?: string; latitude?: number; longitude?: number; technicianName?: string },
     organizationId: string,
   ) {
+    // Same one-at-a-time rule as finalizeRun (completeReturnRun mints the RDO once).
+    return withRunLease(this.prisma, { organizationId, deliveryId, op: 'finalize-return' }, () =>
+      this.finalizeReturnLocked(deliveryId, dto, organizationId),
+    );
+  }
+
+  private async finalizeReturnLocked(
+    deliveryId: string,
+    dto: { signature?: string; recipientName?: string; latitude?: number; longitude?: number; technicianName?: string },
+    organizationId: string,
+  ) {
     const run = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
       select: { id: true, status: true, direction: true },
@@ -5544,10 +5605,13 @@ export class DeliveriesService {
     // the single customer signature at finalizeReturn advances every collected
     // item to completed. The physical collection still happens now (stock flip +
     // off-hire below) — only the paperwork signature waits for the end.
-    await this.prisma.deliveryItem.update({
-      where: { id: item.id },
+    // Conditional on delivering, so a second collect (another device, a retry)
+    // is the idempotent no-op above, not a second off-hire.
+    const moved = await this.prisma.deliveryItem.updateMany({
+      where: { id: item.id, deliveryStatus: DeliveryStatus.delivering },
       data: { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: now },
     });
+    if (moved.count !== 1) return null;
     // rental → instock (guarded so a re-run / non-rental is a no-op).
     await this.prisma.inventory.updateMany({
       where: { id: inventoryId, organizationId, status: InventoryStatus.rental },
@@ -5637,10 +5701,13 @@ export class DeliveriesService {
     const now = new Date();
     // COLLECTED, awaiting the run signature (not_installed, not completed) —
     // finalizeReturn completes it, mirroring the unit path.
-    await this.prisma.deliveryItem.update({
-      where: { id: item.id },
+    // Conditional on delivering: a second collect of the same line (another
+    // device, a retried tap) moves nothing and off-hires nothing twice.
+    const moved = await this.prisma.deliveryItem.updateMany({
+      where: { id: item.id, deliveryStatus: DeliveryStatus.delivering },
       data: { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: now },
     });
+    if (moved.count !== 1) return null;
     // No stock flip — a description-only line has no inventory.
     if (run?.projectId && item.description) {
       await this.offHireFreeTypedDeployment(run.projectId, item.description, organizationId);
@@ -6491,6 +6558,14 @@ export class DeliveriesService {
             AND "organizationId" = ${organizationId}
             AND status = 'scheduled'`;
       }
+      // The line moves first, conditional on not_delivered: a second start of
+      // the same line (another device, a retried tap) rolls back here, before
+      // it writes a second DO_START.
+      const moved = await tx.deliveryItem.updateMany({
+        where: { id: item.id, deliveryStatus: DeliveryStatus.not_delivered },
+        data: { deliveryStatus: DeliveryStatus.delivering, deliveringAt: new Date(), skippedAt: null },
+      });
+      if (moved.count !== 1) throw new ConflictException('This line was just started on another device.');
       await tx.maintenanceServiceReport.create({
         data: {
           organizationId,
@@ -6509,11 +6584,7 @@ export class DeliveriesService {
           ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
         },
       });
-      // Advance by ITEM ID — never { deliveryId, inventoryId } (both null here).
-      await tx.deliveryItem.update({
-        where: { id: item.id },
-        data: { deliveryStatus: DeliveryStatus.delivering, deliveringAt: new Date(), skippedAt: null },
-      });
+      // (Advanced by ITEM ID above — never { deliveryId, inventoryId }, both null here.)
     });
     void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
     await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
@@ -6556,25 +6627,30 @@ export class DeliveriesService {
     // not_installed. The run's single finalize signature stamps this MSR and
     // completes the line, so nothing signs mid-run.
     const now = new Date();
-    await this.prisma.maintenanceServiceReport.create({
-      data: {
-        organizationId,
-        technicianUserId,
-        assetId: null,
-        inventoryId: null,
-        deliveryId,
-        deliveryItemId: item.id, // free-typed line: no unit, so THIS is the only exact tie
-        kind: 'DO_ACK',
-        status: 'draft',
-        description: `Delivery acknowledged: ${item.description ?? 'free-typed line'}`,
-        ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
-        ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
-        ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
-      },
-    });
-    await this.prisma.deliveryItem.update({
-      where: { id: item.id },
-      data: { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: now, skippedAt: null },
+    // Move + proof in one transaction, the move first and conditional on
+    // delivering: a second End of the same line writes no second DO_ACK.
+    await this.prisma.$transaction(async (tx) => {
+      const moved = await tx.deliveryItem.updateMany({
+        where: { id: item.id, deliveryStatus: DeliveryStatus.delivering },
+        data: { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: now, skippedAt: null },
+      });
+      if (moved.count !== 1) throw new ConflictException('This line was just finished on another device.');
+      await tx.maintenanceServiceReport.create({
+        data: {
+          organizationId,
+          technicianUserId,
+          assetId: null,
+          inventoryId: null,
+          deliveryId,
+          deliveryItemId: item.id, // free-typed line: no unit, so THIS is the only exact tie
+          kind: 'DO_ACK',
+          status: 'draft',
+          description: `Delivery acknowledged: ${item.description ?? 'free-typed line'}`,
+          ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
+          ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
+          ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
+        },
+      });
     });
     // Deploy the delivered free-typed line onto the run's project (skips when the
     // run has no project), mirroring how a unit line deploys at delivery. OUTBOUND

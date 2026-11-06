@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put, Query, Req, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put, Query, Req, UnauthorizedException, UseGuards, UseInterceptors } from '@nestjs/common';
+import { IdempotencyInterceptor } from 'src/common/idempotency/idempotency.interceptor';
 import { OrderJobsService } from './order-jobs.service';
 import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
@@ -37,6 +38,7 @@ export class DeliveriesController {
   ) {}
 
   @Post()
+  @UseInterceptors(IdempotencyInterceptor) // Idempotency-Key: a resent request runs once
   @Permissions('maintenance-reports:create')
   create(
     @Body() dto: CreateDeliveryDto,
@@ -95,6 +97,7 @@ export class DeliveriesController {
   }
 
   @Post(':id/claim-scheduled')
+  @UseInterceptors(IdempotencyInterceptor) // Idempotency-Key: a resent request runs once
   @Permissions('maintenance-reports:create')
   claimScheduled(
     @Param('id') id: string,
@@ -112,6 +115,7 @@ export class DeliveriesController {
   // walk. A return's lines are unit-bound or free-typed, so claim-scheduled
   // (which binds an open asset slot and reserves stock) can never apply.
   @Post(':id/claim-return')
+  @UseInterceptors(IdempotencyInterceptor) // Idempotency-Key: a resent request runs once
   @Permissions('maintenance-reports:create')
   claimReturn(
     @Param('id') id: string,
@@ -507,6 +511,7 @@ export class DeliveriesController {
   // CUSTOMER SIGNATURE (outbound). Full sign-off once every item is delivered;
   // a partial sign-off for the items handed over so far (run stays open).
   @Post(':id/finalize')
+  @UseInterceptors(IdempotencyInterceptor) // Idempotency-Key: a resent request runs once
   @Permissions('maintenance-reports:create')
   async finalize(
     @Param('id') id: string,
@@ -524,6 +529,7 @@ export class DeliveriesController {
   // Field: ONE signature at the END of a RETURN run (no install step). Reached
   // once every unit is collected; stamps every return proof + fires the RDO.
   @Post(':id/finalize-return')
+  @UseInterceptors(IdempotencyInterceptor) // Idempotency-Key: a resent request runs once
   @Permissions('maintenance-reports:create')
   finalizeReturn(
     @Param('id') id: string,
@@ -608,6 +614,7 @@ export class DeliveriesController {
   // + a DO_START proof MSR (asset-less), advances the line not_delivered ->
   // delivering. Keyed by DeliveryItem.id (a free-typed line has no unit).
   @Post(':id/items/:itemId/start')
+  @UseInterceptors(IdempotencyInterceptor) // Idempotency-Key: a resent request runs once
   @Permissions('maintenance-reports:create')
   startFreeTypedItem(
     @Param('id') id: string,
@@ -639,6 +646,7 @@ export class DeliveriesController {
   }
 
   @Post(':id/items/photos')
+  @UseInterceptors(IdempotencyInterceptor) // Idempotency-Key: a resent request runs once
   @Permissions('maintenance-reports:create')
   addItemPhotos(
     @Param('id') id: string,

@@ -10,6 +10,7 @@ interface AimsRequest extends Request {
   isOsirisAdmin?: boolean;
   apiKey?: { id: string; name: string }; // set by ApiV1KeyGuard
   siteclockInbound?: { connectionId: string }; // set by SiteClockInboundGuard (job photos)
+  siteclockWorker?: { userId: string; siteclockUserId: string; name: string | null }; // set by SiteClockWorkerGuard (deliveries in SiteClock)
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -249,6 +250,12 @@ export class ActionLogInterceptor implements NestInterceptor {
     }
     if (req.apiKey?.id) {
       return { actorType: 'API_KEY', actorId: req.apiKey.id, actorName: req.apiKey.name, channel: 'v1' };
+    }
+    // A worker doing a delivery in the SiteClock app (2026-11-06): SiteClock's
+    // backend calls on their behalf, so the row names the AIMS member, on the
+    // siteclock channel.
+    if (req.siteclockWorker?.userId) {
+      return { actorType: 'USER', actorId: req.siteclockWorker.userId, actorName: req.siteclockWorker.name ? `${req.siteclockWorker.name} (SiteClock)` : 'SiteClock worker', channel: 'siteclock' };
     }
     // SiteClock calling AIMS with the org's inbound key (job photos, 2026-11-02).
     if (req.siteclockInbound?.connectionId) {
