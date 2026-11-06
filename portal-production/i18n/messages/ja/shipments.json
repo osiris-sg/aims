@@ -769,7 +769,7 @@
   },
   "estimator": {
     "couldNotSave": "保存できませんでした",
-    "courierTitle": "乙仲費用見積 (JPY)",
+    "courierTitle": "乙仲費用見積 — 三井倉庫費用＋トラック (JPY)",
     "courierSub": "{cap}tトラック · 通関 ¥{rate}/MT · 正味 {net} MT · 総重量 {gross} MT",
     "trucks": "トラック台数",
     "thc": "THC (AN)",
@@ -785,7 +785,7 @@
     "fStorage": "保管料・その他",
     "fTotal": "見積合計",
     "taxFundsTitle": "輸入税（資金）",
-    "taxEstimateTitle": "輸入税 見積",
+    "taxEstimateTitle": "輸入消費税の見積",
     "taxFormula": "⌊CIF × 税関週間レート⌋ + 加算運賃 → 消費税 7.8% + 地方消費税 22/78 —",
     "customsRates": "税関の外国為替相場（customs.go.jp）",
     "cif": "CIF (USD)",

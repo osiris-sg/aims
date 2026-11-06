@@ -545,7 +545,9 @@ export default function OrderPage() {
                   fieldsTitle={t("blDetails")}
                   fieldsSummary={blSummary(s, t)}
                   fieldsForm={() => <ShipmentFormDialog key={formKey} inline open shipment={s} onClose={() => undefined} onSaved={() => toast.success(t("blSaved"))} />}
-                  stepExtra={(st) => {
+                  // Round BI: step 7's import-tax-estimate file sits in the import tax card.
+                  extraSlots={(st) => (st.code === "CUSTOMS_TAX_ESTIMATE" ? ["TAX_ESTIMATE"] : [])}
+                  stepExtra={(st, slot) => {
                     const pay = STEP_PAYMENT[st.code] ? (
                       <StepPaymentForm
                         step={st}
@@ -556,7 +558,7 @@ export default function OrderPage() {
                       />
                     ) : null;
                     const main = ESTIMATOR_STEPS[st.code] ? (
-                      <EstimatorPanel shipment={s} mode={ESTIMATOR_STEPS[st.code]} canEdit={s.status === "OPEN"} />
+                      <EstimatorPanel shipment={s} mode={ESTIMATOR_STEPS[st.code]} canEdit={s.status === "OPEN"} taxSlot={st.code === "CUSTOMS_TAX_ESTIMATE" && st.requiredDocTypes.includes("TAX_ESTIMATE") ? slot("TAX_ESTIMATE") : null} />
                     ) : st.code === "CI_PAYMENT" ? (
                       <PriceCheckPanel kind="shipment" id={s.id} title={t("ciPriceCheck")} />
                     ) : null;

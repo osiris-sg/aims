@@ -769,7 +769,7 @@
   },
   "estimator": {
     "couldNotSave": "Could not save",
-    "courierTitle": "Courier cost estimate (JPY)",
+    "courierTitle": "Courier cost estimate — Mitsui Soko costs + trucking (JPY)",
     "courierSub": "{cap}t trucks · 通関 ¥{rate}/MT · net {net} MT · gross {gross} MT",
     "trucks": "Trucks",
     "thc": "THC (AN)",

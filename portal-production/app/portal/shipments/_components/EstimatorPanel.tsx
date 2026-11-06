@@ -4,9 +4,10 @@
 // Courier cost + import tax estimator on a shipment (ADH's task-list
 // formulas; every rate is in Org Settings → Shipping & documents, every input
 // here is editable):
-//   step 7  通関 (qty × rate × 1.1) + B/L fee + AN charges = est. 通関・車輸送;
-//           trucking = trucks (ROUND(gross / truck size)) × truck rate × 1.1;
-//           storage / other; and the import tax estimate.
+//   step 7  two separate cards (round BI, same figures): the import tax estimate (with the
+//           tax-estimate file slot), then the courier cost estimate — 通関 (qty × rate × 1.1) +
+//           B/L fee + AN charges = est. 通関・車輸送; trucking = trucks (ROUND(gross / truck size))
+//           × truck rate × 1.1; storage / other.
 //   step 8  import tax, the 輸入許可書 formula: 申告価格 = ⌊CIF × customs weekly
 //           rate⌋ + 加算運賃 (default the A/N's EQMC); 消費税 7.8% of ⌊申告価格⌋₁₀₀₀,
 //           地方消費税 22/78 of it, each ⌊⌋₁₀₀; funded and actual (import
@@ -27,7 +28,7 @@ export const ESTIMATOR_STEPS: Record<string, Mode> = { CUSTOMS_TAX_ESTIMATE: "es
 
 const CUSTOMS_FX_URL = "https://www.customs.go.jp/tetsuzuki/kawase/index.htm";
 
-export default function EstimatorPanel({ shipment, mode, canEdit }: { shipment: Shipment; mode: Mode; canEdit: boolean }) {
+export default function EstimatorPanel({ shipment, mode, canEdit, taxSlot }: { shipment: Shipment; mode: Mode; canEdit: boolean; /** Round BI: step 7's import-tax-estimate file row, shown in the tax card. */ taxSlot?: React.ReactNode }) {
   const t = useTranslations("shipments.estimator");
   const e = shipment.estimate;
   const costs = shipment.costs ?? {};
@@ -35,7 +36,7 @@ export default function EstimatorPanel({ shipment, mode, canEdit }: { shipment: 
   // What was just typed shows in the summary at once (Funded / Actual / Variance), before the refetch lands.
   const [typed, setTyped] = useState<ShipmentCosts>({});
   useEffect(() => setTyped({}), [shipment.updatedAt]);
-  if (!e) return null;
+  if (!e) return taxSlot ? <>{taxSlot}</> : null;
 
   const put = async (patch: ShipmentCosts) => {
     setTyped((p) => ({ ...p, ...patch }));
@@ -50,10 +51,64 @@ export default function EstimatorPanel({ shipment, mode, canEdit }: { shipment: 
   const actual = "importTaxActual" in typed ? (typed.importTaxActual ?? null) : e.importTax.actual;
   const variance = actual === null || e.importTax.estimate === null ? null : actual - e.importTax.estimate;
 
-  return (
-    <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 } }} data-tour={mode === "actuals" ? "estimator-actuals" : mode === "tax" ? "estimator-import-tax" : "estimator-costs"}>
-      {mode === "estimate" && (
-        <>
+  const taxCard = (
+    <Box>
+      <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+        {mode === "tax" ? t("taxFundsTitle") : t("taxEstimateTitle")}
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+        {t("taxFormula")}{" "}
+        <Link href={CUSTOMS_FX_URL} target="_blank" rel="noopener">
+          {t("customsRates")}
+        </Link>
+      </Typography>
+      <Grid container spacing={1.5}>
+        <Num label={t("cif")} value={costs.cifUsd} disabled={!canEdit} onSave={(v) => put({ cifUsd: v })} />
+        <Num label={t("customsRate")} value={costs.fxRate} disabled={!canEdit} onSave={(v) => put({ fxRate: v })} />
+        <Num
+          label={t("addOn")}
+          value={costs.customsAddOnJpy}
+          yen
+          placeholder={costs.equipmentFee ?? undefined}
+          helper={costs.customsAddOnJpy === null || costs.customsAddOnJpy === undefined ? (costs.equipmentFee !== null && costs.equipmentFee !== undefined ? t("addOnDefault") : t("addOnNotRead")) : t("addOnTyped")}
+          disabled={!canEdit}
+          onSave={(v) => put({ customsAddOnJpy: v })}
+        />
+        {mode === "tax" && <Num label={t("funded")} value={costs.importTaxFunded} yen disabled={!canEdit} onSave={(v) => put({ importTaxFunded: v })} />}
+        {mode === "tax" && <Num label={t("actualPermit")} value={costs.importTaxActual} yen disabled={!canEdit} onSave={(v) => put({ importTaxActual: v })} />}
+      </Grid>
+      <Figures
+        rows={[
+          [t("fCifJpy"), e.importTax.cifJpy],
+          [`+ ${t("fAddOn")}${e.importTax.addOnSource === "EQMC" ? " (EQMC)" : ""}`, e.importTax.addOnJpy || null],
+          [t("fCustomsValue"), e.importTax.customsValue],
+          [t("fNational"), e.importTax.national],
+          [t("fLocal"), e.importTax.local],
+          [t("fTaxEstimate"), e.importTax.estimate, true],
+          ...(mode === "tax"
+            ? ([
+                [t("funded"), funded],
+                [t("actual"), actual],
+                [t("fVariance"), variance, true],
+              ] as Array<[string, number | null, boolean?]>)
+            : []),
+        ]}
+      />
+      {taxSlot ? (
+        <Box sx={{ mt: 1.5 }} data-tour="estimator-tax-file">
+          {taxSlot}
+        </Box>
+      ) : null}
+    </Box>
+  );
+  // Round BI: on step 7 the import tax estimate and the courier cost estimate are two separate cards (figures unchanged).
+  if (mode === "estimate")
+    return (
+      <Stack spacing={1.5}>
+        <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 } }} data-tour="estimator-tax-estimate">
+          {taxCard}
+        </Paper>
+        <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 } }} data-tour="estimator-costs">
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
             {t("courierTitle")}
           </Typography>
@@ -80,53 +135,13 @@ export default function EstimatorPanel({ shipment, mode, canEdit }: { shipment: 
               [t("fTotal"), e.total, true],
             ]}
           />
-        </>
-      )}
-      {(mode === "estimate" || mode === "tax") && (
-        <Box sx={{ mt: mode === "estimate" ? 2 : 0 }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-            {mode === "tax" ? t("taxFundsTitle") : t("taxEstimateTitle")}
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            {t("taxFormula")}{" "}
-            <Link href={CUSTOMS_FX_URL} target="_blank" rel="noopener">
-              {t("customsRates")}
-            </Link>
-          </Typography>
-          <Grid container spacing={1.5}>
-            <Num label={t("cif")} value={costs.cifUsd} disabled={!canEdit} onSave={(v) => put({ cifUsd: v })} />
-            <Num label={t("customsRate")} value={costs.fxRate} disabled={!canEdit} onSave={(v) => put({ fxRate: v })} />
-            <Num
-              label={t("addOn")}
-              value={costs.customsAddOnJpy}
-              yen
-              placeholder={costs.equipmentFee ?? undefined}
-              helper={costs.customsAddOnJpy === null || costs.customsAddOnJpy === undefined ? (costs.equipmentFee !== null && costs.equipmentFee !== undefined ? t("addOnDefault") : t("addOnNotRead")) : t("addOnTyped")}
-              disabled={!canEdit}
-              onSave={(v) => put({ customsAddOnJpy: v })}
-            />
-            {mode === "tax" && <Num label={t("funded")} value={costs.importTaxFunded} yen disabled={!canEdit} onSave={(v) => put({ importTaxFunded: v })} />}
-            {mode === "tax" && <Num label={t("actualPermit")} value={costs.importTaxActual} yen disabled={!canEdit} onSave={(v) => put({ importTaxActual: v })} />}
-          </Grid>
-          <Figures
-            rows={[
-              [t("fCifJpy"), e.importTax.cifJpy],
-              [`+ ${t("fAddOn")}${e.importTax.addOnSource === "EQMC" ? " (EQMC)" : ""}`, e.importTax.addOnJpy || null],
-              [t("fCustomsValue"), e.importTax.customsValue],
-              [t("fNational"), e.importTax.national],
-              [t("fLocal"), e.importTax.local],
-              [t("fTaxEstimate"), e.importTax.estimate, true],
-              ...(mode === "tax"
-                ? ([
-                    [t("funded"), funded],
-                    [t("actual"), actual],
-                    [t("fVariance"), variance, true],
-                  ] as Array<[string, number | null, boolean?]>)
-                : []),
-            ]}
-          />
-        </Box>
-      )}
+        </Paper>
+      </Stack>
+    );
+
+  return (
+    <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 } }} data-tour={mode === "actuals" ? "estimator-actuals" : "estimator-import-tax"}>
+      {mode === "tax" && taxCard}
       {mode === "actuals" && shipment.actuals && (
         <>
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
@@ -151,12 +166,7 @@ export default function EstimatorPanel({ shipment, mode, canEdit }: { shipment: 
                   <TableCell align="right">
                     {r.key === "washing" || r.key === "detention" ? (
                       <Stack direction="row" spacing={0.5} justifyContent="flex-end" alignItems="center">
-                        <InlineNum
-                          value={(costs.actual as any)?.[`${r.key}Containers`]}
-                          suffix="CNT"
-                          disabled={!canEdit}
-                          onSave={(v) => put({ actual: { [`${r.key}Containers`]: v } as any })}
-                        />
+                        <InlineNum value={(costs.actual as any)?.[`${r.key}Containers`]} suffix="CNT" disabled={!canEdit} onSave={(v) => put({ actual: { [`${r.key}Containers`]: v } as any })} />
                         <Typography variant="caption" color="text.secondary">
                           {fmtYen(r.actual)}
                         </Typography>

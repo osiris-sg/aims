@@ -115,6 +115,7 @@ export default function StepCards({
   numberFrom,
   onFileUploaded,
   stepExtra,
+  extraSlots,
   customerId,
   orderShipmentIds = [],
   highlightFile = null,
@@ -145,7 +146,9 @@ export default function StepCards({
   /** After a file is uploaded on a row (the deal page reads a B/L draft / arrival notice with AI). */
   onFileUploaded?: (docType: string, files: TradeFile[]) => void;
   /** A panel under a step's rows (estimator on steps 7 / 8 / 12, reconciliation on 13). */
-  stepExtra?: (s: TradeStep) => React.ReactNode;
+  stepExtra?: (s: TradeStep, slot: (docType: string) => React.ReactNode) => React.ReactNode;
+  /** Round BI: required doc types shown inside the step's panel (via stepExtra's slot) instead of the row list — step 7's tax estimate file in the tax card. */
+  extraSlots?: (s: TradeStep) => string[];
   /** The record's customer (the covers picker lists its other shipments). */
   customerId?: string | null;
   /** On an order: its shipments (step 11's invoice covers them by default). */
@@ -498,6 +501,9 @@ export default function StepCards({
     );
   };
 
+  /** One required document row: made in-app (Create) or uploaded. */
+  const slotRow = (s: TradeStep, d: string) => (canCreate(d) ? createRow(s, d, stateOf(s, d)) : uploadRow(s, d, stateOf(s, d)));
+
   // ── cards ────────────────────────────────────────────────────────────────
   const card = (s: TradeStep) => {
     const isDone = s.status === "DONE";
@@ -553,7 +559,7 @@ export default function StepCards({
             </Box>
           )}
           {(s.requiredFields?.length ?? 0) > 0 && fieldsRow(s)}
-          {s.requiredDocTypes.map((d) => (canCreate(d) ? createRow(s, d, stateOf(s, d)) : uploadRow(s, d, stateOf(s, d))))}
+          {s.requiredDocTypes.filter((d) => !(extraSlots?.(s) ?? []).includes(d)).map((d) => slotRow(s, d))}
           {owner.kind === "shipment" && s.code === "BL_DRAFT_APPROVAL" && blCheck && <BlCheckPanel check={blCheck} shipmentId={owner.id} canEdit={recordOpen} />}
           {(s.subtasks ?? []).length > 0 && (
             <Paper variant="outlined" sx={{ px: 2, py: 1 }} data-tour="step-subtasks">
@@ -581,7 +587,7 @@ export default function StepCards({
               ))}
             </Paper>
           )}
-          {stepExtra?.(s)}
+          {stepExtra?.(s, (d) => slotRow(s, d))}
         </Stack>
 
         {(optRows.length > 0 || extra.length > 0) && (

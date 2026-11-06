@@ -77,6 +77,8 @@ function answer(d: any, key: readonly unknown[]): unknown {
   if (k0 === "trade-inbox" && key[1] === "dashboard" && (d.dashboard || d.questions)) return d.dashboard ?? { toConfirm: { emails: d.questions.threads?.length ?? 0, threads: d.questions.threads ?? [], total: d.questions.total ?? 0, batches: d.questions.batches, viewer: d.questions.viewer }, filedAuto: [] };
   // Round BF: a generated document (the 出庫・納入依頼書 editor), the trade settings and the document types.
   if (k0 === "trade-generated" && key[2] === "detail") return d.generated?.[key[3] as string];
+  // Round BI: the generated documents of a shipment / an order (the step cards' Create rows).
+  if (k0 === "trade-generated" && (key[2] === "shipment" || key[2] === "order")) return d.genBy?.[key[3] as string] ?? [];
   if (k0 === "trade-config" && key[2] === "settings") return d.settings;
   if (k0 === "trade-config" && key[2] === "doc-types") return d.docTypes;
   return undefined;
