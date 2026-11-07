@@ -40,6 +40,8 @@ export const SETTINGS_MENU = [
   // Customer profiles (billing mode, port, trucks, templates) — Shipments orgs only.
   { label: "Customers", path: "/portal/settings/customers" },
   { label: "Accounting Setup", path: "/portal/settings/accounting-setup" },
+  // Directors-only money defaults (guru 2026-10-24) — flag-gated per org.
+  { label: "Business Rules", path: "/portal/settings/business-rules" },
   { label: "Master Files", path: "/portal/masterfiles" },
   // Custom job fields (enableJobFields orgs only, filtered below).
   { label: "Job fields", path: "/portal/settings/job-fields" },
@@ -97,10 +99,11 @@ export function useNavModules() {
   const { modules, isModuleEnabled } = useConfiguration();
   const { isModuleAllowed, userRoles, hasPermission } = useUserPermissions();
   // Same rule as DynamicSidebarContent's Organization Settings group.
-  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
+  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isBusinessRulesEnabled } = useOrganizationFeatures();
   const settingsMenu = SETTINGS_MENU.filter(
     (s) =>
       (s.path !== "/portal/settings/accounting-setup" || showAccountingSetup(isModuleEnabled)) &&
+      (s.path !== "/portal/settings/business-rules" || isBusinessRulesEnabled) &&
       ((s.path !== "/portal/settings/shipping" && s.path !== "/portal/settings/customers") || showShippingSettings(isModuleEnabled)) &&
       (s.path !== "/portal/settings/job-fields" || isJobFieldsEnabled),
   );

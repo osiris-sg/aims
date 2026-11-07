@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 import { Cron } from '@nestjs/schedule';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
+import { OrgRulesService } from '../org-rules/org-rules.service';
 import { resolveTier } from '../common/role-tier';
 import { S3Service } from '../common/services/s3.service';
 import { ActionLogService } from '../action-log/action-log.service';
@@ -66,6 +67,7 @@ export class ProjectCostingService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly orgRules: OrgRulesService,
     private readonly s3: S3Service,
     private readonly actionLog: ActionLogService,
     private readonly bills: BillsService,
@@ -127,8 +129,11 @@ export class ProjectCostingService {
   async seedMilestones(projectId: string, organizationId: string, contractSum: number) {
     const existing = await this.prisma.projectMilestone.count({ where: { projectId, kind: 'milestone' } });
     if (existing > 0) return { created: 0 };
+    // The ladder comes from Settings → Business rules (org-editable); falls
+    // back to the standard 10/40/45/5.
+    const ladder = (await this.orgRules.rulesOf(organizationId)).payments.milestones;
     await this.prisma.projectMilestone.createMany({
-      data: DEFAULT_MILESTONES.map((m, i) => ({
+      data: ladder.map((m, i) => ({
         organizationId,
         projectId,
         kind: 'milestone',
@@ -136,10 +141,10 @@ export class ProjectCostingService {
         pct: m.pct,
         amount: Math.round(contractSum * m.pct) / 100,
         sortOrder: i,
-        dueTrigger: m.dueTrigger,
+        dueTrigger: m.dueTrigger || (i === 0 ? 'confirmation' : null),
       })),
     });
-    return { created: DEFAULT_MILESTONES.length };
+    return { created: ladder.length };
   }
 
   // ── the costing summary (one call for the project page) ────────────────
@@ -180,7 +185,8 @@ export class ProjectCostingService {
     const totalCost = approvedCosts.filter((c) => c.status === 'approved').reduce((s, c) => s + num(c.amount), 0);
     const pendingCost = approvedCosts.filter((c) => c.status === 'pending').reduce((s, c) => s + num(c.amount), 0);
     const profit = collected - totalCost;
-    const commissionPct = project.commissionPct ?? DEFAULT_COMMISSION_PCT;
+    const orgRuleSet = await this.orgRules.rulesOf(organizationId);
+    const commissionPct = project.commissionPct ?? orgRuleSet.commissionPct;
     const commission = Math.round(profit * commissionPct) / 100;
     // Designer advances (guru 2026-10-06): approved/paid requests against this
     // project reduce the commission still payable at handover.
@@ -240,7 +246,7 @@ export class ProjectCostingService {
       costs,
       milestones,
       depositMode,
-      engagementFee: deposit && deposit.pct == null ? deposit.amount : DEFAULT_ENGAGEMENT_FEE,
+      engagementFee: deposit && deposit.pct == null ? deposit.amount : orgRuleSet.payments.engagementFee,
       sections,
       tally,
       unallocatedCost: unallocated,
@@ -604,10 +610,12 @@ export class ProjectCostingService {
     }
     if (!deposit) throw new BadRequestException('No deposit milestone on this project');
     if (deposit.invoiceId) throw new BadRequestException('The deposit has already been invoiced — void that invoice first');
-    const data =
+      const pr = (await this.orgRules.rulesOf(organizationId)).payments;
+      const altPct = pr.firstPaymentAltPct;
+      const data =
       dto.mode === 'engagement'
-        ? { label: `Engagement fee on confirmation (in lieu of 10%)`, pct: null, amount: num(dto.engagementFee) || DEFAULT_ENGAGEMENT_FEE }
-        : { label: `${num(dto.pct) || 10}% on confirmation`, pct: num(dto.pct) || 10, amount: Math.round(base * (num(dto.pct) || 10)) / 100 };
+        ? { label: `Engagement fee on confirmation (in lieu of ${altPct}%)`, pct: null, amount: num(dto.engagementFee) || pr.engagementFee }
+        : { label: `${num(dto.pct) || altPct}% on confirmation`, pct: num(dto.pct) || altPct, amount: Math.round(base * (num(dto.pct) || altPct)) / 100 };
     return this.prisma.projectMilestone.update({ where: { id: deposit.id }, data });
   }
 
@@ -844,12 +852,13 @@ export class ProjectCostingService {
     const overrides = await this.prisma.supplierRebate.findMany({ where: { organizationId } });
     const byName = new Map(overrides.map((o) => [o.supplierName, o.pct]));
     const rows = new Map<string, { supplierName: string; totalCost: number; pct: number; source: string }>();
+    const orgRebateDefault = (await this.orgRules.rulesOf(organizationId)).rebatePct;
     for (const c of costs) {
       const key = this.normSupplier(c.supplierName) || '(no supplier)';
       let row = rows.get(key);
       if (!row) {
         const supplierPct = byName.get(key);
-        const pct = project.rebatePct ?? supplierPct ?? ProjectCostingService.DEFAULT_REBATE_PCT;
+        const pct = project.rebatePct ?? supplierPct ?? orgRebateDefault;
         const source = project.rebatePct != null ? 'project' : supplierPct != null ? 'supplier' : 'default';
         row = { supplierName: c.supplierName || '(no supplier)', totalCost: 0, pct, source };
         rows.set(key, row);
@@ -864,7 +873,7 @@ export class ProjectCostingService {
     return {
       projectId: project.id,
       projectRebatePct: project.rebatePct,
-      defaultPct: ProjectCostingService.DEFAULT_REBATE_PCT,
+      defaultPct: orgRebateDefault,
       suppliers,
       totalCost,
       totalRebate,
@@ -912,13 +921,14 @@ export class ProjectCostingService {
     });
     const overrides = await this.prisma.supplierRebate.findMany({ where: { organizationId } });
     const byName = new Map(overrides.map((o) => [o.supplierName, o.pct]));
+    const orgRebateDefaultAll = (await this.orgRules.rulesOf(organizationId)).rebatePct;
     const projById = new Map(projects.map((p) => [p.id, p]));
     const byProject = new Map<string, { projectId: string; name: string; status: string; rebate: number; cost: number }>();
     const bySupplier = new Map<string, { supplierName: string; rebate: number; cost: number }>();
     for (const c of costs) {
       const pj = projById.get(c.projectId)!;
       const key = this.normSupplier(c.supplierName) || '(no supplier)';
-      const pct = pj.rebatePct ?? byName.get(key) ?? ProjectCostingService.DEFAULT_REBATE_PCT;
+      const pct = pj.rebatePct ?? byName.get(key) ?? orgRebateDefaultAll;
       const rebate = (c.amount * pct) / 100;
       const pr = byProject.get(c.projectId) || { projectId: c.projectId, name: pj.name, status: pj.status, rebate: 0, cost: 0 };
       pr.rebate += rebate;
@@ -932,7 +942,7 @@ export class ProjectCostingService {
     const projectsOut = [...byProject.values()].map((r) => ({ ...r, rebate: ROUND2(r.rebate), cost: ROUND2(r.cost) })).sort((a, b) => b.rebate - a.rebate);
     const suppliersOut = [...bySupplier.values()].map((r) => ({ ...r, rebate: ROUND2(r.rebate), cost: ROUND2(r.cost) })).sort((a, b) => b.rebate - a.rebate);
     return {
-      defaultPct: ProjectCostingService.DEFAULT_REBATE_PCT,
+      defaultPct: orgRebateDefaultAll,
       totalRebate: ROUND2(projectsOut.reduce((s, r) => s + r.rebate, 0)),
       ongoingRebate: ROUND2(projectsOut.filter((r) => r.status !== 'completed').reduce((s, r) => s + r.rebate, 0)),
       completedRebate: ROUND2(projectsOut.filter((r) => r.status === 'completed').reduce((s, r) => s + r.rebate, 0)),
@@ -1391,6 +1401,7 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
       where: { organizationId },
       select: { userId: true, yearlySalesTarget: true, commissionPct: true },
     });
+    const orgCommissionDefault = (await this.orgRules.rulesOf(organizationId)).commissionPct;
     const profByUser = new Map(profiles.map((x) => [x.userId, x]));
 
     type Row = {
@@ -1428,7 +1439,7 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
       const cost = pj.costs.reduce((x, c) => x + num(c.amount), 0);
       const projected = contract - cost;
       r.projectedProfit += projected;
-      const pct = pj.commissionPct ?? (pj.designerUserId ? profByUser.get(pj.designerUserId)?.commissionPct : null) ?? DEFAULT_COMMISSION_PCT;
+      const pct = pj.commissionPct ?? (pj.designerUserId ? profByUser.get(pj.designerUserId)?.commissionPct : null) ?? orgCommissionDefault;
       r.earnings += Math.round(projected * pct) / 100;
     }
     for (const l of leads) {

@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { resolveTier } from '../common/role-tier';
+import { OrgRulesService } from '../org-rules/org-rules.service';
 
 /**
  * Designer appointment schedule (guru 2026-10-08): per-designer calendar —
@@ -18,6 +19,7 @@ export class AppointmentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly orgRules: OrgRulesService,
   ) {}
 
   /** Appointments + lead appointments, tier-scoped (designer own / junior team / senior+ all). */
@@ -112,8 +114,19 @@ export class AppointmentsService {
       link = await this.prisma.designerBookingLink.update({ where: { id: link.id }, data: { revokedAt: null, token: randomBytes(24).toString('base64url') } });
     }
     if (!link) {
+      // New links take the org's booking defaults (Settings → Business rules).
+      const b = (await this.orgRules.rulesOf(organizationId)).booking;
       link = await this.prisma.designerBookingLink.create({
-        data: { organizationId, designerUserId: callerUserId, designerName: callerName, token: randomBytes(24).toString('base64url') },
+        data: {
+          organizationId,
+          designerUserId: callerUserId,
+          designerName: callerName,
+          token: randomBytes(24).toString('base64url'),
+          slotMinutes: b.slotMinutes,
+          hourStart: b.hourStart,
+          hourEnd: b.hourEnd,
+          daysAhead: b.daysAhead,
+        },
       });
     }
     const base = (process.env.PORTAL_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '');

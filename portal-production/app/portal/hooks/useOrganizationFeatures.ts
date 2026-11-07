@@ -55,6 +55,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableAnalytics: true,
   // Header-bell notifications; OFF also stops the server writing new rows (guru 2026-10-10: CIEL wants none).
   enableNotifications: true,
+  // Settings → Business rules page (payment ladder, fees, % defaults) — Directors only.
+  enableBusinessRules: false,
   enableDocumentAI: true,
   enableCustomFields: true,
   enableServiceItems: true,
@@ -305,6 +307,7 @@ export function useOrganizationFeatures() {
     isIdQuotationEnabled: features.enableIdQuotation ?? false,
     isDesignerAdvancesEnabled: features.enableDesignerAdvances ?? false,
     isNotificationsEnabled: features.enableNotifications ?? true,
+    isBusinessRulesEnabled: features.enableBusinessRules ?? false,
     isAppointmentBookingEnabled: features.enableAppointmentBooking ?? false,
     isAdsInsightsEnabled: features.enableAdsInsights ?? false,
     isPostingQueueEnabled: features.enablePostingQueue ?? false,

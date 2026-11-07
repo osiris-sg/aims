@@ -93,7 +93,7 @@ export default function DynamicSidebarContent() {
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
-  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
+  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isBusinessRulesEnabled } = useOrganizationFeatures();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
   const navLang = useUiLang().lang;
@@ -477,10 +477,11 @@ export default function DynamicSidebarContent() {
         { key: 'shipping', label: 'Shipping & documents', path: '/portal/settings/shipping' },
         { key: 'customer-profiles', label: 'Customers', path: '/portal/settings/customers' },
         { key: 'accounting-setup', label: 'Accounting Setup', path: '/portal/settings/accounting-setup' },
+        { key: 'business-rules', label: 'Business Rules', path: '/portal/settings/business-rules' },
         { key: 'masterfiles', label: 'Master Files', path: '/portal/masterfiles' },
         // Custom job fields (enableJobFields orgs only).
         { key: 'job-fields', label: 'Job fields', path: '/portal/settings/job-fields' },
-      ].filter((s) => (s.key !== 'accounting-setup' || accountingSetupShown) && ((s.key !== 'shipping' && s.key !== 'customer-profiles') || showShippingSettings(isModuleEnabled)) && (s.key !== 'job-fields' || isJobFieldsEnabled))
+      ].filter((s) => (s.key !== 'accounting-setup' || accountingSetupShown) && (s.key !== 'business-rules' || isBusinessRulesEnabled) && ((s.key !== 'shipping' && s.key !== 'customer-profiles') || showShippingSettings(isModuleEnabled)) && (s.key !== 'job-fields' || isJobFieldsEnabled))
         .map((s) => ({ ...s, label: settingLabel(s) })),
     },
   ];

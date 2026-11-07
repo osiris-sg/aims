@@ -4,6 +4,7 @@ import { ActionLogService } from '../action-log/action-log.service';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
 import { resolveTier, tierOfRoleNames } from '../common/role-tier';
+import { OrgRulesService } from '../org-rules/org-rules.service';
 import { S3Service } from '../common/services/s3.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { UsersService } from '../users/users.service';
@@ -95,6 +96,7 @@ export class LeadsService {
     private readonly notifications: NotificationsService,
     private readonly users: UsersService,
     private readonly actionLog: ActionLogService,
+    private readonly orgRules: OrgRulesService,
   ) {}
 
   // ── EZiD: deterministic parse of the plain-text field list ───────────────
@@ -225,6 +227,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       } catch {
         /* keep the lead even if the upload fails */
       }
+      const lw = (await this.orgRules.rulesOf(organizationId)).leads;
       const lead = await this.create(organizationId, {
         ...dto,
         attachmentUrl,
@@ -232,8 +235,8 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         emailFrom: fromEmail,
         emailSubject: payload.subject || null,
         receivedAt,
-        firstContactDeadline: new Date(receivedAt.getTime() + DAY),
-        replacementDeadline: new Date(receivedAt.getTime() + 14 * DAY),
+        firstContactDeadline: new Date(receivedAt.getTime() + lw.firstContactHours * 3600000),
+        replacementDeadline: new Date(receivedAt.getTime() + lw.replacementDays * DAY),
       } as any);
       created.push(lead.id);
     }
@@ -249,7 +252,12 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         ...(dto || { source: isNetwork ? 'network' : 'ezid', name: payload.subject?.replace(/^new lead distributed:\s*/i, '') || 'Unparsed lead', remarks: payload.text.slice(0, 4000), notes: 'Automatic parse failed — raw email kept in remarks' }),
         emailFrom: fromEmail,
         emailSubject: payload.subject || null,
-        ...(isNetwork ? { receivedAt, firstContactDeadline: new Date(receivedAt.getTime() + DAY), replacementDeadline: new Date(receivedAt.getTime() + 14 * DAY) } : {}),
+        ...(isNetwork
+          ? await (async () => {
+              const lw = (await this.orgRules.rulesOf(organizationId)).leads;
+              return { receivedAt, firstContactDeadline: new Date(receivedAt.getTime() + lw.firstContactHours * 3600000), replacementDeadline: new Date(receivedAt.getTime() + lw.replacementDays * DAY) };
+            })()
+          : {}),
       } as any);
       created.push(lead.id);
     }
@@ -672,6 +680,37 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     }
   }
 
+  /** Dedicated UTILITY templates (created 2026-11-07; Meta frequency-caps the
+   *  generic marketing-rated one, error 131049). Tries the named template and
+   *  falls back to the generic notify template while it is still in review or
+   *  if Meta rejects it — delivery never regresses. */
+  private async sendUtilityTemplate(
+    line: { organizationId: string; phoneNumberId: string; accessToken: string },
+    to: string,
+    name: string,
+    params: string[],
+    fallbackText: string,
+  ) {
+    try {
+      await this.waSend(
+        line,
+        to,
+        {
+          type: 'template',
+          template: {
+            name,
+            language: { code: 'en' },
+            components: [{ type: 'body', parameters: params.map((t) => ({ type: 'text', text: String(t).replace(/\n/g, ' · ').slice(0, 900) })) }],
+          },
+        },
+        `[template:${name}] ${params.join(' | ')}`.slice(0, 1000),
+      );
+    } catch (e) {
+      this.logger.warn(`Utility template ${name} failed (${(e as Error).message}) — falling back to generic notify template`);
+      await this.sendNotifyTemplate(line, to, fallbackText);
+    }
+  }
+
   /** Deliver TEXT through the approved utility template — lands even when the
    *  24h window is closed (hello_world only works from Meta test numbers).
    *  The recipient replying re-opens the window for the interactive cards. */
@@ -737,19 +776,19 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
   @Cron('30 * * * *')
   async contactNudgeCron() {
     const sgtHour = (new Date().getUTCHours() + 8) % 24;
-    if (sgtHour < 9 || sgtHour >= 21) return;
-    const cutoff = new Date(Date.now() - 3 * 3600000);
+    // Broad pre-filter at the loosest cadence (1h, the cron's own interval);
+    // each org's window/cap/spacing (Settings → Business rules) applies below.
+    const minCutoff = new Date(Date.now() - 1 * 3600000);
     const leads: any[] = await this.prisma.lead.findMany({
       where: {
         assignedToUserId: { not: null },
         firstContactedAt: null,
         status: { in: ['unqualified', 'engaging'] },
-        assignedAt: { lte: cutoff },
-        contactNudgeCount: { lt: 12 },
-        OR: [{ contactNudgeAt: null }, { contactNudgeAt: { lte: cutoff } }],
+        assignedAt: { lte: minCutoff },
+        OR: [{ contactNudgeAt: null }, { contactNudgeAt: { lte: minCutoff } }],
       },
       orderBy: { assignedAt: 'asc' },
-      take: 50,
+      take: 80,
     });
     if (!leads.length) return;
     const byOrg = new Map<string, any[]>();
@@ -758,6 +797,9 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       try {
         const line = await this.agentLine(orgId);
         if (!line) continue;
+        const lw = (await this.orgRules.rulesOf(orgId)).leads;
+        if (sgtHour < lw.nudgeHourStart || sgtHour >= lw.nudgeHourEnd) continue;
+        const orgCutoff = Date.now() - lw.nudgeEveryHours * 3600000;
         // One designer lookup per org, not per lead.
         const numberOf = new Map((await this.designersOf(orgId)).map((d) => [d.id, String(d.whatsappNumber || '').replace(/\D/g, '')]));
         // Management-tier assignees are the TRIAGE stop (all leads land on them
@@ -771,30 +813,44 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         for (const r of roleRows) namesByUser.set(r.userId, [...(namesByUser.get(r.userId) || []), r.role.name]);
         const masterIds = new Set(assigneeIds.filter((id) => tierOfRoleNames(namesByUser.get(id) || []) === 'master'));
         let sent = 0;
+        // ONE DIGEST PER DESIGNER per run (guru 2026-10-24, re-applied 11-07):
+        // Meta's template frequency cap (131049) silently dropped most per-lead
+        // reminders to non-replying designers. Fewer, consolidated templates
+        // survive the cap far better — and spam less.
+        const byDesigner = new Map<string, any[]>();
         for (const lead of orgLeads) {
           if (masterIds.has(lead.assignedToUserId)) continue; // triage holder, not the designer
-          const to = numberOf.get(lead.assignedToUserId);
-          if (!to) continue; // designer has no WhatsApp number on their profile
-          const leadDigits = [lead.whatsappPhone, lead.phone, ...((lead.phones || []) as string[])].map((v: any) => String(v || '').replace(/\D/g, '')).find(Boolean);
-          const hours = lead.assignedAt ? Math.max(1, Math.round((Date.now() - new Date(lead.assignedAt).getTime()) / 3600000)) : null;
-          const text = [
-            `⏰ Reminder: lead ${lead.name}${leadDigits ? ` (+${leadDigits.length <= 8 ? `65${leadDigits}` : leadDigits})` : ''} was assigned to you${hours ? ` ${hours}h ago` : ''} and has no WhatsApp contact yet.`,
-            leadDigits ? `Message them now: wa.me/${leadDigits.length <= 8 ? `65${leadDigits}` : leadDigits}` : 'Please reach out to the lead now.',
-          ].join(' ');
+          if ((lead.contactNudgeCount || 0) >= lw.nudgeCap) continue;
+          if (lead.assignedAt && new Date(lead.assignedAt).getTime() > orgCutoff) continue;
+          if (lead.contactNudgeAt && new Date(lead.contactNudgeAt).getTime() > orgCutoff) continue;
+          if (!numberOf.get(lead.assignedToUserId)) continue; // no WhatsApp number on their profile
+          byDesigner.set(lead.assignedToUserId, [...(byDesigner.get(lead.assignedToUserId) || []), lead]);
+        }
+        for (const [designerId, dLeads] of byDesigner) {
+          const to = numberOf.get(designerId)!;
+          const bullets = dLeads.map((lead) => {
+            const leadDigits = [lead.whatsappPhone, lead.phone, ...((lead.phones || []) as string[])].map((v: any) => String(v || '').replace(/\D/g, '')).find(Boolean);
+            const full = leadDigits ? (leadDigits.length <= 8 ? `65${leadDigits}` : leadDigits) : null;
+            const hours = lead.assignedAt ? Math.max(1, Math.round((Date.now() - new Date(lead.assignedAt).getTime()) / 3600000)) : null;
+            return `• ${lead.name}${hours ? ` — assigned ${hours}h ago` : ''}${full ? `, message them: wa.me/${full}` : ''}`;
+          });
+          const text = `⏰ ${dLeads.length === 1 ? 'A lead assigned to you has' : `${dLeads.length} leads assigned to you have`} no WhatsApp contact yet: ${bullets.join(' ')}`;
           try {
-            await this.sendNotifyTemplate(line, to, text);
-            await this.prisma.lead.update({ where: { id: lead.id }, data: { contactNudgeAt: new Date(), contactNudgeCount: { increment: 1 } } });
+            await this.sendUtilityTemplate(line, to, 'lead_reminder', [bullets.join(' ')], text);
+            for (const lead of dLeads) {
+              await this.prisma.lead.update({ where: { id: lead.id }, data: { contactNudgeAt: new Date(), contactNudgeCount: { increment: 1 } } });
+              this.actionLog.system('lead-contact-nudge', 'SEND', 'lead', {
+                organizationId: orgId,
+                resourceId: lead.id,
+                details: { lead: lead.name, designer: lead.assignedToName, nudgeNo: (lead.contactNudgeCount || 0) + 1, to, digestOf: dLeads.length },
+              });
+            }
             sent++;
-            this.actionLog.system('lead-contact-nudge', 'SEND', 'lead', {
-              organizationId: orgId,
-              resourceId: lead.id,
-              details: { lead: lead.name, designer: lead.assignedToName, nudgeNo: (lead.contactNudgeCount || 0) + 1, to },
-            });
           } catch (e) {
-            this.logger.warn(`contact nudge for lead ${lead.id} failed: ${(e as Error).message}`);
+            this.logger.warn(`contact nudge digest for designer ${designerId} failed: ${(e as Error).message}`);
           }
         }
-        if (sent) this.logger.log(`contactNudgeCron: ${sent} nudge(s) sent for org ${orgId}`);
+        if (sent) this.logger.log(`contactNudgeCron: ${sent} digest(s) sent for org ${orgId}`);
       } catch (e) {
         this.logger.warn(`contactNudgeCron for org ${orgId} failed: ${(e as Error).message}`);
       }
@@ -983,12 +1039,18 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
           // template instead — it lands any time, and the wa.me link still
           // works as plain text. The designer replying re-opens the window.
           this.logger.warn(`Designer notify failed: ${e.message} — sending template fallback`);
-          await this.sendNotifyTemplate(line, dnum, `New lead assigned to you — ${lead.name}. Message them now: ${waUrl.split('?')[0]} · Full details in AIMS → Sales → Leads.`).catch((e2) => this.logger.warn(`Designer notify template fallback failed: ${e2.message}`));
+          await this.sendUtilityTemplate(
+            line,
+            dnum,
+            'lead_assigned',
+            [`${lead.name}${[lead.source ? String(lead.source).toUpperCase() : null, lead.propertyType, lead.budget].filter(Boolean).length ? ` (${[lead.source ? String(lead.source).toUpperCase() : null, lead.propertyType, lead.budget].filter(Boolean).join(', ')})` : ''}`, waUrl.split('?')[0]],
+            `New lead assigned to you — ${lead.name}. Message them now: ${waUrl.split('?')[0]} · Full details in AIMS → Sales → Leads.`,
+          ).catch((e2) => this.logger.warn(`Designer notify template fallback failed: ${e2.message}`));
         });
       } else {
         await this.waSend(line, dnum, { type: 'text', text: { body: brief } }, brief).catch(async (e) => {
           this.logger.warn(`Designer notify failed: ${e.message} — sending template fallback`);
-          await this.sendNotifyTemplate(line, dnum, `New lead assigned to you — ${lead.name}. Full details in AIMS → Sales → Leads.`).catch((e2) => this.logger.warn(`Designer notify template fallback failed: ${e2.message}`));
+          await this.sendUtilityTemplate(line, dnum, 'lead_assigned', [`${lead.name}`, 'details in AIMS → Sales → Leads'], `New lead assigned to you — ${lead.name}. Full details in AIMS → Sales → Leads.`).catch((e2) => this.logger.warn(`Designer notify template fallback failed: ${e2.message}`));
         });
       }
     }
