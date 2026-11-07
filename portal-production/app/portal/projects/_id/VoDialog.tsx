@@ -22,7 +22,7 @@ import { money, useIdProjectApi, type Summary } from "./api";
 
 // kind "area" = a general-area header row like the main quote's sections
 // (LIVING ROOM, KITCHEN…): no number, no amount, prints as a bold band.
-type VoLine = { id: string; description: string; amount: number | null; complimentary: boolean; kind?: "line" | "area" };
+type VoLine = { id: string; description: string; amount: number | null; complimentary: boolean; kind?: "line" | "area"; includes?: string[] };
 const newId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 const sum = (list: VoLine[]) => list.reduce((s, l) => s + (l.kind === "area" || l.complimentary ? 0 : Number(l.amount) || 0), 0);
 
@@ -134,7 +134,36 @@ function LineList({ title, lines, readOnly, onChange }: { title: string; lines: 
                   inputProps={{ style: { fontWeight: 700, textTransform: "uppercase" } }}
                 />
               ) : (
-                <TextField size="small" fullWidth multiline minRows={1} placeholder="Describe the change…" value={l.description} disabled={readOnly} onChange={(e) => onChange(lines.map((x) => (x.id === l.id ? { ...x, description: e.target.value } : x)))} />
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <TextField size="small" fullWidth multiline minRows={1} placeholder="Describe the change…" value={l.description} disabled={readOnly} onChange={(e) => onChange(lines.map((x) => (x.id === l.id ? { ...x, description: e.target.value } : x)))} />
+                  {/* "Includes …" sub-lines, like the main quotation's items
+                      (Mike 2026-11-07: e.g. "* Includes 25ft cove light"). */}
+                  {(l.includes || []).map((inc, ii) => (
+                    <Stack key={ii} direction="row" spacing={0.5} alignItems="center" sx={{ mt: 0.5, pl: 1.5 }}>
+                      <Typography variant="caption" sx={{ color: "text.disabled" }}>*</Typography>
+                      <TextField
+                        size="small"
+                        variant="standard"
+                        fullWidth
+                        placeholder="Includes …"
+                        value={inc}
+                        disabled={readOnly}
+                        onChange={(e) => onChange(lines.map((x) => (x.id === l.id ? { ...x, includes: (x.includes || []).map((y, j) => (j === ii ? e.target.value : y)) } : x)))}
+                        InputProps={{ disableUnderline: true, sx: { fontSize: 12.5, color: "text.secondary" } }}
+                      />
+                      {!readOnly && (
+                        <IconButton size="small" onClick={() => onChange(lines.map((x) => (x.id === l.id ? { ...x, includes: (x.includes || []).filter((_, j) => j !== ii) } : x)))} sx={{ color: "text.disabled", p: 0.25 }}>
+                          <DeleteIcon sx={{ fontSize: 14 }} />
+                        </IconButton>
+                      )}
+                    </Stack>
+                  ))}
+                  {!readOnly && (
+                    <Button size="small" onClick={() => onChange(lines.map((x) => (x.id === l.id ? { ...x, includes: [...(x.includes || []), ""] } : x)))} sx={{ textTransform: "none", color: "text.disabled", fontSize: 11, mt: 0.25, py: 0, minWidth: 0, pl: 1.5 }}>
+                      + sub-line
+                    </Button>
+                  )}
+                </Box>
               )}
               {!isArea && <VoAmountField placeholder="0.00" value={l.complimentary ? null : l.amount ?? null} disabled={readOnly || l.complimentary} onCommit={(n) => onChange(lines.map((x) => (x.id === l.id ? { ...x, amount: n } : x)))} />}
               {!isArea && (
@@ -180,7 +209,7 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
       .getDocument(docId)
       .then((d) => {
         setDoc(d);
-        const norm = (list: any[]): VoLine[] => (Array.isArray(list) ? list : []).map((l) => ({ id: l.id || newId(), description: l.description || "", amount: l.amount ?? null, complimentary: !!l.complimentary, kind: l.kind === "area" ? "area" : "line" }));
+        const norm = (list: any[]): VoLine[] => (Array.isArray(list) ? list : []).map((l) => ({ id: l.id || newId(), description: l.description || "", amount: l.amount ?? null, complimentary: !!l.complimentary, kind: l.kind === "area" ? "area" : "line", includes: Array.isArray(l.includes) ? l.includes.map(String) : [] }));
         setAdditions(norm(d?.config?.vo?.additions));
         setRemovals(norm(d?.config?.vo?.removals));
         setDirty(false);

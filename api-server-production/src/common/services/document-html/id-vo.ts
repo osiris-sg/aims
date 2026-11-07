@@ -16,7 +16,7 @@
  */
 import { escapeHtml, formatDate, money } from './shared';
 
-type VoLine = { description?: string; amount?: number | null; complimentary?: boolean; kind?: string };
+type VoLine = { description?: string; amount?: number | null; complimentary?: boolean; kind?: string; includes?: string[] };
 
 const CSS = `
 <style>
@@ -70,7 +70,10 @@ function linesTable(title: string, list: VoLine[] | undefined, subtotalLabel: st
     .map((l) =>
       l.kind === 'area'
         ? `<tr><td class="no"></td><td colspan="2" style="font-weight:700;background:#f1f1f1;text-transform:uppercase;">${escapeHtml(l.description || '')}</td></tr>`
-        : `<tr><td class="no">${++n}</td><td>${escapeHtml(l.description || '')}</td><td class="amt">${amt(l)}</td></tr>`,
+        : `<tr><td class="no">${++n}</td><td>${escapeHtml(l.description || '')}${(l.includes || [])
+            .filter((i) => String(i).trim())
+            .map((i) => `<div style="padding-left:14px;font-size:11px;color:#444;">* Includes ${escapeHtml(String(i).replace(/^\*?\s*includes\s*/i, ''))}</div>`)
+            .join('')}</td><td class="amt">${amt(l)}</td></tr>`,
     )
     .join('');
   return `
