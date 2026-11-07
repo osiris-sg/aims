@@ -312,36 +312,36 @@ export class ProjectCostingController {
   @Post(':id/milestones')
   @Permissions('projects:update')
   addMilestone(@Param('id') id: string, @Body() body: any, @Req() req: RequestWithOrganization) {
-    return this.service.addMilestone(id, orgId(req), body || {});
+    return this.service.addMilestone(id, orgId(req), body || {}, req.user?.id);
   }
 
   @Patch(':id/deposit-mode')
   @Permissions('projects:update')
   depositMode(@Param('id') id: string, @Body() body: { mode: 'engagement' | 'percent'; engagementFee?: number; pct?: number }, @Req() req: RequestWithOrganization) {
-    return this.service.setDepositMode(id, orgId(req), body);
+    return this.service.setDepositMode(id, orgId(req), body, req.user?.id);
   }
 
   @Post('milestones/:milestoneId/invoice')
   @Permissions('documents:create-basic')
   milestoneInvoice(@Param('milestoneId') milestoneId: string, @Req() req: RequestWithOrganization) {
-    return this.service.createMilestoneInvoice(milestoneId, orgId(req), actorName(req));
+    return this.service.createMilestoneInvoice(milestoneId, orgId(req), actorName(req), req.user?.id);
   }
 
   @Post(':id/milestones/recalc')
   @Permissions('projects:update')
   recalc(@Param('id') id: string, @Req() req: RequestWithOrganization) {
-    return this.service.recalcMilestones(id, orgId(req));
+    return this.service.recalcMilestones(id, orgId(req), req.user?.id);
   }
 
   @Patch('milestones/:milestoneId')
   @Permissions('projects:update')
   updateMilestone(@Param('milestoneId') milestoneId: string, @Body() body: any, @Req() req: RequestWithOrganization) {
-    return this.service.updateMilestone(milestoneId, orgId(req), body || {});
+    return this.service.updateMilestone(milestoneId, orgId(req), body || {}, req.user?.id);
   }
 
   @Delete('milestones/:milestoneId')
   @Permissions('projects:update')
   removeMilestone(@Param('milestoneId') milestoneId: string, @Req() req: RequestWithOrganization) {
-    return this.service.removeMilestone(milestoneId, orgId(req));
+    return this.service.removeMilestone(milestoneId, orgId(req), req.user?.id);
   }
 }

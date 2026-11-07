@@ -549,7 +549,19 @@ export class ProjectCostingService {
   }
 
   // ── milestones / collections ──────────────────────────────────────────
-  async addMilestone(projectId: string, organizationId: string, dto: MilestoneDto) {
+  /** Payment-schedule structure is MANAGEMENT territory (Summer 2026-10-19:
+   *  designers report the client's scheme, management analyses and approves).
+   *  Senior Managers and Directors pass; designers and Junior Managers don't. */
+  private async assertPaymentManager(organizationId: string, callerUserId?: string) {
+    const scope = await resolveTier(this.prisma, organizationId, callerUserId);
+    if (scope.tier !== 'master' && scope.tier !== 'senior') {
+      throw new ForbiddenException('Payment schedule changes are made by management — ask them to apply the client\'s scheme');
+    }
+  }
+
+
+  async addMilestone(projectId: string, organizationId: string, dto: MilestoneDto, callerUserId?: string) {
+    await this.assertPaymentManager(organizationId, callerUserId);
     await this.project(projectId, organizationId);
     const count = await this.prisma.projectMilestone.count({ where: { projectId } });
     return this.prisma.projectMilestone.create({
@@ -570,7 +582,8 @@ export class ProjectCostingService {
     });
   }
 
-  async updateMilestone(milestoneId: string, organizationId: string, dto: MilestoneDto) {
+  async updateMilestone(milestoneId: string, organizationId: string, dto: MilestoneDto, callerUserId?: string) {
+    await this.assertPaymentManager(organizationId, callerUserId);
     const existing = await this.prisma.projectMilestone.findFirst({ where: { id: milestoneId, organizationId } });
     if (!existing) throw new NotFoundException('Milestone not found');
     return this.prisma.projectMilestone.update({
@@ -589,7 +602,8 @@ export class ProjectCostingService {
     });
   }
 
-  async removeMilestone(milestoneId: string, organizationId: string) {
+  async removeMilestone(milestoneId: string, organizationId: string, callerUserId?: string) {
+    await this.assertPaymentManager(organizationId, callerUserId);
     const r = await this.prisma.projectMilestone.deleteMany({ where: { id: milestoneId, organizationId } });
     if (!r.count) throw new NotFoundException('Milestone not found');
     return { ok: true };
@@ -599,7 +613,8 @@ export class ProjectCostingService {
    * First payment is EITHER the fixed engagement fee OR 10% of the contract sum
    * (never both — the owners' rule). Rewrites the "confirmation" milestone.
    */
-  async setDepositMode(projectId: string, organizationId: string, dto: { mode: 'engagement' | 'percent'; engagementFee?: number; pct?: number }) {
+  async setDepositMode(projectId: string, organizationId: string, dto: { mode: 'engagement' | 'percent'; engagementFee?: number; pct?: number }, callerUserId?: string) {
+    await this.assertPaymentManager(organizationId, callerUserId);
     await this.project(projectId, organizationId);
     const q = await this.contractQuotation(projectId, organizationId);
     const base = q?.grandTotal || 0;
@@ -626,7 +641,8 @@ export class ProjectCostingService {
    * draft in the invoice editor so the office can review, confirm and send
    * (with the PayNow QR) — idempotent per milestone.
    */
-  async createMilestoneInvoice(milestoneId: string, organizationId: string, actorName?: string) {
+  async createMilestoneInvoice(milestoneId: string, organizationId: string, actorName?: string, callerUserId?: string) {
+    await this.assertPaymentManager(organizationId, callerUserId);
     const m = await this.prisma.projectMilestone.findFirst({ where: { id: milestoneId, organizationId } });
     if (!m) throw new NotFoundException('Milestone not found');
     if (m.kind === 'refund') throw new BadRequestException('Refunds are not invoiced');
@@ -681,7 +697,8 @@ export class ProjectCostingService {
   }
 
   /** Re-derive milestone amounts from the current contract sum (keeps paid amounts). */
-  async recalcMilestones(projectId: string, organizationId: string) {
+  async recalcMilestones(projectId: string, organizationId: string, callerUserId?: string) {
+    await this.assertPaymentManager(organizationId, callerUserId);
     await this.project(projectId, organizationId);
     const q = await this.contractQuotation(projectId, organizationId);
     const base = q?.grandTotal || 0;

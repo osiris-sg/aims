@@ -287,6 +287,10 @@ export default function IdProjectPage({ id }: { id: string }) {
   // (guru 2026-10-07) — the server enforces the same rule.
   const { userRoles } = useUserPermissions();
   const isDirector = userRoles.length === 0 || userRoles.some((r: any) => !["Designer", "Marketing", "Junior Manager", "Senior Manager"].includes(r?.name));
+  // Payment-schedule changes are MANAGEMENT territory (Summer 2026-10-19):
+  // designers report the client's scheme; management analyses and applies it.
+  // Senior Managers count as management; server enforces the same rule.
+  const isManagement = userRoles.length === 0 || userRoles.some((r: any) => !["Designer", "Marketing", "Junior Manager"].includes(r?.name));
   const router = useRouter();
   const api = useIdProjectApi();
   const [data, setData] = useState<Summary | null>(null);
@@ -796,21 +800,30 @@ export default function IdProjectPage({ id }: { id: string }) {
                 Progressive payments
               </Typography>
               <Box sx={{ flex: 1 }} />
+              {!isManagement && (
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                  Payment schedule changes are made by management — tell them the client's scheme.
+                </Typography>
+              )}
+              {isManagement && (
               <Tooltip title="Contract sum changed (e.g. a VO was signed)? This re-derives each % milestone amount from the new total — paid amounts are kept">
                 <Button size="small" startIcon={<RefreshIcon />} onClick={() => api.recalcMilestones(id).then(load)} sx={{ textTransform: "none" }}>
                   Recalculate
                 </Button>
               </Tooltip>
+              )}
               <Tooltip title="Raise a Variation Order document (their VO sheet: additions + removals) — confirming it adds the net to the contract sum">
                 <Button size="small" startIcon={<AddIcon />} onClick={newVo} disabled={busy} sx={{ textTransform: "none" }}>
                   New VO
                 </Button>
               </Tooltip>
+              {isManagement && (
               <Tooltip title="Money returned to the client (overcharge/excess) — subtracts from Total Amount Collected">
                 <Button size="small" startIcon={<AddIcon />} onClick={() => api.addMilestone(id, { kind: "refund", label: "Refund excess" }).then(load)} sx={{ textTransform: "none" }}>
                   Add refund
                 </Button>
               </Tooltip>
+              )}
             </Stack>
             {q && t.initialContractSum <= 0 && (
               <Alert severity="warning" sx={{ mb: 1.5 }} action={<Button color="inherit" size="small" onClick={() => router.push(`/portal/sales/quotations/id/${q.id}`)}>Open quotation</Button>}>
@@ -834,16 +847,16 @@ export default function IdProjectPage({ id }: { id: string }) {
                       label={`S$ ${money(data.engagementFee)} engagement fee`}
                       color={data.depositMode === "engagement" ? "primary" : "default"}
                       variant={data.depositMode === "engagement" ? "filled" : "outlined"}
-                      onClick={() => api.setDepositMode(id, { mode: "engagement", engagementFee: data.engagementFee }).then(load).catch((e) => toast.error(e.message))}
+                      onClick={isManagement ? () => api.setDepositMode(id, { mode: "engagement", engagementFee: data.engagementFee }).then(load).catch((e) => toast.error(e.message)) : undefined}
                     />
                     <Chip
                       label="10% of contract sum"
                       color={data.depositMode === "percent" ? "primary" : "default"}
                       variant={data.depositMode === "percent" ? "filled" : "outlined"}
-                      onClick={() => api.setDepositMode(id, { mode: "percent", pct: 10 }).then(load).catch((e) => toast.error(e.message))}
+                      onClick={isManagement ? () => api.setDepositMode(id, { mode: "percent", pct: 10 }).then(load).catch((e) => toast.error(e.message)) : undefined}
                     />
                   </Stack>
-                  {data.depositMode === "engagement" && (
+                  {data.depositMode === "engagement" && isManagement && (
                     <TextField
                       size="small"
                       label="Engagement fee (S$)"
@@ -972,7 +985,7 @@ export default function IdProjectPage({ id }: { id: string }) {
                     return (
                       <TableRow key={m.id} hover sx={{ bgcolor: m.kind === "refund" ? "action.hover" : undefined }}>
                         <TableCell sx={{ py: 0.5, minWidth: 240 }}>
-                          {m.kind === "milestone" ? (
+                          {m.kind === "milestone" && isManagement ? (
                             <Tooltip title="Click to rename this milestone" enterDelay={600}>
                               <TextField
                                 size="small"
@@ -992,7 +1005,7 @@ export default function IdProjectPage({ id }: { id: string }) {
                         </TableCell>
                         <Cell right>{m.pct != null ? `${m.pct}%` : "—"}</Cell>
                         <TableCell sx={{ py: 0.5, textAlign: "right" }}>
-                          <MoneyCellField value={Number(e.amount ?? m.amount) || 0} disabled={!!m.invoice} onCommit={(n) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, amount: n } }))} />
+                          <MoneyCellField value={Number(e.amount ?? m.amount) || 0} disabled={!!m.invoice || !isManagement} onCommit={(n) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, amount: n } }))} />
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
                           {m.kind === "refund" ? (
@@ -1001,6 +1014,8 @@ export default function IdProjectPage({ id }: { id: string }) {
                             <Tooltip title="Open invoice">
                               <Chip size="small" variant="outlined" icon={<DescriptionIcon />} label={`${m.invoice.number || "Invoice"} · ${m.invoice.status}`} onClick={() => router.push(m.invoice!.path)} />
                             </Tooltip>
+                          ) : !isManagement ? (
+                            <Typography variant="caption" sx={{ color: "text.disabled" }}>—</Typography>
                           ) : (
                             <Button
                               size="small"
@@ -1025,13 +1040,13 @@ export default function IdProjectPage({ id }: { id: string }) {
                           )}
                         </TableCell>
                         <TableCell sx={{ py: 0.5, textAlign: "right" }}>
-                          <MoneyCellField value={Number(paid) || 0} onCommit={(n) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, paidAmount: n } }))} />
+                          <MoneyCellField value={Number(paid) || 0} disabled={!isManagement} onCommit={(n) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, paidAmount: n } }))} />
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
-                          <TextField size="small" type="date" value={(e.paidAt ?? m.paidAt ?? "").toString().slice(0, 10)} onChange={(ev) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, paidAt: ev.target.value || null } }))} inputProps={{ style: { padding: "4px 8px" } }} />
+                          <TextField size="small" type="date" disabled={!isManagement} value={(e.paidAt ?? m.paidAt ?? "").toString().slice(0, 10)} onChange={(ev) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, paidAt: ev.target.value || null } }))} inputProps={{ style: { padding: "4px 8px" } }} />
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
-                          <TextField select size="small" value={e.paymentMethod ?? m.paymentMethod ?? ""} onChange={(ev) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, paymentMethod: ev.target.value } }))} sx={{ minWidth: 130 }} inputProps={{ style: { padding: "4px 8px" } }}>
+                          <TextField select size="small" disabled={!isManagement} value={e.paymentMethod ?? m.paymentMethod ?? ""} onChange={(ev) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, paymentMethod: ev.target.value } }))} sx={{ minWidth: 130 }} inputProps={{ style: { padding: "4px 8px" } }}>
                             <MenuItem value="">—</MenuItem>
                             <MenuItem value="BANK TRANSFER">Bank transfer</MenuItem>
                             <MenuItem value="PAYNOW">PayNow</MenuItem>
@@ -1049,7 +1064,7 @@ export default function IdProjectPage({ id }: { id: string }) {
                           <Button size="small" variant="contained" disabled={busy || !dirty} onClick={() => saveMilestone(m)} sx={{ textTransform: "none", mr: 0.5, visibility: dirty ? "visible" : "hidden" }}>
                             Save
                           </Button>
-                          {m.kind !== "milestone" && (
+                          {m.kind !== "milestone" && isManagement && (
                             <IconButton size="small" onClick={() => api.removeMilestone(m.id).then(load)} sx={{ "&:hover": { color: "error.main" } }}>
                               <DeleteIcon fontSize="small" />
                             </IconButton>
