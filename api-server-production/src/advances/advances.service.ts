@@ -2,6 +2,9 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { PrismaService } from '../common/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { resolveTier } from '../common/role-tier';
+import { OrgRulesService } from '../org-rules/org-rules.service';
+
+const QUOTATION_TYPES = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'];
 
 /**
  * Designer advances (guru 2026-10-06): a designer requests money ahead of
@@ -14,6 +17,7 @@ export class AdvancesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly orgRules: OrgRulesService,
   ) {}
 
   async create(organizationId: string, userId: string, userName: string | null, dto: { amount: number; projectId?: string | null; reason?: string | null; signature?: string | null }) {
@@ -83,6 +87,64 @@ export class AdvancesService {
     }
     if (excludeUserId) ids.delete(excludeUserId);
     return [...ids];
+  }
+
+  /**
+   * Project economics for the APPROVE dialog (Mike 2026-11-07): revenue,
+   * estimated costing from the QUOTE's cost provisions, estimated profit and
+   * the commission balance left after this advance. Deciders only.
+   */
+  async projectContext(organizationId: string, callerUserId: string | undefined, id: string) {
+    const scope = await resolveTier(this.prisma, organizationId, callerUserId);
+    if (scope.tier !== 'master' && scope.tier !== 'senior') throw new ForbiddenException('Only management can view advance context');
+    const adv = await this.prisma.designerAdvance.findFirst({ where: { id, organizationId } });
+    if (!adv) throw new NotFoundException('Advance request not found');
+    if (!adv.projectId) return { hasProject: false };
+
+    const project = await this.prisma.project.findFirst({ where: { id: adv.projectId, organizationId }, select: { id: true, name: true, commissionPct: true } });
+    if (!project) return { hasProject: false };
+    const quote = await this.prisma.document.findFirst({
+      where: { projectId: project.id, organizationId, type: { in: QUOTATION_TYPES }, status: 'confirmed' },
+      orderBy: { createdAt: 'desc' },
+      select: { config: true },
+    });
+    const cfg: any = quote?.config || {};
+    const revenueQuote = Number(cfg?.documentInfo?.grandTotal) || 0;
+    const voMilestones = await this.prisma.projectMilestone.findMany({ where: { projectId: project.id, kind: 'vo' }, select: { amount: true } });
+    const revenue = revenueQuote + voMilestones.reduce((x, m) => x + (Number(m.amount) || 0), 0);
+
+    // Estimated costing = the quote's cost provisions (unit cost × qty per line,
+    // including the lines folded inside lump sums).
+    let estCost = 0;
+    const addItems = (items: any[]) => {
+      for (const it of items || []) {
+        if (Array.isArray(it.lumpItems) && it.lumpItems.length) addItems(it.lumpItems);
+        else estCost += (Number(it.cost) || 0) * (Number(it.qty) || 1);
+      }
+    };
+    for (const sec of cfg?.quote?.sections || []) for (const area of sec.areas || []) addItems(area.items);
+
+    const estProfit = revenue - estCost;
+    const commissionPct = project.commissionPct ?? (await this.orgRules.rulesOf(organizationId)).commissionPct;
+    const commission = Math.round(estProfit * commissionPct) / 100;
+    const prior = await this.prisma.designerAdvance.findMany({
+      where: { organizationId, projectId: project.id, requestedById: adv.requestedById, status: { in: ['approved', 'paid'] }, id: { not: adv.id } },
+      select: { amount: true },
+    });
+    const priorAdvanced = prior.reduce((x, a) => x + (Number(a.amount) || 0), 0);
+    return {
+      hasProject: true,
+      projectName: project.name,
+      revenue,
+      estCost,
+      estProfit,
+      estProfitPct: revenue > 0 ? Math.round((estProfit / revenue) * 1000) / 10 : null,
+      commissionPct,
+      commission,
+      priorAdvanced,
+      requested: Number(adv.amount) || 0,
+      balanceCommission: Math.round((commission - priorAdvanced - (Number(adv.amount) || 0)) * 100) / 100,
+    };
   }
 
   /** Tier-scoped list: designers their own, juniors their team's, senior/master all. */

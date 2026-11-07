@@ -306,6 +306,25 @@ function AdvancesCard({ self }: { self: boolean }) {
   // Approval dialog (signature required) + Director-only date editor.
   const [approveFor, setApproveFor] = useState<any>(null);
   const [approveNote, setApproveNote] = useState("");
+  // Project economics in the approve dialog (Mike 2026-11-07): revenue, quote
+  // cost provision, estimated profit, commission balance after this advance.
+  const [approveCtx, setApproveCtx] = useState<any>(null);
+  useEffect(() => {
+    if (!approveFor?.id) {
+      setApproveCtx(null);
+      return;
+    }
+    (async () => {
+      try {
+        const res = await fetch(`${apiBase}/advances/${approveFor.id}/context`, { headers: await headers() });
+        const j = await res.json();
+        setApproveCtx(res.ok ? (j?.data ?? j) : null);
+      } catch {
+        setApproveCtx(null);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [approveFor?.id]);
   const [dateEdit, setDateEdit] = useState<any>(null);
   const [dateForm, setDateForm] = useState({ requestedAt: "", decidedAt: "" });
   const requestSigRef = useRef<any>(null);
@@ -543,6 +562,17 @@ function AdvancesCard({ self }: { self: boolean }) {
             <Typography variant="body2" sx={{ color: "text.secondary" }}>
               {approveFor?.requestedByName || "Designer"} · {approveFor?.projectName || "no project"}{approveFor?.reason ? ` — ${approveFor.reason}` : ""}
             </Typography>
+            {approveCtx?.hasProject && (
+              <Box sx={{ p: 1.25, borderRadius: 1, bgcolor: "action.hover", fontVariantNumeric: "tabular-nums" }}>
+                <Stack direction="row" justifyContent="space-between"><Typography variant="caption" sx={{ color: "text.secondary" }}>Project revenue</Typography><Typography variant="caption" sx={{ fontWeight: 700 }}>{money(approveCtx.revenue)}</Typography></Stack>
+                <Stack direction="row" justifyContent="space-between"><Typography variant="caption" sx={{ color: "text.secondary" }}>Est. total costing (quote)</Typography><Typography variant="caption" sx={{ fontWeight: 700 }}>{money(approveCtx.estCost)}</Typography></Stack>
+                <Stack direction="row" justifyContent="space-between"><Typography variant="caption" sx={{ color: "text.secondary" }}>Est. profit</Typography><Typography variant="caption" sx={{ fontWeight: 700, color: approveCtx.estProfit < 0 ? "error.main" : "text.primary" }}>{money(approveCtx.estProfit)}{approveCtx.estProfitPct != null ? ` (${approveCtx.estProfitPct}%)` : ""}</Typography></Stack>
+                <Stack direction="row" justifyContent="space-between"><Typography variant="caption" sx={{ color: "text.secondary" }}>Commission ({approveCtx.commissionPct}%){approveCtx.priorAdvanced ? ` − ${money(approveCtx.priorAdvanced)} advanced` : ""} − this {money(approveCtx.requested)}</Typography><Typography variant="caption" sx={{ fontWeight: 800, color: approveCtx.balanceCommission < 0 ? "error.main" : "success.main" }}>{money(approveCtx.balanceCommission)} left</Typography></Stack>
+              </Box>
+            )}
+            {approveFor?.projectId && approveCtx && !approveCtx.hasProject && (
+              <Typography variant="caption" sx={{ color: "text.disabled" }}>No confirmed quotation on this project yet — no estimate available.</Typography>
+            )}
             <TextField label="Note (optional)" size="small" value={approveNote} onChange={(e) => setApproveNote(e.target.value)} fullWidth />
             <Box>
               <Typography variant="caption" sx={{ color: "text.secondary" }}>Sign to approve</Typography>

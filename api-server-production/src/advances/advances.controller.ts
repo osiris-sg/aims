@@ -43,6 +43,11 @@ export class AdvancesController {
     return this.service.create(orgId(req), req.user!.id!, actorName(req), dto);
   }
 
+  @Get(':id/context')
+  context(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    return this.service.projectContext(orgId(req), req.user?.id, id);
+  }
+
   @Patch(':id/decide')
   @Permissions('projects:update')
   decide(@Req() req: RequestWithOrganization, @Param('id') id: string, @Body() dto: { approve: boolean; note?: string | null }) {
