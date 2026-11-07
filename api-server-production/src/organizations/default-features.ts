@@ -210,4 +210,9 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // the rules seed NEW projects and quotations, never existing ones.
   // Default OFF; CIEL first.
   enableBusinessRules: false,
+  // Monthly Payables tally (Summer 2026-11-02): Accounting → Monthly Payables,
+  // the AIMS version of the office's "outgoing payments" sheet. Supplier
+  // invoices posted in the bills WhatsApp group are AI-read onto the month's
+  // tally; a payment date marks a row paid. Default OFF; CIEL first.
+  enablePayables: false,
 };

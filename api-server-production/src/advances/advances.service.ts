@@ -113,13 +113,18 @@ export class AdvancesService {
     const voMilestones = await this.prisma.projectMilestone.findMany({ where: { projectId: project.id, kind: 'vo' }, select: { amount: true } });
     const revenue = revenueQuote + voMilestones.reduce((x, m) => x + (Number(m.amount) || 0), 0);
 
-    // Estimated costing = the quote's cost provisions (unit cost × qty per line,
-    // including the lines folded inside lump sums).
+    // Estimated costing = the quote's cost provisions, counted EXACTLY as the
+    // quotation editor's own itemCost()/quoteTotals() do it
+    // (portal .../quotations/id/_lib/math.ts), so this dialog agrees with the
+    // margin the editor shows: `cost` is the cost of the WHOLE line (never per
+    // unit, so no qty multiplier) plus every include's own cost. Bundled
+    // `components` are not counted, for the same reason the editor doesn't —
+    // the parent lump-sum line carries the bundle's cost.
     let estCost = 0;
     const addItems = (items: any[]) => {
       for (const it of items || []) {
-        if (Array.isArray(it.lumpItems) && it.lumpItems.length) addItems(it.lumpItems);
-        else estCost += (Number(it.cost) || 0) * (Number(it.qty) || 1);
+        estCost += Number(it.cost) || 0;
+        for (const inc of it.includes || []) estCost += Number(inc.cost) || 0;
       }
     };
     for (const sec of cfg?.quote?.sections || []) for (const area of sec.areas || []) addItems(area.items);

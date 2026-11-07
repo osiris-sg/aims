@@ -419,7 +419,8 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
           documentId={doc.id}
           documentNumber={doc.name || null}
           clientName={doc.config?.client?.name || ""}
-          clientPhone={""}
+          // The homeowner's number is on the project's customer, not in the VO config.
+          clientPhone={summary.project.customer?.phone || summary.project.client?.contact || ""}
           grandTotal={net}
           onClose={async () => {
             setSignOpen(false);
