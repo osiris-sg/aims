@@ -19,6 +19,7 @@ import PrintIcon from "@mui/icons-material/PrintOutlined";
 import CheckCircleIcon from "@mui/icons-material/CheckCircleOutline";
 import { toast } from "react-toastify";
 import { money, useIdProjectApi, type Summary } from "./api";
+import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 
 // kind "area" = a general-area header row like the main quote's sections
 // (LIVING ROOM, KITCHEN…): no number, no amount, prints as a bold band.
@@ -196,6 +197,10 @@ function LineList({ title, lines, readOnly, onChange }: { title: string; lines: 
 
 export default function VoDialog({ docId, summary, onClose, onChanged }: { docId: string | null; summary: Summary; onClose: () => void; onChanged: () => void }) {
   const api = useIdProjectApi();
+  // Directors can revert a confirmed VO right here (Summer 2026-11-07: the
+  // button only lived on the VO table row and the view page).
+  const { userRoles } = useUserPermissions();
+  const isDirector = userRoles.length === 0 || userRoles.some((r: any) => !["Designer", "Marketing", "Junior Manager", "Senior Manager"].includes(r?.name));
   const [doc, setDoc] = useState<any | null>(null);
   const [additions, setAdditions] = useState<VoLine[]>([]);
   const [removals, setRemovals] = useState<VoLine[]>([]);
@@ -318,7 +323,41 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
         ) : (
           <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "minmax(0,1fr) 260px" }, gap: 2.5 }}>
             <Box sx={{ minWidth: 0 }}>
-              {readOnly && <Alert severity="info" sx={{ mb: 1.5 }}>Confirmed VOs are locked — raise another VO for further changes.</Alert>}
+              {readOnly && (
+                <Alert
+                  severity="info"
+                  sx={{ mb: 1.5 }}
+                  action={
+                    isDirector ? (
+                      <Button
+                        color="inherit"
+                        size="small"
+                        disabled={busy}
+                        onClick={async () => {
+                          if (!window.confirm(`Revert ${doc?.name || "this VO"} to draft? Its net amount comes off the contract sum and its payment line is removed.`)) return;
+                          setBusy(true);
+                          try {
+                            await api.request(`/projects/vo/${doc.id}/revert`, { method: "POST" });
+                            toast.success(`${doc?.name || "VO"} reverted to draft — you can edit it now`);
+                            const d = await api.getDocument(doc.id);
+                            setDoc(d);
+                            onChanged();
+                          } catch (err: any) {
+                            toast.error(err.message || "Could not revert the VO");
+                          } finally {
+                            setBusy(false);
+                          }
+                        }}
+                        sx={{ textTransform: "none" }}
+                      >
+                        Revert to draft
+                      </Button>
+                    ) : undefined
+                  }
+                >
+                  Confirmed VOs are locked — {isDirector ? "revert to draft to edit, or" : ""} raise another VO for further changes.
+                </Alert>
+              )}
               <LineList title="Additional Items" lines={additions} readOnly={readOnly} onChange={(n) => { setAdditions(n); setDirty(true); }} />
               <LineList title="Removal of Items" lines={removals} readOnly={readOnly} onChange={(n) => { setRemovals(n); setDirty(true); }} />
             </Box>
