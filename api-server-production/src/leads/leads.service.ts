@@ -667,11 +667,8 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
           const to = String(cfg?.notifyNumber || '').replace(/\D/g, '');
           const line = await this.agentLine(lead.organizationId);
           if (to && line) {
-            await this.sendNotifyTemplate(
-              line,
-              to,
-              `New lead — ${lead.name} (${String(lead.source || 'manual').toUpperCase()})${lead.phone ? ` · ${lead.phone}` : ''}${[lead.propertyType, lead.budget].filter(Boolean).length ? ` · ${[lead.propertyType, lead.budget].filter(Boolean).join(' · ')}` : ''}. Reply to get the assign list.`,
-            );
+            const summary = `${lead.name} (${String(lead.source || 'manual').toUpperCase()})${lead.phone ? ` · ${lead.phone}` : ''}${[lead.propertyType, lead.budget].filter(Boolean).length ? ` · ${[lead.propertyType, lead.budget].filter(Boolean).join(' · ')}` : ''}`;
+            await this.sendUtilityTemplate(line, to, 'lead_alert', [summary], `New lead — ${summary}. Reply to get the assign list.`);
           }
         } catch (e2) {
           this.logger.warn(`Notify-template fallback failed for ${lead?.id}: ${(e2 as Error).message}`);
@@ -700,7 +697,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
           template: {
             name,
             language: { code: 'en' },
-            components: [{ type: 'body', parameters: params.map((t) => ({ type: 'text', text: String(t).replace(/\n/g, ' · ').slice(0, 900) })) }],
+            ...(params.length ? { components: [{ type: 'body', parameters: params.map((t) => ({ type: 'text', text: String(t).replace(/\n/g, ' · ').slice(0, 900) })) }] } : {}),
           },
         },
         `[template:${name}] ${params.join(' | ')}`.slice(0, 1000),
@@ -753,7 +750,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         }
         let sent = 0;
         for (const to of targets) {
-          await this.sendNotifyTemplate(line, to, 'Good morning! Daily check-in from AIMS. Reply anything to keep this channel active for instant lead cards and schedule requests.')
+          await this.sendUtilityTemplate(line, to, 'channel_checkin', [], 'Good morning! Daily check-in from AIMS. Reply anything to keep this channel active for instant lead cards and schedule requests.')
             .then(() => sent++)
             .catch((e) => this.logger.warn(`keep-alive to ${to} failed: ${e.message}`));
         }

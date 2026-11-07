@@ -1231,7 +1231,7 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
     return null;
   }
 
-  private async mediaWaSend(line: { organizationId: string; phoneNumberId: string; accessToken: string }, to: string, text: string) {
+  private async mediaWaSend(line: { organizationId: string; phoneNumberId: string; accessToken: string }, to: string, text: string, tpl?: { params: string[] }) {
     const post = async (payload: Record<string, any>, logBody: string) => {
       const res = await fetch(`https://graph.facebook.com/v23.0/${line.phoneNumberId}/messages`, {
         method: 'POST',
@@ -1249,9 +1249,30 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
     try {
       await post({ type: 'text', text: { body: text } }, text);
     } catch (e) {
-      // Closed 24h window → deliver through the approved utility template
-      // instead (lands any time); the designer replying re-opens the window.
+      // Closed 24h window → deliver through a template instead (lands any
+      // time); the designer replying re-opens the window. The dedicated
+      // UTILITY template (site_media_request, 2026-11-07) dodges Meta's
+      // marketing frequency cap; the generic one remains the safety net
+      // while it is in review.
       if (!/re-?engagement|131047/i.test((e as Error).message || '')) throw e;
+      if (tpl?.params?.length) {
+        try {
+          await post(
+            {
+              type: 'template',
+              template: {
+                name: 'site_media_request',
+                language: { code: 'en' },
+                components: [{ type: 'body', parameters: tpl.params.map((t) => ({ type: 'text', text: String(t).replace(/\n/g, ' · ').slice(0, 900) })) }],
+              },
+            },
+            `[template:site_media_request] ${tpl.params.join(' | ')}`.slice(0, 1000),
+          );
+          return;
+        } catch (e2) {
+          this.logger.warn(`site_media_request template failed (${(e2 as Error).message}) — falling back to generic`);
+        }
+      }
       const templateName = process.env.WHATSAPP_NOTIFY_TEMPLATE || 'aims_notify';
       await post(
         {
@@ -1304,7 +1325,7 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
           'Before work begins, please send a BEFORE video and a photo of the site here.',
           'They will be saved to the project quest automatically.',
         ].join('\n');
-        await this.mediaWaSend(line, to, text);
+        await this.mediaWaSend(line, to, text, { params: [it.label, pj.name] });
         await this.prisma.questMediaRequest.create({
           data: { organizationId: pj.organizationId, projectId: pj.id, stepId: step?.id || null, scheduleItemId: it.id, waNumber: to, label: it.label },
         });
