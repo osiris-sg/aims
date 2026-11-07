@@ -8,12 +8,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SignatureCanvas from "react-signature-canvas";
 import { useRouter } from "next/navigation";
+import { toast } from "react-toastify";
 import { useAuth } from "@clerk/nextjs";
 import {
-  Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
+  Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
   FormControlLabel, Grid, IconButton, LinearProgress, MenuItem, Paper, Stack, Switch,
-  Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography,
-} from "@mui/material";
+  Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
@@ -87,11 +87,79 @@ const PROJECT_COLORS: Array<"primary" | "warning" | "success" | "info" | "second
 
 /** Master calendar: every scheduled activity across the visible projects,
  *  paged two weeks at a time, one colour per project, chip → the project. */
-function ScheduleOverview({ schedule, holidays, holidaysMy, self }: { schedule: Payload["schedule"]; holidays: Record<string, string>; holidaysMy: Record<string, string>; self: boolean }) {
+function ScheduleOverview({ schedule, holidays, holidaysMy, self, onChanged }: { schedule: Payload["schedule"]; holidays: Record<string, string>; holidaysMy: Record<string, string>; self: boolean; onChanged: () => void }) {
   const router = useRouter();
+  const { getToken } = useAuth();
   const todayIso = isoOf(new Date());
   const mondayOf = (iso: string) => addDays(iso, -((new Date(iso + "T00:00:00").getDay() + 6) % 7));
   const [weekStart, setWeekStart] = useState(() => mondayOf(isoOf(new Date())));
+  // Zoom: 2 / 4 / 8 weeks (guru 2026-11-07 — "up to 2 months"). Remembered per device.
+  const [weekCount, setWeekCount] = useState(2);
+  useEffect(() => {
+    try {
+      const v = Number(window.localStorage.getItem("aims-dash-schedule-weeks"));
+      if ([2, 4, 8].includes(v)) setWeekCount(v);
+    } catch {
+      /* private mode */
+    }
+  }, []);
+  const pickWeeks = (n: number) => {
+    setWeekCount(n);
+    try {
+      window.localStorage.setItem("aims-dash-schedule-weeks", String(n));
+    } catch {
+      /* ignore */
+    }
+  };
+  // Manual add from the dashboard (guru 2026-11-07): click an empty day →
+  // pick the project + activity, with a warning that this edits the REAL
+  // project schedule (the client link updates immediately).
+  const [addFor, setAddFor] = useState<string | null>(null);
+  const [addForm, setAddForm] = useState({ projectId: "", label: "", endDate: "" });
+  const [addProjects, setAddProjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [addBusy, setAddBusy] = useState(false);
+  const openAdd = async (iso: string) => {
+    setAddFor(iso);
+    setAddForm({ projectId: "", label: "", endDate: iso });
+    try {
+      const token = await getToken();
+      const h: Record<string, string> = { Authorization: `Bearer ${token}` };
+      const activeOrgId = typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null;
+      if (activeOrgId) h["X-Active-Org-Id"] = activeOrgId;
+      const res = await fetch(`${apiBase}/id-projects?limit=100`, { headers: h });
+      const j = await res.json();
+      const payload = j?.data ?? j;
+      const list = payload?.docs || payload?.rows || (Array.isArray(payload) ? payload : []);
+      setAddProjects(list.map((p: any) => ({ id: p.id, name: p.name })));
+    } catch {
+      setAddProjects([]);
+    }
+  };
+  const submitAdd = async () => {
+    if (!addFor || !addForm.projectId || !addForm.label.trim()) return;
+    setAddBusy(true);
+    try {
+      const token = await getToken();
+      const h: Record<string, string> = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+      const activeOrgId = typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null;
+      if (activeOrgId) h["X-Active-Org-Id"] = activeOrgId;
+      const res = await fetch(`${apiBase}/projects/${addForm.projectId}/schedule`, {
+        method: "POST",
+        headers: h,
+        body: JSON.stringify({ items: [{ label: addForm.label.trim(), kind: "work", startDate: addFor, endDate: addForm.endDate || addFor }] }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.message?.message || j?.message || "Could not add the activity");
+      }
+      setAddFor(null);
+      onChanged();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setAddBusy(false);
+    }
+  };
 
   const projects = useMemo(() => {
     const seen = new Map<string, string>();
@@ -100,7 +168,7 @@ function ScheduleOverview({ schedule, holidays, holidaysMy, self }: { schedule: 
   }, [schedule]);
   const colorOf = (projectId: string) => projects.find((p) => p.id === projectId)?.color || "primary";
 
-  const weeks = [0, 1].map((w) => [0, 1, 2, 3, 4, 5, 6].map((d) => addDays(weekStart, w * 7 + d)));
+  const weeks = Array.from({ length: weekCount }, (_, w) => [0, 1, 2, 3, 4, 5, 6].map((d) => addDays(weekStart, w * 7 + d)));
   const itemsOn = (iso: string) => schedule.filter((it) => it.startDate <= iso && it.endDate >= iso && it.kind !== "holiday");
   const windowHasItems = weeks.some((days) => days.some((iso) => itemsOn(iso).length > 0));
 
@@ -111,12 +179,17 @@ function ScheduleOverview({ schedule, holidays, holidaysMy, self }: { schedule: 
           {self ? "My schedule" : "Schedule"}
         </Typography>
         <Typography variant="caption" sx={{ color: "text.secondary" }}>
-          {fmtDay(weeks[0][0])} – {fmtDay(weeks[1][6])} · all {self ? "your" : ""} projects
+          {fmtDay(weeks[0][0])} – {fmtDay(weeks[weeks.length - 1][6])} · all {self ? "your" : ""} projects
         </Typography>
         <Box sx={{ flex: 1 }} />
         {projects.map((p) => (
           <Chip key={p.id} size="small" color={p.color} variant="outlined" label={p.name} onClick={() => router.push(scheduleRoute(p.id))} sx={{ height: 22, maxWidth: 200 }} />
         ))}
+        <ToggleButtonGroup size="small" exclusive value={weekCount} onChange={(_e: unknown, v: number | null) => v && pickWeeks(v)} sx={{ "& .MuiToggleButton-root": { px: 0.9, py: 0.1, textTransform: "none", fontSize: 11 } }}>
+          <ToggleButton value={2}>2w</ToggleButton>
+          <ToggleButton value={4}>4w</ToggleButton>
+          <ToggleButton value={8}>8w</ToggleButton>
+        </ToggleButtonGroup>
         <IconButton size="small" onClick={() => setWeekStart((w) => addDays(w, -7))} aria-label="Earlier week">
           <ChevronLeftIcon fontSize="small" />
         </IconButton>
@@ -147,7 +220,11 @@ function ScheduleOverview({ schedule, holidays, holidaysMy, self }: { schedule: 
                   const holiday = holidays[iso];
                   const holidayMy = holidaysMy[iso];
                   return (
-                    <Box key={iso} sx={{ borderLeft: di ? 1 : 0, borderColor: "divider", minHeight: 76, bgcolor: sun ? "action.hover" : "transparent" }}>
+                    <Box
+                      key={iso}
+                      onClick={() => openAdd(iso)}
+                      sx={{ borderLeft: di ? 1 : 0, borderColor: "divider", minHeight: 76, bgcolor: sun ? "action.hover" : "transparent", cursor: "pointer", "&:hover": { bgcolor: "action.selected" } }}
+                    >
                       <Box sx={{ px: 0.75, py: 0.25, borderBottom: 1, borderColor: "divider", display: "flex", justifyContent: "space-between", bgcolor: isToday ? "primary.main" : "action.hover", color: isToday ? "primary.contrastText" : "text.primary" }}>
                         <Typography variant="caption" sx={{ fontWeight: 700, fontSize: 10.5 }}>
                           {DOW[di]}
@@ -166,7 +243,10 @@ function ScheduleOverview({ schedule, holidays, holidaysMy, self }: { schedule: 
                                 color={colorOf(it.projectId)}
                                 variant={it.kind === "note" ? "outlined" : "filled"}
                                 label={it.label}
-                                onClick={() => router.push(scheduleRoute(it.projectId))}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  router.push(scheduleRoute(it.projectId));
+                                }}
                                 sx={{ height: "auto", justifyContent: "flex-start", "& .MuiChip-label": { fontSize: 10, whiteSpace: "normal", px: 0.6, py: 0.2, lineHeight: 1.2 } }}
                               />
                             </Tooltip>
@@ -180,6 +260,30 @@ function ScheduleOverview({ schedule, holidays, holidaysMy, self }: { schedule: 
           </Box>
         </Box>
       )}
+
+      <Dialog open={!!addFor} onClose={() => setAddFor(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Add activity — {addFor ? fmtDay(addFor) : ""}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
+            <Alert severity="warning" sx={{ py: 0.5 }}>
+              This adds to the project's real schedule — the client's schedule link and printed sheet update immediately.
+            </Alert>
+            <TextField label="Project" size="small" select value={addForm.projectId} onChange={(e) => setAddForm({ ...addForm, projectId: e.target.value })} fullWidth autoFocus>
+              {addProjects.map((p) => (
+                <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
+              ))}
+            </TextField>
+            <TextField label="Activity" size="small" placeholder="e.g. Tiling Works" value={addForm.label} onChange={(e) => setAddForm({ ...addForm, label: e.target.value })} fullWidth />
+            <TextField label="Until (optional)" size="small" type="date" InputLabelProps={{ shrink: true }} value={addForm.endDate} onChange={(e) => setAddForm({ ...addForm, endDate: e.target.value })} inputProps={{ min: addFor || undefined }} fullWidth />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddFor(null)} sx={{ textTransform: "none" }}>Cancel</Button>
+          <Button variant="contained" disabled={addBusy || !addForm.projectId || !addForm.label.trim()} onClick={submitAdd} sx={{ textTransform: "none" }}>
+            {addBusy ? "Adding…" : "Add to schedule"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Paper>
   );
 }
@@ -929,7 +1033,7 @@ export default function IdDashboard() {
       )}
 
       {/* Master calendar across the visible projects */}
-      <ScheduleOverview schedule={data.schedule || []} holidays={data.holidays || {}} holidaysMy={data.holidaysMy || {}} self={self} />
+      <ScheduleOverview schedule={data.schedule || []} holidays={data.holidays || {}} holidaysMy={data.holidaysMy || {}} self={self} onChanged={load} />
       {isAppointmentBookingEnabled && <AppointmentsCard self={self} />}
       {isDesignerAdvancesEnabled && <AdvancesCard self={self} />}
 

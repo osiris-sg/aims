@@ -1504,7 +1504,9 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
     // Master calendar: every scheduled activity across the visible projects,
     // a week back and six weeks forward (the dashboard pages by week).
     const winFrom = new Date(Date.now() - 7 * 86400000);
-    const winTo = new Date(Date.now() + 42 * 86400000);
+    // 10 weeks forward so the dashboard's 8-week view (guru 2026-11-07) plus
+    // a page of headroom stays fully populated.
+    const winTo = new Date(Date.now() + 70 * 86400000);
     const scheduleRows = projects.length
       ? await this.prisma.projectScheduleItem.findMany({
           where: {
