@@ -1003,7 +1003,27 @@ export default function IdProjectPage({ id }: { id: string }) {
                           )}
                           {m.kind !== "milestone" && <Chip size="small" label={m.kind === "vo" ? "Variation order" : "Refund to client"} sx={{ height: 18, "& .MuiChip-label": { fontSize: 10 } }} />}
                         </TableCell>
-                        <Cell right>{m.pct != null ? `${m.pct}%` : "—"}</Cell>
+                        <TableCell sx={{ py: 0.5, textAlign: "right" }}>
+                          {/* % editable for management (Summer 2026-11-07): changing it
+                              re-derives the amount from the contract total on save. */}
+                          {m.kind === "milestone" && isManagement && !m.invoice ? (
+                            <TextField
+                              size="small"
+                              variant="standard"
+                              value={e.pct ?? m.pct ?? ""}
+                              onChange={(ev) => {
+                                const v = ev.target.value;
+                                if (!/^[0-9]*\.?[0-9]*$/.test(v)) return;
+                                const pct = v === "" ? null : Number(v);
+                                setEditingMs((s) => ({ ...s, [m.id]: { ...e, pct, ...(pct != null ? { amount: Math.round(t.contractTotal * pct) / 100 } : {}) } }));
+                              }}
+                              InputProps={{ disableUnderline: true, endAdornment: <span style={{ fontSize: 12 }}>%</span>, sx: { "& input": { textAlign: "right", width: 34, fontSize: 13.5 }, "&:hover": { borderBottom: "1px dashed", borderColor: "text.disabled" } } }}
+                              inputProps={{ inputMode: "decimal" }}
+                            />
+                          ) : (
+                            <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>{m.pct != null ? `${m.pct}%` : "—"}</Typography>
+                          )}
+                        </TableCell>
                         <TableCell sx={{ py: 0.5, textAlign: "right" }}>
                           <MoneyCellField value={Number(e.amount ?? m.amount) || 0} disabled={!!m.invoice || !isManagement} onCommit={(n) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, amount: n } }))} />
                         </TableCell>
