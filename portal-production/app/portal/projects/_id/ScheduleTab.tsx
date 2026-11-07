@@ -39,6 +39,8 @@ import {
   Typography,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
+import FullscreenIcon from "@mui/icons-material/Fullscreen";
+import FullscreenExitIcon from "@mui/icons-material/FullscreenExit";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import PrintIcon from "@mui/icons-material/PrintOutlined";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonthOutlined";
@@ -180,6 +182,16 @@ export default function ScheduleTab({ projectId }: { projectId: string }) {
   const [data, setData] = useState<Schedule | null>(null);
   const [view, setView] = useState<"calendar" | "list">("calendar");
   const [addOpen, setAddOpen] = useState(false);
+  // Fullscreen mode for the calendar (guru 2026-11-07).
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (!expanded) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setExpanded(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expanded]);
   const [printOpen, setPrintOpen] = useState(false);
   const [printHtml, setPrintHtml] = useState<string | null>(null);
   const [shiftOpen, setShiftOpen] = useState(false);
@@ -228,7 +240,15 @@ export default function ScheduleTab({ projectId }: { projectId: string }) {
     );
 
   return (
-    <Box sx={{ width: "100%", minWidth: 0 }}>
+    <Box
+      sx={
+        expanded
+          ? // Fullscreen (guru 2026-11-07 video): the calendar fills the whole
+            // screen so long schedules read in one view. Esc or ⤢ closes it.
+            { position: "fixed", inset: 0, zIndex: (th: any) => th.zIndex.modal + 1, bgcolor: "background.default", overflow: "auto", p: { xs: 2, md: 3 }, width: "auto", minWidth: 0 }
+          : { width: "100%", minWidth: 0 }
+      }
+    >
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5, flexWrap: "wrap", rowGap: 1 }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
           Project schedule
@@ -278,6 +298,11 @@ export default function ScheduleTab({ projectId }: { projectId: string }) {
         <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={() => setAddOpen(true)} sx={{ textTransform: "none" }}>
           Add activities
         </Button>
+        <Tooltip title={expanded ? "Exit full screen (Esc)" : "Full screen — see the whole schedule at once"}>
+          <IconButton size="small" onClick={() => setExpanded((v) => !v)} data-tour="schedule-fullscreen">
+            {expanded ? <FullscreenExitIcon fontSize="small" /> : <FullscreenIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
       </Stack>
 
       <AssistBar projectId={projectId} onApplied={load} />
