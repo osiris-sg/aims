@@ -57,6 +57,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableNotifications: true,
   // Settings → Business rules page (payment ladder, fees, % defaults) — Directors only.
   enableBusinessRules: false,
+  // Accounting → Monthly Payables: the outgoing-payments tally fed by the bills
+  // WhatsApp group (Summer 2026-11-02).
+  enablePayables: false,
   enableDocumentAI: true,
   enableCustomFields: true,
   enableServiceItems: true,
@@ -308,6 +311,7 @@ export function useOrganizationFeatures() {
     isDesignerAdvancesEnabled: features.enableDesignerAdvances ?? false,
     isNotificationsEnabled: features.enableNotifications ?? true,
     isBusinessRulesEnabled: features.enableBusinessRules ?? false,
+    isPayablesEnabled: features.enablePayables ?? false,
     isAppointmentBookingEnabled: features.enableAppointmentBooking ?? false,
     isAdsInsightsEnabled: features.enableAdsInsights ?? false,
     isPostingQueueEnabled: features.enablePostingQueue ?? false,

@@ -1858,3 +1858,42 @@ model AdInsight {
   @@index([organizationId, date])
   @@index([organizationId, campaignId])
 }
+
+/// Monthly supplier payables (Summer 2026-11-02: "a sheet where i can send in
+/// the invoices for monthly payments to the bot and it tallies all the
+/// invoices that needs to be paid / has been paid"). Mirrors CIEL's "Bi Weekly
+/// Outgoing Payments" Google sheet: invoice · contractor · site address ·
+/// invoice amount · retention % · payment amount · payment date (set = PAID) ·
+/// remarks · submitted/approved by. Rows arrive from the bills WhatsApp group
+/// via the group bridge (/whatsapp/group-ingest) or are added by hand.
+model PayableInvoice {
+  id             String    @id @default(uuid())
+  organizationId String
+  /// Payment cycle bucket, YYYY-MM (the sheet's monthly tab).
+  month          String
+  status         String    @default("to_pay") // to_pay | paid
+  invoiceNo      String?
+  supplierName   String?
+  siteAddress    String?
+  invoiceDate    DateTime?
+  invoiceAmount  Float     @default(0)
+  /// Retention/rebate % deducted at payment (CIEL convention: usually 10).
+  percentage     Float?
+  paymentAmount  Float     @default(0)
+  paymentDate    DateTime?
+  remarks        String?
+  submittedBy    String?
+  approvedBy     String?
+  attachmentUrl  String?
+  attachmentKey  String?
+  filename       String?
+  source         String    @default("whatsapp-group") // whatsapp-group | manual
+  groupId        String?
+  postedBy       String? // group sender's number/name
+  projectId      String?   @db.Uuid
+  projectName    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([organizationId, month, status])
+}

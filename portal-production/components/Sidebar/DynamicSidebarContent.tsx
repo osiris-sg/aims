@@ -93,7 +93,7 @@ export default function DynamicSidebarContent() {
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
-  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isBusinessRulesEnabled } = useOrganizationFeatures();
+  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isBusinessRulesEnabled, isPayablesEnabled } = useOrganizationFeatures();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
   const navLang = useUiLang().lang;
@@ -262,6 +262,14 @@ export default function DynamicSidebarContent() {
         !filtered.some((s: any) => (typeof s === 'string' ? s : s?.key) === 'dates')
       ) {
         filtered.push({ key: 'dates', label: 'Maintenance Dates' });
+      }
+      // Accounting -> Monthly Payables rides on the enablePayables flag (Summer 2026-11-02).
+      if (
+        m.moduleCode === 'ACCOUNTING' &&
+        isPayablesEnabled &&
+        !filtered.some((s: any) => (typeof s === 'string' ? s : s?.key) === 'monthly-payables')
+      ) {
+        filtered.push({ key: 'monthly-payables', label: 'Monthly Payables' });
       }
       return { ...m, config: { ...(m.config as any), subMenus: filtered } };
     })

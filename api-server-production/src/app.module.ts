@@ -28,6 +28,7 @@ import { TeamsModule } from './teams/teams.module';
 import { MarketingModule } from './marketing/marketing.module';
 import { SearchModule } from './search/search.module';
 import { AdvancesModule } from './advances/advances.module';
+import { PayablesModule } from './payables/payables.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { OrgRulesModule } from './org-rules/org-rules.module';
 import { LeadsModule } from './leads/leads.module';
@@ -177,6 +178,7 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
     MarketingModule,
     SearchModule,
     AdvancesModule,
+    PayablesModule,
     AppointmentsModule,
     OrgRulesModule,
     LeadsModule,

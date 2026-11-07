@@ -99,7 +99,7 @@ export function useNavModules() {
   const { modules, isModuleEnabled } = useConfiguration();
   const { isModuleAllowed, userRoles, hasPermission } = useUserPermissions();
   // Same rule as DynamicSidebarContent's Organization Settings group.
-  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isBusinessRulesEnabled } = useOrganizationFeatures();
+  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isBusinessRulesEnabled, isPayablesEnabled } = useOrganizationFeatures();
   const settingsMenu = SETTINGS_MENU.filter(
     (s) =>
       (s.path !== "/portal/settings/accounting-setup" || showAccountingSetup(isModuleEnabled)) &&
@@ -153,6 +153,14 @@ export function useNavModules() {
         !filtered.some((s: any) => (typeof s === "string" ? s : s?.key) === "dates")
       ) {
         filtered.push({ key: "dates", label: "Maintenance Dates" });
+      }
+      // Accounting -> Monthly Payables rides on the enablePayables flag (Summer 2026-11-02).
+      if (
+        m.moduleCode === "ACCOUNTING" &&
+        isPayablesEnabled &&
+        !filtered.some((s: any) => (typeof s === "string" ? s : s?.key) === "monthly-payables")
+      ) {
+        filtered.push({ key: "monthly-payables", label: "Monthly Payables" });
       }
       return { ...m, config: { ...(m.config as any), subMenus: filtered } };
     });

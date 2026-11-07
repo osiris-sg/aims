@@ -25,6 +25,7 @@ import { Public } from '../decorators/public.decorator';
 import { OnboardDto, SendTemplateDto, SendTextDto } from './dto/whatsapp.dto';
 import { WhatsAppAgentService } from './whatsapp-agent.service';
 import { WhatsAppService } from './whatsapp.service';
+import { PayablesService } from '../payables/payables.service';
 
 interface RequestWithOrganization extends Request {
   userOrganization?: { id: string; name: string };
@@ -49,6 +50,7 @@ export class WhatsAppController {
     private readonly service: WhatsAppService,
     private readonly agent: WhatsAppAgentService,
     private readonly configService: ConfigService,
+    private readonly payables: PayablesService,
   ) {}
 
   @Get('status')
@@ -247,6 +249,28 @@ export class WhatsAppController {
     const expected = this.configService.get<string>('WHATSAPP.GROUP_BRIDGE_TOKEN');
     const got = (req.headers['x-group-bridge-token'] as string) || '';
     if (!expected || got !== expected) throw new UnauthorizedException('Invalid group bridge token');
+  }
+
+  @Public()
+  @Post('group-ingest')
+  @ApiOperation({
+    summary:
+      'Group bridge: a message from a bills group (X-Group-Bridge-Token gated). Attachments are AI-read onto the monthly payables tally; a text containing "paid <invoice no>" marks matching open rows paid.',
+  })
+  async groupIngest(
+    @Req() req: RequestWithOrganization,
+    @Body()
+    body: {
+      organizationId: string;
+      groupId?: string;
+      from?: string;
+      body?: string;
+      media?: Array<{ dataUri: string; mimetype?: string; filename?: string }>;
+    },
+  ) {
+    this.assertBridgeToken(req);
+    if (!body?.organizationId) throw new BadRequestException('organizationId is required');
+    return this.payables.ingestGroupMessage(body.organizationId, body);
   }
 
   @Public()

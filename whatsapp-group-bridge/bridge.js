@@ -107,6 +107,61 @@ function parseMap(raw) {
 const GROUP_LABELS = parseMap(process.env.GROUP_LABELS);
 const GROUP_LINKS = parseMap(process.env.GROUP_LINKS);
 
+// INGEST GROUPS (Summer 2026-11-02, bills group → payables tally): groups whose
+// EVERY message is forwarded to /whatsapp/group-ingest — attachments are AI-read
+// onto the org's Monthly Payables sheet in AIMS, "paid <invoice no>" texts mark
+// rows paid. The PA never replies in these groups. Format:
+//   INGEST_GROUPS=<groupId>=<orgId>,<groupId2>=<orgId2>
+// A bare <groupId> (no "=") ingests into the bridge's own ORG_ID.
+const INGEST_GROUPS = (() => {
+  const out = {};
+  for (const entry of String(process.env.INGEST_GROUPS || '').split(',')) {
+    const t = entry.trim();
+    if (!t) continue;
+    const i = t.indexOf('=');
+    if (i > 0) out[t.slice(0, i).trim()] = t.slice(i + 1).trim();
+    else out[t] = ORG_ID;
+  }
+  return out;
+})();
+
+// Forward one bills-group message (text + attachments) to AIMS. Best-effort:
+// a failed forward is logged and never crashes the bridge.
+async function ingestGroupMessage(msg, chatId, orgId) {
+  const media = [];
+  if (msg.hasMedia) {
+    try {
+      const m = await msg.downloadMedia();
+      if (m?.data) {
+        media.push({
+          dataUri: `data:${m.mimetype || 'image/jpeg'};base64,${m.data}`,
+          mimetype: m.mimetype || 'image/jpeg',
+          filename: m.filename || undefined,
+        });
+      }
+    } catch (e) {
+      console.log(`   ⚠ ingest: media download failed: ${e.message}`);
+    }
+  }
+  const body = String(msg.body || '').trim();
+  if (!media.length && !body) return; // nothing to forward (e.g. a sticker that failed to download)
+  try {
+    const r = await callBridgeApi('/whatsapp/group-ingest', {
+      body: { organizationId: orgId, groupId: chatId, from: (msg.author || msg.from || '').split('@')[0], body, media },
+    });
+    const made = Array.isArray(r?.created) ? r.created.filter((c) => c && c.ok !== false) : [];
+    if (made.length) console.log(`   💰 payables: filed ${made.map((c) => `${c.supplierName || 'supplier?'} ${c.invoiceNo || ''} $${Number(c.invoiceAmount || 0).toFixed(2)}`).join(' · ')}`);
+    else if (r?.markedPaid?.length) console.log(`   💰 payables: marked paid ${r.markedPaid.join(', ')}`);
+    else console.log('   💰 payables: forwarded (nothing filed)');
+  } catch (e) {
+    console.log(`   ⚠ ingest forward failed: ${e.message}`);
+  }
+}
+
+// Groups the account can see but nothing handles — logged once each so the
+// operator can copy the bills group's id into INGEST_GROUPS.
+const seenUnhandledGroups = new Set();
+
 // Fixed PA intro. {name} is filled with the client's name, resolved from the
 // group (the participant who is neither the PA nor whoever asked for the intro).
 const INTRO_TEMPLATE = `Hi {name}! This is San, Denzel's PA. It's a pleasure to meet you! 😊
@@ -901,7 +956,19 @@ client.on('message_create', async (msg) => {
       await handlePaChat(msg, chatId, null);
       return;
     }
-    if (ALLOWED_GROUPS.length && !ALLOWED_GROUPS.includes(chatId)) return; // only allowlisted groups
+    // Bills-group intake first: every message (anyone's, incl. our own linked
+    // phone's) goes to the payables tally; the PA never replies here.
+    if (INGEST_GROUPS[chatId]) {
+      await ingestGroupMessage(msg, chatId, INGEST_GROUPS[chatId]);
+      return;
+    }
+    if (ALLOWED_GROUPS.length && !ALLOWED_GROUPS.includes(chatId)) {
+      if (!seenUnhandledGroups.has(chatId)) {
+        seenUnhandledGroups.add(chatId);
+        console.log(`👥 unhandled group ${chatId} — add to ALLOWED_GROUPS (PA) or INGEST_GROUPS (payables) to use it`);
+      }
+      return; // only allowlisted groups
+    }
     const from = (msg.author || msg.from || '').split('@')[0];
     const senderDigits = from.replace(/\D/g, '');
     // Staff = the PA's own phone, or any configured STAFF_NUMBERS (Denzel).

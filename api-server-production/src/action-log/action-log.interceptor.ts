@@ -37,6 +37,8 @@ const SKIP_PATHS = [
   '/operator/web/',
   // Shipments file thumbnails: one signed-URL GET per thumbnail on screen (only route with /thumb).
   '/thumb',
+  // Bills-group intake POSTs: PayablesService writes its own meaningful system row per batch.
+  '/whatsapp/group-ingest',
 ];
 
 // Background GETs fired on page load / tab focus, not user intent.
@@ -100,6 +102,9 @@ const VERB_ACTIONS: Record<string, string> = {
   'active-org': 'SWITCH_ORG', 'add-by-email': 'ADD_MEMBER', 'add-member': 'ADD_MEMBER', 'first-password': 'SET_PASSWORD', 'delete-login': 'DELETE_LOGIN',
   // Round AR: the Answer flow's draft of a general issue read from the emails (nothing saved).
   'issue-draft': 'EXTRACT',
+  // Monthly payables (Summer 2026-11-02): a row marked paid / back to to-pay; the bills-group
+  // bridge intake logs its own system row inside PayablesService.
+  pay: 'PAY', unpay: 'UNPAY',
   // Deliveries: OsirisAdmin permanent delete of a cancelled run that committed nothing (2026-10-30).
   purge: 'PURGE',
   // WCT finish modes (2026-11-01): the admin verifies a stamped-DO / paper finish (reject is above);
