@@ -157,6 +157,21 @@ export function renderIdVoBody(data: any, organization: any): string {
     </table>
   </div>`;
 
+  // E-signed VOs (client sign link) print the drawn signature in the client
+  // block, same as the quotation's Letter of Intent.
+  const sig: any = data?.clientSignature || null;
+  const clientBlk = sig?.image
+    ? `
+      <div class="blk">
+        <img src="${escapeHtml(sig.image)}" alt="signature" style="max-height:54px;max-width:220px;display:block;margin-top:-10px;" />
+        <div class="line" style="margin-top:4px;">Agreed &amp; accepted by client</div>
+        <b>${escapeHtml(sig.name || client.name || '')}</b><br/>Date: ${sig.signedAt ? formatDate(sig.signedAt) : ''}
+      </div>`
+    : `
+      <div class="blk">
+        <div class="line">Agreed &amp; accepted by client</div>
+        ${escapeHtml(client.name || '')}<br/>Date: ______________________
+      </div>`;
   const ack = `
   <div class="ack">
     <h3>Acknowledgment</h3>
@@ -166,10 +181,7 @@ export function renderIdVoBody(data: any, organization: any): string {
         <b>${escapeHtml(data?.designer || '')}</b><br/>
         ${escapeHtml(org.name || '')}
       </div>
-      <div class="blk">
-        <div class="line">Agreed &amp; accepted by client</div>
-        ${escapeHtml(client.name || '')}<br/>Date: ______________________
-      </div>
+      ${clientBlk}
     </div>
   </div>`;
 

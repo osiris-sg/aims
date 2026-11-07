@@ -17,9 +17,11 @@ import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import PrintIcon from "@mui/icons-material/PrintOutlined";
 import CheckCircleIcon from "@mui/icons-material/CheckCircleOutline";
+import DrawIcon from "@mui/icons-material/DrawOutlined";
 import { toast } from "react-toastify";
 import { money, useIdProjectApi, type Summary } from "./api";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
+import SignLinkDialog from "@/app/portal/sales/quotations/id/_components/SignLinkDialog";
 
 // kind "area" = a general-area header row like the main quote's sections
 // (LIVING ROOM, KITCHEN…): no number, no amount, prints as a bold band.
@@ -206,6 +208,9 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
   const [removals, setRemovals] = useState<VoLine[]>([]);
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // "Send homeowner the link to sign" (Mike 2026-11-07): the client signs the
+  // VO on the same e-sign page as the quotation; signing confirms it.
+  const [signOpen, setSignOpen] = useState(false);
 
   useEffect(() => {
     if (!docId) return;
@@ -275,6 +280,18 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
     } finally {
       setBusy(false);
     }
+  };
+
+  const sendForSignature = async () => {
+    if (!doc) return;
+    if (!additions.some((l) => l.kind !== "area") && !removals.some((l) => l.kind !== "area")) {
+      toast.warn("Add at least one line before sending for signature");
+      return;
+    }
+    // The link renders the latest SAVED version — save first so the homeowner
+    // sees what is on screen.
+    if (dirty && !(await save())) return;
+    setSignOpen(true);
   };
 
   const print = async () => {
@@ -386,12 +403,38 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
             <Button onClick={() => save().then((ok) => ok && toast.success("Saved"))} disabled={busy || !dirty} sx={{ textTransform: "none" }}>
               Save draft
             </Button>
+            <Button variant="outlined" startIcon={<DrawIcon />} onClick={sendForSignature} disabled={busy} sx={{ textTransform: "none" }}>
+              Send for signature
+            </Button>
             <Button variant="contained" startIcon={<CheckCircleIcon />} onClick={confirm} disabled={busy} sx={{ textTransform: "none" }}>
               Confirm VO
             </Button>
           </>
         )}
       </DialogActions>
+      {doc && (
+        <SignLinkDialog
+          open={signOpen}
+          kind="vo"
+          documentId={doc.id}
+          documentNumber={doc.name || null}
+          clientName={doc.config?.client?.name || ""}
+          clientPhone={""}
+          grandTotal={net}
+          onClose={async () => {
+            setSignOpen(false);
+            // The homeowner may have signed while the link dialog was open —
+            // signing confirms the VO, so pick up the new status.
+            try {
+              const d = await api.getDocument(doc.id);
+              setDoc(d);
+              if (d?.status === "confirmed") onChanged();
+            } catch {
+              /* keep what we have */
+            }
+          }}
+        />
+      )}
     </Dialog>
   );
 }

@@ -28,7 +28,7 @@ export class PublicSignController {
   @UseGuards(ClerkAuthGuard)
   @Permissions('documents:update')
   @Post('documents/:id/sign-link')
-  @ApiOperation({ summary: 'Mint (or reuse) the client e-sign link for a quotation' })
+  @ApiOperation({ summary: 'Mint (or reuse) the client e-sign link for a quotation or variation order' })
   create(@Param('id') id: string, @Req() req: RequestWithOrganization) {
     return this.service.createForDocument(id, orgId(req));
   }
@@ -97,7 +97,7 @@ export class PublicSignController {
 
   @Public()
   @Get('public/sign/:token')
-  @ApiOperation({ summary: 'Public: quotation to sign (by token)' })
+  @ApiOperation({ summary: 'Public: document to sign (quotation or variation order, by token)' })
   get(@Param('token') token: string, @Query('lang') lang?: string) {
     return this.service.getByToken(token, lang);
   }

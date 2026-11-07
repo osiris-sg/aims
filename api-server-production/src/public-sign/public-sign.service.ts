@@ -11,6 +11,7 @@ import { WhatsAppAdapter } from '../operator/adapters/whatsapp.adapter';
 import { TemplateStatusService } from '../operator/template-status.service';
 
 const QUOTATION_TYPES = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'];
+const VO_TYPE = 'VARIATION_ORDER'; // VOs sign by the same link flow (Mike 2026-11-07)
 const VALIDITY_DAYS = 14; // "This quotation and agreement is valid for 14 days"
 const MAX_SIGNATURE_BYTES = 400_000; // PNG data URL of a trimmed signature is ~10–40 KB
 
@@ -111,6 +112,18 @@ export class PublicSignService {
     if (!lines || grand <= 0) throw new BadRequestException('Add priced lines to the quotation before sending it for signature');
   }
 
+  /** VO line count + net (additions − removals, complimentary and area rows at 0). */
+  private voStats(config: any): { lines: number; net: number } {
+    const vo: any = config?.vo || {};
+    const real = (list: any[]) => (Array.isArray(list) ? list : []).filter((l) => l && l.kind !== 'area');
+    const sumOf = (list: any[]) => real(list).reduce((s, l) => s + (l.complimentary ? 0 : Number(l.amount) || 0), 0);
+    return { lines: real(vo.additions).length + real(vo.removals).length, net: sumOf(vo.additions) - sumOf(vo.removals) };
+  }
+
+  private assertVoHasLines(config: any) {
+    if (!this.voStats(config).lines) throw new BadRequestException('Add at least one line to the variation order before sending it for signature');
+  }
+
   /** Mint (or reuse the active) sign link for a quotation. */
   async createForDocument(documentId: string, organizationId: string) {
     const doc = await this.prisma.document.findFirst({
@@ -118,9 +131,16 @@ export class PublicSignService {
       select: { id: true, type: true, status: true, config: true },
     });
     if (!doc) throw new NotFoundException('Document not found');
-    if (!QUOTATION_TYPES.includes(String(doc.type).toUpperCase())) throw new BadRequestException('Only quotations can be sent for signature');
-    if (doc.status === 'confirmed') throw new BadRequestException('This quotation is already confirmed');
-    this.assertHasPricedLines(doc.config);
+    const type = String(doc.type).toUpperCase();
+    if (type === VO_TYPE) {
+      if (doc.status === 'confirmed') throw new BadRequestException('This variation order is already confirmed');
+      this.assertVoHasLines(doc.config);
+    } else if (!QUOTATION_TYPES.includes(type)) {
+      throw new BadRequestException('Only quotations and variation orders can be sent for signature');
+    } else {
+      if (doc.status === 'confirmed') throw new BadRequestException('This quotation is already confirmed');
+      this.assertHasPricedLines(doc.config);
+    }
 
     const now = new Date();
     let link = await this.prisma.documentSignLink.findFirst({
@@ -155,17 +175,23 @@ export class PublicSignService {
     actor?: { id?: string; name?: string; email?: string },
   ): Promise<{ sent: boolean; via: 'whatsapp' | 'email'; to: string; url: string; expiresAt: Date | null; message: string; reason?: string; waHref?: string }> {
     const via = String(body?.via || '').toLowerCase() === 'email' ? 'email' : 'whatsapp';
-    const doc = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { id: true, name: true, config: true, documentTemplateId: true, type: true } });
+    const doc = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { id: true, name: true, config: true, documentTemplateId: true, type: true, projectId: true } });
     if (!doc) throw new NotFoundException('Document not found');
     const link = await this.createForDocument(documentId, organizationId);
     const cfg: any = doc.config || {};
     const di: any = cfg.documentInfo || {};
-    const customerName = String(cfg.customerName || cfg.customer?.name || di.customerName || '').trim();
+    const isVo = String(doc.type).toUpperCase() === VO_TYPE;
+    // A VO's config carries only the homeowner's name/address — the phone and
+    // email live on the project's customer.
+    const voCustomer = isVo && doc.projectId
+      ? (await this.prisma.project.findFirst({ where: { id: doc.projectId, organizationId }, select: { customer: { select: { phone: true, email: true } } } }))?.customer || null
+      : null;
+    const customerName = String(cfg.client?.name || cfg.customerName || cfg.customer?.name || di.customerName || '').trim();
     const contactName = String(cfg.attention?.name || di.contactName || cfg.customer?.contactPerson || '').trim();
     const toDefault =
       via === 'whatsapp'
-        ? cfg.attention?.phoneNumber || di.contactNumber || cfg.customer?.mobile || cfg.customer?.phoneNumber || cfg.customer?.phone || cfg.customerPhone || ''
-        : cfg.attention?.email || di.contactEmail || cfg.customerEmail || cfg.customer?.email || '';
+        ? cfg.attention?.phoneNumber || di.contactNumber || cfg.customer?.mobile || cfg.customer?.phoneNumber || cfg.customer?.phone || cfg.customerPhone || voCustomer?.phone || ''
+        : cfg.attention?.email || di.contactEmail || cfg.customerEmail || cfg.customer?.email || voCustomer?.email || '';
     let to = String(body?.to || toDefault || '').trim();
     if (via === 'whatsapp') {
       to = to.replace(/\D/g, '').replace(/^0+/, '');
@@ -175,11 +201,12 @@ export class PublicSignService {
       throw new BadRequestException('The customer has no email on file. Enter the email address to send to.');
     }
     const org = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } });
-    const total = Number(grossOf(cfg) ?? 0);
-    const amount = total > 0 ? ` (S$ ${total.toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})` : '';
+    const total = isVo ? this.voStats(cfg).net : Number(grossOf(cfg) ?? 0);
+    const amount = total > 0 ? ` (${isVo ? 'net ' : ''}S$ ${total.toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})` : '';
     const until = link.expiresAt ? ` The link is valid until ${new Date(link.expiresAt).toLocaleDateString('en-SG', { day: '2-digit', month: 'short', year: 'numeric' })}.` : '';
     const greeting = contactName || customerName ? `Hi ${contactName || customerName}, ` : 'Hi, ';
-    const message = String(body?.message || '').trim() || `${greeting}please review and sign quotation ${doc.name || ''}${amount} here: ${link.url}.${until} Thank you, ${org?.name || 'AIMS'}.`;
+    const docLabel = isVo ? 'variation order' : 'quotation';
+    const message = String(body?.message || '').trim() || `${greeting}please review and sign ${docLabel} ${doc.name || ''}${amount} here: ${link.url}.${until} Thank you, ${org?.name || 'AIMS'}.`;
     const text = message.includes(link.url) ? message : `${message}\n${link.url}`;
     const base = { via, to, url: link.url, expiresAt: link.expiresAt ?? null, message: text } as const;
     // Document history row ("History & notes" in the editor), same table the
@@ -202,8 +229,8 @@ export class PublicSignService {
         .catch(() => null);
 
     if (via === 'email') {
-      const html = `<p>${escapeHtml(greeting.trim())}</p><p>Please review and sign quotation <b>${escapeHtml(doc.name || '')}</b>${escapeHtml(amount)}:</p><p><a href="${link.url}">${link.url}</a></p><p>${escapeHtml(until.trim())}</p><p>Thank you,<br/>${escapeHtml(org?.name || 'AIMS')}</p>`;
-      const res = await this.email.sendSimpleEmail({ to: [to], subject: `Quotation ${doc.name || ''} from ${org?.name || 'AIMS'} — please sign`, html });
+      const html = `<p>${escapeHtml(greeting.trim())}</p><p>Please review and sign ${docLabel} <b>${escapeHtml(doc.name || '')}</b>${escapeHtml(amount)}:</p><p><a href="${link.url}">${link.url}</a></p><p>${escapeHtml(until.trim())}</p><p>Thank you,<br/>${escapeHtml(org?.name || 'AIMS')}</p>`;
+      const res = await this.email.sendSimpleEmail({ to: [to], subject: `${isVo ? 'Variation order' : 'Quotation'} ${doc.name || ''} from ${org?.name || 'AIMS'} — please sign`, html });
       await record('email', res.success, res.error);
       return res.success ? { sent: true, ...base } : { sent: false, ...base, reason: res.error || 'email failed' };
     }
@@ -342,15 +369,21 @@ export class PublicSignService {
     const cfg: any = doc.config || {};
     const org = doc.organization;
     const quote = cfg.quote || {};
-    const grand = this.quoteStats(cfg).grand;
+    const isVo = String(doc.type).toUpperCase() === VO_TYPE;
+    // A VO's headline figure is its NET (additions − removals); the quotation's
+    // is the grand total. `newQuantum` lets the sign panel show what the
+    // contract becomes once the client accepts.
+    const grand = isVo ? this.voStats(cfg).net : this.quoteStats(cfg).grand;
     const base = {
       state,
       document: {
         number: doc.name,
-        clientName: quote?.header?.clientName || cfg?.customer?.name || cfg?.customerName || '',
-        address: quote?.header?.address || cfg?.customerAddress || cfg?.customer?.address || '',
-        designer: quote?.header?.designer || '',
+        docType: isVo ? 'VARIATION_ORDER' : 'QUOTATION',
+        clientName: cfg?.client?.name || quote?.header?.clientName || cfg?.customer?.name || cfg?.customerName || '',
+        address: cfg?.client?.address || quote?.header?.address || cfg?.customerAddress || cfg?.customer?.address || '',
+        designer: cfg?.designer || quote?.header?.designer || '',
         grandTotal: grand,
+        newQuantum: isVo ? Number(cfg?.consolidation?.newQuantum) || null : null,
         currency: 'SGD',
       },
       organization: { name: org?.name || '', logo: org?.logo || null, phoneNumber: org?.phoneNumber || null },
@@ -389,6 +422,9 @@ export class PublicSignService {
     }
     const doc = await this.prisma.document.findFirst({ where: { id: documentId, organizationId } });
     if (!doc) throw new NotFoundException('Quotation not found');
+    // A signed VO must be reverted through the VO path (Directors only): it
+    // also removes the contract milestone and the consolidation snapshot.
+    if (String(doc.type).toUpperCase() === VO_TYPE) return this.costing.revertVo(documentId, organizationId, actor?.id);
     const cfg: any = doc.config || {};
     if (!cfg.clientSignature && doc.status !== 'confirmed') throw new BadRequestException('This quotation has no client signature to revert');
     const prevSig: any = cfg.clientSignature || null;
@@ -446,12 +482,49 @@ export class PublicSignService {
     if (!/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(image) || image.length > MAX_SIGNATURE_BYTES) throw new BadRequestException('Please draw your signature');
 
     const doc = link.document;
-    if (doc.status === 'confirmed') throw new BadRequestException('This quotation has already been confirmed');
-    this.assertHasPricedLines(doc.config);
+    const isVo = String(doc.type).toUpperCase() === VO_TYPE;
+    if (doc.status === 'confirmed') throw new BadRequestException(`This ${isVo ? 'variation order' : 'quotation'} has already been confirmed`);
+    if (isVo) this.assertVoHasLines(doc.config);
+    else this.assertHasPricedLines(doc.config);
     const cfg: any = doc.config || {};
-    const isIdQuote = !!cfg.quote;
+    const isIdQuote = !isVo && !!cfg.quote;
     const quote = cfg.quote || {};
     const signedAt = new Date();
+
+    // ── Variation order: store the signature, then confirm through the same
+    // path the staff Confirm button uses (locks the VO, snapshots the
+    // consolidation, adds the net to the contract as a `vo` milestone).
+    if (isVo) {
+      if (!doc.projectId) throw new BadRequestException('This variation order is not linked to a project — please contact the office');
+      const clientSignature = { name, image, signedAt: signedAt.toISOString(), ip: meta.ip || null };
+      await this.prisma.document.update({
+        where: { id: doc.id },
+        data: { config: { ...cfg, clientSignature }, version: { increment: 1 } },
+      });
+      const r = await this.costing.confirmVo(doc.id, doc.organizationId);
+      await this.prisma.$transaction([
+        this.prisma.documentSignLink.update({ where: { id: link.id }, data: { signedAt, signerName: name, signerIp: meta.ip || null, userAgent: (meta.userAgent || '').slice(0, 300) } }),
+        this.prisma.documentSignLink.updateMany({ where: { documentId: doc.id, id: { not: link.id }, signedAt: null, revokedAt: null }, data: { revokedAt: signedAt } }),
+      ]);
+      const voClient = cfg?.client?.name || '';
+      const fmt = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      await this.staffWhatsApp.push(
+        doc.organizationId,
+        `Variation order ${doc.name || ''} signed by ${name}${voClient ? ` (${voClient})` : ''}. It is confirmed — the contract is now S$ ${fmt(r.newQuantum)}.`,
+        { linkPath: `/portal/sales/variation-orders/${doc.id}`, dedupeKey: `vo-signed:${doc.id}` },
+      );
+      await this.notifications.emit({
+        organizationId: doc.organizationId,
+        kind: 'vo_signed',
+        title: `Variation order ${doc.name || ''} signed by ${name}`,
+        body: `${voClient || 'The client'} accepted the variation order — net S$ ${fmt(r.net)} added, contract is now S$ ${fmt(r.newQuantum)}.`,
+        entityType: 'document',
+        entityId: doc.id,
+        linkUrl: `/portal/sales/variation-orders/${doc.id}`,
+      });
+      this.logger.log(`variation order ${doc.name || doc.id} signed by ${name} (${meta.ip || 'ip?'})`);
+      return { ok: true, signedAt, projectId: doc.projectId };
+    }
 
     // Project: ID quotations link to the existing one, else create one for
     // this client/site (and seed the 10/40/45/5 payment schedule from the

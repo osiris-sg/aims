@@ -35,9 +35,24 @@ const T: Record<string, { en: string; zh: string }> = {
   submitting: { en: "Submitting…", zh: "提交中…" },
 };
 
+// Variation orders share the page; only these strings change (the net amount
+// replaces the grand total, and there is no T&C page on a VO sheet).
+const T_VO: Partial<Record<keyof typeof T, { en: string; zh: string }>> = {
+  accept: { en: "Accept this variation order", zh: "接受此工程变更单" },
+  grand: { en: "Net variation", zh: "变更净额" },
+  signBelow: {
+    en: "Sign below to accept the additions and removals listed in this variation order.",
+    zh: "请在下方签名，以接受本变更单所列的新增及删除项目。",
+  },
+  agree: {
+    en: "I have read and agree to this variation order and the revised contract sum.",
+    zh: "本人已阅读并同意本工程变更单及修订后的合同总额。",
+  },
+};
+
 type Payload = {
   state: "active" | "signed" | "revoked" | "expired" | "notfound";
-  document: { number: string | null; clientName: string; address: string; designer: string; grandTotal: number; currency: string };
+  document: { number: string | null; docType?: string; clientName: string; address: string; designer: string; grandTotal: number; newQuantum?: number | null; currency: string };
   organization: { name: string; logo: string | null; phoneNumber: string | null };
   expiresAt?: string | null;
   signedAt?: string | null;
@@ -55,7 +70,8 @@ export default function PublicSignPage() {
   const [data, setData] = useState<Payload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lang, setLang] = useState<"en" | "zh">("en");
-  const t = (k: keyof typeof T) => T[k][lang];
+  const isVo = data?.document?.docType === "VARIATION_ORDER";
+  const t = (k: keyof typeof T) => ((isVo && T_VO[k]) || T[k])[lang];
   const [name, setName] = useState("");
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -206,7 +222,7 @@ export default function PublicSignPage() {
       </ToggleButtonGroup>
       <Box sx={{ textAlign: "right" }}>
         <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-          Quotation {d.number}
+          {isVo ? `Variation order ${d.number}` : `Quotation ${d.number}`}
         </Typography>
         <Typography variant="body2" sx={{ color: "#555" }}>
           {d.clientName}
@@ -221,7 +237,7 @@ export default function PublicSignPage() {
       <>
         {header}
         <Alert severity="warning">
-          {data.state === "expired" ? `This quotation link expired on ${fmtDate(data.expiresAt)}.` : "This quotation link is no longer active."} Please contact {org.name}
+          {data.state === "expired" ? `This ${isVo ? "variation order" : "quotation"} link expired on ${fmtDate(data.expiresAt)}.` : `This ${isVo ? "variation order" : "quotation"} link is no longer active.`} Please contact {org.name}
           {org.phoneNumber ? ` at ${org.phoneNumber}` : ""} for an updated copy.
         </Alert>
       </>,
@@ -259,7 +275,7 @@ export default function PublicSignPage() {
         >
           <iframe
             ref={frameRef}
-            title="Quotation"
+            title={isVo ? "Variation order" : "Quotation"}
             srcDoc={data.html}
             sandbox="allow-same-origin"
             onLoad={measureFrame}
@@ -283,7 +299,8 @@ export default function PublicSignPage() {
             {t("accept")}
           </Typography>
           <Typography variant="body2" sx={{ color: "#555", mb: 2 }}>
-            {t("grand")} <b>{d.currency} {money(d.grandTotal)}</b>. {t("signBelow")}
+            {t("grand")} <b>{d.currency} {money(d.grandTotal)}</b>.
+            {isVo && d.newQuantum ? <> {lang === "zh" ? "新合同总额" : "New contract sum"} <b>{d.currency} {money(d.newQuantum)}</b>.</> : null} {t("signBelow")}
             {data.expiresAt ? ` This link is valid until ${fmtDate(data.expiresAt)}.` : ""}
           </Typography>
           <TextField label={t("fullName")} fullWidth size="small" value={name} onChange={(e) => setName(e.target.value)} sx={{ mb: 2 }} />

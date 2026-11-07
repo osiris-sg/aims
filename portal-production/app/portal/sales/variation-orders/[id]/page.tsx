@@ -13,11 +13,13 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import EditIcon from "@mui/icons-material/EditOutlined";
 import PrintIcon from "@mui/icons-material/PrintOutlined";
 import AccountTreeIcon from "@mui/icons-material/AccountTreeOutlined";
+import DrawIcon from "@mui/icons-material/DrawOutlined";
 import MainCard from "@/components/MainCard";
 import StatusChip from "@/components/StatusChip";
 import { useIdQuoteApi } from "../../quotations/id/_lib/api";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { toast } from "react-toastify";
+import SignLinkDialog from "../../quotations/id/_components/SignLinkDialog";
 
 export default function VariationOrderViewPage() {
   const { id } = useParams<{ id: string }>();
@@ -30,6 +32,9 @@ export default function VariationOrderViewPage() {
   const [doc, setDoc] = useState<any>(null);
   const [html, setHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Send the homeowner the e-sign link (Mike 2026-11-07) — draft VOs only;
+  // signing confirms the VO and adds its net to the contract sum.
+  const [signOpen, setSignOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -94,6 +99,11 @@ export default function VariationOrderViewPage() {
             Revert to draft
           </Button>
         )}
+        {doc && doc.status !== "confirmed" && (
+          <Button size="small" variant="outlined" startIcon={<DrawIcon />} onClick={() => setSignOpen(true)} sx={{ textTransform: "none" }}>
+            Send for signature
+          </Button>
+        )}
         {doc?.projectId && (
           <Button size="small" variant="outlined" startIcon={<EditIcon />} onClick={() => router.push(`/portal/projects/${doc.projectId}?vo=${id}`)} sx={{ textTransform: "none" }}>
             Edit in VO sheet
@@ -116,6 +126,26 @@ export default function VariationOrderViewPage() {
         <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
           <CircularProgress />
         </Box>
+      )}
+      {doc && (
+        <SignLinkDialog
+          open={signOpen}
+          kind="vo"
+          documentId={doc.id}
+          documentNumber={doc.name || null}
+          clientName={doc.config?.client?.name || ""}
+          clientPhone={""}
+          grandTotal={(() => {
+            const vo = doc.config?.vo || {};
+            const s = (list: any[]) => (Array.isArray(list) ? list : []).reduce((n, l) => n + (l?.kind === "area" || l?.complimentary ? 0 : Number(l?.amount) || 0), 0);
+            return s(vo.additions) - s(vo.removals);
+          })()}
+          onClose={() => {
+            setSignOpen(false);
+            // The homeowner may have signed while the dialog was open.
+            load();
+          }}
+        />
       )}
     </Box>
   );

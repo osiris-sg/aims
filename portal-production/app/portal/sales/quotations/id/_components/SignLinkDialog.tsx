@@ -19,6 +19,8 @@ interface Props {
   clientName: string;
   clientPhone: string;
   grandTotal: number;
+  /** "vo" = a variation order link (Mike 2026-11-07): same flow, VO wording; signing confirms the VO and adds its net to the contract sum. */
+  kind?: "quotation" | "vo";
   onClose: () => void;
 }
 
@@ -32,7 +34,8 @@ const absolute = (url: string | null | undefined) => {
   return typeof window !== "undefined" ? `${window.location.origin}${url.startsWith("/") ? "" : "/"}${url}` : url;
 };
 
-export default function SignLinkDialog({ open, documentId, documentNumber, clientName, clientPhone, grandTotal, onClose }: Props) {
+export default function SignLinkDialog({ open, documentId, documentNumber, clientName, clientPhone, grandTotal, kind = "quotation", onClose }: Props) {
+  const isVo = kind === "vo";
   const api = useIdQuoteApi();
   const [loading, setLoading] = useState(false);
   const [link, setLink] = useState<{ url: string; expiresAt: string | null } | null>(null);
@@ -53,7 +56,9 @@ export default function SignLinkDialog({ open, documentId, documentNumber, clien
   }, [open, documentId, api]);
 
   const fullUrl = absolute(link?.url);
-  const message = `Hi ${clientName || ""}, please review and sign your renovation quotation ${documentNumber || ""} (S$ ${grandTotal.toLocaleString("en-SG", { minimumFractionDigits: 2 })}) here: ${fullUrl}`;
+  const message = isVo
+    ? `Hi ${clientName || ""}, please review and sign variation order ${documentNumber || ""} (net S$ ${grandTotal.toLocaleString("en-SG", { minimumFractionDigits: 2 })}) here: ${fullUrl}`
+    : `Hi ${clientName || ""}, please review and sign your renovation quotation ${documentNumber || ""} (S$ ${grandTotal.toLocaleString("en-SG", { minimumFractionDigits: 2 })}) here: ${fullUrl}`;
   const waHref = `https://wa.me/${(clientPhone || "").replace(/\D/g, "").replace(/^0/, "")}${clientPhone ? "" : ""}?text=${encodeURIComponent(message)}`;
 
   const copy = async () => {
@@ -84,12 +89,15 @@ export default function SignLinkDialog({ open, documentId, documentNumber, clien
       <DialogContent dividers>
         {signed ? (
           <Alert icon={<CheckCircleIcon fontSize="inherit" />} severity="success">
-            Signed by <b>{signed.signerName || clientName}</b> on {fmtDate(signed.signedAt)}. The quotation is confirmed and linked to its project.
+            Signed by <b>{signed.signerName || clientName}</b> on {fmtDate(signed.signedAt)}.{" "}
+            {isVo ? "The variation order is confirmed and its net amount is on the contract sum." : "The quotation is confirmed and linked to its project."}
           </Alert>
         ) : (
           <Stack spacing={2}>
             <Typography variant="body2" sx={{ color: "text.secondary" }}>
-              The client opens this link (no login), reads the quotation exactly as the PDF, draws their signature and accepts the T&amp;Cs. On signing, the quotation is confirmed, a project is created and management is notified.
+              {isVo
+                ? "The homeowner opens this link (no login), reads the variation order exactly as the printed sheet, and draws their signature. On signing, the VO is confirmed, its net amount is added to the contract sum, and management is notified."
+                : "The client opens this link (no login), reads the quotation exactly as the PDF, draws their signature and accepts the T&Cs. On signing, the quotation is confirmed, a project is created and management is notified."}
             </Typography>
             <TextField
               size="small"

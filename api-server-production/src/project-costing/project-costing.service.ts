@@ -1790,12 +1790,19 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
     const ms = await this.prisma.projectMilestone.findFirst({ where: { organizationId, projectId: doc.projectId!, kind: 'vo', label: doc.name || undefined } });
     if (ms && ms.paidAmount > 0) throw new BadRequestException(`S$ ${ms.paidAmount.toFixed(2)} was already collected against this VO — clear the collection first`);
     const cfg: any = doc.config || {};
-    const { consolidation: _drop, ...rest } = cfg;
+    // A VO confirmed through the client e-sign link also carries the client's
+    // signature — drop it (and clear the signed link) so the redrafted VO can
+    // be sent for signature again.
+    const { consolidation: _drop, clientSignature: _sig, ...rest } = cfg;
     await this.prisma.$transaction([
       ...(ms ? [this.prisma.projectMilestone.delete({ where: { id: ms.id } })] : []),
       this.prisma.document.update({
         where: { id: doc.id },
         data: { status: 'unconfirmed', config: { ...rest, vo: { ...(cfg.vo || {}), confirmedAt: null } }, version: { increment: 1 } },
+      }),
+      this.prisma.documentSignLink.updateMany({
+        where: { documentId: doc.id, signedAt: { not: null } },
+        data: { revokedAt: new Date(), signedAt: null, signerName: null },
       }),
     ]);
     return { reverted: true, name: doc.name };
