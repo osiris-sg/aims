@@ -204,4 +204,10 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // Searching the customers list and the pickers by either works for every
   // org (empty for orgs that never set them). Default OFF; WCT on.
   enableCustomerUen: false,
+  // Business Rules settings page (2026-11-07): the org's own money defaults —
+  // payment-milestone ladder, engagement fee, commission / rebate / design-fee
+  // percentages, lead follow-up windows, booking-link defaults. Directors only;
+  // the rules seed NEW projects and quotations, never existing ones.
+  // Default OFF; CIEL first.
+  enableBusinessRules: false,
 };
