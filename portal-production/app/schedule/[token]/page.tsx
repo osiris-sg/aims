@@ -45,7 +45,9 @@ export default function PublicSchedulePage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${base}/public/schedule/${token}`);
+        // no-store: the client link must always show the LATEST schedule — a cached
+        // response made removed activities linger (Mike 2026-10-20 video).
+        const res = await fetch(`${base}/public/schedule/${token}`, { cache: "no-store" });
         const json = await res.json();
         if (!res.ok) throw new Error(json?.message || "This link is not valid");
         setData(json?.data ?? json);
