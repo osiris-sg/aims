@@ -72,6 +72,12 @@ export class PayablesService {
   async create(organizationId: string, dto: any, actorName?: string | null) {
     const invoiceAmount = this.round2(Number(dto.invoiceAmount) || 0);
     const percentage = dto.percentage == null || dto.percentage === '' ? null : Number(dto.percentage);
+    let projectName = dto.projectName || null;
+    if (dto.projectId && !projectName) {
+      const p = await this.prisma.project.findFirst({ where: { id: dto.projectId, organizationId }, select: { name: true } });
+      if (!p) throw new BadRequestException('Unknown project');
+      projectName = p.name;
+    }
     const row = await this.prisma.payableInvoice.create({
       data: {
         organizationId,
@@ -87,10 +93,22 @@ export class PayablesService {
         submittedBy: dto.submittedBy?.trim() || actorName || null,
         source: 'manual',
         projectId: dto.projectId || null,
-        projectName: dto.projectName || null,
+        projectName,
       },
     });
     return row;
+  }
+
+  /** Light project list for the "link to project" picker — Summer's check
+   *  that each invoice's site address is really one of the designers' jobs. */
+  async projectOptions(organizationId: string) {
+    const rows = await this.prisma.project.findMany({
+      where: { organizationId },
+      select: { id: true, name: true, address: true, status: true, customer: { select: { name: true } } },
+      orderBy: { name: 'asc' },
+      take: 500,
+    });
+    return rows.map((p) => ({ id: p.id, name: p.name, address: p.address, status: p.status, clientName: p.customer?.name || null }));
   }
 
   /** Edit the sheet's cells. Amount/percentage changes re-derive the payment
@@ -101,6 +119,14 @@ export class PayablesService {
     const data: any = {};
     for (const k of ['invoiceNo', 'supplierName', 'siteAddress', 'remarks', 'submittedBy', 'approvedBy', 'projectId', 'projectName'] as const) {
       if (dto[k] !== undefined) data[k] = dto[k] === '' ? null : dto[k];
+    }
+    // projectId set without a name → fill the name from the project itself
+    // (and a cleared projectId always clears the stale name).
+    if (data.projectId === null) data.projectName = null;
+    else if (data.projectId && dto.projectName === undefined) {
+      const p = await this.prisma.project.findFirst({ where: { id: data.projectId, organizationId }, select: { name: true } });
+      if (!p) throw new BadRequestException('Unknown project');
+      data.projectName = p.name;
     }
     if (dto.month !== undefined && /^\d{4}-\d{2}$/.test(dto.month)) data.month = dto.month;
     if (dto.invoiceDate !== undefined) data.invoiceDate = dto.invoiceDate ? new Date(dto.invoiceDate) : null;

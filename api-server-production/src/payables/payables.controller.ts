@@ -36,6 +36,13 @@ export class PayablesController {
     return this.service.list(orgId(req), { month, status });
   }
 
+  @Get('project-options')
+  @Permissions('projects:read')
+  @ApiOperation({ summary: 'Light project list {id, name, address} for linking a payable to a project (verifying the site address against the project files)' })
+  projectOptions(@Req() req: any) {
+    return this.service.projectOptions(orgId(req));
+  }
+
   @Post()
   @Permissions('projects:update')
   @ApiOperation({ summary: 'Add a payable row by hand (invoiceNo, supplierName, siteAddress, invoiceAmount, percentage, remarks, month)' })

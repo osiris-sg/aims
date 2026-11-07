@@ -43,15 +43,17 @@ function useChartOfAccounts() {
 // Also powers "Account Transactions" and the legacy "Expense Listing"
 // (same Xero report with a different title / preselected account types).
 export function GLDetailReport({
-  basePath, title = "General Ledger Detail", presetAccountTypes,
+  basePath, title = "General Ledger Detail", presetAccountTypes, initialRange,
 }: {
   basePath: string;
   title?: string;
   presetAccountTypes?: string[];
+  /** Default period override — e.g. the Expense Listing opens on the year to date. */
+  initialRange?: { from: string; to: string };
 }) {
   const { request } = useAccountingApi();
   const accounts = useChartOfAccounts();
-  const init = monthRange();
+  const init = initialRange ?? monthRange();
   const [from, setFrom] = useState(init.from);
   const [to, setTo] = useState(init.to);
   const [accountIds, setAccountIds] = useState<string[]>([]);

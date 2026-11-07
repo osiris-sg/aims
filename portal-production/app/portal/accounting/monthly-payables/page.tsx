@@ -9,7 +9,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
+  Alert, Autocomplete, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
   Divider, Menu, MenuItem, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography,
 } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircleOutline";
@@ -51,6 +51,8 @@ type Payload = {
   totals: { toPay: number; paid: number; all: number; toPayCount: number; paidCount: number };
 };
 
+type ProjectOption = { id: string; name: string; address: string | null; status?: string | null; clientName?: string | null };
+
 const money = (n: number | null | undefined) =>
   (Number(n) || 0).toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDate = (d?: string | null) =>
@@ -78,6 +80,14 @@ export default function PayablesPage() {
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
   const [search, setSearch] = useState("");
+  // Projects for the "link to project" picker — verifies each invoice's site
+  // address against a real job (Summer's tally-with-designer-files check).
+  const [projects, setProjects] = useState<ProjectOption[]>([]);
+  useEffect(() => {
+    request<ProjectOption[]>(`/payables/project-options`)
+      .then((r) => setProjects(Array.isArray(r) ? r : []))
+      .catch(() => {});
+  }, [request]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -176,11 +186,15 @@ export default function PayablesPage() {
             <Typography variant="body2" noWrap title={row.original.siteAddress || ""}>
               {row.original.siteAddress || "—"}
             </Typography>
-            {row.original.projectName && (
-              <Typography variant="caption" sx={{ color: "text.secondary" }} noWrap>
-                {row.original.projectName}
+            {row.original.projectId ? (
+              <Typography variant="caption" sx={{ color: "success.main", display: "block" }} noWrap>
+                ✓ {row.original.projectName}
               </Typography>
-            )}
+            ) : row.original.siteAddress ? (
+              <Typography variant="caption" sx={{ color: "warning.main", display: "block" }} noWrap>
+                No project match
+              </Typography>
+            ) : null}
           </Box>
         ),
       },
@@ -377,6 +391,7 @@ export default function PayablesPage() {
         <PayableDialog
           row={editRow}
           busy={busy}
+          projects={projects}
           onClose={() => setEditRow(null)}
           onSave={(patch) =>
             act(async () => {
@@ -409,6 +424,7 @@ export default function PayablesPage() {
         <PayableDialog
           row={null}
           busy={busy}
+          projects={projects}
           month={month}
           onClose={() => setAddOpen(false)}
           onSave={(dto) =>
@@ -428,6 +444,7 @@ function PayableDialog({
   row,
   month,
   busy,
+  projects,
   onClose,
   onSave,
   onPaid,
@@ -437,6 +454,7 @@ function PayableDialog({
   row: Row | null;
   month?: string;
   busy: boolean;
+  projects: ProjectOption[];
   onClose: () => void;
   onSave: (dto: any) => void;
   onPaid?: (paymentDate?: string) => void;
@@ -451,7 +469,12 @@ function PayableDialog({
     percentage: row?.percentage ?? "",
     remarks: row?.remarks || "",
     submittedBy: row?.submittedBy || "",
+    projectId: row?.projectId || "",
   });
+  const project = useMemo(
+    () => projects.find((p) => p.id === f.projectId) || (row?.projectId && row.projectId === f.projectId ? { id: row.projectId, name: row.projectName || "Project", address: null } : null),
+    [projects, f.projectId, row],
+  );
   const [payDate, setPayDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const set = (k: string) => (e: any) => setF((p: any) => ({ ...p, [k]: e.target.value }));
   const isPdf = (row?.attachmentUrl || "").toLowerCase().includes(".pdf");
@@ -494,6 +517,44 @@ function PayableDialog({
             <TextField label="Invoice no." size="small" value={f.invoiceNo} onChange={set("invoiceNo")} />
             <TextField label="Contractor company" size="small" value={f.supplierName} onChange={set("supplierName")} />
             <TextField label="Site address" size="small" value={f.siteAddress} onChange={set("siteAddress")} multiline maxRows={2} />
+            {/* Site-address → project verification (Summer): link the invoice to
+                the designer's job; unmatched rows show an amber warning. */}
+            <Autocomplete
+              size="small"
+              options={projects}
+              value={project}
+              onChange={(_, v) => setF((p: any) => ({ ...p, projectId: v?.id || "" }))}
+              getOptionLabel={(o) => o?.name || ""}
+              isOptionEqualToValue={(o, v) => o.id === v.id}
+              filterOptions={(opts, { inputValue }) => {
+                const q = inputValue.trim().toLowerCase();
+                if (!q) return opts;
+                return opts.filter((o) => [o.name, o.address, o.clientName].some((v) => (v || "").toLowerCase().includes(q)));
+              }}
+              renderOption={(props, o) => (
+                <li {...props} key={o.id}>
+                  <Box>
+                    <Typography variant="body2">
+                      {o.name}
+                      {o.clientName && o.clientName !== o.name ? ` — ${o.clientName}` : ""}
+                    </Typography>
+                    {o.address && (
+                      <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                        {o.address}
+                      </Typography>
+                    )}
+                  </Box>
+                </li>
+              )}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Project"
+                  helperText={!f.projectId && f.siteAddress ? "No project matched this site address — pick the job it belongs to" : undefined}
+                  FormHelperTextProps={{ sx: { color: "warning.main", mx: 0 } }}
+                />
+              )}
+            />
             <Stack direction="row" spacing={1.5}>
               <TextField label="Invoice amount" size="small" value={f.invoiceAmount} onChange={set("invoiceAmount")} inputProps={{ inputMode: "decimal" }} sx={{ flex: 1 }} />
               <TextField label="%" size="small" value={f.percentage} onChange={set("percentage")} inputProps={{ inputMode: "decimal" }} sx={{ width: 90 }} />

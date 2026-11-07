@@ -1,18 +1,11 @@
 "use client";
 
-import ComingSoon from "../_lib/ComingSoon";
+// Standalone route for the Expense Listing report — the same report that lives
+// as a tab in the General Ledger workspace (every expense + purchase
+// transaction, year to date, grouped by account). Was a ComingSoon stub long
+// after the report shipped (fixed 2026-11-08, Summer's expenses-by-category ask).
+import { ExpenseListing } from "../_lib/report-shell/entries";
 
 export default function ExpenseListingPage() {
-  return (
-    <ComingSoon
-      title="Expense Listing"
-      description="Detailed listing of every posted expense entry across the period."
-      bullets={[
-        "Filter by expense account, supplier, project, or date range",
-        "Group by category with subtotals",
-        "Drill into the source document (bill / payment voucher / journal)",
-        "CSV / PDF export",
-      ]}
-    />
-  );
+  return <ExpenseListing />;
 }

@@ -54,7 +54,15 @@ export const IncomeExpensesByContact = () => <IncomeExpenseByContactReport baseP
 export const GeneralLedgerDetail = () => <GLDetailReport basePath={GL_BASE} />;
 export const GeneralLedgerSummary = () => <GLSummaryReport basePath={GL_BASE} />;
 export const AccountTransactions = () => <GLDetailReport basePath={GL_BASE} title="Account Transactions" />;
-export const ExpenseListing = () => <GLDetailReport basePath={GL_BASE} title="Expense Listing" presetAccountTypes={["EXPENSE", "PURCHASE"]} />;
+// Expense Listing opens on the YEAR to date (Summer 2026-11-07: company
+// expenses "for the year and the past year" — set the From to last year for
+// history), scoped to expense + purchase accounts.
+const yearToDate = () => {
+  const now = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return { from: `${now.getFullYear()}-01-01`, to: `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}` };
+};
+export const ExpenseListing = () => <GLDetailReport basePath={GL_BASE} title="Expense Listing" presetAccountTypes={["EXPENSE", "PURCHASE"]} initialRange={yearToDate()} />;
 export const TrialBalanceReport = () => <TrialBalanceXero basePath={GL_BASE} />;
 export const JournalReport = () => <JournalReportXero basePath={GL_BASE} />;
 export const BankSummary = () => <BankSummaryReport basePath={GL_BASE} />;
