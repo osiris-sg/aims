@@ -398,6 +398,8 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
   const [extraWeeks, setExtraWeeks] = useState(0);
   // Click-position anchored (element anchors detach when the grid re-renders).
   const [chipInfo, setChipInfo] = useState<{ item: ScheduleItem; iso: string; pos: { left: number; top: number } } | null>(null);
+  // Rename in place (Mike 2026-10-21 video): edit the label without remove+retype.
+  const [chipRename, setChipRename] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const dragRef = useRef<{ id: string; fromIso: string; x: number; y: number; moved: boolean } | null>(null);
   const dragOverRef = useRef<string | null>(null);
@@ -651,13 +653,43 @@ function CalendarView({ data, projectId, sequence, onChange }: { data: Schedule;
         open={!!chipInfo}
         anchorReference="anchorPosition"
         anchorPosition={chipInfo?.pos}
-        onClose={() => setChipInfo(null)}
+        onClose={() => { setChipInfo(null); setChipRename(null); }}
       >
         {chipInfo && (
           <Box sx={{ p: 1.5, maxWidth: 280 }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-              {chipInfo.item.label}
-            </Typography>
+            <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 0.25 }}>
+              <TextField
+                size="small"
+                variant="standard"
+                fullWidth
+                value={chipRename ?? chipInfo.item.label}
+                onChange={(e) => setChipRename(e.target.value)}
+                InputProps={{ disableUnderline: true, sx: { fontWeight: 700, fontSize: 14, "&:hover": { borderBottom: "1px dashed", borderColor: "text.disabled" } } }}
+              />
+              {chipRename != null && chipRename.trim() && chipRename.trim() !== chipInfo.item.label && (
+                <Button
+                  size="small"
+                  variant="contained"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      await api.updateScheduleItem(chipInfo.item.id, { label: chipRename.trim() });
+                      setChipInfo(null);
+                      setChipRename(null);
+                      onChange();
+                    } catch (e: any) {
+                      toast.error(e.message || "Could not rename");
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  sx={{ textTransform: "none", minWidth: 0, px: 1 }}
+                >
+                  Save
+                </Button>
+              )}
+            </Stack>
             <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mb: 1 }}>
               {fmtFull(chipInfo.item.startDate)} – {fmtFull(chipInfo.item.endDate)} · {chipInfo.item.kind}
             </Typography>

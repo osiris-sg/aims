@@ -16,10 +16,16 @@ import AccountTreeIcon from "@mui/icons-material/AccountTreeOutlined";
 import MainCard from "@/components/MainCard";
 import StatusChip from "@/components/StatusChip";
 import { useIdQuoteApi } from "../../quotations/id/_lib/api";
+import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
+import { toast } from "react-toastify";
 
 export default function VariationOrderViewPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  // Directors (master tier) may revert a confirmed VO back to draft (Mike
+  // 2026-10-21 video: the button only lived on the project VO table).
+  const { userRoles } = useUserPermissions();
+  const isDirector = userRoles.length === 0 || userRoles.some((r: any) => !["Designer", "Marketing", "Junior Manager", "Senior Manager"].includes(r?.name));
   const api = useIdQuoteApi();
   const [doc, setDoc] = useState<any>(null);
   const [html, setHtml] = useState<string | null>(null);
@@ -68,6 +74,26 @@ export default function VariationOrderViewPage() {
           <Chip size="small" variant="outlined" icon={<AccountTreeIcon />} label="Open project" onClick={() => router.push(`/portal/projects/${doc.projectId}`)} sx={{ height: 22 }} />
         )}
         <Box sx={{ flex: 1 }} />
+        {doc?.status === "confirmed" && isDirector && (
+          <Button
+            size="small"
+            variant="outlined"
+            color="warning"
+            onClick={async () => {
+              if (!window.confirm(`Revert ${doc?.name || "this VO"} to draft? Its net amount comes off the contract sum and its payment line is removed.`)) return;
+              try {
+                await api.request(`/projects/vo/${id}/revert`, { method: "POST" });
+                toast.success(`${doc?.name || "VO"} reverted to draft`);
+                load();
+              } catch (err: any) {
+                toast.error(err.message || "Could not revert the VO");
+              }
+            }}
+            sx={{ textTransform: "none" }}
+          >
+            Revert to draft
+          </Button>
+        )}
         {doc?.projectId && (
           <Button size="small" variant="outlined" startIcon={<EditIcon />} onClick={() => router.push(`/portal/projects/${doc.projectId}?vo=${id}`)} sx={{ textTransform: "none" }}>
             Edit in VO sheet
