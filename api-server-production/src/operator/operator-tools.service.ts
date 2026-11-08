@@ -1906,17 +1906,21 @@ export class OperatorToolsService {
           if (!picks.length) return { result: { error: 'Pass the row ids to settle' } };
           const rows = await this.prisma.payableInvoice.findMany({ where: { organizationId: ctx.organizationId, id: { in: picks.map((r) => r.id) } } });
           if (!rows.length) return { result: { error: 'None of those rows exist on this organization' } };
-          const lines = rows.map((r) => {
+          // What will actually be paid: the stored payment amount unless the
+          // retention % is being CHANGED (same rule as payables settle() — a
+          // hand-typed row's amount is not invoice x (1-%)), so the confirm
+          // card shows the figures that will be written.
+          const payOf = (r: any) => {
             const p = picks.find((x) => x.id === r.id)!;
             const pct = p.percentage === undefined ? r.percentage : p.percentage;
-            const pay = Math.round((Number(r.invoiceAmount) || 0) * (1 - (Number(pct) || 0) / 100) * 100) / 100;
+            if ((pct ?? null) === (r.percentage ?? null)) return { pct, pay: Number(r.paymentAmount) || 0 };
+            return { pct, pay: Math.round((Number(r.invoiceAmount) || 0) * (1 - (Number(pct) || 0) / 100) * 100) / 100 };
+          };
+          const lines = rows.map((r) => {
+            const { pct, pay } = payOf(r);
             return `${r.invoiceNo || '(no no.)'} ${pct != null ? `\u2212${pct}%` : ''} \u2192 ${pay.toFixed(2)}`;
           });
-          const total = rows.reduce((sum, r) => {
-            const p = picks.find((x) => x.id === r.id)!;
-            const pct = p.percentage === undefined ? r.percentage : p.percentage;
-            return sum + Math.round((Number(r.invoiceAmount) || 0) * (1 - (Number(pct) || 0) / 100) * 100) / 100;
-          }, 0);
+          const total = rows.reduce((sum, r) => sum + payOf(r).pay, 0);
           return {
             result: { needsConfirmation: true, invoices: lines, total: Math.round(total * 100) / 100 },
             pending: {

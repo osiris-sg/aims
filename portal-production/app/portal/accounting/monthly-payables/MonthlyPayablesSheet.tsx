@@ -616,7 +616,15 @@ function PaymentUploadDialog({ request, onClose, onSettled }: { request: <T = an
     const raw = d?.pct ?? (r.percentage == null ? "" : String(r.percentage));
     return raw === "" ? null : Number(raw) || 0;
   };
-  const payOf = (r: Row) => Math.round((Number(r.invoiceAmount) || 0) * (1 - (pctOf(r) ?? 0) / 100) * 100) / 100;
+  // The amount that will actually be paid. Only re-derive from the retention %
+  // when the user CHANGED it: a hand-typed row ("Add payable" — a loan, an
+  // ad-hoc payment) carries a payment amount that is not invoice x (1-%), and
+  // its invoice amount is often 0, so deriving it would show 0.00 here and
+  // disagree with what the server keeps (payables.service settle()).
+  const payOf = (r: Row) =>
+    (pctOf(r) ?? null) === (r.percentage ?? null)
+      ? Number(r.paymentAmount) || 0
+      : Math.round((Number(r.invoiceAmount) || 0) * (1 - (pctOf(r) ?? 0) / 100) * 100) / 100;
   const selected = rows.filter((r) => picks[r.id]?.checked);
   const selectedTotal = Math.round(selected.reduce((s, r) => s + payOf(r), 0) * 100) / 100;
   const bankAmount = Number(res?.payment?.amount) || 0;

@@ -4818,7 +4818,7 @@ model PayableInvoice {
   organizationId String
   /// Payment cycle bucket, YYYY-MM (the sheet's monthly tab).
   month          String
-  status         String    @default("to_pay") // to_pay | paid
+  status         String    @default("to_pay") // to_pay | withholding | paid
   invoiceNo      String?
   supplierName   String?
   siteAddress    String?

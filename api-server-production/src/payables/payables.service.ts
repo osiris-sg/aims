@@ -400,11 +400,18 @@ Use null when unreadable. No prose outside the JSON.`;
       const row = await this.prisma.payableInvoice.findFirst({ where: { id: p.id, organizationId } });
       if (!row) continue;
       const percentage = p.percentage === undefined ? row.percentage : p.percentage === null ? null : Number(p.percentage);
+      // Only re-derive the payment amount when the retention % ACTUALLY
+      // CHANGED. A hand-typed row ("Add payable" — a loan, an ad-hoc payment)
+      // carries a payment amount that is NOT invoice x (1-%), and its invoice
+      // amount is often 0: recomputing unconditionally zeroed it the moment it
+      // was settled, which took the money out of the Paid and MONTH TOTAL
+      // figures. markPaid() never touched paymentAmount; settling now matches.
+      const pctChanged = (percentage ?? null) !== (row.percentage ?? null);
       await this.prisma.payableInvoice.update({
         where: { id: row.id },
         data: {
           percentage,
-          paymentAmount: this.payAmount(row.invoiceAmount, percentage),
+          ...(pctChanged ? { paymentAmount: this.payAmount(row.invoiceAmount, percentage) } : {}),
           status: 'paid',
           paymentDate: date,
           approvedBy: row.approvedBy || actorName || null,
@@ -413,7 +420,7 @@ Use null when unreadable. No prose outside the JSON.`;
       });
       updated++;
     }
-    // The HTTP interceptor logs this as PAY (VERB_ACTIONS 'settle') — no
+    // The HTTP interceptor logs this as SETTLE (VERB_ACTIONS 'settle') — no
     // extra system row needed.
     return { updated };
   }
