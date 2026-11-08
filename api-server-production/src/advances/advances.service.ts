@@ -100,9 +100,39 @@ export class AdvancesService {
     const adv = await this.prisma.designerAdvance.findFirst({ where: { id, organizationId } });
     if (!adv) throw new NotFoundException('Advance request not found');
     if (!adv.projectId) return { hasProject: false };
+    const eco = await this.projectEconomics(organizationId, adv.projectId, adv.requestedById, adv.id);
+    if (!eco) return { hasProject: false };
+    return {
+      hasProject: true,
+      ...eco,
+      requested: Number(adv.amount) || 0,
+      balanceCommission: Math.round((eco.commission - eco.priorAdvanced - (Number(adv.amount) || 0)) * 100) / 100,
+    };
+  }
 
-    const project = await this.prisma.project.findFirst({ where: { id: adv.projectId, organizationId }, select: { id: true, name: true, commissionPct: true } });
-    if (!project) return { hasProject: false };
+  /**
+   * Same economics BEFORE the request exists — shown on the designer's
+   * "Request an advance" form once a project is picked (guru 2026-11-07:
+   * revenue, estimated costing from the quote, estimated profit %, balance
+   * commission after deducting the requested advance). Designers may only
+   * query their own projects; juniors their team's; senior/master any.
+   */
+  async requestContext(organizationId: string, callerUserId: string | undefined, projectId: string) {
+    const scope = await resolveTier(this.prisma, organizationId, callerUserId);
+    const proj = await this.prisma.project.findFirst({ where: { id: projectId, organizationId }, select: { designerUserId: true } });
+    if (!proj) throw new NotFoundException('Project not found');
+    if (scope.tier === 'designer' && proj.designerUserId !== callerUserId) throw new ForbiddenException('Not your project');
+    if (scope.tier === 'junior' && !(scope.teamUserIds || [callerUserId]).includes(proj.designerUserId as any)) throw new ForbiddenException('Not your team’s project');
+    const eco = await this.projectEconomics(organizationId, projectId, callerUserId!);
+    if (!eco) return { hasProject: false };
+    return { hasProject: true, ...eco };
+  }
+
+  /** Revenue / est. costing (from the confirmed quote) / est. profit /
+   *  commission and what this designer already has advanced on the project. */
+  private async projectEconomics(organizationId: string, projectId: string, requesterId: string, excludeAdvanceId?: string) {
+    const project = await this.prisma.project.findFirst({ where: { id: projectId, organizationId }, select: { id: true, name: true, commissionPct: true } });
+    if (!project) return null;
     const quote = await this.prisma.document.findFirst({
       where: { projectId: project.id, organizationId, type: { in: QUOTATION_TYPES }, status: 'confirmed' },
       orderBy: { createdAt: 'desc' },
@@ -133,12 +163,17 @@ export class AdvancesService {
     const commissionPct = project.commissionPct ?? (await this.orgRules.rulesOf(organizationId)).commissionPct;
     const commission = Math.round(estProfit * commissionPct) / 100;
     const prior = await this.prisma.designerAdvance.findMany({
-      where: { organizationId, projectId: project.id, requestedById: adv.requestedById, status: { in: ['approved', 'paid'] }, id: { not: adv.id } },
+      where: {
+        organizationId,
+        projectId: project.id,
+        requestedById: requesterId,
+        status: { in: ['approved', 'paid'] },
+        ...(excludeAdvanceId ? { id: { not: excludeAdvanceId } } : {}),
+      },
       select: { amount: true },
     });
     const priorAdvanced = prior.reduce((x, a) => x + (Number(a.amount) || 0), 0);
     return {
-      hasProject: true,
       projectName: project.name,
       revenue,
       estCost,
@@ -147,8 +182,6 @@ export class AdvancesService {
       commissionPct,
       commission,
       priorAdvanced,
-      requested: Number(adv.amount) || 0,
-      balanceCommission: Math.round((commission - priorAdvanced - (Number(adv.amount) || 0)) * 100) / 100,
     };
   }
 

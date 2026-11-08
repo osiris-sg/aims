@@ -325,6 +325,26 @@ function AdvancesCard({ self }: { self: boolean }) {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [approveFor?.id]);
+  // Same economics on the REQUEST form once a project is picked (guru
+  // 2026-11-07: revenue, est. costing from the quote, est. profit %, balance
+  // commission after deducting the requested advance).
+  const [reqCtx, setReqCtx] = useState<any>(null);
+  useEffect(() => {
+    if (!open || !form.projectId) {
+      setReqCtx(null);
+      return;
+    }
+    (async () => {
+      try {
+        const res = await fetch(`${apiBase}/advances/request-context?projectId=${form.projectId}`, { headers: await headers() });
+        const j = await res.json();
+        setReqCtx(res.ok ? (j?.data ?? j) : null);
+      } catch {
+        setReqCtx(null);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, form.projectId]);
   const [dateEdit, setDateEdit] = useState<any>(null);
   const [dateForm, setDateForm] = useState({ requestedAt: "", decidedAt: "" });
   const requestSigRef = useRef<any>(null);
@@ -655,6 +675,25 @@ function AdvancesCard({ self }: { self: boolean }) {
                 <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
               ))}
             </TextField>
+            {reqCtx?.hasProject && (
+              <Box sx={{ p: 1.25, borderRadius: 1, bgcolor: "action.hover", fontVariantNumeric: "tabular-nums" }}>
+                <Stack direction="row" justifyContent="space-between"><Typography variant="caption" sx={{ color: "text.secondary" }}>Project revenue</Typography><Typography variant="caption" sx={{ fontWeight: 700 }}>{money(reqCtx.revenue)}</Typography></Stack>
+                <Stack direction="row" justifyContent="space-between"><Typography variant="caption" sx={{ color: "text.secondary" }}>Est. total costing (quote)</Typography><Typography variant="caption" sx={{ fontWeight: 700 }}>{money(reqCtx.estCost)}</Typography></Stack>
+                <Stack direction="row" justifyContent="space-between"><Typography variant="caption" sx={{ color: "text.secondary" }}>Est. profit</Typography><Typography variant="caption" sx={{ fontWeight: 700, color: reqCtx.estProfit < 0 ? "error.main" : "text.primary" }}>{money(reqCtx.estProfit)}{reqCtx.estProfitPct != null ? ` (${reqCtx.estProfitPct}%)` : ""}</Typography></Stack>
+                <Stack direction="row" justifyContent="space-between">
+                  <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                    Commission ({reqCtx.commissionPct}%){reqCtx.priorAdvanced ? ` − ${money(reqCtx.priorAdvanced)} advanced` : ""}{Number(form.amount) > 0 ? ` − this ${money(Number(form.amount))}` : ""}
+                  </Typography>
+                  {(() => {
+                    const left = Math.round((reqCtx.commission - reqCtx.priorAdvanced - (Number(form.amount) || 0)) * 100) / 100;
+                    return <Typography variant="caption" sx={{ fontWeight: 800, color: left < 0 ? "error.main" : "success.main" }}>{money(left)} left</Typography>;
+                  })()}
+                </Stack>
+              </Box>
+            )}
+            {form.projectId && reqCtx && !reqCtx.hasProject && (
+              <Typography variant="caption" sx={{ color: "text.disabled" }}>No confirmed quotation on this project yet — no estimate available.</Typography>
+            )}
             <TextField label="Reason (optional)" size="small" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} multiline minRows={2} fullWidth />
             <Box>
               <Typography variant="caption" sx={{ color: "text.secondary" }}>Your signature</Typography>

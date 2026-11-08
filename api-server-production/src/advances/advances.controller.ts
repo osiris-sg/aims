@@ -43,6 +43,12 @@ export class AdvancesController {
     return this.service.create(orgId(req), req.user!.id!, actorName(req), dto);
   }
 
+  @Get('request-context')
+  @Permissions('projects:read')
+  requestContext(@Req() req: RequestWithOrganization, @Query('projectId') projectId: string) {
+    return this.service.requestContext(orgId(req), req.user?.id, projectId);
+  }
+
   @Get(':id/context')
   context(@Param('id') id: string, @Req() req: RequestWithOrganization) {
     return this.service.projectContext(orgId(req), req.user?.id, id);
