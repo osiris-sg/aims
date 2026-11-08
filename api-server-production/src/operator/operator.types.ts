@@ -154,6 +154,8 @@ export interface OperatorContext {
       /** The party the document is addressed to ("Bill To"). On a sales
        *  invoice the user forwards, this is the customer. */
       billTo?: string | null;
+      /** What the file IS: supplier_invoice | bank_payment | other. */
+      docKind?: string | null;
     };
     /** Raw line items + tax, for creating the linked Bill (AP) draft. */
     lines?: Array<{ description?: string; quantity?: number; unitPrice?: number; amount?: number }> | null;

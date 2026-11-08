@@ -685,6 +685,26 @@ export class OperatorService {
       );
       return;
     }
+    // A BANK PAYMENT page is never a project cost (guru 2026-11-08: the agent
+    // asked "which project?" for a Cowboy Design payment). Route it to the
+    // payables flow: match the payee to a supplier, list their outstanding
+    // invoices, settle the ticked ones.
+    if (e?.docKind === 'bank_payment' && this.anthropic) {
+      ctx.upload = up;
+      session.pendingUpload = up;
+      (session as any).pendingUploadAt = new Date().toISOString();
+      await this.saveSession(...this.sk(msg), session);
+      const money = e?.amount != null ? `${e.currency || 'SGD'} ${Number(e.amount).toFixed(2)}` : 'an amount I could not read';
+      await this.runAgent(
+        ctx,
+        adapter,
+        msg,
+        session,
+        `I just uploaded a BANK PAYMENT page: paid ${money} to ${e.supplierName || 'a payee I could not read'}${e.invoiceNo ? `, reference ${e.invoiceNo}` : ''}. This is NOT a supplier invoice — do not file it as a project cost. Call match_bank_payment, show me the matched supplier's outstanding invoices from the Monthly Payables tally, ask which ones this payment covers (and any retention % changes), then settle_payables.`,
+      );
+      return;
+    }
+
     // Filing an uploaded invoice as a PROJECT COST is the ID-firm workflow, not
     // a universal one. Off by default: an org that does not do project costing
     // was being pushed into confirming a cost it has no use for. When it is

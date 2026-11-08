@@ -1352,6 +1352,7 @@ Use null when unreadable. STRICT JSON only, no prose, no trailing commas, never 
   - "totalAmount": number (subtotal + tax)
   - "siteAddress": string or null — any project / site / delivery / job address on the document (e.g. a "PROJECT:" or "SITE:" or "DELIVER TO:" line, or a block/unit/street/postal reference identifying WHERE the work is). Copy it verbatim. Null if none.
   - "billTo": string or null — the party the document is addressed to (the "Bill To" / "Customer" / "To:" name), never the issuer.
+  - "docKind": one of "supplier_invoice" (a bill/invoice issued by a supplier), "bank_payment" (a bank transfer / payment confirmation page from internet banking — Transaction Summary, payee, reference, PayNow, FAST), "other". Classify what the DOCUMENT IS, not what it mentions. For a bank_payment, put the PAYEE name in "supplierName", the paid amount in "totalAmount" and the transaction reference in "billNumber".
 ${wct ? `${QUOTATION_REFS_PROMPT}\n` : ''}"description" must be the line's COMPLETE text copied WORD-FOR-WORD from the
 document — keep every sub-line (model, serial numbers, rental periods, DO/PO
 references, locations) joined with \n newlines, in the original order. NEVER

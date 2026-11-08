@@ -218,6 +218,7 @@ export class OperatorToolsService {
         amount: Number(extracted?.totalAmount ?? extracted?.subtotal) || null,
         description: description || null,
         currency: extracted?.currency ?? 'SGD',
+        docKind: extracted?.docKind ?? null,
         siteAddress: extracted?.siteAddress ?? null,
         billTo: extracted?.billTo ?? null,
       },
