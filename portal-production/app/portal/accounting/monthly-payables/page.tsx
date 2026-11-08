@@ -78,7 +78,7 @@ export default function PayablesPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(20);
+  const [limit, setLimit] = useState(50); // a cycle reads as one sheet
   const [search, setSearch] = useState("");
   // Projects for the "link to project" picker — verifies each invoice's site
   // address against a real job (Summer's tally-with-designer-files check).
@@ -114,6 +114,38 @@ export default function PayablesPage() {
     if (q) all = all.filter((r) => [r.invoiceNo, r.supplierName, r.siteAddress, r.remarks].some((v) => (v || "").toLowerCase().includes(q)));
     return all;
   }, [data, statusFilter, search]);
+
+  // Sheet view (guru 2026-11-08: "follow this excel"): rows grouped by
+  // contractor exactly like the Bi Weekly Outgoing Payments tabs — banded
+  // contractor blocks, a red per-contractor subtotal (the sheet's red figure
+  // in the REMARKS column) and the red month total at the end. Banding is
+  // theme-aware instead of the sheet's green/cream.
+  const displayRows = useMemo(() => {
+    const groups: { name: string; list: Row[] }[] = [];
+    for (const r of rows) {
+      const name = r.supplierName || "—";
+      const g = groups[groups.length - 1];
+      if (g && g.name === name) g.list.push(r);
+      else groups.push({ name, list: [r] });
+    }
+    const out: any[] = [];
+    groups.forEach((g, gi) => {
+      const band = gi % 2 === 1;
+      for (const r of g.list) out.push({ ...r, _band: band });
+      if (g.list.length > 1) {
+        out.push({
+          _kind: "subtotal",
+          id: `sub-${gi}-${g.name}`,
+          supplierName: g.name,
+          count: g.list.length,
+          total: g.list.reduce((s, r) => s + (Number(r.paymentAmount) || 0), 0),
+          _band: band,
+        });
+      }
+    });
+    if (rows.length) out.push({ _kind: "grand", id: "grand-total", total: rows.reduce((s, r) => s + (Number(r.paymentAmount) || 0), 0), _band: false });
+    return out;
+  }, [rows]);
 
   const months = useMemo(() => {
     const set = new Set<string>([...(data?.months || []), thisMonth(), month]);
@@ -153,7 +185,9 @@ export default function PayablesPage() {
         id: "pick",
         header: "",
         size: 36,
-        cell: ({ row }: any) => (
+        enableSorting: false,
+        cell: ({ row }: any) =>
+          row.original._kind ? null : (
           <Checkbox
             size="small"
             checked={selected.has(row.original.id)}
@@ -163,25 +197,43 @@ export default function PayablesPage() {
             }}
             sx={{ p: 0.25 }}
           />
-        ),
+          ),
       },
       {
         accessorKey: "invoiceNo",
         header: "Invoice",
-        cell: ({ row }: any) => (
+        enableSorting: false,
+        cell: ({ row }: any) =>
+          row.original._kind ? null : (
           <Stack direction="row" spacing={0.75} alignItems="center">
             <Typography variant="body2" sx={{ fontWeight: 600 }}>
               {row.original.invoiceNo || "—"}
             </Typography>
             {row.original.source === "whatsapp-group" && <WhatsAppIcon sx={{ fontSize: 14, color: "success.main" }} />}
           </Stack>
-        ),
+          ),
       },
-      { accessorKey: "supplierName", header: "Contractor Company", cell: ({ row }: any) => row.original.supplierName || "—" },
+      {
+        accessorKey: "supplierName",
+        header: "Contractor Company",
+        enableSorting: false,
+        cell: ({ row }: any) =>
+          row.original._kind === "subtotal" ? (
+            <Typography variant="caption" sx={{ color: "text.secondary", fontStyle: "italic" }}>
+              {row.original.supplierName} · {row.original.count} invoices
+            </Typography>
+          ) : row.original._kind === "grand" ? (
+            <Typography variant="body2" sx={{ fontWeight: 800 }}>MONTH TOTAL</Typography>
+          ) : (
+            row.original.supplierName || "—"
+          ),
+      },
       {
         accessorKey: "siteAddress",
         header: "Site Address",
-        cell: ({ row }: any) => (
+        enableSorting: false,
+        cell: ({ row }: any) =>
+          row.original._kind ? null : (
           <Box sx={{ maxWidth: 240 }}>
             <Typography variant="body2" noWrap title={row.original.siteAddress || ""}>
               {row.original.siteAddress || "—"}
@@ -201,25 +253,35 @@ export default function PayablesPage() {
       {
         accessorKey: "invoiceAmount",
         header: "Invoice Amount",
-        cell: ({ row }: any) => <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(row.original.invoiceAmount)}</Box>,
+        enableSorting: false,
+        cell: ({ row }: any) =>
+          row.original._kind ? null : <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(row.original.invoiceAmount)}</Box>,
       },
       {
         accessorKey: "percentage",
         header: "%",
-        cell: ({ row }: any) => <Box sx={{ textAlign: "right" }}>{row.original.percentage != null ? `${row.original.percentage}%` : ""}</Box>,
+        enableSorting: false,
+        cell: ({ row }: any) =>
+          row.original._kind ? null : <Box sx={{ textAlign: "right" }}>{row.original.percentage != null ? `${row.original.percentage}%` : ""}</Box>,
       },
       {
         accessorKey: "paymentAmount",
         header: "Payment Amount",
-        cell: ({ row }: any) => (
-          <Box sx={{ textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{money(row.original.paymentAmount)}</Box>
-        ),
+        enableSorting: false,
+        cell: ({ row }: any) =>
+          row.original._kind === "grand" ? (
+            // The sheet's red month total at the foot of the Payment Amount column.
+            <Box sx={{ textAlign: "right", fontWeight: 800, fontVariantNumeric: "tabular-nums", color: "error.main" }}>S$ {money(row.original.total)}</Box>
+          ) : row.original._kind === "subtotal" ? null : (
+            <Box sx={{ textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{money(row.original.paymentAmount)}</Box>
+          ),
       },
       {
         accessorKey: "paymentDate",
         header: "Payment Date",
+        enableSorting: false,
         cell: ({ row }: any) =>
-          row.original.status === "paid" ? (
+          row.original._kind ? null : row.original.status === "paid" ? (
             <Chip size="small" color="success" variant="outlined" label={fmtDate(row.original.paymentDate) || "Paid"} sx={{ height: 22 }} />
           ) : (
             <Chip size="small" color="warning" variant="outlined" label="TO PAY" sx={{ height: 22 }} />
@@ -228,18 +290,27 @@ export default function PayablesPage() {
       {
         accessorKey: "remarks",
         header: "Remarks",
-        cell: ({ row }: any) => (
+        enableSorting: false,
+        cell: ({ row }: any) =>
+          row.original._kind === "subtotal" ? (
+            // The sheet writes each contractor's subtotal in red in the REMARKS column.
+            <Typography variant="body2" sx={{ fontWeight: 800, color: "error.main", fontVariantNumeric: "tabular-nums" }}>
+              S$ {money(row.original.total)}
+            </Typography>
+          ) : row.original._kind ? null : (
           <Typography variant="body2" noWrap sx={{ maxWidth: 180, color: "text.secondary" }} title={row.original.remarks || ""}>
             {row.original.remarks || ""}
           </Typography>
-        ),
+          ),
       },
-      { accessorKey: "submittedBy", header: "Submitted By", cell: ({ row }: any) => row.original.submittedBy || row.original.postedBy || "" },
+      { accessorKey: "submittedBy", header: "Submitted By", enableSorting: false, cell: ({ row }: any) => (row.original._kind ? null : row.original.submittedBy || row.original.postedBy || "") },
       {
         id: "actions",
         header: "",
         size: 40,
-        cell: ({ row }: any) => (
+        enableSorting: false,
+        cell: ({ row }: any) =>
+          row.original._kind ? null : (
           <IconButton
             size="small"
             onClick={(e) => {
@@ -249,7 +320,7 @@ export default function PayablesPage() {
           >
             <MoreVertIcon fontSize="small" />
           </IconButton>
-        ),
+          ),
       },
     ],
     [selected],
@@ -308,14 +379,22 @@ export default function PayablesPage() {
 
       <PageTable
         tableName="Monthly Payables"
-        subTitle="Supplier invoices for the month — posted in the bills WhatsApp group or added here. A payment date marks a row paid."
+        subTitle="Supplier invoices for the month, grouped by contractor like the outgoing-payments sheet. A payment date marks a row paid."
         columns={columns as any}
-        data={rows.slice((page - 1) * limit, page * limit)}
+        data={displayRows.slice((page - 1) * limit, page * limit)}
         loading={loading}
         buttonName="Add payable"
         onAddClick={() => setAddOpen(true)}
         noSelectionColumn
-        onRowClick={(row: any) => setEditRow(row)}
+        onRowClick={(row: any) => {
+          if (!row._kind) setEditRow(row);
+        }}
+        rowSx={(r: any) => ({
+          ...(r._band ? { bgcolor: "action.hover" } : {}),
+          ...(r._kind === "subtotal" ? { "& td": { py: 0.25, borderBottom: 2, borderColor: "divider" } } : {}),
+          ...(r._kind === "grand" ? { "& td": { borderTop: 2, borderColor: "text.secondary", borderBottom: 0, py: 1 } } : {}),
+          ...(r._kind ? { cursor: "default", "&:hover": { bgcolor: r._band ? "action.hover" : "transparent" } } : {}),
+        })}
         page={page}
         limit={limit}
         search={search}
@@ -327,8 +406,8 @@ export default function PayablesPage() {
           setPage(1);
         }}
         setFilters={() => {}}
-        pageCount={Math.max(1, Math.ceil(rows.length / limit))}
-        totalDocs={rows.length}
+        pageCount={Math.max(1, Math.ceil(displayRows.length / limit))}
+        totalDocs={displayRows.length}
       />
 
       {/* Row context menu — anchored to the CLICK POSITION (table re-renders detach element anchors). */}

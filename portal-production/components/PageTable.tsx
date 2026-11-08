@@ -61,6 +61,8 @@ interface Props {
   /** Row-as-link (native right-click "Open in new tab" menu) — forwarded to
    *  Table; see Table's rowHref doc. */
   rowHref?: (row: any) => string;
+  /** Per-row style override — forwarded to Table (see Table.rowSx). */
+  rowSx?: (row: any) => any;
   headerContent?: React.ReactNode; // Custom content to display between header and table
   // Server-side sorting: pass all three to drive sort via an API call (parent
   // supplies already-sorted `data`). Omit for the default client-side sort.
@@ -77,7 +79,7 @@ interface Props {
 }
 export default function PageTable(props: Props) {
   const pt = PT[useUiLang().lang];
-  const { columns, data, tableName, subTitle, loading, buttonName, buttonDisabled, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, filterConfig: incomingFilterConfig, availableFilters, assetsData, totalDocs, renderSubComponent, actionButtons, headerContent, manualSorting, sorting, onSortingChange, onRowClick, rowHref, noSelectionColumn, hideTable } = props;
+  const { columns, data, tableName, subTitle, loading, buttonName, buttonDisabled, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, filterConfig: incomingFilterConfig, availableFilters, assetsData, totalDocs, renderSubComponent, actionButtons, headerContent, manualSorting, sorting, onSortingChange, onRowClick, rowHref, rowSx, noSelectionColumn, hideTable } = props;
   const { control, handleSubmit, watch } = useForm({ defaultValues: { limit, search } });
   const _limit = watch("limit");
   const _search = watch("search");
@@ -216,7 +218,7 @@ export default function PageTable(props: Props) {
                 flex: 1,
               })}
             >
-              <Table columns={columns} data={data} onRowClick={onRowClick} rowHref={rowHref} onRowSelect={() => {}} loading={loading} subRowAccessor={subRowAccessor} manualSorting={manualSorting} sorting={sorting} onSortingChange={onSortingChange} isNoSelectionColumn={noSelectionColumn} />
+              <Table columns={columns} data={data} onRowClick={onRowClick} rowHref={rowHref} rowSx={rowSx} onRowSelect={() => {}} loading={loading} subRowAccessor={subRowAccessor} manualSorting={manualSorting} sorting={sorting} onSortingChange={onSortingChange} isNoSelectionColumn={noSelectionColumn} />
             </Box>
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", overflowX: "hidden" }}>
               <Box sx={{ display: "flex", gap: "var(--default-gap)", alignItems: "center" }}>

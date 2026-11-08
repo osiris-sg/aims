@@ -26,6 +26,9 @@ interface Props {
    *  onRowClick (client-side navigation). Interactive controls inside cells
    *  (buttons, checkboxes, inputs) are auto-elevated above the overlay. */
   rowHref?: (row: any) => string;
+  /** Per-row style override (e.g. group banding / subtotal rows on the
+   *  Monthly Payables sheet view) — merged into the TableRow sx. */
+  rowSx?: (row: any) => any;
   height?: string;
   onRowSelect?: (rows: any[]) => void;
   isNoSelectionColumn?: boolean;
@@ -39,7 +42,7 @@ interface Props {
 }
 
 export default function Table(props: Props) {
-  const { data = [], columns = [], subRowAccessor, loading = false, loadingTableRowId = null, onRowSelect, isNoSelectionColumn = false, manualSorting = false, sorting: controlledSorting, onSortingChange: controlledOnSortingChange, onRowClick, rowHref } = props;
+  const { data = [], columns = [], subRowAccessor, loading = false, loadingTableRowId = null, onRowSelect, isNoSelectionColumn = false, manualSorting = false, sorting: controlledSorting, onSortingChange: controlledOnSortingChange, onRowClick, rowHref, rowSx } = props;
   const _data = useMemo(() => data, [data]);
 
   // Mobile responsiveness
@@ -372,6 +375,7 @@ export default function Table(props: Props) {
                       // (position:relative on <tr> is supported in all modern
                       // browsers.)
                       ...(rowHref ? { position: "relative" } : {}),
+                      ...(rowSx ? rowSx(row.original) : {}),
                     }}
                   >
                     {row.getVisibleCells().map((cell: any, cellIdx: number) => {
