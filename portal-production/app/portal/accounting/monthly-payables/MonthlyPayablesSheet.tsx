@@ -4,7 +4,7 @@
 // "Bi Weekly Outgoing Payments" Google sheet. Supplier invoices posted in the
 // bills WhatsApp group are AI-read onto this tally as TO PAY; setting a
 // payment date marks them PAID. Columns mirror the sheet: invoice no ·
-// contractor · site address · invoice amount · retention % · payment amount ·
+// contractor · site address · invoice amount · supplier rebate % · payment amount ·
 // payment date · remarks · submitted by.
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
@@ -406,7 +406,7 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
             ...(totals.withheldCount ? [{ k: `Withheld (${totals.withheldCount})`, v: totals.withheld, color: "#ed6c02" }] : []),
             { k: `Paid (${totals.paidCount})`, v: totals.paid, color: "success.main" },
             { k: "Month total", v: totals.all, color: "text.primary" },
-            // Rebate total (guru 2026-11-08): the retention the firm keeps — Σ invoice × %.
+            // Rebate total (guru 2026-11-08): what suppliers rebate back — Σ invoice × %.
             { k: "Rebate total", v: totals.rebate, color: "info.main" },
           ].map((t) => (
             <Box key={t.k} sx={{ border: 1, borderColor: "divider", borderRadius: 2, px: 2, py: 1, minWidth: 170 }}>

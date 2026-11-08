@@ -1863,7 +1863,7 @@ model AdInsight {
 /// the invoices for monthly payments to the bot and it tallies all the
 /// invoices that needs to be paid / has been paid"). Mirrors CIEL's "Bi Weekly
 /// Outgoing Payments" Google sheet: invoice · contractor · site address ·
-/// invoice amount · retention % · payment amount · payment date (set = PAID) ·
+/// invoice amount · supplier rebate % · payment amount · payment date (set = PAID) ·
 /// remarks · submitted/approved by. Rows arrive from the bills WhatsApp group
 /// via the group bridge (/whatsapp/group-ingest) or are added by hand.
 model PayableInvoice {
@@ -1877,7 +1877,8 @@ model PayableInvoice {
   siteAddress    String?
   invoiceDate    DateTime?
   invoiceAmount  Float     @default(0)
-  /// Retention/rebate % deducted at payment (CIEL convention: usually 10).
+  /// The share the SUPPLIER rebates back to the firm, deducted from what is
+  /// paid (CIEL convention: usually 10). Never a retention the firm holds.
   percentage     Float?
   paymentAmount  Float     @default(0)
   paymentDate    DateTime?

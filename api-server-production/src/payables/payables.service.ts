@@ -11,7 +11,7 @@ import { ActionLogService } from '../action-log/action-log.service';
  * WhatsApp group arrive via the group bridge (ingestGroupMessage), are
  * AI-read, and land on the month's tally as TO PAY; setting a payment date
  * marks them PAID. Columns mirror the sheet: invoice no · contractor · site
- * address · invoice amount · retention % · payment amount · payment date ·
+ * address · invoice amount · supplier rebate % · payment amount · payment date ·
  * remarks · submitted by.
  */
 @Injectable()
@@ -34,7 +34,9 @@ export class PayablesService {
     return Math.round((Number(n) || 0) * 100) / 100;
   }
 
-  /** payment amount = invoice × (1 − retention%) — the sheet's F column. */
+  /** payment amount = invoice × (1 − rebate%) — the sheet's F column. The %
+   *  is the share the SUPPLIER rebates back to the firm, never a retention
+   *  the firm holds (guru 2026-11-08). */
   private payAmount(invoiceAmount: number, percentage: number | null | undefined): number {
     const pct = percentage == null ? 0 : Number(percentage) || 0;
     return this.round2((Number(invoiceAmount) || 0) * (1 - pct / 100));
@@ -105,7 +107,7 @@ export class PayablesService {
       orderBy: [{ supplierName: 'asc' }, { createdAt: 'asc' }],
     });
     const sum = (list: any[]) => this.round2(list.reduce((s, r) => s + (Number(r.paymentAmount) || 0), 0));
-    // Rebate total (guru 2026-11-08): the retention the firm keeps — invoice × %.
+    // Rebate total (guru 2026-11-08): what the suppliers rebate back — invoice × %.
     const rebate = this.round2(rows.reduce((s, r) => s + (Number(r.invoiceAmount) || 0) * ((Number(r.percentage) || 0) / 100), 0));
     const toPay = rows.filter((r) => r.status !== 'paid' && r.status !== 'withholding');
     const withheld = rows.filter((r) => r.status === 'withholding');
@@ -360,7 +362,7 @@ export class PayablesService {
     ]);
 
     const invoiceAmount = this.round2(Number(extracted?.totalAmount) || 0);
-    // Default retention = the org's standing supplier rebate % (CIEL: 10) —
+    // Default rebate = the org's standing supplier rebate % (CIEL: 10) —
     // editable per row on the sheet, and not applied when nothing was read.
     const rules = await this.orgRules.rulesOf(organizationId).catch(() => null);
     const percentage = invoiceAmount > 0 && rules?.rebatePct != null ? Number(rules.rebatePct) : null;
@@ -494,8 +496,8 @@ Use null when unreadable. No prose outside the JSON.`;
   }
 
   /**
-   * Settle the ticked rows against a bank payment: optional per-row retention
-   * % change (re-derives the payment amount), then PAID on the payment date.
+   * Settle the ticked rows against a bank payment: optional per-row rebate %
+   * change (re-derives the payment amount), then PAID on the payment date.
    */
   async settle(
     organizationId: string,
@@ -510,7 +512,7 @@ Use null when unreadable. No prose outside the JSON.`;
       const row = await this.prisma.payableInvoice.findFirst({ where: { id: p.id, organizationId } });
       if (!row) continue;
       const percentage = p.percentage === undefined ? row.percentage : p.percentage === null ? null : Number(p.percentage);
-      // Only re-derive the payment amount when the retention % ACTUALLY
+      // Only re-derive the payment amount when the rebate % ACTUALLY
       // CHANGED. A hand-typed row ("Add payable" — a loan, an ad-hoc payment)
       // carries a payment amount that is NOT invoice x (1-%), and its invoice
       // amount is often 0: recomputing unconditionally zeroed it the moment it
