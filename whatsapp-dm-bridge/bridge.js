@@ -398,3 +398,42 @@ boot();
 process.on('unhandledRejection', (err) => {
   console.error('⚠ unhandled rejection:', err && err.message ? err.message : err);
 });
+
+/**
+ * WHY A REDEPLOY KEPT COSTING THE LINK (guru 2026-11-08: "when i redeploy why
+ * must i keep on connecting").
+ *
+ * The disk, the mount and SESSION_DIR were all correct — the session was
+ * being WRITTEN to the right place and still would not restore. The cause was
+ * the exit, not the storage: Render sends SIGTERM on every redeploy, Node had
+ * no handler, so the process and its Chromium died on the spot. WhatsApp's
+ * session lives in a LevelDB profile that is being written continuously; kill
+ * it mid-write and what survives on the disk is a torn database. On the next
+ * boot the library restores it, WhatsApp rejects it, and the worker falls
+ * back to a QR. The persistent disk did its job faithfully — it persisted a
+ * broken session.
+ *
+ * So close Chromium properly and give it time to flush. The hard exit stays as
+ * a backstop: if the close hangs we would rather die than be SIGKILLed later
+ * at an even worse moment, and Render allows 30s before it stops asking.
+ */
+let shuttingDown = false;
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\n⏻ ${signal} — closing the linked session cleanly so it survives the restart`);
+  const hardExit = setTimeout(() => {
+    console.error('   ✖ close did not finish in 20s, exiting anyway');
+    process.exit(0);
+  }, 20_000);
+  try {
+    await client.destroy();
+    console.log('   ✅ session closed; the next boot should restore it without a QR');
+  } catch (e) {
+    console.error('   ✖ close failed:', e && e.message ? e.message : e);
+  }
+  clearTimeout(hardExit);
+  process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

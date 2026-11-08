@@ -100,6 +100,11 @@ logged and skipped rather than held in memory.
 ## Limits
 
 - Unofficial. WhatsApp can log the device out; re-scan to recover.
+- A redeploy should NOT cost the link. The session is closed cleanly on
+  SIGTERM so Chromium flushes its profile; before that was handled, every
+  redeploy killed Chromium mid-write and left a torn session on the disk that
+  the next boot could not restore. If a QR appears after a deploy, check the
+  log for the `⏻ SIGTERM` line — without it the close never ran.
 - Media is downloaded and stored in S3 (`payload.media` holds the key, url,
   mimetype and filename). Files over `MAX_MEDIA_BYTES` are skipped.
 - A group is relayed only if `WATCH_GROUPS` names it; the phone's other groups
