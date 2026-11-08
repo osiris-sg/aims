@@ -66,7 +66,7 @@ const thisMonth = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 };
 
-export default function PayablesPage() {
+export default function PayablesPage({ reportsHref }: { reportsHref?: string }) {
   const { request } = useAccountingApi();
   const [month, setMonth] = useState(thisMonth());
   const [data, setData] = useState<Payload | null>(null);
@@ -355,6 +355,13 @@ export default function PayablesPage() {
           <ToggleButton value="to_pay" sx={{ px: 1.25, py: 0.25, textTransform: "none" }}>To pay</ToggleButton>
           <ToggleButton value="paid" sx={{ px: 1.25, py: 0.25, textTransform: "none" }}>Paid</ToggleButton>
         </ToggleButtonGroup>
+        {/* When this sheet IS the Accounts Payable landing, the aging /
+            statement / purchase reports stay a click away. */}
+        {reportsHref && (
+          <Button size="small" variant="outlined" href={reportsHref} sx={{ textTransform: "none", ml: 1 }}>
+            AP reports
+          </Button>
+        )}
       </Stack>
 
       {/* Totals — the tally Summer asked for. */}

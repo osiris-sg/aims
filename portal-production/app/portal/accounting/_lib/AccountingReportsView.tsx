@@ -23,6 +23,7 @@ import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 import CashFlowPage from "../cash-flow/page";
+import MonthlyPayablesPage from "../monthly-payables/page";
 import BudgetVsActualPage from "../budget-vs-actual/page";
 import InvoicesPage from "../../invoices/page";
 import ARWorkspace from "./ARWorkspace";
@@ -291,7 +292,7 @@ function ReportsInner({
   const router = useRouter();
   const searchParams = useSearchParams();
   const { organization } = useOrganization();
-  const { isLegacyAccountingUxEnabled, isSpendMoneyEnabled } = useOrganizationFeatures();
+  const { isLegacyAccountingUxEnabled, isSpendMoneyEnabled, isPayablesEnabled } = useOrganizationFeatures();
   const { favourites, toggle: toggleFavourite } = useFavouriteReports(organization?.id);
 
   const rawTab = searchParams.get("tab");
@@ -332,6 +333,24 @@ function ReportsInner({
   if (legacyLanding && !activeReport) {
     const LandingComponent = legacyLanding.Component;
     return <LandingComponent />;
+  }
+
+  // Monthly-Payables landing (guru 2026-11-08: "I want the Excel view as the
+  // first thing for CIEL's AP, like Biofuel lands on its legacy home"): orgs
+  // with enablePayables land straight on the outgoing-payments sheet when
+  // entering Accounts Payable. Legacy UX wins when both flags are on (those
+  // orgs reach the sheet via the Accounting menu entry instead); ?tab= deep
+  // links and ?view=reports still open the report directory.
+  if (
+    !activeReport &&
+    !rawTab &&
+    !isLegacyAccountingUxEnabled &&
+    isPayablesEnabled &&
+    categories.length === 1 &&
+    categories[0] === "Payables" &&
+    searchParams.get("view") !== "reports"
+  ) {
+    return <MonthlyPayablesPage reportsHref={`${basePath}?view=reports`} />;
   }
 
   const openReport = (key: string) => {

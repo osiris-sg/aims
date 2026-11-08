@@ -99,7 +99,7 @@ export function useNavModules() {
   const { modules, isModuleEnabled } = useConfiguration();
   const { isModuleAllowed, userRoles, hasPermission } = useUserPermissions();
   // Same rule as DynamicSidebarContent's Organization Settings group.
-  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isBusinessRulesEnabled, isPayablesEnabled } = useOrganizationFeatures();
+  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isBusinessRulesEnabled, isPayablesEnabled, isLegacyAccountingUxEnabled } = useOrganizationFeatures();
   const settingsMenu = SETTINGS_MENU.filter(
     (s) =>
       (s.path !== "/portal/settings/accounting-setup" || showAccountingSetup(isModuleEnabled)) &&
@@ -158,6 +158,9 @@ export function useNavModules() {
       if (
         m.moduleCode === "ACCOUNTING" &&
         isPayablesEnabled &&
+        // Payables orgs land on the sheet AT Accounts Payable — the extra menu
+        // entry only earns its place when the legacy home occupies that landing.
+        isLegacyAccountingUxEnabled &&
         !filtered.some((s: any) => (typeof s === "string" ? s : s?.key) === "monthly-payables")
       ) {
         filtered.push({ key: "monthly-payables", label: "Monthly Payables" });

@@ -93,7 +93,7 @@ export default function DynamicSidebarContent() {
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
-  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isBusinessRulesEnabled, isPayablesEnabled } = useOrganizationFeatures();
+  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isBusinessRulesEnabled, isPayablesEnabled, isLegacyAccountingUxEnabled } = useOrganizationFeatures();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
   const navLang = useUiLang().lang;
@@ -267,6 +267,9 @@ export default function DynamicSidebarContent() {
       if (
         m.moduleCode === 'ACCOUNTING' &&
         isPayablesEnabled &&
+        // Payables orgs land on the sheet AT Accounts Payable — the extra menu
+        // entry only earns its place when the legacy home occupies that landing.
+        isLegacyAccountingUxEnabled &&
         !filtered.some((s: any) => (typeof s === 'string' ? s : s?.key) === 'monthly-payables')
       ) {
         filtered.push({ key: 'monthly-payables', label: 'Monthly Payables' });
