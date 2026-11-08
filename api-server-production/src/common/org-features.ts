@@ -12,6 +12,14 @@ export const AUTO_POST_INGEST_FLAG = 'enableAutoPostIngest';
 // strangers into leads there would be noise.
 export const BRIDGE_LEAD_CAPTURE_FLAG = 'enableBridgeLeadCapture';
 
+// The exact intro the ad flow sends on the bridged line. Its appearance as an
+// OUTBOUND message is what marks a conversation as an enquiry — without it,
+// every stranger who ever writes to the company phone (a supplier, a wrong
+// number) would become a lead. Held as text, not code: ad copy changes
+// without a deploy. Falls back to BRIDGE_LEAD_INTRO_DEFAULT.
+export const BRIDGE_LEAD_INTRO_KEY = 'bridgeLeadIntro';
+export const BRIDGE_LEAD_INTRO_DEFAULT = 'Hi! Please let us know how we can help you.';
+
 // Uploading a supplier invoice to the chat agent files it as a PROJECT COST.
 // That is the ID-firm workflow (CIEL), not something every org wants: an org
 // that does not run project costing was being asked to confirm a cost it has
@@ -50,6 +58,25 @@ export const CONTRA_OFFSET_FLAG = 'enableContraOffset';
 // and the SiteClock worker delivery API answers; off = neither. Osiris admins
 // only; needs the SiteClock link (enableSiteClockLink + an enabled connection).
 export const SITECLOCK_DELIVERIES_FLAG = 'enableSiteClockDeliveries';
+
+/**
+ * A feature entry that carries a VALUE rather than a switch.
+ *
+ * Most of this JSON is booleans, but bridge lead capture needs to know the
+ * exact intro the Instagram ad sends, and ad copy changes without a deploy.
+ */
+export async function orgFeatureText(
+  prisma: { organizationUIConfig: { findUnique: (args: any) => Promise<any> } },
+  organizationId: string,
+  key: string,
+): Promise<string | null> {
+  const ui = await prisma.organizationUIConfig.findUnique({
+    where: { organizationId },
+    select: { features: true },
+  });
+  const v = ((ui?.features as any) || {})[key];
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
+}
 
 export async function isOrgFeatureEnabled(
   prisma: { organizationUIConfig: { findUnique: (args: any) => Promise<any> } },

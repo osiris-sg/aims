@@ -6,7 +6,7 @@ import {
   OnModuleDestroy,
   OnModuleInit, Optional, } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { isOrgFeatureEnabled, BRIDGE_LEAD_CAPTURE_FLAG } from '../common/org-features';
+import { isOrgFeatureEnabled, orgFeatureText, BRIDGE_LEAD_CAPTURE_FLAG, BRIDGE_LEAD_INTRO_KEY, BRIDGE_LEAD_INTRO_DEFAULT } from '../common/org-features';
 import { Cron } from '@nestjs/schedule';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
@@ -39,6 +39,26 @@ const GROUP_AUTOSEND_THRESHOLD = Number(process.env.WHATSAPP_GROUP_AUTOSEND_THRE
  *          having spent weeks insisting it could not.
  */
 const PA_CAPABILITY_VERSION = 2;
+
+/**
+ * Is this the same message, allowing for the ways the same text reaches us
+ * differently — a trailing space, a smart quote, a non-breaking space pasted
+ * out of an ad composer. Deliberately NOT fuzzy: the intro marks a
+ * conversation as an enquiry, so a near-miss should fail rather than open a
+ * lead for the wrong person.
+ */
+export function sameMessage(a: string | null | undefined, b: string | null | undefined): boolean {
+  const norm = (v: string | null | undefined) =>
+    String(v || '')
+      .normalize('NFKC')
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/[\u201c\u201d]/g, '"')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  const x = norm(a);
+  return !!x && x === norm(b);
+}
 
 @Injectable()
 export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
@@ -1443,17 +1463,40 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     // Contacts are people. A group jid in that table would masquerade as one.
     if (args.direction === 'INBOUND' && !args.groupId) {
       await this.upsertContact(args.organizationId, counterparty, { lastMessageAt: new Date() }).catch(() => null);
-      // ENQUIRIES ON A BRIDGED LINE (guru 2026-11-08). The number takes leads
-      // off an Instagram ad; the ad sends its own greeting, and this bridge
-      // never replies. All AIMS does is notice a stranger, open a Lead, and —
-      // on their next message — put it in front of the notify number.
-      // Staff talking to the line are not leads, so linked senders are skipped.
+      // ENQUIRIES ON A BRIDGED LINE (guru 2026-11-08). They arrive from an
+      // Instagram ad, whose own flow sends the intro — this bridge never
+      // replies. A lead is opened when that INTRO GOES OUT (see the OUTBOUND
+      // branch below), so this inbound half only ever names a lead that is
+      // already waiting. Staff talking to the line are not leads.
       if (await isOrgFeatureEnabled(this.prisma, args.organizationId, BRIDGE_LEAD_CAPTURE_FLAG).catch(() => false)) {
         const staff = await this.operatorAuth.isLinked('whatsapp', counterparty).catch(() => false);
         if (!staff) {
           await this.leads
             .captureFromBridge(args.organizationId, { phone: counterparty, text: args.body })
             .catch((e: any) => this.logger.error(`Bridge lead capture failed: ${e.message}`));
+        }
+      }
+    }
+    // THE INTRO GOING OUT IS THE TRIGGER. Not every stranger who writes to a
+    // company phone is a lead — suppliers, wrong numbers and the bank write
+    // too. The ad's intro is what marks the conversation as an enquiry, so
+    // the lead is opened when AIMS sees that exact text leave the line.
+    if (args.direction === 'OUTBOUND' && !args.groupId && (args.body || '').trim()) {
+      if (await isOrgFeatureEnabled(this.prisma, args.organizationId, BRIDGE_LEAD_CAPTURE_FLAG).catch(() => false)) {
+        const intro =
+          (await orgFeatureText(this.prisma, args.organizationId, BRIDGE_LEAD_INTRO_KEY).catch(() => null)) ||
+          BRIDGE_LEAD_INTRO_DEFAULT;
+        if (sameMessage(args.body, intro)) {
+          // Whatever they said before the intro is the enquiry itself — on a
+          // click-to-WhatsApp ad, the pre-filled message.
+          const prior = await this.prisma.whatsAppMessage.findFirst({
+            where: { organizationId: args.organizationId, counterparty, direction: 'INBOUND' },
+            orderBy: { createdAt: 'desc' },
+            select: { body: true },
+          });
+          await this.leads
+            .openFromBridgeIntro(args.organizationId, counterparty, { firstMessage: prior?.body })
+            .catch((e: any) => this.logger.error(`Bridge lead open failed: ${e.message}`));
         }
       }
     }

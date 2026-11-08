@@ -40,15 +40,27 @@ stranger.
 
 ## Leads (read-only)
 
-An org with `enableBridgeLeadCapture` on turns strangers into Leads without
+An org with `enableBridgeLeadCapture` on turns ad enquiries into Leads without
 ever replying to them. CIEL's number takes enquiries off an Instagram ad, and
-**the ad sends the greeting** — this bridge still never sends anything.
+**the ad sends the intro** — this bridge still never sends anything.
 
-1. An unknown number writes → a Lead is opened, named by its phone number.
-   Nobody is notified: a bare number is not something a manager can act on.
+The trigger is **that intro going out**, not a stranger writing in. Suppliers,
+wrong numbers and the bank all write to a company phone; none of them are
+leads.
+
+1. AIMS sees the intro leave the line → a Lead is opened, named by the phone
+   number, keeping whatever the enquirer opened with (on a click-to-WhatsApp
+   ad, the pre-filled message) as its remarks. Nobody is notified yet: a bare
+   number is not something a manager can act on.
 2. Their next message names the lead (when it reads like a name rather than an
    enquiry) and releases the normal assign card to the org's notify number,
-   where a designer is picked exactly as for every other lead source.
+   where a designer is picked exactly as for every other lead source. That
+   reply always releases the lead, even when it is not a name.
+
+The intro text lives in the org's features as `bridgeLeadIntro`, so ad copy can
+change without a deploy; it falls back to "Hi! Please let us know how we can
+help you." Matching ignores case, spacing and smart quotes, but nothing else —
+a near-miss fails rather than opening a lead for the wrong person.
 
 Staff who have linked their number to AIMS are skipped — they are talking to
 the line, not enquiring.

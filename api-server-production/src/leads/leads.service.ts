@@ -1174,25 +1174,60 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
    *
    * CIEL's company number cannot be connected to the Cloud API at all, so its
    * conversations reach AIMS through the linked-device bridge — which never
-   * sends, and is staying that way. The greeting a new enquirer sees comes
-   * from the INSTAGRAM AD's own flow, not from us. AIMS only reads.
+   * sends, and is staying that way. Enquiries come from an Instagram ad, and
+   * the AD's own flow sends the intro. AIMS only reads.
    *
-   * That is why this is not captureFromWhatsApp: there, the first message
-   * carries the sender's WhatsApp profile name and the lead can go to Mike at
-   * once. Here there is no profile name, so the first message yields nothing
-   * but a phone number — and a bare number is not something Mike can act on.
-   * So the lead waits for ONE more message:
+   * What marks a conversation as an ENQUIRY is that intro going out. Not every
+   * stranger who writes to a company phone is a lead — suppliers, wrong
+   * numbers and the bank all write too, and each would otherwise land in
+   * Mike's list. So the trigger is the outbound intro, and only then:
    *
-   *   1st inbound   Lead created, name unknown, Mike NOT told yet.
-   *   2nd inbound   The name lands on the lead (when it reads like one) and
-   *                 the normal assign card goes to Mike, who taps a designer
-   *                 exactly as he does for every other lead source.
+   *   intro goes out   Lead opened, name unknown, Mike NOT told yet.
+   *   they write back  The name lands on the lead (when it reads like one)
+   *                    and the normal assign card goes to Mike, who taps a
+   *                    designer exactly as for every other lead source.
    *
-   * The second message ALWAYS releases the lead, even when it is not a name.
-   * Someone who answers "I want to redo my kitchen" is a real enquiry, and a
-   * lead that sits forever waiting for a well-formed name is worse than one
-   * that reaches Mike labelled by number.
+   * That reply ALWAYS releases the lead, even when it is not a name. Someone
+   * answering "I want to redo my kitchen" is a real enquiry, and a lead that
+   * sits forever waiting for a well-formed name is worse than one that
+   * reaches Mike labelled by number.
    */
+  private async openLead(organizationId: string, digits: string) {
+    return this.prisma.lead.findFirst({
+      where: { organizationId, phone: digits, status: { in: ['unqualified', 'engaging'] } },
+      orderBy: { receivedAt: 'desc' },
+    });
+  }
+
+  /** The intro has just gone out to this number: open the lead behind it. */
+  async openFromBridgeIntro(organizationId: string, phone: string, opts?: { firstMessage?: string | null }) {
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (!digits) return null;
+    if (await this.openLead(organizationId, digits)) return null; // already in the pipeline
+
+    const stamp = new Date().toLocaleString('en-SG', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    // Whatever they said BEFORE the intro is the enquiry itself — on a
+    // click-to-WhatsApp ad that is the pre-filled message. Losing it would
+    // throw away the only thing the lead has actually told us.
+    const first = (opts?.firstMessage || '').trim();
+    return this.prisma.lead.create({
+      data: {
+        organizationId,
+        source: 'whatsapp',
+        // The phone number IS the placeholder name — the same sentinel
+        // captureFromWhatsApp uses to mean "no real name yet".
+        name: digits,
+        phone: digits,
+        whatsappPhone: digits,
+        phoneVerified: true,
+        remarks: first.slice(0, 1000) || null,
+        notes: `[${stamp}] intro sent${first ? ` · they opened with: ${first}` : ''}`,
+        status: 'unqualified',
+      },
+    });
+  }
+
+  /** They wrote back. Name the waiting lead and put it in front of management. */
   async captureFromBridge(organizationId: string, msg: { phone: string; text?: string | null }) {
     const digits = String(msg.phone || '').replace(/\D/g, '');
     if (!digits) return null;
@@ -1200,29 +1235,10 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     const stamp = new Date().toLocaleString('en-SG', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
     const line = `[${stamp}] ${text || '(media)'}`;
 
-    const existing = await this.prisma.lead.findFirst({
-      where: { organizationId, phone: digits, status: { in: ['unqualified', 'engaging'] } },
-      orderBy: { receivedAt: 'desc' },
-    });
-
-    // First contact: record it and stop. Nothing goes to Mike yet.
-    if (!existing) {
-      return this.prisma.lead.create({
-        data: {
-          organizationId,
-          source: 'whatsapp',
-          // The phone number IS the placeholder name — the same sentinel
-          // captureFromWhatsApp uses to mean "no real name yet".
-          name: digits,
-          phone: digits,
-          whatsappPhone: digits,
-          phoneVerified: true,
-          remarks: text.slice(0, 1000) || null,
-          notes: line,
-          status: 'unqualified',
-        },
-      });
-    }
+    // No intro went out to this number, so this is not an ad enquiry. The
+    // message is still stored in CRM like any other; it just is not a lead.
+    const existing = await this.openLead(organizationId, digits);
+    if (!existing) return null;
 
     const notes = `${existing.notes ? existing.notes + '\n' : ''}${line}`.slice(-4000);
     // Already named, or already with a designer — just keep the transcript.
@@ -1230,7 +1246,6 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       return this.prisma.lead.update({ where: { id: existing.id }, data: { notes } });
     }
 
-    // The awaited second message.
     const name = nameFromReply(text);
     const updated = await this.prisma.lead.update({
       where: { id: existing.id },
