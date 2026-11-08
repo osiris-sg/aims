@@ -218,7 +218,7 @@ export class ProjectCostingService {
     });
     const voDocuments = voDocs.map((d) => {
       const c: any = d.config || {};
-      const sumL = (list: any[]) => (Array.isArray(list) ? list : []).reduce((x, l) => x + (l?.complimentary ? 0 : num(l?.amount)), 0);
+      const sumL = (list: any[]) => (Array.isArray(list) ? list : []).reduce((x, l) => x + (l?.complimentary || l?.struck ? 0 : num(l?.amount)), 0);
       return { id: d.id, name: d.name, status: d.status, additions: sumL(c?.vo?.additions), removals: sumL(c?.vo?.removals), net: sumL(c?.vo?.additions) - sumL(c?.vo?.removals), createdAt: d.createdAt };
     });
 
@@ -1745,7 +1745,7 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
     if (doc.status === 'confirmed') throw new BadRequestException('This variation order is already confirmed');
     const cfg: any = doc.config || {};
     const vo: any = cfg.vo || {};
-    const sumLines = (list: any[]) => (Array.isArray(list) ? list : []).reduce((x, l) => x + (l?.complimentary ? 0 : num(l?.amount)), 0);
+    const sumLines = (list: any[]) => (Array.isArray(list) ? list : []).reduce((x, l) => x + (l?.complimentary || l?.struck ? 0 : num(l?.amount)), 0);
     const additions = sumLines(vo.additions);
     const removals = sumLines(vo.removals);
     const net = additions - removals;
@@ -1843,7 +1843,7 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
         project: { select: { id: true, name: true, designer: true, address: true } },
       },
     });
-    const sumL = (list: any[]) => (Array.isArray(list) ? list : []).reduce((x, l) => x + (l?.complimentary ? 0 : num(l?.amount)), 0);
+    const sumL = (list: any[]) => (Array.isArray(list) ? list : []).reduce((x, l) => x + (l?.complimentary || l?.struck ? 0 : num(l?.amount)), 0);
     return {
       docs: docs.map((d) => {
         const c: any = d.config || {};

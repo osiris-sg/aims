@@ -16,7 +16,7 @@
  */
 import { escapeHtml, formatDate, money } from './shared';
 
-type VoLine = { description?: string; amount?: number | null; complimentary?: boolean; kind?: string; includes?: string[] };
+type VoLine = { description?: string; amount?: number | null; complimentary?: boolean; kind?: string; includes?: string[]; struck?: boolean };
 
 const CSS = `
 <style>
@@ -60,13 +60,16 @@ const CSS = `
 
 const isNum = (v: any): v is number => typeof v === 'number' && isFinite(v);
 const amt = (l: VoLine): string => (l.complimentary || !isNum(Number(l.amount)) || l.amount == null ? '<span class="word">Complimentary</span>' : money(Number(l.amount)));
-const sumLines = (list: VoLine[] | undefined): number => (Array.isArray(list) ? list : []).reduce((s, l) => s + (l.kind === 'area' || l.complimentary ? 0 : Number(l.amount) || 0), 0);
+// struck lines (withdrawn proposals) count in NO total — they only print,
+// struck through, under "Removal of Proposed Items".
+const sumLines = (list: VoLine[] | undefined): number => (Array.isArray(list) ? list : []).reduce((s, l) => s + (l.kind === 'area' || l.complimentary || l.struck ? 0 : Number(l.amount) || 0), 0);
 
 function linesTable(title: string, list: VoLine[] | undefined, subtotalLabel: string): string {
   // "area" rows are general-area headers like the main quote's sections
   // (LIVING ROOM…): bold band, no number, no amount; items number past them.
   let n = 0;
   const rows = (Array.isArray(list) ? list : [])
+    .filter((l) => !l.struck)
     .map((l) =>
       l.kind === 'area'
         ? `<tr><td class="no"></td><td colspan="2" style="font-weight:700;background:#f1f1f1;text-transform:uppercase;">${escapeHtml(l.description || '')}</td></tr>`
@@ -82,6 +85,31 @@ function linesTable(title: string, list: VoLine[] | undefined, subtotalLabel: st
     <tbody>
       ${rows || '<tr><td class="no"></td><td style="color:#888;font-style:italic;">None</td><td class="amt"></td></tr>'}
       <tr class="subtotal"><td></td><td class="lbl">${escapeHtml(subtotalLabel)}</td><td class="amt">${money(sumLines(list))}</td></tr>
+    </tbody>
+  </table>`;
+}
+
+/** Withdrawn proposals: struck lines print struck-through in their own block,
+ *  numbered on their own, amounts struck, nothing charged. */
+function struckTable(list: VoLine[] | undefined): string {
+  const struck = (Array.isArray(list) ? list : []).filter((l) => l.kind !== 'area' && l.struck);
+  if (!struck.length) return '';
+  let n = 0;
+  const rows = struck
+    .map(
+      (l) =>
+        `<tr style="color:#888;"><td class="no">${++n}</td><td><s>${escapeHtml(l.description || '')}</s>${(l.includes || [])
+          .filter((i) => String(i).trim())
+          .map((i) => `<div style="padding-left:14px;font-size:11px;"><s>* Includes ${escapeHtml(String(i).replace(/^\*?\s*includes\s*/i, ''))}</s></div>`)
+          .join('')}</td><td class="amt"><s>${l.complimentary || l.amount == null ? '' : money(Number(l.amount) || 0)}</s></td></tr>`,
+    )
+    .join('');
+  return `
+  <h2 class="grp">Removal of Proposed Items</h2>
+  <table class="lines">
+    <tbody>
+      ${rows}
+      <tr class="subtotal"><td></td><td class="lbl">Not charged</td><td class="amt">${money(0)}</td></tr>
     </tbody>
   </table>`;
 }
@@ -116,7 +144,7 @@ export function renderIdVoBody(data: any, organization: any): string {
     </div>
     <div>
       <div class="vo-title">VARIATION ORDER</div>
-      <div class="vo-no">${escapeHtml(data?.name || (data?.voNumber ? `VO${data.voNumber}` : ''))}${vo.confirmedAt ? ` · ${formatDate(vo.confirmedAt)}` : ''}</div>
+      <div class="vo-no">${escapeHtml(data?.name || (data?.voNumber ? `VO${data.voNumber}` : ''))}${vo.date ? ` · ${formatDate(vo.date)}` : vo.confirmedAt ? ` · ${formatDate(vo.confirmedAt)}` : ''}</div>
     </div>
   </div>`;
 
@@ -190,6 +218,7 @@ export function renderIdVoBody(data: any, organization: any): string {
     ${brand}
     ${top}
     ${linesTable('Additional Items', vo.additions, 'Subtotal')}
+    ${struckTable(vo.additions)}
     ${linesTable('Removal of Items', vo.removals, 'Subtotal')}
     <div class="panels">${schedule}${consolidation}</div>
     ${ack}

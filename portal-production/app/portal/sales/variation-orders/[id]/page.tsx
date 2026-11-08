@@ -137,7 +137,7 @@ export default function VariationOrderViewPage() {
           clientPhone={""}
           grandTotal={(() => {
             const vo = doc.config?.vo || {};
-            const s = (list: any[]) => (Array.isArray(list) ? list : []).reduce((n, l) => n + (l?.kind === "area" || l?.complimentary ? 0 : Number(l?.amount) || 0), 0);
+            const s = (list: any[]) => (Array.isArray(list) ? list : []).reduce((n, l) => n + (l?.kind === "area" || l?.complimentary || l?.struck ? 0 : Number(l?.amount) || 0), 0);
             return s(vo.additions) - s(vo.removals);
           })()}
           onClose={() => {

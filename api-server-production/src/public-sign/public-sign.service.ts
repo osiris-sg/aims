@@ -115,8 +115,8 @@ export class PublicSignService {
   /** VO line count + net (additions − removals, complimentary and area rows at 0). */
   private voStats(config: any): { lines: number; net: number } {
     const vo: any = config?.vo || {};
-    const real = (list: any[]) => (Array.isArray(list) ? list : []).filter((l) => l && l.kind !== 'area');
-    const sumOf = (list: any[]) => real(list).reduce((s, l) => s + (l.complimentary ? 0 : Number(l.amount) || 0), 0);
+    const real = (list: any[]) => (Array.isArray(list) ? list : []).filter((l) => l && l.kind !== 'area' && !l.struck);
+    const sumOf = (list: any[]) => real(list).reduce((s, l) => s + (l.complimentary ? 0 : Number(l.amount) || 0), 0); // struck already filtered by real()
     return { lines: real(vo.additions).length + real(vo.removals).length, net: sumOf(vo.additions) - sumOf(vo.removals) };
   }
 

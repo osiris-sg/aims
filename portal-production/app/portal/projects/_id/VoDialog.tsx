@@ -15,6 +15,7 @@ import {
 import AddIcon from "@mui/icons-material/Add";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
+import StrikethroughSIcon from "@mui/icons-material/StrikethroughS";
 import PrintIcon from "@mui/icons-material/PrintOutlined";
 import CheckCircleIcon from "@mui/icons-material/CheckCircleOutline";
 import DrawIcon from "@mui/icons-material/DrawOutlined";
@@ -25,9 +26,12 @@ import SignLinkDialog from "@/app/portal/sales/quotations/id/_components/SignLin
 
 // kind "area" = a general-area header row like the main quote's sections
 // (LIVING ROOM, KITCHEN…): no number, no amount, prints as a bold band.
-type VoLine = { id: string; description: string; amount: number | null; complimentary: boolean; kind?: "line" | "area"; includes?: string[] };
+// struck = a proposed addition the client decided against (guru 2026-11-08):
+// stays on the sheet struck through under "Removal of Proposed Items", counts
+// in no total.
+type VoLine = { id: string; description: string; amount: number | null; complimentary: boolean; kind?: "line" | "area"; includes?: string[]; struck?: boolean };
 const newId = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-const sum = (list: VoLine[]) => list.reduce((s, l) => s + (l.kind === "area" || l.complimentary ? 0 : Number(l.amount) || 0), 0);
+const sum = (list: VoLine[]) => list.reduce((s, l) => s + (l.kind === "area" || l.complimentary || l.struck ? 0 : Number(l.amount) || 0), 0);
 
 /** Lets decimals be typed freely: string draft while focused, number committed live. */
 function VoAmountField({ value, disabled, onCommit, placeholder }: { value: number | null; disabled?: boolean; onCommit: (n: number | null) => void; placeholder?: string }) {
@@ -51,7 +55,7 @@ function VoAmountField({ value, disabled, onCommit, placeholder }: { value: numb
   );
 }
 
-function LineList({ title, lines, readOnly, onChange }: { title: string; lines: VoLine[]; readOnly: boolean; onChange: (next: VoLine[]) => void }) {
+function LineList({ title, lines, readOnly, onChange, allowStrike }: { title: string; lines: VoLine[]; readOnly: boolean; onChange: (next: VoLine[]) => void; allowStrike?: boolean }) {
   // Reorder by dragging the six-dot handle onto another row (drops ABOVE it),
   // same gesture as the quotation editor (guru 2026-10-10).
   const [dragId, setDragId] = useState<string | null>(null);
@@ -138,7 +142,18 @@ function LineList({ title, lines, readOnly, onChange }: { title: string; lines: 
                 />
               ) : (
                 <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <TextField size="small" fullWidth multiline minRows={1} placeholder="Describe the change…" value={l.description} disabled={readOnly} onChange={(e) => onChange(lines.map((x) => (x.id === l.id ? { ...x, description: e.target.value } : x)))} />
+                  <TextField
+                    size="small"
+                    fullWidth
+                    multiline
+                    minRows={1}
+                    placeholder="Describe the change…"
+                    value={l.description}
+                    disabled={readOnly}
+                    onChange={(e) => onChange(lines.map((x) => (x.id === l.id ? { ...x, description: e.target.value } : x)))}
+                    inputProps={l.struck ? { style: { textDecoration: "line-through" } } : undefined}
+                    sx={l.struck ? { "& .MuiInputBase-input": { color: "text.disabled" } } : undefined}
+                  />
                   {/* "Includes …" sub-lines, like the main quotation's items
                       (Mike 2026-11-07: e.g. "* Includes 25ft cove light"). */}
                   {(l.includes || []).map((inc, ii) => (
@@ -168,10 +183,22 @@ function LineList({ title, lines, readOnly, onChange }: { title: string; lines: 
                   )}
                 </Box>
               )}
-              {!isArea && <VoAmountField placeholder="0.00" value={l.complimentary ? null : l.amount ?? null} disabled={readOnly || l.complimentary} onCommit={(n) => onChange(lines.map((x) => (x.id === l.id ? { ...x, amount: n } : x)))} />}
+              {!isArea && <VoAmountField placeholder="0.00" value={l.complimentary ? null : l.amount ?? null} disabled={readOnly || l.complimentary || l.struck} onCommit={(n) => onChange(lines.map((x) => (x.id === l.id ? { ...x, amount: n } : x)))} />}
               {!isArea && (
                 <Tooltip title="Complimentary (no charge)">
-                  <Checkbox size="small" checked={l.complimentary} disabled={readOnly} onChange={(e) => onChange(lines.map((x) => (x.id === l.id ? { ...x, complimentary: e.target.checked, amount: e.target.checked ? null : x.amount } : x)))} sx={{ mt: 0.25 }} />
+                  <Checkbox size="small" checked={l.complimentary} disabled={readOnly || l.struck} onChange={(e) => onChange(lines.map((x) => (x.id === l.id ? { ...x, complimentary: e.target.checked, amount: e.target.checked ? null : x.amount } : x)))} sx={{ mt: 0.25 }} />
+                </Tooltip>
+              )}
+              {!isArea && allowStrike && (
+                <Tooltip title={l.struck ? "Restore this proposed item" : "Strike through — client dropped this proposed item (prints under Removal of Proposed Items, charges nothing)"}>
+                  <IconButton
+                    size="small"
+                    disabled={readOnly}
+                    onClick={() => onChange(lines.map((x) => (x.id === l.id ? { ...x, struck: !x.struck } : x)))}
+                    sx={{ mt: 0.25, color: l.struck ? "warning.main" : "text.disabled" }}
+                  >
+                    <StrikethroughSIcon fontSize="small" />
+                  </IconButton>
                 </Tooltip>
               )}
               {!readOnly && (
@@ -208,6 +235,7 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
   const [removals, setRemovals] = useState<VoLine[]>([]);
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [voDate, setVoDate] = useState("");
   // "Send homeowner the link to sign" (Mike 2026-11-07): the client signs the
   // VO on the same e-sign page as the quotation; signing confirms it.
   const [signOpen, setSignOpen] = useState(false);
@@ -219,9 +247,12 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
       .getDocument(docId)
       .then((d) => {
         setDoc(d);
-        const norm = (list: any[]): VoLine[] => (Array.isArray(list) ? list : []).map((l) => ({ id: l.id || newId(), description: l.description || "", amount: l.amount ?? null, complimentary: !!l.complimentary, kind: l.kind === "area" ? "area" : "line", includes: Array.isArray(l.includes) ? l.includes.map(String) : [] }));
+        const norm = (list: any[]): VoLine[] => (Array.isArray(list) ? list : []).map((l) => ({ id: l.id || newId(), description: l.description || "", amount: l.amount ?? null, complimentary: !!l.complimentary, kind: l.kind === "area" ? "area" : "line", includes: Array.isArray(l.includes) ? l.includes.map(String) : [], struck: !!l.struck }));
         setAdditions(norm(d?.config?.vo?.additions));
         setRemovals(norm(d?.config?.vo?.removals));
+        // VO date (guru 2026-11-08: "let them edit the date") — defaults to the
+        // day the VO was created; printed next to the VO number on the sheet.
+        setVoDate((d?.config?.vo?.date || d?.createdAt || new Date().toISOString()).slice(0, 10));
         setDirty(false);
       })
       .catch((e) => toast.error(e.message || "Failed to load VO"));
@@ -244,10 +275,10 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
 
   const buildConfig = useCallback(() => ({
     ...(doc?.config || {}),
-    vo: { ...(doc?.config?.vo || {}), additions, removals },
+    vo: { ...(doc?.config?.vo || {}), additions, removals, date: voDate || undefined },
     consolidation: cons,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [doc, additions, removals, addTotal, remTotal]);
+  }), [doc, additions, removals, addTotal, remTotal, voDate]);
 
   const save = async (): Promise<boolean> => {
     if (!doc) return false;
@@ -264,7 +295,7 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
 
   const confirm = async () => {
     if (!doc) return;
-    if (!additions.some((l) => l.kind !== "area") && !removals.some((l) => l.kind !== "area")) {
+    if (!additions.some((l) => l.kind !== "area" && !l.struck) && !removals.some((l) => l.kind !== "area")) {
       toast.warn("Add at least one line before confirming");
       return;
     }
@@ -284,7 +315,7 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
 
   const sendForSignature = async () => {
     if (!doc) return;
-    if (!additions.some((l) => l.kind !== "area") && !removals.some((l) => l.kind !== "area")) {
+    if (!additions.some((l) => l.kind !== "area" && !l.struck) && !removals.some((l) => l.kind !== "area")) {
       toast.warn("Add at least one line before sending for signature");
       return;
     }
@@ -327,6 +358,22 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
       <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
         {doc?.name || "Variation order"}
         {readOnly && <Chip size="small" color="primary" variant="outlined" label="Confirmed" />}
+        {doc && (
+          <TextField
+            type="date"
+            size="small"
+            label="VO date"
+            value={voDate}
+            disabled={readOnly}
+            onChange={(e) => {
+              if (!e.target.value) return;
+              setVoDate(e.target.value);
+              setDirty(true);
+            }}
+            InputLabelProps={{ shrink: true }}
+            sx={{ ml: 1, width: 160, "& input": { py: 0.6, fontSize: 13 } }}
+          />
+        )}
         <Box sx={{ flex: 1 }} />
         <Button size="small" variant="outlined" startIcon={<PrintIcon />} onClick={print} sx={{ textTransform: "none" }}>
           Print / PDF
@@ -375,7 +422,7 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
                   Confirmed VOs are locked — {isDirector ? "revert to draft to edit, or" : ""} raise another VO for further changes.
                 </Alert>
               )}
-              <LineList title="Additional Items" lines={additions} readOnly={readOnly} onChange={(n) => { setAdditions(n); setDirty(true); }} />
+              <LineList title="Additional Items" lines={additions} readOnly={readOnly} allowStrike onChange={(n) => { setAdditions(n); setDirty(true); }} />
               <LineList title="Removal of Items" lines={removals} readOnly={readOnly} onChange={(n) => { setRemovals(n); setDirty(true); }} />
             </Box>
             <Box>
