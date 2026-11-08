@@ -367,6 +367,15 @@ const theme = createTheme({
             background: `linear-gradient(135deg, #C8DAF8 0%, ${tokens.primary} 100%)`,
             boxShadow: `0 8px 24px ${alpha(tokens.primary, 0.35)}`,
           },
+          // MUI's disabled rule only resets background-COLOR, so the gradient
+          // (a background-image) used to stay lit under grey text — every
+          // not-yet-valid submit button read as a washed-out lilac block
+          // (guru 2026-11-08). Dim it like any other disabled control.
+          "&.Mui-disabled": {
+            background: alpha(tokens.onSurface, 0.12),
+            color: alpha(tokens.onSurface, 0.38),
+            boxShadow: "none",
+          },
         },
         outlined: {
           borderColor: alpha(tokens.outlineVariant, 0.6),

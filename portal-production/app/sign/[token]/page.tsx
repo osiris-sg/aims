@@ -12,6 +12,7 @@ import { Alert, Box, Button, Checkbox, CircularProgress, Container, FormControlL
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DownloadIcon from "@mui/icons-material/Download";
 import SignatureCanvas from "react-signature-canvas";
+import LightPageTheme from "@/components/LightPageTheme";
 import { ToggleButton, ToggleButtonGroup } from "@mui/material";
 
 // The document itself re-renders server-side per language; these are the few
@@ -191,6 +192,7 @@ export default function PublicSignPage() {
   };
 
   const shell = (children: React.ReactNode) => (
+    <LightPageTheme>
     <Box sx={{ minHeight: "100vh", bgcolor: "#f3f4f6", color: "#111", py: { xs: 2, md: 5 } }}>
       {/* The portal paints <body> with var(--surface) — near-black in dark mode.
           A client-facing link is a single light document, so pin the CANVAS
@@ -200,6 +202,7 @@ export default function PublicSignPage() {
       <GlobalStyles styles={{ "html, body": { backgroundColor: "#f3f4f6 !important", colorScheme: "light" } }} />
       <Container maxWidth="lg">{children}</Container>
     </Box>
+    </LightPageTheme>
   );
 
   if (error && !data) return shell(<Alert severity="error">{error}</Alert>);

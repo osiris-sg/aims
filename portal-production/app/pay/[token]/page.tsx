@@ -10,6 +10,7 @@ import { useParams } from "next/navigation";
 import {
   Accordion, AccordionDetails, AccordionSummary, Box, Chip, CircularProgress, Paper, Stack, Typography, GlobalStyles } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import LightPageTheme from "@/components/LightPageTheme";
 
 const fmt = (n: number) =>
   (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -32,7 +33,7 @@ type Payload = {
   pdfUrl: string | null;
 };
 
-export default function PublicPayPage() {
+function PublicPayPageInner() {
   const params = useParams();
   const token = String(params?.token || "");
   const [data, setData] = useState<Payload | null>(null);
@@ -200,5 +201,15 @@ export default function PublicPayPage() {
         </Box>
       </Box>
     </Box>
+  );
+}
+
+// Public page: always the light theme, whatever the viewer's portal/browser
+// mode (see components/LightPageTheme.tsx).
+export default function PublicPayPage() {
+  return (
+    <LightPageTheme>
+      <PublicPayPageInner />
+    </LightPageTheme>
   );
 }

@@ -20,10 +20,11 @@ import React, { useRef, useState } from "react";
 import { Alert, Box, Button, Container, Paper, Stack, TextField, Typography } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircleOutline";
 import SignaturePadField, { SignaturePadHandle } from "@/components/delivery/SignaturePadField";
+import LightPageTheme from "@/components/LightPageTheme";
 
 const MAX_COMMENT = 1000;
 
-export default function TempSignaturePage() {
+function TempSignaturePageInner() {
   const base = process.env.NEXT_PUBLIC_BACKEND_API_URL;
   const sigRef = useRef<SignaturePadHandle>(null);
 
@@ -156,5 +157,15 @@ export default function TempSignaturePage() {
         </Paper>
       </Container>
     </Box>
+  );
+}
+
+// Public page: always the light theme, whatever the viewer's portal/browser
+// mode (see components/LightPageTheme.tsx).
+export default function TempSignaturePage() {
+  return (
+    <LightPageTheme>
+      <TempSignaturePageInner />
+    </LightPageTheme>
   );
 }
