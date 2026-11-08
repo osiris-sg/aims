@@ -284,10 +284,10 @@ client.on('message_create', async (msg) => {
     // a burst of e2e key notices, each of which was landing in CRM as a
     // message from a stranger — 43 such rows on CIEL before this (guru
     // 2026-11-08). Only real chat types are relayed.
-    // notification_template is the Instagram ad's first contact - relayed so
-    // AIMS can open the lead flow (it answers with the name-ask autoReply).
-    const msgType = String(msg.type || 'chat');
-    if (!RELAYED_TYPES.has(msgType) && msgType !== 'notification_template') return;
+    // (The notification_template exception is GONE — incident 2026-11-08: that
+    // type is WhatsApp's own e2e housekeeping, bursting for existing chats on
+    // every relink. The lead flow now rides the intro going OUT.)
+    if (!RELAYED_TYPES.has(String(msg.type || 'chat'))) return;
 
     const groupId = chatId.endsWith('@g.us') ? chatId : toId.endsWith('@g.us') ? toId : null;
     // GROUPS are opt-in, one at a time. This bridge lives on a company phone
@@ -350,10 +350,12 @@ client.on('message_create', async (msg) => {
     // line had never once printed (guru 2026-11-08: the log looked dead while
     // the relay was in fact working).
     const stored = (res && res.data ? res.data : res) || {};
-    // AIMS decided this 1:1 inbound deserves an automated reply (lead flow).
-    if (stored.autoReply && !groupId && !msg.fromMe) {
+    // AIMS decided this 1:1 message deserves an automated reply (lead flow —
+    // e.g. the name-ask that follows the ad's own intro going out).
+    if (stored.autoReply && !groupId) {
+      const replyTo = msg.fromMe ? toId : chatId;
       try {
-        await client.sendMessage(chatId, String(stored.autoReply));
+        await client.sendMessage(replyTo, String(stored.autoReply));
         console.log('auto-replied to ' + counterparty + ': ' + String(stored.autoReply).slice(0, 60));
       } catch (e) {
         console.error('auto-reply failed:', e && e.message ? e.message : e);

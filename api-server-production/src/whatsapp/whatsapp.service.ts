@@ -1475,61 +1475,20 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       if (await isOrgFeatureEnabled(this.prisma, args.organizationId, BRIDGE_LEAD_CAPTURE_FLAG).catch(() => false)) {
         const staff = await this.operatorAuth.isLinked('whatsapp', counterparty).catch(() => false);
         if (!staff) {
-          // The ad's first contact arrives as a notification_template with no
-          // typed text (guru 2026-11-08) → the bridge asks how to address
-          // them. ⚠ INCIDENT GUARDS (2026-11-08, same evening): WhatsApp also
-          // emits notification_template as ENCRYPTION HOUSEKEEPING for every
-          // existing chat when a device relinks — ten strangers got greeted in
-          // four seconds. The ask therefore fires ONLY when ALL of these hold:
-          //  1. the notice is FRESH (a relink replays an old backlog),
-          //  2. the AD INTRO actually went out to this number — an open,
-          //     still-unnamed lead from openFromBridgeIntro exists (nobody
-          //     else gets greeted, however many notices arrive),
-          //  3. it was never asked of this number before, and
-          //  4. an org-wide circuit breaker: at most 3 asks per 10 minutes.
-          if (String(args.payload?.type || '') === 'notification_template') {
-            const sentAt = args.sentAt ? new Date(args.sentAt).getTime() : Date.now();
-            const fresh = isFinite(sentAt) && Date.now() - sentAt < 10 * 60_000;
-            const adLead = fresh
-              ? await this.prisma.lead.findFirst({
-                  where: {
-                    organizationId: args.organizationId,
-                    phone: counterparty,
-                    status: { in: ['unqualified', 'engaging'] },
-                    receivedAt: { gte: new Date(Date.now() - 48 * 3600_000) },
-                  },
-                  orderBy: { receivedAt: 'desc' },
-                  select: { id: true, name: true, phone: true },
-                })
-              : null;
-            if (adLead && adLead.name === adLead.phone) {
-              const ask =
-                (await orgFeatureText(this.prisma, args.organizationId, BRIDGE_LEAD_ASK_NAME_KEY).catch(() => null)) ||
-                BRIDGE_LEAD_ASK_NAME_DEFAULT;
-              const [already, recentAsks] = await Promise.all([
-                this.prisma.whatsAppMessage.findFirst({
-                  where: { organizationId: args.organizationId, counterparty, direction: 'OUTBOUND', body: ask },
-                  select: { id: true },
-                }),
-                this.prisma.whatsAppMessage.count({
-                  where: { organizationId: args.organizationId, direction: 'OUTBOUND', body: ask, createdAt: { gte: new Date(Date.now() - 10 * 60_000) } },
-                }),
-              ]);
-              if (!already && recentAsks < 3) autoReply = ask;
-              else if (recentAsks >= 3) this.logger.warn(`Bridge ask circuit breaker tripped for org ${args.organizationId} (${recentAsks} asks in 10 min)`);
-            }
-          } else {
-            const captured: any = await this.leads
-              .captureFromBridge(args.organizationId, { phone: counterparty, text: args.body })
-              .catch((e: any) => this.logger.error(`Bridge lead capture failed: ${e.message}`));
-            // They just told us their name → confirm and hand over (the lead
-            // was assigned inside captureFromBridge).
-            if (captured?.justNamed && captured?.name) {
-              const confirmTpl =
-                (await orgFeatureText(this.prisma, args.organizationId, BRIDGE_LEAD_CONFIRM_KEY).catch(() => null)) ||
-                BRIDGE_LEAD_CONFIRM_DEFAULT;
-              autoReply = confirmTpl.replace(/\{name\}/g, captured.name);
-            }
+          // (The notification_template trigger is GONE — incident 2026-11-08:
+          // WhatsApp emits that type as encryption housekeeping for existing
+          // chats on every relink, and ten strangers got greeted. The name-ask
+          // now rides the INTRO going out — see the OUTBOUND branch below.)
+          const captured: any = await this.leads
+            .captureFromBridge(args.organizationId, { phone: counterparty, text: args.body })
+            .catch((e: any) => this.logger.error(`Bridge lead capture failed: ${e.message}`));
+          // They just told us their name → confirm and hand over (the lead
+          // was assigned inside captureFromBridge).
+          if (captured?.justNamed && captured?.name) {
+            const confirmTpl =
+              (await orgFeatureText(this.prisma, args.organizationId, BRIDGE_LEAD_CONFIRM_KEY).catch(() => null)) ||
+              BRIDGE_LEAD_CONFIRM_DEFAULT;
+            autoReply = confirmTpl.replace(/\{name\}/g, captured.name);
           }
         }
       }
@@ -1551,9 +1510,36 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             orderBy: { createdAt: 'desc' },
             select: { body: true },
           });
-          await this.leads
+          const opened = await this.leads
             .openFromBridgeIntro(args.organizationId, counterparty, { firstMessage: prior?.body })
-            .catch((e: any) => this.logger.error(`Bridge lead open failed: ${e.message}`));
+            .catch((e: any) => {
+              this.logger.error(`Bridge lead open failed: ${e.message}`);
+              return null;
+            });
+          // Ask for the name right after the ad's intro (guru 2026-11-08).
+          // Guards, in incident order: the intro must be FRESH (a relink
+          // replays old outbound messages), must have actually OPENED a lead
+          // (openFromBridgeIntro returns null when one is already in the
+          // pipeline), one ask per number ever, and at most 3 asks per 10
+          // minutes org-wide.
+          const sentAtMs = args.sentAt ? new Date(args.sentAt).getTime() : Date.now();
+          const fresh = isFinite(sentAtMs) && Date.now() - sentAtMs < 10 * 60_000;
+          if (opened && fresh) {
+            const ask =
+              (await orgFeatureText(this.prisma, args.organizationId, BRIDGE_LEAD_ASK_NAME_KEY).catch(() => null)) ||
+              BRIDGE_LEAD_ASK_NAME_DEFAULT;
+            const [already, recentAsks] = await Promise.all([
+              this.prisma.whatsAppMessage.findFirst({
+                where: { organizationId: args.organizationId, counterparty, direction: 'OUTBOUND', body: ask },
+                select: { id: true },
+              }),
+              this.prisma.whatsAppMessage.count({
+                where: { organizationId: args.organizationId, direction: 'OUTBOUND', body: ask, createdAt: { gte: new Date(Date.now() - 10 * 60_000) } },
+              }),
+            ]);
+            if (!already && recentAsks < 3) autoReply = ask;
+            else if (recentAsks >= 3) this.logger.warn(`Bridge ask circuit breaker tripped for org ${args.organizationId}`);
+          }
         }
       }
     }
