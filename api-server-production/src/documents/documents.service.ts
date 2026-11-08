@@ -7468,25 +7468,7 @@ export class DocumentsService {
           });
           if (!document) return undefined;
           const config: any = document.config || {};
-          // ID quotation "Prepared by" title: the PREPARER's actual role, not a
-    // hardcoded Director (guru 2026-10-20 — Ryann is Designer-only). Resolved
-    // live so a promotion shows without editing old documents.
-    const preparerId = config.quote?.header?.designerUserId || config.designerUserId;
-    if (config.quote && preparerId) {
-      try {
-        const roles = await this.prisma.userRole.findMany({
-          where: { userId: preparerId, organizationId, isActive: true },
-          select: { role: { select: { name: true } } },
-        });
-        if (roles.length) {
-          const tier = tierOfRoleNames(roles.map((r) => r.role.name));
-          config.quote.header.designerTitle =
-            tier === 'master' ? 'Director' : tier === 'senior' ? 'Senior Manager' : tier === 'junior' ? 'Junior Manager' : 'Designer';
-        }
-      } catch {
-        /* keep the default title */
-      }
-    }
+          await this.stampPreparerTitle(config, organizationId);
     const documentInfo = config.documentInfo || { documentNumber: document.name };
           const items: any[] = Array.isArray(config.items) ? config.items : [];
           const dueDate = config.dueDate ? moment(config.dueDate).format('DD MMM YYYY') : undefined;
@@ -7788,6 +7770,32 @@ export class DocumentsService {
 
   // ── Print HTML (shared by the on-screen preview and the server PDF) ──────
   /**
+   * ID quotation "Prepared by" title: the PREPARER's actual role, never a
+   * hardcoded Director (guru 2026-10-20 — Ryann is Designer-only; re-raised
+   * 2026-11-08 because only the emailed-PDF path resolved it while the HTML
+   * render path — editor preview, print, view pages, sign link — kept showing
+   * Director). Resolved live so a promotion shows without editing old
+   * documents.
+   */
+  private async stampPreparerTitle(config: any, organizationId: string) {
+    const preparerId = config?.quote?.header?.designerUserId || config?.designerUserId;
+    if (!config?.quote || !preparerId) return;
+    try {
+      const roles = await this.prisma.userRole.findMany({
+        where: { userId: preparerId, organizationId, isActive: true },
+        select: { role: { select: { name: true } } },
+      });
+      if (roles.length) {
+        const tier = tierOfRoleNames(roles.map((r) => r.role.name));
+        config.quote.header.designerTitle =
+          tier === 'master' ? 'Director' : tier === 'senior' ? 'Senior Manager' : tier === 'junior' ? 'Junior Manager' : 'Designer';
+      }
+    } catch {
+      /* keep the saved/default title */
+    }
+  }
+
+  /**
    * Build the same data bag the emailed-PDF path uses and run it through the
    * document renderer. Used by GET /documents/:id/html so the ID quotation
    * editor's preview iframe shows exactly what the PDF will contain.
@@ -7799,6 +7807,7 @@ export class DocumentsService {
     });
     if (!document) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
     const config: any = document.config || {};
+    await this.stampPreparerTitle(config, organizationId);
     // VO sheet: the payment-schedule panel must show TODAY's collection state,
     // not the confirm-time snapshot (guru 2026-10-10: a partial payment after
     // confirmation still printed as the full amount PENDING). Quantum figures
