@@ -762,6 +762,47 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
   }
 
   /**
+   * Monthly payables reminders (guru 2026-11-08): every 25th at 09:00 SGT the
+   * org's notify number gets two nudges — "send in ALL supplier invoices" and
+   * "make payment to suppliers". Only orgs running the Monthly Payables tally
+   * (enablePayables). Dedicated utility templates land outside the 24h
+   * window; sendUtilityTemplate falls back to the generic notify template
+   * while they await Meta approval. Lives here with the other scheduled
+   * WhatsApp nudges (keep-alive, contact nudge) to reuse the line + template
+   * plumbing. 01:00 UTC = 09:00 SGT.
+   */
+  @Cron('0 1 25 * *')
+  async payablesRemindersCron() {
+    const { isOrgFeatureEnabled } = await import('../common/org-features');
+    const configs = await this.prisma.whatsAppAgentConfig.findMany({ where: { notifyNumber: { not: null } } });
+    for (const cfg of configs) {
+      try {
+        if (!(await isOrgFeatureEnabled(this.prisma, cfg.organizationId, 'enablePayables'))) continue;
+        const line = await this.agentLine(cfg.organizationId);
+        const to = String((cfg as any).notifyNumber || '').replace(/\D/g, '');
+        if (!line || !to) continue;
+        await this.sendUtilityTemplate(
+          line,
+          to,
+          'supplier_invoices_reminder',
+          [],
+          "Reminder from AIMS: please send in ALL supplier invoices for this month's payment run — post them in the bills group or add them on the Monthly Payables page.",
+        );
+        await this.sendUtilityTemplate(
+          line,
+          to,
+          'supplier_payment_reminder',
+          [],
+          "Reminder from AIMS: please make payment to suppliers — this month's tally with the amounts due is ready on the Monthly Payables page.",
+        );
+        this.actionLog.system('payables-reminders', 'SEND', 'whatsapp', { organizationId: cfg.organizationId, details: { to, detail: '25th-of-month supplier invoice + payment reminders' } });
+      } catch (e) {
+        this.logger.warn(`payables reminders for org ${cfg.organizationId} failed: ${(e as Error).message}`);
+      }
+    }
+  }
+
+  /**
    * 3-hourly "reply the lead" nudge (guru 2026-10-03): a lead assigned to a
    * designer who has NOT contacted it on WhatsApp yet gets re-pinged to that
    * designer every 3h until first contact (firstContactedAt, stamped by
