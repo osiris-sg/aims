@@ -24,6 +24,7 @@ import GuideHost from "./components/GuideAssistant/GuideHost";
 import AimeeDockHost from "./shipments/_components/aimee/AimeeDockHost";
 import TopNavBar from "@/components/TopNav/TopNavBar";
 import RoleTopBar from "./components/RoleHome/RoleTopBar";
+import EnterAdvanceHost from "./components/EnterAdvanceHost";
 import { useOrganizationFeatures } from "./hooks/useOrganizationFeatures";
 
 interface Props {
@@ -128,6 +129,8 @@ export default function Layout(props: Props) {
               {!embed && <GuideHost />}
               {/* Round BL: the AIMEE side panel — orgs with the SHIPMENTS module and AIMEE on only (renders nothing elsewhere). */}
               {!embed && <AimeeDockHost />}
+              {/* Enter walks forms field by field, like the legacy accounting software (guru 2026-11-08). */}
+              <EnterAdvanceHost />
               <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable pauseOnHover theme={mode} />
             </Box>
             </OrgTheme>

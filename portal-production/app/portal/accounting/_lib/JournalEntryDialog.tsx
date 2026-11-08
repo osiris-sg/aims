@@ -31,6 +31,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./api";
 import { todayIso } from "@/helpers/orgToday";
+import { enterScopeProps } from "@/helpers/enterAdvance";
 
 type Account = {
   id: string;
@@ -209,7 +210,7 @@ export default function JournalEntryDialog({
         </Stack>
       </DialogTitle>
 
-      <DialogContent dividers>
+      <DialogContent dividers {...enterScopeProps}>
         {/* Header fields */}
         <Box
           sx={{
@@ -287,6 +288,9 @@ export default function JournalEntryDialog({
                     <TableCell sx={{ color: "text.secondary" }}>{i + 1}</TableCell>
                     <TableCell>
                       <Autocomplete
+                        // Type a few letters, Enter picks the first match, Enter again
+                        // moves on (legacy keying, guru 2026-11-08).
+                        autoHighlight
                         size="small"
                         options={accounts}
                         value={selectedAccount}

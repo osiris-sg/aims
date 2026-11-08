@@ -123,6 +123,7 @@ import { useAuth, useUser } from "@clerk/nextjs";
 import { useReactToPrint } from "react-to-print";
 import { installPrintFit } from "@/lib/printScale";
 import { request } from "@/helpers/request";
+import { enterScopeProps } from "@/helpers/enterAdvance";
 import { uploadImage } from "@/helpers/imageUploader";
 import AddAPhotoIcon from "@mui/icons-material/AddAPhoto";
 import BorderColorIcon from "@mui/icons-material/BorderColor";
@@ -4958,7 +4959,12 @@ export default function TabbedDocumentCreator({
           // Phone: minWidth 0 lets this column shrink to the viewport — with the
           // flex default (min-width:auto) the items grid's 720px min-content
           // blew the whole editor out to ~754px wide.
-          <Box sx={{ flex: 1, minWidth: 0, overflow: "visible", position: "relative", display: "flex", flexDirection: "column" }}>
+          <Box
+            // Enter walks the form like the legacy software: next field, not
+            // Tab (guru 2026-11-08). Covers the header rows and the body grid.
+            {...enterScopeProps}
+            sx={{ flex: 1, minWidth: 0, overflow: "visible", position: "relative", display: "flex", flexDirection: "column" }}
+          >
             {/* Template Settings Toggle Button */}
             {isTemplateEditMode && (
               <IconButton

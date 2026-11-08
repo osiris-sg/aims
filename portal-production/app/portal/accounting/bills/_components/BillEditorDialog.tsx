@@ -48,6 +48,7 @@ import QuotationPicker from "./QuotationPicker";
 import { lineTagOf, type QuotationTag } from "@/helpers/sinQuotation";
 import PostingPreviewDialog, { PreviewResult } from "@/components/PostingPreviewDialog";
 import { todayIso } from "@/helpers/orgToday";
+import { enterScopeProps } from "@/helpers/enterAdvance";
 
 // ---------------------------------------------------------------------------
 // Create / view bill. Three entry paths:
@@ -964,7 +965,7 @@ export default function BillEditorDialog({
         </Stack>
       </DialogTitle>
 
-      <DialogContent dividers sx={{ position: "relative" }}>
+      <DialogContent dividers {...enterScopeProps} sx={{ position: "relative" }}>
         {/* While the currently-viewed batch item is still extracting, veil the
             form — its snapshot loads in the moment extraction lands. */}
         {(currentExtracting || flushing) && (
@@ -1074,6 +1075,7 @@ export default function BillEditorDialog({
           }}
         >
           <Autocomplete
+            autoHighlight
             size="small"
             options={suppliers}
             value={suppliers.find((s) => s.id === supplierId) || null}
@@ -1214,6 +1216,7 @@ export default function BillEditorDialog({
                   </TableCell>
                   <TableCell>
                     <Autocomplete
+                      autoHighlight
                       size="small"
                       // Grouped by account type (Fixed Assets, Expenses, …) —
                       // options pre-sorted so each group renders contiguously.

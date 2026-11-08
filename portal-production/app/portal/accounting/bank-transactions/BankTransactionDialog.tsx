@@ -37,6 +37,7 @@ import { accountTypeLabel, sortAccountsByType } from "@/components/glAccountGrou
 import AttachmentUploader, { Attachment } from "@/components/AttachmentUploader";
 import { useAccountingApi } from "../_lib/api";
 import { todayIso } from "@/helpers/orgToday";
+import { enterScopeProps } from "@/helpers/enterAdvance";
 
 export type BankTransactionKind = "SPEND" | "RECEIVE";
 export const KIND_LABEL: Record<BankTransactionKind, string> = { SPEND: "Spend Money", RECEIVE: "Receive Money" };
@@ -262,7 +263,7 @@ export default function BankTransactionDialog({
           <CloseIcon fontSize="small" />
         </IconButton>
       </DialogTitle>
-      <DialogContent dividers sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <DialogContent dividers {...enterScopeProps} sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
         <Typography variant="body2" sx={{ color: "text.secondary" }}>
           {isSpend
             ? "Money paid straight from the bank with no supplier invoice — posts Dr the line accounts (and input GST) / Cr the bank."
@@ -369,6 +370,7 @@ export default function BankTransactionDialog({
                   </TableCell>
                   <TableCell>
                     <Autocomplete
+                      autoHighlight
                       size="small"
                       options={lineAccounts}
                       groupBy={(o) => accountTypeLabel(o.accountType)}
