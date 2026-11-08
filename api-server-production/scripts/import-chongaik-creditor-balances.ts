@@ -71,7 +71,7 @@ function pickBills(bills: any[], target: number): any[] | null {
   console.log(`  owed (→ AP): ${owed.length} suppliers, ${R(-owed.reduce((t, r) => t + r.amount, 0)).toLocaleString()} · debit balances (skipped): ${debit.length} suppliers, ${R(debit.reduce((t, r) => t + r.amount, 0)).toLocaleString()}`);
 
   const sups = await org.supplier.findMany({ where: { organizationId: ORG_ID }, select: { id: true, supplierCode: true, name: true } });
-  const byCode = new Map(sups.map((x: any) => [s(x.supplierCode).toUpperCase(), x]));
+  const byCode = new Map<string, any>(sups.map((x: any) => [s(x.supplierCode).toUpperCase(), x]));
   const allBills = await org.document.findMany({ where: { organizationId: ORG_ID, type: 'BILL' }, select: { id: true, name: true, status: true, config: true, documentTemplateId: true } });
   const tplId = allBills[0]?.documentTemplateId;
   if (!tplId) throw new Error('no BILL template on this org');
