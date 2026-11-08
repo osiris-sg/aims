@@ -28,9 +28,11 @@
  * that are none of AIMS's business. WATCH_GROUPS empty means no groups at all,
  * exactly as before.
  *
- * It sends NOTHING to WhatsApp. It cannot reply, and cannot post into a group.
- * That is deliberate: a read-only relay cannot embarrass anyone, and automation
- * can be added later once its behaviour is specified.
+ * It sends almost nothing to WhatsApp and never posts into a group. The ONE
+ * exception (guru 2026-11-08): when AIMS's reply to a relayed 1:1 message
+ * carries an autoReply (the lead flow's name-ask and hand-over confirmation),
+ * the bridge sends that exact text back to that chat. All policy lives in
+ * AIMS; the bridge stays dumb.
  */
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
@@ -282,7 +284,10 @@ client.on('message_create', async (msg) => {
     // a burst of e2e key notices, each of which was landing in CRM as a
     // message from a stranger — 43 such rows on CIEL before this (guru
     // 2026-11-08). Only real chat types are relayed.
-    if (!RELAYED_TYPES.has(String(msg.type || 'chat'))) return;
+    // notification_template is the Instagram ad's first contact - relayed so
+    // AIMS can open the lead flow (it answers with the name-ask autoReply).
+    const msgType = String(msg.type || 'chat');
+    if (!RELAYED_TYPES.has(msgType) && msgType !== 'notification_template') return;
 
     const groupId = chatId.endsWith('@g.us') ? chatId : toId.endsWith('@g.us') ? toId : null;
     // GROUPS are opt-in, one at a time. This bridge lives on a company phone
@@ -345,6 +350,15 @@ client.on('message_create', async (msg) => {
     // line had never once printed (guru 2026-11-08: the log looked dead while
     // the relay was in fact working).
     const stored = (res && res.data ? res.data : res) || {};
+    // AIMS decided this 1:1 inbound deserves an automated reply (lead flow).
+    if (stored.autoReply && !groupId && !msg.fromMe) {
+      try {
+        await client.sendMessage(chatId, String(stored.autoReply));
+        console.log('auto-replied to ' + counterparty + ': ' + String(stored.autoReply).slice(0, 60));
+      } catch (e) {
+        console.error('auto-reply failed:', e && e.message ? e.message : e);
+      }
+    }
     if (stored.stored) {
       const where = groupId ? `[${groupNames.get(groupId) || groupId}]` : counterparty;
       console.log(`${outbound ? '→' : '←'} ${where}  ${text.slice(0, 60)}${attachment ? `  📎 ${attachment.filename || attachment.mimetype}` : ''}`);

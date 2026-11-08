@@ -6,7 +6,7 @@ import {
   OnModuleDestroy,
   OnModuleInit, Optional, } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { isOrgFeatureEnabled, orgFeatureText, BRIDGE_LEAD_CAPTURE_FLAG, BRIDGE_LEAD_INTRO_KEY, BRIDGE_LEAD_INTRO_DEFAULT } from '../common/org-features';
+import { isOrgFeatureEnabled, orgFeatureText, BRIDGE_LEAD_CAPTURE_FLAG, BRIDGE_LEAD_INTRO_KEY, BRIDGE_LEAD_INTRO_DEFAULT, BRIDGE_LEAD_ASK_NAME_KEY, BRIDGE_LEAD_ASK_NAME_DEFAULT, BRIDGE_LEAD_CONFIRM_KEY, BRIDGE_LEAD_CONFIRM_DEFAULT } from '../common/org-features';
 import { Cron } from '@nestjs/schedule';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
@@ -1460,6 +1460,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         ...(args.sentAt && !isNaN(new Date(args.sentAt).getTime()) ? { createdAt: new Date(args.sentAt) } : {}),
       },
     });
+    // A reply the BRIDGE should send back (the mirror itself stays dumb — the
+    // policy lives here): the name-ask on an ad's first contact, and the
+    // hand-over confirmation once the lead gives their name.
+    let autoReply: string | null = null;
     // Contacts are people. A group jid in that table would masquerade as one.
     if (args.direction === 'INBOUND' && !args.groupId) {
       await this.upsertContact(args.organizationId, counterparty, { lastMessageAt: new Date() }).catch(() => null);
@@ -1471,9 +1475,32 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
       if (await isOrgFeatureEnabled(this.prisma, args.organizationId, BRIDGE_LEAD_CAPTURE_FLAG).catch(() => false)) {
         const staff = await this.operatorAuth.isLinked('whatsapp', counterparty).catch(() => false);
         if (!staff) {
-          await this.leads
-            .captureFromBridge(args.organizationId, { phone: counterparty, text: args.body })
-            .catch((e: any) => this.logger.error(`Bridge lead capture failed: ${e.message}`));
+          // The ad's first contact arrives as a notification_template with no
+          // typed text (guru 2026-11-08) → the bridge asks how to address
+          // them. Once per number: an identical OUTBOUND ask already on the
+          // thread means it was asked.
+          if (String(args.payload?.type || '') === 'notification_template') {
+            const ask =
+              (await orgFeatureText(this.prisma, args.organizationId, BRIDGE_LEAD_ASK_NAME_KEY).catch(() => null)) ||
+              BRIDGE_LEAD_ASK_NAME_DEFAULT;
+            const already = await this.prisma.whatsAppMessage.findFirst({
+              where: { organizationId: args.organizationId, counterparty, direction: 'OUTBOUND', body: ask },
+              select: { id: true },
+            });
+            if (!already) autoReply = ask;
+          } else {
+            const captured: any = await this.leads
+              .captureFromBridge(args.organizationId, { phone: counterparty, text: args.body })
+              .catch((e: any) => this.logger.error(`Bridge lead capture failed: ${e.message}`));
+            // They just told us their name → confirm and hand over (the lead
+            // was assigned inside captureFromBridge).
+            if (captured?.justNamed && captured?.name) {
+              const confirmTpl =
+                (await orgFeatureText(this.prisma, args.organizationId, BRIDGE_LEAD_CONFIRM_KEY).catch(() => null)) ||
+                BRIDGE_LEAD_CONFIRM_DEFAULT;
+              autoReply = confirmTpl.replace(/\{name\}/g, captured.name);
+            }
+          }
         }
       }
     }
@@ -1500,7 +1527,7 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
         }
       }
     }
-    return { id: created.id, stored: true };
+    return { id: created.id, stored: true, ...(autoReply ? { autoReply } : {}) };
   }
 
   /**

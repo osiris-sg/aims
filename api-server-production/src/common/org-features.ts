@@ -20,6 +20,19 @@ export const BRIDGE_LEAD_CAPTURE_FLAG = 'enableBridgeLeadCapture';
 export const BRIDGE_LEAD_INTRO_KEY = 'bridgeLeadIntro';
 export const BRIDGE_LEAD_INTRO_DEFAULT = 'Hi! Please let us know how we can help you.';
 
+// The bridge's ONE automated exchange (guru 2026-11-08, from the real chat
+// that worked): the ad's first contact (a notification_template) gets a
+// name-ask; the reply names the lead, the confirmation goes out ({name} is
+// substituted), and the lead is assigned straight to the named user.
+export const BRIDGE_LEAD_ASK_NAME_KEY = 'bridgeLeadAskName';
+export const BRIDGE_LEAD_ASK_NAME_DEFAULT = 'Hey, how can we address you? :)';
+export const BRIDGE_LEAD_CONFIRM_KEY = 'bridgeLeadConfirm';
+export const BRIDGE_LEAD_CONFIRM_DEFAULT =
+  'Hello {name} :) We have arranged a designer to you, he will be contacting you within 24 hours so do expect a call or text.';
+/** Name of the org user every bridge lead is auto-assigned to (e.g. "Mike"). Empty = broadcast to management instead. */
+export const BRIDGE_LEAD_ASSIGNEE_KEY = 'bridgeLeadAssignee';
+export const BRIDGE_LEAD_ASSIGNEE_DEFAULT = 'Mike';
+
 // Uploading a supplier invoice to the chat agent files it as a PROJECT COST.
 // That is the ID-firm workflow (CIEL), not something every org wants: an org
 // that does not run project costing was being asked to confirm a cost it has

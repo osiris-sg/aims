@@ -88,7 +88,9 @@ export function nameFromReply(raw: string | null | undefined): string | null {
   let t = String(raw || '').trim();
   if (!t) return null;
   t = t.replace(/^(hi|hello|hey)[\s,!.]+/i, '');
-  t = t.replace(/^(my name is|name is|name:|this is|i am|i'm|im)\s+/i, '');
+  t = t.replace(/^(my name is|name is|name:|this is|i am|i'm|im|it's|its)\s+/i, '');
+  // "Nisha here" / "Nisha speaking" — the name is before the filler.
+  t = t.replace(/\s+(here|speaking|lah)[\s,!.]*$/i, '');
   t = t.replace(/[.!,]+$/, '').trim();
   if (!t || t.length < 2 || t.length > 60) return null;
   if (t.includes('?')) return null;
@@ -1255,11 +1257,46 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
         remarks: `${existing.remarks ? existing.remarks + ' · ' : ''}${text}`.slice(0, 1000) || existing.remarks,
       },
     });
-    this.leadAssignBroadcast(updated).catch(() => null);
+    // Auto-assign (guru 2026-11-08: "assign the lead to Mike alr"): the org
+    // can name the user every bridge lead goes to. When set and matched, the
+    // lead is assigned directly and that user is notified — no broadcast.
+    let assigned = false;
+    if (name) {
+      try {
+        const { orgFeatureText, BRIDGE_LEAD_ASSIGNEE_KEY, BRIDGE_LEAD_ASSIGNEE_DEFAULT } = await import('../common/org-features');
+        const wanted = ((await orgFeatureText(this.prisma, organizationId, BRIDGE_LEAD_ASSIGNEE_KEY)) || BRIDGE_LEAD_ASSIGNEE_DEFAULT).trim().toLowerCase();
+        if (wanted) {
+          const people = await this.designersOf(organizationId);
+          const hit = people.find((p) => String(p.name || '').toLowerCase().includes(wanted));
+          if (hit) {
+            await this.prisma.lead.update({
+              where: { id: updated.id },
+              data: { assignedToUserId: hit.id, assignedToName: hit.name, assignedAt: new Date() },
+            });
+            assigned = true;
+            await this.notifications
+              .emit({
+                organizationId,
+                kind: 'lead_assigned',
+                title: `Lead assigned to you: ${updated.name}`,
+                body: text.slice(0, 140),
+                forUserId: hit.id,
+                exclusive: true,
+                linkUrl: '/portal/sales/leads',
+              })
+              .catch(() => null);
+          }
+        }
+      } catch (e) {
+        this.logger.warn(`Bridge lead auto-assign failed: ${(e as Error).message}`);
+      }
+    }
+    if (!assigned) this.leadAssignBroadcast(updated).catch(() => null);
     await this.notifications
       .emit({ organizationId, kind: 'lead_captured', title: `New WhatsApp lead: ${updated.name}`, body: text.slice(0, 140) })
       .catch(() => null);
-    return updated;
+    // justNamed tells the bridge flow to send the confirmation message.
+    return Object.assign(updated, { justNamed: !!name });
   }
 
   async update(leadId: string, organizationId: string, dto: LeadDto, callerUserId?: string) {
