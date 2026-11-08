@@ -221,6 +221,28 @@ export function renderIdVoBody(data: any, organization: any): string {
     ${struckTable(vo.additions)}
     ${linesTable('Removal of Items', vo.removals, 'Subtotal')}
     <div class="panels">${schedule}${consolidation}</div>
+    ${paymentRequest(vo, additions - removals)}
     ${ack}
+  </div>`;
+}
+
+/** Collect-with-this-VO (guru 2026-11-08): outstanding milestones picked in
+ *  the editor print as a PAYMENT REQUEST under the consolidation — the client
+ *  signs one document and pays one combined amount (milestones + VO net)
+ *  instead of a VO plus a separate invoice. */
+function paymentRequest(vo: any, net: number): string {
+  const ms: Array<{ label?: string; amount?: number }> = Array.isArray(vo?.payMilestones) ? vo.payMilestones : [];
+  if (!ms.length) return '';
+  const total = ms.reduce((s, m) => s + (Number(m.amount) || 0), 0) + net;
+  return `
+  <div class="panels" style="margin-top:14px;">
+    <div class="panel" style="max-width:52%;">
+      <h3>Payment Request — payable upon acceptance</h3>
+      <table class="kv">
+        ${ms.map((m) => `<tr><td>${escapeHtml(m.label || '')}</td><td class="v">S$ ${money(Number(m.amount) || 0)}</td></tr>`).join('')}
+        <tr><td>Net variation (this VO)</td><td class="v">S$ ${money(net)}</td></tr>
+        <tr class="grand"><td>Total payable</td><td class="v">S$ ${money(total)}</td></tr>
+      </table>
+    </div>
   </div>`;
 }

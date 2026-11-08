@@ -1821,7 +1821,7 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
     docId: string,
     organizationId: string,
     callerUserId: string | undefined,
-    dto: { additions?: any[]; removals?: any[]; date?: string | null },
+    dto: { additions?: any[]; removals?: any[]; date?: string | null; payMilestones?: any[] },
   ) {
     const doc = await this.prisma.document.findFirst({ where: { id: docId, organizationId, type: 'VARIATION_ORDER' } });
     if (!doc) throw new NotFoundException('Variation order not found');
@@ -1866,7 +1866,17 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
       this.prisma.document.update({
         where: { id: doc.id },
         data: {
-          config: { ...cfg, vo: { ...vo, additions, removals, date: dto.date !== undefined ? dto.date : vo.date }, consolidation },
+          config: {
+            ...cfg,
+            vo: {
+              ...vo,
+              additions,
+              removals,
+              date: dto.date !== undefined ? dto.date : vo.date,
+              payMilestones: dto.payMilestones !== undefined ? (Array.isArray(dto.payMilestones) && dto.payMilestones.length ? dto.payMilestones : undefined) : vo.payMilestones,
+            },
+            consolidation,
+          },
           version: { increment: 1 },
         },
       }),

@@ -236,6 +236,11 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [voDate, setVoDate] = useState("");
+  // Collect-with-this-VO (guru 2026-11-08): outstanding payment milestones
+  // (e.g. the pending 45%) ride on the VO sheet as a PAYMENT REQUEST, so the
+  // client signs ONE document and pays ONE combined amount instead of a VO
+  // plus a separate invoice.
+  const [payMilestones, setPayMilestones] = useState<Array<{ id: string; label: string; amount: number }>>([]);
   // A confirmed VO only LOCKS once it reached the client (guru 2026-11-08):
   // a sign link outstanding/signed, or the client's signature on it. Until
   // then it stays editable — saves re-sync the contract milestone.
@@ -258,6 +263,7 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
         // VO date (guru 2026-11-08: "let them edit the date") — defaults to the
         // day the VO was created; printed next to the VO number on the sheet.
         setVoDate((d?.config?.vo?.date || d?.createdAt || new Date().toISOString()).slice(0, 10));
+        setPayMilestones(Array.isArray(d?.config?.vo?.payMilestones) ? d.config.vo.payMilestones.map((m: any) => ({ id: String(m.id), label: String(m.label || ""), amount: Number(m.amount) || 0 })) : []);
         setDirty(false);
         if (d?.status !== "confirmed") setSendState("unsent");
         else if (d?.config?.clientSignature) setSendState("sent");
@@ -293,10 +299,10 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
 
   const buildConfig = useCallback(() => ({
     ...(doc?.config || {}),
-    vo: { ...(doc?.config?.vo || {}), additions, removals, date: voDate || undefined },
+    vo: { ...(doc?.config?.vo || {}), additions, removals, date: voDate || undefined, payMilestones: payMilestones.length ? payMilestones : undefined },
     consolidation: cons,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [doc, additions, removals, addTotal, remTotal, voDate]);
+  }), [doc, additions, removals, addTotal, remTotal, voDate, payMilestones]);
 
   const save = async (): Promise<boolean> => {
     if (!doc) return false;
@@ -304,7 +310,7 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
       if (confirmed) {
         // Confirmed-but-unsent VO: the dedicated endpoint re-syncs the
         // contract milestone and consolidation with the new net.
-        await api.request(`/projects/vo/${doc.id}/update`, { method: "POST", body: JSON.stringify({ additions, removals, date: voDate || null }) });
+        await api.request(`/projects/vo/${doc.id}/update`, { method: "POST", body: JSON.stringify({ additions, removals, date: voDate || null, payMilestones }) });
         const d = await api.getDocument(doc.id);
         setDoc(d);
         setDirty(false);
@@ -476,6 +482,47 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
                     : `Confirm adds the net ${money(net)} to the contract sum as a VO line in Payments.`}
                 </Typography>
               )}
+              {/* Collect-with-this-VO: pending milestones ride on the sheet as a
+                  PAYMENT REQUEST — one signature, one combined payment. */}
+              {(() => {
+                const outstanding = (summary.milestones || []).filter((m) => m.kind === "milestone" && m.amount - m.paidAmount > 0.005);
+                if (!outstanding.length && !payMilestones.length) return null;
+                const requested = payMilestones.reduce((s, m) => s + m.amount, 0);
+                return (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="overline" sx={{ color: "text.secondary" }}>Collect with this VO</Typography>
+                    {outstanding.map((m) => {
+                      const due = Math.round((m.amount - m.paidAmount) * 100) / 100;
+                      const picked = payMilestones.some((p) => p.id === m.id);
+                      return (
+                        <Stack key={m.id} direction="row" alignItems="center" spacing={0.5} sx={{ py: 0.25 }}>
+                          <Checkbox
+                            size="small"
+                            checked={picked}
+                            disabled={readOnly}
+                            onChange={(e) => {
+                              setPayMilestones((prev) => (e.target.checked ? [...prev, { id: m.id, label: m.label, amount: due }] : prev.filter((p) => p.id !== m.id)));
+                              setDirty(true);
+                            }}
+                            sx={{ p: 0.25 }}
+                          />
+                          <Typography variant="caption" sx={{ flex: 1, minWidth: 0 }} noWrap title={m.label}>{m.label}</Typography>
+                          <Typography variant="caption" sx={{ fontVariantNumeric: "tabular-nums" }}>{money(due)}</Typography>
+                        </Stack>
+                      );
+                    })}
+                    {payMilestones.length > 0 && (
+                      <>
+                        <Divider sx={{ my: 0.5 }} />
+                        <K k="Payable on acceptance" v={`S$ ${money(requested + net)}`} strong />
+                        <Typography variant="caption" sx={{ color: "text.disabled" }}>
+                          Prints as a Payment Request on the sheet — the client signs once and pays once.
+                        </Typography>
+                      </>
+                    )}
+                  </Box>
+                );
+              })()}
             </Box>
           </Box>
         )}
