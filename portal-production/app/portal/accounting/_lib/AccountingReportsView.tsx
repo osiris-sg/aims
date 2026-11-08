@@ -23,7 +23,7 @@ import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 import CashFlowPage from "../cash-flow/page";
-import MonthlyPayablesPage from "../monthly-payables/page";
+import MonthlyPayablesSheet from "../monthly-payables/MonthlyPayablesSheet";
 import BudgetVsActualPage from "../budget-vs-actual/page";
 import InvoicesPage from "../../invoices/page";
 import ARWorkspace from "./ARWorkspace";
@@ -350,7 +350,7 @@ function ReportsInner({
     categories[0] === "Payables" &&
     searchParams.get("view") !== "reports"
   ) {
-    return <MonthlyPayablesPage reportsHref={`${basePath}?view=reports`} />;
+    return <MonthlyPayablesSheet reportsHref={`${basePath}?view=reports`} />;
   }
 
   const openReport = (key: string) => {
