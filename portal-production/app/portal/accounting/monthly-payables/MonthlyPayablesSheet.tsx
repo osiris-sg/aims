@@ -24,7 +24,7 @@ import { useAccountingApi } from "../_lib/api";
 type Row = {
   id: string;
   month: string;
-  status: "to_pay" | "paid";
+  status: "to_pay" | "paid" | "withholding";
   invoiceNo: string | null;
   supplierName: string | null;
   siteAddress: string | null;
@@ -48,7 +48,7 @@ type Payload = {
   month: string;
   months: string[];
   rows: Row[];
-  totals: { toPay: number; paid: number; all: number; toPayCount: number; paidCount: number };
+  totals: { toPay: number; withheld: number; paid: number; all: number; toPayCount: number; withheldCount: number; paidCount: number };
 };
 
 type ProjectOption = { id: string; name: string; address: string | null; status?: string | null; clientName?: string | null };
@@ -71,7 +71,7 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
   const [month, setMonth] = useState(thisMonth());
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<"all" | "to_pay" | "paid">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "to_pay" | "paid" | "withholding">("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [menu, setMenu] = useState<{ pos: { left: number; top: number }; row: Row } | null>(null);
   const [editRow, setEditRow] = useState<Row | null>(null);
@@ -283,6 +283,8 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
         cell: ({ row }: any) =>
           row.original._kind ? null : row.original.status === "paid" ? (
             <Chip size="small" color="success" variant="outlined" label={fmtDate(row.original.paymentDate) || "Paid"} sx={{ height: 22 }} />
+          ) : row.original.status === "withholding" ? (
+            <Chip size="small" variant="outlined" label="WITHHELD" sx={{ height: 22, color: "#ed6c02", borderColor: "#ed6c02" }} />
           ) : (
             <Chip size="small" color="warning" variant="outlined" label="TO PAY" sx={{ height: 22 }} />
           ),
@@ -353,6 +355,7 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
         <ToggleButtonGroup size="small" exclusive value={statusFilter} onChange={(_, v) => v && setStatusFilter(v)}>
           <ToggleButton value="all" sx={{ px: 1.25, py: 0.25, textTransform: "none" }}>All</ToggleButton>
           <ToggleButton value="to_pay" sx={{ px: 1.25, py: 0.25, textTransform: "none" }}>To pay</ToggleButton>
+          <ToggleButton value="withholding" sx={{ px: 1.25, py: 0.25, textTransform: "none" }}>Withheld</ToggleButton>
           <ToggleButton value="paid" sx={{ px: 1.25, py: 0.25, textTransform: "none" }}>Paid</ToggleButton>
         </ToggleButtonGroup>
         {/* When this sheet IS the Accounts Payable landing, the aging /
@@ -369,6 +372,7 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
         <Stack direction="row" spacing={2} sx={{ mb: 1.5, flexWrap: "wrap", rowGap: 1 }}>
           {[
             { k: `To pay (${totals.toPayCount})`, v: totals.toPay, color: "warning.main" },
+            ...(totals.withheldCount ? [{ k: `Withheld (${totals.withheldCount})`, v: totals.withheld, color: "#ed6c02" }] : []),
             { k: `Paid (${totals.paidCount})`, v: totals.paid, color: "success.main" },
             { k: "Month total", v: totals.all, color: "text.primary" },
           ].map((t) => (
@@ -398,6 +402,10 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
         }}
         rowSx={(r: any) => ({
           ...(r._band ? { bgcolor: "action.hover" } : {}),
+          // The sheet's colour legend (guru 2026-11-08): paid rows go olive
+          // green, withheld rows orange — whole row, both themes.
+          ...(!r._kind && r.status === "paid" ? { bgcolor: "rgba(124,153,62,0.28)", "&:hover": { bgcolor: "rgba(124,153,62,0.38)" } } : {}),
+          ...(!r._kind && r.status === "withholding" ? { bgcolor: "rgba(237,108,2,0.22)", "&:hover": { bgcolor: "rgba(237,108,2,0.32)" } } : {}),
           ...(r._kind === "subtotal" ? { "& td": { py: 0.25, borderBottom: 2, borderColor: "divider" } } : {}),
           ...(r._kind === "grand" ? { "& td": { borderTop: 2, borderColor: "text.secondary", borderBottom: 0, py: 1 } } : {}),
           ...(r._kind ? { cursor: "default", "&:hover": { bgcolor: r._band ? "action.hover" : "transparent" } } : {}),
@@ -424,7 +432,7 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
         anchorReference="anchorPosition"
         anchorPosition={menu?.pos}
       >
-        {menu?.row.status !== "paid" ? (
+        {menu?.row.status !== "paid" && (
           <MenuItem
             onClick={() => {
               const id = menu!.row.id;
@@ -434,7 +442,20 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
           >
             Mark paid
           </MenuItem>
-        ) : (
+        )}
+        {menu?.row.status === "to_pay" && (
+          <MenuItem
+            sx={{ color: "#ed6c02" }}
+            onClick={() => {
+              const id = menu!.row.id;
+              setMenu(null);
+              act(() => request(`/payables/${id}/withhold`, { method: "POST", body: JSON.stringify({}) }), "Payment withheld");
+            }}
+          >
+            Withhold payment
+          </MenuItem>
+        )}
+        {menu?.row.status !== "to_pay" && (
           <MenuItem
             onClick={() => {
               const id = menu!.row.id;
@@ -491,6 +512,12 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
               setEditRow(null);
             }, "Marked paid")
           }
+          onWithhold={() =>
+            act(async () => {
+              await request(`/payables/${editRow.id}/withhold`, { method: "POST", body: JSON.stringify({}) });
+              setEditRow(null);
+            }, "Payment withheld")
+          }
           onUnpaid={() =>
             act(async () => {
               await request(`/payables/${editRow.id}/unpay`, { method: "POST", body: JSON.stringify({}) });
@@ -535,6 +562,7 @@ function PayableDialog({
   onSave,
   onPaid,
   onUnpaid,
+  onWithhold,
   onDelete,
 }: {
   row: Row | null;
@@ -545,6 +573,7 @@ function PayableDialog({
   onSave: (dto: any) => void;
   onPaid?: (paymentDate?: string) => void;
   onUnpaid?: () => void;
+  onWithhold?: () => void;
   onDelete?: () => void;
 }) {
   const [f, setF] = useState<any>({
@@ -578,7 +607,8 @@ function PayableDialog({
             size="small"
             variant="outlined"
             color={row.status === "paid" ? "success" : "warning"}
-            label={row.status === "paid" ? `Paid ${fmtDate(row.paymentDate)}` : "To pay"}
+            label={row.status === "paid" ? `Paid ${fmtDate(row.paymentDate)}` : row.status === "withholding" ? "Withheld" : "To pay"}
+            sx={row.status === "withholding" ? { color: "#ed6c02", borderColor: "#ed6c02" } : undefined}
           />
         )}
         {row && month === undefined && (
@@ -658,8 +688,18 @@ function PayableDialog({
                   <Button variant="contained" color="success" startIcon={<CheckCircleIcon />} disabled={busy} onClick={() => onPaid(payDate)} sx={{ textTransform: "none" }}>
                     Mark paid
                   </Button>
+                  {row.status === "to_pay" && onWithhold && (
+                    <Button size="small" disabled={busy} onClick={onWithhold} sx={{ textTransform: "none", color: "#ed6c02" }}>
+                      Withhold
+                    </Button>
+                  )}
                 </Stack>
               </>
+            )}
+            {row?.status === "withholding" && onUnpaid && (
+              <Alert severity="warning" icon={false} sx={{ color: "#ed6c02" }} action={<Button color="inherit" size="small" disabled={busy} onClick={onUnpaid} sx={{ textTransform: "none" }}>Release</Button>}>
+                Payment WITHHELD — excluded from the To-pay total until released or paid.
+              </Alert>
             )}
             {row?.status === "paid" && onUnpaid && (
               <Alert severity="success" action={<Button color="inherit" size="small" disabled={busy} onClick={onUnpaid} sx={{ textTransform: "none" }}>Undo</Button>}>

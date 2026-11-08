@@ -104,7 +104,7 @@ const VERB_ACTIONS: Record<string, string> = {
   'issue-draft': 'EXTRACT',
   // Monthly payables (Summer 2026-11-02): a row marked paid / back to to-pay; the bills-group
   // bridge intake logs its own system row inside PayablesService.
-  pay: 'PAY', unpay: 'UNPAY',
+  pay: 'PAY', unpay: 'UNPAY', withhold: 'WITHHOLD',
   // Deliveries: OsirisAdmin permanent delete of a cancelled run that committed nothing (2026-10-30).
   purge: 'PURGE',
   // WCT finish modes (2026-11-01): the admin verifies a stamped-DO / paper finish (reject is above);

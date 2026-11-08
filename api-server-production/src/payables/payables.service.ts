@@ -44,13 +44,14 @@ export class PayablesService {
   async list(organizationId: string, q: { month?: string; status?: string }) {
     const month = /^\d{4}-\d{2}$/.test(q.month || '') ? (q.month as string) : this.monthOf(new Date());
     const where: any = { organizationId, month };
-    if (q.status === 'to_pay' || q.status === 'paid') where.status = q.status;
+    if (q.status === 'to_pay' || q.status === 'paid' || q.status === 'withholding') where.status = q.status;
     const rows = await this.prisma.payableInvoice.findMany({
       where,
       orderBy: [{ supplierName: 'asc' }, { createdAt: 'asc' }],
     });
     const sum = (list: any[]) => this.round2(list.reduce((s, r) => s + (Number(r.paymentAmount) || 0), 0));
-    const toPay = rows.filter((r) => r.status !== 'paid');
+    const toPay = rows.filter((r) => r.status !== 'paid' && r.status !== 'withholding');
+    const withheld = rows.filter((r) => r.status === 'withholding');
     const paid = rows.filter((r) => r.status === 'paid');
     // Months that have rows, for the tab strip (newest first).
     const monthsRaw = await this.prisma.payableInvoice.findMany({
@@ -64,7 +65,7 @@ export class PayablesService {
       month,
       months: monthsRaw.map((m) => m.month),
       rows,
-      totals: { toPay: sum(toPay), paid: sum(paid), all: sum(rows), toPayCount: toPay.length, paidCount: paid.length },
+      totals: { toPay: sum(toPay), withheld: sum(withheld), paid: sum(paid), all: sum(rows), toPayCount: toPay.length, withheldCount: withheld.length, paidCount: paid.length },
     };
   }
 
@@ -161,6 +162,15 @@ export class PayablesService {
     const row = await this.prisma.payableInvoice.findFirst({ where: { id, organizationId } });
     if (!row) throw new NotFoundException('Payable not found');
     return this.prisma.payableInvoice.update({ where: { id: row.id }, data: { status: 'to_pay', paymentDate: null } });
+  }
+
+  /** WITHHOLDING — the sheet's ORANGE rows (guru 2026-11-08): payment is
+   *  deliberately held back (dispute, rework, pending approval). Not paid and
+   *  not counted in the To-pay total; release via unpay or pay. */
+  async markWithheld(organizationId: string, id: string) {
+    const row = await this.prisma.payableInvoice.findFirst({ where: { id, organizationId } });
+    if (!row) throw new NotFoundException('Payable not found');
+    return this.prisma.payableInvoice.update({ where: { id: row.id }, data: { status: 'withholding', paymentDate: null } });
   }
 
   async remove(organizationId: string, id: string) {

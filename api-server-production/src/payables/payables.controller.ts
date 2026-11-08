@@ -66,9 +66,16 @@ export class PayablesController {
 
   @Post(':id/unpay')
   @Permissions('projects:update')
-  @ApiOperation({ summary: 'Put a paid payable back to TO PAY (clears the payment date)' })
+  @ApiOperation({ summary: 'Put a payable back to TO PAY (clears the payment date / releases a withholding)' })
   unpay(@Req() req: any, @Param('id') id: string) {
     return this.service.markUnpaid(orgId(req), id);
+  }
+
+  @Post(':id/withhold')
+  @Permissions('projects:update')
+  @ApiOperation({ summary: 'WITHHOLD payment on a payable (the sheet\'s orange rows — held back, excluded from the To-pay total)' })
+  withhold(@Req() req: any, @Param('id') id: string) {
+    return this.service.markWithheld(orgId(req), id);
   }
 
   @Delete(':id')
