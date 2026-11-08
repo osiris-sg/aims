@@ -89,7 +89,7 @@ import {
 import { useAuth } from "@clerk/nextjs";
 import { useConfiguration } from "../../context/ConfigurationContext";
 import { useOrganization } from "../../hooks/useOrganization";
-import { FEATURE_FLAG_DEFAULTS } from "../../hooks/useOrganizationFeatures";
+import { FEATURE_FLAG_DEFAULTS, FEATURE_TEXT_DEFAULTS } from "../../hooks/useOrganizationFeatures";
 import { toast } from "react-toastify";
 // Import for drag and drop functionality (if needed in future)
 // import { DragDropContext, Droppable, Draggable } from "@dnd-kit/core";
@@ -776,8 +776,12 @@ export default function ConfigurationAdminPage() {
                     Values remain per-org; missing keys default to their
                     canonical default. Any extra keys stored on the org but not
                     in the canonical list are still shown. */}
-                {Object.keys({ ...FEATURE_FLAG_DEFAULTS, ...(uiConfigForm.features || {}) }).map((key) => {
-                  const value = (uiConfigForm.features?.[key] ?? FEATURE_FLAG_DEFAULTS[key]) ?? false;
+                {Object.keys({ ...FEATURE_FLAG_DEFAULTS, ...FEATURE_TEXT_DEFAULTS, ...(uiConfigForm.features || {}) }).map((key) => {
+                  const value =
+                    uiConfigForm.features?.[key] ??
+                    FEATURE_FLAG_DEFAULTS[key] ??
+                    FEATURE_TEXT_DEFAULTS[key] ??
+                    false;
                   const setFeature = (v: boolean | string) =>
                     setUIConfigForm({
                       ...uiConfigForm,

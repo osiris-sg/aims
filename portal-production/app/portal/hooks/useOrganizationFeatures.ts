@@ -50,6 +50,30 @@ interface OrganizationFeatures {
  * stored values so every org shows the same switches (values stay per-org).
  * Add new flags here so they appear for all orgs without per-org backfilling.
  */
+/**
+ * Feature entries that carry TEXT rather than a switch.
+ *
+ * The bridge lead flow keeps its customer-facing wording here instead of in
+ * code, so ad copy and the hand-over message change without a deploy — but a
+ * value only reaches the admin panel if the panel knows to show it, so the
+ * known text entries are declared here exactly as the boolean flags are. The
+ * backend holds the same defaults (api-server src/common/org-features.ts);
+ * leaving a box empty falls back to them.
+ */
+export const FEATURE_TEXT_DEFAULTS: Record<string, string> = {
+  // The exact intro the Instagram ad sends. Seeing it leave the line is what
+  // opens a Lead, so a near-miss opens nothing — keep it verbatim.
+  bridgeLeadIntro: "Hi! Please let us know how we can help you.",
+  // Asked once, when the ad's first contact lands.
+  bridgeLeadAskName: "Hey, how can we address you? :)",
+  // Sent when they answer with their name; {name} is substituted.
+  bridgeLeadConfirm:
+    "Hello {name} :) We have arranged a designer to you, he will be contacting you within 24 hours so do expect a call or text.",
+  // The org user every bridge lead is assigned to. Empty = ask management on
+  // WhatsApp instead, the way every other lead source does.
+  bridgeLeadAssignee: "Mike",
+};
+
 export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Base capabilities (typically on)
   enableProjects: true,
