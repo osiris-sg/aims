@@ -452,6 +452,11 @@ const theme = createTheme({
       },
     },
     MuiDialog: {
+      // Width floor (guru 2026-11-08: dialogs that never set fullWidth sized
+      // to their content and rendered very narrow on some screens). Dialogs
+      // that pass their own fullWidth/maxWidth are untouched — defaultProps
+      // only fill in what a call site leaves unset.
+      defaultProps: { fullWidth: true, maxWidth: "sm" as const },
       styleOverrides: {
         paper: {
           backgroundColor: tokens.surfaceContainerHigh,

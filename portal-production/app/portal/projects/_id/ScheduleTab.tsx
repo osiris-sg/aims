@@ -48,6 +48,8 @@ import ListAltIcon from "@mui/icons-material/ListAltOutlined";
 import UpdateIcon from "@mui/icons-material/Update";
 import ShareIcon from "@mui/icons-material/IosShareOutlined";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import LightModeIcon from "@mui/icons-material/LightModeOutlined";
+import DarkModeIcon from "@mui/icons-material/DarkModeOutlined";
 import MicIcon from "@mui/icons-material/Mic";
 import MicNoneIcon from "@mui/icons-material/MicNone";
 import { toast } from "react-toastify";
@@ -193,7 +195,10 @@ export default function ScheduleTab({ projectId }: { projectId: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [expanded]);
   const [printOpen, setPrintOpen] = useState(false);
-  const [printHtml, setPrintHtml] = useState<string | null>(null);
+  const [printRaw, setPrintRaw] = useState<string | null>(null);
+  // Light / dark print (guru 2026-11-08): the toggle restyles the SHEET itself
+  // — dark prints dark (print-color-adjust keeps the ink).
+  const [printDark, setPrintDark] = useState(false);
   const [shiftOpen, setShiftOpen] = useState(false);
   const [shiftDays, setShiftDays] = useState("7");
   const [busy, setBusy] = useState(false);
@@ -211,26 +216,53 @@ export default function ScheduleTab({ projectId }: { projectId: string }) {
 
   const openPrint = async () => {
     setPrintOpen(true);
-    setPrintHtml(null);
+    setPrintRaw(null);
     try {
       const r = await api.getScheduleHtml(projectId);
-      // Preview-only chrome (guru 2026-10-05: "the colour preview can change
-      // instead of just white?"): show the sheet as A4 paper on a neutral grey
-      // canvas, like a print preview. @media print strips it so the printed
-      // page is untouched.
-      const previewCss = `<style>
-        @media screen {
-          body { background: #525659 !important; padding: 20px 16px 32px; }
-          .preview-paper { background: #fff; max-width: 1123px; margin: 0 auto; padding: 24px 28px; box-shadow: 0 2px 14px rgba(0,0,0,.45); border-radius: 2px; }
-        }
-        @media print { .preview-paper { background: none; max-width: none; margin: 0; padding: 0; box-shadow: none; } }
-      </style>`;
-      const html = r.html.replace("</head>", `${previewCss}</head>`).replace(/<body>/i, '<body><div class="preview-paper">').replace(/<\/body>/i, "</div></body>");
-      setPrintHtml(html);
+      setPrintRaw(r.html);
     } catch (e: any) {
       toast.error(e.message || "Failed to render");
     }
   };
+
+  const printHtml = useMemo(() => {
+    if (!printRaw) return null;
+    // Preview-only chrome (guru 2026-10-05: "the colour preview can change
+    // instead of just white?"): show the sheet as A4 paper on a neutral grey
+    // canvas, like a print preview. @media print strips it so the printed
+    // page is untouched.
+    const previewCss = `<style>
+      @media screen {
+        body { background: #525659 !important; padding: 20px 16px 32px; }
+        .preview-paper { background: #fff; max-width: 1123px; margin: 0 auto; padding: 24px 28px; box-shadow: 0 2px 14px rgba(0,0,0,.45); border-radius: 2px; }
+      }
+      @media print { .preview-paper { background: none; max-width: none; margin: 0; padding: 0; box-shadow: none; } }
+    </style>`;
+    // Dark sheet (guru 2026-11-08): restyles the DOCUMENT, not just the
+    // preview — Save PDF / Print keep the dark ink (print-color-adjust).
+    const darkCss = `<style>
+      body { background: #15171c !important; color: #e8eaee; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .preview-paper { background: #15171c !important; }
+      .hdr { border-bottom-color: #e8eaee; }
+      /* Most org logos are dark ink — give them a white chip so they stay visible. */
+      .hdr img { background: #fff; padding: 3px 8px; border-radius: 4px; }
+      .contract { color: #aab0b9; } .pm span { color: #aab0b9; } .disc { color: #969ca6; }
+      table.week th, table.week td { border-color: #474d58; }
+      table.week th { background: #242830; }
+      th.wk, td.wk { background: #2b303a; }
+      .date { color: #aab0b9; }
+      th.sun, td.sun { background: #1b1e24; }
+      .act { background: #7a661a; border-color: #9a8528; color: #fff; }
+      .ph { background: #7a3030; border-color: #945050; color: #fff; }
+      .off { color: #969ca6; }
+      .empty { color: #969ca6; }
+      @media print { body { background: #15171c !important; } .preview-paper { background: #15171c !important; } }
+    </style>`;
+    return printRaw
+      .replace("</head>", `${previewCss}${printDark ? darkCss : ""}</head>`)
+      .replace(/<body>/i, '<body><div class="preview-paper">')
+      .replace(/<\/body>/i, "</div></body>");
+  }, [printRaw, printDark]);
 
   if (!data)
     return (
@@ -328,13 +360,27 @@ export default function ScheduleTab({ projectId }: { projectId: string }) {
             borderRadius: { xs: 0, sm: 2 },
             height: { xs: "100%", sm: "90vh" },
             m: { xs: 0, sm: 4 },
-            width: { xs: "100%", sm: "auto" },
+            // width:auto shrank the paper to fit on desktop — the preview
+            // rendered as a narrow strip (guru 2026-11-08). Stretch to the
+            // lg cap instead.
+            width: "100%",
             maxWidth: { xs: "100%", sm: undefined },
             maxHeight: { xs: "100%", sm: "calc(100% - 64px)" },
           },
         }}
       >
-        <DialogTitle sx={{ py: 1.5 }}>Client schedule</DialogTitle>
+        <DialogTitle sx={{ py: 1.5, display: "flex", alignItems: "center", gap: 1 }}>
+          Client schedule
+          <Box sx={{ flex: 1 }} />
+          <ToggleButtonGroup size="small" exclusive value={printDark ? "dark" : "light"} onChange={(_, v) => v && setPrintDark(v === "dark")}>
+            <ToggleButton value="light" sx={{ px: 1.25, py: 0.25, textTransform: "none" }}>
+              <LightModeIcon sx={{ fontSize: 16, mr: 0.5 }} /> Light
+            </ToggleButton>
+            <ToggleButton value="dark" sx={{ px: 1.25, py: 0.25, textTransform: "none" }}>
+              <DarkModeIcon sx={{ fontSize: 16, mr: 0.5 }} /> Dark
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </DialogTitle>
         <DialogContent sx={{ p: 0, bgcolor: "#e9e9e9" }}>
           {printHtml ? <iframe id="idq-schedule-frame" title="Schedule" srcDoc={printHtml} sandbox="allow-same-origin allow-modals" style={{ width: "100%", height: "100%", border: 0, background: "#525659" }} /> : <Box sx={{ display: "flex", justifyContent: "center", pt: 8 }}><CircularProgress /></Box>}
         </DialogContent>
