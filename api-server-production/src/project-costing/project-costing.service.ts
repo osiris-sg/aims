@@ -1230,10 +1230,11 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
   // ── schedule-day media requests (guru 2026-09-14) ──────────────────────
   // At 9am SGT every WORK schedule activity running that day pings the
   // project's designer on WhatsApp (via the platform agent line) asking for a
-  // BEFORE video + photo. An open QuestMediaRequest ties whatever photo/video
-  // the designer sends back to the right quest step: carpentry-installation
-  // activities land on the "Carpentry installation" step; anything else on
-  // the project's first pending proof step.
+  // BEFORE video + photo. The nudge is ALL it does (guru 2026-11-08): a reply
+  // photo is never captured onto a quest step any more — that hijacked a
+  // designer's bank-payment page onto a task — so the designer attaches the
+  // media on the project's Quest tab and every inbound image goes to the
+  // operator pipeline instead.
   private static readonly AGENT_ORG_NAME = 'Osiris Technology Pte. Ltd.';
 
   private async mediaAgentLine(fallbackOrgId?: string) {
@@ -1333,14 +1334,12 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
         if (!line) continue;
         // Seed the quest lazily (same path the Quest tab uses), then pin the
         // step this activity's media belongs to.
-        const { steps } = await this.questSteps(pj.id, pj.organizationId).catch(() => ({ steps: [] as any[] }));
-        const carpentry = /carpentry/i.test(it.label) && /install/i.test(it.label);
-        const step = carpentry ? steps.find((s: any) => /^carpentry installation/i.test(s.title)) : null;
         // Auto-assigning chat replies to quest steps is REMOVED (guru
         // 2026-11-08: a designer's bank-payment page got hijacked onto a
         // task). The morning nudge stays, but media is attached on the Quest
-        // tab — no QuestMediaRequest is opened, so nothing can capture it.
-        void step;
+        // tab — nothing is opened here, so nothing can capture it. The quest
+        // steps used to be read to pick the step the reply would land on;
+        // with no capture there is nobody to tell, so that query is gone.
         const text = [
           `📸 ${it.label} starts today — ${pj.name}.`,
           '',
