@@ -1856,7 +1856,7 @@ export class OperatorToolsService {
       {
         name: 'match_bank_payment',
         description:
-          "The user uploaded a BANK PAYMENT page (a transfer confirmation screenshot/PDF from UOB/DBS/OCBC internet banking) and wants to tick off supplier invoices on the Monthly Payables tally. Call this right after the upload: it AI-reads payee / amount / date / reference, auto-matches the supplier among those with OUTSTANDING rows, and returns their open invoices (each with its retention %). Then LIST the outstanding invoices to the user, ask which ones this payment covers (and any retention % changes), and call settle_payables.",
+          "The user uploaded a BANK PAYMENT page (a transfer confirmation screenshot/PDF from UOB/DBS/OCBC internet banking) and wants to tick off supplier invoices on the Monthly Payables tally. Call this right after the upload: it AI-reads payee / amount / date / reference, auto-matches the supplier among those with OUTSTANDING rows, and returns their open invoices (each with its REBATE % — the supplier rebates that % back to the firm, so the payment amount = invoice − rebate). Then LIST the outstanding invoices with their PAYMENT amounts, say what the ticked ones add up to vs the bank amount, and ask which ones this payment covers. Do NOT call it 'retention' and do NOT ask to 'settle at X%' — the % only comes up if the user wants a row's rebate changed. Then call settle_payables.",
         permissions: ['projects:update'],
         input_schema: { type: 'object', properties: {}, required: [] },
         run: async (ctx) => {
@@ -1879,7 +1879,7 @@ export class OperatorToolsService {
               candidates: m.candidates,
               allSuppliersWithOpenRows: m.suppliers,
               outstandingBySupplier: outstanding,
-              next: 'Ask the user which invoices this payment covers and any retention % change per invoice, then call settle_payables with the row ids.',
+              next: 'Tell the user the matched supplier and each outstanding invoice with its PAYMENT amount; say what the selection totals vs the bank amount; then call settle_payables with just the row ids (no percentage unless the user asks to change a rebate).',
             },
           };
         },
@@ -1888,14 +1888,14 @@ export class OperatorToolsService {
       {
         name: 'settle_payables',
         description:
-          "Mark supplier invoices on the Monthly Payables tally as PAID against a bank payment — optionally changing each row's retention % (payment amount re-derives as invoice \u00d7 (1\u2212%)). Moves money state, so it always shows a confirm card first. Row ids come from match_bank_payment (or GET /payables via api_get).",
+          "Mark supplier invoices on the Monthly Payables tally as PAID against a bank payment — optionally changing a row's REBATE % (payment amount re-derives as invoice \u00d7 (1\u2212%); omit percentage to keep each row as it is — the normal case). Moves money state, so it always shows a confirm card first. Row ids come from match_bank_payment (or GET /payables via api_get).",
         permissions: ['projects:update'],
         input_schema: {
           type: 'object',
           properties: {
             rows: {
               type: 'array',
-              items: { type: 'object', properties: { id: { type: 'string' }, percentage: { type: 'number', description: 'New retention % for this row (omit to keep)' } }, required: ['id'] },
+              items: { type: 'object', properties: { id: { type: 'string' }, percentage: { type: 'number', description: 'New REBATE % for this row — omit to keep the row as it is (the normal case)' } }, required: ['id'] },
             },
             paymentDate: { type: 'string', description: 'YYYY-MM-DD, defaults to today' },
             reference: { type: 'string', description: 'Bank transaction reference' },

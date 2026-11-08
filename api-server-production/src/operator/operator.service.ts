@@ -700,7 +700,7 @@ export class OperatorService {
         adapter,
         msg,
         session,
-        `I just uploaded a BANK PAYMENT page: paid ${money} to ${e.supplierName || 'a payee I could not read'}${e.invoiceNo ? `, reference ${e.invoiceNo}` : ''}. This is NOT a supplier invoice — do not file it as a project cost. Call match_bank_payment, show me the matched supplier's outstanding invoices from the Monthly Payables tally, ask which ones this payment covers (and any retention % changes), then settle_payables.`,
+        `I just uploaded a BANK PAYMENT page: paid ${money} to ${e.supplierName || 'a payee I could not read'}${e.invoiceNo ? `, reference ${e.invoiceNo}` : ''}. This is NOT a supplier invoice — do not file it as a project cost. Call match_bank_payment, show me the matched supplier's outstanding invoices from the Monthly Payables tally, tell me their PAYMENT amounts (invoice less the supplier's rebate %) and which selection matches this payment, then settle_payables with the row ids. Never say 'retention' — the % is the supplier REBATE, and don't change it unless I ask.`,
       );
       return;
     }

@@ -111,7 +111,7 @@ export class PayablesController {
 
   @Post('settle')
   @Permissions('projects:update')
-  @ApiOperation({ summary: 'Settle ticked payables against a bank payment: rows [{id, percentage?}] (optional retention % change) + paymentDate + reference → all marked PAID' })
+  @ApiOperation({ summary: 'Settle ticked payables against a bank payment: rows [{id, percentage?}] (optional REBATE % change — omit to keep) + paymentDate + reference → all marked PAID' })
   settle(@Req() req: any, @Body() body: { rows: Array<{ id: string; percentage?: number | null }>; paymentDate?: string; reference?: string | null }) {
     return this.service.settle(orgId(req), body || ({} as any), actorName(req));
   }

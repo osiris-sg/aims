@@ -707,7 +707,7 @@ function RecurringPayablesDialog({ request, onClose }: { request: <T = any>(path
 
 // Bank-payment upload (guru 2026-11-08): drop the bank's payment page →
 // AI-reads payee / amount / date, auto-matches the supplier, lists their
-// outstanding invoices — tick what was paid, adjust each row's retention %,
+// outstanding invoices — tick what was paid, adjust a row's rebate % if needed,
 // and settle them all as PAID on the payment date.
 function PaymentUploadDialog({ request, onClose, onSettled }: { request: <T = any>(path: string, init?: any) => Promise<T>; onClose: () => void; onSettled: () => void }) {
   const [fileName, setFileName] = useState<string | null>(null);
@@ -749,7 +749,7 @@ function PaymentUploadDialog({ request, onClose, onSettled }: { request: <T = an
     const raw = d?.pct ?? (r.percentage == null ? "" : String(r.percentage));
     return raw === "" ? null : Number(raw) || 0;
   };
-  // The amount that will actually be paid. Only re-derive from the retention %
+  // The amount that will actually be paid. Only re-derive from the rebate %
   // when the user CHANGED it: a hand-typed row ("Add payable" — a loan, an
   // ad-hoc payment) carries a payment amount that is not invoice x (1-%), and
   // its invoice amount is often 0, so deriving it would show 0.00 here and
