@@ -133,7 +133,10 @@ export class PublicSignService {
     if (!doc) throw new NotFoundException('Document not found');
     const type = String(doc.type).toUpperCase();
     if (type === VO_TYPE) {
-      if (doc.status === 'confirmed') throw new BadRequestException('This variation order is already confirmed');
+      // A confirmed VO can still be SENT — confirmation locks nothing until
+      // the client gets the link (guru 2026-11-08). Only an already-signed
+      // one has nothing left to sign.
+      if ((doc.config as any)?.clientSignature) throw new BadRequestException('The client has already signed this variation order');
       this.assertVoHasLines(doc.config);
     } else if (!QUOTATION_TYPES.includes(type)) {
       throw new BadRequestException('Only quotations and variation orders can be sent for signature');
@@ -483,7 +486,11 @@ export class PublicSignService {
 
     const doc = link.document;
     const isVo = String(doc.type).toUpperCase() === VO_TYPE;
-    if (doc.status === 'confirmed') throw new BadRequestException(`This ${isVo ? 'variation order' : 'quotation'} has already been confirmed`);
+    // A VO may legitimately arrive here already confirmed (confirmed-but-
+    // unsent VOs stay sendable, guru 2026-11-08) — signing then just attaches
+    // the client's signature. A quotation link still dies on confirm.
+    if (doc.status === 'confirmed' && !isVo) throw new BadRequestException('This quotation has already been confirmed');
+    if (isVo && (doc.config as any)?.clientSignature) throw new BadRequestException('This variation order has already been signed');
     if (isVo) this.assertVoHasLines(doc.config);
     else this.assertHasPricedLines(doc.config);
     const cfg: any = doc.config || {};
@@ -501,7 +508,12 @@ export class PublicSignService {
         where: { id: doc.id },
         data: { config: { ...cfg, clientSignature }, version: { increment: 1 } },
       });
-      const r = await this.costing.confirmVo(doc.id, doc.organizationId);
+      // Already confirmed by staff before sending → the milestone and
+      // consolidation exist; the signature is all that was missing.
+      const r =
+        doc.status === 'confirmed'
+          ? { net: (cfg?.consolidation?.additions ?? 0) - (cfg?.consolidation?.removals ?? 0), newQuantum: cfg?.consolidation?.newQuantum ?? 0 }
+          : await this.costing.confirmVo(doc.id, doc.organizationId);
       await this.prisma.$transaction([
         this.prisma.documentSignLink.update({ where: { id: link.id }, data: { signedAt, signerName: name, signerIp: meta.ip || null, userAgent: (meta.userAgent || '').slice(0, 300) } }),
         this.prisma.documentSignLink.updateMany({ where: { documentId: doc.id, id: { not: link.id }, signedAt: null, revokedAt: null }, data: { revokedAt: signedAt } }),

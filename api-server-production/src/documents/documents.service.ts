@@ -7802,8 +7802,11 @@ export class DocumentsService {
     // VO sheet: the payment-schedule panel must show TODAY's collection state,
     // not the confirm-time snapshot (guru 2026-10-10: a partial payment after
     // confirmation still printed as the full amount PENDING). Quantum figures
-    // stay snapshotted — only the schedule rows refresh.
-    if (config.templateVariant === 'ID_VO' && document.projectId && config.consolidation) {
+    // stay snapshotted — only the schedule rows refresh. Runs for DRAFT VOs
+    // too, even before any consolidation was saved (guru 2026-11-08: a draft's
+    // print skipped the Payment Schedule panel; every VO prints like a
+    // confirmed one now).
+    if (config.templateVariant === 'ID_VO' && document.projectId) {
       try {
         const ms = await this.prisma.projectMilestone.findMany({
           where: { projectId: document.projectId, organizationId, kind: 'milestone' },
@@ -7812,7 +7815,7 @@ export class DocumentsService {
         });
         if (ms.length) {
           config.consolidation = {
-            ...config.consolidation,
+            ...(config.consolidation || {}),
             schedule: ms.map((m) => ({
               label: m.label,
               amount: Number(m.amount) || 0,

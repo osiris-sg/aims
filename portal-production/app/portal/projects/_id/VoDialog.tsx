@@ -236,6 +236,11 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [voDate, setVoDate] = useState("");
+  // A confirmed VO only LOCKS once it reached the client (guru 2026-11-08):
+  // a sign link outstanding/signed, or the client's signature on it. Until
+  // then it stays editable — saves re-sync the contract milestone.
+  // "unknown" counts as locked so nothing flashes editable while we check.
+  const [sendState, setSendState] = useState<"unknown" | "sent" | "unsent">("unknown");
   // "Send homeowner the link to sign" (Mike 2026-11-07): the client signs the
   // VO on the same e-sign page as the quotation; signing confirms it.
   const [signOpen, setSignOpen] = useState(false);
@@ -254,23 +259,36 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
         // day the VO was created; printed next to the VO number on the sheet.
         setVoDate((d?.config?.vo?.date || d?.createdAt || new Date().toISOString()).slice(0, 10));
         setDirty(false);
+        if (d?.status !== "confirmed") setSendState("unsent");
+        else if (d?.config?.clientSignature) setSendState("sent");
+        else {
+          setSendState("unknown");
+          api
+            .request<{ active: any; signed: any }>(`/documents/${d.id}/sign-link`)
+            .then((s) => setSendState(s?.active || s?.signed ? "sent" : "unsent"))
+            .catch(() => setSendState("sent")); // can't tell → stay locked
+        }
       })
       .catch((e) => toast.error(e.message || "Failed to load VO"));
   }, [api, docId]);
 
-  const readOnly = doc?.status === "confirmed";
+  const confirmed = doc?.status === "confirmed";
+  const readOnly = confirmed && sendState !== "unsent";
   const addTotal = sum(additions);
   const remTotal = sum(removals);
   const net = addTotal - remTotal;
   // This VO's milestone doesn't exist until Confirm, so contractTotal is the
   // "latest revised quantum" for a draft; once confirmed, use the snapshot.
+  // A confirmed-but-editable VO already sits inside contractTotal, so its
+  // live panel starts from the snapshot's previous quantum instead.
+  const prevQuantum = confirmed ? (doc?.config?.consolidation?.previousQuantum ?? summary.totals.contractTotal) : summary.totals.contractTotal;
   const cons = readOnly && doc?.config?.consolidation ? doc.config.consolidation : {
-    previousQuantum: summary.totals.contractTotal,
+    previousQuantum: prevQuantum,
     additions: addTotal,
     removals: remTotal,
-    newQuantum: summary.totals.contractTotal + net,
+    newQuantum: prevQuantum + net,
     collected: summary.totals.collected,
-    balance: summary.totals.contractTotal + net - summary.totals.collected,
+    balance: prevQuantum + net - summary.totals.collected,
   };
 
   const buildConfig = useCallback(() => ({
@@ -283,6 +301,16 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
   const save = async (): Promise<boolean> => {
     if (!doc) return false;
     try {
+      if (confirmed) {
+        // Confirmed-but-unsent VO: the dedicated endpoint re-syncs the
+        // contract milestone and consolidation with the new net.
+        await api.request(`/projects/vo/${doc.id}/update`, { method: "POST", body: JSON.stringify({ additions, removals, date: voDate || null }) });
+        const d = await api.getDocument(doc.id);
+        setDoc(d);
+        setDirty(false);
+        onChanged();
+        return true;
+      }
       const res = await api.saveDocument({ id: doc.id, type: doc.type, version: doc.version, config: buildConfig() });
       setDoc((d: any) => (d ? { ...d, version: typeof res?.version === "number" ? res.version : (d.version || 0) + 1, config: buildConfig() } : d));
       setDirty(false);
@@ -387,6 +415,11 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
         ) : (
           <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "minmax(0,1fr) 260px" }, gap: 2.5 }}>
             <Box sx={{ minWidth: 0 }}>
+              {confirmed && !readOnly && (
+                <Alert severity="success" sx={{ mb: 1.5 }}>
+                  Confirmed, not yet sent to the client — still editable. Saving re-syncs the contract sum; sending the sign link locks it.
+                </Alert>
+              )}
               {readOnly && (
                 <Alert
                   severity="info"
@@ -419,7 +452,9 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
                     ) : undefined
                   }
                 >
-                  Confirmed VOs are locked — {isDirector ? "revert to draft to edit, or" : ""} raise another VO for further changes.
+                  {sendState === "unknown"
+                    ? "Checking whether this VO was sent to the client…"
+                    : `This VO ${doc?.config?.clientSignature ? "is signed by the client" : "was sent to the client for signature"} — locked. ${isDirector ? "Revert to draft to edit, or" : ""} raise another VO for further changes.`}
                 </Alert>
               )}
               <LineList title="Additional Items" lines={additions} readOnly={readOnly} allowStrike onChange={(n) => { setAdditions(n); setDirty(true); }} />
@@ -436,7 +471,9 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
               <K k="Balance payable" v={`S$ ${money(cons.balance)}`} strong />
               {!readOnly && (
                 <Typography variant="caption" sx={{ color: "text.disabled", display: "block", mt: 1 }}>
-                  Confirm adds the net {money(net)} to the contract sum as a VO line in Payments.
+                  {confirmed
+                    ? `Saving keeps the contract's VO line in Payments at the net ${money(net)}.`
+                    : `Confirm adds the net ${money(net)} to the contract sum as a VO line in Payments.`}
                 </Typography>
               )}
             </Box>
@@ -448,14 +485,16 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
         {doc && !readOnly && (
           <>
             <Button onClick={() => save().then((ok) => ok && toast.success("Saved"))} disabled={busy || !dirty} sx={{ textTransform: "none" }}>
-              Save draft
+              {confirmed ? "Save changes" : "Save draft"}
             </Button>
             <Button variant="outlined" startIcon={<DrawIcon />} onClick={sendForSignature} disabled={busy} sx={{ textTransform: "none" }}>
               Send for signature
             </Button>
-            <Button variant="contained" startIcon={<CheckCircleIcon />} onClick={confirm} disabled={busy} sx={{ textTransform: "none" }}>
-              Confirm VO
-            </Button>
+            {!confirmed && (
+              <Button variant="contained" startIcon={<CheckCircleIcon />} onClick={confirm} disabled={busy} sx={{ textTransform: "none" }}>
+                Confirm VO
+              </Button>
+            )}
           </>
         )}
       </DialogActions>
@@ -472,11 +511,20 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
           onClose={async () => {
             setSignOpen(false);
             // The homeowner may have signed while the link dialog was open —
-            // signing confirms the VO, so pick up the new status.
+            // signing confirms the VO, so pick up the new status. A link now
+            // outstanding also LOCKS a confirmed VO (sent = locked), unless it
+            // was revoked inside the dialog — re-check instead of assuming.
             try {
               const d = await api.getDocument(doc.id);
               setDoc(d);
-              if (d?.status === "confirmed") onChanged();
+              if (d?.status === "confirmed") {
+                onChanged();
+                if (d?.config?.clientSignature) setSendState("sent");
+                else {
+                  const s = await api.request<{ active: any; signed: any }>(`/documents/${d.id}/sign-link`).catch(() => null);
+                  setSendState(!s || s.active || s.signed ? "sent" : "unsent");
+                }
+              }
             } catch {
               /* keep what we have */
             }

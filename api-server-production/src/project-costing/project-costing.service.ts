@@ -1808,6 +1808,75 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
     return { reverted: true, name: doc.name };
   }
 
+  /**
+   * Edit a CONFIRMED VO that was never sent to the client (guru 2026-11-08:
+   * "when they send the client then it's locked — if they don't send, it's
+   * not locked"). Locked the moment a sign link exists (outstanding or
+   * signed) or the client's signature is on the document — then it's revert
+   * (Directors) or a counter-VO. Re-syncs the consolidation snapshot and the
+   * VO's contract milestone to the new net. Designers only on their own
+   * projects, like the rest of the VO flow.
+   */
+  async updateConfirmedVo(
+    docId: string,
+    organizationId: string,
+    callerUserId: string | undefined,
+    dto: { additions?: any[]; removals?: any[]; date?: string | null },
+  ) {
+    const doc = await this.prisma.document.findFirst({ where: { id: docId, organizationId, type: 'VARIATION_ORDER' } });
+    if (!doc) throw new NotFoundException('Variation order not found');
+    if (doc.status !== 'confirmed') throw new BadRequestException('This variation order is not confirmed — save it normally');
+    if (!doc.projectId) throw new BadRequestException('Variation order is not linked to a project');
+    const scope = await resolveTier(this.prisma, organizationId, callerUserId);
+    if (scope.tier === 'designer') {
+      const proj = await this.prisma.project.findFirst({ where: { id: doc.projectId, organizationId }, select: { designerUserId: true } });
+      if (proj?.designerUserId !== callerUserId) throw new ForbiddenException('You can only edit variation orders on your own projects');
+    }
+    const cfg: any = doc.config || {};
+    if (cfg.clientSignature) throw new BadRequestException('The client has signed this VO — it is locked. Directors can revert it to draft.');
+    const sentLinks = await this.prisma.documentSignLink.count({ where: { documentId: doc.id, revokedAt: null } });
+    if (sentLinks > 0) throw new BadRequestException('This VO was sent to the client for signature — it is locked. Revoke the link or raise another VO.');
+
+    const vo: any = cfg.vo || {};
+    const additions = Array.isArray(dto.additions) ? dto.additions : vo.additions;
+    const removals = Array.isArray(dto.removals) ? dto.removals : vo.removals;
+    const sumLines = (list: any[]) => (Array.isArray(list) ? list : []).reduce((x, l) => x + (l?.complimentary || l?.struck || l?.kind === 'area' ? 0 : num(l?.amount)), 0);
+    const addTotal = sumLines(additions);
+    const remTotal = sumLines(removals);
+    const net = addTotal - remTotal;
+
+    const ms = await this.prisma.projectMilestone.findFirst({ where: { organizationId, projectId: doc.projectId, kind: 'vo', label: doc.name || undefined } });
+    if (ms && ms.paidAmount > 0) throw new BadRequestException(`S$ ${ms.paidAmount.toFixed(2)} was already collected against this VO — clear the collection first`);
+
+    // summary.contractTotal already contains THIS VO's milestone — back it out
+    // to get the pre-VO quantum the consolidation panel starts from.
+    const summary = await this.summary(doc.projectId, organizationId);
+    const previousQuantum = summary.totals.contractTotal - (ms ? num(ms.amount) : 0);
+    const consolidation = {
+      previousQuantum,
+      additions: addTotal,
+      removals: remTotal,
+      newQuantum: previousQuantum + net,
+      collected: summary.totals.collected,
+      balance: previousQuantum + net - summary.totals.collected,
+      schedule: summary.milestones.filter((m: any) => m.kind === 'milestone').map((m: any) => ({ label: m.label, amount: num(m.amount), paid: num(m.paidAmount), collected: num(m.amount) > 0 && num(m.paidAmount) >= num(m.amount) })),
+    };
+    const count = await this.prisma.projectMilestone.count({ where: { projectId: doc.projectId, organizationId } });
+    await this.prisma.$transaction([
+      this.prisma.document.update({
+        where: { id: doc.id },
+        data: {
+          config: { ...cfg, vo: { ...vo, additions, removals, date: dto.date !== undefined ? dto.date : vo.date }, consolidation },
+          version: { increment: 1 },
+        },
+      }),
+      ms
+        ? this.prisma.projectMilestone.update({ where: { id: ms.id }, data: { amount: net } })
+        : this.prisma.projectMilestone.create({ data: { organizationId, projectId: doc.projectId, kind: 'vo', label: doc.name || 'VO', amount: net, sortOrder: count, paidAmount: 0 } }),
+    ]);
+    return { updated: true, net, newQuantum: consolidation.newQuantum };
+  }
+
   /** Delete an UNCONFIRMED variation order (guru/Mike 2026-10-07: the empty
    *  VO1–VO3 stubs needed a way out). A confirmed VO changed the contract
    *  quantum and has a milestone — it cannot be deleted, only dealt with by a
