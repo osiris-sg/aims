@@ -1336,16 +1336,18 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
         const { steps } = await this.questSteps(pj.id, pj.organizationId).catch(() => ({ steps: [] as any[] }));
         const carpentry = /carpentry/i.test(it.label) && /install/i.test(it.label);
         const step = carpentry ? steps.find((s: any) => /^carpentry installation/i.test(s.title)) : null;
+        // Auto-assigning chat replies to quest steps is REMOVED (guru
+        // 2026-11-08: a designer's bank-payment page got hijacked onto a
+        // task). The morning nudge stays, but media is attached on the Quest
+        // tab — no QuestMediaRequest is opened, so nothing can capture it.
+        void step;
         const text = [
           `📸 ${it.label} starts today — ${pj.name}.`,
           '',
-          'Before work begins, please send a BEFORE video and a photo of the site here.',
-          'They will be saved to the project quest automatically.',
+          'Before work begins, please take a BEFORE video and a photo of the site,',
+          "and attach them on the project's Quest tab in AIMS.",
         ].join('\n');
         await this.mediaWaSend(line, to, text, { params: [it.label, pj.name] });
-        await this.prisma.questMediaRequest.create({
-          data: { organizationId: pj.organizationId, projectId: pj.id, stepId: step?.id || null, scheduleItemId: it.id, waNumber: to, label: it.label },
-        });
         await this.prisma.projectScheduleItem.update({ where: { id: it.id }, data: { reminderSentAt: new Date() } });
         this.actionLog.system('quest-media-request', 'SEND', 'project', {
           organizationId: pj.organizationId,
@@ -1356,44 +1358,6 @@ Rules: multi-day work skips Sundays, so when a RANGE starts or ends on one use t
         this.logger.warn(`Schedule media request failed for item ${it.id}: ${(e as Error).message}`);
       }
     }
-  }
-
-  /**
-   * Inbound WhatsApp photo/video from a designer with an open media request
-   * (last 48h) → S3 → the quest step's attachments. Returns a confirmation
-   * text to send back, or null when the sender has no open request.
-   */
-  async captureQuestMedia(from: string, media: { buffer: Buffer; mimetype: string; caption?: string | null }): Promise<string | null> {
-    const digits = String(from || '').replace(/\D/g, '');
-    if (!digits) return null;
-    const req = await this.prisma.questMediaRequest.findFirst({
-      where: { waNumber: digits, status: 'open', createdAt: { gte: new Date(Date.now() - 48 * 3600 * 1000) } },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!req) return null;
-    let step = req.stepId ? await this.prisma.projectQuestStep.findUnique({ where: { id: req.stepId } }) : null;
-    if (!step) {
-      step = await this.prisma.projectQuestStep.findFirst({
-        where: { projectId: req.projectId, organizationId: req.organizationId, status: 'pending', requiresProof: true },
-        orderBy: { stepNo: 'asc' },
-      });
-    }
-    if (!step) return null;
-    const mt = media.mimetype || 'image/jpeg';
-    const ext = mt.includes('mp4') ? 'mp4' : mt.includes('quicktime') ? 'mov' : mt.includes('3gpp') ? '3gp' : mt.includes('png') ? 'png' : mt.includes('webp') ? 'webp' : 'jpg';
-    const key = `projects/${req.organizationId}/quest/${req.projectId}-step${step.stepNo}-wa-${Date.now()}.${ext}`;
-    const url = await this.s3.uploadFile(key, media.buffer, mt);
-    const list: any[] = Array.isArray(step.attachments) ? (step.attachments as any[]) : [];
-    list.push({ url, key, type: mt, caption: media.caption || null, at: new Date().toISOString(), via: 'whatsapp' });
-    await this.prisma.projectQuestStep.update({ where: { id: step.id }, data: { attachments: list as any } });
-    await this.prisma.questMediaRequest.update({ where: { id: req.id }, data: { mediaCount: { increment: 1 }, lastMediaAt: new Date() } });
-    this.actionLog.system('quest-media-capture', 'CREATE', 'project', {
-      organizationId: req.organizationId,
-      resourceId: req.projectId,
-      details: { stepNo: step.stepNo, stepTitle: step.title, type: mt, label: req.label },
-    });
-    const word = mt.startsWith('video') ? 'Video' : 'Photo';
-    return `✅ ${word} saved to "${step.title}" on ${req.label}. Send more photos/videos anytime.`;
   }
 
   // ── designer dashboard (CIEL 09-01) ────────────────────────────────────

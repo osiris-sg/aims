@@ -2476,25 +2476,10 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
             );
             continue;
           }
-          // Designer replying to the 9am schedule request with a photo/video →
-          // save it onto the project's quest step. Checked before operator
-          // routing so site media never lands in the extraction agent; the
-          // sender must have an OPEN QuestMediaRequest (48h) or this is a no-op.
-          const questMedia = message.image || message.video;
-          if (from && questMedia?.id) {
-            try {
-              const dl = await this.downloadMedia(questMedia.id, connection.accessToken);
-              const confirmation = dl
-                ? await this.projectCosting.captureQuestMedia(from, { buffer: dl.buffer, mimetype: dl.mimetype, caption: questMedia.caption || null })
-                : null;
-              if (confirmation) {
-                await this.dispatch(connection.organizationId, { messaging_product: 'whatsapp', to: from, type: 'text', text: { body: confirmation } }, { body: confirmation, fromPhoneNumberId: connection.phoneNumberId }).catch(() => null);
-                continue;
-              }
-            } catch (e) {
-              this.logger.error(`Quest media capture failed for ${message.id}: ${(e as Error).message}`);
-            }
-          }
+          // (Removed, guru 2026-11-08: inbound photos are NEVER auto-assigned to
+          // quest steps any more — a designer's bank-payment page was hijacked
+          // onto "Initial material selection meeting". All media now flows to
+          // the operator pipeline; quest proof is attached in the Quest tab.)
           // Lead-capture line: every customer (non-staff) message becomes/updates
           // a Lead. Staff senders fall through to operator routing below.
           if (from && (connection as any).mode === 'leads' && !(await this.operatorAuth.isLinked('whatsapp', from))) {
