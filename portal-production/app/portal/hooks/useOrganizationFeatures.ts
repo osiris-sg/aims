@@ -30,6 +30,7 @@ interface OrganizationFeatures {
   // Office-signed delivery orders (2026-11-05): a DO raised in the office, with
   // no field run behind it, can be shared for the customer to sign.
   enableOfficeDoSign?: boolean;
+  enableBridgeLeadCapture?: boolean;
   enableApCreditOffset?: boolean;
   enableContraOffset?: boolean;
   // Customer UEN + old code (2026-11-02): fields, columns, picker line. WCT on.
@@ -60,6 +61,12 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Accounting → Monthly Payables: the outgoing-payments tally fed by the bills
   // WhatsApp group (Summer 2026-11-02).
   enablePayables: false,
+  // Enquiries off the linked-device WhatsApp bridge become Leads (CIEL
+  // 2026-11-08): the ad's intro leaving the line opens the lead, their reply
+  // names it and sends the assign card. OFF everywhere else — other orgs'
+  // bridge traffic is staff chatter. The intro text itself is the non-boolean
+  // `bridgeLeadIntro` entry, edited as text in Admin → Configuration.
+  enableBridgeLeadCapture: false,
   enableDocumentAI: true,
   enableCustomFields: true,
   enableServiceItems: true,

@@ -65,7 +65,6 @@ const ATTACH_MAX_IMAGE = 10 * 1024 * 1024; // images + PDF
 const ATTACH_MAX_VIDEO = 100 * 1024 * 1024; // video
 const ATTACH_EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'application/pdf': 'pdf', 'video/mp4': 'mp4', 'video/quicktime': 'mov' };
 
-/** Lenient date parse for lead fields ("2027-03-01", "01/03/2027" dd/mm) — null when unreadable. */
 /**
  * The reply to "what's your name?" as a NAME, or null when it plainly is not.
  *
@@ -103,6 +102,7 @@ export function nameFromReply(raw: string | null | undefined): string | null {
   return t.slice(0, 60);
 }
 
+/** Lenient date parse for lead fields ("2027-03-01", "01/03/2027" dd/mm) — null when unreadable. */
 function parseDateLoose(s: string | null | undefined): Date | null {
   if (!s?.trim()) return null;
   const t = s.trim();

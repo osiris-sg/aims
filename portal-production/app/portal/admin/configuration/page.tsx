@@ -778,23 +778,39 @@ export default function ConfigurationAdminPage() {
                     in the canonical list are still shown. */}
                 {Object.keys({ ...FEATURE_FLAG_DEFAULTS, ...(uiConfigForm.features || {}) }).map((key) => {
                   const value = (uiConfigForm.features?.[key] ?? FEATURE_FLAG_DEFAULTS[key]) ?? false;
+                  const setFeature = (v: boolean | string) =>
+                    setUIConfigForm({
+                      ...uiConfigForm,
+                      features: {
+                        ...FEATURE_FLAG_DEFAULTS,
+                        ...uiConfigForm.features,
+                        [key]: v,
+                      },
+                    });
+                  // Not every entry in this JSON is a switch: `bridgeLeadIntro`
+                  // holds the ad's intro text, which is what decides whether a
+                  // conversation becomes a lead. Rendering it as a Switch put
+                  // `true` in place of the copy on one tap, after which no lead
+                  // could ever open again. A stored string is edited as text.
+                  if (typeof value === "string") {
+                    return (
+                      <ListItem key={key}>
+                        <ListItemText primary={key} sx={{ flex: "0 0 240px" }} />
+                        <TextField
+                          size="small"
+                          fullWidth
+                          value={value}
+                          onChange={(e) => setFeature(e.target.value)}
+                          sx={{ ml: 2, mr: 1 }}
+                        />
+                      </ListItem>
+                    );
+                  }
                   return (
                     <ListItem key={key}>
                       <ListItemText primary={key} />
                       <ListItemSecondaryAction>
-                        <Switch
-                          checked={value as boolean}
-                          onChange={(e) =>
-                            setUIConfigForm({
-                              ...uiConfigForm,
-                              features: {
-                                ...FEATURE_FLAG_DEFAULTS,
-                                ...uiConfigForm.features,
-                                [key]: e.target.checked,
-                              },
-                            })
-                          }
-                        />
+                        <Switch checked={value as boolean} onChange={(e) => setFeature(e.target.checked)} />
                       </ListItemSecondaryAction>
                     </ListItem>
                   );
