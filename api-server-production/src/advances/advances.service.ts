@@ -307,7 +307,13 @@ export class AdvancesService {
     const row = await this.prisma.designerAdvance.findFirst({ where: { id, organizationId } });
     if (!row) throw new NotFoundException('Advance request not found');
     if (row.status !== 'approved') throw new BadRequestException(`Only an approved advance can be marked paid (this one is ${row.status})`);
-    return this.prisma.designerAdvance.update({ where: { id }, data: { status: 'paid', paidAt: new Date() } });
+    const updated = await this.prisma.designerAdvance.update({ where: { id }, data: { status: 'paid', paidAt: new Date() } });
+    // The Monthly Payables tally carries approved advances as rows (guru
+    // 2026-11-08) — keep that row in step when finance pays from this side.
+    await (this.prisma as any).payableInvoice
+      ?.updateMany({ where: { organizationId, advanceId: id, status: { not: 'paid' } }, data: { status: 'paid', paymentDate: new Date() } })
+      .catch(() => null);
+    return updated;
   }
 
   /** Approved+paid advances for one project — the Contract & P&L "Advanced to designer" figure. */

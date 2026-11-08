@@ -36,6 +36,34 @@ export class PayablesController {
     return this.service.list(orgId(req), { month, status });
   }
 
+  @Get('recurring')
+  @Permissions('projects:read')
+  @ApiOperation({ summary: 'Standing monthly payables (rent etc.) — materialised onto the tally once per month' })
+  listRecurring(@Req() req: any) {
+    return this.service.listRecurring(orgId(req));
+  }
+
+  @Post('recurring')
+  @Permissions('projects:update')
+  @ApiOperation({ summary: 'Add a recurring payable: supplierName, description, amount, percentage?, dayOfMonth? (1-28)' })
+  createRecurring(@Req() req: any, @Body() dto: any) {
+    return this.service.createRecurring(orgId(req), dto || {});
+  }
+
+  @Patch('recurring/:id')
+  @Permissions('projects:update')
+  @ApiOperation({ summary: 'Edit a recurring payable (set active:false to pause it)' })
+  updateRecurring(@Req() req: any, @Param('id') id: string, @Body() dto: any) {
+    return this.service.updateRecurring(orgId(req), id, dto || {});
+  }
+
+  @Delete('recurring/:id')
+  @Permissions('projects:update')
+  @ApiOperation({ summary: 'Delete a recurring payable template (already-created month rows stay)' })
+  removeRecurring(@Req() req: any, @Param('id') id: string) {
+    return this.service.removeRecurring(orgId(req), id);
+  }
+
   @Get('project-options')
   @Permissions('projects:read')
   @ApiOperation({ summary: 'Light project list {id, name, address} for linking a payable to a project (verifying the site address against the project files)' })

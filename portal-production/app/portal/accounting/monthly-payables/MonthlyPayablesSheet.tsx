@@ -10,12 +10,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
-  Divider, Menu, MenuItem, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography,
+  Divider, Menu, MenuItem, Stack, Switch, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
 } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircleOutline";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLongOutlined";
+import AutorenewIcon from "@mui/icons-material/Autorenew";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { IconButton } from "@mui/material";
 import { toast } from "react-toastify";
 import PageTable from "@/components/PageTable";
@@ -49,7 +51,7 @@ type Payload = {
   month: string;
   months: string[];
   rows: Row[];
-  totals: { toPay: number; withheld: number; paid: number; all: number; toPayCount: number; withheldCount: number; paidCount: number };
+  totals: { toPay: number; withheld: number; paid: number; all: number; rebate: number; toPayCount: number; withheldCount: number; paidCount: number };
 };
 
 type ProjectOption = { id: string; name: string; address: string | null; status?: string | null; clientName?: string | null };
@@ -80,6 +82,7 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
   // Bank-payment upload (guru 2026-11-08): AI-reads a bank payment page,
   // matches the supplier, and the outstanding invoices get ticked off.
   const [payUploadOpen, setPayUploadOpen] = useState(false);
+  const [recurringOpen, setRecurringOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(50); // a cycle reads as one sheet
@@ -188,7 +191,7 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
       {
         id: "pick",
         header: "",
-        size: 36,
+        pxWidth: 36,
         enableSorting: false,
         cell: ({ row }: any) =>
           row.original._kind ? null : (
@@ -206,6 +209,7 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
       {
         accessorKey: "invoiceNo",
         header: "Invoice",
+        size: 11,
         enableSorting: false,
         cell: ({ row }: any) =>
           row.original._kind ? null : (
@@ -214,12 +218,26 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
               {row.original.invoiceNo || "—"}
             </Typography>
             {row.original.source === "whatsapp-group" && <WhatsAppIcon sx={{ fontSize: 14, color: "success.main" }} />}
+            {row.original.source === "recurring" && <AutorenewIcon sx={{ fontSize: 14, color: "info.main" }} />}
           </Stack>
+          ),
+      },
+      {
+        accessorKey: "invoiceDate",
+        header: "Invoice Date",
+        size: 8,
+        enableSorting: false,
+        cell: ({ row }: any) =>
+          row.original._kind ? null : (
+            <Typography variant="body2" sx={{ color: row.original.invoiceDate ? "text.primary" : "text.disabled" }}>
+              {fmtDate(row.original.invoiceDate) || "\u2014"}
+            </Typography>
           ),
       },
       {
         accessorKey: "supplierName",
         header: "Contractor Company",
+        size: 14,
         enableSorting: false,
         cell: ({ row }: any) =>
           row.original._kind === "subtotal" ? (
@@ -235,6 +253,7 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
       {
         accessorKey: "siteAddress",
         header: "Site Address",
+        size: 17,
         enableSorting: false,
         cell: ({ row }: any) =>
           row.original._kind ? null : (
@@ -257,6 +276,8 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
       {
         accessorKey: "invoiceAmount",
         header: "Invoice Amount",
+        size: 9,
+        align: "right",
         enableSorting: false,
         cell: ({ row }: any) =>
           row.original._kind ? null : <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(row.original.invoiceAmount)}</Box>,
@@ -264,6 +285,8 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
       {
         accessorKey: "percentage",
         header: "%",
+        size: 4,
+        align: "right",
         enableSorting: false,
         cell: ({ row }: any) =>
           row.original._kind ? null : <Box sx={{ textAlign: "right" }}>{row.original.percentage != null ? `${row.original.percentage}%` : ""}</Box>,
@@ -271,6 +294,8 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
       {
         accessorKey: "paymentAmount",
         header: "Payment Amount",
+        size: 10,
+        align: "right",
         enableSorting: false,
         cell: ({ row }: any) =>
           row.original._kind === "grand" ? (
@@ -283,6 +308,7 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
       {
         accessorKey: "paymentDate",
         header: "Payment Date",
+        size: 8,
         enableSorting: false,
         cell: ({ row }: any) =>
           row.original._kind ? null : row.original.status === "paid" ? (
@@ -296,6 +322,7 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
       {
         accessorKey: "remarks",
         header: "Remarks",
+        size: 11,
         enableSorting: false,
         cell: ({ row }: any) =>
           row.original._kind === "subtotal" ? (
@@ -309,11 +336,11 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
           </Typography>
           ),
       },
-      { accessorKey: "submittedBy", header: "Submitted By", enableSorting: false, cell: ({ row }: any) => (row.original._kind ? null : row.original.submittedBy || row.original.postedBy || "") },
+      { accessorKey: "submittedBy", header: "Submitted By", size: 8, enableSorting: false, cell: ({ row }: any) => (row.original._kind ? null : row.original.submittedBy || row.original.postedBy || "") },
       {
         id: "actions",
         header: "",
-        size: 40,
+        pxWidth: 40,
         enableSorting: false,
         cell: ({ row }: any) =>
           row.original._kind ? null : (
@@ -379,6 +406,8 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
             ...(totals.withheldCount ? [{ k: `Withheld (${totals.withheldCount})`, v: totals.withheld, color: "#ed6c02" }] : []),
             { k: `Paid (${totals.paidCount})`, v: totals.paid, color: "success.main" },
             { k: "Month total", v: totals.all, color: "text.primary" },
+            // Rebate total (guru 2026-11-08): the retention the firm keeps — Σ invoice × %.
+            { k: "Rebate total", v: totals.rebate, color: "info.main" },
           ].map((t) => (
             <Box key={t.k} sx={{ border: 1, borderColor: "divider", borderRadius: 2, px: 2, py: 1, minWidth: 170 }}>
               <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", letterSpacing: 0.4 }}>
@@ -403,6 +432,9 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
         actionButtons={[
           <Button key="upload-payment" size="small" variant="outlined" startIcon={<ReceiptLongIcon />} onClick={() => setPayUploadOpen(true)} sx={{ textTransform: "none" }}>
             Upload payment
+          </Button>,
+          <Button key="recurring" size="small" variant="outlined" startIcon={<AutorenewIcon />} onClick={() => setRecurringOpen(true)} sx={{ textTransform: "none" }}>
+            Recurring
           </Button>,
         ]}
         noSelectionColumn
@@ -558,6 +590,16 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
         />
       )}
 
+      {recurringOpen && (
+        <RecurringPayablesDialog
+          request={request}
+          onClose={() => {
+            setRecurringOpen(false);
+            load(); // new templates materialise onto the current month
+          }}
+        />
+      )}
+
       {payUploadOpen && (
         <PaymentUploadDialog
           request={request}
@@ -569,6 +611,97 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
         />
       )}
     </Box>
+  );
+}
+
+// Recurring payables (guru 2026-11-08: rent etc.): standing monthly lines —
+// each active template lands on the tally once per month, on the day set.
+function RecurringPayablesDialog({ request, onClose }: { request: <T = any>(path: string, init?: any) => Promise<T>; onClose: () => void }) {
+  const [rows, setRows] = useState<any[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState<any>({ supplierName: "", description: "", amount: "", percentage: "", dayOfMonth: "" });
+
+  const load = useCallback(async () => {
+    try {
+      setRows(await request<any[]>(`/payables/recurring`));
+    } catch (e: any) {
+      toast.error(e.message || "Could not load recurring payables");
+    }
+  }, [request]);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const act = async (fn: () => Promise<any>, okMsg?: string) => {
+    setBusy(true);
+    try {
+      await fn();
+      if (okMsg) toast.success(okMsg);
+      await load();
+    } catch (e: any) {
+      toast.error(e.message || "Action failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle>Recurring payables</DialogTitle>
+      <DialogContent dividers>
+        <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mb: 1.5 }}>
+          Standing monthly lines — rent, subscriptions, allowances. Each active one lands on the tally automatically when the month starts.
+        </Typography>
+        <Stack spacing={1}>
+          {rows === null && <CircularProgress size={20} />}
+          {rows?.map((t) => (
+            <Stack key={t.id} direction="row" spacing={1} alignItems="center" sx={{ opacity: t.active ? 1 : 0.5 }}>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>{t.supplierName}</Typography>
+                <Typography variant="caption" sx={{ color: "text.secondary" }} noWrap>
+                  {t.description || "—"} · day {t.dayOfMonth || 1}{t.percentage != null ? ` · ${t.percentage}%` : ""}
+                </Typography>
+              </Box>
+              <Typography variant="body2" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{money(t.amount)}</Typography>
+              <Tooltip title={t.active ? "Pause — stops landing on new months" : "Resume"}>
+                <Switch size="small" checked={t.active} disabled={busy} onChange={(e) => act(() => request(`/payables/recurring/${t.id}`, { method: "PATCH", body: JSON.stringify({ active: e.target.checked }) }))} />
+              </Tooltip>
+              <IconButton size="small" disabled={busy} onClick={() => window.confirm(`Delete the recurring line "${t.supplierName}"? Rows already on the tally stay.`) && act(() => request(`/payables/recurring/${t.id}`, { method: "DELETE" }), "Deleted")} sx={{ color: "text.disabled", "&:hover": { color: "error.main" } }}>
+                <DeleteOutlineIcon fontSize="small" />
+              </IconButton>
+            </Stack>
+          ))}
+          {rows?.length === 0 && <Typography variant="body2" sx={{ color: "text.disabled" }}>Nothing recurring yet.</Typography>}
+          <Divider sx={{ my: 1 }} />
+          <Typography variant="overline" sx={{ color: "text.secondary" }}>Add recurring</Typography>
+          <Stack direction="row" spacing={1}>
+            <TextField label="Paid to" size="small" value={draft.supplierName} onChange={(e) => setDraft({ ...draft, supplierName: e.target.value })} sx={{ flex: 1 }} />
+            <TextField label="For (e.g. Showroom rent)" size="small" value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} sx={{ flex: 1 }} />
+          </Stack>
+          <Stack direction="row" spacing={1}>
+            <TextField label="Amount" size="small" value={draft.amount} onChange={(e) => /^[0-9]*\.?[0-9]*$/.test(e.target.value) && setDraft({ ...draft, amount: e.target.value })} inputProps={{ inputMode: "decimal" }} sx={{ flex: 1 }} />
+            <TextField label="%" size="small" value={draft.percentage} onChange={(e) => /^[0-9]*\.?[0-9]*$/.test(e.target.value) && setDraft({ ...draft, percentage: e.target.value })} sx={{ width: 80 }} />
+            <TextField label="Day of month" size="small" value={draft.dayOfMonth} onChange={(e) => /^[0-9]{0,2}$/.test(e.target.value) && setDraft({ ...draft, dayOfMonth: e.target.value })} sx={{ width: 120 }} />
+            <Button
+              variant="contained"
+              disabled={busy || !(Number(draft.amount) > 0) || !draft.supplierName.trim()}
+              onClick={() =>
+                act(async () => {
+                  await request(`/payables/recurring`, { method: "POST", body: JSON.stringify(draft) });
+                  setDraft({ supplierName: "", description: "", amount: "", percentage: "", dayOfMonth: "" });
+                }, "Added — it lands on the current month on next load")
+              }
+              sx={{ textTransform: "none" }}
+            >
+              Add
+            </Button>
+          </Stack>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} sx={{ textTransform: "none" }}>Close</Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
@@ -781,6 +914,7 @@ function PayableDialog({
 }) {
   const [f, setF] = useState<any>({
     invoiceNo: row?.invoiceNo || "",
+    invoiceDate: row?.invoiceDate ? String(row.invoiceDate).slice(0, 10) : "",
     supplierName: row?.supplierName || "",
     siteAddress: row?.siteAddress || "",
     invoiceAmount: row?.invoiceAmount ?? "",
@@ -833,7 +967,10 @@ function PayableDialog({
             </Box>
           )}
           <Stack spacing={1.5}>
-            <TextField label="Invoice no." size="small" value={f.invoiceNo} onChange={set("invoiceNo")} />
+            <Stack direction="row" spacing={1.5}>
+              <TextField label="Invoice no." size="small" value={f.invoiceNo} onChange={set("invoiceNo")} sx={{ flex: 1 }} />
+              <TextField type="date" label="Invoice date" size="small" value={f.invoiceDate} onChange={set("invoiceDate")} InputLabelProps={{ shrink: true }} sx={{ width: 170 }} />
+            </Stack>
             <TextField label="Contractor company" size="small" value={f.supplierName} onChange={set("supplierName")} />
             <TextField label="Site address" size="small" value={f.siteAddress} onChange={set("siteAddress")} multiline maxRows={2} />
             {/* Site-address → project verification (Summer): link the invoice to

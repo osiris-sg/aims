@@ -40,9 +40,64 @@ export class PayablesService {
     return this.round2((Number(invoiceAmount) || 0) * (1 - pct / 100));
   }
 
+  /**
+   * Materialise standing lines onto the CURRENT month the first time it is
+   * opened (guru 2026-11-08): active RecurringPayable templates (rent etc. —
+   * once per month each, a deleted month-row is NOT recreated) and APPROVED
+   * designer advances that aren't on the tally yet.
+   */
+  private async materialize(organizationId: string, month: string) {
+    if (month !== this.monthOf(new Date())) return;
+    const templates = await this.prisma.recurringPayable.findMany({ where: { organizationId, active: true } });
+    for (const t of templates) {
+      if (t.lastMonth && t.lastMonth >= month) continue;
+      const day = Math.min(Math.max(Number(t.dayOfMonth) || 1, 1), 28);
+      await this.prisma.payableInvoice.create({
+        data: {
+          organizationId,
+          month,
+          supplierName: t.supplierName,
+          siteAddress: t.description || null,
+          invoiceDate: new Date(`${month}-${String(day).padStart(2, '0')}T00:00:00.000Z`),
+          invoiceAmount: this.round2(t.amount),
+          percentage: t.percentage,
+          paymentAmount: this.payAmount(t.amount, t.percentage),
+          source: 'recurring',
+          recurringId: t.id,
+        },
+      });
+      await this.prisma.recurringPayable.update({ where: { id: t.id }, data: { lastMonth: month } });
+    }
+    // Approved advances (the sheet's "Advance (Recorded and approved in AIMS)"
+    // lines): one payable row per advance, payee = the designer.
+    const advances = await this.prisma.designerAdvance.findMany({ where: { organizationId, status: 'approved' } });
+    for (const a of advances) {
+      const exists = await this.prisma.payableInvoice.findFirst({ where: { organizationId, advanceId: a.id }, select: { id: true } });
+      if (exists) continue;
+      await this.prisma.payableInvoice.create({
+        data: {
+          organizationId,
+          month,
+          invoiceNo: 'ADV',
+          supplierName: a.requestedByName || 'Designer',
+          siteAddress: `Advance${a.projectName ? ` — ${a.projectName}` : a.reason ? ` — ${a.reason}` : ''} (approved in AIMS)`,
+          invoiceDate: (a as any).decidedAt || a.createdAt,
+          invoiceAmount: this.round2(a.amount),
+          percentage: null,
+          paymentAmount: this.round2(a.amount),
+          source: 'advance',
+          advanceId: a.id,
+          projectId: a.projectId || null,
+          projectName: a.projectName || null,
+        },
+      });
+    }
+  }
+
   /** The month's tally + totals (the sheet's tab). No month → current month. */
   async list(organizationId: string, q: { month?: string; status?: string }) {
     const month = /^\d{4}-\d{2}$/.test(q.month || '') ? (q.month as string) : this.monthOf(new Date());
+    await this.materialize(organizationId, month).catch((e) => this.logger.warn(`materialize failed: ${(e as Error).message}`));
     const where: any = { organizationId, month };
     if (q.status === 'to_pay' || q.status === 'paid' || q.status === 'withholding') where.status = q.status;
     const rows = await this.prisma.payableInvoice.findMany({
@@ -50,6 +105,8 @@ export class PayablesService {
       orderBy: [{ supplierName: 'asc' }, { createdAt: 'asc' }],
     });
     const sum = (list: any[]) => this.round2(list.reduce((s, r) => s + (Number(r.paymentAmount) || 0), 0));
+    // Rebate total (guru 2026-11-08): the retention the firm keeps — invoice × %.
+    const rebate = this.round2(rows.reduce((s, r) => s + (Number(r.invoiceAmount) || 0) * ((Number(r.percentage) || 0) / 100), 0));
     const toPay = rows.filter((r) => r.status !== 'paid' && r.status !== 'withholding');
     const withheld = rows.filter((r) => r.status === 'withholding');
     const paid = rows.filter((r) => r.status === 'paid');
@@ -65,7 +122,7 @@ export class PayablesService {
       month,
       months: monthsRaw.map((m) => m.month),
       rows,
-      totals: { toPay: sum(toPay), withheld: sum(withheld), paid: sum(paid), all: sum(rows), toPayCount: toPay.length, withheldCount: withheld.length, paidCount: paid.length },
+      totals: { toPay: sum(toPay), withheld: sum(withheld), paid: sum(paid), all: sum(rows), rebate, toPayCount: toPay.length, withheldCount: withheld.length, paidCount: paid.length },
     };
   }
 
@@ -144,11 +201,12 @@ export class PayablesService {
     return this.prisma.payableInvoice.update({ where: { id: row.id }, data });
   }
 
-  /** Payment date set = PAID (the sheet's convention). */
+  /** Payment date set = PAID (the sheet's convention). An advance row keeps
+   *  the DesignerAdvance in sync (approved → paid). */
   async markPaid(organizationId: string, id: string, dto: { paymentDate?: string; approvedBy?: string } = {}, actorName?: string | null) {
     const row = await this.prisma.payableInvoice.findFirst({ where: { id, organizationId } });
     if (!row) throw new NotFoundException('Payable not found');
-    return this.prisma.payableInvoice.update({
+    const updated = await this.prisma.payableInvoice.update({
       where: { id: row.id },
       data: {
         status: 'paid',
@@ -156,12 +214,64 @@ export class PayablesService {
         approvedBy: dto.approvedBy?.trim() || row.approvedBy || actorName || null,
       },
     });
+    if (row.advanceId) {
+      await this.prisma.designerAdvance
+        .updateMany({ where: { id: row.advanceId, organizationId, status: 'approved' }, data: { status: 'paid' } })
+        .catch(() => null);
+    }
+    return updated;
   }
 
   async markUnpaid(organizationId: string, id: string) {
     const row = await this.prisma.payableInvoice.findFirst({ where: { id, organizationId } });
     if (!row) throw new NotFoundException('Payable not found');
+    if (row.advanceId) {
+      await this.prisma.designerAdvance
+        .updateMany({ where: { id: row.advanceId, organizationId, status: 'paid' }, data: { status: 'approved' } })
+        .catch(() => null);
+    }
     return this.prisma.payableInvoice.update({ where: { id: row.id }, data: { status: 'to_pay', paymentDate: null } });
+  }
+
+  // ── Recurring payables (guru 2026-11-08: rent etc.) ───────────────────
+  async listRecurring(organizationId: string) {
+    return this.prisma.recurringPayable.findMany({ where: { organizationId }, orderBy: [{ active: 'desc' }, { supplierName: 'asc' }] });
+  }
+
+  async createRecurring(organizationId: string, dto: any) {
+    const amount = this.round2(Number(dto.amount) || 0);
+    if (!(amount > 0)) throw new BadRequestException('Amount must be greater than zero');
+    if (!dto.supplierName?.trim()) throw new BadRequestException('Who is this paid to?');
+    return this.prisma.recurringPayable.create({
+      data: {
+        organizationId,
+        supplierName: dto.supplierName.trim(),
+        description: dto.description?.trim() || null,
+        amount,
+        percentage: dto.percentage === '' || dto.percentage == null ? null : Number(dto.percentage),
+        dayOfMonth: dto.dayOfMonth ? Math.min(Math.max(Number(dto.dayOfMonth) || 1, 1), 28) : null,
+      },
+    });
+  }
+
+  async updateRecurring(organizationId: string, id: string, dto: any) {
+    const t = await this.prisma.recurringPayable.findFirst({ where: { id, organizationId } });
+    if (!t) throw new NotFoundException('Recurring payable not found');
+    const data: any = {};
+    if (dto.supplierName !== undefined) data.supplierName = String(dto.supplierName).trim();
+    if (dto.description !== undefined) data.description = dto.description?.trim() || null;
+    if (dto.amount !== undefined) data.amount = this.round2(Number(dto.amount) || 0);
+    if (dto.percentage !== undefined) data.percentage = dto.percentage === '' || dto.percentage == null ? null : Number(dto.percentage);
+    if (dto.dayOfMonth !== undefined) data.dayOfMonth = dto.dayOfMonth ? Math.min(Math.max(Number(dto.dayOfMonth) || 1, 1), 28) : null;
+    if (dto.active !== undefined) data.active = !!dto.active;
+    return this.prisma.recurringPayable.update({ where: { id: t.id }, data });
+  }
+
+  async removeRecurring(organizationId: string, id: string) {
+    const t = await this.prisma.recurringPayable.findFirst({ where: { id, organizationId } });
+    if (!t) throw new NotFoundException('Recurring payable not found');
+    await this.prisma.recurringPayable.delete({ where: { id: t.id } });
+    return { deleted: true };
   }
 
   /** WITHHOLDING — the sheet's ORANGE rows (guru 2026-11-08): payment is

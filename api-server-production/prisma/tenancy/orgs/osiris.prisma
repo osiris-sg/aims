@@ -2127,8 +2127,35 @@ model PayableInvoice {
   postedBy       String? // group sender's number/name
   projectId      String?   @db.Uuid
   projectName    String?
+  /// Approved designer advance this row pays out (payables ↔ advance stay in sync).
+  advanceId      String?
+  /// RecurringPayable template this row was materialised from (rent etc.).
+  recurringId    String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
   @@index([organizationId, month, status])
 }
+
+/// Standing monthly payables (guru 2026-11-08: rent etc.) — materialised onto
+/// the Monthly Payables tally once per month when the current month is opened.
+model RecurringPayable {
+  id             String   @id @default(uuid())
+  organizationId String
+  supplierName   String
+  /// What the line is for — shown in the Site Address column (e.g. "Showroom rent").
+  description    String?
+  amount         Float    @default(0)
+  percentage     Float?
+  /// Day of month stamped as the row's invoice date (1–28; null = the 1st).
+  dayOfMonth     Int?
+  active         Boolean  @default(true)
+  /// Last YYYY-MM a row was materialised for — one row per month, and a
+  /// deleted month-row is NOT recreated.
+  lastMonth      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId, active])
+}
+
