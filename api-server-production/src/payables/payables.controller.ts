@@ -71,6 +71,23 @@ export class PayablesController {
     return this.service.markUnpaid(orgId(req), id);
   }
 
+  @Post('match-payment')
+  @Permissions('projects:update')
+  @ApiOperation({
+    summary:
+      'Upload a BANK PAYMENT page (screenshot/PDF dataUri) — AI-reads payee/amount/date, auto-matches the supplier among those with open rows, and returns the outstanding invoices to tick off',
+  })
+  matchPayment(@Req() req: any, @Body() body: { dataUri: string; mimetype?: string }) {
+    return this.service.matchPayment(orgId(req), body || ({} as any));
+  }
+
+  @Post('settle')
+  @Permissions('projects:update')
+  @ApiOperation({ summary: 'Settle ticked payables against a bank payment: rows [{id, percentage?}] (optional retention % change) + paymentDate + reference → all marked PAID' })
+  settle(@Req() req: any, @Body() body: { rows: Array<{ id: string; percentage?: number | null }>; paymentDate?: string; reference?: string | null }) {
+    return this.service.settle(orgId(req), body || ({} as any), actorName(req));
+  }
+
   @Post(':id/withhold')
   @Permissions('projects:update')
   @ApiOperation({ summary: 'WITHHOLD payment on a payable (the sheet\'s orange rows — held back, excluded from the To-pay total)' })

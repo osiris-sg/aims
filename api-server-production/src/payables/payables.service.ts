@@ -302,6 +302,122 @@ export class PayablesService {
     return { ok: true, id: row.id, invoiceNo: row.invoiceNo, supplierName: row.supplierName, invoiceAmount: row.invoiceAmount, projectName };
   }
 
+  // ── Bank-payment upload (guru 2026-11-08): "if they upload the payment
+  // page of a bank, auto match to a supplier and show them the outstanding
+  // SIN and they can select what they paid and what % of each." ────────────
+
+  /** AI-read a bank payment confirmation page (screenshot or PDF). */
+  async extractPayment(dataUri: string, mimetype?: string) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new BadRequestException('Payment extraction not configured (missing ANTHROPIC_API_KEY)');
+    const commaIdx = dataUri.indexOf(',');
+    const headerMatch = dataUri.match(/^data:([a-zA-Z/+.-]+);base64,/);
+    const data = commaIdx >= 0 && headerMatch ? dataUri.slice(commaIdx + 1) : dataUri;
+    const media = String(headerMatch?.[1] || mimetype || 'image/jpeg');
+    const { default: Anthropic } = await import('@anthropic-ai/sdk');
+    const client = new Anthropic({ apiKey });
+    const system = `You are reading a BANK PAYMENT page (a transfer/payment confirmation screenshot or PDF from internet banking). Output ONLY strict JSON:
+  - "payeeName": string or null — who was PAID (beneficiary / payee / to)
+  - "amount": number or null — the payment amount
+  - "currency": ISO code, default "SGD"
+  - "paymentDate": YYYY-MM-DD or null — the value/transaction date
+  - "reference": string or null — transaction/reference number
+  - "bank": string or null — the paying bank (UOB, DBS, OCBC…)
+  - "status": string or null — e.g. Successful / Pending, verbatim
+Use null when unreadable. No prose outside the JSON.`;
+    const content: any[] = [
+      media.includes('pdf')
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } }
+        : { type: 'image', source: { type: 'base64', media_type: media, data } },
+      { type: 'text', text: 'Extract the bank payment per the system schema.' },
+    ];
+    const response = await client.messages.create({ model: 'claude-sonnet-4-6', max_tokens: 1024, system, messages: [{ role: 'user', content }] });
+    const text = (response.content.find((b: any) => b.type === 'text') as any)?.text || '{}';
+    const json = text.match(/\{[\s\S]*\}/)?.[0] || '{}';
+    try {
+      return JSON.parse(json);
+    } catch {
+      throw new BadRequestException('Could not read the payment page');
+    }
+  }
+
+  /** Fuzzy supplier-name match: lowercase, strip legal suffixes, token overlap. */
+  private supplierScore(payee: string, supplier: string): number {
+    const norm = (s: string) =>
+      s
+        .toLowerCase()
+        .replace(/[^a-z0-9 ]/g, ' ')
+        .split(/\s+/)
+        .filter((t) => t && !['pte', 'ltd', 'llp', 'llc', 'private', 'limited', 'co', 'company', 'the', 'sg', 'singapore', 'srl', 'spa', 'gmbh', 'inc'].includes(t));
+    const a = norm(payee);
+    const b = norm(supplier);
+    if (!a.length || !b.length) return 0;
+    const hit = a.filter((t) => b.some((x) => x === t || x.startsWith(t) || t.startsWith(x))).length;
+    return hit / Math.max(a.length, b.length);
+  }
+
+  /**
+   * Upload a bank payment page → the extracted payment, the best-matching
+   * supplier (by payee name vs suppliers with OPEN rows), candidates, and
+   * every open (to-pay / withheld) row so the caller can tick what was paid.
+   */
+  async matchPayment(organizationId: string, body: { dataUri: string; mimetype?: string }) {
+    if (!body?.dataUri) throw new BadRequestException('Attach the bank payment page');
+    const payment = await this.extractPayment(body.dataUri, body.mimetype);
+    const open = await this.prisma.payableInvoice.findMany({
+      where: { organizationId, status: { in: ['to_pay', 'withholding'] } },
+      orderBy: [{ month: 'desc' }, { supplierName: 'asc' }, { createdAt: 'asc' }],
+      take: 500,
+    });
+    const suppliers = [...new Set(open.map((r) => r.supplierName).filter(Boolean))] as string[];
+    const scored = suppliers
+      .map((s) => ({ supplier: s, score: payment?.payeeName ? this.supplierScore(String(payment.payeeName), s) : 0 }))
+      .sort((a, b) => b.score - a.score);
+    const best = scored[0]?.score >= 0.4 ? scored[0].supplier : null;
+    return {
+      payment,
+      supplier: best,
+      candidates: scored.filter((s) => s.score > 0).slice(0, 5),
+      suppliers,
+      rows: open,
+    };
+  }
+
+  /**
+   * Settle the ticked rows against a bank payment: optional per-row retention
+   * % change (re-derives the payment amount), then PAID on the payment date.
+   */
+  async settle(
+    organizationId: string,
+    body: { rows: Array<{ id: string; percentage?: number | null }>; paymentDate?: string; reference?: string | null },
+    actorName?: string | null,
+  ) {
+    const picks = Array.isArray(body?.rows) ? body.rows : [];
+    if (!picks.length) throw new BadRequestException('Tick at least one invoice');
+    const date = body.paymentDate ? new Date(body.paymentDate) : new Date();
+    let updated = 0;
+    for (const p of picks) {
+      const row = await this.prisma.payableInvoice.findFirst({ where: { id: p.id, organizationId } });
+      if (!row) continue;
+      const percentage = p.percentage === undefined ? row.percentage : p.percentage === null ? null : Number(p.percentage);
+      await this.prisma.payableInvoice.update({
+        where: { id: row.id },
+        data: {
+          percentage,
+          paymentAmount: this.payAmount(row.invoiceAmount, percentage),
+          status: 'paid',
+          paymentDate: date,
+          approvedBy: row.approvedBy || actorName || null,
+          remarks: row.remarks || (body.reference ? `Bank ref ${body.reference}` : row.remarks),
+        },
+      });
+      updated++;
+    }
+    // The HTTP interceptor logs this as PAY (VERB_ACTIONS 'settle') — no
+    // extra system row needed.
+    return { updated };
+  }
+
   /** "paid SGPO-0122 and 26304" → those open rows get today's payment date. */
   private async markPaidFromText(organizationId: string, body: string): Promise<string[]> {
     const open = await this.prisma.payableInvoice.findMany({

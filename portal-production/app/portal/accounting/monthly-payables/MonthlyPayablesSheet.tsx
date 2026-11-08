@@ -9,12 +9,13 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Alert, Autocomplete, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
+  Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
   Divider, Menu, MenuItem, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography,
 } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircleOutline";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
+import ReceiptLongIcon from "@mui/icons-material/ReceiptLongOutlined";
 import { IconButton } from "@mui/material";
 import { toast } from "react-toastify";
 import PageTable from "@/components/PageTable";
@@ -76,6 +77,9 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
   const [menu, setMenu] = useState<{ pos: { left: number; top: number }; row: Row } | null>(null);
   const [editRow, setEditRow] = useState<Row | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  // Bank-payment upload (guru 2026-11-08): AI-reads a bank payment page,
+  // matches the supplier, and the outstanding invoices get ticked off.
+  const [payUploadOpen, setPayUploadOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(50); // a cycle reads as one sheet
@@ -396,6 +400,11 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
         loading={loading}
         buttonName="Add payable"
         onAddClick={() => setAddOpen(true)}
+        actionButtons={[
+          <Button key="upload-payment" size="small" variant="outlined" startIcon={<ReceiptLongIcon />} onClick={() => setPayUploadOpen(true)} sx={{ textTransform: "none" }}>
+            Upload payment
+          </Button>,
+        ]}
         noSelectionColumn
         onRowClick={(row: any) => {
           if (!row._kind) setEditRow(row);
@@ -548,7 +557,193 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
           }
         />
       )}
+
+      {payUploadOpen && (
+        <PaymentUploadDialog
+          request={request}
+          onClose={() => setPayUploadOpen(false)}
+          onSettled={() => {
+            setPayUploadOpen(false);
+            load();
+          }}
+        />
+      )}
     </Box>
+  );
+}
+
+// Bank-payment upload (guru 2026-11-08): drop the bank's payment page →
+// AI-reads payee / amount / date, auto-matches the supplier, lists their
+// outstanding invoices — tick what was paid, adjust each row's retention %,
+// and settle them all as PAID on the payment date.
+function PaymentUploadDialog({ request, onClose, onSettled }: { request: <T = any>(path: string, init?: any) => Promise<T>; onClose: () => void; onSettled: () => void }) {
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<any>(null);
+  const [supplier, setSupplier] = useState<string | null>(null);
+  const [payDate, setPayDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [picks, setPicks] = useState<Record<string, { checked: boolean; pct: string }>>({});
+
+  const onFile = (f: File | null) => {
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUri = String(reader.result || "");
+      setFileName(f.name);
+      setPreview(dataUri);
+      setLoading(true);
+      setRes(null);
+      try {
+        const r = await request<any>(`/payables/match-payment`, { method: "POST", body: JSON.stringify({ dataUri, mimetype: f.type }) });
+        setRes(r);
+        setSupplier(r?.supplier || null);
+        if (r?.payment?.paymentDate) setPayDate(r.payment.paymentDate);
+        setPicks({});
+      } catch (e: any) {
+        toast.error(e.message || "Could not read the payment page");
+      } finally {
+        setLoading(false);
+      }
+    };
+    reader.readAsDataURL(f);
+  };
+
+  const rows: Row[] = useMemo(() => (res?.rows || []).filter((r: Row) => (r.supplierName || "—") === supplier), [res, supplier]);
+  const pctOf = (r: Row) => {
+    const d = picks[r.id];
+    const raw = d?.pct ?? (r.percentage == null ? "" : String(r.percentage));
+    return raw === "" ? null : Number(raw) || 0;
+  };
+  const payOf = (r: Row) => Math.round((Number(r.invoiceAmount) || 0) * (1 - (pctOf(r) ?? 0) / 100) * 100) / 100;
+  const selected = rows.filter((r) => picks[r.id]?.checked);
+  const selectedTotal = Math.round(selected.reduce((s, r) => s + payOf(r), 0) * 100) / 100;
+  const bankAmount = Number(res?.payment?.amount) || 0;
+  const diff = Math.round((selectedTotal - bankAmount) * 100) / 100;
+
+  const settle = () =>
+    (async () => {
+      setBusy(true);
+      try {
+        await request(`/payables/settle`, {
+          method: "POST",
+          body: JSON.stringify({
+            rows: selected.map((r) => ({ id: r.id, percentage: pctOf(r) })),
+            paymentDate: payDate,
+            reference: res?.payment?.reference || null,
+          }),
+        });
+        toast.success(`${selected.length} invoice${selected.length === 1 ? "" : "s"} marked paid`);
+        onSettled();
+      } catch (e: any) {
+        toast.error(e.message || "Could not settle");
+      } finally {
+        setBusy(false);
+      }
+    })();
+
+  return (
+    <Dialog open onClose={onClose} fullWidth maxWidth="md">
+      <DialogTitle>Upload bank payment</DialogTitle>
+      <DialogContent dividers>
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: preview ? "260px 1fr" : "1fr" }, gap: 2 }}>
+          <Stack spacing={1.5}>
+            <Button variant="outlined" component="label" sx={{ textTransform: "none" }}>
+              {fileName ? `Replace — ${fileName}` : "Choose the bank's payment page (image / PDF)"}
+              <input hidden type="file" accept="image/*,application/pdf" onChange={(e) => onFile(e.target.files?.[0] || null)} />
+            </Button>
+            {preview && !preview.includes("application/pdf") && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={preview} alt="payment" style={{ width: "100%", borderRadius: 6, border: "1px solid rgba(128,128,128,.3)" }} />
+            )}
+            {res?.payment && (
+              <Box sx={{ p: 1.25, borderRadius: 1, bgcolor: "action.hover" }}>
+                <Typography variant="caption" sx={{ display: "block", color: "text.secondary" }}>Read from the page</Typography>
+                <Typography variant="body2">{res.payment.payeeName || "Payee?"}</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 800 }}>S$ {money(bankAmount)}</Typography>
+                <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                  {res.payment.paymentDate || "date?"}{res.payment.bank ? ` · ${res.payment.bank}` : ""}{res.payment.reference ? ` · ref ${res.payment.reference}` : ""}
+                </Typography>
+              </Box>
+            )}
+          </Stack>
+          <Stack spacing={1.5} sx={{ minWidth: 0 }}>
+            {loading && (
+              <Stack direction="row" spacing={1} alignItems="center">
+                <CircularProgress size={18} />
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>Reading the payment page…</Typography>
+              </Stack>
+            )}
+            {res && (
+              <>
+                <Autocomplete
+                  size="small"
+                  options={res.suppliers || []}
+                  value={supplier}
+                  onChange={(_, v) => setSupplier(v)}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Supplier"
+                      helperText={res.supplier ? `Matched "${res.payment?.payeeName || ""}" to ${res.supplier}` : "No confident match — pick the supplier"}
+                    />
+                  )}
+                />
+                {supplier && !rows.length && <Alert severity="info">No outstanding invoices for {supplier}.</Alert>}
+                {rows.map((r) => {
+                  const d = picks[r.id] || { checked: false, pct: r.percentage == null ? "" : String(r.percentage) };
+                  return (
+                    <Stack key={r.id} direction="row" spacing={1} alignItems="center">
+                      <Checkbox
+                        size="small"
+                        checked={d.checked}
+                        onChange={(e) => setPicks((p) => ({ ...p, [r.id]: { ...d, checked: e.target.checked } }))}
+                        sx={{ p: 0.25 }}
+                      />
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
+                          {r.invoiceNo || "—"} · {money(r.invoiceAmount)}
+                          {r.status === "withholding" && <Chip size="small" variant="outlined" label="WITHHELD" sx={{ ml: 0.75, height: 18, color: "#ed6c02", borderColor: "#ed6c02" }} />}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: "text.secondary" }} noWrap title={r.siteAddress || ""}>
+                          {monthLabel(r.month)}{r.siteAddress ? ` · ${r.siteAddress}` : ""}
+                        </Typography>
+                      </Box>
+                      <TextField
+                        size="small"
+                        label="%"
+                        value={d.pct}
+                        onChange={(e) => /^[0-9]*\.?[0-9]*$/.test(e.target.value) && setPicks((p) => ({ ...p, [r.id]: { ...d, pct: e.target.value } }))}
+                        inputProps={{ inputMode: "decimal", style: { textAlign: "right", width: 44 } }}
+                      />
+                      <Typography variant="body2" sx={{ width: 92, textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                        {money(payOf(r))}
+                      </Typography>
+                    </Stack>
+                  );
+                })}
+                {selected.length > 0 && (
+                  <Alert severity={Math.abs(diff) <= 0.05 ? "success" : "warning"} icon={false}>
+                    Selected {selected.length} invoice{selected.length === 1 ? "" : "s"} — S$ {money(selectedTotal)}
+                    {bankAmount ? (Math.abs(diff) <= 0.05 ? " · matches the bank payment" : ` · bank payment is S$ ${money(bankAmount)} (${diff > 0 ? "+" : ""}${money(diff)})`) : ""}
+                  </Alert>
+                )}
+                <Stack direction="row" spacing={1.5} alignItems="center">
+                  <TextField type="date" label="Payment date" size="small" value={payDate} onChange={(e) => e.target.value && setPayDate(e.target.value)} InputLabelProps={{ shrink: true }} />
+                </Stack>
+              </>
+            )}
+          </Stack>
+        </Box>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} sx={{ textTransform: "none" }}>Close</Button>
+        <Button variant="contained" color="success" startIcon={<CheckCircleIcon />} disabled={busy || !selected.length} onClick={settle} sx={{ textTransform: "none" }}>
+          Mark {selected.length || ""} paid
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 

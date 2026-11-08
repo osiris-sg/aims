@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
 import { AdvancesService } from '../advances/advances.service';
+import { PayablesService } from '../payables/payables.service';
 import { AppointmentsService } from '../appointments/appointments.service';
 import { XeroSyncService } from '../xero-sync/xero-sync.service';
 import { BankRecService } from '../bank-rec/bank-rec.service';
@@ -153,6 +154,7 @@ export class OperatorToolsService {
     private readonly s3: S3Service,
     private readonly auth: OperatorAuthService,
     private readonly advances: AdvancesService,
+    private readonly payables: PayablesService,
     private readonly appointments: AppointmentsService,
     private readonly actionLog: ActionLogService,
   ) {}
@@ -1851,6 +1853,83 @@ export class OperatorToolsService {
       },
 
       {
+        name: 'match_bank_payment',
+        description:
+          "The user uploaded a BANK PAYMENT page (a transfer confirmation screenshot/PDF from UOB/DBS/OCBC internet banking) and wants to tick off supplier invoices on the Monthly Payables tally. Call this right after the upload: it AI-reads payee / amount / date / reference, auto-matches the supplier among those with OUTSTANDING rows, and returns their open invoices (each with its retention %). Then LIST the outstanding invoices to the user, ask which ones this payment covers (and any retention % changes), and call settle_payables.",
+        permissions: ['projects:update'],
+        input_schema: { type: 'object', properties: {}, required: [] },
+        run: async (ctx) => {
+          const up = ctx.upload;
+          if (!up?.attachmentUrl) return { result: { error: 'Upload the bank payment page (photo or PDF) first, then try again.' } };
+          const resp = await fetch(up.attachmentUrl);
+          if (!resp.ok) return { result: { error: 'Could not read the uploaded file back from storage.' } };
+          const buf = Buffer.from(await resp.arrayBuffer());
+          const mime = resp.headers.get('content-type') || ((up.filename || '').toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+          const m: any = await this.payables.matchPayment(ctx.organizationId, { dataUri: `data:${mime};base64,${buf.toString('base64')}`, mimetype: mime });
+          const slim = (r: any) => ({ id: r.id, invoiceNo: r.invoiceNo, month: r.month, siteAddress: r.siteAddress, invoiceAmount: r.invoiceAmount, percentage: r.percentage, paymentAmount: r.paymentAmount, status: r.status });
+          const names = new Set<string>((m.candidates || []).slice(0, 3).map((c: any) => c.supplier));
+          if (m.supplier) names.add(m.supplier);
+          const outstanding: Record<string, any[]> = {};
+          for (const n of names) outstanding[n] = (m.rows || []).filter((r: any) => (r.supplierName || '\u2014') === n).map(slim);
+          return {
+            result: {
+              payment: m.payment,
+              matchedSupplier: m.supplier,
+              candidates: m.candidates,
+              allSuppliersWithOpenRows: m.suppliers,
+              outstandingBySupplier: outstanding,
+              next: 'Ask the user which invoices this payment covers and any retention % change per invoice, then call settle_payables with the row ids.',
+            },
+          };
+        },
+      },
+
+      {
+        name: 'settle_payables',
+        description:
+          "Mark supplier invoices on the Monthly Payables tally as PAID against a bank payment — optionally changing each row's retention % (payment amount re-derives as invoice \u00d7 (1\u2212%)). Moves money state, so it always shows a confirm card first. Row ids come from match_bank_payment (or GET /payables via api_get).",
+        permissions: ['projects:update'],
+        input_schema: {
+          type: 'object',
+          properties: {
+            rows: {
+              type: 'array',
+              items: { type: 'object', properties: { id: { type: 'string' }, percentage: { type: 'number', description: 'New retention % for this row (omit to keep)' } }, required: ['id'] },
+            },
+            paymentDate: { type: 'string', description: 'YYYY-MM-DD, defaults to today' },
+            reference: { type: 'string', description: 'Bank transaction reference' },
+          },
+          required: ['rows'],
+        },
+        run: async (ctx, args) => {
+          const picks: Array<{ id: string; percentage?: number }> = Array.isArray(args.rows) ? args.rows : [];
+          if (!picks.length) return { result: { error: 'Pass the row ids to settle' } };
+          const rows = await this.prisma.payableInvoice.findMany({ where: { organizationId: ctx.organizationId, id: { in: picks.map((r) => r.id) } } });
+          if (!rows.length) return { result: { error: 'None of those rows exist on this organization' } };
+          const lines = rows.map((r) => {
+            const p = picks.find((x) => x.id === r.id)!;
+            const pct = p.percentage === undefined ? r.percentage : p.percentage;
+            const pay = Math.round((Number(r.invoiceAmount) || 0) * (1 - (Number(pct) || 0) / 100) * 100) / 100;
+            return `${r.invoiceNo || '(no no.)'} ${pct != null ? `\u2212${pct}%` : ''} \u2192 ${pay.toFixed(2)}`;
+          });
+          const total = rows.reduce((sum, r) => {
+            const p = picks.find((x) => x.id === r.id)!;
+            const pct = p.percentage === undefined ? r.percentage : p.percentage;
+            return sum + Math.round((Number(r.invoiceAmount) || 0) * (1 - (Number(pct) || 0) / 100) * 100) / 100;
+          }, 0);
+          return {
+            result: { needsConfirmation: true, invoices: lines, total: Math.round(total * 100) / 100 },
+            pending: {
+              kind: 'settle_payables',
+              summary: `Mark ${rows.length} supplier invoice(s) PAID \u2014 S$ ${total.toFixed(2)}: ${lines.join('; ').slice(0, 300)}`,
+              args: { rows: picks, paymentDate: args.paymentDate || null, reference: args.reference || null },
+              createdAt: new Date().toISOString(),
+            },
+          };
+        },
+      },
+
+      {
         name: 'record_payment',
         description:
           'Record a customer payment against ONE invoice. Moves money in the books, so it always requires the user to confirm.',
@@ -3095,6 +3174,13 @@ export class OperatorToolsService {
           ? `✅ Saved as a DRAFT schedule for ${customerName} (${ref}). The office needs to assign a project in Deliveries before it goes live.`
           : `✅ Delivery ${ref} scheduled for ${customerName}.`,
       };
+    }
+
+    if (pending.kind === 'settle_payables') {
+      const a: any = pending.args || {};
+      const r = await this.payables.settle(ctx.organizationId, { rows: a.rows, paymentDate: a.paymentDate || undefined, reference: a.reference }, (ctx as any).actor?.name || null);
+      this.log(ctx, 'PAID', 'payable', undefined, undefined, `${r.updated} supplier invoice(s) settled from a bank payment via Operator (${ctx.channel})`);
+      return { ok: true, message: `\u2705 ${r.updated} supplier invoice(s) marked PAID on the Monthly Payables tally.` };
     }
 
     if (pending.kind === 'send_for_signature') {

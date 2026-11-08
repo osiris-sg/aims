@@ -175,6 +175,7 @@ export interface PendingAction {
     | 'confirm_quotation'
     | 'confirm_invoice'
     | 'record_payment'
+    | 'settle_payables'
     | 'post_bill'
     | 'email_document'
     | 'add_project_cost'
