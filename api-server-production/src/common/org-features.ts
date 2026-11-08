@@ -3,6 +3,15 @@
 
 export const AUTO_POST_INGEST_FLAG = 'enableAutoPostIngest';
 
+// LEAD CAPTURE OFF THE LINKED-DEVICE BRIDGE (CIEL, guru 2026-11-08). A number
+// Meta will not connect to the Cloud API still takes enquiries — from an
+// Instagram ad, which sends its own greeting. With this on, an unknown number
+// writing to the bridge becomes a Lead, and its SECOND message (the name)
+// releases the usual assign card to the notify number. Off by default: every
+// other org's bridge traffic is staff chatter, not enquiries, and turning
+// strangers into leads there would be noise.
+export const BRIDGE_LEAD_CAPTURE_FLAG = 'enableBridgeLeadCapture';
+
 // Uploading a supplier invoice to the chat agent files it as a PROJECT COST.
 // That is the ID-firm workflow (CIEL), not something every org wants: an org
 // that does not run project costing was being asked to confirm a cost it has

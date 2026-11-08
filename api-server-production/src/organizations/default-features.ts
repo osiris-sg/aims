@@ -109,6 +109,10 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // ask the shipments assistant on WhatsApp and get the digest / "needs you" pushes. Default OFF
   // (ADH: switched on by setup-adh-org after the owner's go).
   enableWhatsAppAgent: false,
+  // Lead capture off the linked-device bridge (CIEL 2026-11-08): an unknown
+  // number writing to the bridged line becomes a Lead; its second message
+  // names it and sends the assign card. Default OFF — on for CIEL only.
+  enableBridgeLeadCapture: false,
   // Quotation e-sign for the GENERIC editor (WCT 2026-10-26): "Send for
   // signature" in the editor's ⋯ menu mints the public /sign/<token> link —
   // the same public-sign flow the ID quotation uses — and the client's drawn

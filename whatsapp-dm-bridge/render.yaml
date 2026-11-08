@@ -14,7 +14,11 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: .
     region: singapore
-    plan: starter
+    # 512MB OOM-killed Chromium mid-write and corrupted the linked session,
+    # forcing a re-scan (2026-10). The dashboard has been on standard since;
+    # this file still said starter, so re-applying the blueprint would have
+    # silently undone it (guru 2026-11-08).
+    plan: standard
     numInstances: 1
     autoDeploy: false # a redeploy restarts Chromium; do it deliberately
     disk:

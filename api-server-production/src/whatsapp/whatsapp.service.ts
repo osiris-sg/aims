@@ -6,6 +6,7 @@ import {
   OnModuleDestroy,
   OnModuleInit, Optional, } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { isOrgFeatureEnabled, BRIDGE_LEAD_CAPTURE_FLAG } from '../common/org-features';
 import { Cron } from '@nestjs/schedule';
 import { randomInt } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
@@ -1442,6 +1443,19 @@ export class WhatsAppService implements OnModuleInit, OnModuleDestroy {
     // Contacts are people. A group jid in that table would masquerade as one.
     if (args.direction === 'INBOUND' && !args.groupId) {
       await this.upsertContact(args.organizationId, counterparty, { lastMessageAt: new Date() }).catch(() => null);
+      // ENQUIRIES ON A BRIDGED LINE (guru 2026-11-08). The number takes leads
+      // off an Instagram ad; the ad sends its own greeting, and this bridge
+      // never replies. All AIMS does is notice a stranger, open a Lead, and —
+      // on their next message — put it in front of the notify number.
+      // Staff talking to the line are not leads, so linked senders are skipped.
+      if (await isOrgFeatureEnabled(this.prisma, args.organizationId, BRIDGE_LEAD_CAPTURE_FLAG).catch(() => false)) {
+        const staff = await this.operatorAuth.isLinked('whatsapp', counterparty).catch(() => false);
+        if (!staff) {
+          await this.leads
+            .captureFromBridge(args.organizationId, { phone: counterparty, text: args.body })
+            .catch((e: any) => this.logger.error(`Bridge lead capture failed: ${e.message}`));
+        }
+      }
     }
     return { id: created.id, stored: true };
   }

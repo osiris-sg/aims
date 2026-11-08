@@ -66,6 +66,43 @@ const ATTACH_MAX_VIDEO = 100 * 1024 * 1024; // video
 const ATTACH_EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'application/pdf': 'pdf', 'video/mp4': 'mp4', 'video/quicktime': 'mov' };
 
 /** Lenient date parse for lead fields ("2027-03-01", "01/03/2027" dd/mm) — null when unreadable. */
+/**
+ * The reply to "what's your name?" as a NAME, or null when it plainly is not.
+ *
+ * People answer in whole sentences ("Hi, I'm Jasmine"), so the lead-in is
+ * stripped before judging. Anything that reads like an enquiry rather than a
+ * name — a question, digits, more than a handful of words — returns null and
+ * the lead keeps its phone number as its label rather than being christened
+ * "I want to redo my kitchen".
+ */
+/** Everyday words that appear in requests and in nobody's name. */
+const NOT_A_NAME = new Set([
+  'i', 'me', 'my', 'you', 'your', 'we', 'us', 'it', 'the', 'a', 'an', 'to', 'for', 'of', 'and', 'or',
+  'can', 'could', 'would', 'want', 'need', 'looking', 'look', 'like', 'help', 'please', 'pls',
+  'how', 'what', 'when', 'where', 'why', 'who', 'much', 'many', 'cost', 'price', 'quote', 'quotation',
+  'call', 'text', 'whatsapp', 'message', 'reply', 'ask', 'asking', 'enquire', 'enquiry', 'interested',
+  'renovate', 'renovation', 'reno', 'design', 'kitchen', 'toilet', 'bathroom', 'room', 'house', 'home',
+  'hdb', 'bto', 'condo', 'resale', 'flat', 'unit', 'yes', 'no', 'ok', 'okay', 'thanks', 'thank',
+]);
+
+export function nameFromReply(raw: string | null | undefined): string | null {
+  let t = String(raw || '').trim();
+  if (!t) return null;
+  t = t.replace(/^(hi|hello|hey)[\s,!.]+/i, '');
+  t = t.replace(/^(my name is|name is|name:|this is|i am|i'm|im)\s+/i, '');
+  t = t.replace(/[.!,]+$/, '').trim();
+  if (!t || t.length < 2 || t.length > 60) return null;
+  if (t.includes('?')) return null;
+  if (/\d/.test(t)) return null;
+  const words = t.split(/\s+/);
+  if (words.length > 4) return null;
+  // A short all-letters phrase can still plainly be a request ("can you call
+  // me"). One everyday word that no one is named settles it.
+  if (words.some((w) => NOT_A_NAME.has(w.toLowerCase().replace(/[^\p{L}]/gu, '')))) return null;
+  if (!/^[\p{L}][\p{L}\s'’.\-@]*$/u.test(t)) return null;
+  return t.slice(0, 60);
+}
+
 function parseDateLoose(s: string | null | undefined): Date | null {
   if (!s?.trim()) return null;
   const t = s.trim();
@@ -1130,6 +1167,84 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       .emit({ organizationId, kind: 'lead_captured', title: `New WhatsApp lead: ${lead.name}`, body: (msg.text || '').slice(0, 140) })
       .catch(() => null);
     return lead;
+  }
+
+  /**
+   * LEAD CAPTURE OFF A READ-ONLY BRIDGE (guru 2026-11-08).
+   *
+   * CIEL's company number cannot be connected to the Cloud API at all, so its
+   * conversations reach AIMS through the linked-device bridge — which never
+   * sends, and is staying that way. The greeting a new enquirer sees comes
+   * from the INSTAGRAM AD's own flow, not from us. AIMS only reads.
+   *
+   * That is why this is not captureFromWhatsApp: there, the first message
+   * carries the sender's WhatsApp profile name and the lead can go to Mike at
+   * once. Here there is no profile name, so the first message yields nothing
+   * but a phone number — and a bare number is not something Mike can act on.
+   * So the lead waits for ONE more message:
+   *
+   *   1st inbound   Lead created, name unknown, Mike NOT told yet.
+   *   2nd inbound   The name lands on the lead (when it reads like one) and
+   *                 the normal assign card goes to Mike, who taps a designer
+   *                 exactly as he does for every other lead source.
+   *
+   * The second message ALWAYS releases the lead, even when it is not a name.
+   * Someone who answers "I want to redo my kitchen" is a real enquiry, and a
+   * lead that sits forever waiting for a well-formed name is worse than one
+   * that reaches Mike labelled by number.
+   */
+  async captureFromBridge(organizationId: string, msg: { phone: string; text?: string | null }) {
+    const digits = String(msg.phone || '').replace(/\D/g, '');
+    if (!digits) return null;
+    const text = (msg.text || '').trim();
+    const stamp = new Date().toLocaleString('en-SG', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const line = `[${stamp}] ${text || '(media)'}`;
+
+    const existing = await this.prisma.lead.findFirst({
+      where: { organizationId, phone: digits, status: { in: ['unqualified', 'engaging'] } },
+      orderBy: { receivedAt: 'desc' },
+    });
+
+    // First contact: record it and stop. Nothing goes to Mike yet.
+    if (!existing) {
+      return this.prisma.lead.create({
+        data: {
+          organizationId,
+          source: 'whatsapp',
+          // The phone number IS the placeholder name — the same sentinel
+          // captureFromWhatsApp uses to mean "no real name yet".
+          name: digits,
+          phone: digits,
+          whatsappPhone: digits,
+          phoneVerified: true,
+          remarks: text.slice(0, 1000) || null,
+          notes: line,
+          status: 'unqualified',
+        },
+      });
+    }
+
+    const notes = `${existing.notes ? existing.notes + '\n' : ''}${line}`.slice(-4000);
+    // Already named, or already with a designer — just keep the transcript.
+    if (existing.name !== existing.phone || existing.assignedToUserId) {
+      return this.prisma.lead.update({ where: { id: existing.id }, data: { notes } });
+    }
+
+    // The awaited second message.
+    const name = nameFromReply(text);
+    const updated = await this.prisma.lead.update({
+      where: { id: existing.id },
+      data: {
+        notes,
+        ...(name ? { name } : {}),
+        remarks: `${existing.remarks ? existing.remarks + ' · ' : ''}${text}`.slice(0, 1000) || existing.remarks,
+      },
+    });
+    this.leadAssignBroadcast(updated).catch(() => null);
+    await this.notifications
+      .emit({ organizationId, kind: 'lead_captured', title: `New WhatsApp lead: ${updated.name}`, body: text.slice(0, 140) })
+      .catch(() => null);
+    return updated;
   }
 
   async update(leadId: string, organizationId: string, dto: LeadDto, callerUserId?: string) {

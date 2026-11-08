@@ -33,6 +33,26 @@ once. This one stays small on purpose.
 Outbound matters as much as inbound: replies typed by hand on the phone are
 relayed too, so the CRM thread is complete rather than half a conversation.
 
+WhatsApp's own housekeeping (e2e key notices, membership notifications) is NOT
+relayed — only real chat types. Those notices fire in a burst every time the
+device is linked, and each one used to land in CRM as a message from a
+stranger.
+
+## Leads (read-only)
+
+An org with `enableBridgeLeadCapture` on turns strangers into Leads without
+ever replying to them. CIEL's number takes enquiries off an Instagram ad, and
+**the ad sends the greeting** — this bridge still never sends anything.
+
+1. An unknown number writes → a Lead is opened, named by its phone number.
+   Nobody is notified: a bare number is not something a manager can act on.
+2. Their next message names the lead (when it reads like a name rather than an
+   enquiry) and releases the normal assign card to the org's notify number,
+   where a designer is picked exactly as for every other lead source.
+
+Staff who have linked their number to AIMS are skipped — they are talking to
+the line, not enquiring.
+
 Rows land in the same `WhatsAppMessage` table the Cloud API writes to, so the
 existing CRM views show them with no portal changes.
 

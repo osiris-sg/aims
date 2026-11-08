@@ -138,6 +138,13 @@ async function post(pathname, body) {
  * phone it runs on is in chats that have nothing to do with AIMS, so watching
  * is opt-in per group rather than all-or-nothing.
  */
+// Message types that are real conversation. Everything else WhatsApp emits
+// (e2e_notification, notification_template, gp2 membership notices, protocol
+// messages, calls, polls) is plumbing, not something anyone typed.
+const RELAYED_TYPES = new Set([
+  'chat', 'image', 'video', 'audio', 'ptt', 'document', 'sticker', 'location', 'vcard', 'multi_vcard',
+]);
+
 const WATCH_GROUPS = String(process.env.WATCH_GROUPS || '')
   .split(',')
   .map((v) => v.trim())
@@ -271,6 +278,12 @@ client.on('message_create', async (msg) => {
     const toId = String(msg.to || '');
     if (chatId.startsWith('status@') || toId.startsWith('status@')) return; // status broadcasts are noise
 
+    // WhatsApp's own housekeeping is not conversation. Linking a device fires
+    // a burst of e2e key notices, each of which was landing in CRM as a
+    // message from a stranger — 43 such rows on CIEL before this (guru
+    // 2026-11-08). Only real chat types are relayed.
+    if (!RELAYED_TYPES.has(String(msg.type || 'chat'))) return;
+
     const groupId = chatId.endsWith('@g.us') ? chatId : toId.endsWith('@g.us') ? toId : null;
     // GROUPS are opt-in, one at a time. This bridge lives on a company phone
     // that sits in plenty of chats which are none of AIMS's business, so a
@@ -327,7 +340,12 @@ client.on('message_create', async (msg) => {
         : {}),
       ...(attachment ? { attachment } : {}),
     });
-    if (res?.stored) {
+    // The API wraps every response as { success, data, message }, so the flag
+    // lives one level down — reading res.stored was always undefined and this
+    // line had never once printed (guru 2026-11-08: the log looked dead while
+    // the relay was in fact working).
+    const stored = (res && res.data ? res.data : res) || {};
+    if (stored.stored) {
       const where = groupId ? `[${groupNames.get(groupId) || groupId}]` : counterparty;
       console.log(`${outbound ? '→' : '←'} ${where}  ${text.slice(0, 60)}${attachment ? `  📎 ${attachment.filename || attachment.mimetype}` : ''}`);
     }
