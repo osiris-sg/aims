@@ -39,7 +39,7 @@ const argVal = (k: string, d?: string) => {
   return i >= 0 ? args[i + 1] : d;
 };
 const ENV = (argVal('--env', 'prod') || 'prod') as 'dev' | 'staging' | 'prod';
-const STAGE = (argVal('--stage', 'all') || 'all') as 'config' | 'data' | 'login' | 'all' | 'wipe';
+const STAGE = (argVal('--stage', 'all') || 'all') as 'config' | 'data' | 'login' | 'all' | 'wipe' | 'check';
 const APPLY = args.includes('--apply');
 const N_CUSTOMERS = Number(argVal('--customers', '30')) || 30;
 const N_SUPPLIERS = Number(argVal('--suppliers', '20')) || 20;
@@ -52,8 +52,21 @@ dotenv.config({ path: path.resolve(__dirname, '..', envFile), override: true });
 const { PrismaClient } = require('@prisma/client');
 const p = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
-export const DEMO_ORG_ID = 'de300000-0000-4000-8000-de3000000001';
-export const DEMO_NAME = 'DEMO INDUSTRIES PTE. LTD.';
+// Two demo orgs may be targeted, nothing else. DEMO INDUSTRIES is the default;
+// AIMS Demo (the role-home UI org) is the other, via --org / --name.
+//   --org a1115de0-0000-4000-8000-a1115de00001 --stage check --env prod
+//   --org a1115de0-0000-4000-8000-a1115de00001 --stage data  --env prod --apply
+export const DEMO_INDUSTRIES_ID = 'de300000-0000-4000-8000-de3000000001';
+export const AIMSDEMO_ORG_ID = 'a1115de0-0000-4000-8000-a1115de00001';
+const DEMO_TARGETS: Record<string, string> = {
+  [DEMO_INDUSTRIES_ID]: 'DEMO INDUSTRIES PTE. LTD.',
+  [AIMSDEMO_ORG_ID]: 'AIMS Demo Pte. Ltd.',
+};
+export const DEMO_ORG_ID = argVal('--org', DEMO_INDUSTRIES_ID)!;
+if (!DEMO_TARGETS[DEMO_ORG_ID]) {
+  throw new Error(`REFUSED: --org ${DEMO_ORG_ID} is not a demo org. Allowed: ${Object.keys(DEMO_TARGETS).join(', ')}`);
+}
+export const DEMO_NAME = argVal('--name', DEMO_TARGETS[DEMO_ORG_ID])!;
 const GST = 0.09;
 
 // ── deterministic RNG ──────────────────────────────────────────────────────
@@ -220,19 +233,68 @@ async function stageConfig(SRC: string, src: any) {
 // ═══════════════════════════════════════════════════════════════════════════
 // STAGE: data — invented masters and transactions
 // ═══════════════════════════════════════════════════════════════════════════
+/**
+ * The demo chart may be Biofuel's (numeric codes) or the default/Osiris one
+ * (CA001, CL001, …). Resolve each role by code first, then by account type and
+ * name, and fail loudly with the chart listed if a role cannot be found.
+ */
+type Acct = { id: string; code: string; name: string; accountType?: string | null };
+async function resolveAccounts() {
+  const accounts: Acct[] = await p.chartOfAccount.findMany({
+    where: { organizationId: DEMO_ORG_ID },
+    select: { id: true, code: true, name: true, accountType: true },
+    orderBy: { code: 'asc' },
+  });
+  if (!accounts.length) throw new Error('No chart of accounts for the demo org — run --stage config (DEMO INDUSTRIES) or setup-aimsdemo-org.ts (AIMS Demo) first.');
+  const find = (label: string, codes: string[], re: RegExp, types: string[], optional = false): Acct => {
+    const hit =
+      accounts.find((a) => codes.includes(a.code)) ||
+      accounts.find((a) => types.includes(String(a.accountType)) && re.test(a.name)) ||
+      accounts.find((a) => re.test(a.name));
+    if (!hit && !optional) {
+      throw new Error(`Cannot resolve the ${label} account. Chart:\n` + accounts.map((a) => `  ${a.code.padEnd(8)} ${String(a.accountType).padEnd(20)} ${a.name}`).join('\n'));
+    }
+    return hit as Acct;
+  };
+  const ar = find('trade receivables', ['610', 'CA001'], /receivable|debtors/i, ['CURRENT_ASSET']);
+  const ap = find('trade payables', ['800', 'CL001'], /trade payable|accounts payable|creditors/i, ['CURRENT_LIABILITY']);
+  const tax = find('GST', ['820', 'CL900'], /gst|vat|output tax|tax payable/i, ['TAX_LIABILITY', 'CURRENT_LIABILITY']);
+  const bank = find('bank', ['100', 'CA100', 'CA600'], /bank/i, ['CURRENT_ASSET', 'BANK']);
+  const revSale = find('sales revenue', ['227', 'SS001'], /sales|revenue/i, ['SALES', 'REVENUE', 'INCOME']);
+  const revRent = find('rental revenue', ['200'], /rental|hire/i, ['SALES', 'REVENUE', 'INCOME'], true) || revSale;
+  const expenseAccounts = accounts.filter((a) => /EXPENSE|PURCHASE|COST/i.test(String(a.accountType)) && !/depreciation|tax/i.test(a.name));
+  const expenses = EXPENSES.map((e, i) => {
+    const hit = accounts.find((a) => a.code === e.code) || expenseAccounts.find((a) => new RegExp(e.label.split(' ')[0], 'i').test(a.name)) || expenseAccounts[i % Math.max(1, expenseAccounts.length)];
+    if (!hit) throw new Error(`No expense account for "${e.label}" in the demo chart`);
+    return { id: hit.id, code: hit.code, label: hit.code === e.code ? e.label : hit.name };
+  });
+  return { ar, ap, tax, bank, revSale, revRent, expenses, accounts };
+}
+
+/** Read-only: what the data stage would use, and what the org holds today. */
+async function stageCheck() {
+  console.log('\n── check ─────────────────────────────────────────────');
+  const org = await p.organization.findUnique({ where: { id: DEMO_ORG_ID }, select: { name: true } });
+  console.log(`  Organization                   ${org ? org.name : 'MISSING'} (${DEMO_ORG_ID})`);
+  const A = await resolveAccounts();
+  console.log(`  Chart of accounts              ${A.accounts.length}`);
+  for (const [k, v] of Object.entries({ AR: A.ar, AP: A.ap, GST: A.tax, Bank: A.bank, 'Sales rev': A.revSale, 'Rental rev': A.revRent })) {
+    console.log(`  ${k.padEnd(30)} ${(v as Acct).code} ${(v as Acct).name}`);
+  }
+  for (const e of A.expenses) console.log(`  ${'expense'.padEnd(30)} ${e.code} ${e.label}`);
+  for (const m of ['category', 'documentTemplate', 'taxRate', 'documentNumberFormat', 'role', 'customer', 'supplier', 'asset', 'inventory', 'document', 'payment', 'journalEntry']) {
+    const n = await (p as any)[m].count({ where: { organizationId: DEMO_ORG_ID } });
+    console.log(`  ${m.padEnd(30)} ${n}`);
+  }
+}
+
 async function stageData() {
   console.log('\n── data ──────────────────────────────────────────────');
 
-  const accounts = await p.chartOfAccount.findMany({ where: { organizationId: DEMO_ORG_ID }, select: { id: true, code: true } });
-  if (!accounts.length) throw new Error('No chart of accounts for the demo org — run --stage config first.');
-  const acc = new Map<string, string>(accounts.map((a: any) => [a.code, a.id]));
-  const need = (code: string) => {
-    const id = acc.get(code);
-    if (!id) throw new Error(`Demo chart of accounts is missing account ${code}`);
-    return id;
-  };
-  const AR = need('610'), AP = need('800'), TAX = need('820'), BANK = need('100');
-  const REV_RENT = need('200'), REV_SALE = need('227');
+  const A = await resolveAccounts();
+  const AR = A.ar.id, AP = A.ap.id, TAX = A.tax.id, BANK = A.bank.id;
+  const REV_RENT = A.revRent.id, REV_SALE = A.revSale.id;
+  const EXPENSE_ACCOUNTS = A.expenses;
 
   const cats = await p.category.findMany({ where: { organizationId: DEMO_ORG_ID }, select: { id: true, name: true } });
   const cat = cats.find((c: any) => /rental|equipment/i.test(c.name)) || cats[0];
@@ -291,8 +353,8 @@ async function stageData() {
     id: randomUUID(), organizationId: DEMO_ORG_ID, name: c.name, skuKey: c.sku,
     categoryId: catId, uom: c.kind === 'sale' ? 'BAG' : 'UNIT',
     price: c.rate, isTracked: c.kind !== 'sale',
-    salesAccountCode: c.kind === 'sale' ? '227' : null,
-    rentalAccountCode: c.kind === 'rental' ? '200' : null,
+    salesAccountCode: c.kind === 'sale' ? A.revSale.code : null,
+    rentalAccountCode: c.kind === 'rental' ? A.revRent.code : null,
   }));
   await insertMany(p.asset, 'Asset', assets);
 
@@ -488,7 +550,7 @@ async function stageData() {
   for (const sup of suppliers) {
     for (let k = 0; k < int(2, 5); k++) {
       const d = monthStart(int(1, MONTHS));
-      const exp = pick(EXPENSES);
+      const exp = pick(EXPENSE_ACCOUNTS);
       const net = R2(int(200, 6000) + rnd());
       const tax = R2(net * GST);
       const gross = R2(net + tax);
@@ -512,7 +574,7 @@ async function stageData() {
       });
       postJournal({
         date: d, type: 'INVOICE', reference: `SIN ${name}`, description: `Bill ${name} — ${sup.name}`, docId: id,
-        legs: [[need(exp.code), net, 0, exp.label], [TAX, tax, 0, 'GST input 9%'], [AP, 0, gross, sup.name]],
+        legs: [[exp.id, net, 0, exp.label], [TAX, tax, 0, 'GST input 9%'], [AP, 0, gross, sup.name]],
       });
       if (paid > 0) {
         const pd = new Date(d.getTime() + int(25, 50) * 86400000);
@@ -599,13 +661,17 @@ async function stageLogin() {
 
 async function main() {
   console.log(`env=${ENV}  stage=${STAGE}  ${APPLY ? '*** APPLY ***' : 'DRY RUN'}`);
+  console.log(`target=${DEMO_NAME} (${DEMO_ORG_ID})`);
   if (STAGE === 'wipe') { await stageWipe(); return; }
+  if (STAGE === 'check') { await stageCheck(); return; }
 
-  const src = await p.organization.findFirst({ where: { name: { contains: 'Biofuel' } } });
-  if (!src) throw new Error('Biofuel org not found in this environment');
-  console.log(`Source shape: ${src.name} (${src.id})`);
-
-  if (STAGE === 'config' || STAGE === 'all') await stageConfig(src.id, src);
+  if (STAGE === 'config' || STAGE === 'all') {
+    if (DEMO_ORG_ID !== DEMO_INDUSTRIES_ID) throw new Error('--stage config clones Biofuel\'s shape and is only for DEMO INDUSTRIES. AIMS Demo gets its shape from setup-aimsdemo-org.ts.');
+    const src = await p.organization.findFirst({ where: { name: { contains: 'Biofuel' } } });
+    if (!src) throw new Error('Biofuel org not found in this environment');
+    console.log(`Source shape: ${src.name} (${src.id})`);
+    await stageConfig(src.id, src);
+  }
   if (STAGE === 'data' || STAGE === 'all') await stageData();
   if (STAGE === 'login' || STAGE === 'all') await stageLogin();
 
