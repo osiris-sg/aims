@@ -57,7 +57,10 @@
     "dash_2": "What is arriving this week?",
     "dash_3": "Show me how to reopen a cancelled order",
     "order_1": "What is the status of this order?",
-    "order_2": "Which documents are on this order?"
+    "order_2": "Which documents are on this order?",
+    "gen_1": "Which invoices are overdue?",
+    "gen_2": "What is outstanding on my projects?",
+    "gen_3": "Create a quotation for a customer"
   },
   "bar": {
     "morning": "Good morning",

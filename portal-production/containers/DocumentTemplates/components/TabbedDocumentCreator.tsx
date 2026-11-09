@@ -81,6 +81,7 @@ import {
   DragIndicator as DragIndicatorIcon,
 } from "@mui/icons-material";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { launchAimee } from "@/app/portal/chat/launchAimee";
 import DoStatusTag from "@/components/DoStatusTag";
 import { docDoTag } from "@/helpers/doStatusTag";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
@@ -364,7 +365,7 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isAimsChatEnabled } = useOrganizationFeatures();
   // The Project header row + the DO "project required" rule only make sense
   // for orgs that run the Projects module. An org without it (Chong Aik, guru
   // 2026-10-22) must not see "Select a project / Create new project" even when
@@ -4441,10 +4442,10 @@ export default function TabbedDocumentCreator({
               variant={assistantOpen ? "contained" : "outlined"}
               data-tour="editor-ask-ai"
               startIcon={<AutoAwesomeIcon />}
-              onClick={() => setAssistantOpen((o) => !o)}
+              onClick={() => (isAimsChatEnabled ? launchAimee() : setAssistantOpen((o) => !o))}
               color="secondary"
             >
-              Ask AI
+              Ask AIMEE
             </Button>
           )}
           <Button
@@ -5251,8 +5252,8 @@ export default function TabbedDocumentCreator({
                       // without the attention trio, account echoes, amount trio).
                       isPaymentVoucher
                         ? {
-                            pvVoucherNo: <PvVoucherNoInput formData={formData} setFormData={setFormData} />,
                             pvBankRow: <PvBankInput formData={formData} setFormData={setFormData} />,
+                            pvVoucherNo: <PvVoucherNoInput formData={formData} setFormData={setFormData} />,
                             pvPayeeRow: <PvPayeeInput formData={formData} setFormData={setFormData} />,
                             pvChequeRow: <PvChequeRow formData={formData} setFormData={setFormData} />,
                           }
@@ -6032,8 +6033,8 @@ export default function TabbedDocumentCreator({
               formData={formData}
               setFormData={setFormData}
               voucherId={(existingData?.id || documentId) as string | undefined}
-              disabled={lockReadOnly}
               suppliers={suppliers}
+              disabled={lockReadOnly}
             />
           ) : isOfficialReceipt ? (
             <OfficialReceiptOffsetSection

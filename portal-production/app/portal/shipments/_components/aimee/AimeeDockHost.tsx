@@ -3,8 +3,10 @@
 // Round BL — mounts the AIMEE side panel on an org with the SHIPMENTS module AND AIMEE on (enableAimsChat), and
 // registers the `aimee` payload useOperatorChat sends (the page in view, the walkthroughs this user may run, the
 // conversation's scope); the panel steps aside while full AIMEE is open on the dashboard.
-// Round BM: every other AIMEE org registers the walkthroughs only (no page, no scope, no panel) so its AIMEE can start
-// Guide walkthroughs now that the ✦ button is hidden there. Orgs without AIMEE: nothing.
+// Round BM: every other AIMEE org registers the walkthroughs only (no page, no scope) so its AIMEE can start
+// Guide walkthroughs now that the ✦ button is hidden there. Since 2026-11-09 those orgs ALSO get the panel, quietly:
+// no edge tab, the face still opens full AIMEE; the "Ask AIMEE" buttons (document editor, Finance Hub) open it beside
+// the page the user is on (guru: "open at the side while keeping the page open"). Orgs without AIMEE: nothing.
 
 import React, { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -18,7 +20,7 @@ import { LEGACY_MODULES, guideCatalog } from "@/app/portal/components/GuideAssis
 import AimeeDock from "./AimeeDock";
 import { readAimeeContext, registerAimeePayload, scopeOf, setAimeeContext } from "./bridge";
 
-function LiveDock() {
+function LiveDock({ quiet }: { quiet?: boolean }) {
   const router = useRouter();
   const { screens } = useNavModules();
   // The panel lives on other pages: no ?chat= in the URL; a screen AIMEE opens moves the page, the panel stays.
@@ -29,7 +31,7 @@ function LiveDock() {
       return true;
     },
   });
-  return <AimeeDock chat={chat} />;
+  return <AimeeDock chat={chat} quiet={quiet} />;
 }
 
 export default function AimeeDockHost() {
@@ -50,7 +52,9 @@ function Gated({ pathname, modules, shipments }: { pathname: string | null; modu
 
   useEffect(() => {
     registerAimeePayload(() => {
-      if (!shipments) return { page: null, guides };
+      // No page context here, but the quiet panel's conversations are still kept apart from full AIMEE's, so the
+      // panel reopens on the same conversation next time.
+      if (!shipments) return { page: null, guides, scope: readHomeView() === "aimee" ? undefined : "general" };
       const page = readAimeeContext();
       // Full AIMEE (the dashboard chat) keeps its own unscoped conversations.
       return { page: { ...(page ?? {}), path: page?.path ?? window.location.pathname }, guides, scope: readHomeView() === "aimee" ? undefined : scopeOf(page) };
@@ -71,6 +75,6 @@ function Gated({ pathname, modules, shipments }: { pathname: string | null; modu
     window.addEventListener(HOME_VIEW_EVENT, sync);
     return () => window.removeEventListener(HOME_VIEW_EVENT, sync);
   }, [pathname]);
-  if (!shipments || !pathname?.startsWith("/portal") || full) return null;
-  return <LiveDock />;
+  if (!pathname?.startsWith("/portal") || full) return null;
+  return <LiveDock quiet={!shipments} />;
 }

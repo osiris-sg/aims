@@ -29,6 +29,7 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { launchAimee } from "@/app/portal/chat/launchAimee";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./_lib/api";
 import JournalEntryDialog from "./_lib/JournalEntryDialog";
@@ -67,7 +68,7 @@ const fmt = (n: number) =>
 export default function AccountingHubPage() {
   const { request } = useAccountingApi();
   const router = useRouter();
-  const { isPostingQueueEnabled } = useOrganizationFeatures();
+  const { isPostingQueueEnabled, isAimsChatEnabled } = useOrganizationFeatures();
   const [hub, setHub] = useState<Hub | null>(null);
   const [loading, setLoading] = useState(true);
   const [newJournalOpen, setNewJournalOpen] = useState(false);
@@ -123,14 +124,16 @@ export default function AccountingHubPage() {
           </Typography>
         </Box>
         <Stack direction="row" gap={1}>
+          {/* "Ask AIMEE" opens the AIMEE side panel beside this page (guru
+              2026-11-09). Orgs without AIMEE keep the finance assistant drawer. */}
           <Button
             data-tour="finance-ask-ai"
             startIcon={<AutoAwesomeIcon />}
             variant={assistantOpen ? "contained" : "outlined"}
             size="small"
-            onClick={() => setAssistantOpen((o) => !o)}
+            onClick={() => (isAimsChatEnabled ? launchAimee() : setAssistantOpen((o) => !o))}
           >
-            Ask AI
+            Ask AIMEE
           </Button>
           <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load}>
             Refresh

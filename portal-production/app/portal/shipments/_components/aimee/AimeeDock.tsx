@@ -70,7 +70,12 @@ const write = (key: string, v: string) => {
   }
 };
 
-export default function AimeeDock({ chat, initialOpen }: { chat: DockChat; initialOpen?: boolean }) {
+/**
+ * `quiet` (every AIMEE org without SHIPMENTS, guru 2026-11-09): the panel exists only while something opened it — an
+ * "Ask AIMEE" button on the page — so there is no folded tab on the edge and the top-bar face keeps opening full
+ * AIMEE (the panel does not announce itself through setDockMounted).
+ */
+export default function AimeeDock({ chat, initialOpen, quiet }: { chat: DockChat; initialOpen?: boolean; quiet?: boolean }) {
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
   const router = useRouter();
@@ -101,7 +106,7 @@ export default function AimeeDock({ chat, initialOpen }: { chat: DockChat; initi
   );
 
   useEffect(() => {
-    setDockMounted(true);
+    if (!quiet) setDockMounted(true);
     const onCmd = (e: Event) => {
       const d = (e as CustomEvent<DockCommand>).detail;
       if (!d) return;
@@ -119,7 +124,7 @@ export default function AimeeDock({ chat, initialOpen }: { chat: DockChat; initi
     window.addEventListener(DOCK_EVENT, onCmd);
     window.addEventListener(GUIDE_EVENT, onGuide);
     return () => {
-      setDockMounted(false);
+      if (!quiet) setDockMounted(false);
       window.removeEventListener(DOCK_EVENT, onCmd);
       window.removeEventListener(GUIDE_EVENT, onGuide);
     };
@@ -183,7 +188,7 @@ export default function AimeeDock({ chat, initialOpen }: { chat: DockChat; initi
   };
 
   const label = contextLabel(ctx, (k, v) => t(k as any, v as any));
-  const keys = useMemo(() => suggestionKeys(ctx), [ctx]);
+  const keys = useMemo(() => (quiet ? ["gen_1", "gen_2", "gen_3"] : suggestionKeys(ctx)), [ctx, quiet]);
   const ask = (key: string) => chat.send({ text: key === "showHow" ? ts("showHowPrompt") : ts(key as any) });
   const empty = !chat.items.length && !chat.itemsLoading;
   // The Confirm card's words come from the operator in English: shown in the user's language here.
@@ -208,7 +213,8 @@ export default function AimeeDock({ chat, initialOpen }: { chat: DockChat; initi
         <AimeeFace size={28} mood={chat.sending ? "thinking" : chat.error ? "sad" : "idle"} track={false} />
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, letterSpacing: "0.12em", color: "text.secondary", lineHeight: 1.2 }}>{t("title")}</Typography>
-          <Chip size="small" label={label} data-tour="aimee-dock-context" sx={{ mt: 0.25, maxWidth: "100%", height: 22, fontWeight: 600, "& .MuiChip-label": { px: 1 } }} />
+          {/* No shipment context on a quiet panel: the chip would only say "Shipments". */}
+          {!quiet && <Chip size="small" label={label} data-tour="aimee-dock-context" sx={{ mt: 0.25, maxWidth: "100%", height: 22, fontWeight: 600, "& .MuiChip-label": { px: 1 } }} />}
         </Box>
         <Tooltip title={t("newChat")}>
           <IconButton size="small" aria-label={t("newChat")} onClick={newChat} data-tour="aimee-dock-new">
@@ -304,7 +310,7 @@ export default function AimeeDock({ chat, initialOpen }: { chat: DockChat; initi
     <>
       {/* The page moves left so it stays usable (the root layout resets body padding with .ROOT_LAYOUT, so the selector outranks a class). */}
       {open && !aboveModal && <GlobalStyles styles={{ "html body, html body[class]": { paddingRight: `${width}px` } }} />}
-      {!open && (
+      {!open && !quiet && (
         <Tooltip title={t("open")} placement="left">
           <Box
             component="button"
