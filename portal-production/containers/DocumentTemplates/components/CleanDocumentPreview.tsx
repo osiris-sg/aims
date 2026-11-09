@@ -619,7 +619,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
   if (documentType === "PAYMENT_VOUCHER" || documentType === "PV") {
     const v: any = data || {};
     const allocs: any[] = Array.isArray(v.allocations) ? v.allocations : [];
-    const total = allocs.reduce((sum: number, a: any) => sum + (Number(a.amount) || 0), 0);
+    // Legacy P/V screen (2026-11-09): GL lines (Account | Description |
+    // Remarks | Amount) print as the body; the supplier offset's invoices are
+    // listed under its line. Vouchers saved before that print allocations only.
+    const pvLines: any[] = Array.isArray(v.lines) ? v.lines.filter((l: any) => l?.accountCode || l?.offset) : [];
+    const total = pvLines.length
+      ? pvLines.reduce((sum: number, l: any) => sum + (Number(l.amount) || 0), 0)
+      : allocs.reduce((sum: number, a: any) => sum + (Number(a.amount) || 0), 0);
     const money = (n: number) => (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     return (
       <Paper
@@ -657,7 +663,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
           <Box>
             <Typography sx={{ fontSize: "0.8125rem" }}>Paid To:</Typography>
-            <Typography sx={{ fontSize: "0.9375rem", fontWeight: 700 }}>{v.supplierLabel || "—"}</Typography>
+            <Typography sx={{ fontSize: "0.9375rem", fontWeight: 700 }}>{v.payee || v.supplierLabel || "—"}</Typography>
             {v.remarks && <Typography sx={{ fontSize: "0.8125rem", mt: 0.5 }}>{v.remarks}</Typography>}
           </Box>
           <Box sx={{ textAlign: "right" }}>
@@ -672,6 +678,38 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           </Box>
         </Box>
 
+        {pvLines.length > 0 ? (
+          <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", "& th, & td": { fontSize: "0.8125rem", py: 0.6, px: 1 } }}>
+            <Box component="thead">
+              <Box component="tr" sx={{ "& th": { borderTop: "1px solid #000", borderBottom: "1px solid #000", textAlign: "left" } }}>
+                <Box component="th">Account code</Box>
+                <Box component="th">Description</Box>
+                <Box component="th">Remarks</Box>
+                <Box component="th" sx={{ textAlign: "right !important" }}>Amount ({v.currency || "SGD"})</Box>
+              </Box>
+            </Box>
+            <Box component="tbody">
+              {pvLines.map((l: any, i: number) => (
+                <React.Fragment key={l.id || i}>
+                  <Box component="tr">
+                    <Box component="td" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{l.accountCode}</Box>
+                    <Box component="td">{l.description || l.accountName || ""}</Box>
+                    <Box component="td">{l.remarks || ""}</Box>
+                    <Box component="td" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(Number(l.amount) || 0)}</Box>
+                  </Box>
+                  {(l.offset?.allocations || []).map((a: any, j: number) => (
+                    <Box component="tr" key={`${l.id || i}-${j}`} sx={{ "& td": { color: "#333", fontSize: "0.75rem !important", py: "2px !important" } }}>
+                      <Box component="td" />
+                      <Box component="td" sx={{ pl: "20px !important" }}>{a.reference}{a.date ? ` · ${new Date(a.date).toLocaleDateString("en-GB")}` : ""}</Box>
+                      <Box component="td">{a.description || "SUPPLIER INVOICE"}</Box>
+                      <Box component="td" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(Number(a.amount) || 0)}</Box>
+                    </Box>
+                  ))}
+                </React.Fragment>
+              ))}
+            </Box>
+          </Box>
+        ) : (
         <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", "& th, & td": { fontSize: "0.8125rem", py: 0.6, px: 1 } }}>
           <Box component="thead">
             <Box component="tr" sx={{ "& th": { borderTop: "1px solid #000", borderBottom: "1px solid #000", textAlign: "left" } }}>
@@ -692,6 +730,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             ))}
           </Box>
         </Box>
+
+        )}
 
         <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1 }}>
           <Box sx={{ minWidth: 240, borderTop: "1px solid #000", pt: 0.5 }}>
@@ -715,6 +755,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           {["Prepared by", "Approved by", "Received by"].map((l) => (
             <Box key={l} sx={{ width: "28%", borderTop: "1px solid #000", pt: 0.5, textAlign: "center" }}>
               <Typography sx={{ fontSize: "0.75rem" }}>{l}</Typography>
+              {l === "Prepared by" && v.preparedBy && <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>{v.preparedBy}</Typography>}
             </Box>
           ))}
         </Box>

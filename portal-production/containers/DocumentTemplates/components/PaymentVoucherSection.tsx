@@ -1,14 +1,28 @@
 "use client";
 
-// Payment Voucher pieces for TabbedDocumentCreator — the AP twin of the
-// Official Receipt (guru 2026-10-21: "do that" — batch supplier payments the
-// way ORs batch customer receipts). Same editor, same row pattern; only the
-// field set, the party (supplier) and the body (Offset Transactions over the
-// supplier's unpaid bills) differ. Voucher state rides in formData.pvData so
-// the editor's dirty tracking, exit prompt and Save path work unchanged.
+// Payment Voucher pieces for TabbedDocumentCreator — rebuilt 2026-11-09 to
+// follow the legacy software's P/V screen (guru: "change the payment voucher
+// screen to follow this instead"):
 //
-// Accounting: a voucher DEBITS Trade Creditors (per allocated bill) and
-// CREDITS the paid-from bank — the mirror of the receipt's Dr bank / Cr debtors.
+//   GENERAL      Bank Account [code] CASH AT BANK - OCBC        Rate 1.0000000
+//                Voucher No.  [O G261101]
+//                Date         [06/11/2026]
+//                Payee        [2LT GLASS & MIRROR …          ] ✎  ← Offset Supplier Invoices
+//                Remarks      [                              ]
+//                Bank / cheque[        ]   Prepare By [        ]
+//   ┌ Account code │ Description     │ Remarks │ Amount ┐      ┌ Remarks ┐
+//   │ EA002        │ ACCOUNTING FEE  │         │ 1000.00│      │ (memo)  │
+//   │ CL001        │ TRADE CREDITORS │ C2001 … │ 2500.00│      └─────────┘
+//   └──────────────────────────────── Amount SGD 3,500.00 ┘
+//
+// A line is any GL account with an amount (bank charge, fee, a refund as a
+// negative), or the ONE creditor line the Offset Supplier Invoices dialog
+// writes (Trade Creditors + the supplier + the invoices ticked). The total of
+// the lines is the cash leaving the bank. Spend Money retired into this.
+//
+// Voucher state rides in formData.pvData so the editor's dirty tracking, exit
+// prompt and Save path work unchanged. Accounting: Cr bank total / Dr each
+// line (creditor control per allocated invoice, ± realised FX).
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -17,9 +31,7 @@ import {
   Button,
   Card,
   CardContent,
-  Checkbox,
   Chip,
-  CircularProgress,
   IconButton,
   InputAdornment,
   Paper,
@@ -33,10 +45,13 @@ import {
   Tab,
   Tabs,
   TextField,
+  Tooltip,
   Typography,
-  alpha,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
+import EditNoteIcon from "@mui/icons-material/EditNote";
+import AddIcon from "@mui/icons-material/Add";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
@@ -45,10 +60,13 @@ import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
 import { headerInputSx } from "./DynamicFormFields";
 import ContraOffsetDialog from "./ContraOffsetDialog";
+import PvOffsetSupplierDialog, { type PvLine, type PvOffset } from "./PvOffsetSupplierDialog";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { AccountSelectDialog, numberIsPending, peekDocumentNumber, useOrAccounts, type OrAccount } from "./OfficialReceiptSection";
 import type { TemplateFieldConfig } from "../types/templateFieldTypes";
 import { todayIso } from "@/helpers/orgToday";
+
+export type { PvLine, PvOffset };
 
 // Field names avoid HEADER_FIELD_ORDER and the right-column substring filters
 // (rate/currency/gst/...), so DynamicFormFields renders them single-column in
@@ -59,35 +77,23 @@ export const PV_FIELD_DEFINITIONS: TemplateFieldConfig = {
       tabId: "general",
       tabLabel: "GENERAL",
       fields: [
+        { fieldName: "pvBankRow", displayLabel: "Bank Account", fieldType: "text", required: true },
         { fieldName: "pvVoucherNo", displayLabel: "Voucher No.", fieldType: "text", required: false },
         { fieldName: "pvData.date", displayLabel: "Date", fieldType: "date", required: true },
-        { fieldName: "pvData.chequeNo", displayLabel: "Cheque No.", fieldType: "text", required: false },
+        { fieldName: "pvPayeeRow", displayLabel: "Payee", fieldType: "text", required: false },
         { fieldName: "pvData.remarks", displayLabel: "Remarks", fieldType: "text", required: false },
-        { fieldName: "pvSupplier", displayLabel: "Supplier code", fieldType: "text", required: true },
-        { fieldName: "pvDebit", displayLabel: "Accounts to  DEBIT", fieldType: "text", required: false },
-        { fieldName: "pvCredit", displayLabel: "Accounts to  CREDIT", fieldType: "text", required: true },
-        { fieldName: "pvAmountRow", displayLabel: "Payment Amount", fieldType: "text", required: true },
+        { fieldName: "pvChequeRow", displayLabel: "Bank / cheque", fieldType: "text", required: false },
       ],
     },
   ],
 };
 
+/** Window event the Payee pencil fires; the lines section opens the dialog. */
+export const PV_OFFSET_EVENT = "aims:pv-offset";
+
 const fmt = (n: number) =>
   (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const R = (n: number) => Math.round(n * 100) / 100;
-
-const apiFetch = async (path: string, token: string | null) => {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  if (typeof window !== "undefined") {
-    const activeOrgId = window.sessionStorage.getItem("aims-admin-active-org");
-    if (activeOrgId) headers["X-Active-Org-Id"] = activeOrgId;
-  }
-  const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}${path}`, { headers });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json?.message || `Request failed (${res.status})`);
-  return json?.data ?? json;
-};
 
 const isBankish = (a: OrAccount) => {
   if (a.isActive === false) return false;
@@ -108,143 +114,80 @@ const AccountEcho = ({ currency, name }: { currency: string; name: string }) =>
     </Typography>
   ) : null;
 
+export const pvLines = (formData: any): PvLine[] => (Array.isArray(formData?.pvData?.lines) ? formData.pvData.lines : []);
+export const pvTotal = (formData: any) => R(pvLines(formData).reduce((s, l) => s + (parseFloat(String(l.amount)) || 0), 0));
+export const pvCreditorLine = (formData: any): PvLine | undefined => pvLines(formData).find((l) => l.offset?.supplierId);
+
+/** The editor's pre-save check — mirrors the server's rules so the toast is immediate. */
+export function pvValidationError(formData: any): string | null {
+  const pd: any = formData?.pvData || {};
+  if (!pd.bankAccountCode) return "Select the Bank Account the payment comes from";
+  const lines = pvLines(formData).filter((l) => l.accountCode || parseFloat(String(l.amount)) || l.offset);
+  if (!lines.length) return "Add at least one line — an account and an amount, or offset supplier invoices";
+  for (const [i, l] of lines.entries()) {
+    if (!l.accountCode && !l.offset) return `Line ${i + 1}: pick an account code`;
+    if (!l.offset && !(parseFloat(String(l.amount)) || 0)) return `Line ${i + 1}: enter an amount`;
+  }
+  const total = pvTotal(formData);
+  const hasCredit = lines.some((l) => (l.offset?.allocations || []).some((a: any) => (Number(a.amount) || 0) < 0));
+  if (total < 0) return "The voucher total cannot be negative — the lines must add up to money leaving the bank";
+  if (total === 0 && !hasCredit) return "The voucher total must be greater than zero";
+  return null;
+}
+
+// Kept for the editor's shared Locate (supplier) dialog branch: picking a
+// supplier there stores it as the payee the offset dialog starts from.
+export function voucherSupplierPatch(formData: any, s: any) {
+  return {
+    supplier: s
+      ? { id: s.id, name: s.name || "", supplierCode: s.supplierCode || s.customerCode || "", address: s.address || "", email: s.email || "", currency: s.currency || "SGD" }
+      : { id: "", name: "", supplierCode: "", address: "", email: "" },
+    pvData: { ...(formData.pvData || {}), payee: formData?.pvData?.payee || s?.name || "" },
+  };
+}
+
 // Editable (guru 2026-11-05) — see OrReceiptNoInput.
 export function PvVoucherNoInput({ formData, setFormData }: RowProps) {
-  // A provisional PV-PENDING… name is not a number anyone should see or type
-  // over: show the box empty so the placeholder explains itself, and the
-  // server issues the real number on save.
   const raw = formData?.documentInfo?.documentNumber || formData?.name || "";
   const value = raw.startsWith("PV-PENDING") ? "" : raw;
   return (
     <TextField
       size="small"
       value={value}
+      placeholder="Issued on save"
       onChange={(e) => {
         const v = e.target.value;
-        // numberTouched stops the bank/date preview from overwriting a
-        // number the user typed on purpose.
-        setFormData({ ...formData, name: v, numberTouched: true, documentInfo: { ...(formData?.documentInfo || {}), documentNumber: v } });
+        setFormData({ ...formData, name: v, numberTouched: true, documentInfo: { ...(formData.documentInfo || {}), documentNumber: v } });
       }}
-      placeholder="Issued on save"
       sx={{ ...headerInputSx, width: 220 }}
+      inputProps={{ style: { fontWeight: 600 } }}
     />
   );
 }
 
-// Selecting a supplier resets the allocations (they belong to the previous
-// supplier) and pulls the currency from the supplier master. Shared by the
-// typed-code commit AND TabbedDocumentCreator's Locate Supplier dialog.
-export function voucherSupplierPatch(formData: any, s: any) {
-  const cur = String(s?.currency || "SGD").toUpperCase();
-  return {
-    supplier: s
-      ? { id: s.id, name: s.name || "", supplierCode: s.supplierCode || "", address: s.address || "", email: s.email || "" }
-      : { id: "", name: "", supplierCode: "", address: "", email: "" },
-    pvData: {
-      ...(formData.pvData || {}),
-      allocations: [],
-      currency: cur,
-      rate: cur === "SGD" ? 1 : formData.pvData?.rate || 1,
-    },
-  };
-}
-
-export function PvSupplierInput({ formData, setFormData, suppliers = [], onOpenDialog }: RowProps & { onOpenDialog?: () => void }) {
-  const committedCode = formData?.supplier?.supplierCode || "";
-  const [input, setInput] = useState(committedCode);
-  useEffect(() => setInput(committedCode), [committedCode]);
-  return (
-    <>
-      <TextField
-        data-tour="pv-supplier"
-        size="small"
-        value={input}
-        placeholder="Code"
-        onChange={(e) => {
-          const v = e.target.value;
-          setInput(v);
-          const match = suppliers.find((s: any) => String(s.supplierCode || "").toLowerCase() === v.trim().toLowerCase());
-          if (match && match.id !== formData?.supplier?.id) {
-            setFormData({ ...formData, ...voucherSupplierPatch(formData, match) });
-          }
-        }}
-        onBlur={() => setInput(committedCode)}
-        sx={{ ...headerInputSx, width: 180 }}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start" sx={{ mr: 0 }}>
-              <IconButton data-hotkey="lookup" size="small" onClick={() => onOpenDialog?.()} sx={{ p: 0.25, ml: -0.5 }} title="Search">
-                <SearchIcon sx={{ fontSize: 16 }} />
-              </IconButton>
-            </InputAdornment>
-          ),
-        }}
-      />
-      {formData?.supplier?.name && (
-        <Typography sx={{ fontSize: "13px", fontWeight: 700, ml: 1.5, whiteSpace: "nowrap" }}>
-          {formData.supplier.name}
-        </Typography>
-      )}
-    </>
-  );
-}
-
-// Accounts to DEBIT — Trade Creditors control (default from settings), full chart.
-export function PvDebitInput({ formData, setFormData }: RowProps) {
-  const accounts = useOrAccounts();
-  const code = formData?.pvData?.debitAccountCode || "";
-  const [input, setInput] = useState(code);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  useEffect(() => setInput(code), [code]);
-  const selected = accounts.find((a) => a.code === code);
-  const commit = (acc: OrAccount) => setPvData(formData, setFormData, { debitAccountCode: acc.code });
-  return (
-    <>
-      <TextField
-        size="small"
-        value={input}
-        placeholder="Code"
-        onChange={(e) => {
-          const v = e.target.value;
-          setInput(v);
-          const match = accounts.find((a) => String(a.code).toLowerCase() === v.trim().toLowerCase());
-          if (match && match.code !== code) commit(match);
-        }}
-        onBlur={() => setInput(code)}
-        sx={{ ...headerInputSx, width: 180 }}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start" sx={{ mr: 0 }}>
-              <IconButton data-hotkey="lookup" size="small" onClick={() => setDialogOpen(true)} sx={{ p: 0.25, ml: -0.5 }} title="Search">
-                <SearchIcon sx={{ fontSize: 16 }} />
-              </IconButton>
-            </InputAdornment>
-          ),
-        }}
-      />
-      <AccountEcho currency={formData?.pvData?.currency || "SGD"} name={selected?.name || ""} />
-      <AccountSelectDialog open={dialogOpen} onClose={() => setDialogOpen(false)} accounts={accounts} onSelect={commit} />
-    </>
-  );
-}
-
-// Accounts to CREDIT — paid-from bank/cash only.
-export function PvCreditInput({ formData, setFormData }: RowProps) {
+// Bank Account — the paid-from bank/cash (credit side), with Rate at the
+// right like the legacy row. A FOREIGN_BANK account unlocks Currency + Rate.
+export function PvBankInput({ formData, setFormData }: RowProps) {
   const accounts = useOrAccounts();
   const { getToken } = useAuth();
   const banks = useMemo(() => accounts.filter(isBankish), [accounts]);
-  const code = formData?.pvData?.creditAccountCode || "";
+  const pd = formData?.pvData || {};
+  const code = pd.bankAccountCode || "";
   const [input, setInput] = useState(code);
   const [dialogOpen, setDialogOpen] = useState(false);
   useEffect(() => setInput(code), [code]);
   const selected = accounts.find((a) => a.code === code);
+  const foreign = selected?.accountType === "FOREIGN_BANK";
+  const currency = String(pd.currency || "SGD").toUpperCase();
   const commit = (acc: OrAccount) =>
-    setPvData(formData, setFormData, { creditAccountCode: acc.code, paidFromLabel: `${acc.code} — ${acc.name}` });
+    setPvData(formData, setFormData, {
+      bankAccountCode: acc.code,
+      bankLabel: `${acc.code} — ${acc.name}`,
+      ...(acc.accountType !== "FOREIGN_BANK" ? { currency: "SGD", rate: 1 } : {}),
+    });
   // Unsaved voucher: the number box follows the bank AND the date (guru
-  // 2026-11-05) — see OrDebitInput.
-  const date = formData?.pvData?.date || "";
-  // A number typed by hand is the user's, not the series' — the preview
-  // stands down for good once they have edited the box.
+  // 2026-11-05). A number typed by hand stands.
+  const date = pd.date || "";
   const unsaved = (!formData?.savedAt || numberIsPending(formData?.name)) && !formData?.numberTouched;
   useEffect(() => {
     if (!code || !unsaved) return;
@@ -252,15 +195,17 @@ export function PvCreditInput({ formData, setFormData }: RowProps) {
     void (async () => {
       const n = await peekDocumentNumber("PAYMENT_VOUCHER", code, date, await getToken());
       if (cancelled || !n) return;
-      // Merge onto the LATEST state.
       setFormData((prev: any) => (prev?.name === n ? prev : { ...prev, name: n, documentInfo: { ...(prev?.documentInfo || {}), documentNumber: n } }));
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, date, unsaved]);
   return (
-    <>
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1, minWidth: 0 }}>
       <TextField
+        data-tour="pv-bank"
         size="small"
         value={input}
         placeholder="Code"
@@ -282,165 +227,206 @@ export function PvCreditInput({ formData, setFormData }: RowProps) {
           ),
         }}
       />
-      <AccountEcho currency={formData?.pvData?.currency || "SGD"} name={selected?.name || ""} />
-      <AccountSelectDialog open={dialogOpen} onClose={() => setDialogOpen(false)} accounts={banks} onSelect={commit} />
-    </>
-  );
-}
-
-export function PvAmountInput({ formData, setFormData }: RowProps) {
-  const pd = formData?.pvData || {};
-  const currency = String(pd.currency || "SGD").toUpperCase();
-  const rate = Number(pd.rate) || 1;
-  const amount = Number(pd.voucherAmount) || 0;
-  return (
-    <Box data-tour="pv-amount" sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "nowrap" }}>
-      <Typography sx={{ fontSize: "13px", fontWeight: 700, color: "text.secondary" }}>{currency}</Typography>
-      <TextField
-        size="small"
-        type="number"
-        value={pd.voucherAmount ?? ""}
-        onChange={(e) => setPvData(formData, setFormData, { voucherAmount: e.target.value })}
-        inputProps={{ step: "0.01", min: 0, style: { textAlign: "right" } }}
-        sx={{ ...headerInputSx, width: 180 }}
-      />
-      <Typography sx={{ fontSize: "13px", fontWeight: 700, ml: 1.5 }}>Rate</Typography>
+      <AccountEcho currency={currency} name={selected?.name || ""} />
+      <Box sx={{ flex: 1 }} />
+      {foreign && (
+        <TextField
+          size="small"
+          value={currency}
+          onChange={(e) => setPvData(formData, setFormData, { currency: e.target.value.toUpperCase().slice(0, 3) })}
+          inputProps={{ maxLength: 3, style: { textTransform: "uppercase", width: 44 } }}
+          sx={headerInputSx}
+          title="Bank currency"
+        />
+      )}
+      <Typography sx={{ fontSize: "13px", fontWeight: 700 }}>Rate</Typography>
       <TextField
         size="small"
         type="number"
         value={pd.rate ?? 1}
         onChange={(e) => setPvData(formData, setFormData, { rate: e.target.value })}
-        disabled={currency === "SGD"}
+        disabled={!foreign}
         inputProps={{ step: "0.000001", min: 0, style: { textAlign: "right" } }}
-        sx={{ ...headerInputSx, width: 140 }}
+        sx={{ ...headerInputSx, width: 140, mr: 1 }}
+        title={foreign ? `${currency} → SGD` : "Base currency voucher"}
       />
-      <Typography sx={{ fontSize: "13px", fontWeight: 700, ml: 1.5 }}>Amount&nbsp;&nbsp;SGD</Typography>
+      <AccountSelectDialog open={dialogOpen} onClose={() => setDialogOpen(false)} accounts={banks} onSelect={commit} />
+    </Box>
+  );
+}
+
+// Payee — free text, prefilled by the offset dialog; the pencil opens Offset
+// Supplier Invoices (F2 too, via data-hotkey="lookup").
+export function PvPayeeInput({ formData, setFormData }: RowProps) {
+  const pd = formData?.pvData || {};
+  const creditor = pvCreditorLine(formData);
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: 1, minWidth: 0 }}>
+      <TextField
+        data-tour="pv-payee"
+        size="small"
+        value={pd.payee || ""}
+        placeholder="Who is being paid"
+        onChange={(e) => setPvData(formData, setFormData, { payee: e.target.value })}
+        sx={{ ...headerInputSx, flex: 1, maxWidth: 560 }}
+        InputProps={{
+          endAdornment: (
+            <InputAdornment position="end">
+              <Tooltip title={creditor ? "Offset Supplier Invoices — edit the supplier line" : "Offset Supplier Invoices — pay this supplier's invoices"}>
+                <IconButton
+                  data-hotkey="lookup"
+                  size="small"
+                  onClick={() => window.dispatchEvent(new CustomEvent(PV_OFFSET_EVENT))}
+                  sx={{ p: 0.25 }}
+                  color={creditor ? "primary" : "default"}
+                >
+                  <EditNoteIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
+            </InputAdornment>
+          ),
+        }}
+      />
+      {creditor?.offset?.supplierCode && (
+        <Chip size="small" variant="outlined" color="primary" label={`${creditor.offset.supplierCode} · ${creditor.offset.allocations?.length || 0} invoice(s)`} sx={{ height: 22 }} />
+      )}
+    </Box>
+  );
+}
+
+// Bank / cheque + Prepare By on one row, like the legacy screen.
+export function PvChequeRow({ formData, setFormData }: RowProps) {
+  const pd = formData?.pvData || {};
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
       <TextField
         size="small"
-        value={fmt(R(amount * rate))}
-        InputProps={{ readOnly: true }}
-        inputProps={{ style: { textAlign: "right" } }}
-        sx={{ ...headerInputSx, width: 170 }}
+        value={pd.chequeNo || ""}
+        placeholder="Bank / cheque no."
+        onChange={(e) => setPvData(formData, setFormData, { chequeNo: e.target.value })}
+        sx={{ ...headerInputSx, width: 220 }}
+      />
+      <Typography sx={{ fontSize: "13px", fontWeight: 700, ml: 2 }}>Prepare By</Typography>
+      <TextField
+        size="small"
+        value={pd.preparedBy || ""}
+        onChange={(e) => setPvData(formData, setFormData, { preparedBy: e.target.value })}
+        sx={{ ...headerInputSx, width: 220 }}
       />
     </Box>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Offset Transactions — the supplier's unpaid bills; replaces the items table.
+// Body — the lines grid + the Remarks memo, with the legacy left rail.
 // ---------------------------------------------------------------------------
-type OpenBill = {
-  documentId: string;
-  reference: string;
-  type?: string | null;
-  templateId?: string | null;
-  date: string | null;
-  remarks: string;
-  gross: number;
-  /** Bills: what is still owed. Credit notes: how much credit is left to use.
-   *  Always positive — the SIGN of the allocation is what distinguishes them. */
-  outstanding: number;
-  /** 'credit' = a supplier credit note; it REDUCES the cash paid. */
-  kind?: "bill" | "credit";
-};
+const newLine = (): PvLine => ({ id: `l${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, accountCode: "", accountName: "", description: "", remarks: "", amount: "" });
 
-export function PaymentVoucherOffsetSection({
+function AccountCodeCell({
+  value,
+  accounts,
+  disabled,
+  onCommit,
+}: {
+  value: string;
+  accounts: OrAccount[];
+  disabled?: boolean;
+  onCommit: (acc: OrAccount) => void;
+}) {
+  const [input, setInput] = useState(value);
+  const [open, setOpen] = useState(false);
+  useEffect(() => setInput(value), [value]);
+  return (
+    <>
+      <TextField
+        size="small"
+        value={input}
+        placeholder="Code"
+        disabled={disabled}
+        onChange={(e) => {
+          const v = e.target.value;
+          setInput(v);
+          const match = accounts.find((a) => String(a.code).toLowerCase() === v.trim().toLowerCase());
+          if (match && match.code !== value) onCommit(match);
+        }}
+        onBlur={() => setInput(value)}
+        sx={{ width: 150 }}
+        InputProps={{
+          startAdornment: (
+            <InputAdornment position="start" sx={{ mr: 0 }}>
+              <IconButton data-hotkey="lookup" size="small" disabled={disabled} onClick={() => setOpen(true)} sx={{ p: 0.25, ml: -0.5 }} title="Search">
+                <SearchIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </InputAdornment>
+          ),
+        }}
+      />
+      <AccountSelectDialog open={open} onClose={() => setOpen(false)} accounts={accounts} onSelect={onCommit} />
+    </>
+  );
+}
+
+export function PaymentVoucherLinesSection({
   formData,
   setFormData,
   voucherId,
+  suppliers = [],
   disabled = false,
 }: {
   formData: any;
   setFormData: (next: any) => void;
   voucherId?: string;
+  suppliers?: any[];
   disabled?: boolean;
 }) {
-  const { getToken } = useAuth();
   const router = useRouter();
-  const supplierId = formData?.supplier?.id || "";
+  const accounts = useOrAccounts();
   const pd = formData?.pvData || {};
-  const allocations: any[] = Array.isArray(pd.allocations) ? pd.allocations : [];
-  const allocById = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const a of allocations) m.set(a.documentId, Number(a.amount) || 0);
-    return m;
-  }, [allocations]);
+  const currency = String(pd.currency || "SGD").toUpperCase();
+  const rate = Number(pd.rate) || 1;
+  const lines = pvLines(formData);
+  const creditor = pvCreditorLine(formData);
+  const total = pvTotal(formData);
+  // Lines pick from the whole chart except the paying bank itself.
+  const lineAccounts = useMemo(() => accounts.filter((a) => a.isActive !== false && a.code !== pd.bankAccountCode), [accounts, pd.bankAccountCode]);
 
-  const [bills, setBills] = useState<OpenBill[]>([]);
-  const [loading, setLoading] = useState(false);
-  // Bumped when a contra saves — the bills it settled are no longer open.
-  const [refreshTick, setRefreshTick] = useState(0);
+  const writeLines = (next: PvLine[]) => setPvData(formData, setFormData, { lines: next });
+  const patchLine = (id: string, patch: Partial<PvLine>) => writeLines(lines.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  const removeLine = (id: string) => writeLines(lines.filter((l) => l.id !== id));
+  const addLine = () => writeLines([...lines, newLine()]);
 
+  // Offset Supplier Invoices dialog — opened from the Payee pencil (header)
+  // or the creditor line's pencil here.
+  const [offsetOpen, setOffsetOpen] = useState(false);
   useEffect(() => {
-    if (!supplierId) {
-      setBills([]);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const token = await getToken();
-        const excl = voucherId ? `?excludeVoucherId=${voucherId}` : "";
-        const rows = (await apiFetch(`/payment-vouchers/open-bills/${supplierId}${excl}`, token)) || [];
-        if (!cancelled) setBills(rows);
-      } catch (e: any) {
-        if (!cancelled) toast.error(e?.message || "Couldn't load unpaid supplier invoices");
-      } finally {
-        if (!cancelled) setLoading(false);
+    const onOpen = () => {
+      if (disabled) return;
+      if (!pd.bankAccountCode) {
+        toast.warn("Pick the Bank Account first");
+        return;
       }
-    })();
-    return () => {
-      cancelled = true;
+      setOffsetOpen(true);
     };
-  }, [supplierId, voucherId, getToken, refreshTick]);
+    window.addEventListener(PV_OFFSET_EVENT, onOpen);
+    return () => window.removeEventListener(PV_OFFSET_EVENT, onOpen);
+  }, [disabled, pd.bankAccountCode]);
 
-  const paid = R(parseFloat(pd.voucherAmount) || 0);
-  const offset = R(allocations.reduce((s, a) => s + (Number(a.amount) || 0), 0));
-  const balance = R(paid - offset);
-
-  const writeAllocations = (next: any[]) => setPvData(formData, setFormData, { allocations: next });
-
-  const isCredit = (b: OpenBill) => b.kind === "credit";
-  // A credit note needs no cash to allocate, and once one is on the voucher
-  // the bills it settles can be ticked with the payment still at zero (the
-  // AP equivalent of a Manual Offset).
-  const creditOn = allocations.some((a) => (Number(a.amount) || 0) < 0);
-
-  const entryFor = (b: OpenBill, amount: number) => ({
-    documentId: b.documentId,
-    amount,
-    reference: b.reference,
-    date: b.date,
-    description: b.remarks || (isCredit(b) ? "SUPPLIER CREDIT NOTE" : "SUPPLIER INVOICE"),
-  });
-
-  // Tick = allocate the remaining pool top-down (partial on the last).
-  // A credit note goes in NEGATIVE: it is not paid, it pays. Ticking one
-  // therefore does not consume the cash pool — it ENLARGES what the bills
-  // must cover, so the voucher still balances to the cash leaving the bank.
-  const toggle = (b: OpenBill, checked: boolean) => {
-    if (!checked) {
-      writeAllocations(allocations.filter((a) => a.documentId !== b.documentId));
-      return;
-    }
-    const rest = allocations.filter((a) => a.documentId !== b.documentId);
-    if (isCredit(b)) {
-      writeAllocations([...rest, entryFor(b, R(-b.outstanding))]);
-      return;
-    }
-    const othersTotal = R(rest.reduce((s, a) => s + (Number(a.amount) || 0), 0));
-    const remaining = R(Math.max(0, paid - othersTotal));
-    const amt = R(Math.min(b.outstanding, remaining));
-    writeAllocations([...rest, entryFor(b, amt)]);
+  const saveOffset = (line: PvLine, supplier: any) => {
+    const rest = lines.filter((l) => l.id !== line.id && !l.offset);
+    // Creditor line sits where the old one was, else at the end.
+    const idx = lines.findIndex((l) => l.offset);
+    const next = [...rest];
+    next.splice(idx >= 0 ? Math.min(idx, next.length) : next.length, 0, line);
+    setFormData({
+      ...formData,
+      supplier: supplier
+        ? { id: supplier.id, name: supplier.name || "", supplierCode: supplier.supplierCode || "", address: supplier.address || "", email: supplier.email || "", currency: supplier.currency || "SGD" }
+        : formData.supplier,
+      pvData: { ...pd, lines: next, payee: pd.payee || supplier?.name || "" },
+    });
   };
-
-  const setLineAmount = (b: OpenBill, raw: string) => {
-    // The box is typed as a positive figure on both kinds; a credit is stored
-    // negative so the allocations still add up to the cash paid.
-    const typed = R(Math.max(0, Math.min(Math.abs(parseFloat(raw) || 0), b.outstanding)));
-    const rest = allocations.filter((a) => a.documentId !== b.documentId);
-    writeAllocations(typed <= 0 ? rest : [...rest, entryFor(b, isCredit(b) ? -typed : typed)]);
+  const clearOffset = () => {
+    writeLines(lines.filter((l) => !l.offset));
   };
 
   const headCellSx = { fontWeight: 700, fontSize: "0.75rem", color: "text.secondary", whiteSpace: "nowrap" as const };
@@ -448,9 +434,10 @@ export function PaymentVoucherOffsetSection({
   // Legacy left rail — the AP twins of the receipt's modules.
   const { isContraOffsetEnabled } = useOrganizationFeatures();
   const [contraOpen, setContraOpen] = useState(false);
+  const supplierId = creditor?.offset?.supplierId || formData?.supplier?.id || "";
   const needSupplier = (fn: () => void) => () => {
     if (!supplierId) {
-      toast.warn("Select a supplier first");
+      toast.warn("Offset a supplier's invoices first (the pencil beside Payee)");
       return;
     }
     fn();
@@ -458,15 +445,7 @@ export function PaymentVoucherOffsetSection({
   const back = () => encodeURIComponent(window.location.pathname + window.location.search);
   const railButtons = [
     ...(isContraOffsetEnabled
-      ? [
-          {
-            // The same contra as the receipt's, entered from the supplier —
-            // the AP clerk works here, not on the receipt.
-            label: "Contra Set-off",
-            icon: <SwapHorizIcon />,
-            onClick: needSupplier(() => setContraOpen(true)),
-          },
-        ]
+      ? [{ label: "Contra Set-off", icon: <SwapHorizIcon />, onClick: needSupplier(() => setContraOpen(true)) }]
       : []),
     {
       label: "Creditor Statement",
@@ -517,167 +496,198 @@ export function PaymentVoucherOffsetSection({
         ))}
       </Stack>
 
-      <Card data-tour="pv-offset-grid" sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
+      <Card data-tour="pv-lines" sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <CardContent sx={{ p: 1, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>
           <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
             <Tabs value={0} sx={{ minHeight: 32, "& .MuiTab-root": { minHeight: 32, py: 0 } }}>
-              <Tab label="Offset Transactions" />
+              <Tab label="Payment Lines" />
             </Tabs>
           </Box>
 
           <Box sx={{ flex: 1, minHeight: 120, display: "flex", flexDirection: "column", pt: 1 }}>
             {disabled && (
               <Alert severity="warning" variant="outlined" sx={{ mb: 1, alignSelf: "flex-start" }}>
-                Read-only — another session holds this voucher&apos;s edit lock. Close the other tab or use
-                &quot;Take over&quot; in the banner at the top of the page.
+                Read-only — another session holds this voucher&apos;s edit lock. Close the other tab or use &quot;Take over&quot; in the banner at the top of the page.
               </Alert>
             )}
-            {!disabled && supplierId && bills.length > 0 && paid <= 0 && (
-              <Alert severity="info" variant="outlined" sx={{ mb: 1, alignSelf: "flex-start" }}>
-                Enter the payment amount first — allocations unlock once there is money to allocate. A supplier credit
-                note can be ticked straight away: it reduces what you pay, and on its own it settles bills with no cash.
-              </Alert>
-            )}
-            {!supplierId ? (
-              <Alert severity="info" variant="outlined" sx={{ alignSelf: "flex-start" }}>
-                Pick a supplier to list their unpaid invoices.
-              </Alert>
-            ) : loading ? (
-              <Box sx={{ display: "flex", justifyContent: "center", p: 4 }}>
-                <CircularProgress size={22} />
-              </Box>
-            ) : bills.length === 0 ? (
-              <Alert severity="warning" variant="outlined" sx={{ alignSelf: "flex-start" }}>
-                No unpaid supplier invoices for this supplier.
-              </Alert>
-            ) : (
-              <TableContainer component={Paper} variant="outlined" sx={{ flex: 1, minHeight: 0, borderRadius: 1.5 }}>
-                <Table
-                  size="small"
-                  stickyHeader
-                  sx={(t) => ({
-                    "& tbody td": {
-                      py: 0.5,
-                      borderBottom: `1px solid ${t.palette.mode === "dark" ? "rgba(255,255,255,0.32)" : "rgba(0,0,0,0.32)"}`,
-                    },
-                  })}
-                >
-                  <TableHead>
+            <TableContainer component={Paper} variant="outlined" sx={{ flex: 1, minHeight: 0, borderRadius: 1.5 }}>
+              <Table
+                size="small"
+                stickyHeader
+                sx={(t) => ({
+                  "& tbody td": { py: 0.5, borderBottom: `1px solid ${t.palette.mode === "dark" ? "rgba(255,255,255,0.32)" : "rgba(0,0,0,0.32)"}` },
+                })}
+              >
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ ...headCellSx, width: 170 }}>Account code</TableCell>
+                    <TableCell sx={headCellSx}>Description</TableCell>
+                    <TableCell sx={headCellSx}>Remarks</TableCell>
+                    <TableCell sx={{ ...headCellSx, textAlign: "right", width: 170 }}>Amount</TableCell>
+                    <TableCell sx={{ ...headCellSx, width: 44 }} />
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {lines.length === 0 && (
                     <TableRow>
-                      <TableCell sx={headCellSx}>Reference</TableCell>
-                      <TableCell sx={headCellSx}>Date</TableCell>
-                      <TableCell sx={headCellSx}>Remarks</TableCell>
-                      <TableCell sx={{ ...headCellSx, textAlign: "right" }}>Outstanding</TableCell>
-                      <TableCell sx={{ ...headCellSx, width: 44 }} />
-                      <TableCell sx={{ ...headCellSx, textAlign: "right", width: 150 }}>Allocated</TableCell>
+                      <TableCell colSpan={5} sx={{ color: "text.secondary", py: 2 }}>
+                        No lines yet. Add a line for an account paid directly, or use the pencil beside Payee to offset a supplier&apos;s invoices.
+                      </TableCell>
                     </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {bills.map((b) => {
-                      const ticked = allocById.has(b.documentId);
-                      return (
-                        <TableRow key={b.documentId} hover sx={ticked ? { bgcolor: (t) => alpha(t.palette.primary.main, 0.06) } : undefined}>
-                          <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
-                            {b.reference}
-                            {isCredit(b) && (
-                              <Chip
-                                label="Credit note"
-                                size="small"
-                                sx={{
-                                  ml: 1,
-                                  height: 18,
-                                  fontSize: "0.65rem",
-                                  color: "success.main",
-                                  borderColor: "success.main",
-                                }}
-                                variant="outlined"
-                              />
-                            )}
-                          </TableCell>
-                          <TableCell>{b.date ? new Date(b.date).toLocaleDateString("en-GB") : "—"}</TableCell>
-                          <TableCell>{b.remarks}</TableCell>
-                          <TableCell
-                            sx={{
-                              textAlign: "right",
-                              fontVariantNumeric: "tabular-nums",
-                              ...(isCredit(b) ? { color: "success.main" } : {}),
-                            }}
-                          >
-                            {isCredit(b) ? `(${fmt(b.outstanding)})` : fmt(b.outstanding)}
-                          </TableCell>
-                          <TableCell padding="checkbox">
-                            <Checkbox
-                              size="small"
-                              checked={ticked}
-                              onChange={(_, c) => toggle(b, c)}
-                              disabled={disabled || (paid <= 0 && !isCredit(b) && !creditOn)}
+                  )}
+                  {lines.map((l) => {
+                    const isCreditor = !!l.offset;
+                    const acc = accounts.find((a) => a.code === l.accountCode);
+                    return (
+                      <TableRow key={l.id} hover>
+                        <TableCell>
+                          {isCreditor ? (
+                            <Typography sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", pl: 0.5 }}>{l.accountCode || "—"}</Typography>
+                          ) : (
+                            <AccountCodeCell
+                              value={l.accountCode || ""}
+                              accounts={lineAccounts}
+                              disabled={disabled}
+                              onCommit={(a) => patchLine(l.id, { accountCode: a.code, accountName: a.name, description: l.description || a.name.toUpperCase() })}
                             />
-                          </TableCell>
-                          <TableCell sx={{ textAlign: "right" }}>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {isCreditor ? (
+                            <Typography sx={{ fontWeight: 600 }}>{l.description || acc?.name?.toUpperCase() || "TRADE CREDITORS"}</Typography>
+                          ) : (
                             <TextField
                               size="small"
-                              type="number"
-                              // Stored negative for a credit note; typed and shown positive.
-                              value={ticked ? Math.abs(Number(allocById.get(b.documentId)) || 0) : ""}
-                              onChange={(e) => setLineAmount(b, e.target.value)}
-                              disabled={disabled || !ticked}
-                              inputProps={{ step: "0.01", min: 0, max: b.outstanding, style: { textAlign: "right" } }}
-                              sx={{ width: 130 }}
+                              fullWidth
+                              value={l.description || ""}
+                              placeholder={acc ? acc.name.toUpperCase() : "Description"}
+                              disabled={disabled}
+                              onChange={(e) => patchLine(l.id, { description: e.target.value })}
                             />
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            )}
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {isCreditor ? (
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <Typography variant="body2">{l.remarks || `${l.offset?.supplierCode || ""} ${l.offset?.supplierName || ""}`.trim()}</Typography>
+                              <Chip size="small" variant="outlined" label={`${l.offset?.allocations?.length || 0} invoice(s)`} sx={{ height: 20 }} />
+                            </Stack>
+                          ) : (
+                            <TextField size="small" fullWidth value={l.remarks || ""} disabled={disabled} onChange={(e) => patchLine(l.id, { remarks: e.target.value })} />
+                          )}
+                        </TableCell>
+                        <TableCell sx={{ textAlign: "right" }}>
+                          <TextField
+                            size="small"
+                            type="number"
+                            value={l.amount ?? ""}
+                            disabled={disabled || isCreditor}
+                            onChange={(e) => patchLine(l.id, { amount: e.target.value })}
+                            inputProps={{ step: "0.01", style: { textAlign: "right" } }}
+                            sx={{ width: 150 }}
+                            title={isCreditor ? "Set in Offset Supplier Invoices" : "Negative = a credit to this account"}
+                          />
+                        </TableCell>
+                        <TableCell padding="checkbox">
+                          {isCreditor ? (
+                            <Tooltip title="Edit the supplier offset">
+                              <span>
+                                <IconButton size="small" disabled={disabled} onClick={() => setOffsetOpen(true)} color="primary">
+                                  <EditNoteIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          ) : (
+                            <IconButton size="small" disabled={disabled} onClick={() => removeLine(l.id)} sx={{ color: "error.main" }} title="Remove line">
+                              <DeleteOutlineIcon fontSize="small" />
+                            </IconButton>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
 
-            <Stack direction="row" gap={3} alignItems="center" justifyContent="flex-end" sx={{ mt: 1.5, pr: 1 }}>
-              <Typography variant="body2" sx={{ color: "text.secondary" }}>
-                Paid
-              </Typography>
-              <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, minWidth: 100, textAlign: "right" }}>
-                {fmt(paid)}
-              </Typography>
-              <Typography variant="body2" sx={{ color: "text.secondary" }}>
-                Offset
-              </Typography>
-              <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, minWidth: 100, textAlign: "right" }}>
-                {fmt(offset)}
-              </Typography>
-              <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                Balance
-              </Typography>
+            <Stack direction="row" alignItems="center" sx={{ mt: 1, pr: 1 }} spacing={2}>
+              <Button data-hotkey="addLine" size="small" startIcon={<AddIcon />} onClick={addLine} disabled={disabled}>
+                Add line
+              </Button>
+              <Box sx={{ flex: 1 }} />
+              <Typography sx={{ fontWeight: 700 }}>Amount</Typography>
+              <Typography sx={{ fontWeight: 700, color: "warning.main" }}>{currency}</Typography>
               <Typography
                 sx={{
                   fontVariantNumeric: "tabular-nums",
                   fontWeight: 700,
-                  minWidth: 100,
+                  fontSize: "1.05rem",
+                  minWidth: 140,
                   textAlign: "right",
-                  color: Math.abs(balance) <= 0.005 ? "success.main" : "error.main",
+                  color: total < 0 ? "error.main" : "text.primary",
                 }}
               >
-                {fmt(balance)}
+                {fmt(total)}
               </Typography>
+              {currency !== "SGD" && (
+                <Typography variant="body2" sx={{ color: "text.secondary", fontVariantNumeric: "tabular-nums" }}>
+                  = SGD {fmt(R(total * rate))}
+                </Typography>
+              )}
             </Stack>
-            {Math.abs(balance) > 0.005 && paid > 0 && (
+            {total < 0 && (
               <Typography variant="caption" sx={{ display: "block", textAlign: "right", color: "error.main", pr: 1 }}>
-                The voucher must be fully allocated (Balance 0.00) before it can be saved.
+                The lines must add up to money leaving the bank.
               </Typography>
             )}
           </Box>
         </CardContent>
       </Card>
 
-      {/* Contra set-off (side rail) — their invoices ↔ our bills, no cash */}
+      {/* Legacy right-hand Remarks memo */}
+      <Card sx={{ width: 260, flexShrink: 0, display: "flex", flexDirection: "column" }}>
+        <CardContent sx={{ p: 1, flex: 1, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>
+          <Typography sx={{ fontWeight: 700, fontSize: "0.8125rem", mb: 0.5 }}>Remarks</Typography>
+          <TextField
+            multiline
+            minRows={10}
+            fullWidth
+            value={pd.notes || ""}
+            disabled={disabled}
+            placeholder="Longer notes for this voucher"
+            onChange={(e) => setPvData(formData, setFormData, { notes: e.target.value })}
+            sx={{ flex: 1, "& .MuiInputBase-root": { alignItems: "flex-start", height: "100%" } }}
+          />
+        </CardContent>
+      </Card>
+
+      <PvOffsetSupplierDialog
+        open={offsetOpen}
+        onClose={() => setOffsetOpen(false)}
+        voucherId={voucherId}
+        voucherNumber={formData?.documentInfo?.documentNumber || formData?.name || ""}
+        voucherDate={pd.date || ""}
+        voucherCurrency={currency}
+        creditorAccountCode={pd.creditorAccountCode || creditor?.accountCode || ""}
+        suppliers={suppliers}
+        existing={creditor || null}
+        existingSupplier={formData?.supplier?.id ? formData.supplier : null}
+        onSave={(line, supplier) => {
+          saveOffset(line, supplier);
+          setOffsetOpen(false);
+        }}
+        onClear={() => {
+          clearOffset();
+          setOffsetOpen(false);
+        }}
+      />
+
       {isContraOffsetEnabled && (
         <ContraOffsetDialog
           open={contraOpen}
           onClose={() => setContraOpen(false)}
-          supplier={formData?.supplier?.id ? formData.supplier : null}
-          // A contra just settled some of these bills — reload the grid.
-          onSaved={() => setRefreshTick((t) => t + 1)}
+          supplier={supplierId ? { id: supplierId, name: creditor?.offset?.supplierName || formData?.supplier?.name || "", supplierCode: creditor?.offset?.supplierCode || "" } : null}
+          onSaved={() => undefined}
         />
       )}
     </Box>

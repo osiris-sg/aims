@@ -469,18 +469,8 @@ export default function APWorkspace() {
         >
           Payment Voucher
         </Button>
-        {/* Spend Money (enableSpendMoney): a payment with NO supplier invoice
-            behind it — bank charge, petty purchase, reimbursement. */}
-        {isSpendMoneyEnabled && (
-          <Button
-            data-tour="ap-spend-money"
-            variant="contained"
-            startIcon={<AccountBalanceWalletOutlinedIcon />}
-            onClick={() => router.push("/portal/accounting/payables?tab=spend-money&new=1")}
-          >
-            Spend Money
-          </Button>
-        )}
+        {/* Spend Money retired 2026-11-09: the Payment Voucher now takes direct
+            GL lines (bank charges, fees) as well as supplier invoices. */}
         <Button variant="contained" startIcon={<PostAddOutlinedIcon />} onClick={() => setJvOpen(true)}>
           Journal Voucher
         </Button>

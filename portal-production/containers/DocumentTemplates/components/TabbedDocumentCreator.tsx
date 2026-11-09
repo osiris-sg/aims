@@ -150,12 +150,13 @@ import {
   receiptCustomerPatch,
 } from "./OfficialReceiptSection";
 import {
-  PaymentVoucherOffsetSection,
+  PaymentVoucherLinesSection,
   PvVoucherNoInput,
-  PvSupplierInput,
-  PvDebitInput,
-  PvCreditInput,
-  PvAmountInput,
+  PvBankInput,
+  PvPayeeInput,
+  PvChequeRow,
+  pvValidationError,
+  pvTotal,
   voucherSupplierPatch,
 } from "./PaymentVoucherSection";
 import { getDocumentListRoute, getListRouteFromPathname } from "@/app/portal/components/documentRoutes"; // co-pkg: depends on fa8351c
@@ -4032,21 +4033,9 @@ export default function TabbedDocumentCreator({
     // be complete and fully allocated (legacy rule: Balance 0.00, no
     // on-account credit) before it can leave the editor.
     if (isPaymentVoucher) {
-      const pd: any = (formData as any).pvData || {};
-      const pvPaid = Math.round((parseFloat(pd.voucherAmount) || 0) * 100) / 100;
-      const pvOffset = Math.round(
-        ((Array.isArray(pd.allocations) ? pd.allocations : []) as any[]).reduce(
-          (s, a) => s + (Number(a.amount) || 0), 0) * 100,
-      ) / 100;
-      const pvError = !(formData as any).supplier?.id
-        ? "Select a supplier first"
-        : !pd.creditAccountCode
-        ? "Select the account to CREDIT (paid from)"
-        : pvPaid <= 0
-        ? "Enter the payment amount"
-        : Math.abs(pvPaid - pvOffset) > 0.005
-        ? "Balance must be 0.00 — allocate the full payment to supplier invoices"
-        : null;
+      // Legacy P/V rules (2026-11-09): a bank, at least one line, total > 0
+      // (0 only when a supplier credit note settles the invoices outright).
+      const pvError = pvValidationError(formData);
       if (pvError) {
         toast.error(pvError);
         return false;
@@ -5263,24 +5252,9 @@ export default function TabbedDocumentCreator({
                       isPaymentVoucher
                         ? {
                             pvVoucherNo: <PvVoucherNoInput formData={formData} setFormData={setFormData} />,
-                            pvSupplier: (
-                              <PvSupplierInput
-                                formData={formData}
-                                setFormData={setFormData}
-                                suppliers={suppliers}
-                                onOpenDialog={() => {
-                                  // Shared Locate dialog in supplier mode; the
-                                  // voucher branch of onSelectCustomer stores it.
-                                  setCustomerFieldName("supplier");
-                                  setCustomerStoreMode("object");
-                                  setIsSupplierDialog(true);
-                                  setCustomerDialogOpen(true);
-                                }}
-                              />
-                            ),
-                            pvDebit: <PvDebitInput formData={formData} setFormData={setFormData} />,
-                            pvCredit: <PvCreditInput formData={formData} setFormData={setFormData} />,
-                            pvAmountRow: <PvAmountInput formData={formData} setFormData={setFormData} />,
+                            pvBankRow: <PvBankInput formData={formData} setFormData={setFormData} />,
+                            pvPayeeRow: <PvPayeeInput formData={formData} setFormData={setFormData} />,
+                            pvChequeRow: <PvChequeRow formData={formData} setFormData={setFormData} />,
                           }
                         : isOfficialReceipt
                         ? {
@@ -6054,11 +6028,12 @@ export default function TabbedDocumentCreator({
           {/* ITEMS SECTION - Always visible (Official Receipts swap it for the
               legacy Offset Transactions grid — allocations, not line items) */}
           {isPaymentVoucher ? (
-            <PaymentVoucherOffsetSection
+            <PaymentVoucherLinesSection
               formData={formData}
               setFormData={setFormData}
               voucherId={(existingData?.id || documentId) as string | undefined}
               disabled={lockReadOnly}
+              suppliers={suppliers}
             />
           ) : isOfficialReceipt ? (
             <OfficialReceiptOffsetSection
@@ -7466,19 +7441,24 @@ export default function TabbedDocumentCreator({
                   ...(isPaymentVoucher
                     ? (() => {
                         const pd: any = (formData as any).pvData || {};
-                        const sup: any = (formData as any).supplier || {};
+                        const lines: any[] = Array.isArray(pd.lines) ? pd.lines : [];
+                        const creditor = lines.find((l: any) => l?.offset?.supplierId);
                         return {
                           voucherNumber: formData.documentInfo?.documentNumber || formData.name,
                           date: pd.date,
                           chequeNo: pd.chequeNo,
                           remarks: pd.remarks,
-                          supplierLabel: sup.id ? `${sup.supplierCode ? `${sup.supplierCode} — ` : ""}${sup.name || ""}` : "",
+                          notes: pd.notes,
+                          payee: pd.payee || creditor?.offset?.supplierName || "",
+                          preparedBy: pd.preparedBy || "",
+                          supplierLabel: creditor ? `${creditor.offset.supplierCode ? `${creditor.offset.supplierCode} — ` : ""}${creditor.offset.supplierName || ""}` : pd.payee || "",
                           paymentMethod: pd.chequeNo ? "cheque" : "transfer",
                           currency: pd.currency || "SGD",
                           rate: Number(pd.rate) || 1,
-                          voucherAmount: Number(pd.voucherAmount) || 0,
-                          paidFromLabel: pd.paidFromLabel || pd.creditAccountCode || "",
-                          allocations: Array.isArray(pd.allocations) ? pd.allocations : [],
+                          voucherAmount: pvTotal(formData),
+                          paidFromLabel: pd.bankLabel || pd.bankAccountCode || "",
+                          lines,
+                          allocations: creditor?.offset?.allocations || [],
                         };
                       })()
                     : {}),

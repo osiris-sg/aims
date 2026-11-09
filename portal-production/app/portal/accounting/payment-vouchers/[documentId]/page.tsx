@@ -1,12 +1,12 @@
 "use client";
 
 // Payment Voucher editor page — mounts the REAL document editor
-// (TabbedDocumentCreator) on a voucher Document row, exactly like the Official
-// Receipt page: same toolbar, tabs, locking, history and exit prompt; only
-// the field rows (PV_FIELD_DEFINITIONS) and the body (Offset Transactions over
-// the supplier's unpaid bills) differ. Saves route to PUT /payment-vouchers/:id,
-// which posts ONE journal (Dr creditors per allocation / Cr bank) and writes
-// the allocations as BillPayment rows.
+// (TabbedDocumentCreator) on a voucher Document row: same toolbar, tabs,
+// locking, history, ‹ › and exit-prompt as every other document; only the
+// field rows (PV_FIELD_DEFINITIONS) and the body (Payment Lines grid +
+// Remarks memo, legacy P/V screen — 2026-11-09) differ. Saves route to
+// PUT /payment-vouchers/:id, which reposts ONE journal (Dr each line /
+// Cr bank) and replaces the BillPayment rows of the supplier offset line.
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -22,35 +22,36 @@ import { todayIso } from "@/helpers/orgToday";
 
 const unwrap = (r: any) => (r && typeof r === "object" && r.data !== undefined ? r.data : r);
 
-// Shape a voucher into the editor's existingData contract (pvData). Used on
-// load AND after a save that assigned the real number (custom {BANK}
-// numbering issues it on the first save).
+// Shape a voucher into the editor's existingData contract. Voucher state
+// rides in pvData (see PaymentVoucherSection). Used on load AND after a save
+// that assigned the real number, so the editor re-mounts on the saved state.
 const toExisting = (r: any) => ({
-    id: r.id,
-    name: r.voucherNumber,
-    status: r.status,
-    documentTemplateId: r.documentTemplateId,
-    supplier: r.supplierId ? { id: r.supplierId, name: r.supplierName || "", supplierCode: r.supplierCode || "" } : undefined,
-    documentInfo: { documentNumber: r.voucherNumber, date: r.date },
-    savedBy: r.savedBy,
-    savedAt: r.savedAt,
-    lastUsedBy: r.savedBy,
-    lastUsedAt: r.savedAt,
-    updatedAt: r.updatedAt,
-    pvData: {
-      date: r.date || todayIso(),
-      chequeNo: r.chequeNo || "",
-      remarks: r.remarks || "",
-      debitAccountCode: r.debitAccountCode || null,
-      creditAccountCode: r.creditAccountCode || null,
-      paidFromLabel: r.creditAccountCode || "",
-      currency: r.currency || "SGD",
-      rate: r.rate || 1,
-      voucherAmount: r.voucherAmount || 0,
-      allocations: r.allocations || [],
-    },
+  id: r.id,
+  name: r.voucherNumber,
+  status: r.status,
+  documentTemplateId: r.documentTemplateId,
+  supplier: r.supplierId ? { id: r.supplierId, name: r.supplierName || "", supplierCode: r.supplierCode || "" } : undefined,
+  documentInfo: { documentNumber: r.voucherNumber, date: r.date },
+  savedBy: r.savedBy,
+  savedAt: r.savedAt,
+  lastUsedBy: r.savedBy,
+  lastUsedAt: r.savedAt,
+  updatedAt: r.updatedAt,
+  pvData: {
+    date: r.date || todayIso(),
+    bankAccountCode: r.bankAccountCode || null,
+    bankLabel: r.bankAccountCode || "",
+    currency: r.currency || "SGD",
+    rate: r.rate || 1,
+    payee: r.payee || "",
+    remarks: r.remarks || "",
+    notes: r.notes || "",
+    chequeNo: r.chequeNo || "",
+    preparedBy: r.preparedBy || "",
+    creditorAccountCode: r.creditorAccountCode || null,
+    lines: Array.isArray(r.lines) ? r.lines : [],
+  },
 });
-
 
 export default function PaymentVoucherPage() {
   const params = useParams();
@@ -99,24 +100,39 @@ export default function PaymentVoucherPage() {
       throw new Error("Authentication required");
     }
     const pd = data?.pvData || {};
+    const lines = (Array.isArray(pd.lines) ? pd.lines : [])
+      .filter((l: any) => l.accountCode || parseFloat(String(l.amount)) || l.offset)
+      .map((l: any) => ({
+        id: l.id,
+        accountCode: l.accountCode || null,
+        description: l.description || null,
+        remarks: l.remarks || null,
+        amount: Math.round((parseFloat(String(l.amount)) || 0) * 100) / 100,
+        offset: l.offset
+          ? {
+              supplierId: l.offset.supplierId,
+              rate: Number(l.offset.rate) || 1,
+              allocations: (l.offset.allocations || []).map((a: any) => ({ documentId: a.documentId, amount: Number(a.amount) || 0 })),
+              updateFx: l.offset.updateFx !== false,
+              fxAccountCode: l.offset.fxAccountCode || null,
+            }
+          : null,
+      }));
     const response = await request(
       { path: `/payment-vouchers/${documentId}`, method: "PUT" },
       {
         voucherNumber: data?.documentInfo?.documentNumber || data?.name || null,
         date: pd.date,
-        chequeNo: pd.chequeNo || null,
-        remarks: pd.remarks || null,
-        supplierId: data?.supplier?.id,
-        debitAccountCode: pd.debitAccountCode || null,
-        creditAccountCode: pd.creditAccountCode,
+        bankAccountCode: pd.bankAccountCode,
         currency: pd.currency || "SGD",
         rate: parseFloat(pd.rate) || 1,
-        voucherAmount: Math.round((parseFloat(pd.voucherAmount) || 0) * 100) / 100,
+        payee: pd.payee || null,
+        remarks: pd.remarks || null,
+        notes: pd.notes || null,
+        chequeNo: pd.chequeNo || null,
+        preparedBy: pd.preparedBy || null,
         paymentMethod: pd.chequeNo ? "cheque" : "transfer",
-        allocations: (Array.isArray(pd.allocations) ? pd.allocations : []).map((a: any) => ({
-          documentId: a.documentId,
-          amount: Number(a.amount) || 0,
-        })),
+        lines,
       },
       token,
     );
@@ -125,7 +141,6 @@ export default function PaymentVoucherPage() {
       throw new Error(response?.message || "Failed to save payment voucher");
     }
     const saved = unwrap(response);
-    // PV-PENDING → real number on the first save (custom {BANK} numbering).
     if (saved?.voucherNumber && saved.voucherNumber !== existingData?.name) {
       toast.info(`Voucher numbered ${saved.voucherNumber}`);
       setExistingData(toExisting(saved));
@@ -134,7 +149,8 @@ export default function PaymentVoucherPage() {
     return saved;
   };
 
-  const savedVouchers = useMemo(() => vouchers.filter((v: any) => v.supplierId || v.id === documentId), [vouchers, documentId]);
+  // ‹ › walk saved vouchers only (a blank shell someone else just opened is not a stop).
+  const savedVouchers = useMemo(() => vouchers.filter((v: any) => v.savedAt || v.id === documentId), [vouchers, documentId]);
   const currentIndex = savedVouchers.findIndex((v: any) => v.id === documentId);
   const goTo = (v: any) =>
     v && router.push(`/portal/accounting/payment-vouchers/${v.id}${typeof window !== "undefined" ? window.location.search : ""}`);

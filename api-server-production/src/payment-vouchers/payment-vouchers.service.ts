@@ -13,34 +13,76 @@ import { orgToday } from '../common/org-today';
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 
 // ---------------------------------------------------------------------------
-// Payment Vouchers (legacy AP, guru 2026-10-21) — the Official Receipt's twin.
-// A voucher is a Document row (type PAYMENT_VOUCHER, PV-######) whose config
-// carries the header + allocations. Each allocation creates a normal
-// BillPayment row (so bill status/outstanding, the P/V Listing, the AP home
-// and bank rec all keep working) and the GL side is ONE journal per voucher
-// (Dr creditors per allocation / Cr bank + realised FX), reposted on every
-// save. The voucher's BillPayment rows are linked through that journal
-// (BillPayment.journalEntryId ∈ the voucher's journals) — no schema change.
-// Balance must be zero: the voucher must be fully allocated to bills.
+// Payment Vouchers (legacy AP, guru 2026-10-21; legacy-screen rebuild
+// 2026-11-09). A voucher is a Document row (type PAYMENT_VOUCHER) whose config
+// carries the header + LINES, the way A's Premier's P/V screen works:
+//
+//   Bank Account (credit side) · Voucher No. · Date · Payee · Remarks ·
+//   Bank / cheque · Prepare By · Rate, then a grid of GL lines —
+//   Account code | Description | Remarks | Amount.
+//
+// A line is either a DIRECT line (any GL account: bank charges, accounting
+// fee, a refund as a negative) or a CREDITOR line produced by the "Offset
+// Supplier Invoices" dialog: Trade Creditors control + the supplier + the
+// invoices ticked (allocations, in the supplier's currency). One payee per
+// voucher, so at most one creditor line. Spend Money retired into this screen.
+//
+// Each allocation creates a normal BillPayment row (so bill status /
+// outstanding, the P/V Listing, the AP home and bank rec keep working) and the
+// GL side is ONE journal per voucher (Dr each line / Cr bank + realised FX),
+// reposted on every save. BillPayment rows link through that journal.
+// The total of the lines is the cash leaving the bank and must be > 0 (0 only
+// when a supplier credit note settles the invoices outright).
+//
+// Legacy vouchers (header supplier + allocations, no lines) are read back as
+// one creditor line; the legacy keys (supplierId, creditAccountCode,
+// debitAccountCode, voucherAmount, allocations) are still written on save so
+// the listings and bank rec that read them keep working.
 // ---------------------------------------------------------------------------
 
 export type VoucherAllocation = { documentId: string; amount: number };
 
+export type VoucherOffset = {
+  supplierId: string;
+  /** Supplier currency per voucher currency (1 when the same). */
+  rate?: number | null;
+  allocations: VoucherAllocation[];
+  /** Post the realised difference to the FX gain/loss account (legacy "Update Exchange Gain / Loss Accounts"). Default true. */
+  updateFx?: boolean | null;
+  /** Override for the FX gain/loss account; blank = Accounting Setup default. */
+  fxAccountCode?: string | null;
+};
+
+export type VoucherLine = {
+  id?: string | null;
+  /** GL account. Blank on a creditor line = the creditor control. */
+  accountCode?: string | null;
+  description?: string | null;
+  remarks?: string | null;
+  /** Voucher currency, signed: positive = paid out (debit), negative = credit. */
+  amount: number;
+  offset?: VoucherOffset | null;
+};
+
 export type SaveVoucherDto = {
   date: string;
-  chequeNo?: string | null;
-  remarks?: string | null;
-  supplierId: string;
-  creditAccountCode: string; // paid-from bank/cash
-  debitAccountCode?: string | null; // creditor control (default from settings)
+  voucherNumber?: string | null;
+  bankAccountCode: string; // paid-from bank/cash (credit side)
   currency?: string | null;
   rate?: number | null;
-  voucherAmount: number;
+  payee?: string | null;
+  remarks?: string | null;
+  notes?: string | null;
+  chequeNo?: string | null;
+  preparedBy?: string | null;
   paymentMethod?: string | null;
-  allocations: VoucherAllocation[];
-  // Typed-over voucher number (guru 2026-11-05) — unique among the org's
-  // vouchers; the next auto number continues from the highest in its series.
-  voucherNumber?: string | null;
+  lines: VoucherLine[];
+  // Legacy shape (pre 2026-11-09 clients): converted into one creditor line.
+  supplierId?: string | null;
+  creditAccountCode?: string | null;
+  debitAccountCode?: string | null;
+  voucherAmount?: number | null;
+  allocations?: VoucherAllocation[] | null;
 };
 
 type Actor = { id?: string; name?: string; email?: string };
@@ -123,22 +165,57 @@ export class PaymentVouchersService {
 
   private toVoucher(doc: any) {
     const c: any = doc.config || {};
+    // Legacy voucher (no lines): one creditor line carrying the allocations.
+    const lines: any[] = Array.isArray(c.lines)
+      ? c.lines
+      : c.supplierId || (Array.isArray(c.allocations) && c.allocations.length)
+      ? [
+          {
+            id: 'legacy-creditor',
+            accountCode: c.debitAccountCode || c.creditorAccountCode || null,
+            description: 'TRADE CREDITORS',
+            remarks: c.supplierCode ? `${c.supplierCode} — ${c.supplierName || ''}`.trim() : c.supplierName || '',
+            amount: Number(c.voucherAmount) || 0,
+            offset: {
+              supplierId: c.supplierId || null,
+              supplierCode: c.supplierCode || null,
+              supplierName: c.supplierName || null,
+              currency: c.currency || 'SGD',
+              rate: 1,
+              voucherAmount: Number(c.voucherAmount) || 0,
+              supplierAmount: Number(c.voucherAmount) || 0,
+              allocations: Array.isArray(c.allocations) ? c.allocations : [],
+              updateFx: true,
+              fxAccountCode: null,
+            },
+          },
+        ]
+      : [];
+    const creditorLine = lines.find((l) => l?.offset?.supplierId);
+    const total = Array.isArray(c.lines) ? ROUND(lines.reduce((s, l) => s + (Number(l.amount) || 0), 0)) : Number(c.voucherAmount) || 0;
     return {
       id: doc.id,
       voucherNumber: doc.name,
       status: doc.status,
       date: c.date || null,
-      chequeNo: c.chequeNo || null,
-      remarks: c.remarks || null,
-      supplierId: c.supplierId || null,
-      supplierName: c.supplierName || null,
-      supplierCode: c.supplierCode || null,
-      debitAccountCode: c.debitAccountCode || null,
-      creditAccountCode: c.creditAccountCode || null,
+      bankAccountCode: c.bankAccountCode || c.creditAccountCode || null,
       currency: c.currency || 'SGD',
       rate: Number(c.rate) || 1,
-      voucherAmount: Number(c.voucherAmount) || 0,
+      payee: c.payee || creditorLine?.offset?.supplierName || c.supplierName || '',
+      remarks: c.remarks || null,
+      notes: c.notes || '',
+      chequeNo: c.chequeNo || null,
+      preparedBy: c.preparedBy || '',
       paymentMethod: c.paymentMethod || 'transfer',
+      creditorAccountCode: c.creditorAccountCode || c.debitAccountCode || null,
+      lines,
+      voucherAmount: total,
+      // Legacy readers (P/V listing, bank rec, AP home).
+      supplierId: creditorLine?.offset?.supplierId || c.supplierId || null,
+      supplierName: creditorLine?.offset?.supplierName || c.supplierName || null,
+      supplierCode: creditorLine?.offset?.supplierCode || c.supplierCode || null,
+      debitAccountCode: creditorLine?.accountCode || c.debitAccountCode || null,
+      creditAccountCode: c.bankAccountCode || c.creditAccountCode || null,
       allocations: Array.isArray(c.allocations) ? c.allocations : [],
       journalNumber: c.journalNumber || null,
       documentTemplateId: doc.documentTemplateId || null,
@@ -165,15 +242,22 @@ export class PaymentVouchersService {
         status: 'unconfirmed',
         config: {
           date: orgToday(setting?.timeZone),
-          chequeNo: null,
-          remarks: '',
-          supplierId: null,
-          debitAccountCode: controls.creditorControl || 'CL001', // default; selectable in UI
-          creditAccountCode: null,
+          bankAccountCode: null,
           currency: setting?.baseCurrency || 'SGD',
           rate: 1,
-          voucherAmount: 0,
+          payee: '',
+          remarks: '',
+          notes: '',
+          chequeNo: null,
+          preparedBy: actor?.name || actor?.email || '',
           paymentMethod: 'transfer',
+          creditorAccountCode: controls.creditorControl || 'CL001', // the creditor line's account
+          lines: [],
+          // legacy mirrors
+          supplierId: null,
+          debitAccountCode: controls.creditorControl || 'CL001',
+          creditAccountCode: null,
+          voucherAmount: 0,
           allocations: [],
         } as any,
       },
@@ -291,51 +375,91 @@ export class PaymentVouchersService {
     return rows;
   }
 
-  // Save = validate, repost the single journal, replace the BillPayment rows
-  // (linked to the new journal), refresh each touched bill. Balance must be 0.
-  async save(organizationId: string, id: string, dto: SaveVoucherDto, actor?: Actor) {
+  // Save = validate the lines, repost the single journal, replace the
+  // BillPayment rows (linked to the new journal), refresh each touched bill.
+  async save(organizationId: string, id: string, dtoIn: SaveVoucherDto, actor?: Actor) {
     const doc = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'PAYMENT_VOUCHER' } });
     if (!doc) throw new NotFoundException('Payment voucher not found');
+    const cfg: any = doc.config || {};
 
-    if (!dto.supplierId) throw new BadRequestException('Supplier is required');
-    if (!dto.creditAccountCode) throw new BadRequestException('Paid-from (credit) account is required');
-    const voucherAmount = ROUND(Number(dto.voucherAmount) || 0);
-    // A NEGATIVE allocation is a supplier credit note being used up. Keep the
-    // sign: bills + credits sum to the cash actually paid.
-    const allocations = (dto.allocations || [])
-      .map((a) => ({ documentId: a.documentId, amount: ROUND(Number(a.amount) || 0) }))
-      .filter((a) => a.documentId && a.amount !== 0);
-    if (!allocations.length) throw new BadRequestException('Allocate the voucher to at least one supplier invoice');
-    // With the flag off a negative allocation cannot come from the grid, so
-    // treat one as a bad request rather than posting something unexpected.
-    if (allocations.some((a) => a.amount < 0) && !(await isOrgFeatureEnabled(this.prisma, organizationId, AP_CREDIT_OFFSET_FLAG)))
-      throw new BadRequestException('Supplier credit notes are not enabled for this organisation');
-    const hasBill = allocations.some((a) => a.amount > 0);
-    if (!hasBill) throw new BadRequestException('Allocate at least one supplier invoice — a voucher cannot be credit notes alone');
-    // Zero cash is legal when a credit note settles the bills outright (the AP
-    // equivalent of a Manual Offset): nothing leaves the bank, the credit does
-    // the paying. Negative cash never is.
-    if (voucherAmount < 0) throw new BadRequestException('Voucher amount cannot be negative');
-    if (voucherAmount === 0 && !allocations.some((a) => a.amount < 0))
-      throw new BadRequestException('Voucher amount must be greater than zero');
-    const offset = ROUND(allocations.reduce((s, a) => s + a.amount, 0));
-    if (Math.abs(offset - voucherAmount) > 0.005) {
-      throw new BadRequestException(
-        `Voucher must be fully allocated — paid ${voucherAmount.toFixed(2)}, allocated ${offset.toFixed(2)} (balance ${(voucherAmount - offset).toFixed(2)})`,
-      );
+    // Legacy client shape → one creditor line.
+    const dto: SaveVoucherDto = { ...dtoIn };
+    if (!Array.isArray(dto.lines) && Array.isArray(dto.allocations)) {
+      dto.lines = [
+        {
+          accountCode: dto.debitAccountCode || null,
+          amount: Number(dto.voucherAmount) || 0,
+          offset: { supplierId: String(dto.supplierId || ''), rate: 1, allocations: dto.allocations },
+        },
+      ];
+      dto.bankAccountCode = dto.bankAccountCode || String(dto.creditAccountCode || '');
     }
 
-    const supplier = await this.prisma.supplier.findFirst({
-      where: { id: dto.supplierId, organizationId },
-      select: { id: true, name: true, supplierCode: true },
-    });
-    if (!supplier) throw new BadRequestException('Supplier not found');
+    if (!dto.bankAccountCode) throw new BadRequestException('Select the Bank Account the payment comes from');
+    const setting = await this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { controlAccounts: true, baseCurrency: true } });
+    const controls = (setting?.controlAccounts as any) || {};
+    const base = String(setting?.baseCurrency || 'SGD').toUpperCase();
+    const currency = String(dto.currency || base).toUpperCase();
+    const rate = currency === base ? 1 : Number(dto.rate) || 1;
+    const creditorCode: string = cfg.creditorAccountCode || cfg.debitAccountCode || controls.creditorControl || 'CL001';
 
-    const bank = await this.prisma.chartOfAccount.findFirst({
-      where: { organizationId, code: dto.creditAccountCode, isActive: true },
-      select: { id: true, code: true, name: true },
+    // Lines: drop blank rows, round, default the creditor line's account.
+    type L = { id: string; accountCode: string; description: string; remarks: string; amount: number; offset: null | (VoucherOffset & { supplierCode: string | null; supplierName: string; currency: string; voucherAmount: number; supplierAmount: number; allocations: Array<VoucherAllocation & { reference?: string | null; date?: string | null; description?: string }> }) };
+    const lines: L[] = [];
+    for (const [i, raw] of (dto.lines || []).entries()) {
+      const amount = ROUND(Number(raw?.amount) || 0);
+      const hasOffset = !!raw?.offset?.supplierId;
+      const accountCode = String(raw?.accountCode || (hasOffset ? creditorCode : '')).trim();
+      if (!accountCode && amount === 0 && !hasOffset) continue; // empty row
+      if (!accountCode) throw new BadRequestException(`Line ${i + 1}: pick an account code`);
+      if (amount === 0 && !hasOffset) throw new BadRequestException(`Line ${i + 1}: enter an amount`);
+      lines.push({
+        id: String(raw?.id || `l${i + 1}`),
+        accountCode,
+        description: String(raw?.description || '').trim(),
+        remarks: String(raw?.remarks || '').trim(),
+        amount,
+        offset: hasOffset
+          ? {
+              supplierId: String(raw!.offset!.supplierId),
+              rate: Number(raw!.offset!.rate) || 1,
+              allocations: (raw!.offset!.allocations || [])
+                .map((a) => ({ documentId: a.documentId, amount: ROUND(Number(a.amount) || 0) }))
+                .filter((a) => a.documentId && a.amount !== 0),
+              updateFx: raw!.offset!.updateFx !== false,
+              fxAccountCode: raw!.offset!.fxAccountCode ? String(raw!.offset!.fxAccountCode).trim() : null,
+              supplierCode: null,
+              supplierName: '',
+              currency,
+              voucherAmount: amount,
+              supplierAmount: ROUND(amount * (Number(raw!.offset!.rate) || 1)),
+            }
+          : null,
+      });
+    }
+    if (!lines.length) throw new BadRequestException('Add at least one line — an account and an amount, or offset supplier invoices');
+    if (lines.filter((l) => l.offset).length > 1) throw new BadRequestException('One payee per voucher — a voucher can carry one supplier offset line');
+
+    const total = ROUND(lines.reduce((s, l) => s + l.amount, 0));
+    const hasCreditNote = lines.some((l) => l.offset?.allocations.some((a) => a.amount < 0));
+    if (total < 0) throw new BadRequestException('The voucher total cannot be negative — the lines must add up to money leaving the bank');
+    if (total === 0 && !hasCreditNote) throw new BadRequestException('The voucher total must be greater than zero');
+
+    // Accounts: bank + every line account must exist and be active.
+    const codes = Array.from(new Set([dto.bankAccountCode, ...lines.map((l) => l.accountCode), ...lines.map((l) => l.offset?.fxAccountCode).filter(Boolean) as string[]]));
+    const accounts = await this.prisma.chartOfAccount.findMany({
+      where: { organizationId, code: { in: codes }, isActive: true },
+      select: { id: true, code: true, name: true, accountType: true },
     });
-    if (!bank) throw new BadRequestException(`Paid-from account ${dto.creditAccountCode} not found`);
+    const byCode = new Map(accounts.map((a) => [a.code, a]));
+    const bank = byCode.get(dto.bankAccountCode);
+    if (!bank) throw new BadRequestException(`Bank Account ${dto.bankAccountCode} not found`);
+    for (const l of lines) {
+      if (!byCode.get(l.accountCode)) throw new BadRequestException(`Account ${l.accountCode} not found or inactive`);
+      if (l.accountCode === dto.bankAccountCode) throw new BadRequestException(`Line ${l.accountCode}: a line cannot be the paying bank itself`);
+      if (l.offset?.fxAccountCode && !byCode.get(l.offset.fxAccountCode)) throw new BadRequestException(`Exchange gain/loss account ${l.offset.fxAccountCode} not found`);
+      if (!l.description) l.description = byCode.get(l.accountCode)!.name.toUpperCase();
+    }
 
     // Placeholder → real number once the paid-from bank is known ({BANK}
     // pattern). Issued once; a later bank change keeps the number.
@@ -346,8 +470,6 @@ export class PaymentVouchersService {
         where: { organizationId, type: 'PAYMENT_VOUCHER', name: typed, NOT: { id } },
         select: { id: true },
       });
-      // Previewed number taken meanwhile on a still-pending voucher → issue
-      // the next one; on a saved voucher it is a real conflict.
       if (clash && !PaymentVouchersService.isPending(voucherNumber)) throw new BadRequestException(`Voucher number ${typed} is already used`);
       if (!clash) {
         voucherNumber = typed;
@@ -363,23 +485,47 @@ export class PaymentVouchersService {
       await this.prisma.document.update({ where: { id }, data: { name: voucherNumber } });
     }
 
-    // Per-bill cap: allocation ≤ outstanding (this voucher's own prior rows excluded).
-    const open = await this.openBills(organizationId, dto.supplierId, { excludeVoucherId: id });
-    const openById = new Map(open.map((o) => [o.documentId, o]));
-    for (const a of allocations) {
-      const bill = openById.get(a.documentId);
-      if (!bill) throw new BadRequestException('An allocated supplier invoice is not open for this supplier');
-      // A credit note may only be used NEGATIVE, a bill only POSITIVE —
-      // otherwise a mis-signed row would silently invert the posting.
-      if (bill.kind === 'credit' && a.amount > 0)
-        throw new BadRequestException(`${bill.reference} is a credit note — it reduces the payment, so its amount must be negative`);
-      if (bill.kind === 'bill' && a.amount < 0)
-        throw new BadRequestException(`${bill.reference} is a supplier invoice — its amount cannot be negative`);
-      if (Math.abs(a.amount) > bill.outstanding + 0.005) {
-        const what = bill.kind === 'credit' ? 'credit left' : 'outstanding';
-        throw new BadRequestException(`Allocation to ${bill.reference} (${Math.abs(a.amount).toFixed(2)}) exceeds its ${what} ${bill.outstanding.toFixed(2)}`);
+    // Creditor line: supplier, allocation caps, balance = 0 in supplier currency.
+    const creditWithFlag = await isOrgFeatureEnabled(this.prisma, organizationId, AP_CREDIT_OFFSET_FLAG);
+    for (const l of lines) {
+      const o = l.offset;
+      if (!o) continue;
+      const supplier: any = await this.prisma.supplier.findFirst({ where: { id: o.supplierId, organizationId }, select: { id: true, name: true, supplierCode: true, currency: true } });
+      if (!supplier) throw new BadRequestException('Supplier not found');
+      o.supplierCode = supplier.supplierCode || null;
+      o.supplierName = String(supplier.name || '');
+      o.currency = String(supplier.currency || currency).toUpperCase();
+      if (!o.allocations.length) throw new BadRequestException(`Tick at least one supplier invoice for ${supplier.name}`);
+      if (o.allocations.some((a) => a.amount < 0) && !creditWithFlag) throw new BadRequestException('Supplier credit notes are not enabled for this organisation');
+      if (!o.allocations.some((a) => a.amount > 0)) throw new BadRequestException('Allocate at least one supplier invoice — an offset cannot be credit notes alone');
+      const offsetSum = ROUND(o.allocations.reduce((s, a) => s + a.amount, 0));
+      if (Math.abs(offsetSum - o.supplierAmount) > 0.005)
+        throw new BadRequestException(
+          `${supplier.name}: offset must be fully allocated — amount ${o.supplierAmount.toFixed(2)}, allocated ${offsetSum.toFixed(2)} (balance ${(o.supplierAmount - offsetSum).toFixed(2)})`,
+        );
+      const open = await this.openBills(organizationId, o.supplierId, { excludeVoucherId: id });
+      const openById = new Map(open.map((b) => [b.documentId, b]));
+      for (const a of o.allocations) {
+        const bill = openById.get(a.documentId);
+        if (!bill) throw new BadRequestException('An allocated supplier invoice is not open for this supplier');
+        if (bill.kind === 'credit' && a.amount > 0)
+          throw new BadRequestException(`${bill.reference} is a credit note — it reduces the payment, so its amount must be negative`);
+        if (bill.kind === 'bill' && a.amount < 0) throw new BadRequestException(`${bill.reference} is a supplier invoice — its amount cannot be negative`);
+        if (Math.abs(a.amount) > bill.outstanding + 0.005) {
+          const what = bill.kind === 'credit' ? 'credit left' : 'outstanding';
+          throw new BadRequestException(`Allocation to ${bill.reference} (${Math.abs(a.amount).toFixed(2)}) exceeds its ${what} ${bill.outstanding.toFixed(2)}`);
+        }
       }
+      // Enrich for the config / print.
+      o.allocations = o.allocations.map((a) => {
+        const b = openById.get(a.documentId);
+        return { ...a, reference: b?.reference ?? null, date: b?.date ?? null, description: b?.remarks ?? 'SUPPLIER INVOICE' };
+      });
+      if (!l.remarks) l.remarks = `${o.supplierCode ? `${o.supplierCode} — ` : ''}${o.supplierName}`.trim();
     }
+
+    const creditorLine = lines.find((l) => l.offset);
+    const payee = String(dto.payee || creditorLine?.offset?.supplierName || '').trim();
 
     // Previous rows are found through the voucher's earlier journals (BEFORE
     // the repost voids them — voided journals still carry the link).
@@ -387,41 +533,52 @@ export class PaymentVouchersService {
     const previous = previousJournalIds.length
       ? await this.prisma.billPayment.findMany({ where: { organizationId, journalEntryId: { in: previousJournalIds } }, select: { id: true, billId: true } })
       : [];
-    const touched = new Set<string>([...previous.map((p) => p.billId), ...allocations.map((a) => a.documentId)]);
+    const allAllocations = lines.flatMap((l) => (l.offset ? l.offset.allocations.map((a) => ({ ...a, supplierId: l.offset!.supplierId })) : []));
+    const touched = new Set<string>([...previous.map((p) => p.billId), ...allAllocations.map((a) => a.documentId)]);
 
-    // ONE journal for the voucher (void + repost inside). Required: the rows
-    // link through it.
+    // ONE journal for the voucher (void + repost inside).
     const entry = await this.journalAutoPost.postFromPaymentVoucher({
       organizationId,
       voucherDocumentId: id,
       voucherNumber,
       entryDate: new Date(dto.date),
-      supplierName: supplier.name,
-      bankAccountCode: dto.creditAccountCode,
-      debitAccountCode: dto.debitAccountCode || null,
-      currency: dto.currency || 'SGD',
-      rate: dto.rate || 1,
-      amount: voucherAmount,
-      allocations,
+      payee,
+      bankAccountCode: dto.bankAccountCode,
+      currency,
+      rate,
+      total,
+      lines: lines.map((l) => ({
+        accountCode: l.accountCode,
+        amount: l.amount,
+        description: l.description,
+        offset: l.offset
+          ? {
+              supplierName: l.offset.supplierName,
+              currency: l.offset.currency,
+              rate: l.offset.rate || 1,
+              allocations: l.offset.allocations.map((a) => ({ documentId: a.documentId, amount: a.amount })),
+              updateFx: l.offset.updateFx !== false,
+              fxAccountCode: l.offset.fxAccountCode || null,
+            }
+          : null,
+      })),
       userId: actor?.id,
     });
     if (!entry) {
-      throw new BadRequestException(
-        'Could not post the voucher journal — check the creditor control, paid-from bank and FX gain/loss accounts in Accounting Setup',
-      );
+      throw new BadRequestException('Could not post the voucher journal — check the creditor control, paid-from bank and FX gain/loss accounts in Accounting Setup');
     }
 
     await this.prisma.$transaction(async (tx) => {
       if (previous.length) await tx.billPayment.deleteMany({ where: { organizationId, id: { in: previous.map((p) => p.id) } } });
-      for (const a of allocations) {
+      for (const a of allAllocations) {
         await tx.billPayment.create({
           data: {
             organizationId,
             billId: a.documentId,
-            supplierId: supplier.id,
+            supplierId: a.supplierId,
             amount: a.amount,
             paymentDate: new Date(dto.date),
-            paymentMethod: dto.paymentMethod || 'transfer',
+            paymentMethod: dto.paymentMethod || (dto.chequeNo ? 'cheque' : 'transfer'),
             reference: voucherNumber || undefined,
             notes: dto.remarks || undefined,
             bankAccountId: bank.id,
@@ -434,23 +591,27 @@ export class PaymentVouchersService {
         where: { id },
         data: {
           config: {
-            ...((doc.config as any) || {}),
+            ...cfg,
             date: dto.date,
-            chequeNo: dto.chequeNo || null,
+            bankAccountCode: dto.bankAccountCode,
+            currency,
+            rate,
+            payee,
             remarks: dto.remarks || null,
-            supplierId: supplier.id,
-            supplierName: supplier.name,
-            supplierCode: supplier.supplierCode || null,
-            debitAccountCode: dto.debitAccountCode || (doc.config as any)?.debitAccountCode || null,
-            creditAccountCode: dto.creditAccountCode,
-            currency: (dto.currency || 'SGD').toUpperCase(),
-            rate: Number(dto.rate) || 1,
-            voucherAmount,
-            paymentMethod: dto.paymentMethod || 'transfer',
-            allocations: allocations.map((a) => {
-              const b = openById.get(a.documentId);
-              return { ...a, reference: b?.reference ?? null, date: b?.date ?? null, description: b?.remarks ?? 'SUPPLIER INVOICE' };
-            }),
+            notes: dto.notes || '',
+            chequeNo: dto.chequeNo || null,
+            preparedBy: dto.preparedBy || cfg.preparedBy || '',
+            paymentMethod: dto.paymentMethod || (dto.chequeNo ? 'cheque' : 'transfer'),
+            creditorAccountCode: creditorCode,
+            lines,
+            voucherAmount: total,
+            // Legacy mirrors for the listings / bank rec.
+            supplierId: creditorLine?.offset?.supplierId || null,
+            supplierName: creditorLine?.offset?.supplierName || null,
+            supplierCode: creditorLine?.offset?.supplierCode || null,
+            debitAccountCode: creditorLine?.accountCode || creditorCode,
+            creditAccountCode: dto.bankAccountCode,
+            allocations: allAllocations,
             journalNumber: entry.journalNumber,
             savedBy: actor?.name || actor?.email || actor?.id || 'system',
             savedAt: new Date().toISOString(),
@@ -471,7 +632,7 @@ export class PaymentVouchersService {
       documentId: id,
       organizationId,
       action: 'EDITED',
-      detail: `Payment voucher saved — ${voucherAmount.toFixed(2)} allocated across ${allocations.length} supplier invoice(s); ${entry.journalNumber} posted`,
+      detail: `Payment voucher saved — ${total.toFixed(2)} over ${lines.length} line(s)${allAllocations.length ? `, ${allAllocations.length} supplier invoice(s) offset` : ''}; ${entry.journalNumber} posted`,
       documentName: voucherNumber || undefined,
       actor,
     });

@@ -543,21 +543,8 @@ export default function BillsPage() {
               secondary="Supplier credit/debit note — posts reversed, reduces payables"
             />
           </ListItemButton>
-          {/* Spend Money (enableSpendMoney): no supplier invoice at all — the
-              money simply left the bank (bank charge, petty purchase,
-              reimbursement). Lives on its own list under Payables. */}
-          {isSpendMoneyEnabled && (
-            <ListItemButton
-              sx={{ border: 1, borderColor: "divider", borderRadius: 1.5, mt: 1 }}
-              onClick={() => { setKindPickerOpen(false); router.push("/portal/accounting/payables?tab=spend-money&new=1"); }}
-            >
-              <AccountBalanceWalletOutlinedIcon sx={{ mr: 1.5, color: "success.main" }} />
-              <ListItemText
-                primary="Spend Money"
-                secondary="Paid straight from the bank, no supplier invoice — posts Dr expense / Cr bank"
-              />
-            </ListItemButton>
-          )}
+          {/* Spend Money retired 2026-11-09 — pay bank charges and fees as direct
+              lines on a Payment Voucher (AP home → Payment Voucher). */}
         </DialogContent>
       </Dialog>
 

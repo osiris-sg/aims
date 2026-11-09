@@ -835,33 +835,49 @@ export class JournalAutoPostService {
     return created;
   }
 
+  /**
+   * Payment Voucher (legacy P/V screen, 2026-11-09): header bank + GL lines.
+   *   Cr bank (total, voucher currency → base)
+   *   Dr each direct line's account (a negative line credits it instead)
+   *   Dr creditor control per ticked supplier invoice at the invoice's
+   *      historical rate (a credit-note allocation credits it back)
+   *   ± realised FX for the creditor line when "Update Exchange Gain / Loss"
+   *      is on; off = the creditor is relieved at the voucher's own rate.
+   */
   async postFromPaymentVoucher(args: {
     organizationId: string;
     voucherDocumentId: string;
     voucherNumber?: string | null;
     entryDate: Date;
-    supplierName?: string | null;
+    payee?: string | null;
     bankAccountCode: string; // paid-from (credit side)
-    debitAccountCode?: string | null; // creditor control override (default controls.creditorControl)
-    currency?: string | null;
-    rate?: number | null;
-    amount: number; // voucher total, in voucher currency
-    allocations: Array<{ documentId: string; amount: number }>; // voucher currency
+    currency?: string | null; // voucher (bank) currency
+    rate?: number | null; // voucher currency → base
+    total: number; // sum of the lines, voucher currency
+    lines: Array<{
+      accountCode: string;
+      amount: number; // voucher currency, signed
+      description?: string | null;
+      offset?: null | {
+        supplierName?: string | null;
+        currency?: string | null; // supplier currency
+        rate?: number | null; // supplier currency per voucher currency
+        allocations: Array<{ documentId: string; amount: number }>; // supplier currency
+        updateFx?: boolean | null;
+        fxAccountCode?: string | null;
+      };
+    }>;
     userId?: string;
   }) {
-    const { organizationId, voucherDocumentId, voucherNumber, entryDate, supplierName } = args;
+    const { organizationId, voucherDocumentId, voucherNumber, entryDate, payee } = args;
     const controls = await this.getControlAccounts(organizationId);
     if (!controls) {
       this.logger.warn(`[postFromPaymentVoucher] org=${organizationId} has no controlAccounts; skipping`);
       return null;
     }
-    const debitCode = args.debitAccountCode || controls.creditorControl || 'CL001';
-    const creditor = await this.resolveAccountByCode(organizationId, debitCode);
     const bank = await this.resolveAccountByCode(organizationId, args.bankAccountCode);
-    if (!creditor || !bank) {
-      this.logger.warn(
-        `[postFromPaymentVoucher] missing accounts (debit=${debitCode}, bank=${args.bankAccountCode}); skipping`,
-      );
+    if (!bank) {
+      this.logger.warn(`[postFromPaymentVoucher] bank account ${args.bankAccountCode} missing; skipping`);
       return null;
     }
 
@@ -882,52 +898,98 @@ export class JournalAutoPostService {
 
     type Line = { accountId: string; debit: number; credit: number; description: string; foreignAmount?: number; exchangeRate?: number };
     const lines: Line[] = [];
-    let apBaseTotal = 0;
-    for (const a of args.allocations) {
-      const hist = isForeign ? (await this.historicalRateForDocument(organizationId, a.documentId)) ?? rate : 1;
-      const apBase = ROUND(a.amount * hist);
-      if (apBase === 0) continue;
-      apBaseTotal = ROUND(apBaseTotal + apBase);
-      // A NEGATIVE allocation is a supplier credit note being applied: it puts
-      // the liability BACK, so it credits the creditor control. The ledger
-      // refuses a negative debit, so the sign picks the column.
-      const isCredit = apBase < 0;
-      lines.push({
-        accountId: creditor.id,
-        debit: isCredit ? 0 : apBase,
-        credit: isCredit ? -apBase : 0,
-        description: isCredit
-          ? `Apply supplier credit note — ${supplierName ?? ''}`.trim()
-          : `Settle supplier invoice — ${supplierName ?? ''}`.trim(),
-        ...(isForeign ? { foreignAmount: ROUND(Math.abs(a.amount)), exchangeRate: hist } : {}),
-      });
+    const fx = (amt: number) => (isForeign ? { foreignAmount: ROUND(Math.abs(amt)), exchangeRate: rate } : {});
+
+    for (const l of args.lines) {
+      const account = await this.resolveAccountByCode(organizationId, l.accountCode);
+      if (!account) {
+        this.logger.warn(`[postFromPaymentVoucher] account ${l.accountCode} missing; skipping`);
+        return null;
+      }
+      const lineBase = ROUND(l.amount * rate);
+      if (!l.offset) {
+        if (lineBase === 0) continue;
+        lines.push({
+          accountId: account.id,
+          debit: lineBase > 0 ? lineBase : 0,
+          credit: lineBase < 0 ? -lineBase : 0,
+          description: (l.description || account.name || '').trim() || `Payment Voucher ${voucherNumber ?? ''}`.trim(),
+          ...fx(l.amount),
+        });
+        continue;
+      }
+      // Creditor line: Dr control per allocation. Allocations are in the
+      // supplier's currency; the base value is the invoice's historical rate
+      // (so the liability is relieved at what it was booked at) when FX
+      // updating is on, else the voucher's rate (no FX leg).
+      const o = l.offset;
+      const supCur = String(o.currency || currency).toUpperCase();
+      const supForeign = supCur !== base;
+      const supRate = Number(o.rate) || 1; // supplier per voucher
+      const voucherRateForSupplier = rate / supRate; // supplier currency → base via the voucher
+      let apBaseTotal = 0;
+      for (const a of o.allocations) {
+        const hist = supForeign
+          ? o.updateFx !== false
+            ? (await this.historicalRateForDocument(organizationId, a.documentId)) ?? voucherRateForSupplier
+            : voucherRateForSupplier
+          : 1;
+        const apBase = ROUND(a.amount * hist);
+        if (apBase === 0) continue;
+        apBaseTotal = ROUND(apBaseTotal + apBase);
+        const isCredit = apBase < 0;
+        lines.push({
+          accountId: account.id,
+          debit: isCredit ? 0 : apBase,
+          credit: isCredit ? -apBase : 0,
+          description: isCredit
+            ? `Apply supplier credit note — ${o.supplierName ?? ''}`.trim()
+            : `Settle supplier invoice — ${o.supplierName ?? ''}`.trim(),
+          ...(supForeign ? { foreignAmount: ROUND(Math.abs(a.amount)), exchangeRate: hist } : {}),
+        });
+      }
+      // Paid more base than the liability relieved → realised LOSS (debit FX).
+      const diff = ROUND(lineBase - apBaseTotal);
+      if (Math.abs(diff) > 0.005) {
+        const fxAccount = o.fxAccountCode
+          ? await this.resolveAccountByCode(organizationId, o.fxAccountCode)
+          : await this.resolveFxGainLossAccount(organizationId, controls);
+        if (!fxAccount) {
+          this.logger.warn(`[postFromPaymentVoucher] realised FX of ${diff} but no FX gain/loss account; skipping post`);
+          return null;
+        }
+        lines.push({
+          accountId: fxAccount.id,
+          debit: diff > 0 ? diff : 0,
+          credit: diff < 0 ? -diff : 0,
+          description: `Realised FX ${diff > 0 ? 'loss' : 'gain'} — ${voucherNumber ?? ''} (${supCur} @ voucher ${ROUND(voucherRateForSupplier)})`.trim(),
+        });
+      }
     }
-    const bankBase = ROUND(args.amount * rate);
-    // Zero cash (a credit note settling the bills outright) posts no bank line
-    // — a 0/0 line is rejected by the ledger.
+
+    // Cr bank = the cash leaving. Zero cash (a credit note settling the bills
+    // outright) posts no bank line — a 0/0 line is rejected by the ledger.
+    const bankBase = ROUND(args.total * rate);
     if (bankBase !== 0) {
       lines.push({
         accountId: bank.id,
         debit: 0,
         credit: bankBase,
-        description: `Payment Voucher ${voucherNumber ?? ''}`.trim(),
-        ...(isForeign ? { foreignAmount: ROUND(args.amount), exchangeRate: rate } : {}),
+        description: `Payment Voucher ${voucherNumber ?? ''}${payee ? ` — ${payee}` : ''}`.trim(),
+        ...fx(args.total),
       });
     }
-    // Paid more base than the liability relieved → realised LOSS (debit FX).
-    const diff = ROUND(bankBase - apBaseTotal);
-    if (Math.abs(diff) > 0.005) {
-      const fxAccount = await this.resolveFxGainLossAccount(organizationId, controls);
-      if (!fxAccount) {
-        this.logger.warn(`[postFromPaymentVoucher] realised FX of ${diff} but no FX gain/loss account; skipping post`);
-        return null;
-      }
-      lines.push({
-        accountId: fxAccount.id,
-        debit: diff > 0 ? diff : 0,
-        credit: diff < 0 ? -diff : 0,
-        description: `Realised FX ${diff > 0 ? 'loss' : 'gain'} — ${voucherNumber ?? ''} (${currency} @ voucher ${rate})`.trim(),
-      });
+    // Rounding drift from per-line conversion lands on the bank line.
+    const dr = ROUND(lines.reduce((s, x) => s + x.debit, 0));
+    const cr = ROUND(lines.reduce((s, x) => s + x.credit, 0));
+    const drift = ROUND(dr - cr);
+    if (drift !== 0 && Math.abs(drift) <= 0.05) {
+      const b = lines.find((x) => x.accountId === bank.id && x.credit > 0);
+      if (b) b.credit = ROUND(b.credit + drift);
+    }
+    if (!lines.length) {
+      this.logger.warn(`[postFromPaymentVoucher] nothing to post for ${voucherNumber}`);
+      return null;
     }
 
     const created = await this.journal.create(
@@ -937,7 +999,7 @@ export class JournalAutoPostService {
         type: 'PAYMENT',
         // Supplier payment = P/V (doc-type prefix plan).
         reference: voucherNumber ? refWith('P/V', voucherNumber) : undefined,
-        description: `Payment Voucher ${voucherNumber ?? ''} — ${supplierName ?? ''}`.trim(),
+        description: `Payment Voucher ${voucherNumber ?? ''}${payee ? ` — ${payee}` : ''}`.trim(),
         sourceDocumentId: voucherDocumentId,
         currency,
         lines,
