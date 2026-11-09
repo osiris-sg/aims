@@ -39,7 +39,9 @@ export const HOTKEY_ACTIONS: HotkeyAction[] = [
   {
     id: "new",
     label: "New",
-    description: "The screen's New / Add button — a new Official Receipt or Payment Voucher on the AR / AP home, a new document in the editor.",
+    // Only the AR / AP homes carry data-hotkey="new" today; do not promise the
+    // editor here until its New control has the anchor too.
+    description: "The screen's New or Add button. A new Official Receipt on the Accounts Receivable home, a new Payment Voucher on Accounts Payable.",
     defaultKey: "F4",
   },
   {

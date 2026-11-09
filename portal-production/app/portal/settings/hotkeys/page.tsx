@@ -122,7 +122,12 @@ export default function HotkeysSettingsPage() {
       // Send only the actions that differ from their defaults; the rest stay on defaults.
       const body: HotkeyMap = {};
       for (const a of HOTKEY_ACTIONS) if ((map[a.id] ?? null) !== a.defaultKey) body[a.id] = map[a.id] ?? null;
-      await request({ path: "/configuration/hotkeys", method: "PATCH" }, { hotkeys: body }, token ?? undefined);
+      // helpers/request swallows HTTP errors and RESOLVES with {success:false}
+      // instead of throwing, so the catch below never sees a 403. Without this
+      // check a user without configuration:write was told "Hotkeys saved" and
+      // then watched the keys revert when the configuration refreshed.
+      const res = await request({ path: "/configuration/hotkeys", method: "PATCH" }, { hotkeys: body }, token ?? undefined);
+      if (res?.success === false) throw new Error(res?.message || "Save failed");
       await refreshConfiguration();
       toast.success("Hotkeys saved for everyone in the organisation");
     } catch (e: any) {
