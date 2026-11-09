@@ -403,7 +403,7 @@ export default function BankTransactionDialog({
           </Table>
         </Box>
         <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ sm: "flex-start" }} spacing={1}>
-          <Button size="small" startIcon={<AddIcon />} onClick={() => setLines((prev) => [...prev, emptyLine()])} disabled={readOnly}>
+          <Button data-hotkey="addLine" size="small" startIcon={<AddIcon />} onClick={() => setLines((prev) => [...prev, emptyLine()])} disabled={readOnly}>
             Add line
           </Button>
           <Box sx={{ minWidth: 260, fontVariantNumeric: "tabular-nums" }}>
@@ -433,7 +433,7 @@ export default function BankTransactionDialog({
           {readOnly ? "Close" : "Cancel"}
         </Button>
         {!readOnly && (
-          <Button variant="contained" onClick={save} disabled={saving || loadingRefs} startIcon={saving ? <CircularProgress size={16} color="inherit" /> : undefined}>
+          <Button data-hotkey="save" variant="contained" onClick={save} disabled={saving || loadingRefs} startIcon={saving ? <CircularProgress size={16} color="inherit" /> : undefined}>
             {editing ? "Save and repost" : `Save ${KIND_LABEL[kind]}`}
           </Button>
         )}

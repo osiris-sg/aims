@@ -27,6 +27,7 @@ interface UIConfig {
   timeFormat?: string;
   currency?: string;
   language?: string;
+  hotkeys?: Record<string, string | null>; // Settings → Hotkeys overrides (helpers/hotkeys.ts)
   features?: Record<string, boolean>;
   branding?: any;
   navigationConfig?: any;

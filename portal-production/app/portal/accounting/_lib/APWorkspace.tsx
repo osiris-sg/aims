@@ -446,6 +446,7 @@ export default function APWorkspace() {
             the latest saved voucher, or a fresh PV-numbered shell. */}
         <Button
           data-tour="ap-payment-voucher"
+          data-hotkey="new"
           variant="contained"
           startIcon={openingVoucher ? <CircularProgress size={16} color="inherit" /> : <ReceiptLongOutlinedIcon />}
           disabled={openingVoucher}

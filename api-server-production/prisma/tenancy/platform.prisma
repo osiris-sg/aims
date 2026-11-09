@@ -119,6 +119,7 @@ model OrganizationUIConfig {
   features         Json? // Feature flags: {enableProjects: true, enableDocumentAI: false}
   branding         Json? // Additional branding config
   businessRules    Json? // Per-org business rules (src/org-rules) — restored 2026-10-26: the column exists on dev's platform schema WITH data and org-rules.service.ts reads it, but it was declared in no schema, so the next platform push would have dropped it.
+  hotkeys          Json? // Per-org keyboard shortcuts {actionId: "F2" | "Shift+F9" | null} — Settings → Hotkeys (guru 2026-11-09); null/absent = defaults in portal helpers/hotkeys.ts
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
   organization     Organization @relation(fields: [organizationId], references: [id])

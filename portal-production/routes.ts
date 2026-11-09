@@ -54,6 +54,7 @@ export const ROUTES = {
   ORG_SETTINGS: "/portal/settings/company-profile",
   COMPANY_PROFILE: "/portal/settings/company-profile",
   ACCOUNTING_SETUP: "/portal/settings/accounting-setup",
+  HOTKEYS: "/portal/settings/hotkeys",
   CREATE_PROJECT: "/portal/projects/create",
 
   DOCUMENTS: "/portal/documents",

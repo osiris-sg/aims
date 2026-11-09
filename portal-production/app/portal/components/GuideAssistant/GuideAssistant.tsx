@@ -359,6 +359,7 @@ export default function GuideAssistant() {
 
       {/* Floating bubble */}
       <Fab
+        data-hotkey="help"
         color="primary"
         size="medium"
         onClick={() => setOpen((v) => !v)}

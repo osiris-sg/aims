@@ -616,7 +616,7 @@ function CustomerCodeField({
         InputProps={{
           startAdornment: (
             <InputAdornment position="start" sx={{ mr: 0 }}>
-              <IconButton
+              <IconButton data-hotkey="lookup"
                 size="small"
                 onClick={() => onOpenDialog?.(fieldName)}
                 sx={{ p: 0.25, ml: -0.5 }}
@@ -885,7 +885,7 @@ function SalesmanCodeField({ salesmen, formData, setFormData, onOpenDialog, inpu
         InputProps={{
           startAdornment: (
             <InputAdornment position="start" sx={{ mr: 0 }}>
-              <IconButton
+              <IconButton data-hotkey="lookup"
                 size="small"
                 onClick={() => onOpenDialog?.(fieldName)}
                 sx={{ p: 0.25, ml: -0.5 }}

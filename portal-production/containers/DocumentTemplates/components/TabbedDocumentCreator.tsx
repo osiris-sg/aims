@@ -672,6 +672,15 @@ export default function TabbedDocumentCreator({
 
   // Locate document dialog state
   const [locateDialogOpen, setLocateDialogOpen] = useState(false);
+  // Hotkey "Locate" (F3 by default): the menu item lives inside ⋮, so the
+  // dispatcher reaches it through the aims:hotkey event instead of a click.
+  useEffect(() => {
+    const onHotkey = (e: Event) => {
+      if ((e as CustomEvent).detail?.action === "locate") setLocateDialogOpen(true);
+    };
+    window.addEventListener("aims:hotkey", onHotkey);
+    return () => window.removeEventListener("aims:hotkey", onHotkey);
+  }, []);
 
   // Extract quotation dialog state (for Delivery Orders)
   const [extractQuotationDialogOpen, setExtractQuotationDialogOpen] = useState(false);
@@ -4451,6 +4460,7 @@ export default function TabbedDocumentCreator({
           )}
           <Button
             data-tour="editor-preview"
+            data-hotkey="preview"
             size="small"
             variant={previewMode ? "contained" : "text"}
             startIcon={previewMode ? <EditIcon /> : <PreviewIcon />}
@@ -4523,6 +4533,7 @@ export default function TabbedDocumentCreator({
           {!isDocumentConfirmedStatus && !isTemplateEditMode && isDeliveryOrder && (
             <Button
               data-tour="editor-confirm"
+              data-hotkey="confirm"
               size="small"
               variant="contained"
               startIcon={<CheckCircleIcon />}
@@ -4548,6 +4559,7 @@ export default function TabbedDocumentCreator({
               <ButtonGroup size="small" variant="contained">
                 <Button
                   data-tour="editor-confirm"
+                  data-hotkey="confirm"
                   startIcon={<CheckCircleIcon />}
                   onClick={() => {
                     makeRecurringAfterConfirmRef.current = false;
@@ -4593,6 +4605,7 @@ export default function TabbedDocumentCreator({
            (documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" || documentType === "QO2") && (
             <Button
               data-tour="editor-confirm"
+              data-hotkey="confirm"
               size="small"
               variant="contained"
               startIcon={<CheckCircleIcon />}
@@ -4691,6 +4704,7 @@ export default function TabbedDocumentCreator({
               )}
               <Button
                 data-tour="editor-save"
+                data-hotkey="save"
                 size="small"
                 variant="contained"
                 startIcon={saveStatus === "saving" ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
@@ -7004,6 +7018,7 @@ export default function TabbedDocumentCreator({
                     <Box sx={{ pt: 1, pb: 0.5, pl: 1, display: confirmedReadOnly ? "none" : "flex", gap: 1, flexShrink: 0 }}>
                       <Button
                         data-tour="editor-add-item"
+                        data-hotkey="addLine"
                         variant="contained"
                         startIcon={<AddIcon />}
                         onClick={() => {

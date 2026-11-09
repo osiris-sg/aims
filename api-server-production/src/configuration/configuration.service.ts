@@ -231,6 +231,23 @@ export class ConfigurationService {
     });
   }
 
+  /** Per-org hotkeys. Keys are action ids, values a key combo ("F2", "Shift+F9") or null (off). Validated loosely here; the portal owns the action list. */
+  async updateHotkeys(organizationId: string, hotkeys: Record<string, string | null>) {
+    const clean: Record<string, string | null> = {};
+    for (const [k, v] of Object.entries(hotkeys || {})) {
+      if (!/^[A-Za-z][A-Za-z0-9]{0,39}$/.test(k)) continue;
+      if (v === null) clean[k] = null;
+      else if (typeof v === 'string' && /^([A-Za-z]+\+){0,4}[A-Za-z0-9]{1,20}$/.test(v)) clean[k] = v;
+    }
+    const row = await this.prisma.organizationUIConfig.upsert({
+      where: { organizationId },
+      update: { hotkeys: clean },
+      create: { organizationId, hotkeys: clean },
+      select: { hotkeys: true },
+    });
+    return { hotkeys: row.hotkeys };
+  }
+
   private getDefaultUIConfig() {
     return {
       theme: {

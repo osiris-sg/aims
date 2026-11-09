@@ -1,5 +1,6 @@
 import {
   Controller,
+  Patch,
   Get,
   Post,
   Put,
@@ -172,6 +173,14 @@ export class ConfigurationController {
     @Body() updateUIConfigDto: UpdateUIConfigDto
   ) {
     return this.configurationService.updateUIConfig(userOrganization.id, updateUIConfigDto);
+  }
+
+  /** Settings → Hotkeys (guru 2026-11-09): per-org key map for the common actions. Body {hotkeys: {actionId: "F2" | null}}; only overrides are stored, the portal fills in defaults. */
+  @Patch('hotkeys')
+  @Permissions('configuration:write')
+  @ApiOperation({ summary: 'Set the organisation keyboard hotkeys. Body: {hotkeys: {lookup:"F2", save:"F9", help:null, …}} — null switches an action off; omitted actions keep their default.' })
+  async updateHotkeys(@UserOrganization() userOrganization: any, @Body() body: { hotkeys?: Record<string, string | null> }) {
+    return this.configurationService.updateHotkeys(userOrganization.id, body?.hotkeys || {});
   }
 
   // ===================== ROUND Y: WHERE IS A MODULE ON? =====================

@@ -25,6 +25,7 @@ import AimeeDockHost from "./shipments/_components/aimee/AimeeDockHost";
 import TopNavBar from "@/components/TopNav/TopNavBar";
 import RoleTopBar from "./components/RoleHome/RoleTopBar";
 import EnterAdvanceHost from "./components/EnterAdvanceHost";
+import HotkeysHost from "./components/HotkeysHost";
 import { useOrganizationFeatures } from "./hooks/useOrganizationFeatures";
 
 interface Props {
@@ -131,6 +132,8 @@ export default function Layout(props: Props) {
               {!embed && <AimeeDockHost />}
               {/* Enter walks forms field by field, like the legacy accounting software (guru 2026-11-08). */}
               <EnterAdvanceHost />
+              {/* F-key hotkeys per org (Settings → Hotkeys, guru 2026-11-09). */}
+              <HotkeysHost />
               <ToastContainer position="top-right" autoClose={3000} hideProgressBar={false} newestOnTop closeOnClick rtl={false} pauseOnFocusLoss draggable pauseOnHover theme={mode} />
             </Box>
             </OrgTheme>

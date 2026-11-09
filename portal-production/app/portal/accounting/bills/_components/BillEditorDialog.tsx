@@ -1337,7 +1337,7 @@ export default function BillEditorDialog({
 
         <Stack direction="row" alignItems="center" gap={2} sx={{ mt: 1.5, flexWrap: "wrap" }}>
           {/* WCT: a new line starts on the line above's quotation (editable). */}
-          <Button startIcon={<AddIcon />} size="small" onClick={() => setLines((r) => [...r, showQuotation ? { ...newLine(), quotation: r[r.length - 1]?.quotation ?? null } : newLine()])} disabled={isReadOnly}>
+          <Button data-hotkey="addLine" startIcon={<AddIcon />} size="small" onClick={() => setLines((r) => [...r, showQuotation ? { ...newLine(), quotation: r[r.length - 1]?.quotation ?? null } : newLine()])} disabled={isReadOnly}>
             Add line
           </Button>
           <Box sx={{ flex: 1 }} />
@@ -1454,6 +1454,7 @@ export default function BillEditorDialog({
         {!isReadOnly && (
           <Button
             variant={canSubmitHere ? "outlined" : "contained"}
+            data-hotkey="save"
             onClick={() => submit(false)}
             disabled={saving || extracting || flushing || currentExtracting || currentItem?.status === "saved"}
             startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}
@@ -1467,6 +1468,7 @@ export default function BillEditorDialog({
           <Tooltip title="Saves, then submits: above the approval threshold it goes to Pending Approval, otherwise it is confirmed and posted">
             <Button
               variant="contained"
+              data-hotkey="saveSubmit"
               onClick={() => submit(true)}
               disabled={saving || extracting || flushing || currentExtracting || currentItem?.status === "saved"}
               startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}

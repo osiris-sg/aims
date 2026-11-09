@@ -471,6 +471,7 @@ export default function ARWorkspace() {
             receipt (legacy behaviour), or a fresh OR-numbered shell when none. */}
         <Button
           data-tour="ar-official-receipt"
+          data-hotkey="new"
           variant="contained"
           startIcon={openingReceipt ? <CircularProgress size={16} color="inherit" /> : <ReceiptLongOutlinedIcon />}
           disabled={openingReceipt}

@@ -245,7 +245,7 @@ export function OrCustomerInput({ formData, setFormData, customers = [], onOpenD
         InputProps={{
           startAdornment: (
             <InputAdornment position="start" sx={{ mr: 0 }}>
-              <IconButton size="small" onClick={() => onOpenDialog?.()} sx={{ p: 0.25, ml: -0.5 }} title="Search">
+              <IconButton data-hotkey="lookup" size="small" onClick={() => onOpenDialog?.()} sx={{ p: 0.25, ml: -0.5 }} title="Search">
                 <SearchIcon sx={{ fontSize: 16 }} />
               </IconButton>
             </InputAdornment>
@@ -399,7 +399,7 @@ export function OrCreditInput({ formData, setFormData }: RowProps) {
         InputProps={{
           startAdornment: (
             <InputAdornment position="start" sx={{ mr: 0 }}>
-              <IconButton size="small" onClick={() => setDialogOpen(true)} sx={{ p: 0.25, ml: -0.5 }} title="Search">
+              <IconButton data-hotkey="lookup" size="small" onClick={() => setDialogOpen(true)} sx={{ p: 0.25, ml: -0.5 }} title="Search">
                 <SearchIcon sx={{ fontSize: 16 }} />
               </IconButton>
             </InputAdornment>
@@ -463,7 +463,7 @@ export function OrDebitInput({ formData, setFormData }: RowProps) {
         InputProps={{
           startAdornment: (
             <InputAdornment position="start" sx={{ mr: 0 }}>
-              <IconButton size="small" onClick={() => setDialogOpen(true)} sx={{ p: 0.25, ml: -0.5 }} title="Search">
+              <IconButton data-hotkey="lookup" size="small" onClick={() => setDialogOpen(true)} sx={{ p: 0.25, ml: -0.5 }} title="Search">
                 <SearchIcon sx={{ fontSize: 16 }} />
               </IconButton>
             </InputAdornment>

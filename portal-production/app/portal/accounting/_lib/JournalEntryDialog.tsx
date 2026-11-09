@@ -369,7 +369,7 @@ export default function JournalEntryDialog({
         </Box>
 
         <Stack direction="row" alignItems="center" gap={2} sx={{ mt: 1.5, flexWrap: "wrap" }}>
-          <Button startIcon={<AddIcon />} size="small" onClick={addLine} disabled={!!saving}>
+          <Button data-hotkey="addLine" startIcon={<AddIcon />} size="small" onClick={addLine} disabled={!!saving}>
             Add line
           </Button>
           <Box sx={{ flex: 1 }} />
@@ -399,6 +399,7 @@ export default function JournalEntryDialog({
           Cancel
         </Button>
         <Button
+          data-hotkey="save"
           onClick={() => submit("post")}
           variant="contained"
           disabled={!!saving || !totals.balanced}

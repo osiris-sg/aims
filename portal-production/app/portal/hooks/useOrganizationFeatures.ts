@@ -132,6 +132,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Accounting UX overhaul: legacy-software workflows (screen structure, entry
   // flow) rendered with the modern AIMS UI. OFF = current Xero-like layout.
   enableLegacyAccountingUx: false,
+  // Keyboard hotkeys (F2 look up, F9 save…) + Settings → Hotkeys. Default ON for every org (guru 2026-11-09).
+  enableHotkeys: true,
   // Machine intake (email ingestion, JSON ingest, /v1 API) posts documents to
   // the GL automatically on arrival. OFF = intake documents stay UNCONFIRMED
   // with no journal, waiting in the Posting Queue / bills tab for review.
@@ -338,6 +340,7 @@ export function useOrganizationFeatures() {
     isQuotationProjectLinkEnabled: features.enableQuotationProjectLink ?? false,
     isXeroDocSyncEnabled: features.enableXeroDocSync ?? false,
     isLegacyAccountingUxEnabled: features.enableLegacyAccountingUx ?? false,
+    isHotkeysEnabled: features.enableHotkeys ?? true,
     isIdQuotationEnabled: features.enableIdQuotation ?? false,
     isDesignerAdvancesEnabled: features.enableDesignerAdvances ?? false,
     isNotificationsEnabled: features.enableNotifications ?? true,
