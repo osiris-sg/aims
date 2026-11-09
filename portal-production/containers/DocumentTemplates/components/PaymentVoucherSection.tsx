@@ -55,11 +55,13 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import ManageSearchIcon from "@mui/icons-material/ManageSearch";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
+import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
 import { headerInputSx } from "./DynamicFormFields";
 import ContraOffsetDialog from "./ContraOffsetDialog";
+import ManualOffsetDialog from "./ManualOffsetDialog";
 import PvOffsetSupplierDialog, { type PvLine, type PvOffset } from "./PvOffsetSupplierDialog";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { AccountSelectDialog, numberIsPending, peekDocumentNumber, useOrAccounts, type OrAccount } from "./OfficialReceiptSection";
@@ -165,8 +167,8 @@ export function PvVoucherNoInput({ formData, setFormData }: RowProps) {
   );
 }
 
-// Bank Account — the paid-from bank/cash (credit side), with Rate at the
-// right like the legacy row. A FOREIGN_BANK account unlocks Currency + Rate.
+// Bank Account — the paid-from bank/cash (credit side), with Rate beside the
+// bank name on the same row. A FOREIGN_BANK account unlocks Currency + Rate.
 export function PvBankInput({ formData, setFormData }: RowProps) {
   const accounts = useOrAccounts();
   const { getToken } = useAuth();
@@ -228,7 +230,9 @@ export function PvBankInput({ formData, setFormData }: RowProps) {
         }}
       />
       <AccountEcho currency={currency} name={selected?.name || ""} />
-      <Box sx={{ flex: 1 }} />
+      {/* Rate sits right after the bank name (guru 2026-11-09: far right was
+          "very hard to reach"), still on the same row as the legacy screen. */}
+      <Box sx={{ width: 24 }} />
       {foreign && (
         <TextField
           size="small"
@@ -395,9 +399,30 @@ export function PaymentVoucherLinesSection({
   const removeLine = (id: string) => writeLines(lines.filter((l) => l.id !== id));
   const addLine = () => writeLines([...lines, newLine()]);
 
-  // Offset Supplier Invoices dialog — opened from the Payee pencil (header)
-  // or the creditor line's pencil here.
+  // Offset Supplier Invoices dialog — opened from the Payee pencil (header),
+  // the creditor line's pencil, or by KEYING THE CREDITOR CONTROL CODE on a
+  // plain line (guru 2026-11-09: "when I key in this account code it auto
+  // opens the dialog to choose supplier"). That line is remembered so the
+  // saved supplier line takes its row; Cancel clears the code again.
   const [offsetOpen, setOffsetOpen] = useState(false);
+  const [pendingLineId, setPendingLineId] = useState<string | null>(null);
+  const creditorCode = String(pd.creditorAccountCode || creditor?.accountCode || "");
+  const commitLineAccount = (l: PvLine, a: OrAccount) => {
+    if (creditorCode && a.code === creditorCode) {
+      if (creditor && creditor.id !== l.id) {
+        // One payee per voucher: the supplier line exists — edit it instead.
+        toast.info("This voucher already has a supplier line — editing it");
+        writeLines(lines.filter((x) => x.id !== l.id || x.accountCode));
+        setOffsetOpen(true);
+        return;
+      }
+      patchLine(l.id, { accountCode: a.code, accountName: a.name, description: a.name.toUpperCase() });
+      setPendingLineId(l.id);
+      setOffsetOpen(true);
+      return;
+    }
+    patchLine(l.id, { accountCode: a.code, accountName: a.name, description: l.description || a.name.toUpperCase() });
+  };
   useEffect(() => {
     const onOpen = () => {
       if (disabled) return;
@@ -412,11 +437,13 @@ export function PaymentVoucherLinesSection({
   }, [disabled, pd.bankAccountCode]);
 
   const saveOffset = (line: PvLine, supplier: any) => {
-    const rest = lines.filter((l) => l.id !== line.id && !l.offset);
-    // Creditor line sits where the old one was, else at the end.
-    const idx = lines.findIndex((l) => l.offset);
+    // The supplier line takes the row it was keyed on (pending plain line),
+    // else the old supplier line's row, else the end.
+    const anchorIdx = lines.findIndex((l) => (pendingLineId && l.id === pendingLineId) || l.offset);
+    const rest = lines.filter((l) => l.id !== line.id && l.id !== pendingLineId && !l.offset);
     const next = [...rest];
-    next.splice(idx >= 0 ? Math.min(idx, next.length) : next.length, 0, line);
+    next.splice(anchorIdx >= 0 ? Math.min(anchorIdx, next.length) : next.length, 0, line);
+    setPendingLineId(null);
     setFormData({
       ...formData,
       supplier: supplier
@@ -434,16 +461,21 @@ export function PaymentVoucherLinesSection({
   // Legacy left rail — the AP twins of the receipt's modules.
   const { isContraOffsetEnabled } = useOrganizationFeatures();
   const [contraOpen, setContraOpen] = useState(false);
+  // Manual Offset (guru 2026-11-09, "just like OR"): the supplier's credit
+  // notes against their invoices, no cash — the receipt's dialog in supplier mode.
+  const [manualOffsetOpen, setManualOffsetOpen] = useState(false);
   const supplierId = creditor?.offset?.supplierId || formData?.supplier?.id || "";
+  const supplierName = creditor?.offset?.supplierName || formData?.supplier?.name || "";
   const needSupplier = (fn: () => void) => () => {
     if (!supplierId) {
-      toast.warn("Offset a supplier's invoices first (the pencil beside Payee)");
+      toast.warn("Pick the supplier first (the pencil beside Payee)");
       return;
     }
     fn();
   };
   const back = () => encodeURIComponent(window.location.pathname + window.location.search);
   const railButtons = [
+    { label: "Manual Offset", icon: <CompareArrowsIcon />, onClick: needSupplier(() => setManualOffsetOpen(true)) },
     ...(isContraOffsetEnabled
       ? [{ label: "Contra Set-off", icon: <SwapHorizIcon />, onClick: needSupplier(() => setContraOpen(true)) }]
       : []),
@@ -548,7 +580,7 @@ export function PaymentVoucherLinesSection({
                               value={l.accountCode || ""}
                               accounts={lineAccounts}
                               disabled={disabled}
-                              onCommit={(a) => patchLine(l.id, { accountCode: a.code, accountName: a.name, description: l.description || a.name.toUpperCase() })}
+                              onCommit={(a) => commitLineAccount(l, a)}
                             />
                           )}
                         </TableCell>
@@ -663,7 +695,14 @@ export function PaymentVoucherLinesSection({
 
       <PvOffsetSupplierDialog
         open={offsetOpen}
-        onClose={() => setOffsetOpen(false)}
+        onClose={() => {
+          setOffsetOpen(false);
+          // Keyed the control code but backed out: the row goes back to blank.
+          if (pendingLineId) {
+            patchLine(pendingLineId, { accountCode: "", accountName: "", description: "" });
+            setPendingLineId(null);
+          }
+        }}
         voucherId={voucherId}
         voucherNumber={formData?.documentInfo?.documentNumber || formData?.name || ""}
         voucherDate={pd.date || ""}
@@ -680,6 +719,14 @@ export function PaymentVoucherLinesSection({
           clearOffset();
           setOffsetOpen(false);
         }}
+      />
+
+      <ManualOffsetDialog
+        open={manualOffsetOpen}
+        onClose={() => setManualOffsetOpen(false)}
+        party="supplier"
+        customer={supplierId ? { id: supplierId, name: supplierName, supplierCode: creditor?.offset?.supplierCode || formData?.supplier?.supplierCode || "" } : null}
+        onSaved={() => undefined}
       />
 
       {isContraOffsetEnabled && (

@@ -555,15 +555,18 @@ export class JournalAutoPostService {
     offsetDocumentId: string;
     offsetNumber?: string | null;
     entryDate: Date;
-    customerName?: string | null;
+    customerName?: string | null; // the party (customer, or supplier when party='supplier')
+    /** 'supplier' = AP Manual Offset: creditor control, sides mirrored. */
+    party?: 'customer' | 'supplier';
     debits: Array<{ documentId: string; amount: number; currency?: string | null }>; // invoices settled
     credits: Array<{ documentId: string; amount: number; currency?: string | null }>; // credit notes consumed
     userId?: string;
   }) {
     const { organizationId, offsetDocumentId, offsetNumber, customerName } = args;
+    const isAp = args.party === 'supplier';
     const controls = await this.getControlAccounts(organizationId);
     if (!controls) return null;
-    const debtor = await this.resolveAccountByCode(organizationId, controls.debtorControl);
+    const debtor = await this.resolveAccountByCode(organizationId, isAp ? controls.creditorControl || 'CL001' : controls.debtorControl);
     if (!debtor) return null;
 
     // Re-save = repost safety (offsets are create-only today, but keep the
@@ -594,11 +597,12 @@ export class JournalAutoPostService {
       const { baseAmount, hist, foreign } = await histBase(c);
       anyForeign = anyForeign || foreign;
       drTotal = ROUND(drTotal + baseAmount);
+      // AR: consuming a credit note DEBITS the debtor control; AP mirrors it.
       lines.push({
         accountId: debtor.id,
-        debit: baseAmount,
-        credit: 0,
-        description: `Offset credit note — ${customerName ?? ''}`.trim(),
+        debit: isAp ? 0 : baseAmount,
+        credit: isAp ? baseAmount : 0,
+        description: `Offset ${isAp ? 'supplier ' : ''}credit note — ${customerName ?? ''}`.trim(),
         ...(foreign ? { foreignAmount: ROUND(c.amount), exchangeRate: hist } : {}),
       });
     }
@@ -608,9 +612,9 @@ export class JournalAutoPostService {
       crTotal = ROUND(crTotal + baseAmount);
       lines.push({
         accountId: debtor.id,
-        debit: 0,
-        credit: baseAmount,
-        description: `Offset invoice — ${customerName ?? ''}`.trim(),
+        debit: isAp ? baseAmount : 0,
+        credit: isAp ? 0 : baseAmount,
+        description: `Offset ${isAp ? 'supplier invoice' : 'invoice'} — ${customerName ?? ''}`.trim(),
         ...(foreign ? { foreignAmount: ROUND(d.amount), exchangeRate: hist } : {}),
       });
     }

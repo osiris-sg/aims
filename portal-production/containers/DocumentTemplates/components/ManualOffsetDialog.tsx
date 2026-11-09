@@ -76,13 +76,20 @@ export default function ManualOffsetDialog({
   open,
   onClose,
   customer,
+  party = "customer",
   onSaved,
 }: {
   open: boolean;
   onClose: () => void;
-  customer: { id: string; name?: string; customerCode?: string } | null;
+  /** The party whose items are offset — a customer (receipt) or, with party="supplier", a supplier (payment voucher). */
+  customer: { id: string; name?: string; customerCode?: string; supplierCode?: string } | null;
+  party?: "customer" | "supplier";
   onSaved?: () => void;
 }) {
+  // AP twin (guru 2026-11-09 "add manual offset just like OR"): same dialog,
+  // the supplier's endpoints and wording.
+  const isSupplier = party === "supplier";
+  const partyWord = isSupplier ? "supplier" : "customer";
   const { getToken } = useAuth();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -101,7 +108,7 @@ export default function ManualOffsetDialog({
       setLoading(true);
       try {
         const token = await getToken();
-        const res = await apiCall(`/receipts/offset-items/${customer.id}`, token);
+        const res = await apiCall(`${isSupplier ? "/payment-vouchers" : "/receipts"}/offset-items/${customer.id}`, token);
         if (cancelled) return;
         setDebitItems(res?.debits || []);
         setCreditItems(res?.credits || []);
@@ -114,7 +121,7 @@ export default function ManualOffsetDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, customer?.id, getToken]);
+  }, [open, customer?.id, getToken, isSupplier]);
 
   const debitTotal = useMemo(() => R(Object.values(debits).reduce((s, v) => s + (Number(v) || 0), 0)), [debits]);
   const creditTotal = useMemo(() => R(Object.values(credits).reduce((s, v) => s + (Number(v) || 0), 0)), [credits]);
@@ -141,10 +148,10 @@ export default function ManualOffsetDialog({
     setSaving(true);
     try {
       const token = await getToken();
-      const res = await apiCall(`/receipts/offsets`, token, {
+      const res = await apiCall(isSupplier ? `/payment-vouchers/offsets` : `/receipts/offsets`, token, {
         method: "POST",
         body: JSON.stringify({
-          customerId: customer.id,
+          ...(isSupplier ? { supplierId: customer.id } : { customerId: customer.id }),
           date: todayIso(),
           updateFx,
           debits: Object.entries(debits).map(([documentId, amount]) => ({ documentId, amount })),
@@ -263,9 +270,9 @@ export default function ManualOffsetDialog({
               credits,
               setCredits,
               "Credit",
-              "No open credit notes for this customer — create a credit note first, then offset it here.",
+              `No open credit notes for this ${partyWord} — create a credit note first, then offset it here.`,
             )}
-            {renderGrid("Debit Entries", debitItems, debits, setDebits, "Debit", "No outstanding invoices for this customer.")}
+            {renderGrid("Debit Entries", debitItems, debits, setDebits, "Debit", `No outstanding ${isSupplier ? "supplier invoices" : "invoices"} for this ${partyWord}.`)}
 
             <Stack direction="row" gap={3} alignItems="center" justifyContent="flex-end" sx={{ pr: 1 }}>
               <Typography variant="body2" sx={{ color: "text.secondary" }}>

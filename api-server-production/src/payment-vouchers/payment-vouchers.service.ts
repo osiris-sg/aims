@@ -85,6 +85,17 @@ export type SaveVoucherDto = {
   allocations?: VoucherAllocation[] | null;
 };
 
+/** AP Manual Offset (guru 2026-11-09 "add manual offset just like OR"): settle a
+ *  supplier's credit notes against their invoices with no cash. */
+export type CreateApOffsetDto = {
+  supplierId: string;
+  date?: string;
+  remarks?: string | null;
+  updateFx?: boolean;
+  debits: VoucherAllocation[]; // supplier invoices settled
+  credits: VoucherAllocation[]; // supplier credit notes consumed
+};
+
 type Actor = { id?: string; name?: string; email?: string };
 
 @Injectable()
@@ -299,8 +310,8 @@ export class PaymentVouchersService {
   // back, so it reduces the cash paid: its row carries kind 'credit' and a
   // POSITIVE `outstanding` meaning "credit left to use", and the voucher
   // stores its allocation NEGATIVE. Bills + credits still sum to the cash.
-  async openBills(organizationId: string, supplierId: string, opts?: { excludeVoucherId?: string }) {
-    const withCredits = await isOrgFeatureEnabled(this.prisma, organizationId, AP_CREDIT_OFFSET_FLAG);
+  async openBills(organizationId: string, supplierId: string, opts?: { excludeVoucherId?: string; includeCredits?: boolean }) {
+    const withCredits = opts?.includeCredits || (await isOrgFeatureEnabled(this.prisma, organizationId, AP_CREDIT_OFFSET_FLAG));
     const docs = await this.prisma.document.findMany({
       where: {
         organizationId,
@@ -638,6 +649,158 @@ export class PaymentVouchersService {
     });
 
     return this.getById(organizationId, id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Manual Offset (AP) — the receipt's Manual Offset mirrored for suppliers:
+  // tick supplier credit notes (credits) against supplier invoices (debits),
+  // Balance 0.00, no cash. Creates an MO-###### MANUAL_OFFSET document
+  // (side 'AP') + cashless BillPayment rows (bills positive, credit notes
+  // NEGATIVE — the sign openBills reads credit usage from). A journal posts
+  // only for a realised FX difference (control account nets out otherwise).
+  // ---------------------------------------------------------------------------
+  async offsetItems(organizationId: string, supplierId: string) {
+    const rows = await this.openBills(organizationId, supplierId, { includeCredits: true });
+    return { debits: rows.filter((r) => r.kind === 'bill'), credits: rows.filter((r) => r.kind === 'credit') };
+  }
+
+  private async getOrCreateOffsetTemplate(organizationId: string): Promise<string> {
+    const existing = await this.prisma.documentTemplate.findFirst({ where: { organizationId, type: 'MANUAL_OFFSET' }, select: { id: true } });
+    if (existing) return existing.id;
+    const created = await this.prisma.documentTemplate.create({
+      data: { organizationId, type: 'MANUAL_OFFSET', name: 'Manual Offset', config: {} } as any,
+      select: { id: true },
+    });
+    return created.id;
+  }
+
+  /** Same MO- series as the receipt side — one Manual Offset numbering per org. */
+  private async nextOffsetNumber(organizationId: string): Promise<string> {
+    const rows = await this.prisma.document.findMany({ where: { organizationId, type: 'MANUAL_OFFSET', name: { startsWith: 'MO-' } }, select: { name: true } });
+    let max = 0;
+    for (const r of rows) {
+      const m = /^MO-(\d+)$/.exec(r.name || '');
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return `MO-${String(max + 1).padStart(6, '0')}`;
+  }
+
+  async createOffset(organizationId: string, dto: CreateApOffsetDto, actor?: Actor) {
+    if (!dto.supplierId) throw new BadRequestException('Supplier is required');
+    const debits = (dto.debits || []).map((a) => ({ documentId: a.documentId, amount: ROUND(Number(a.amount) || 0) })).filter((a) => a.documentId && a.amount > 0);
+    const credits = (dto.credits || []).map((a) => ({ documentId: a.documentId, amount: ROUND(Number(a.amount) || 0) })).filter((a) => a.documentId && a.amount > 0);
+    if (!debits.length || !credits.length) throw new BadRequestException('Tick at least one entry on each side');
+    const drTotal = ROUND(debits.reduce((s, a) => s + a.amount, 0));
+    const crTotal = ROUND(credits.reduce((s, a) => s + a.amount, 0));
+    if (Math.abs(drTotal - crTotal) > 0.005)
+      throw new BadRequestException(`Offset must balance — debits ${drTotal.toFixed(2)} vs credits ${crTotal.toFixed(2)} (balance ${(drTotal - crTotal).toFixed(2)})`);
+
+    const supplier: any = await this.prisma.supplier.findFirst({ where: { id: dto.supplierId, organizationId }, select: { id: true, name: true } });
+    if (!supplier) throw new BadRequestException('Supplier not found');
+
+    const { debits: openDebits, credits: openCredits } = await this.offsetItems(organizationId, dto.supplierId);
+    const debitById = new Map(openDebits.map((o) => [o.documentId, o]));
+    const creditById = new Map(openCredits.map((o) => [o.documentId, o]));
+    for (const a of debits) {
+      const b = debitById.get(a.documentId);
+      if (!b) throw new BadRequestException('A ticked supplier invoice is not open for this supplier');
+      if (a.amount > b.outstanding + 0.005) throw new BadRequestException(`Offset of ${b.reference} (${a.amount.toFixed(2)}) exceeds its outstanding ${b.outstanding.toFixed(2)}`);
+    }
+    for (const a of credits) {
+      const cn = creditById.get(a.documentId);
+      if (!cn) throw new BadRequestException('A ticked credit note is not open for this supplier');
+      if (a.amount > cn.outstanding + 0.005) throw new BadRequestException(`Offset of ${cn.reference} (${a.amount.toFixed(2)}) exceeds its remaining ${cn.outstanding.toFixed(2)}`);
+    }
+
+    const [templateId, number, setting] = await Promise.all([
+      this.getOrCreateOffsetTemplate(organizationId),
+      this.nextOffsetNumber(organizationId),
+      this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { timeZone: true, controlAccounts: true } }),
+    ]);
+    const date = dto.date || orgToday(setting?.timeZone);
+    // BillPayment needs an account: no bank moves in an offset, so the rows
+    // carry the creditor control the settlement ran through.
+    const creditorCode = ((setting?.controlAccounts as any) || {}).creditorControl || 'CL001';
+    const creditorAcc = await this.prisma.chartOfAccount.findFirst({ where: { organizationId, code: creditorCode }, select: { id: true } });
+    if (!creditorAcc) throw new BadRequestException(`Creditor control account ${creditorCode} not found — set it in Accounting Setup`);
+    const enrich = (a: { documentId: string; amount: number }, m: Map<string, any>) => {
+      const o = m.get(a.documentId);
+      return { ...a, reference: o?.reference ?? null, date: o?.date ?? null, currency: o?.currency ?? null };
+    };
+
+    const offsetDoc = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.document.create({
+        data: {
+          organizationId,
+          documentTemplateId: templateId,
+          type: 'MANUAL_OFFSET',
+          name: number,
+          status: 'confirmed',
+          config: {
+            side: 'AP',
+            date,
+            supplierId: supplier.id,
+            supplierName: supplier.name,
+            remarks: dto.remarks || null,
+            debits: debits.map((a) => enrich(a, debitById)),
+            credits: credits.map((a) => enrich(a, creditById)),
+            amount: drTotal,
+            savedBy: actor?.name || actor?.email || actor?.id || 'system',
+            savedAt: new Date().toISOString(),
+          } as any,
+        },
+      });
+      // Cashless rows: a bill is "paid" by the offset, a credit note is used up
+      // (stored negative, the sign openBills reads).
+      for (const a of debits) {
+        await tx.billPayment.create({
+          data: { organizationId, billId: a.documentId, supplierId: supplier.id, amount: a.amount, paymentDate: new Date(date), paymentMethod: 'offset', reference: number, notes: dto.remarks || `Manual Offset ${number}`, bankAccountId: creditorAcc.id, createdBy: actor?.id || 'system' },
+        });
+      }
+      for (const a of credits) {
+        await tx.billPayment.create({
+          data: { organizationId, billId: a.documentId, supplierId: supplier.id, amount: -a.amount, paymentDate: new Date(date), paymentMethod: 'offset', reference: number, notes: dto.remarks || `Manual Offset ${number}`, bankAccountId: creditorAcc.id, createdBy: actor?.id || 'system' },
+        });
+      }
+      return created;
+    });
+
+    let journalNumber: string | null = null;
+    if (dto.updateFx !== false) {
+      const entry = await this.journalAutoPost.postFromManualOffset({
+        organizationId,
+        offsetDocumentId: offsetDoc.id,
+        offsetNumber: number,
+        entryDate: new Date(date),
+        customerName: supplier.name,
+        party: 'supplier',
+        debits: debits.map((a) => enrich(a, debitById)),
+        credits: credits.map((a) => enrich(a, creditById)),
+        userId: actor?.id,
+      });
+      if (entry) {
+        journalNumber = (entry as any).journalNumber || null;
+        await this.prisma.document.update({ where: { id: offsetDoc.id }, data: { config: { ...((offsetDoc.config as any) || {}), journalNumber } as any } });
+      }
+    }
+
+    for (const a of [...debits, ...credits]) {
+      try {
+        await this.bills.refreshBillAfterPayments(organizationId, a.documentId);
+      } catch (e) {
+        console.error('AP offset: bill refresh failed for', a.documentId, e);
+      }
+    }
+
+    void this.logEvent({
+      documentId: offsetDoc.id,
+      organizationId,
+      action: 'CREATED',
+      detail: `Manual Offset ${number} (AP) — ${drTotal.toFixed(2)} offset across ${debits.length} supplier invoice(s) and ${credits.length} credit note(s)${journalNumber ? `; FX ${journalNumber} posted` : ''}`,
+      documentName: number,
+      actor,
+    });
+    return { id: offsetDoc.id, number, amount: drTotal, journalNumber };
   }
 
   async remove(organizationId: string, id: string, actor?: Actor) {

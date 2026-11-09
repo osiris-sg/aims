@@ -3,7 +3,7 @@ import { Request } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
-import { PaymentVouchersService, SaveVoucherDto } from './payment-vouchers.service';
+import { CreateApOffsetDto, PaymentVouchersService, SaveVoucherDto } from './payment-vouchers.service';
 
 interface RequestWithOrganization extends Request {
   userOrganization?: { id: string; name: string };
@@ -55,6 +55,21 @@ export class PaymentVouchersController {
     @Query('excludeVoucherId') excludeVoucherId?: string,
   ) {
     return this.service.openBills(requireOrgId(req), supplierId, { excludeVoucherId });
+  }
+
+  // Declared before ':id' so the literal paths aren't swallowed by the param route.
+  @Get('offset-items/:supplierId')
+  @Permissions('payments:read')
+  @ApiOperation({ summary: "Supplier's open invoices (debits) and credit notes (credits) for the AP Manual Offset" })
+  offsetItems(@Req() req: RequestWithOrganization, @Param('supplierId') supplierId: string) {
+    return this.service.offsetItems(requireOrgId(req), supplierId);
+  }
+
+  @Post('offsets')
+  @Permissions('payments:create')
+  @ApiOperation({ summary: 'Create an AP Manual Offset — settles ticked supplier invoices against supplier credit notes, no cash' })
+  createOffset(@Req() req: RequestWithOrganization, @Body() dto: CreateApOffsetDto) {
+    return this.service.createOffset(requireOrgId(req), dto, actorFrom(req));
   }
 
   @Get(':id')
