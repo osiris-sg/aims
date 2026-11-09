@@ -1,24 +1,24 @@
 import type { Metadata } from "next";
-import { DM_Sans, Manrope } from "next/font/google";
-import { GeistMono } from "geist/font/mono";
+import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import { RevealObserver } from "./_components/RevealObserver";
 import "./globals.css";
 
 const SITE_URL = "https://ai-ms.io";
 
-/* Manrope for headings, nav and buttons; DM Sans for body copy. */
-const manrope = Manrope({ subsets: ["latin"], weight: ["500", "600", "700"], variable: "--font-manrope", display: "swap" });
-const dmSans = DM_Sans({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-dm-sans", display: "swap" });
+/* IBM Plex Sans for everything that reads; IBM Plex Mono for numbers, references
+   and labels, the way they appear on the documents themselves. */
+const plexSans = IBM_Plex_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-plex-sans", display: "swap" });
+const plexMono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-plex-mono", display: "swap" });
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "AIMS: One Intelligent System. More Human Potential.",
+  title: "AIMS: One WhatsApp message. All the paperwork.",
   description:
-    "Inventory, HR, CRM, accounting and claims in one system, with an agent on WhatsApp or Telegram that does the work when you ask. Built for Singapore SMEs.",
+    "Quotation, delivery order, tax invoice, journal, GST. AIMS fills them in from a WhatsApp message or a photo. Your people confirm, your accountant posts. Built for Singapore SMEs.",
   openGraph: {
-    title: "AIMS: One Intelligent System. More Human Potential.",
+    title: "AIMS: One WhatsApp message. All the paperwork.",
     description:
-      "Inventory, HR, CRM, accounting and claims in one system, with a WhatsApp/Telegram agent that does the work when you ask.",
+      "Quotation, delivery order, tax invoice, journal, GST, filled in from a WhatsApp message or a photo. Your people confirm, your accountant posts.",
     url: SITE_URL,
     siteName: "AIMS",
     type: "website",
@@ -28,14 +28,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${manrope.variable} ${dmSans.variable} ${GeistMono.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`${plexSans.variable} ${plexMono.variable}`} suppressHydrationWarning>
       <body>
-        {/* Apply the saved theme before first paint (no flash). System preference wins when nothing is saved. */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `try{var t=localStorage.getItem("aims-theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t;}catch(e){}document.documentElement.dataset.js="1";`,
-          }}
-        />
+        {/* Marks the document so scroll-reveal can hide elements until they come into view. */}
+        <script dangerouslySetInnerHTML={{ __html: `document.documentElement.dataset.js="1";` }} />
         {children}
         <RevealObserver />
       </body>

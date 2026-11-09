@@ -1,125 +1,69 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { AGENT, MODULES } from "../_content/site";
-import {
-  ArrowDownIcon, ChatIcon, CheckIcon, ClockIcon, FileTextIcon, InboxIcon, LayersIcon, LockIcon,
-  MailIcon, MonitorIcon, PhoneIcon, SendIcon, SparklesIcon, UserCheckIcon, ZapIcon,
-} from "./Icons";
-import { LogoMark } from "./Logo";
-import { MODULE_ICONS } from "./ModuleIcons";
+import { useEffect, useState } from "react";
+import { AGENT, CHAT } from "../_content/site";
+import { ChatMock } from "./ChatMock";
 
-const G_ICONS = {
-  lock: <LockIcon />,
-  check: <CheckIcon size={16} />,
-  clock: <ClockIcon />,
-  layers: <LayersIcon />,
-};
-const STEP_ICONS: ReactNode[] = [<ChatIcon key="a" size={18} strokeWidth={1.8} />, <FileTextIcon key="b" size={18} />, <UserCheckIcon key="c" size={18} />];
-const CHANNEL_ICONS = {
-  whatsapp: <ChatIcon size={20} strokeWidth={1.8} />,
-  telegram: <SendIcon size={20} strokeWidth={1.8} />,
-  email: <MailIcon />,
-  portal: <MonitorIcon />,
-  field: <PhoneIcon />,
-};
-const ACTION_ICONS: ReactNode[] = [<FileTextIcon key="a" size={16} />, <UserCheckIcon key="b" size={16} />, <ZapIcon key="c" size={16} />];
+const FIRST_MS = 1200;
+const TURN_MS = 2200;
+const HOLD_MS = 4000;
 
-const Connector = () => <div className="connector" aria-hidden="true"><ArrowDownIcon /></div>;
+/** How the agent works: three rows beside the conversation. The thread plays
+ *  on a loop and each row lights when its turn lands. Clicking a row jumps the
+ *  thread there. On the agent page (no phone) the rows stand alone. */
+export function Agent({ phone = true }: { phone?: boolean } = {}) {
+  const [shown, setShown] = useState(1);
+  const [still, setStill] = useState(false);
+  const total = CHAT.length;
 
-/** How the agent works: three steps on the left, the route a request takes on
- *  the right. Picking a step lights the matching part of the diagram. */
-export function Agent() {
-  const [active, setActive] = useState(0);
-  const on = (cond: boolean) => (cond ? " is-on" : "");
+  useEffect(() => {
+    setStill(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  }, []);
+
+  useEffect(() => {
+    if (!phone || still) return;
+    const wait = shown === 1 ? FIRST_MS : shown >= total ? HOLD_MS : TURN_MS;
+    const t = window.setTimeout(() => setShown((n) => (n >= total ? 1 : n + 1)), wait);
+    return () => window.clearTimeout(t);
+  }, [shown, total, phone, still]);
+
+  const visible = !phone || still ? total : shown;
+  const lastTurn = visible - 1;
+  // The active row is the last step whose turn has landed.
+  const active = AGENT.steps.reduce((acc, s, i) => (s.at <= lastTurn ? i : acc), -1);
 
   return (
-    <section id="agent" className="section-plain">
-      <div className="wrap section">
-        <div className="section-head" data-reveal>
-          <span className="eyebrow">{AGENT.eyebrow}</span>
+    <section id="agent" className="section-grey section-rule">
+      <div className={`wrap section confirm-grid${phone ? "" : " confirm-solo"}`}>
+        <div className="confirm-copy" data-reveal>
+          <p className="eyebrow">{AGENT.eyebrow}</p>
           <h2 id="how" className="h2">{AGENT.title}</h2>
-          <p className="lede">{AGENT.body}</p>
-        </div>
-
-        <div className="how-grid">
-          <div className="how-left" data-reveal>
-            <div className="stages">
-              {AGENT.steps.map((s, i) => (
-                <button key={s.n} type="button" className={`stage${on(active === i)}`} onClick={() => setActive(i)} aria-pressed={active === i}>
-                  <span className="stage-n">{s.n}</span>
-                  <span className="tile">{STEP_ICONS[i]}</span>
+          <div className="confirm-steps">
+            {AGENT.steps.map((s, i) => {
+              const inner = (
+                <>
+                  <span className="stage-when">{s.when}</span>
                   <span className="stage-copy">
                     <strong>{s.title}</strong>
                     <span>{s.body}</span>
                   </span>
-                </button>
-              ))}
-            </div>
-            <div className="ways">
-              <p className="mod-col-label">{AGENT.waysTitle}</p>
-              <div className="ways-grid">
-                {AGENT.ways.map((w) => (
-                  <div key={w.title} className="way">
-                    <SparklesIcon size={16} className="tick" />
-                    <div>
-                      <strong>{w.title}</strong>
-                      <span>{w.body}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="how-right" data-reveal style={{ "--d": "0.12s" } as React.CSSProperties}>
-            <div className="diagram" role="img" aria-label="Requests come in from WhatsApp, Telegram, email, the portal and the field app. The AIMS agent drafts, waits for your confirmation, then executes across every module.">
-              <p className="diagram-label">Where work comes in</p>
-              <div className="nodes nodes-5">
-                {AGENT.channels.map((c) => (
-                  <div key={c.key} className={`node${on(active === 0)}`}>
-                    {CHANNEL_ICONS[c.key]}
-                    <span>{c.label}</span>
-                  </div>
-                ))}
-              </div>
-              <Connector />
-              <div className={`core${on(active === 1)}`}>
-                <LogoMark size={26} onDark />
-                <div>
-                  <p className="core-title">{AGENT.core.title}</p>
-                  <p className="core-body">{AGENT.core.body}</p>
-                </div>
-              </div>
-              <Connector />
-              <div className="nodes nodes-3">
-                {AGENT.actions.map((a, i) => (
-                  <div key={a} className={`node node-action${on((active === 1 && i === 0) || (active === 2 && i > 0))}`}>
-                    {ACTION_ICONS[i]}
-                    <span>{a}</span>
-                  </div>
-                ))}
-              </div>
-              <Connector />
-              <p className="diagram-label">Where it lands</p>
-              <div className="nodes nodes-5">
-                {MODULES.map((m) => (
-                  <div key={m.key} className={`node${on(active === 2)}`}>
-                    {MODULE_ICONS[m.key]}
-                    <span>{m.name}</span>
-                  </div>
-                ))}
-              </div>
-              <p className="diagram-foot"><InboxIcon size={14} className="tick" />{AGENT.foot}</p>
-            </div>
+                </>
+              );
+              const cls = `stage${i === active ? " is-on" : i < active ? " is-done" : ""}`;
+              return phone ? (
+                <button key={s.title} type="button" className={cls} onClick={() => setShown(s.at + 1)} aria-pressed={i === active}>{inner}</button>
+              ) : (
+                <div key={s.title} className="stage stage-static">{inner}</div>
+              );
+            })}
           </div>
         </div>
 
-        <div className="guarantees" data-reveal>
-          {AGENT.guarantees.map((g) => (
-            <span key={g.text}>{G_ICONS[g.icon]}{g.text}</span>
-          ))}
-        </div>
+        {phone ? (
+          <div className="confirm-phone" data-reveal style={{ "--d": "0.1s" } as React.CSSProperties}>
+            <ChatMock shown={visible} fixed />
+          </div>
+        ) : null}
       </div>
     </section>
   );

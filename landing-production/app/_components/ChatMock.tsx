@@ -1,12 +1,28 @@
-import { CHAT, QUOTE_FILE, QUOTE_LINES, QUOTE_TOTAL } from "../_content/site";
-import { FileIcon, SendIcon } from "./Icons";
+"use client";
+
+import { useEffect, useRef } from "react";
+import { CHAT } from "../_content/site";
+import { SendIcon } from "./Icons";
 import { LogoMark } from "./Logo";
 
-/** Static rendering of a sample operator conversation, the hero's product shot. */
-export function ChatMock({ animate = false }: { animate?: boolean } = {}) {
+/** The sample conversation in a phone. With `shown`, only the first `shown`
+ *  turns are rendered and the thread scrolls to keep the newest in view; the
+ *  Confirm button on the draft card reads as pressed once the "sent" turn is
+ *  in. Without `shown`, the whole thread is shown at once. */
+export function ChatMock({ shown, fixed = false }: { shown?: number; fixed?: boolean } = {}) {
+  const body = useRef<HTMLDivElement>(null);
+  const count = shown ?? CHAT.length;
+  const sentIn = CHAT.findIndex((t) => t.from === "aims" && t.sent) < count;
+
+  useEffect(() => {
+    const el = body.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [count]);
+
   return (
     <div className="phone-wrap">
-      <div className={`phone${animate ? " phone-anim" : ""}`} role="img" aria-label="Sample conversation with the AIMS agent on WhatsApp">
+      <div className={`phone${fixed ? " phone-fixed" : ""}`} role="img" aria-label="Sample conversation with the AIMS agent on WhatsApp">
         <div className="phone-screen">
           <div className="chat-head">
             <span className="chat-avatar"><LogoMark size={16} onDark /></span>
@@ -15,30 +31,29 @@ export function ChatMock({ animate = false }: { animate?: boolean } = {}) {
               <div className="chat-head-status">online · Osiris Technology</div>
             </div>
           </div>
-          <div className="chat-body">
-            {CHAT.map((t, i) =>
+          <div className="chat-body" ref={body}>
+            {CHAT.slice(0, count).map((t, i) =>
               t.from === "you" ? (
-                <div key={i} className="bubble bubble-out" style={{ "--i": i } as React.CSSProperties}>
+                <div key={i} className="bubble bubble-out">
                   {t.text}
                   <div className="stamp">{t.time}</div>
                 </div>
-              ) : t.quote ? (
-                <div key={i} className="bubble bubble-in bubble-card" style={{ "--i": i } as React.CSSProperties}>
+              ) : t.card ? (
+                <div key={i} className="bubble bubble-in bubble-card">
                   <span dangerouslySetInnerHTML={{ __html: t.html }} />
                   <div className="quote-lines mono">
-                    {QUOTE_LINES.map((l) => (
-                      <div key={l.label}><span>{l.label}</span><span>{l.amount}</span></div>
+                    {t.card.lines.map(([l, amt, meta]) => (
+                      <div key={l} className="line3"><span>{l}</span><em>{meta}</em><span>{amt}</span></div>
                     ))}
-                    <div className="total"><span>{QUOTE_TOTAL.label}</span><span>{QUOTE_TOTAL.amount}</span></div>
+                    <div className="total"><span>{t.card.total[0]}</span><span>{t.card.total[1]}</span></div>
                   </div>
-                  <div className="quote-file"><FileIcon />{QUOTE_FILE}</div>
-                  <div className="quote-actions">
-                    <span className="primary">Confirm &amp; send</span>
+                  <div className={`quote-actions${sentIn ? " is-done" : ""}`}>
+                    <span className="primary">{sentIn ? t.card.done : t.card.action}</span>
                     <span className="secondary">Edit</span>
                   </div>
                 </div>
               ) : (
-                <div key={i} className="bubble bubble-in" style={{ "--i": i } as React.CSSProperties}>
+                <div key={i} className="bubble bubble-in">
                   <span dangerouslySetInnerHTML={{ __html: t.html }} />
                   <div className="stamp">{t.time}</div>
                 </div>

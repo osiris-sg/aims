@@ -3,10 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { DEMO_URL, MODULES, NAV_LINKS, SIGN_IN_URL } from "../_content/site";
-import { ArrowIcon, ChevronDownIcon, CloseIcon, MenuIcon } from "./Icons";
+import { ChevronDownIcon, CloseIcon, MenuIcon } from "./Icons";
 import { Logo } from "./Logo";
-import { MODULE_ICONS } from "./ModuleIcons";
-import { ThemeToggle } from "./ThemeToggle";
 
 export function Nav() {
   const [scrolled, setScrolled] = useState(false);
@@ -36,11 +34,11 @@ export function Nav() {
             <div className="nav-dropdown">
               {MODULES.map((m) => (
                 <Link key={m.key} href={`/modules/${m.key}`} className="nav-dropdown-item">
-                  <span className="nav-dropdown-icon">{MODULE_ICONS[m.key]}</span>
                   <span>
                     <strong>{m.name}</strong>
                     <small>{m.short}</small>
                   </span>
+                  <span className="mono" style={{ fontSize: 11, color: "var(--faint)" }}>{m.papers.split(" · ")[0]}</span>
                 </Link>
               ))}
             </div>
@@ -50,9 +48,8 @@ export function Nav() {
           ))}
         </nav>
         <div className="nav-actions">
-          <ThemeToggle />
           <a className="btn btn-ghost btn-sm nav-signin" href={SIGN_IN_URL}>Sign in</a>
-          <a className="btn btn-primary btn-sm nav-demo" href={DEMO_URL}>Book a demo <ArrowIcon /></a>
+          <a className="btn btn-primary btn-sm nav-demo" href={DEMO_URL}>Book a demo</a>
           <button
             type="button"
             className="nav-burger"
@@ -71,7 +68,6 @@ export function Nav() {
             <span className="nav-mobile-label">Modules</span>
             {MODULES.map((m) => (
               <Link key={m.key} href={`/modules/${m.key}`} className="nav-mobile-link" onClick={close}>
-                <span className="nav-dropdown-icon">{MODULE_ICONS[m.key]}</span>
                 {m.name}
               </Link>
             ))}
@@ -81,7 +77,7 @@ export function Nav() {
             ))}
             <div className="nav-mobile-actions">
               <a className="btn btn-ghost" href={SIGN_IN_URL}>Sign in</a>
-              <a className="btn btn-primary" href={DEMO_URL} onClick={close}>Book a demo <ArrowIcon /></a>
+              <a className="btn btn-primary" href={DEMO_URL} onClick={close}>Book a demo</a>
             </div>
           </div>
         </div>

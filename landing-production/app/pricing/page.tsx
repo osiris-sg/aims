@@ -3,8 +3,7 @@ import { Nav } from "../_components/Nav";
 import { Footer } from "../_components/Footer";
 import { Cta } from "../_components/Cta";
 import { DEMO_URL, MODULES, BADGE_LABEL } from "../_content/site";
-import { ArrowIcon, CheckIcon } from "../_components/Icons";
-import { MODULE_ICONS } from "../_components/ModuleIcons";
+import { CheckIcon } from "../_components/Icons";
 
 export const metadata: Metadata = {
   title: "Pricing | AIMS",
@@ -16,7 +15,7 @@ const PLANS = [
     name: "Starter",
     tagline: "One company, the modules you need.",
     price: "Per module, per month",
-    features: ["Any modules from the five", "The WhatsApp / Telegram agent", "Unlimited documents and users", "Branded templates and your numbering", "Email support"],
+    features: ["Any of the four modules", "The WhatsApp / Telegram agent", "Unlimited documents and users", "Branded templates and your numbering", "Email support"],
     cta: "Book a demo",
   },
   {
@@ -24,7 +23,7 @@ const PLANS = [
     tagline: "Everything on, plus your accountant.",
     price: "All modules, per month",
     featured: true,
-    features: ["All five modules", "Accountant seat with the posting queue", "Migration from Xero, QuickBooks, Odoo and more", "Field app for your technicians", "Priority support on WhatsApp"],
+    features: ["All four modules", "Accountant seat with the posting queue", "Migration from Xero, QuickBooks, Odoo and more", "Field app for your technicians", "Priority support on WhatsApp"],
     cta: "Book a demo",
   },
   {
@@ -59,7 +58,7 @@ export default function PricingPage() {
               <ul className="feature-bullets">
                 {p.features.map((f) => <li key={f}><CheckIcon size={16} className="tick" strokeWidth={2.2} />{f}</li>)}
               </ul>
-              <a className={`btn ${p.featured ? "btn-primary" : "btn-ghost"}`} href={DEMO_URL}>{p.cta} <ArrowIcon /></a>
+              <a className={`btn ${p.featured ? "btn-primary" : "btn-ghost"}`} href={DEMO_URL}>{p.cta}</a>
             </div>
           ))}
         </section>
@@ -72,11 +71,11 @@ export default function PricingPage() {
             {MODULES.map((m) => (
               <a key={m.key} href={`/modules/${m.key}`} className="card card-hover more-card">
                 <div className="module-top">
-                  <div className="tile">{MODULE_ICONS[m.key]}</div>
+                  <strong className="module-name">{m.name}</strong>
                   {m.badge ? <span className={`badge badge-${m.badge}`}>{BADGE_LABEL[m.badge]}</span> : null}
                 </div>
-                <strong className="module-name">{m.name}</strong>
                 <span className="module-body">{m.hero}</span>
+                <span className="mono" style={{ fontSize: 11.5, color: "var(--faint)" }}>{m.papers}</span>
               </a>
             ))}
           </div>

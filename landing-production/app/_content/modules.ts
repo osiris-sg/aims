@@ -31,7 +31,7 @@ export const MODULE_PAGES: ModulePage[] = [
     features: [
       {
         title: "Tap the sticker. Photograph the nameplate. Done.",
-        body: "The NFC tag is the unit's identity. AI reads the model and serial off the label and matches it to your catalog. Three checks stop the same pump being added twice.",
+        body: "The NFC tag is the unit's identity. It reads the model and serial off the label and matches it to your catalog. Three checks stop the same pump being added twice.",
         bullets: ["Works on NFC Android phones and rugged handhelds", "Manual serial entry for units you cannot tag", "Create a new product from the field"],
         screen: "field-scan",
       },
@@ -66,17 +66,17 @@ export const MODULE_PAGES: ModulePage[] = [
     name: "CRM",
     eyebrow: "CRM and sales documents",
     title: "From first WhatsApp to paid invoice, without retyping anything.",
-    lede: "Customers, quotations, orders, deliveries and invoices in one chain. AI turns a PDF or photo into a document. Customers pay from a link.",
+    lede: "Customers, quotations, orders, deliveries and invoices in one chain. A PDF or a photo becomes a numbered document. Customers pay from a link.",
     heroScreen: "invoices-list",
     stats: [
       { value: "9", label: "document types in one linked chain" },
       { value: "10", label: "steps tracked from draft to paid" },
-      { value: "5", label: "document types AI can read from a file" },
+      { value: "5", label: "document types read straight from a file" },
     ],
     features: [
       {
         title: "Drop a PDF or a photo. Get a numbered document.",
-        body: "Upload a supplier invoice, a customer PO or a photo of a handwritten DO. AI reads the customer, dates, items and totals and creates the document on your template.",
+        body: "Upload a supplier invoice, a customer PO or a photo of a handwritten DO. AIMS reads the customer, dates, items and totals and creates the document on your template.",
         bullets: ["Upload a ZIP and each file becomes a document", "Customer matched by name, or created", "Lines coded from your price list"],
         screen: "doc-upload",
       },
@@ -98,7 +98,7 @@ export const MODULE_PAGES: ModulePage[] = [
         bullets: ["Knows the customer's balance and recent documents", "Test it before going live", "Scheduled and recurring messages"],
       },
       {
-        title: "Ask AI inside the editor.",
+        title: "Ask the editor a question.",
         body: "Say “same terms as the last CityGas quote, but 12 units”. It searches your past documents and offers a change you can apply. It never edits on its own.",
         bullets: ["Past line descriptions suggested as you type", "Several template designs per document type", "Your own numbering format"],
       },
@@ -109,7 +109,7 @@ export const MODULE_PAGES: ModulePage[] = [
     slug: "accounting",
     name: "Accounting",
     eyebrow: "Accounting",
-    title: "AI does the coding. Your accountant keeps the pen.",
+    title: "AIMS proposes the entry. Your accountant keeps the pen.",
     lede: "Real double-entry accounting. Documents post journals automatically and wait for review. Bank rec, period close, GST F5 and 43 reports. Works with the software you use today.",
     heroScreen: "finance-hub",
     stats: [
@@ -132,7 +132,7 @@ export const MODULE_PAGES: ModulePage[] = [
       {
         title: "Bank rec that handles batch payments.",
         body: "Import a CSV or a PDF statement. Exact matches clear first. Then it finds the invoices behind one big transfer and suggests them for you to confirm.",
-        bullets: ["AI suggests an account for unmatched lines", "Post a bank line as a new entry in one click", "Reconciles to the cent"],
+        bullets: ["An account is suggested for unmatched lines", "Post a bank line as a new entry in one click", "Reconciles to the cent"],
         screen: "bank-rec",
       },
       {
@@ -156,7 +156,7 @@ export const MODULE_PAGES: ModulePage[] = [
       {
         title: "Bring your books from the software you use today.",
         body: "Xero, QuickBooks, Odoo, MYOB, Sage, Zoho Books, SAP Business One or AutoCount. We import your contacts, invoices, bills and history, then check every account to one cent before you switch.",
-        bullets: ["Reports shaped like the Singapore desktop packages you know", "Keep syncing to your old system while you switch", "AI-assisted account mapping you approve"],
+        bullets: ["Reports shaped like the Singapore desktop packages you know", "Keep syncing to your old system while you switch", "Suggested account mapping, approved by you"],
       },
     ],
     prompts: ["“aged receivables as of today”", "“record S$3,200 from Beta against INV-0231”", "“GST report for Q3”", "“list open bills over 30 days”"],
@@ -164,10 +164,9 @@ export const MODULE_PAGES: ModulePage[] = [
   {
     slug: "claims",
     name: "Claims",
-    badge: "early-access",
-    eyebrow: "Claims · early access",
+    eyebrow: "Claims",
     title: "Snap the receipt. It is filed, coded and waiting for approval.",
-    lede: "Staff expense claims that use the same AI that reads supplier bills. Send a receipt to the bot, approve it in the chat, and it posts to the ledger.",
+    lede: "Staff expense claims, read the same way supplier bills are. Send a receipt to the bot, approve it in the chat, and it posts to the ledger.",
     stats: [
       { value: "1", label: "photo to raise a claim" },
       { value: "0", label: "spreadsheets" },
@@ -176,8 +175,8 @@ export const MODULE_PAGES: ModulePage[] = [
     features: [
       {
         title: "From a photo in WhatsApp to a coded claim.",
-        body: "Send the receipt with a note like “claim this under Tuas project”. AI reads the vendor, amount and GST, files it under you and tags the project.",
-        bullets: ["Same AI that reads supplier bills", "Learns which account each vendor goes to", "Spots duplicate receipts"],
+        body: "Send the receipt with a note like “claim this under Tuas project”. It reads the vendor, amount and GST, files it under you and tags the project.",
+        bullets: ["Read the same way as supplier bills", "Learns which account each vendor goes to", "Spots duplicate receipts"],
       },
       {
         title: "Approve in the chat or in the queue.",
@@ -191,37 +190,6 @@ export const MODULE_PAGES: ModulePage[] = [
       },
     ],
     prompts: ["[receipt photo] “claim this under Tuas project”", "“approve all claims under S$50”", "“how much has Ravi claimed this month?”"],
-  },
-  {
-    slug: "hr",
-    name: "HR",
-    badge: "roadmap",
-    eyebrow: "HR · roadmap",
-    title: "Leave, attendance and payroll, approved in the chat.",
-    lede: "Staff records on the same roles and permissions as the rest of AIMS. Leave through the agent. Attendance from the field app. Payroll prepared for review.",
-    stats: [
-      { value: "1", label: "identity across portal, field app and bot" },
-      { value: "93", label: "permissions already in the platform" },
-      { value: "2027", label: "target" },
-    ],
-    features: [
-      {
-        title: "Leave that asks and answers itself.",
-        body: "Say “apply 2 days leave next Thu to Fri”. The agent checks the balance, raises the request and pings the approver with Approve and Decline buttons.",
-        bullets: ["Leave types per company", "Singapore public holidays built in", "Team calendar in the portal"],
-      },
-      {
-        title: "Attendance from the field app.",
-        body: "Technicians already carry the SiteJobs field app. Clock in and out on the same phone, with location.",
-        bullets: ["NFC or GPS clock-in", "Hours per project", "Exceptions flagged for review"],
-      },
-      {
-        title: "Payroll prepared, reviewed, posted.",
-        body: "Monthly payroll drafted from attendance, leave and approved claims. Reviewed by the person who signs it, then posted to the ledger.",
-        bullets: ["Review before posting", "Payslips sent in the chat", "CPF and levies split correctly"],
-      },
-    ],
-    prompts: ["“apply 2 days leave next Thu to Fri”", "“who is on leave this week?”", "“prepare August payroll”"],
   },
 ];
 

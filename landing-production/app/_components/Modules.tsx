@@ -2,107 +2,85 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { BADGE_LABEL, MODULES, MODULE_LINKS, type ModuleKey } from "../_content/site";
-import { ArrowIcon, ArrowLeftIcon } from "./Icons";
-import { LogoMark } from "./Logo";
-import { MODULE_ICONS } from "./ModuleIcons";
+import { MODULES, MODULE_LINKS, type ModuleKey } from "../_content/site";
 
-const NAME = Object.fromEntries(MODULES.map((m) => [m.key, m.name])) as Record<ModuleKey, string>;
-
-/** The five modules under one agent. Pick a module to see what it does, what
- *  you can ask the agent, and which other modules it feeds or is fed by. */
+/** The modules as a list on the left and one entry on the right: what it does,
+ *  what you would type, and which other modules it works with (as sentences,
+ *  grouped by module, so the links read like prose). */
 export function Modules() {
   const [active, setActive] = useState<ModuleKey>("crm");
   const m = MODULES.find((x) => x.key === active)!;
-  const links = MODULE_LINKS.filter((l) => l.from === active || l.to === active);
+
+  // Group the links by the other module, in MODULES order.
+  const related = MODULES.filter((x) => x.key !== active)
+    .map((x) => ({
+      key: x.key,
+      name: x.name,
+      texts: MODULE_LINKS.filter((l) => (l.from === active && l.to === x.key) || (l.to === active && l.from === x.key)).map((l) => l.text),
+    }))
+    .filter((r) => r.texts.length > 0);
 
   return (
-    <section id="modules" className="section-grey">
+    <section id="modules" className="section-plain section-rule">
       <div className="wrap section">
         <div className="section-head" data-reveal>
-          <span className="eyebrow">Five modules · one agent</span>
-          <h2 className="h2">Every part of the business, reachable from the same conversation.</h2>
-          <p className="lede">Turn modules on per company. Pick one below to see what it does and how it connects to the rest.</p>
+          <p className="eyebrow">{MODULES.length === 4 ? "Four" : MODULES.length} modules, one set of records</p>
+          <h2 className="h2">Turn on the parts you need. They already know about each other.</h2>
+          <p className="lede">A delivery order deducts stock, drafts the invoice and prepares the journal. Nothing is typed twice.</p>
         </div>
 
         <div className="mx" data-reveal>
-          <div className="hub">
-            <LogoMark size={32} onDark />
-            <div>
-              <p className="hub-title">AIMS agent</p>
-              <p className="hub-sub">One agent. Every module. One set of records.</p>
+          <div>
+            <p className="mod-col-label" style={{ marginBottom: 10 }}>Pick a module</p>
+            <div className="mod-index" role="tablist" aria-label="Modules">
+              {MODULES.map((x) => (
+                <button
+                  key={x.key}
+                  type="button"
+                  role="tab"
+                  id={`mod-tab-${x.key}`}
+                  aria-selected={x.key === active}
+                  aria-controls="mod-panel"
+                  className={`mod-tab${x.key === active ? " is-on" : ""}`}
+                  onClick={() => setActive(x.key)}
+                >
+                  <strong>{x.name}</strong>
+                  <span className="mod-tab-short">{x.short}</span>
+                  <span className="mod-tab-papers">{x.papers}</span>
+                </button>
+              ))}
             </div>
           </div>
 
-          <div className="mod-tabs" role="tablist" aria-label="Modules">
-            {MODULES.map((x) => (
-              <button
-                key={x.key}
-                type="button"
-                role="tab"
-                id={`mod-tab-${x.key}`}
-                aria-selected={x.key === active}
-                aria-controls="mod-panel"
-                className={`mod-tab${x.key === active ? " is-on" : ""}`}
-                onClick={() => setActive(x.key)}
-              >
-                <span className="mod-tab-top">
-                  <span className="tile">{MODULE_ICONS[x.key]}</span>
-                  {x.badge ? <span className={`badge badge-${x.badge}`}>{BADGE_LABEL[x.badge]}</span> : null}
-                </span>
-                <strong>{x.name}</strong>
-                <span className="mod-tab-short">{x.short}</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="mod-panel" id="mod-panel" role="tabpanel" aria-labelledby={`mod-tab-${active}`}>
+          <div className="mod-panel sheet" id="mod-panel" role="tabpanel" aria-labelledby={`mod-tab-${active}`} key={active}>
             <div className="mod-col">
-              <p className="mod-col-label">What it does</p>
-              <h3 className="mod-hero">{m.hero}</h3>
+              <h3 className="mod-title">{m.name}</h3>
+              <p className="mod-hero">{m.hero}</p>
               <p className="mod-body">{m.body}</p>
-              <Link className="module-link" href={`/modules/${m.key}`}>Explore {m.name} <ArrowIcon size={14} /></Link>
+              <Link className="module-link" href={`/modules/${m.key}`}>Read about {m.name}</Link>
             </div>
 
-            <div className="mod-col">
-              <p className="mod-col-label">Ask the agent</p>
-              <div className="mod-prompts">
-                {m.prompts.map((p) => <span key={p} className="prompt-bubble">{p}</span>)}
+            <div className="mod-two">
+              <div className="mod-col">
+                <p className="mod-col-label">Say it on WhatsApp</p>
+                <div className="mod-prompts">
+                  {m.prompts.map((p) => <span key={p} className="prompt-bubble">{p}</span>)}
+                </div>
+              </div>
+
+              <div className="mod-col">
+                <p className="mod-col-label">Works with</p>
+                <ul className="links">
+                  {related.map((r) => (
+                    <li key={r.key} className="link-row">
+                      <button type="button" className="mod-chip" onClick={() => setActive(r.key)}>{r.name}</button>
+                      <span className="link-text">{r.texts.join(" ")}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
-
-            <div className="mod-col">
-              <p className="mod-col-label">How it is linked</p>
-              <ul className="links">
-                {links.map((l) => {
-                  const out = l.from === active;
-                  const other = out ? l.to : l.from;
-                  return (
-                    <li key={`${l.from}-${l.to}`} className="link-row">
-                      <button
-                        type="button"
-                        className="mod-chip"
-                        onClick={() => setActive(other)}
-                        aria-label={`${out ? "Sends to" : "Gets from"} ${NAME[other]}. Show ${NAME[other]}.`}
-                      >
-                        {out ? <ArrowIcon size={13} /> : <ArrowLeftIcon size={13} />}
-                        {NAME[other]}
-                      </button>
-                      <span className="link-text">
-                        {l.text}
-                        {l.badge ? <span className={`badge badge-${l.badge}`}>{BADGE_LABEL[l.badge]}</span> : null}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-              <p className="links-legend"><ArrowIcon size={12} /> sends to <ArrowLeftIcon size={12} /> gets from</p>
-            </div>
           </div>
-
-          <p className="note">
-            <strong>One set of records.</strong> Customers, stock, documents and the ledger are shared by every module, so nothing is typed twice.
-          </p>
         </div>
       </div>
     </section>

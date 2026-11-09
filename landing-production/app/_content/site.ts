@@ -10,71 +10,116 @@ export const WHATSAPP_URL = process.env.NEXT_PUBLIC_WHATSAPP_URL || "";
 export const TAGLINE = "One Intelligent System. More Human Potential.";
 
 export const NAV_LINKS = [
-  { label: "WhatsApp agent", href: "/agent" },
-  { label: "How it works", href: "/#how" },
+  { label: "The agent", href: "/agent" },
+  { label: "Who it is for", href: "/#trades" },
   { label: "Pricing", href: "/pricing" },
 ];
 
 export const HERO = {
-  eyebrow: "The intelligent business operating system",
-  /** Line one, then line two split so the second half takes the brand colour. */
-  title: "One Intelligent System.",
-  titleLead: "More",
-  titleAccent: "Human Potential.",
-  body:
-    "Inventory, CRM, accounting, claims and HR in one system. An AI agent on WhatsApp or Telegram does the work when you ask. You confirm, it is done.",
-  proofs: ["Double-entry ledger built in", "GST-ready, Singapore first", "Works with your current accounting software"],
+  eyebrow: "Operations software for Singapore SMEs",
+  title: ["One WhatsApp message.", "All the paperwork."],
+  body: "Your team sends a message. AIMS drafts the documents. Your accountant posts.",
+  /** The WhatsApp line that produces every document on the desk. */
+  message: { text: "quote Beta for 2 fan coil units and 8 hours install, deliver Thursday", time: "09:41" },
 };
 
-/** The floating card on the hero photo: one request, three modules consulted. */
-export const HERO_CARD = {
-  channel: "AIMS agent on WhatsApp",
-  ask: "Quote Beta for 2 fan coil units and 8 hours install",
-  reply: "Draft QT-2026-0148 is ready. S$2,616.00 incl. GST.",
-  checks: [
-    { text: "Customer and prices matched", module: "CRM" },
-    { text: "FXAQ25: 14 in stock", module: "Inventory" },
-    { text: "Beta owes S$4,820.00", module: "Accounting" },
-  ],
-  status: "Draft ready for your Confirm",
-};
-
-export const MARQUEE = [
-  "One Intelligent System",
-  "More Human Potential",
-  "Unified by Design",
-  "Built to Execute",
-  "Designed Around People",
+/** The flow on the right of the hero: one step per paper and who did it. */
+export type DeskStep = { key: "message" | "quotation" | "delivery" | "invoice" | "journal"; label: string; who: string };
+export const DESK_STEPS: DeskStep[] = [
+  { key: "message", label: "Message", who: "Ravi · Mon 09:41" },
+  { key: "quotation", label: "Quotation", who: "AIMS drafted · Ravi confirmed" },
+  { key: "delivery", label: "Delivery order", who: "Hafiz · on site Thu 14:22" },
+  { key: "invoice", label: "Tax invoice", who: "AIMS drafted · Mei confirmed" },
+  { key: "journal", label: "Journal", who: "S. Lim · accountant" },
 ];
 
-/** Sample conversation rendered in the hero phone. */
+/** The four papers on the desk. Figures tie: 1,760 + 640 = 2,400; GST 216; total 2,616. */
+export const DESK = {
+  quotation: {
+    ref: "QT-2026-0148",
+    customer: ["Beta Industries Pte Ltd", "UEN 201512345K · 12 Tuas Ave 3"],
+    lines: [
+      ["2 × Fan coil unit FXAQ25", "1,760.00"],
+      ["8 hr installation", "640.00"],
+      ["GST 9%", "216.00"],
+    ],
+    total: ["Total", "S$2,616.00"],
+  },
+  delivery: {
+    ref: "DO-2026-0097",
+    summary: "2 × FXAQ25 · serials 7A41, 7A42 · Tuas",
+    photos: ["Front", "Left", "Back", "Right"],
+    stamp: "Thu 12 Nov · 14:22 · 1.3345°N 103.6364°E",
+  },
+  invoice: {
+    ref: "INV-0248",
+    rows: [
+      ["Amount due", "S$2,616.00"],
+      ["Due", "12 Dec 2026"],
+      ["GST reg.", "M9-0012345-6"],
+    ],
+    note: "Scan to pay with PayNow, or click the link in the email.",
+  },
+  journal: {
+    ref: "JV-1193",
+    status: "Posted · S. Lim · 12 Nov",
+    lines: [
+      ["Dr 1200 Trade receivables", "2,616.00", false],
+      ["Cr 4000 Sales, installation", "2,400.00", true],
+      ["Cr 2200 GST output", "216.00", true],
+    ] as [string, string, boolean][],
+  },
+};
+
+/** Who it is for. Plain table, no links yet: trade pages come with the photo shoot. */
+export const TRADES: { name: string; runs: string; papers: string }[] = [
+  { name: "Aircon & M&E", runs: "Serial-tracked units, NFC tags, 4-photo delivery proof, servicing contracts billed monthly.", papers: "Quotation · DO · Service report" },
+  { name: "Parts & distribution", runs: "Thousands of SKUs, stock by location, purchase orders to suppliers, price lists imported.", papers: "Stock card · PO · Invoice" },
+  { name: "Interior design", runs: "Itemised quotations with discounts, progress billing, designer commissions and advances.", papers: "Quotation · Progress invoice · Claims" },
+  { name: "Collection & logistics", runs: "Routes, driver links with no login, weights and volumes on the DO, recurring customer invoicing.", papers: "DO · Route · Recurring invoice" },
+  { name: "Events & ticketing", runs: "Payouts from ticket platforms matched to sales, GST on fees, books that tie to the bank.", papers: "Receipt · Bank rec · GST F5" },
+];
+
+/** Sample conversation rendered in the phone. A different job from the hero:
+ *  chasing money, recording a receipt, a stock check that drafts a PO. A
+ *  `card` turn carries a draft with a Confirm button; the `sent` turn is the
+ *  reply to that tap. */
+export type ChatCard = { lines: [string, string, string][]; total: [string, string]; action: string; done: string };
 export type ChatTurn =
   | { from: "you"; text: string; time: string }
-  | { from: "aims"; html: string; time: string; quote?: boolean };
+  | { from: "aims"; html: string; time: string; card?: ChatCard; sent?: boolean };
 
 export const CHAT: ChatTurn[] = [
-  { from: "you", text: "create a quotation for Beta Industries, 2 fan coil units and 8 hours install", time: "09:41" },
-  { from: "aims", html: "Draft quotation ready for <strong>Beta Industries Pte Ltd</strong>:", time: "09:41", quote: true },
-  { from: "you", text: "how much does Beta owe us?", time: "09:42" },
+  { from: "you", text: "who hasn't paid us this month?", time: "09:12" },
   {
     from: "aims",
-    html: "Beta Industries has <strong>2 open invoices, S$4,820.00</strong>. INV-0231 (S$3,200) is 12 days overdue. Send a reminder?",
-    time: "09:42",
+    html: "<strong>3 overdue invoices, S$7,940.00.</strong> Reminders with pay links are drafted:",
+    time: "09:12",
+    card: {
+      lines: [
+        ["INV-0231 · Beta Industries", "3,200.00", "12 days"],
+        ["INV-0226 · Ciel Interior", "2,860.00", "5 days"],
+        ["INV-0219 · Tan Brothers", "1,880.00", "2 days"],
+      ],
+      total: ["Overdue", "S$7,940.00"],
+      action: "Send reminders",
+      done: "Sent ✓",
+    },
   },
-  { from: "you", text: "yes, and check stock for FXAQ25", time: "09:42" },
+  { from: "aims", html: "Sent to all three, with PayNow links. Logged under your name.", time: "09:12", sent: true },
+  { from: "you", text: "beta just paid 3,200 by paynow, record it", time: "09:14" },
   {
     from: "aims",
-    html: "Reminder sent to accounts@beta.com.sg. <strong>FXAQ25: 14 in stock</strong> (Woodlands 9, Tuas 5), 6 reserved on open DOs.",
-    time: "09:43",
+    html: "Draft receipt: <strong>S$3,200.00</strong> against INV-0231, PayNow. Beta would then owe S$1,620.00. Confirm to post?",
+    time: "09:14",
+  },
+  { from: "you", text: "yes. how many FXAQ25 left? raise a PO to Daikin for 20", time: "09:15" },
+  {
+    from: "aims",
+    html: "Posted. <strong>FXAQ25: 14 in stock</strong> (Woodlands 9, Tuas 5), 6 reserved. Draft <strong>PO-2026-0061</strong> to Daikin, 20 units, S$17,600.00, waiting for your Confirm.",
+    time: "09:15",
   },
 ];
-
-export const QUOTE_LINES = [
-  { label: "2 × Fan Coil Unit FXAQ25", amount: "1,760.00" },
-  { label: "8 hr Installation", amount: "640.00" },
-];
-export const QUOTE_TOTAL = { label: "Total incl. 9% GST", amount: "S$2,616.00" };
-export const QUOTE_FILE = "QT-2026-0148.pdf";
 
 /**
  * Client logos for the proof strip. Leave empty and the strip is not rendered -
@@ -82,13 +127,15 @@ export const QUOTE_FILE = "QT-2026-0148.pdf";
  */
 export const CLIENT_LOGOS: { src: string; alt: string }[] = [];
 
-export type ModuleKey = "inventory" | "hr" | "crm" | "accounting" | "claims";
+export type ModuleKey = "inventory" | "crm" | "accounting" | "claims";
 export type ModuleBadge = "early-access" | "roadmap";
 export const MODULES: {
   key: ModuleKey;
   name: string;
   /** a few words for the selector tile */
   short: string;
+  /** the documents this module owns, as they appear on paper */
+  papers: string;
   /** one-line hero claim shown above the body */
   hero: string;
   body: string;
@@ -101,24 +148,17 @@ export const MODULES: {
     key: "inventory",
     name: "Inventory",
     short: "Stock, purchases and the field app",
+    papers: "Stock card · PO · Goods received · DO",
     hero: "Tap the NFC sticker, photograph the nameplate. The unit exists.",
-    body: "Products, purchases, adjustments and a stock card per item. A field app that creates units from a tag tap and an AI-read serial.",
+    body: "Products, purchases, adjustments and a stock card per item. A field app that creates units from a tag tap and a serial read off the nameplate.",
     screen: "field-scan",
     prompts: ["“check stock for FXAQ25”", "“raise a PO to Daikin for 20 units”", "“what did we deliver to Tuas this week?”"],
-  },
-  {
-    key: "hr",
-    name: "HR",
-    short: "Leave, attendance and payroll",
-    hero: "Leave, attendance and payroll, approved in the chat.",
-    body: "Staff records, leave and payroll on the same roles and permissions as every other module. Approvals happen in the chat.",
-    badge: "roadmap",
-    prompts: ["“apply 2 days leave next Thu–Fri”", "“who’s on leave this week?”", "“prepare August payroll”"],
   },
   {
     key: "crm",
     name: "CRM",
     short: "Customers, quotations and invoices",
+    papers: "Quotation · Tax invoice · Credit note · Statement",
     hero: "Drop a PDF or a photo. Get a numbered, branded document.",
     body: "Customers, the full quotation to invoice chain, click-to-pay invoices with a PayNow QR, and a WhatsApp assistant that only says what you taught it.",
     screen: "doc-upload",
@@ -128,7 +168,8 @@ export const MODULES: {
     key: "accounting",
     name: "Accounting",
     short: "Ledger, bank rec and reports",
-    hero: "AI does the coding. Your accountant keeps the pen.",
+    papers: "Journal · Bank rec · GST F5 · 43 reports",
+    hero: "AIMS proposes the entry. Your accountant keeps the pen.",
     body: "Documents post journals automatically and wait for review. Bank rec, period close, anomaly checks, GST F5 and 43 reports. Moves your books over from Xero, QuickBooks, Odoo and more.",
     screen: "posting-queue",
     prompts: ["“aged receivables as of today”", "“record S$3,200 from Beta against INV-0231”", "“GST report for Q3”"],
@@ -137,204 +178,44 @@ export const MODULES: {
     key: "claims",
     name: "Claims",
     short: "Receipt to reimbursement",
+    papers: "Claim · Approval · Payment run",
     hero: "Snap the receipt. It is filed, coded and waiting for approval.",
-    body: "Send a receipt photo to the bot. AI reads the amount, GST and vendor, tags the project, and posts it to the ledger once approved.",
-    badge: "early-access",
+    body: "Send a receipt photo to the bot. It reads the amount, GST and vendor, tags the project, and posts it to the ledger once approved.",
     prompts: ["[receipt photo] “claim this under Tuas project”", "“approve all claims under S$50”", "“how much has Ravi claimed this month?”"],
   },
 ];
 
-/**
- * "AIMS in action": three everyday jobs, stepped through one stage at a time.
- * `modules` on a step are the modules that stage touches, which is what lights
- * up the rail beside the walkthrough. All figures are sample data.
- */
-export type UseCaseIcon = "chat" | "file" | "truck" | "receipt" | "check" | "box" | "inbox" | "review" | "bank" | "camera" | "search" | "approve" | "post";
-export type UseCase = {
-  key: string;
-  label: string;
-  icon: "chat" | "box" | "receipt";
-  badge?: ModuleBadge;
-  summary: string;
-  steps: { label: string; icon: UseCaseIcon; title: string; body: string; meta: string; modules: ModuleKey[] }[];
-};
-export const USE_CASES: UseCase[] = [
-  {
-    key: "order",
-    label: "A customer order",
-    icon: "chat",
-    summary: "From a WhatsApp message to a paid invoice",
-    steps: [
-      {
-        label: "Ask",
-        icon: "chat",
-        title: "You message the agent",
-        body: "“Quote Beta for 2 fan coil units and 8 hours install.” Sent from WhatsApp, on the phone you already have.",
-        meta: "WhatsApp or Telegram",
-        modules: ["crm"],
-      },
-      {
-        label: "Draft",
-        icon: "file",
-        title: "Quotation QT-2026-0148 is drafted",
-        body: "AIMS finds Beta Industries, prices both lines and renders the PDF on your own template. S$2,616.00 including 9% GST.",
-        meta: "Nothing goes out until you tap Confirm",
-        modules: ["crm"],
-      },
-      {
-        label: "Deliver",
-        icon: "truck",
-        title: "Delivered and signed for",
-        body: "The technician taps the NFC tag, takes the photos and gets one signature. AIMS creates the delivery order and deducts the 2 units from stock.",
-        meta: "Proof of delivery reaches the office by itself",
-        modules: ["inventory", "crm"],
-      },
-      {
-        label: "Invoice",
-        icon: "receipt",
-        title: "Invoice INV-0248 is waiting",
-        body: "A priced draft invoice is already there. Confirm it and Beta gets a pay link with a PayNow QR. The journal is prepared for your accountant.",
-        meta: "Posts only after a person clicks Post",
-        modules: ["crm", "accounting"],
-      },
-      {
-        label: "Paid",
-        icon: "check",
-        title: "Payment recorded, books updated",
-        body: "S$2,616.00 is recorded against INV-0248. Beta's balance, the ledger and your reports change together.",
-        meta: "Every action logged with a name",
-        modules: ["accounting", "crm"],
-      },
-    ],
-  },
-  {
-    key: "purchase",
-    label: "A stock purchase",
-    icon: "box",
-    summary: "From a purchase order to a reconciled payment",
-    steps: [
-      {
-        label: "Order",
-        icon: "chat",
-        title: "You ask for a purchase order",
-        body: "“Raise a PO to Daikin for 20 units.” AIMS drafts it with the supplier and items already filled in.",
-        meta: "Draft first, confirm to send",
-        modules: ["inventory"],
-      },
-      {
-        label: "Receive",
-        icon: "box",
-        title: "Goods arrive, stock goes up",
-        body: "Receive the delivery against the PO. 20 units land on the stock card with a running balance.",
-        meta: "Who, when and why on every movement",
-        modules: ["inventory"],
-      },
-      {
-        label: "Bill",
-        icon: "inbox",
-        title: "The supplier's bill reads itself",
-        body: "Forward the bill to your AIMS email address. AI reads the supplier, the lines and the GST and creates a draft bill.",
-        meta: "By email, upload or API",
-        modules: ["accounting"],
-      },
-      {
-        label: "Review",
-        icon: "review",
-        title: "Your accountant reviews and posts",
-        body: "The bill waits in one review queue with a suggested debit and credit. Change it if needed, then post.",
-        meta: "AIMS remembers every correction",
-        modules: ["accounting"],
-      },
-      {
-        label: "Match",
-        icon: "bank",
-        title: "The bank payment is matched",
-        body: "Import the bank statement. The payment to Daikin is matched to the bill, and payables and GST are up to date.",
-        meta: "Reconciles to the cent",
-        modules: ["accounting"],
-      },
-    ],
-  },
-  {
-    key: "claim",
-    label: "A staff claim",
-    icon: "receipt",
-    badge: "early-access",
-    summary: "From a receipt photo to a reimbursement",
-    steps: [
-      {
-        label: "Snap",
-        icon: "camera",
-        title: "Staff send a receipt photo",
-        body: "“Claim this under Tuas project.” Sent to the same bot, straight from the counter.",
-        meta: "One photo raises the claim",
-        modules: ["claims"],
-      },
-      {
-        label: "Read",
-        icon: "search",
-        title: "AI reads the receipt",
-        body: "Vendor, amount and GST come off the photo. The claim is filed under the staff member and tagged to the project.",
-        meta: "Duplicate receipts are spotted",
-        modules: ["claims"],
-      },
-      {
-        label: "Approve",
-        icon: "approve",
-        title: "The approver taps Approve",
-        body: "The claim arrives in the approver's own chat with Approve and Query buttons.",
-        meta: "Approval rules by role and amount",
-        modules: ["claims"],
-      },
-      {
-        label: "Post",
-        icon: "post",
-        title: "Expense and GST reach the ledger",
-        body: "Approval posts the expense and its GST. Your accountant sees it in the same review queue as everything else.",
-        meta: "No spreadsheet in between",
-        modules: ["claims", "accounting"],
-      },
-      {
-        label: "Repay",
-        icon: "bank",
-        title: "Reimbursed in the next payment run",
-        body: "Reimbursement uses the same payment run as supplier bills. The history stays against the staff member.",
-        meta: "Project and cost centre reports included",
-        modules: ["accounting", "claims"],
-      },
-    ],
-  },
-];
-
 /** How the modules feed each other, shown in the module explorer. */
-export const MODULE_LINKS: { from: ModuleKey; to: ModuleKey; text: string; badge?: ModuleBadge }[] = [
+export const MODULE_LINKS: { from: ModuleKey; to: ModuleKey; text: string }[] = [
   { from: "crm", to: "inventory", text: "A delivery order ships the goods and deducts the stock." },
   { from: "inventory", to: "crm", text: "A signed delivery from the field drafts the invoice, already priced." },
   { from: "crm", to: "accounting", text: "Every invoice and credit note prepares its own journal for review." },
   { from: "accounting", to: "crm", text: "A recorded payment updates the customer's balance and statement." },
+  { from: "inventory", to: "accounting", text: "Goods received against a PO match the supplier's bill. Stock on hand is valued on the balance sheet." },
   { from: "claims", to: "accounting", text: "An approved claim posts the expense and its GST." },
-  { from: "claims", to: "hr", text: "Approved claims flow into the month's payroll.", badge: "roadmap" },
-  { from: "inventory", to: "hr", text: "Clock-ins on the field app become attendance.", badge: "roadmap" },
-  { from: "hr", to: "accounting", text: "Payroll is reviewed, then posted to the ledger.", badge: "roadmap" },
 ];
 
 export const AGENT = {
   eyebrow: "The agent",
   title: "Not a chatbot that answers questions. A colleague that does the work.",
   body: "The agent has the same permissions as the person messaging it. It looks things up, drafts anything, and only commits after you tap Confirm.",
+  /** `at` = the chat turn (index into CHAT) that lights this step. */
   steps: [
     {
-      n: "01",
+      at: 0,
+      when: "On your phone",
       title: "Ask in plain language",
       body: "WhatsApp or Telegram, from the phone you already have. It knows your customers, items, prices and staff.",
     },
     {
-      n: "02",
+      at: 1,
+      when: "Seconds later",
       title: "It drafts and shows you",
       body: "A quotation PDF, a leave request, a claim. Rendered on your own template so you see exactly what will go out.",
     },
     {
-      n: "03",
+      at: 2,
+      when: "One tap",
       title: "You confirm, AIMS executes",
       body: "One tap. The document is numbered, sent and posted to the ledger. Every action is logged with your name on it.",
     },
@@ -377,13 +258,13 @@ export const PLATFORM = {
 };
 
 export const CTA = {
-  eyebrow: "Get started",
-  title: "Pick the modules you need. Talk to the agent tomorrow.",
-  body: "Priced per company, per module. Our team handles setup and migration.",
+  eyebrow: "Next step",
+  title: "Bring one real job. We will run it through AIMS in front of you.",
+  body: "A 45-minute demo on your own documents. Priced per company, per module. Our team handles setup and moves your books over.",
 };
 
 export const FOOTER = {
-  blurb: "AI operations for small and medium businesses. By Osiris Technology Pte. Ltd., Singapore.",
+  blurb: "Operations software for small and medium businesses. By Osiris Technology Pte. Ltd., Singapore.",
   columns: [
     { title: "Modules", links: MODULES.map((m) => ({ label: m.name, href: `/modules/${m.key}` })) },
     {
@@ -420,6 +301,7 @@ export const BADGE_LABEL: Record<ModuleBadge, string> = {
  */
 export type Screen = { file: string; alt: string; kind: "desktop" | "phone"; caption?: string };
 export const SCREENS: Record<string, Screen> = {
+  dashboard: { file: "dashboard.png", alt: "The AIMS portal home: due today, pending, priorities, business overview and the assistant", kind: "desktop" },
   "field-scan": { file: "field-scan.png", alt: "SiteJobs field app: tap an asset tag", kind: "phone", caption: "Tap an asset tag" },
   "field-photos": { file: "field-photos.png", alt: "Guided 4-angle condition photo capture", kind: "phone", caption: "Guided 4-angle condition photos" },
   "field-route": { file: "field-route.png", alt: "Completed delivery run with photos, signature and linked Delivery Order", kind: "desktop", caption: "Proof of delivery in the office" },

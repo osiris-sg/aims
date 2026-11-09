@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { DEMO_URL, MODULES, BADGE_LABEL } from "../_content/site";
-import { ArrowIcon, CheckIcon } from "./Icons";
+import { CheckIcon } from "./Icons";
 import { Screenshot, hasScreen } from "./Screenshot";
-import { MODULE_ICONS } from "./ModuleIcons";
 import type { Feature } from "../_content/modules";
 
 export function PageHero({ eyebrow, title, lede, screen, badge, children }: { eyebrow: string; title: string; lede: string; screen?: string; badge?: string; children?: React.ReactNode }) {
@@ -13,7 +12,7 @@ export function PageHero({ eyebrow, title, lede, screen, badge, children }: { ey
         <h1 className="h1 h1-page">{title}</h1>
         <p className="hero-body">{lede}</p>
         <div className="hero-cta">
-          <a className="btn btn-primary" href={DEMO_URL}>Book a demo <ArrowIcon /></a>
+          <a className="btn btn-primary" href={DEMO_URL}>Book a demo</a>
           {children}
         </div>
       </div>
@@ -43,7 +42,6 @@ export function FeatureRows({ features }: { features: Feature[] }) {
       {features.map((f, i) => { const shot = hasScreen(f.screen); return (
         <div key={f.title} className={`feature-row${i % 2 ? " feature-row-flip" : ""}${shot ? "" : " feature-row-text"}`}>
           <div className="feature-copy">
-            <span className="feature-n">{String(i + 1).padStart(2, "0")}</span>
             <h2 className="feature-title">{f.title}</h2>
             <p className="feature-body">{f.body}</p>
             {f.bullets ? (
@@ -71,7 +69,7 @@ export function PromptStrip({ prompts, title = "Ask the agent" }: { prompts: str
         <div className="prompt-bubbles">
           {prompts.map((p) => <span key={p} className="prompt-bubble">{p}</span>)}
         </div>
-        <Link className="btn btn-ghost" href="/agent">How the agent works <ArrowIcon /></Link>
+        <Link className="btn btn-ghost" href="/agent">How the agent works</Link>
       </div>
     </section>
   );
@@ -89,12 +87,12 @@ export function MoreModules({ current }: { current?: string }) {
         {others.map((m) => (
           <Link key={m.key} href={`/modules/${m.key}`} className="card card-hover more-card">
             <div className="module-top">
-              <div className="tile">{MODULE_ICONS[m.key]}</div>
+              <strong className="module-name">{m.name}</strong>
               {m.badge ? <span className={`badge badge-${m.badge}`}>{BADGE_LABEL[m.badge]}</span> : null}
             </div>
-            <strong className="module-name">{m.name}</strong>
             <span className="module-body">{m.hero}</span>
-            <span className="module-link">Explore <ArrowIcon size={14} /></span>
+            <span className="mono" style={{ fontSize: 11.5, color: "var(--faint)" }}>{m.papers}</span>
+            <span className="module-link">Read about {m.name}</span>
           </Link>
         ))}
       </div>

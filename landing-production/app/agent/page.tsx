@@ -6,7 +6,7 @@ import { Agent } from "../_components/Agent";
 import { ChatMock } from "../_components/ChatMock";
 import { MoreModules, StatsStrip } from "../_components/PageBlocks";
 import { DEMO_URL } from "../_content/site";
-import { ArrowIcon, CheckIcon } from "../_components/Icons";
+import { CheckIcon } from "../_components/Icons";
 
 export const metadata: Metadata = {
   title: "The AIMS agent on WhatsApp and Telegram",
@@ -32,7 +32,7 @@ export default function AgentPage() {
               <h1 className="h1">Text your business. It does the work.</h1>
               <p className="hero-body">An agent for your staff on WhatsApp and Telegram. It looks things up, drafts documents and only commits after you tap Confirm. With your permissions, under your name.</p>
               <div className="hero-cta">
-                <a className="btn btn-primary" href={DEMO_URL}>Book a demo <ArrowIcon /></a>
+                <a className="btn btn-primary" href={DEMO_URL}>Book a demo</a>
                 <a className="btn btn-ghost" href="#how">How it works</a>
               </div>
               <div className="hero-proofs">
@@ -45,7 +45,7 @@ export default function AgentPage() {
           </div>
         </section>
         <StatsStrip stats={[{ value: "27", label: "actions the agent can take" }, { value: "4", label: "of them need a tapped Confirm" }, { value: "30 min", label: "before an unconfirmed action expires" }]} />
-        <Agent />
+        <Agent phone={false} />
         <section className="wrap section tools-section">
           <div className="section-head">
             <span className="eyebrow">What it can do</span>
