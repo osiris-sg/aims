@@ -19,7 +19,6 @@ import {
 } from "@mui/material";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import AssignmentReturnIcon from "@mui/icons-material/AssignmentReturn";
-import AccountBalanceWalletOutlinedIcon from "@mui/icons-material/AccountBalanceWalletOutlined";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../../_lib/api";
 import { useOrganizationFeatures } from "../../../hooks/useOrganizationFeatures";
@@ -72,7 +71,7 @@ const fmt = (n: number) => (n || 0).toLocaleString(undefined, { minimumFractionD
 
 export default function BillsPage() {
   const { request } = useAccountingApi();
-  const { isXeroDocSyncEnabled, isWctOrdersEnabled, isSpendMoneyEnabled } = useOrganizationFeatures();
+  const { isXeroDocSyncEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
   // WCT (enableWctOrders, 2026-11-03): the Quotation No. column + filter ("none" = not tagged).
   const [quotationFilter, setQuotationFilter] = useState<QuotationTag | "none" | null>(null);
   const router = useRouter();

@@ -9,7 +9,6 @@
 
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import {
   Box,
   Button,
@@ -37,7 +36,6 @@ import CloseIcon from "@mui/icons-material/Close";
 import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
 import PostAddOutlinedIcon from "@mui/icons-material/PostAddOutlined";
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
-import AccountBalanceWalletOutlinedIcon from "@mui/icons-material/AccountBalanceWalletOutlined";
 import SearchIcon from "@mui/icons-material/Search";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./api";
@@ -94,7 +92,6 @@ type LedgerTx = {
 
 export default function APWorkspace() {
   const router = useRouter();
-  const { isSpendMoneyEnabled } = useOrganizationFeatures();
   const { request } = useAccountingApi();
   const { organization } = useOrganization();
   // Phone: the creditor-ledger dialog goes full-screen below sm
