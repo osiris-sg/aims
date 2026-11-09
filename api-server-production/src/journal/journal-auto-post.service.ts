@@ -618,18 +618,28 @@ export class JournalAutoPostService {
         ...(foreign ? { foreignAmount: ROUND(d.amount), exchangeRate: hist } : {}),
       });
     }
-    const diff = ROUND(drTotal - crTotal); // >0 → FX credit (gain) balances it
+    const diff = ROUND(drTotal - crTotal);
     if (!anyForeign || Math.abs(diff) <= 0.005) return null; // control nets out — nothing to post
     const fxAccount = await this.resolveFxGainLossAccount(organizationId, controls);
     if (!fxAccount) {
       this.logger.warn(`[postFromManualOffset] FX difference of ${diff} but no FX gain/loss account; skipping post`);
       return null;
     }
+    // `drTotal` / `crTotal` are named for the AR orientation: the credits loop
+    // feeds drTotal and the debits loop feeds crTotal. On AP both loops post to
+    // the OPPOSITE column, so the residual needs the opposite side too — taking
+    // the AR sides there put the balancing figure on the same side as the
+    // imbalance and doubled it, and journal.create rejects the entry ("Journal
+    // does not balance") AFTER the offset document and its BillPayment rows are
+    // already committed. The column decides the wording: a debit to the FX
+    // account is a loss, a credit is a gain.
+    const fxDebit = isAp ? (diff > 0 ? diff : 0) : diff < 0 ? -diff : 0;
+    const fxCredit = isAp ? (diff < 0 ? -diff : 0) : diff > 0 ? diff : 0;
     lines.push({
       accountId: fxAccount.id,
-      debit: diff < 0 ? -diff : 0,
-      credit: diff > 0 ? diff : 0,
-      description: `Realised FX ${diff > 0 ? 'gain' : 'loss'} — Manual Offset ${offsetNumber ?? ''}`.trim(),
+      debit: fxDebit,
+      credit: fxCredit,
+      description: `Realised FX ${fxCredit > 0 ? 'gain' : 'loss'} — Manual Offset ${offsetNumber ?? ''}`.trim(),
     });
 
     return this.journal.create(
