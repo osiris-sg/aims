@@ -42,6 +42,8 @@ export const SETTINGS_MENU = [
   { label: "Accounting Setup", path: "/portal/settings/accounting-setup" },
   // Directors-only money defaults (guru 2026-10-24) — flag-gated per org.
   { label: "Business Rules", path: "/portal/settings/business-rules" },
+  // Keyboard hotkeys (F2 look up, F9 save…) — enableHotkeys orgs (default on), filtered below.
+  { label: "Hotkeys", path: "/portal/settings/hotkeys" },
   { label: "Master Files", path: "/portal/masterfiles" },
   // Custom job fields (enableJobFields orgs only, filtered below).
   { label: "Job fields", path: "/portal/settings/job-fields" },
@@ -99,11 +101,12 @@ export function useNavModules() {
   const { modules, isModuleEnabled } = useConfiguration();
   const { isModuleAllowed, userRoles, hasPermission } = useUserPermissions();
   // Same rule as DynamicSidebarContent's Organization Settings group.
-  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isBusinessRulesEnabled, isPayablesEnabled, isLegacyAccountingUxEnabled } = useOrganizationFeatures();
+  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isBusinessRulesEnabled, isPayablesEnabled, isLegacyAccountingUxEnabled, isHotkeysEnabled } = useOrganizationFeatures();
   const settingsMenu = SETTINGS_MENU.filter(
     (s) =>
       (s.path !== "/portal/settings/accounting-setup" || showAccountingSetup(isModuleEnabled)) &&
       (s.path !== "/portal/settings/business-rules" || isBusinessRulesEnabled) &&
+      (s.path !== "/portal/settings/hotkeys" || isHotkeysEnabled) &&
       ((s.path !== "/portal/settings/shipping" && s.path !== "/portal/settings/customers") || showShippingSettings(isModuleEnabled)) &&
       (s.path !== "/portal/settings/job-fields" || isJobFieldsEnabled),
   );
