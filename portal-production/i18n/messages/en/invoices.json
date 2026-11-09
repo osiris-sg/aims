@@ -215,5 +215,8 @@
     "noneAvailable": "No customers available",
     "adjustSearch": "Try adjusting your search terms",
     "footer": "Select a customer to create an invoice"
+  },
+  "tradeForm": {
+    "fxMissing": "Needed: the 円貨 line and the ¥ tax figures print only with a rate (finalizing asks for it)."
   }
 }

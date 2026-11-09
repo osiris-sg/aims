@@ -360,7 +360,7 @@ describe('#5 / #6 / #7 TradeGeneratedService', () => {
   it('#5 due date: 7 Japanese bank business days after the issue date (weekends + holidays skipped)', async () => {
     const { svc } = service();
     // Mon 5 Oct 2026 + 7 business days: 6–9 Oct (4), Mon 12 Oct is Sports Day, 13–15 Oct (3) → Thu 15 Oct.
-    expect(await svc.dueDateFor(ORG, '2026-10-05')).toEqual({ issueDate: '2026-10-05', dueDate: '2026-10-15', businessDays: 7 });
+    expect(await svc.dueDateFor(ORG, '2026-10-05')).toEqual({ issueDate: '2026-10-05', dueDate: '2026-10-15', businessDays: 7, fxNote: '円/USD 税関10/4～10/10 外国為替相場参照' });
     const ten = service(null, { docDefaults: { invoiceDueBusinessDays: 10 } }).svc;
     expect((await ten.dueDateFor(ORG, '2026-10-05')).dueDate).toBe('2026-10-20');
     await expect(svc.dueDateFor(ORG, '72026-10-05')).rejects.toThrow(/YYYY-MM-DD/);

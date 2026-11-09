@@ -1008,6 +1008,19 @@ export type ClientSupplierDetail = {
   /** Round BA: Products / Packing. */
   catalog?: ClientCatalog;
 };
+/** Round BN — 請求書 seal / From block placement (mm; + = right / down). */
+export type InvoiceLayout = { sealX: number; sealY: number; sealSize: number; fromAlign: "right" | "left"; fromX: number; fromY: number };
+export type InvoiceLayoutView = {
+  builtIn: InvoiceLayout;
+  org: Partial<InvoiceLayout> | null;
+  customer: Partial<InvoiceLayout> | null;
+  effective: InvoiceLayout;
+  orgEffective: InvoiceLayout;
+  limits: { offset: { min: number; max: number }; sealSize: { min: number; max: number } };
+  billing: "TWO_STAGE" | "SINGLE";
+  docs: Array<{ id: string; docType: string; status: string; number: string | null; orderNo: number | null; createdAt: string }>;
+};
+
 export type FormatPreview = { generator: string; source: string | null; notes: string[]; pdf: { fileName: string; contentType: string; base64: string }; xlsx: { fileName: string; contentType: string; base64: string } | null };
 /** Round AF: one attachment of a thread (inline signature images left out), with the email it came in. */
 export type InboxThreadFile = { emailId: string; index: number; name: string; contentType: string | null; size: number | null; date: string; from: string; company: string | null; /** Round BF */ pages?: number | null; version?: FileVersion | null };
@@ -1766,6 +1779,11 @@ export function useShipmentsApi() {
       clientSampleUrl: (id: string, docType: string, sampleId: string) => call<{ url: string; fileName: string; mimeType: string }>(`/trade-clients/customers/${id}/formats/${docType}/samples/${sampleId}/url`),
       clientPreviewShipments: (id: string) => call<Array<{ id: string; ref: string; blNumber: string | null; hasCoa: boolean; hasPl: boolean }>>(`/trade-clients/customers/${id}/preview-shipments`),
       clientPreview: (id: string, docType: string, body: { shipmentId: string; generator?: string | null }) => call<FormatPreview>(`/trade-clients/customers/${id}/formats/${docType}/preview`, "POST", body, 120_000),
+      // Round BN: 請求書 layout (seal / From block) — org default + this customer's override, live preview on a real invoice.
+      clientInvoiceLayout: (id: string) => call<InvoiceLayoutView>(`/trade-clients/customers/${id}/formats/INVOICE/layout`),
+      clientSaveInvoiceLayout: (id: string, layout: Partial<InvoiceLayout> | null) => call<InvoiceLayoutView>(`/trade-clients/customers/${id}/formats/INVOICE/layout`, "PATCH", { layout }),
+      orgSaveInvoiceLayout: (layout: Partial<InvoiceLayout> | null, customerId: string) => call<InvoiceLayoutView>(`/trade-clients/invoice-layout`, "PATCH", { layout, customerId }),
+      clientInvoiceLayoutPreview: (id: string, docId: string, layout: InvoiceLayout) => call<{ html: string }>(`/trade-clients/customers/${id}/formats/INVOICE/layout-preview`, "POST", { docId, layout }),
       clientAddSample: async (id: string, docType: string, file: File): Promise<ClientCustomerDetail> => {
         const token = await getToken();
         if (!token) throw new Error("Not signed in");
@@ -2086,8 +2104,8 @@ export function useShipmentsApi() {
       getGenerated: (id: string) => call<GeneratedDoc>(`/trade-generated/${id}`),
       updateGenerated: (id: string, body: { header?: GenHeader; columns?: GenColumn[]; rows?: GenRow[]; issuingEntity?: IssuingEntity }) => call<GeneratedDoc>(`/trade-generated/${id}`, "PATCH", body),
       /** 請求書 due date for an issue date (the org's business days, Japanese bank holidays skipped). */
-      invoiceDueDate: (issueDate: string, docType?: string) => call<{ issueDate: string; dueDate: string; businessDays: number }>(`/trade-generated/due-date${qs({ issueDate, docType })}`),
-      previewGenerated: (body: { docType: string; header: any; columns: any[]; rows: any[]; draft?: boolean }) => call<{ html: string }>(`/trade-generated/preview`, "POST", body),
+      invoiceDueDate: (issueDate: string, docType?: string) => call<{ issueDate: string; dueDate: string; businessDays: number; fxNote?: string }>(`/trade-generated/due-date${qs({ issueDate, docType })}`),
+      previewGenerated: (body: { docType: string; header: any; columns: any[]; rows: any[]; draft?: boolean; docId?: string }) => call<{ html: string }>(`/trade-generated/preview`, "POST", body),
       // Finalize renders the PDF (Puppeteer — slow on a cold server): a longer timeout, and if the request still
       // gives up, the document is re-read — a finalize that went through is a success, never an error.
       finalizeGenerated: async (id: string) => {

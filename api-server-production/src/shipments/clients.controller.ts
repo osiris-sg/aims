@@ -3,6 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { RequiresModule } from '../auth/decorators/requires-module.decorator';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
+import { TradeInvoiceLayoutService } from './trade-invoice-layout.service';
 import { actorOf, orgIdOf, TradeRequest } from './shipments.request';
 import { decodeUploadName, resolveTradeFileMime, TRADE_FILE_EXTENSIONS, TRADE_FILE_MAX_BYTES } from './shipments.rules';
 import { ClientsService } from './clients.service';
@@ -21,7 +22,10 @@ const UPLOAD_OPTS = {
 @Controller('trade-clients')
 @UseGuards(ClerkAuthGuard)
 export class ClientsController {
-  constructor(private readonly clients: ClientsService) {}
+  constructor(
+    private readonly clients: ClientsService,
+    private readonly layout: TradeInvoiceLayoutService,
+  ) {}
 
   @Get('customers')
   @Permissions('shipments:read')
@@ -129,6 +133,40 @@ export class ClientsController {
   @Permissions('shipments:update')
   updateFormat(@Param('id', ParseUUIDPipe) id: string, @Param('docType') docType: string, @Body() body: { generator?: string | null; language?: string | null; addressee?: string | null; notes?: string | null; si?: unknown }, @Req() req: TradeRequest) {
     return this.clients.updateFormat(orgIdOf(req), id, docType, body ?? {});
+  }
+
+  // ── Round BN: 請求書 layout (seal / From block placement) ──────────────
+  /** The org default, this customer's override, what is in force, and the customer's invoices to preview on. */
+  @Get('customers/:id/formats/INVOICE/layout')
+  @Permissions('shipments:read')
+  invoiceLayout(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {
+    return this.layout.view(orgIdOf(req), id);
+  }
+
+  /** This customer's own placement ({ layout } — null / {} = follow the org default). */
+  @Patch('customers/:id/formats/INVOICE/layout')
+  @Permissions('shipments:update')
+  async saveInvoiceLayout(@Param('id', ParseUUIDPipe) id: string, @Body() body: { layout?: unknown }, @Req() req: TradeRequest) {
+    const r = await this.layout.save(orgIdOf(req), 'customer', id, body?.layout ?? null, actorOf(req));
+    (req as any).actionLogResult = { scope: 'customer', before: r.before, after: r.after, changes: r.changes };
+    return this.layout.view(orgIdOf(req), id);
+  }
+
+  /** The org default for every customer without its own ({ layout, customerId? } — customerId only picks the view returned). */
+  @Patch('invoice-layout')
+  @Permissions('shipments:update')
+  async saveOrgInvoiceLayout(@Body() body: { layout?: unknown; customerId?: string }, @Req() req: TradeRequest) {
+    const r = await this.layout.save(orgIdOf(req), 'org', null, body?.layout ?? null, actorOf(req));
+    (req as any).actionLogResult = { scope: 'org', before: r.before, after: r.after, changes: r.changes };
+    return body?.customerId ? this.layout.view(orgIdOf(req), body.customerId) : r;
+  }
+
+  /** Live preview: a candidate placement on one of the customer's real invoices (DRAFT watermark). Read-only. */
+  @Post('customers/:id/formats/INVOICE/layout-preview')
+  @Permissions('shipments:read')
+  previewInvoiceLayout(@Param('id', ParseUUIDPipe) id: string, @Body() body: { docId?: string; layout?: unknown }, @Req() req: TradeRequest) {
+    if (!body?.docId) throw new BadRequestException('Pick an invoice to preview on');
+    return this.layout.preview(orgIdOf(req), id, body.docId, body.layout);
   }
 
   /** Round BF: multipart "file" — ADH's own .xlsx for the 出庫・納入依頼書 ("Download .xlsx" fills it). */

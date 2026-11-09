@@ -19,6 +19,9 @@ import {
   amountOf,
   finalizeMessage,
   invoiceFinalizeProblems,
+  fillAutoRemarks,
+  fxNoteFor,
+  invoice1UpchargeTemplate,
   defaultLmeMonth,
   DeliveryProfile,
   DocDefaults,
@@ -55,6 +58,7 @@ import {
 } from './trade-logistics-docs';
 import { fillSiTemplate, productDocLines, siPrintRows, siProductFor, siRemarks, siXlsx, SiSheetHeader, SiSheetRow } from './trade-si';
 import { jpHolidaysBetween, JP_HOLIDAY_SOURCE } from './trade-invoice';
+import { InvoiceLayout, readInvoiceLayout, resolveInvoiceLayout, SINGLE_INVOICE_LAYOUT } from './trade-invoice-layout';
 import { buildCustomerPl, CUSTOMER_PL_COLUMNS, GenColumn, GenRow, parseSheetFile, plTotals, SheetFormatError } from './trade-sheet.parser';
 import { Db, ownerWhere, TradeConfigService } from './trade-config.service';
 import { TradeFilesService } from './trade-files.service';
@@ -609,6 +613,8 @@ export class TradeGeneratedService {
       });
       header = h;
       rows = [{ ...invoice1Line({ id: o.contract?.id ?? '', contractNo: o.contract?.contractNo ?? '' }, orderLine(o), defaults, h.dueDate, h.lmeMonth), contractId: o.contract?.id ?? null, contractLineId: null, orderId: o.id }];
+      // Round BN: 備考 built now from the org's template (the 11/6 draft printed it empty).
+      rows = fillAutoRemarks(rows as any[], h.lmeMonth, defaults.invoiceRemarksTemplate, invoice1UpchargeTemplate(defaults));
     } else if (t.kind === 'invoice' && input.docType === 'INVOICE_1') {
       const c = await this.loadContract(organizationId, owner.contractId!);
       this.assertOpen(c.status, 'contract');
@@ -623,7 +629,12 @@ export class TradeGeneratedService {
         lmeMonth: defaultLmeMonth('INVOICE_1', c.shipmentMonth),
       });
       header = h;
-      rows = c.lines.map((l) => invoice1Line({ id: c.id, contractNo: c.contractNo }, l, defaults, h.dueDate, h.lmeMonth));
+      rows = fillAutoRemarks(
+        c.lines.map((l) => invoice1Line({ id: c.id, contractNo: c.contractNo }, l, defaults, h.dueDate, h.lmeMonth)),
+        h.lmeMonth,
+        defaults.invoiceRemarksTemplate,
+        invoice1UpchargeTemplate(defaults),
+      );
     } else if (t.kind === 'single') {
       // Single invoice (Kato / Hoei): billet at the shipment month's LME + QMJP + premium, the customs / trucking
       // lines in yen (from the estimator) and 他諸掛 — over every covered shipment.
@@ -874,8 +885,10 @@ export class TradeGeneratedService {
   }
 
   /** HTML for the live preview (same template as the PDF). Pass the org to print its seal and resolve an attached PL page. */
-  async previewHtml(docType: string, header: unknown, columns: unknown, rows: unknown, draft = true, seal: string | null = null, organizationId?: string) {
-    const h = organizationId ? await this.hydrate(organizationId, docType, header) : header;
+  async previewHtml(docType: string, header: unknown, columns: unknown, rows: unknown, draft = true, seal: string | null = null, organizationId?: string, docId?: string | null) {
+    // Round BN: the document's own record (order / shipment) decides whose 請求書 layout applies.
+    const owner = organizationId && docId ? await this.prisma.tradeGeneratedDoc.findFirst({ where: { id: docId, organizationId }, select: { orderId: true, shipmentId: true } }) : null;
+    const h = organizationId ? await this.hydrate(organizationId, docType, header, owner) : header;
     return this.render(docType, h, columns ?? [], rows ?? [], { draft, seal });
   }
 
@@ -883,7 +896,11 @@ export class TradeGeneratedService {
    * Resolve render-time data that isn't stored in the header: the PNG of the
    * attached Vedanta container-PL page (計量検収票 "attach" body).
    */
-  async hydrate(organizationId: string, docType: string, header: unknown): Promise<unknown> {
+  async hydrate(organizationId: string, docType: string, header: unknown, owner?: { orderId?: string | null; shipmentId?: string | null } | null): Promise<unknown> {
+    const kind = GENERATED_TEMPLATES[docType]?.kind;
+    if ((kind === 'invoice' || kind === 'single') && header && typeof header === 'object' && !isHoeiLayout(header)) {
+      return { ...(header as object), printLayout: await this.invoiceLayoutFor(organizationId, kind, owner ?? null) };
+    }
     const h = (header ?? {}) as GenHeader;
     if (docType !== 'CUSTOMER_PL' || h.bodyMode !== 'attach' || !h.attachFileId) return header;
     const f = await this.prisma.tradeFile.findFirst({ where: { id: h.attachFileId, organizationId }, select: { s3Key: true, mimeType: true } });
@@ -897,12 +914,28 @@ export class TradeGeneratedService {
     }
   }
 
+  /**
+   * Round BN — where the seal / From block print on this customer's 請求書: the customer's saved layout (Clients ›
+   * Document formats › 請求書) over the org's (docDefaults.invoiceLayout) over the built-in default. The single
+   * invoice (Kato / Hoei) keeps its approved print unless a layout is saved (null).
+   */
+  async invoiceLayoutFor(organizationId: string, kind: 'invoice' | 'single', owner: { orderId?: string | null; shipmentId?: string | null } | null, customerId?: string | null): Promise<InvoiceLayout | null> {
+    const settings = await this.config.getSettings(organizationId);
+    const org = readInvoiceLayout((settings.docDefaults as DocDefaults | undefined)?.invoiceLayout);
+    const cid = customerId ?? (owner ? await this.invoiceCustomerId(organizationId, owner) : null);
+    const cust = cid ? readInvoiceLayout((await this.config.profileOf(organizationId, cid)).docFormats?.INVOICE?.layout) : null;
+    if (kind === 'single') return org || cust ? resolveInvoiceLayout(org, cust, SINGLE_INVOICE_LAYOUT) : null;
+    return resolveInvoiceLayout(org, cust);
+  }
+
   /** 請求書 due date: Japanese bank business days after the issue date — Invoice #1 7, Invoice #2 6 (see dueBusinessDays). */
-  async dueDateFor(organizationId: string, issueDate: string, docType?: string): Promise<{ issueDate: string; dueDate: string; businessDays: number }> {
+  async dueDateFor(organizationId: string, issueDate: string, docType?: string): Promise<{ issueDate: string; dueDate: string; businessDays: number; fxNote: string }> {
     assertIsoDate(issueDate, 'issueDate');
     const settings = await this.config.getSettings(organizationId);
-    const days = dueBusinessDays((settings.docDefaults as DocDefaults | undefined) ?? {}, docType);
-    return { issueDate, dueDate: addBusinessDays(issueDate, days), businessDays: days };
+    const d = (settings.docDefaults as DocDefaults | undefined) ?? {};
+    const days = dueBusinessDays(d, docType);
+    // Round BN: the 円貨 note for this issue date ({ttmDate} = the business day before), so the form can follow it.
+    return { issueDate, dueDate: addBusinessDays(issueDate, days), businessDays: days, fxNote: fxNoteFor(d, issueDate) };
   }
 
   /** The org's seal image (docDefaults.sealImage), for 請求書. */
@@ -924,7 +957,7 @@ export class TradeGeneratedService {
       if (f) return { buffer: await this.s3.downloadFile(f.s3Key), fileName: f.fileName };
     }
     const seal = isInvoiceKind(t.kind) ? await this.sealFor(organizationId) : null;
-    const header = await this.hydrate(organizationId, g.docType, g.header);
+    const header = await this.hydrate(organizationId, g.docType, g.header, g);
     const buffer = await this.pdf.generatePdfFromHtml(this.render(g.docType, header, g.columns, g.rows, { draft: true, seal }), { margin: marginFor(g.docType), landscape: isLandscape(g.docType, header) });
     return { buffer, fileName: `${g.number ?? t.short}-DRAFT.pdf` };
   }
@@ -1054,7 +1087,8 @@ export class TradeGeneratedService {
     if (g.contract && g.contract.status !== 'OPEN') throw new BadRequestException('Reopen the contract before finalizing');
     if (g.order && g.order.status !== 'OPEN') throw new BadRequestException('Reopen the order before finalizing');
     const t = this.template(g.docType);
-    const rows = (g.rows as unknown[]) ?? [];
+    let rows = (g.rows as unknown[]) ?? [];
+    let rowsChanged = false;
     const attachBody = g.docType === 'CUSTOMER_PL' && (g.header as { bodyMode?: string } | null)?.bodyMode === 'attach';
     if (!rows.length && !attachBody) throw new BadRequestException('Add at least one row before finalizing');
     assertDocDates(g.header, rows);
@@ -1125,10 +1159,18 @@ export class TradeGeneratedService {
       number = printedNo || doc.name;
       header = { ...header, invoiceNo: number, salesInvoiceNo: doc.name };
     } else if (t.kind === 'invoice') {
+      // Round BN: a line that follows the price helper never goes out with an empty 備考 (stored with the final).
+      const dd = ((await this.config.getSettings(organizationId)).docDefaults ?? {}) as DocDefaults;
+      const ih = header as InvoiceHeader;
+      const filled = fillAutoRemarks(rows as any[], ih.lmeMonth ?? '', (g.docType === 'INVOICE_2' && dd.invoice2RemarksTemplate) || dd.invoiceRemarksTemplate, g.docType === 'INVOICE_1' ? invoice1UpchargeTemplate(dd) : dd.invoiceUpchargeTemplate);
+      if (filled.some((r, i) => r !== rows[i])) {
+        rows = filled;
+        rowsChanged = true;
+      }
       const lines = toInvoiceLines(rows);
       if (!lines.some((l) => l.description.trim() || amountOf(l) !== 0)) throw new BadRequestException('Add at least one invoice line');
       // No unpriced lines and no US$0.00 invoice (a blank Invoice #1 used to finalize at 0).
-      const problems = invoiceFinalizeProblems(lines, Number((header as InvoiceHeader).taxRate ?? 10));
+      const problems = invoiceFinalizeProblems(lines, Number((header as InvoiceHeader).taxRate ?? 10), { fxRate: ih.fxRate, requireFx: true });
       if (problems.length) throw new BadRequestException(finalizeMessage(problems));
       const doc = await this.ensureSalesInvoice(organizationId, g, header as InvoiceHeader, lines, owners, actor);
       documentId = doc.id;
@@ -1151,7 +1193,7 @@ export class TradeGeneratedService {
     }
 
     const seal = isInvoiceKind(t.kind) ? await this.sealFor(organizationId) : null;
-    const printable = await this.hydrate(organizationId, g.docType, header);
+    const printable = await this.hydrate(organizationId, g.docType, header, g);
     // Round AM: SUS's PACKING LIST is finalized as the spreadsheet SUS takes (.xlsx); everything else as a PDF.
     const susXlsx = g.docType === 'CUSTOMER_PL' && (printable as { layout?: string } | null)?.layout === 'sus';
     const pdf = susXlsx
@@ -1190,7 +1232,7 @@ export class TradeGeneratedService {
     }
     const finalized = await this.prisma.tradeGeneratedDoc.update({
       where: { id, organizationId },
-      data: { status: 'FINAL', number, header, finalFileId: file.id, documentId, ...((g as { docRef?: string | null }).docRef ? {} : { docRef: (file as { docRef?: string | null }).docRef ?? null }) },
+      data: { status: 'FINAL', number, header, ...(rowsChanged ? { rows: rows as any } : {}), finalFileId: file.id, documentId, ...((g as { docRef?: string | null }).docRef ? {} : { docRef: (file as { docRef?: string | null }).docRef ?? null }) },
       select: GEN_SELECT,
     });
     await this.bookCredits(organizationId, { ...g, number, header, rows }, creditIds);

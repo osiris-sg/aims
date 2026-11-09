@@ -49,7 +49,8 @@ describe('ADH 請求書 — pricing helper, totals, tax, JPY', () => {
     // 40.775 × 3950.1 = 161,065.3275 → 161,065.32 (ROUNDDOWN); tax ROUNDDOWN(−2,471.39 × 10%) = −247.13.
     const t = invoiceTotals([line({ quantity: 40.775, unitPrice: 3950.1 }), line({ amountOverride: -164736.71 }), line({ quantity: 1, unitPrice: 1200 })], 10, 161.67);
     expect(t).toMatchObject({ subtotal: -2471.39, tax: -247.13, total: -2718.52 });
-    expect(t.jpy).toEqual({ subtotal: -399550, tax: -39955, total: -439505 });
+    // Round BN (owner): every yen figure of Invoice #1 rounds DOWN (toward zero, Excel ROUNDDOWN): −399,549.6 → −399,549.
+    expect(t.jpy).toEqual({ subtotal: -399549, tax: -39954, total: -439503 });
     expect(roundTo(-0.005, 2)).toBe(-0.01);
     expect(roundDown(-0.019, 2)).toBe(-0.01);
     expect(roundDown(1212042.0000000002, 2)).toBe(1212042);

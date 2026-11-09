@@ -37,6 +37,8 @@ export class PreviewGeneratedDocDto {
   rows: any;
   /** DRAFT watermark (default on). */
   @IsOptional() @IsBoolean() draft?: boolean;
+  /** Round BN: the document being edited — its customer's 請求書 layout applies. */
+  @IsOptional() @IsUUID() docId?: string;
 }
 
 export class GeneratedSourcesQuery {

@@ -108,6 +108,8 @@ export interface DocFormat {
   si?: import('./trade-si').SiFormat;
   /** Round BF — 出庫・納入依頼書 only: ADH's own .xlsx the "Download .xlsx" fills (hidden = kept, not used). */
   xlsxTemplate?: FormatSample;
+  /** Round BN — 請求書 only: this customer's seal / From block placement (overrides docDefaults.invoiceLayout key by key). */
+  layout?: Partial<import('./trade-invoice-layout').InvoiceLayout>;
 }
 
 /** The format settings of one document type (INVOICE_SINGLE / INVOICE_2 → INVOICE). */
@@ -448,6 +450,8 @@ export function mergeDocFormats(current: CustomerProfile['docFormats'], patch: u
       // Round BF: the SI settings / template are the Clients service's (a settings save keeps them).
       ...(cur.si ? { si: cur.si } : {}),
       ...(cur.xlsxTemplate ? { xlsxTemplate: cur.xlsxTemplate } : {}),
+      // Round BN: the 請求書 layout is the Clients service's too.
+      ...(cur.layout ? { layout: cur.layout } : {}),
     };
     if (Object.keys(next).length) out[t] = next;
   }

@@ -7,6 +7,7 @@
  */
 import * as holidayJp from '@holiday-jp/holiday_jp';
 import { docShell, esc, jpDate, lines as br, money } from './trade-doc-shell';
+import { InvoiceLayout, invoiceLayoutCss, resolveInvoiceLayout } from './trade-invoice-layout';
 
 export interface InvoiceLine {
   description: string;
@@ -69,6 +70,8 @@ export interface InvoiceHeader {
   /** Invoice #2: the tax-inclusive amount Invoice #1 billed for this product. */
   invoice1Amount?: number | null;
   invoice1No?: string | null;
+  /** Round BN: render-time only (never stored) — the seal / From block placement for this customer (hydrate). */
+  printLayout?: InvoiceLayout | null;
 }
 
 /** One of the org's bank accounts for the 弊社指定口座 block ("label<TAB>value" lines). */
@@ -121,6 +124,10 @@ export interface DocDefaults {
   sealImage?: string;
   /** " +{upcharge}(upcharge for {grade})" — the {upcharge} part of the remarks template. */
   invoiceUpchargeTemplate?: string;
+  /** Round BN: Invoice #1's own {upcharge} part (ADH's Oct 2026 layout "\n + {grade} Upcharge {upcharge:2}"); else invoiceUpchargeTemplate. */
+  invoice1UpchargeTemplate?: string;
+  /** Round BN: the org's default seal / From block placement on 請求書 (Clients › Document formats › 請求書 › Layout). */
+  invoiceLayout?: Partial<InvoiceLayout>;
   /** Invoice #2 texts: final-price line, its remarks, and the three cost lines. */
   invoice2LineTemplate?: string;
   invoice2RemarksTemplate?: string;
@@ -231,10 +238,12 @@ export function lmeForMonth(defaults: DocDefaults, month: string | null | undefi
 /**
  * Price build-up for 備考, e.g. ADH's "LME Cash 2026/6月平均(3458.64USD) +351.5(2QMJP)
  * +190(Billet Premium) +10(upcharge for 6005)\n\nTotal Premium is 351.5(2QMJP) + 200".
- * Tokens: {month} (2026/6), {LME}, {QMJP}, {q} (quarter of the LME month),
+ * Tokens: {month} (2026/6), {monthJa} (2026年9月, round BN), {LME}, {QMJP}, {q} (quarter of the LME month),
  * {premium}, {upcharge} (the upcharge template, only when non-zero), {grade},
- * {totalPremium} (premium + upcharge). A template without {upcharge} gets the
- * legacy " +10(Upcharge)" appended.
+ * {totalPremium} (premium + upcharge). A number token takes ":<dp>" for fixed decimals ({LME:2} → 3276.82,
+ * {QMJP:2} → 395.00 — ADH's Oct 2026 layout); inside the upcharge template {upcharge} / {upcharge:2} is the number.
+ * A template without {upcharge} gets the legacy " +10(Upcharge)" appended. With no LME yet, its "(…USD)" figure
+ * (or a whole line holding {LME}) is left out instead of printing 0.
  */
 export function helperRemarks(
   l: InvoiceLine,
@@ -245,21 +254,23 @@ export function helperRemarks(
   if (![l.lme, l.qmjp, l.premium, l.upcharge].some(has)) return '';
   const m = /^(\d{4})-(\d{2})$/.exec(lmeMonth ?? '');
   const month = m ? `${m[1]}/${Number(m[2])}` : lmeMonth;
-  const fmt = (v: unknown) => (has(v) ? String(Number(v)) : '0');
+  const monthJa = m ? `${m[1]}年${Number(m[2])}月` : lmeMonth;
+  const fmt = (v: unknown, dp?: string) => (has(v) ? (dp === undefined ? String(Number(v)) : Number(v).toFixed(Number(dp))) : dp === undefined ? '0' : (0).toFixed(Number(dp)));
   const up = has(l.upcharge) && Number(l.upcharge) !== 0;
-  const vars: Record<string, string> = {
-    month,
-    LME: fmt(l.lme),
-    QMJP: fmt(l.qmjp),
-    q: quarterOf(lmeMonth),
-    premium: fmt(l.premium),
-    grade: l.grade ?? '',
-    totalPremium: String(roundTo(n(l.premium) + n(l.upcharge), 4)),
-  };
-  vars.upcharge = up ? upchargeTemplate.replace(/\{(\w+)\}/g, (_, k) => (k === 'upcharge' ? fmt(l.upcharge) : (vars[k] ?? ''))) : '';
-  // LME not typed yet: leave out its "(…USD)" figure instead of printing "(0USD)".
-  if (!has(l.lme)) template = template.replace(/\(\{LME\}[^)]*\)/g, '');
-  const s = template.replace(/\{(\w+)\}/g, (all, k) => (k in vars ? vars[k] : all));
+  const nums: Record<string, unknown> = { LME: l.lme, QMJP: l.qmjp, premium: l.premium, upcharge: l.upcharge, totalPremium: roundTo(n(l.premium) + n(l.upcharge), 4) };
+  const text: Record<string, string> = { month, monthJa, q: quarterOf(lmeMonth), grade: l.grade ?? '' };
+  const TOKEN = /\{(\w+)(?::(\d))?\}/g;
+  const sub = (tpl: string, upchargeText: string | null) =>
+    tpl.replace(TOKEN, (all, k: string, dp?: string) => (k === 'upcharge' && dp === undefined && upchargeText !== null ? upchargeText : k in nums ? fmt(nums[k], dp) : k in text ? text[k] : all));
+  const upText = up ? sub(upchargeTemplate, null) : '';
+  // LME not typed yet: leave out its "(…USD)" figure (or its own line) instead of printing "(0USD)".
+  if (!has(l.lme))
+    template = template
+      .replace(/\(\{LME(?::\d)?\}[^)]*\)/g, '')
+      .split('\n')
+      .filter((line) => !/\{LME(?::\d)?\}/.test(line))
+      .join('\n');
+  const s = sub(template, upText);
   return !template.includes('{upcharge}') && up ? `${s} +${fmt(l.upcharge)}(Upcharge)` : s;
 }
 
@@ -310,13 +321,14 @@ export function invoiceTotals(rows: InvoiceLine[], taxRate: number, fxRate: numb
           return { label, net: roundTo(net, 2), tax: t, gross: roundTo(net * (1 + rate), 2) };
         })
       : [];
-  // JPY (税率別内訳): the taxable amount converted and rounded to the yen, its tax
-  // truncated from that yen figure, the total their sum so the table adds up.
+  // JPY (税率別内訳), Invoice #1: the taxable amount converted and ROUNDED DOWN to the yen, its tax truncated from that
+  // yen figure, the total their sum so the table adds up (owner, round BN: each yen figure rounds down — Sayaka's
+  // own Oct sheet rounded the tax up by ¥1). Invoice #2 keeps ADH's 2回目 sheet (ROUND).
   const jpy =
     has(fxRate) && Number(fxRate) > 0
       ? (() => {
           const fx = Number(fxRate);
-          const s = roundTo(taxable * fx, 0);
+          const s = variant === 'final' ? roundTo(taxable * fx, 0) : roundDown(taxable * fx, 0);
           const t = variant === 'final' ? roundTo(tax * fx, 0) : roundDown(s * rate, 0);
           return { subtotal: s, tax: t, total: s + t };
         })()
@@ -375,6 +387,24 @@ export function customsWeek(date: string): string {
   const end = new Date(start);
   end.setUTCDate(start.getUTCDate() + 6);
   return `${start.getUTCMonth() + 1}/${start.getUTCDate()}～${end.getUTCMonth() + 1}/${end.getUTCDate()}`;
+}
+
+/** Round BN: the Japanese bank business day before an ISO date (the TTM quoted on a 請求書 issued that day): 2026-10-12 → 2026-10-09. */
+export function previousBusinessDay(date: string): string {
+  const d = parse(date);
+  do d.setUTCDate(d.getUTCDate() - 1);
+  while (!isJapanBusinessDay(iso(d)));
+  return iso(d);
+}
+
+/**
+ * The 円貨 note for an issue date from the org's template: {range} = the customs week ("10/18～10/24"), {ttmDate} =
+ * the business day before the issue date ("10/9", ADH's "円/USD 10/9 三菱UFJ銀行TTM参照").
+ */
+export function fxNoteFor(d: DocDefaults, issueDate: string): string {
+  const prev = /^\d{4}-\d{2}-\d{2}$/.test(issueDate ?? '') ? previousBusinessDay(issueDate) : '';
+  const ttmDate = prev ? `${Number(prev.slice(5, 7))}/${Number(prev.slice(8, 10))}` : '';
+  return fill(d.invoiceFxNote ?? '円/USD 税関{range} 外国為替相場参照', { range: /^\d{4}-\d{2}-\d{2}$/.test(issueDate ?? '') ? customsWeek(issueDate) : '', ttmDate });
 }
 
 /** The month before a "YYYY-MM" month ("2026-01" → "2025-12"); '' when it isn't one. */
@@ -485,7 +515,7 @@ export function invoiceHeaderDefaults(opts: {
     dueLine: d.invoiceDueLine ?? '{date} までにお支払いをお願い致します。',
     taxRate: d.invoiceTaxRate ?? 10,
     fxRate: null,
-    fxNote: fill(d.invoiceFxNote ?? '円/USD 税関{range} 外国為替相場参照', { range: customsWeek(opts.today) }),
+    fxNote: fxNoteFor(d, opts.today),
     lmeMonth: opts.lmeMonth ?? '',
     conditions: opts.docType === 'INVOICE_2' ? (d.invoice2Conditions ?? '・納入条件ートラック積替え貴社指定先に納入（車上渡し）') : (d.invoiceConditions ?? ''),
     paymentTerms: opts.docType === 'INVOICE_2' ? (d.invoice2PaymentTerms ?? '・請求書発行　6営業日以内　弊社指定口座振込') : (d.invoicePaymentTerms ?? ''),
@@ -519,6 +549,18 @@ export function invoice1Line(contract: { id: string; contractNo: string }, l: Pr
     contractLineId: l.id,
     grade: l.grade,
   };
+}
+
+/** Round BN: Invoice #1's {upcharge} template (its own, else the shared one). */
+export const invoice1UpchargeTemplate = (d: DocDefaults) => d.invoice1UpchargeTemplate ?? d.invoiceUpchargeTemplate;
+
+/**
+ * Round BN: 備考 of every line that follows the price helper (autoRemarks) and has none yet, built from the org's
+ * template — the 11/6 draft printed an empty 備考 because remarks were only built when a helper field was edited in
+ * the form. A remark the user typed (autoRemarks false) is never touched.
+ */
+export function fillAutoRemarks<T extends InvoiceLine>(rows: T[], lmeMonth: string, template?: string, upchargeTemplate?: string): T[] {
+  return rows.map((l) => (l.autoRemarks !== false && !(l.remarks ?? '').trim() && [l.lme, l.qmjp, l.premium, l.upcharge].some(has) ? { ...l, remarks: helperRemarks(l, lmeMonth, template, upchargeTemplate) } : l));
 }
 
 /**
@@ -663,6 +705,19 @@ const bankRows = (text: string) =>
     })
     .join('');
 
+/**
+ * Round BN: a 備考 whose lines are a little too long for the column ("+ Billet Premium 190.00") prints each line
+ * whole at a slightly smaller size instead of breaking it mid-phrase; text that would need < 5.4pt wraps as before.
+ * Width estimate: full-width (CJK) = 1 em, other characters ≈ 0.55 em; the 備考 column is ~24.5 mm inside.
+ */
+export function remarkFontPt(text: string, columnMm = 24.5, basePt = 6.8, minPt = 5.4): number | null {
+  const ems = Math.max(0, ...(text ?? '').split(/\r?\n/).map((l) => [...l].reduce((a, ch) => a + (ch.codePointAt(0)! >= 0x2e80 ? 1 : ch === ' ' ? 0.3 : 0.55), 0)));
+  if (!ems) return null;
+  const pt = columnMm / (ems * 0.3528);
+  if (pt >= basePt) return null; // fits as it is
+  return pt >= minPt ? Math.floor(pt * 10) / 10 : null;
+}
+
 /** Column widths of ADH's invoice (摘要 | 数量 | 単価 | 金額 | 備考 | 取引年月日). */
 const COLS = '<colgroup><col style="width:33%"><col style="width:12.8%"><col style="width:12.9%"><col style="width:12.8%"><col style="width:15.2%"><col style="width:13.3%"></colgroup>';
 
@@ -704,7 +759,10 @@ export function renderInvoiceHtml(h: InvoiceHeader, rows: InvoiceLine[], opts: {
       const date = oneDate ? (i === 0 ? `<td class="date" rowspan="${rows.length}">${lineDate(l.dueDate)}</td>` : '') : `<td class="date">${l.dueDate ? lineDate(l.dueDate) : ''}</td>`;
       // Invoice #2's 式 lines show a whole quantity ("1"), as ADH's sheet.
       const q = final && l.unit !== (rows[0]?.unit ?? 'トン') && Number.isInteger(Number(l.quantity)) ? String(Number(l.quantity)) : tons(l.quantity);
-      return `<tr><td class="desc pre">${br(l.description)}</td><td class="num">${q}</td><td class="num">${money(unitPriceOf(l))}</td><td class="num">${money(amountOf(l))}</td><td class="rem pre">${br(l.remarks)}</td>${date}</tr>`;
+      return `<tr><td class="desc pre">${br(l.description)}</td><td class="num">${q}</td><td class="num">${money(unitPriceOf(l))}</td><td class="num">${money(amountOf(l))}</td><td class="rem pre"${(() => {
+        const pt = remarkFontPt(l.remarks);
+        return pt ? ` style="font-size:${pt}pt;white-space:pre"` : '';
+      })()}>${br(l.remarks)}</td>${date}</tr>`;
     })
     .join('')}
   </tbody>
@@ -747,7 +805,13 @@ ${
       ${t.jpy ? `<tr><td>${rate}</td><td class="num">¥${money(t.jpy.subtotal, 0)}</td><td class="num">¥${money(t.jpy.tax, 0)}</td><td class="num">¥${money(t.jpy.total, 0)}</td></tr>` : ''}
     </table>
   </div>
-  ${t.jpy ? `<div class="fx"><div>※円貨</div><div>${esc(Number(h.fxRate).toLocaleString('en-US', { maximumFractionDigits: 4 }))} ${esc(h.fxNote)}</div></div>` : ''}
+  ${
+    t.jpy
+      ? `<div class="fx"><div>※円貨</div><div>${esc(Number(h.fxRate).toLocaleString('en-US', { maximumFractionDigits: 4 }))} ${esc(h.fxNote)}</div></div>`
+      : opts.draft
+        ? `<div class="fx missing"><div>※円貨</div><div>（為替レート未入力 / FX rate missing） ${esc(h.fxNote ?? '')}</div></div>`
+        : ''
+  }
 </div>
 ${dueLine ? `<p class="due">${dueLine}</p>` : ''}
 ${
@@ -769,9 +833,8 @@ body { font-size: 8pt; }
 .parties { display: flex; justify-content: space-between; align-items: flex-start; }
 .subject { display: flex; gap: 0; font-size: 8pt; margin-top: 5mm; }
 .subject .lbl { width: 24mm; flex-shrink: 0; font-weight: 400; }
-.from { position: relative; text-align: right; font-size: 8.3pt; line-height: 1.55; padding-right: 9mm; }
-/* The seal overlaps the end of the address, inside the printable area (as stamped on ADH's invoice). */
-.from .seal { position: absolute; right: -2mm; bottom: -5mm; width: 17mm; height: auto; opacity: .92; }
+.from { font-size: 8.3pt; line-height: 1.55; }
+/* Round BN: the seal / From block placement comes from invoiceLayoutCss (appended below). */
 .grand { display: inline-flex; gap: 14mm; margin: 3mm 0 3mm; padding: 0 2mm 1px 0; border-bottom: 1px solid #111; font-size: 9.3pt; }
 table.grid, table.sums { width: 100%; table-layout: fixed; }
 .grid th { background: #d9d9d9; border: 1px solid #555; padding: 3px 4px; font-weight: 400; text-align: center; font-size: 7.8pt; }
@@ -793,6 +856,7 @@ table.grid, table.sums { width: 100%; table-layout: fixed; }
 .bdl td { padding: 0 4px; border-bottom: 1px solid #999; }
 .bdl tr.hd td { text-align: right; }
 .fx { font-size: 6pt; line-height: 1.5; }
+.fx.missing { color: #c00000; }
 .due { font-weight: 700; font-size: 7pt; margin: 2.5mm 0 0 14mm; }
 .sec { font-size: 8.5pt; margin-top: 1mm; }
 .sec2 { font-size: 6.6pt; margin-top: 1mm; }
@@ -801,7 +865,7 @@ table.grid, table.sums { width: 100%; table-layout: fixed; }
 table.bank { font-size: 6.2pt; line-height: 1.45; }
 table.bank td { padding: 0; vertical-align: top; }
 table.bank td.bk { width: 32mm; }
-`;
+${invoiceLayoutCss(resolveInvoiceLayout(h.printLayout))}`;
   return docShell({ title: `請求書 ${h.invoiceNo ?? ''}`.trim(), css, body, draft: opts.draft });
 }
 
@@ -835,7 +899,7 @@ const lineNo = (i: number) => `line ${i + 1}`;
  * without a unit price — "needs the LME" when the pricing helper is in use —
  * and a total of US$0.00. Lines with nothing on them are ignored.
  */
-export function invoiceFinalizeProblems(rows: InvoiceLine[], taxRate: number): string[] {
+export function invoiceFinalizeProblems(rows: InvoiceLine[], taxRate: number, opts: { fxRate?: unknown; requireFx?: boolean } = {}): string[] {
   const problems: string[] = [];
   rows.forEach((l, i) => {
     const used = (l.description ?? '').trim() !== '' || has(l.quantity) || has(l.amountOverride);
@@ -845,6 +909,8 @@ export function invoiceFinalizeProblems(rows: InvoiceLine[], taxRate: number): s
     problems.push(helper ? `${lineNo(i)} needs the LME` : `${lineNo(i)} needs a unit price`);
   });
   if (invoiceTotals(rows, taxRate, null).total === 0) problems.push('the total is US$0.00');
+  // Round BN: ADH's 請求書 always prints the 円貨 line (rate + source) and the ¥ figures of the tax breakdown.
+  if (opts.requireFx && !(has(opts.fxRate) && Number(opts.fxRate) > 0)) problems.push('enter the FX rate (円貨 JPY / USD)');
   return problems;
 }
 

@@ -53,18 +53,31 @@ const quarterOf = (month: string) => {
   return m ? String(Math.ceil(Number(m[1]) / 3)) : "";
 };
 
-/** Price build-up for 備考 — tokens {month} {LME} {QMJP} {q} {premium} {upcharge} {grade} {totalPremium} (mirrors the API). */
+/**
+ * Price build-up for 備考 — tokens {month} {monthJa} {LME} {QMJP} {q} {premium} {upcharge} {grade} {totalPremium};
+ * a number token takes ":<dp>" for fixed decimals ({LME:2}) (mirrors the API's helperRemarks).
+ */
 export function helperRemarks(l: InvoiceLine, lmeMonth: string, template = "LME Cash {month}月平均({LME}USD) +{QMJP}(QMJP) +{premium}(Billet Premium)", upchargeTemplate = " +{upcharge}(upcharge for {grade})") {
   if (!helperUsed(l)) return "";
   const m = /^(\d{4})-(\d{2})$/.exec(lmeMonth ?? "");
   const month = m ? `${m[1]}/${Number(m[2])}` : lmeMonth;
-  const fmt = (v: unknown) => (has(v) ? String(Number(v)) : "0");
+  const monthJa = m ? `${m[1]}年${Number(m[2])}月` : lmeMonth;
+  const fmt = (v: unknown, dp?: string) => (has(v) ? (dp === undefined ? String(Number(v)) : Number(v).toFixed(Number(dp))) : dp === undefined ? "0" : (0).toFixed(Number(dp)));
   const up = has(l.upcharge) && Number(l.upcharge) !== 0;
-  const vars: Record<string, string> = { month, LME: fmt(l.lme), QMJP: fmt(l.qmjp), q: quarterOf(lmeMonth), premium: fmt(l.premium), grade: l.grade ?? "", totalPremium: String(roundTo(n(l.premium) + n(l.upcharge), 4)) };
-  vars.upcharge = up ? upchargeTemplate.replace(/\{(\w+)\}/g, (_, k) => (k === "upcharge" ? fmt(l.upcharge) : (vars[k] ?? ""))) : "";
-  // LME not typed yet: leave out its "(…USD)" figure instead of printing "(0USD)".
-  if (!has(l.lme)) template = template.replace(/\(\{LME\}[^)]*\)/g, "");
-  const s = template.replace(/\{(\w+)\}/g, (all, k) => (k in vars ? vars[k] : all));
+  const nums: Record<string, unknown> = { LME: l.lme, QMJP: l.qmjp, premium: l.premium, upcharge: l.upcharge, totalPremium: roundTo(n(l.premium) + n(l.upcharge), 4) };
+  const text: Record<string, string> = { month, monthJa, q: quarterOf(lmeMonth), grade: l.grade ?? "" };
+  const TOKEN = /\{(\w+)(?::(\d))?\}/g;
+  const sub = (tpl: string, upchargeText: string | null) =>
+    tpl.replace(TOKEN, (all, k: string, dp?: string) => (k === "upcharge" && dp === undefined && upchargeText !== null ? upchargeText : k in nums ? fmt(nums[k], dp) : k in text ? text[k] : all));
+  const upText = up ? sub(upchargeTemplate, null) : "";
+  // LME not typed yet: leave out its "(…USD)" figure (or its own line) instead of printing "(0USD)".
+  if (!has(l.lme))
+    template = template
+      .replace(/\(\{LME(?::\d)?\}[^)]*\)/g, "")
+      .split("\n")
+      .filter((line) => !/\{LME(?::\d)?\}/.test(line))
+      .join("\n");
+  const s = sub(template, upText);
   return !template.includes("{upcharge}") && up ? `${s} +${fmt(l.upcharge)}(Upcharge)` : s;
 }
 

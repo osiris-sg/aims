@@ -23,6 +23,7 @@
  */
 import { docShell, esc, lines as br, money } from './trade-doc-shell';
 import { helperRemarks, InvoiceLine, roundTo } from './trade-invoice';
+import { InvoiceLayout, invoiceLayoutCss } from './trade-invoice-layout';
 
 /** The 番号 when none is typed: the 発行日 as yyyymmdd (2026-08-18 → "20260818"). */
 export function singleInvoiceNoFor(issueDate: string | null | undefined): string {
@@ -78,6 +79,8 @@ export interface SingleInvoiceHeader {
   /** 支払い条件 section under 条件. */
   paymentBlock: string;
   bankBlock: string;
+  /** Round BN: render-time only — a SAVED seal / From block placement (none = Kato's approved print, unchanged). */
+  printLayout?: InvoiceLayout | null;
   bankId?: string | null;
   showSeal?: boolean;
   dueDate: string;
@@ -364,6 +367,6 @@ table.grid, table.sums { width: 100%; table-layout: fixed; }
 table.bank { font-size: 6.2pt; line-height: 1.45; }
 table.bank td { padding: 0; vertical-align: top; }
 table.bank td.bk { width: 30mm; }
-`;
+${h.printLayout ? invoiceLayoutCss(h.printLayout, { firstLineMm: 5.1 }) : ''}`;
   return docShell({ title: `請求書 ${h.invoiceNo?.trim() || singleInvoiceNoFor(h.issueDate)}`.trim(), css, body, draft: opts.draft });
 }

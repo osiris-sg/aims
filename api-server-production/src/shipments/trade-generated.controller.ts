@@ -47,7 +47,7 @@ export class TradeGeneratedController {
   async preview(@Body() dto: PreviewGeneratedDocDto, @Req() req: TradeRequest) {
     const kind = GENERATED_TEMPLATES[dto.docType]?.kind;
     const seal = kind === 'invoice' || kind === 'single' ? await this.gen.sealFor(orgIdOf(req)) : null;
-    return { html: await this.gen.previewHtml(dto.docType, dto.header, dto.columns, dto.rows, dto.draft ?? true, seal, orgIdOf(req)) };
+    return { html: await this.gen.previewHtml(dto.docType, dto.header, dto.columns, dto.rows, dto.draft ?? true, seal, orgIdOf(req), dto.docId ?? null) };
   }
 
   @Post()

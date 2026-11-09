@@ -264,7 +264,41 @@
     "hideTitle": "Hide {name}?",
     "hideBody": "It leaves this list. The file itself is kept (nothing is deleted).",
     "hide": "Hide",
-    "hidden": "Sample hidden"
+    "hidden": "Sample hidden",
+    "layout": {
+      "title": "Layout — stamp and address",
+      "scopeCustomer": "This customer",
+      "scopeOrg": "All customers (default)",
+      "introCustomer": "Where the company stamp and the address print on this customer's 請求書.",
+      "introOrg": "The default for every customer without its own layout.",
+      "finalKept": "Finalized invoices keep their PDF; new drafts, previews and the next finalize use this.",
+      "ownOn": "Own layout for this customer",
+      "ownOff": "Follows the default for all customers",
+      "fields": {
+        "sealX": "Stamp ← →",
+        "sealY": "Stamp ↑ ↓",
+        "sealSize": "Stamp size",
+        "fromAlign": "Address alignment",
+        "fromX": "Address ← →",
+        "fromY": "Address ↑ ↓"
+      },
+      "hintX": "+ right, − left",
+      "hintY": "+ down, − up",
+      "alignRight": "Right",
+      "alignLeft": "Left",
+      "previewOn": "Preview on",
+      "draft": "draft",
+      "noInvoices": "No invoice for this customer yet.",
+      "reset": "Back to built-in",
+      "save": "Save",
+      "saveOrg": "Save for all customers",
+      "saving": "Saving…",
+      "savedCustomer": "Saved for this customer",
+      "savedOrg": "Saved as the default for all customers",
+      "followsOrg": "This customer follows the default again",
+      "saveFailed": "Could not save",
+      "previewFailed": "Preview failed"
+    }
   },
   "process": {
     "intro": "Tick the steps that are part of this customer's process. Orders and shipments of this customer only show and require the ticked steps.",

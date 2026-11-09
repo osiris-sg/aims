@@ -12,7 +12,7 @@
  *                           · set_eta · shipment_update · shipment_add · order_create · order_from_pi
  *                           · step_done · add_note · payment_record · generated_doc_create
  *
- * Never here: finalising invoices, deleting, settings, the email filter, test flags, user management.
+ * Never here: finalising invoices, deleting, settings (round BN: except the 請求書 stamp / address placement, invoice_layout, web only), the email filter, test flags, user management.
  * There is no free-form API or database access on purpose: message text and file text are data.
  * Reused from the Biofuel Operator: the permission gate, the Confirm-card (PendingAction) flow, the
  * audit helper (AuditService + ActionLogService), preview (PDF push) and choice (buttons) outcomes, the
@@ -52,6 +52,8 @@ import { TradePriceCheckService } from '../shipments/trade-price-check.service';
 import { productLabel } from '../shipments/clients-products';
 import { cleanLmeAuto, provisionalMonths } from '../shipments/lme-feed';
 import { recordLink, searchKnowledge, shipmentsChunks, STEP_NAMES } from './shipments-web';
+import { TradeInvoiceLayoutService } from '../shipments/trade-invoice-layout.service';
+import { LAYOUT_NUMBER_KEYS, LayoutChange } from '../shipments/trade-invoice-layout';
 
 export interface ShipToolOutcome {
   result: any;
@@ -77,7 +79,7 @@ interface ToolDef {
 }
 
 /** The write operations a Confirm card can carry (the model never names these; the tools do). */
-export type ShipOp = 'email_accept' | 'email_assign' | 'email_answer' | 'email_dismiss' | 'task_status' | 'task_snooze' | 'reminder_create' | 'set_eta' | 'shipment_add' | 'order_create' | 'step_done' | 'add_note' | 'payment_record' | 'generated_doc_create' | 'tracking_apply' | 'fill_fields';
+export type ShipOp = 'email_accept' | 'email_assign' | 'email_answer' | 'email_dismiss' | 'task_status' | 'task_snooze' | 'reminder_create' | 'set_eta' | 'shipment_add' | 'order_create' | 'step_done' | 'add_note' | 'payment_record' | 'generated_doc_create' | 'tracking_apply' | 'fill_fields' | 'invoice_layout';
 
 /** Round BL: the shipment fields fill_fields may write — only while EMPTY (never overwrites what someone typed). */
 export const FILLABLE_FIELDS: Record<string, { kind: 'text' | 'int' | 'num' | 'date'; label: string }> = {
@@ -168,6 +170,7 @@ export class ShipmentsToolsService {
     @Optional() private readonly tracking?: CarrierTrackingService,
     @Optional() private readonly due?: TradeDueService,
     @Optional() private readonly priceCheck?: TradePriceCheckService,
+    @Optional() private readonly invoiceLayouts?: TradeInvoiceLayoutService,
   ) {}
 
   /** Tool definitions handed to Claude — only the ones this user's permissions allow. */
@@ -312,6 +315,14 @@ export class ShipmentsToolsService {
         const r: any = await this.tracking.apply(org, a.trackingId, a.fields ?? [], actor);
         this.log(ctx, 'UPDATE', 'Shipment', r.shipmentId, a.ref, `tracking applied: ${(r.fields ?? []).join(', ') || 'nothing (already up to date)'}`);
         return { ok: true, message: r.fields?.length ? `${a.ref}: updated ${r.fields.length} field${r.fields.length > 1 ? 's' : ''} from the tracking page.` : `${a.ref}: already up to date, nothing changed.` };
+      }
+      case 'invoice_layout': {
+        // Round BN: re-planned at Confirm time on what is in force NOW (a change someone saved meanwhile is kept, the move applies on top).
+        if (!this.invoiceLayouts) return { ok: false, message: 'Invoice layouts are not available.' };
+        const plan = await this.invoiceLayouts.plan(org, a.scope, a.customerId ?? null, a.change ?? {});
+        if (!plan.changes.length) return { ok: false, message: 'Nothing to change: the layout is already like that.' };
+        await this.invoiceLayouts.save(org, a.scope, a.customerId ?? null, plan.store, actor, ctx.channel);
+        return { ok: true, message: `請求書 layout (${a.scope === 'org' ? 'all customers' : a.customerName}): ${plan.changes.join('; ')}. New invoices and previews use it; finalized invoices keep their PDF.` };
       }
       default:
         return { ok: false, message: 'That card is not one I can run.' };
@@ -794,7 +805,72 @@ export class ShipmentsToolsService {
         input_schema: { type: 'object', properties: { ref: { type: 'string' }, fields: { type: 'object' }, source: { type: 'string' } }, required: ['ref', 'fields'] },
         run: async (ctx, a) => this.fillFields(ctx, String(a.ref ?? ''), a.fields && typeof a.fields === 'object' ? a.fields : {}, a.source ? String(a.source).slice(0, 80) : null),
       },
+      {
+        name: 'invoice_layout',
+        description:
+          'Move the company stamp (seal) or the address (From block) on the 請求書: "move the stamp 8mm right", "move the address a bit left", "make the stamp smaller". move = relative mm (sealX/fromX: + right, − left; sealY/fromY: + down, − up; sealSize: + bigger), set = absolute values (also fromAlign "right"|"left"). "a bit" = 3 mm (say so). customer = part of the customer name; leave out to use the customer of the order on screen; scope "org" = the default for all customers. Never guesses a customer: if none is on screen and none named, ask. Shows a Confirm card; finalized invoices keep their PDF.',
+        permissions: [SHIPMENTS_WRITE],
+        mode: 'write',
+        origin: 'adh',
+        web: true,
+        input_schema: {
+          type: 'object',
+          properties: {
+            customer: { type: 'string' },
+            scope: { type: 'string', enum: ['customer', 'org'] },
+            move: { type: 'object', properties: Object.fromEntries(LAYOUT_NUMBER_KEYS.map((k) => [k, { type: 'number' }])) },
+            set: { type: 'object', properties: { ...Object.fromEntries(LAYOUT_NUMBER_KEYS.map((k) => [k, { type: 'number' }])), fromAlign: { type: 'string', enum: ['right', 'left'] } } },
+          },
+        },
+        run: async (ctx, a) => this.invoiceLayoutCard(ctx, a),
+      },
     ];
+  }
+
+  /** Round BN: the layout Confirm card (before → after, in the user's language). */
+  private async invoiceLayoutCard(ctx: OperatorContext, a: any): Promise<ShipToolOutcome> {
+    if (!this.invoiceLayouts) return { result: { error: 'Invoice layouts are not available.' } };
+    const scope: 'org' | 'customer' = a.scope === 'org' ? 'org' : 'customer';
+    const pick = (o: unknown, withAlign: boolean) => {
+      const src = o && typeof o === 'object' ? (o as Record<string, unknown>) : {};
+      const out: Record<string, number | string> = {};
+      for (const k of LAYOUT_NUMBER_KEYS) if (src[k] !== undefined && src[k] !== null && Number.isFinite(Number(src[k]))) out[k] = Number(src[k]);
+      if (withAlign && (src.fromAlign === 'left' || src.fromAlign === 'right')) out.fromAlign = src.fromAlign;
+      return out;
+    };
+    const change: LayoutChange = { move: pick(a.move, false) as LayoutChange['move'], set: pick(a.set, true) as LayoutChange['set'] };
+    if (!Object.keys(change.move ?? {}).length && !Object.keys(change.set ?? {}).length) return { result: { error: 'Say what to move and by how much (mm), e.g. move.sealX = 8.' } };
+    let customerId: string | null = null;
+    if (scope === 'customer') {
+      customerId = await this.customerForLayout(ctx, a.customer ? String(a.customer) : null);
+      if (!customerId) return { result: { error: a.customer ? `No customer matches "${String(a.customer).slice(0, 60)}".` : 'Which customer? (none is on screen) — or say "for all customers".' } };
+    }
+    const plan = await this.invoiceLayouts.plan(ctx.organizationId, scope, customerId, change);
+    if (!plan.changes.length) return { result: { note: 'Nothing would change (already at that value or at the limit).', layout: plan.before } };
+    const ja = ctx.lang === 'ja';
+    const who = scope === 'org' ? (ja ? '全顧客（既定）' : 'all customers (default)') : plan.customerName;
+    return {
+      result: { held: true, scope, customer: who, before: plan.before, after: plan.after },
+      pending: pend(`${ja ? '請求書のレイアウト' : '請求書 layout'} · ${who}:\n${(ja ? plan.changesJa : plan.changes).join('\n')}`, { op: 'invoice_layout', scope, customerId, customerName: plan.customerName, change }),
+    };
+  }
+
+  /** The customer a layout change is for: the one named, else the one of the order / shipment / client page on screen. */
+  private async customerForLayout(ctx: OperatorContext, name: string | null): Promise<string | null> {
+    const org = ctx.organizationId;
+    if (name?.trim()) {
+      const rows: Array<{ id: string; name: string }> = await this.prisma.customer.findMany({ where: { organizationId: org, name: { contains: name.trim(), mode: 'insensitive' } }, select: { id: true, name: true }, take: 3 });
+      return rows.length === 1 ? rows[0].id : null;
+    }
+    const page = ctx.web?.aimee?.page;
+    const fromPath = /\/clients\/customers\/([0-9a-f-]{36})/.exec(page?.path ?? '')?.[1];
+    if (fromPath) return fromPath;
+    if (page?.orderId) return (await this.prisma.tradeOrder.findFirst({ where: { id: page.orderId, organizationId: org }, select: { customerId: true } }))?.customerId ?? null;
+    if (page?.shipmentId) {
+      const sh = await this.prisma.shipment.findFirst({ where: { id: page.shipmentId, organizationId: org }, select: { customerId: true, order: { select: { customerId: true } } } });
+      return sh?.order?.customerId ?? sh?.customerId ?? null;
+    }
+    return null;
   }
 
   // ── Round BL: AIMEE (web) reads + the fill card ─────────────────────────────

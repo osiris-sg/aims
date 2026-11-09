@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { cleanInvoiceLayout } from './trade-invoice-layout';
 import { grossOf } from '../common/document-money';
 import { PrismaService } from '../common/prisma.service';
 import { DOMAIN_RE } from '../ingestion-email/email-triage.rules';
@@ -879,6 +880,13 @@ export function mergeDocDefaults(current: Record<string, unknown>, patch: Record
       if (!m) throw new BadRequestException('The seal must be a PNG or JPEG image');
       if (Buffer.from(m[2], 'base64').length > SEAL_MAX_BYTES) throw new BadRequestException('The seal image must be 1 MB or smaller');
       out[k] = v;
+    } else if (k === 'invoiceLayout') {
+      // Round BN: the org's default seal / From block placement on 請求書 (mm offsets, seal size, alignment).
+      const l = cleanInvoiceLayout(v, (m) => {
+        throw new BadRequestException(m);
+      });
+      if (l) out[k] = l;
+      else delete out[k];
     } else if (k === 'qmjpByQuarter') {
       // { "2026-2Q": 351.5, "2026-3Q": 395 } — QMJP (US$/MT) per quarter.
       if (typeof v !== 'object' || Array.isArray(v)) throw new BadRequestException('qmjpByQuarter must map quarters ("2026-3Q") to numbers');

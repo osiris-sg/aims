@@ -1,6 +1,7 @@
 import { TradeTaxInputsService } from './trade-tax-inputs';
 import { TradeDueService } from './trade-due.service';
 import { ClientsController } from './clients.controller';
+import { TradeInvoiceLayoutService } from './trade-invoice-layout.service';
 import { ClientsService } from './clients.service';
 import { MonthlyListController } from './monthly-list.controller';
 import { MonthlyListService } from './monthly-list.service';
@@ -87,6 +88,7 @@ import { TradeStepsService } from './trade-steps.service';
     TradeRecordEvents,
     TradeTaxInputsService, // round BK: SG→JP total + customs weekly rate for the import tax estimate
     ClientsService,
+    TradeInvoiceLayoutService,
     MonthlyListService,
     ShipmentsNotifyService, // round S: WhatsApp staff notification queue
     OrdersService,
@@ -113,6 +115,6 @@ import { TradeStepsService } from './trade-steps.service';
     TradeCastIndexService,
     PrismaService,
   ],
-  exports: [TradePriceCheckService, TradeRecordEvents, TradeDueService, CarrierTrackingService, MonthlyListService, ShipmentsNotifyService, TradeAdminDashboardService, TradeGeneratedService, OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService, TradeExtractService, TradeIssuesService, TradeCastIndexService],
+  exports: [TradeInvoiceLayoutService, TradePriceCheckService, TradeRecordEvents, TradeDueService, CarrierTrackingService, MonthlyListService, ShipmentsNotifyService, TradeAdminDashboardService, TradeGeneratedService, OrdersService, SupplierOrdersService, TradeAlertsService, ContractsService, ShipmentsService, TradeStepsService, TradeFilesService, TradeConfigService, TradeDocumentsService, TradeExtractService, TradeIssuesService, TradeCastIndexService],
 })
 export class ShipmentsModule {}

@@ -91,7 +91,7 @@ export default function GeneratedDocEditorPage() {
   const attachBody = g?.docType === "CUSTOMER_PL" && header?.bodyMode === "attach";
 
   // Live preview: debounced, rendered server-side by the PDF template.
-  const previewInput = useDebounced(useMemo(() => (header && g ? { docType: g.docType, header, columns, rows, draft: !isFinal } : null), [header, columns, rows, g, isFinal]), 500);
+  const previewInput = useDebounced(useMemo(() => (header && g ? { docType: g.docType, header, columns, rows, draft: !isFinal, docId: g.id } : null), [header, columns, rows, g, isFinal]), 500);
   useEffect(() => {
     if (!previewInput) return;
     let cancelled = false;

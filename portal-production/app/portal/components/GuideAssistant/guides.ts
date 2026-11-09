@@ -437,6 +437,21 @@ export const GUIDES: Guide[] = [
     ],
   },
   {
+    id: 'trade-invoice-layout',
+    title: 'Move the stamp or the address on the 請求書',
+    module: 'SHIPMENTS',
+    description:
+      'How to move the company stamp (seal) or the address block on a customer\'s 請求書 (Invoice #1 / #2, single invoice): Clients › Customers → the customer → Document formats → the 請求書 card → Layout — stamp and address. This customer (Own layout) or All customers (default); mm offsets, stamp size, address alignment; live preview on one of the customer\'s invoices; Save. Finalized invoices keep their PDF. NOT for the invoice\'s text (bank, conditions): those are Org Settings → Shipping & documents, or the draft\'s own form.',
+    route: '/portal/shipments/clients/customers',
+    steps: [
+      { route: '/portal/shipments/clients/customers', selector: '[data-tour="clients-customers"]', title: 'Customers', body: 'Open the customer (SUS, Kato …).' },
+      { selector: '[data-tour="client-tab-formats"]', title: 'Document formats', body: 'One card per document AIMS makes for this customer; the 請求書 card is the last one.', patient: true },
+      { selector: '[data-tour="client-format-invoice-layout-scope"]', title: 'This customer or all customers', body: 'This customer = its own layout (switch it on); All customers = the default for everyone without one.', patient: true },
+      { selector: '[data-tour="client-format-invoice-layout"]', title: 'Stamp and address', body: 'Type millimetres (+ = right / down). The preview below shows one of the customer\'s invoices as you type.', patient: true },
+      { selector: '[data-tour="client-format-invoice-layout-save"]', title: 'Save', body: 'New drafts, previews and the next finalize use it. Finalized invoices keep their PDF.', patient: true },
+    ],
+  },
+  {
     id: 'trade-shipments-list',
     title: 'See every shipment (Shipments)',
     module: 'SHIPMENTS',

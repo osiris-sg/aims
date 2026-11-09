@@ -7,7 +7,8 @@
 // negative lines for adjustments, and live totals incl. the JPY breakdown.
 // Invoice #1 can bill lines of the customer's other open contracts too.
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import {
   Alert,
   Box,
@@ -83,7 +84,9 @@ export default function InvoiceDocForm({ doc, header: h, rows, disabled, setHead
   const isFinal2 = h.variant === "final";
   // Invoice #2 quotes the shipment month's LME in its own wording.
   const remarksTpl: string | undefined = (doc.docType === "INVOICE_2" && dd.invoice2RemarksTemplate) || dd.invoiceRemarksTemplate;
-  const upTpl: string | undefined = dd.invoiceUpchargeTemplate;
+  // Round BN: Invoice #1 may have its own {upcharge} part (ADH's Oct 2026 layout), else the shared one.
+  const upTpl: string | undefined = (doc.docType === "INVOICE_1" && dd.invoice1UpchargeTemplate) || dd.invoiceUpchargeTemplate;
+  const tr = useTranslations("invoices.tradeForm");
   const allBanks: Array<{ id: string; label: string; block: string; entity?: IssuingEntity }> =
     Array.isArray(dd.banks) && dd.banks.length ? dd.banks : dd.invoiceBankBlock ? [{ id: "default", label: String(dd.invoiceBankBlock).split("\n")[0], block: dd.invoiceBankBlock }] : [];
   // Every account, any entity: an ADH JP invoice may be paid into an ADH SG account (Kato's sample prints CFSB).
@@ -142,7 +145,30 @@ export default function InvoiceDocForm({ doc, header: h, rows, disabled, setHead
   const onIssueDate = (v: string) => {
     setH({ issueDate: v });
     if (!h.dueDateManual) void autoDueFrom(v);
+    void followFxNote(h.issueDate, v);
   };
+  // Round BN: the 円貨 note follows the issue date ({ttmDate} = the business day before) while it still reads as the
+  // note AIMS made for the previous date (or is empty) — a note typed by hand is never replaced.
+  const followFxNote = async (prev: string, next: string) => {
+    if (!next || tradeDateError(next)) return;
+    try {
+      const [now, before] = await Promise.all([api.invoiceDueDate(next, doc.docType), prev && !tradeDateError(prev) ? api.invoiceDueDate(prev, doc.docType) : Promise.resolve(null)]);
+      if (!now.fxNote) return;
+      const cur = (h.fxNote ?? "").trim();
+      if (!cur || (before?.fxNote && cur === before.fxNote.trim())) setHeader({ fxNote: now.fxNote });
+    } catch {
+      /* keep the note */
+    }
+  };
+  // Round BN: a line that follows the price helper but has no 備考 yet (drafts made before this round) gets it on open.
+  const filledOnce = useRef<string | null>(null);
+  useEffect(() => {
+    if (disabled || !settings.data || filledOnce.current === doc.id) return;
+    filledOnce.current = doc.id;
+    if (rows.some((l) => l.autoRemarks !== false && helperUsed(l) && !(l.remarks ?? "").trim()))
+      setRows((rs) => rs.map((l) => (l.autoRemarks !== false && helperUsed(l) && !(l.remarks ?? "").trim() ? { ...l, remarks: helperRemarks(l, h.lmeMonth, remarksTpl, upTpl) } : l)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc.id, settings.data, disabled]);
   const onDueDate = (v: string) => {
     dueSeq.current++; // drop an in-flight auto value
     setH({ dueDate: v, dueDateManual: true });
@@ -231,7 +257,14 @@ export default function InvoiceDocForm({ doc, header: h, rows, disabled, setHead
           </Grid2>
           <Grid2 size={{ xs: 12, sm: 8 }}>{tf("dueLine", "Due line ({date} = due date)")}</Grid2>
           <Grid2 size={{ xs: 6, sm: 2 }}>{numTf("taxRate", "Tax %")}</Grid2>
-          <Grid2 size={{ xs: 6, sm: 3 }}>{numTf("fxRate", "FX JPY / USD", { inputProps: { step: "0.01" } })}</Grid2>
+          <Grid2 size={{ xs: 6, sm: 3 }}>
+            {numTf("fxRate", "FX JPY / USD", {
+              inputProps: { step: "0.01" },
+              // Round BN: the 円貨 line and the ¥ figures print only with a rate; finalizing needs it.
+              ...(h.fxRate ? {} : { error: !disabled, helperText: disabled ? undefined : tr("fxMissing") }),
+              "data-tour": "invoice-fx-rate",
+            })}
+          </Grid2>
           <Grid2 size={{ xs: 12, sm: 7 }}>{tf("fxNote", "FX source note")}</Grid2>
           <Grid2 size={{ xs: 12, sm: 4 }}>{tf("lmeMonth", "LME average month (remarks)", { type: "month", InputLabelProps: { shrink: true } })}</Grid2>
           <Grid2 size={12}>{tf("conditions", "Conditions / 条件", { multiline: true, minRows: 2 })}</Grid2>

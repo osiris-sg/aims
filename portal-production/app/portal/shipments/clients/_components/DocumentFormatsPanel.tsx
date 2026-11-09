@@ -20,6 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableRow } from "@mui/material"
 import { fmtDay } from "../../_lib/format";
 import { toast } from "../../_lib/toast";
 import { ConfirmDialog } from "../../_components/bits";
+import InvoiceLayoutPanel from "./InvoiceLayoutPanel";
 
 const b64Url = (base64: string, type: string) => URL.createObjectURL(new Blob([Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))], { type }));
 
@@ -180,6 +181,7 @@ function FormatCard({ customerId, f, lang, shipments }: { customerId: string; f:
         </Button>
       </Stack>
       {f.docType === "SHIPPING_INSTRUCTIONS" && <SiSettings customerId={customerId} f={f} />}
+      {f.docType === "INVOICE" && <InvoiceLayoutPanel customerId={customerId} />}
       {f.previewable && (
         <Box sx={{ mt: 2, pt: 1.5, borderTop: "1px solid", borderColor: "divider" }} data-tour="client-format-preview">
           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
