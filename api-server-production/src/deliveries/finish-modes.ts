@@ -5,6 +5,8 @@
  *   signature   the customer signs on the device (as always) → verified at once
  *   stamped_do  a photo of the DO the customer stamped → waits for an admin
  *   paper       marked completed, the signed paper copy comes back later → waits
+ *   sign_link   no signature now (SiteClock's "Skip", 2026-11-11): the office sends the
+ *               customer the DO sign link; the customer's signature there verifies it
  * The run's status is `completed` in every case (no new DeliveryRunStatus
  * values); Delivery.verificationState carries the office check: pending /
  * verified / rejected. A rejected job goes back for new evidence (a new photo
@@ -15,7 +17,7 @@
  */
 export const WCT_FINISH_MODES_FLAG = 'enableWctFinishModes';
 
-export const COMPLETION_MODES = ['signature', 'stamped_do', 'paper'] as const;
+export const COMPLETION_MODES = ['signature', 'stamped_do', 'paper', 'sign_link'] as const;
 export type CompletionMode = (typeof COMPLETION_MODES)[number];
 export type VerificationState = 'pending' | 'verified' | 'rejected';
 
@@ -23,6 +25,7 @@ export const COMPLETION_MODE_LABEL: Record<CompletionMode, string> = {
   signature: 'Customer signed on device',
   stamped_do: 'Photo of stamped DO',
   paper: 'Paper copy to follow',
+  sign_link: 'Customer to sign by link',
 };
 
 export const VERIFICATION_LABEL: Record<VerificationState, string> = {

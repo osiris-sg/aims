@@ -3,10 +3,10 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, Stack, Typography } from "@mui/material";
+import { Alert, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, MenuItem, Stack, TextField, Typography } from "@mui/material";
 import { request } from "@/helpers/request";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
-import { JobPhoto, OrderJobGroup, TAG_COLOR, jobHeading, photoCaption, urlsStale } from "@/helpers/jobPhotos";
+import { JobPhoto, OrderJobGroup, PHOTO_TAG_OPTIONS, TAG_COLOR, jobHeading, photoCaption, urlsStale } from "@/helpers/jobPhotos";
 
 /**
  * Job photos from SiteClock (WCT 2026-11-02, orgs with the SiteClock link):
@@ -18,10 +18,10 @@ import { JobPhoto, OrderJobGroup, TAG_COLOR, jobHeading, photoCaption, urlsStale
  * before a view opens once they are close to lapsing.
  */
 
-async function fetchJson(getToken: () => Promise<string | null>, path: string, method: "GET" | "POST" = "GET") {
+async function fetchJson(getToken: () => Promise<string | null>, path: string, method: "GET" | "POST" | "PATCH" = "GET", body: any = {}) {
   const token = await getToken();
   if (!token) throw new Error("Not signed in");
-  const res: any = await request({ path, method }, {}, token);
+  const res: any = await request({ path, method }, body, token);
   if (res?.success === false) {
     const m = res?.details?.message ?? res?.message;
     throw new Error((Array.isArray(m) ? m.join(". ") : m) || "Request failed");
@@ -62,6 +62,20 @@ function PhotoViewer({ photo, canHide, onClose, onHidden }: { photo: JobPhoto | 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => setError(null), [photo?.id]);
+  // Sort a photo SiteClock sent with no type (or correct one). A Signed / Stamped DO also goes on the DO.
+  const setTag = async (tag: string) => {
+    if (!photo || tag === photo.tag) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await fetchJson(getToken, `/job-photos/${photo.id}/tag`, "PATCH", { tag });
+      onHidden();
+    } catch (e: any) {
+      setError(e?.message || "Could not change the photo type");
+    } finally {
+      setBusy(false);
+    }
+  };
   const hide = async () => {
     if (!photo || !window.confirm("Hide this photo? It stays stored and the hide is logged, but it no longer shows in AIMS (SiteClock keeps its copy).")) return;
     setBusy(true);
@@ -81,7 +95,17 @@ function PhotoViewer({ photo, canHide, onClose, onHidden }: { photo: JobPhoto | 
           <DialogContent sx={{ p: 1.5 }}>
             <Box component="img" src={photo.url} alt={photo.tagLabel} sx={{ width: "100%", maxHeight: "75vh", objectFit: "contain", display: "block", bgcolor: "action.hover", borderRadius: 1 }} />
             <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 1.5 }}>
-              <Chip size="small" color={TAG_COLOR[photo.tag] ?? "default"} label={photo.tagLabel} />
+              {canHide ? (
+                <TextField select size="small" label="Type" value={photo.tag} onChange={(e) => void setTag(e.target.value)} disabled={busy} sx={{ minWidth: 170 }}>
+                  {PHOTO_TAG_OPTIONS.map((o) => (
+                    <MenuItem key={o.value} value={o.value}>
+                      {o.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              ) : (
+                <Chip size="small" color={TAG_COLOR[photo.tag] ?? "default"} label={photo.tagLabel} />
+              )}
               <Typography variant="body2" color="text.secondary">
                 {photoCaption(photo)} · from SiteClock
               </Typography>

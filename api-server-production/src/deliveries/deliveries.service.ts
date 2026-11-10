@@ -4928,7 +4928,7 @@ export class DeliveriesService {
           deliveryId,
           kind: 'DO_ACK',
           status: 'completed',
-          description: `${mode === 'stamped_do' ? 'Stamped DO (photo)' : 'Completed: paper copy to follow'}${dto.completionNote?.trim() ? ` — ${dto.completionNote.trim()}` : ''}`,
+          description: `${mode === 'stamped_do' ? 'Stamped DO (photo)' : mode === 'sign_link' ? 'Completed: the customer signs by link' : 'Completed: paper copy to follow'}${dto.completionNote?.trim() ? ` — ${dto.completionNote.trim()}` : ''}`,
           ...(stampedPhotos.length ? { photos: stampedPhotos } : {}),
           ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
           ...(dto.longitude != null ? { longitude: dto.longitude } : {}),

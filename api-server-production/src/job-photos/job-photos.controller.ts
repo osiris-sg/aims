@@ -1,4 +1,4 @@
-import { Controller, Get, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
@@ -31,5 +31,14 @@ export class JobPhotosController {
     const u: any = req?.user || {};
     const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.username || undefined;
     return this.photos.hide(org.id, id, { id: u.id, name });
+  }
+
+  // The office sorts a photo SiteClock sent unsorted (or corrects its type); same permission as Hide.
+  @Patch('job-photos/:id/tag')
+  @Permissions('documents:update')
+  setTag(@Param('id', ParseUUIDPipe) id: string, @Body() body: { tag?: string }, @UserOrganization() org: { id: string }, @Req() req: any) {
+    const u: any = req?.user || {};
+    const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.username || undefined;
+    return this.photos.setTag(org.id, id, body?.tag ?? '', { id: u.id, name });
   }
 }

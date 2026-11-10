@@ -12,10 +12,12 @@ export const FINISH_OPTIONS: { value: FinishMode; label: string; hint: string }[
   { value: "paper", label: "Mark completed, paper copy later", hint: "The office verifies when the signed copy comes back" },
 ];
 
-export const COMPLETION_MODE_LABEL: Record<FinishMode, string> = {
+// sign_link: SiteClock's "Skip" (2026-11-11), the customer signs the DO link later. Not a SiteJobs option.
+export const COMPLETION_MODE_LABEL: Record<FinishMode | "sign_link", string> = {
   signature: "Customer signed on device",
   stamped_do: "Photo of stamped DO",
   paper: "Paper copy to follow",
+  sign_link: "Customer to sign by link",
 };
 
 export const VERIFICATION_LABEL: Record<VerificationState, string> = {
@@ -31,7 +33,7 @@ export const VERIFICATION_COLOR: Record<VerificationState, "warning" | "success"
 };
 
 export const verificationLabel = (s: string | null | undefined) => (s ? VERIFICATION_LABEL[s as VerificationState] ?? s : null);
-export const completionModeLabel = (m: string | null | undefined) => (m ? COMPLETION_MODE_LABEL[m as FinishMode] ?? m : null);
+export const completionModeLabel = (m: string | null | undefined) => (m ? COMPLETION_MODE_LABEL[m as FinishMode | "sign_link"] ?? m : null);
 
 /** Why a stamped-DO / paper finish can't be sent yet (null = go). */
 export function finishProblem(mode: FinishMode, photoCount: number): string | null {

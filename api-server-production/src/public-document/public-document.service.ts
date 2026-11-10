@@ -12,6 +12,7 @@ import {
   DESCRIPTION_HAS_SERIAL,
 } from '../common/services/document-html/shared';
 import { DocumentsService } from '../documents/documents.service';
+import { refreshOrderStatusForRun } from '../orders/wct-orders';
 import { OFFICE_DO_SIGN_FLAG, isOrgFeatureEnabled } from '../common/org-features';
 
 // Only delivery orders (outbound + return) get a view-only link.
@@ -598,7 +599,31 @@ export class PublicDocumentService {
     if (signedCount === 0) {
       return { ok: false, alreadySigned: true, signedCount: 0, message: 'This delivery order has already been signed.' };
     }
+    if (runId) await this.verifyAfterLinkSign(runId, link.organizationId, name);
     return { ok: true, alreadySigned: false, signedCount, signedAt: now };
+  }
+
+  /**
+   * SiteClock "Skip" (completionMode sign_link, 2026-11-11): the job was finished
+   * with no signature and waits for the customer to sign this link. Their
+   * signature verifies it, exactly as a signature on the device does, and the
+   * order may then bill itself (WCT invoice per order). Any other job keeps the
+   * old rule: the link only adds the signature. Best-effort: the signature is
+   * already saved.
+   */
+  private async verifyAfterLinkSign(runId: string, organizationId: string, signerName: string): Promise<void> {
+    try {
+      const moved = await this.prisma.delivery.updateMany({
+        where: { id: runId, organizationId, status: 'completed', completionMode: 'sign_link', verificationState: { in: ['pending', 'rejected'] } },
+        data: { verificationState: 'verified', verifiedAt: new Date(), verifiedByUserId: null, verifiedByName: `Customer signature by link (${signerName})`.slice(0, 120), verificationNote: null },
+      });
+      if (!moved.count) return;
+      await refreshOrderStatusForRun(this.prisma, organizationId, runId);
+      const run = await this.prisma.delivery.findFirst({ where: { id: runId, organizationId }, select: { orderId: true } });
+      if (run?.orderId) await this.documentsService.maybeInvoiceOrder(run.orderId, organizationId);
+    } catch (e: any) {
+      console.warn(`public DO sign: verification of run ${runId} failed: ${e?.message}`);
+    }
   }
 
   private async resolveToken(token: string): Promise<{

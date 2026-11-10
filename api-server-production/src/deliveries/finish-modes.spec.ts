@@ -1,4 +1,4 @@
-import { awaitsVerification, finishModeProblem, initialVerification, isVerifiedJob } from './finish-modes';
+import { awaitsVerification, finishModeProblem, initialVerification, isCompletionMode, isVerifiedJob } from './finish-modes';
 
 describe('WCT finish modes', () => {
   it('signature: required as always, flag or not', () => {
@@ -28,5 +28,15 @@ describe('WCT finish modes', () => {
     expect(isVerifiedJob({ status: 'in_progress', verificationState: 'verified' })).toBe(false);
     expect(awaitsVerification({ status: 'completed', verificationState: 'rejected' })).toBe(true);
     expect(awaitsVerification({ status: 'completed', verificationState: null })).toBe(false);
+  });
+});
+
+describe('sign_link (SiteClock "Skip", 2026-11-11)', () => {
+  it('is a completion mode that waits for verification, behind the flag, never partial', () => {
+    expect(isCompletionMode('sign_link')).toBe(true);
+    expect(initialVerification('sign_link').verificationState).toBe('pending');
+    expect(finishModeProblem({ mode: 'sign_link', flagOn: true, partial: false })).toBeNull();
+    expect(finishModeProblem({ mode: 'sign_link', flagOn: false, partial: false })).toMatch(/not enabled/);
+    expect(finishModeProblem({ mode: 'sign_link', flagOn: true, partial: true })).toMatch(/Only a customer signature/);
   });
 });

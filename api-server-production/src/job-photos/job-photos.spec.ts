@@ -38,6 +38,9 @@ describe('parsePhotoFields', () => {
   it('checks tag, note, takenAt and externalRef', () => {
     expect(parsePhotoFields({ ...base, tag: 'selfie' })).toMatch(/^tag must be/);
     expect((parsePhotoFields({ ...base, tag: 'signed_do' }) as any).tag).toBe('SIGNED_DO');
+    // 2026-11-11: the app sends no type; it arrives as UNSORTED for the office to sort.
+    expect((parsePhotoFields({ ...base, tag: undefined }) as any).tag).toBe('UNSORTED');
+    expect((parsePhotoFields({ ...base, tag: '' }) as any).tag).toBe('UNSORTED');
     expect(parsePhotoFields({ ...base, note: 'x'.repeat(301) })).toMatch(/note is too long/);
     expect(parsePhotoFields({ ...base, takenAt: 'yesterday' })).toMatch(/takenAt/);
     expect(parsePhotoFields({ ...base, externalRef: 'job-1' })).toMatch(/externalRef/);

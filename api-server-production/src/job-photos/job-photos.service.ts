@@ -7,7 +7,7 @@ import { ActionLogService } from '../action-log/action-log.service';
 import { SiteClockLinkService } from '../siteclock/siteclock-link.service';
 import { refreshOrderStatusForRun } from '../orders/wct-orders';
 import { BadImageError, processJobPhoto } from './job-photos.image';
-import { downloadName, isDoEvidenceTag, JOB_PHOTO_TAG_LABEL, JobPhotoTag, MAX_PHOTO_BYTES, PhotoFields, photoKeys, URL_TTL_SEC, verificationAfterDoPhoto } from './job-photos';
+import { downloadName, isDoEvidenceTag, isJobPhotoTag, JOB_PHOTO_TAG_LABEL, JOB_PHOTO_TAGS, JobPhotoTag, MAX_PHOTO_BYTES, PhotoFields, photoKeys, URL_TTL_SEC, verificationAfterDoPhoto } from './job-photos';
 import { bySchedule } from '../deliveries/all-day';
 
 type PhotoRow = {
@@ -192,6 +192,44 @@ export class JobPhotosService {
     const p = await this.inOrg(organizationId, photoId);
     await this.softDelete(p, { by: `user:${actor.id ?? 'unknown'}`, name: actor.name || 'Office', userId: actor.id });
     return { ok: true };
+  }
+
+  /**
+   * Office: what a photo is (2026-11-11; SiteClock sends them unsorted). Becoming a
+   * Signed DO / Stamped DO does what such a photo does on arrival (onto the DO,
+   * a rejected job back to pending); stopping being one takes it off the DO.
+   */
+  async setTag(organizationId: string, photoId: string, tag: string, actor: { id?: string; name?: string }) {
+    if (!(await this.link.isLinked(organizationId))) throw new NotFoundException('Photo not found');
+    const next = String(tag ?? '').toUpperCase();
+    if (!isJobPhotoTag(next)) throw new BadRequestException(`tag must be one of ${JOB_PHOTO_TAGS.join(', ')}`);
+    const p = await this.live(organizationId, photoId);
+    if (p.tag === next) return { id: p.id, tag: next };
+    await this.prisma.jobPhoto.update({ where: { id: p.id }, data: { tag: next } });
+    const was = isDoEvidenceTag(p.tag);
+    const now = isDoEvidenceTag(next);
+    if (was && !now) {
+      try {
+        const docs = (await this.runDocs(organizationId, [p.deliveryId])).get(p.deliveryId);
+        for (const docId of docs?.ids ?? []) await this.documents.removeAttachment(docId, organizationId, p.fileKey, { id: actor.id, name: actor.name || 'Office' });
+      } catch (e: any) {
+        this.logger.warn(`job photo ${p.id}: DO attachment removal failed: ${e?.message}`);
+      }
+    }
+    if (now) {
+      if (was) {
+        // Signed DO <-> Stamped DO: the attachment keeps its old label; replace it.
+        try {
+          const docs = (await this.runDocs(organizationId, [p.deliveryId])).get(p.deliveryId);
+          for (const docId of docs?.ids ?? []) await this.documents.removeAttachment(docId, organizationId, p.fileKey, { id: actor.id, name: actor.name || 'Office' });
+        } catch (e: any) {
+          this.logger.warn(`job photo ${p.id}: DO attachment removal failed: ${e?.message}`);
+        }
+      }
+      const run = await this.prisma.delivery.findFirst({ where: { id: p.deliveryId, organizationId }, select: { id: true, status: true, verificationState: true } });
+      if (run) await this.doEvidenceArrived({ ...p, tag: next }, run);
+    }
+    return { id: p.id, tag: next };
   }
 
   /** Live DO-evidence photos per job (Signed DO / Stamped DO), for the verification views. */

@@ -27,7 +27,18 @@ export interface OrderJobGroup {
 }
 
 /** Chip colour per tag: the DO evidence stands out. */
-export const TAG_COLOR: Record<string, "success" | "info" | "default"> = {
+/** What a photo can be set to in the viewer (UNSORTED = sent by SiteClock with no type, 2026-11-11). */
+export const PHOTO_TAG_OPTIONS: { value: string; label: string }[] = [
+  { value: "UNSORTED", label: "Not sorted" },
+  { value: "SIGNED_DO", label: "Signed DO" },
+  { value: "STAMPED_DO", label: "Stamped DO" },
+  { value: "SERVICE_REPORT", label: "Service report" },
+  { value: "SITE", label: "Site" },
+  { value: "OTHER", label: "Other" },
+];
+
+export const TAG_COLOR: Record<string, "success" | "info" | "default" | "warning"> = {
+  UNSORTED: "warning",
   SIGNED_DO: "success",
   STAMPED_DO: "success",
   SERVICE_REPORT: "info",

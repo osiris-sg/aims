@@ -59,6 +59,7 @@ import JobFieldsPanel from "@/components/jobFields/JobFieldsPanel";
 import type { JobFieldDef } from "@/helpers/jobFields";
 import VerificationPanel, { JobVerification } from "@/components/delivery/VerificationPanel";
 import { DeliveryJobPhotos } from "@/components/delivery/JobPhotos";
+import CustomerSignLink from "@/components/delivery/CustomerSignLink";
 import { runDoTag } from "@/helpers/doStatusTag";
 import JobPtwLinkPanel from "@/app/portal/deliveries/_components/JobPtwLinkPanel";
 import QuickJobDialog from "@/components/Dashboard/jobs-calendar/QuickJobDialog";
@@ -875,6 +876,11 @@ export default function DeliveryDetailPage() {
         <Box sx={{ my: 2 }}>
           <VerificationPanel verification={run.verification} canDecide onChanged={() => void load()} />
         </Box>
+      )}
+
+      {/* SiteClock "Skip": finished with no signature; the customer signs the DO link. */}
+      {run.verification?.completionMode === "sign_link" && run.verification.verificationState !== "verified" && distinctDocs[0] && (
+        <CustomerSignLink documentId={distinctDocs[0].id} doName={distinctDocs[0].name} />
       )}
 
       {/* Job photos from SiteClock (orgs with the SiteClock link; renders nothing otherwise). */}

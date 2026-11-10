@@ -7,11 +7,13 @@
  */
 import { createHash, randomBytes } from 'crypto';
 
-export const JOB_PHOTO_TAGS = ['SIGNED_DO', 'STAMPED_DO', 'SERVICE_REPORT', 'SITE', 'OTHER'] as const;
+// UNSORTED (2026-11-11): SiteClock sends photos with no type; the office sorts them in AIMS.
+export const JOB_PHOTO_TAGS = ['UNSORTED', 'SIGNED_DO', 'STAMPED_DO', 'SERVICE_REPORT', 'SITE', 'OTHER'] as const;
 export type JobPhotoTag = (typeof JOB_PHOTO_TAGS)[number];
 export const isJobPhotoTag = (v: unknown): v is JobPhotoTag => typeof v === 'string' && (JOB_PHOTO_TAGS as readonly string[]).includes(v);
 
 export const JOB_PHOTO_TAG_LABEL: Record<JobPhotoTag, string> = {
+  UNSORTED: 'Not sorted',
   SIGNED_DO: 'Signed DO',
   STAMPED_DO: 'Stamped DO',
   SERVICE_REPORT: 'Service report',
@@ -77,7 +79,8 @@ export function parsePhotoFields(body: Record<string, any>, idempotencyKey?: unk
   if (siteclockPhotoId.length > 100) return 'siteclockPhotoId is too long (100 max)';
   const header = str(idempotencyKey);
   if (header && str(b.siteclockPhotoId) && header !== siteclockPhotoId) return 'Idempotency-Key does not match siteclockPhotoId';
-  const tag = str(b.tag).toUpperCase();
+  // No tag = UNSORTED (the app no longer asks what a photo is).
+  const tag = str(b.tag).toUpperCase() || 'UNSORTED';
   if (!isJobPhotoTag(tag)) return `tag must be one of ${JOB_PHOTO_TAGS.join(', ')}`;
   const note = str(b.note);
   if (note.length > MAX_NOTE) return `note is too long (${MAX_NOTE} max)`;
