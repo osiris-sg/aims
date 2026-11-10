@@ -1093,6 +1093,36 @@ export class DeliveriesService {
   }
 
   /**
+   * SiteClock (2026-11-11): opening a scheduled job in the app starts it: the
+   * run is claimed (in progress, the rider, startedAt), exactly the run-level
+   * part of the first line start (see startFreeTypedItem), but no line moves
+   * yet: the worker ticks / unticks items until "End job". Conditional on
+   * `scheduled`, so a second open (or another device) changes nothing. Drafts
+   * are never claimable. A return is claimed through claimReturn by the caller.
+   */
+  async claimRunForSiteClock(deliveryId: string, organizationId: string, riderUserId: string, riderName: string | null) {
+    const run = await this.prisma.delivery.findFirst({ where: { id: deliveryId, organizationId }, select: { status: true, isDraft: true, deliveryNumber: true, orderId: true } });
+    if (!run) throw new NotFoundException('Job not found');
+    if (run.status !== 'scheduled') return { claimed: false, status: run.status };
+    if (run.isDraft) throw new BadRequestException(`${runNoun(run)} #${run.deliveryNumber} is still a draft and cannot be started`);
+    const moved = await this.prisma.$executeRaw`
+      UPDATE "Delivery"
+      SET status = 'in_progress',
+          "riderUserId" = ${riderUserId},
+          "riderName" = COALESCE(${riderName}::text, "riderName"),
+          "startedAt" = (now() AT TIME ZONE 'UTC'),
+          "updatedAt" = (now() AT TIME ZONE 'UTC')
+      WHERE id = ${deliveryId}::uuid
+        AND "organizationId" = ${organizationId}
+        AND status = 'scheduled'`;
+    if (moved) {
+      void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
+      await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs
+    }
+    return { claimed: moved > 0, status: 'in_progress' };
+  }
+
+  /**
    * The latest "Can't finish today" a worker sent from SiteClock for this job
    * (an Activity Log row, NOT_FINISHED), or null. Shown on the job page.
    */

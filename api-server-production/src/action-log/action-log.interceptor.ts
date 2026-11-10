@@ -127,6 +127,8 @@ const VERB_ACTIONS: Record<string, string> = {
   'skip-install': 'SKIP', start: 'START', end: 'END',
   // SiteClock (2026-11-10): "Can't finish today" with the worker's reason.
   'not-finished': 'NOT_FINISHED',
+  // SiteClock "End job" (2026-11-11); its "open" (claims the run) reads as START.
+  open: 'START',
   // Driver hand-off (2026-09): the rider's POST /deliveries/:id/handoff.
   handoff: 'HANDOFF', 'cancel-handoff': 'CANCEL_HANDOFF',
   // Service-report remote signature: minting the customer's sign link.

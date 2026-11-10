@@ -130,10 +130,17 @@ export class SiteClockDeliveryController {
       "SiteClock's one Start: starts every ticked line together and skips the rest. No condition photos per line (the app takes optional job photos at the end). A resend starts nothing twice: lines already started are left as they are.",
   })
   async startTicked(@Req() req: WorkerReq, @Body() body: { itemIds?: string[] }) {
-    const deliveryId = this.run(req);
-    const org = this.org(req);
     const ticked = new Set((Array.isArray(body?.itemIds) ? body.itemIds : []).map((x) => String(x)));
     if (!ticked.size) throw new BadRequestException('Tick at least one item to start.');
+    const out = await this.startLines(req, ticked);
+    (req as any).actionLogResult = out;
+    return out;
+  }
+
+  /** Start the ticked lines still waiting (no per-line photos) and skip the unticked ones. Idempotent by line state. */
+  private async startLines(req: WorkerReq, ticked: Set<string>): Promise<{ started: number; skipped: number }> {
+    const deliveryId = this.run(req);
+    const org = this.org(req);
     const run = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId: org },
       select: {
@@ -175,8 +182,48 @@ export class SiteClockDeliveryController {
     // Unticked = skipped ("not now"): the job stays open for them after the sign-off.
     const toSkip = waiting.filter((i) => !ticked.has(i.id) && !i.skippedAt);
     for (const it of toSkip) await this.deliveries.skipItem(deliveryId, it.id, org);
-    (req as any).actionLogResult = { started: toStart.length, skipped: toSkip.length };
     return { started: toStart.length, skipped: toSkip.length };
+  }
+
+  @Post('jobs/:ref/open')
+  @UseInterceptors(IdempotencyInterceptor)
+  @ApiOperation({ summary: 'SiteClock (2026-11-11): opening the job starts it (the run is claimed; no line moves until End job). Nothing happens on a job already started.' })
+  async openJob(@Req() req: WorkerReq) {
+    const deliveryId = this.run(req);
+    const org = this.org(req);
+    const run = await this.prisma.delivery.findFirst({ where: { id: deliveryId, organizationId: org }, select: { status: true, direction: true } });
+    if (!run) throw new NotFoundException('Job not found');
+    if (run.status !== 'scheduled') return { claimed: false, status: run.status };
+    if (run.direction === 'RETURN') {
+      await this.deliveries.claimReturn(deliveryId, this.named(req, {}, 'riderName'), org, this.me(req));
+      return { claimed: true, status: 'in_progress' };
+    }
+    return this.deliveries.claimRunForSiteClock(deliveryId, org, this.me(req), req.siteclockWorker.name);
+  }
+
+  @Post('jobs/:ref/end')
+  @UseInterceptors(IdempotencyInterceptor)
+  @ApiOperation({
+    summary:
+      'SiteClock "End job" (2026-11-11): the ticked items still waiting start (no per-line photos), the unticked ones are skipped for another day, then every started item is ended (ack-all). The only call that ends a job. A resend after it landed ends nothing twice.',
+  })
+  async endJob(@Req() req: WorkerReq, @Body() body: { itemIds?: string[] }) {
+    const deliveryId = this.run(req);
+    const org = this.org(req);
+    const ticked = new Set((Array.isArray(body?.itemIds) ? body.itemIds : []).map((x) => String(x)));
+    const before = await this.prisma.deliveryItem.findMany({ where: { deliveryId }, select: { deliveryStatus: true } });
+    const delivering = before.filter((i) => i.deliveryStatus === 'delivering').length;
+    if (!ticked.size && !delivering) {
+      if (before.some((i) => i.deliveryStatus === 'not_installed')) return { ended: 0, already: true }; // already ended (a resend)
+      throw new BadRequestException('Tick at least one item to end the job with.');
+    }
+    await this.deliveries.assertNotHandedOff(deliveryId, org);
+    const lines = await this.startLines(req, ticked);
+    const now = await this.prisma.deliveryItem.count({ where: { deliveryId, deliveryStatus: 'delivering' } });
+    if (now) await this.deliveries.acknowledgeAll(deliveryId, this.named(req, {}) as any, org, this.me(req));
+    const out = { ...lines, ended: now };
+    (req as any).actionLogResult = out;
+    return out;
   }
 
   @Post('jobs/:ref/not-finished')
