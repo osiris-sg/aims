@@ -456,7 +456,12 @@ export class JournalService {
   ): Promise<(je: { sourceDocumentId?: string | null; reference?: string | null }) => { id: string; type: string; name: string; documentTemplateId: string | null } | undefined> {
     const token = (ref: string | null | undefined) => {
       const m = /^([A-Za-z0-9][A-Za-z0-9\-\/\.]{2,})/.exec(String(ref || '').trim());
-      return m ? m[1] : '';
+      // Must look like a document NUMBER. Every series in AIMS is letters plus
+      // digits (BI202507038, INV202611-0079, MO-000001), so requiring a digit
+      // costs nothing and stops a reference that opens with an ordinary word
+      // ("Bank charges Nov") from matching a document that happens to be
+      // named that and sending the ledger row to the wrong place on click.
+      return m && /\d/.test(m[1]) ? m[1] : '';
     };
     const ids = [...new Set(entries.map((e) => e.sourceDocumentId).filter((x): x is string => !!x))];
     const names = [...new Set(entries.filter((e) => !e.sourceDocumentId).map((e) => token(e.reference)).filter(Boolean))];

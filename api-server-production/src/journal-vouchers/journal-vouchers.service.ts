@@ -12,6 +12,61 @@ import { orgToday } from '../common/org-today';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 
+/**
+ * Where the realised-FX residual goes, given `diff = lineBase - apBaseTotal`.
+ *
+ * A SUPPLIER offset line declares a DEBIT on the creditor control and is
+ * expanded into one debit per invoice, so a shortfall in the expansion is made
+ * up with another debit. A CUSTOMER line declares a CREDIT on the debtor
+ * control and expands into credits, so its residual is the MIRROR IMAGE. Both
+ * cases took the supplier sides, which put the residual on the same side as
+ * the imbalance and doubled it on every foreign customer offset.
+ *
+ * The column decides the wording: a debit to the exchange account is a loss,
+ * a credit is a gain.
+ */
+export function fxResidualSides(diff: number, isCustomer: boolean): { debit: number; credit: number } {
+  const owed = ROUND(Math.abs(diff));
+  const needsDebit = isCustomer ? diff < 0 : diff > 0;
+  return needsDebit ? { debit: owed, credit: 0 } : { debit: 0, credit: owed };
+}
+
+/**
+ * The journal MUST balance before it is written. journalService.create runs
+ * this check itself, but the unconfirmed re-save path below updates the entry
+ * and its lines directly — so without this an arithmetic slip anywhere above
+ * would land in the GL silently instead of being refused.
+ */
+export function assertJournalBalances(lines: Array<{ debit: number; credit: number }>, voucherNumber: string): void {
+  const debit = ROUND(lines.reduce((s, x) => s + (x.debit || 0), 0));
+  const credit = ROUND(lines.reduce((s, x) => s + (x.credit || 0), 0));
+  if (debit !== credit) {
+    throw new BadRequestException(
+      `Journal Voucher ${voucherNumber} does not balance: debit ${debit.toFixed(2)} vs credit ${credit.toFixed(2)}. Nothing was posted.`,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Journal Vouchers (guru 2026-11-09: "change the way we do journal voucher —
+// do it like our template like OR and PV"). A J/V is a Document row (type
+// JOURNAL_VOUCHER) edited in the real document editor the legacy way:
+//
+//   Voucher No. · Date · Prepare By · Remarks memo
+//   Account code | Description | Remarks | Debit | Credit   (totals must match)
+//
+// Saving posts / updates ONE manual journal (type MANUAL) whose journalNumber
+// IS the voucher number, so the J/V Listing (MANUAL only) and the Audit Trail
+// show the same number the clerk keyed. While the journal is unconfirmed a
+// re-save rewrites its lines in place (number kept); once the Posting Queue
+// has confirmed it, a re-save voids it and posts a revision "<number>-R1".
+//
+// A line on the TRADE CREDITORS control opens the Payment Voucher's Offset
+// Supplier Invoices dialog: the Debit is allocated across the supplier's
+// invoices (cashless BillPayment rows, method 'journal') and posts per
+// invoice at its historical rate ± realised FX, exactly like the P/V.
+// ---------------------------------------------------------------------------
+
 export type JvAllocation = { documentId: string; amount: number };
 export type JvOffset = {
   /** 'supplier' (AP control: settle supplier invoices) or 'customer' (AR control: settle customer invoices / apply credit notes). */
@@ -375,9 +430,11 @@ export class JournalVouchersService {
       if (Math.abs(diff) > 0.005) {
         const fxAcc = o.fxAccountCode ? byCode.get(o.fxAccountCode) : await this.journalAutoPost.resolveFxGainLossAccount(organizationId, controls);
         if (!fxAcc) throw new BadRequestException('Realised FX on the supplier offset but no exchange gain/loss account — set one in Accounting Setup');
-        jl.push({ accountId: fxAcc.id, debit: diff > 0 ? diff : 0, credit: diff < 0 ? -diff : 0, description: `Realised FX ${diff > 0 ? 'loss' : 'gain'} — ${voucherNumber}` });
+        const { debit: fxDr, credit: fxCr } = fxResidualSides(diff, isCust);
+        jl.push({ accountId: fxAcc.id, debit: fxDr, credit: fxCr, description: `Realised FX ${fxDr > 0 ? 'loss' : 'gain'} — ${voucherNumber}` });
       }
     }
+    assertJournalBalances(jl, voucherNumber);
     const description = dto.notes ? String(dto.notes).split('\n')[0].slice(0, 200) : `Journal Voucher ${voucherNumber}`;
 
     // Post: rewrite in place while unconfirmed, else void + revision.
