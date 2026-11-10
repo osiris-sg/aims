@@ -688,7 +688,8 @@ export default function TabbedDocumentCreator({
     setSettlementConfirming(true);
     try {
       const token = await getToken();
-      const res: any = await request({ path: "/posting-queue/post-batch", method: "POST" }, { documentIds: [id] }, token);
+      // getToken() is string | null; request takes string | undefined.
+      const res: any = await request({ path: "/posting-queue/post-batch", method: "POST" }, { documentIds: [id] }, token ?? undefined);
       const results: any[] = res?.data?.results || res?.results || res?.data || [];
       const mine = Array.isArray(results) ? results.find((r: any) => r.documentId === id) || results[0] : null;
       if (mine && mine.ok === false) {
