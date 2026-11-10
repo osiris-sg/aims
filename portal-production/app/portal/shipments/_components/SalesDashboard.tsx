@@ -19,6 +19,7 @@ import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import EmailDashboard from "./EmailDashboard";
 import LegacyHome from "./LegacyHome";
 import AdminDashboard from "./AdminDashboard";
+import UnpaidCard from "./UnpaidCard";
 import EmailsAll from "./inbox/EmailsAll";
 import { SHIPMENTS_HOME } from "@/helpers/shipmentsNav";
 import { setAimeeContext } from "./aimee/bridge";
@@ -104,6 +105,10 @@ function SalesDashboardInner() {
         </Stack>
       )}
       {showAdmin ? <AdminDashboard /> : <EmailDashboard />}
+      {/* Round BP: what is still to pay / to receive, with due dates (Sales and Admin alike — amounts only). */}
+      <Box sx={{ px: { xs: 1.5, md: 3 }, pb: 3, maxWidth: showAdmin ? 1400 : 1200, mx: "auto" }}>
+        <UnpaidCard />
+      </Box>
     </Box>
   );
 }

@@ -90,6 +90,8 @@ const VERB_ACTIONS: Record<string, string> = {
   // Round H (2026-10): a step's payment (amount, date, account, proof) saved on the step; the inbox's PI table on the orders;
   // "+ New monthly order".
   payment: 'UPDATE', 'pi-table': 'UPDATE', monthly: 'CREATE',
+  // Round BP: Dashboard → Unpaid → Mark paid (the step's payment / a receipt on a correction invoice).
+  'mark-paid': 'PAY',
   // Round AK: Settings → Shipping → LME "Fetch now".
   fetch: 'FETCH',
   // Round AL: a carrier tracking read (screenshot / paste) and its Confirm.

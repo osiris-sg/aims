@@ -908,5 +908,52 @@
     "provisional": "暫定",
     "final": "確定",
     "version": "CI"
+  },
+  "unpaid": {
+    "title": "未払い・未入金",
+    "toPay": "支払予定",
+    "toReceive": "入金予定",
+    "counterparty": "取引先",
+    "all": "すべて",
+    "loadFailed": "読み込めませんでした",
+    "nothingToPay": "支払予定はありません。",
+    "nothingToReceive": "入金予定はありません。",
+    "cols": {
+      "ref": "注文／出荷",
+      "counterparty": "取引先",
+      "document": "書類",
+      "amount": "金額",
+      "due": "期限",
+      "days": "日数",
+      "status": "状態"
+    },
+    "kinds": {
+      "DEPOSIT": "PI前払金",
+      "CI": "CI残金",
+      "IMPORT_TAX": "輸入税",
+      "LOGISTICS": "三井倉庫・物流",
+      "INVOICE": "請求書"
+    },
+    "status": {
+      "overdue": "期限超過",
+      "due": "未払い",
+      "no_date": "期限なし",
+      "partly_paid": "一部入金"
+    },
+    "overdueDays": "{n}日超過",
+    "daysLeft": "あと{n}日",
+    "total": "合計",
+    "actions": "操作",
+    "markPaid": "支払済みにする",
+    "markReceived": "入金済みにする",
+    "openRecord": "注文を開く",
+    "paidOn": "支払日",
+    "amountPaid": "金額",
+    "account": "口座",
+    "proof": "証憑（任意）",
+    "cancel": "キャンセル",
+    "save": "保存",
+    "marked": "{ref} を支払済みにしました",
+    "markFailed": "保存できませんでした"
   }
 }

@@ -908,5 +908,52 @@
     "provisional": "Provisional",
     "final": "Final",
     "version": "CI"
+  },
+  "unpaid": {
+    "title": "Unpaid",
+    "toPay": "To pay",
+    "toReceive": "To receive",
+    "counterparty": "Counterparty",
+    "all": "All",
+    "loadFailed": "Could not load",
+    "nothingToPay": "Nothing left to pay.",
+    "nothingToReceive": "Nothing left to receive.",
+    "cols": {
+      "ref": "Order / shipment",
+      "counterparty": "Counterparty",
+      "document": "Document",
+      "amount": "Amount",
+      "due": "Due",
+      "days": "Days",
+      "status": "Status"
+    },
+    "kinds": {
+      "DEPOSIT": "PI deposit",
+      "CI": "CI balance",
+      "IMPORT_TAX": "Import tax",
+      "LOGISTICS": "Mitsui Soko / logistics",
+      "INVOICE": "Invoice"
+    },
+    "status": {
+      "overdue": "Overdue",
+      "due": "Due",
+      "no_date": "No date",
+      "partly_paid": "Partly paid"
+    },
+    "overdueDays": "{n} days overdue",
+    "daysLeft": "{n} days",
+    "total": "Total",
+    "actions": "Actions",
+    "markPaid": "Mark paid",
+    "markReceived": "Mark received",
+    "openRecord": "Open the order",
+    "paidOn": "Paid on",
+    "amountPaid": "Amount",
+    "account": "Account",
+    "proof": "Proof (optional)",
+    "cancel": "Cancel",
+    "save": "Save",
+    "marked": "{ref} marked paid",
+    "markFailed": "Could not save"
   }
 }

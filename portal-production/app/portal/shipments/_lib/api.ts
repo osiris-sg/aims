@@ -1149,6 +1149,29 @@ export type OrderCash = {
   totals: { out: Record<string, number>; in: Record<string, number> };
   invoices: Array<{ id: string; docType: string; number: string | null; label: string; total: number; paid: number; outstanding: number; dueDate: string | null; overdue: boolean; daysOverdue: number }>;
 };
+/** Round BP — Dashboard "Unpaid": one thing still to pay / to receive. */
+export type UnpaidRow = {
+  key: string;
+  side: "pay" | "receive";
+  kind: "DEPOSIT" | "CI" | "IMPORT_TAX" | "LOGISTICS" | "INVOICE";
+  ref: string;
+  orderId: string | null;
+  shipmentId: string | null;
+  counterparty: string | null;
+  documentNo: string | null;
+  amount: number | null;
+  currency: string;
+  dueDate: string | null;
+  daysLeft: number | null;
+  status: "overdue" | "due" | "no date" | "partly paid";
+  paid: number;
+  note: string | null;
+  stepId: string | null;
+  generatedDocId: string | null;
+  proofDocType: string;
+};
+export type UnpaidList = { today: string; pay: UnpaidRow[]; payTotals: Record<string, number>; receive: UnpaidRow[]; receiveTotals: Record<string, number> };
+
 export const ACCOUNT_LABEL: Record<PaymentAccount, string> = { DBS: "DBS (SG)", WISE: "Wise (SG)", CFSB: "CFSB (SG)", SMBC_JPY: "SMBC JPY (JP)", OTHER: "Other" };
 export const TARGET_LABEL: Record<AllocationTarget, string> = { PI: "PI deposit", CI: "CI", INVOICE: "Customer invoice", VENDOR_INVOICE: "Vendor invoice", IMPORT_TAX: "Import tax" };
 
@@ -1934,6 +1957,9 @@ export function useShipmentsApi() {
       // ── Steps ────────────────────────────────────────────────────────────
       startStep: (id: string) => call<TradeStep>(`/trade-steps/${id}/start`, "POST"),
       completeStep: (id: string) => call<TradeStep>(`/trade-steps/${id}/complete`, "POST"),
+      // Round BP: Dashboard "Unpaid / 未払い・未入金".
+      unpaid: () => call<UnpaidList>(`/trade-unpaid`),
+      markPaid: (body: { key: string; paidAt: string; amount?: number | null; account?: PaymentAccount; proofFileId?: string | null }) => call<{ key: string; recorded: string }>(`/trade-unpaid/mark-paid`, "POST", body),
       setStepPayment: (id: string, payment: Omit<StepPayment, "currency"> & { currency?: string } | null) => call<TradeStep>(`/trade-steps/${id}/payment`, "POST", { payment }),
       reopenStep: (id: string) => call<TradeStep>(`/trade-steps/${id}/reopen`, "POST"),
       setSubtask: (id: string, key: string, done: boolean) => call<TradeStep>(`/trade-steps/${id}/subtasks/${encodeURIComponent(key)}`, "POST", { done }),

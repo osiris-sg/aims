@@ -2,6 +2,8 @@ import { TradeTaxInputsService } from './trade-tax-inputs';
 import { TradeDueService } from './trade-due.service';
 import { ClientsController } from './clients.controller';
 import { TradeInvoiceLayoutService } from './trade-invoice-layout.service';
+import { TradeUnpaidService } from './trade-unpaid.service';
+import { TradeUnpaidController } from './trade-unpaid.controller';
 import { ClientsService } from './clients.service';
 import { MonthlyListController } from './monthly-list.controller';
 import { MonthlyListService } from './monthly-list.service';
@@ -63,7 +65,7 @@ import { TradeStepsService } from './trade-steps.service';
  */
 @Module({
   imports: [CommonModule, DocumentExtractionModule, DocumentsModule, DocumentTemplatesModule, EmailModule, NotificationsModule],
-  controllers: [
+  controllers: [TradeUnpaidController, 
     TradeIssuesController,
     CarrierTrackingController,
     ClientsController,
@@ -89,6 +91,7 @@ import { TradeStepsService } from './trade-steps.service';
     TradeTaxInputsService, // round BK: SG→JP total + customs weekly rate for the import tax estimate
     ClientsService,
     TradeInvoiceLayoutService,
+    TradeUnpaidService, // round BP: Dashboard Unpaid
     MonthlyListService,
     ShipmentsNotifyService, // round S: WhatsApp staff notification queue
     OrdersService,
