@@ -6,6 +6,8 @@
 // currency, filter by counterparty. A row opens its order / shipment; the ⋮ menu → Mark paid (date, amount, account,
 // optional proof — saved on the step's payment, its proof on the step's proof slot). Paid rows drop off.
 // Invoice / PI amounts only (no margin / profit): shown to ADH Sales and ADH Admin alike.
+// Round BQ: a done payment step = paid; one row per real invoice / bill (Mitsui Soko, the shared A3279 bill); filed
+// customer invoices; each row says why it is listed; rows without a due date sit under "No due date" at the bottom.
 
 import React, { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -17,6 +19,8 @@ import UploadFileIcon from "@mui/icons-material/UploadFile";
 import { ACCOUNT_LABEL, useShipmentsApi, type PaymentAccount, type UnpaidRow } from "../_lib/api";
 import { fmtDay } from "../_lib/format";
 import { toast } from "../_lib/toast";
+import { unpaidText } from "../_lib/unpaidText";
+import { useUiLang } from "@/i18n/UiLangProvider";
 
 const KEY = ["trade", "unpaid"];
 const todayJst = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -27,6 +31,7 @@ export default function UnpaidCard() {
   const t = useTranslations("shipments.unpaid");
   const api = useShipmentsApi();
   const router = useRouter();
+  const { lang } = useUiLang();
   const q = useQuery({ queryKey: KEY, queryFn: () => api.unpaid() });
   const [tab, setTab] = useState<"pay" | "receive">("pay");
   const [who, setWho] = useState("");
@@ -96,8 +101,16 @@ export default function UnpaidCard() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((r) => (
-                <TableRow key={r.key} hover sx={{ cursor: r.orderId ? "pointer" : "default" }} onClick={() => open(r)}>
+              {rows.map((r, i) => (
+                <React.Fragment key={r.key}>
+                {!r.dueDate && (i === 0 || !!rows[i - 1].dueDate) && (
+                  <TableRow>
+                    <TableCell colSpan={8} sx={{ bgcolor: "action.hover", fontWeight: 700, py: 0.5 }}>
+                      {t("noDueDate")}
+                    </TableCell>
+                  </TableRow>
+                )}
+                <TableRow hover sx={{ cursor: r.orderId ? "pointer" : "default" }} onClick={() => open(r)}>
                   <TableCell sx={{ fontWeight: 700 }}>{r.ref}</TableCell>
                   <TableCell>{r.counterparty ?? "—"}</TableCell>
                   <TableCell>
@@ -105,7 +118,7 @@ export default function UnpaidCard() {
                     {r.documentNo ? ` · ${r.documentNo}` : ""}
                     {r.note && (
                       <Typography variant="caption" color="text.secondary" display="block">
-                        {r.note}
+                        {unpaidText(r.note, lang)}
                       </Typography>
                     )}
                   </TableCell>
@@ -118,6 +131,11 @@ export default function UnpaidCard() {
                   </TableCell>
                   <TableCell>
                     <Chip size="small" variant="outlined" color={r.status === "overdue" ? "error" : r.status === "partly paid" ? "warning" : "default"} label={t(`status.${r.status.replace(" ", "_")}`)} />
+                    {r.reason && (
+                      <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.25, whiteSpace: "normal", maxWidth: 260 }}>
+                        {unpaidText(r.reason, lang)}
+                      </Typography>
+                    )}
                   </TableCell>
                   <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
                     <IconButton size="small" aria-label={t("actions")} onClick={(e) => setMenu({ pos: { left: e.clientX, top: e.clientY }, row: r })}>
@@ -125,6 +143,7 @@ export default function UnpaidCard() {
                     </IconButton>
                   </TableCell>
                 </TableRow>
+                </React.Fragment>
               ))}
             </TableBody>
           </Table>
@@ -180,7 +199,9 @@ function MarkPaidDialog({ row, onClose }: { row: UnpaidRow; onClose: () => void 
       let proofFileId: string | null = null;
       if (file) {
         // The proof goes on the step's own proof slot (its record + step), as the step card files it.
-        const up = await api.uploadFile({ file, docType: row.proofDocType, ...(row.shipmentId && row.kind !== "INVOICE" ? { shipmentIds: [row.shipmentId] } : row.orderId ? { orderIds: [row.orderId] } : {}), ...(row.stepId ? { stepId: row.stepId } : {}) } as any);
+        // A shared bill's proof goes on every shipment it covers.
+        const ships = row.kind !== "INVOICE" ? (row.shipmentIds?.length ? row.shipmentIds : row.shipmentId ? [row.shipmentId] : []) : [];
+        const up = await api.uploadFile({ file, docType: row.proofDocType, ...(ships.length ? { shipmentIds: ships } : row.orderId ? { orderIds: [row.orderId] } : {}), ...(row.stepId ? { stepId: row.stepId } : {}) } as any);
         proofFileId = up.id;
       }
       await api.markPaid({ key: row.key, paidAt, amount: amount === "" ? null : Number(amount), account, proofFileId });
@@ -204,6 +225,11 @@ function MarkPaidDialog({ row, onClose }: { row: UnpaidRow; onClose: () => void 
           <Typography variant="body2" color="text.secondary">
             {[row.counterparty, row.documentNo].filter(Boolean).join(" · ")}
           </Typography>
+          {row.ref.includes(",") && (
+            <Typography variant="caption" color="text.secondary">
+              {t("sharedBill", { refs: row.ref })}
+            </Typography>
+          )}
           <TextField size="small" type="date" label={t("paidOn")} value={paidAt} onChange={(e) => setPaidAt(e.target.value)} InputLabelProps={{ shrink: true }} />
           <TextField size="small" type="number" label={`${t("amountPaid")} (${row.currency})`} value={amount} onChange={(e) => setAmount(e.target.value)} inputProps={{ step: "any" }} />
           <TextField select size="small" label={t("account")} value={account} onChange={(e) => setAccount(e.target.value as PaymentAccount)}>

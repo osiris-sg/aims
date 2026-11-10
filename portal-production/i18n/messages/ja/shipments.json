@@ -931,7 +931,7 @@
       "DEPOSIT": "PI前払金",
       "CI": "CI残金",
       "IMPORT_TAX": "輸入税",
-      "LOGISTICS": "三井倉庫・物流",
+      "LOGISTICS": "物流・倉庫の請求",
       "INVOICE": "請求書"
     },
     "status": {
@@ -954,6 +954,8 @@
     "cancel": "キャンセル",
     "save": "保存",
     "marked": "{ref} を支払済みにしました",
-    "markFailed": "保存できませんでした"
+    "markFailed": "保存できませんでした",
+    "noDueDate": "支払期限なし",
+    "sharedBill": "{refs} の共通請求 — 証憑は各出荷に保存されます。"
   }
 }

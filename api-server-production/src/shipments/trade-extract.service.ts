@@ -1,5 +1,6 @@
 import { likeOrders, PiOrderRow, toHint } from './order-pi-hints';
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { ActionLogService } from '../action-log/action-log.service';
 import { PrismaService } from '../common/prisma.service';
 import { S3Service } from '../common/services/s3.service';
 import { DocumentExtractionService } from '../document-extraction/document-extraction.service';
@@ -45,6 +46,7 @@ import { fixedPremiumFromPi } from './trade-contract';
 import { TradeFilesService } from './trade-files.service';
 import { AnData, importTax, parseAnText, parsePermitText, PermitData, permitChecks, permitTotalFromFileName, sameBl } from './trade-customs';
 import { pdfText } from './trade-coa';
+import { INVOICE_SYSTEM_PROMPT, INVOICE_USER_PROMPT, readInvoiceBuffer } from './trade-invoice-read';
 import { ShipmentCosts } from './trade-estimator';
 import { supplierProfileFor } from './trade-profile';
 import * as XLSX from 'xlsx';
@@ -93,6 +95,8 @@ const ciRawFromText = (c: CiText): CiRaw & Record<string, unknown> => ({
   hsCode: c.hsCode,
 });
 const READABLE = /^(application\/pdf|image\/(png|jpe?g|webp))$/;
+/** Round BQ: the filed types the invoice reader reads on upload (vendor bills + customer invoices made outside AIMS). */
+export const INVOICE_READ_DOC_TYPES = ['VENDOR_INVOICE', 'INVOICE_1', 'INVOICE_2', 'INVOICE_SINGLE', 'INVOICE_ADJUSTMENT'];
 /**
  * Round BJ — the filed types each reader accepts. "Fill from B/L draft" also reads the carrier's final / original B/L
  * and its scan (#18-1: the OBL uploaded on step 3a was refused as "filed as BL, not BL_DRAFT", so nothing was read).
@@ -140,7 +144,55 @@ export class TradeExtractService {
     private readonly files: TradeFilesService,
     // Concrete class (Nest's DI token); tests and the smoke run pass a mock with extractStructured.
     private readonly extractor: DocumentExtractionService,
-  ) {}
+    @Optional() private readonly actionLog?: ActionLogService,
+  ) {
+    // Round BQ: an invoice / bill filed by upload or email is read once, after the upload (never blocks it).
+    this.files?.onUploaded?.((organizationId, fileId, docType) => {
+      if (!INVOICE_READ_DOC_TYPES.includes(docType)) return;
+      this.readInvoice(organizationId, fileId).catch((e) => this.logger.warn(`invoice read failed for ${fileId}: ${(e as Error)?.message}`));
+    });
+  }
+
+  /**
+   * Round BQ — read an invoice / bill / debit note once (text layer, else AI) and store it as a TradeExtraction of
+   * kind INVOICE: what the Dashboard "Unpaid" list shows for invoices that exist only as files (Mitsui Soko, carriers,
+   * customer invoices made outside AIMS). Runs after the upload (fire-and-forget) and from the backfill script.
+   */
+  async readInvoice(organizationId: string, fileId: string, actor: TradeActor | null = null) {
+    const file = await this.prisma.tradeFile.findFirst({ where: { id: fileId, organizationId }, select: { id: true, docType: true, s3Key: true, mimeType: true, fileName: true } });
+    if (!file || !INVOICE_READ_DOC_TYPES.includes(file.docType) || !READABLE.test(file.mimeType)) return null;
+    const started = Date.now();
+    let tokens = { model: 'text-layer', inputTokens: 0, outputTokens: 0 };
+    const buffer = await this.s3.downloadFile(file.s3Key);
+    const read = await readInvoiceBuffer(buffer, file.mimeType, {
+      pdfText,
+      ai: async (buf, mimetype) => {
+        const out = await this.extractor.extractStructured({ buffer: buf, mimetype }, INVOICE_SYSTEM_PROMPT, INVOICE_USER_PROMPT, { maxTokens: 1500 });
+        tokens = { model: out.model, inputTokens: out.inputTokens, outputTokens: out.outputTokens };
+        return out.data;
+      },
+    });
+    const row = await this.prisma.tradeExtraction.create({
+      data: {
+        organizationId,
+        fileId,
+        kind: 'INVOICE',
+        status: read.invoices ? 'DONE' : 'FAILED',
+        result: read.invoices ? ({ invoices: read.invoices } as any) : undefined,
+        error: read.error?.slice(0, 2000) ?? null,
+        ...tokens,
+        durationMs: Date.now() - started,
+        createdById: actor?.id ?? 'system:invoice-read',
+      },
+      select: { id: true },
+    });
+    this.actionLog?.system('invoice-read', 'CREATE', 'trade-extraction', {
+      organizationId,
+      resourceId: row.id,
+      details: { fileId, fileName: file.fileName, docType: file.docType, invoices: (read.invoices ?? []).map((f) => ({ via: f.via, docKind: f.docKind, invoiceNo: f.invoiceNo, total: f.total, currency: f.currency, dueDate: f.dueDate })), error: read.error },
+    });
+    return read.invoices;
+  }
 
   async extract(organizationId: string, kind: ExtractKind, input: { file?: Express.Multer.File; fileId?: string; shipmentId?: string; contractId?: string; orderId?: string }, actor: TradeActor) {
     if (input.shipmentId) {

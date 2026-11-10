@@ -1,7 +1,7 @@
 /** Round BP — Dashboard "Unpaid": rows, due state, sorting / totals, Mark paid. */
 import { sortAndTotal, TradeUnpaidService, unpaidState } from './trade-unpaid.service';
 
-const base = { side: 'pay' as const, kind: 'DEPOSIT' as const, orderId: 'o', shipmentId: null, counterparty: 'Vedanta', documentNo: null, paid: 0, note: null, stepId: 's', generatedDocId: null, proofDocType: 'DEPOSIT_PROOF', daysLeft: null, status: 'due' as const };
+const base = { side: 'pay' as const, kind: 'DEPOSIT' as const, orderId: 'o', shipmentId: null, shipmentIds: [], counterparty: 'Vedanta', documentNo: null, paid: 0, note: null, reason: 'step 1 not done', stepId: 's', recordOn: 'step' as const, generatedDocId: null, fileId: null, proofDocType: 'DEPOSIT_PROOF', daysLeft: null, status: 'due' as const };
 
 describe('round BP — Unpaid helpers', () => {
   it('days left / overdue / partly paid / no date', () => {
@@ -32,7 +32,7 @@ describe('round BP — Unpaid list + Mark paid', () => {
                 { id: 'st1', code: 'PI_PAYMENT', payment: null, order: { id: 'o30', orderNo: 30, piNo: '9331004393', piDate: new Date('2026-11-03'), piAmount: 359000, depositPct: 10, depositAmount: 35900, depositDueDate: new Date('2026-11-06'), depositPaidAt: null, currency: 'USD', supplier: { name: 'Vedanta' } }, shipment: null },
                 { id: 'st2', code: 'PI_PAYMENT', payment: { amount: 1, paidAt: '2026-11-05', account: 'DBS' }, order: { id: 'o29', orderNo: 29, piNo: 'x', depositAmount: 1, currency: 'USD', supplier: { name: 'Vedanta' } }, shipment: null },
               ]
-            : [{ id: 'rc', orderId: 'o13', code: 'INVOICE_1', payment: null, skipReason: null, notApplicable: false, requiredDocTypes: ['INVOICE_SINGLE'] }],
+            : [{ id: 'rc', orderId: 'o13', code: 'INVOICE_1', status: 'IN_PROGRESS', payment: null, skipReason: null, notApplicable: false, requiredDocTypes: ['INVOICE_SINGLE'] }],
         ),
       },
       tradePaymentAllocation: { findMany: jest.fn(async () => []) },
@@ -41,7 +41,8 @@ describe('round BP — Unpaid list + Mark paid', () => {
           { id: 'g1', docType: 'INVOICE_SINGLE', number: '202611_02', header: { style: 2, taxRate: 10, fxRate: 157.63, dueDate: '2026-11-16', currency: 'USD' }, rows: [{ kind: 'usd', quantity: 1, unitPrice: 1000, taxable: true }], orderId: 'o13', shipmentId: null, order: { id: 'o13', orderNo: 27, status: 'OPEN', isTest: false, customer: { name: 'Kato' } }, shipment: null },
         ]),
       },
-      tradeFile: { findFirst: jest.fn() },
+      tradeFile: { findFirst: jest.fn(), findMany: jest.fn(async () => []) },
+      tradeExtraction: { findMany: jest.fn(async () => []) },
       tradePayment: { create: jest.fn(async () => ({ id: 'p1' })) },
     };
     const due: any = { openItems: jest.fn(async () => [{ stepId: 'st1', due: '2026-11-06' }]) };
@@ -54,7 +55,7 @@ describe('round BP — Unpaid list + Mark paid', () => {
     const r = await svc.list('org', '2026-11-10');
     expect(r.pay).toHaveLength(1);
     expect(r.pay[0]).toMatchObject({ ref: '#30', kind: 'DEPOSIT', documentNo: 'PI 9331004393', amount: 35900, dueDate: '2026-11-06', daysLeft: -4, status: 'overdue', stepId: 'st1' });
-    expect(r.receive[0]).toMatchObject({ ref: '#27', counterparty: 'Kato', documentNo: 'Invoice 202611_02', amount: 1100, dueDate: '2026-11-16', stepId: 'rc' });
+    expect(r.receive[0]).toMatchObject({ ref: '#27', counterparty: 'Kato', documentNo: 'Invoice 202611_02', amount: 1100, dueDate: '2026-11-16', stepId: 'rc', recordOn: 'step', reason: 'step 2 not done (no receipt recorded)' });
     expect(r.payTotals).toEqual({ USD: 35900 });
   });
 

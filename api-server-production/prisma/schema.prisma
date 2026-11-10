@@ -4405,6 +4405,8 @@ enum TradeExtractionKind {
   AN
   IMPORT_PERMIT
   CI
+  /// Round BQ: an invoice / bill / debit note (Unpaid list): issuer, no., total, due date.
+  INVOICE
 }
 
 enum TradeExtractionStatus {

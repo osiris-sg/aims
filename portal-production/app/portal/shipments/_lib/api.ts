@@ -1157,6 +1157,8 @@ export type UnpaidRow = {
   ref: string;
   orderId: string | null;
   shipmentId: string | null;
+  /** Round BQ: every shipment the row is for (a monthly bill covers several). */
+  shipmentIds: string[];
   counterparty: string | null;
   documentNo: string | null;
   amount: number | null;
@@ -1166,8 +1168,12 @@ export type UnpaidRow = {
   status: "overdue" | "due" | "no date" | "partly paid";
   paid: number;
   note: string | null;
+  /** Round BQ: why it is on the list ("step 6 not done", "invoice 2FMEJAEF0204 · step 12 not done (#15-1)"). */
+  reason: string;
   stepId: string | null;
+  recordOn: "step" | "allocation";
   generatedDocId: string | null;
+  fileId: string | null;
   proofDocType: string;
 };
 export type UnpaidList = { today: string; pay: UnpaidRow[]; payTotals: Record<string, number>; receive: UnpaidRow[]; receiveTotals: Record<string, number> };

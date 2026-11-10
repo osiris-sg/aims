@@ -931,13 +931,13 @@
       "DEPOSIT": "PI deposit",
       "CI": "CI balance",
       "IMPORT_TAX": "Import tax",
-      "LOGISTICS": "Mitsui Soko / logistics",
+      "LOGISTICS": "Logistics bill",
       "INVOICE": "Invoice"
     },
     "status": {
       "overdue": "Overdue",
       "due": "Due",
-      "no_date": "No date",
+      "no_date": "No due date",
       "partly_paid": "Partly paid"
     },
     "overdueDays": "{n} days overdue",
@@ -954,6 +954,8 @@
     "cancel": "Cancel",
     "save": "Save",
     "marked": "{ref} marked paid",
-    "markFailed": "Could not save"
+    "markFailed": "Could not save",
+    "noDueDate": "No due date",
+    "sharedBill": "One bill for {refs} — the proof is filed on each of them."
   }
 }

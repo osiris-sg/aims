@@ -49,6 +49,12 @@ export class TradeFilesService {
     private readonly thumbs: TradeThumbsService,
   ) {}
 
+  /** Round BQ: told about every stored file after its upload (the invoice reader listens); never blocks or fails it. */
+  private readonly uploadListeners: Array<(organizationId: string, fileId: string, docType: string) => void> = [];
+  onUploaded(fn: (organizationId: string, fileId: string, docType: string) => void) {
+    this.uploadListeners.push(fn);
+  }
+
   static keyPrefix(organizationId: string) {
     return `shipments/${organizationId}/`;
   }
@@ -132,6 +138,13 @@ export class TradeFilesService {
     await this.thumbs.make(organizationId, fileId, file.buffer);
     // Steps that now have every required document complete by themselves.
     const completedSteps = await this.config.syncSteps(this.prisma, organizationId, owners, actor, { docTypes: [docType] });
+    for (const fn of this.uploadListeners) {
+      try {
+        fn(organizationId, fileId, docType);
+      } catch (e) {
+        this.logger.warn(`upload listener: ${(e as Error)?.message}`);
+      }
+    }
     return { ...(await this.getById(organizationId, fileId)), completedSteps };
   }
 
