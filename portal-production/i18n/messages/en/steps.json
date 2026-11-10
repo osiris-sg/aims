@@ -15,5 +15,6 @@
   "LOGISTICS_PAYMENT": "Pay transport & storage costs",
   "XERO_HANDOFF": "Prepare data for Xero reconciliation",
   "DELIVERY_CHANGES": "Coordinate delivery changes",
-  "INVOICE_1_SINGLE": "Issue and send invoices"
+  "INVOICE_1_SINGLE": "Issue and send invoices",
+  "INVOICE_2_FOLLOWUP": "Actual-cost / correction invoices (optional)"
 }

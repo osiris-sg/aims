@@ -119,7 +119,9 @@ async function main() {
     plan('create doc type INVOICE_ADJUSTMENT "Correction / actual-cost invoice (正誤差額・実費差分)" (INVOICES)');
     if (APPLY) {
       const { id: _i, createdAt: _c, updatedAt: _u, ...base } = ref;
-      const row = await p.tradeDocType.create({ data: { ...base, code: 'INVOICE_ADJUSTMENT', label: 'Correction / actual-cost invoice (正誤差額・実費差分)', sortOrder: (ref.sortOrder ?? 0) + 1 } });
+      // Last in the list, as setup-adh-org.ts DOC_TYPES (so its re-run plans no sort-order change).
+      const last = await p.tradeDocType.aggregate({ where: { organizationId: ADH }, _max: { sortOrder: true } });
+      const row = await p.tradeDocType.create({ data: { ...base, code: 'INVOICE_ADJUSTMENT', label: 'Correction / actual-cost invoice (正誤差額・実費差分)', sortOrder: (last._max.sortOrder ?? 0) + 10 } });
       await log('CREATE', 'TradeDocType', row.id, { code: 'INVOICE_ADJUSTMENT' });
     }
   }
@@ -130,11 +132,12 @@ async function main() {
       console.log(`  step ${code}: already optional`);
       continue;
     }
-    const open = await p.tradeStep.count({ where: { organizationId: ADH, code, status: { not: 'DONE' } } });
-    plan(`step ${code === 'INVOICE_1' ? '2' : '11'}: optional doc types + INVOICE_ADJUSTMENT (template + ${open} open step(s))`);
+    // Every step of this code that is on (as setup-adh-org.ts "offer … the optional types"): only what is offered changes.
+    const open = await p.tradeStep.count({ where: { organizationId: ADH, code, notApplicable: false, orderId: { not: null } } });
+    plan(`step ${code === 'INVOICE_1' ? '2' : '11'}: optional doc types + INVOICE_ADJUSTMENT (template + ${open} step(s))`);
     if (APPLY) {
       await p.tradeStepTemplate.update({ where: { id: tpl.id }, data: { optionalDocTypes: want } });
-      const steps: any[] = await p.tradeStep.findMany({ where: { organizationId: ADH, code, status: { not: 'DONE' } }, select: { id: true, optionalDocTypes: true } });
+      const steps: any[] = await p.tradeStep.findMany({ where: { organizationId: ADH, code, notApplicable: false, orderId: { not: null } }, select: { id: true, optionalDocTypes: true } });
       for (const s of steps) if (!s.optionalDocTypes.includes('INVOICE_ADJUSTMENT')) await p.tradeStep.update({ where: { id: s.id }, data: { optionalDocTypes: [...s.optionalDocTypes.filter((x: string) => x !== 'OTHER'), 'INVOICE_ADJUSTMENT', 'OTHER'] } });
       await log('UPDATE', 'TradeStepTemplate', tpl.id, { code, add: 'INVOICE_ADJUSTMENT', openSteps: steps.length });
     }

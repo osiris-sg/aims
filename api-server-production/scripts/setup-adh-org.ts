@@ -265,8 +265,6 @@ const DOC_TYPES: Array<[string, string, DocCategory]> = [
   ['IMPORT_PERMIT', 'Import permit', 'CUSTOMS_LOGISTICS'],
   ['INVOICE_2', 'Invoice #2', 'INVOICES'],
   ['INVOICE_SINGLE', 'Invoice (single)', 'INVOICES'],
-  // Round BO: Kato's 正誤差額 (202610_004) and 実費差分 invoices, made from a final single invoice.
-  ['INVOICE_ADJUSTMENT', 'Correction / actual-cost invoice (正誤差額・実費差分)', 'INVOICES'],
   ['VENDOR_INVOICE', 'Vendor invoice', 'PAYMENTS'],
   ['PAYMENT_PROOF', 'Payment proof', 'PAYMENTS'],
   ['CUSTOMER_PO', 'Customer purchase order (発注書)', 'CUSTOMER'],
@@ -278,6 +276,8 @@ const DOC_TYPES: Array<[string, string, DocCategory]> = [
   // Mitsui Soko's 納品明細 — what was delivered (step 14 evidence; the intake files it there).
   ['DELIVERY_NOTE', 'Delivery note (納品明細)', 'CUSTOMS_LOGISTICS'],
   ['OTHER', 'Other', 'OTHER'],
+  // Round BO: Kato's 正誤差額 (202610_004) and 実費差分 invoices, made from a final single invoice (last, so no sort order shifts).
+  ['INVOICE_ADJUSTMENT', 'Correction / actual-cost invoice (正誤差額・実費差分)', 'INVOICES'],
 ];
 
 // Org-level B/L instruction defaults (TradeSetting), copied into each new contract.
@@ -395,7 +395,7 @@ const STEP_TEMPLATES: StepSpec[] = [
   { scope: 'ORDER', sortOrder: 20, code: 'INVOICE_1', displayNo: '2', title: 'Issue and send Invoice #1', requiredDocTypes: ['INVOICE_1'], optionalDocTypes: ['CUSTOMER_PO', 'PAYMENT_PROOF', 'INVOICE_ADJUSTMENT', 'OTHER'] },
   // 11: Invoice #2 (TWO_STAGE) — or the single invoice for a SINGLE-billing customer — on the order; done once every
   // live shipment has its invoice (one invoice may cover several shipments).
-  { scope: 'ORDER', sortOrder: 110, code: 'INVOICE_2', displayNo: '11', title: 'Issue Invoice #2', requiredDocTypes: ['INVOICE_2'], optionalDocTypes: ['INVOICE_SINGLE', 'INVOICE_ADJUSTMENT', 'PAYMENT_PROOF', 'OTHER'] },
+  { scope: 'ORDER', sortOrder: 110, code: 'INVOICE_2', displayNo: '11', title: 'Issue Invoice #2', requiredDocTypes: ['INVOICE_2'], optionalDocTypes: ['INVOICE_SINGLE', 'PAYMENT_PROOF', 'INVOICE_ADJUSTMENT', 'OTHER'] },
   { scope: 'ORDER', sortOrder: 130, code: 'XERO_HANDOFF', displayNo: '13', title: 'Prepare data for Xero reconciliation', requiredDocTypes: [], optionalDocTypes: ['CUSTOMER_PO', 'OTHER'] },
   {
     scope: 'SHIPMENT',
@@ -432,8 +432,11 @@ const STEP_TEMPLATES: StepSpec[] = [
 
 // Supplier/Customer have no UEN column; gstRegNo is a GST number, so the UEN is
 // only reported.
-/** Round N: orders made during live click-throughs on prod — flagged isTest (never deleted). */
-const TEST_ORDERS = { year: 2026, orderNos: [27, 28, 29] };
+/**
+ * Round N: orders made during live click-throughs on prod — flagged isTest (never deleted). Round BP (owner): emptied —
+ * those numbers (#27, #28, #29) are real orders now (Kato Dec 6005 / 6063 …); a re-run must never mark them as test.
+ */
+const TEST_ORDERS: { year: number; orderNos: number[] } = { year: 2026, orderNos: [] };
 
 const SUPPLIERS = [
   { name: 'Vedanta Aluminium Metal Limited', currency: 'USD' },
@@ -444,7 +447,8 @@ const SUPPLIERS = [
 const CUSTOMERS = [
   { name: 'SUS Co., Ltd.', currency: 'USD' },
   { name: 'Kato Light Metal Industry Co., Ltd.', currency: 'USD' },
-  { name: 'Houei', currency: 'USD' },
+  // Round BP: the customer's name on prod (a bare "Houei" never matched, so a re-run planned a duplicate CH002).
+  { name: 'Houei Metal Co., Ltd.', currency: 'USD' },
 ];
 
 // Customer profiles (TradeSetting.customerProfiles, Org Settings → Customers), keyed here by the customer's
@@ -552,7 +556,7 @@ const CONTRACT_SEED: ContractSeed[] = [
   },
   {
     contractNo: '454003652',
-    customer: 'Houei',
+    customer: 'Houei Metal Co., Ltd.',
     product: 'Aluminium Ingot',
     grade: 'P1020',
     sizeSpec: null,
@@ -605,7 +609,7 @@ const PROFILE_SEED: Record<string, Omit<CustomerProfile, 'customerId'>> = {
     // Kato's sample invoice prints CFSB (an ADH SG account on an ADH JP invoice).
     defaultBankId: 'cfsb',
   },
-  Houei: {
+  'Houei Metal Co., Ltd.': {
     key: 'HOEI',
     label: 'Hoei',
     billingMode: 'SINGLE',
@@ -638,6 +642,9 @@ const write = (step: string, msg: string) => {
   console.log(`  ${APPLY ? '' : '[dry] '}${msg}`);
 };
 const info = (msg: string) => console.log(`  ${msg}`);
+/** Round BP: JSON equality with sorted keys (jsonb reorders keys) — for the sections before 9b's sameJson. */
+const sortKeysEarly = (v: any): any => (Array.isArray(v) ? v.map(sortKeysEarly) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortKeysEarly(v[k])])) : v);
+const sameJsonEarly = (a: unknown, b: unknown) => JSON.stringify(sortKeysEarly(a ?? null)) === JSON.stringify(sortKeysEarly(b ?? null));
 const header = (n: string, title: string) => console.log(`\n── ${n}. ${title} ${'─'.repeat(Math.max(0, 60 - title.length))}`);
 
 function dbUrlParts() {
@@ -792,10 +799,14 @@ async function main() {
 
   // ── 1. Organization (+ tenancy registry) ──────────────────────────────────
   header('1', 'Organization');
-  let orgRow = await plat.organization.findUnique({ where: { name: ORG_NAME }, select: { id: true } });
+  let orgRow = await plat.organization.findUnique({ where: { name: ORG_NAME }, select: { id: true, ...(Object.fromEntries(Object.keys(ORG_FIELDS).map((k) => [k, true])) as any) } });
   if (orgRow) {
-    if (APPLY) await plat.organization.update({ where: { id: orgRow.id }, data: ORG_FIELDS });
-    write('org', `update "${ORG_NAME}" [${orgRow.id}]: address, phoneNumber, registrationNumber, USD, tax 0 / off`);
+    // Round BP: only fields that differ are written (a re-run with nothing to change plans 0 writes).
+    const diff = Object.fromEntries(Object.entries(ORG_FIELDS).filter(([k, v]) => String((orgRow as any)[k] ?? '') !== String(v)));
+    if (Object.keys(diff).length) {
+      if (APPLY) await plat.organization.update({ where: { id: orgRow.id }, data: diff });
+      write('org', `update "${ORG_NAME}" [${orgRow.id}]: ${Object.entries(diff).map(([k, v]) => `${k} ${JSON.stringify((orgRow as any)[k] ?? null)} → ${JSON.stringify(v)}`).join(', ')}`);
+    } else info(`"${ORG_NAME}" [${orgRow.id}] set`);
   } else if (APPLY) {
     orgRow = await plat.organization.create({ data: { name: ORG_NAME, ...ORG_FIELDS }, select: { id: true } });
     write('org', `created "${ORG_NAME}" [${orgRow.id}]`);
@@ -890,9 +901,13 @@ async function main() {
   if (!orgReady && permSource) info(`(previewed against ${permSource}."Permission" — the catalogue step 1b copies)`);
   if (!allPerms.length) info('⚠ Permission catalogue not readable yet — list above is only the shipments:* rows');
 
-  const existingRole = orgExists ? await orgRead(() => org.role.findFirst({ where: { organizationId: orgId, name: ROLE_NAME } }), null) : null;
+  const existingRole = orgExists ? await orgRead(() => org.role.findFirst({ where: { organizationId: orgId, name: ROLE_NAME }, include: { permissions: { select: { name: true } } } }), null) : null;
   let roleId: string | null = existingRole?.id ?? null;
-  if (APPLY) {
+  // Round BP: a role already as wanted (description, modules, permission set) is left alone.
+  const roleSame = (r: any, perms: Array<{ name: string }>, description: string) =>
+    !!r && r.description === description && JSON.stringify([...(r.allowedModules ?? [])].sort()) === JSON.stringify([...ROLE_MODULES].sort()) && JSON.stringify(r.permissions.map((x: any) => x.name).sort()) === JSON.stringify(perms.map((x) => x.name).filter((n) => !n.startsWith('(new)')).sort());
+  const staffSame = roleSame(existingRole, granted, ROLE_DESCRIPTION);
+  if (APPLY && !staffSame) {
     // Re-read so freshly created shipments:* rows have their real ids.
     const ids = (await org.permission.findMany({ where: { name: { in: granted.map((p) => p.name) } }, select: { id: true } })).map((p: any) => ({ id: p.id }));
     if (existingRole) {
@@ -902,13 +917,15 @@ async function main() {
       roleId = r.id;
     }
   }
-  write('role', `${existingRole ? 'sync' : 'create'} "${ROLE_NAME}" — modules ${ROLE_MODULES.join('/')}, ${granted.length} permissions`);
+  if (staffSame) info(`"${ROLE_NAME}" set (${granted.length} permissions)`);
+  else write('role', `${existingRole ? 'sync' : 'create'} "${ROLE_NAME}" — modules ${ROLE_MODULES.join('/')}, ${granted.length} permissions`);
 
   // ── 3b. Role "ADH Manager" ────────────────────────────────────────────────
   header('3b', `Role "${MANAGER_ROLE_NAME}"`);
   const managerGranted = [...granted, ...[...permByName.values()].filter((p) => MONEY_PERMISSIONS.includes(p.name))];
-  const existingManager = orgExists ? await orgRead(() => org.role.findFirst({ where: { organizationId: orgId, name: MANAGER_ROLE_NAME } }), null) : null;
-  if (APPLY) {
+  const existingManager = orgExists ? await orgRead(() => org.role.findFirst({ where: { organizationId: orgId, name: MANAGER_ROLE_NAME }, include: { permissions: { select: { name: true } } } }), null) : null;
+  const managerSame = roleSame(existingManager, managerGranted, MANAGER_ROLE_DESCRIPTION);
+  if (APPLY && !managerSame) {
     const ids = (await org.permission.findMany({ where: { name: { in: managerGranted.map((p) => p.name) } }, select: { id: true } })).map((p: any) => ({ id: p.id }));
     if (existingManager) {
       await org.role.update({ where: { id: existingManager.id }, data: { description: MANAGER_ROLE_DESCRIPTION, allowedModules: ROLE_MODULES, permissions: { set: ids } } });
@@ -916,11 +933,13 @@ async function main() {
       await org.role.create({ data: { organizationId: orgId, name: MANAGER_ROLE_NAME, description: MANAGER_ROLE_DESCRIPTION, allowedModules: ROLE_MODULES, permissions: { connect: ids } } });
     }
   }
-  write('role', `${existingManager ? 'sync' : 'create'} "${MANAGER_ROLE_NAME}" — modules ${ROLE_MODULES.join('/')}, ${managerGranted.length} permissions (staff + money)`);
+  if (managerSame) info(`"${MANAGER_ROLE_NAME}" set (${managerGranted.length} permissions)`);
+  else write('role', `${existingManager ? 'sync' : 'create'} "${MANAGER_ROLE_NAME}" — modules ${ROLE_MODULES.join('/')}, ${managerGranted.length} permissions (staff + money)`);
 
   // ── 4. Modules ────────────────────────────────────────────────────────────
   header('4', 'Modules');
   const enabledCodes = new Set(ENABLED_MODULES.map((m) => m.code));
+  const haveModules = new Map<string, any>(orgExists ? ((await plat.organizationModule.findMany({ where: { organizationId: orgId } })) as any[]).map((m) => [m.moduleCode, m]) : []);
   for (const cat of MODULE_CATALOG) {
     const wanted = ENABLED_MODULES.find((m) => m.code === cat.moduleCode);
     const enabled = enabledCodes.has(cat.moduleCode);
@@ -931,6 +950,14 @@ async function main() {
       ...(wanted?.hideInMenu ? { hideInMenu: true } : {}),
     };
     const row = { enabled, displayName: wanted?.displayName ?? cat.displayName, icon: wanted?.icon ?? cat.icon, sortOrder: wanted?.sortOrder ?? cat.sortOrder, config };
+    // Round BP: module rows are seeded once; afterwards the app owns them (the owner switched Documents / Invoices
+    // off and edited menus since) — an existing row is never rewritten, only reported when it differs from the seed.
+    const curMod = haveModules.get(cat.moduleCode);
+    if (curMod) {
+      const same = curMod.enabled === row.enabled && curMod.displayName === row.displayName && curMod.icon === row.icon && curMod.sortOrder === row.sortOrder && sameJsonEarly(curMod.config, row.config);
+      if (!same) info(`${cat.moduleCode.padEnd(20)} as set in the app (${curMod.enabled ? 'ON' : 'off'}) — differs from the seed, left alone`);
+      continue;
+    }
     if (APPLY) {
       await plat.organizationModule.upsert({
         where: { organizationId_moduleCode: { organizationId: orgId, moduleCode: cat.moduleCode } },
@@ -949,16 +976,20 @@ async function main() {
   const uiCfg = orgExists ? await plat.organizationUIConfig.findUnique({ where: { organizationId: orgId }, select: { features: true } }) : null;
   // Round AZ: withFeatureStamps keeps (or, on off → on, stamps) the due dates' switch-on day.
   const features = withFeatureStamps(uiCfg?.features, { ...DEFAULT_ORG_FEATURES, ...((uiCfg?.features as Record<string, boolean>) || {}), ...FEATURE_OVERRIDES }) as Record<string, unknown>;
-  if (APPLY) {
+  // Round BP: flags already as wanted are left alone (the dry run lists what would change).
+  // A flag missing on the org is off: adding it as false changes nothing, so it isn't counted.
+  const flagDiff = Object.keys(features).filter((k) => JSON.stringify((uiCfg?.features as any)?.[k]) !== JSON.stringify(features[k]) && !((uiCfg?.features as any)?.[k] === undefined && features[k] === false));
+  if (uiCfg && !flagDiff.length) info(`${Object.keys(features).length} flags set`);
+  else if (APPLY) {
     await plat.organizationUIConfig.upsert({
       where: { organizationId: orgId },
       update: { features },
       create: { organizationId: orgId, features, currency: 'USD', language: 'en' },
     });
   }
-  write(
+  if (!uiCfg || flagDiff.length) write(
     'features',
-    `${uiCfg ? 'merge' : 'create'} ${Object.keys(features).length} flags; overrides ${Object.entries(FEATURE_OVERRIDES)
+    `${uiCfg ? `merge (changes: ${flagDiff.map((k) => `${k} ${JSON.stringify((uiCfg?.features as any)?.[k] ?? null)} → ${JSON.stringify(features[k])}`).join(', ')})` : 'create'} ${Object.keys(features).length} flags; overrides ${Object.entries(FEATURE_OVERRIDES)
       .map(([k, v]) => `${k}=${v}`)
       .join(', ')}`,
   );
@@ -1141,7 +1172,13 @@ async function main() {
     // Email intake: counterparty domains never purged automatically — seeded once, edited in Org Settings → Shipping.
     intakeKeepDomains: Array.isArray(curDefaults.intakeKeepDomains) ? curDefaults.intakeKeepDomains : DEFAULT_KEEP_DOMAINS,
   };
-  const desired = { ...TRADE_SETTINGS, docDefaults: desiredDefaults };
+  // Round BP: the consignee / notify party are seeded once; what the org typed since (Org Settings) wins.
+  const desired = {
+    ...TRADE_SETTINGS,
+    defaultConsignee: curSettings?.defaultConsignee || TRADE_SETTINGS.defaultConsignee,
+    defaultNotifyParty: curSettings?.defaultNotifyParty || TRADE_SETTINGS.defaultNotifyParty,
+    docDefaults: desiredDefaults,
+  };
   if (
     curSettings &&
     curSettings.defaultConsignee === desired.defaultConsignee &&
@@ -1502,7 +1539,11 @@ async function main() {
 
   // ── 10e. One order process (2026-10, round H): supplier orders fold back into their orders ─
   header('10e', 'One order process (PI fields + steps 0 / 1 back on the order, step 11 on the order, payments → steps)');
-  if (!tradeReady || !org.supplierOrder || !org.tradeOrder) {
+  // Round BP (owner): round H's one-time migration — done on prod; a re-run copied supplier-order PI fields over
+  // values edited since (#25: piNo, supplierPremium 201 → 162). Runs only with --one-process-migration.
+  if (!process.argv.includes('--one-process-migration')) {
+    info('skipped (one-time migration, done) — pass --one-process-migration to run it');
+  } else if (!tradeReady || !org.supplierOrder || !org.tradeOrder) {
     info('SupplierOrder / TradeOrder table / client not ready — push the schema first');
   } else {
     const spec = (code: string) => {

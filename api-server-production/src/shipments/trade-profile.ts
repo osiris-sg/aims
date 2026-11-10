@@ -249,6 +249,8 @@ export function mergeSupplierProfiles(current: unknown, patch: Record<string, un
  */
 /** Round BO: step 2's title when a single-billing customer is invoiced there (portal key steps.INVOICE_1_SINGLE). */
 export const SINGLE_ON_STEP2_TITLE = 'Issue and send invoices';
+/** Round BP: step 11 of a customer invoiced on step 2 (portal key steps.INVOICE_2_FOLLOWUP). */
+export const SINGLE_STEP11_TITLE = 'Actual-cost / correction invoices (optional)';
 
 export function naStepCodes(p: CustomerProfile, scope: 'ORDER' | 'SHIPMENT' | 'CONTRACT' | 'SUPPLIER_ORDER', supplier?: SupplierProfile | null): string[] {
   const noPi = supplier && !supplier.hasPI ? ['PI_PAYMENT'] : [];
@@ -270,6 +272,9 @@ export function naStepCodes(p: CustomerProfile, scope: 'ORDER' | 'SHIPMENT' | 'C
 export function stepOverride(p: CustomerProfile, code: string, supplier?: SupplierProfile | null): { title?: string; requiredDocTypes?: string[] } {
   // Round BO: invoiced on step 2 → step 2 takes the single invoice (step 11 stays as it is until the owner decides).
   if (p.billingMode === 'SINGLE' && p.singleInvoiceStep === 'INVOICE_1' && code === 'INVOICE_1') return { title: SINGLE_ON_STEP2_TITLE, requiredDocTypes: ['INVOICE_SINGLE'] };
+  // Round BP (owner's go): then step 11 is the optional follow-up — 実費差分 / correction invoices, nothing required;
+  // marked done once there is nothing (more) to bill.
+  if (p.billingMode === 'SINGLE' && p.singleInvoiceStep === 'INVOICE_1' && code === 'INVOICE_2') return { title: SINGLE_STEP11_TITLE, requiredDocTypes: [] };
   if (p.billingMode === 'SINGLE' && code === 'INVOICE_2') return { title: 'Issue invoice (single)', requiredDocTypes: ['INVOICE_SINGLE'] };
   if (supplier && !supplier.hasPI && code === 'CI_PAYMENT') return { title: 'Pay the CI (full amount — no PI)' };
   if (supplier?.shippingDocs?.length && code === 'SHIPPING_DOCS') return { requiredDocTypes: supplier.shippingDocs };

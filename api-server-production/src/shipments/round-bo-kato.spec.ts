@@ -112,7 +112,9 @@ describe('round BO — Kato invoiced on step 2', () => {
     const k = { ...base, singleInvoiceStep: 'INVOICE_1' as const };
     expect(naStepCodes(k, 'ORDER')).not.toContain('INVOICE_1');
     expect(stepOverride(k, 'INVOICE_1')).toEqual({ title: 'Issue and send invoices', requiredDocTypes: ['INVOICE_SINGLE'] });
-    expect(stepOverride(k, 'INVOICE_2')).toEqual({ title: 'Issue invoice (single)', requiredDocTypes: ['INVOICE_SINGLE'] }); // until the owner decides
+    // Round BP (owner's go): step 11 becomes the optional 実費差分 / correction step (nothing required).
+    expect(stepOverride(k, 'INVOICE_2')).toEqual({ title: 'Actual-cost / correction invoices (optional)', requiredDocTypes: [] });
+    expect(stepOverride(base, 'INVOICE_2')).toEqual({ title: 'Issue invoice (single)', requiredDocTypes: ['INVOICE_SINGLE'] }); // step-11 customers unchanged
     expect(stepOverride({ ...base, billingMode: 'TWO_STAGE' as const, singleInvoiceStep: 'INVOICE_1' as const }, 'INVOICE_1')).toEqual({});
   });
 
