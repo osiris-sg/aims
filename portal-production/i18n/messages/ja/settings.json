@@ -274,7 +274,13 @@
       "CUSTOMER_COA_SUS": "納品書兼分析試験成績報告書 — SUS（様式未確定）",
       "CUSTOMER_COA_HOEI": "納品書兼分析試験成績報告書 — Hoei（様式未確定）",
       "CUSTOMER_COA_SUS_SUMMARY": "COA_集計ファイル (SUS) — キャスト別 COA 集計、PDF"
-    }
+    },
+    "invoiceStep": "請求書のステップ",
+    "invoiceStep2": "ステップ2 — 請求書の発行・送付",
+    "invoiceStep11": "ステップ11 — 納入後",
+    "invoiceStepHelp": "この顧客の請求書を発行するステップ（加藤：船積書類の到着後、ステップ2）。",
+    "customsFlat": "通関（課税対象外）見込額（円）",
+    "customsFlatHelp": "請求書の通関行に印字（加藤：93,000）。空欄＝B/L費用＋AN費用。"
   },
   "companyProfile": {
     "missingAuth": "認証情報または組織が見つかりません。",

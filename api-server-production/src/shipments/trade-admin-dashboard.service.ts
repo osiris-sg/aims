@@ -38,7 +38,7 @@ export class TradeAdminDashboardService {
     const receipts: Array<{ orderId: string | null; code: string; payment: unknown; skipReason: string | null }> = await this.prisma.tradeStep.findMany({ where: { organizationId, orderId: { not: null }, shipmentId: null, code: { in: ['INVOICE_1', 'INVOICE_2'] } }, select: { orderId: true, code: true, payment: true, skipReason: true } });
     const receiptStep = (orderId: string | null, code: string) => receipts.find((r) => r.orderId === orderId && r.code === code);
     const invs: any[] = await this.prisma.tradeGeneratedDoc.findMany({
-      where: { organizationId, status: 'FINAL', docType: { in: ['INVOICE_1', 'INVOICE_2', 'INVOICE_SINGLE'] } },
+      where: { organizationId, status: 'FINAL', docType: { in: ['INVOICE_1', 'INVOICE_2', 'INVOICE_SINGLE', 'INVOICE_ADJUSTMENT'] } },
       select: { id: true, docType: true, number: true, header: true, rows: true, orderId: true, shipmentId: true, createdAt: true, order: { select: { status: true, orderNo: true, isTest: true, customer: { select: { name: true } } } }, shipment: { select: { orderId: true, order: { select: { status: true, orderNo: true, isTest: true, customer: { select: { name: true } } } } } } },
     });
     const invoices: InvoiceFact[] = [];

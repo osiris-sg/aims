@@ -217,6 +217,40 @@
     "footer": "Select a customer to create an invoice"
   },
   "tradeForm": {
-    "fxMissing": "Needed: the 円貨 line and the ¥ tax figures print only with a rate (finalizing asks for it)."
+    "fxMissing": "Needed: the 円貨 line and the ¥ tax figures print only with a rate (finalizing asks for it).",
+    "noAuto": "Blank = the next YYYYMM_NN of the issue month, set on Finalize",
+    "customsRate": "Customs rate",
+    "dueLine": "お支払い期限 line"
+  },
+  "followUp": {
+    "button": "Correction / actual costs",
+    "correction": "Correction invoice (正誤差額)",
+    "actuals": "Actual-cost invoice (実費差分)",
+    "correctionTitle": "Correction invoice for {no}",
+    "actualsTitle": "Actual-cost invoice for {no}",
+    "correctionHelp": "Bills the difference of one price field × the quantity, at this invoice's rate; linked to it and paid with the next invoice.",
+    "actualsHelp": "Bills the actual customs / trucking costs (step 12) minus what this invoice billed, at its rate. A negative difference is a credit.",
+    "field": "Corrected field",
+    "billed": "Billed",
+    "correct": "Correct value",
+    "quantity": "Quantity (MT)",
+    "diff": "Difference {diff} USD/MT × {qty} MT",
+    "fields": {
+      "premium": "Billet Premium",
+      "lme": "LME",
+      "qmjp": "MJP",
+      "upcharge": "Upcharge"
+    },
+    "actualTaxable": "Actual 通関、車輸送料 (taxable), ¥",
+    "actualNonTaxable": "Actual 通関 (non-taxable), ¥",
+    "billedYen": "Billed {v}",
+    "source": "Source (optional)",
+    "sourcePh": "Mitsui Soko invoice no. / import permit",
+    "noActuals": "No actual costs on step 12 yet — type them here.",
+    "cancel": "Cancel",
+    "create": "Create draft",
+    "created": "Draft created",
+    "createFailed": "Could not create it",
+    "loadFailed": "Could not load the costs"
   }
 }

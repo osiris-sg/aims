@@ -1,6 +1,7 @@
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
 
-const ALL = ['CUSTOMER_PL', 'CUSTOMER_COA', 'INVOICE_1', 'INVOICE_2', 'INVOICE_SINGLE', 'SGJP_IV_PL', 'SHIPPING_INSTRUCTIONS'];
+// Round BO: INVOICE_ADJUSTMENT (正誤差額 / 実費差分) previews like the rest; createBlank refuses it (made from a final invoice).
+const ALL = ['CUSTOMER_PL', 'CUSTOMER_COA', 'INVOICE_1', 'INVOICE_2', 'INVOICE_SINGLE', 'INVOICE_ADJUSTMENT', 'SGJP_IV_PL', 'SHIPPING_INSTRUCTIONS'];
 
 export class CreateGeneratedDocDto {
   @IsUUID() shipmentId: string;

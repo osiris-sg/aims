@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { stampDocumentMoney } from '../common/document-money';
 import { PrismaService } from '../common/prisma.service';
 import { PdfGeneratorService } from '../common/services/pdf-generator.service';
@@ -6,6 +6,8 @@ import { S3Service } from '../common/services/s3.service';
 import { DocumentsService } from '../documents/documents.service';
 import { DocumentTemplatesService } from '../documentTemplates/documentTemplates.service';
 import { TradeActor } from './shipments.request';
+import { TradeTaxInputsService } from './trade-tax-inputs';
+import { actualsDraft, correctionDraft, CORRECTION_FIELDS, CorrectionField, customsWeekLabel, KATO_REMARKS_TEMPLATE, KATO_UPCHARGE_TEMPLATE, nextKatoInvoiceNo, OriginalInvoice } from './trade-invoice-kato';
 import { docDateErrors, stepLabel, tradeDateError, tradeToday, ORDER_INVOICE_TYPES } from './shipments.rules';
 import { GenHeader, GenRef, renderGeneratedHtml } from './trade-generated.html';
 import { buildCustomerCoaJp, classifyCoaText, COA_JP_COLUMNS, CoaFormatError, CoaSourceKind, parseCoaPdfText, pdfText } from './trade-coa';
@@ -62,7 +64,7 @@ import { InvoiceLayout, readInvoiceLayout, resolveInvoiceLayout, SINGLE_INVOICE_
 import { buildCustomerPl, CUSTOMER_PL_COLUMNS, GenColumn, GenRow, parseSheetFile, plTotals, SheetFormatError } from './trade-sheet.parser';
 import { Db, ownerWhere, TradeConfigService } from './trade-config.service';
 import { TradeFilesService } from './trade-files.service';
-import { actualsTable, estimate } from './trade-estimator';
+import { actualsTable, estimate, ShipmentCosts } from './trade-estimator';
 import { entityFor, entityProblem } from './trade-entity';
 import { adjustmentLine, costVariance, creditIdsOf, creditLine, estimatedCostsUsd, isCreditNote } from './trade-credit';
 import { CUSTOMER_DOC_TEMPLATES, CustomerProfile, defaultSingleRemarks, formatOf, templateKeyFor } from './trade-profile';
@@ -133,6 +135,8 @@ export const GENERATED_TEMPLATES: Record<
   INVOICE_2: { title: '請求書 (Invoice #2)', short: 'INV2', kind: 'invoice', scope: 'SHIPMENT', covers: true },
   // SINGLE billing (Kato, Hoei): one invoice after the B/L — no Invoice #1, no import permit needed.
   INVOICE_SINGLE: { title: '請求書 (single invoice)', short: 'INV', kind: 'single', scope: 'SHIPMENT', covers: true },
+  // Round BO: 正誤差額 / 実費差分 invoices made FROM a final single invoice (createCorrection / createActuals only).
+  INVOICE_ADJUSTMENT: { title: '請求書 (正誤差額・実費差分)', short: 'ADJ', kind: 'single', scope: 'SHIPMENT', covers: true, multiple: true },
   // Split arrivals (先着 / 後着) each get their own SG→JP invoice.
   SGJP_IV_PL: { title: 'INVOICE & PACKING LIST', short: 'SGJP', kind: 'sgjp', scope: 'SHIPMENT', multiple: true },
   SHIPPING_INSTRUCTIONS: { title: '出庫・納入依頼書', short: 'SI', kind: 'si', scope: 'SHIPMENT' },
@@ -187,6 +191,7 @@ export class TradeGeneratedService {
     private readonly files: TradeFilesService,
     private readonly documents: DocumentsService,
     private readonly templates: DocumentTemplatesService,
+    @Optional() private readonly taxInputs?: TradeTaxInputsService,
   ) {}
 
   private template(docType: string) {
@@ -565,6 +570,7 @@ export class TradeGeneratedService {
   async createBlank(organizationId: string, input: { docType: string; shipmentId?: string; contractId?: string; orderId?: string; coversShipmentIds?: string[] }, actor: TradeActor) {
     // Step 11 is the order's (round H): Invoice #2 / the single invoice made from the order bills the shipments it covers
     // (default: the order's open shipments not yet invoiced); the first covered shipment is its record.
+    if (input.docType === 'INVOICE_ADJUSTMENT') throw new BadRequestException('A correction / actual-cost invoice is made from the final invoice it corrects (Correction invoice on that invoice)');
     if (ORDER_INVOICE_TYPES.includes(input.docType) && !input.shipmentId) input = await this.orderInvoiceInput(organizationId, input);
     const t = this.template(input.docType);
     const owner = this.ownerFor(t.scope, input);
@@ -1137,10 +1143,11 @@ export class TradeGeneratedService {
     } else if (t.kind === 'single') {
       const sl = toSingleLines(rows);
       const sh = header as SingleInvoiceHeader;
-      const problems = singleFinalizeProblems(sl, sh.fxRate);
+      const problems = singleFinalizeProblems(sl, sh.fxRate, sh.style);
       if (problems.length) throw new BadRequestException(finalizeMessage(problems));
-      // The printed 番号 is ADH's own (default: the 発行日 as yyyymmdd, as on Kato's invoices); the Sales invoice keeps its number.
-      const printedNo = String(sh.invoiceNo ?? '').trim() || singleInvoiceNoFor(sh.issueDate);
+      // The printed 番号 is ADH's own; the Sales invoice keeps its number. Style 2 (Kato, round BO): YYYYMM_NN per issue
+      // month after the highest used (AIMS's finals + ADH's own numbers noted on filed invoices); older: the 発行日 as yyyymmdd.
+      const printedNo = String(sh.invoiceNo ?? '').trim() || (sh.style === 2 ? await this.nextSingleNo(organizationId, sh.issueDate) : singleInvoiceNoFor(sh.issueDate));
       if (printedNo) {
         const clash = await this.prisma.tradeGeneratedDoc.findFirst({
           where: { organizationId, docType: g.docType, status: 'FINAL', number: printedNo, id: { not: g.id } },
@@ -1148,8 +1155,8 @@ export class TradeGeneratedService {
         });
         if (clash) throw new BadRequestException(`Another single invoice is already numbered ${printedNo} — change the 番号 (e.g. ${printedNo}_2)`);
       }
-      const tt = singleTotals(sl, sh.taxRate, sh.fxRate);
-      const lines = singleAsInvoiceLines(sl, sh.fxRate, sh.dueDate);
+      const tt = singleTotals(sl, sh.taxRate, sh.fxRate, sh.style);
+      const lines = singleAsInvoiceLines(sl, sh.fxRate, sh.dueDate, sh.style);
       const doc = await this.ensureSalesInvoice(organizationId, g, { ...(sh as any), variant: undefined } as InvoiceHeader, lines, owners, actor, {
         subtotal: roundTo(tt.usd.taxable + tt.usd.nonTaxable, 2),
         tax: tt.usd.tax,
@@ -1324,10 +1331,10 @@ export class TradeGeneratedService {
   async costVarianceOf(organizationId: string, id: string) {
     const g = await this.get(organizationId, id);
     if (g.docType !== 'INVOICE_2' && g.docType !== 'INVOICE_SINGLE') throw new BadRequestException('Only Invoice #2 / the single invoice carry costs');
-    const h = (g.header ?? {}) as { fxRate?: number | null; costsBasis?: string };
+    const h = (g.header ?? {}) as { fxRate?: number | null; costsBasis?: string; style?: number };
     const est =
       g.docType === 'INVOICE_SINGLE'
-        ? estimatedCostsUsd(g.docType, g.rows, (r) => singleLineCalc(r as unknown as SingleLine, h.fxRate ?? null).amountUsd)
+        ? estimatedCostsUsd(g.docType, g.rows, (r) => singleLineCalc(r as unknown as SingleLine, h.fxRate ?? null, h.style === 2 ? 2 : undefined).amountUsd)
         : estimatedCostsUsd(g.docType, g.rows, (r) => amountOf(r as unknown as InvoiceLine));
     const ids = [...new Set([...(g.shipmentId ? [g.shipmentId] : []), ...((g.coversShipmentIds as string[] | undefined) ?? [])])];
     const settings = await this.config.getSettings(organizationId);
@@ -1937,6 +1944,12 @@ export class TradeGeneratedService {
     return { header: built.header, rows: built.rows };
   }
 
+  /**
+   * Single invoice (Kato, SANKYO …) in the Kato Nov 2026 layout (style 2, trade-invoice-kato.ts): per covered shipment a
+   * billet line at the shipment month's LME + QMJP + premium on the net weight; then 通関、車輸送料 (課税, 一式: qty ×
+   * customs rate + trucks × truck rate + qty × storage, in yen), 通関 (課税対象外, 一式: the customer's flat estimate,
+   * else B/L fee + AN charges) and 他諸掛 (qty × 40 USD/MT). 円貨 = the customs weekly rate of the issue week.
+   */
   private async singleInvoiceDraft(
     organizationId: string,
     covers: string[],
@@ -1949,7 +1962,7 @@ export class TradeGeneratedService {
     let net = 0;
     let customsJpy = 0;
     let nonTaxJpy = 0;
-    let fx: number | null = null;
+    let costFx: number | null = null;
     let o0: Awaited<ReturnType<TradeGeneratedService['loadOrder']>> | null = null;
     let profile: CustomerProfile | null = null;
     const d = defaults as DocDefaults & Record<string, string | undefined>;
@@ -1961,14 +1974,15 @@ export class TradeGeneratedService {
       const q = s?.netWeightMt === null || s?.netWeightMt === undefined ? null : Number(s.netWeightMt);
       net += q ?? 0;
       const costs = (s?.costs ?? {}) as Record<string, any>;
-      if (fx === null && typeof costs.fxRate === 'number') fx = costs.fxRate;
+      if (costFx === null && typeof costs.fxRate === 'number') costFx = costs.fxRate;
       const e = estimate(s ?? {}, costs, settings.estimatorRates, { truckCapacityT: profile.truckCapacityT });
       const customsRate = profile.customsRatePerMt ?? settings.estimatorRates.customsPerMt;
       customsJpy += (q ?? 0) * customsRate + (e.trucks ?? 0) * e.truckRate + (q ?? 0) * settings.estimatorRates.storagePerMt;
       nonTaxJpy += e.blFee + e.anCharges;
+      const inch = inchJa(o?.size, defaults);
       const goods: SingleLine = {
         kind: 'goods',
-        description: (d.singleGoodsTemplate ?? 'アルミニウムビレット{grade}').replace('{grade}', o?.grade ?? '').replace('{product}', o?.product ?? ''),
+        description: (d.singleGoodsTemplate ?? 'アルミニウムビレット {grade} {inch}\nカスタマイズ品').replace('{grade}', o?.grade ?? '').replace('{inch}', inch).replace('{product}', o?.product ?? '').replace(/ +\n/, '\n'),
         quantity: q,
         lme: o ? lmeForMonth(defaults, o.shipMonth) : null,
         qmjp: o ? qmjpForMonth(defaults, o.shipMonth) : null,
@@ -1981,47 +1995,53 @@ export class TradeGeneratedService {
         orderId: o?.id ?? null,
         grade: o?.grade ?? null,
       };
-      goods.remarks = singleGoodsRemarks(goods, o?.shipMonth ?? '', d.singleRemarksTemplate);
+      goods.remarks = singleGoodsRemarks(goods, o?.shipMonth ?? '', d.singleRemarksTemplate ?? KATO_REMARKS_TEMPLATE, d.singleUpchargeTemplate ?? KATO_UPCHARGE_TEMPLATE);
       rows.push(goods);
     }
     const qty = roundTo(net, 3);
     const block = profile?.invoiceRemarks ?? defaultSingleRemarks(profile?.port);
+    // Round BO (Kato's sheet): 通関 (課税対象外) is the customer's flat estimate when it has one (Kato ¥93,000).
+    const flat = typeof profile?.customsFlatJpy === 'number' ? profile.customsFlatJpy : null;
     rows.push(
-      { kind: 'jpy', description: d.singleCustomsTaxableLabel ?? '通関、車輸送料\n　課税対象　消費税率10％', quantity: qty, jpyAmount: roundTo(customsJpy, 2), taxable: true, remarks: block },
-      { kind: 'jpy', description: d.singleCustomsLabel ?? '通関\n　課税対象外', quantity: qty, jpyAmount: roundTo(nonTaxJpy, 2), taxable: false, remarks: block },
+      { kind: 'jpy', description: d.singleCustomsTaxableLabel ?? '通関、車輸送料\n　課税対象　消費税率10％', quantity: null, jpyAmount: roundTo(customsJpy, 2), taxable: true, remarks: block },
+      { kind: 'jpy', description: d.singleCustomsLabel ?? '通関\n　課税対象外', quantity: null, jpyAmount: flat ?? roundTo(nonTaxJpy, 2), taxable: false, remarks: block },
       { kind: 'usd', description: d.singleOtherLabel ?? '他諸掛\n　課税対象　消費税率10％', quantity: qty, unitPrice: Number(defaults.invoice2OtherPerMt ?? 40), taxable: true, remarks: `${Number(defaults.invoice2OtherPerMt ?? 40)}USD/MT` },
     );
-    const bank = defaultBank(defaults);
+    // The customer's own account (Kato: CFSB), else the org default.
+    const bank = defaultBank(defaults, profile?.defaultBankId);
     const lmeMonth = o0?.shipMonth ?? '';
     const m = /^(\d{4})-(\d{2})$/.exec(lmeMonth);
+    const inch0 = inchJa(o0?.size, defaults);
     const fill = (tpl: string) =>
       tpl
         .replace('{month}', m ? String(Number(m[2])) : '')
         .replace('{q}', quarterOf(lmeMonth))
         .replace('{grade}', o0?.grade ?? '')
-        .replace('{inch}', inchJa(o0?.size, defaults))
+        .replace('{inchN}', /(\d+)/.exec(inch0)?.[1] ?? '')
+        .replace('{inch}', inch0)
         .replace('{product}', o0?.product ? (defaults.productJa?.[o0.product] ?? 'アルミニウムビレット') : 'アルミニウムビレット');
+    // 円貨: the customs weekly rate of the issue week ("11/8-11/14 関税外国為替相場"); else the shipment's cost FX.
+    const fx = await this.customsRateFor(today, d.singleFxNote);
     const header: SingleInvoiceHeader = {
       layout: 'single',
-      title: '請　求　書',
+      style: 2,
+      title: '請求書',
       invoiceNo: null,
       issueDate: today,
       registrationNo: org?.registrationNumber ?? '',
       toName: invoiceAddressee(o0?.customer),
       toSuffix: '御中',
-      subject: fill(d.singleSubjectTemplate ?? '{product}品 {grade} {inch}').trim(),
-      paymentTerms: d.singlePaymentTerms ?? 'BLコピー提供・請求書発行後５営業日以内、弊社指定口座振込',
-      validity: d.singleValidity ?? '請求書発行後 5営業日以内 弊社指定口座振込',
+      subject: fill(d.singleSubjectTemplate ?? 'アルミニウムビレット　　{grade} {inchN} インチ').trim(),
+      paymentTerms: d.singlePaymentTerms ?? '請求書発行後５営業日以内、USD建て- 弊社指定口座振込',
+      validity: '',
       fromBlock: d.singleFromBlock ?? defaults.invoiceFromBlock ?? [org?.name, org?.address].filter(Boolean).join('\n'),
-      fxRate: fx,
-      fxNote: (d.invoiceFxNote ?? '円/USD 税関 {range} 外国為替相場参照').replace('{range}', customsWeek(today)),
+      fxRate: fx?.rate ?? costFx,
+      fxNote: fx?.note ?? '',
       taxRate: defaults.invoiceTaxRate ?? 10,
       lmeMonth,
-      conditions: fill(
-        d.singleConditions ??
-          '・アルミニウムビレットの価格は、船積み{month}月平均LME Cash, {q}QMJPを適用。\n・トラック積替え貴社指定場所に納入（車上渡し）\n・関税・消費税、船社立替、税関検査、保管料等は実費にてご請求\n・為替は輸入許可通知書の為替レートを活用予定',
-      ),
-      paymentBlock: d.singlePaymentBlock ?? '・BLコピー提供　請求書発行後５営業日以内、弊社指定口座振込',
+      conditions: fill(d.singleConditions ?? '・トラック積替え貴社指定場所に納入（車上渡し）\n・関税・消費税、船社立替、税関検査、保管料等は実費にて差分ご請求'),
+      paymentBlock: '',
+      dueLine: d.singleDueLine ?? '{date} までにお支払いをお願い致します。',
       bankBlock: bank?.block ?? '',
       bankId: bank?.id ?? null,
       showSeal: true,
@@ -2029,6 +2049,147 @@ export class TradeGeneratedService {
       currency: 'USD',
     };
     return { header, rows };
+  }
+
+  /**
+   * Round BO — the next Kato-style 番号 for an issue date: after every "YYYYMM_NN" already used that month — the final
+   * single / adjustment invoices in AIMS and the numbers ADH issued itself, noted on the filed invoice files
+   * ("番号 202611_02" in TradeFile.notes).
+   */
+  async nextSingleNo(organizationId: string, issueDate: string): Promise<string> {
+    const m = /^(\d{4})-(\d{2})/.exec(issueDate ?? '');
+    if (!m) return '';
+    const prefix = `${m[1]}${m[2]}_`;
+    const [docs, files]: [Array<{ number: string | null }>, Array<{ notes: string | null; fileName: string }>] = await Promise.all([
+      this.prisma.tradeGeneratedDoc.findMany({ where: { organizationId, docType: { in: ['INVOICE_SINGLE', 'INVOICE_ADJUSTMENT'] }, status: 'FINAL', number: { startsWith: prefix } }, select: { number: true } }),
+      this.prisma.tradeFile.findMany({ where: { organizationId, docType: { in: ['INVOICE_SINGLE', 'INVOICE_ADJUSTMENT'] }, notes: { contains: prefix } }, select: { notes: true, fileName: true } }),
+    ]);
+    return nextKatoInvoiceNo(issueDate, [...docs.map((d) => d.number), ...files.map((f) => f.notes)]);
+  }
+
+  // ── Round BO: follow-up invoices of a final single invoice ─────────────
+  /** A final single invoice as the base of a correction / actual-cost invoice (Kato style, not Hoei's USD invoice). */
+  private async originalSingle(organizationId: string, id: string): Promise<{ g: any; original: OriginalInvoice; deliveryMonth: string | null }> {
+    const g: any = await this.get(organizationId, id);
+    if (g.docType !== 'INVOICE_SINGLE') throw new BadRequestException('A correction / actual-cost invoice is made from a single invoice (請求書)');
+    if (g.status !== 'FINAL') throw new BadRequestException('Finalize the invoice first — a draft is corrected by editing it');
+    if (isHoeiLayout(g.header)) throw new BadRequestException("Hoei's USD invoice has no correction format yet");
+    const orderId = g.orderId ?? g.shipment?.orderId ?? null;
+    const o = orderId ? await this.prisma.tradeOrder.findFirst({ where: { id: orderId, organizationId }, select: { deliveryMonth: true } }) : null;
+    return { g, original: { id: g.id, number: g.number ?? (g.header as any)?.invoiceNo ?? null, header: g.header as SingleInvoiceHeader, rows: toSingleLines(g.rows) }, deliveryMonth: o?.deliveryMonth ?? null };
+  }
+
+  private async createAdjustment(organizationId: string, g: any, built: { header: SingleInvoiceHeader; rows: SingleLine[] }, actor: TradeActor) {
+    const owner = { shipmentId: g.shipmentId ?? undefined, orderId: g.orderId ?? undefined, contractId: g.contractId ?? undefined };
+    const docRef = await this.config.docRefFor(this.prisma, organizationId, owner as any, 'INVOICE_ADJUSTMENT');
+    return this.prisma.tradeGeneratedDoc.create({
+      data: {
+        organizationId,
+        shipmentId: g.shipmentId ?? null,
+        orderId: g.orderId ?? null,
+        contractId: g.contractId ?? null,
+        coversShipmentIds: g.coversShipmentIds ?? [],
+        docType: 'INVOICE_ADJUSTMENT',
+        docRef,
+        templateKey: null,
+        issuingEntity: entityFor('INVOICE_ADJUSTMENT'),
+        header: built.header as any,
+        columns: [] as any,
+        rows: built.rows as any,
+        createdById: actor.id ?? 'unknown',
+        createdByName: actor.name,
+      },
+      select: GEN_SELECT,
+    });
+  }
+
+  /**
+   * 正誤差額 (Kato 202610_004): a DRAFT for the difference of one price field of the final invoice `id` (premium 235 →
+   * 260) × the quantity (default: the invoice's), at the original's rate; paid with the next invoice. Linked to the
+   * original (header.original) and its record.
+   */
+  async createCorrection(organizationId: string, id: string, body: { field?: string; to?: unknown; quantity?: unknown }, actor: TradeActor) {
+    const field = String(body.field ?? '') as CorrectionField;
+    if (!(field in CORRECTION_FIELDS)) throw new BadRequestException(`field must be one of ${Object.keys(CORRECTION_FIELDS).join(', ')}`);
+    const to = Number(body.to);
+    if (body.to === null || body.to === undefined || body.to === '' || !Number.isFinite(to)) throw new BadRequestException('Enter the correct value');
+    const qty = body.quantity === null || body.quantity === undefined || body.quantity === '' ? null : Number(body.quantity);
+    if (qty !== null && (!Number.isFinite(qty) || qty <= 0)) throw new BadRequestException('quantity must be a positive number (MT)');
+    const { g, original, deliveryMonth } = await this.originalSingle(organizationId, id);
+    let built;
+    try {
+      built = correctionDraft({ original, field, to, quantity: qty, today: tradeToday(), deliveryMonth, nextDeliveryMonth: nextMonth(deliveryMonth) });
+    } catch (e: any) {
+      throw new BadRequestException(e?.message ?? 'Could not build the correction');
+    }
+    return this.createAdjustment(organizationId, g, built, actor);
+  }
+
+  /**
+   * 実費差分: a DRAFT for the actual customs / trucking (課税) and customs (非課税) costs minus what the final invoice
+   * `id` billed, in yen at the original's rate. Amounts default to the covered shipments' step 12 actuals.
+   */
+  async createActuals(organizationId: string, id: string, body: { actualTaxableJpy?: unknown; actualNonTaxableJpy?: unknown; source?: string | null }, actor: TradeActor) {
+    const { g, original } = await this.originalSingle(organizationId, id);
+    const yen = (v: unknown) => (v === null || v === undefined || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : NaN);
+    let taxable = yen(body.actualTaxableJpy);
+    let nonTaxable = yen(body.actualNonTaxableJpy);
+    if (Number.isNaN(taxable) || Number.isNaN(nonTaxable)) throw new BadRequestException('Actual costs must be yen amounts');
+    if (taxable === null && nonTaxable === null) {
+      const a = await this.actualCostsOf(organizationId, [g.shipmentId, ...((g.coversShipmentIds as string[]) ?? [])]);
+      taxable = a.taxable;
+      nonTaxable = a.nonTaxable;
+    }
+    let built;
+    try {
+      built = actualsDraft({ original, actualTaxableJpy: taxable, actualNonTaxableJpy: nonTaxable, today: tradeToday(), source: body.source ?? null });
+    } catch (e: any) {
+      throw new BadRequestException(e?.message ?? 'Could not build the actual-cost invoice');
+    }
+    return this.createAdjustment(organizationId, g, built, actor);
+  }
+
+  /** The org's document defaults (docDefaults). */
+  async docDefaultsOf(organizationId: string): Promise<DocDefaults> {
+    return ((await this.config.getSettings(organizationId)).docDefaults ?? {}) as DocDefaults;
+  }
+
+  /** For the actual-cost dialog: the step 12 actuals of the invoice's shipments and what the invoice billed (yen). */
+  async actualCostsFor(organizationId: string, id: string) {
+    const { g, original } = await this.originalSingle(organizationId, id);
+    const a = await this.actualCostsOf(organizationId, [g.shipmentId, ...((g.coversShipmentIds as string[]) ?? [])]);
+    const billed = (taxable: boolean) => original.rows.filter((r) => r.kind === 'jpy' && r.taxable === taxable).reduce((x, r) => x + (Number(r.jpyAmount) || 0), 0);
+    return { actual: a, billed: { taxable: billed(true), nonTaxable: billed(false) }, fxRate: original.header.fxRate, number: original.number };
+  }
+
+  /** The step 12 actuals (Mitsui Soko / permit) of shipments, split as the single invoice bills them: 課税 (通関・運送・保管 …) / 非課税 (B/L fee). */
+  async actualCostsOf(organizationId: string, shipmentIds: Array<string | null | undefined>): Promise<{ taxable: number | null; nonTaxable: number | null; shipments: number }> {
+    const ids = [...new Set(shipmentIds.filter((x): x is string => !!x))];
+    let taxable: number | null = null;
+    let nonTaxable: number | null = null;
+    let found = 0;
+    for (const sid of ids) {
+      const s = await this.prisma.shipment.findFirst({ where: { id: sid, organizationId }, select: { costs: true } });
+      const a = ((s?.costs ?? {}) as ShipmentCosts).actual ?? {};
+      const v = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
+      const t = [a.customs, a.trucking, a.storage, a.washing, a.detention, a.other].map(v).filter((x): x is number => x !== null);
+      if (t.length) taxable = (taxable ?? 0) + t.reduce((x, y) => x + y, 0);
+      if (v(a.blFee) !== null) nonTaxable = (nonTaxable ?? 0) + (v(a.blFee) as number);
+      if (t.length || v(a.blFee) !== null) found++;
+    }
+    return { taxable, nonTaxable, shipments: found };
+  }
+
+  /**
+   * Round BO — the customs weekly USD rate of the week containing `date` (Sunday–Saturday, customs.go.jp; round BK's
+   * lookup) and its 円貨 note "11/8-11/14 関税外国為替相場" (template {week}); "（暫定）" when that week isn't published
+   * yet and the latest published week is used. null when the lookup is unavailable.
+   */
+  async customsRateFor(date: string, template?: string | null): Promise<{ rate: number; note: string; start: string; end: string; provisional: boolean } | null> {
+    const r = await this.taxInputs?.usdRateFor(date).catch(() => null);
+    if (!r) return null;
+    const note = (template ?? '{week} 関税外国為替相場').replace('{week}', customsWeekLabel(r.start, r.end)) + (r.provisional ? '（暫定）' : '');
+    return { rate: r.rate, note, start: r.start, end: r.end, provisional: r.provisional };
   }
 
   /**
@@ -2564,4 +2725,13 @@ export function siChanges(before: unknown, after: unknown, rowsBefore: unknown, 
   const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => !skip.has(k) && JSON.stringify(a[k] ?? null) !== JSON.stringify(b[k] ?? null));
   if (rowsAfter !== undefined && JSON.stringify(rowsBefore ?? []) !== JSON.stringify(rowsAfter ?? [])) keys.push('rows');
   return keys.sort();
+}
+
+/** "2026-11" → "2026-12" (null when not a month). */
+export function nextMonth(month: string | null | undefined): string | null {
+  const m = /^(\d{4})-(\d{2})$/.exec(month ?? '');
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  return mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, '0')}`;
 }

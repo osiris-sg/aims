@@ -217,6 +217,40 @@
     "footer": "請求書を作成する顧客を選択"
   },
   "tradeForm": {
-    "fxMissing": "必須：為替レートを入力すると円貨の行と円の税額が印字されます（確定時に必要）。"
+    "fxMissing": "必須：為替レートを入力すると円貨の行と円の税額が印字されます（確定時に必要）。",
+    "noAuto": "空欄＝発行月の次の番号（YYYYMM_NN）を確定時に採番",
+    "customsRate": "関税レート",
+    "dueLine": "お支払い期限の文"
+  },
+  "followUp": {
+    "button": "正誤差額・実費差分",
+    "correction": "正誤差額の請求書",
+    "actuals": "実費差分の請求書",
+    "correctionTitle": "{no} の正誤差額請求書",
+    "actualsTitle": "{no} の実費差分請求書",
+    "correctionHelp": "価格項目1つの差額 × 数量を、この請求書のレートで請求します。元の請求書に紐付き、次回請求書と合算でお支払い。",
+    "actualsHelp": "実際の通関・輸送費（ステップ12）からこの請求書の請求額を差し引いて、同じレートで請求します。マイナスは返金。",
+    "field": "訂正する項目",
+    "billed": "請求済",
+    "correct": "正しい値",
+    "quantity": "数量（MT）",
+    "diff": "差額 {diff} USD/MT × {qty} MT",
+    "fields": {
+      "premium": "ビレットプレミアム",
+      "lme": "LME",
+      "qmjp": "MJP",
+      "upcharge": "アップチャージ"
+    },
+    "actualTaxable": "実費 通関、車輸送料（課税）円",
+    "actualNonTaxable": "実費 通関（課税対象外）円",
+    "billedYen": "請求済 {v}",
+    "source": "根拠（任意）",
+    "sourcePh": "三井倉庫請求書番号／輸入許可書",
+    "noActuals": "ステップ12に実費がまだありません。ここに入力してください。",
+    "cancel": "キャンセル",
+    "create": "下書きを作成",
+    "created": "下書きを作成しました",
+    "createFailed": "作成できませんでした",
+    "loadFailed": "費用を読み込めませんでした"
   }
 }

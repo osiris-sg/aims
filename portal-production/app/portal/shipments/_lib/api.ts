@@ -424,6 +424,10 @@ export type Subtask = { key: string; label: string; done: boolean; na?: boolean;
 export type BillingMode = "TWO_STAGE" | "SINGLE";
 export type CustomerProfile = {
   customerId: string;
+  /** Round BO: a SINGLE-billing customer's invoice step (INVOICE_1 = step 2, Kato); absent = step 11. */
+  singleInvoiceStep?: "INVOICE_1" | "INVOICE_2";
+  /** Round BO: the 通関 (課税対象外) yen estimate on its single invoice (Kato ¥93,000). */
+  customsFlatJpy?: number | null;
   key?: string;
   label?: string;
   billingMode: BillingMode;
@@ -2104,6 +2108,12 @@ export function useShipmentsApi() {
       getGenerated: (id: string) => call<GeneratedDoc>(`/trade-generated/${id}`),
       updateGenerated: (id: string, body: { header?: GenHeader; columns?: GenColumn[]; rows?: GenRow[]; issuingEntity?: IssuingEntity }) => call<GeneratedDoc>(`/trade-generated/${id}`, "PATCH", body),
       /** 請求書 due date for an issue date (the org's business days, Japanese bank holidays skipped). */
+      // Round BO: Kato's 円貨 (customs weekly rate of the issue week) and the follow-up invoices of a final single invoice.
+      customsRate: (date: string) => call<{ rate: number | null; note: string | null; provisional: boolean }>(`/trade-generated/customs-rate${qs({ date })}`),
+      generatedCorrection: (id: string, body: { field: string; to: number; quantity?: number | null }) => call<{ id: string }>(`/trade-generated/${id}/correction`, "POST", body),
+      generatedActuals: (id: string, body: { actualTaxableJpy?: number | null; actualNonTaxableJpy?: number | null; source?: string | null }) => call<{ id: string }>(`/trade-generated/${id}/actuals`, "POST", body),
+      generatedActualCosts: (id: string) =>
+        call<{ actual: { taxable: number | null; nonTaxable: number | null; shipments: number }; billed: { taxable: number; nonTaxable: number }; fxRate: number | null; number: string | null }>(`/trade-generated/${id}/actual-costs`),
       invoiceDueDate: (issueDate: string, docType?: string) => call<{ issueDate: string; dueDate: string; businessDays: number; fxNote?: string }>(`/trade-generated/due-date${qs({ issueDate, docType })}`),
       previewGenerated: (body: { docType: string; header: any; columns: any[]; rows: any[]; draft?: boolean; docId?: string }) => call<{ html: string }>(`/trade-generated/preview`, "POST", body),
       // Finalize renders the PDF (Puppeteer — slow on a cold server): a longer timeout, and if the request still

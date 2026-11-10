@@ -7,7 +7,7 @@ import { invoiceTotals, toInvoiceLines } from './trade-invoice';
 import { entityFor } from './trade-entity';
 
 /** Uploaded / linked documents ADH itself issues (the rest — PI, B/L, CI … — come from others: no entity). */
-const ADH_ISSUED = new Set(['INVOICE_1', 'INVOICE_2', 'INVOICE_SINGLE', 'CUSTOMER_PL', 'CUSTOMER_COA', 'SHIPPING_INSTRUCTIONS', 'SGJP_IV_PL']);
+const ADH_ISSUED = new Set(['INVOICE_1', 'INVOICE_2', 'INVOICE_SINGLE', 'INVOICE_ADJUSTMENT', 'CUSTOMER_PL', 'CUSTOMER_COA', 'SHIPPING_INSTRUCTIONS', 'SGJP_IV_PL']);
 const entityOfType = (docType: string) => (ADH_ISSUED.has(docType) ? entityFor(docType) : null);
 
 export type HubSource = 'UPLOADED' | 'IN_APP';

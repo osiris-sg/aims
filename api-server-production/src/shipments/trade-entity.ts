@@ -17,7 +17,7 @@ export const ENTITY_LABEL: Record<IssuingEntity, string> = {
 };
 
 /** Customer invoices: never under ADH_SG. */
-export const CUSTOMER_INVOICE_TYPES = ['INVOICE_1', 'INVOICE_2', 'INVOICE_SINGLE'];
+export const CUSTOMER_INVOICE_TYPES = ['INVOICE_1', 'INVOICE_2', 'INVOICE_SINGLE', 'INVOICE_ADJUSTMENT'];
 
 /** The entity a generated document is issued by, by type. */
 export function entityFor(docType: string): IssuingEntity {

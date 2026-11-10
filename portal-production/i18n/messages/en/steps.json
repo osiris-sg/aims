@@ -14,5 +14,6 @@
   "INVOICE_2": "Issue Invoice #2 / the invoice",
   "LOGISTICS_PAYMENT": "Pay transport & storage costs",
   "XERO_HANDOFF": "Prepare data for Xero reconciliation",
-  "DELIVERY_CHANGES": "Coordinate delivery changes"
+  "DELIVERY_CHANGES": "Coordinate delivery changes",
+  "INVOICE_1_SINGLE": "Issue and send invoices"
 }

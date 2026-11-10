@@ -10,5 +10,12 @@ import { useTranslations } from "next-intl";
  */
 export function useStepName() {
   const t = useTranslations("steps");
-  return useCallback((code: string | null | undefined, title?: string | null) => (code && t.has(code) ? t(code) : title ?? code ?? ""), [t]);
+  // Round BO: step 2 of a single-billing customer invoiced there (Kato) reads "Issue and send invoices" (API SINGLE_ON_STEP2_TITLE).
+  return useCallback(
+    (code: string | null | undefined, title?: string | null) => {
+      const key = code === "INVOICE_1" && title === "Issue and send invoices" ? "INVOICE_1_SINGLE" : code;
+      return key && t.has(key) ? t(key) : (title ?? code ?? "");
+    },
+    [t],
+  );
 }

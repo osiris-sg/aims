@@ -14,5 +14,6 @@
   "INVOICE_2": "請求書②（最終請求書）の発行",
   "LOGISTICS_PAYMENT": "運送費・保管料の支払い",
   "XERO_HANDOFF": "Xero照合用データの準備",
-  "DELIVERY_CHANGES": "納品変更の調整"
+  "DELIVERY_CHANGES": "納品変更の調整",
+  "INVOICE_1_SINGLE": "請求書の発行・送付"
 }

@@ -58,6 +58,14 @@ export interface CustomerProfile {
   defaultBankId?: string;
   /** The default bank is provisional — shown as "check" until ADH confirms it (Hoei). */
   defaultBankCheck?: boolean;
+  /**
+   * Round BO — a SINGLE-billing customer's invoice step: 'INVOICE_1' = step 2 "Issue and send invoices" (Kato, Sayaka
+   * 2026-11-10: issued once the shipping documents are in, one per grade per delivery month); absent / 'INVOICE_2' =
+   * step 11 as before.
+   */
+  singleInvoiceStep?: 'INVOICE_1' | 'INVOICE_2';
+  /** Round BO — the 通関 (課税対象外) estimate in yen on this customer's single invoice (Kato: ¥93,000); absent = the estimator's B/L fee + AN charges. */
+  customsFlatJpy?: number;
   /** 宛先 on this customer's Japanese PL / COA when it isn't the legal name alone (SUS: "SUS株式会社 福島製造グループ"). */
   docAddressee?: string;
   /**
@@ -239,13 +247,17 @@ export function mergeSupplierProfiles(current: unknown, patch: Record<string, un
  * Step codes that don't apply ("N/A (customer profile)" / "(supplier profile)"):
  * SINGLE billing has no Invoice #1; a supplier without a PI has no PI payment.
  */
+/** Round BO: step 2's title when a single-billing customer is invoiced there (portal key steps.INVOICE_1_SINGLE). */
+export const SINGLE_ON_STEP2_TITLE = 'Issue and send invoices';
+
 export function naStepCodes(p: CustomerProfile, scope: 'ORDER' | 'SHIPMENT' | 'CONTRACT' | 'SUPPLIER_ORDER', supplier?: SupplierProfile | null): string[] {
   const noPi = supplier && !supplier.hasPI ? ['PI_PAYMENT'] : [];
   if (scope === 'SUPPLIER_ORDER') return noPi;
   // Round AY: the steps this customer's process leaves out (Clients → Process).
   const skipped = (p.skipSteps ?? []).filter((c) => processStep(c)?.scope === scope);
   // One order process (2026-10, round H): steps 0 / 1 are the order's again.
-  if (scope === 'ORDER') return [...new Set([...noPi, ...(p.billingMode === 'SINGLE' ? ['INVOICE_1'] : []), ...skipped])];
+  // Round BO: a SINGLE customer invoiced on step 2 (singleInvoiceStep) keeps step 2.
+  if (scope === 'ORDER') return [...new Set([...noPi, ...(p.billingMode === 'SINGLE' && p.singleInvoiceStep !== 'INVOICE_1' ? ['INVOICE_1'] : []), ...skipped])];
   if (scope === 'SHIPMENT') return skipped;
   return [];
 }
@@ -256,6 +268,8 @@ export function naStepCodes(p: CustomerProfile, scope: 'ORDER' | 'SHIPMENT' | 'C
  * with its own document set requires only those on step 3b.
  */
 export function stepOverride(p: CustomerProfile, code: string, supplier?: SupplierProfile | null): { title?: string; requiredDocTypes?: string[] } {
+  // Round BO: invoiced on step 2 → step 2 takes the single invoice (step 11 stays as it is until the owner decides).
+  if (p.billingMode === 'SINGLE' && p.singleInvoiceStep === 'INVOICE_1' && code === 'INVOICE_1') return { title: SINGLE_ON_STEP2_TITLE, requiredDocTypes: ['INVOICE_SINGLE'] };
   if (p.billingMode === 'SINGLE' && code === 'INVOICE_2') return { title: 'Issue invoice (single)', requiredDocTypes: ['INVOICE_SINGLE'] };
   if (supplier && !supplier.hasPI && code === 'CI_PAYMENT') return { title: 'Pay the CI (full amount — no PI)' };
   if (supplier?.shippingDocs?.length && code === 'SHIPPING_DOCS') return { requiredDocTypes: supplier.shippingDocs };
@@ -356,6 +370,8 @@ export function mergeProfiles(current: unknown, patch: Record<string, unknown>, 
     if (p.invoiceRemarks !== undefined && p.invoiceRemarks !== null && !isText(p.invoiceRemarks)) fail('invoiceRemarks must be text');
     if (p.docAddressee !== undefined && p.docAddressee !== null && p.docAddressee !== '' && !isText(p.docAddressee, 120)) fail('docAddressee must be text (up to 120 characters)');
     if (p.defaultBankId !== undefined && p.defaultBankId !== null && p.defaultBankId !== '' && !isText(p.defaultBankId, 100)) fail('defaultBankId must be a bank account id');
+    if (p.singleInvoiceStep !== undefined && p.singleInvoiceStep !== null && (p.singleInvoiceStep as unknown) !== '' && p.singleInvoiceStep !== 'INVOICE_1' && p.singleInvoiceStep !== 'INVOICE_2') fail('singleInvoiceStep must be INVOICE_1 (step 2) or INVOICE_2 (step 11)');
+    if (p.customsFlatJpy !== undefined && p.customsFlatJpy !== null && (p.customsFlatJpy as unknown) !== '' && (!Number.isFinite(Number(p.customsFlatJpy)) || Number(p.customsFlatJpy) < 0)) fail('customsFlatJpy must be a yen amount');
     const dv = (p.docVariants ?? {}) as DocVariants;
     for (const [k, v] of Object.entries(dv)) {
       if (!['CUSTOMER_PL', 'CUSTOMER_COA', 'INVOICE', 'SGJP_IV_PL'].includes(k)) fail(`Unknown document variant "${k}"`);
@@ -390,6 +406,8 @@ export function mergeProfiles(current: unknown, patch: Record<string, unknown>, 
       defaultBankId: p.defaultBankId?.trim() || undefined,
       defaultBankCheck: p.defaultBankCheck === true || undefined,
       docAddressee: p.docAddressee?.trim() || undefined,
+      // Round BO: a save that doesn't send these (older forms) keeps the stored ones.
+      ...pickSingleInvoice(out[id] as CustomerProfile | undefined, p),
       ...(formats ? { docFormats: formats } : {}),
       ...(Object.keys(parties).length ? { partyBlocks: parties as PartyBlocks } : {}),
       ...(skipSteps.length ? { skipSteps } : {}),
@@ -456,6 +474,13 @@ export function mergeDocFormats(current: CustomerProfile['docFormats'], patch: u
     if (Object.keys(next).length) out[t] = next;
   }
   return Object.keys(out).length ? out : undefined;
+}
+
+/** Round BO: singleInvoiceStep / customsFlatJpy from the patch, else the stored ones ('' / null clears). */
+function pickSingleInvoice(cur: CustomerProfile | undefined, p: Partial<CustomerProfile>): Pick<CustomerProfile, 'singleInvoiceStep' | 'customsFlatJpy'> {
+  const step = p.singleInvoiceStep === undefined ? cur?.singleInvoiceStep : p.singleInvoiceStep || undefined;
+  const flat = p.customsFlatJpy === undefined ? cur?.customsFlatJpy : p.customsFlatJpy === null || (p.customsFlatJpy as unknown) === '' ? undefined : Number(p.customsFlatJpy);
+  return { ...(step === 'INVOICE_1' ? { singleInvoiceStep: step } : {}), ...(flat !== undefined ? { customsFlatJpy: flat } : {}) };
 }
 
 /** The single invoice's 備考 block (Kato sample) for a port. */

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Header, Param, ParseUUIDPipe, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Header, Param, ParseUUIDPipe, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { RequiresModule } from '../auth/decorators/requires-module.decorator';
 import { Response } from 'express';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
@@ -38,6 +38,15 @@ export class TradeGeneratedController {
   @Permissions('shipments:read')
   dueDate(@Query('issueDate') issueDate: string, @Query('docType') docType: string | undefined, @Req() req: TradeRequest) {
     return this.gen.dueDateFor(orgIdOf(req), issueDate, docType);
+  }
+
+  /** Round BO: the customs weekly USD rate of the week containing `date` and its 円貨 note ("11/8-11/14 関税外国為替相場"). */
+  @Get('customs-rate')
+  @Permissions('shipments:read')
+  async customsRate(@Query('date') date: string, @Req() req: TradeRequest) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date ?? '')) throw new BadRequestException('date must be YYYY-MM-DD');
+    const settings = await this.gen.docDefaultsOf(orgIdOf(req));
+    return (await this.gen.customsRateFor(date, (settings as any).singleFxNote)) ?? { rate: null, note: null, provisional: false };
   }
 
   /** Live-preview HTML (same template as the PDF). A POST that only reads. */
@@ -155,6 +164,31 @@ export class TradeGeneratedController {
   @Permissions('shipments:update')
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateGeneratedDocDto, @Req() req: TradeRequest) {
     return this.gen.update(orgIdOf(req), id, dto, actorOf(req), (summary) => ((req as any).actionLogResult = summary));
+  }
+
+  /** Round BO: 正誤差額 — a draft correction invoice of the final single invoice `id` ({ field, to, quantity? }). */
+  @Post(':id/correction')
+  @Permissions('shipments:create')
+  async correction(@Param('id', ParseUUIDPipe) id: string, @Body() body: { field?: string; to?: unknown; quantity?: unknown }, @Req() req: TradeRequest) {
+    const g = await this.gen.createCorrection(orgIdOf(req), id, body ?? {}, actorOf(req));
+    (req as any).actionLogResult = { createdId: g.id, original: id, field: body?.field, to: body?.to, quantity: body?.quantity ?? null };
+    return g;
+  }
+
+  /** Round BO: 実費差分 — a draft actual-cost invoice of the final single invoice `id` (amounts default to the step 12 actuals). */
+  @Post(':id/actuals')
+  @Permissions('shipments:create')
+  async actuals(@Param('id', ParseUUIDPipe) id: string, @Body() body: { actualTaxableJpy?: unknown; actualNonTaxableJpy?: unknown; source?: string | null }, @Req() req: TradeRequest) {
+    const g = await this.gen.createActuals(orgIdOf(req), id, body ?? {}, actorOf(req));
+    (req as any).actionLogResult = { createdId: g.id, original: id, actualTaxableJpy: body?.actualTaxableJpy ?? 'from step 12', actualNonTaxableJpy: body?.actualNonTaxableJpy ?? 'from step 12' };
+    return g;
+  }
+
+  /** Round BO: the step 12 actual costs behind an actual-cost invoice (prefills the dialog). Read-only. */
+  @Get(':id/actual-costs')
+  @Permissions('shipments:read')
+  async actualCosts(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {
+    return this.gen.actualCostsFor(orgIdOf(req), id);
   }
 
   @Post(':id/finalize')

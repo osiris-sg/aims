@@ -27,6 +27,7 @@ import TableDocForm from "../_forms/TableDocForm";
 import InvoiceDocForm from "../_forms/InvoiceDocForm";
 import { SgjpDocForm, SiDocForm } from "../_forms/LogisticsDocForms";
 import SingleInvoiceForm from "../_forms/SingleInvoiceForm";
+import FollowUpInvoiceButton from "../_forms/FollowUpInvoiceButton";
 import PriceCheckPanel from "../../../shipments/_components/PriceCheckPanel";
 import { useTranslations } from "next-intl";
 import { fmtDateTime } from "@/app/portal/shipments/_lib/format";
@@ -38,6 +39,7 @@ const KIND: Record<string, Kind> = {
   INVOICE_1: "invoice",
   INVOICE_2: "invoice",
   INVOICE_SINGLE: "single",
+  INVOICE_ADJUSTMENT: "single", // round BO: 正誤差額 / 実費差分
   SGJP_IV_PL: "sgjp",
   SHIPPING_INSTRUCTIONS: "si",
 };
@@ -245,6 +247,8 @@ export default function GeneratedDocEditorPage() {
         )}
         <CreditStatus docId={g.id} docType={g.docType} />
         {g.docType === "INVOICE_1" && !isFinal && <ApplyCreditButton docId={g.id} />}
+        {/* Round BO: 正誤差額 / 実費差分 from a final single invoice (not Hoei's USD invoice). */}
+        {g.docType === "INVOICE_SINGLE" && isFinal && header?.layout === "single" && <FollowUpInvoiceButton docId={g.id} rows={rows as any} number={g.number ?? null} />}
         {/* Editor only — never printed on the PDF. */}
         {g.formatConfirmed === false && (
           <Chip size="small" color="warning" label="format not yet confirmed" data-tour="format-not-confirmed-chip" title="Copied from the Kato layout — replaced when ADH sends this customer's own sample" />

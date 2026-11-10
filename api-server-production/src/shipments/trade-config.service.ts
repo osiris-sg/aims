@@ -741,6 +741,8 @@ export class TradeConfigService {
       where: { organizationId, ...ownerWhere(owner) },
       select: { id: true, code: true, status: true, notApplicable: true, skipReason: true, title: true, requiredDocTypes: true, subtasks: true },
     });
+    // Round BO: an order already invoiced on step 11 (before its customer moved to step 2) keeps step 2 off.
+    if (scope === 'ORDER' && p.singleInvoiceStep === 'INVOICE_1' && steps.some((s) => s.code === 'INVOICE_2' && s.status === 'DONE')) na.add('INVOICE_1');
     const templates: Array<{ code: string; title: string; requiredDocTypes: string[] }> = await db.tradeStepTemplate.findMany({
       where: { organizationId, scope },
       select: { code: true, title: true, requiredDocTypes: true },
@@ -757,7 +759,14 @@ export class TradeConfigService {
         naChanged = true;
       }
       // Round AY: a step left out of the customer's process is marked as such (hidden in the step cards); back in → cleared.
-      const reason = na.has(s.code) && processSkips.has(s.code) ? PROCESS_SKIP_REASON : s.skipReason === PROCESS_SKIP_REASON ? null : s.skipReason;
+      const reason =
+        na.has(s.code) && processSkips.has(s.code)
+          ? PROCESS_SKIP_REASON
+          : na.has(s.code) && s.code === 'INVOICE_1' && p.singleInvoiceStep === 'INVOICE_1'
+            ? INVOICED_ON_STEP11
+            : s.skipReason === PROCESS_SKIP_REASON || s.skipReason === INVOICED_ON_STEP11
+              ? null
+              : s.skipReason;
       if (reason !== s.skipReason) data.skipReason = reason;
       const want = o.requiredDocTypes ?? t?.requiredDocTypes;
       if (want && JSON.stringify(want) !== JSON.stringify(s.requiredDocTypes)) data.requiredDocTypes = want;
@@ -774,6 +783,9 @@ export class TradeConfigService {
     return naChanged;
   }
 }
+
+/** Round BO: step 2 of an order already invoiced on step 11 before its customer moved to step 2 (Kato #13–#22). */
+export const INVOICED_ON_STEP11 = 'Invoiced on step 11 (before the move to step 2)';
 
 /**
  * Display summary of a Sales Document. Total: the stamped gross (grossOf — the

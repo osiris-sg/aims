@@ -65,7 +65,7 @@ export function helperRemarks(l: InvoiceLine, lmeMonth: string, template = "LME 
   const fmt = (v: unknown, dp?: string) => (has(v) ? (dp === undefined ? String(Number(v)) : Number(v).toFixed(Number(dp))) : dp === undefined ? "0" : (0).toFixed(Number(dp)));
   const up = has(l.upcharge) && Number(l.upcharge) !== 0;
   const nums: Record<string, unknown> = { LME: l.lme, QMJP: l.qmjp, premium: l.premium, upcharge: l.upcharge, totalPremium: roundTo(n(l.premium) + n(l.upcharge), 4) };
-  const text: Record<string, string> = { month, monthJa, q: quarterOf(lmeMonth), grade: l.grade ?? "" };
+  const text: Record<string, string> = { month, monthJa, monthNo: m ? String(Number(m[2])) : "", q: quarterOf(lmeMonth), grade: l.grade ?? "" };
   const TOKEN = /\{(\w+)(?::(\d))?\}/g;
   const sub = (tpl: string, upchargeText: string | null) =>
     tpl.replace(TOKEN, (all, k: string, dp?: string) => (k === "upcharge" && dp === undefined && upchargeText !== null ? upchargeText : k in nums ? fmt(nums[k], dp) : k in text ? text[k] : all));

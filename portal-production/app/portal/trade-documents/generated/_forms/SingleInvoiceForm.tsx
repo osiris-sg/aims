@@ -11,7 +11,8 @@
 // Totals mirror the server (ROUND to cents / yen): 非課税合計, 課税対象合計,
 // 消費税, 今回請求合計額 in US$ and ¥.
 
-import React, { useMemo, useRef } from "react";
+import React, { useMemo, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { Alert, Box, Button, Checkbox, Chip, FormControlLabel, Grid2, IconButton, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableRow, TextField, Tooltip, Typography } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
@@ -19,7 +20,11 @@ import { bankEntity, useShipmentsApi, type IssuingEntity } from "@/app/portal/sh
 import { useTradeSettings } from "@/app/portal/shipments/_lib/hooks";
 import { guardDate, tradeDateError } from "@/app/portal/shipments/_lib/dates";
 import type { DocFormProps } from "./types";
-import { toNum, usd } from "./invoiceCalc";
+import { helperRemarks, toNum, usd } from "./invoiceCalc";
+
+/** Round BO — Kato's Nov 2026 invoice (style 2): the billet 備考 "LME Cash / 10月平均 3061.11 / + Q4 MJP 255.0 / + Billet Premium 260" (mirrors the API). */
+const KATO_REMARKS = "LME Cash\n{monthNo}月平均 {LME}\n+ Q{q} MJP {QMJP:1}\n+ Billet Premium {premium}{upcharge}";
+const KATO_UPCHARGE = "\n+ Upcharge {upcharge}";
 
 export type SingleLine = {
   kind: "goods" | "jpy" | "usd";
@@ -63,6 +68,12 @@ type SingleHeader = {
   dueDate: string;
   dueDateManual?: boolean;
   currency: string;
+  /** Round BO: 2 = Kato's Nov 2026 layout and rounding (see the API's trade-invoice-kato.ts). */
+  style?: 2;
+  dueLine?: string;
+  variant?: "correction" | "actuals";
+  /** Round BO: the 円貨 rate / note follow the issue date's customs week until typed by hand. */
+  fxManual?: boolean;
 };
 
 const has = (v: unknown) => v !== null && v !== undefined && v !== "" && Number.isFinite(Number(v));
@@ -71,11 +82,31 @@ const round = (v: number, dp: number) => {
   const f = 10 ** dp;
   return (Math.sign(v) * Math.round(Math.abs(v) * f + 1e-9)) / f;
 };
+/** Excel ROUNDDOWN (toward zero). */
+const down = (v: number, dp: number) => {
+  const f = 10 ** dp;
+  return (Math.sign(v) * Math.floor(Math.abs(v) * f + 1e-7)) / f;
+};
 
-/** One line's figures (mirrors the API's singleLineCalc). */
-export function lineCalc(l: SingleLine, fx: number | null) {
+/** One line's figures (mirrors the API's singleLineCalc; style 2 = Kato's Nov 2026 rounding). */
+export function lineCalc(l: SingleLine, fx: number | null, style?: 2) {
   const q = has(l.quantity) ? Number(l.quantity) : null;
   const rate = has(fx) && Number(fx) > 0 ? Number(fx) : null;
+  if (style === 2) {
+    if (l.kind === "jpy") {
+      const jpy = has(l.jpyAmount) ? Number(l.jpyAmount) : null;
+      const amountUsd = jpy === null || rate === null ? 0 : down(jpy / rate, 2);
+      const amountJpy = jpy === null ? null : round(jpy, 0);
+      return q ? { unitUsd: down(amountUsd / q, 2), amountUsd, unitJpy: amountJpy === null ? null : round(amountJpy / q, 0), amountJpy } : { unitUsd: rate === null ? null : amountUsd, amountUsd, unitJpy: amountJpy, amountJpy };
+    }
+    const unit = l.kind === "goods" ? (has(l.lme) ? round(n(l.lme) + n(l.qmjp) + n(l.premium) + n(l.upcharge), 4) : null) : has(l.unitPrice) ? Number(l.unitPrice) : null;
+    return {
+      unitUsd: unit,
+      amountUsd: unit === null || q === null ? 0 : down(q * unit, 2),
+      unitJpy: unit === null || rate === null ? null : round(unit * rate, 0),
+      amountJpy: unit === null || q === null || rate === null ? null : down(q * unit * rate, 0),
+    };
+  }
   if (l.kind === "jpy") {
     const jpy = has(l.jpyAmount) ? Number(l.jpyAmount) : null;
     const amountUsd = jpy === null || rate === null ? 0 : round(jpy / rate, 2);
@@ -90,13 +121,13 @@ export function lineCalc(l: SingleLine, fx: number | null) {
   };
 }
 
-export function singleTotals(rows: SingleLine[], taxRate: number, fx: number | null) {
-  const c = rows.map((l) => lineCalc(l, fx));
+export function singleTotals(rows: SingleLine[], taxRate: number, fx: number | null, style?: 2) {
+  const c = rows.map((l) => lineCalc(l, fx, style));
   const rate = n(taxRate) / 100;
   const sum = (pick: (x: ReturnType<typeof lineCalc>) => number | null, taxable: boolean) => rows.reduce((a, l, i) => a + (l.taxable === taxable ? (pick(c[i]) ?? 0) : 0), 0);
   const ut = round(sum((x) => x.amountUsd, true), 2);
   const un = round(sum((x) => x.amountUsd, false), 2);
-  const tax = round(ut * rate, 2);
+  const tax = style === 2 ? down(ut * rate, 2) : round(ut * rate, 2);
   const jt = round(sum((x) => x.amountJpy, true), 0);
   const jn = round(sum((x) => x.amountJpy, false), 0);
   const jtax = round(jt * rate, 0);
@@ -115,12 +146,16 @@ export default function SingleInvoiceForm({ doc, header: h, rows, disabled, setH
   const allBanks: Array<{ id: string; label: string; block: string; entity?: IssuingEntity }> = Array.isArray(dd.banks) && dd.banks.length ? dd.banks : [];
   // Every account, any entity: an ADH JP invoice may be paid into an ADH SG account (Kato's sample prints CFSB).
   const banks = allBanks;
-  const totals = useMemo(() => singleTotals(rows, h.taxRate, h.fxRate), [rows, h.taxRate, h.fxRate]);
+  const kato = h.style === 2;
+  const t = useTranslations("invoices.tradeForm");
+  const totals = useMemo(() => singleTotals(rows, h.taxRate, h.fxRate, h.style), [rows, h.taxRate, h.fxRate, h.style]);
+  const [rateBusy, setRateBusy] = useState(false);
   const api = useShipmentsApi();
   const dueSeq = useRef(0);
 
   const remarksOf = (l: SingleLine, month: string) => {
     if (l.kind !== "goods" || ![l.lme, l.qmjp, l.premium, l.upcharge].some(has)) return l.remarks;
+    if (kato) return helperRemarks({ ...l, unit: "", unitPrice: null, amountOverride: null, dueDate: null } as any, month, dd.singleRemarksTemplate ?? KATO_REMARKS, dd.singleUpchargeTemplate ?? KATO_UPCHARGE);
     const m = /^(\d{4})-(\d{2})$/.exec(month ?? "");
     const q = m ? String(Math.ceil(Number(m[2]) / 3)) : "";
     const lme = has(l.lme) ? `(${Number(l.lme)}USD)` : "";
@@ -141,8 +176,22 @@ export default function SingleInvoiceForm({ doc, header: h, rows, disabled, setH
     setHeader(patch);
     if (patch.lmeMonth !== undefined) setRows((rs) => rs.map((l) => (l.kind === "goods" && l.autoRemarks !== false ? { ...l, remarks: remarksOf(l, patch.lmeMonth!) } : l)));
   };
+  /** Round BO: the customs weekly rate of the issue week ("11/8-11/14 関税外国為替相場"). */
+  const applyCustomsRate = async (date: string, force: boolean) => {
+    if (!kato || !date || tradeDateError(date) || (!force && h.fxManual)) return;
+    setRateBusy(true);
+    try {
+      const r = await api.customsRate(date);
+      if (r.rate) setHeader({ fxRate: r.rate, fxNote: r.note ?? h.fxNote, fxManual: false });
+    } catch {
+      /* keep the rate */
+    } finally {
+      setRateBusy(false);
+    }
+  };
   const onIssueDate = async (v: string) => {
     setH({ issueDate: v });
+    void applyCustomsRate(v, false);
     if (h.dueDateManual || !v || tradeDateError(v)) return;
     const seq = ++dueSeq.current;
     try {
@@ -184,8 +233,8 @@ export default function SingleInvoiceForm({ doc, header: h, rows, disabled, setH
               fullWidth
               label="番号 / Invoice no."
               value={h.invoiceNo ?? ""}
-              placeholder={(h.issueDate ?? "").replace(/-/g, "").slice(0, 8) || "yyyymmdd of the issue date"}
-              helperText={h.invoiceNo ? undefined : "Default: the issue date (yyyymmdd)"}
+              placeholder={kato ? `${(h.issueDate ?? "").replace(/-/g, "").slice(0, 6)}_NN` : (h.issueDate ?? "").replace(/-/g, "").slice(0, 8) || "yyyymmdd of the issue date"}
+              helperText={h.invoiceNo ? undefined : kato ? t("noAuto") : "Default: the issue date (yyyymmdd)"}
               disabled={disabled}
               onChange={(e) => setH({ invoiceNo: e.target.value || null })}
               InputLabelProps={{ shrink: true }}
@@ -197,7 +246,7 @@ export default function SingleInvoiceForm({ doc, header: h, rows, disabled, setH
           <Grid2 size={{ xs: 12, sm: 3 }}>{tf("toSuffix", "Suffix")}</Grid2>
           <Grid2 size={12}>{tf("subject", "件名 / Subject")}</Grid2>
           <Grid2 size={{ xs: 12, sm: 6 }}>{tf("paymentTerms", "支払条件 / Payment terms")}</Grid2>
-          <Grid2 size={{ xs: 12, sm: 6 }}>{tf("validity", "有効期限 / Validity")}</Grid2>
+          {!kato && <Grid2 size={{ xs: 12, sm: 6 }}>{tf("validity", "有効期限 / Validity")}</Grid2>}
           <Grid2 size={12}>{tf("fromBlock", "From", { multiline: true, minRows: 2 })}</Grid2>
           <Grid2 size={{ xs: 6, sm: 2 }}>
             <TextField size="small" fullWidth type="number" label="Tax %" value={h.taxRate ?? ""} disabled={disabled} onChange={(e) => setH({ taxRate: toNum(e.target.value) ?? 0 })} />
@@ -210,16 +259,27 @@ export default function SingleInvoiceForm({ doc, header: h, rows, disabled, setH
               label="FX 円/USD"
               value={h.fxRate ?? ""}
               disabled={disabled}
-              onChange={(e) => setH({ fxRate: toNum(e.target.value) })}
-              inputProps={{ step: "0.01" }}
+              onChange={(e) => setH({ fxRate: toNum(e.target.value), fxManual: true })}
+              inputProps={{ step: "0.01", "data-tour": "invoice-customs-rate" }}
               helperText={h.fxRate ? undefined : "Needed for the yen lines"}
               FormHelperTextProps={{ sx: { color: "warning.main" } }}
             />
           </Grid2>
-          <Grid2 size={{ xs: 12, sm: 7 }}>{tf("fxNote", "FX source note (税関 week)")}</Grid2>
+          <Grid2 size={{ xs: 12, sm: kato ? 5 : 7 }}>{tf("fxNote", "FX source note (税関 week)", { onChange: (e: any) => setH({ fxNote: e.target.value, fxManual: true }) })}</Grid2>
+          {kato && !disabled && (
+            <Grid2 size={{ xs: 12, sm: 2 }}>
+              <Button size="small" variant="outlined" fullWidth disabled={rateBusy} onClick={() => void applyCustomsRate(h.issueDate, true)} sx={{ textTransform: "none", height: 40 }}>
+                {rateBusy ? "…" : t("customsRate")}
+              </Button>
+            </Grid2>
+          )}
           <Grid2 size={{ xs: 12, sm: 4 }}>{tf("lmeMonth", "LME average month (shipment month)", { type: "month", InputLabelProps: { shrink: true } })}</Grid2>
           <Grid2 size={12}>{tf("conditions", "条件 / Conditions", { multiline: true, minRows: 2 })}</Grid2>
-          <Grid2 size={12}>{tf("paymentBlock", "支払い条件 / Payment conditions", { multiline: true, minRows: 1 })}</Grid2>
+          {kato ? (
+            <Grid2 size={12}>{tf("dueLine", t("dueLine"))}</Grid2>
+          ) : (
+            <Grid2 size={12}>{tf("paymentBlock", "支払い条件 / Payment conditions", { multiline: true, minRows: 1 })}</Grid2>
+          )}
           {banks.length > 0 && (
             <Grid2 size={{ xs: 12, sm: 6 }}>
               <TextField
@@ -332,7 +392,7 @@ export default function SingleInvoiceForm({ doc, header: h, rows, disabled, setH
                 ["非課税合計", totals.usd.nonTaxable, totals.jpy?.nonTaxable],
                 ["課税対象合計", totals.usd.taxable, totals.jpy?.taxable],
                 [`消費税 (${h.taxRate ?? 0}%)`, totals.usd.tax, totals.jpy?.tax],
-                ["今回請求合計額", totals.usd.total, totals.jpy?.total],
+                [kato ? "合計" : "今回請求合計額", totals.usd.total, totals.jpy?.total],
               ] as Array<[string, number, number | undefined]>
             ).map(([k, u, y], j) => (
               <TableRow key={k} sx={j === 3 ? { "& td": { fontWeight: 700 } } : undefined}>

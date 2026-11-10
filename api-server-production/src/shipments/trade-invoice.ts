@@ -238,7 +238,7 @@ export function lmeForMonth(defaults: DocDefaults, month: string | null | undefi
 /**
  * Price build-up for 備考, e.g. ADH's "LME Cash 2026/6月平均(3458.64USD) +351.5(2QMJP)
  * +190(Billet Premium) +10(upcharge for 6005)\n\nTotal Premium is 351.5(2QMJP) + 200".
- * Tokens: {month} (2026/6), {monthJa} (2026年9月, round BN), {LME}, {QMJP}, {q} (quarter of the LME month),
+ * Tokens: {month} (2026/6), {monthJa} (2026年9月, round BN), {monthNo} (10, round BO), {LME}, {QMJP}, {q} (quarter of the LME month),
  * {premium}, {upcharge} (the upcharge template, only when non-zero), {grade},
  * {totalPremium} (premium + upcharge). A number token takes ":<dp>" for fixed decimals ({LME:2} → 3276.82,
  * {QMJP:2} → 395.00 — ADH's Oct 2026 layout); inside the upcharge template {upcharge} / {upcharge:2} is the number.
@@ -258,7 +258,7 @@ export function helperRemarks(
   const fmt = (v: unknown, dp?: string) => (has(v) ? (dp === undefined ? String(Number(v)) : Number(v).toFixed(Number(dp))) : dp === undefined ? '0' : (0).toFixed(Number(dp)));
   const up = has(l.upcharge) && Number(l.upcharge) !== 0;
   const nums: Record<string, unknown> = { LME: l.lme, QMJP: l.qmjp, premium: l.premium, upcharge: l.upcharge, totalPremium: roundTo(n(l.premium) + n(l.upcharge), 4) };
-  const text: Record<string, string> = { month, monthJa, q: quarterOf(lmeMonth), grade: l.grade ?? '' };
+  const text: Record<string, string> = { month, monthJa, monthNo: m ? String(Number(m[2])) : '', q: quarterOf(lmeMonth), grade: l.grade ?? '' };
   const TOKEN = /\{(\w+)(?::(\d))?\}/g;
   const sub = (tpl: string, upchargeText: string | null) =>
     tpl.replace(TOKEN, (all, k: string, dp?: string) => (k === 'upcharge' && dp === undefined && upchargeText !== null ? upchargeText : k in nums ? fmt(nums[k], dp) : k in text ? text[k] : all));

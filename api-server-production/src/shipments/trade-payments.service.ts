@@ -34,9 +34,10 @@ const shape = (p: any) => {
 
 /** Invoice totals for a finalized in-app 請求書 (Invoice #1 / #2 / single), in its currency (USD). */
 export function generatedInvoiceTotal(g: { docType: string; header: any; rows: unknown }): number {
-  if (g.docType === 'INVOICE_SINGLE') {
+  // Round BO: correction / actual-cost invoices are single invoices too.
+  if (g.docType === 'INVOICE_SINGLE' || g.docType === 'INVOICE_ADJUSTMENT') {
     const h = g.header ?? {};
-    return singleTotals(toSingleLines(g.rows), Number(h.taxRate ?? 10), h.fxRate ?? null).usd.total;
+    return singleTotals(toSingleLines(g.rows), Number(h.taxRate ?? 10), h.fxRate ?? null, h.style === 2 ? 2 : undefined).usd.total;
   }
   return invoiceTotals(toInvoiceLines(g.rows), Number(g.header?.taxRate ?? 10), null, g.header?.variant === 'final' ? 'final' : undefined).total;
 }
@@ -221,7 +222,7 @@ export class TradePaymentsService {
   private async openInvoices(organizationId: string, allocs: Array<{ targetType: string; targetId: string | null; amount: unknown }>, where: Record<string, unknown> = {}) {
     const paid = paidByTarget(allocs, 'INVOICE');
     const gens: any[] = await this.prisma.tradeGeneratedDoc.findMany({
-      where: { organizationId, status: 'FINAL', docType: { in: ['INVOICE_1', 'INVOICE_2', 'INVOICE_SINGLE'] }, ...where },
+      where: { organizationId, status: 'FINAL', docType: { in: ['INVOICE_1', 'INVOICE_2', 'INVOICE_SINGLE', 'INVOICE_ADJUSTMENT'] }, ...where },
       orderBy: { updatedAt: 'desc' },
       take: 300,
       select: {

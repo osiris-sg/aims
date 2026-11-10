@@ -274,7 +274,13 @@
       "CUSTOMER_COA_SUS": "納品書兼分析試験成績報告書 — SUS (format not yet confirmed)",
       "CUSTOMER_COA_HOEI": "納品書兼分析試験成績報告書 — Hoei (format not yet confirmed)",
       "CUSTOMER_COA_SUS_SUMMARY": "COA_集計ファイル (SUS) — COA summary by cast, PDF"
-    }
+    },
+    "invoiceStep": "Invoice step",
+    "invoiceStep2": "Step 2 — Issue and send invoices",
+    "invoiceStep11": "Step 11 — after delivery",
+    "invoiceStepHelp": "Where this customer's single invoice is issued (Kato: step 2, once the shipping documents are in).",
+    "customsFlat": "通関 (non-taxable) estimate, ¥",
+    "customsFlatHelp": "Printed on the invoice's 通関 line (Kato: 93,000). Blank = B/L fee + AN charges."
   },
   "companyProfile": {
     "missingAuth": "Missing authentication or organization.",

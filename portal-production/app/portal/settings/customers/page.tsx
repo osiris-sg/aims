@@ -222,6 +222,20 @@ function ProfileCard({ customer, profile, banks }: { customer: { id: string; nam
           <TextField size="small" fullWidth multiline minRows={2} label={t("notes")} value={dp.notes} onChange={(e) => set({ deliveryProfile: { ...dp, notes: e.target.value } })} />
         </Grid2>
         {p.billingMode === "SINGLE" && (
+          <>
+            {/* Round BO: Kato is invoiced on step 2 (after the shipping documents), not step 11. */}
+            <Grid2 size={{ xs: 12, sm: 6 }}>
+              <TextField select size="small" fullWidth label={t("invoiceStep")} value={p.singleInvoiceStep ?? "INVOICE_2"} onChange={(e) => set({ singleInvoiceStep: e.target.value as any })} helperText={t("invoiceStepHelp")} data-tour="profile-invoice-step">
+                <MenuItem value="INVOICE_1">{t("invoiceStep2")}</MenuItem>
+                <MenuItem value="INVOICE_2">{t("invoiceStep11")}</MenuItem>
+              </TextField>
+            </Grid2>
+            <Grid2 size={{ xs: 12, sm: 6 }}>
+              <TextField size="small" fullWidth type="number" label={t("customsFlat")} value={p.customsFlatJpy ?? ""} onChange={(e) => set({ customsFlatJpy: e.target.value === "" ? null : Number(e.target.value) })} helperText={t("customsFlatHelp")} />
+            </Grid2>
+          </>
+        )}
+        {p.billingMode === "SINGLE" && (
           <Grid2 size={12}>
             <TextField
               size="small"

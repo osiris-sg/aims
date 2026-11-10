@@ -60,7 +60,8 @@ describe('addressee follows the customer (every CUSTOMER_PL_* / CUSTOMER_COA_* /
       });
     }
   }
-  const invoices = Object.entries(GENERATED_TEMPLATES).filter(([k]) => k.startsWith('INVOICE_'));
+  // Round BO: INVOICE_ADJUSTMENT (正誤差額 / 実費差分) is made from a final invoice, never blank — its addressee is the original's.
+  const invoices = Object.entries(GENERATED_TEMPLATES).filter(([k]) => k.startsWith('INVOICE_') && k !== 'INVOICE_ADJUSTMENT');
   it('covers INVOICE_1 / INVOICE_2 / INVOICE_SINGLE', () => expect(invoices.map(([k]) => k).sort()).toEqual(['INVOICE_1', 'INVOICE_2', 'INVOICE_SINGLE']));
   for (const [key, t] of invoices) {
     for (const k of cases) {

@@ -265,6 +265,8 @@ const DOC_TYPES: Array<[string, string, DocCategory]> = [
   ['IMPORT_PERMIT', 'Import permit', 'CUSTOMS_LOGISTICS'],
   ['INVOICE_2', 'Invoice #2', 'INVOICES'],
   ['INVOICE_SINGLE', 'Invoice (single)', 'INVOICES'],
+  // Round BO: Kato's 正誤差額 (202610_004) and 実費差分 invoices, made from a final single invoice.
+  ['INVOICE_ADJUSTMENT', 'Correction / actual-cost invoice (正誤差額・実費差分)', 'INVOICES'],
   ['VENDOR_INVOICE', 'Vendor invoice', 'PAYMENTS'],
   ['PAYMENT_PROOF', 'Payment proof', 'PAYMENTS'],
   ['CUSTOMER_PO', 'Customer purchase order (発注書)', 'CUSTOMER'],
@@ -295,11 +297,14 @@ const TRADE_SETTINGS = {
     productJa: { 'Aluminium Billet': 'アルミニウムビレット' },
     invoiceLineTemplate:
       'Aluminium Billet - {grade} as per Specification of {inch}-\n{qty}MT +- {tol}% Tolerance\n製品仕様は貴社指定仕様\n\n暫定LME・QMJP価格のため仮単価。最終価格との差分は2回目の通関・輸送費の請求書で調整',
-    invoiceRemarksTemplate: 'LME Cash {month}月平均({LME}USD) +{QMJP}({q}QMJP) +{premium}(Billet Premium){upcharge}\n\nTotal Premium is {QMJP}({q}QMJP) + {totalPremium}',
+    // Round BN (owner's go, applied 2026-11-10): ADH's Oct 2026 per-line breakdown; Invoice #1's own upcharge line.
+    invoiceRemarksTemplate: 'LME Cash {monthJa}平均　\nUSD {LME:2}\n + Q{q} MJP {QMJP:2}\n + Billet Premium {premium:2}{upcharge}',
+    invoice1UpchargeTemplate: '\n + {grade} Upcharge {upcharge:2}',
     invoiceUpchargeTemplate: ' +{upcharge}(upcharge for {grade})',
     sizeInch: { '152': '6 inch', '162': '6 inch', '178': '7 inch', '203': '8 inch' },
     invoiceDueLine: '{date} までにお支払いをお願い致します。',
-    invoiceFxNote: '円/USD 税関{range} 外国為替相場参照',
+    // Round BN (owner's go): the business day before the issue date, MUFG TTM (SUS).
+    invoiceFxNote: '円/USD {ttmDate}  三菱UFJ銀行TTM参照',
     invoiceConditions: '・納入条件ートラック積替え貴社指定先に納入（車上渡し）。\n　最終価格（船積み月LME平均）との差分、通関・国内輸送費、諸係については別途見積書・請求書を発行。',
     invoicePaymentTerms: '・請求書発行　7営業日以内　弊社指定口座振込',
     // 弊社指定口座: each invoice picks one (DBS by default).
@@ -319,7 +324,8 @@ const TRADE_SETTINGS = {
           'Community Federal Savings Bank\nBank address\t30 W. 26th Street, Sixth Floor New York NY 10010 United States\nRouting number\t026073150\nBank SWIFT/BIC\tCMFGUS33\nBeneficiary name\tAsia Deal Hub Pte. Ltd.\nBeneficiary Bank Account No: 8311208644',
       },
     ],
-    defaultBankId: 'dbs',
+    // Round BO (owner, 2026-11-10): CFSB is the org default (as on prod since round F's go).
+    defaultBankId: 'cfsb',
     // Invoice #2 (2回目): final price, then customs / transport / other costs.
     invoice2LineTemplate: 'Aluminium Billet - {grade} as per Specification of {inch}-\n{qty}MT +- {tol}% Tolerance\n製品仕様は貴社指定仕様',
     invoice2RemarksTemplate: 'LME Cash月平均　{month}月USD{LME} + {QMJP}({q}QMJP) +{premium}(Billet Premium){upcharge}\nTotal Premium is {QMJP}(QMJP) + {totalPremium}',
@@ -386,10 +392,10 @@ const STEP_TEMPLATES: StepSpec[] = [
   // 0: link / upload the contract (auto-completes once the order has its contract).
   { scope: 'ORDER', sortOrder: 5, code: 'CHECK_CONTRACT', displayNo: '0', title: 'Check contract', requiredDocTypes: [], requiredFields: ['contractId'], optionalDocTypes: ['CONTRACT', 'OTHER'] },
   { scope: 'ORDER', sortOrder: 10, code: 'PI_PAYMENT', displayNo: '1', title: 'Set up PI payment', requiredDocTypes: ['PI', 'DEPOSIT_PROOF'], optionalDocTypes: ['CONTRACT', 'OTHER'] },
-  { scope: 'ORDER', sortOrder: 20, code: 'INVOICE_1', displayNo: '2', title: 'Issue and send Invoice #1', requiredDocTypes: ['INVOICE_1'], optionalDocTypes: ['CUSTOMER_PO', 'PAYMENT_PROOF', 'OTHER'] },
+  { scope: 'ORDER', sortOrder: 20, code: 'INVOICE_1', displayNo: '2', title: 'Issue and send Invoice #1', requiredDocTypes: ['INVOICE_1'], optionalDocTypes: ['CUSTOMER_PO', 'PAYMENT_PROOF', 'INVOICE_ADJUSTMENT', 'OTHER'] },
   // 11: Invoice #2 (TWO_STAGE) — or the single invoice for a SINGLE-billing customer — on the order; done once every
   // live shipment has its invoice (one invoice may cover several shipments).
-  { scope: 'ORDER', sortOrder: 110, code: 'INVOICE_2', displayNo: '11', title: 'Issue Invoice #2', requiredDocTypes: ['INVOICE_2'], optionalDocTypes: ['INVOICE_SINGLE', 'PAYMENT_PROOF', 'OTHER'] },
+  { scope: 'ORDER', sortOrder: 110, code: 'INVOICE_2', displayNo: '11', title: 'Issue Invoice #2', requiredDocTypes: ['INVOICE_2'], optionalDocTypes: ['INVOICE_SINGLE', 'INVOICE_ADJUSTMENT', 'PAYMENT_PROOF', 'OTHER'] },
   { scope: 'ORDER', sortOrder: 130, code: 'XERO_HANDOFF', displayNo: '13', title: 'Prepare data for Xero reconciliation', requiredDocTypes: [], optionalDocTypes: ['CUSTOMER_PO', 'OTHER'] },
   {
     scope: 'SHIPMENT',
@@ -580,7 +586,8 @@ const PROFILE_SEED: Record<string, Omit<CustomerProfile, 'customerId'>> = {
     customsRatePerMt: 2800,
     emailDomains: [],
     docVariants: { CUSTOMER_PL: 'CUSTOMER_PL_SUS', CUSTOMER_COA: 'CUSTOMER_COA_SUS', INVOICE: 'INVOICE_2' },
-    defaultBankId: 'dbs',
+    // Round BO (owner, 2026-11-10): SUS is paid into CFSB (…8644), as Kato / Hoei — was DBS until round BN.
+    defaultBankId: 'cfsb',
     // 宛先 on SUS's PL / COA (the address / contact come from --customers).
     docAddressee: 'SUS株式会社 福島製造グループ',
   },

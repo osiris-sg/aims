@@ -2,6 +2,7 @@
  * Round AY part 2 — due dates per step and the order's Overall process. Reads the steps and the schedule; writes
  * only a step's hand-set due date (TradeStep.dueAt + who / when). Everything else is computed (trade-due.ts).
  */
+import { SINGLE_ON_STEP2_TITLE } from './trade-profile';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { TradeActor } from './shipments.request';
@@ -144,7 +145,8 @@ export class TradeDueService {
             code: s.code,
             no: s.displayNo ?? processStep(s.code)?.no ?? '',
             title: s.title,
-            titleJa: processStep(s.code)?.ja ?? null,
+            // Round BO: Kato's step 2 is its single invoice (請求書の発行・送付), not Invoice #1.
+            titleJa: s.code === 'INVOICE_1' && s.title === SINGLE_ON_STEP2_TITLE ? '請求書の発行・送付' : (processStep(s.code)?.ja ?? null),
             kind,
             recordId,
             orderId: o.id,

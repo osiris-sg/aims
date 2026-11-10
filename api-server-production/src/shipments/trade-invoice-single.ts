@@ -22,8 +22,9 @@
  * ¥206,062.5 → 1,295.99; 通関 ¥89,800 → 564.78; 他諸掛 1,633.00; FX 159.00 → US$176,050.94.
  */
 import { docShell, esc, lines as br, money } from './trade-doc-shell';
-import { helperRemarks, InvoiceLine, roundTo } from './trade-invoice';
+import { helperRemarks, InvoiceLine, roundDown, roundTo } from './trade-invoice';
 import { InvoiceLayout, invoiceLayoutCss } from './trade-invoice-layout';
+import { renderKatoInvoiceHtml } from './trade-invoice-kato';
 
 /** The 番号 when none is typed: the 発行日 as yyyymmdd (2026-08-18 → "20260818"). */
 export function singleInvoiceNoFor(issueDate: string | null | undefined): string {
@@ -85,6 +86,20 @@ export interface SingleInvoiceHeader {
   showSeal?: boolean;
   dueDate: string;
   currency: string;
+  /**
+   * Round BO — 2 = ADH's Kato 請求書 of Nov 2026 (202611_01 / _02): 番号 YYYYMM_NN, no 有効期限 / per-MT row, お支払い期限
+   * line, 円貨 at the customs weekly rate, and its rounding (USD amounts and yen amounts truncated, yen unit prices and
+   * the yen tax rounded). Absent = the Sept 2026 sheet's layout and rounding (older drafts keep it).
+   */
+  style?: 2;
+  /** Style 2: "{date} までにお支払いをお願い致します。" ({date} = the due date); a correction prints its own text. */
+  dueLine?: string;
+  /** Style 2: a 正誤差額 (correction) or 実費差分 (actual costs) invoice — see trade-invoice-kato.ts. */
+  variant?: 'correction' | 'actuals';
+  /** Style 2: the ご参考 box ((正) / (誤) totals of a correction). */
+  reference?: { title: string; lines: string[] } | null;
+  /** Style 2: the invoice a correction / actual-cost invoice refers to. */
+  original?: { id: string; number: string | null; issueDate: string | null; total: number | null } | null;
 }
 
 const has = (v: unknown) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
@@ -97,10 +112,32 @@ export interface SingleLineCalc {
   amountJpy: number | null;
 }
 
-/** One line's figures at the FX (null FX → JPY columns blank, JPY lines unpriced). */
-export function singleLineCalc(l: SingleLine, fx: number | null): SingleLineCalc {
+/**
+ * One line's figures at the FX (null FX → JPY columns blank, JPY lines unpriced). Style 2 (Kato, Nov 2026), checked
+ * against 202611_01 / _02 / 202610_004: USD amount = ROUNDDOWN(qty × unit, 2); ¥ unit = ROUND(unit × FX, 0); ¥ amount =
+ * ROUNDDOWN(qty × unit × FX, 0); a yen line (一式) = ROUND(yen, 0) and USD = ROUNDDOWN(yen / FX, 2).
+ */
+export function singleLineCalc(l: SingleLine, fx: number | null, style?: 2): SingleLineCalc {
   const q = has(l.quantity) ? Number(l.quantity) : null;
   const rate = has(fx) && Number(fx) > 0 ? Number(fx) : null;
+  if (style === 2) {
+    if (l.kind === 'jpy') {
+      const jpy = has(l.jpyAmount) ? Number(l.jpyAmount) : null;
+      const amountUsd = jpy === null || rate === null ? 0 : roundDown(jpy / rate, 2);
+      const amountJpy = jpy === null ? null : roundTo(jpy, 0);
+      // 一式 (no quantity): the unit columns repeat the amount; with a quantity, per unit.
+      return q
+        ? { unitUsd: roundDown(amountUsd / q, 2), amountUsd, unitJpy: amountJpy === null ? null : roundTo(amountJpy / q, 0), amountJpy }
+        : { unitUsd: rate === null ? null : amountUsd, amountUsd, unitJpy: amountJpy, amountJpy };
+    }
+    const unit = l.kind === 'goods' ? (has(l.lme) ? roundTo(n(l.lme) + n(l.qmjp) + n(l.premium) + n(l.upcharge), 4) : null) : has(l.unitPrice) ? Number(l.unitPrice) : null;
+    return {
+      unitUsd: unit,
+      amountUsd: unit === null || q === null ? 0 : roundDown(q * unit, 2),
+      unitJpy: unit === null || rate === null ? null : roundTo(unit * rate, 0),
+      amountJpy: unit === null || q === null || rate === null ? null : roundDown(q * unit * rate, 0),
+    };
+  }
   if (l.kind === 'jpy') {
     const jpy = has(l.jpyAmount) ? Number(l.jpyAmount) : null;
     const amountUsd = jpy === null || rate === null ? 0 : roundTo(jpy / rate, 2);
@@ -129,8 +166,8 @@ export interface SingleTotals {
   jpy: { nonTaxable: number; taxable: number; tax: number; total: number } | null;
 }
 
-export function singleTotals(rows: SingleLine[], taxRate: number, fx: number | null): SingleTotals {
-  const calc = rows.map((l) => singleLineCalc(l, fx));
+export function singleTotals(rows: SingleLine[], taxRate: number, fx: number | null, style?: 2): SingleTotals {
+  const calc = rows.map((l) => singleLineCalc(l, fx, style));
   const rate = n(taxRate) / 100;
   const sum = (pick: (c: SingleLineCalc, l: SingleLine) => number | null, taxable: boolean) => rows.reduce((a, l, i) => a + (l.taxable === taxable ? (pick(calc[i], l) ?? 0) : 0), 0);
   const usdTaxable = roundTo(
@@ -141,7 +178,8 @@ export function singleTotals(rows: SingleLine[], taxRate: number, fx: number | n
     sum((c) => c.amountUsd, false),
     2,
   );
-  const usdTax = roundTo(usdTaxable * rate, 2);
+  // Style 2: the USD tax is truncated (14,692.282 → 14,692.28; 100.677 → 100.67), the yen tax rounded (2,315,944.6 → 2,315,945).
+  const usdTax = style === 2 ? roundDown(usdTaxable * rate, 2) : roundTo(usdTaxable * rate, 2);
   const haveFx = has(fx) && Number(fx) > 0;
   const jpyTaxable = roundTo(
     sum((c) => c.amountJpy, true),
@@ -172,9 +210,9 @@ export function singleTotals(rows: SingleLine[], taxRate: number, fx: number | n
 }
 
 /** The single invoice as plain invoice lines (USD amounts as overrides) — for the Sales Document and the totals shared with Invoice #1 / #2. */
-export function singleAsInvoiceLines(rows: SingleLine[], fx: number | null, dueDate: string | null): InvoiceLine[] {
+export function singleAsInvoiceLines(rows: SingleLine[], fx: number | null, dueDate: string | null, style?: 2): InvoiceLine[] {
   return rows.map((l) => {
-    const c = singleLineCalc(l, fx);
+    const c = singleLineCalc(l, fx, style);
     return {
       description: l.description,
       quantity: has(l.quantity) ? Number(l.quantity) : null,
@@ -211,7 +249,7 @@ export function toSingleLines(rows: unknown): SingleLine[] {
 }
 
 /** Goods-line 備考: "LME Cash 2026/7月平均(3155.98USD) +395(3QMJP) + 285(Billet Premium)". */
-export function singleGoodsRemarks(l: SingleLine, lmeMonth: string, template?: string): string {
+export function singleGoodsRemarks(l: SingleLine, lmeMonth: string, template?: string, upchargeTemplate?: string): string {
   return helperRemarks(
     {
       description: '',
@@ -229,12 +267,12 @@ export function singleGoodsRemarks(l: SingleLine, lmeMonth: string, template?: s
     },
     lmeMonth,
     template ?? 'LME Cash {month}月平均({LME}USD) +{QMJP}({q}QMJP) + {premium}(Billet Premium){upcharge}',
-    ' +{upcharge}(Upcharge)',
+    upchargeTemplate ?? ' +{upcharge}(Upcharge)',
   );
 }
 
 /** What stops a single invoice from finalizing. */
-export function singleFinalizeProblems(rows: SingleLine[], fx: number | null): string[] {
+export function singleFinalizeProblems(rows: SingleLine[], fx: number | null, style?: 2): string[] {
   const p: string[] = [];
   if (!has(fx) || Number(fx) <= 0) p.push('enter the exchange rate (円/USD) — the 円 lines need it');
   rows.forEach((l, i) => {
@@ -242,7 +280,7 @@ export function singleFinalizeProblems(rows: SingleLine[], fx: number | null): s
     if (l.kind === 'jpy' && !has(l.jpyAmount) && l.description.trim()) p.push(`line ${i + 1} needs its yen amount`);
     if (l.kind === 'usd' && !has(l.unitPrice) && l.description.trim()) p.push(`line ${i + 1} needs a unit price`);
   });
-  if (singleTotals(rows, 10, fx).usd.total === 0) p.push('the total is US$0.00');
+  if (singleTotals(rows, 10, fx, style).usd.total === 0) p.push('the total is US$0.00');
   return p;
 }
 
@@ -270,6 +308,7 @@ const COLS = '<colgroup><col style="width:24%"><col style="width:11%"><col style
  * remarks text is merged into one cell (the 通関、車輸送料 / 通関 block).
  */
 export function renderSingleInvoiceHtml(h: SingleInvoiceHeader, rows: SingleLine[], opts: { draft?: boolean; seal?: string | null } = {}): string {
+  if (h.style === 2) return renderKatoInvoiceHtml(h, rows, opts);
   const fx = has(h.fxRate) ? Number(h.fxRate) : null;
   const t = singleTotals(rows, h.taxRate, fx);
   const seal = h.showSeal !== false && opts.seal && /^data:image\/(png|jpe?g);base64,/.test(opts.seal) ? opts.seal : null;
