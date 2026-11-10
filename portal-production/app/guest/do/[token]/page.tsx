@@ -336,6 +336,8 @@ export default function PublicDocumentViewPage() {
           shared with the portal and is NOT touched. */}
       <GlobalStyles
         styles={{
+          // Paper document: light whatever the phone's theme (see layout.tsx).
+          ":root": { colorScheme: "only light" },
           "@media print": {
             "@page": { size: "A4", margin: "6mm" },
             "[data-print-paper]": { padding: "0 !important" },

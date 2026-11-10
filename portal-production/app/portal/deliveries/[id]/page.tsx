@@ -84,6 +84,8 @@ interface RunDetail {
   deliveryNumber: number;
   // SiteClock link: attached by the API only for enableSiteClockLink orgs.
   siteclock?: SiteClockView | null;
+  /** SiteClock "Can't finish today": the worker's latest reason while the job is open. */
+  notFinished?: { at: string; by: string | null; reason: string | null } | null;
   status: RunStatus;
   direction?: "OUTBOUND" | "RETURN";
   // AD_HOC runs complete without deducting stock — their units sit `reserved`
@@ -888,6 +890,14 @@ export default function DeliveryDetailPage() {
         signed={run.items.some((i) => i.deliveryStatus === "completed")}
         isReturn={isReturnRun}
       />
+
+      {run.notFinished && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          Not finished on{" "}
+          {new Date(run.notFinished.at).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+          {run.notFinished.by ? ` by ${run.notFinished.by}` : ""}: {run.notFinished.reason || "no reason given"}
+        </Alert>
+      )}
 
       {/* SiteClock link (WCT): the worker this run is scheduled on in SiteClock. */}
       {run.siteclock && (

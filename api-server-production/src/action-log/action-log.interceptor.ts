@@ -11,6 +11,7 @@ interface AimsRequest extends Request {
   apiKey?: { id: string; name: string }; // set by ApiV1KeyGuard
   siteclockInbound?: { connectionId: string }; // set by SiteClockInboundGuard (job photos)
   siteclockWorker?: { userId: string; siteclockUserId: string; name: string | null }; // set by SiteClockWorkerGuard (deliveries in SiteClock)
+  siteclockJob?: { deliveryId: string }; // set by SiteClockWorkerGuard on /jobs/:ref/… (the run behind the SiteClock job)
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -124,6 +125,8 @@ const VERB_ACTIONS: Record<string, string> = {
   // a free-typed line's start/end. Only the delivery routes use these segments.
   finalize: 'SIGN', 'finalize-return': 'SIGN', 'adhoc-ack': 'ACKNOWLEDGE',
   'skip-install': 'SKIP', start: 'START', end: 'END',
+  // SiteClock (2026-11-10): "Can't finish today" with the worker's reason.
+  'not-finished': 'NOT_FINISHED',
   // Driver hand-off (2026-09): the rider's POST /deliveries/:id/handoff.
   handoff: 'HANDOFF', 'cancel-handoff': 'CANCEL_HANDOFF',
   // Service-report remote signature: minting the customer's sign link.
@@ -205,8 +208,11 @@ export class ActionLogInterceptor implements NestInterceptor {
     try {
       const { actorType, actorId, actorName, actorEmail, channel } = this.resolveActor(req, path);
       const segments = path.split('/').filter(Boolean);
-      const resource = (segments[0] || 'unknown').toLowerCase();
-      const resourceId = (req.params as any)?.id || segments.find((s) => UUID_RE.test(s)) || null;
+      // A worker's step in the SiteClock app is about the job (run) behind the
+      // SiteClock job, so it lands on that job like the field app's own calls.
+      const scRun = req.siteclockJob?.deliveryId;
+      const resource = scRun ? 'deliveries' : (segments[0] || 'unknown').toLowerCase();
+      const resourceId = scRun || (req.params as any)?.id || segments.find((s) => UUID_RE.test(s)) || null;
       const action = this.resolveAction(method, path, segments);
 
       const details: any = {};

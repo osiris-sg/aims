@@ -916,9 +916,8 @@ export class DeliveriesService {
   /**
    * Calendar drag (all-day jobs, 2026-11-10): move a still-scheduled ALL-DAY
    * job to another day. Timed jobs are not dragged (their time is set in the
-   * form). Like a form edit, it re-dates the job's scheduled service report and
-   * the SiteClock job follows on the next sweep; the DO keeps the date it was
-   * created with, as it does on a form edit.
+   * form). Like a form edit, it re-dates the job's DO and its scheduled service
+   * report, and the SiteClock job follows on the next sweep.
    */
   async moveAllDayJob(id: string, organizationId: string, body: any) {
     const date = typeof body?.date === 'string' ? body.date : '';
@@ -934,6 +933,7 @@ export class DeliveriesService {
     }
     const sched = await this.scheduleOf(date, true, organizationId);
     await this.prisma.delivery.update({ where: { id }, data: { scheduledFor: sched.scheduledFor, scheduledAllDay: true } });
+    await this.redateRunDo(id, organizationId);
     await this.ensureScheduledServiceReport(id, organizationId);
     await this.siteclock?.touch(organizationId, id);
     return { id, scheduledFor: sched.scheduledFor, scheduledAllDay: true };
@@ -960,6 +960,7 @@ export class DeliveriesService {
         crewWorkers: f.crew,
       },
     });
+    await this.redateRunDo(id, organizationId);
     const input = { siteclockWorkerId: f.assignee?.id ?? null, siteclockWorkerName: f.assignee?.name ?? null };
     await savePlannedRider(this.prisma, organizationId, id, input);
     await this.siteclock?.onScheduleSaved(organizationId, id, { workerId: input.siteclockWorkerId, workerName: input.siteclockWorkerName, durationMin: f.durationMin });
@@ -1089,6 +1090,52 @@ export class DeliveriesService {
     await refreshOrderStatus(this.prisma, organizationId, orderId);
     await this.siteclock?.touch(organizationId, id);
     return { id, orderId, orderNumber, createdOrder, linesAdded };
+  }
+
+  /**
+   * The latest "Can't finish today" a worker sent from SiteClock for this job
+   * (an Activity Log row, NOT_FINISHED), or null. Shown on the job page.
+   */
+  async lastNotFinished(deliveryId: string, organizationId: string) {
+    const row = await this.prisma.actionLog.findFirst({
+      where: { organizationId, resource: 'deliveries', resourceId: deliveryId, action: 'NOT_FINISHED', status: 'SUCCESS' },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true, actorName: true, details: true },
+    });
+    if (!row) return null;
+    const d: any = row.details ?? {};
+    return { at: row.createdAt, by: row.actorName, reason: d.result?.reason ?? d.body?.reason ?? null };
+  }
+
+  /**
+   * A job moved to another day before it is done: its DO takes the new date
+   * (2026-11-10, all orgs). The DO date is the scheduled day (see
+   * buildScheduledDoConfig), but until now an edit or a calendar drag left the
+   * DO on the day it was first scheduled for (WCT job #3: moved from 11 to
+   * 10 Nov, DO kept 11/11). Only while the run is still scheduled and only DOs
+   * not yet confirmed; a run already started keeps its DO as it is.
+   */
+  private async redateRunDo(deliveryId: string, organizationId: string): Promise<void> {
+    try {
+      const run = await this.prisma.delivery.findFirst({
+        where: { id: deliveryId, organizationId },
+        select: { status: true, scheduledFor: true, items: { select: { documentId: true } } },
+      });
+      if (!run?.scheduledFor || run.status !== 'scheduled') return;
+      const date = new Date(run.scheduledFor.getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+      const ids = [...new Set(run.items.map((i) => i.documentId).filter((x): x is string => !!x))];
+      for (const id of ids) {
+        const doc = await this.prisma.document.findFirst({
+          where: { id, organizationId, type: 'DELIVERY_ORDER', status: { in: ['draft', 'unconfirmed'] } },
+          select: { config: true },
+        });
+        const config = (doc?.config as Record<string, any> | null) ?? null;
+        if (!config || config.date === date) continue;
+        await this.prisma.document.update({ where: { id }, data: { config: { ...config, date } as Prisma.InputJsonValue } });
+      }
+    } catch (err: any) {
+      this.logger.warn(`redateRunDo: delivery ${deliveryId}: ${err?.message}`);
+    }
   }
 
   /**
@@ -1471,6 +1518,7 @@ export class DeliveriesService {
       } catch (err: any) {
         this.logger.error(`updateScheduled: draft DO regen failed for run ${id}: ${err?.message}`, err?.stack);
       }
+      await this.redateRunDo(id, organizationId);
     }
 
     // A promoted (or re-dated) service job carries its scheduled report; a run
@@ -6562,6 +6610,10 @@ export class DeliveriesService {
     dto: { photos?: string[]; angles?: string[]; technicianName?: string; latitude?: number; longitude?: number },
     organizationId: string,
     technicianUserId: string,
+    // SiteClock's one Start (2026-11-10): the app takes optional job photos at
+    // the end instead of condition photos per line, so it starts lines with no
+    // photo gate. Every other caller keeps the hard rule.
+    opts: { photoGate?: boolean } = {},
   ) {
     const item = await this.loadFreeTypedItem(deliveryId, itemId, organizationId);
     if (item.deliveryStatus !== DeliveryStatus.not_delivered) {
@@ -6585,7 +6637,7 @@ export class DeliveriesService {
     }
     const photos = (dto.photos ?? []).map((k) => String(k).trim()).filter(Boolean);
     const required = minPhotosForAssetClass(item.assetClass);
-    if (photos.length < required) {
+    if (opts.photoGate !== false && photos.length < required) {
       throw new BadRequestException(
         required === 1
           ? 'A condition photo of this item is required to start.'

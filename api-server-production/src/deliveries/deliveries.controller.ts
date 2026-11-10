@@ -277,6 +277,8 @@ export class DeliveriesController {
     // Custom job fields (enableJobFields): definitions + this run's values.
     const jobFields = run?.id ? await this.service.jobFieldsOf(id, org.id) : null;
     if (jobFields) run.jobFields = jobFields;
+    // SiteClock "Can't finish today" (2026-11-10): the worker's latest reason while the job is open.
+    if (run?.id && run.status !== 'completed' && run.status !== 'cancelled') run.notFinished = await this.service.lastNotFinished(run.id, org.id);
     const views = await this.siteclock.viewsFor(org.id, run?.id ? [run.id] : []);
     return views.size ? { ...run, siteclock: views.get(run.id) ?? null } : run;
   }

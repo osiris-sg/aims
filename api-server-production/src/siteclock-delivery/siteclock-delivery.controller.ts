@@ -121,6 +121,77 @@ export class SiteClockDeliveryController {
     return this.deliveries.claimReturn(this.run(req), this.named(req, body, 'riderName'), this.org(req), this.me(req));
   }
 
+  // ── SiteClock's own flow (2026-11-10) ──────────────────────────────────────
+
+  @Post('jobs/:ref/start')
+  @UseInterceptors(IdempotencyInterceptor)
+  @ApiOperation({
+    summary:
+      "SiteClock's one Start: starts every ticked line together and skips the rest. No condition photos per line (the app takes optional job photos at the end). A resend starts nothing twice: lines already started are left as they are.",
+  })
+  async startTicked(@Req() req: WorkerReq, @Body() body: { itemIds?: string[] }) {
+    const deliveryId = this.run(req);
+    const org = this.org(req);
+    const ticked = new Set((Array.isArray(body?.itemIds) ? body.itemIds : []).map((x) => String(x)));
+    if (!ticked.size) throw new BadRequestException('Tick at least one item to start.');
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId: org },
+      select: {
+        status: true,
+        direction: true,
+        items: { select: { id: true, assetId: true, inventoryId: true, description: true, deliveryStatus: true, skippedAt: true }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+      },
+    });
+    if (!run) throw new NotFoundException('Job not found');
+    if (run.status === 'cancelled' || run.status === 'completed') throw new BadRequestException(`This job is ${run.status}.`);
+    if ([...ticked].some((id) => !run.items.some((i) => i.id === id))) throw new BadRequestException('An item is no longer on this job. Pull down to refresh, then start again.');
+    const waiting = run.items.filter((i) => i.deliveryStatus === 'not_delivered');
+    const toStart = waiting.filter((i) => ticked.has(i.id));
+    if (toStart.some((i) => !i.inventoryId && i.assetId)) {
+      throw new BadRequestException('A ticked item still needs its unit scanned in the AIMS field app. Untick it to start the rest.');
+    }
+    const isReturn = run.direction === 'RETURN';
+    // A RETURN still `scheduled` is claimed first, as on SiteJobs' run page.
+    if (isReturn && run.status === 'scheduled') await this.deliveries.claimReturn(deliveryId, this.named(req, {}, 'riderName'), org, this.me(req));
+    for (const it of toStart) {
+      if (it.skippedAt) await this.deliveries.unskipItem(deliveryId, it.id, org);
+      if (it.inventoryId) {
+        await this.reports.create(
+          this.named(req, {
+            assetId: it.assetId,
+            inventoryId: it.inventoryId,
+            kind: 'DO_START',
+            deliveryId,
+            deferPhotos: true,
+            description: isReturn ? 'Return started (SiteClock)' : 'Started in SiteClock',
+          }) as any,
+          org,
+          this.me(req),
+        );
+      } else {
+        await this.deliveries.startFreeTypedItem(deliveryId, it.id, this.named(req, {}), org, this.me(req), { photoGate: false });
+      }
+    }
+    // Unticked = skipped ("not now"): the job stays open for them after the sign-off.
+    const toSkip = waiting.filter((i) => !ticked.has(i.id) && !i.skippedAt);
+    for (const it of toSkip) await this.deliveries.skipItem(deliveryId, it.id, org);
+    (req as any).actionLogResult = { started: toStart.length, skipped: toSkip.length };
+    return { started: toStart.length, skipped: toSkip.length };
+  }
+
+  @Post('jobs/:ref/not-finished')
+  @UseInterceptors(IdempotencyInterceptor)
+  @ApiOperation({ summary: "\"Can't finish today\": the worker's reason goes on the job's Activity Log; the job stays open." })
+  async notFinished(@Req() req: WorkerReq, @Body() body: { reason?: string }) {
+    const reason = String(body?.reason ?? '').trim();
+    if (reason.length < 3) throw new BadRequestException("Say why the job can't be finished today.");
+    const run = await this.prisma.delivery.findFirst({ where: { id: this.run(req), organizationId: this.org(req) }, select: { deliveryNumber: true, status: true } });
+    if (!run) throw new NotFoundException('Job not found');
+    if (run.status === 'completed' || run.status === 'cancelled') throw new BadRequestException(`This job is already ${run.status}.`);
+    (req as any).actionLogResult = { reason: reason.slice(0, 500), deliveryNumber: run.deliveryNumber, jobStatus: run.status };
+    return { logged: true, deliveryNumber: run.deliveryNumber };
+  }
+
   // ── lines ──────────────────────────────────────────────────────────────────
 
   @Post('jobs/:ref/items/:itemId/start')
