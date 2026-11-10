@@ -76,10 +76,14 @@ interface Props {
   /** Hide the table and its paging footer (e.g. while `headerContent` shows an
    *  empty-state card, so an empty header row isn't drawn under it). */
   hideTable?: boolean;
+  /** Sheet mode: render EVERY row the parent passes with no paging footer —
+   *  for tables that read as one document (e.g. Monthly Payables, where a
+   *  month must never split across pages). */
+  noPagination?: boolean;
 }
 export default function PageTable(props: Props) {
   const pt = PT[useUiLang().lang];
-  const { columns, data, tableName, subTitle, loading, buttonName, buttonDisabled, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, filterConfig: incomingFilterConfig, availableFilters, assetsData, totalDocs, renderSubComponent, actionButtons, headerContent, manualSorting, sorting, onSortingChange, onRowClick, rowHref, rowSx, noSelectionColumn, hideTable } = props;
+  const { columns, data, tableName, subTitle, loading, buttonName, buttonDisabled, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, filterConfig: incomingFilterConfig, availableFilters, assetsData, totalDocs, renderSubComponent, actionButtons, headerContent, manualSorting, sorting, onSortingChange, onRowClick, rowHref, rowSx, noSelectionColumn, hideTable, noPagination } = props;
   const { control, handleSubmit, watch } = useForm({ defaultValues: { limit, search } });
   const _limit = watch("limit");
   const _search = watch("search");
@@ -220,20 +224,22 @@ export default function PageTable(props: Props) {
             >
               <Table columns={columns} data={data} onRowClick={onRowClick} rowHref={rowHref} rowSx={rowSx} onRowSelect={() => {}} loading={loading} subRowAccessor={subRowAccessor} manualSorting={manualSorting} sorting={sorting} onSortingChange={onSortingChange} isNoSelectionColumn={noSelectionColumn} />
             </Box>
-            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", overflowX: "hidden" }}>
-              <Box sx={{ display: "flex", gap: "var(--default-gap)", alignItems: "center" }}>
-                <Typography variant="body2" sx={{ color: "text.secondary" }}>
-                  {pt.showing}
-                </Typography>
-                <FormSelectBox size="small" control={control} name="limit" menuItems={[10, 20, 50, 100].map((num) => ({ label: String(num), value: num }))} menuTitle={pt.pageSize} />
+            {!noPagination && (
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", overflowX: "hidden" }}>
+                <Box sx={{ display: "flex", gap: "var(--default-gap)", alignItems: "center" }}>
+                  <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                    {pt.showing}
+                  </Typography>
+                  <FormSelectBox size="small" control={control} name="limit" menuItems={[10, 20, 50, 100].map((num) => ({ label: String(num), value: num }))} menuTitle={pt.pageSize} />
+                </Box>
+                {totalDocs !== undefined && limit !== undefined && page !== undefined && (
+                  <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                    {pt.range((page - 1) * limit + 1, Math.min(page * limit, totalDocs), totalDocs)}
+                  </Typography>
+                )}
+                <Pagination page={page ?? 1} count={pageCount ?? 1} siblingCount={0} boundaryCount={0} onChange={(event, value) => setPage && setPage(value)} />
               </Box>
-              {totalDocs !== undefined && limit !== undefined && page !== undefined && (
-                <Typography variant="body2" sx={{ color: "text.secondary" }}>
-                  {pt.range((page - 1) * limit + 1, Math.min(page * limit, totalDocs), totalDocs)}
-                </Typography>
-              )}
-              <Pagination page={page ?? 1} count={pageCount ?? 1} siblingCount={0} boundaryCount={0} onChange={(event, value) => setPage && setPage(value)} />
-            </Box>
+            )}
           </>
         )}
         {filters && setFilters && filterConfig && (

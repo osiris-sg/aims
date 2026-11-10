@@ -84,8 +84,9 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
   const [payUploadOpen, setPayUploadOpen] = useState(false);
   const [recurringOpen, setRecurringOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(50); // a cycle reads as one sheet
+  // The whole month reads as ONE sheet, like the Excel — never split a month
+  // across pages (guru 2026-11-11: a fresh row landed on page 2 and read as
+  // "didn't save").
   const [search, setSearch] = useState("");
   // Projects for the "link to project" picker — verifies each invoice's site
   // address against a real job (Summer's tally-with-designer-files check).
@@ -425,7 +426,7 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
         tableName="Monthly Payables"
         subTitle="Supplier invoices for the month, grouped by contractor like the outgoing-payments sheet. A payment date marks a row paid."
         columns={columns as any}
-        data={displayRows.slice((page - 1) * limit, page * limit)}
+        data={displayRows}
         loading={loading}
         buttonName="Add payable"
         onAddClick={() => setAddOpen(true)}
@@ -451,19 +452,11 @@ export default function MonthlyPayablesSheet({ reportsHref }: { reportsHref?: st
           ...(r._kind === "grand" ? { "& td": { borderTop: 2, borderColor: "text.secondary", borderBottom: 0, py: 1 } } : {}),
           ...(r._kind ? { cursor: "default", "&:hover": { bgcolor: r._band ? "action.hover" : "transparent" } } : {}),
         })}
-        page={page}
-        limit={limit}
+        noPagination
         search={search}
         filters={{}}
-        setPage={setPage}
-        setLimit={setLimit}
-        setSearch={(v: string) => {
-          setSearch(v);
-          setPage(1);
-        }}
+        setSearch={setSearch}
         setFilters={() => {}}
-        pageCount={Math.max(1, Math.ceil(displayRows.length / limit))}
-        totalDocs={displayRows.length}
       />
 
       {/* Row context menu — anchored to the CLICK POSITION (table re-renders detach element anchors). */}
