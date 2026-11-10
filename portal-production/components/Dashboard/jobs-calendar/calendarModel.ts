@@ -117,6 +117,8 @@ export function calendarLegendItems(jobWords: boolean): Array<{ label: string; c
 }
 
 const ymd = (s: string) => s.slice(0, 10);
+/** "2026-11-11" from a FullCalendar date string (its own zone, so the first 10 characters are the day). */
+export const ymdOf = ymd;
 const addDays = (date: string, n: number) => new Date(Date.parse(`${date}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 
 /**
@@ -127,8 +129,19 @@ export function rangeOf(startStr: string, endStr: string): { from: string; to: s
   return { from: ymd(startStr), to: addDays(ymd(endStr), -1) };
 }
 
-/** What FullCalendar draws for each event; cancelled ones only when asked for. */
-export function toCalendarInputs(events: CalendarEvent[], showCancelled: boolean) {
+/**
+ * All-day jobs (2026-11-10): an AIMS job with no specific time that is still
+ * scheduled can be dragged to another day. Timed jobs are not draggable.
+ */
+export function isMovable(e: Pick<CalendarEvent, "source" | "allDay" | "status" | "cancelled">): boolean {
+  return e.source === "aims" && e.allDay && e.status === "scheduled" && !e.cancelled;
+}
+
+/** The run id behind an AIMS event ("aims:<deliveryId>"), or null. */
+export const runIdOf = (eventId: string): string | null => (eventId.startsWith("aims:") ? eventId.slice(5) : null);
+
+/** What FullCalendar draws for each event; cancelled ones only when asked for. `movable` = drag is on. */
+export function toCalendarInputs(events: CalendarEvent[], showCancelled: boolean, movable = false) {
   return events
     .filter((e) => showCancelled || !e.cancelled)
     .map((e) => {
@@ -139,6 +152,7 @@ export function toCalendarInputs(events: CalendarEvent[], showCancelled: boolean
         start: e.start,
         end: e.end ?? undefined,
         allDay: e.allDay,
+        ...(movable && isMovable(e) ? { startEditable: true, durationEditable: false } : {}),
         backgroundColor: color,
         borderColor: color,
         textColor: "#ffffff",

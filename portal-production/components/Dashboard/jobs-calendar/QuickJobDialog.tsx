@@ -5,7 +5,7 @@
 // SiteClock assignee; the others are listed in the SiteClock job's notes.
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, Typography, useMediaQuery } from "@mui/material";
+import { Alert, Autocomplete, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, TextField, Typography, useMediaQuery } from "@mui/material";
 import CustomerPicker from "@/components/CustomerPicker";
 import type { PickerCustomer } from "@/app/portal/hooks/api/useCustomerPicker";
 import { PTW_OPTIONS, quickJobBody, sgtParts, type PtwStatus, type QuickJobForm } from "@/helpers/calendarAdd";
@@ -19,6 +19,8 @@ export interface QuickJobEdit {
   customer: PickerCustomer | null;
   siteAddress: string | null;
   scheduledFor: string | null;
+  /** All-day job (2026-11-10): no specific time. */
+  scheduledAllDay?: boolean;
   notes: string | null;
   ptwStatus: string | null;
   ptwRemark: string | null;
@@ -63,7 +65,8 @@ export default function QuickJobDialog({
         customerId: edit.customer?.id ?? null,
         siteAddress: edit.siteAddress ?? "",
         date: p.date,
-        time: p.time,
+        time: edit.scheduledAllDay ? "09:00" : p.time,
+        allDay: !!edit.scheduledAllDay,
         durationMin: edit.durationMin ?? 60,
         workers: edit.workers,
         remarks: edit.notes ?? "",
@@ -123,14 +126,19 @@ export default function QuickJobDialog({
           <TextField label="Site / address" size="small" fullWidth value={form.siteAddress} onChange={(e) => set({ siteAddress: e.target.value })} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
             <TextField label="Date" type="date" size="small" value={form.date} onChange={(e) => set({ date: e.target.value })} InputLabelProps={{ shrink: true }} sx={{ flex: 1 }} />
-            <TextField label="Time" type="time" size="small" value={form.time} onChange={(e) => set({ time: e.target.value })} InputLabelProps={{ shrink: true }} sx={{ flex: 1 }} />
-            <TextField select label="Duration" size="small" value={String(form.durationMin)} onChange={(e) => set({ durationMin: Number(e.target.value) })} sx={{ flex: 1 }}>
+            {!form.allDay && <TextField label="Time" type="time" size="small" value={form.time} onChange={(e) => set({ time: e.target.value })} InputLabelProps={{ shrink: true }} sx={{ flex: 1 }} />}
+            {!form.allDay && <TextField select label="Duration" size="small" value={String(form.durationMin)} onChange={(e) => set({ durationMin: Number(e.target.value) })} sx={{ flex: 1 }}>
               {[...new Set([...DURATIONS, form.durationMin])].sort((a, b) => a - b).map((m) => (
                 <MenuItem key={m} value={String(m)}>
                   {durLabel(m)}
                 </MenuItem>
               ))}
-            </TextField>
+            </TextField>}
+            <FormControlLabel
+              control={<Checkbox size="small" checked={!!form.allDay} onChange={(e) => set({ allDay: e.target.checked })} />}
+              label="No specific time"
+              sx={{ flexShrink: 0, mr: 0, whiteSpace: "nowrap" }}
+            />
           </Stack>
           {workers.enabled ? (
             <Autocomplete

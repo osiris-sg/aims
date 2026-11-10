@@ -19,6 +19,7 @@ interface UntaggedJob {
   id: string;
   deliveryNumber: number;
   scheduledFor: string | null;
+  scheduledAllDay?: boolean;
   customer: { id: string; name: string } | null;
   site: string | null;
   worker: string | null;
@@ -36,6 +37,8 @@ interface WctOrderRow {
   sourceQuotation?: { id: string; name: string; status: string } | null;
   jobCounts?: { total: number; drafts: number; completed: number; cancelled: number };
   nextJobAt?: string | null;
+  /** The next job is all-day (2026-11-10): shown as its date only. */
+  nextJobAllDay?: boolean;
   createdAt: string;
 }
 
@@ -100,7 +103,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
   }, [untagged, search]);
   const jobColumns: any[] = [
     { accessorKey: "deliveryNumber", header: "Job", size: 8, cell: ({ row }: any) => <Typography variant="body2" sx={{ fontWeight: 600 }}>#{row.original.deliveryNumber}</Typography> },
-    { accessorKey: "scheduledFor", header: "When", size: 12, cell: ({ row }: any) => (row.original.scheduledFor ? fmtJobWhen(row.original.scheduledFor) : "—") },
+    { accessorKey: "scheduledFor", header: "When", size: 12, cell: ({ row }: any) => (row.original.scheduledFor ? fmtJobWhen(row.original.scheduledFor, row.original.scheduledAllDay) : "—") },
     { accessorKey: "customer", header: "Customer", size: 16, cell: ({ row }: any) => row.original.customer?.name || "—" },
     { accessorKey: "site", header: "Site", size: 18, cell: ({ row }: any) => row.original.site || "—" },
     { accessorKey: "worker", header: "Worker", size: 12, cell: ({ row }: any) => row.original.worker || "—" },
@@ -121,7 +124,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
     { accessorKey: "customer", header: "Customer", size: 14, cell: ({ row }: any) => row.original.customer?.name || "—" },
     { accessorKey: "sourceQuotation", header: "Quotation", size: 12, cell: ({ row }: any) => row.original.sourceQuotation?.name || "—" },
     { accessorKey: "jobs", header: "Jobs", size: 14, cell: ({ row }: any) => jobCountsLine(row.original.jobCounts) },
-    { accessorKey: "nextJobAt", header: "Next job", size: 12, cell: ({ row }: any) => (row.original.nextJobAt ? fmtJobWhen(row.original.nextJobAt) : "—") },
+    { accessorKey: "nextJobAt", header: "Next job", size: 12, cell: ({ row }: any) => (row.original.nextJobAt ? fmtJobWhen(row.original.nextJobAt, row.original.nextJobAllDay) : "—") },
     {
       accessorKey: "status",
       header: "Status",

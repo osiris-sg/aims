@@ -39,6 +39,8 @@ export interface PlanRun {
   status: string; // DeliveryRunStatus
   isDraft: boolean;
   scheduledFor: Date | null;
+  /** All-day job (2026-11-10): sent as { allDay: true, date } with no start / end. */
+  scheduledAllDay?: boolean;
   startedAt: Date | null;
   completedAt: Date | null;
   siteAddress: string | null;
@@ -73,8 +75,12 @@ export interface PlanLink {
 export interface JobFields {
   workerId: string;
   siteRef: string;
-  startAt: string;
-  endAt: string;
+  /** A timed job: its window (Singapore ISO). Absent on an all-day job. */
+  startAt?: string;
+  endAt?: string;
+  /** An all-day job (2026-11-10): the day only. SiteClock clears the start / end; a later startAt makes it timed again. */
+  allDay?: true;
+  date?: string;
   title: string;
   notes: string | null;
   externalUrl: string | null;
@@ -135,7 +141,8 @@ export function siteRefFor(organizationId: string, customerId: string | null, ad
 
 const sha16 = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex').slice(0, 16);
 /** Schedule half (who / where / when) + wording half (title, notes, link): a started job compares only the second. */
-const schedHash = (f: JobFields) => sha16([f.workerId, f.siteRef, f.startAt, f.endAt]);
+// A timed job hashes exactly as before (no re-push of existing links); an all-day job hashes its day.
+const schedHash = (f: JobFields) => sha16(f.allDay ? [f.workerId, f.siteRef, 'all-day', f.date] : [f.workerId, f.siteRef, f.startAt, f.endAt]);
 const DELIVERY_MARK = '+D';
 const textHash = (f: JobText) => `${sha16([f.title, f.notes, f.externalUrl, f.externalUrlLabel])}${f.deliveryEnabled ? DELIVERY_MARK : ''}`;
 /** The last push to this job carried deliveryEnabled: true. */
@@ -217,8 +224,9 @@ export function planSync(run: PlanRun | null, link: PlanLink, deliveryId: string
   const fields: JobFields = {
     workerId: link.workerId!,
     siteRef,
-    startAt: toSgtIso(start),
-    endAt: toSgtIso(new Date(start.getTime() + Math.max(5, link.durationMin) * 60_000)),
+    ...(r.scheduledAllDay
+      ? { allDay: true as const, date: toSgtIso(start).slice(0, 10) }
+      : { startAt: toSgtIso(start), endAt: toSgtIso(new Date(start.getTime() + Math.max(5, link.durationMin) * 60_000)) }),
     title: jobTitle(r),
     notes: jobNotes(r),
     externalUrl: doUrl,

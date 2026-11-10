@@ -60,3 +60,21 @@ test("custom job fields: icon tooltip and legend tooltip", () => {
   assert.equal(legendTitle({ fieldId: "f", label: "Permit approved", icon: "verified", colours: [{ value: "Yes", colour: "#2e7d32" }, { value: "No", colour: "#c62828" }] }), "Permit approved: green = Yes, red = No");
   assert.equal(legendTitle({ fieldId: "g", label: "Permit date", icon: "event", colours: [{ value: "set", colour: "#1565c0" }] }), "Permit date: blue when filled in");
 });
+
+test("all-day jobs (2026-11-10): only a scheduled AIMS all-day job is draggable, and only when drag is on", async () => {
+  const { isMovable, runIdOf } = await import("../components/Dashboard/jobs-calendar/calendarModel.ts");
+  const base = { id: "aims:r1", source: "aims", kind: "delivery", title: "#9", start: "2026-11-11", end: null, allDay: true, status: "scheduled", statusLabel: "Scheduled", completed: false, cancelled: false, address: null, site: null, worker: null, rider: null, crew: [], href: null, siteclockUrl: null, deliveryNumber: 9 };
+  assert.equal(isMovable(base), true);
+  assert.equal(isMovable({ ...base, allDay: false }), false); // timed: never dragged
+  assert.equal(isMovable({ ...base, status: "in_progress" }), false);
+  assert.equal(isMovable({ ...base, source: "siteclock" }), false);
+  assert.equal(runIdOf("aims:r1"), "r1");
+  const [on] = toCalendarInputs([base], false, true);
+  assert.equal(on.startEditable, true);
+  assert.equal(on.durationEditable, false);
+  assert.equal(on.allDay, true);
+  const [off] = toCalendarInputs([base], false);
+  assert.equal("startEditable" in off, false);
+  const [timed] = toCalendarInputs([{ ...base, allDay: false, start: "2026-11-11T01:00:00.000Z" }], false, true);
+  assert.equal("startEditable" in timed, false);
+});

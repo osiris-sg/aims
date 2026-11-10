@@ -1801,6 +1801,7 @@ model Delivery {
   // is waiting for a rider to pick it up.
   scheduledFor   DateTime?
   // Office DRAFT: a partly-filled schedule the office can come back to. A draft
+  scheduledAllDay Boolean   @default(false) // all-day job (2026-11-10): scheduledFor = 00:00 of the day in the org time zone, no specific time
   // is NOT a real scheduled run — it is excluded from every rider-facing query,
   // from claim/merge/fold/cancel, and it mints NO Delivery Order. The DO is
   // created only when the draft is promoted to a real schedule. Boolean rather

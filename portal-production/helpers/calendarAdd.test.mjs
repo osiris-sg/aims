@@ -61,3 +61,17 @@ test("wiring: interaction plugin pinned like the others; add only for WCT calend
   const cal = read("components/Dashboard/JobsCalendar.tsx");
   assert.match(cal, /const canAdd = !!isWctOrdersEnabled && Array\.isArray\(data\?\.notes\);/);
 });
+
+test("quick job body, all-day (2026-11-10): the date only, no time and no duration", () => {
+  const f = { customerId: "c1", siteAddress: " 1 Tuas ", date: "2026-11-11", time: "09:00", allDay: true, durationMin: 90, workers: [], remarks: "", ptwStatus: "NOT_NEEDED", ptwRemark: "" };
+  const { body } = quickJobBody(f);
+  assert.equal(body.scheduledFor, "2026-11-11");
+  assert.equal(body.allDay, true);
+  assert.equal("durationMin" in body, false);
+  assert.equal(quickJobBody({ ...f, date: "" }).error, "Pick a date");
+  // Off (the default): exactly as before.
+  const timed = quickJobBody({ ...f, allDay: false }).body;
+  assert.equal(timed.scheduledFor, "2026-11-11T01:00:00.000Z");
+  assert.equal(timed.durationMin, 90);
+  assert.equal("allDay" in timed, false);
+});

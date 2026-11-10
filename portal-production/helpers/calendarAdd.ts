@@ -101,6 +101,8 @@ export interface QuickJobForm {
   siteAddress: string;
   date: string;
   time: string;
+  /** "No specific time" (all-day job, 2026-11-10): the date only; time and duration are not sent. */
+  allDay?: boolean;
   durationMin: number;
   workers: { id: string; name: string }[];
   remarks: string;
@@ -111,14 +113,15 @@ export interface QuickJobForm {
 /** The form → the API body, or a message saying what is missing. */
 export function quickJobBody(f: QuickJobForm): { body?: Record<string, any>; error?: string } {
   if (!f.customerId) return { error: "Pick a customer" };
-  const scheduledFor = sgtInstant(f.date, f.time);
-  if (!scheduledFor) return { error: "Pick a date and time" };
+  const allDay = !!f.allDay;
+  const scheduledFor = allDay ? (/^\d{4}-\d{2}-\d{2}$/.test(f.date) ? f.date : null) : sgtInstant(f.date, f.time);
+  if (!scheduledFor) return { error: allDay ? "Pick a date" : "Pick a date and time" };
   return {
     body: {
       customerId: f.customerId,
       siteAddress: f.siteAddress.trim(),
       scheduledFor,
-      durationMin: f.durationMin,
+      ...(allDay ? { allDay: true } : { durationMin: f.durationMin }),
       workers: f.workers,
       remarks: f.remarks.trim(),
       ptwStatus: f.ptwStatus,

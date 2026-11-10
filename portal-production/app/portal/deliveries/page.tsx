@@ -69,6 +69,8 @@ interface DeliveryRow {
   startedAt: string;
   completedAt: string | null;
   scheduledFor: string | null;
+  /** All-day job (2026-11-10): the date only. */
+  scheduledAllDay?: boolean;
   items: Array<{
     id: string;
     deliveryStatus: string;
@@ -99,8 +101,9 @@ const STATUS_CHIP: Record<RunStatus, { label: string; color: "warning" | "info" 
   cancelled: { label: "Cancelled", color: "default" },
 };
 
-const fmtDateTime = (d: string | null) =>
-  d ? new Date(d).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
+// allDay (2026-11-10): an all-day job has no time, so the date only.
+const fmtDateTime = (d: string | null, allDay?: boolean) =>
+  d ? new Date(d).toLocaleString("en-GB", { day: "2-digit", month: "short", ...(allDay ? {} : { hour: "2-digit", minute: "2-digit" }) }) : "—";
 
 // Which row actions apply. CANCEL is the soft unwind the backend allows for a
 // scheduled run, or an in_progress run that has delivered and linked nothing
@@ -453,7 +456,7 @@ function DeliveriesQueue() {
                   </Typography>
                 </Stack>
                 <Typography variant="caption" color="text.secondary" display="block">
-                  Scheduled: {fmtDateTime(r.scheduledFor)}
+                  Scheduled: {fmtDateTime(r.scheduledFor, r.scheduledAllDay)}
                 </Typography>
                 {runWasStarted(r) && (
                   <Typography variant="caption" color="text.secondary" display="block">
@@ -555,7 +558,7 @@ function DeliveriesQueue() {
                       )}
                     </TableCell>
                     <TableCell align="center">{r.items?.length ?? 0}</TableCell>
-                    <TableCell>{fmtDateTime(r.scheduledFor)}</TableCell>
+                    <TableCell>{fmtDateTime(r.scheduledFor, r.scheduledAllDay)}</TableCell>
                     <TableCell>{runWasStarted(r) ? fmtDateTime(r.startedAt) : "—"}</TableCell>
                     <TableCell>{fmtDateTime(r.completedAt)}</TableCell>
                     <TableCell align="right" onClick={(e) => e.stopPropagation()}>

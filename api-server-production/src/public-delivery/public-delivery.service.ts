@@ -14,6 +14,7 @@ import { MaintenanceReportsService } from '../maintenance-reports/maintenance-re
 import { DeliveriesService } from '../deliveries/deliveries.service';
 import { minPhotosForAssetClass } from '../common/asset-class';
 import { CreateMaintenanceReportDto } from '../maintenance-reports/dto/create-maintenance-report.dto';
+import { dueBy } from '../deliveries/all-day';
 
 // technicianUserId is NOT NULL (means "Clerk user id" in the field flow). Guests
 // have no Clerk identity, so we store a fixed non-secret marker (NEVER the token).
@@ -121,7 +122,7 @@ export class PublicDeliveryService {
     }
     const run = await this.prisma.delivery.findFirst({
       where: { id: runItem.deliveryId, organizationId },
-      select: { id: true, status: true, scheduledFor: true },
+      select: { id: true, status: true, scheduledFor: true, scheduledAllDay: true },
     });
     if (!run) throw new BadRequestException('Run not found for this delivery order');
     if (run.status === 'completed' || run.status === 'cancelled') {
@@ -129,7 +130,8 @@ export class PublicDeliveryService {
     }
 
     const now = Date.now();
-    const windowBase = run.scheduledFor ? run.scheduledFor.getTime() : now;
+    // An all-day job (2026-11-10) is due all day: the window runs from the end of its day.
+    const windowBase = run.scheduledFor ? dueBy(run)!.getTime() : now;
     const expiresAt = new Date(Math.max(windowBase, now) + LINK_WINDOW_MS);
 
     // Reuse the newest active (non-revoked, non-expired) link for THIS run; else create.

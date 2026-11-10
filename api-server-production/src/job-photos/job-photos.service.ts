@@ -8,6 +8,7 @@ import { SiteClockLinkService } from '../siteclock/siteclock-link.service';
 import { refreshOrderStatusForRun } from '../orders/wct-orders';
 import { BadImageError, processJobPhoto } from './job-photos.image';
 import { downloadName, isDoEvidenceTag, JOB_PHOTO_TAG_LABEL, JobPhotoTag, MAX_PHOTO_BYTES, PhotoFields, photoKeys, URL_TTL_SEC, verificationAfterDoPhoto } from './job-photos';
+import { bySchedule } from '../deliveries/all-day';
 
 type PhotoRow = {
   id: string;
@@ -164,9 +165,10 @@ export class JobPhotosService {
     if (!(await this.link.isLinked(organizationId))) return { enabled: false, jobs: [] };
     const runs = await this.prisma.delivery.findMany({
       where: { organizationId, orderId },
-      select: { id: true, deliveryNumber: true, scheduledFor: true, status: true },
+      select: { id: true, deliveryNumber: true, scheduledFor: true, scheduledAllDay: true, status: true },
       orderBy: [{ scheduledFor: 'asc' }, { deliveryNumber: 'asc' }],
     });
+    runs.sort(bySchedule()); // all-day jobs after the timed jobs of their day
     const ids = runs.map((r) => r.id);
     const [doNumbers, rows] = await Promise.all([this.doNumbers(organizationId, ids), this.rows(organizationId, ids)]);
     const views = await this.views(rows, doNumbers);
@@ -176,6 +178,7 @@ export class JobPhotosService {
         deliveryId: r.id,
         deliveryNumber: r.deliveryNumber,
         scheduledFor: r.scheduledFor,
+        scheduledAllDay: r.scheduledAllDay,
         status: r.status,
         doNumber: doNumbers.get(r.id) ?? null,
         photos: views.filter((v) => v.deliveryId === r.id),

@@ -88,18 +88,22 @@ export function SiteClockCard({
   deliveryId,
   view,
   scheduledFor,
+  allDay = false,
   onChanged,
 }: {
   deliveryId: string;
   view: SiteClockView;
   scheduledFor: string | null;
+  /** All-day job (2026-11-10): the day only, no window. */
+  allDay?: boolean;
   onChanged?: () => void;
 }) {
   const { busy, error, retry } = useRetry(deliveryId, onChanged);
   const start = scheduledFor ? new Date(scheduledFor) : null;
   const end = start ? new Date(start.getTime() + view.durationMin * 60_000) : null;
   const t = (d: Date) => d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  const window = start && end ? `${start.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}, ${t(start)} to ${t(end)}` : "No date set";
+  const day = (d: Date) => d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+  const window = start && end ? (allDay ? `${day(start)}, no set time` : `${day(start)}, ${t(start)} to ${t(end)}`) : "No date set";
   const state =
     view.syncState === "FAILED" ? { label: "Not synced", color: "warning" as const }
     : view.syncState === "PENDING" ? { label: "Sending…", color: "default" as const }

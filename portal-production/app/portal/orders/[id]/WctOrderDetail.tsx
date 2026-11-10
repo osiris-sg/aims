@@ -47,6 +47,7 @@ interface Job {
   status: string;
   isDraft: boolean;
   scheduledFor: string | null;
+  scheduledAllDay?: boolean;
   completedAt: string | null;
   siteAddress: string | null;
   rider: string | null;
@@ -273,7 +274,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
               {order.jobs.map((j) => (
                 <TableRow key={j.id} hover sx={{ cursor: "pointer", opacity: j.status === "cancelled" ? 0.6 : 1 }} onClick={() => router.push(`/portal/deliveries/${j.id}`)}>
                   <TableCell sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>#{j.deliveryNumber}</TableCell>
-                  <TableCell sx={{ whiteSpace: "nowrap" }}>{fmtJobWhen(j.scheduledFor)}</TableCell>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>{fmtJobWhen(j.scheduledFor, j.scheduledAllDay)}</TableCell>
                   <TableCell>
                     {j.worker?.name || "—"}
                     {j.rider && j.rider !== j.worker?.name && (

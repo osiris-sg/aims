@@ -63,6 +63,15 @@ export class ScheduleDeliveryDto {
   @IsISO8601()
   scheduledFor?: string;
 
+  @ApiProperty({
+    required: false,
+    description:
+      'All-day job (no specific time): only the DATE of scheduledFor counts (a yyyy-MM-dd or any time on that day); stored as 00:00 of the day in the org time zone. Omitted/false = a timed job, as before.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  scheduledAllDay?: boolean;
+
   @ApiProperty({ type: [ScheduleDeliveryItemDto], required: false })
   @IsArray()
   @ValidateIf((o) => !o.isDraft)

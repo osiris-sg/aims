@@ -44,6 +44,7 @@ export default function SiteClockSchedulePicker({
   onChange,
   onEnabled,
   scheduleTime,
+  allDay = false,
 }: {
   open: boolean;
   value: SiteClockPick;
@@ -51,6 +52,8 @@ export default function SiteClockSchedulePicker({
   /** Reports whether the link is live for this org (connection enabled), so the form only sends the fields then. */
   onEnabled: (enabled: boolean) => void;
   scheduleTime: string;
+  /** All-day job (2026-11-10): no time, so no duration either. */
+  allDay?: boolean;
 }) {
   const { getToken } = useAuth();
   const [enabled, setEnabled] = useState(false);
@@ -122,7 +125,9 @@ export default function SiteClockSchedulePicker({
 
   const end = scheduleTime ? addMinutes(scheduleTime, duration) : "";
   const helper = value.workerId
-    ? scheduleTime
+    ? allDay
+      ? `Shows in ${value.workerName ?? "the worker"}'s SiteClock app on that day, with no set time`
+      : scheduleTime
       ? `Shows in ${value.workerName ?? "the worker"}'s SiteClock app, ${scheduleTime} to ${end}`
       : `Shows in ${value.workerName ?? "the worker"}'s SiteClock app once the date and time are set`
     : "Optional. Pick a worker to put this job on their SiteClock schedule.";
@@ -130,6 +135,7 @@ export default function SiteClockSchedulePicker({
   return (
     <Box sx={{ mt: 2 }}>
       <Stack direction="row" spacing={1.5} sx={{ flexWrap: { xs: "wrap", sm: "nowrap" }, rowGap: 1.5 }}>
+        {!allDay && (
         <TextField
           select
           label="Duration"
@@ -153,7 +159,8 @@ export default function SiteClockSchedulePicker({
           ))}
           <MenuItem value="custom">Custom…</MenuItem>
         </TextField>
-        {custom && (
+        )}
+        {custom && !allDay && (
           <TextField
             label="Minutes"
             size="small"

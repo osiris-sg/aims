@@ -62,6 +62,13 @@ describe('jobs calendar merge', () => {
     });
   });
 
+  it('an all-day run (2026-11-10) is an all-day event on its Singapore day; a timed run is unchanged', () => {
+    const [ev] = buildCalendarEvents([run({ scheduledAllDay: true, scheduledFor: new Date('2026-11-10T16:00:00Z') })], [], null);
+    expect(ev).toMatchObject({ allDay: true, start: '2026-11-11', end: null, kind: 'delivery' });
+    const [timed] = buildCalendarEvents([run()], [], null);
+    expect(timed).toMatchObject({ allDay: false, start: '2026-11-03T02:00:00.000Z', end: '2026-11-03T03:00:00.000Z' });
+  });
+
   it('service runs and returns get their own kind; the return is labelled', () => {
     const ev = buildCalendarEvents([run({ id: D1, service: true }), run({ id: D2, direction: 'RETURN', deliveryNumber: 13 })], [], null);
     expect(ev.find((e) => e.id === `aims:${D1}`)?.kind).toBe('service');

@@ -7,12 +7,14 @@ import {
   Autocomplete,
   Box,
   Button,
+  Checkbox,
   CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   Divider,
+  FormControlLabel,
   IconButton,
   InputAdornment,
   MenuItem,
@@ -114,6 +116,8 @@ interface EditRun {
   project: { id: string; name: string } | null;
   siteAddress: string | null;
   scheduledFor: string | null;
+  /** All-day job (2026-11-10): the date only, no specific time. */
+  scheduledAllDay?: boolean;
   document: {
     poNo?: string | null;
     saleOrderId?: string | null;
@@ -166,6 +170,8 @@ export default function ScheduleDeliveryDialog({
   // datetime-local left the time portion effectively uneditable for the office).
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleTime, setScheduleTime] = useState("09:00");
+  // "No specific time" (all-day job, 2026-11-10): the date only. Off by default.
+  const [allDay, setAllDay] = useState(false);
   // SiteClock link (WCT): worker + job length. Sent only when the org's link is
   // live (scLive), so a form that couldn't load SiteClock never clears a pick.
   const [scPick, setScPick] = useState<SiteClockPick>({ workerId: null, workerName: null, durationMin: null });
@@ -282,11 +288,13 @@ export default function ScheduleDeliveryDialog({
       if (editRun.scheduledFor) {
         const d = new Date(editRun.scheduledFor);
         setScheduleDate(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
-        setScheduleTime(`${pad(d.getHours())}:${pad(d.getMinutes())}`);
+        // An all-day job's 00:00 is not a time to edit: keep the default under the tick.
+        setScheduleTime(editRun.scheduledAllDay ? "09:00" : `${pad(d.getHours())}:${pad(d.getMinutes())}`);
       } else {
         setScheduleDate("");
         setScheduleTime("09:00");
       }
+      setAllDay(!!editRun.scheduledAllDay);
       setPoNumber(editRun.document?.poNo ?? "");
       // Restore the pointer so re-saving an edited run keeps its Sales Order.
       // The run summary carries poNo + saleOrderId; the display columns are
@@ -308,6 +316,7 @@ export default function ScheduleDeliveryDialog({
     setRows([{ asset: null, description: "", freeTyped: false, quantity: "1", assetClass: DEFAULT_ASSET_CLASS }]);
     setScheduleDate("");
     setScheduleTime("09:00");
+    setAllDay(false);
     setPoNumber("");
     setSaleOrder(null);
     setPoTouched(false);
@@ -689,7 +698,7 @@ export default function ScheduleDeliveryDialog({
   // two rules for them.
   const canSubmit =
     !!scheduleDate &&
-    !!scheduleTime &&
+    (allDay || !!scheduleTime) &&
     (isQuotationToDeliveryEnabled || (!!project && !!saleOrder)) &&
     validRows.length > 0 &&
     !submitting;
@@ -926,8 +935,11 @@ export default function ScheduleDeliveryDialog({
       if (!token) throw new Error("Not signed in");
       // Combine the separate date + time into one local datetime → ISO.
       // A draft may have no date yet, so only build one when there is a date.
+      // All-day: the date only (yyyy-MM-dd); the server stores the day's 00:00.
       const scheduledFor = scheduleDate
-        ? new Date(`${scheduleDate}T${scheduleTime || "09:00"}`).toISOString()
+        ? allDay
+          ? scheduleDate
+          : new Date(`${scheduleDate}T${scheduleTime || "09:00"}`).toISOString()
         : undefined;
       const res = await request(
         editRun
@@ -936,6 +948,7 @@ export default function ScheduleDeliveryDialog({
         {
           ...(asDraft ? { isDraft: true } : {}),
           ...(scheduledFor ? { scheduledFor } : {}),
+          scheduledAllDay: allDay,
           items: validRows.map((r) =>
             r.freeTyped
               ? {
@@ -1364,20 +1377,27 @@ export default function ScheduleDeliveryDialog({
               }}
             />
           </LocalizationProvider>
-          <TextField
-            label="Time"
-            type="time"
-            value={scheduleTime}
-            onChange={(e) => setScheduleTime(e.target.value)}
-            size="small"
-            InputLabelProps={{ shrink: true }}
-            inputProps={{ step: 300 }}
-            sx={{ width: 140 }}
-            required
+          {!allDay && (
+            <TextField
+              label="Time"
+              type="time"
+              value={scheduleTime}
+              onChange={(e) => setScheduleTime(e.target.value)}
+              size="small"
+              InputLabelProps={{ shrink: true }}
+              inputProps={{ step: 300 }}
+              sx={{ width: 140, flexShrink: 0 }}
+              required
+            />
+          )}
+          <FormControlLabel
+            control={<Checkbox size="small" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} />}
+            label="No specific time"
+            sx={{ flexShrink: 0, mr: 0, whiteSpace: "nowrap" }}
           />
         </Stack>
         {isSiteClockLinkEnabled && (
-          <SiteClockSchedulePicker open={open} value={scPick} onChange={setScPick} onEnabled={setScLive} scheduleTime={scheduleTime} />
+          <SiteClockSchedulePicker open={open} value={scPick} onChange={setScPick} onEnabled={setScLive} scheduleTime={scheduleTime} allDay={allDay} />
         )}
 
         {isJobFieldsEnabled && jobFieldDefs.length > 0 && (

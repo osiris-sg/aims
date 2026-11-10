@@ -13,6 +13,7 @@ import { isOrgFeatureEnabled } from '../common/org-features';
 import { doStatusTag } from '../deliveries/do-number';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { taggedSinsView } from '../bills/bill-quotation';
+import { bySchedule, dueBy } from '../deliveries/all-day';
 
 /**
  * Orders are auto-created when a quotation is confirmed (gated by the
@@ -375,7 +376,7 @@ export class OrdersService {
       include: {
         customer: { select: { id: true, name: true, customerCode: true } },
         sourceQuotation: { select: { id: true, name: true, status: true, type: true, documentTemplateId: true } },
-        deliveries: { select: { id: true, deliveryNumber: true, status: true, isDraft: true, scheduledFor: true, verificationState: true }, orderBy: { deliveryNumber: 'asc' } },
+        deliveries: { select: { id: true, deliveryNumber: true, status: true, isDraft: true, scheduledFor: true, scheduledAllDay: true, verificationState: true }, orderBy: { deliveryNumber: 'asc' } },
       },
     });
     const orders = rows.map(({ deliveries, ...o }: any) => ({ ...o, jobs: deliveries as any[] }));
@@ -383,10 +384,12 @@ export class OrdersService {
     const now = Date.now();
     return orders.map(({ jobs, ...o }) => {
       const live = jobs.filter((j) => j.status !== 'cancelled');
-      const upcoming = live
-        .filter((j) => !j.isDraft && j.status === 'scheduled' && j.scheduledFor && new Date(j.scheduledFor).getTime() >= now)
-        .map((j) => new Date(j.scheduledFor).toISOString())
-        .sort()[0];
+      // An all-day job (2026-11-10) stays upcoming until the end of its day, and
+      // sorts after the timed jobs of that day.
+      const next = live
+        .filter((j) => !j.isDraft && j.status === 'scheduled' && j.scheduledFor && dueBy(j)!.getTime() >= now)
+        .sort(bySchedule())[0];
+      const upcoming = next ? new Date(next.scheduledFor).toISOString() : undefined;
       return {
         ...o,
         statusLabel: WCT_ORDER_STATUS_LABEL[o.status as WctOrderStatus] ?? o.status,
@@ -398,6 +401,7 @@ export class OrdersService {
           cancelled: jobs.length - live.length,
         },
         nextJobAt: upcoming ?? null,
+        nextJobAllDay: !!next?.scheduledAllDay,
       };
     });
   }
@@ -416,6 +420,7 @@ export class OrdersService {
             status: true,
             isDraft: true,
             scheduledFor: true,
+            scheduledAllDay: true,
             startedAt: true,
             completedAt: true,
             siteAddress: true,
@@ -465,6 +470,7 @@ export class OrdersService {
         status: j.status,
         isDraft: j.isDraft,
         scheduledFor: j.scheduledFor,
+        scheduledAllDay: !!j.scheduledAllDay,
         startedAt: j.startedAt,
         completedAt: j.completedAt,
         siteAddress: j.siteAddress,

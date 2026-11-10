@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { AssetClass } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsArray, IsEnum, IsISO8601, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsISO8601, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateNested } from 'class-validator';
 
 /**
  * A FREE-TYPED return line: text only, no unit and no deployment id.
@@ -42,6 +42,11 @@ export class ScheduleReturnDto {
   @ApiProperty({ description: 'Target collection date/time (ISO-8601).' })
   @IsISO8601()
   scheduledFor!: string;
+
+  @ApiProperty({ required: false, description: 'All-day return (no specific time): only the DATE of scheduledFor counts. Omitted/false = timed, as before.' })
+  @IsOptional()
+  @IsBoolean()
+  scheduledAllDay?: boolean;
 
   @ApiProperty({ description: 'Customer whose units are being collected (UUID).' })
   @IsUUID()

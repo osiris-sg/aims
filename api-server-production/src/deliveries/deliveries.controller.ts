@@ -214,6 +214,14 @@ export class DeliveriesController {
   updateQuickJob(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }) {
     return this.service.updateQuickJob(id, org.id, body);
   }
+  // All-day jobs (2026-11-10): the calendar drag of a job with no specific time
+  // to another day. Body { date: 'yyyy-MM-dd' }. Same persona as the schedule edit.
+  @Patch('scheduled/:id/day')
+  @Permissions('documents:create-basic')
+  moveAllDayJob(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }) {
+    return this.service.moveAllDayJob(id, org.id, body);
+  }
+
 
   // SiteClock link (WCT): the schedule form's switch + default duration, and the
   // worker picker (grouped by SiteClock team). The key stays on the server.

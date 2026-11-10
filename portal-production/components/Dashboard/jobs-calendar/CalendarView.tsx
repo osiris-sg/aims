@@ -14,7 +14,7 @@ import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
 import luxonPlugin from "@fullcalendar/luxon3";
 import interactionPlugin, { type DateClickArg } from "@fullcalendar/interaction";
-import type { DatesSetArg, EventClickArg, EventContentArg } from "@fullcalendar/core";
+import type { DatesSetArg, EventClickArg, EventContentArg, EventDropArg } from "@fullcalendar/core";
 import JobFieldIcon from "@/components/jobFields/JobFieldIcon";
 import { Box, Button, Chip, Divider, ListItemIcon, ListItemText, Menu, MenuItem, Popover, Stack, Typography } from "@mui/material";
 import WorkOutlineIcon from "@mui/icons-material/WorkOutline";
@@ -23,7 +23,7 @@ import { noteToCalendarInput, ptwColor, slotOf, type CalendarNote } from "@/help
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
-import { CALENDAR_TZ, CANCELLED_COLOR, KIND_COLOR, badgeTitle, crewLine, kindLabel, timeWindow, toCalendarInputs, type CalendarEvent } from "./calendarModel";
+import { CALENDAR_TZ, CANCELLED_COLOR, KIND_COLOR, badgeTitle, crewLine, kindLabel, timeWindow, toCalendarInputs, ymdOf, type CalendarEvent } from "./calendarModel";
 import { useRouter } from "next/navigation";
 import DoStatusTag from "@/components/DoStatusTag";
 
@@ -45,6 +45,8 @@ interface Props {
   canAdd?: boolean;
   onAdd?: (kind: "job" | "note", slot: { date: string; time: string }) => void;
   onNoteClick?: (note: CalendarNote) => void;
+  /** All-day jobs (2026-11-10): drag one to another day. Throws to snap it back. */
+  onMove?: (event: CalendarEvent, date: string) => Promise<void>;
 }
 
 export default function CalendarView({
@@ -60,6 +62,7 @@ export default function CalendarView({
   canAdd = false,
   onAdd,
   onNoteClick,
+  onMove,
 }: Props) {
   const theme = useTheme();
   const router = useRouter();
@@ -68,8 +71,8 @@ export default function CalendarView({
   const [addMenu, setAddMenu] = useState<{ pos: { left: number; top: number }; slot: { date: string; time: string } } | null>(null);
   // Notes first on each day (displayOrder 0), then the jobs.
   const inputs = useMemo(
-    () => [...(notes ?? []).map(noteToCalendarInput), ...toCalendarInputs(events, showCancelled).map((i) => ({ ...i, displayOrder: 1 }))],
-    [events, showCancelled, notes],
+    () => [...(notes ?? []).map(noteToCalendarInput), ...toCalendarInputs(events, showCancelled, !!onMove).map((i) => ({ ...i, displayOrder: 1 }))],
+    [events, showCancelled, notes, onMove],
   );
 
   const onDateClick = (arg: DateClickArg) => {
@@ -84,6 +87,17 @@ export default function CalendarView({
     // WCT: a job opens its page at once; a SiteClock-only job (no AIMS page) keeps the card.
     if (openOnClick && e.href) return router.push(e.href);
     setOpen({ pos: { left: arg.jsEvent.clientX, top: arg.jsEvent.clientY }, event: e });
+  };
+
+  // Only an all-day job is draggable (toCalendarInputs), and only onto another day.
+  const onDrop = async (arg: EventDropArg) => {
+    const e = arg.event.extendedProps.event as CalendarEvent | undefined;
+    if (!e || !onMove || !arg.event.allDay || !arg.event.startStr) return arg.revert();
+    try {
+      await onMove(e, ymdOf(arg.event.startStr));
+    } catch {
+      arg.revert();
+    }
   };
 
   const border = theme.palette.divider;
@@ -137,6 +151,8 @@ export default function CalendarView({
         eventTimeFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
         events={inputs}
         eventClick={onClick}
+        eventDrop={onMove ? onDrop : undefined}
+        eventAllow={(drop) => drop.allDay}
         // Custom job fields: the job's icons after its time + title (default rendering otherwise).
         eventContent={(arg: EventContentArg) => {
           const e = arg.event.extendedProps.event as CalendarEvent;

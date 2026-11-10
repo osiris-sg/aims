@@ -98,6 +98,8 @@ export default function ScheduleReturnDialog({
 
   const [scheduleDate, setScheduleDate] = useState("");
   const [scheduleTime, setScheduleTime] = useState("09:00");
+  // "No specific time" (all-day return, 2026-11-10): the date only. Off by default.
+  const [allDay, setAllDay] = useState(false);
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -115,6 +117,7 @@ export default function ScheduleReturnDialog({
     setBasket([]);
     setScheduleDate("");
     setScheduleTime("09:00");
+    setAllDay(false);
     setNotes("");
     setError(null);
   }, [open]);
@@ -285,7 +288,7 @@ export default function ScheduleReturnDialog({
   // Projects represented in the basket — drives the mixed-project note.
   const basketProjects = useMemo(() => new Set(basket.map((b) => b.projectId)), [basket]);
 
-  const canSubmit = !!customer && basket.length > 0 && !!scheduleDate && !!scheduleTime && !submitting;
+  const canSubmit = !!customer && basket.length > 0 && !!scheduleDate && (allDay || !!scheduleTime) && !submitting;
 
   const submit = async () => {
     if (!canSubmit || !customer) return;
@@ -294,7 +297,8 @@ export default function ScheduleReturnDialog({
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const scheduledFor = new Date(`${scheduleDate}T${scheduleTime}`).toISOString();
+      // All-day: the date only (yyyy-MM-dd); the server stores the day's 00:00.
+      const scheduledFor = allDay ? scheduleDate : new Date(`${scheduleDate}T${scheduleTime}`).toISOString();
       const inventoryIds = basket.filter((b): b is BasketLine & { kind: "unit" } => b.kind === "unit").map((b) => b.inventoryId);
       const deploymentIds = basket
         .filter((b): b is BasketLine & { kind: "freeTyped" } => b.kind === "freeTyped")
@@ -310,6 +314,7 @@ export default function ScheduleReturnDialog({
         { path: "/deliveries/scheduled-return", method: "POST" },
         {
           scheduledFor,
+          ...(allDay ? { scheduledAllDay: true } : {}),
           customerId: customer.id,
           ...(inventoryIds.length ? { inventoryIds } : {}),
           ...(deploymentIds.length ? { deploymentIds } : {}),
@@ -485,13 +490,20 @@ export default function ScheduleReturnDialog({
               }}
             />
           </LocalizationProvider>
-          <TextField
-            type="time"
-            size="small"
-            value={scheduleTime}
-            onChange={(e) => setScheduleTime(e.target.value)}
-            InputLabelProps={{ shrink: true }}
-            sx={{ width: 130 }}
+          {!allDay && (
+            <TextField
+              type="time"
+              size="small"
+              value={scheduleTime}
+              onChange={(e) => setScheduleTime(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              sx={{ width: 130, flexShrink: 0 }}
+            />
+          )}
+          <FormControlLabel
+            control={<Checkbox size="small" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} />}
+            label="No specific time"
+            sx={{ flexShrink: 0, mr: 0, whiteSpace: "nowrap" }}
           />
         </Stack>
 

@@ -30,6 +30,7 @@ export interface JobRow {
   verifiedByName: string | null;
   verifiedAt: string | null;
   scheduledFor: string | null;
+  scheduledAllDay?: boolean;
   order: { id: string; orderNumber: string } | null;
   customer: { id: string; name: string } | null;
   site: string | null;
@@ -143,7 +144,7 @@ export default function WctJobsList({ fixture }: { fixture?: JobsFixture } = {})
     { accessorKey: "order", header: "Order No.", size: 11, cell: ({ row }: any) => row.original.order?.orderNumber || "-" },
     { accessorKey: "customer", header: "Customer", size: 12, cell: ({ row }: any) => row.original.customer?.name || "-" },
     { accessorKey: "site", header: "Site", size: 12, cell: ({ row }: any) => row.original.site || "-" },
-    { accessorKey: "scheduledFor", header: "Date / time", size: 11, cell: ({ row }: any) => (row.original.scheduledFor ? fmtJobWhen(row.original.scheduledFor) : "Not scheduled") },
+    { accessorKey: "scheduledFor", header: "Date / time", size: 11, cell: ({ row }: any) => (row.original.scheduledFor ? fmtJobWhen(row.original.scheduledFor, row.original.scheduledAllDay) : "Not scheduled") },
     { accessorKey: "worker", header: "Worker", size: 9, cell: ({ row }: any) => row.original.worker || "-" },
     {
       accessorKey: "badges",

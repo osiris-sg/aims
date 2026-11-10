@@ -64,6 +64,7 @@ import { CompletionMode, WCT_FINISH_MODES_FLAG, finishModeProblem, initialVerifi
 import { checkJobFieldValues, isJobFieldsEnabled, jobFieldDefs, jobFieldValues, saveJobFieldValues } from './job-fields';
 import { runNoun } from './job-wording';
 import { withRunLease } from './run-lease';
+import { bySchedule, orgTimeZone, scheduleFields } from './all-day';
 @Injectable()
 export class DeliveriesService {
   private readonly logger = new Logger(DeliveriesService.name);
@@ -586,7 +587,22 @@ export class DeliveriesService {
     };
   }
 
+  /**
+   * What to store for a schedule form's date (all-day jobs, 2026-11-10): a
+   * timed job keeps its instant; an all-day one is 00:00 of its day in the org
+   * time zone with scheduledAllDay = true. Absent flag = timed, as before.
+   */
+  private async scheduleOf(scheduledFor: string | Date | null | undefined, allDay: unknown, organizationId: string) {
+    const tz = allDay === true ? await orgTimeZone(this.prisma, organizationId) : null;
+    try {
+      return scheduleFields(scheduledFor, allDay, tz);
+    } catch {
+      throw new BadRequestException('Pick a valid date');
+    }
+  }
+
   async createScheduled(dto: ScheduleDeliveryDto, organizationId: string) {
+    const sched = await this.scheduleOf(dto.scheduledFor, dto.scheduledAllDay, organizationId);
     // A DRAFT is a partly-filled schedule the office can come back to. Saved
     // with whatever exists, however little, and NOT a real scheduled run:
     // excluded from every rider-facing query and from claim / merge / fold /
@@ -675,7 +691,8 @@ export class DeliveriesService {
             riderUserId: null,
             riderName: null,
             isDraft,
-            scheduledFor: dto.scheduledFor ? new Date(dto.scheduledFor) : null,
+            scheduledFor: sched.scheduledFor,
+            scheduledAllDay: sched.scheduledAllDay,
             projectId: dto.projectId ?? null,
             customerId,
             ...(deliveryAddress ? { siteAddress: deliveryAddress } : {}),
@@ -742,7 +759,7 @@ export class DeliveriesService {
         : null;
       const attention = await this.projectFirstContactAttention(dto.projectId, organizationId);
       const doConfig = this.buildScheduledDoConfig({
-        scheduledFor: dto.scheduledFor,
+        scheduledFor: sched.scheduledFor,
         items: dto.items,
         assetById,
         projectName: project?.name ?? '',
@@ -828,9 +845,13 @@ export class DeliveriesService {
     if (!customerId) throw new BadRequestException('Pick a customer');
     const customer = await this.prisma.customer.findFirst({ where: { id: customerId, organizationId }, select: { id: true } });
     if (!customer) throw new NotFoundException('Customer not found in this organization');
-    const when = typeof body?.scheduledFor === 'string' ? new Date(body.scheduledFor) : null;
-    if (!when || Number.isNaN(when.getTime())) throw new BadRequestException('Pick a date and time');
-    const durationMin = body?.durationMin === undefined || body?.durationMin === null ? null : Math.round(Number(body.durationMin));
+    // All-day (2026-11-10): the date only; no time, no duration.
+    const allDay = body?.allDay === true;
+    const raw = typeof body?.scheduledFor === 'string' ? body.scheduledFor : null;
+    if (!raw || Number.isNaN(new Date(raw).getTime())) throw new BadRequestException(allDay ? 'Pick a date' : 'Pick a date and time');
+    const sched = await this.scheduleOf(raw, allDay, organizationId);
+    const when = sched.scheduledFor!;
+    const durationMin = allDay || body?.durationMin === undefined || body?.durationMin === null ? null : Math.round(Number(body.durationMin));
     if (durationMin !== null && !(durationMin >= 15 && durationMin <= 24 * 60)) throw new BadRequestException('The job must last between 15 minutes and 24 hours');
     const siteAddress = typeof body?.siteAddress === 'string' ? body.siteAddress.trim().slice(0, 500) : '';
     const notes = typeof body?.remarks === 'string' ? body.remarks.trim().slice(0, 2000) : '';
@@ -838,6 +859,7 @@ export class DeliveriesService {
     return {
       customerId,
       scheduledFor: when,
+      scheduledAllDay: sched.scheduledAllDay,
       durationMin,
       siteAddress: siteAddress || null,
       notes: notes || null,
@@ -869,6 +891,7 @@ export class DeliveriesService {
             riderName: null,
             isDraft: false,
             scheduledFor: f.scheduledFor,
+            scheduledAllDay: f.scheduledAllDay,
             customerId: f.customerId,
             siteAddress: f.siteAddress,
             notes: f.notes,
@@ -890,6 +913,32 @@ export class DeliveriesService {
     return run;
   }
 
+  /**
+   * Calendar drag (all-day jobs, 2026-11-10): move a still-scheduled ALL-DAY
+   * job to another day. Timed jobs are not dragged (their time is set in the
+   * form). Like a form edit, it re-dates the job's scheduled service report and
+   * the SiteClock job follows on the next sweep; the DO keeps the date it was
+   * created with, as it does on a form edit.
+   */
+  async moveAllDayJob(id: string, organizationId: string, body: any) {
+    const date = typeof body?.date === 'string' ? body.date : '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequestException('Pick a date');
+    const run = await this.prisma.delivery.findFirst({
+      where: { id, organizationId },
+      select: { id: true, status: true, isDraft: true, scheduledAllDay: true, orderId: true },
+    });
+    if (!run) throw new NotFoundException('Job not found');
+    if (!run.scheduledAllDay) throw new BadRequestException('Only a job with no specific time can be moved by dragging. Open the job to change its time.');
+    if (run.isDraft || run.status !== 'scheduled') {
+      throw new BadRequestException(`Only a scheduled job can be moved (this one is ${run.isDraft ? 'a draft' : run.status})`);
+    }
+    const sched = await this.scheduleOf(date, true, organizationId);
+    await this.prisma.delivery.update({ where: { id }, data: { scheduledFor: sched.scheduledFor, scheduledAllDay: true } });
+    await this.ensureScheduledServiceReport(id, organizationId);
+    await this.siteclock?.touch(organizationId, id);
+    return { id, scheduledFor: sched.scheduledFor, scheduledAllDay: true };
+  }
+
   /** Edit a quick job (still scheduled, still without an order): same fields as the add form. */
   async updateQuickJob(id: string, organizationId: string, body: any) {
     await this.assertCalendarAdd(organizationId);
@@ -902,6 +951,7 @@ export class DeliveriesService {
       where: { id },
       data: {
         scheduledFor: f.scheduledFor,
+        scheduledAllDay: f.scheduledAllDay,
         customerId: f.customerId,
         siteAddress: f.siteAddress,
         notes: f.notes,
@@ -1162,6 +1212,7 @@ export class DeliveriesService {
       select: {
         deliveryNumber: true,
         scheduledFor: true,
+        scheduledAllDay: true,
         siteAddress: true,
         project: { select: { name: true } },
         customer: { select: { name: true } },
@@ -1177,9 +1228,8 @@ export class DeliveriesService {
           weekday: 'short',
           day: '2-digit',
           month: 'short',
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true,
+          // An all-day job (2026-11-10) has no time: the date only.
+          ...(run.scheduledAllDay ? {} : { hour: 'numeric' as const, minute: '2-digit' as const, hour12: true }),
         })
       : 'date to be confirmed';
 
@@ -1206,6 +1256,7 @@ export class DeliveriesService {
    * item set and REGENERATES the born-linked draft DO from the new form.
    */
   async updateScheduled(id: string, dto: ScheduleDeliveryDto, organizationId: string) {
+    const sched = await this.scheduleOf(dto.scheduledFor, dto.scheduledAllDay, organizationId);
     const run = await this.prisma.delivery.findFirst({
       where: { id, organizationId },
       include: { items: { select: { id: true, documentId: true } } },
@@ -1315,7 +1366,8 @@ export class DeliveriesService {
         where: { id },
         data: {
           isDraft: willBeDraft,
-          scheduledFor: dto.scheduledFor ? new Date(dto.scheduledFor) : null,
+          scheduledFor: sched.scheduledFor,
+          scheduledAllDay: sched.scheduledAllDay,
           projectId: dto.projectId ?? null,
           customerId,
           siteAddress: deliveryAddress || null,
@@ -1347,7 +1399,7 @@ export class DeliveriesService {
             })
           : null;
         const doConfig = this.buildScheduledDoConfig({
-          scheduledFor: dto.scheduledFor,
+          scheduledFor: sched.scheduledFor,
           items: dto.items ?? [],
           assetById,
           projectName: project?.name ?? '',
@@ -1445,6 +1497,7 @@ export class DeliveriesService {
    * (per-project RDO splitting is deferred).
    */
   async createScheduledReturn(dto: ScheduleReturnDto, organizationId: string) {
+    const sched = await this.scheduleOf(dto.scheduledFor, dto.scheduledAllDay, organizationId);
     const inventoryIds = [...new Set(dto.inventoryIds ?? [])];
     const deploymentIds = [...new Set(dto.deploymentIds ?? [])];
     // Free-typed lines arrive as TEXT, not ids. Blank text is dropped here so an
@@ -1700,7 +1753,8 @@ export class DeliveriesService {
             status: 'scheduled',
             riderUserId: null,
             riderName: null,
-            scheduledFor: new Date(dto.scheduledFor),
+            scheduledFor: sched.scheduledFor,
+            scheduledAllDay: sched.scheduledAllDay,
             customerId: dto.customerId,
             projectId: sharedProjectId,
             ...(returnSiteAddress ? { siteAddress: returnSiteAddress } : {}),
@@ -1762,7 +1816,7 @@ export class DeliveriesService {
       // renders and edits with the DO's header from birth. createBasicDocument
       // fills the tax block into this same documentInfo (empty-field-only).
       const header = await this.buildReturnHeaderConfig(
-        { projectId: sharedProjectId, siteAddress: returnSiteAddress, customerId: dto.customerId, date: new Date(dto.scheduledFor) },
+        { projectId: sharedProjectId, siteAddress: returnSiteAddress, customerId: dto.customerId, date: sched.scheduledFor! },
         organizationId,
       );
       const config: Record<string, any> = {
@@ -4028,18 +4082,21 @@ export class DeliveriesService {
         isDraft: false,
         direction: DeliveryDirection.OUTBOUND,
       },
-      // Soonest scheduled first; then by run number for a stable order.
+      // Soonest scheduled first; then by run number for a stable order. An
+      // all-day job (2026-11-10) moves after the timed jobs of its day below.
       orderBy: [{ scheduledFor: 'asc' }, { deliveryNumber: 'asc' }],
       select: {
         id: true,
         deliveryNumber: true,
         scheduledFor: true,
+        scheduledAllDay: true,
         siteAddress: true,
         project: { select: { name: true } },
         customer: { select: { name: true } },
         items: { select: { assetId: true, inventoryId: true } },
       },
     });
+    runs.sort(bySchedule()); // stable: equal keys keep the run-number order
     return runs.map((r) => {
       // An OPEN slot is an asset-level line still waiting for a unit.
       const openSlots = r.items.filter((i) => i.inventoryId === null && !!i.assetId);
@@ -4053,6 +4110,7 @@ export class DeliveriesService {
         id: r.id,
         deliveryNumber: r.deliveryNumber,
         scheduledFor: r.scheduledFor,
+        scheduledAllDay: r.scheduledAllDay,
         deliveryAddress,
         customerName: r.customer?.name ?? null,
         openSlotCount: openSlots.length,

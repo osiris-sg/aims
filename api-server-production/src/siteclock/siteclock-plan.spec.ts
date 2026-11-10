@@ -64,6 +64,34 @@ describe('siteclock plan', () => {
     expect(create.fields.siteRef).toBe(siteRefFor(ORG, 'c1', '1 Tuas Ave 8, Singapore 639218'));
   });
 
+  it('a timed job is sent and hashed exactly as before the all-day change (no re-push of existing links)', () => {
+    const create = planSync(run(), link(), D).steps[1] as any;
+    expect(create.hash).toBe('e16f22f4b996c1b56df59a234e0a6586');
+    expect(create.fields).not.toHaveProperty('allDay');
+    expect(create.fields).not.toHaveProperty('date');
+  });
+
+  it('an all-day job (2026-11-10) is sent as its day only, no start / end', () => {
+    const allDay = run({ scheduledAllDay: true, scheduledFor: new Date('2026-11-10T16:00:00Z') }); // 00:00 SGT 11 Nov
+    const create = planSync(allDay, link(), D).steps[1] as any;
+    expect(create.fields).toMatchObject({ allDay: true, date: '2026-11-11' });
+    expect(create.fields).not.toHaveProperty('startAt');
+    expect(create.fields).not.toHaveProperty('endAt');
+    // Moving it to another day is one PATCH; a timed job made all-day is one PATCH too.
+    const l = applied(link(), planSync(allDay, link(), D));
+    expect(kinds(planSync(allDay, l, D))).toEqual([]);
+    const moved = planSync(run({ scheduledAllDay: true, scheduledFor: new Date('2026-11-11T16:00:00Z') }), l, D);
+    expect(kinds(moved)).toEqual(['patch']);
+    expect((moved.steps[0] as any).fields).toMatchObject({ allDay: true, date: '2026-11-12' });
+    const timed = applied(link(), planSync(run(), link(), D));
+    const toAllDay = planSync(allDay, timed, D);
+    expect(kinds(toAllDay)).toEqual(['patch']);
+    // And back to a time: startAt / endAt again (SiteClock makes it timed when startAt is sent).
+    const back = planSync(run(), applied(timed, toAllDay), D);
+    expect(kinds(back)).toEqual(['patch']);
+    expect((back.steps[0] as any).fields).toMatchObject({ startAt: '2026-11-03T10:00:00+08:00', endAt: '2026-11-03T11:00:00+08:00' });
+  });
+
   it('the duration sets the end of the window', () => {
     const p = planSync(run(), link({ durationMin: 90 }), D);
     expect((p.steps[1] as any).fields.endAt).toBe('2026-11-03T11:30:00+08:00');

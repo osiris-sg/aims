@@ -98,3 +98,9 @@ test("service report lines: uploaded file / linked report", () => {
   assert.equal(attachmentLine({ id: "b", kind: "report", reportId: "r", reportNumber: 7, report: { id: "r", reportNumber: 7, status: "completed" } }).title, "Service report #7");
   assert.equal(attachmentLine({ id: "c", kind: "report", reportId: "r", report: null }).detail, "Report not found");
 });
+
+test("fmtJobWhen: an all-day job (2026-11-10) is its date only; a timed job is unchanged", async () => {
+  const { fmtJobWhen } = await import("./wctOrders.ts");
+  assert.equal(fmtJobWhen("2026-11-10T16:00:00.000Z", true), "Wed 11 Nov");
+  assert.equal(fmtJobWhen("2026-11-11T01:00:00.000Z"), "Wed 11 Nov, 09:00");
+});

@@ -33,6 +33,8 @@ export interface RunSummary {
   siteAddress: string | null;
   notes?: string | null;
   scheduledFor?: string | null;
+  /** All-day job (2026-11-10): shown as its date only. */
+  scheduledAllDay?: boolean;
   startedAt?: string | null;
   completedAt?: string | null;
   createdAt: string;

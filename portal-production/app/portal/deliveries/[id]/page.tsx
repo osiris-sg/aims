@@ -102,6 +102,8 @@ interface RunDetail {
   startedAt: string;
   completedAt: string | null;
   scheduledFor: string | null;
+  /** All-day job (2026-11-10): the date only. */
+  scheduledAllDay?: boolean;
   projectId: string | null;
   customerId: string | null;
   // findById includes both (null until assigned).
@@ -263,8 +265,11 @@ function groupSignOffs(reports: ProofReport[]) {
     .sort((a, b) => (a.signedAt ?? "").localeCompare(b.signedAt ?? ""));
 }
 
-const fmtDateTime = (d: string | null) =>
-  d ? new Date(d).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+// allDay (2026-11-10): an all-day job has no time, so the date only.
+const fmtDateTime = (d: string | null, allDay?: boolean) =>
+  d
+    ? new Date(d).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", ...(allDay ? {} : { hour: "2-digit", minute: "2-digit" }) })
+    : "—";
 
 // Terminal / return-cycle DOs can't absorb a run (mirrors the backend's
 // eligible-status list for linking).
@@ -886,7 +891,7 @@ export default function DeliveryDetailPage() {
 
       {/* SiteClock link (WCT): the worker this run is scheduled on in SiteClock. */}
       {run.siteclock && (
-        <SiteClockCard deliveryId={deliveryId} view={run.siteclock} scheduledFor={run.scheduledFor} onChanged={() => void load()} />
+        <SiteClockCard deliveryId={deliveryId} view={run.siteclock} scheduledFor={run.scheduledFor} allDay={!!run.scheduledAllDay} onChanged={() => void load()} />
       )}
 
       {actionError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setActionError(null)}>{actionError}</Alert>}
@@ -929,7 +934,7 @@ export default function DeliveryDetailPage() {
       {run.status === "scheduled" && (
         <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
           <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
-            {orderDraft ? (run.scheduledFor ? `Draft for ${fmtDateTime(run.scheduledFor)}` : "Draft, no date yet") : `Scheduled for ${fmtDateTime(run.scheduledFor)}`}
+            {orderDraft ? (run.scheduledFor ? `Draft for ${fmtDateTime(run.scheduledFor, run.scheduledAllDay)}` : "Draft, no date yet") : `Scheduled for ${fmtDateTime(run.scheduledFor, run.scheduledAllDay)}`}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
             {orderDraft
@@ -1598,6 +1603,7 @@ export default function DeliveryDetailPage() {
                   customer: run.customer ? ({ id: run.customer.id, name: run.customer.name, customerCode: run.customer.customerCode ?? null } as any) : null,
                   siteAddress: run.siteAddress,
                   scheduledFor: run.scheduledFor,
+                  scheduledAllDay: !!run.scheduledAllDay,
                   notes: run.notes,
                   ptwStatus: run.ptwStatus ?? null,
                   ptwRemark: run.ptwRemark ?? null,
@@ -1625,6 +1631,7 @@ export default function DeliveryDetailPage() {
           project: run.project,
           siteAddress: run.siteAddress,
           scheduledFor: run.scheduledFor,
+          scheduledAllDay: !!run.scheduledAllDay,
           document: run.document
             ? {
                 poNo: run.document.poNo,

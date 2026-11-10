@@ -20,6 +20,7 @@ import { DoStatusTag, doStatusTag } from '../deliveries/do-number';
 import { VERIFICATION_LABEL } from '../deliveries/finish-modes';
 import { deliveredLabel, runNoun } from '../deliveries/job-wording';
 import { PTW_LABEL, PtwStatus, ptwShown } from '../deliveries/quick-jobs';
+import { ymdIn } from '../deliveries/all-day';
 
 export const CALENDAR_TZ = 'Asia/Singapore';
 export const CALENDAR_MAX_DAYS = 62;
@@ -34,6 +35,8 @@ export interface CalendarRun {
   direction: 'OUTBOUND' | 'RETURN';
   status: string; // DeliveryRunStatus
   scheduledFor: Date;
+  /** All-day job (2026-11-10): drawn as an all-day event on its day; scheduledFor is that day's 00:00. */
+  scheduledAllDay?: boolean;
   riderUserId: string | null;
   riderName: string | null;
   siteAddress: string | null;
@@ -254,15 +257,17 @@ export function buildCalendarEvents(runs: CalendarRun[], links: CalendarLink[], 
     const job = pickAimsJob(aimsJobs.get(r.id) ?? [], link);
     const minutes = link?.durationMin && link.durationMin > 0 ? link.durationMin : DEFAULT_RUN_MINUTES;
     const start = r.scheduledFor;
+    // All-day (2026-11-10): the day only, at the top of that day like a SiteClock all-day job.
+    const allDay = !!r.scheduledAllDay;
     const planned = (job?.crew.length ? job.crew.map((c) => c.name).join(', ') : null) ?? link?.workerName ?? null;
     events.push({
       id: `aims:${r.id}`,
       source: 'aims',
       kind: r.service ? 'service' : r.direction === 'RETURN' ? 'return' : 'delivery',
       title: runTitle(r),
-      start: start.toISOString(),
-      end: new Date(start.getTime() + minutes * 60_000).toISOString(),
-      allDay: false,
+      start: allDay ? ymdIn(start, 'Asia/Singapore') : start.toISOString(),
+      end: allDay ? null : new Date(start.getTime() + minutes * 60_000).toISOString(),
+      allDay,
       status: r.status,
       // A WCT order job reads "Done", not "Delivered" (deliveries/job-wording.ts).
       statusLabel: r.status === 'delivered' ? deliveredLabel(runNoun(r) === 'Job') : (RUN_STATUS_LABEL[r.status] ?? r.status),

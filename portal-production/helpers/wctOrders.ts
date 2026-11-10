@@ -94,10 +94,16 @@ export function jobCountsLine(c: { total: number; drafts: number; completed: num
   return parts.join(" · ");
 }
 
-/** Singapore date + time, e.g. "Tue 03 Nov, 10:00". */
-export function fmtJobWhen(iso: string | null | undefined): string {
+/** Singapore date + time, e.g. "Tue 03 Nov, 10:00"; an all-day job (2026-11-10) is the date only, "Tue 03 Nov". */
+export function fmtJobWhen(iso: string | null | undefined, allDay?: boolean): string {
   if (!iso) return "No date";
-  return new Date(iso).toLocaleString("en-GB", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Singapore" });
+  return new Date(iso).toLocaleString("en-GB", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    ...(allDay ? {} : { hour: "2-digit", minute: "2-digit" }),
+    timeZone: "Asia/Singapore",
+  });
 }
 
 export interface PrefillLine {

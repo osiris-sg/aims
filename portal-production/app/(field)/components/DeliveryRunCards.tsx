@@ -90,9 +90,10 @@ function SiteAddress({ run, context, mt }: { run: RunSummary; context: string | 
   );
 }
 
-const fmtScheduled = (d: string | null | undefined) =>
+// An all-day job (2026-11-10) shows its date only ("Wed 11 Nov"), no time and no wording for it.
+const fmtScheduled = (d: string | null | undefined, allDay?: boolean) =>
   d
-    ? new Date(d).toLocaleString("en-GB", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
+    ? new Date(d).toLocaleString("en-GB", { weekday: "short", day: "2-digit", month: "short", ...(allDay ? {} : { hour: "2-digit", minute: "2-digit" }) })
     : "No date";
 
 /**
@@ -191,7 +192,7 @@ export function ScheduledRunCard({
         <OrderNo run={r} />
         <StatusChip tone={isReturn ? "warn" : "neutral"} label={isReturn ? "RETURN" : w.Noun.toUpperCase()} />
         <Box sx={{ flexGrow: 1 }} />
-        <StatusChip tone="info" label={fmtScheduled(r.scheduledFor)} />
+        <StatusChip tone="info" label={fmtScheduled(r.scheduledFor, r.scheduledAllDay)} />
       </Stack>
       {plannedLine(r) && (
         <Typography variant="body2" sx={{ fontWeight: r.plannedRider?.isMe ? 600 : 400 }} color={r.plannedRider?.isMe ? "primary" : "text.secondary"}>
@@ -292,7 +293,7 @@ export function ScheduledRunCard({
           <DialogTitle>Return #{r.deliveryNumber}</DialogTitle>
           <DialogContent>
             <Stack spacing={1.25}>
-              <DetailRow label="Scheduled" value={fmtScheduled(r.scheduledFor)} />
+              <DetailRow label="Scheduled" value={fmtScheduled(r.scheduledFor, r.scheduledAllDay)} />
               <DetailRow label="Customer" value={r.customer?.name} />
               <DetailRow label="Project" value={r.project?.name} />
               <DetailRow label="Collect from" value={collectFrom} />

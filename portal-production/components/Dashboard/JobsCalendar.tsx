@@ -13,7 +13,8 @@ import JobFieldIcon from "@/components/jobFields/JobFieldIcon";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { unwrap } from "@/app/portal/admin/organizations/_lib/siteclock-connection";
-import { calendarLegendItems, legendTitle, rangeOf, siteclockBanner, type CalendarPayload } from "./jobs-calendar/calendarModel";
+import { calendarLegendItems, legendTitle, rangeOf, runIdOf, siteclockBanner, type CalendarEvent, type CalendarPayload } from "./jobs-calendar/calendarModel";
+import { useCalendarApi } from "./jobs-calendar/calendarAddApi";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
@@ -73,6 +74,22 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
   }, [range, getToken, reloadKey]);
 
   const reload = () => setReloadKey((k) => k + 1);
+  const api = useCalendarApi();
+  // All-day jobs (2026-11-10): a drag to another day saves at once; a refusal snaps it back.
+  const onMove = useCallback(
+    async (e: CalendarEvent, date: string) => {
+      const id = runIdOf(e.id);
+      if (!id) throw new Error("Not an AIMS job");
+      const r = await api("PATCH", `/deliveries/scheduled/${id}/day`, { date });
+      if (!r.ok) {
+        toast.error(r.message || "Couldn't move the job");
+        throw new Error(r.message);
+      }
+      toast.success(`${e.title} moved to ${new Date(`${date}T12:00:00+08:00`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`);
+      setReloadKey((k) => k + 1);
+    },
+    [api],
+  );
   return (
     <>
       <JobsCalendarPanel
@@ -87,6 +104,7 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
         canAdd={canAdd}
         onAdd={(kind, slot) => setAdding({ kind, slot })}
         onNoteClick={setEditNote}
+        onMove={onMove}
       />
       {canAdd && (
         <>
@@ -135,6 +153,7 @@ export function JobsCalendarPanel({
   canAdd = false,
   onAdd,
   onNoteClick,
+  onMove,
 }: {
   data: CalendarPayload | null;
   loading: boolean;
@@ -149,6 +168,8 @@ export function JobsCalendarPanel({
   canAdd?: boolean;
   onAdd?: (kind: "job" | "note", slot: { date: string; time: string }) => void;
   onNoteClick?: (note: CalendarNote) => void;
+  /** All-day jobs (2026-11-10): drag to another day. */
+  onMove?: (event: CalendarEvent, date: string) => Promise<void>;
 }) {
   const banner = siteclockBanner(data);
   return (
@@ -225,6 +246,7 @@ export function JobsCalendarPanel({
         canAdd={canAdd}
         onAdd={onAdd}
         onNoteClick={onNoteClick}
+        onMove={onMove}
       />
     </Box>
   );
