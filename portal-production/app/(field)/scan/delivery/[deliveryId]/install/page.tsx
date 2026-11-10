@@ -26,7 +26,9 @@ export default function StandaloneInstallPage() {
   const search = useSearchParams();
   const { getToken } = useAuth();
   const deliveryId = params?.deliveryId as string;
-  const assetId = search?.get("assetId") ?? "";
+  // A link built from a typed-in line carried assetId=null (the string).
+  const rawAssetId = search?.get("assetId") ?? "";
+  const assetId = rawAssetId === "null" || rawAssetId === "undefined" ? "" : rawAssetId;
   const inventoryId = search?.get("inventoryId") ?? null;
   const [notes, setNotes] = useState("");
   const [photos, setPhotos] = useState<CapturedPhoto[]>([]);

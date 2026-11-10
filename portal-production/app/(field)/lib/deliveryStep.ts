@@ -43,10 +43,15 @@ export function hasDraftAck(reports: StepReport[], inventoryId: string | null): 
  *                   they merely loaded the unit, so resume lands on the basket;
  *                   the basket's per-item "Acknowledge" button is where they
  *                   choose to START acking (that forward action still goes to ack).
- *   not_installed → install
+ *   not_installed → install (outbound units only; a return or a typed-in line → null)
  *   completed     → null (nothing left to do)
  */
-export function itemStepHref(deliveryId: string, it: StepItem, reports: StepReport[]): string | null {
+export function itemStepHref(
+  deliveryId: string,
+  it: StepItem,
+  reports: StepReport[],
+  opts: { isReturn?: boolean } = {},
+): string | null {
   const q = `assetId=${encodeURIComponent(it.assetId)}${
     it.inventoryId ? `&inventoryId=${encodeURIComponent(it.inventoryId)}` : ""
   }`;
@@ -56,7 +61,11 @@ export function itemStepHref(deliveryId: string, it: StepItem, reports: StepRepo
         ? `/scan/delivery/${deliveryId}/after-ack?${q}`
         : null;
     case "not_installed":
-      return `/scan/delivery/${deliveryId}/install?${q}`;
+      // A RETURN has no installation: its collected lines wait for the one return
+      // signature on the basket ("Ready to finish"). A typed-in line has no asset
+      // for the install report (it posted assetId "null" and got a 400, Biofuel
+      // return #101, 2026-11-10). Both resume on the basket.
+      return it.assetId && !opts.isReturn ? `/scan/delivery/${deliveryId}/install?${q}` : null;
     default:
       return null;
   }
@@ -94,5 +103,5 @@ export function resumeHref(run: {
     const inFlight = run.items.filter((i) => i.deliveryStatus === "delivering" && i.id).map((i) => i.id as string);
     return inFlight.length ? `${basket}?items=${inFlight.map(encodeURIComponent).join(",")}` : basket;
   }
-  return itemStepHref(run.id, firstUnfinished, run.reports ?? []) ?? basket;
+  return itemStepHref(run.id, firstUnfinished, run.reports ?? [], { isReturn: run.direction === "RETURN" }) ?? basket;
 }
