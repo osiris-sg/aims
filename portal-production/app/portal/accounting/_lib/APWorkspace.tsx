@@ -43,6 +43,7 @@ import { clickableRowSx, sourceHref } from "./open-source";
 import { useGetSuppliers } from "@/app/portal/hooks/api/useSuppliers";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import JournalEntryDialog from "./JournalEntryDialog";
+import { useNewJournalVoucher } from "./useNewJournalVoucher";
 import { ReportPrintExportButton } from "./report-export";
 import { todayIso } from "@/helpers/orgToday";
 
@@ -123,6 +124,8 @@ export default function APWorkspace() {
     if (href) router.push(href);
   };
   const [jvOpen, setJvOpen] = useState(false);
+  // Journal Voucher = the legacy J/V document editor since 2026-11-09 (JournalEntryDialog stays mounted but unused).
+  const newJv = useNewJournalVoucher("/portal/accounting/payables");
   const [openingVoucher, setOpeningVoucher] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -468,7 +471,7 @@ export default function APWorkspace() {
         </Button>
         {/* Spend Money retired 2026-11-09: the Payment Voucher now takes direct
             GL lines (bank charges, fees) as well as supplier invoices. */}
-        <Button variant="contained" startIcon={<PostAddOutlinedIcon />} onClick={() => setJvOpen(true)}>
+        <Button variant="contained" startIcon={newJv.opening ? <CircularProgress size={16} color="inherit" /> : <PostAddOutlinedIcon />} disabled={newJv.opening} onClick={() => void newJv.open()}>
           Journal Voucher
         </Button>
         <Button

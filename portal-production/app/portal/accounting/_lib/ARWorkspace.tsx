@@ -44,6 +44,7 @@ import { clickableRowSx, sourceHref } from "./open-source";
 import { useCustomersByIds } from "@/app/portal/hooks/api/useCustomerPicker";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import JournalEntryDialog from "./JournalEntryDialog";
+import { useNewJournalVoucher } from "./useNewJournalVoucher";
 import { ReportPrintExportButton } from "./report-export";
 import { todayIso } from "@/helpers/orgToday";
 
@@ -135,6 +136,8 @@ export default function ARWorkspace() {
   };
   // Legacy AR home's two primary actions (header buttons, Option A).
   const [jvOpen, setJvOpen] = useState(false);
+  // Journal Voucher = the legacy J/V document editor since 2026-11-09 (JournalEntryDialog stays mounted but unused).
+  const newJv = useNewJournalVoucher("/portal/accounting/receivables");
   const [openingReceipt, setOpeningReceipt] = useState(false);
   // Bump to reload the landing data (e.g. after a receipt / JV is recorded).
   const [refreshKey, setRefreshKey] = useState(0);
@@ -506,7 +509,7 @@ export default function ARWorkspace() {
             Receive Money
           </Button>
         )}
-        <Button variant="contained" startIcon={<PostAddOutlinedIcon />} onClick={() => setJvOpen(true)}>
+        <Button variant="contained" startIcon={newJv.opening ? <CircularProgress size={16} color="inherit" /> : <PostAddOutlinedIcon />} disabled={newJv.opening} onClick={() => void newJv.open()}>
           Journal Voucher
         </Button>
         <ReportPrintExportButton

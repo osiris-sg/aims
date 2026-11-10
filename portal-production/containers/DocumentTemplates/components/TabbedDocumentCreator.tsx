@@ -160,6 +160,7 @@ import {
   pvTotal,
   voucherSupplierPatch,
 } from "./PaymentVoucherSection";
+import { JournalVoucherLinesSection, JvVoucherNoInput, JvPrepareByInput, jvValidationError, jvTotals } from "./JournalVoucherSection";
 import { getDocumentListRoute, getListRouteFromPathname } from "@/app/portal/components/documentRoutes"; // co-pkg: depends on fa8351c
 import { useAimsUserId } from "@hooks/useAimsUserId";
 import { todayIso } from "@/helpers/orgToday";
@@ -674,6 +675,37 @@ export default function TabbedDocumentCreator({
 
   // Locate document dialog state
   const [locateDialogOpen, setLocateDialogOpen] = useState(false);
+  // Confirm (receipts / vouchers): one-document Posting Queue confirm.
+  const [settlementConfirmOpen, setSettlementConfirmOpen] = useState(false);
+  const [settlementConfirming, setSettlementConfirming] = useState(false);
+  const confirmSettlementDoc = async () => {
+    const id = (existingData?.id || documentId) as string | undefined;
+    if (!id) return;
+    if (hasUnsavedChanges) {
+      toast.error("Save the document first, then confirm it");
+      return;
+    }
+    setSettlementConfirming(true);
+    try {
+      const token = await getToken();
+      const res: any = await request({ path: "/posting-queue/post-batch", method: "POST" }, { documentIds: [id] }, token);
+      const results: any[] = res?.data?.results || res?.results || res?.data || [];
+      const mine = Array.isArray(results) ? results.find((r: any) => r.documentId === id) || results[0] : null;
+      if (mine && mine.ok === false) {
+        toast.error(mine.error || "Could not confirm");
+        return;
+      }
+      toast.success(`${formData.documentInfo?.documentNumber || formData.name || "Document"} confirmed`);
+      setSettlementConfirmOpen(false);
+      // The page fetches on mount; reload so the editor opens read-only on the confirmed state.
+      if (typeof window !== "undefined") window.location.reload();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || e?.message || "Could not confirm");
+    } finally {
+      setSettlementConfirming(false);
+    }
+  };
+
   // Hotkey "Locate" (F3 by default): the menu item lives inside ⋮, so the
   // dispatcher reaches it through the aims:hotkey event instead of a click.
   useEffect(() => {
@@ -813,9 +845,11 @@ export default function TabbedDocumentCreator({
   // Payment Voucher (AP twin of the receipt, 2026-10-21): supplier + unpaid
   // bills grid; saves route to PUT /payment-vouchers (page onSave).
   const isPaymentVoucher = documentType === "PAYMENT_VOUCHER" || documentType === "PV";
+  // Journal Voucher (legacy J/V screen as a document, 2026-11-09).
+  const isJournalVoucher = documentType === "JOURNAL_VOUCHER" || documentType === "JV";
   // Settlement documents share the receipt's editor behaviour (no items,
   // no duplicate/stock card/AI, Delete in ⋮, fixed legacy layout).
-  const isSettlementDoc = isOfficialReceipt || isPaymentVoucher;
+  const isSettlementDoc = isOfficialReceipt || isPaymentVoucher || isJournalVoucher;
   const isQuotation =
     documentType === "QUOTATION" ||
     documentType === "QO" ||
@@ -1221,6 +1255,7 @@ export default function TabbedDocumentCreator({
     orData: existingData?.orData || null,
     // Payment Voucher state + its supplier (AP twin of orData).
     pvData: existingData?.pvData || null,
+    jvData: existingData?.jvData || null,
     supplier: existingData?.supplier || null,
   });
 
@@ -2803,6 +2838,7 @@ export default function TabbedDocumentCreator({
       OFFICIAL_RECEIPT: "Official Receipt",
       OR: "Official Receipt",
       PAYMENT_VOUCHER: "Payment Voucher",
+      JOURNAL_VOUCHER: "Journal Voucher",
       PV: "Payment Voucher",
     };
     return titles[documentType] || "Document";
@@ -3587,8 +3623,8 @@ export default function TabbedDocumentCreator({
         toast.error("Authentication required");
         return;
       }
-      await request({ path: isPaymentVoucher ? `/payment-vouchers/${docId}` : `/receipts/${docId}`, method: "DELETE" }, {}, token);
-      toast.success(isPaymentVoucher ? "Payment voucher deleted — journal voided" : "Receipt deleted — journal voided");
+      await request({ path: isJournalVoucher ? `/journal-vouchers/${docId}` : isPaymentVoucher ? `/payment-vouchers/${docId}` : `/receipts/${docId}`, method: "DELETE" }, {}, token);
+      toast.success(isJournalVoucher ? "Journal voucher deleted — journal voided" : isPaymentVoucher ? "Payment voucher deleted — journal voided" : "Receipt deleted — journal voided");
       isDirtyRef.current = false;
       setHasUnsavedChanges(false);
       router.push(resolveBackRoute(documentType));
@@ -3607,6 +3643,18 @@ export default function TabbedDocumentCreator({
       }
       // Receipts have their own create endpoint (OR-###### numbering, control
       // accounts prefilled) and their own edit route.
+      if (isJournalVoucher) {
+        const response = await request({ path: "/journal-vouchers", method: "POST" }, {}, token);
+        const newId = response?.data?.id || response?.id;
+        if (newId) {
+          toast.success("New Journal Voucher created");
+          onDocumentCreated?.();
+          router.push(`/portal/accounting/journal-vouchers/${newId}${typeof window !== "undefined" ? window.location.search : ""}`);
+        } else {
+          toast.error(response?.message || "Failed to create journal voucher");
+        }
+        return;
+      }
       if (isPaymentVoucher) {
         const response = await request({ path: "/payment-vouchers", method: "POST" }, {}, token);
         const newId = response?.data?.id || response?.id;
@@ -4033,6 +4081,13 @@ export default function TabbedDocumentCreator({
     // Official Receipt: server posts ONE journal on save, so the receipt must
     // be complete and fully allocated (legacy rule: Balance 0.00, no
     // on-account credit) before it can leave the editor.
+    if (isJournalVoucher) {
+      const jvError = jvValidationError(formData);
+      if (jvError) {
+        toast.error(jvError);
+        return false;
+      }
+    }
     if (isPaymentVoucher) {
       // Legacy P/V rules (2026-11-09): a bank, at least one line, total > 0
       // (0 only when a supplier credit note settles the invoices outright).
@@ -4692,6 +4747,22 @@ export default function TabbedDocumentCreator({
                   Unsaved changes
                 </Typography>
               )}
+              {/* Confirm for receipts / vouchers (guru 2026-11-10 "do we have a
+                  confirm feature for the PV and OR"): the legacy toolbar's
+                  Confirm, here = the Posting Queue's confirm for this one
+                  document — flips it to confirmed and tags its journal. */}
+              {isSettlementDoc && !isDocumentConfirmedStatus && (existingData?.id || documentId) && (formData as any)?.savedAt && (
+                <Button
+                  data-hotkey="confirm"
+                  size="small"
+                  variant="outlined"
+                  startIcon={<CheckCircleIcon />}
+                  disabled={saveStatus === "saving" || settlementConfirming}
+                  onClick={() => setSettlementConfirmOpen(true)}
+                >
+                  Confirm
+                </Button>
+              )}
               <Button
                 data-tour="editor-save"
                 data-hotkey="save"
@@ -5250,7 +5321,12 @@ export default function TabbedDocumentCreator({
                       // Official Receipt: the legacy header rows that need more
                       // than a plain input (read-only number, customer picker
                       // without the attention trio, account echoes, amount trio).
-                      isPaymentVoucher
+                      isJournalVoucher
+                        ? {
+                            jvVoucherNo: <JvVoucherNoInput formData={formData} setFormData={setFormData} />,
+                            jvPrepareRow: <JvPrepareByInput formData={formData} setFormData={setFormData} />,
+                          }
+                        : isPaymentVoucher
                         ? {
                             pvBankRow: <PvBankInput formData={formData} setFormData={setFormData} />,
                             pvVoucherNo: <PvVoucherNoInput formData={formData} setFormData={setFormData} />,
@@ -6028,7 +6104,15 @@ export default function TabbedDocumentCreator({
 
           {/* ITEMS SECTION - Always visible (Official Receipts swap it for the
               legacy Offset Transactions grid — allocations, not line items) */}
-          {isPaymentVoucher ? (
+          {isJournalVoucher ? (
+            <JournalVoucherLinesSection
+              formData={formData}
+              setFormData={setFormData}
+              voucherId={(existingData?.id || documentId) as string | undefined}
+              suppliers={suppliers}
+              disabled={lockReadOnly}
+            />
+          ) : isPaymentVoucher ? (
             <PaymentVoucherLinesSection
               formData={formData}
               setFormData={setFormData}
@@ -7439,6 +7523,21 @@ export default function TabbedDocumentCreator({
                   // Official Receipt: map the editor state onto the preview's
                   // OFFICIAL_RECEIPT data contract (allocations are stored
                   // enriched with reference/date/description by the grid).
+                  ...(isJournalVoucher
+                    ? (() => {
+                        const jd: any = (formData as any).jvData || {};
+                        const t = jvTotals(formData);
+                        return {
+                          voucherNumber: formData.documentInfo?.documentNumber || formData.name,
+                          date: jd.date,
+                          preparedBy: jd.preparedBy || "",
+                          notes: jd.notes || "",
+                          lines: Array.isArray(jd.lines) ? jd.lines : [],
+                          totalDebit: t.debit,
+                          totalCredit: t.credit,
+                        };
+                      })()
+                    : {}),
                   ...(isPaymentVoucher
                     ? (() => {
                         const pd: any = (formData as any).pvData || {};
@@ -8185,6 +8284,10 @@ export default function TabbedDocumentCreator({
         documentLabel={getDocumentTitle()}
         onSelectDocument={(doc) => {
           // Receipts live on their own route (saves go to PUT /receipts).
+          if (isJournalVoucher) {
+            router.push(`/portal/accounting/journal-vouchers/${doc.id}${typeof window !== "undefined" ? window.location.search : ""}`);
+            return;
+          }
           if (isPaymentVoucher) {
             router.push(`/portal/accounting/payment-vouchers/${doc.id}${typeof window !== "undefined" ? window.location.search : ""}`);
             return;
@@ -8201,12 +8304,29 @@ export default function TabbedDocumentCreator({
 
       {/* Official Receipt delete confirmation (⋮ menu → Delete) */}
       {isSettlementDoc && (
+        <Dialog open={settlementConfirmOpen} onClose={() => !settlementConfirming && setSettlementConfirmOpen(false)} maxWidth="xs" fullWidth>
+          <DialogTitle>Confirm {isJournalVoucher ? "journal voucher" : isPaymentVoucher ? "payment voucher" : "receipt"}</DialogTitle>
+          <DialogContent>
+            <Typography variant="body2">
+              Confirm {formData.documentInfo?.documentNumber || formData.name || "this document"}? Its journal becomes a confirmed posting and the document
+              locks (the toolbar&apos;s Edit can unlock it later).
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setSettlementConfirmOpen(false)} disabled={settlementConfirming}>Cancel</Button>
+            <Button variant="contained" onClick={() => void confirmSettlementDoc()} disabled={settlementConfirming} startIcon={settlementConfirming ? <CircularProgress size={14} color="inherit" /> : <CheckCircleIcon />}>
+              Confirm
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
+      {isSettlementDoc && (
         <Dialog open={orDeleteConfirmOpen} onClose={() => setOrDeleteConfirmOpen(false)} maxWidth="xs" fullWidth>
-          <DialogTitle>{isPaymentVoucher ? "Delete payment voucher" : "Delete receipt"}</DialogTitle>
+          <DialogTitle>{isJournalVoucher ? "Delete journal voucher" : isPaymentVoucher ? "Delete payment voucher" : "Delete receipt"}</DialogTitle>
           <DialogContent>
             <Typography variant="body2" sx={{ color: "text.secondary" }}>
-              Delete {formData.documentInfo?.documentNumber || formData.name || (isPaymentVoucher ? "this voucher" : "this receipt")}? Its journal will be
-              voided and the allocated {isPaymentVoucher ? "supplier invoices" : "invoices"} restored to outstanding.
+              Delete {formData.documentInfo?.documentNumber || formData.name || (isPaymentVoucher || isJournalVoucher ? "this voucher" : "this receipt")}? Its journal will be
+              voided{isJournalVoucher ? " and any supplier offset undone" : ` and the allocated ${isPaymentVoucher ? "supplier invoices" : "invoices"} restored to outstanding`}.
             </Typography>
           </DialogContent>
           <DialogActions sx={{ px: 3, pb: 2 }}>

@@ -763,6 +763,104 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     );
   }
 
+  // ── Journal Voucher (legacy J/V screen as a document, 2026-11-09) ───────
+  // data: voucherNumber, date, preparedBy, notes, lines[{accountCode,
+  // description, remarks, debit, credit, offset?{allocations}}], totalDebit,
+  // totalCredit.
+  if (documentType === "JOURNAL_VOUCHER" || documentType === "JV") {
+    const v: any = data || {};
+    const jvLines: any[] = (Array.isArray(v.lines) ? v.lines : []).filter((l: any) => l?.accountCode || l?.offset);
+    const money = (n: number) => (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const td = Number(v.totalDebit) || jvLines.reduce((s: number, l: any) => s + (Number(l.debit) || 0), 0);
+    const tc = Number(v.totalCredit) || jvLines.reduce((s: number, l: any) => s + (Number(l.credit) || 0), 0);
+    return (
+      <Paper
+        data-print-paper
+        sx={{
+          width: "210mm",
+          minHeight: "297mm",
+          margin: "0 auto",
+          p: "20mm",
+          backgroundColor: "white",
+          fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
+          fontWeight: 400,
+          fontSize: "0.8125rem",
+          lineHeight: 1.6,
+          color: "#000",
+          display: "flex",
+          flexDirection: "column",
+          "@media print": { margin: 0, padding: 0, boxShadow: "none" },
+        }}
+      >
+        <Box sx={{ textAlign: "center", mb: 1 }}>
+          <Typography sx={{ fontWeight: 700, fontSize: "1.15rem" }}>{v.company?.name || organization?.name || ""}</Typography>
+          {(v.company?.address || organization?.address) && <Typography sx={{ fontSize: "0.8125rem" }}>{v.company?.address || organization?.address}</Typography>}
+        </Box>
+        <Typography sx={{ textAlign: "center", fontWeight: 700, fontSize: "1rem", letterSpacing: 2, my: 2 }}>JOURNAL VOUCHER</Typography>
+        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
+          <Box>
+            {v.notes && <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-wrap" }}>{v.notes}</Typography>}
+          </Box>
+          <Box sx={{ textAlign: "right" }}>
+            <Typography sx={{ fontSize: "0.8125rem" }}>
+              Voucher No. : <b>{v.voucherNumber || ""}</b>
+            </Typography>
+            <Typography sx={{ fontSize: "0.8125rem" }}>Date : {v.date ? new Date(v.date).toLocaleDateString("en-GB") : ""}</Typography>
+            {v.preparedBy && <Typography sx={{ fontSize: "0.8125rem" }}>Prepared by : {v.preparedBy}</Typography>}
+          </Box>
+        </Box>
+        <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", "& th, & td": { fontSize: "0.8125rem", py: 0.6, px: 1 } }}>
+          <Box component="thead">
+            <Box component="tr" sx={{ "& th": { borderTop: "1px solid #000", borderBottom: "1px solid #000", textAlign: "left" } }}>
+              <Box component="th">Account code</Box>
+              <Box component="th">Description</Box>
+              <Box component="th">Remarks</Box>
+              <Box component="th" sx={{ textAlign: "right !important" }}>Debit</Box>
+              <Box component="th" sx={{ textAlign: "right !important" }}>Credit</Box>
+            </Box>
+          </Box>
+          <Box component="tbody">
+            {jvLines.map((l: any, i: number) => (
+              <React.Fragment key={l.id || i}>
+                <Box component="tr">
+                  <Box component="td" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{l.accountCode}</Box>
+                  <Box component="td">{l.description || l.accountName || ""}</Box>
+                  <Box component="td">{l.remarks || ""}</Box>
+                  <Box component="td" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{Number(l.debit) ? money(Number(l.debit)) : ""}</Box>
+                  <Box component="td" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{Number(l.credit) ? money(Number(l.credit)) : ""}</Box>
+                </Box>
+                {(l.offset?.allocations || []).map((a: any, j: number) => (
+                  <Box component="tr" key={`${l.id || i}-${j}`} sx={{ "& td": { color: "#333", fontSize: "0.75rem !important", py: "2px !important" } }}>
+                    <Box component="td" />
+                    <Box component="td" sx={{ pl: "20px !important" }}>{a.reference}{a.date ? ` · ${new Date(a.date).toLocaleDateString("en-GB")}` : ""}</Box>
+                    <Box component="td">{a.description || "SUPPLIER INVOICE"}</Box>
+                    <Box component="td" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(Number(a.amount) || 0)}</Box>
+                    <Box component="td" />
+                  </Box>
+                ))}
+              </React.Fragment>
+            ))}
+          </Box>
+        </Box>
+        <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1 }}>
+          <Box sx={{ minWidth: 320, borderTop: "1px solid #000", pt: 0.5, display: "flex", justifyContent: "space-between" }}>
+            <Typography sx={{ fontSize: "0.875rem", fontWeight: 700 }}>Total</Typography>
+            <Typography sx={{ fontSize: "0.875rem", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{money(td)}</Typography>
+            <Typography sx={{ fontSize: "0.875rem", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{money(tc)}</Typography>
+          </Box>
+        </Box>
+        <Box sx={{ mt: "auto", pt: 6, display: "flex", justifyContent: "space-between" }}>
+          {["Prepared by", "Checked by", "Approved by"].map((l) => (
+            <Box key={l} sx={{ width: "28%", borderTop: "1px solid #000", pt: 0.5, textAlign: "center" }}>
+              <Typography sx={{ fontSize: "0.75rem" }}>{l}</Typography>
+              {l === "Prepared by" && v.preparedBy && <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>{v.preparedBy}</Typography>}
+            </Box>
+          ))}
+        </Box>
+      </Paper>
+    );
+  }
+
   // Special layout for Tax Invoice
   // ── Official Receipt (legacy-UX overhaul) ────────────────────────────────
   // One receipt allocated across a customer's invoices. data carries:

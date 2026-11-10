@@ -6,9 +6,11 @@ import { JournalModule } from '../journal/journal.module';
 import { BillsModule } from '../bills/bills.module';
 import { AuditService } from 'src/common/audit.service';
 import { DocumentNumberingModule } from '../document-numbering/document-numbering.module';
+import { ReceiptsModule } from '../receipts/receipts.module';
+import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
-  imports: [JournalModule, BillsModule, DocumentNumberingModule],
+  imports: [JournalModule, BillsModule, DocumentNumberingModule, ReceiptsModule, PaymentsModule],
   controllers: [PaymentVouchersController],
   providers: [PaymentVouchersService, PrismaService, AuditService],
   exports: [PaymentVouchersService],

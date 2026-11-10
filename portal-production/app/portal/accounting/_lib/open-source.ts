@@ -23,6 +23,7 @@ export function sourceHref(src: LedgerSource, from: string): string | null {
   if (src.documentId) {
     if (type === "OFFICIAL_RECEIPT") return `/portal/accounting/receipts/${src.documentId}${q(true)}`;
     if (type === "PAYMENT_VOUCHER") return `/portal/accounting/payment-vouchers/${src.documentId}${q(true)}`;
+    if (type === "JOURNAL_VOUCHER") return `/portal/accounting/journal-vouchers/${src.documentId}${q(true)}`;
     if (type === "BILL") return `/portal/accounting/payables/purchase-journal?bill=${enc(src.documentId)}${q(false)}`;
     if (type === "SPEND_MONEY") return `/portal/accounting/payables?tab=spend-money&open=${enc(src.documentId)}${q(false)}`;
     if (type === "RECEIVE_MONEY") return `/portal/accounting/receivables?tab=receive-money&open=${enc(src.documentId)}${q(false)}`;

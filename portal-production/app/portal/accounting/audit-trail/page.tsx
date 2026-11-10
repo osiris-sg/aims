@@ -28,6 +28,7 @@ import PrintIcon from "@mui/icons-material/Print";
 import CloseIcon from "@mui/icons-material/Close";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
+import { useNewJournalVoucher } from "../_lib/useNewJournalVoucher";
 import JournalEntryDialog from "../_lib/JournalEntryDialog";
 import PageTable from "@/components/PageTable";
 import { useClientSort } from "@/components/clientSort";
@@ -85,6 +86,8 @@ export default function AuditTrailPage() {
   const [endDate, setEndDate] = useState("");
   const [selected, setSelected] = useState<JournalEntry | null>(null);
   const [newOpen, setNewOpen] = useState(false);
+  // "New Entry" = the legacy-style Journal Voucher editor (2026-11-09); the dialog stays mounted but unused.
+  const newJv = useNewJournalVoucher();
 
   // PageTable-driven state
   const [page, setPage] = useState(1);
@@ -316,7 +319,7 @@ export default function AuditTrailPage() {
         tableName="Audit Trail"
         subTitle="Chronological log of every journal entry — invoices, payments, manual vouchers, voids."
         buttonName="New Entry"
-        onAddClick={() => setNewOpen(true)}
+        onAddClick={() => void newJv.open()}
         loading={loading}
         page={page}
         limit={limit}

@@ -118,7 +118,10 @@ const AccountEcho = ({ currency, name }: { currency: string; name: string }) =>
 
 export const pvLines = (formData: any): PvLine[] => (Array.isArray(formData?.pvData?.lines) ? formData.pvData.lines : []);
 export const pvTotal = (formData: any) => R(pvLines(formData).reduce((s, l) => s + (parseFloat(String(l.amount)) || 0), 0));
-export const pvCreditorLine = (formData: any): PvLine | undefined => pvLines(formData).find((l) => l.offset?.supplierId);
+/** The single party line (supplier offset via the AP control, or customer refund via the AR control). */
+export const pvCreditorLine = (formData: any): PvLine | undefined => pvLines(formData).find((l) => l.offset?.supplierId || l.offset?.customerId);
+const partyCodeOf = (l?: PvLine | null) => l?.offset?.supplierCode || l?.offset?.customerCode || "";
+const partyNameOf = (l?: PvLine | null) => l?.offset?.supplierName || l?.offset?.customerName || "";
 
 /** The editor's pre-save check — mirrors the server's rules so the toast is immediate. */
 export function pvValidationError(formData: any): string | null {
@@ -291,8 +294,8 @@ export function PvPayeeInput({ formData, setFormData }: RowProps) {
           ),
         }}
       />
-      {creditor?.offset?.supplierCode && (
-        <Chip size="small" variant="outlined" color="primary" label={`${creditor.offset.supplierCode} · ${creditor.offset.allocations?.length || 0} invoice(s)`} sx={{ height: 22 }} />
+      {partyCodeOf(creditor) && (
+        <Chip size="small" variant="outlined" color="primary" label={`${partyCodeOf(creditor)} · ${creditor?.offset?.allocations?.length || 0} ${creditor?.offset?.customerId ? "credit note(s)" : "invoice(s)"}`} sx={{ height: 22 }} />
       )}
     </Box>
   );
@@ -405,20 +408,33 @@ export function PaymentVoucherLinesSection({
   // opens the dialog to choose supplier"). That line is remembered so the
   // saved supplier line takes its row; Cancel clears the code again.
   const [offsetOpen, setOffsetOpen] = useState(false);
+  const [offsetParty, setOffsetParty] = useState<"supplier" | "customer">("supplier");
   const [pendingLineId, setPendingLineId] = useState<string | null>(null);
-  const creditorCode = String(pd.creditorAccountCode || creditor?.accountCode || "");
+  // The org's AP and AR control codes (Accounting Setup) — keying either on a
+  // line opens the offset dialog for that side.
+  const creditorCode = String(pd.creditorAccountCode || (creditor?.offset?.supplierId ? creditor.accountCode : "") || "");
+  const debtorCode = String(pd.debtorAccountCode || (creditor?.offset?.customerId ? creditor.accountCode : "") || "");
+  const openOffsetFor = (party: "supplier" | "customer") => {
+    setOffsetParty(party);
+    setOffsetOpen(true);
+  };
   const commitLineAccount = (l: PvLine, a: OrAccount) => {
-    if (creditorCode && a.code === creditorCode) {
+    const party: "supplier" | "customer" | null = creditorCode && a.code === creditorCode ? "supplier" : debtorCode && a.code === debtorCode ? "customer" : null;
+    if (party) {
+      if (!pd.bankAccountCode) {
+        toast.warn("Pick the Bank Account first");
+        return;
+      }
       if (creditor && creditor.id !== l.id) {
-        // One payee per voucher: the supplier line exists — edit it instead.
-        toast.info("This voucher already has a supplier line — editing it");
+        // One payee per voucher: the party line exists — edit it instead.
+        toast.info("This voucher already has a payee line — editing it");
         writeLines(lines.filter((x) => x.id !== l.id || x.accountCode));
-        setOffsetOpen(true);
+        openOffsetFor(creditor.offset?.customerId ? "customer" : "supplier");
         return;
       }
       patchLine(l.id, { accountCode: a.code, accountName: a.name, description: a.name.toUpperCase() });
       setPendingLineId(l.id);
-      setOffsetOpen(true);
+      openOffsetFor(party);
       return;
     }
     patchLine(l.id, { accountCode: a.code, accountName: a.name, description: l.description || a.name.toUpperCase() });
@@ -430,11 +446,12 @@ export function PaymentVoucherLinesSection({
         toast.warn("Pick the Bank Account first");
         return;
       }
-      setOffsetOpen(true);
+      openOffsetFor(creditor?.offset?.customerId ? "customer" : "supplier");
     };
     window.addEventListener(PV_OFFSET_EVENT, onOpen);
     return () => window.removeEventListener(PV_OFFSET_EVENT, onOpen);
-  }, [disabled, pd.bankAccountCode]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disabled, pd.bankAccountCode, creditor?.id]);
 
   const saveOffset = (line: PvLine, supplier: any) => {
     // The supplier line takes the row it was keyed on (pending plain line),
@@ -444,11 +461,16 @@ export function PaymentVoucherLinesSection({
     const next = [...rest];
     next.splice(anchorIdx >= 0 ? Math.min(anchorIdx, next.length) : next.length, 0, line);
     setPendingLineId(null);
+    const isCust = !!line.offset?.customerId;
     setFormData({
       ...formData,
-      supplier: supplier
-        ? { id: supplier.id, name: supplier.name || "", supplierCode: supplier.supplierCode || "", address: supplier.address || "", email: supplier.email || "", currency: supplier.currency || "SGD" }
-        : formData.supplier,
+      ...(isCust
+        ? { customer: supplier ? { id: supplier.id, name: supplier.name || "", customerCode: supplier.customerCode || "" } : formData.customer }
+        : {
+            supplier: supplier
+              ? { id: supplier.id, name: supplier.name || "", supplierCode: supplier.supplierCode || "", address: supplier.address || "", email: supplier.email || "", currency: supplier.currency || "SGD" }
+              : formData.supplier,
+          }),
       pvData: { ...pd, lines: next, payee: pd.payee || supplier?.name || "" },
     });
   };
@@ -464,7 +486,7 @@ export function PaymentVoucherLinesSection({
   // Manual Offset (guru 2026-11-09, "just like OR"): the supplier's credit
   // notes against their invoices, no cash — the receipt's dialog in supplier mode.
   const [manualOffsetOpen, setManualOffsetOpen] = useState(false);
-  const supplierId = creditor?.offset?.supplierId || formData?.supplier?.id || "";
+  const supplierId = creditor?.offset?.supplierId || (creditor?.offset?.customerId ? "" : formData?.supplier?.id) || "";
   const supplierName = creditor?.offset?.supplierName || formData?.supplier?.name || "";
   const needSupplier = (fn: () => void) => () => {
     if (!supplierId) {
@@ -586,7 +608,7 @@ export function PaymentVoucherLinesSection({
                         </TableCell>
                         <TableCell>
                           {isCreditor ? (
-                            <Typography sx={{ fontWeight: 600 }}>{l.description || acc?.name?.toUpperCase() || "TRADE CREDITORS"}</Typography>
+                            <Typography sx={{ fontWeight: 600 }}>{l.description || acc?.name?.toUpperCase() || (l.offset?.customerId ? "TRADE DEBTORS" : "TRADE CREDITORS")}</Typography>
                           ) : (
                             <TextField
                               size="small"
@@ -601,8 +623,8 @@ export function PaymentVoucherLinesSection({
                         <TableCell>
                           {isCreditor ? (
                             <Stack direction="row" spacing={1} alignItems="center">
-                              <Typography variant="body2">{l.remarks || `${l.offset?.supplierCode || ""} ${l.offset?.supplierName || ""}`.trim()}</Typography>
-                              <Chip size="small" variant="outlined" label={`${l.offset?.allocations?.length || 0} invoice(s)`} sx={{ height: 20 }} />
+                              <Typography variant="body2">{l.remarks || `${partyCodeOf(l)} ${partyNameOf(l)}`.trim()}</Typography>
+                              <Chip size="small" variant="outlined" label={`${l.offset?.allocations?.length || 0} ${l.offset?.customerId ? "credit note(s)" : "invoice(s)"}`} sx={{ height: 20 }} />
                             </Stack>
                           ) : (
                             <TextField size="small" fullWidth value={l.remarks || ""} disabled={disabled} onChange={(e) => patchLine(l.id, { remarks: e.target.value })} />
@@ -617,14 +639,14 @@ export function PaymentVoucherLinesSection({
                             onChange={(e) => patchLine(l.id, { amount: e.target.value })}
                             inputProps={{ step: "0.01", style: { textAlign: "right" } }}
                             sx={{ width: 150 }}
-                            title={isCreditor ? "Set in Offset Supplier Invoices" : "Negative = a credit to this account"}
+                            title={isCreditor ? "Set in the offset dialog" : "Negative = a credit to this account"}
                           />
                         </TableCell>
                         <TableCell padding="checkbox">
                           {isCreditor ? (
-                            <Tooltip title="Edit the supplier offset">
+                            <Tooltip title={l.offset?.customerId ? "Edit the customer refund" : "Edit the supplier offset"}>
                               <span>
-                                <IconButton size="small" disabled={disabled} onClick={() => setOffsetOpen(true)} color="primary">
+                                <IconButton size="small" disabled={disabled} onClick={() => openOffsetFor(l.offset?.customerId ? "customer" : "supplier")} color="primary">
                                   <EditNoteIcon fontSize="small" />
                                 </IconButton>
                               </span>
@@ -695,6 +717,9 @@ export function PaymentVoucherLinesSection({
 
       <PvOffsetSupplierDialog
         open={offsetOpen}
+        party={offsetParty}
+        allowInvoices={false}
+        customers={[]}
         onClose={() => {
           setOffsetOpen(false);
           // Keyed the control code but backed out: the row goes back to blank.
@@ -707,10 +732,10 @@ export function PaymentVoucherLinesSection({
         voucherNumber={formData?.documentInfo?.documentNumber || formData?.name || ""}
         voucherDate={pd.date || ""}
         voucherCurrency={currency}
-        creditorAccountCode={pd.creditorAccountCode || creditor?.accountCode || ""}
+        creditorAccountCode={offsetParty === "customer" ? debtorCode : creditorCode}
         suppliers={suppliers}
-        existing={creditor || null}
-        existingSupplier={formData?.supplier?.id ? formData.supplier : null}
+        existing={creditor && ((offsetParty === "customer") === !!creditor.offset?.customerId) ? creditor : null}
+        existingSupplier={offsetParty === "customer" ? (formData?.customer?.id ? formData.customer : null) : formData?.supplier?.id ? formData.supplier : null}
         onSave={(line, supplier) => {
           saveOffset(line, supplier);
           setOffsetOpen(false);

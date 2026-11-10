@@ -147,7 +147,8 @@ export default function ReceiptListingReport() {
             kind: "row",
             key: r.id,
             cells: [
-              r.receiptNumber,
+              // Click-through to the receipt (guru 2026-11-10); Back returns here.
+              { text: r.receiptNumber, href: `/portal/accounting/receipts/${r.id}?from=${encodeURIComponent(typeof window !== "undefined" ? window.location.pathname + window.location.search : "/portal/accounting/receivables")}` },
               r.date ? fmtDate(r.date) : "",
               r.chequeNo || "",
               r.customerName || "",

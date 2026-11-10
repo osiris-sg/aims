@@ -49,6 +49,7 @@ const toExisting = (r: any) => ({
     chequeNo: r.chequeNo || "",
     preparedBy: r.preparedBy || "",
     creditorAccountCode: r.creditorAccountCode || null,
+    debtorAccountCode: r.debtorAccountCode || null,
     lines: Array.isArray(r.lines) ? r.lines : [],
   },
 });
@@ -110,7 +111,10 @@ export default function PaymentVoucherPage() {
         amount: Math.round((parseFloat(String(l.amount)) || 0) * 100) / 100,
         offset: l.offset
           ? {
-              supplierId: l.offset.supplierId,
+              // Supplier (AP control) or customer (AR control) — the server reads the party from which id is present.
+              party: l.offset.party || (l.offset.customerId ? "customer" : "supplier"),
+              supplierId: l.offset.supplierId || null,
+              customerId: l.offset.customerId || null,
               rate: Number(l.offset.rate) || 1,
               allocations: (l.offset.allocations || []).map((a: any) => ({ documentId: a.documentId, amount: Number(a.amount) || 0 })),
               updateFx: l.offset.updateFx !== false,

@@ -9,6 +9,8 @@ import { AP_CREDIT_OFFSET_FLAG, isOrgFeatureEnabled } from '../common/org-featur
 import { documentReferenceOf } from '../common/doc-ref';
 import { DocumentNumberingService, bankCodeOf, patternNeedsBank } from '../document-numbering/document-numbering.service';
 import { orgToday } from '../common/org-today';
+import { ReceiptsService } from '../receipts/receipts.service';
+import { PaymentsService } from '../payments/payments.service';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 
@@ -43,7 +45,10 @@ const ROUND = (n: number) => Math.round(n * 100) / 100;
 export type VoucherAllocation = { documentId: string; amount: number };
 
 export type VoucherOffset = {
-  supplierId: string;
+  /** 'supplier' (AP control: pay supplier invoices) or 'customer' (AR control: refund a customer's credit notes / overpayments). */
+  party?: 'supplier' | 'customer' | null;
+  supplierId?: string | null;
+  customerId?: string | null;
   /** Supplier currency per voucher currency (1 when the same). */
   rate?: number | null;
   allocations: VoucherAllocation[];
@@ -107,6 +112,8 @@ export class PaymentVouchersService {
     private readonly bills: BillsService,
     private readonly auditService: AuditService,
     private readonly numbering: DocumentNumberingService,
+    private readonly receipts: ReceiptsService,
+    private readonly payments: PaymentsService,
   ) {}
 
   private logEvent(opts: { documentId: string; organizationId: string; action: string; detail: string; documentName?: string; actor?: Actor }) {
@@ -219,6 +226,7 @@ export class PaymentVouchersService {
       preparedBy: c.preparedBy || '',
       paymentMethod: c.paymentMethod || 'transfer',
       creditorAccountCode: c.creditorAccountCode || c.debitAccountCode || null,
+      debtorAccountCode: c.debtorAccountCode || null,
       lines,
       voucherAmount: total,
       // Legacy readers (P/V listing, bank rec, AP home).
@@ -263,6 +271,7 @@ export class PaymentVouchersService {
           preparedBy: actor?.name || actor?.email || '',
           paymentMethod: 'transfer',
           creditorAccountCode: controls.creditorControl || 'CL001', // the creditor line's account
+          debtorAccountCode: controls.debtorControl || 'CA001', // a customer refund line's account
           lines: [],
           // legacy mirrors
           supplierId: null,
@@ -413,14 +422,16 @@ export class PaymentVouchersService {
     const currency = String(dto.currency || base).toUpperCase();
     const rate = currency === base ? 1 : Number(dto.rate) || 1;
     const creditorCode: string = cfg.creditorAccountCode || cfg.debitAccountCode || controls.creditorControl || 'CL001';
+    const debtorCode: string = cfg.debtorAccountCode || controls.debtorControl || 'CA001';
 
     // Lines: drop blank rows, round, default the creditor line's account.
-    type L = { id: string; accountCode: string; description: string; remarks: string; amount: number; offset: null | (VoucherOffset & { supplierCode: string | null; supplierName: string; currency: string; voucherAmount: number; supplierAmount: number; allocations: Array<VoucherAllocation & { reference?: string | null; date?: string | null; description?: string }> }) };
+    type L = { id: string; accountCode: string; description: string; remarks: string; amount: number; offset: null | (VoucherOffset & { party: 'supplier' | 'customer'; supplierCode: string | null; supplierName: string; customerCode: string | null; customerName: string; currency: string; voucherAmount: number; supplierAmount: number; allocations: Array<VoucherAllocation & { reference?: string | null; date?: string | null; description?: string }> }) };
     const lines: L[] = [];
     for (const [i, raw] of (dto.lines || []).entries()) {
       const amount = ROUND(Number(raw?.amount) || 0);
-      const hasOffset = !!raw?.offset?.supplierId;
-      const accountCode = String(raw?.accountCode || (hasOffset ? creditorCode : '')).trim();
+      const offsetParty: 'supplier' | 'customer' | null = raw?.offset?.customerId ? 'customer' : raw?.offset?.supplierId ? 'supplier' : null;
+      const hasOffset = !!offsetParty;
+      const accountCode = String(raw?.accountCode || (offsetParty === 'customer' ? debtorCode : offsetParty === 'supplier' ? creditorCode : '')).trim();
       if (!accountCode && amount === 0 && !hasOffset) continue; // empty row
       if (!accountCode) throw new BadRequestException(`Line ${i + 1}: pick an account code`);
       if (amount === 0 && !hasOffset) throw new BadRequestException(`Line ${i + 1}: enter an amount`);
@@ -432,7 +443,11 @@ export class PaymentVouchersService {
         amount,
         offset: hasOffset
           ? {
-              supplierId: String(raw!.offset!.supplierId),
+              party: offsetParty!,
+              supplierId: raw!.offset!.supplierId ? String(raw!.offset!.supplierId) : null,
+              customerId: raw!.offset!.customerId ? String(raw!.offset!.customerId) : null,
+              customerCode: null,
+              customerName: '',
               rate: Number(raw!.offset!.rate) || 1,
               allocations: (raw!.offset!.allocations || [])
                 .map((a) => ({ documentId: a.documentId, amount: ROUND(Number(a.amount) || 0) }))
@@ -449,7 +464,7 @@ export class PaymentVouchersService {
       });
     }
     if (!lines.length) throw new BadRequestException('Add at least one line — an account and an amount, or offset supplier invoices');
-    if (lines.filter((l) => l.offset).length > 1) throw new BadRequestException('One payee per voucher — a voucher can carry one supplier offset line');
+    if (lines.filter((l) => l.offset).length > 1) throw new BadRequestException('One payee per voucher — a voucher can carry one supplier or customer offset line');
 
     const total = ROUND(lines.reduce((s, l) => s + l.amount, 0));
     const hasCreditNote = lines.some((l) => l.offset?.allocations.some((a) => a.amount < 0));
@@ -498,9 +513,41 @@ export class PaymentVouchersService {
 
     // Creditor line: supplier, allocation caps, balance = 0 in supplier currency.
     const creditWithFlag = await isOrgFeatureEnabled(this.prisma, organizationId, AP_CREDIT_OFFSET_FLAG);
+    // Customer refund line (AR control): the cash paid out refunds the
+    // customer's CREDIT NOTES / overpayments — allocations are negative (credit
+    // consumed) and must add up to the line amount.
+    const prevCustPays = await this.prisma.payment.findMany({ where: { organizationId, receiptId: id }, select: { id: true, documentId: true, amount: true } });
+    const ownByCn = new Map<string, number>();
+    for (const p of prevCustPays) ownByCn.set(p.documentId, ROUND((ownByCn.get(p.documentId) || 0) + (Number(p.amount) || 0)));
     for (const l of lines) {
       const o = l.offset;
-      if (!o) continue;
+      if (!o || o.party !== 'customer') continue;
+      const customer: any = await this.prisma.customer.findFirst({ where: { id: String(o.customerId), organizationId }, select: { id: true, name: true, customerCode: true, currency: true } });
+      if (!customer) throw new BadRequestException('Customer not found');
+      o.customerCode = customer.customerCode || null;
+      o.customerName = String(customer.name || '');
+      o.currency = String(customer.currency || currency).toUpperCase();
+      if (!o.allocations.length) throw new BadRequestException(`Tick at least one credit note for ${o.customerName}`);
+      if (o.allocations.some((a) => a.amount > 0)) throw new BadRequestException('A refund can only be allocated to the customer\'s credit notes — their invoices stay as they are');
+      const refunded = ROUND(-o.allocations.reduce((s, a) => s + a.amount, 0));
+      if (Math.abs(refunded - o.supplierAmount) > 0.005)
+        throw new BadRequestException(`${o.customerName}: refund must be fully allocated — amount ${o.supplierAmount.toFixed(2)}, allocated ${refunded.toFixed(2)}`);
+      const { credits: openCn } = await this.receipts.offsetItems(organizationId, String(o.customerId));
+      const openById = new Map(openCn.map((cn) => [cn.documentId, { ...cn, outstanding: ROUND(cn.outstanding - (ownByCn.get(cn.documentId) || 0)) }]));
+      for (const a of o.allocations) {
+        const cn = openById.get(a.documentId);
+        if (!cn) throw new BadRequestException('An allocated credit note is not open for this customer');
+        if (Math.abs(a.amount) > cn.outstanding + 0.005) throw new BadRequestException(`Refund of ${cn.reference} (${Math.abs(a.amount).toFixed(2)}) exceeds its remaining credit ${cn.outstanding.toFixed(2)}`);
+      }
+      o.allocations = o.allocations.map((a) => {
+        const cn = openById.get(a.documentId);
+        return { ...a, reference: cn?.reference ?? null, date: cn?.date ?? null, description: cn?.remarks ?? 'CREDIT NOTE' };
+      });
+      if (!l.remarks) l.remarks = `${o.customerCode ? `${o.customerCode} — ` : ''}${o.customerName}`.trim();
+    }
+    for (const l of lines) {
+      const o = l.offset;
+      if (!o || o.party !== 'supplier') continue;
       const supplier: any = await this.prisma.supplier.findFirst({ where: { id: o.supplierId, organizationId }, select: { id: true, name: true, supplierCode: true, currency: true } });
       if (!supplier) throw new BadRequestException('Supplier not found');
       o.supplierCode = supplier.supplierCode || null;
@@ -514,7 +561,7 @@ export class PaymentVouchersService {
         throw new BadRequestException(
           `${supplier.name}: offset must be fully allocated — amount ${o.supplierAmount.toFixed(2)}, allocated ${offsetSum.toFixed(2)} (balance ${(o.supplierAmount - offsetSum).toFixed(2)})`,
         );
-      const open = await this.openBills(organizationId, o.supplierId, { excludeVoucherId: id });
+      const open = await this.openBills(organizationId, String(o.supplierId), { excludeVoucherId: id });
       const openById = new Map(open.map((b) => [b.documentId, b]));
       for (const a of o.allocations) {
         const bill = openById.get(a.documentId);
@@ -535,8 +582,9 @@ export class PaymentVouchersService {
       if (!l.remarks) l.remarks = `${o.supplierCode ? `${o.supplierCode} — ` : ''}${o.supplierName}`.trim();
     }
 
-    const creditorLine = lines.find((l) => l.offset);
-    const payee = String(dto.payee || creditorLine?.offset?.supplierName || '').trim();
+    const creditorLine = lines.find((l) => l.offset?.party === 'supplier');
+    const customerLine = lines.find((l) => l.offset?.party === 'customer');
+    const payee = String(dto.payee || creditorLine?.offset?.supplierName || customerLine?.offset?.customerName || '').trim();
 
     // Previous rows are found through the voucher's earlier journals (BEFORE
     // the repost voids them — voided journals still carry the link).
@@ -544,8 +592,10 @@ export class PaymentVouchersService {
     const previous = previousJournalIds.length
       ? await this.prisma.billPayment.findMany({ where: { organizationId, journalEntryId: { in: previousJournalIds } }, select: { id: true, billId: true } })
       : [];
-    const allAllocations = lines.flatMap((l) => (l.offset ? l.offset.allocations.map((a) => ({ ...a, supplierId: l.offset!.supplierId })) : []));
+    const allAllocations = lines.flatMap((l) => (l.offset?.party === 'supplier' ? l.offset.allocations.map((a) => ({ ...a, supplierId: String(l.offset!.supplierId) })) : []));
+    const custAllocations = lines.flatMap((l) => (l.offset?.party === 'customer' ? l.offset.allocations.map((a) => ({ ...a, customerId: String(l.offset!.customerId) })) : []));
     const touched = new Set<string>([...previous.map((p) => p.billId), ...allAllocations.map((a) => a.documentId)]);
+    const touchedInvoices = new Set<string>([...prevCustPays.map((p) => p.documentId), ...custAllocations.map((a) => a.documentId)]);
 
     // ONE journal for the voucher (void + repost inside).
     const entry = await this.journalAutoPost.postFromPaymentVoucher({
@@ -564,7 +614,8 @@ export class PaymentVouchersService {
         description: l.description,
         offset: l.offset
           ? {
-              supplierName: l.offset.supplierName,
+              party: l.offset.party,
+              supplierName: l.offset.party === 'customer' ? l.offset.customerName : l.offset.supplierName,
               currency: l.offset.currency,
               rate: l.offset.rate || 1,
               allocations: l.offset.allocations.map((a) => ({ documentId: a.documentId, amount: a.amount })),
@@ -581,6 +632,24 @@ export class PaymentVouchersService {
 
     await this.prisma.$transaction(async (tx) => {
       if (previous.length) await tx.billPayment.deleteMany({ where: { organizationId, id: { in: previous.map((p) => p.id) } } });
+      if (prevCustPays.length) await tx.payment.deleteMany({ where: { organizationId, id: { in: prevCustPays.map((p) => p.id) } } });
+      for (const a of custAllocations) {
+        await tx.payment.create({
+          data: {
+            organizationId,
+            customerId: a.customerId,
+            documentId: a.documentId,
+            amount: a.amount,
+            paymentDate: new Date(dto.date),
+            paymentMethod: 'refund',
+            reference: voucherNumber,
+            notes: `Refund by Payment Voucher ${voucherNumber}`,
+            receiptId: id,
+            journalEntryId: entry.id,
+            createdBy: actor?.id || 'system',
+          },
+        });
+      }
       for (const a of allAllocations) {
         await tx.billPayment.create({
           data: {
@@ -614,6 +683,7 @@ export class PaymentVouchersService {
             preparedBy: dto.preparedBy || cfg.preparedBy || '',
             paymentMethod: dto.paymentMethod || (dto.chequeNo ? 'cheque' : 'transfer'),
             creditorAccountCode: creditorCode,
+            debtorAccountCode: debtorCode,
             lines,
             voucherAmount: total,
             // Legacy mirrors for the listings / bank rec.
@@ -636,6 +706,13 @@ export class PaymentVouchersService {
         await this.bills.refreshBillAfterPayments(organizationId, billId);
       } catch (e) {
         console.error('Voucher save: bill refresh failed for', billId, e);
+      }
+    }
+    for (const invId of touchedInvoices) {
+      try {
+        await this.payments.updateInvoiceStatusAfterPayment(invId, organizationId);
+      } catch (e) {
+        console.error('Voucher save: credit note refresh failed for', invId, e);
       }
     }
 
@@ -817,7 +894,16 @@ export class PaymentVouchersService {
     });
     if (live) await this.journalService.void(organizationId, live.id, actor?.id);
     if (previous.length) await this.prisma.billPayment.deleteMany({ where: { organizationId, id: { in: previous.map((p) => p.id) } } });
+    const custPays = await this.prisma.payment.findMany({ where: { organizationId, receiptId: id }, select: { id: true, documentId: true } });
+    if (custPays.length) await this.prisma.payment.deleteMany({ where: { organizationId, id: { in: custPays.map((p) => p.id) } } });
     await this.prisma.document.deleteMany({ where: { id, organizationId } });
+    for (const invId of new Set(custPays.map((p) => p.documentId))) {
+      try {
+        await this.payments.updateInvoiceStatusAfterPayment(invId, organizationId);
+      } catch (e) {
+        console.error('Voucher delete: credit note refresh failed for', invId, e);
+      }
+    }
 
     for (const billId of new Set(previous.map((p) => p.billId))) {
       try {

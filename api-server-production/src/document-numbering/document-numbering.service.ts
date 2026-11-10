@@ -25,6 +25,7 @@ export const DOC_CODE: Record<string, string> = {
   PURCHASE_RETURN: 'PR',
   STOCK_ADJUSTMENT: 'SA',
   PAYMENT_VOUCHER: 'PV',
+  JOURNAL_VOUCHER: 'JV',
   // Official Receipt (the AR receipt document, type OFFICIAL_RECEIPT). The
   // old 'RECEIPT' key never matched a real document type; rows seeded under
   // it are inert (guru/Heimen 2026-11-05).

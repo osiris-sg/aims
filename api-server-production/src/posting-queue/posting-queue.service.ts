@@ -216,7 +216,12 @@ export class PostingQueueService {
         return { documentId, invoiceNumber, ok: true, skipped: true, journalEntryId: c.glPosting.journalEntryId };
       }
       // Idempotency: don't double-post if a non-void JE already exists.
-      const already = await this.autoPost.alreadyPostedForDocument(organizationId, documentId, doc.type);
+      // The journal's type is not always the document's: receipts and payment
+      // vouchers post PAYMENT journals, a Journal Voucher posts a MANUAL one.
+      // (Fix 2026-11-10 — Confirm from the editor / queue never found them.)
+      const journalTypeFor = (t: string) =>
+        t === 'OFFICIAL_RECEIPT' || t === 'PAYMENT_VOUCHER' || t === 'SPEND_MONEY' || t === 'RECEIVE_MONEY' ? 'PAYMENT' : t === 'JOURNAL_VOUCHER' ? 'MANUAL' : t;
+      const already = await this.autoPost.alreadyPostedForDocument(organizationId, documentId, journalTypeFor(doc.type));
       if (already) {
         await this.stampPosted(documentId, c, already.id, userId);
         await this.confirmAfterPost(organizationId, documentId, doc.type);
@@ -236,6 +241,9 @@ export class PostingQueueService {
       }
       if (doc.type === 'PAYMENT_VOUCHER') {
         return { documentId, invoiceNumber, ok: false, error: 'Payment voucher has no journal — open it and Save, then post from the queue' };
+      }
+      if (doc.type === 'JOURNAL_VOUCHER') {
+        return { documentId, invoiceNumber, ok: false, error: 'Journal voucher has no journal — open it and Save, then confirm' };
       }
 
       const entryDate = c.date ? new Date(c.date) : new Date();
@@ -369,7 +377,8 @@ export class PostingQueueService {
   // ---- helpers ------------------------------------------------------------
   private async loadInvoice(organizationId: string, documentId: string) {
     const doc = await this.prisma.document.findFirst({
-      where: { id: documentId, organizationId, type: { in: ['INVOICE', 'CREDIT_NOTE', 'DEBIT_NOTE', 'BILL', 'OFFICIAL_RECEIPT', 'PAYMENT_VOUCHER'] } },
+      // JOURNAL_VOUCHER (2026-11-10): the legacy J/V document confirms through the queue like receipts and vouchers.
+      where: { id: documentId, organizationId, type: { in: ['INVOICE', 'CREDIT_NOTE', 'DEBIT_NOTE', 'BILL', 'OFFICIAL_RECEIPT', 'PAYMENT_VOUCHER', 'JOURNAL_VOUCHER'] } },
       select: { id: true, name: true, type: true, config: true, status: true },
     });
     if (!doc) throw new NotFoundException('Invoice not found in this organization');

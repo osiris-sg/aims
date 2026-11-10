@@ -32,6 +32,7 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 import { launchAimee } from "@/app/portal/chat/launchAimee";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./_lib/api";
+import { useNewJournalVoucher } from "./_lib/useNewJournalVoucher";
 import JournalEntryDialog from "./_lib/JournalEntryDialog";
 import AccountingAssistantDrawer from "./_lib/AccountingAssistantDrawer";
 import CloseWizardDialog from "./_lib/CloseWizardDialog";
@@ -68,6 +69,8 @@ const fmt = (n: number) =>
 export default function AccountingHubPage() {
   const { request } = useAccountingApi();
   const router = useRouter();
+  // "New Journal Entry" opens the legacy-style Journal Voucher editor (2026-11-09).
+  const newJv = useNewJournalVoucher("/portal/accounting");
   const { isPostingQueueEnabled, isAimsChatEnabled } = useOrganizationFeatures();
   const [hub, setHub] = useState<Hub | null>(null);
   const [loading, setLoading] = useState(true);
@@ -247,7 +250,8 @@ export default function AccountingHubPage() {
             size="small"
             variant="contained"
             startIcon={<AddIcon />}
-            onClick={() => setNewJournalOpen(true)}
+            onClick={() => void newJv.open()}
+            disabled={newJv.opening}
           >
             New Journal Entry
           </Button>

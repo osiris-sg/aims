@@ -39,7 +39,7 @@ export class JournalAutoPostService {
     });
   }
 
-  private async getControlAccounts(organizationId: string) {
+  async getControlAccounts(organizationId: string) {
     const setting = await this.prisma.accountingSetting.findUnique({ where: { organizationId } });
     return (setting?.controlAccounts as Record<string, string> | null) ?? null;
   }
@@ -112,7 +112,7 @@ export class JournalAutoPostService {
   // Historical rate a document was originally posted at — read from its
   // invoice/bill journal's control-account line. Used to relieve AR/AP at the
   // same base value it went on at, so the control account clears exactly.
-  private async historicalRateForDocument(organizationId: string, documentId: string): Promise<number | null> {
+  async historicalRateForDocument(organizationId: string, documentId: string): Promise<number | null> {
     const entry = await this.prisma.journalEntry.findFirst({
       where: { organizationId, sourceDocumentId: documentId, type: { in: ['INVOICE', 'CREDIT_NOTE', 'DEBIT_NOTE'] }, status: { not: 'VOID' } },
       include: { lines: { where: { exchangeRate: { not: null } }, take: 1 } },
@@ -122,7 +122,7 @@ export class JournalAutoPostService {
     return rate && rate > 0 ? rate : null;
   }
 
-  private async resolveFxGainLossAccount(organizationId: string, controls: Record<string, string> | null) {
+  async resolveFxGainLossAccount(organizationId: string, controls: Record<string, string> | null) {
     return (
       (await this.resolveAccountByCode(organizationId, controls?.fxGainLoss)) ||
       (await this.resolveAccountByCode(organizationId, '499')) ||
@@ -873,7 +873,8 @@ export class JournalAutoPostService {
       amount: number; // voucher currency, signed
       description?: string | null;
       offset?: null | {
-        supplierName?: string | null;
+        party?: 'supplier' | 'customer' | null; // customer = refund of credit notes (Dr debtor control)
+        supplierName?: string | null; // the party's name
         currency?: string | null; // supplier currency
         rate?: number | null; // supplier currency per voucher currency
         allocations: Array<{ documentId: string; amount: number }>; // supplier currency
@@ -952,18 +953,24 @@ export class JournalAutoPostService {
         if (apBase === 0) continue;
         apBaseTotal = ROUND(apBaseTotal + apBase);
         const isCredit = apBase < 0;
+        // Customer refund: the credit note's credit is given back in cash, so
+        // the debtor control is DEBITED by the credit consumed.
+        const isCust = o.party === 'customer';
         lines.push({
           accountId: account.id,
-          debit: isCredit ? 0 : apBase,
-          credit: isCredit ? -apBase : 0,
-          description: isCredit
+          debit: isCust ? -apBase : isCredit ? 0 : apBase,
+          credit: isCust ? 0 : isCredit ? -apBase : 0,
+          description: isCust
+            ? `Refund credit note — ${o.supplierName ?? ''}`.trim()
+            : isCredit
             ? `Apply supplier credit note — ${o.supplierName ?? ''}`.trim()
             : `Settle supplier invoice — ${o.supplierName ?? ''}`.trim(),
           ...(supForeign ? { foreignAmount: ROUND(Math.abs(a.amount)), exchangeRate: hist } : {}),
         });
       }
       // Paid more base than the liability relieved → realised LOSS (debit FX).
-      const diff = ROUND(lineBase - apBaseTotal);
+      // (Customer refund: allocations are negative, the debit posted is −Σ.)
+      const diff = ROUND(lineBase - (o.party === 'customer' ? -apBaseTotal : apBaseTotal));
       if (Math.abs(diff) > 0.005) {
         const fxAccount = o.fxAccountCode
           ? await this.resolveAccountByCode(organizationId, o.fxAccountCode)

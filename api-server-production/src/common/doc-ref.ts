@@ -35,6 +35,7 @@ export const DOC_TYPE_PREFIX: Record<string, string> = {
   PR: 'PR',
   OFFICIAL_RECEIPT: 'REC',
   PAYMENT_VOUCHER: 'P/V',
+  JOURNAL_VOUCHER: 'J/V', // the legacy Journal Voucher screen as a document (2026-11-09)
   SPEND_MONEY: 'SPM', // Spend Money (direct bank payment, no supplier invoice)
   RECEIVE_MONEY: 'RCM', // Receive Money (direct bank receipt, no customer invoice)
   STOCK_ADJUSTMENT_IN: 'AJI',

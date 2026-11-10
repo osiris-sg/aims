@@ -149,7 +149,17 @@ export default function PvListingReport() {
           out.push({
             kind: "row",
             key: v.id,
-            cells: [pvNo(v), v.paymentDate ? fmtDate(v.paymentDate) : "", v.supplierName || "", amt, currency(v), foreignAmount(v)],
+            // Click-through to the voucher (guru 2026-11-10); Back returns here.
+            cells: [
+              v.id
+                ? { text: pvNo(v), href: `/portal/accounting/payment-vouchers/${v.id}?from=${encodeURIComponent(typeof window !== "undefined" ? window.location.pathname + window.location.search : "/portal/accounting/payables")}` }
+                : pvNo(v),
+              v.paymentDate ? fmtDate(v.paymentDate) : "",
+              v.supplierName || "",
+              amt,
+              currency(v),
+              foreignAmount(v),
+            ],
           });
         }
         out.push({ kind: "subtotal", key: `st-${code}-${sec.label}`, cells: ["SUB-TOTAL", "", "", subTotal, "", null] });
