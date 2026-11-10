@@ -93,6 +93,10 @@ type LedgerRow = {
   journalNumber: string;
   entryDate: string;
   reference?: string | null;
+  /** Legacy Reference: the document behind the line, prefixed (INV / SIN / REC / P/V); a manual J/V = its number. */
+  ref?: string | null;
+  /** Legacy X-Reference: the document's own reference text. */
+  xref?: string | null;
   description?: string | null;
   debit: number;
   credit: number;
@@ -118,6 +122,8 @@ type GlDocGroup = {
     date: string;
     reference?: string | null;
     journalNumber?: string | null;
+    ref?: string | null;
+    xref?: string | null;
     description?: string | null;
     debit: number;
     credit: number;
@@ -434,9 +440,9 @@ export default function GLWorkspace() {
                     {(ledger?.rows || []).map((t, i) => (
                       <TableRow key={i} hover sx={clickableRowSx} onClick={() => openLedgerRow(t)} title="Open the document behind this line (a manual J/V opens the journal)">
                         <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
-                          {t.journalNumber || "—"}
+                          {t.ref || t.journalNumber || "—"}
                         </TableCell>
-                        <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{t.reference || ""}</TableCell>
+                        <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{t.xref ?? t.reference ?? ""}</TableCell>
                         <TableCell sx={{ whiteSpace: "nowrap" }}>{dmy(t.entryDate)}</TableCell>
                         <TableCell>{t.description || ""}</TableCell>
                         <TableCell sx={monoRight}>{t.debit ? fmt(t.debit) : ""}</TableCell>
@@ -903,9 +909,9 @@ function buildGlItems(doc: GlDoc): GlDocItem[] {
         kind: "line",
         cells: [
           formatShortDate(r.date),
-          r.journalNumber || "",
+          r.ref || r.journalNumber || "",
           r.description || "",
-          r.reference || "",
+          r.xref ?? r.reference ?? "",
           r.debit ? docFmt(r.debit) : "",
           r.credit ? docFmt(r.credit) : "",
           docFmt(r.runningBalance),

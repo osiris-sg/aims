@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../common/prisma.service';
 import { CreateJournalEntryDto, JournalLineDto, UpdateJournalEntryDto } from './dto/journal-entry.dto';
 import { AnomaliesService } from '../anomalies/anomalies.service';
-import { docRef } from '../common/doc-ref';
+import { docRef, isPrefixed } from '../common/doc-ref';
 import { isUnconfirmedDoc } from '../common/doc-status';
 import { erpImportedZeroInvoiceIds, isErpImported } from '../common/erp-import';
 import { HEADER_ACCOUNT_TYPE } from '../accounting/default-chart-of-accounts';
@@ -69,7 +69,8 @@ export class JournalService {
     return false;
   }
 
-  private async nextJournalNumber(organizationId: string, prefix = 'JV'): Promise<string> {
+  /** Public since 2026-11-09: the Journal Voucher document takes the next JV number as its own. */
+  async nextJournalNumber(organizationId: string, prefix = 'JV'): Promise<string> {
     // Find the highest CANONICAL number (JV-<digits>) at the DB level. A plain
     // "order by journalNumber desc" is wrong here: suffixed numbers like
     // JV-XERO-22533 / JV-INV-000001 / JV-PAY-000002 lex-sort ABOVE JV-000001,
@@ -443,6 +444,46 @@ export class JournalService {
     return { asOfDate: asOfDate ?? null, rows, totalDebit, totalCredit, isBalanced: Math.abs(totalDebit - totalCredit) < 0.02 };
   }
 
+  /**
+   * The document behind a journal line: by sourceDocumentId when the poster
+   * set one, else by the LEADING TOKEN of the journal's reference — Xero
+   * imports (24k journals on Biofuel) carry no sourceDocumentId but their
+   * reference starts with the invoice / bill number ("BI202507038 (20% …)").
+   */
+  private async resolveLineDocs(
+    organizationId: string,
+    entries: Array<{ sourceDocumentId?: string | null; reference?: string | null }>,
+  ): Promise<(je: { sourceDocumentId?: string | null; reference?: string | null }) => { id: string; type: string; name: string; documentTemplateId: string | null } | undefined> {
+    const token = (ref: string | null | undefined) => {
+      const m = /^([A-Za-z0-9][A-Za-z0-9\-\/\.]{2,})/.exec(String(ref || '').trim());
+      return m ? m[1] : '';
+    };
+    const ids = [...new Set(entries.map((e) => e.sourceDocumentId).filter((x): x is string => !!x))];
+    const names = [...new Set(entries.filter((e) => !e.sourceDocumentId).map((e) => token(e.reference)).filter(Boolean))];
+    const [byIdRows, byNameRows] = await Promise.all([
+      ids.length ? this.prisma.document.findMany({ where: { organizationId, id: { in: ids } }, select: { id: true, type: true, name: true, documentTemplateId: true } }) : Promise.resolve([]),
+      names.length ? this.prisma.document.findMany({ where: { organizationId, name: { in: names } }, select: { id: true, type: true, name: true, documentTemplateId: true } }) : Promise.resolve([]),
+    ]);
+    const byId = new Map(byIdRows.map((d) => [d.id, d]));
+    const byName = new Map<string, (typeof byNameRows)[number]>();
+    for (const d of byNameRows) if (!byName.has(d.name)) byName.set(d.name, d);
+    return (je) => (je.sourceDocumentId ? byId.get(je.sourceDocumentId) : byName.get(token(je.reference)));
+  }
+
+  /** Legacy ledger columns: Reference = the prefixed document (INV/SIN/REC/P/V…; manual J/V = its number), X-Reference = the document's own reference text. */
+  private legacyRefs(
+    je: { journalNumber: string; reference?: string | null },
+    src?: { type?: string | null; name?: string | null } | null,
+  ): { ref: string; xref: string } {
+    const rawRef = String(je.reference || '').trim();
+    const docName = String(src?.name || '').trim();
+    const ref = src && docName ? docRef(src.type, docName) : isPrefixed(rawRef) ? rawRef : je.journalNumber;
+    let xref = rawRef;
+    if (xref === ref || (docName && xref === docName)) xref = '';
+    else if (docName && xref.startsWith(docName)) xref = xref.slice(docName.length).replace(/^[\s\-–—:(]+/, '').replace(/\)\s*$/, '').trim();
+    return { ref, xref };
+  }
+
   async generalLedger(organizationId: string, accountId: string, opts?: { startDate?: Date; endDate?: Date }) {
     const account = await this.prisma.chartOfAccount.findFirst({ where: { id: accountId, organizationId } });
     if (!account) throw new NotFoundException('Account not found');
@@ -491,23 +532,27 @@ export class JournalService {
     // The document each line came from, so the ledger can open it on click
     // (guru 2026-11-06: "click it goes to that document, then go back"). One
     // lookup for the distinct ids — never a join per line.
-    const docIds = [...new Set(lines.map((l) => l.journalEntry.sourceDocumentId).filter((id): id is string => !!id))];
-    const docs = docIds.length
-      ? await this.prisma.document.findMany({ where: { organizationId, id: { in: docIds } }, select: { id: true, type: true, name: true, documentTemplateId: true } })
-      : [];
-    const docById = new Map(docs.map((d) => [d.id, d]));
+    const docFor = await this.resolveLineDocs(organizationId, lines.map((l) => l.journalEntry));
 
     let running = openingBalance;
     const rows = lines.map((l) => {
       const delta = account.normalBalance === 'DEBIT' ? l.debit - l.credit : l.credit - l.debit;
       running += delta;
-      const src = l.journalEntry.sourceDocumentId ? docById.get(l.journalEntry.sourceDocumentId) : undefined;
+      const src = docFor(l.journalEntry);
+      // Legacy columns (guru 2026-11-09 "ref is the SIN / INV, not JV-XERO"):
+      //   ref  = the DOCUMENT behind the line, prefixed (INV BI…, SIN …, REC …,
+      //          P/V …); a manual J/V shows its own journal number.
+      //   xref = the document's own reference text (what Xero / the clerk
+      //          typed), with the document number stripped off the front.
+      const { ref, xref } = this.legacyRefs(l.journalEntry, src);
       return {
         journalEntryId: l.journalEntryId,
         journalNumber: l.journalEntry.journalNumber,
         entryDate: l.journalEntry.entryDate,
         type: l.journalEntry.type,
         reference: l.journalEntry.reference,
+        ref,
+        xref,
         description: l.description ?? l.journalEntry.description,
         debit: ROUND(l.debit),
         credit: ROUND(l.credit),
@@ -1031,7 +1076,7 @@ export class JournalService {
         },
       },
       include: {
-        journalEntry: { select: { journalNumber: true, entryDate: true, type: true, reference: true, description: true } },
+        journalEntry: { select: { journalNumber: true, entryDate: true, type: true, reference: true, description: true, sourceDocumentId: true } },
         account: { select: { id: true, code: true, name: true, accountType: true } },
       },
       orderBy: [{ journalEntry: { entryDate: 'asc' } }, { lineNumber: 'asc' }],
@@ -1054,6 +1099,9 @@ export class JournalService {
     };
 
     const byAccount = new Map<string, { code: string; name: string; accountType: string; rows: any[]; debit: number; credit: number }>();
+    // Legacy Reference / X-Reference per line (guru 2026-11-09): the document
+    // behind the line, prefixed, not the internal journal number.
+    const glDocFor = await this.resolveLineDocs(organizationId, lines.map((l: any) => l.journalEntry));
     for (const l of lines) {
       const a = l.account;
       const e = byAccount.get(a.id) || { code: a.code, name: a.name, accountType: a.accountType, rows: [], debit: 0, credit: 0 };
@@ -1063,6 +1111,7 @@ export class JournalService {
         description: l.description ?? l.journalEntry.description ?? '',
         reference: l.journalEntry.reference ?? l.journalEntry.journalNumber,
         journalNumber: l.journalEntry.journalNumber,
+        ...this.legacyRefs(l.journalEntry, glDocFor(l.journalEntry)),
         debit: ROUND(l.debit),
         credit: ROUND(l.credit),
       });
