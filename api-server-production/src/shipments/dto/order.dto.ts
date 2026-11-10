@@ -42,6 +42,8 @@ export class CreateOrderDto {
   @IsOptional() @IsInt() @Min(0) @Max(365) depositDueDays?: number | null;
   @IsOptional() @IsIn(DEPOSIT_DUE_UNITS) depositDueUnit?: 'BUSINESS' | 'CALENDAR' | null;
   @IsOptional() @IsDateString() @IsTradeDate() depositPaidAt?: string | null;
+  /** Round BP: the PI's "Instrument to be received by" date (deposit due). */
+  @IsOptional() @IsDateString() @IsTradeDate() depositDueDate?: string | null;
   @IsOptional() @IsString() @Matches(/^[A-Z]{3}$/, { message: 'currency must be a 3-letter code' }) currency?: string;
   @IsOptional() @IsString() @MaxLength(20) incoterm?: string | null;
   @IsOptional() @IsString() @MaxLength(200) destinationPort?: string | null;

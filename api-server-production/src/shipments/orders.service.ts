@@ -259,7 +259,9 @@ export class OrdersService {
       docLinks,
       fileLinks: shapeFileLinks(o.fileLinks),
       profile: maskedProfile(profile),
-      depositDueDate: depositDueDate(o.piDate, o.depositDueDays, o.depositDueUnit),
+      // Round BP: the PI's "Instrument to be received by" date when stored; else PI date + the term.
+      depositDueDate: o.depositDueDate ? o.depositDueDate.toISOString().slice(0, 10) : depositDueDate(o.piDate, o.depositDueDays, o.depositDueUnit),
+      depositDueFromPi: !!o.depositDueDate,
       monthsLabel: monthsLabel(o.shipMonth, o.deliveryMonth),
       productLabel: orderProductLabel(o),
       progress: progressOf(o.steps),
@@ -730,7 +732,7 @@ export class OrdersService {
       if (dto[k] !== undefined) out[k] = dto[k];
     }
     if (dto.depositDueUnit !== undefined) out.depositDueUnit = dto.depositDueUnit || null;
-    for (const k of ['piDate', 'depositPaidAt', 'customerPoDate'] as const) if (dto[k] !== undefined) out[k] = dto[k] ? new Date(dto[k] as string) : null;
+    for (const k of ['piDate', 'depositPaidAt', 'customerPoDate', 'depositDueDate'] as const) if (dto[k] !== undefined) out[k] = dto[k] ? new Date(dto[k] as string) : null;
     if (dto.currency) out.currency = dto.currency;
     if (dto.checkFields !== undefined) out.checkFields = [...new Set(dto.checkFields.map((x) => x.trim()).filter(Boolean))];
     return out;

@@ -41,6 +41,7 @@ export const DUE_ORDER_SELECT = {
   piDate: true,
   depositDueDays: true,
   depositDueUnit: true,
+  depositDueDate: true,
   steps: { select: STEP },
   shipments: { where: { status: { not: 'CANCELLED' } }, orderBy: { seqNo: 'asc' }, select: SHIP },
 } as const;
@@ -128,6 +129,7 @@ export class TradeDueService {
         piDate: o.piDate,
         depositDueDays: o.depositDueDays,
         depositDueUnit: o.depositDueUnit,
+        depositDueDate: o.depositDueDate ?? null,
         firstEtd: etds[0] ?? null,
         lastEta: etas[etas.length - 1] ?? null,
         billingMode: prof.billingMode,

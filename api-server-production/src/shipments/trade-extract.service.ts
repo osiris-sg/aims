@@ -36,7 +36,9 @@ import {
   ShipmentDraft,
   shipmentDraftFromBl,
   withTextFields,
+  piLineForOrder,
 } from './trade-extract.rules';
+import { parseVedantaPiText } from './trade-pi-text';
 import { hsWarning, productHsForShipment } from './trade-hs';
 import { ciAmountOf, ciHistory, ciProposal, CiText, ciVersionOf, ciVersionsFor, latestCi, parseCiText } from './trade-ci';
 import { fixedPremiumFromPi } from './trade-contract';
@@ -62,6 +64,8 @@ const PROMPTS: Record<ExtractKind, [string, string]> = {
 };
 /** Read from the PDF's text layer first (exact, free); the AI read only when it isn't enough. */
 const TEXT_FIRST: Partial<Record<ExtractKind, (text: string) => { data: unknown; complete: boolean }>> = {
+  // Round BP: Vedanta's e-signed PIs carry a text layer — both amount columns and the instrument date read exactly.
+  PI: parseVedantaPiText,
   AN: parseAnText,
   IMPORT_PERMIT: parsePermitText,
   // Round BJ: Vedanta's CIs carry a text layer — no., date, FINAL / PROVISIONAL and the Sub Total read exactly.
@@ -190,7 +194,7 @@ export class TradeExtractService {
       // Read on upload (round H click-through): blank record fields are filled from the document — typed values are kept.
       const filled =
         kind === 'PI' && input.orderId
-          ? await this.fillOrderFromPi(organizationId, input.orderId, (result as { draft: { piNumber?: string | null; piDate?: string | null; piAmount?: number | null } }).draft)
+          ? await this.fillOrderFromPi(organizationId, input.orderId, (result as { draft: PiFill }).draft)
           : kind === 'CI' && input.shipmentId
             ? await this.fillShipmentFromCi(organizationId, input.shipmentId, (result as { raw: CiRaw }).raw, file)
             : [];
@@ -342,17 +346,11 @@ export class TradeExtractService {
     return out;
   }
 
-  /** Order PI fields from a read PI — blanks only (PI no. / date / amount). Returns the field names filled. */
-  private async fillOrderFromPi(organizationId: string, orderId: string, d: { piNumber?: string | null; piDate?: string | null; piAmount?: number | null }) {
-    const o = await this.prisma.tradeOrder.findFirst({ where: { id: orderId, organizationId }, select: { piNo: true, piDate: true, piAmount: true, depositPct: true, depositAmount: true } });
+  /** Order PI fields from a read PI — blanks only (PI no. / date / amount / deposit / deposit due). Returns the field names filled. */
+  private async fillOrderFromPi(organizationId: string, orderId: string, d: PiFill) {
+    const o = await this.prisma.tradeOrder.findFirst({ where: { id: orderId, organizationId }, select: { grade: true, qtyMt: true, piNo: true, piDate: true, piAmount: true, depositPct: true, depositAmount: true, depositDueDate: true } });
     if (!o) return [];
-    const data: Record<string, unknown> = {};
-    if (!o.piNo && d.piNumber) data.piNo = d.piNumber;
-    if (!o.piDate && d.piDate && /^\d{4}-\d{2}-\d{2}$/.test(d.piDate) && !tradeDateError(d.piDate, 'piDate')) data.piDate = new Date(d.piDate);
-    if (o.piAmount === null && typeof d.piAmount === 'number' && d.piAmount > 0) {
-      data.piAmount = d.piAmount;
-      if (o.depositAmount === null) data.depositAmount = depositOf(d.piAmount, o.depositPct ?? 10);
-    }
+    const data = piFillFor(o, d);
     if (Object.keys(data).length) await this.prisma.tradeOrder.update({ where: { id: orderId, organizationId }, data });
     return Object.keys(data);
   }
@@ -575,4 +573,38 @@ export function sheetText(buffer: Buffer): string {
     }
   }
   return buffer.subarray(0, 20000).toString('utf8');
+}
+
+/** What a read PI gives an order (ContractDraft's PI fields). */
+export type PiFill = { piNumber?: string | null; piDate?: string | null; piAmount?: number | null; depositAmount?: number | null; depositDueDate?: string | null; lines?: Array<{ grade: string | null; quantityMt: number | null; amount?: number | null; amountPayable?: number | null }> };
+
+/**
+ * Round BP — the order's PI fields from a read PI, BLANKS ONLY: PI no. / date; the amount and the deposit (Amount
+ * Payable) of the order's OWN line on a PI shared by several orders (PI 9331004393: #30 → 359,000.00 / 35,900.00,
+ * #31 → 711,000.00 / 71,100.00), the PI totals on a one-line PI; the deposit due = "Instrument to be received by".
+ * Without a printed Amount Payable the deposit stays the order's % of the amount (as before).
+ */
+export function piFillFor(
+  o: { grade: string | null; qtyMt: unknown; piNo: string | null; piDate: Date | null; piAmount: unknown; depositPct: unknown; depositAmount: unknown; depositDueDate: Date | null },
+  d: PiFill,
+): Record<string, unknown> {
+  const data: Record<string, unknown> = {};
+  const iso = (v: string | null | undefined) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+  if (!o.piNo && d.piNumber) data.piNo = d.piNumber;
+  const piDate = iso(d.piDate);
+  if (!o.piDate && piDate && !tradeDateError(piDate, 'piDate')) data.piDate = new Date(piDate);
+  const lines = d.lines ?? [];
+  const line = lines.length ? piLineForOrder(lines, o) : null;
+  // A shared PI whose line for this order can't be told apart: its totals would be wrong for the order — leave them.
+  const shared = lines.length > 1;
+  const amount = line?.amount ?? (shared ? null : (d.piAmount ?? null));
+  const payable = line?.amountPayable ?? (shared ? null : (d.depositAmount ?? null));
+  if ((o.piAmount === null || o.piAmount === undefined) && typeof amount === 'number' && amount > 0) data.piAmount = amount;
+  if (o.depositAmount === null || o.depositAmount === undefined) {
+    if (typeof payable === 'number' && payable > 0) data.depositAmount = payable;
+    else if (typeof data.piAmount === 'number') data.depositAmount = depositOf(data.piAmount, Number(o.depositPct ?? 10));
+  }
+  const due = iso(d.depositDueDate);
+  if (!o.depositDueDate && due && !tradeDateError(due, 'depositDueDate')) data.depositDueDate = new Date(due);
+  return data;
 }

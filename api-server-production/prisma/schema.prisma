@@ -3930,6 +3930,8 @@ model TradeOrder {
   depositDueDays  Int?
   depositDueUnit  String? // "BUSINESS" | "CALENDAR"
   depositPaidAt   DateTime?
+  /// Round BP: the PI's "Instrument to be received by" date — when the deposit (depositAmount = the PI line's Amount Payable) is due; step 1's due date.
+  depositDueDate  DateTime?
   currency        String            @default("USD")
   incoterm        String?
   destinationPort String?

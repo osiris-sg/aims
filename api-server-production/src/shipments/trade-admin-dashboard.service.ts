@@ -56,12 +56,13 @@ export class TradeAdminDashboardService {
     const supplierDue: SupplierDueFact[] = [];
     const deposits: any[] = await this.prisma.tradeOrder.findMany({
       where: { organizationId, status: 'OPEN', isTest: false, piDate: { not: null } },
-      select: { id: true, year: true, orderNo: true, piNo: true, piDate: true, piAmount: true, depositPct: true, depositAmount: true, depositPaidAt: true, depositDueDays: true, depositDueUnit: true, steps: { where: { code: 'PI_PAYMENT' }, select: { status: true, notApplicable: true, payment: true } } },
+      select: { id: true, year: true, orderNo: true, piNo: true, piDate: true, piAmount: true, depositPct: true, depositAmount: true, depositPaidAt: true, depositDueDays: true, depositDueUnit: true, depositDueDate: true, steps: { where: { code: 'PI_PAYMENT' }, select: { status: true, notApplicable: true, payment: true } } },
     });
     for (const o of deposits) {
       const st = o.steps[0];
       if (!st || st.notApplicable) continue;
-      const due = depositDueDate(o.piDate, o.depositDueDays ?? 5, o.depositDueUnit ?? 'BUSINESS');
+      // Round BP: the PI's "Instrument to be received by" date when stored; else PI date + the term.
+      const due = o.depositDueDate ? new Date(o.depositDueDate).toISOString().slice(0, 10) : depositDueDate(o.piDate, o.depositDueDays ?? 5, o.depositDueUnit ?? 'BUSINESS');
       const amount = o.depositAmount !== null && o.depositAmount !== undefined ? Number(o.depositAmount) : depositOf(o.piAmount, o.depositPct ?? 10);
       supplierDue.push({ kind: 'DEPOSIT', label: `${orderLabel(o)}${o.piNo ? ` PI ${o.piNo}` : ''} deposit`, amount, currency: 'USD', dueDate: due ? new Date(due) : null, paid: !!o.depositPaidAt || !!stepPaymentOf(st.payment) || st.status === 'DONE' });
     }

@@ -757,6 +757,13 @@ function orderTitle(o: Order): string {
 /** "Vedanta" / "SIAE" / "Inalum" — the supplier's short name (round R header line 2). */
 
 /** What each order step / document is about. */
+/** Round BP: "Deposit payable USD 35,900.00 by 6 Nov" (the PI's Amount Payable and "Instrument to be received by"). */
+function depositPayable(o: Order, t: Tr): string | null {
+  if (o.depositAmount == null) return null;
+  const by = o.depositDueDate ? t("depositBy", { date: fmtDay(o.depositDueDate) }) : "";
+  return t("depositPayable", { amount: fmtMoney(o.depositAmount as any, o.currency), by });
+}
+
 function orderContext(o: Order, t: Tr): StepContext {
   const money = (v: unknown) => fmtMoney(v as any, o.currency);
   return {
@@ -766,7 +773,7 @@ function orderContext(o: Order, t: Tr): StepContext {
           ? t("contractLine", { no: o.contract.contractNo, supplier: String(o.supplierPremium ?? "—"), client: `${o.clientPremium ?? "—"}${o.upcharge ? ` + ${o.upcharge}` : ""}` })
           : t("noContract")
         : st.code === "PI_PAYMENT"
-          ? [o.piNo && `PI ${o.piNo}`, o.piDate && t("dated", { date: fmtDmy(o.piDate) }), o.piAmount != null && money(o.piAmount)].filter(Boolean).join(" · ") || null
+          ? [o.piNo && `PI ${o.piNo}`, o.piDate && t("dated", { date: fmtDmy(o.piDate) }), o.piAmount != null && money(o.piAmount), depositPayable(o, t)].filter(Boolean).join(" · ") || null
           // Round R: no customer / product / "every shipment of #26" lines — they repeat the page header.
           : null,
     docLine: (d) => {
@@ -775,7 +782,8 @@ function orderContext(o: Order, t: Tr): StepContext {
         const due = o.depositDueDate ? t("depositDue", { date: fmtDmy(o.depositDueDate) }) : depositTermLabel(o.depositDueDays, o.depositDueUnit) ? t("depositTerm", { term: depositTermLabel(o.depositDueDays, o.depositDueUnit) ?? "" }) : "";
         return o.depositAmount != null ? t("depositLine", { pct, amount: money(o.depositAmount), due }) : null;
       }
-      if (d === "PI") return o.piNo ? `PI ${o.piNo}${o.piAmount != null ? ` · ${money(o.piAmount)}` : ""}` : null;
+      // Round BP: "PI 9331004393 · USD 359,000.00 · Deposit payable USD 35,900.00 by 6 Nov".
+      if (d === "PI") return o.piNo ? [`PI ${o.piNo}`, o.piAmount != null && money(o.piAmount), depositPayable(o, t)].filter(Boolean).join(" · ") : null;
       return null;
     },
   };

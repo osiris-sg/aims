@@ -263,7 +263,9 @@
     "cancel": "キャンセル",
     "saving": "保存中…",
     "save": "保存",
-    "create": "注文を作成"
+    "create": "注文を作成",
+    "depositAmount": "前払金（支払額）",
+    "depositDueDate": "前払金の期限（PI）"
   },
   "orderPage": {
     "orderCompleted": "注文 {label} が完了しました — すべての出荷が完了",
@@ -451,7 +453,9 @@
       "mismatchShipment": "✗（出荷：{expected}）",
       "nothingToCompare": "（照合対象なし）"
     },
-    "ciRevised": "CI改訂: {from} → {to} — 未反映です。CI金額の下から反映できます（3a）"
+    "ciRevised": "CI改訂: {from} → {to} — 未反映です。CI金額の下から反映できます（3a）",
+    "depositPayable": "前払金 {amount}{by}",
+    "depositBy": "（期限 {date}）"
   },
   "shipmentPage": {
     "notFound": "出荷が見つかりません"

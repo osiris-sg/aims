@@ -218,6 +218,8 @@ export type ContractDraft = {
   depositPercent: number | null;
   depositAmount: number | null;
   depositDueNote: string | null;
+  /** Round BP: "Instrument to be received by" (YYYY-MM-DD). */
+  depositDueDate?: string | null;
   /** The PI's payment terms as a day count ("within 3 business days"), null when they aren't one. */
   depositDueDays?: number | null;
   depositDueUnit?: DepositDueUnit | null;
@@ -594,6 +596,8 @@ export type Order = OrderListItem & {
   depositDueUnit: DepositDueUnit | null;
   depositDueDate: string | null;
   depositPaidAt: string | null;
+  /** Round BP: true when depositDueDate is the PI's "Instrument to be received by" date (else PI date + term). */
+  depositDueFromPi?: boolean;
   currency: string;
   incoterm: string | null;
   destinationPort: string | null;
@@ -638,6 +642,8 @@ export type OrderInput = Partial<{
   depositDueDays: number | null;
   depositDueUnit: DepositDueUnit | null;
   depositPaidAt: string | null;
+  /** Round BP: the PI's "Instrument to be received by" date (deposit due). */
+  depositDueDate: string | null;
   currency: string;
   incoterm: string | null;
   destinationPort: string | null;

@@ -45,6 +45,8 @@ type Form = Record<
   | "piDate"
   | "piAmount"
   | "depositPct"
+  | "depositAmount"
+  | "depositDueDate"
   | "customerPoNo"
   | "customerPoDate",
   string
@@ -70,6 +72,8 @@ const EMPTY: Form = {
   piDate: "",
   piAmount: "",
   depositPct: "10",
+  depositAmount: "",
+  depositDueDate: "",
   customerPoNo: "",
   customerPoDate: "",
 };
@@ -147,6 +151,9 @@ export default function OrderFormDialog({
         piDate: day(order.piDate),
         piAmount: str(order.piAmount),
         depositPct: str(order.depositPct),
+        depositAmount: str(order.depositAmount),
+        // Round BP: only a date stored from the PI is editable here (the term-based one is computed).
+        depositDueDate: order.depositDueFromPi ? day(order.depositDueDate) : "",
         customerPoNo: order.customerPoNo ?? "",
         customerPoDate: day(order.customerPoDate),
       });
@@ -257,13 +264,19 @@ export default function OrderFormDialog({
 
   const applyPi = (x: PiExtraction) => {
     const d = x.result!.draft;
-    const line = d.lines?.[0];
+    // Round BP: a PI shared by several orders — this order's line (the grade already on the form), else the first.
+    const lines = d.lines ?? [];
+    const line = (form.grade && lines.find((l) => l.grade === form.grade)) || lines[0];
+    const shared = lines.length > 1;
     const contractId = d.contractNo ? (contracts.data?.items ?? []).find((c) => c.contractNo === d.contractNo)?.id : undefined;
     const patch: Partial<Form> = {
       piNo: d.piNumber ?? "",
       piDate: d.piDate ?? "",
-      piAmount: str(d.piAmount),
+      piAmount: str((line as any)?.amount ?? (shared ? null : d.piAmount)),
       depositPct: str(d.depositPercent ?? 10),
+      // The PI's Amount Payable for this line, and "Instrument to be received by".
+      depositAmount: str((line as any)?.amountPayable ?? (shared ? null : d.depositAmount)),
+      depositDueDate: (d as any).depositDueDate ?? "",
       shipMonth: d.shipmentMonth ?? "",
       supplierId: d.supplierId ?? "",
       ...(d.customerId ? { customerId: d.customerId } : {}),
@@ -335,6 +348,9 @@ export default function OrderFormDialog({
       piDate: form.piDate || null,
       piAmount: numOrNull(form.piAmount),
       depositPct: numOrNull(form.depositPct),
+      // Round BP: an empty deposit on a NEW order lets the server compute it from the %; on an edit, empty clears it.
+      ...(form.depositAmount !== "" ? { depositAmount: numOrNull(form.depositAmount) } : order ? { depositAmount: null } : {}),
+      depositDueDate: form.depositDueDate || null,
       customerPoNo: form.customerPoNo || null,
       customerPoDate: form.customerPoDate || null,
       ...(source && !order ? { piFileId: source.fileId } : {}),
@@ -543,6 +559,12 @@ export default function OrderFormDialog({
               </Grid>
               <Grid item xs={6} sm={3}>
                 {field("depositPct", t("depositPct"), { type: "number" })}
+              </Grid>
+              <Grid item xs={6} sm={3}>
+                {field("depositAmount", t("depositAmount"), { type: "number" })}
+              </Grid>
+              <Grid item xs={6} sm={3}>
+                {field("depositDueDate", t("depositDueDate"), { type: "date", InputLabelProps: { shrink: true } })}
               </Grid>
               <Grid item xs={12}>
                 <Typography variant="overline" color="text.secondary">

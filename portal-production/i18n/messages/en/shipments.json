@@ -263,7 +263,9 @@
     "cancel": "Cancel",
     "saving": "Saving…",
     "save": "Save",
-    "create": "Create order"
+    "create": "Create order",
+    "depositAmount": "Deposit payable",
+    "depositDueDate": "Deposit due (PI)"
   },
   "orderPage": {
     "orderCompleted": "Order {label} completed — all its shipments are done",
@@ -451,7 +453,9 @@
       "mismatchShipment": "✗ (shipment: {expected})",
       "nothingToCompare": "(nothing to compare)"
     },
-    "ciRevised": "CI revised: {from} → {to} — not applied; use it under CI amount (step 3a)"
+    "ciRevised": "CI revised: {from} → {to} — not applied; use it under CI amount (step 3a)",
+    "depositPayable": "Deposit payable {amount}{by}",
+    "depositBy": " by {date}"
   },
   "shipmentPage": {
     "notFound": "Shipment not found"

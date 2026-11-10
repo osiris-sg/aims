@@ -145,7 +145,8 @@ describe('schema validation', () => {
       depositAmount: 120958.5,
       depositDueNote: 'within 5 business days',
     });
-    expect(d.lines).toEqual([{ grade: '6063', sizeSpec: '203 MM (8 INCH)', product: 'Aluminium Billet', quantityMt: 300, tolerancePct: 5, supplierPremium: 556.5, piPremium: 556.5 }]);
+    // Round BP: each line also carries its own amount and Amount Payable (a shared PI: each order takes its line).
+    expect(d.lines).toEqual([{ grade: '6063', sizeSpec: '203 MM (8 INCH)', product: 'Aluminium Billet', quantityMt: 300, tolerancePct: 5, supplierPremium: 556.5, piPremium: 556.5, amount: 1209585, amountPayable: null }]);
   });
   it('picks the end customer only when the PI clearly names one', () => {
     const pi = parseWith(PI_SCHEMA, { ...PI_REPLY, customerHint: 'MARKS: SUS CO., LTD. SHIZUOKA' }, 'PI');

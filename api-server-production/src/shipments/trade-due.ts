@@ -73,6 +73,8 @@ export interface DueContext {
   piDate?: Date | string | null;
   depositDueDays?: number | null;
   depositDueUnit?: string | null;
+  /** Round BP: the PI's "Instrument to be received by" date — wins over PI date + term. */
+  depositDueDate?: Date | string | null;
   /** This shipment's schedule (shipment steps). */
   etd?: Date | string | null;
   eta?: Date | string | null;
@@ -140,6 +142,9 @@ export function dueOf(code: string, c: DueContext, manual?: Date | string | null
   if (m) return { due: m, source: 'manual', why: rule?.why ?? null, rule };
   if (!rule) return { due: null, source: null, why: null };
   if (rule.anchor === 'DEPOSIT_TERM') {
+    // Round BP: the date the PI prints ("Instrument to be received by") when the order has it; else PI date + the term.
+    const printed = dayOf(c.depositDueDate ?? null);
+    if (printed) return { due: printed, source: 'rule', why: 'the PI\'s "Instrument to be received by" date', rule };
     const d = depositDueDate(c.piDate ?? null, c.depositDueDays ?? 3, c.depositDueUnit ?? 'BUSINESS');
     return { due: d, source: d ? 'rule' : null, why: rule.why, rule };
   }

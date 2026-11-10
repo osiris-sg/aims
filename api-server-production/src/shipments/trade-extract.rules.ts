@@ -43,6 +43,8 @@ export const PI_LINE_SCHEMA = z.object({
   premium: nnum.default(null),
   rate: nnum.default(null),
   amount: nnum.default(null),
+  /** Round BP: the line's "Amount Payable" — the advance (deposit) due now for this line. */
+  amountPayable: nnum.default(null),
 });
 
 export const PI_SCHEMA = z.object({
@@ -170,13 +172,13 @@ export const PI_USER_PROMPT = `Extract this Proforma Invoice into exactly this J
   "portOfDischarge": "as printed",
   "termsOfDelivery": "as printed, e.g. \\"CIF YOKOHAMA, JAPAN\\"",
   "paymentTerms": "as printed, e.g. \\"10% Adv with 5 business days\\"",
-  "instrumentDueDate": "YYYY-MM-DD or null",
+  "instrumentDueDate": "the \"Instrument to be received by\" date (the deposit's due date) as YYYY-MM-DD — printed DD/MM/YYYY, e.g. 06/11/2026 → 2026-11-06; null if absent",
   "shipmentPeriod": "shipment / delivery period as printed",
   "shipmentMonth": "that period as YYYY-MM (e.g. \\"JULY 2026\\" → \\"2026-07\\")",
   "tolerance": "quantity tolerance as printed, e.g. \\"+/-5%\\"",
   "currency": "3-letter code, e.g. USD",
   "totalAmount": number (total PI value),
-  "amountPayable": number (the advance / amount payable now, if printed),
+  "amountPayable": number (the TOTAL of the "Amount Payable" column = the advance due now, if printed),
   "lines": [
     {
       "description": "line description as printed",
@@ -187,7 +189,8 @@ export const PI_USER_PROMPT = `Extract this Proforma Invoice into exactly this J
       "lme": number (LME price per MT),
       "premium": number (premium per MT),
       "rate": number (unit rate per MT),
-      "amount": number (line amount)
+      "amount": number (line amount = the "Amount" column),
+      "amountPayable": number (this line's "Amount Payable" column = its advance due now) or null
     }
   ]
 }
@@ -368,6 +371,8 @@ export interface ContractDraft {
   depositPercent: number | null;
   depositAmount: number | null;
   depositDueNote: string | null;
+  /** Round BP: "Instrument to be received by" — the deposit's due date (YYYY-MM-DD). */
+  depositDueDate: string | null;
   /** The note as a term: "within 3 business days" → 3 / BUSINESS; null when it isn't a day count. */
   depositDueDays: number | null;
   depositDueUnit: DepositDueUnit | null;
@@ -376,7 +381,7 @@ export interface ContractDraft {
    * filled by the extract service from the org's QMJP table; null when it can't be derived);
    * piPremium = what the PI prints (QMJP + fixed).
    */
-  lines: Array<{ grade: string | null; sizeSpec: string | null; product: string | null; quantityMt: number | null; tolerancePct: number | null; supplierPremium: number | null; piPremium?: number | null }>;
+  lines: Array<{ grade: string | null; sizeSpec: string | null; product: string | null; quantityMt: number | null; tolerancePct: number | null; supplierPremium: number | null; piPremium?: number | null; amount?: number | null; amountPayable?: number | null }>;
 }
 
 export function contractDraftFromPi(pi: PiRaw, parties: { suppliers: Array<{ id: string; name: string }>; customers: Array<{ id: string; name: string }> }): ContractDraft {
@@ -402,6 +407,7 @@ export function contractDraftFromPi(pi: PiRaw, parties: { suppliers: Array<{ id:
     depositPercent: pay.depositPercent,
     depositAmount: pi.amountPayable,
     depositDueNote: pay.depositDueNote,
+    depositDueDate: isoDate(pi.instrumentDueDate),
     depositDueDays: parseDepositDue(pay.depositDueNote)?.days ?? null,
     depositDueUnit: parseDepositDue(pay.depositDueNote)?.unit ?? null,
     lines: pi.lines.map((l) => ({
@@ -412,8 +418,25 @@ export function contractDraftFromPi(pi: PiRaw, parties: { suppliers: Array<{ id:
       tolerancePct: tol,
       supplierPremium: l.premium,
       piPremium: l.premium,
+      // Round BP: the line's own amount and deposit (a PI shared by several orders: each order takes its line).
+      amount: l.amount,
+      amountPayable: l.amountPayable,
     })),
   };
+}
+
+/**
+ * Round BP — the PI line an order takes: its grade (and, when two lines share a grade, its quantity); a one-line PI is
+ * that line. Null when it can't be told apart.
+ */
+export function piLineForOrder<L extends { grade: string | null; quantityMt: number | null }>(lines: L[], order: { grade: string | null; qtyMt: unknown }): L | null {
+  if (lines.length === 1) return lines[0];
+  const g = gradeOf(order.grade);
+  const sameGrade = lines.filter((l) => g && gradeOf(l.grade) === g);
+  if (sameGrade.length === 1) return sameGrade[0];
+  const q = Number(order.qtyMt);
+  const sameQty = sameGrade.filter((l) => Number.isFinite(q) && l.quantityMt !== null && Math.abs(l.quantityMt - q) < 0.0005);
+  return sameQty.length === 1 ? sameQty[0] : null;
 }
 
 export interface ShipmentDraft {
