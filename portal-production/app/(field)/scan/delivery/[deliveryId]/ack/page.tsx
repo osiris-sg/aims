@@ -10,6 +10,7 @@ import { capturePosition } from "@/helpers/geolocation";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 import { useRunWords } from "@/app/portal/hooks/useRunWords";
+import { serverError } from "@/app/(field)/lib/serverError";
 
 /**
  * Acknowledge Delivery — ACK-CAPTURE step of the reordered standalone flow:
@@ -80,7 +81,7 @@ export default function StandaloneDeliveryAckPage() {
         token,
       );
       const reportId = res.data?.id ?? res.id;
-      if (!reportId) throw new Error("No report id returned");
+      if (!reportId) throw new Error(serverError(res, "No report id returned"));
       // Reordered flow: continue to ASSIGN — the signature comes at the END
       // (after-ack's Confirm signs this draft MSR).
       const q = `assetId=${encodeURIComponent(assetId)}${

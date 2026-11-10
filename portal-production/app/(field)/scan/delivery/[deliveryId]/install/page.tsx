@@ -10,6 +10,7 @@ import { capturePosition } from "@/helpers/geolocation";
 import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCaptureField";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 import { useRunWords } from "@/app/portal/hooks/useRunWords";
+import { serverError } from "@/app/(field)/lib/serverError";
 
 /**
  * Complete Installation — STANDALONE-run twin of install/[doId]/page.tsx
@@ -74,7 +75,7 @@ export default function StandaloneInstallPage() {
         token,
       );
       const reportId = res.data?.id ?? res.id;
-      if (!reportId) throw new Error("No report id returned");
+      if (!reportId) throw new Error(serverError(res, "No report id returned"));
       // 2026-08 signature-at-end: install records an UNSIGNED DO_INSTALL proof and
       // returns straight to the run. No per-item signature here - the item stays
       // not_installed and the run's single finalize signature covers installation

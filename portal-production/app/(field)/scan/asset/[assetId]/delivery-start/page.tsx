@@ -9,6 +9,7 @@ import CameraAltIcon from "@mui/icons-material/CameraAlt";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import PlaceIcon from "@mui/icons-material/Place";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import { serverError } from "@/app/(field)/lib/serverError";
 
 // One open scheduled run in the rider's picker. `matchesAsset` is false when the
 // run has no open slot for this unit's asset (an office typo) — the run is still
@@ -378,7 +379,7 @@ function StartDeliveryPage() {
         token,
       );
       const reportId = res.data?.id ?? res.id;
-      if (!reportId) throw new Error("No report id returned");
+      if (!reportId) throw new Error(serverError(res, "No report id returned"));
       // eslint-disable-next-line no-console
       console.log("[delivery-start] POST OK, starting background tracking", {
         reportId,

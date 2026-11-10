@@ -8,6 +8,7 @@ import { request } from "@/helpers/request";
 import { capturePosition } from "@/helpers/geolocation";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
 import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
+import { serverError } from "@/app/(field)/lib/serverError";
 
 /**
  * Acknowledge Delivery — second step of the two-step delivery flow. Enabled
@@ -62,7 +63,7 @@ export default function DeliveryOrderAckPage() {
         token,
       );
       const reportId = res.data?.id ?? res.id;
-      if (!reportId) throw new Error("No report id returned");
+      if (!reportId) throw new Error(serverError(res, "No report id returned"));
       // Forward inventoryId so sign → done → "Back to this asset" keeps the
       // full scan context (the action chooser needs it to resolve the DO).
       const invQuery = inventoryId ? `&inventoryId=${encodeURIComponent(inventoryId)}` : "";
