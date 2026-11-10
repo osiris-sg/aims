@@ -2,7 +2,7 @@
  * Round BP item 7 / BQ — READ-ONLY: the Dashboard "Unpaid" lists as of today on prod (the service the card calls),
  * with each row's reason. Invoices / bills that have no stored INVOICE read yet are read IN MEMORY here (text layer,
  * else the AI) — nothing is written. `--no-ai` skips the AI read for scans.
- * Usage: DBURL=<prod url> TENANCY_MODE= npx ts-node -r tsconfig-paths/register --transpile-only scripts/_bp-unpaid-list.ts [--no-ai]
+ * Usage: DBURL=<prod url> TENANCY_MODE= npx ts-node -r tsconfig-paths/register --transpile-only scripts/_bp-unpaid-list.ts [--no-ai | --stored]
  */
 require('dotenv').config();
 import { PrismaClient } from '@prisma/client';
@@ -32,7 +32,8 @@ async function main() {
   const facts = new Map<string, InvoiceFacts[] | null>();
   const readLog: string[] = [];
   // Every invoice file is read here (before round BQ's deploy prod has no INVOICE reads stored).
-  for (const f of files) {
+  // --stored: use the reads stored on prod (round BQ backfill) — nothing is read here.
+  for (const f of process.argv.includes('--stored') ? [] : files) {
     const r = await readInvoiceBuffer(await s3.downloadFile(f.s3Key), f.mimeType, {
       pdfText,
       ai: ai ? async (buffer, mimetype) => (await (ai as any).extractStructured({ buffer, mimetype }, INVOICE_SYSTEM_PROMPT, INVOICE_USER_PROMPT, { maxTokens: 1500 })).data : undefined,
