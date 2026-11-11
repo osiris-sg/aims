@@ -1,10 +1,12 @@
 # AIMS landing site (ai-ms.io)
 
 Marketing site for AIMS. Next.js 14 App Router, no auth, no MUI. Plain CSS in
-`app/globals.css` (tokens at the top: cream ground `#f6f3ec`, white paper, ink `#1c1030`
-rules, light and dark). IBM Plex Sans and IBM Plex Mono via `next/font/google`. The look is
-paper on a desk, deliberately not the AI-SaaS template: no gradients, glows, icon tiles or
-pill buttons, mono for numbers and references, no "AI" in headlines. The portal itself is a separate Vercel project on **app.ai-ms.io**.
+`app/globals.css`, tokens at the top from **Brand Kit Guidelines R01**: cream `#fcf8f3` pages,
+navy `#040324` text, deep purple `#370054` buttons and dark bands (purple→navy diagonal with a
+lime bar), teal `#297e89` and lime `#c3d833` accents, grey `#8b8c90`. DM Sans via
+`next/font/google`; IBM Plex Mono only inside the sample documents. Pill buttons, soft rounded
+cards, thin lime rules. Light only. The structure is still paper on a desk, not the AI-SaaS
+template: no icon tiles, no "AI" in headlines, no helper text under things. The portal itself is a separate Vercel project on **app.ai-ms.io**.
 
 ```bash
 npm install
