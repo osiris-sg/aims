@@ -1582,6 +1582,39 @@ export class EmailTriageService {
     // "New deal" only from a customer / supplier with no open order that fits — never for a forwarder's or carrier's mail.
     const dealParty = ['SUS', 'KATO', 'HOEI', 'VEDANTA', 'OTHER'].includes(String(log.counterparty ?? '')) || !!(verdict as any)?.seed?.piNo;
     if (!guess && !split && !cands.length && !contractPick.length && verdict?.kind === 'NO_ORDER' && !thread.candidates.length && dealParty && !/MITSUI|SOKO|CARRIER|SHIPPING/i.test(String(log.counterparty ?? ''))) guess = { kind: 'new_deal' };
+    // Round BT: the card follows the per-file results — every file already in AIMS → no guess ("Already in AIMS");
+    // ADH's own invoices → the ORDER(s) their invoice facts name (never a shipment by net weight).
+    let allFiled: StoredCard['allFiled'];
+    let invoices: StoredCard['invoices'];
+    let invoiceSplit: StoredCard['invoiceSplit'];
+    {
+      const real = (((log.rawMeta ?? {}) as Partial<StoredEmailMeta>).attachments ?? []).map((a, i) => ({ a, i })).filter(({ a }) => a?.key && !isInlineImage(a.name));
+      if (real.length) {
+        const fx = await mapLimit(real, 4, ({ a }) => attachmentFacts((k) => this.s3.downloadFile(k), a as any));
+        if (fx.every(Boolean)) {
+          const filed = await this.alreadyFiled(organizationId, fx.map((f) => f!.sha256));
+          if (fx.every((f) => (filed.get(f!.sha256) ?? []).length)) allFiled = real.map(({ a }, j) => ({ file: a.name, on: [...new Set((filed.get(fx[j]!.sha256) ?? []).map((x) => `${x.ref ?? '?'}${x.step ? ` · step ${x.step}` : ''}`))] }));
+        }
+        if (!allFiled && log.direction === 'OUT') {
+          const reads = real.map(({ a, i }) => ({ file: a.name, r: readOutgoingInvoice(ev.attachments[i]?.text ?? '', a.name) })).filter((x) => !!x.r);
+          if (reads.length) {
+            const ctx = await this.invoiceMatchContext(organizationId);
+            const hit = reads.map((x) => ({ ...x, m: matchOutgoingInvoice(x.r!, ctx.orders, ctx.filed) }));
+            if (hit.every((x) => !!x.m)) {
+              const refOf = (id: string) => ctx.orders.find((o) => o.orderId === id)?.ref ?? ctx.filed.find((f) => f.orderId === id)?.ref ?? '#?';
+              invoices = hit.map((x) => ({ file: x.file, invoiceNo: x.r!.invoiceNo, ref: refOf(x.m!.orderId), why: x.m!.why }));
+              const ids = [...new Set(hit.map((x) => x.m!.orderId))];
+              if (ids.length === 1) guess = { kind: 'record', orderId: ids[0], shipmentId: null };
+              else {
+                guess = null;
+                invoiceSplit = ids.map(refOf);
+              }
+            }
+          }
+        }
+      }
+      if (allFiled) guess = null;
+    }
     const same = (a: { orderId?: string | null; shipmentId?: string | null }, b: { orderId?: string | null; shipmentId?: string | null }) => a.orderId === b.orderId && (a.shipmentId ?? null) === (b.shipmentId ?? null);
     const alternatives: StoredCard['alternatives'] = [];
     const pushAlt = (c: StoredCard['alternatives'][number]) => {
@@ -1619,7 +1652,8 @@ export class EmailTriageService {
     const planFor = (g: StoredCard['guess']) => !!g && g.kind === 'record' && !!t0 && t0.orderId === g.orderId && (t0.shipmentId ?? null) === (g.shipmentId ?? null);
     const typedDocs = ((log.triage ?? {}) as Partial<TriageResult>).attachments?.filter((x) => x.confidence >= 0.5 && TRIAGE_DOC_TYPES[x.docType] && !isInlineImage(x.filename)).length ?? 0;
     const files = guess?.kind === 'record' && guess.shipmentId && !planFor(guess) ? typedDocs : planned.length;
-    return { guess, alternatives: split ? [] : alternatives, evidence: evidence.slice(0, 6), files, bl: newBl, ...(split ? { split: splitRefs } : {}) };
+    const invoiceOnly = !!invoices || !!allFiled;
+    return { guess, alternatives: split || invoiceOnly ? [] : alternatives, evidence: evidence.slice(0, 6), files: allFiled ? 0 : invoices && guess ? invoices.length : files, bl: newBl, ...(split && !invoiceOnly ? { split: splitRefs } : {}), ...(allFiled ? { allFiled } : {}), ...(invoices ? { invoices } : {}), ...(invoiceSplit ? { invoiceSplit } : {}) };
   }
 
   /**

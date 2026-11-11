@@ -44,6 +44,8 @@ export interface QuestionCard {
   replyHint: string;
   /** Round BB: the concrete question with AIMS's guess ("This looks like a new shipment of #27 (Kato 6005 40 t). Create it?"); `title` carries the same text. */
   headline?: string;
+  /** Round BT: every file of the email is already in AIMS — the card offers "Close card" instead of a guess. */
+  allFiled?: boolean;
   /** Round BB: ONE best guess, at most 2 alternatives, the evidence (marked), what Yes does, a hand-over to the admins. */
   guess?: CardChoice | null;
   alternatives?: CardChoice[];
@@ -98,6 +100,12 @@ export interface StoredCard {
   bl?: string | null;
   /** Each attachment names a different shipment: their refs (no single guess). */
   split?: string[];
+  /** Round BT: every file is already in AIMS (same bytes) — "file → #28 · step 2" per file; no guess. */
+  allFiled?: Array<{ file: string; on: string[] }>;
+  /** Round BT: ADH's own invoices read from the PDFs — the order each one goes to (order, never a shipment by weight). */
+  invoices?: Array<{ file: string; invoiceNo: string | null; ref: string; why: string }>;
+  /** Round BT: the invoices go to different orders (their refs). */
+  invoiceSplit?: string[];
 }
 
 export interface QuestionInput {
@@ -282,6 +290,10 @@ const BB = {
     hNewShipment: (ref: string, rest: string, bl: string | null) => `Create a new shipment of ${ref}${rest ? ` (${rest})` : ''}${bl ? ` with B/L ${bl}` : ''}?`,
     hNotShipment: "This doesn't look like a shipment email. Hide it?",
     hSplit: (refs: string) => `The documents name different shipments (${refs}). Check where each one goes?`,
+    hAllFiled: 'Already in AIMS — every file in this email is filed. Close it?',
+    allFiledOn: (file: string, on: string) => `${file} — already on ${on}`,
+    hInvoices: (refs: string) => `Invoices for ${refs}. Check where each one goes?`,
+    invoiceTo: (no: string | null, ref: string) => `${no ? `Invoice ${no}` : 'Invoice'} → ${ref}`,
     hOpen: 'What is this email about?',
     hNewDeal: (what: string) => (what ? `No open order fits. Is this a new ${what} deal?` : 'No open order fits. Is this a new deal?'),
     yRecord: (ref: string, n: number, files: number) => `Links ${n === 1 ? 'the email' : `${n} emails`} to ${ref}${files ? ` and files ${files} document${files === 1 ? '' : 's'}` : ''}.`,
@@ -310,6 +322,10 @@ const BB = {
     hNewShipment: (ref: string, rest: string, bl: string | null) => `${ref}${rest ? `（${rest}）` : ''}の新しい出荷を${bl ? `B/L ${bl} で` : ''}作成しますか？`,
     hNotShipment: '出荷のメールではないようです。非表示にしますか？',
     hSplit: (refs: string) => `書類ごとに出荷が異なります（${refs}）。それぞれの登録先を確認しますか？`,
+    hAllFiled: 'AIMSに登録済み — このメールのファイルはすべて登録済みです。閉じますか？',
+    allFiledOn: (file: string, on: string) => `${file} — 登録済み：${on.replace(/ · step (\d+)/g, ' · ステップ$1')}`,
+    hInvoices: (refs: string) => `${refs} の請求書です。それぞれの登録先を確認しますか？`,
+    invoiceTo: (no: string | null, ref: string) => `${no ? `請求書 ${no}` : '請求書'} → ${ref}`,
     hOpen: 'このメールは何の件ですか？',
     hNewDeal: (what: string) => (what ? `合う注文がありません。新しい ${what} の案件ですか？` : '合う注文がありません。新しい案件ですか？'),
     yRecord: (ref: string, n: number, files: number) => `メール${n}件を ${ref} に紐付け${files ? `、書類${files}件を登録` : ''}します。`,
@@ -396,6 +412,8 @@ function decorate(q: QuestionCard, i: QuestionInput): QuestionCard {
     else if (i.suggested && !q.multi) g = { kind: 'record', orderId: i.suggested.orderId, shipmentId: i.suggested.shipmentId };
   }
   if (g && !usable(g)) g = null;
+  // Round BT: every file already in AIMS — no "File N documents to #…?" guess.
+  if (stored?.allFiled?.length) g = null;
   const choice = (c: { kind: GuessKind } & Partial<RecordId>): CardChoice => {
     const o = c.orderId ?? null;
     const sh = c.shipmentId ?? null;
@@ -413,7 +431,7 @@ function decorate(q: QuestionCard, i: QuestionInput): QuestionCard {
   };
   const guess = g ? choice(g) : null;
   const altSrc = stored ? stored.alternatives : q.options.filter((o) => !o.suggested).map((o) => ({ kind: 'record' as GuessKind, orderId: o.orderId, shipmentId: o.shipmentId }));
-  const alternatives = altSrc.filter((a) => usable(a) && (!g || !(a.kind === g.kind && same(a, g)))).slice(0, 2).map(choice);
+  const alternatives = stored?.allFiled?.length ? [] : altSrc.filter((a) => usable(a) && (!g || !(a.kind === g.kind && same(a, g)))).slice(0, 2).map(choice);
   // Evidence: the stored items in the user's language, else the guess's own reasons.
   const evidence: CardEvidence[] = [];
   for (const e of stored?.evidence ?? []) {
@@ -429,6 +447,14 @@ function decorate(q: QuestionCard, i: QuestionInput): QuestionCard {
       evidence.push({ text: W.conflict(W.field[e.field], e.email, refOf(e.on.orderId, e.on.shipmentId), e.record), mark: e.email, file: null, conflict: true });
     } else if (e.t === 'thread') evidence.push({ text: W.thread(refOf(e.on.orderId, e.on.shipmentId)), mark: refOf(e.on.orderId, e.on.shipmentId), file: null, conflict: false });
     else if (e.t === 'free') evidence.push({ text: W.free(refOf(e.on.orderId, e.on.shipmentId)), mark: null, file: null, conflict: false });
+  }
+  // Round BT: the per-file results first — where each file already is, or which order each invoice is for.
+  if (stored?.allFiled?.length) {
+    evidence.length = 0;
+    for (const f of stored.allFiled.slice(0, 4)) evidence.push({ text: W.allFiledOn(shortFile(f.file), f.on.join(', ')), mark: f.on[0] ?? null, file: shortFile(f.file), conflict: false });
+  } else if (stored?.invoices?.length) {
+    evidence.length = 0;
+    for (const f of stored.invoices.slice(0, 4)) evidence.push({ text: `${W.invoiceTo(f.invoiceNo, f.ref)} (${f.why})`, mark: f.ref, file: shortFile(f.file), conflict: false });
   }
   // A second look that doubts the link stays visible, in red.
   if (q.kind === 'RECHECK' && i.recheck) {
@@ -463,13 +489,17 @@ function decorate(q: QuestionCard, i: QuestionInput): QuestionCard {
     headline = W.hNewDeal([sd?.grade, sd?.qtyMt ? `${sd.qtyMt} t` : null].filter(Boolean).join(' · '));
     yesLine = W.yNewDeal;
   }
-  if (stored?.split?.length) headline = W.hSplit(stored.split.join(', '));
+  if (stored?.allFiled?.length) {
+    headline = W.hAllFiled;
+    yesLine = null;
+  } else if (stored?.invoiceSplit?.length) headline = W.hInvoices(stored.invoiceSplit.join(', '));
+  else if (stored?.split?.length) headline = W.hSplit(stored.split.join(', '));
   // A "new deal" card that no longer guesses a deal never says "not in AIMS yet".
   else if (!guess && q.kind === 'NEW_DEAL' && stored) headline = W.hOpen;
   const kind: QuestionKind = guess?.kind === 'new_shipment' ? 'NEW_SHIPMENT' : guess?.kind === 'new_deal' ? 'NEW_DEAL' : q.kind === 'NEW_DEAL' && (guess || stored) ? (guess ? 'CONFIRM' : 'WHICH') : q.kind;
   // A card that no longer asks "new deal" offers the record answers, not "Create the order".
   const extras = kind === q.kind ? q.extras : { createOrder: true, notShipment: true, notDeal: false, askLater: true };
-  return { ...q, kind, extras, title: headline, headline, guess, alternatives, evidence, evidenceLine: evidenceLineOf(stored, guess, evidence, i.lang), yesLine, asked: i.asked ?? null };
+  return { ...q, kind, extras, title: headline, headline, guess, alternatives, evidence, evidenceLine: evidenceLineOf(stored, guess, evidence, i.lang), yesLine, asked: i.asked ?? null, ...(stored?.allFiled?.length ? { allFiled: true } : {}) };
 }
 
 /**

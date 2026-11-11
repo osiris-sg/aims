@@ -25,6 +25,10 @@ import { cardHeadline, cardWhoLine, choiceAction, evidenceFile, evidenceParts, f
 import { useInboxLabels } from "./useInboxLabels";
 import { ChooseShipmentDialog, type ChooseStart } from "./ChooseShipmentDialog";
 import AimeeButton from "../aimee/AimeeButton";
+import { useTranslations } from "next-intl";
+import { useQueryClient } from "@tanstack/react-query";
+import { useShipmentsApi } from "../../_lib/api";
+import { toast } from "../../_lib/toast";
 import { setAimeeContext } from "../aimee/bridge";
 
 export interface QuestionCardProps {
@@ -100,6 +104,10 @@ export function QuestionCard({ t, lang, n, busy, onAnswer, onCreateOrder, onOpen
   const [showAlts, setShowAlts] = useState(false);
   const newest = t.messages[0];
   const labels = useInboxLabels();
+  const tc = useTranslations("inbox.choose");
+  const api = useShipmentsApi();
+  const qc = useQueryClient();
+  const [closing, setClosing] = useState(false);
   if (!q || !newest) return null;
   const subject = fullSubject(t.subject ?? newest.subject, lang);
   const line = q.evidenceLine ?? [];
@@ -113,6 +121,21 @@ export function QuestionCard({ t, lang, n, busy, onAnswer, onCreateOrder, onOpen
     else setChoose({});
   };
   const other = () => (alternatives.length && !showAlts ? setShowAlts(true) : setChoose({}));
+  // Round BT: every file is already in AIMS — close the card (nothing is filed); a new file keeps it open.
+  const closeFiled = async () => {
+    setClosing(true);
+    try {
+      const ids = t.answerIds?.length ? t.answerIds : t.messages.filter((m) => m.inboxState !== "PROCESSED").map((m) => m.id);
+      const r = await api.inboxCloseFiled(ids);
+      if (r.closed.length) toast.success(tc("allFiledClosed"));
+      else toast.error(tc("allFiledNot"));
+      await qc.invalidateQueries({ queryKey: ["trade-inbox"] });
+    } catch (e: any) {
+      toast.error(e?.message || tc("couldNotRead"));
+    } finally {
+      setClosing(false);
+    }
+  };
   return (
     <Paper variant="outlined" sx={{ p: compact ? { xs: 1.25, md: 1.5 } : { xs: 1.5, md: 2 } }} data-tour="question-card" data-kind={q.kind}>
       <Stack direction="row" spacing={1.25} alignItems="flex-start">
@@ -146,12 +169,17 @@ export function QuestionCard({ t, lang, n, busy, onAnswer, onCreateOrder, onOpen
             </Typography>
           )}
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1.25 }}>
+            {q.allFiled && (
+              <Button size="small" variant="contained" color="success" disabled={busy || closing} onClick={() => void closeFiled()} sx={{ textTransform: "none" }} data-tour="question-close-filed">
+                {tc("allFiledClose")}
+              </Button>
+            )}
             {guess && (
               <Button size="small" variant="contained" disabled={busy} onClick={() => run(guess)} sx={{ textTransform: "none" }} title={guess.label} data-tour="question-yes">
                 {labels.yes}
               </Button>
             )}
-            <Button size="small" variant={guess ? "outlined" : "contained"} disabled={busy} onClick={other} sx={{ textTransform: "none" }} data-tour="question-other">
+            <Button size="small" variant={guess || q.allFiled ? "outlined" : "contained"} disabled={busy} onClick={other} sx={{ textTransform: "none" }} data-tour="question-other">
               {labels.other}
             </Button>
             <Button size="small" variant="outlined" color="inherit" onClick={() => onOpenThread(t)} sx={{ textTransform: "none" }} data-tour="question-show-full">

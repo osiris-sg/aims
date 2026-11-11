@@ -807,6 +807,8 @@ export type InboxQuestion = {
   waitingFile?: { emailId: string; index: number; name: string; docType: string } | null;
   /** Round BB: the concrete question (`title` carries the same text for old callers). */
   headline?: string;
+  /** Round BT: every file of the email is already in AIMS — "Close card" instead of a guess. */
+  allFiled?: boolean;
   /** Round BB: AIMS's one best guess, up to 2 alternatives, up to 4 evidence lines, what "Yes" does (no "Yes:" prefix). */
   guess?: CardChoice | null;
   alternatives?: CardChoice[];
