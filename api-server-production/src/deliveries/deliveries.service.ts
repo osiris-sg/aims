@@ -4675,7 +4675,14 @@ export class DeliveriesService {
         if (isFreeTyped) {
           // Description-only return line: no unit, no stock; collect by
           // DeliveryItem.id and off-hire its deployment via the assignment.
-          const collected = await this.collectReturnFreeTyped(deliveryId, it.id, organizationId);
+          const collected = await this.collectReturnFreeTyped(deliveryId, it.id, organizationId, {
+            technicianUserId,
+            description: 'Return collected (bulk)',
+            photos: dto.photos,
+            technicianName: dto.technicianName,
+            latitude: dto.latitude,
+            longitude: dto.longitude,
+          });
           if (collected) acknowledged++;
           continue;
         }
@@ -4932,18 +4939,14 @@ export class DeliveriesService {
     }
     // One signature stamped across every still-unsigned proof MSR on the run.
     // A stamped-DO / paper finish completes them WITHOUT a signature.
-    await this.prisma.maintenanceServiceReport.updateMany({
-      where: { deliveryId, kind: { in: ['DO_ACK', 'DO_INSTALL'] }, status: { not: 'completed' } },
-      data:
-        mode === 'signature'
-          ? {
-              signature: dto.signature,
-              ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
-              signedAt: now,
-              status: 'completed',
-            }
-          : { status: 'completed' },
-    });
+    if (mode === 'signature') {
+      await this.stampRunSignature(deliveryId, organizationId, technicianUserId, ['DO_ACK', 'DO_INSTALL'], { ...dto, signature: dto.signature! }, now);
+    } else {
+      await this.prisma.maintenanceServiceReport.updateMany({
+        where: { deliveryId, kind: { in: ['DO_ACK', 'DO_INSTALL'] }, status: { not: 'completed' } },
+        data: { status: 'completed' },
+      });
+    }
     const stampedPhotos = mode === 'stamped_do' ? (dto.stampedDoPhotos ?? []).map((k) => String(k).trim()).filter(Boolean) : [];
     if (mode !== 'signature') {
       // The field record of a stamped-DO / paper finish: one run-level
@@ -5588,6 +5591,52 @@ export class DeliveriesService {
   }
 
   /**
+   * Put a run's ONE customer signature on its proof rows: every proof of
+   * [kinds] that has no signature yet. Keyed on `signature IS NULL`, not on
+   * status, because a proof row can already be `completed` and still owe the
+   * signature. With no such row at all (a return of free-typed lines only, before
+   * 2026-11-11: Biofuel RDO202611-002/003) the signature gets its own run-level
+   * DO_ACK, never silently dropped while the call still answers 200.
+   */
+  private async stampRunSignature(
+    deliveryId: string,
+    organizationId: string,
+    technicianUserId: string,
+    kinds: Array<'DO_ACK' | 'DO_INSTALL'>,
+    dto: { signature: string; recipientName?: string; latitude?: number; longitude?: number; technicianName?: string },
+    now: Date,
+  ): Promise<number> {
+    const signed = {
+      signature: dto.signature,
+      ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
+      signedAt: now,
+      status: 'completed' as const,
+    };
+    const stamped = await this.prisma.maintenanceServiceReport.updateMany({
+      where: { deliveryId, kind: { in: kinds }, signature: null },
+      data: signed,
+    });
+    if (stamped.count > 0) return stamped.count;
+    this.logger.warn(`Run ${deliveryId}: no unsigned proof row to take the signature, so it gets its own run-level DO_ACK`);
+    await this.prisma.maintenanceServiceReport.create({
+      data: {
+        organizationId,
+        technicianUserId,
+        assetId: null,
+        inventoryId: null,
+        deliveryId,
+        kind: 'DO_ACK',
+        description: 'Signed (run)',
+        ...signed,
+        ...(dto.latitude != null ? { latitude: dto.latitude } : {}),
+        ...(dto.longitude != null ? { longitude: dto.longitude } : {}),
+        ...(dto.technicianName ? { technicianName: dto.technicianName } : {}),
+      },
+    });
+    return 1;
+  }
+
+  /**
    * RETURN FINALIZE (2026-08). The return twin of finalizeRun: ONE customer
    * signature at the END of the whole collection, reached once every unit is
    * collected (the run has folded to `delivered`). There is NO install step on a
@@ -5602,10 +5651,11 @@ export class DeliveriesService {
     deliveryId: string,
     dto: { signature?: string; recipientName?: string; latitude?: number; longitude?: number; technicianName?: string },
     organizationId: string,
+    technicianUserId?: string,
   ) {
     // Same one-at-a-time rule as finalizeRun (completeReturnRun mints the RDO once).
     return withRunLease(this.prisma, { organizationId, deliveryId, op: 'finalize-return' }, () =>
-      this.finalizeReturnLocked(deliveryId, dto, organizationId),
+      this.finalizeReturnLocked(deliveryId, dto, organizationId, technicianUserId),
     );
   }
 
@@ -5613,10 +5663,11 @@ export class DeliveriesService {
     deliveryId: string,
     dto: { signature?: string; recipientName?: string; latitude?: number; longitude?: number; technicianName?: string },
     organizationId: string,
+    technicianUserId?: string,
   ) {
     const run = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
-      select: { id: true, status: true, direction: true },
+      select: { id: true, status: true, direction: true, riderUserId: true },
     });
     if (!run) throw new NotFoundException('Delivery not found');
     if (run.direction !== DeliveryDirection.RETURN) {
@@ -5630,15 +5681,14 @@ export class DeliveriesService {
 
     const now = new Date();
     // One signature stamped across every still-unsigned return proof MSR.
-    await this.prisma.maintenanceServiceReport.updateMany({
-      where: { deliveryId, kind: 'DO_ACK', status: { not: 'completed' } },
-      data: {
-        signature: dto.signature,
-        ...(dto.recipientName ? { signedByName: dto.recipientName } : {}),
-        signedAt: now,
-        status: 'completed',
-      },
-    });
+    await this.stampRunSignature(
+      deliveryId,
+      organizationId,
+      technicianUserId ?? run.riderUserId ?? 'system',
+      ['DO_ACK'],
+      { ...dto, signature: dto.signature },
+      now,
+    );
     // Complete every COLLECTED (not_installed) item. Skipped items stay skipped,
     // so only genuinely collected lines advance — the fold then reaches
     // `completed` and fires completeReturnRun (the RDO).
@@ -5827,7 +5877,22 @@ export class DeliveriesService {
    * completed with NO stock flip (no inventory), then off-hires its deployment via
    * the description-only assignment so billing stops. Idempotent.
    */
-  private async collectReturnFreeTyped(deliveryId: string, itemId: string, organizationId: string) {
+  private async collectReturnFreeTyped(
+    deliveryId: string,
+    itemId: string,
+    organizationId: string,
+    // The collection's proof row (2026-11-11): the UNSIGNED DO_ACK that the
+    // run's finalizeReturn signature lands on, like a unit's. Without it a
+    // return of free-typed lines only had no row for the signature.
+    proof: {
+      technicianUserId: string;
+      description?: string;
+      photos?: string[];
+      technicianName?: string;
+      latitude?: number;
+      longitude?: number;
+    },
+  ) {
     const item = await this.prisma.deliveryItem.findFirst({
       where: { deliveryId, id: itemId, assetId: null, inventoryId: null, deliveryStatus: DeliveryStatus.delivering },
       select: { id: true, description: true },
@@ -5838,12 +5903,34 @@ export class DeliveriesService {
     // COLLECTED, awaiting the run signature (not_installed, not completed) —
     // finalizeReturn completes it, mirroring the unit path.
     // Conditional on delivering: a second collect of the same line (another
-    // device, a retried tap) moves nothing and off-hires nothing twice.
-    const moved = await this.prisma.deliveryItem.updateMany({
-      where: { id: item.id, deliveryStatus: DeliveryStatus.delivering },
-      data: { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: now },
+    // device, a retried tap) moves nothing, writes no second proof and
+    // off-hires nothing twice. Move + proof in one transaction.
+    const moved = await this.prisma.$transaction(async (tx) => {
+      const m = await tx.deliveryItem.updateMany({
+        where: { id: item.id, deliveryStatus: DeliveryStatus.delivering },
+        data: { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: now },
+      });
+      if (m.count !== 1) return 0;
+      await tx.maintenanceServiceReport.create({
+        data: {
+          organizationId,
+          technicianUserId: proof.technicianUserId,
+          assetId: null,
+          inventoryId: null,
+          deliveryId,
+          deliveryItemId: item.id, // free-typed line: no unit, so THIS is the only exact tie
+          kind: 'DO_ACK',
+          status: 'draft',
+          description: proof.description ?? `Return collected: ${item.description ?? 'free-typed line'}`,
+          ...(proof.photos?.length ? { photos: proof.photos } : {}),
+          ...(proof.technicianName ? { technicianName: proof.technicianName } : {}),
+          ...(proof.latitude != null ? { latitude: proof.latitude } : {}),
+          ...(proof.longitude != null ? { longitude: proof.longitude } : {}),
+        },
+      });
+      return 1;
     });
-    if (moved.count !== 1) return null;
+    if (moved !== 1) return null;
     // No stock flip — a description-only line has no inventory.
     if (run?.projectId && item.description) {
       await this.offHireFreeTypedDeployment(run.projectId, item.description, organizationId);
@@ -6222,16 +6309,26 @@ export class DeliveriesService {
           ...(r.photos.length ? { photos: r.photos } : {}),
         },
       });
-      await this.prisma.maintenanceServiceReport.create({
-        data: {
-          ...proofBase,
-          kind: 'DO_ACK',
-          status: 'draft',
+      if (r.unit) {
+        await this.prisma.maintenanceServiceReport.create({
+          data: {
+            ...proofBase,
+            kind: 'DO_ACK',
+            status: 'draft',
+            description: `Return collected (ad-hoc): ${label}`,
+          },
+        });
+        await this.collectReturnUnit(delivery.id, r.unit.id, organizationId);
+      } else {
+        // The untagged line's unsigned DO_ACK is written by the collect itself.
+        await this.collectReturnFreeTyped(delivery.id, item.id, organizationId, {
+          technicianUserId: riderUserId,
           description: `Return collected (ad-hoc): ${label}`,
-        },
-      });
-      if (r.unit) await this.collectReturnUnit(delivery.id, r.unit.id, organizationId);
-      else await this.collectReturnFreeTyped(delivery.id, item.id, organizationId);
+          technicianName: dto.technicianName,
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+        });
+      }
     }
     await this.recomputeRunStatus(delivery.id, organizationId);
     this.logger.log(
@@ -6750,12 +6847,18 @@ export class DeliveriesService {
     }
     // RETURN: a description-only line is COLLECTED here, not delivered. Reuse the
     // shared collect (delivering -> completed, no stock, off-hire the free-typed
-    // deployment by description). No DO_ACK, no signature, no deploy — the return
-    // twin of a unit's collect. This is what makes collectReturnFreeTyped
+    // deployment by description). An unsigned DO_ACK (written by the collect), no
+    // signature, no deploy: the return twin of a unit's collect. This is what makes collectReturnFreeTyped
     // reachable from a scheduled return's walk.
     const dir = await this.prisma.delivery.findUnique({ where: { id: deliveryId }, select: { direction: true } });
     if (dir?.direction === DeliveryDirection.RETURN) {
-      const collected = await this.collectReturnFreeTyped(deliveryId, item.id, organizationId);
+      const collected = await this.collectReturnFreeTyped(deliveryId, item.id, organizationId, {
+        technicianUserId,
+        photos: dto.photos,
+        technicianName: dto.technicianName,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+      });
       await this.recomputeRunStatus(deliveryId, organizationId);
       void this.siteclock?.touch(organizationId, deliveryId); // SiteClock link: job follows the run
       await this.orderFollowsRun(organizationId, deliveryId); // WCT orders: the order follows its jobs

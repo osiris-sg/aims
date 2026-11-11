@@ -350,7 +350,7 @@ export class SiteClockDeliveryController {
   @Post('jobs/:ref/finalize-return')
   @UseInterceptors(IdempotencyInterceptor)
   finalizeReturn(@Req() req: WorkerReq, @Body() body: Record<string, any>) {
-    return this.deliveries.finalizeReturn(this.run(req), this.named(req, body) as any, this.org(req));
+    return this.deliveries.finalizeReturn(this.run(req), this.named(req, body) as any, this.org(req), this.me(req));
   }
 
   // ── the DO ─────────────────────────────────────────────────────────────────
