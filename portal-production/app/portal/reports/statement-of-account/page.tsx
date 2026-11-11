@@ -18,7 +18,7 @@ import { useGenerateSOA } from '@/app/portal/hooks/api';
 import { useOrganization } from '@/app/portal/hooks/useOrganization';
 import PageTable from '@/components/PageTable';
 import { useClientSort } from '@/components/clientSort';
-import { ReportPrintExportButton } from '@/app/portal/accounting/_lib/report-export';
+import { ReportPrintExportButton, ReportEmailButton } from '@/app/portal/accounting/_lib/report-export';
 import DocumentRefLink from "@/components/DocumentRefLink";
 
 interface Customer {
@@ -172,7 +172,6 @@ export default function StatementOfAccountPage() {
         `Balance B/F : ${fmt2(statementData.statement.openingBalance)}`,
       ],
       tables: [{ headers: ['Date', 'Reference', 'Description', 'Debit', 'Credit', 'Balance'], rows, boldRows: [rows.length - 1] }],
-      note: 'This is a computer generated Statement. No signature is required.',
     };
   };
 
@@ -325,6 +324,7 @@ export default function StatementOfAccountPage() {
               </Box>
               <Box sx={{ display: 'flex', gap: 1, '@media print': { display: 'none' } }}>
                 <ReportPrintExportButton getModel={exportModel} />
+                <ReportEmailButton getModel={exportModel} />
               </Box>
             </Box>
 

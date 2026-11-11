@@ -46,6 +46,7 @@ import { FilterSelect } from "./DateRangeSelect";
 import { soaSummaryOf, useSideContacts, type ReportSide } from "./side";
 
 import { withActiveOrg } from "@/helpers/request";
+import { COMPUTER_GENERATED_NOTE, type ReportExportModel } from "../report-export";
 import { todayIso } from "@/helpers/orgToday";
 
 /** Document-number cell as a real link (⌘-click / "Open Link in New Tab"). */
@@ -312,6 +313,11 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
       styles: { fontSize: 8, cellPadding: 1.2, textColor: 0 },
       headStyles: { fontStyle: "bold", lineWidth: { top: 0.3, bottom: 0.3 }, lineColor: 0 },
       footStyles: { fontStyle: "bold", lineWidth: { top: 0.3 }, lineColor: 0 },
+      // Foot cells inherit columnStyles' widths but NOT halign — the TOTAL
+      // amounts sat left of their columns (guru 2026-11-11 "not aligned").
+      didParseCell: (d: any) => {
+        if (d.section === "foot" && d.column.index >= 3) d.cell.styles.halign = "right";
+      },
       columnStyles: {
         0: { cellWidth: 34 },
         1: { cellWidth: 20 },
@@ -322,34 +328,35 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
       margin: { left: 12, right: 12 },
     });
 
-    // Ageing Analysis box — moves to a fresh page when it won't fit.
-    let y = ((doc as any).lastAutoTable?.finalY || 60) + 10;
-    if (y > 240) {
+    // Ageing Analysis box — pinned to the FOOT of the page like the legacy
+    // statement (and the shared exporter); a fresh page when the table ran
+    // into that space.
+    const pageH = doc.internal.pageSize.getHeight();
+    const tableEnd = ((doc as any).lastAutoTable?.finalY || 60) + 10;
+    let y = pageH - 22 - 24;
+    if (tableEnd > y - 6) {
       doc.addPage();
-      y = 20;
     }
     doc.setFont("helvetica", "bold").setFontSize(9);
-    doc.text("Ageing Analysis:", 12, y);
-    y += 3;
+    doc.text("Ageing Analysis:", 12, y - 2);
     const boxW = (pageW - 24) / 6;
-    doc.setLineWidth(0.3).rect(12, y, pageW - 24, 24);
+    doc.setLineWidth(0.3).roundedRect(12, y, pageW - 24, 24, 2, 2);
+    // Label and amount share one centre line per cell (same drawing as the
+    // shared exporter) — a left label over a right amount read as two columns.
     s.buckets.forEach((b, i) => {
       const col = i % 6;
       const row = Math.floor(i / 6);
-      const bx = 12 + col * boxW;
+      const cx = 12 + col * boxW + boxW / 2;
       const by = y + row * 12;
-      doc.setFont("helvetica", "bold").setFontSize(6.5);
-      doc.text(b.label, bx + 2, by + 4);
-      doc.setFont("helvetica", "normal").setFontSize(8);
-      doc.text(b.amount ? fmt(b.amount) : "", bx + boxW - 2, by + 9, { align: "right" });
+      doc.setFont("helvetica", "normal").setFontSize(7.5);
+      doc.text(b.label, cx, by + 5, { align: "center" });
+      if (b.amount) {
+        doc.setFont("helvetica", "normal").setFontSize(8);
+        doc.text(fmt(b.amount), cx, by + 10, { align: "center" });
+      }
     });
-    y += 24 + 12;
-    if (y > 280) {
-      doc.addPage();
-      y = 20;
-    }
     doc.setFont("helvetica", "normal").setFontSize(7.5);
-    doc.text("This is a computer generated Statement. No signature is required.", pageW / 2, y, { align: "center" });
+    doc.text(COMPUTER_GENERATED_NOTE, pageW - 12, pageH - 8, { align: "right" });
     return doc.output("arraybuffer");
   };
 
@@ -377,6 +384,31 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
     } finally {
       setZipping(false);
     }
+  };
+
+  // Print / Export model (guru 2026-11-11): the DOM capture only sees the
+  // table, so the ageing box and the statement footer never reached the PDF.
+  // One table per customer in the range, each carrying its Ageing Analysis.
+  const exportModel = (): ReportExportModel | null => {
+    if (!statements?.length) return null;
+    const onScreen = statements[Math.min(current, statements.length - 1)];
+    const onScreenEmail = String((sortedCustomers as any[]).find((c) => c.id === onScreen?.customer.id)?.email || "").trim();
+    return {
+      title: "Statement-Of-Accounts",
+      emailTo: statements.length === 1 && onScreenEmail ? [onScreenEmail] : [],
+      orgName: organization?.name || "",
+      metaLines: [`Period ending ${fmtDate(asOf)}`, scope === "outstanding" ? "All outstanding items" : "Current month transactions"],
+      tables: statements.map((s) => ({
+        heading: `To : ${s.customer.name}${s.customer.code ? `  (${s.customer.code})` : ""}`,
+        headers: ["Reference", "Date", "Remarks", "Debit", "Credit", "Balance"],
+        rows: [
+          ...s.rows.map((r) => [r.reference, r.date ? fmtDate(r.date) : "", r.remarks, r.debit ? fmt(r.debit) : "", r.credit ? fmt(r.credit) : "", fmt(r.running)]),
+          ["TOTAL", "", "", fmt(s.totalDebit), fmt(s.totalCredit), fmt(s.closing)],
+        ],
+        boldRows: [s.rows.length],
+        ageing: s.buckets.map((b) => ({ label: b.label, amount: b.amount })),
+      })),
+    };
   };
 
   const exportCsv = () => {
@@ -474,6 +506,7 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
           : ""
       }
       onExportCsv={statements?.length ? exportCsv : undefined}
+      getExportModel={exportModel}
     >
       {statements && statements.length > 0 ? (
         <>

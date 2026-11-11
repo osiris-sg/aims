@@ -7,11 +7,15 @@ import {
   UseGuards,
   Req,
   Res,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { StatementsService } from './statements.service';
 import { XeroReportsService, Side } from './xero-reports.service';
 import { GenerateSOADto } from './dto/generate-soa.dto';
+import { SendReportEmailDto } from './dto/send-report-email.dto';
+import { EmailService } from '../email/email.service';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
@@ -34,7 +38,34 @@ export class StatementsController {
   constructor(
     private readonly statementsService: StatementsService,
     private readonly xeroReports: XeroReportsService,
+    private readonly email: EmailService,
   ) {}
+
+  // Email any report's PDF (Print / Export → Email…). Same permission as the
+  // sales documents' send-email; the PDF comes from the portal's renderer.
+  @Post('report/send-email')
+  @Permissions('documents:send-email')
+  @ApiOperation({ summary: 'Email a report PDF rendered by the portal (statement of accounts, trial balance, …)' })
+  async sendReportEmail(@Req() req: RequestWithOrganization, @Body() dto: SendReportEmailDto) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    const valid = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+    const bad = [...dto.to, ...(dto.cc || []), ...(dto.bcc || [])].filter((e) => !valid(e));
+    if (bad.length) throw new HttpException(`Invalid email: ${bad.join(', ')}`, HttpStatus.BAD_REQUEST);
+    if (dto.pdfBase64.length > 12_000_000) throw new HttpException('Attachment too large', HttpStatus.BAD_REQUEST);
+    const result = await this.email.sendReportEmail({
+      to: dto.to,
+      cc: dto.cc,
+      bcc: dto.bcc,
+      subject: dto.subject,
+      message: dto.message,
+      organizationName: req.userOrganization?.name || '',
+      filename: dto.filename.endsWith('.pdf') ? dto.filename : `${dto.filename}.pdf`,
+      pdfBase64: dto.pdfBase64,
+    });
+    if (!result.success) throw new HttpException(result.error || 'Failed to send email', HttpStatus.BAD_GATEWAY);
+    return { success: true, messageId: result.messageId };
+  }
 
   @Post('soa')
   @Permissions('statements:read')
@@ -143,6 +174,15 @@ export class StatementsController {
       ageingBy,
       level,
     });
+  }
+
+  @Get('open-credits')
+  @Permissions('statements:read')
+  @ApiOperation({ summary: 'Open (unapplied) credit notes per contact — { contactId: creditLeft } — for the AR/AP balance lists' })
+  openCredits(@Req() req: RequestWithOrganization, @Query('side') side: Side = 'receivable') {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.xeroReports.openCreditsByContact(organizationId, side === 'payable' ? 'payable' : 'receivable');
   }
 
   @Get('invoice-report')

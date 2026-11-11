@@ -16,7 +16,7 @@ import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { ReportPrintCss } from "../_lib/report-doc";
-import { ReportPrintExportButton, type ReportExportModel } from "../_lib/report-export";
+import { ReportPrintExportButton, ReportEmailButton, type ReportExportModel } from "../_lib/report-export";
 import { todayIso } from "@/helpers/orgToday";
 
 type Movement = { code: string; name: string; movement?: number; cashImpact: number };
@@ -137,6 +137,7 @@ export default function CashFlowPage() {
           />
           <Box sx={{ flex: 1 }} />
           <ReportPrintExportButton getModel={exportModel} onPrint={() => window.print()} />
+          <ReportEmailButton getModel={exportModel} />
           <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load}>
             Refresh
           </Button>

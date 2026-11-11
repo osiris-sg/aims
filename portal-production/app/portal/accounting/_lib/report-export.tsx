@@ -22,7 +22,9 @@ import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import GridOnOutlinedIcon from "@mui/icons-material/GridOnOutlined";
 import PictureAsPdfOutlinedIcon from "@mui/icons-material/PictureAsPdfOutlined";
 import PrintOutlinedIcon from "@mui/icons-material/PrintOutlined";
+import EmailOutlinedIcon from "@mui/icons-material/EmailOutlined";
 import { toast } from "react-toastify";
+import SendReportEmailDialog from "./SendReportEmailDialog";
 
 export type ReportExportTable = {
   /** optional heading printed above the table (e.g. an account or section) */
@@ -31,15 +33,28 @@ export type ReportExportTable = {
   rows: string[][];
   /** rows rendered bold with a top rule (TOTAL / SUB-TOTAL), by index */
   boldRows?: number[];
+  /** legacy "Ageing Analysis:" box printed at the FOOT of this table's last
+   *  page (guru 2026-11-11, Statement of Accounts): 12 month cells, 6 per row. */
+  ageing?: { label: string; amount: number }[];
 };
+
+// Every report ends with the legacy statement line (guru 2026-11-11: "all
+// reports need the 'this is a computer generated statement' line").
+export const COMPUTER_GENERATED_NOTE = "This is a computer generated Statement. No signature is required.";
 
 export type ReportExportModel = {
   title: string; // "TRIAL BALANCE"
   orgName: string;
   metaLines?: string[]; // ["Cut-Off-Date : 31/10/2026", "All outstanding items"]
   tables: ReportExportTable[];
+  /** optional report note (e.g. "All figures in SGD"); the statement line prints under it on every report */
   note?: string;
+  /** Email… prefill — e.g. the statement customer's address */
+  emailTo?: string[];
 };
+
+const notesOf = (m: ReportExportModel) => [m.note, COMPUTER_GENERATED_NOTE].filter((n): n is string => !!n);
+const fmtMoney = (n: number) => (Number(n) || 0).toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const looksNumeric = (s: string) => /^-?\(?\s*[\d,]+(\.\d+)?\s*\)?$/.test((s || "").trim()) || s === "";
 
@@ -86,7 +101,7 @@ export function domToExportModel(
 // grid tables, page numbers. `print` opens the PDF with the print dialog
 // instead of downloading (that IS the report's Print action).
 // ---------------------------------------------------------------------------
-export async function exportReportPdf(model: ReportExportModel, opts?: { print?: boolean }) {
+async function buildReportPdf(model: ReportExportModel) {
   const { jsPDF } = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default;
   const doc = new jsPDF({ unit: "mm", format: "a4" });
@@ -130,15 +145,50 @@ export async function exportReportPdf(model: ReportExportModel, opts?: { print?:
       },
     });
     y = (doc as any).lastAutoTable.finalY + 8;
-    if (y > doc.internal.pageSize.getHeight() - 30) {
+    const pageH = doc.internal.pageSize.getHeight();
+
+    if (t.ageing?.length) {
+      // Legacy A's Premier layout: the box sits at the FOOT of the page, the
+      // table above it — a fresh page when the table ran into that space.
+      const rowsN = Math.ceil(t.ageing.length / 6);
+      const boxH = rowsN * 12;
+      const boxTop = pageH - 22 - boxH; // leaves room for the note line under it
+      if (y + 5 > boxTop) {
+        doc.addPage();
+      }
+      const boxW = (pageW - 24) / 6;
+      doc.setFont("helvetica", "bold").setFontSize(8.5);
+      doc.text("Ageing Analysis:", 12, boxTop - 2);
+      doc.setLineWidth(0.3).roundedRect(12, boxTop, pageW - 24, boxH, 2, 2);
+      t.ageing.forEach((b, i) => {
+        const bx = 12 + (i % 6) * boxW;
+        const by = boxTop + Math.floor(i / 6) * 12;
+        doc.setFont("helvetica", "normal").setFontSize(7.5);
+        doc.text(b.label, bx + boxW / 2, by + 5, { align: "center" });
+        if (b.amount) {
+          doc.setFont("helvetica", "normal").setFontSize(8);
+          doc.text(fmtMoney(b.amount), bx + boxW / 2, by + 10, { align: "center" });
+        }
+      });
+      y = boxTop + boxH + 6;
+    }
+
+    if (y > pageH - 30 && t !== model.tables[model.tables.length - 1]) {
       doc.addPage();
       y = 16;
     }
   }
 
-  if (model.note) {
+  {
+    const pageH = doc.internal.pageSize.getHeight();
+    const notes = notesOf(model);
+    // Last page foot, like the legacy statement — never squeezed under a table.
+    let ny = Math.min(Math.max(y + 4, pageH - 8 - 4 * notes.length), pageH - 8 - 4 * (notes.length - 1));
     doc.setFont("helvetica", "normal").setFontSize(7.5);
-    doc.text(model.note, pageW / 2, Math.min(y + 4, doc.internal.pageSize.getHeight() - 10), { align: "center" });
+    for (const n of notes) {
+      doc.text(n, pageW - 12, ny, { align: "right" });
+      ny += 4;
+    }
   }
 
   // Page numbers on every page.
@@ -149,13 +199,27 @@ export async function exportReportPdf(model: ReportExportModel, opts?: { print?:
     doc.text(`Page ${p} of ${pages}`, pageW - 12, 10, { align: "right" });
   }
 
+  return doc;
+}
+
+export const reportPdfFilename = (model: ReportExportModel) => `${fileBase(model.title)}-${localDateISO()}.pdf`;
+
+export async function exportReportPdf(model: ReportExportModel, opts?: { print?: boolean }) {
+  const doc = await buildReportPdf(model);
   if (opts?.print) {
     doc.autoPrint();
     const url = doc.output("bloburl");
     window.open(url, "_blank");
   } else {
-    doc.save(`${fileBase(model.title)}-${localDateISO()}.pdf`);
+    doc.save(reportPdfFilename(model));
   }
+}
+
+/** The same PDF as "Save as PDF", base64 for the Email… attachment. */
+export async function reportPdfBase64(model: ReportExportModel): Promise<{ filename: string; base64: string }> {
+  const doc = await buildReportPdf(model);
+  const dataUri = doc.output("datauristring");
+  return { filename: reportPdfFilename(model), base64: dataUri.slice(dataUri.indexOf(",") + 1) };
 }
 
 // ---------------------------------------------------------------------------
@@ -180,9 +244,14 @@ export async function exportReportXlsx(model: ReportExportModel) {
         }),
       );
     }
+    if (t.ageing?.length) {
+      aoa.push(["Ageing Analysis"]);
+      aoa.push(t.ageing.map((b) => b.label));
+      aoa.push(t.ageing.map((b) => Math.round((Number(b.amount) || 0) * 100) / 100));
+    }
     aoa.push([]);
   }
-  if (model.note) aoa.push([model.note]);
+  for (const n of notesOf(model)) aoa.push([n]);
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws["!cols"] = (model.tables[0]?.headers || []).map((h, i) => ({ wch: i === 1 ? 42 : Math.max(14, h.length + 2) }));
   const wb = XLSX.utils.book_new();
@@ -197,8 +266,14 @@ export function exportReportCsv(model: ReportExportModel) {
     if (t.heading) lines.push(esc(t.heading));
     lines.push(t.headers.map(esc).join(","));
     for (const r of t.rows) lines.push(r.map(esc).join(","));
+    if (t.ageing?.length) {
+      lines.push(esc("Ageing Analysis"));
+      lines.push(t.ageing.map((b) => esc(b.label)).join(","));
+      lines.push(t.ageing.map((b) => esc((Number(b.amount) || 0).toFixed(2))).join(","));
+    }
     lines.push("");
   }
+  for (const n of notesOf(model)) lines.push(esc(n));
   const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -225,8 +300,11 @@ export function ReportPrintExportButton({
   onExportCsv,
   size = "small",
   variant = "outlined",
+  withEmail = false,
 }: {
   getModel: () => ReportExportModel | null;
+  /** also render the Send Email button right after this one (horizontal toolbars) */
+  withEmail?: boolean;
   /** override for Print — e.g. a paper page's window.print(), or the GL home's filter dialog */
   onPrint?: () => void;
   /** per-report CSV override (richer than the generic model, e.g. full-range CSVs) */
@@ -263,8 +341,8 @@ export function ReportPrintExportButton({
         anchorEl={anchor}
         open={!!anchor}
         onClose={() => setAnchor(null)}
-        anchorOrigin={{ vertical: "top", horizontal: "right" }}
-        transformOrigin={{ vertical: "bottom", horizontal: "right" }}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
       >
         <MenuItem
           onClick={() => {
@@ -302,6 +380,44 @@ export function ReportPrintExportButton({
           <ListItemText>Export to CSV (.csv)</ListItemText>
         </MenuItem>
       </Menu>
+      {withEmail && <ReportEmailButton getModel={getModel} size={size} variant={variant} />}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SEND EMAIL — its own button under Print / Export (guru 2026-11-11: "add a
+// send email button below the print button"): the sales documents' compose
+// dialog with the report's PDF attached.
+// ---------------------------------------------------------------------------
+export function ReportEmailButton({
+  getModel,
+  size = "small",
+  variant = "outlined",
+}: {
+  getModel: () => ReportExportModel | null;
+  size?: "small" | "medium";
+  variant?: "outlined" | "contained";
+}) {
+  const [emailModel, setEmailModel] = useState<ReportExportModel | null>(null);
+  return (
+    <>
+      <Button
+        size={size}
+        variant={variant}
+        startIcon={<EmailOutlinedIcon />}
+        onClick={() => {
+          const m = getModel();
+          if (!m) {
+            toast.info("Nothing to email yet — run the report first");
+            return;
+          }
+          setEmailModel(m);
+        }}
+      >
+        Send Email
+      </Button>
+      <SendReportEmailDialog open={!!emailModel} model={emailModel} onClose={() => setEmailModel(null)} />
     </>
   );
 }

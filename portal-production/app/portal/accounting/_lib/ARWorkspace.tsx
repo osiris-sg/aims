@@ -38,14 +38,14 @@ import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
 import PostAddOutlinedIcon from "@mui/icons-material/PostAddOutlined";
 import AccountBalanceWalletOutlinedIcon from "@mui/icons-material/AccountBalanceWalletOutlined";
 import SearchIcon from "@mui/icons-material/Search";
+import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
+import ManualOffsetDialog from "@/containers/DocumentTemplates/components/ManualOffsetDialog";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./api";
 import { clickableRowSx, sourceHref } from "./open-source";
 import { useCustomersByIds } from "@/app/portal/hooks/api/useCustomerPicker";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import JournalEntryDialog from "./JournalEntryDialog";
-import { useNewJournalVoucher } from "./useNewJournalVoucher";
-import { ReportPrintExportButton } from "./report-export";
 import { todayIso } from "@/helpers/orgToday";
 
 const fmt = (n: number) =>
@@ -57,6 +57,9 @@ const unwrap = (r: any) => (r && typeof r === "object" && r.success !== undefine
 const dmy = (d: any) => (d ? new Date(d).toLocaleDateString("en-GB") : "—");
 const todayISO = () => todayIso();
 const monthStartISO = (iso: string) => `${iso.slice(0, 7)}-01`;
+// The KPI cards read the YEAR to the cut-off (guru 2026-11-11: the GL home's
+// Revenue is year-to-date, so Sales / Purchases / Receipts / Payments agree with it).
+const yearStartISO = (iso: string) => `${iso.slice(0, 4)}-01-01`;
 
 // AR reports offered in the View Reports dialog — the LEGACY AR home's report
 // set (screenshot 57), replacing the old Xero-flavoured list (guru 2026-07-20).
@@ -113,6 +116,11 @@ export default function ARWorkspace() {
   const [search, setSearch] = useState("");
   const [reportsOpen, setReportsOpen] = useState(false);
   const [selected, setSelected] = useState<{ id: string; name: string; code: string } | null>(null);
+  // Manual Offset from the ledger drawer (guru 2026-11-11, "right next to the
+  // Statement of Accounts button"): offsets this party's open credits against
+  // its open debits, then the ledger and balances reload.
+  const [manualOffsetOpen, setManualOffsetOpen] = useState(false);
+  const [ledgerTick, setLedgerTick] = useState(0);
   // Deep link back into the ledger (?contact=<id>&fromPeriod=&toPeriod=) —
   // set as ?from= on whatever a ledger row opened, so Back lands here with
   // the same contact drawer open (guru 2026-11-06).
@@ -137,14 +145,15 @@ export default function ARWorkspace() {
   // Legacy AR home's two primary actions (header buttons, Option A).
   const [jvOpen, setJvOpen] = useState(false);
   // Journal Voucher = the legacy J/V document editor since 2026-11-09 (JournalEntryDialog stays mounted but unused).
-  const newJv = useNewJournalVoucher("/portal/accounting/receivables");
-  const [openingReceipt, setOpeningReceipt] = useState(false);
   // Bump to reload the landing data (e.g. after a receipt / JV is recorded).
   const [refreshKey, setRefreshKey] = useState(0);
 
   // ---------- landing data ----------
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<AgedRow[]>([]);
+  // Contacts with unapplied credit notes (guru 2026-11-11): their row is
+  // tinted so the user knows which one to click and offset.
+  const [openCredits, setOpenCredits] = useState<Record<string, number>>({});
   const [grandTotal, setGrandTotal] = useState(0);
   const [overdue, setOverdue] = useState(0);
   const [sales, setSales] = useState(0);
@@ -164,33 +173,31 @@ export default function ARWorkspace() {
     (async () => {
       setLoading(true);
       try {
-        const [agedRaw, invRepRaw, payments] = await Promise.all([
+        const [agedRaw, creditsRaw, invRepRaw, payments] = await Promise.all([
           request(`/statements/aged?side=receivable&asOf=${cutOff}&level=summary`),
-          request(`/statements/invoice-report?side=receivable&from=${monthStartISO(cutOff)}&to=${cutOff}&level=summary`).catch(() => null),
-          request(`/payments?limit=2000`).catch(() => null),
+          request(`/statements/open-credits?side=receivable`).catch(() => null),
+          // Same Sales figure as the GL home's Revenue tile: the P&L's year-to-cut-off column.
+          request(`/journal/reports/profit-loss?cutOffDate=${cutOff}&closingStock=0`).catch(() => null),
+          request(`/payments/total?startDate=${yearStartISO(cutOff)}&endDate=${cutOff}`).catch(() => null),
         ]);
         const aged = unwrap(agedRaw);
-        const invRep = unwrap(invRepRaw);
+        const pl = unwrap(invRepRaw);
+        const ytd = (sec: any) => {
+          const vals = sec?.subtotal?.values;
+          return Array.isArray(vals) && vals.length ? Number(vals[vals.length - 1]) || 0 : 0;
+        };
         if (cancelled) return;
         const agedRows: AgedRow[] = aged?.rows || [];
         setRows(agedRows);
+        const credits = unwrap(creditsRaw);
+        setOpenCredits(credits && typeof credits === "object" ? credits : {});
         setGrandTotal(Number(aged?.grandTotal) || 0);
         // Overdue = everything outside the "Current" bucket (index 0).
         setOverdue(agedRows.reduce((s, r) => s + r.total - (r.buckets?.[0] || 0), 0));
-        setSales(Number(invRep?.totals?.gross) || 0);
-        const payList: any[] = Array.isArray(payments) ? payments : payments?.docs || payments?.payments || [];
-        const mStart = new Date(monthStartISO(cutOff));
-        const mEnd = new Date(cutOff);
-        mEnd.setHours(23, 59, 59, 999);
-        setReceipts(
-          payList.reduce((s, p) => {
-            // Manual Offsets create cashless 'offset' payment rows — they
-            // settle invoices but are NOT money received this month.
-            if (p.paymentMethod === "offset") return s;
-            const d = p.paymentDate ? new Date(p.paymentDate) : null;
-            return d && d >= mStart && d <= mEnd ? s + (Number(p.amount) || 0) : s;
-          }, 0)
-        );
+        setSales(ytd(pl?.sales));
+        // Money received this year to the cut-off, summed on the server
+        // (cashless manual offsets excluded there).
+        setReceipts(Number(unwrap(payments)?.total) || 0);
       } catch (e) {
         console.error("AR workspace load failed:", e);
       } finally {
@@ -212,7 +219,8 @@ export default function ARWorkspace() {
   const visibleTotal = visibleRows.reduce((s, r) => s + r.total, 0);
 
   // ---------- drill-in (debtor ledger) ----------
-  const [fromPeriod, setFromPeriod] = useState("");
+  // From period opens on the FIRST OF THE MONTH of the cut-off (guru 2026-11-11), never blank.
+  const [fromPeriod, setFromPeriod] = useState(() => monthStartISO(todayISO()));
   const [toPeriod, setToPeriod] = useState(todayISO());
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledger, setLedger] = useState<{ opening: number; txs: SoaTx[]; totalDebit: number; totalCredit: number; closing: number } | null>(null);
@@ -267,12 +275,13 @@ export default function ARWorkspace() {
     return () => {
       cancelled = true;
     };
-  }, [request, selected, fromPeriod, toPeriod]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request, selected, fromPeriod, toPeriod, ledgerTick]);
 
   // ---------- shared bits ----------
   const card = (label: string, value: number, tone?: string) => (
     <Paper variant="outlined" sx={{ p: 2, flex: 1, minWidth: 180, borderRadius: 2 }}>
-      <Typography variant="caption" sx={{ color: "text.secondary", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700 }}>
+      <Typography sx={{ color: "text.secondary", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700, fontSize: "0.9rem", lineHeight: 1.3 }}>
         {label}
       </Typography>
       <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.25rem", mt: 0.5, color: tone || "text.primary" }}>
@@ -328,6 +337,9 @@ export default function ARWorkspace() {
               {fmt(ledger?.opening ?? 0)}
             </Typography>
           </Paper>
+          <Button variant="outlined" startIcon={<CompareArrowsIcon />} onClick={() => setManualOffsetOpen(true)}>
+            Manual Offset
+          </Button>
           <Button
             variant="outlined"
             startIcon={<ReceiptLongOutlinedIcon />}
@@ -470,30 +482,14 @@ export default function ARWorkspace() {
         </Typography>
         <Box sx={{ flex: 1 }} />
         {/* Legacy AR home's two primary actions, modernised into header buttons.
-            Official Receipt opens the real document editor on the latest saved
-            receipt (legacy behaviour), or a fresh OR-numbered shell when none. */}
+            Official Receipt opens the Official Receipts LIST (2026-11-11, every
+            org): Create there makes a fresh OR-numbered shell, a row opens it. */}
         <Button
           data-tour="ar-official-receipt"
           data-hotkey="new"
           variant="contained"
-          startIcon={openingReceipt ? <CircularProgress size={16} color="inherit" /> : <ReceiptLongOutlinedIcon />}
-          disabled={openingReceipt}
-          onClick={async () => {
-            setOpeningReceipt(true);
-            try {
-              const list: any[] = unwrap(await request(`/receipts`)) || [];
-              let target = list.find((r: any) => r.customerId); // latest saved
-              if (!target) {
-                target = unwrap(await request(`/receipts`, { method: "POST", body: JSON.stringify({}) }));
-              }
-              if (target?.id) {
-                router.push(`/portal/accounting/receipts/${target.id}?from=/portal/accounting/receivables`);
-              }
-            } catch (e: any) {
-              toast.error(e?.message || "Couldn't open receipts");
-              setOpeningReceipt(false);
-            }
-          }}
+          startIcon={<ReceiptLongOutlinedIcon />}
+          onClick={() => router.push("/portal/accounting/receipts")}
         >
           Official Receipt
         </Button>
@@ -509,29 +505,9 @@ export default function ARWorkspace() {
             Receive Money
           </Button>
         )}
-        <Button variant="contained" startIcon={newJv.opening ? <CircularProgress size={16} color="inherit" /> : <PostAddOutlinedIcon />} disabled={newJv.opening} onClick={() => void newJv.open()}>
+        <Button variant="contained" startIcon={<PostAddOutlinedIcon />} onClick={() => router.push("/portal/accounting/journal-vouchers")}>
           Journal Voucher
         </Button>
-        <ReportPrintExportButton
-          size="medium"
-          getModel={() => {
-            if (!rows.length) return null;
-            const data = visibleRows.map((r) => [
-              r.contactCode || codeById.get(r.contactId) || "",
-              r.contactName,
-              fmt(r.total),
-              r.currency || "SGD",
-              r.currency ? fmt(r.foreignTotal || 0) : fmt(r.total),
-            ]);
-            data.push(["TOTAL", "", fmt(search ? visibleTotal : grandTotal), "", ""]);
-            return {
-              title: "Customer Balances",
-              orgName: organization?.name || "",
-              metaLines: [`Cut-Off-Date : ${new Date(cutOff).toLocaleDateString("en-GB")}`],
-              tables: [{ headers: ["Customer Code", "Name", "Amount", "Curr", "Foreign Amount"], rows: data, boldRows: [data.length - 1] }],
-            };
-          }}
-        />
         <Button variant="outlined" startIcon={<AssessmentOutlinedIcon />} onClick={() => setReportsOpen(true)}>
           View Reports
         </Button>
@@ -567,10 +543,21 @@ export default function ARWorkspace() {
                   key={r.contactId}
                   hover
                   onClick={() => {
+                    setFromPeriod(monthStartISO(cutOff));
                     setToPeriod(cutOff);
                     setSelected({ id: r.contactId, name: r.contactName, code: r.contactCode || codeById.get(r.contactId) || "" });
                   }}
-                  sx={{ cursor: "pointer" }}
+                  title={openCredits[r.contactId] ? `Credit notes to offset: ${fmt(openCredits[r.contactId])} — open the ledger and press Manual Offset` : undefined}
+                  sx={(theme) => ({
+                    cursor: "pointer",
+                    ...(openCredits[r.contactId]
+                      ? {
+                          bgcolor: alpha(theme.palette.warning.main, theme.palette.mode === "dark" ? 0.16 : 0.12),
+                          "&:hover": { bgcolor: alpha(theme.palette.warning.main, theme.palette.mode === "dark" ? 0.24 : 0.2) },
+                          "& > td:first-of-type": { boxShadow: `inset 3px 0 0 ${theme.palette.warning.main}` },
+                        }
+                      : {}),
+                  })}
                 >
                   <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{r.contactCode || codeById.get(r.contactId) || "—"}</TableCell>
                   <TableCell>{r.contactName}</TableCell>
@@ -618,6 +605,15 @@ export default function ARWorkspace() {
 
       {/* ---------- Debtor ledger dialog ---------- */}
       {debtorDialog}
+      <ManualOffsetDialog
+        open={manualOffsetOpen && !!selected}
+        onClose={() => setManualOffsetOpen(false)}
+        customer={selected ? { id: selected.id, name: selected.name, customerCode: selected.code } : null}
+        onSaved={() => {
+          setLedgerTick((t) => t + 1);
+          setRefreshKey((k) => k + 1);
+        }}
+      />
 
       {/* ---------- View Reports dialog ---------- */}
       <Dialog open={reportsOpen} onClose={() => setReportsOpen(false)} maxWidth="md" fullWidth>

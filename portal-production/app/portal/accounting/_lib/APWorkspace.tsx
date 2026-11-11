@@ -37,14 +37,14 @@ import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
 import PostAddOutlinedIcon from "@mui/icons-material/PostAddOutlined";
 import MenuBookOutlinedIcon from "@mui/icons-material/MenuBookOutlined";
 import SearchIcon from "@mui/icons-material/Search";
+import CompareArrowsIcon from "@mui/icons-material/CompareArrows";
+import ManualOffsetDialog from "@/containers/DocumentTemplates/components/ManualOffsetDialog";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./api";
 import { clickableRowSx, sourceHref } from "./open-source";
 import { useGetSuppliers } from "@/app/portal/hooks/api/useSuppliers";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import JournalEntryDialog from "./JournalEntryDialog";
-import { useNewJournalVoucher } from "./useNewJournalVoucher";
-import { ReportPrintExportButton } from "./report-export";
 import { todayIso } from "@/helpers/orgToday";
 
 const fmt = (n: number) =>
@@ -53,6 +53,9 @@ const unwrap = (r: any) => (r && typeof r === "object" && r.success !== undefine
 const dmy = (d: any) => (d ? new Date(d).toLocaleDateString("en-GB") : "—");
 const todayISO = () => todayIso();
 const monthStartISO = (iso: string) => `${iso.slice(0, 7)}-01`;
+// The KPI cards read the YEAR to the cut-off (guru 2026-11-11: the GL home's
+// Revenue is year-to-date, so Sales / Purchases / Receipts / Payments agree with it).
+const yearStartISO = (iso: string) => `${iso.slice(0, 4)}-01-01`;
 
 // Legacy AP home's report list (guru's screenshot 87). `tab` keys must match
 // the REPORTS registry in AccountingReportsView; `hint` = not built yet.
@@ -102,6 +105,11 @@ export default function APWorkspace() {
   const [search, setSearch] = useState("");
   const [reportsOpen, setReportsOpen] = useState(false);
   const [selected, setSelected] = useState<{ id: string; name: string; code: string } | null>(null);
+  // Manual Offset from the ledger drawer (guru 2026-11-11, "right next to the
+  // Statement of Accounts button"): offsets this party's open credits against
+  // its open debits, then the ledger and balances reload.
+  const [manualOffsetOpen, setManualOffsetOpen] = useState(false);
+  const [ledgerTick, setLedgerTick] = useState(0);
   // Deep link back into the ledger (?contact=<id>&fromPeriod=&toPeriod=) —
   // set as ?from= on whatever a ledger row opened, so Back lands here with
   // the same contact drawer open (guru 2026-11-06).
@@ -125,13 +133,14 @@ export default function APWorkspace() {
   };
   const [jvOpen, setJvOpen] = useState(false);
   // Journal Voucher = the legacy J/V document editor since 2026-11-09 (JournalEntryDialog stays mounted but unused).
-  const newJv = useNewJournalVoucher("/portal/accounting/payables");
-  const [openingVoucher, setOpeningVoucher] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   // ---------- landing data ----------
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<AgedRow[]>([]);
+  // Contacts with unapplied credit notes (guru 2026-11-11): their row is
+  // tinted so the user knows which one to click and offset.
+  const [openCredits, setOpenCredits] = useState<Record<string, number>>({});
   const [grandTotal, setGrandTotal] = useState(0);
   const [overdue, setOverdue] = useState(0);
   const [purchases, setPurchases] = useState(0);
@@ -149,20 +158,28 @@ export default function APWorkspace() {
     (async () => {
       setLoading(true);
       try {
-        const [agedRaw, invRepRaw, payRaw] = await Promise.all([
+        const [agedRaw, creditsRaw, invRepRaw, payRaw] = await Promise.all([
           request(`/statements/aged?side=payable&asOf=${cutOff}&level=summary`),
-          request(`/statements/invoice-report?side=payable&from=${monthStartISO(cutOff)}&to=${cutOff}&level=summary`).catch(() => null),
-          request(`/bills/payments-listing?from=${monthStartISO(cutOff)}&to=${cutOff}`).catch(() => null),
+          request(`/statements/open-credits?side=payable`).catch(() => null),
+          // Same Purchases figure as the GL home's Cost Of Sales tile: the P&L's year-to-cut-off column.
+          request(`/journal/reports/profit-loss?cutOffDate=${cutOff}&closingStock=0`).catch(() => null),
+          request(`/bills/payments-listing?from=${yearStartISO(cutOff)}&to=${cutOff}`).catch(() => null),
         ]);
         const aged = unwrap(agedRaw);
-        const invRep = unwrap(invRepRaw);
+        const pl = unwrap(invRepRaw);
+        const ytd = (sec: any) => {
+          const vals = sec?.subtotal?.values;
+          return Array.isArray(vals) && vals.length ? Number(vals[vals.length - 1]) || 0 : 0;
+        };
         const payList: any[] = unwrap(payRaw) || [];
         if (cancelled) return;
         const agedRows: AgedRow[] = aged?.rows || [];
         setRows(agedRows);
+        const credits = unwrap(creditsRaw);
+        setOpenCredits(credits && typeof credits === "object" ? credits : {});
         setGrandTotal(Number(aged?.grandTotal) || 0);
         setOverdue(agedRows.reduce((s, r) => s + r.total - (r.buckets?.[0] || 0), 0));
-        setPurchases(Number(invRep?.totals?.gross) || 0);
+        setPurchases(ytd(pl?.cogs));
         setPayments((Array.isArray(payList) ? payList : []).reduce((s, p) => s + (Number(p.amount) || 0), 0));
       } catch (e) {
         console.error("AP workspace load failed:", e);
@@ -185,7 +202,8 @@ export default function APWorkspace() {
   const visibleTotal = visibleRows.reduce((s, r) => s + r.total, 0);
 
   // ---------- drill-in (creditor ledger) ----------
-  const [fromPeriod, setFromPeriod] = useState("");
+  // From period opens on the FIRST OF THE MONTH of the cut-off (guru 2026-11-11), never blank.
+  const [fromPeriod, setFromPeriod] = useState(() => monthStartISO(todayISO()));
   const [toPeriod, setToPeriod] = useState(todayISO());
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledger, setLedger] = useState<{ opening: number; txs: LedgerTx[]; totalDebit: number; totalCredit: number; closing: number } | null>(null);
@@ -240,12 +258,13 @@ export default function APWorkspace() {
     return () => {
       cancelled = true;
     };
-  }, [request, selected, fromPeriod, toPeriod]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request, selected, fromPeriod, toPeriod, ledgerTick]);
 
   // ---------- shared bits ----------
   const card = (label: string, value: number, tone?: string) => (
     <Paper variant="outlined" sx={{ p: 2, flex: 1, minWidth: 180, borderRadius: 2 }}>
-      <Typography variant="caption" sx={{ color: "text.secondary", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700 }}>
+      <Typography sx={{ color: "text.secondary", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700, fontSize: "0.9rem", lineHeight: 1.3 }}>
         {label}
       </Typography>
       <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.25rem", mt: 0.5, color: tone || "text.primary" }}>
@@ -307,6 +326,9 @@ export default function APWorkspace() {
               </Paper>
               {/* Same spot as AR's Statement of Accounts button — deep-links into
                   the creditor SOA report with this supplier + period prefilled. */}
+              <Button variant="outlined" startIcon={<CompareArrowsIcon />} onClick={() => setManualOffsetOpen(true)}>
+                Manual Offset
+              </Button>
               <Button
                 variant="outlined"
                 startIcon={<ReceiptLongOutlinedIcon />}
@@ -442,36 +464,21 @@ export default function APWorkspace() {
             paying is the Record Payment step on the Purchase Journal
             (guru 2026-08-01). */}
         {/* Payment Voucher — the legacy AP home's primary action, now a real
-            document (AP twin of the Official Receipt, guru 2026-10-21): opens
-            the latest saved voucher, or a fresh PV-numbered shell. */}
+            document (AP twin of the Official Receipt, guru 2026-10-21). Since
+            2026-11-11 it opens the Payment Vouchers LIST (every org): Create
+            there makes a fresh PV-numbered shell, a row opens it. */}
         <Button
           data-tour="ap-payment-voucher"
           data-hotkey="new"
           variant="contained"
-          startIcon={openingVoucher ? <CircularProgress size={16} color="inherit" /> : <ReceiptLongOutlinedIcon />}
-          disabled={openingVoucher}
-          onClick={async () => {
-            setOpeningVoucher(true);
-            try {
-              const list: any[] = unwrap(await request(`/payment-vouchers`)) || [];
-              let target = list.find((v: any) => v.supplierId); // latest saved
-              if (!target) {
-                target = unwrap(await request(`/payment-vouchers`, { method: "POST", body: JSON.stringify({}) }));
-              }
-              if (target?.id) {
-                router.push(`/portal/accounting/payment-vouchers/${target.id}?from=/portal/accounting/payables`);
-              }
-            } catch (e: any) {
-              toast.error(e?.message || "Couldn't open payment vouchers");
-              setOpeningVoucher(false);
-            }
-          }}
+          startIcon={<ReceiptLongOutlinedIcon />}
+          onClick={() => router.push("/portal/accounting/payment-vouchers")}
         >
           Payment Voucher
         </Button>
         {/* Spend Money retired 2026-11-09: the Payment Voucher now takes direct
             GL lines (bank charges, fees) as well as supplier invoices. */}
-        <Button variant="contained" startIcon={newJv.opening ? <CircularProgress size={16} color="inherit" /> : <PostAddOutlinedIcon />} disabled={newJv.opening} onClick={() => void newJv.open()}>
+        <Button variant="contained" startIcon={<PostAddOutlinedIcon />} onClick={() => router.push("/portal/accounting/journal-vouchers")}>
           Journal Voucher
         </Button>
         <Button
@@ -481,26 +488,6 @@ export default function APWorkspace() {
         >
           Purchase Journal
         </Button>
-        <ReportPrintExportButton
-          size="medium"
-          getModel={() => {
-            if (!rows.length) return null;
-            const data = visibleRows.map((r) => [
-              r.contactCode || codeById.get(r.contactId) || "",
-              r.contactName,
-              fmt(r.total),
-              r.currency || "SGD",
-              r.currency ? fmt(r.foreignTotal || 0) : fmt(r.total),
-            ]);
-            data.push(["TOTAL", "", fmt(search ? visibleTotal : grandTotal), "", ""]);
-            return {
-              title: "Supplier Balances",
-              orgName: organization?.name || "",
-              metaLines: [`Cut-Off-Date : ${new Date(cutOff).toLocaleDateString("en-GB")}`],
-              tables: [{ headers: ["Supplier Code", "Name", "Amount", "Curr", "Foreign Amount"], rows: data, boldRows: [data.length - 1] }],
-            };
-          }}
-        />
         <Button variant="outlined" startIcon={<AssessmentOutlinedIcon />} onClick={() => setReportsOpen(true)}>
           View Reports
         </Button>
@@ -529,10 +516,21 @@ export default function APWorkspace() {
                   key={r.contactId}
                   hover
                   onClick={() => {
+                    setFromPeriod(monthStartISO(cutOff));
                     setToPeriod(cutOff);
                     setSelected({ id: r.contactId, name: r.contactName, code: r.contactCode || codeById.get(r.contactId) || "" });
                   }}
-                  sx={{ cursor: "pointer" }}
+                  title={openCredits[r.contactId] ? `Credit notes to offset: ${fmt(openCredits[r.contactId])} — open the ledger and press Manual Offset` : undefined}
+                  sx={(theme) => ({
+                    cursor: "pointer",
+                    ...(openCredits[r.contactId]
+                      ? {
+                          bgcolor: alpha(theme.palette.warning.main, theme.palette.mode === "dark" ? 0.16 : 0.12),
+                          "&:hover": { bgcolor: alpha(theme.palette.warning.main, theme.palette.mode === "dark" ? 0.24 : 0.2) },
+                          "& > td:first-of-type": { boxShadow: `inset 3px 0 0 ${theme.palette.warning.main}` },
+                        }
+                      : {}),
+                  })}
                 >
                   <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{r.contactCode || codeById.get(r.contactId) || "—"}</TableCell>
                   <TableCell>{r.contactName}</TableCell>
@@ -580,6 +578,16 @@ export default function APWorkspace() {
 
       {/* ---------- Creditor ledger dialog ---------- */}
       {creditorDialog}
+      <ManualOffsetDialog
+        open={manualOffsetOpen && !!selected}
+        onClose={() => setManualOffsetOpen(false)}
+        customer={selected ? { id: selected.id, name: selected.name, supplierCode: selected.code } : null}
+        party="supplier"
+        onSaved={() => {
+          setLedgerTick((t) => t + 1);
+          setRefreshKey((k) => k + 1);
+        }}
+      />
 
       {/* ---------- View Reports dialog ---------- */}
       <Dialog open={reportsOpen} onClose={() => setReportsOpen(false)} maxWidth="md" fullWidth>

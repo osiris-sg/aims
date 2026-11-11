@@ -12,7 +12,7 @@ import {
 import SearchIcon from "@mui/icons-material/Search";
 import { ReportSearchContext } from "./ReportTable";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
-import { ReportPrintExportButton, domToExportModel } from "../report-export";
+import { ReportPrintExportButton, ReportEmailButton, domToExportModel, type ReportExportModel } from "../report-export";
 
 export interface ReportShellProps {
   title: string;
@@ -27,6 +27,8 @@ export interface ReportShellProps {
   cardActions?: React.ReactNode;
   footerInfo?: string;
   onExportCsv?: () => void;
+  /** a report that has more than tables (e.g. an ageing box) builds its own export model */
+  getExportModel?: () => ReportExportModel | null;
   compact?: boolean;
   onCompactChange?: (v: boolean) => void;
   children: React.ReactNode;
@@ -34,7 +36,7 @@ export interface ReportShellProps {
 
 export default function ReportShell({
   title, filters, onUpdate, loading, headerLines,
-  cardActions, footerInfo, onExportCsv, compact, onCompactChange, children,
+  cardActions, footerInfo, onExportCsv, getExportModel, compact, onCompactChange, children,
 }: ReportShellProps) {
   // In-report search — provided via context so every ReportTable in this
   // report filters its rows live (guru 2026-07-15: search on ALL reports).
@@ -47,7 +49,7 @@ export default function ReportShell({
   const { organization } = useOrganization();
   const reportContentRef = useRef<HTMLDivElement | null>(null);
   const captureModel = () =>
-    domToExportModel(reportContentRef.current, title, organization?.name || "", headerLines);
+    getExportModel ? getExportModel() : domToExportModel(reportContentRef.current, title, organization?.name || "", headerLines);
   // NOTE: the hosting section page already shows "Back to X | <Report name>",
   // so the shell renders no header of its own — the report card carries the
   // title (guru, 2026-07-10).
@@ -60,19 +62,47 @@ export default function ReportShell({
               content share the same centred column (guru 2026-07-27: reports
               read like Xero's — compact centred card, columns close together,
               not stretched across the whole screen). */}
-          <Box sx={{ px: { xs: 1.5, md: 3 }, py: 2, maxWidth: 1140, mx: "auto", width: "100%" }}>
-            <Stack direction="row" flexWrap="wrap" alignItems="flex-end" sx={{ gap: { xs: 1.5, md: 2 } }}>
-              {filters}
-              <Button
-                variant="contained"
-                onClick={onUpdate}
-                disabled={loading}
-                startIcon={loading ? <CircularProgress size={14} color="inherit" /> : undefined}
-                sx={{ height: 40 }}
-              >
-                Update
-              </Button>
-            </Stack>
+          {/* Print / Export lives at the TOP RIGHT of every report page, on the
+              filter row but outside the centred filter column (guru 2026-11-11:
+              the footer button was hard to see). */}
+          <Box sx={{ position: "relative" }}>
+            {/* Filters share the report card's centred column EXACTLY — same
+                padding + same 1140 cap on the padded box (guru 2026-11-11:
+                "left section aligned with the report"). */}
+            <Box sx={{ px: { xs: 1.5, md: 3 }, py: 2, maxWidth: 1140, mx: "auto", width: "100%" }}>
+              <Stack direction="row" flexWrap="wrap" alignItems="flex-end" sx={{ gap: { xs: 1.5, md: 2 } }}>
+                {filters}
+                <Button
+                  variant="contained"
+                  onClick={onUpdate}
+                  disabled={loading}
+                  startIcon={loading ? <CircularProgress size={14} color="inherit" /> : undefined}
+                  sx={{ height: 40 }}
+                >
+                  Update
+                </Button>
+              </Stack>
+            </Box>
+            {/* Top-right of the page, outside the column; drops under the
+                filters on narrow screens instead of overlapping them. */}
+            <Box
+              sx={{
+                position: { xs: "static", lg: "absolute" },
+                right: { lg: 24 },
+                top: { lg: 16 },
+                px: { xs: 1.5, md: 3, lg: 0 },
+                pb: { xs: 1.5, lg: 0 },
+                display: "flex",
+                flexDirection: { xs: "row", lg: "column" },
+                alignItems: "stretch",
+                justifyContent: "flex-end",
+                gap: 1,
+                "& .MuiButton-root": { height: 40, justifyContent: "flex-start" },
+              }}
+            >
+              <ReportPrintExportButton getModel={captureModel} onExportCsv={onExportCsv} size="medium" />
+              <ReportEmailButton getModel={captureModel} size="medium" />
+            </Box>
           </Box>
 
           {/* Report card */}
@@ -134,7 +164,6 @@ export default function ReportShell({
               )}
             </Box>
             <Typography variant="body2" color="text.secondary">{footerInfo || ""}</Typography>
-            <ReportPrintExportButton getModel={captureModel} onExportCsv={onExportCsv} />
           </Box>
         </Box>
       </Box>

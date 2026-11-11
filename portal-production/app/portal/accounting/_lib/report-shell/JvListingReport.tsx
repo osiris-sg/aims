@@ -87,7 +87,7 @@ export default function JvListingReport() {
             accn: l.accountCode || "",
             description:
               (l.description || j.description || "") +
-              (isForeign && l.exchangeRate ? `  ·  Rate: ${Number(l.exchangeRate).toFixed(6)}  SGD ${Math.abs(amount).toFixed(2)}` : ""),
+              (isForeign && l.exchangeRate ? `  ·  Rate: ${Number(l.exchangeRate).toFixed(7)}  SGD ${Math.abs(amount).toFixed(2)}` : ""),
             foreignAmount: isForeign ? R(sign * Math.abs(Number(l.foreignAmount))) : null,
             curr: isForeign ? String(j.currency).toUpperCase() : "SGD",
             amount,

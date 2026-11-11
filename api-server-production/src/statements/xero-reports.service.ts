@@ -188,6 +188,67 @@ export class XeroReportsService {
   // Aged report — summary (per contact) or detail (per document).
   // Buckets: Current (not yet due) + N periods of periodDays + Older.
   // ------------------------------------------------------------------
+  // ------------------------------------------------------------------
+  // Open credit notes per contact — ONE scan for the whole side (guru
+  // 2026-11-11: "add a colour to the AR/AP row the moment they have any CN
+  // to offset so they know what to click"). Same outstanding rule as the
+  // receipt's openCreditNotes (AR: Payment rows) and the voucher's openBills
+  // (AP: BillPayment rows stored NEGATIVE on a credit note). Returns
+  // { contactId: creditLeft } for contacts with credit > 0.
+  // ------------------------------------------------------------------
+  async openCreditsByContact(organizationId: string, side: Side): Promise<Record<string, number>> {
+    const isAR = side === 'receivable';
+    const docs = await this.prisma.document.findMany({
+      where: { organizationId, type: { in: isAR ? ['CN', 'CREDIT_NOTE'] : ['CREDIT_NOTE'] } },
+      select: { id: true, status: true, config: true },
+    });
+    const ids = docs.map((d) => d.id);
+    if (!ids.length) return {};
+    const appliedByDoc = new Map<string, number>();
+    const posted = new Set<string>();
+    if (isAR) {
+      const [pays, jes] = await Promise.all([
+        this.prisma.payment.findMany({ where: { organizationId, documentId: { in: ids } }, select: { documentId: true, amount: true } }),
+        this.prisma.journalEntry.findMany({
+          where: { organizationId, status: { not: 'VOID' }, sourceDocumentId: { in: ids } },
+          select: { sourceDocumentId: true },
+        }),
+      ]);
+      for (const p of pays) appliedByDoc.set(p.documentId, R((appliedByDoc.get(p.documentId) || 0) + (Number(p.amount) || 0)));
+      for (const j of jes) if (j.sourceDocumentId) posted.add(j.sourceDocumentId);
+    } else {
+      const pays = await this.prisma.billPayment.findMany({ where: { organizationId, billId: { in: ids } }, select: { billId: true, amount: true } });
+      // credit-note allocations are stored NEGATIVE → credit given away = −Σ
+      for (const p of pays) appliedByDoc.set(p.billId, R((appliedByDoc.get(p.billId) || 0) - (Number(p.amount) || 0)));
+    }
+    const out: Record<string, number> = {};
+    for (const d of docs) {
+      const c: any = d.config || {};
+      if (c.voided) continue;
+      const contactId = isAR ? c.customerId || c.customer?.id : c.supplierId || c.supplier?.id;
+      if (!contactId) continue;
+      const status = String(d.status || '').toLowerCase();
+      if (status === 'cancelled') continue;
+      if (isAR) {
+        if ((status === 'draft' || status === 'unconfirmed') && !posted.has(d.id) && !c.xeroImported) continue;
+      } else {
+        const xs = String(c.xeroStatus || '');
+        if (xs === 'Voided' || xs === 'Deleted' || xs === 'Draft') continue;
+        if (!xs && (status === 'draft' || status === 'unconfirmed')) continue;
+      }
+      const di: any = c.documentInfo || {};
+      const gross = R(Math.abs(Number(grossStampOf(c) ?? c.totalAmount ?? di.nettTotal ?? c.nettTotal ?? 0) || 0));
+      const stamped = outstandingOf(c);
+      const left =
+        stamped !== null && stamped !== undefined
+          ? R(Math.max(0, Math.abs(Number(stamped))))
+          : R(Math.max(0, gross - (appliedByDoc.get(d.id) || 0)));
+      if (left <= 0.005) continue;
+      out[String(contactId)] = R((out[String(contactId)] || 0) + left);
+    }
+    return out;
+  }
+
   async aged(
     organizationId: string,
     side: Side,

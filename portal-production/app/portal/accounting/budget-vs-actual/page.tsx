@@ -24,7 +24,7 @@ import Link from "next/link";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
-import { ReportPrintExportButton, type ReportExportModel } from "../_lib/report-export";
+import { ReportPrintExportButton, ReportEmailButton, type ReportExportModel } from "../_lib/report-export";
 
 type Month = { month: number; budget: number; actual: number; variance: number; variancePct: number | null };
 
@@ -145,6 +145,7 @@ export default function BudgetVsActualPage() {
           </TextField>
           <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load}>Refresh</Button>
           <ReportPrintExportButton getModel={exportModel} />
+          <ReportEmailButton getModel={exportModel} />
           <Button startIcon={<OpenInNewIcon />} variant="outlined" size="small" component={Link} href="/portal/accounting/budget">
             Edit budgets
           </Button>

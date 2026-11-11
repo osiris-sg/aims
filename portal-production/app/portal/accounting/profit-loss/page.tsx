@@ -24,7 +24,7 @@ import { useAccountingApi } from "../_lib/api";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import CloseWizardDialog from "../_lib/CloseWizardDialog";
 import { PaperSheet, ReportHeader, ReportPrintCss, fmt, formatShortDate } from "../_lib/report-doc";
-import { ReportPrintExportButton, type ReportExportTable } from "../_lib/report-export";
+import { ReportPrintExportButton, ReportEmailButton, type ReportExportTable } from "../_lib/report-export";
 import { todayIso } from "@/helpers/orgToday";
 
 type Section = {
@@ -304,6 +304,7 @@ export default function ProfitLossPage() {
               Refresh
             </Button>
             <ReportPrintExportButton getModel={exportModel} onPrint={() => window.print()} />
+            <ReportEmailButton getModel={exportModel} />
           </Stack>
         </Box>
       </Paper>

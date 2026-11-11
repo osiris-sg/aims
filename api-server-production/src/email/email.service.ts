@@ -302,6 +302,68 @@ export class EmailService {
     }
   }
 
+  /**
+   * Email a REPORT PDF the portal rendered (statement of accounts, trial
+   * balance…): the sales-document mail with the attachment passed in-memory
+   * as base64. Plain-text body from the compose dialog, escaped, line breaks
+   * kept. Returns success/error, never throws.
+   */
+  async sendReportEmail(params: {
+    to: string[];
+    cc?: string[];
+    bcc?: string[];
+    subject: string;
+    message: string;
+    organizationName: string;
+    filename: string;
+    pdfBase64: string;
+  }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    if (!this.resend) return { success: false, error: 'Email service not configured. Please set RESEND_API_KEY.' };
+    if (!params.to?.length) return { success: false, error: 'no recipients' };
+    const esc = (v: string) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const body = esc(params.message).replace(/\r?\n/g, '<br>');
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+            .content { background-color: #ffffff; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; }
+            .footer { text-align: center; color: #666; font-size: 12px; margin-top: 20px; padding-top: 20px; border-top: 1px solid #e0e0e0; }
+          </style>
+        </head>
+        <body>
+          <div class="content"><p>${body}</p></div>
+          <div class="footer">
+            <p>This email was sent by ${esc(params.organizationName)}</p>
+            <p>Please do not reply to this email.</p>
+          </div>
+        </body>
+      </html>`;
+    try {
+      const emailData: any = {
+        from: this.fromEmail,
+        to: params.to,
+        subject: params.subject,
+        html,
+        attachments: [{ filename: params.filename, content: params.pdfBase64 }],
+      };
+      if (params.cc?.length) emailData.cc = params.cc;
+      if (params.bcc?.length) emailData.bcc = params.bcc;
+      const result = await this.resend.emails.send(emailData);
+      if (result.error) {
+        this.logger.error(`Resend API error (report): ${JSON.stringify(result.error)}`);
+        return { success: false, error: result.error.message || 'Failed to send email' };
+      }
+      this.logger.log(`Report email sent to ${params.to.join(', ')} (${params.filename}). Message ID: ${result.data?.id}`);
+      return { success: true, messageId: result.data?.id };
+    } catch (error: any) {
+      this.logger.error(`Report email error: ${error?.message}`, error?.stack);
+      return { success: false, error: error?.message ?? 'Unknown error' };
+    }
+  }
+
   private generateServiceReportEmailHtml(params: SendServiceReportEmailParams): string {
     const { customerName, organizationName, reportNumber, serviceDate } = params;
     return `

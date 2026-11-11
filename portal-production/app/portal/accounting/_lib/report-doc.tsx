@@ -39,6 +39,10 @@ export const formatShortDate = (d: Date | string) =>
 // white-on-black in BOTH themes — it is a document on paper, not app chrome.
 // `breakAfter` marks a non-final sheet of a multi-page report: printing then
 // starts the next sheet on a fresh page (single-sheet reports pass nothing).
+// Every report closes with the legacy statement line (guru 2026-11-11). Lives
+// in the sheet's bottom margin, so pagination budgets are untouched.
+export const COMPUTER_GENERATED_NOTE = "This is a computer generated Statement. No signature is required.";
+
 export function PaperSheet({ children, breakAfter }: { children: React.ReactNode; breakAfter?: boolean }) {
   return (
     // BaseTheme: the sheet keeps the standard paper typography under any
@@ -51,6 +55,7 @@ export function PaperSheet({ children, breakAfter }: { children: React.ReactNode
         {...(breakAfter ? { "data-print-break": "1" } : {})}
         elevation={2}
         sx={{
+          position: "relative",
           width: "210mm",
           flexShrink: 0,
           minHeight: "297mm",
@@ -61,6 +66,11 @@ export function PaperSheet({ children, breakAfter }: { children: React.ReactNode
         }}
       >
         {children}
+        {!breakAfter && (
+          <Box component="div" sx={{ position: "absolute", left: "20mm", right: "20mm", bottom: "9mm", textAlign: "right", fontSize: "8.5pt", color: "#000" }}>
+            {COMPUTER_GENERATED_NOTE}
+          </Box>
+        )}
       </Paper>
     </Box>
     </BaseTheme>

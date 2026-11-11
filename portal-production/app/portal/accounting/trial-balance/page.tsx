@@ -20,7 +20,7 @@ import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { PaperSheet, ReportHeader, ReportPrintCss, fmt, formatShortDate } from "../_lib/report-doc";
-import { ReportPrintExportButton } from "../_lib/report-export";
+import { ReportPrintExportButton, ReportEmailButton } from "../_lib/report-export";
 import { todayIso } from "@/helpers/orgToday";
 
 type Row = {
@@ -171,6 +171,7 @@ export default function TrialBalancePage() {
             Refresh
           </Button>
           <ReportPrintExportButton getModel={exportModel} onPrint={() => window.print()} />
+          <ReportEmailButton getModel={exportModel} />
         </Stack>
       </Paper>
 
