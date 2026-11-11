@@ -23,6 +23,10 @@ export type HotkeyAction = {
   defaultKey: string | null;
 };
 
+// NOTE: there is no "help" action any more. It pressed the ✦ AIMS Guide
+// bubble, which was retired from every org on 2026-11-11, leaving F1 bound to a
+// control that is no longer mounted — the dispatcher swallowed the key and
+// nothing happened. F1 is free; bind it to AIMEE if she should answer it.
 export const HOTKEY_ACTIONS: HotkeyAction[] = [
   {
     id: "lookup",
@@ -73,12 +77,6 @@ export const HOTKEY_ACTIONS: HotkeyAction[] = [
     label: "Save and submit",
     description: "On a supplier invoice, save and submit in one go.",
     defaultKey: "Shift+F9",
-  },
-  {
-    id: "help",
-    label: "AIMS Guide",
-    description: "Open or close the AIMS Guide help bubble.",
-    defaultKey: "F1",
   },
 ];
 
