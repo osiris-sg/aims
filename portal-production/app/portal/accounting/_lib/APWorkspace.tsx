@@ -403,10 +403,10 @@ export default function APWorkspace() {
   return (
     <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3, maxWidth: 1400, mx: "auto", width: "100%" }}>
       <Stack direction={{ xs: "column", md: "row" }} gap={1.5} sx={{ mb: 2 }}>
-        {card("Purchases (month)", purchases)}
+        {card("Purchases", purchases)}
         {card("Payables", grandTotal)}
         {card("Overdue", overdue, "error.main")}
-        {card("Payments (month)", payments, "success.main")}
+        {card("Payments", payments, "success.main")}
       </Stack>
 
       {/* Buttons that wrap to a second line stay on the RIGHT, under the

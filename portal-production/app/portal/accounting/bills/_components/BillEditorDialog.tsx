@@ -1065,6 +1065,84 @@ export default function BillEditorDialog({
           </Alert>
         )}
 
+        {/* Status strip — a saved bill says what it IS before any field: the
+            state in words, what has been paid, what is still due, and why the
+            form is locked (guru 2026-11-11: "i dont know the status of this bill"). */}
+        {editing && (() => {
+          const st = String(editing.status || "DRAFT");
+          const total = Number(editing.totalAmount) || 0;
+          const paid = Number(editing.amountPaid) || 0;
+          const balance = Math.max(0, Math.round((total - paid) * 100) / 100);
+          const overdue = st === "POSTED" && !!editing.dueDate && String(editing.dueDate).slice(0, 10) < todayIso();
+          const tone: "success" | "info" | "error" | "warning" | "default" =
+            st === "PAID" ? "success" : st === "VOID" ? "error" : st === "POSTED" ? (overdue ? "warning" : "info") : "default";
+          const words =
+            st === "PAID"
+              ? "Paid in full"
+              : st === "VOID"
+              ? "Voided"
+              : st === "POSTED"
+              ? overdue
+                ? "Posted — overdue"
+                : "Posted — awaiting payment"
+              : st === "PENDING_APPROVAL"
+              ? "Pending approval"
+              : "Draft";
+          const when = (v: any) => (v ? new Date(v).toLocaleDateString("en-GB") : null);
+          const stamp =
+            st === "VOID" ? when(editing.voidedAt) : st === "PAID" || st === "POSTED" ? when(editing.postedAt) : null;
+          const cell = (label: string, value: string, strong?: boolean) => (
+            <Box sx={{ minWidth: 110 }}>
+              <Typography variant="caption" sx={{ color: "text.secondary", display: "block", lineHeight: 1.2 }}>
+                {label}
+              </Typography>
+              <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: strong ? 800 : 600, fontSize: "1rem", lineHeight: 1.3 }}>
+                {value}
+              </Typography>
+            </Box>
+          );
+          return (
+            <Box
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 3,
+                flexWrap: "wrap",
+                mb: 2.5,
+                px: 2,
+                py: 1.5,
+                borderRadius: 2.5,
+                border: "1px solid",
+                borderColor: (t: any) => (tone === "default" ? t.palette.divider : alpha(t.palette[tone].main, 0.5)),
+                bgcolor: (t: any) => (tone === "default" ? alpha(t.palette.text.primary, 0.03) : alpha(t.palette[tone].main, 0.1)),
+              }}
+            >
+              <Box sx={{ minWidth: 220 }}>
+                <Chip
+                  label={st.replace("_", " ")}
+                  variant="outlined"
+                  color={tone === "default" ? "default" : tone}
+                  sx={{ fontWeight: 800, letterSpacing: "0.04em", height: 28, fontSize: "0.8rem", borderWidth: 2 }}
+                />
+                <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 600 }}>
+                  {words}
+                  {stamp ? ` · ${stamp}` : ""}
+                </Typography>
+              </Box>
+              {cell("Total", fmt(total))}
+              {cell("Paid", fmt(paid))}
+              {st !== "VOID" && cell("Balance due", fmt(balance), balance > 0.005)}
+              {editing.dueDate && cell(overdue ? "Was due" : "Due", when(editing.dueDate) || "")}
+              <Box sx={{ flex: 1 }} />
+              {isReadOnly && (
+                <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                  {st === "VOID" ? "A voided bill cannot be edited." : "Locked. Void it to make changes."}
+                </Typography>
+              )}
+            </Box>
+          );
+        })()}
+
         {/* Header fields */}
         <Box
           sx={{
@@ -1077,6 +1155,8 @@ export default function BillEditorDialog({
           <Autocomplete
             autoHighlight
             size="small"
+            disabled={isReadOnly}
+            disableClearable={isReadOnly as any}
             options={suppliers}
             value={suppliers.find((s) => s.id === supplierId) || null}
             onChange={(_, v) => setSupplierId(v?.id || null)}
@@ -1192,7 +1272,7 @@ export default function BillEditorDialog({
                 <TableCell align="right" sx={{ fontWeight: 700, width: 80 }}>Qty</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 700, width: showQuotation ? 100 : 110 }}>Unit</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 700, width: 120 }}>Amount</TableCell>
-                <TableCell sx={{ width: 40 }} />
+                {!isReadOnly && <TableCell sx={{ width: 40 }} />}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -1311,19 +1391,21 @@ export default function BillEditorDialog({
                       sx={{ width: 110 }}
                     />
                   </TableCell>
-                  <TableCell>
-                    <Tooltip title="Remove line">
-                      <span>
-                        <IconButton
-                          size="small"
-                          onClick={() => setLines((r) => (r.length <= 1 ? r : r.filter((x) => x.uid !== l.uid)))}
-                          disabled={lines.length <= 1 || isReadOnly}
-                        >
-                          <DeleteOutlineIcon fontSize="small" />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                  </TableCell>
+                  {!isReadOnly && (
+                    <TableCell>
+                      <Tooltip title="Remove line">
+                        <span>
+                          <IconButton
+                            size="small"
+                            onClick={() => setLines((r) => (r.length <= 1 ? r : r.filter((x) => x.uid !== l.uid)))}
+                            disabled={lines.length <= 1}
+                          >
+                            <DeleteOutlineIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
@@ -1337,9 +1419,11 @@ export default function BillEditorDialog({
 
         <Stack direction="row" alignItems="center" gap={2} sx={{ mt: 1.5, flexWrap: "wrap" }}>
           {/* WCT: a new line starts on the line above's quotation (editable). */}
-          <Button data-hotkey="addLine" startIcon={<AddIcon />} size="small" onClick={() => setLines((r) => [...r, showQuotation ? { ...newLine(), quotation: r[r.length - 1]?.quotation ?? null } : newLine()])} disabled={isReadOnly}>
-            Add line
-          </Button>
+          {!isReadOnly && (
+            <Button data-hotkey="addLine" startIcon={<AddIcon />} size="small" onClick={() => setLines((r) => [...r, showQuotation ? { ...newLine(), quotation: r[r.length - 1]?.quotation ?? null } : newLine()])}>
+              Add line
+            </Button>
+          )}
           <Box sx={{ flex: 1 }} />
           <Typography variant="body2" sx={{ color: "text.secondary" }}>Subtotal</Typography>
           <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, minWidth: 100, textAlign: "right" }}>
@@ -1365,12 +1449,6 @@ export default function BillEditorDialog({
                 {JSON.stringify(editing.matchDetails, null, 2)}
               </Box>
             )}
-          </Alert>
-        )}
-
-        {isReadOnly && (
-          <Alert severity="info" sx={{ mt: 2 }}>
-            This bill is {editing?.status?.replace("_", " ")} — view-only. Void it to make changes.
           </Alert>
         )}
 
@@ -1439,7 +1517,7 @@ export default function BillEditorDialog({
           </Tooltip>
         )}
         <Button onClick={requestClose} disabled={saving || extracting || flushing}>
-          Cancel
+          {isReadOnly ? "Close" : "Cancel"}
         </Button>
         {!isReadOnly && (
           <Button

@@ -196,7 +196,7 @@ export default function GLWorkspace() {
           { title: "Revenue", lines: [{ label: "Sales", value: ytd(pl?.sales) }, { label: "Income", value: ytd(pl?.otherIncome) }] },
           { title: "Cost Of Sales", lines: [{ label: "Purchases", value: ytd(pl?.cogs) }, { label: "Opening Stock", value: Number(pl?.openingStock) || 0 }] },
           { title: "Expenses", lines: [{ label: "Expenses", value: ytd(pl?.expenses) }, { label: "Taxation", value: ytd(pl?.tax) }] },
-          { title: "Cash Flow", lines: [{ label: "Receipts (month)", value: receipts }, { label: "Payments (month)", value: paid }] },
+          { title: "Cash Flow", lines: [{ label: "Receipts", value: receipts }, { label: "Payments", value: paid }] },
         ]);
       } catch (e) {
         console.error("GL workspace load failed:", e);

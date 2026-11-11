@@ -434,10 +434,10 @@ export default function ARWorkspace() {
     // width-capped instead of edge-to-edge.
     <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3, maxWidth: 1400, mx: "auto", width: "100%" }}>
       <Stack direction={{ xs: "column", md: "row" }} gap={1.5} sx={{ mb: 2 }}>
-        {card("Sales (month)", sales)}
+        {card("Sales", sales)}
         {card("Receivables", grandTotal)}
         {card("Overdue", overdue, "error.main")}
-        {card("Receipts (month)", receipts, "success.main")}
+        {card("Receipts", receipts, "success.main")}
       </Stack>
 
       {/* Buttons that wrap to a second line stay on the RIGHT, under the

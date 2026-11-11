@@ -235,7 +235,19 @@ const theme = createTheme({
     },
     MuiInputBase: {
       styleOverrides: {
-        root: { fontSize: "0.8125rem" },
+        root: {
+          fontSize: "0.8125rem",
+          // A locked document (posted / paid bill, confirmed voucher) renders its
+          // fields disabled. MUI greys that text to 38% — unreadable (guru
+          // 2026-11-11: "i cant see the data"). Keep the value at full contrast;
+          // the dim border, label and not-allowed cursor still say "locked".
+          "&.Mui-disabled": { color: tokens.onSurface },
+          "& input.Mui-disabled, & textarea.Mui-disabled, &.Mui-disabled .MuiSelect-select": {
+            WebkitTextFillColor: tokens.onSurface,
+            color: tokens.onSurface,
+            opacity: 0.92,
+          },
+        },
         input: { fontSize: "0.8125rem", padding: "8px 12px" },
       },
     },
