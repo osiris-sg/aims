@@ -15,7 +15,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Box,
-  Button,
   Card,
   CardContent,
   Checkbox,
@@ -56,6 +55,7 @@ import { headerInputSx } from "./DynamicFormFields";
 import type { TemplateFieldConfig } from "../types/templateFieldTypes";
 import DocumentRefLink from "@/components/DocumentRefLink";
 import { todayIso } from "@/helpers/orgToday";
+import EditorRail from "./EditorRail";
 
 // ---------------------------------------------------------------------------
 // Field definitions — none of these names appear in HEADER_FIELD_ORDER (or the
@@ -500,7 +500,7 @@ export function OrAmountInput({ formData, setFormData }: RowProps) {
         value={od.rate ?? 1}
         onChange={(e) => setOrData(formData, setFormData, { rate: e.target.value })}
         disabled={currency === "SGD"}
-        inputProps={{ step: "0.000001", min: 0, style: { textAlign: "right" } }}
+        inputProps={{ step: "0.0000001", min: 0, style: { textAlign: "right" } }}
         sx={{ ...headerInputSx, width: 140 }}
       />
       <Typography sx={{ fontSize: "13px", fontWeight: 700, ml: 1.5 }}>Amount&nbsp;&nbsp;SGD</Typography>
@@ -654,34 +654,7 @@ export function OfficialReceiptOffsetSection({
   return (
     <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", gap: 1 }}>
       {/* Side rail — the legacy screen's left module buttons */}
-      <Stack spacing={1} sx={{ width: 118, flexShrink: 0, pt: 0.5 }}>
-        {railButtons.map((b) => (
-          <Button
-            key={b.label}
-            variant="outlined"
-            color="inherit"
-            onClick={b.onClick}
-            sx={{
-              flexDirection: "column",
-              gap: 0.5,
-              py: 1.25,
-              px: 0.5,
-              textTransform: "none",
-              fontSize: "0.7rem",
-              fontWeight: 600,
-              lineHeight: 1.2,
-              color: "text.secondary",
-              borderColor: "divider",
-              bgcolor: "background.paper",
-              "& svg": { fontSize: 22 },
-              "&:hover": { borderColor: "text.secondary", bgcolor: "action.hover" },
-            }}
-          >
-            {b.icon}
-            {b.label}
-          </Button>
-        ))}
-      </Stack>
+      <EditorRail buttons={railButtons} />
 
       <Card data-tour="or-offset-grid" sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <CardContent sx={{ p: 1, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>

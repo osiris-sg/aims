@@ -53,6 +53,7 @@ import PvOffsetSupplierDialog, { type PvLine, type PvOffset } from "./PvOffsetSu
 import { AccountSelectDialog, useOrAccounts, type OrAccount } from "./OfficialReceiptSection";
 import type { TemplateFieldConfig } from "../types/templateFieldTypes";
 import { todayIso } from "@/helpers/orgToday";
+import EditorRail from "./EditorRail";
 
 export type JvLine = {
   id: string;
@@ -285,20 +286,8 @@ export function JournalVoucherLinesSection({
 
   return (
     <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", gap: 1 }}>
-      <Stack spacing={1} sx={{ width: 118, flexShrink: 0, pt: 0.5 }}>
-        {railButtons.map((b) => (
-          <Button
-            key={b.label}
-            variant="outlined"
-            color="inherit"
-            onClick={b.onClick}
-            sx={{ flexDirection: "column", gap: 0.5, py: 1.25, px: 0.5, textTransform: "none", fontSize: "0.7rem", fontWeight: 600, lineHeight: 1.2, color: "text.secondary", borderColor: "divider", bgcolor: "background.paper", "& svg": { fontSize: 22 }, "&:hover": { borderColor: "text.secondary", bgcolor: "action.hover" } }}
-          >
-            {b.icon}
-            {b.label}
-          </Button>
-        ))}
-      </Stack>
+      {/* Side rail — the legacy screen's left module buttons */}
+      <EditorRail buttons={railButtons} />
 
       <Card data-tour="jv-lines" sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <CardContent sx={{ p: 1, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>

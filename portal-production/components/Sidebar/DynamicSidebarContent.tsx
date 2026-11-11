@@ -121,6 +121,8 @@ export default function DynamicSidebarContent() {
   const ACCOUNTING_TAB_REMAP: Array<[string, string]> = [
     ["/portal/accounting/bills", "/portal/accounting/payables"],
     ["/portal/accounting/receipts", "/portal/accounting/receivables"],
+    ["/portal/accounting/payment-vouchers", "/portal/accounting/payables"],
+    ["/portal/accounting/journal-vouchers", "/portal/accounting/ledger"],
   ];
   const tabRemap = ACCOUNTING_TAB_REMAP.find(([p]) => rawPathname === p || rawPathname.startsWith(p + "/"))?.[1] || null;
   const pathname = tabRemap || remappedListRoute || rawPathname;

@@ -9,7 +9,7 @@
 //                Date         [06/11/2026]
 //                Payee        [2LT GLASS & MIRROR …          ] ✎  ← Offset Supplier Invoices
 //                Remarks      [                              ]
-//                Bank / cheque[        ]   Prepare By [        ]
+//                Bank advice [        ]   Prepare By [        ]
 //   ┌ Account code │ Description     │ Remarks │ Amount ┐      ┌ Remarks ┐
 //   │ EA002        │ ACCOUNTING FEE  │         │ 1000.00│      │ (memo)  │
 //   │ CL001        │ TRADE CREDITORS │ C2001 … │ 2500.00│      └─────────┘
@@ -67,6 +67,7 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 import { AccountSelectDialog, numberIsPending, peekDocumentNumber, useOrAccounts, type OrAccount } from "./OfficialReceiptSection";
 import type { TemplateFieldConfig } from "../types/templateFieldTypes";
 import { todayIso } from "@/helpers/orgToday";
+import EditorRail from "./EditorRail";
 
 export type { PvLine, PvOffset };
 
@@ -84,7 +85,7 @@ export const PV_FIELD_DEFINITIONS: TemplateFieldConfig = {
         { fieldName: "pvData.date", displayLabel: "Date", fieldType: "date", required: true },
         { fieldName: "pvPayeeRow", displayLabel: "Payee", fieldType: "text", required: false },
         { fieldName: "pvData.remarks", displayLabel: "Remarks", fieldType: "text", required: false },
-        { fieldName: "pvChequeRow", displayLabel: "Bank / cheque", fieldType: "text", required: false },
+        { fieldName: "pvChequeRow", displayLabel: "Bank advice", fieldType: "text", required: false },
       ],
     },
   ],
@@ -253,7 +254,7 @@ export function PvBankInput({ formData, setFormData }: RowProps) {
         value={pd.rate ?? 1}
         onChange={(e) => setPvData(formData, setFormData, { rate: e.target.value })}
         disabled={!foreign}
-        inputProps={{ step: "0.000001", min: 0, style: { textAlign: "right" } }}
+        inputProps={{ step: "0.0000001", min: 0, style: { textAlign: "right" } }}
         sx={{ ...headerInputSx, width: 140, mr: 1 }}
         title={foreign ? `${currency} → SGD` : "Base currency voucher"}
       />
@@ -301,7 +302,7 @@ export function PvPayeeInput({ formData, setFormData }: RowProps) {
   );
 }
 
-// Bank / cheque + Prepare By on one row, like the legacy screen.
+// Bank advice (cheque / transfer reference) + Prepare By on one row, like the legacy screen (wording: guru 2026-11-11).
 export function PvChequeRow({ formData, setFormData }: RowProps) {
   const pd = formData?.pvData || {};
   return (
@@ -309,7 +310,7 @@ export function PvChequeRow({ formData, setFormData }: RowProps) {
       <TextField
         size="small"
         value={pd.chequeNo || ""}
-        placeholder="Bank / cheque no."
+        placeholder="Bank advice no."
         onChange={(e) => setPvData(formData, setFormData, { chequeNo: e.target.value })}
         sx={{ ...headerInputSx, width: 220 }}
       />
@@ -521,34 +522,8 @@ export function PaymentVoucherLinesSection({
 
   return (
     <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", gap: 1 }}>
-      <Stack spacing={1} sx={{ width: 118, flexShrink: 0, pt: 0.5 }}>
-        {railButtons.map((b) => (
-          <Button
-            key={b.label}
-            variant="outlined"
-            color="inherit"
-            onClick={b.onClick}
-            sx={{
-              flexDirection: "column",
-              gap: 0.5,
-              py: 1.25,
-              px: 0.5,
-              textTransform: "none",
-              fontSize: "0.7rem",
-              fontWeight: 600,
-              lineHeight: 1.2,
-              color: "text.secondary",
-              borderColor: "divider",
-              bgcolor: "background.paper",
-              "& svg": { fontSize: 22 },
-              "&:hover": { borderColor: "text.secondary", bgcolor: "action.hover" },
-            }}
-          >
-            {b.icon}
-            {b.label}
-          </Button>
-        ))}
-      </Stack>
+      {/* Side rail — the legacy screen's left module buttons */}
+      <EditorRail buttons={railButtons} />
 
       <Card data-tour="pv-lines" sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <CardContent sx={{ p: 1, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>
