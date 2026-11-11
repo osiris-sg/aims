@@ -19,7 +19,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import FieldOnlyGuard from "./components/FieldOnlyGuard";
 import ModuleRouteGuard from "./components/ModuleRouteGuard";
-import GuideAssistant from "./components/GuideAssistant/GuideAssistant";
 import GuideHost from "./components/GuideAssistant/GuideHost";
 import AimeeDockHost from "./shipments/_components/aimee/AimeeDockHost";
 import TopNavBar from "@/components/TopNav/TopNavBar";
@@ -124,9 +123,8 @@ export default function Layout(props: Props) {
                 {/* A page renders only when its module is on for the org being viewed (round Y). */}
                 <ModuleRouteGuard>{children}</ModuleRouteGuard>
               </Box>
-              {/* AIMS Guide bubble (bottom-right) — orgs without AIMEE only (round BM). */}
-              {!embed && <GuideBubble />}
-              {/* Round BL: Guide walkthroughs started from AIMEE (the same engine as the bubble). */}
+              {/* The ✦ AIMS Guide bubble is RETIRED on every org (guru 2026-11-11); AIMEE answers "how do I" and
+                  starts the same walkthroughs. GuideHost stays: it runs them. */}
               {!embed && <GuideHost />}
               {/* Round BL: the AIMEE side panel — orgs with the SHIPMENTS module and AIMEE on only (renders nothing elsewhere). */}
               {!embed && <AimeeDockHost />}
@@ -198,11 +196,3 @@ function PortalChrome({ isDocumentPage: _isDocumentPage }: { isDocumentPage: boo
   return <AppNavbar />;
 }
 
-// Round BM: the ✦ Guide bubble shows only on orgs WITHOUT AIMEE. Where AIMEE is on (enableAimsChat) it is hidden
-// everywhere: AIMEE answers "how do I", opens the screen and starts the same walkthroughs (GuideHost). Switching
-// AIMEE on for an org hides the bubble there; switching it off brings it back.
-function GuideBubble() {
-  const { isAimsChatEnabled, isLoading } = useOrganizationFeatures();
-  if (isLoading || isAimsChatEnabled) return null;
-  return <GuideAssistant />;
-}

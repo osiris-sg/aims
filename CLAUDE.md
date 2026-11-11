@@ -16,12 +16,13 @@ This is a monorepo containing an Asset and Inventory Management System (AIMS) �
 
 **Deeper docs:** `docs-site/` (Mintlify) is the full documentation set. Root-level specs (`ACCOUNTING_ARCHITECTURE.md`, `EXTERNAL_API_AND_INGESTION_HANDOVER.md`, `EMAIL_INGESTION_PLAN.md`, `POSTING_QUEUE_AND_JSON_INGESTION_SPEC.md`, `WATER_SG_INTEGRATION.md`) cover individual subsystems. `manual/` holds the end-user manual source.
 
-## AIMS Guide assistant — keep its knowledge in sync (EVERY feature you ship)
+## AIMS Guide knowledge — keep it in sync (EVERY feature you ship)
 
-The in-app help bubble ("AIMS Guide", bottom-right of the portal — GLOBAL for
-every org, deliberately not feature-flagged) answers "how do I…" questions, navigates users, and
-plays spotlight walkthroughs. Its ONLY knowledge of the app is
-`api-server-production/src/guide/app-knowledge.ts` — it does NOT read the code.
+The ✦ "AIMS Guide" help bubble (bottom-right) was RETIRED from every org on
+2026-11-11 (guru) — do not mount it again. Its knowledge lives on: AIMEE
+(`operator.service.ts`) answers "how do I…" questions, opens screens and starts
+the same spotlight walkthroughs (`GuideHost`) from it. The ONLY knowledge of the
+app is `api-server-production/src/guide/app-knowledge.ts` — it does NOT read the code.
 
 **Whenever you ship or change a user-facing feature, you MUST:**
 1. Add/update the matching line in `app-knowledge.ts` (which screen, which
