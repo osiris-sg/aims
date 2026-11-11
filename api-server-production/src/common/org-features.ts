@@ -72,6 +72,14 @@ export const CONTRA_OFFSET_FLAG = 'enableContraOffset';
 // only; needs the SiteClock link (enableSiteClockLink + an enabled connection).
 export const SITECLOCK_DELIVERIES_FLAG = 'enableSiteClockDeliveries';
 
+// ACCOUNTS TO CREDIT ON THE INVOICE HEADER (2026-11-11, guru; Chong Aik). The
+// legacy invoice's Details tab names ONE sales account and a GL remark for the
+// whole invoice. With this on, the editor hides the per-line GL chip, shows
+// that pair above the lines, and posting credits that one account for the
+// net (blank = the org's default sales account); the remark becomes the
+// journal's description. Off = per-line accounts as before.
+export const HEADER_GL_ACCOUNT_FLAG = 'enableHeaderGlAccount';
+
 /**
  * A feature entry that carries a VALUE rather than a switch.
  *

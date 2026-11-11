@@ -23,8 +23,15 @@ export type HeaderAlign = 'center' | 'left';
  * page). Any org may pick it for a template; the other knobs still apply
  * where the layout honours them (title, logo, footer line).
  */
-export type DocumentLayout = 'standard' | 'wct';
-export const DOCUMENT_LAYOUTS: DocumentLayout[] = ['standard', 'wct'];
+export type DocumentLayout = 'standard' | 'wct' | 'legacy-do';
+/**
+ * 'legacy-do' (2026-11-12): the previous accounting software's delivery order
+ * (pre-printed paper, Bill To left, DELIVERY ORDER block right with NPWP /
+ * Date / P/O No. / Terms / Salesman / Customer, Item · Description · Quantity
+ * · uom · Remarks, "Goods Received In Good Order & Condition" footer). Only
+ * delivery orders take it; other types on the template stay standard.
+ */
+export const DOCUMENT_LAYOUTS: DocumentLayout[] = ['standard', 'wct', 'legacy-do'];
 
 export interface DocumentDesign {
   /** Which page shape renders the document. */

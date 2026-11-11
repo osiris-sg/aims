@@ -25,13 +25,13 @@ import { AuditService } from 'src/common/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { StaffWhatsAppService } from '../staff-whatsapp/staff-whatsapp.service';
 import * as moment from 'moment';
-import { pdfOptionsFor, isWctLayout } from '../common/services/document-html';
+import { pdfOptionsFor, isNamedLayout } from '../common/services/document-html';
 import { resolveDesign } from '../common/services/document-html/design';
 import { outstandingOf, grossStampOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
 import { erpPaidAtImport, erpStoredTotalsOf, isErpImported, moneySignature } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
 import { refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
-import { isOrgFeatureEnabled } from '../common/org-features';
+import { isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { assetKey, descKey, invoiceDiscountPercent, isDisplayRow, orderInvoiceReference, planOrderInvoice, quoteDiscountAmount } from '../orders/order-billing';
 import { quotationLinesForJob } from '../deliveries/quotation-to-delivery';
@@ -317,6 +317,11 @@ export class DocumentsService {
         // per-line revenue credits (postFromInvoice expects line NET).
         const inclusive = di?.absorbTax === 'Y' || di?.absorbTax === true;
         const factor = inclusive && fallbackNet > 0 ? netAmount / fallbackNet : 1;
+        // Header "Accounts to Credit" (HEADER_GL_ACCOUNT_FLAG): the whole net
+        // credits that one account; per-line codes are ignored.
+        const headerGl = (await isOrgFeatureEnabled(this.prisma as any, organizationId, HEADER_GL_ACCOUNT_FLAG))
+          ? { accountCode: String(cfg?.glAccountCode || '').trim() || null, remarks: String(cfg?.glRemarks || '').trim() || null }
+          : null;
         entry = await this.journalAutoPost.postFromInvoice({
           organizationId,
           documentId,
@@ -326,10 +331,15 @@ export class DocumentsService {
           netAmount,
           taxAmount,
           grossAmount,
-          revenueLines: items.map((it: any) => ({
-            accountCode: it.accountCode || it.revenueAccountCode || null,
-            amount: Math.round((parseFloat(it.amount) || (parseFloat(it.quantity) * parseFloat(it.unitPrice)) || 0) * factor * 100) / 100,
-          })),
+          revenueLines: headerGl
+            ? headerGl.accountCode
+              ? [{ accountCode: headerGl.accountCode, amount: netAmount }]
+              : []
+            : items.map((it: any) => ({
+                accountCode: it.accountCode || it.revenueAccountCode || null,
+                amount: Math.round((parseFloat(it.amount) || (parseFloat(it.quantity) * parseFloat(it.unitPrice)) || 0) * factor * 100) / 100,
+              })),
+          glRemarks: headerGl?.remarks || null,
           userId: actor?.id,
         });
       } else {
@@ -7416,7 +7426,7 @@ export class DocumentsService {
     reports: any[] = [],
   ): Promise<{ html: string; pdfOptions: ReturnType<typeof pdfOptionsFor> } | null> {
     const styled = await this.designForDocument(doc.id, organizationId, doc.documentTemplateId ?? null);
-    if (!isWctLayout(doc.type, styled.design)) return null;
+    if (!isNamedLayout(doc.type, styled.design)) return null;
     const org =
       doc.organization ??
       (await this.prisma.organization.findUnique({ where: { id: organizationId } }).catch(() => null)) ??

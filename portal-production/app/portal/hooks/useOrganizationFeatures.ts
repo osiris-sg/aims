@@ -14,6 +14,7 @@ interface OrganizationFeatures {
   enableDocumentListView?: boolean;
   enablePOAsProject?: boolean;
   enableAssetPoints?: boolean;
+  enableHeaderGlAccount?: boolean;
   enableItemTagging?: boolean;
   enableConfirmQuotation?: boolean;
   enableQuotationESign?: boolean;
@@ -101,6 +102,7 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableFieldScanApp: false,
   // Newer opt-in feature flags
   enableAssetPoints: false,
+  enableHeaderGlAccount: false,
   enableItemTagging: false,
   enablePOAsProject: false,
   enableConfirmQuotation: false,
@@ -320,6 +322,7 @@ export function useOrganizationFeatures() {
     isPOAsProjectEnabled: features.enablePOAsProject ?? false,
     isQuotationItemGroupsEnabled: features.enableQuotationItemGroups ?? false,
     isAssetPointsEnabled: features.enableAssetPoints ?? false,
+    isHeaderGlAccountEnabled: features.enableHeaderGlAccount ?? false,
     isItemTaggingEnabled: features.enableItemTagging ?? false,
     isConfirmQuotationEnabled: features.enableConfirmQuotation ?? false,
     isQuotationESignEnabled: features.enableQuotationESign ?? false,

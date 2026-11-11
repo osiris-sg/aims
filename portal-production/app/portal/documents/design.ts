@@ -10,11 +10,12 @@ export type DesignFont = "helvetica" | "calibri" | "times" | "georgia" | "courie
 export type LogoPosition = "none" | "left" | "center" | "right";
 export type HeaderAlign = "center" | "left";
 /** Page shape: the stock frame, or a client layout (see the server copy). */
-export type DocumentLayout = "standard" | "wct";
-export const DOCUMENT_LAYOUTS: DocumentLayout[] = ["standard", "wct"];
+export type DocumentLayout = "standard" | "wct" | "legacy-do";
+export const DOCUMENT_LAYOUTS: DocumentLayout[] = ["standard", "wct", "legacy-do"];
 export const DOCUMENT_LAYOUT_LABELS: Record<DocumentLayout, string> = {
   standard: "Standard",
   wct: "WCT (S) Systems",
+  "legacy-do": "Legacy delivery order",
 };
 
 export interface DocumentDesign {

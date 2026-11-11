@@ -18,6 +18,9 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   enableFieldScanApp: false,
   // Newer opt-in feature flags
   enableAssetPoints: false,
+  // Invoice header 'Accounts to Credit' + GL Remarks (one sales account per
+  // invoice, legacy Details tab) instead of a GL account per line.
+  enableHeaderGlAccount: false,
   enableItemTagging: false,
   enablePOAsProject: false,
   enableConfirmQuotation: false,

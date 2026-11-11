@@ -231,9 +231,12 @@ export class JournalAutoPostService {
     // credit side splits across each line's account; anything unmapped falls back
     // to the single Sales control account. `amount` is the line NET (excl tax).
     revenueLines?: Array<{ accountCode?: string | null; accountId?: string | null; amount: number }>;
+    // Header "GL Remarks" (HEADER_GL_ACCOUNT_FLAG orgs): the journal's description.
+    glRemarks?: string | null;
     userId?: string;
   }) {
     const { organizationId, documentId, invoiceNumber, entryDate, customerName } = args;
+    const glRemarks = String(args.glRemarks || '').trim() || null;
     const net = ROUND(args.netAmount);
     const tax = ROUND(args.taxAmount);
     const gross = ROUND(args.grossAmount);
@@ -304,11 +307,11 @@ export class JournalAutoPostService {
       if (acctId) byAccount.set(acctId, ROUND((byAccount.get(acctId) || 0) + amt));
     }
     if (byAccount.size === 0) {
-      creditLines.push({ accountId: sales.id, debit: 0, credit: toBase(net), description: `Sales — ${invoiceNumber ?? ''}`.trim(), ...fxFields(net) });
+      creditLines.push({ accountId: sales.id, debit: 0, credit: toBase(net), description: glRemarks || `Sales — ${invoiceNumber ?? ''}`.trim(), ...fxFields(net) });
     } else {
       let posted = 0;
       for (const [acctId, amt] of byAccount) {
-        creditLines.push({ accountId: acctId, debit: 0, credit: toBase(amt), description: `Sales — ${invoiceNumber ?? ''}`.trim(), ...fxFields(amt) });
+        creditLines.push({ accountId: acctId, debit: 0, credit: toBase(amt), description: glRemarks || `Sales — ${invoiceNumber ?? ''}`.trim(), ...fxFields(amt) });
         posted = ROUND(posted + amt);
       }
       // Any net not covered by a mapped account (unmapped lines) → Sales.
@@ -378,7 +381,7 @@ export class JournalAutoPostService {
           entryDate: entryDate.toISOString(),
           type: 'INVOICE',
           reference: invoiceNumber ?? undefined,
-          description: `Auto-posted from invoice ${invoiceNumber ?? documentId}`,
+          description: glRemarks || `Auto-posted from invoice ${invoiceNumber ?? documentId}`,
           sourceDocumentId: documentId,
           currency: fx.currency,
           lines,

@@ -672,7 +672,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               Voucher No. : <b>{v.voucherNumber || ""}</b>
             </Typography>
             <Typography sx={{ fontSize: "0.8125rem" }}>Date : {v.date ? new Date(v.date).toLocaleDateString("en-GB") : ""}</Typography>
-            {v.chequeNo && <Typography sx={{ fontSize: "0.8125rem" }}>Cheque No. : {v.chequeNo}</Typography>}
+            {v.chequeNo && <Typography sx={{ fontSize: "0.8125rem" }}>Bank advice : {v.chequeNo}</Typography>}
             {v.paymentMethod && (
               <Typography sx={{ fontSize: "0.8125rem", textTransform: "capitalize" }}>Payment : {v.paymentMethod}</Typography>
             )}
@@ -2187,7 +2187,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               <Box sx={{ display: "flex", alignItems: "center", gap: 3 }}>
                 <Box sx={{ display: "flex", alignItems: "center" }}>
                   <Typography sx={{ fontSize: "0.8125rem" }}>(Rate :</Typography>
-                  <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 60 }}>{rate.toFixed(6)}</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 60 }}>{rate.toFixed(7)}</Typography>
                 </Box>
                 <Box sx={{ display: "flex", alignItems: "center" }}>
                   <Typography sx={{ fontSize: "0.8125rem" }}>Sub-total:</Typography>
@@ -3800,7 +3800,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 <Box sx={{ display: "flex", alignItems: "center", gap: 3 }}>
                   <Box sx={{ display: "flex", alignItems: "center" }}>
                     <Typography sx={{ fontSize: "0.8125rem" }}>(Rate :</Typography>
-                    <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 60 }}>{rate.toFixed(6)}</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 60 }}>{rate.toFixed(7)}</Typography>
                   </Box>
                   <Box sx={{ display: "flex", alignItems: "center" }}>
                     <Typography sx={{ fontSize: "0.8125rem" }}>Sub-total:</Typography>

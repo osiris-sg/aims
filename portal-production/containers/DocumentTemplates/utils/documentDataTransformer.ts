@@ -151,6 +151,9 @@ export function transformFormDataForBackend(
     // refresh" bug). The fallback below still persists the top-level value for the
     // `!templateFieldConfig` TextField path, which is the only reason it was needed.
     'salesMobile',
+    // Header 'Accounts to Credit' + GL Remarks (enableHeaderGlAccount orgs):
+    // one sales account for the whole invoice, read by posting.
+    'glAccountCode', 'glAccountName', 'glRemarks',
     // Linked project NAME. projectId is persisted separately (the
     // /documents/:id/link-project PATCH), but the preview and the server-side
     // PDF only get the saved document — without the name they had nothing to

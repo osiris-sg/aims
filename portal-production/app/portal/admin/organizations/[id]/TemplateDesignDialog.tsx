@@ -172,6 +172,8 @@ export default function TemplateDesignDialog({ open, templateId, templateName, s
                   <Typography sx={{ fontSize: "0.72rem", color: "text.secondary", mt: 0.5 }}>
                     {design.layout === "wct"
                       ? "Client page shape: letterhead on every page, Job Location and Subject boxes, S/No column, GST line, signature block. Quotations, tax invoices and delivery orders."
+                      : design.layout === "legacy-do"
+                      ? "The previous accounting software's delivery order on pre-printed paper: Bill To at the left, the DELIVERY ORDER block (tax number, number, Date, P/O No., Terms, Salesman, Customer) at the right, Item · Description · Quantity · uom · Remarks, and the Goods Received footer. Delivery orders only; other types stay standard."
                       : "The standard page shape for the document type."}
                   </Typography>
                 </Box>,

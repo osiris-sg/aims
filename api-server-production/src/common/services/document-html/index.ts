@@ -16,6 +16,7 @@ import { renderIdQuotationBody } from './id-quotation';
 import { renderIdVoBody } from './id-vo';
 import { renderNoteBody } from './note';
 import { renderWctBody, wctFooterLine } from './wct';
+import { renderLegacyDoBody } from './legacy-do';
 import { DocumentDesign, resolveDesign } from './design';
 
 /** Interior-design quotation (config.templateVariant 'ID' / config.quote tree). */
@@ -46,6 +47,17 @@ export function isWctLayout(type: string, design: any): boolean {
   return d.layout === 'wct' && (QUOTATION_TYPES.includes(t) || INVOICE_TYPES.includes(t) || DELIVERY_ORDER_TYPES.includes(t));
 }
 
+/** The legacy DO layout covers delivery orders only. */
+export function isLegacyDoLayout(type: string, design: any): boolean {
+  const t = String(type || '').toUpperCase();
+  return resolveDesign(design).layout === 'legacy-do' && DELIVERY_ORDER_TYPES.includes(t);
+}
+
+/** Any named layout that renders this type on the server (the stock DO has no server renderer). */
+export function isNamedLayout(type: string, design: any): boolean {
+  return isWctLayout(type, design) || isLegacyDoLayout(type, design);
+}
+
 /**
  * Puppeteer options for a document's PDF: ported layouts print with the
  * portal's page margins; the WCT layout also prints its footer line and
@@ -59,6 +71,7 @@ export function pdfOptionsFor(
   if (isWctLayout(type, data?.design)) {
     return { margin: WCT_PDF_MARGIN, pageNumbers: { label: wctFooterLine(data), format: 'slash', fontPx: 10, paddingX: WCT_PDF_MARGIN.left } };
   }
+  if (isLegacyDoLayout(type, data?.design)) return { margin: PORTED_PDF_MARGIN };
   return isPortedType(type) ? { margin: PORTED_PDF_MARGIN } : undefined;
 }
 
@@ -92,6 +105,10 @@ export function renderDocumentHtml(type: string, data: any, organization?: any):
     const org = organization || data?.organization || data?.company || {};
     const kind = QUOTATION_TYPES.includes(t) ? 'quotation' : INVOICE_TYPES.includes(t) ? 'invoice' : DELIVERY_ORDER_TYPES.includes(t) ? 'do' : null;
     if (kind) return pageShell(renderWctBody(kind, data || {}, org, design), design);
+  }
+  if (design.layout === 'legacy-do' && DELIVERY_ORDER_TYPES.includes(t)) {
+    const org = organization || data?.organization || data?.company || {};
+    return pageShell(renderLegacyDoBody(data || {}, org, design), design);
   }
   if (QUOTATION_TYPES.includes(t)) {
     const org = organization || data?.organization || data?.company || {};

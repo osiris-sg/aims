@@ -366,7 +366,7 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isAimsChatEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isAimsChatEnabled, isHeaderGlAccountEnabled } = useOrganizationFeatures();
   // The Project header row + the DO "project required" rule only make sense
   // for orgs that run the Projects module. An org without it (Chong Aik, guru
   // 2026-10-22) must not see "Select a project / Create new project" even when
@@ -860,6 +860,12 @@ export default function TabbedDocumentCreator({
   // Component-scope invoice flag so the header project picker (appendRow) can
   // cover invoices too. (Inner callbacks keep their own local copies.)
   const isInvoiceTypeDoc = documentType === "INVOICE" || documentType === "TI" || documentType === "TI2";
+  // ACCOUNTS TO CREDIT on the invoice header (enableHeaderGlAccount, guru
+  // 2026-11-11, legacy "Details" tab): ONE sales account + a GL remark for the
+  // whole invoice instead of a GL account per line. The per-line chip hides;
+  // posting credits that one account for the net (blank = the org's default
+  // sales account).
+  const headerGlMode = isHeaderGlAccountEnabled && isInvoiceTypeDoc;
 
   // Biofuel org gate — drives the Biofuel-only quotation header fields
   // (editable Sale person / Mobile, defaulting to Eugene Lee / 9818 9200).
@@ -1249,6 +1255,10 @@ export default function TabbedDocumentCreator({
       || "",
     bankDetails: existingData?.bankDetails || "",
     remarks: existingData?.remarks || "",
+    // Header GL (enableHeaderGlAccount): saved flat on the config.
+    glAccountCode: existingData?.glAccountCode ?? existingData?.config?.glAccountCode ?? "",
+    glAccountName: existingData?.glAccountName ?? existingData?.config?.glAccountName ?? "",
+    glRemarks: existingData?.glRemarks ?? existingData?.config?.glRemarks ?? "",
     agreementText: existingData?.agreementText || "",
     title: existingData?.title || "",
     // Official Receipt state (header amounts + offset allocations) — rides in
@@ -3582,9 +3592,7 @@ export default function TabbedDocumentCreator({
   // stays for the AI-suggested pass). Accounts load once, on first open.
   const [glMenu, setGlMenu] = useState<{ pos: { left: number; top: number }; itemId: any } | null>(null);
   const [glAccounts, setGlAccounts] = useState<Array<{ id: string; code: string; name: string; accountType?: string }> | null>(null);
-  const openGlMenu = async (e: React.MouseEvent, itemId: any) => {
-    e.stopPropagation();
-    setGlMenu({ pos: { left: e.clientX, top: e.clientY }, itemId });
+  const loadGlAccounts = async () => {
     if (glAccounts) return;
     try {
       const token = await getToken();
@@ -3595,6 +3603,16 @@ export default function TabbedDocumentCreator({
       setGlAccounts([]);
     }
   };
+  const openGlMenu = async (e: React.MouseEvent, itemId: any) => {
+    e.stopPropagation();
+    setGlMenu({ pos: { left: e.clientX, top: e.clientY }, itemId });
+    void loadGlAccounts();
+  };
+  // Header GL mode needs the chart up front for the Accounts to Credit picker.
+  useEffect(() => {
+    if (headerGlMode) void loadGlAccounts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [headerGlMode]);
   const pickGlAccount = (acc: { code: string; name: string } | null) => {
     const id = glMenu?.itemId;
     setGlMenu(null);
@@ -6148,6 +6166,46 @@ export default function TabbedDocumentCreator({
                     {...readOnlyShield(confirmedReadOnly)}
                     sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 120, ...(readOnlyShield(confirmedReadOnly).sx || {}) }}
                   >
+                    {/* ACCOUNTS TO CREDIT + GL REMARKS — the legacy invoice's
+                        Details tab, one account for the whole invoice
+                        (enableHeaderGlAccount). */}
+                    {headerGlMode && (
+                      <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center", px: 0.5, pt: 1, pb: 1.5 }}>
+                        <Autocomplete
+                          autoHighlight
+                          size="small"
+                          sx={{ minWidth: 320, flex: "0 1 420px" }}
+                          options={(glAccounts ?? []).slice().sort((a, b) => glRank(a) - glRank(b) || a.code.localeCompare(b.code))}
+                          getOptionLabel={(a: any) => (a ? `${a.code} — ${a.name}` : "")}
+                          groupBy={(a: any) => (glRank(a) === 0 ? "Sales / revenue" : "Other accounts")}
+                          value={(glAccounts ?? []).find((a) => a.code === formData.glAccountCode) || null}
+                          onChange={(_, acc: any) =>
+                            setFormData((prev: any) => ({ ...prev, glAccountCode: acc?.code ?? "", glAccountName: acc?.name ?? "" }))
+                          }
+                          disabled={confirmedReadOnly}
+                          loading={glAccounts === null}
+                          renderInput={(params) => (
+                            <TextField
+                              {...params}
+                              label="Accounts to Credit"
+                              placeholder="Default sales account"
+                              InputLabelProps={{ shrink: true }}
+                              sx={headerInputSx}
+                            />
+                          )}
+                        />
+                        <TextField
+                          size="small"
+                          label="GL Remarks"
+                          placeholder="INVOICE"
+                          value={formData.glRemarks || ""}
+                          onChange={(e) => setFormData((prev: any) => ({ ...prev, glRemarks: e.target.value }))}
+                          disabled={confirmedReadOnly}
+                          InputLabelProps={{ shrink: true }}
+                          sx={{ flex: "1 1 320px", ...headerInputSx }}
+                        />
+                      </Box>
+                    )}
                     <Box sx={{ display: "flex", flexDirection: "column" }}>
                       <TableContainer
                         sx={{
@@ -6491,7 +6549,7 @@ export default function TabbedDocumentCreator({
                                           (guru 2026-08-17) — the code alone doesn't say
                                           which account it hits, so a mis-picked item is
                                           invisible until the ledger is wrong. */}
-                                      {(item.accountCode || isInvoiceTypeDoc) && (
+                                      {(item.accountCode || isInvoiceTypeDoc) && !headerGlMode && (
                                         <Tooltip
                                           title={
                                             item.accountCode

@@ -140,7 +140,7 @@ export function renderNoteBody(data: any, organization: any, kind: NoteKind, des
   // ── bottom block: totals, amount in words, footer ───────────────────────
   const totalsLeft = `
     <div style="display:flex;align-items:center;gap:24px;">
-      <div style="display:flex;align-items:center;"><span style="font-size:13px;">(Rate :</span><span style="font-size:13px;margin-left:8px;min-width:60px;">${rate.toFixed(6)}</span></div>
+      <div style="display:flex;align-items:center;"><span style="font-size:13px;">(Rate :</span><span style="font-size:13px;margin-left:8px;min-width:60px;">${rate.toFixed(7)}</span></div>
       <div style="display:flex;align-items:center;"><span style="font-size:13px;">Sub-total:</span><span style="font-size:13px;margin-left:8px;min-width:50px;text-align:right;">${displayNet.toFixed(2)}</span></div>
       <div style="display:flex;align-items:center;"><span style="font-size:13px;">GST</span><span style="font-size:13px;margin-left:8px;">:</span><span style="font-size:13px;margin-left:8px;min-width:40px;text-align:right;">${gstAmount.toFixed(2)})</span></div>
     </div>`;

@@ -1303,6 +1303,8 @@ export default function DynamicFormFields({
             value={value}
             onChange={(e) => setFormData(setNestedValue(formData, field.fieldName, parseFloat(e.target.value) || 0))}
             size="small"
+            // Exchange rates carry 7 decimals (guru 2026-11-11); other numbers any precision.
+            inputProps={{ step: /rate/i.test(field.fieldName) ? "0.0000001" : "any" }}
             sx={{ ...inputSx, flex: 1, minWidth: 100 }}
           />
         );
