@@ -35,6 +35,26 @@ const LEASE_MS = 10 * 60_000; // a claimed post the worker never acked is re-off
 const RENDER_LEASE_MS = 5 * 60_000; // a render the API died during is retried after this
 const MAX_ATTEMPTS = 5;
 const HEARTBEAT_SILENCE_MS = 5 * 60_000;
+// Alert (2026-11-11): a post FAILED, or not sent this long after it was queued,
+// is DMed on WhatsApp to GROUP_POST_ALERT_WA through the Cloud API outbox.
+const STUCK_MS = 15 * 60_000;
+const ALERT_LOOKBACK_MS = 24 * 3600_000;
+
+/** The DM for a FAILED or stuck post. Pure, for the tests. */
+export function groupPostAlertText(
+  p: { status: string; error?: string | null; groupName?: string | null; createdAt: Date; attempts?: number | null },
+  run: { deliveryNumber: number; direction?: string | null } | null,
+  link: string,
+  now = new Date(),
+): string {
+  const what = run ? `${run.direction === 'RETURN' ? 'Return' : 'Delivery'} #${run.deliveryNumber}` : 'A delivery';
+  const to = p.groupName?.trim() ? ` to "${p.groupName.trim()}"` : '';
+  if (p.status === 'FAILED') {
+    return [`AIMS group post FAILED: ${what}${to} after ${p.attempts ?? 0} attempts.`, ...(p.error ? [`Reason: ${p.error.slice(0, 200)}`] : []), link].join('\n');
+  }
+  const mins = Math.round((now.getTime() - p.createdAt.getTime()) / 60_000);
+  return [`AIMS group post stuck: ${what}${to} queued ${mins} min ago, still ${p.status}.`, link].join('\n');
+}
 // The view-only page's DO sheet (portal app/guest/do/[token]/page.tsx).
 const DO_SHEET = '[data-print-paper][data-print-sheet="do"]';
 
@@ -330,6 +350,51 @@ export class DeliveryGroupPostsService implements OnModuleInit {
       }
     }
     return rung;
+  }
+
+  /** FAILED or stuck posts DM GROUP_POST_ALERT_WA (digits, comma separated)
+   *  once per post and state, through the Cloud API outbox (never the bridge,
+   *  which may be the thing that is down). */
+  @Interval(60_000)
+  async alertFailedOrStuck(now = new Date()): Promise<number> {
+    const to = String(process.env.GROUP_POST_ALERT_WA || '')
+      .split(',')
+      .map((n) => n.replace(/\D/g, ''))
+      .filter(Boolean);
+    if (!to.length) return 0;
+    const rows = await this.prisma.deliveryGroupPost.findMany({
+      where: {
+        createdAt: { gte: new Date(now.getTime() - ALERT_LOOKBACK_MS) },
+        OR: [{ status: 'FAILED' }, { status: { in: ['PENDING', 'READY', 'CLAIMED'] }, createdAt: { lt: new Date(now.getTime() - STUCK_MS) } }],
+      },
+      select: { id: true, organizationId: true, deliveryId: true, status: true, error: true, groupName: true, createdAt: true, attempts: true },
+    });
+    let queued = 0;
+    for (const p of rows) {
+      const state = p.status === 'FAILED' ? 'failed' : 'stuck';
+      await runAsOrg(p.organizationId, async () => {
+        const run = await this.prisma.delivery.findFirst({ where: { id: p.deliveryId, organizationId: p.organizationId }, select: { deliveryNumber: true, direction: true } });
+        const base = (process.env.PORTAL_URL || process.env.FRONTEND_URL || 'https://app.ai-ms.io').replace(/\/+$/, '');
+        const text = groupPostAlertText(p, run, `${base}/portal/deliveries/${p.deliveryId}`, now);
+        const res = await this.prisma.whatsAppOutbox.createMany({
+          data: to.map((n) => ({
+            organizationId: p.organizationId,
+            userId: 'system:group-post-alert',
+            to: n,
+            kind: 'EVENT',
+            text,
+            dedupeKey: `group-post-alert:${p.id}:${state}:${n}`,
+            dueAt: now,
+          })),
+          skipDuplicates: true,
+        });
+        if (res.count) {
+          queued += res.count;
+          this.actionLog.system('delivery-group-posts', 'ALERT', 'delivery-group-posts', { organizationId: p.organizationId, resourceId: p.id, details: { state, to: to.map((n) => `…${n.slice(-4)}`) } });
+        }
+      }).catch((e: any) => this.logger.warn(`group post alert for ${p.id} not queued: ${e?.message}`));
+    }
+    return queued;
   }
 
   // ── 3. Portal ──────────────────────────────────────────────────────────────

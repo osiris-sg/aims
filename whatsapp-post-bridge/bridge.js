@@ -27,6 +27,14 @@ const TOKEN = process.env.AIMS_POST_TOKEN || '';
 const POST_ENABLED = /^(1|true|yes)$/i.test(process.env.POST_ENABLED || '');
 const POLL_MS = Number(process.env.POLL_MS || 30 * 1000);
 const MEDIA_GAP_MS = Number(process.env.MEDIA_GAP_MS || 2000); // paced, never a burst
+// A longer breather after every 10 photos (2026-11-11: Biofuel posts every photo, up to 60).
+const PHOTO_BATCH = Number(process.env.PHOTO_BATCH || 10);
+const BATCH_PAUSE_MS = Number(process.env.BATCH_PAUSE_MS || 10000);
+// How long one call into WhatsApp Web may take before the page counts as hung.
+const PROTOCOL_TIMEOUT_MS = Number(process.env.PROTOCOL_TIMEOUT_MS || 90 * 1000);
+// A hung WhatsApp Web page (2026-11-11, Biofuel #95 and #102): every retry into it
+// fails the same way, so the bridge restarts instead of retrying.
+const HUNG_RE = /Runtime\.callFunctionOn timed out|detached Frame|Target closed|Session closed|Protocol error/i;
 const GROUPS_REPORT_MS = Number(process.env.GROUPS_REPORT_MS || 10 * 60 * 1000);
 const MAX_MEDIA_BYTES = 16 * 1024 * 1024;
 const SESSION_DIR = process.env.SESSION_DIR || './.wwebjs_auth';
@@ -47,6 +55,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * @param {number} [o.gapMs]
  * @param {number} [o.partAttempts]   tries per part before the post is reported failed (default 3)
  * @param {number[]} [o.partBackoffMs] waits between those tries
+ * @param {number} [o.photoBatch]      photos per batch before the longer pause
+ * @param {number} [o.batchPauseMs]    that pause
+ * @param {(err: string) => Promise<void>} [o.onHung]  called once the page is hung (the worker restarts)
  * @param {(m: string) => void} [o.log]
  */
 function createPoster(o) {
@@ -54,6 +65,8 @@ function createPoster(o) {
   const gap = o.gapMs ?? MEDIA_GAP_MS;
   const partAttempts = o.partAttempts ?? 3;
   const partBackoff = o.partBackoffMs ?? [2000, 5000];
+  const photoBatch = o.photoBatch ?? PHOTO_BATCH;
+  const batchPause = o.batchPauseMs ?? BATCH_PAUSE_MS;
 
   const api = async (method, p, body) => {
     const res = await fetch(`${o.api}${p}`, {
@@ -98,12 +111,14 @@ function createPoster(o) {
     return o.makeMedia(mime, buf.toString('base64'), filename);
   };
 
-  /** Post one job. Returns 'sent' | 'resumed' | 'skipped' | 'failed'. */
+  /** Post one job. Returns 'sent' | 'resumed' | 'skipped' | 'failed' | 'restarting'. */
   async function processJob(job) {
+    // Caption, then the signed DO, then the photos (2026-11-11: the DO first,
+    // so a long run of photos can never hold it back).
     const parts = [
       { kind: 'text', text: job.caption },
-      ...(job.photos || []).map((p) => ({ kind: 'photo', ...p })),
       ...(job.documents || []).map((d) => ({ kind: 'doc', ...d })),
+      ...(job.photos || []).map((p) => ({ kind: 'photo', ...p })),
     ];
     const claim = await api('POST', `/wa-post/jobs/${job.id}/claim`, {});
     if (!claim?.claimed) return 'skipped';
@@ -133,6 +148,15 @@ function createPoster(o) {
             break;
           } catch (e) {
             const err = e && e.message ? e.message : String(e);
+            if (o.onHung && HUNG_RE.test(err)) {
+              // Retrying into a hung page only fails again: hand the post back
+              // at once (the journal resumes it after the restart) and restart.
+              const why = `part ${i + 1}/${parts.length} (${part.kind}${part.filename ? ` ${part.filename}` : ''}): ${err}`;
+              log(`   ⟳ WhatsApp Web is hung (${why}): restarting the bridge`);
+              await api('POST', `/wa-post/jobs/${job.id}/done`, { ok: false, error: `bridge restarting: ${why}` }).catch(() => null);
+              await o.onHung(why);
+              return 'restarting';
+            }
             if (attempt >= partAttempts) throw new Error(`part ${i + 1}/${parts.length} (${part.kind}${part.filename ? ` ${part.filename}` : ''}): ${err}`);
             log(`   ↻ part ${i + 1}/${parts.length} (${part.kind}) failed, retrying: ${err}`);
             await sleep(partBackoff[attempt - 1] ?? partBackoff[partBackoff.length - 1]);
@@ -144,7 +168,11 @@ function createPoster(o) {
         if (id) entry.ids.push(String(id));
         journal[job.id] = entry;
         writeJournal(journal);
-        if (i < parts.length - 1) await sleep(gap);
+        if (i < parts.length - 1) {
+          // Every 10th photo gets the longer pause; everything else the usual gap.
+          const photosSoFar = parts.slice(0, i + 1).filter((x) => x.kind === 'photo').length;
+          await sleep(part.kind === 'photo' && photosSoFar % photoBatch === 0 ? batchPause : gap);
+        }
       }
       await api('POST', `/wa-post/jobs/${job.id}/done`, { ok: true, messageIds: entry.ids, ...(resumed ? { resumed: true } : {}) });
       entry.done = true;
@@ -164,14 +192,18 @@ function createPoster(o) {
   async function pollOnce() {
     const res = await api('GET', '/wa-post/jobs');
     const out = [];
-    for (const job of res?.jobs || []) out.push(await processJob(job));
+    for (const job of res?.jobs || []) {
+      const r = await processJob(job);
+      out.push(r);
+      if (r === 'restarting') break;
+    }
     return out;
   }
 
   return { processJob, pollOnce, api, readJournal };
 }
 
-module.exports = { createPoster };
+module.exports = { createPoster, HUNG_RE };
 
 // ── The worker ──────────────────────────────────────────────────────────────
 
@@ -216,6 +248,7 @@ function main() {
       headless: true,
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      protocolTimeout: PROTOCOL_TIMEOUT_MS,
     },
   });
 
@@ -225,6 +258,14 @@ function main() {
     journalFile: JOURNAL_FILE,
     send: (chatId, content, options) => client.sendMessage(chatId, content, options),
     makeMedia: (mime, b64, filename) => new MessageMedia(mime, b64, filename),
+    // Self-heal: a hung page is not recoverable in place. Exit; Render restarts
+    // the worker, which logs back in from the saved session on /data and
+    // resumes the post from its journal.
+    onHung: async () => {
+      ready = false;
+      await Promise.race([client.destroy().catch(() => null), sleep(15 * 1000)]);
+      process.exit(1);
+    },
   });
 
   let ready = false;

@@ -45,6 +45,18 @@ A part that fails is retried in place (3 tries); the journal means parts
 already sent are never sent again, and after 5 claims AIMS marks the post
 FAILED with the reason.
 
+Order (2026-11-11): caption, the signed DO, then the photos, 2 s apart with a
+10 s pause after every 10th photo (`MEDIA_GAP_MS`, `PHOTO_BATCH`,
+`BATCH_PAUSE_MS`).
+
+Self-heal: when WhatsApp Web hangs ("Runtime.callFunctionOn timed out",
+"detached Frame", ...; a call counts as hung after `PROTOCOL_TIMEOUT_MS`,
+90 s) retrying into the page only fails again. The bridge hands the post back
+to AIMS at once and exits; Render restarts the worker, which logs back in from
+the session on `/data` and resumes the post from its journal.
+
+Tests: `node --test` (with `dotenv` resolvable, e.g. after `npm ci`).
+
 ## Limits
 
 Unofficial (against WhatsApp's terms): keep volume low. `POST_ENABLED=false` or

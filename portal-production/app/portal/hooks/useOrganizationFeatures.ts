@@ -194,6 +194,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Delivery group posts: each delivery sign-off is posted to the project's
   // WhatsApp group (photos + signed DO). Default OFF.
   enableDeliveryGroupPosts: false,
+  // Group posts carry every photo (grouped by item, up to 60). Default OFF.
+  groupPostAllPhotos: false,
   // Push a document to Xero on confirm, rather than by manual sync. Default OFF.
   enableXeroConfirmSync: false,
   // WCT ERP import (2026-11-05): hold the GL journal of payments / receipts on invoices imported from

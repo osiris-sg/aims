@@ -18,9 +18,40 @@ import { runNoun } from '../deliveries/job-wording';
  */
 export const DELIVERY_GROUP_POSTS_FLAG = 'enableDeliveryGroupPosts';
 export const MAX_POST_PHOTOS = 12;
+// Org setting (2026-11-11, Biofuel): post EVERY photo of the sign-off, grouped
+// by item in DO order, up to a safety ceiling; past it "+N more photos in AIMS"
+// with the delivery's link. Off: the 12-photo post exactly as before.
+export const GROUP_POST_ALL_PHOTOS_FLAG = 'groupPostAllPhotos';
+export const MAX_POST_PHOTOS_ALL = 60;
+
+type ProofRow = { kind?: string; deliveryItemId?: string | null; inventoryId?: string | null; photos?: string[] | null };
+
+/**
+ * The sign-off's photos grouped by item, in DO order (the items' sortOrder):
+ * each item's start photos, then its own collect / acknowledgement photos;
+ * proof tied to no item (the run-level installation) comes last. Rows keep
+ * their own order within an item. Data URLs and repeats are dropped.
+ */
+export function orderPhotosByItem(items: Array<{ id: string; inventoryId?: string | null }>, rows: ProofRow[]): string[] {
+  const rank = new Map<string, number>();
+  items.forEach((it, i) => {
+    rank.set(`item:${it.id}`, i);
+    if (it.inventoryId) rank.set(`unit:${it.inventoryId}`, i);
+  });
+  const rankOf = (r: ProofRow) =>
+    (r.deliveryItemId != null ? rank.get(`item:${r.deliveryItemId}`) : undefined) ??
+    (r.inventoryId != null ? rank.get(`unit:${r.inventoryId}`) : undefined) ??
+    Number.MAX_SAFE_INTEGER;
+  const startFirst = (r: ProofRow) => (r.kind === 'DO_START' ? 0 : 1);
+  const sorted = rows.map((r, i) => ({ r, i })).sort((a, b) => rankOf(a.r) - rankOf(b.r) || startFirst(a.r) - startFirst(b.r) || a.i - b.i);
+  const keys = sorted.flatMap(({ r }) => r.photos || []).filter((k) => k && !k.startsWith('data:'));
+  return [...new Set(keys)];
+}
 
 /** Nudges the render sweep right away instead of waiting for the next minute. */
 export const groupPostsKick = new EventEmitter();
+
+const portalUrl = (p: string) => `${(process.env.PORTAL_URL || process.env.FRONTEND_URL || 'https://app.ai-ms.io').replace(/\/+$/, '')}${p}`;
 
 const fmtSgt = (d: Date) => d.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Singapore' });
 
@@ -114,24 +145,28 @@ export async function enqueueDeliveryGroupPost(
       ...(signedItemIds.length ? [{ deliveryItemId: { in: signedItemIds } }] : []),
       ...(inventoryIds.length ? [{ deliveryItemId: null, inventoryId: { in: inventoryIds } }] : []),
     ];
+    const proofSelect = { kind: true, deliveryItemId: true, inventoryId: true, photos: true };
     const start = await prisma.maintenanceServiceReport.findMany({
       where: { deliveryId, kind: 'DO_START', OR: ofSignedUnits },
-      select: { photos: true },
+      select: proofSelect,
       orderBy: { createdAt: 'asc' },
     });
     const after = isReturn
       ? await prisma.maintenanceServiceReport.findMany({
           where: { deliveryId, kind: 'DO_ACK', OR: ofSignedUnits },
-          select: { photos: true },
+          select: proofSelect,
           orderBy: { createdAt: 'asc' },
         })
       : await prisma.maintenanceServiceReport.findMany({
           where: { deliveryId, kind: 'DO_INSTALL', signedAt },
-          select: { photos: true },
+          select: proofSelect,
         });
-    const allPhotos = [...start, ...after].flatMap((m: any) => m.photos || []).filter((k: string) => k && !k.startsWith('data:'));
-    const photoKeys = [...new Set(allPhotos)].slice(0, MAX_POST_PHOTOS) as string[];
-    const extraPhotoCount = Math.max(0, new Set(allPhotos).size - photoKeys.length);
+    const allPhotosOn = await isOrgFeatureEnabled(prisma, organizationId, GROUP_POST_ALL_PHOTOS_FLAG).catch(() => false);
+    const allPhotos: string[] = allPhotosOn
+      ? orderPhotosByItem(items, [...start, ...after])
+      : [...new Set([...start, ...after].flatMap((m: any) => m.photos || []).filter((k: string) => k && !k.startsWith('data:')))] as string[];
+    const photoKeys = allPhotos.slice(0, allPhotosOn ? MAX_POST_PHOTOS_ALL : MAX_POST_PHOTOS);
+    const extraPhotoCount = Math.max(0, allPhotos.length - photoKeys.length);
 
     const signer = ack?.signedByName || null;
     const doNames = docs
@@ -181,7 +216,9 @@ export async function enqueueDeliveryGroupPost(
       head,
       '',
       ...body,
-      ...(extraPhotoCount ? [`+${extraPhotoCount} more photo${extraPhotoCount === 1 ? '' : 's'} in AIMS`] : []),
+      ...(extraPhotoCount
+        ? [`+${extraPhotoCount} more photo${extraPhotoCount === 1 ? '' : 's'} in AIMS${allPhotosOn ? `: ${portalUrl(`/portal/deliveries/${deliveryId}`)}` : ''}`]
+        : []),
     ].join('\n');
 
     try {
