@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { deliveryEndedAt as deliveryEndedAtOf } from "@/helpers/deliveryTimeline";
 import { billToText } from "../utils/billToText";
 import { Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Dialog, IconButton } from "@mui/material";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
@@ -2448,9 +2449,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
         .map((r) => new Date(r.createdAt).getTime())
         .filter((t) => !Number.isNaN(t));
     const startTimes = msrTimes("DO_START");
-    const ackTimes = msrTimes("DO_ACK");
     const deliveryStartedAt = startTimes.length ? new Date(Math.min(...startTimes)) : null;
-    const deliveryEndedAt = ackTimes.length ? new Date(Math.max(...ackTimes)) : null;
+    // Ended = the run's completion time (getById folds it in as runCompletedAt),
+    // so a later link signature or repaired proof row never moves it.
+    const deliveryEndedAt = deliveryEndedAtOf((data as any)?.runCompletedAt, maintenanceReports);
     const sameCalendarDay = (a: Date, b: Date) =>
       a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
     // BIOFUEL: always date + time. Every other org keeps the original rule —

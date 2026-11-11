@@ -953,11 +953,14 @@ export class DocumentsService {
       try {
         const linkItem = await this.prisma.deliveryItem.findFirst({
           where: { documentId: document.id },
-          select: { delivery: { select: { scheduledFor: true } } },
+          select: { delivery: { select: { scheduledFor: true, completedAt: true } } },
         });
         const scheduledFor = linkItem?.delivery?.scheduledFor ?? null;
         const cfg2: any = (document as any).config ?? {};
         cfg2.scheduledFor = scheduledFor;
+        // The timeline's "Delivery Ended" is the run's completion, not a proof
+        // row written later (a link signature, a repaired row). Null until done.
+        cfg2.runCompletedAt = linkItem?.delivery?.completedAt ?? null;
         (document as any).config = cfg2;
       } catch {
         /* non-fatal */
