@@ -116,6 +116,11 @@ export interface DocFormat {
   si?: import('./trade-si').SiFormat;
   /** Round BF — 出庫・納入依頼書 only: ADH's own .xlsx the "Download .xlsx" fills (hidden = kept, not used). */
   xlsxTemplate?: FormatSample;
+  /**
+   * Round BS — SUS Customer COA (COA_集計ファイル) / PACKING LIST only: combine the B/Ls of one delivery into one
+   * document (round AO's multi-B/L layout). Absent / false = one document per shipment (SUS asked for this, 2026-11-11).
+   */
+  combineShipments?: boolean;
   /** Round BN — 請求書 only: this customer's seal / From block placement (overrides docDefaults.invoiceLayout key by key). */
   layout?: Partial<import('./trade-invoice-layout').InvoiceLayout>;
 }

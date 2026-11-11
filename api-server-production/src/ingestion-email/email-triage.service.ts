@@ -33,6 +33,7 @@ import { groupThreads, normMessageId, threadHeadersFromEml, threadLink, unproces
 import { backlogAutoLabel, BacklogInput, BacklogVerdict, classifyEmail } from './email-backlog';
 import { ShortLinksService } from '../short-links/short-links.service';
 import { supplierKeyPatterns } from '../shipments/trade-profile';
+import { InvoiceOrder, matchOutgoingInvoice, readOutgoingInvoice } from './email-outgoing-invoice';
 import {
   counterpartyByDomain,
   DeclarationRow,
@@ -47,6 +48,7 @@ import {
   MatchCandidate,
   mergeKeys,
   ORDER_DOC_TYPES,
+  CUSTOMER_INVOICE_TYPES,
   parseDeclarationTable,
   KnownSenderHit,
   sanitizeKeys,
@@ -428,7 +430,12 @@ export class EmailTriageService {
       this.actionLog.system('email-triage', kept === 'PROCESSED' ? 'PROCESS' : 'TRIAGE', 'EmailIngestLog', { organizationId, resourceId: logId, details: { verdict, counterparty, error, inboxState: kept } });
       return { verdict, inboxState: kept };
     }
-    const state = await this.matchAndPlan(organizationId, logId, keys, mode);
+    let state = await this.matchAndPlan(organizationId, logId, keys, mode);
+    // Round BS: ADH's own email whose every file is already in AIMS (e.g. the invoices it sends) needs no question.
+    if (direction === 'OUT' && (state === 'SUGGESTED' || state === 'UNMATCHED')) {
+      const closed = await this.closeIfAllFiled(organizationId, logId, null).catch(() => null);
+      if (closed) state = 'PROCESSED';
+    }
     // Round AL: a carrier status / ETA notice → the latest ETA (unless typed by hand) + empty fields, history kept.
     if (known?.rule === 'CARRIER_TRACKING' && this.tracking) {
       const r = await this.tracking.fromEmail(organizationId, logId, `${log.subject ?? ''}\n${meta.bodyText ?? ''}`, known.blNo ?? ((keys as any)?.blNo ?? null));
@@ -747,7 +754,9 @@ export class EmailTriageService {
     const holders = this.casts ? await this.casts.holders(organizationId) : [];
     const records = await this.matchRecords(organizationId);
     const ciPatterns = await this.ciPatterns(organizationId);
-    const rows: Array<{ emailId: string; subject: string | null; index: number; name: string; size: number | null; docType: string | null; inline: boolean; keys: string[]; bundles: string[]; defaults: Array<{ orderId: string | null; shipmentId: string | null; why: string }>; holders: Array<{ orderId: string | null; shipmentId: string; why: string }>; outsidePick: boolean }> = [];
+    // Round BS: ADH's own invoices (請求書送付) match on invoice no. / customer / grade / delivery month / qty.
+    const inv = logs.some((l) => l.direction === 'OUT') || logs.some((l) => ((l.triage?.attachments ?? []) as any[]).some((x) => CUSTOMER_INVOICE_TYPES.has(x.docType))) ? await this.invoiceMatchContext(organizationId) : null;
+    const rows: Array<{ emailId: string; subject: string | null; index: number; name: string; size: number | null; docType: string | null; inline: boolean; keys: string[]; bundles: string[]; defaults: Array<{ orderId: string | null; shipmentId: string | null; why: string }>; holders: Array<{ orderId: string | null; shipmentId: string; why: string }>; outsidePick: boolean; invoice?: { invoiceNo: string | null; kind: string; grade: string | null; deliveryMonth: string | null; qtyMt: number | null; total: number | null; currency: string | null } | null }> = [];
     for (const log of logs) {
       const meta = (log.rawMeta ?? {}) as Partial<StoredEmailMeta>;
       const ev = await this.evidence(log);
@@ -757,28 +766,129 @@ export class EmailTriageService {
       (meta.attachments ?? []).forEach((att, index) => {
         const inline = isInlineImage(att.name);
         const t = typed.find((x) => x.filename === att.name);
-        const docType = t && TRIAGE_DOC_TYPES[t.docType] ? t.docType : null;
+        let docType = t && TRIAGE_DOC_TYPES[t.docType] ? t.docType : null;
         const key = attachmentTarget(perAtt[index]?.hits ?? []);
         const cast = matchAttachmentByCast({ name: att.name, text: ev.attachments[index]?.text ?? '' }, `${ev.subject ?? ''}\n${own}`, holders);
+        // Round BS: one of ADH's own 請求書 → "Invoice to client" / "Correction" on the ORDER its facts name together.
+        const oi = inv && !inline && (log.direction === 'OUT' || (docType && CUSTOMER_INVOICE_TYPES.has(docType))) ? readOutgoingInvoice(ev.attachments[index]?.text ?? '', att.name) : null;
+        const oiHit = oi && inv ? matchOutgoingInvoice(oi, inv.orders, inv.filed) : null;
+        if (oi) docType = oi.kind === 'correction' ? 'INVOICE_ADJUSTMENT' : 'CUSTOMER_INVOICE';
+        else if (docType === 'INVOICE_1' || docType === 'INVOICE_2' || docType === 'INVOICE_SINGLE') docType = 'CUSTOMER_INVOICE';
         const defaults =
           inline ? []
+          : oi ? (oiHit ? [{ orderId: oiHit.orderId, shipmentId: null, why: oiHit.why }] : [])
           : key ? [{ orderId: key.orderId, shipmentId: key.shipmentId, why: key.keyLabel }]
           : cast.best ? [{ orderId: cast.best.orderId, shipmentId: cast.best.shipmentId, why: cast.best.why }]
           : picked.length === 1 ? [{ orderId: picked[0].orderId, shipmentId: picked[0].shipmentId, why: 'the shipment you picked' }]
           : [];
         const inPick = (d: { orderId: string | null; shipmentId: string | null }) => picked.some((p) => (p.shipmentId && p.shipmentId === d.shipmentId) || (!p.shipmentId && p.orderId === d.orderId));
-        rows.push({ emailId: log.id, subject: log.subject ?? null, index, name: att.name, size: (att as any).size ?? null, docType, inline, keys: cast.keys, bundles: cast.bundles, defaults, holders: cast.holders, outsidePick: picked.length > 0 && defaults.some((d) => !inPick(d)) });
+        rows.push({ emailId: log.id, subject: log.subject ?? null, index, name: att.name, size: (att as any).size ?? null, docType, inline, keys: oi ? [] : cast.keys, bundles: oi ? [] : cast.bundles, defaults, holders: oi ? [] : cast.holders, outsidePick: picked.length > 0 && defaults.some((d) => !inPick(d)), invoice: oi ? { invoiceNo: oi.invoiceNo, kind: oi.kind, grade: oi.grade, deliveryMonth: oi.deliveryMonth, qtyMt: oi.qtyMt, total: oi.total, currency: oi.currency } : null });
       });
     }
     const named = await this.refs(organizationId, [...new Set(rows.flatMap((r) => [...r.defaults, ...r.holders].map((d) => d.orderId)).filter((x): x is string => !!x))], [...new Set(rows.flatMap((r) => [...r.defaults, ...r.holders].map((d) => d.shipmentId)).filter((x): x is string => !!x))]);
     const ref = (d: { orderId: string | null; shipmentId: string | null }) => (d.shipmentId ? named.ship.get(d.shipmentId) : d.orderId ? named.order.get(d.orderId) : null) ?? null;
     // Round BF: when each file arrived, from whom, its size / pages, and which ones are versions of one another (newest first).
     const info = await this.fileInfo(organizationId, logs, rows);
-    return {
-      files: rows
-        .map((r) => ({ ...r, ...info.get(`${r.emailId}:${r.index}`), defaults: r.defaults.map((d) => ({ ...d, ref: ref(d) })), holders: r.holders.map((d) => ({ ...d, ref: ref(d) })) }))
-        .sort((a, b) => new Date(b.date ?? 0).getTime() - new Date(a.date ?? 0).getTime() || a.index - b.index),
-    };
+    // Round BS: a file whose bytes are already in AIMS — "Already filed on #28 · step 2" (not filed again by default).
+    const filed = await this.alreadyFiled(organizationId, rows.filter((r) => !r.inline).map((r) => info.get(`${r.emailId}:${r.index}`)?.sha256 ?? null));
+    const files = rows
+      .map((r) => {
+        const i = info.get(`${r.emailId}:${r.index}`);
+        const { sha256: sha, ...rest } = i ?? ({} as any);
+        return { ...r, ...rest, filed: sha ? (filed.get(sha) ?? []) : [], defaults: r.defaults.map((d) => ({ ...d, ref: ref(d) })), holders: r.holders.map((d) => ({ ...d, ref: ref(d) })) };
+      })
+      .sort((a, b) => new Date(b.date ?? 0).getTime() - new Date(a.date ?? 0).getTime() || a.index - b.index);
+    const real = files.filter((f) => !f.inline);
+    return { files, outgoing: logs.some((l) => l.direction === 'OUT'), allFiled: real.length > 0 && real.every((f) => f.filed.length > 0) };
+  }
+
+  /**
+   * Round BS — the open orders and the invoice numbers already in AIMS (stored invoice reads of filed PDFs + AIMS-made
+   * invoices), for matching ADH's own outgoing invoices (email-outgoing-invoice.ts).
+   */
+  private async invoiceMatchContext(organizationId: string): Promise<{ orders: InvoiceOrder[]; filed: Array<{ invoiceNo: string; orderId: string; ref: string }> }> {
+    const os: any[] = await this.prisma.tradeOrder.findMany({
+      where: { organizationId, status: 'OPEN', isTest: false },
+      select: { id: true, orderNo: true, grade: true, deliveryMonth: true, qtyMt: true, customer: { select: { name: true, jpName: true } }, shipments: { where: { status: { not: 'CANCELLED' } }, select: { netWeightMt: true } } },
+    });
+    const orders: InvoiceOrder[] = os.map((o) => ({ orderId: o.id, ref: `#${o.orderNo}`, customerNames: [o.customer?.jpName, o.customer?.name].filter(Boolean), grade: o.grade ?? null, deliveryMonth: o.deliveryMonth ?? null, qtyMt: o.qtyMt === null ? null : Number(o.qtyMt), netMts: o.shipments.map((s: any) => (s.netWeightMt === null ? null : Number(s.netWeightMt))).filter((n: number | null): n is number => n !== null) }));
+    const filed: Array<{ invoiceNo: string; orderId: string; ref: string }> = [];
+    const reads: any[] = await this.prisma.tradeExtraction
+      .findMany({ where: { organizationId, kind: 'INVOICE' as any, status: 'DONE' }, select: { result: true, file: { select: { links: { where: { hiddenAt: null }, select: { order: { select: { id: true, orderNo: true } }, shipment: { select: { order: { select: { id: true, orderNo: true } } } } } } } } } })
+      .catch(() => []);
+    for (const r of reads) {
+      const o = r.file?.links?.map((l: any) => l.order ?? l.shipment?.order).find(Boolean);
+      if (!o) continue;
+      for (const f of ((r.result as any)?.invoices ?? []) as Array<{ invoiceNo?: string | null }>) if (f.invoiceNo) filed.push({ invoiceNo: f.invoiceNo, orderId: o.id, ref: `#${o.orderNo}` });
+    }
+    const gens: any[] = await this.prisma.tradeGeneratedDoc.findMany({ where: { organizationId, status: 'FINAL', number: { not: null }, docType: { in: [...CUSTOMER_INVOICE_TYPES] } }, select: { number: true, order: { select: { id: true, orderNo: true } }, shipment: { select: { order: { select: { id: true, orderNo: true } } } } } });
+    for (const g of gens) {
+      const o = g.order ?? g.shipment?.order;
+      if (o && g.number) filed.push({ invoiceNo: g.number, orderId: o.id, ref: `#${o.orderNo}` });
+    }
+    return { orders, filed };
+  }
+
+  /** Round BS — "Invoice to client" on an order: the slot its customer's process uses (single, else #1 until step 2 is done, then #2). */
+  private async customerInvoiceType(organizationId: string, orderId: string | null): Promise<string> {
+    if (!orderId) return 'INVOICE_SINGLE';
+    const o = await this.prisma.tradeOrder.findFirst({ where: { id: orderId, organizationId }, select: { customerId: true, steps: { where: { code: 'INVOICE_1' }, select: { status: true, notApplicable: true } } } });
+    const profile = o ? await this.config.profileOf(organizationId, o.customerId) : null;
+    if (profile?.billingMode === 'SINGLE') return 'INVOICE_SINGLE';
+    const s2 = o?.steps?.[0];
+    return s2 && !s2.notApplicable && s2.status !== 'DONE' ? 'INVOICE_1' : 'INVOICE_2';
+  }
+
+  /** Round BS — sha256 → where those bytes are already filed: [{ ref, step, docType, fileId }]. */
+  private async alreadyFiled(organizationId: string, shas: Array<string | null>) {
+    const list = [...new Set(shas.filter((x): x is string => !!x))];
+    const out = new Map<string, Array<{ fileId: string; ref: string | null; step: string | null; docType: string; orderId: string | null; shipmentId: string | null }>>();
+    if (!list.length) return out;
+    const files: any[] = await this.prisma.tradeFile.findMany({
+      where: { organizationId, sha256: { in: list }, links: { some: { hiddenAt: null } } },
+      select: { id: true, sha256: true, docType: true, links: { where: { hiddenAt: null }, select: { orderId: true, shipmentId: true, step: { select: { displayNo: true } }, order: { select: { orderNo: true } }, shipment: { select: { seqNo: true, orderId: true, order: { select: { orderNo: true } } } } } } },
+    });
+    for (const f of files) {
+      for (const l of f.links) {
+        const ref = l.shipment ? `#${l.shipment.order?.orderNo}-${l.shipment.seqNo}` : l.order ? `#${l.order.orderNo}` : null;
+        const arr = out.get(f.sha256) ?? [];
+        arr.push({ fileId: f.id, ref, step: l.step?.displayNo ?? null, docType: f.docType, orderId: l.orderId ?? l.shipment?.orderId ?? null, shipmentId: l.shipmentId ?? null });
+        out.set(f.sha256, arr);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Round BS — every attachment of this email is already in AIMS (same bytes): the card closes as "Already filed",
+   * linked to where those files are. Nothing is filed. Returns the places, or null when something is new.
+   * `actor` null = AIMS (an outgoing email at intake); else the person who pressed "Close — all filed".
+   */
+  async closeIfAllFiled(organizationId: string, logId: string, actor: EmailActor | null) {
+    const log: any = await this.prisma.emailIngestLog.findFirst({ where: { id: logId, organizationId } });
+    if (!log || log.inboxState === 'PROCESSED' || log.inboxState === 'HIDDEN' || log.inboxState === 'PURGED') return null;
+    const atts = (((log.rawMeta ?? {}) as Partial<StoredEmailMeta>).attachments ?? []).filter((a) => a?.key && !isInlineImage(a.name));
+    if (!atts.length) return null;
+    const facts = await mapLimit(atts, 4, (a) => attachmentFacts((k) => this.s3.downloadFile(k), a as any));
+    if (facts.some((f) => !f)) return null;
+    const filed = await this.alreadyFiled(organizationId, facts.map((f) => f!.sha256));
+    if (!facts.every((f) => (filed.get(f!.sha256) ?? []).length)) return null;
+    const places = atts.map((a, i) => ({ file: a.name, on: (filed.get(facts[i]!.sha256) ?? []).map((x) => `${x.ref ?? '?'}${x.step ? ` · step ${x.step}` : ''}`) }));
+    const first = (filed.get(facts[0]!.sha256) ?? [])[0];
+    const at = new Date().toISOString();
+    const by = actor ? (actor.name ?? actor.id) : 'AIMS';
+    await this.prisma.emailIngestLog.update({
+      where: { id: logId },
+      data: {
+        inboxState: 'PROCESSED',
+        status: 'PROCESSED',
+        purgeAfter: null,
+        ...(first ? { orderId: first.orderId, shipmentId: first.shipmentId } : {}),
+        actions: { ...((log.actions as object) ?? {}), alreadyFiled: places, answered: { kind: 'already_filed', at, by, via: actor?.via ?? null }, review: { outcome: 'ACCEPTED', at, by } } as any,
+      },
+    });
+    this.actionLog.system('email-question', 'PROCESS', 'EmailIngestLog', { organizationId, resourceId: logId, details: { answer: 'already_filed', by, files: places } });
+    return places;
   }
 
   /**
@@ -795,7 +905,7 @@ export class EmailTriageService {
     });
     const dateOf = (id: string) => { const l = byLog.get(id); return (l?.emailDate ?? l?.createdAt ?? null) as Date | null; };
     const marks = markVersions(files.flatMap((f, i) => (f.inline ? [] : [{ id: `${f.emailId}:${f.index}`, name: f.name, date: dateOf(f.emailId), sha256: facts[i]?.sha256 ?? null }])));
-    const out = new Map<string, { date: string | null; from: string | null; company: string | null; pages: number | null; version: (Omit<VersionMark, 'identicalTo'> & { identicalTo: { emailId: string; index: number; name: string; date: string | null } | null }) | null }>();
+    const out = new Map<string, { date: string | null; from: string | null; company: string | null; pages: number | null; sha256: string | null; version: (Omit<VersionMark, 'identicalTo'> & { identicalTo: { emailId: string; index: number; name: string; date: string | null } | null }) | null }>();
     files.forEach((f, i) => {
       const k = `${f.emailId}:${f.index}`;
       const l = byLog.get(f.emailId);
@@ -807,6 +917,7 @@ export class EmailTriageService {
         from: l?.fromAddress ?? null,
         company: l?.fromAddress ? companyOf(l.fromAddress, companies).name : null,
         pages: facts[i]?.pages ?? null,
+        sha256: facts[i]?.sha256 ?? null,
         version: m && m.versions > 1 ? { ...m, identicalTo: twin ? { emailId: twin.emailId, index: twin.index, name: twin.name, date: dateOf(twin.emailId) ? new Date(dateOf(twin.emailId)!).toISOString() : null } : null } : null,
       });
     });
@@ -1937,13 +2048,16 @@ export class EmailTriageService {
         out.push({ kind: 'file', status: 'skipped', reason: 'inline image', attachmentIndex: i, filename: a.name });
         continue;
       }
-      const docType = typeOf(a.name);
+      let docType = typeOf(a.name);
+      // Round BS: "Invoice to client" becomes the order's own invoice slot (single / #1 / #2 per the customer's process).
+      if (docType === 'CUSTOMER_INVOICE') docType = await this.customerInvoiceType(organizationId, target.orderId ?? null);
       if (!docType) {
         if (!multi) out.push({ kind: 'file', status: 'skipped', reason: 'not a trade document', attachmentIndex: i, filename: a.name });
         continue;
       }
       fileTypes.push(docType);
-      const onOrder = ORDER_DOC_TYPES.has(docType);
+      // Round BS: a customer invoice is the order's when an order step takes it (else an older shipment-level step).
+      const onOrder = ORDER_DOC_TYPES.has(docType) || (CUSTOMER_INVOICE_TYPES.has(docType) && (!target.shipmentId || (!!target.orderId && (await stepTakes({ orderId: target.orderId }, docType)))));
       const ownerId = onOrder ? target.orderId : target.shipmentId;
       if (!ownerId) {
         out.push({ kind: 'file', status: 'skipped', reason: onOrder ? 'no order' : 'pick the shipment', attachmentIndex: i, filename: a.name, docType });

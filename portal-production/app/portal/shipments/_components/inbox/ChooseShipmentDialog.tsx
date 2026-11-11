@@ -39,6 +39,9 @@ import { nextShipmentRef, orderGroups, orderHaystack, orderLine as orderLineOf, 
 import { fmtDay, shortCustomer } from "../../_lib/format";
 import { answerFor, docPlainName, L, likelyOptions, optionKey } from "../../_lib/inbox-cards";
 import { LinkChecklistButton } from "../LinkChecklist";
+import ListSubheader from "@mui/material/ListSubheader";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "../../_lib/toast";
 import AimeeButton from "../aimee/AimeeButton";
 import { setAimeeContext } from "../aimee/bridge";
 
@@ -48,10 +51,21 @@ type Opt = { key: string; orderId: string | null; shipmentId: string | null; ref
 type FileState = { targets: string[]; docType: string | null; skip: boolean; /** Round AS: kept waiting for its casts. */ wait: boolean };
 type IssueForm = { title: string; summaryEn: string; summaryJa: string; owner: string; effectiveFrom: string; coaBanner: boolean; linkPicked: boolean };
 
-/** The document slots a person may put a file in (the intake's triage types — the planner files by them). */
-const SLOTS = ["COA", "COA_XLS", "PL", "PL_XLS", "PL_CONTAINER", "CI", "PI", "BL_SCAN", "BL_DRAFT", "COO", "INSURANCE", "TELEX", "ARRIVAL_NOTICE", "IMPORT_PERMIT", "BUNDLE_LIST", "DELIVERY_NOTE", "DELIVERY_SCHEDULE", "VENDOR_INVOICE", "PAYMENT_PROOF", "CONTRACT", "SI"];
+/**
+ * The document slots a person may put a file in (the intake's triage types — the planner files by them), grouped by
+ * direction (round BS): from the supplier / shipping side, ADH → its client, ADH → client and Mitsui Soko. An email
+ * ADH sent itself (finance@ …) opens on the "To client" groups.
+ */
+const SLOT_GROUPS: Array<{ key: "supplier" | "toClient" | "toClientShipping"; slots: string[] }> = [
+  { key: "supplier", slots: ["COA", "COA_XLS", "PL", "PL_XLS", "PL_CONTAINER", "CI", "PI", "BL_SCAN", "BL_DRAFT", "COO", "INSURANCE", "TELEX", "ARRIVAL_NOTICE", "IMPORT_PERMIT", "BUNDLE_LIST", "DELIVERY_NOTE", "VENDOR_INVOICE", "PAYMENT_PROOF", "CONTRACT"] },
+  { key: "toClient", slots: ["CUSTOMER_INVOICE", "INVOICE_ADJUSTMENT", "CUSTOMER_COA", "CUSTOMER_PL"] },
+  { key: "toClientShipping", slots: ["DELIVERY_SCHEDULE", "SI"] },
+];
+/** Customer invoices belong to the ORDER: the picker shows orders for these slots. */
+const ORDER_SLOTS = new Set(["CUSTOMER_INVOICE", "INVOICE_ADJUSTMENT", "INVOICE_1", "INVOICE_2", "INVOICE_SINGLE"]);
 /** The slots named here (the rest by docPlainName); their words are in inbox.choose.slots. */
-const SLOT_LABEL = new Set(["COA_XLS", "PL_XLS", "PL_CONTAINER", "BL_SCAN", "TELEX", "SI"]);
+const SLOT_LABEL = new Set(["COA_XLS", "PL_XLS", "PL_CONTAINER", "BL_SCAN", "TELEX", "SI", "CUSTOMER_INVOICE", "INVOICE_ADJUSTMENT", "CUSTOMER_COA", "CUSTOMER_PL", "DELIVERY_SCHEDULE"]);
+const orderKeyOf = (k: string) => `${k.split(":")[0]}:`;
 const CAST_RE = /^\d{3}[A-Z]\d{4}(\d{2})?$/i;
 const fileKey = (f: Pick<Placement, "emailId" | "index">) => `${f.emailId}:${f.index}`;
 const tKey = (t: { orderId?: string | null; shipmentId?: string | null }) => `${t.orderId ?? ""}:${t.shipmentId ?? ""}`;
@@ -144,6 +158,13 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
       if (!m.has(k)) m.set(k, { key: k, orderId: s.orderId!, shipmentId: s.id, ref: s.ref || s.blNumber || tc("shipment"), label: shipmentLine(s, lang) });
     }
     for (const [k, o] of made) if (!m.has(k)) m.set(k, o);
+    // Round BS: the orders themselves (a customer invoice is the order's): "#28 · Kato 6063 · Dec delivery".
+    for (const s of allShips) {
+      const k = optionKey({ orderId: s.orderId!, shipmentId: null });
+      if (m.has(k)) continue;
+      const ref = /^(#\d+)/.exec(s.ref ?? "")?.[1] ?? (s.order as any)?.ref ?? tc("shipment");
+      m.set(k, { key: k, orderId: s.orderId!, shipmentId: null, ref, label: [ref, shortCustomer((s as any).customerName ?? s.customer?.name ?? ""), s.order?.grade, (s as any).deliveryMonth ?? (s.order as any)?.deliveryMonth].filter(Boolean).join(" · ") });
+    }
     return m;
   }, [likely, allShips, made, tc, lang]);
   const orderById = useMemo(() => new Map((orders.data?.items ?? []).map((o) => [o.id, o])), [orders.data]);
@@ -169,6 +190,24 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
     staleTime: 60_000,
   });
   const fileRows = placements.data?.files ?? [];
+  // Round BS: ADH's own email opens the type list on the "To client" groups.
+  const groupsInOrder = placements.data?.outgoing ? [...SLOT_GROUPS.slice(1), SLOT_GROUPS[0]] : SLOT_GROUPS;
+  const qc = useQueryClient();
+  const [closing, setClosing] = useState(false);
+  const closeAllFiled = async () => {
+    setClosing(true);
+    try {
+      const r = await api.inboxCloseFiled(ids);
+      if (r.closed.length) toast.success(tc("allFiledClosed"));
+      else toast.error(tc("allFiledNot"));
+      await qc.invalidateQueries({ queryKey: ["trade-inbox"] });
+      if (r.closed.length) onClose();
+    } catch (e: any) {
+      toast.error(e?.message || tc("couldNotRead"));
+    } finally {
+      setClosing(false);
+    }
+  };
   useEffect(() => {
     if (!placements.data) return;
     setFiles((prev) => {
@@ -177,7 +216,8 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
         const k = fileKey(f);
         if (prev[k]) next[k] = prev[k];
         // Round BF: an older version of a file in this answer (same name / same bytes, a newer one is here) is not filed by default — switchable.
-        else next[k] = { targets: f.inline ? [] : f.defaults.map((d) => optionKey({ orderId: d.orderId ?? "", shipmentId: d.shipmentId })), docType: f.docType, skip: f.inline || olderVersion(f.version), wait: !f.inline && !olderVersion(f.version) && f.keys.length > 0 && !f.defaults.length && !f.holders.length };
+        // Round BS: a file already in AIMS (same bytes) is not filed again by default.
+        else next[k] = { targets: f.inline ? [] : f.defaults.map((d) => optionKey({ orderId: d.orderId ?? "", shipmentId: d.shipmentId })), docType: f.docType, skip: f.inline || olderVersion(f.version) || !!f.filed?.length, wait: !f.inline && !olderVersion(f.version) && !f.filed?.length && f.keys.length > 0 && !f.defaults.length && !f.holders.length };
       }
       return next;
     });
@@ -562,11 +602,21 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
             <Typography variant="body2" color="text.secondary">{labels.noFiles}</Typography>
           ) : (
             <Stack spacing={1.5} divider={<Divider flexItem />}>
+              {placements.data?.allFiled && (
+                <Alert severity="success" action={<Button size="small" color="inherit" disabled={closing} onClick={() => void closeAllFiled()} sx={{ textTransform: "none", whiteSpace: "nowrap" }} data-tour="answer-close-filed">{tc("allFiledClose")}</Button>} data-tour="answer-all-filed">
+                  {tc("allFiledTitle")}
+                </Alert>
+              )}
               {fileRows.map((f) => {
                 const k = fileKey(f);
                 const s = files[k] ?? { targets: [], docType: f.docType, skip: f.inline, wait: false };
                 const set = (patch: Partial<FileState>) => setFiles((prev) => ({ ...prev, [k]: { ...s, ...patch } }));
-                const options = [...new Set([...picked.map((p) => p.key), ...f.defaults.map((d) => optionKey({ orderId: d.orderId ?? "", shipmentId: d.shipmentId })), ...f.holders.map((d) => optionKey({ orderId: d.orderId ?? "", shipmentId: d.shipmentId })), ...optsByKey.keys()])];
+                // Round BS: a customer invoice goes on the ORDER — the picker lists orders, picked shipments become their order.
+                const onOrder = ORDER_SLOTS.has(s.docType ?? "");
+                const setSlot = (docType: string | null) => set({ docType, ...(ORDER_SLOTS.has(docType ?? "") ? { targets: [...new Set(s.targets.map(orderKeyOf))] } : {}) });
+                const allOptions = [...new Set([...picked.map((p) => p.key), ...f.defaults.map((d) => optionKey({ orderId: d.orderId ?? "", shipmentId: d.shipmentId })), ...f.holders.map((d) => optionKey({ orderId: d.orderId ?? "", shipmentId: d.shipmentId })), ...optsByKey.keys()])];
+                const options = onOrder ? [...new Set(allOptions.map(orderKeyOf))] : allOptions.filter((x) => !x.endsWith(":") || picked.some((p) => p.key === x));
+                const where = (f.filed ?? []).map((x) => `${x.ref ?? "?"}${x.step ? ` · ${L[lang].step(x.step)}` : ""}`);
                 const hint = f.inline
                   ? labels.inlineImage
                   : f.defaults.length
@@ -585,7 +635,12 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
                       compareTo={(() => { const o = compareWith(f, fileRows, (x, y) => versionKey(x.name) === versionKey(y.name)); return o ? fileView(o) : null; })()}
                       right={<FormControlLabel control={<Checkbox size="small" checked={s.skip} onChange={(e) => set({ skip: e.target.checked })} />} label={<Typography variant="body2">{labels.dontFile}</Typography>} sx={{ mr: 0, ml: 0.5, flexShrink: 0 }} />}
                     />
-                    <Typography variant="caption" color={warn ? "warning.main" : "text.secondary"} sx={{ display: "block", mb: 0.75, wordBreak: "break-word" }}>
+                    {where.length > 0 && (
+                      <Typography variant="caption" color="success.main" sx={{ display: "block", fontWeight: 700 }} data-tour="answer-file-filed">
+                        {tc("alreadyFiled", { where: [...new Set(where)].join(", ") })}
+                      </Typography>
+                    )}
+                    <Typography variant="caption" color={warn && !where.length ? "warning.main" : "text.secondary"} sx={{ display: "block", mb: 0.75, wordBreak: "break-word" }}>
                       {hint}
                       {f.outsidePick && !s.skip ? ` · ${labels.outsidePick}` : ""}
                     </Typography>
@@ -602,13 +657,17 @@ export function ChooseShipmentDialog({ open, t, lang, busy, onClose, onAnswer, o
                           })}
                           value={s.targets}
                           onChange={(v) => set({ targets: v })}
-                          label={labels.fileTargets}
+                          label={onOrder ? tc("fileOrder") : labels.fileTargets}
                           error={!s.targets.length}
                         />
-                        <TextField select size="small" label={labels.fileSlot} value={s.docType ?? ""} onChange={(e) => set({ docType: e.target.value || null })} sx={{ flex: 1, minWidth: 180 }} error={!s.docType}>
-                          {SLOTS.map((c) => (
-                            <MenuItem key={c} value={c}>{slotLabel(c)}</MenuItem>
-                          ))}
+                        <TextField select size="small" label={labels.fileSlot} value={s.docType ?? ""} onChange={(e) => setSlot(e.target.value || null)} sx={{ flex: 1, minWidth: 180 }} error={!s.docType} SelectProps={{ MenuProps: { PaperProps: { "data-tour": "answer-file-slots" } as any } }}>
+                          {s.docType && !SLOT_GROUPS.some((g) => g.slots.includes(s.docType!)) && <MenuItem value={s.docType}>{slotLabel(s.docType)}</MenuItem>}
+                          {groupsInOrder.flatMap((g) => [
+                            <ListSubheader key={`h-${g.key}`} sx={{ lineHeight: "32px", fontWeight: 800 }}>{tc(`groups.${g.key}`)}</ListSubheader>,
+                            ...g.slots.map((c) => (
+                              <MenuItem key={c} value={c} sx={{ pl: 3 }}>{slotLabel(c)}</MenuItem>
+                            )),
+                          ])}
                         </TextField>
                       </Stack>
                     )}

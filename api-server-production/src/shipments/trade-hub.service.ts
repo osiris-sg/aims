@@ -197,7 +197,7 @@ export class TradeHubService {
         },
       }),
       this.prisma.tradeGeneratedDoc.findMany({
-        where: { organizationId },
+        where: { organizationId, hiddenAt: null },
         select: {
           id: true,
           docType: true,

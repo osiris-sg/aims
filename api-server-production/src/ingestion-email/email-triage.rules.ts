@@ -38,6 +38,10 @@ export const TRIAGE_DOC_TYPES: Record<string, string | null> = {
   INVOICE_1: 'INVOICE_1',
   INVOICE_2: 'INVOICE_2',
   INVOICE_SINGLE: 'INVOICE_SINGLE',
+  /** Round BS — ADH's invoice to its client (請求書): Invoice #1 / #2 / single per the customer's process (resolved on the order). */
+  CUSTOMER_INVOICE: 'CUSTOMER_INVOICE',
+  /** Round BS — 正誤差額 / 実費差分 (the correction slot, round BO). */
+  INVOICE_ADJUSTMENT: 'INVOICE_ADJUSTMENT',
   CUSTOMER_PL: 'CUSTOMER_PL',
   CUSTOMER_COA: 'CUSTOMER_COA',
   PAYMENT_PROOF: 'PAYMENT_PROOF',
@@ -53,6 +57,8 @@ export const TRIAGE_DOC_TYPES: Record<string, string | null> = {
 };
 /** Trade doc types filed on the order (the rest go on the shipment). */
 export const ORDER_DOC_TYPES = new Set(['PI', 'CONTRACT', 'INVOICE_1', 'DEPOSIT_PROOF']);
+/** Round BS: the customer-invoice slots — filed on the ORDER when an order step takes them (step 2 / 11 since round H), the picker shows orders. */
+export const CUSTOMER_INVOICE_TYPES = new Set(['CUSTOMER_INVOICE', 'INVOICE_1', 'INVOICE_2', 'INVOICE_SINGLE', 'INVOICE_ADJUSTMENT']);
 
 export interface TriageKeys {
   piNo: string | null;

@@ -1855,6 +1855,9 @@ model TradeGeneratedDoc {
   finalFileId       String?                 @db.Uuid
   /// Invoices: the Sales Document (type INVOICE) created / confirmed on Finalize.
   documentId        String?                 @db.Uuid
+  /// Round BS: a draft replaced by per-shipment drafts (SUS COA / PL) — kept, never deleted; lists and step checks skip it.
+  hiddenAt          DateTime?
+  hiddenReason      String?
   createdById       String
   createdByName     String?
   createdAt         DateTime                @default(now())

@@ -159,6 +159,7 @@ const isInvoiceKind = (k: TemplateKind | undefined) => k === 'invoice' || k === 
 
 const GEN_SELECT = {
   id: true,
+  hiddenAt: true,
   shipmentId: true,
   contractId: true,
   orderId: true,
@@ -250,6 +251,8 @@ export class TradeGeneratedService {
     return this.prisma.tradeGeneratedDoc.findMany({
       where: {
         organizationId,
+        // Round BS: a draft replaced by per-shipment drafts is kept but not listed.
+        hiddenAt: null,
         // A shipment's documents include invoices that cover it (Invoice #2 / single invoice for several shipments).
         ...(filter.shipmentId ? { OR: [{ shipmentId: filter.shipmentId }, { coversShipmentIds: { has: filter.shipmentId } }] } : {}),
         ...(filter.contractId ? { contractId: filter.contractId } : {}),
@@ -332,7 +335,8 @@ export class TradeGeneratedService {
    * New DRAFT prefilled from a supplier PL / COA spreadsheet on the same shipment.
    * Round AO — SUS lots: a SUS COA summary / PACKING LIST covers every B/L of the delivery that needs one (susLot) —
    * one summary across them / one workbook with a sheet per B/L. `opts.coversShipmentIds` picks the lot by hand
-   * ([] = this B/L only).
+   * ([] = this B/L only). Round BS: the automatic lot only when the customer's format has combineShipments on (SUS asked
+   * for one COA / PL per shipment, 2026-11-11).
    */
   async createFromSource(organizationId: string, shipmentId: string, docType: string, sourceFileId: string, actor: TradeActor, opts: { coversShipmentIds?: string[] } = {}) {
     const t = this.template(docType);
@@ -347,8 +351,11 @@ export class TradeGeneratedService {
     if (!(t.sourceDocTypes ?? [t.sourceDocType]).includes(src.docType)) throw new BadRequestException(`The source must be a ${(t.sourceDocTypes ?? [t.sourceDocType]).join(' / ')} file (this one is ${src.docType})`);
     if (!isSource(src.fileName, t.sourcePdf)) throw new BadRequestException(`${src.fileName} is not a spreadsheet (.xls, .xlsx, .csv, .txt${t.sourcePdf ? ' or a COA PDF' : ''})`);
 
-    const templateKey = templateKeyFor(await this.profileForShipment(organizationId, shipmentId), docType);
-    const lot = isSusTemplate(templateKey) ? await this.susLot(organizationId, shipmentId, docType, opts.coversShipmentIds) : [];
+    const profile = await this.profileForShipment(organizationId, shipmentId);
+    const templateKey = templateKeyFor(profile, docType);
+    // Round BS: one document per shipment unless the customer's Document formats say "Combine shipments of one delivery".
+    const combine = formatOf(profile, docType)?.combineShipments === true;
+    const lot = isSusTemplate(templateKey) && (combine || (opts.coversShipmentIds?.length ?? 0) > 0) ? await this.susLot(organizationId, shipmentId, docType, opts.coversShipmentIds) : [];
     const { built, header } = lot.length > 1 ? await this.buildSusLot(organizationId, shipment, docType, src, lot, templateKey) : await this.buildFromSource(organizationId, shipment, docType, src, templateKey);
     const docRef = await this.config.docRefFor(this.prisma, organizationId, { shipmentId }, docType);
     return this.prisma.tradeGeneratedDoc
@@ -396,7 +403,7 @@ export class TradeGeneratedService {
     for (const x of sibs) {
       if (x.id !== shipmentId) {
         if (x.status !== 'OPEN' || (x.deliveryMonth ?? me.order?.deliveryMonth ?? null) !== month) continue;
-        const has = await this.prisma.tradeGeneratedDoc.findFirst({ where: { organizationId, docType, OR: [{ shipmentId: x.id }, { coversShipmentIds: { has: x.id } }] }, select: { id: true } });
+        const has = await this.prisma.tradeGeneratedDoc.findFirst({ where: { organizationId, docType, hiddenAt: null, OR: [{ shipmentId: x.id }, { coversShipmentIds: { has: x.id } }] }, select: { id: true } });
         if (has) continue;
         const filed = await this.prisma.tradeFileLink.findFirst({ where: { organizationId, hiddenAt: null, shipmentId: x.id, file: { docType } }, select: { id: true } });
         if (filed) continue;
@@ -1086,6 +1093,7 @@ export class TradeGeneratedService {
   async finalize(organizationId: string, id: string, actor: TradeActor) {
     const g = await this.get(organizationId, id);
     if (g.status !== 'DRAFT') throw new BadRequestException('Already final');
+    if ((g as { hiddenAt?: Date | null }).hiddenAt) throw new BadRequestException('This draft was replaced by per-shipment drafts — finalize those instead');
     // An order-level invoice (step 11, round H) may bill shipments that already completed their own steps — its order must be open.
     const orderInvoice = ORDER_INVOICE_TYPES.includes(g.docType);
     if (g.shipment && g.shipment.status !== 'OPEN' && !(orderInvoice && g.shipment.status === 'COMPLETED')) throw new BadRequestException('Reopen the shipment before finalizing');

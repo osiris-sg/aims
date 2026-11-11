@@ -254,8 +254,24 @@
       "PL_CONTAINER": "Container packing list",
       "BL_SCAN": "Bill of lading (B/L)",
       "TELEX": "Telex release",
-      "SI": "Shipping instructions"
-    }
+      "SI": "Shipping instructions (出庫・納入依頼書)",
+      "CUSTOMER_INVOICE": "Invoice to client (請求書)",
+      "INVOICE_ADJUSTMENT": "Correction / actual-cost invoice",
+      "CUSTOMER_COA": "Customer COA",
+      "CUSTOMER_PL": "Customer packing list",
+      "DELIVERY_SCHEDULE": "Delivery schedule request (納期・配送日程)"
+    },
+    "groups": {
+      "supplier": "From supplier / shipping",
+      "toClient": "To client",
+      "toClientShipping": "To client and shipping company"
+    },
+    "alreadyFiled": "Already filed on {where}",
+    "allFiledTitle": "Every file in this email is already in AIMS — nothing new to file.",
+    "allFiledClose": "Close card",
+    "allFiledClosed": "Closed — everything was already filed",
+    "allFiledNot": "Not closed — something in this email is new",
+    "fileOrder": "Order"
   },
   "dashboard": {
     "noSubject": "(no subject)",

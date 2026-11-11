@@ -834,7 +834,11 @@ export type InboxAnswer =
   | { kind: "ask_admin"; note?: string | null };
 /** Round AR: the confirm screen's per-attachment default target (B/L / CI in the file, else its exact cast / bundle no.). */
 export type PlacementRef = { orderId: string | null; shipmentId: string | null; ref: string | null; why: string };
-export type Placement = { emailId: string; subject: string | null; index: number; name: string; size: number | null; docType: string | null; inline: boolean; keys: string[]; bundles: string[]; defaults: PlacementRef[]; holders: PlacementRef[]; outsidePick: boolean; /** Round BF: the email's received time, sender, PDF pages, and its version among these files. */ date?: string | null; from?: string | null; company?: string | null; pages?: number | null; version?: FileVersion | null };
+export type Placement = { emailId: string; subject: string | null; index: number; name: string; size: number | null; docType: string | null; inline: boolean; keys: string[]; bundles: string[]; defaults: PlacementRef[]; holders: PlacementRef[]; outsidePick: boolean; /** Round BF: the email's received time, sender, PDF pages, and its version among these files. */ date?: string | null; from?: string | null; company?: string | null; pages?: number | null; version?: FileVersion | null;
+  /** Round BS: where the same bytes are already filed ("#28 · step 2"). */
+  filed?: Array<{ fileId: string; ref: string | null; step: string | null; docType: string; orderId: string | null; shipmentId: string | null }>;
+  /** Round BS: one of ADH's own 請求書 read from the PDF. */
+  invoice?: { invoiceNo: string | null; kind: string; grade: string | null; deliveryMonth: string | null; qtyMt: number | null; total: number | null; currency: string | null } | null };
 export type IssueDraft = IssueProposal & { docTypes: string[]; supplierId: string | null; customerId: string | null; counterpartyName: string | null };
 /** Round AR — a general issue on a customer / supplier (Clients profile, the order, the step banner). */
 export type TradeIssue = {
@@ -912,6 +916,8 @@ export type DocFormatView = {
   docType: "CUSTOMER_COA" | "CUSTOMER_PL" | "SGJP_IV_PL" | "SHIPPING_INSTRUCTIONS" | "INVOICE"; step: string; title: string; titleJa: string;
   generator: string; generatorLabel: string; formatConfirmed: boolean; options: Array<{ key: string; label: string; formatConfirmed: boolean }>;
   choose: "variant" | "billing" | "fixed"; previewable: boolean; language: "ja" | "en"; addressee: string | null; effectiveAddressee: string; notes: string | null; samples: FormatSampleView[];
+  /** Round BS — SUS COA / PL: combine the B/Ls of one delivery into one document (null = not offered). */
+  combineShipments: boolean | null;
   /** Round BF — 出庫・納入依頼書 only: the customer's SI settings and ADH's uploaded .xlsx template. */
   si?: SiFormat | null;
   xlsxTemplate?: FormatSampleView | null;
@@ -1813,7 +1819,7 @@ export function useShipmentsApi() {
       clientDueRulesPreview: (id: string, dueRules: Record<string, CustomerDueRule>) => call<DueRulesPreview>(`/trade-clients/customers/${id}/due-rules/preview`, "POST", { dueRules }),
       clientUpdateDueRules: (id: string, dueRules: Record<string, CustomerDueRule>) => call<{ changes: DueRuleChange[]; customer: ClientCustomerDetail }>(`/trade-clients/customers/${id}/due-rules`, "PATCH", { dueRules }),
       clientUpdateProcess: (id: string, skipSteps: string[]) => call<{ impact: ProcessImpact; customer: ClientCustomerDetail }>(`/trade-clients/customers/${id}/process`, "PATCH", { skipSteps }),
-      clientUpdateFormat: (id: string, docType: string, body: { generator?: string | null; language?: string | null; addressee?: string | null; notes?: string | null; si?: SiFormat | null }) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}/formats/${docType}`, "PATCH", body),
+      clientUpdateFormat: (id: string, docType: string, body: { generator?: string | null; language?: string | null; addressee?: string | null; notes?: string | null; si?: SiFormat | null; combineShipments?: boolean }) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}/formats/${docType}`, "PATCH", body),
       clientHideSample: (id: string, docType: string, sampleId: string) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}/formats/${docType}/samples/${sampleId}/hide`, "PATCH", {}),
       clientSampleUrl: (id: string, docType: string, sampleId: string) => call<{ url: string; fileName: string; mimeType: string }>(`/trade-clients/customers/${id}/formats/${docType}/samples/${sampleId}/url`),
       clientPreviewShipments: (id: string) => call<Array<{ id: string; ref: string; blNumber: string | null; hasCoa: boolean; hasPl: boolean }>>(`/trade-clients/customers/${id}/preview-shipments`),
@@ -2191,7 +2197,9 @@ export function useShipmentsApi() {
       inboxAnswer: (ids: string[], answer: InboxAnswer, lang?: InboxLang) => call<InboxAnswerResult>(`/email-inbox/answer${qs({ lang })}`, "POST", { ids, answer }),
       inboxAnswerUndo: (ids: string[], kind: InboxAnswer["kind"]) => call<{ undone: number }>(`/email-inbox/answer/undo`, "POST", { ids, kind }),
       // Round AR: the confirm screen's placements, a draft issue, a record's emails, issues, the cast-no. search.
-      inboxPlacements: (ids: string[], targets: AnswerTarget[]) => call<{ files: Placement[] }>(`/email-inbox/placements`, "POST", { ids, targets }, 120_000),
+      inboxPlacements: (ids: string[], targets: AnswerTarget[]) => call<{ files: Placement[]; outgoing?: boolean; allFiled?: boolean }>(`/email-inbox/placements`, "POST", { ids, targets }, 120_000),
+      /** Round BS: close cards whose every file is already in AIMS (nothing filed). */
+      inboxCloseFiled: (ids: string[]) => call<{ closed: string[]; open: string[] }>(`/email-inbox/close-filed`, "POST", { ids }, 120_000),
       inboxShipmentFacts: (ids: string[]) => call<EmailShipmentFacts>(`/email-inbox/shipment-facts`, "POST", { ids }, 120_000),
       inboxIssueDraft: (ids: string[]) => call<IssueDraft>(`/email-inbox/issue-draft`, "POST", { ids }, 90_000),
       recordEmails: (q: { shipmentId?: string; orderId?: string }) => call<RecordEmail[]>(`/email-inbox/record${qs(q)}`),

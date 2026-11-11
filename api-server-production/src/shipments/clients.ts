@@ -1,3 +1,4 @@
+import { isSusTemplate } from './trade-sus-formats';
 /**
  * Round AM (2026-10-26, ADH) — the Clients tab (Customers · Suppliers): list figures, contacts from the email intake,
  * and the per-customer document formats catalogue. Pure: no Prisma, no Nest. Built on what AIMS already stores —
@@ -138,6 +139,8 @@ export interface FormatView {
   /** What prints as 宛先 today (this document's, else the customer's, else the Japanese legal name). */
   effectiveAddressee: string;
   notes: string | null;
+  /** Round BS — SUS COA / PL: "Combine shipments of one delivery" (null = not offered for this format). */
+  combineShipments: boolean | null;
   samples: Array<Omit<FormatSample, 's3Key'>>;
   /** Round BF — 出庫・納入依頼書: the customer's SI settings and the uploaded .xlsx template (null = AIMS's own sheet). */
   si?: import('./trade-si').SiFormat | null;
@@ -187,6 +190,7 @@ export function formatViews(profile: CustomerProfile, legalName: string): Format
       addressee,
       effectiveAddressee: addressee || profile.docAddressee || legalName,
       notes: f?.notes ?? null,
+      combineShipments: (slot.docType === 'CUSTOMER_COA' || slot.docType === 'CUSTOMER_PL') && isSusTemplate(generator) ? f?.combineShipments === true : null,
       samples: (f?.samples ?? []).filter((s) => !s.hidden).map(({ s3Key: _k, ...s }) => s),
       ...(slot.docType === 'SHIPPING_INSTRUCTIONS'
         ? { si: f?.si ?? null, xlsxTemplate: f?.xlsxTemplate && !f.xlsxTemplate.hidden ? (({ s3Key: _k, ...x }) => x)(f.xlsxTemplate) : null }

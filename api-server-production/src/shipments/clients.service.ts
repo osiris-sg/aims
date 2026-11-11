@@ -373,7 +373,7 @@ export class ClientsService {
   }
 
   /** Generator (Customer COA / PL), language, 宛先 and note of one document — saved on the customer profile. */
-  async updateFormat(organizationId: string, customerId: string, docType: string, body: { generator?: string | null; language?: string | null; addressee?: string | null; notes?: string | null; si?: unknown }) {
+  async updateFormat(organizationId: string, customerId: string, docType: string, body: { generator?: string | null; language?: string | null; addressee?: string | null; notes?: string | null; si?: unknown; combineShipments?: boolean | null }) {
     const t = this.assertFormatType(docType);
     const slot = DOC_FORMAT_SLOTS.find((s) => s.docType === t)!;
     const p = await this.profileFor(organizationId, customerId);
@@ -395,6 +395,8 @@ export class ClientsService {
       ...(body.language !== undefined ? { language: body.language === 'en' ? 'en' : body.language === 'ja' ? 'ja' : undefined } : {}),
       ...(body.addressee !== undefined ? { addressee: body.addressee ?? undefined } : {}),
       ...(body.notes !== undefined ? { notes: body.notes ?? undefined } : {}),
+      // Round BS — SUS COA / PL: combine the B/Ls of one delivery (off = one document per shipment).
+      ...(body.combineShipments !== undefined && (t === 'CUSTOMER_COA' || t === 'CUSTOMER_PL') ? { combineShipments: body.combineShipments === true } : {}),
     };
     // Round BF — 出庫・納入依頼書 settings (new SIs only). Written straight to the stored profile (a settings save keeps
     // si / xlsxTemplate as they are, like the samples).

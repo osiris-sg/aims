@@ -254,8 +254,24 @@
       "PL_CONTAINER": "コンテナパッキングリスト",
       "BL_SCAN": "船荷証券（B/L）",
       "TELEX": "テレックスリリース",
-      "SI": "出庫・納入依頼書"
-    }
+      "SI": "出庫・納入依頼書",
+      "CUSTOMER_INVOICE": "顧客への請求書",
+      "INVOICE_ADJUSTMENT": "正誤差額・実費差分の請求書",
+      "CUSTOMER_COA": "顧客向けCOA",
+      "CUSTOMER_PL": "顧客向けパッキングリスト",
+      "DELIVERY_SCHEDULE": "納期・配送日程の依頼"
+    },
+    "groups": {
+      "supplier": "仕入先・船会社から",
+      "toClient": "顧客へ",
+      "toClientShipping": "顧客・倉庫（三井倉庫）へ"
+    },
+    "alreadyFiled": "登録済み：{where}",
+    "allFiledTitle": "このメールのファイルはすべてAIMSに登録済みです。新たに登録するものはありません。",
+    "allFiledClose": "カードを閉じる",
+    "allFiledClosed": "閉じました（すべて登録済み）",
+    "allFiledNot": "閉じていません — 新しいファイルがあります",
+    "fileOrder": "注文"
   },
   "dashboard": {
     "noSubject": "（件名なし）",

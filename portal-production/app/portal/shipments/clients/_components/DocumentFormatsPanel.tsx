@@ -8,7 +8,7 @@
 // what "Create from Vedanta file" uses on the customer's shipments (the profile's docVariants).
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Box, Button, Chip, CircularProgress, Grid2, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, Chip, CircularProgress, FormControlLabel, Grid2, MenuItem, Paper, Stack, Switch, TextField, Typography } from "@mui/material";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import DownloadIcon from "@mui/icons-material/Download";
@@ -48,6 +48,7 @@ function FormatCard({ customerId, f, lang, shipments }: { customerId: string; f:
   const [language, setLanguage] = useState(f.language);
   const [addressee, setAddressee] = useState(f.addressee ?? "");
   const [notes, setNotes] = useState(f.notes ?? "");
+  const [combine, setCombine] = useState(f.combineShipments === true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [hide, setHide] = useState<{ id: string; fileName: string } | null>(null);
@@ -60,18 +61,19 @@ function FormatCard({ customerId, f, lang, shipments }: { customerId: string; f:
     setLanguage(f.language);
     setAddressee(f.addressee ?? "");
     setNotes(f.notes ?? "");
+    setCombine(f.combineShipments === true);
   }, [f]);
   useEffect(() => () => (preview ? URL.revokeObjectURL(preview.pdfUrl) : undefined), [preview]);
   const usable = useMemo(() => shipments.filter((s) => (f.docType === "CUSTOMER_COA" ? s.hasCoa : s.hasPl)), [shipments, f.docType]);
   useEffect(() => {
     if (!shipmentId && usable[0]) setShipmentId(usable[0].id);
   }, [usable, shipmentId]);
-  const dirty = gen !== f.generator || language !== f.language || addressee !== (f.addressee ?? "") || notes !== (f.notes ?? "");
+  const dirty = gen !== f.generator || language !== f.language || addressee !== (f.addressee ?? "") || notes !== (f.notes ?? "") || (f.combineShipments !== null && combine !== f.combineShipments);
   const refresh = () => qc.invalidateQueries({ queryKey: CLIENT_KEYS.all });
   const save = async () => {
     setSaving(true);
     try {
-      await api.clientUpdateFormat(customerId, f.docType, { ...(f.choose === "variant" ? { generator: gen } : {}), language, addressee: addressee || null, notes: notes || null });
+      await api.clientUpdateFormat(customerId, f.docType, { ...(f.choose === "variant" ? { generator: gen } : {}), language, addressee: addressee || null, notes: notes || null, ...(f.combineShipments !== null ? { combineShipments: combine } : {}) });
       await refresh();
       toast.success(t("saved", { title: f.title }));
     } catch (e: any) {
@@ -158,6 +160,15 @@ function FormatCard({ customerId, f, lang, shipments }: { customerId: string; f:
         <Grid2 size={12}>
           <TextField fullWidth size="small" multiline minRows={1} label={t("notes")} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={t("notesPh")} />
         </Grid2>
+        {f.combineShipments !== null && (
+          // Round BS — SUS: one COA 集計 / PACKING LIST per shipment by default; on = one document for the B/Ls of one delivery.
+          <Grid2 size={12} data-tour="client-format-combine">
+            <FormControlLabel control={<Switch size="small" checked={combine} onChange={(e) => setCombine(e.target.checked)} />} label={t("combine")} />
+            <Typography variant="caption" color="text.secondary" display="block">
+              {combine ? t("combineOn") : t("combineOff")}
+            </Typography>
+          </Grid2>
+        )}
       </Grid2>
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 1.5 }}>
         <Typography variant="body2" color="text.secondary">

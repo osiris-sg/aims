@@ -81,6 +81,19 @@ export class EmailInboxController {
     return this.triage.placements(this.org(req), ids, targets);
   }
 
+  @Post('close-filed')
+  @Permissions('shipments:update')
+  @ApiOperation({ summary: 'Round BS: close these cards as "Already filed" when every attachment (same bytes) is already in AIMS — nothing is filed; a card with anything new stays open.' })
+  async closeFiled(@Body() body: { ids?: unknown }, @Req() req: Req2) {
+    const ids = Array.isArray(body?.ids) ? body.ids.filter((x: unknown): x is string => typeof x === 'string' && UUID.test(x)).slice(0, 50) : [];
+    if (!ids.length) throw new BadRequestException('ids are required');
+    const closed: string[] = [];
+    const open: string[] = [];
+    for (const id of ids) ((await this.triage.closeIfAllFiled(this.org(req), id, this.actor(req))) ? closed : open).push(id);
+    (req as any).actionLogResult = { closed: closed.length, stillOpen: open.length };
+    return { closed, open };
+  }
+
   @Post('issue-draft')
   @Permissions('shipments:read')
   @ApiOperation({ summary: 'Round AR: a draft general issue (title, EN + JA summary, effective from, supplier / customer) read from these emails — nothing is saved.' })

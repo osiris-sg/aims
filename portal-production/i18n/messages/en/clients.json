@@ -298,7 +298,10 @@
       "followsOrg": "This customer follows the default again",
       "saveFailed": "Could not save",
       "previewFailed": "Preview failed"
-    }
+    },
+    "combine": "Combine shipments of one delivery",
+    "combineOff": "Off: one document per shipment — its own B/L, CI no., casts and totals.",
+    "combineOn": "On: the B/Ls of one delivery that are in at the time go into one document (one summary / one workbook with a sheet per B/L)."
   },
   "process": {
     "intro": "Tick the steps that are part of this customer's process. Orders and shipments of this customer only show and require the ticked steps.",
