@@ -430,7 +430,7 @@ export default function PvOffsetSupplierDialog({
             value={rate}
             disabled={sameCurrency}
             onChange={(e) => setRate(e.target.value)}
-            inputProps={{ step: "0.000001", min: 0, style: { textAlign: "right" } }}
+            inputProps={{ step: "0.0000001", min: 0, style: { textAlign: "right" } }}
             sx={{ width: 130 }}
             title={sameCurrency ? "Same currency" : `${partyCurrency} per ${voucherCurrency}`}
           />

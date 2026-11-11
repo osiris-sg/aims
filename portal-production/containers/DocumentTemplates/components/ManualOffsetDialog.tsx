@@ -249,7 +249,7 @@ export default function ManualOffsetDialog({
       <DialogTitle
         sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", bgcolor: "#0a0a0a", color: "#fafafa", py: 1.5 }}
       >
-        <Typography variant="h6" fontWeight={500}>
+        <Typography component="span" variant="h6" fontWeight={500}>
           Manual Offset{customer?.name ? ` — ${customer.name}` : ""}
         </Typography>
         <IconButton onClick={() => !saving && onClose()} size="small" sx={{ color: "#fafafa" }}>

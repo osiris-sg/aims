@@ -280,6 +280,17 @@ export class PaymentsService {
   // Batched payment summary for a list of documents — used by the AR
   // workspace to enrich the invoice list with totalPaid / outstanding / last
   // payment date without N+1 queries.
+  async totalReceived(organizationId: string, startDate?: Date, endDate?: Date) {
+    const where: Prisma.PaymentWhereInput = { organizationId, NOT: { paymentMethod: 'offset' } };
+    if (startDate || endDate) {
+      where.paymentDate = {};
+      if (startDate) where.paymentDate.gte = startDate;
+      if (endDate) where.paymentDate.lte = endDate;
+    }
+    const agg = await this.prisma.payment.aggregate({ where, _sum: { amount: true }, _count: { _all: true } });
+    return { total: Math.round((agg._sum.amount || 0) * 100) / 100, count: agg._count._all };
+  }
+
   async summaryByDocuments(documentIds: string[], organizationId: string) {
     if (!documentIds?.length) return {};
     const payments = await this.prisma.payment.findMany({

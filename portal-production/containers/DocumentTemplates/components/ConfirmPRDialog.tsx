@@ -242,6 +242,7 @@ export default function ConfirmPRDialog({
               onChange={(e) => setRate(parseFloat(e.target.value) || 0)}
               size="small"
               type="number"
+              inputProps={{ step: "0.0000001", min: 0 }}
               sx={{ flex: 1 }}
             />
           </Box>

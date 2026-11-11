@@ -55,6 +55,9 @@ const unwrap = (r: any) => (r && typeof r === "object" && r.success !== undefine
 const dmy = (d: any) => (d ? new Date(d).toLocaleDateString("en-GB") : "—");
 const todayISO = () => todayIso();
 const monthStartISO = (iso: string) => `${iso.slice(0, 7)}-01`;
+// The KPI cards read the YEAR to the cut-off (guru 2026-11-11: the GL home's
+// Revenue is year-to-date, so Sales / Purchases / Receipts / Payments agree with it).
+const yearStartISO = (iso: string) => `${iso.slice(0, 4)}-01-01`;
 
 // The legacy GL home's left rail, as a View Reports dialog (same convention
 // as AR_REPORTS / AP_REPORTS). `tab` keys must match the REPORTS registry.
@@ -109,7 +112,7 @@ type LedgerRow = {
 };
 
 // Legacy tile groups: each card carries two label/value lines.
-type TileLine = { label: string; value: number };
+type TileLine = { label: string; value: number; tone?: string };
 
 // ---- Printable GENERAL LEDGER document (legacy print flow) ----
 type GlDocGroup = {
@@ -164,29 +167,23 @@ export default function GLWorkspace() {
         const [tbRaw, plRaw, payments, billPays] = await Promise.all([
           request(`/journal/reports/trial-balance?asOfDate=${cutOff}`),
           request(`/journal/reports/profit-loss?cutOffDate=${cutOff}&closingStock=0`).catch(() => null),
-          request(`/payments?limit=2000`).catch(() => null),
-          request(`/bills/payments-listing?from=${monthStartISO(cutOff)}&to=${cutOff}`).catch(() => null),
+          request(`/payments/total?startDate=${yearStartISO(cutOff)}&endDate=${cutOff}`).catch(() => null),
+          request(`/bills/payments-listing?from=${yearStartISO(cutOff)}&to=${cutOff}`).catch(() => null),
         ]);
         if (cancelled) return;
         const tb = unwrap(tbRaw);
         setRows(tb?.rows || []);
 
         // Tiles follow the legacy grouping. P&L figures use the YTD column
-        // (current financial year to the cut-off); cash flow is month-to-date.
+        // (current financial year to the cut-off); cash flow is year-to-date too.
         const pl = unwrap(plRaw);
         const ytd = (s: any) => {
           const vals = s?.subtotal?.values;
           return Array.isArray(vals) && vals.length ? Number(vals[vals.length - 1]) || 0 : 0;
         };
-        const payList: any[] = Array.isArray(payments) ? payments : (payments as any)?.docs || (payments as any)?.payments || [];
-        const mStart = new Date(monthStartISO(cutOff));
-        const mEnd = new Date(cutOff);
-        mEnd.setHours(23, 59, 59, 999);
-        const receipts = payList.reduce((s, p) => {
-          if (p.paymentMethod === "offset") return s; // cashless manual offsets
-          const d = p.paymentDate ? new Date(p.paymentDate) : null;
-          return d && d >= mStart && d <= mEnd ? s + (Number(p.amount) || 0) : s;
-        }, 0);
+        // Money received this year to the cut-off, summed on the server
+        // (cashless manual offsets excluded there).
+        const receipts = Number(unwrap(payments)?.total) || 0;
         const billPayList: any[] = unwrap(billPays) || [];
         const paid = (Array.isArray(billPayList) ? billPayList : []).reduce(
           (s, p) => s + (Number(p.amount) || 0),
@@ -196,7 +193,7 @@ export default function GLWorkspace() {
           { title: "Revenue", lines: [{ label: "Sales", value: ytd(pl?.sales) }, { label: "Income", value: ytd(pl?.otherIncome) }] },
           { title: "Cost Of Sales", lines: [{ label: "Purchases", value: ytd(pl?.cogs) }, { label: "Opening Stock", value: Number(pl?.openingStock) || 0 }] },
           { title: "Expenses", lines: [{ label: "Expenses", value: ytd(pl?.expenses) }, { label: "Taxation", value: ytd(pl?.tax) }] },
-          { title: "Cash Flow", lines: [{ label: "Receipts", value: receipts }, { label: "Payments", value: paid }] },
+          { title: "Cash Flow", lines: [{ label: "Receipts", value: receipts, tone: "success.main" }, { label: "Payments", value: paid, tone: "success.main" }] },
         ]);
       } catch (e) {
         console.error("GL workspace load failed:", e);
@@ -233,7 +230,8 @@ export default function GLWorkspace() {
 
   // ---------- drill-in (account ledger — the legacy "invoke General Ledger") ----------
   const [selected, setSelected] = useState<{ id: string; code: string; name: string } | null>(null);
-  const [fromPeriod, setFromPeriod] = useState("");
+  // From period opens on the FIRST OF THE MONTH of the cut-off (guru 2026-11-11), never blank.
+  const [fromPeriod, setFromPeriod] = useState(() => monthStartISO(todayISO()));
   const [toPeriod, setToPeriod] = useState(todayISO());
 
   // Deep link back INTO the ledger (?account=<id>&fromPeriod=&toPeriod=): a
@@ -510,6 +508,7 @@ export default function GLWorkspace() {
           )}
           <Box sx={{ flex: 1 }} />
           <ReportPrintExportButton
+          withEmail
             variant="contained"
             getModel={() => glExportModel(glDoc, organization?.name || "")}
             onPrint={() => window.print()}
@@ -528,21 +527,26 @@ export default function GLWorkspace() {
     <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3, maxWidth: 1400, mx: "auto", width: "100%" }}>
       <Stack direction={{ xs: "column", md: "row" }} gap={1.5} sx={{ mb: 2 }}>
         {tiles.map((tile) => (
+          // Same card as the AR / AP workspaces (guru 2026-11-11): uppercase
+          // caption, one BIG tabular number per figure, the tone colouring it.
           <Paper key={tile.title} variant="outlined" sx={{ p: 2, flex: 1, minWidth: 220, borderRadius: 2 }}>
             <Typography
-              variant="caption"
-              sx={{ color: "text.secondary", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700 }}
+              sx={{ color: "text.secondary", letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 700, fontSize: "0.9rem", lineHeight: 1.3 }}
             >
               {tile.title}
             </Typography>
-            {tile.lines.map((l) => (
-              <Stack key={l.label} direction="row" justifyContent="space-between" sx={{ mt: 0.5 }}>
-                <Typography variant="body2" sx={{ color: "text.secondary" }}>
-                  {l.label}
-                </Typography>
-                <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{fmt(l.value)}</Typography>
-              </Stack>
-            ))}
+            <Stack direction="row" gap={3} sx={{ mt: 0.5 }}>
+              {tile.lines.map((l) => (
+                <Box key={l.label} sx={{ minWidth: 0 }}>
+                  <Typography variant="caption" sx={{ color: "text.secondary", display: "block", lineHeight: 1.2 }}>
+                    {l.label}
+                  </Typography>
+                  <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700, fontSize: "1.25rem", color: l.tone || "text.primary" }}>
+                    {fmt(l.value)}
+                  </Typography>
+                </Box>
+              ))}
+            </Stack>
           </Paper>
         ))}
         {tiles.length === 0 && !loading && (
@@ -598,23 +602,8 @@ export default function GLWorkspace() {
         >
           Accounts Payable
         </Button>
-        {/* Print = the legacy GENERAL LEDGER prompt (date + account range) →
-            paper document; the other destinations export the balances table. */}
-        <ReportPrintExportButton
-          size="medium"
-          onPrint={openPrintDialog}
-          getModel={() => {
-            if (!netRows.length) return null;
-            const rows = visibleRows.map((r) => [r.code, r.name, r.netDebit ? fmt(r.netDebit) : "", r.netCredit ? fmt(r.netCredit) : ""]);
-            rows.push(["TOTAL", "", fmt(totals.debit), fmt(totals.credit)]);
-            return {
-              title: "General Ledger Balances",
-              orgName: organization?.name || "",
-              metaLines: [`Cut-Off-Date : ${new Date(cutOff).toLocaleDateString("en-GB")}`],
-              tables: [{ headers: ["Account", "Description", "Debit", "Credit"], rows, boldRows: [rows.length - 1] }],
-            };
-          }}
-        />
+        {/* No Print / Export or Send Email on the GL / AR / AP home tables
+            (guru 2026-11-11) — those live on the reports and documents. */}
         <Button variant="outlined" startIcon={<AssessmentOutlinedIcon />} onClick={() => setReportsOpen(true)}>
           View Reports
         </Button>
@@ -648,7 +637,7 @@ export default function GLWorkspace() {
                   key={r.accountId}
                   hover
                   onClick={() => {
-                    setFromPeriod("");
+                    setFromPeriod(monthStartISO(cutOff));
                     setToPeriod(cutOff);
                     setSelected({ id: r.accountId, code: r.code, name: r.name });
                   }}

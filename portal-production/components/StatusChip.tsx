@@ -82,9 +82,11 @@ export default function StatusChip({ status, doc }: { status?: string | null; do
       // ellipsizing inside a fixed-width column (guru 2026-08-27: no "…").
       sx={{
         fontSize: "0.7rem",
+        // One text line tall (22px) so a chip never grows a list row past
+        // the GL/AR/AP density; long labels still wrap and grow it.
         height: "auto",
-        minHeight: 24,
-        py: 0.25,
+        minHeight: 22,
+        py: 0,
         "& .MuiChip-label": { whiteSpace: "normal", display: "block", textAlign: "center", lineHeight: 1.3 },
       }}
     />

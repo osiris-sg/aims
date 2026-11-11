@@ -77,6 +77,25 @@ export class PaymentsController {
     });
   }
 
+  // One number for the AR / GL home cards: money actually received in a date
+  // window (manual offsets are cashless and excluded). The cards used to page
+  // the whole payment list into the browser and read the wrong key, so
+  // Receipts showed 0.00 for every org (guru 2026-11-11).
+  @Get('total')
+  @Permissions('payments:read')
+  @ApiOperation({ summary: 'Sum of money received between two dates (offsets excluded)' })
+  @ApiQuery({ name: 'startDate', required: false })
+  @ApiQuery({ name: 'endDate', required: false })
+  total(@Req() req: RequestWithOrganization, @Query() query) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return this.paymentsService.totalReceived(
+      organizationId,
+      query.startDate ? new Date(query.startDate) : undefined,
+      query.endDate ? new Date(`${String(query.endDate).slice(0, 10)}T23:59:59.999Z`) : undefined,
+    );
+  }
+
   @Post('summary')
   @Permissions('payments:read')
   @ApiOperation({ summary: 'Batched payment summary for AR workspace — returns totalPaid/count/lastDate per documentId' })

@@ -73,14 +73,14 @@ export default function Table(props: Props) {
   const selectionColumn = useMemo(
     () => ({
       id: "select",
-      header: ({ table }: any) => <Checkbox checked={table.getIsAllRowsSelected()} onChange={table.getToggleAllRowsSelectedHandler()} sx={{ p: 0 }} />,
+      header: ({ table }: any) => <Checkbox checked={table.getIsAllRowsSelected()} onChange={table.getToggleAllRowsSelectedHandler()} sx={{ p: 0, "& .MuiSvgIcon-root": { fontSize: 20 } }} />,
       cell: ({ row }: any) => {
         if (row.depth > 0) {
           return <span style={{ color: "grey" }}>└──</span>;
         }
         // stopPropagation: with row-click-to-open (CLAUDE.md pattern), ticking
         // a checkbox must not also open the record.
-        return <Checkbox checked={row.getIsSelected()} onClick={(e) => e.stopPropagation()} onChange={row.getToggleSelectedHandler()} sx={{ p: 0 }} />;
+        return <Checkbox checked={row.getIsSelected()} onClick={(e) => e.stopPropagation()} onChange={row.getToggleSelectedHandler()} sx={{ p: 0, "& .MuiSvgIcon-root": { fontSize: 20 } }} />;
       },
       size: 40,
       minSize: 40,
@@ -334,7 +334,7 @@ export default function Table(props: Props) {
                     <TableCell
                       key={`loading-${header.id}`}
                       sx={{
-                        padding: isMobile ? "8px 10px" : "8px 16px",
+                        padding: isMobile ? "6px 10px" : "4px 16px",
                         ...(header.id === "select"
                           ? {
                               width: "40px",
@@ -369,7 +369,6 @@ export default function Table(props: Props) {
                       },
                       // Allow rows to expand vertically based on content
                       height: "auto",
-                      minHeight: "40px",
                       ...(onRowClick ? { cursor: "pointer" } : {}),
                       // Containing block for the stretched row-link overlay.
                       // (position:relative on <tr> is supported in all modern
@@ -390,8 +389,19 @@ export default function Table(props: Props) {
                       <TableCell
                         key={cell.id}
                         sx={{
-                          padding: isMobile ? "8px 10px" : "8px 16px",
+                          // GL/AR/AP density (guru 2026-11-11: "reduce the gap
+                          // for document list just like GL, AR, AP") — 4px
+                          // vertical like the workspace tables' `py: 0.5`, and
+                          // the row's kebab/checkbox/chip are capped so they
+                          // never inflate the row past the text height.
+                          padding: isMobile ? "6px 10px" : "4px 16px",
                           fontSize: isMobile ? "0.8125rem" : "0.875rem",
+                          "& .MuiIconButton-sizeSmall": { p: 0.25 },
+                          // The inline-block cell wrappers sit on the text
+                          // baseline, which adds the font's descent under them
+                          // (+5px per row). Middle-align so the tallest control
+                          // is what sets the row.
+                          "& > *": { verticalAlign: "middle" },
                           textAlign: cell.column.columnDef.align || "left",
                           // Row-link mode: the stretched <a> (zIndex 0) covers
                           // the whole row, so interactive controls inside

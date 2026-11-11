@@ -172,7 +172,7 @@ export default function FinancialSettingsTab({
                 size="small" label={`Rate to ${form.baseCurrency || "SGD"}`} type="number" value={r.rate} sx={{ width: 160 }}
                 onChange={(e) => setRates((rs) => rs.map((x, xi) => (xi === i ? { ...x, rate: e.target.value } : x)))}
                 placeholder="1.35"
-                inputProps={{ step: "0.0001", min: 0 }}
+                inputProps={{ step: "0.0000001", min: 0 }}
               />
               <Typography variant="caption" color="text.secondary">
                 {r.code && Number(r.rate) > 0 ? `1 ${r.code} = ${r.rate} ${form.baseCurrency || "SGD"}` : ""}
