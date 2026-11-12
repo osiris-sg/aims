@@ -3606,11 +3606,17 @@ export default function TabbedDocumentCreator({
     setGlMenu({ pos: { left: e.clientX, top: e.clientY }, itemId });
     void loadGlAccounts();
   };
-  // Header GL mode needs the chart up front for the Accounts to Credit picker.
+  // The chart loads up front whenever a GL chip or the Accounts to Credit
+  // picker can show: the per-line chip prints the ACCOUNT NAME (guru
+  // 2026-11-12: "GL 214" alone says nothing to the office), and a saved line
+  // only carries its code, so the name is looked up from the chart.
+  const linesCarryGl = isInvoiceTypeDoc || (items || []).some((r: any) => r?.accountCode);
   useEffect(() => {
-    if (headerGlMode) void loadGlAccounts();
+    if (headerGlMode || linesCarryGl) void loadGlAccounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [headerGlMode]);
+  }, [headerGlMode, linesCarryGl]);
+  const glAccountName = (code?: string | null, name?: string | null) =>
+    name || (code ? glAccounts?.find((a) => a.code === code)?.name || "" : "");
   const pickGlAccount = (acc: { code: string; name: string } | null) => {
     const id = glMenu?.itemId;
     setGlMenu(null);
@@ -6546,7 +6552,7 @@ export default function TabbedDocumentCreator({
                                         <Tooltip
                                           title={
                                             item.accountCode
-                                              ? `Posts to GL account ${item.accountCode}${item.accountName ? ` — ${item.accountName}` : ""} · click to change`
+                                              ? `Posts to GL account ${item.accountCode}${glAccountName(item.accountCode, item.accountName) ? ` — ${glAccountName(item.accountCode, item.accountName)}` : ""} · click to change`
                                               : "No GL account yet — click to pick the account this line posts to"
                                           }
                                         >
@@ -6565,7 +6571,14 @@ export default function TabbedDocumentCreator({
                                               "&:hover": { textDecoration: "underline" },
                                             }}
                                           >
-                                            GL {item.accountCode ? `${item.accountCode}${item.accountName ? ` · ${item.accountName}` : ""}` : "— pick account"}
+                                            {item.accountCode ? (
+                                              <>
+                                                <Box component="span" sx={{ opacity: 0.75 }}>{item.accountCode}</Box>
+                                                {glAccountName(item.accountCode, item.accountName) && (
+                                                  <Box component="span" sx={{ fontWeight: 600, ml: 0.5 }}>{glAccountName(item.accountCode, item.accountName)}</Box>
+                                                )}
+                                              </>
+                                            ) : "GL — pick account"}
                                           </Typography>
                                         </Tooltip>
                                       )}
