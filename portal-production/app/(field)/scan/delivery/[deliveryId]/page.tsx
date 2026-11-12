@@ -58,7 +58,7 @@ import { claimReturnRun } from "../../../lib/deliveryLists";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import DoStatusTag from "@/components/DoStatusTag";
 import { runDoTag } from "@/helpers/doStatusTag";
-import { jobLabel, runTitle, runWords } from "@/helpers/jobWording";
+import { jobLabel, returnLabel, RETURN_RUN_STATUS_LABEL, runTitle, runWords } from "@/helpers/jobWording";
 
 /**
  * Standalone-delivery BASKET (Layer 3 + in-basket scanning patch).
@@ -1394,7 +1394,7 @@ export default function DeliveryBasketPage() {
                       />
                       {lineText(it)}
                       {done ? (
-                        <StatusChip label={jobLabel(chip.label, wct)} tone={chip.tone} sx={{ ml: 1 }} />
+                        <StatusChip label={jobLabel(returnLabel(chip.label, run.direction === "RETURN"), wct)} tone={chip.tone} sx={{ ml: 1 }} />
                       ) : it.skippedAt ? (
                         <StatusChip label="SKIPPED" tone="neutral" sx={{ ml: 1 }} />
                       ) : null}
@@ -1656,14 +1656,14 @@ export default function DeliveryBasketPage() {
         <LocalShippingIcon color="primary" sx={{ fontSize: 32 }} />
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Typography variant="body2" color="text.secondary">
-            {wct && run.status === "delivered" ? "Done" : RUN_STATUS_LABEL[run.status]}
+            {wct && run.status === "delivered" ? "Done" : run.direction === "RETURN" ? RETURN_RUN_STATUS_LABEL[run.status] : RUN_STATUS_LABEL[run.status]}
             {(() => {
               // Per-item linking: items may span DOs. Single DO → its name;
               // several → a count; none → the old "no DO yet".
               const distinct = Array.from(
                 new Map(run.items.filter((i) => i.document).map((i) => [i.document!.id, i.document!])).values(),
               );
-              if (distinct.length === 0) return " · no DO yet";
+              if (distinct.length === 0) return run.direction === "RETURN" ? " · RDO on sign-off" : " · no DO yet";
               if (distinct.length === 1) return ` · DO ${distinct[0].name ?? ""}`;
               return ` · ${distinct.length} DOs`;
             })()}
@@ -2021,7 +2021,7 @@ export default function DeliveryBasketPage() {
       {inFlightItems.length > 0 && (
       <Box sx={{ border: 1, borderColor: "divider", borderRadius: "16px", bgcolor: "background.paper", p: 1.5 }}>
       <Typography variant="subtitle1" sx={{ mb: 1 }}>
-        {wct ? "In progress" : "Delivering"} ({inFlightItems.length})
+        {wct ? "In progress" : run.direction === "RETURN" ? "Collecting" : "Delivering"} ({inFlightItems.length})
       </Typography>
       <Stack spacing={1}>
         {inFlightItems.map((it) => {
@@ -2040,7 +2040,7 @@ export default function DeliveryBasketPage() {
                       </Typography>
                     )}
                   </Box>
-                  <StatusChip label={jobLabel(chip.label, wct)} tone={chip.tone} />
+                  <StatusChip label={jobLabel(returnLabel(chip.label, run.direction === "RETURN"), wct)} tone={chip.tone} />
                 </Stack>
                 {it.deliveryStatus !== "completed" && (
                   <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
@@ -2195,7 +2195,7 @@ export default function DeliveryBasketPage() {
                           </Typography>
                         )}
                       </Box>
-                      <StatusChip label={jobLabel(chip.label, wct)} tone={chip.tone} />
+                      <StatusChip label={jobLabel(returnLabel(chip.label, run.direction === "RETURN"), wct)} tone={chip.tone} />
                     </Stack>
                   </CardContent>
                 </Card>

@@ -26,7 +26,7 @@ import PlaceIcon from "@mui/icons-material/Place";
 import { RunSummary, completedRunTime, itemLabel, relTime } from "../lib/deliveryLists";
 import { StatusChip } from "./fieldUi";
 import type { FieldTone } from "@/themes/fieldTheme";
-import { jobLabel, runWords } from "@/helpers/jobWording";
+import { jobLabel, returnLabel, runWords } from "@/helpers/jobWording";
 
 /**
  * Run cards shared by the Deliveries home (/scan) and the standalone list
@@ -358,7 +358,7 @@ export function InProgressRunCard({
   const { isWctOrdersEnabled } = useOrganizationFeatures();
   const w = runWords(!!isWctOrdersEnabled);
   const chip0 = STATUS_CHIP[r.status] ?? { label: String(r.status ?? "").replace(/_/g, " "), tone: "neutral" as const };
-  const chip = { ...chip0, label: jobLabel(chip0.label, !!isWctOrdersEnabled) };
+  const chip = { ...chip0, label: jobLabel(returnLabel(chip0.label, r.direction === "RETURN"), !!isWctOrdersEnabled) };
   // Customer/project only when present: pre-ack standalone runs have neither,
   // so the item label + time carry the identity instead.
   const context = r.project?.name ?? r.customer?.name ?? r.document?.name ?? null;

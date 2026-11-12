@@ -1691,6 +1691,8 @@ export class MaintenanceReportsService {
       id: string;
       deliveryNumber: number;
       status: string;
+      // RETURN runs read "Return #N / Collected" in the field app (2026-11-12).
+      direction: string;
       stage: 'start' | 'ack_delivery' | 'ack_install' | 'completed';
     } | null = null;
     let canStartStandaloneDelivery = false;
@@ -1703,7 +1705,7 @@ export class MaintenanceReportsService {
         },
         orderBy: { delivery: { startedAt: 'desc' } },
         include: {
-          delivery: { select: { id: true, deliveryNumber: true, status: true, startedAt: true } },
+          delivery: { select: { id: true, deliveryNumber: true, status: true, startedAt: true, direction: true } },
         },
       });
       const run = runItem?.delivery ?? null;
@@ -1724,6 +1726,7 @@ export class MaintenanceReportsService {
           id: run!.id,
           deliveryNumber: run!.deliveryNumber,
           status: run!.status,
+          direction: run!.direction,
           stage:
             runItem.deliveryStatus === DeliveryStatus.completed
               ? 'completed'

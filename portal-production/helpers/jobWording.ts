@@ -50,3 +50,37 @@ const JOB_LABELS: Record<string, string> = {
 export function jobLabel(label: string, isWct: boolean): string {
   return isWct ? (JOB_LABELS[label] ?? label) : label;
 }
+
+/**
+ * A RETURN collects, it does not deliver (2026-11-12, Biofuel return #107 read
+ * "Delivered, awaiting installation" and "DELIVERED"). Whole-label swaps for a
+ * return run; anything else passes through. Apply before jobLabel.
+ */
+const RETURN_LABELS: Record<string, string> = {
+  Delivered: "Collected",
+  "Not delivered": "Not collected",
+  Delivering: "Collecting",
+  DELIVERED: "COLLECTED",
+  "NOT DELIVERED": "NOT COLLECTED",
+  DELIVERING: "COLLECTING",
+};
+
+export function returnLabel(label: string, isReturn: boolean): string {
+  return isReturn ? (RETURN_LABELS[label] ?? label) : label;
+}
+
+/** The status line under a RETURN run's title (no installation step: the end is the signature). */
+export const RETURN_RUN_STATUS_LABEL: Record<string, string> = {
+  scheduled: "Scheduled, start the return to collect",
+  in_progress: "Collecting",
+  delivered: "Collected, awaiting signature",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+/** The scanned unit's open return run (asset scan page): card title + subtitle. */
+export function returnStageCard(stage: "start" | "ack_delivery" | "ack_install" | "completed", deliveryNumber: number | string): { title: string; subtitle: string } {
+  const title =
+    stage === "completed" ? "Return Completed" : stage === "ack_install" ? "Collected, awaiting signature" : "Continue Return";
+  return { title, subtitle: `Return #${deliveryNumber}${stage === "completed" ? "" : ", RDO on sign-off"}` };
+}

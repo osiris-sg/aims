@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { returnStageCard } from "@/helpers/jobWording";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { Avatar, Box, Button, Card, CardActionArea, CardContent, CircularProgress, Stack, Typography, Alert } from "@mui/material";
@@ -67,6 +68,7 @@ interface ScanContext {
     id: string;
     deliveryNumber: number;
     status: string;
+    direction?: "OUTBOUND" | "RETURN";
     stage: "start" | "ack_delivery" | "ack_install" | "completed";
   } | null;
   canStartStandaloneDelivery?: boolean;
@@ -222,6 +224,8 @@ export default function AssetActionChooser() {
         // already has a run open). Anything else keeps the prior disabled card.
         const standalone = data.standaloneDelivery;
         if (standalone) {
+          // A RETURN collects: "Return #N", "Collected, awaiting signature" (2026-11-12).
+          const ret = standalone.direction === "RETURN" ? returnStageCard(standalone.stage, standalone.deliveryNumber) : null;
           const stageTitle =
             standalone.stage === "completed"
               ? "Delivery Completed"
@@ -231,8 +235,8 @@ export default function AssetActionChooser() {
                   ? "Acknowledge Delivery"
                   : "Continue Delivery";
           return {
-            title: stageTitle,
-            subtitle: `Delivery #${standalone.deliveryNumber} — no DO yet`,
+            title: ret?.title ?? stageTitle,
+            subtitle: ret?.subtitle ?? `Delivery #${standalone.deliveryNumber} — no DO yet`,
             icon:
               standalone.stage === "completed" ? (
                 <CheckCircleIcon color="success" sx={{ fontSize: 40 }} />
