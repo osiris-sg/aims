@@ -147,9 +147,13 @@ export function buildDemoTheme(base: Theme): Theme {
           },
         },
       },
+      // Dark: DM Sans at 400 drops below comfortable stroke weight when it is
+      // light-on-dark (guru 2026-11-13), so data text runs one notch heavier.
+      // Light keeps 400 — the same weight on white reads fine.
+      MuiInputBase: { styleOverrides: dark ? { input: { fontWeight: 500 } } : {} },
       MuiTableCell: {
         styleOverrides: dark
-          ? {}
+          ? { body: { fontWeight: 500 } }
           : {
               root: { color: INK, borderBottom: `1px solid ${SURFACE_MID}` },
               head: { color: MUTED, backgroundColor: SURFACE_LOW, borderBottom: `1px solid ${LINE}` },

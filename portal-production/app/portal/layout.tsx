@@ -165,6 +165,13 @@ function OrgTheme({ children }: { children: React.ReactNode }) {
               // --app-font: read by the few places that name a typeface
               // themselves (editor fields, list-page titles). Both modes.
               ":root": { "--app-font": DEMO_FONT },
+              // Codes and document numbers (table code columns, the editor's
+              // document-number / customer-code fields) run BOLD (guru
+              // 2026-11-13: "I want all the codes to be like this" — DM Sans
+              // semibold, not a mono face; DM Mono was tried and rejected).
+              // Doubled attribute = (0,2,0): out-ranks the cell's own emotion
+              // class, which lands later in the sheet.
+              "[data-code][data-code], [data-code][data-code] *": { fontWeight: 600 },
               // The CSS custom properties pages read directly (globals.css).
               ...(light ? { ":root[data-theme='light']": DEMO_CSS_VARS_LIGHT } : {}),
             }}

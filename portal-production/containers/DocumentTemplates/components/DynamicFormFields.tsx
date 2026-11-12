@@ -613,6 +613,7 @@ function CustomerCodeField({
         // adopted from the Official Receipt field) — the code identifies,
         // the echoed company name confirms.
         sx={{ ...inputSx, width: 180, flexShrink: 0 }}
+        inputProps={{ 'data-code': '' }}
         InputProps={{
           startAdornment: (
             <InputAdornment position="start" sx={{ mr: 0 }}>
@@ -956,6 +957,7 @@ const YES_NO = [
 // OrgTheme) sets it so the editor's fields match the rest of that org's UI.
 // Unset everywhere else, where the fallback is the face these fields always had.
 const fieldFontFamily = "var(--app-font, 'Helvetica Neue', Arial, sans-serif)";
+const CODE_FIELD_RE = /(documentNumber|referenceNo|reference|poNo|salesPerson|Code)$/;
 
 // Xero-style field border: 1px medium grey at rest (not near-black),
 // slightly darker on hover. Focus still snaps to primary. CSS vars so the
@@ -1317,6 +1319,10 @@ export default function DynamicFormFields({
             onChange={(e) => setFormData(setNestedValue(formData, field.fieldName, e.target.value))}
             size="small"
             sx={{ ...inputSx, flex: 1, minWidth: 150 }}
+            // Document number / reference / PO no: identifier fields wear the
+            // org's identifier style when it has one (role-home semibold — see
+            // app/portal/layout.tsx `[data-code]`); inert elsewhere.
+            inputProps={CODE_FIELD_RE.test(field.fieldName) ? { 'data-code': '' } : undefined}
           />
         );
     }

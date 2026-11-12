@@ -41,6 +41,13 @@ interface Props {
   onSortingChange?: (updater: any) => void;
 }
 
+// Columns that hold identifiers (supplier/customer codes, document numbers,
+// SKUs, serials, references) are stamped `data-code`. Orgs whose typeface has
+// no distinguishable zero (the role-home DM Sans) restyle them (the role-home overlay sets them semibold);
+// everywhere else the attribute is inert. Matched on the column id's tail.
+const CODE_COLUMN_RE = /(code|number|num|no|sku|serial|ref|reference)$/i;
+export const isCodeColumn = (id: string | undefined) => !!id && CODE_COLUMN_RE.test(id);
+
 export default function Table(props: Props) {
   const { data = [], columns = [], subRowAccessor, loading = false, loadingTableRowId = null, onRowSelect, isNoSelectionColumn = false, manualSorting = false, sorting: controlledSorting, onSortingChange: controlledOnSortingChange, onRowClick, rowHref, rowSx } = props;
   const _data = useMemo(() => data, [data]);
@@ -230,7 +237,7 @@ export default function Table(props: Props) {
                           >
                             {headerLabel(cell.column)}
                           </Typography>
-                          <Box sx={{ flex: 1, minWidth: 0, fontSize: "0.8125rem", wordBreak: "break-word" }}>
+                          <Box {...(isCodeColumn(cell.column.id) ? { "data-code": "" } : {})} sx={{ flex: 1, minWidth: 0, fontSize: "0.8125rem", wordBreak: "break-word" }}>
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
                           </Box>
                         </Stack>
@@ -385,9 +392,11 @@ export default function Table(props: Props) {
                       // on one line. (`wrap: true` kept for back-compat.)
                       const wrap = cell.column.columnDef.nowrap !== true;
                       const isDescription = cell.column.id === "description";
+                      const isCode = isCodeColumn(cell.column.id);
                       return (
                       <TableCell
                         key={cell.id}
+                        {...(isCode ? { "data-code": "" } : {})}
                         sx={{
                           // GL/AR/AP density (guru 2026-11-11: "reduce the gap
                           // for document list just like GL, AR, AP") — 4px
