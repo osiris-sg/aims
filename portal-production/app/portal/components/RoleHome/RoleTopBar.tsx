@@ -19,14 +19,33 @@
 //     Projects, Deliveries) just opens.
 //   • module level — [⌂] Sales │ Quotations · Invoices · … — the sub-pages
 //     the dropdown used to list, as flat tabs. ⌂ returns to the modules row.
+//     HOVERING ⌂ lists every module (guru 2026-11-12: "when I hover the home
+//     I can see all the modules… from there they can select") so a user can
+//     jump from Sales straight to Inventory without going home first.
 // Landing inside a module (deep link, list → record) opens its level.
 
 import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  Box, Button, Divider, IconButton, Menu, MenuItem, Stack,
+  Box, Button, ButtonBase, Divider, IconButton, Menu, MenuItem, Paper, Popper, Stack,
   Tooltip, Typography, alpha, useTheme,
 } from "@mui/material";
+import HomeOutlinedIcon from "@mui/icons-material/HomeOutlined";
+import CalculateOutlinedIcon from "@mui/icons-material/CalculateOutlined";
+import TrendingUpRoundedIcon from "@mui/icons-material/TrendingUpRounded";
+import ViewInArOutlinedIcon from "@mui/icons-material/ViewInArOutlined";
+import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined";
+import GroupOutlinedIcon from "@mui/icons-material/GroupOutlined";
+import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
+import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
+import HandymanOutlinedIcon from "@mui/icons-material/HandymanOutlined";
+import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
+import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
+import SupportAgentOutlinedIcon from "@mui/icons-material/SupportAgentOutlined";
+import PeopleOutlinedIcon from "@mui/icons-material/PeopleOutlined";
+import DirectionsCarOutlinedIcon from "@mui/icons-material/DirectionsCarOutlined";
+import StorefrontOutlinedIcon from "@mui/icons-material/StorefrontOutlined";
+import GridViewOutlinedIcon from "@mui/icons-material/GridViewOutlined";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import HomeRoundedIcon from "@mui/icons-material/HomeRounded";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
@@ -38,7 +57,7 @@ import { useClerk, useUser } from "@clerk/nextjs";
 import { useThemeMode } from "@/contexts/ThemeModeContext";
 import NotificationBell from "@/components/NotificationBell";
 import { TopNavOrgSwitcher } from "@/components/TopNav/TopNavBar";
-import { resolveSubmenuRoute, submenuLabel, useNavLabels, useNavModules } from "@/components/TopNav/useNavModules";
+import { resolveSubmenuRoute, submenuLabel, useNavLabels, useNavModules, isSettingsPath } from "@/components/TopNav/useNavModules";
 import { AimeeBot, AimeeKeyframes } from "./Aimee";
 import { HOME_VIEW_EVENT, closeAimee, openAimee, readHomeView } from "@/app/portal/chat/homeView";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
@@ -49,6 +68,29 @@ import { useTranslations } from "next-intl";
 import { isClientsPath } from "@/helpers/shipmentsNav";
 
 const TEAL = "#1BA39C";
+
+// ⌂ hover tiles — the mock-up launcher's tiles (eb3c7247 AppGrid/apps.ts,
+// guru 2026-11-12 "use these logos"): a 44px rounded square in the app's
+// colour with its outlined icon, keyed by module code.
+const TILE: Record<string, { icon: React.ComponentType<any>; bg: string }> = {
+  DASHBOARD: { icon: HomeOutlinedIcon, bg: "#2B2257" },
+  ACCOUNTING: { icon: CalculateOutlinedIcon, bg: "#2B2257" },
+  SALES: { icon: TrendingUpRoundedIcon, bg: "#F59E0B" },
+  SHIPMENTS: { icon: TrendingUpRoundedIcon, bg: "#F59E0B" },
+  ORDERS: { icon: ReceiptLongOutlinedIcon, bg: "#B45309" },
+  INVENTORY: { icon: ViewInArOutlinedIcon, bg: "#178F8A" },
+  DELIVERIES: { icon: LocalShippingOutlinedIcon, bg: "#4B3F8F" },
+  USER_MANAGEMENT: { icon: GroupOutlinedIcon, bg: "#E5293F" },
+  PROJECTS: { icon: AccountTreeOutlinedIcon, bg: "#0E7490" },
+  MAINTENANCE: { icon: HandymanOutlinedIcon, bg: "#1BA39C" },
+  DOCUMENTS: { icon: DescriptionOutlinedIcon, bg: "#1D4ED8" },
+  CRM: { icon: SupportAgentOutlinedIcon, bg: "#BE185D" },
+  CLIENTS: { icon: PeopleOutlinedIcon, bg: "#BE185D" },
+  SUPPLIERS: { icon: StorefrontOutlinedIcon, bg: "#B45309" },
+  VEHICLES: { icon: DirectionsCarOutlinedIcon, bg: "#0E7490" },
+  ORG_SETTINGS: { icon: TuneRoundedIcon, bg: "#64748B" },
+};
+const TILE_FALLBACK = { icon: GridViewOutlinedIcon, bg: "#64748B" };
 const NAVY = "#2B2257";
 const INK = "#1C1A33";
 
@@ -112,6 +154,22 @@ export default function RoleTopBar() {
   // (module pressed, page not changed yet). Any navigation resets to "follow".
   const [level, setLevel] = React.useState<"home" | { code: string } | null>(null);
   React.useEffect(() => setLevel(null), [navPath]);
+
+  // ⌂ hover list of every module. Opens on hover of the icon, stays while the
+  // pointer is on the icon or the list, closes a beat after it leaves both
+  // (so the pointer can cross the gap). A Popper, not a Menu: a Menu's
+  // backdrop would swallow the hover.
+  const [homeList, setHomeList] = React.useState<HTMLElement | null>(null);
+  const homeCloseTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showHomeList = (el: HTMLElement) => {
+    if (homeCloseTimer.current) clearTimeout(homeCloseTimer.current);
+    setHomeList(el);
+  };
+  const hideHomeListSoon = () => {
+    if (homeCloseTimer.current) clearTimeout(homeCloseTimer.current);
+    homeCloseTimer.current = setTimeout(() => setHomeList(null), 160);
+  };
+  React.useEffect(() => () => { if (homeCloseTimer.current) clearTimeout(homeCloseTimer.current); }, []);
 
   // Same highlight rule as the normal bar.
   const isActive = (m: any): boolean => {
@@ -241,7 +299,7 @@ export default function RoleTopBar() {
                     label: tn("orgSettings"),
                     route: "",
                     tabs: settingsMenu.map((s): Tab => ({ label: settingLabel(s), path: s.path })),
-                    active: pathname.startsWith("/portal/settings") || pathname.startsWith("/portal/masterfiles"),
+                    active: isSettingsPath(pathname),
                   }]
                 : []),
             ];
@@ -272,17 +330,72 @@ export default function RoleTopBar() {
               .sort((a, b) => b.path.length - a.path.length)[0];
             return (
               <>
-                <Tooltip title="All modules">
-                  <IconButton
-                    size="small"
-                    data-testid="role-nav-home"
-                    aria-label="All modules"
-                    onClick={() => setLevel("home")}
-                    sx={{ color: dark ? "text.primary" : INK, flexShrink: 0, "&:hover": { bgcolor: dark ? alpha("#fff", 0.08) : "#F2F4FA" } }}
+                <IconButton
+                  size="small"
+                  data-testid="role-nav-home"
+                  aria-label="All modules"
+                  aria-haspopup="menu"
+                  aria-expanded={!!homeList}
+                  onClick={() => { setHomeList(null); setLevel("home"); }}
+                  onMouseEnter={(e) => showHomeList(e.currentTarget)}
+                  onMouseLeave={hideHomeListSoon}
+                  onFocus={(e) => showHomeList(e.currentTarget)}
+                  onBlur={hideHomeListSoon}
+                  sx={{ color: dark ? "text.primary" : INK, flexShrink: 0, bgcolor: homeList ? (dark ? alpha("#fff", 0.08) : "#F2F4FA") : "transparent", "&:hover": { bgcolor: dark ? alpha("#fff", 0.08) : "#F2F4FA" } }}
+                >
+                  <HomeRoundedIcon fontSize="small" />
+                </IconButton>
+                <Popper
+                  open={!!homeList}
+                  anchorEl={homeList}
+                  placement="bottom"
+                  modifiers={[{ name: "offset", options: { offset: [0, 6] } }, { name: "preventOverflow", options: { padding: 8 } }]}
+                  sx={{ zIndex: (t) => t.zIndex.modal }}
+                >
+                  <Paper
+                    elevation={0}
+                    data-testid="role-nav-home-list"
+                    onMouseEnter={() => homeList && showHomeList(homeList)}
+                    onMouseLeave={hideHomeListSoon}
+                    sx={{
+                      p: 1.5, borderRadius: "20px", width: 300, bgcolor: dark ? "background.paper" : "#fff", backgroundImage: "none",
+                      border: "1px solid", borderColor: dark ? alpha("#fff", 0.1) : "#E2E8F0",
+                      boxShadow: "0 20px 25px -5px rgba(0,0,0,.1), 0 8px 10px -6px rgba(0,0,0,.1)",
+                    }}
                   >
-                    <HomeRoundedIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
+                    <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)" }}>
+                      {bars.map((b) => {
+                        const { icon: Icon, bg } = TILE[b.code] ?? TILE_FALLBACK;
+                        const here = b.code === open.code;
+                        return (
+                          <ButtonBase
+                            key={b.code}
+                            data-testid={`role-nav-home-item-${b.code}`}
+                            onClick={() => {
+                              setHomeList(null);
+                              if (b.tabs.length) setLevel({ code: b.code });
+                              else go(b.route);
+                            }}
+                            sx={{
+                              display: "flex", flexDirection: "column", alignItems: "center", gap: 1, py: 1.5, borderRadius: "16px",
+                              bgcolor: here ? (dark ? alpha("#fff", 0.08) : "#ECEAF7") : "transparent",
+                              "&:hover": { bgcolor: dark ? alpha("#fff", 0.08) : "#ECEAF7" },
+                              "&:hover .home-tile": { transform: "scale(1.1)" },
+                              "& .home-tile": { transition: "transform .15s" },
+                            }}
+                          >
+                            <Box className="home-tile" sx={{ height: 44, width: 44, borderRadius: "16px", bgcolor: bg, display: "grid", placeItems: "center", boxShadow: "0 1px 2px rgba(0,0,0,.08)" }}>
+                              <Icon sx={{ fontSize: 21, color: "#fff" }} />
+                            </Box>
+                            <Typography sx={{ fontSize: 13, color: dark ? "text.primary" : INK, lineHeight: 1.2, textAlign: "center" }}>
+                              {b.label}
+                            </Typography>
+                          </ButtonBase>
+                        );
+                      })}
+                    </Box>
+                  </Paper>
+                </Popper>
                 <Typography
                   data-testid="role-nav-level"
                   sx={{ fontSize: "0.875rem", fontWeight: 600, color: dark ? "text.primary" : INK, px: 0.75, whiteSpace: "nowrap", flexShrink: 0 }}
