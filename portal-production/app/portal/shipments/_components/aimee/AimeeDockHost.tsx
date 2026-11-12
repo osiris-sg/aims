@@ -5,7 +5,7 @@
 // conversation's scope); the panel steps aside while full AIMEE is open on the dashboard.
 // Round BM: every other AIMEE org registers the walkthroughs only (no page, no scope) so its AIMEE can start
 // Guide walkthroughs now that the ✦ button is hidden there. Since 2026-11-09 those orgs ALSO get the panel, quietly:
-// no edge tab, the face still opens full AIMEE; the "Ask AIMEE" buttons (document editor, Finance Hub) open it beside
+// no edge tab, the face still opens full AIMEE; the "Ask AIMEE" button (Finance Hub; the document editor's was retired 2026-11-13) opens it beside
 // the page the user is on (guru: "open at the side while keeping the page open"). Orgs without AIMEE: nothing.
 
 import React, { useEffect, useMemo, useState } from "react";

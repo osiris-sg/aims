@@ -83,11 +83,9 @@ import {
 } from "@mui/icons-material";
 import SendServiceReportDialog from "@/components/orders/SendServiceReportDialog";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
-import { launchAimee } from "@/app/portal/chat/launchAimee";
 import DoStatusTag from "@/components/DoStatusTag";
 import { docDoTag } from "@/helpers/doStatusTag";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
-import DocumentAssistantDrawer, { ProposalPatch } from "./DocumentAssistantDrawer";
 import DocumentHistoryDrawer from "./DocumentHistoryDrawer";
 import DocumentAttachmentsDialog from "./DocumentAttachmentsDialog";
 import QuotationSelectDialog from "./QuotationSelectDialog";
@@ -373,7 +371,7 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isAimsChatEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
   // Manual order flow: after an order's invoice is emailed, offer to send its service report too.
   const [offerReportFor, setOfferReportFor] = useState<{ orderId: string; orderNumber: string | null; email: string | null } | null>(null);
   // The Project header row + the DO "project required" rule only make sense
@@ -1068,7 +1066,6 @@ export default function TabbedDocumentCreator({
   // Already filtered to this template and newest-first by the server.
   const documentsForLocate = useMemo(() => (locateTemplateId && allDocuments ? allDocuments : []), [allDocuments, locateTemplateId]);
 
-
   // Template configuration form for field visibility
   const templateMethods = useForm({
     mode: "onChange",
@@ -1637,45 +1634,6 @@ export default function TabbedDocumentCreator({
   }, [setFormData]);
 
   // ---- AI Document Assistant ----
-  const [assistantOpen, setAssistantOpen] = useState(false);
-
-  // Apply a proposal (or section of one) from the assistant into the form.
-  // Each part is merged non-destructively; proposed line items are appended
-  // (mapped to the editor's item shape) so existing rows aren't clobbered.
-  const handleApplyProposal = useCallback((patch: ProposalPatch) => {
-    if (!patch) return;
-    if (patch.documentInfo || patch.customer || patch.note != null || patch.termsAndConditions != null || patch.footerMessage != null) {
-      setFormData((prev: any) => ({
-        ...prev,
-        ...(patch.documentInfo ? { documentInfo: { ...prev.documentInfo, ...patch.documentInfo } } : {}),
-        ...(patch.customer ? { customer: { ...prev.customer, ...patch.customer } } : {}),
-        ...(patch.note != null ? { note: patch.note } : {}),
-        ...(patch.termsAndConditions != null ? { termsAndConditions: patch.termsAndConditions } : {}),
-        ...(patch.footerMessage != null ? { footerMessage: patch.footerMessage } : {}),
-      }));
-    }
-    if (Array.isArray(patch.items) && patch.items.length) {
-      const isInvoiceType = documentType === "TI" || documentType === "TI2" || documentType === "INVOICE";
-      const base = Date.now();
-      const mapped = patch.items.map((it, i) => {
-        const quantity = Number(it.quantity) || 0;
-        const unitPrice = Number(it.unitPrice) || 0;
-        return {
-          id: base + i,
-          itemCode: "",
-          inventoryItemId: "",
-          description: it.description || "",
-          quantity,
-          unitPrice,
-          uom: it.uom || "",
-          tax: isInvoiceType ? undefined : (it.tax != null ? String(it.tax) : "9"),
-          amount: quantity * unitPrice,
-        };
-      });
-      setItems((prev: any[]) => [...(prev || []), ...mapped]);
-      toast.success(`Added ${mapped.length} item${mapped.length > 1 ? "s" : ""} from the assistant`);
-    }
-  }, [setFormData, setItems, documentType]);
 
   // Local projects = props.projects + any project the user has just created
   // via the "+ Create new project" inline flow. Lets the picker show the new
@@ -4585,18 +4543,10 @@ export default function TabbedDocumentCreator({
               </Tooltip>
             </>
           )}
-          {!isTemplateEditMode && !isSettlementDoc && (
-            <Button
-              size="small"
-              variant={assistantOpen ? "contained" : "outlined"}
-              data-tour="editor-ask-ai"
-              startIcon={<AutoAwesomeIcon />}
-              onClick={() => (isAimsChatEnabled ? launchAimee() : setAssistantOpen((o) => !o))}
-              color="secondary"
-            >
-              Ask AIMEE
-            </Button>
-          )}
+          {/* "Ask AIMEE" used to sit here (opened the AIMEE side panel, or the
+              document AI assistant drawer on orgs without AIMEE). Retired for
+              every org and document type, guru 2026-11-13. AIMEE stays
+              reachable from the top-bar face / dashboard strip. */}
           <Button
             data-tour="editor-preview"
             data-hotkey="preview"
@@ -8520,20 +8470,6 @@ export default function TabbedDocumentCreator({
             </Button>
           </DialogActions>
         </Dialog>
-      )}
-
-      {/* AI Document Assistant sidebar — always available in the editor */}
-      {!isTemplateEditMode && (
-        <DocumentAssistantDrawer
-          open={assistantOpen}
-          onClose={() => setAssistantOpen(false)}
-          documentType={documentType}
-          documentId={(existingData?.id || documentId) as string | undefined}
-          formData={formData}
-          items={items}
-          organization={organization}
-          onApplyProposal={handleApplyProposal}
-        />
       )}
 
       {/* Per-document History & notes (⋮ menu) */}
