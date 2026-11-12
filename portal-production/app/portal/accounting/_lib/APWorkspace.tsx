@@ -481,10 +481,13 @@ export default function APWorkspace() {
         <Button variant="contained" startIcon={<PostAddOutlinedIcon />} onClick={() => router.push("/portal/accounting/journal-vouchers")}>
           Journal Voucher
         </Button>
+        {/* Opens the Purchase Journal LIST, like the PV and J/V buttons; the
+            list's own New Purchase Entry starts a supplier invoice (guru
+            2026-11-12: don't open the supplier invoice straight away). */}
         <Button
           variant="contained"
           startIcon={<MenuBookOutlinedIcon />}
-          onClick={() => router.push("/portal/accounting/payables/purchase-journal?new=1")}
+          onClick={() => router.push("/portal/accounting/payables/purchase-journal")}
         >
           Purchase Journal
         </Button>

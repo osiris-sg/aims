@@ -25,7 +25,7 @@ Any new fetch helper must inject `X-Active-Org-Id` from `sessionStorage["aims-ad
 
 `app/portal/hooks/useOrganizationFeatures.ts` — React Query over `GET /configuration/ui`. `FEATURE_FLAG_DEFAULTS` is the canonical flag list; the admin panel merges it with stored values so every org shows identical switches.
 
-Enabled by default: `enableProjects`, `enableAnalytics`, `enableDocumentAI`, `enableCustomFields`, `enableServiceItems`. Off by default (opt-in per org): `enableXeroIntegration`, `enableXeroDocSync`, `enableAssetTrackingMode`, `enableFieldScanApp`, `enableAssetPoints`, `enablePOAsProject`, `enableConfirmQuotation`, `enableCappitechOrders`, `enableDocumentListView`, `enableNettRoundDown`, `enableQuotationProjectLink`, `enableWaterSgSites`, `enableEmailIngestion`, `enableLegacyAccountingUx`, `enableAutoPostIngest`, `enableExternalApi`, and more.
+Enabled by default: `enableProjects`, `enableAnalytics`, `enableDocumentAI`, `enableCustomFields`, `enableServiceItems`. Off by default (opt-in per org): `enableXeroIntegration`, `enableXeroDocSync`, `enableAssetTrackingMode`, `enableFieldScanApp`, `enableAssetPoints`, `enablePOAsProject`, `enableConfirmQuotation`, `enableCappitechOrders`, `enableDocumentListView`, `enableNettRoundDown`, `enableQuotationProjectLink`, `enableWaterSgSites`, `enableEmailIngestion`, `enableAutoPostIngest`, `enableExternalApi`, and more.
 
 The hook returns convenience booleans (`isAssetTrackingModeEnabled` — the heaviest-used flag, `isServiceItemsEnabled`, `isDocumentListViewEnabled`, …).
 

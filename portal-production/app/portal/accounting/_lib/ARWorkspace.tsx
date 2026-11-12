@@ -73,11 +73,9 @@ const AR_REPORTS: { key: string; label: string; description: string; tab?: strin
   { key: "detailed-ageing", label: "Detailed Ageing Analysis", description: "Every outstanding document per customer, aged by calendar month with running balance", tab: "detailed-ageing" },
   { key: "debtor-listing", label: "Debtor Listing", description: "Every debtor's balance as at a cut-off date — local and foreign amounts, DR/CR", tab: "debtor-listing" },
   { key: "historical-listing", label: "Historical Listing", description: "Per-debtor transaction history for a period with BALANCE B/F and sub-totals", tab: "historical-listing" },
-  // Restored 2026-09-30: the legacy AR landing replaced the report directory
-  // for orgs on enableLegacyAccountingUx, which left Recurring Invoices
-  // reachable only by a ?tab= deep link. Prod runs the legacy UX now, so it
-  // belongs back on this dialog. Not a legacy-only report — it stays in the
-  // ordinary directory for every other org.
+  // Restored 2026-09-30: the AR home replaced the report directory, which
+  // left Recurring Invoices reachable only by a ?tab= deep link, so it
+  // belongs on this dialog.
   { key: "recurring-invoices", label: "Recurring Invoices", description: "Scheduled customer invoices — drafts for review or fully automatic", tab: "recurring-invoices" },
 ];
 

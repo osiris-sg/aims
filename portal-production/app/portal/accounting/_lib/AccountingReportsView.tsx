@@ -23,13 +23,11 @@ import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 import CashFlowPage from "../cash-flow/page";
-import MonthlyPayablesSheet from "../monthly-payables/MonthlyPayablesSheet";
 import BudgetVsActualPage from "../budget-vs-actual/page";
 import InvoicesPage from "../../invoices/page";
 import ARWorkspace from "./ARWorkspace";
 import APWorkspace from "./APWorkspace";
 import GLWorkspace from "./GLWorkspace";
-import BillsPage from "../bills/page";
 import BankReconciliationPage from "../bank-reconciliation/page";
 import StatementOfAccountPage from "../../reports/statement-of-account/page";
 import FixedAssetsPage from "../fixed-assets/page";
@@ -109,7 +107,6 @@ export const REPORTS: ReportEntry[] = [
   { key: "recurring-invoices", label: "Recurring Invoices", description: "Scheduled customer invoices — drafts for review or fully automatic", category: "Receivables", Component: RecurringInvoicesView },
 
   // Payables
-  { key: "ap", label: "Accounts Payable", description: "Bills owed to suppliers", category: "Payables", Component: BillsPage },
   { key: "ap-aging", label: "Aged Payables Summary", description: "Outstanding bills per supplier, bucketed by age", category: "Payables", Component: AgedPayablesSummary },
   { key: "ap-aging-detail", label: "Aged Payables Detail", description: "Every outstanding bill, aged and grouped by supplier", category: "Payables", Component: AgedPayablesDetail },
   { key: "payable-invoices", label: "Payable Invoice Summary", description: "Bills for a period — gross, payments and balance per supplier", category: "Payables", Component: PayableInvoices },
@@ -294,36 +291,35 @@ function ReportsInner({
   const router = useRouter();
   const searchParams = useSearchParams();
   const { organization } = useOrganization();
-  const { isLegacyAccountingUxEnabled, isSpendMoneyEnabled, isPayablesEnabled } = useOrganizationFeatures();
+  const { isSpendMoneyEnabled } = useOrganizationFeatures();
   const { favourites, toggle: toggleFavourite } = useFavouriteReports(organization?.id);
 
   const rawTab = searchParams.get("tab");
-  // Legacy-UX-only reports: hidden from the directory (and unresolvable via
-  // ?tab=) for orgs without the enableLegacyAccountingUx flag.
-  const LEGACY_ONLY_REPORT_KEYS = ["debtor-statement", "audit-trail", "receipt-listing", "summary-ageing", "detailed-ageing", "debtor-listing", "historical-listing", "jv-listing", "pv-listing", "creditor-statement", "ap-summary-ageing", "ap-detailed-ageing", "creditor-listing", "ap-historical-listing"];
+  // The legacy-software report set (statements, ageing, listings) is part of
+  // the ONE accounting UX every org runs (guru 2026-11-12: the Xero-like
+  // directory landing and its enableLegacyAccountingUx flag are retired).
   const SPEND_MONEY_KEYS = ["spend-money", "receive-money"];
   const visibleReports = useMemo(
     () =>
-      (isLegacyAccountingUxEnabled ? REPORTS : REPORTS.filter((r) => !LEGACY_ONLY_REPORT_KEYS.includes(r.key))).filter(
+      REPORTS.filter(
         // Spend Money retired 2026-11-09: listed nowhere, but a ?tab=spend-money
         // deep link (a ledger row of an old SM document) still resolves.
         (r) => (isSpendMoneyEnabled || !SPEND_MONEY_KEYS.includes(r.key)) && (r.key !== "spend-money" || rawTab === "spend-money"),
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isLegacyAccountingUxEnabled, isSpendMoneyEnabled, rawTab],
+    [isSpendMoneyEnabled, rawTab],
   );
   // Active report scans the FULL (flag-filtered) registry, so any ?tab=
   // deep-link (e.g. the Hub anomaly links to ?tab=audit / ?tab=gst) resolves
   // from any section page.
   const activeReport = useMemo(() => visibleReports.find((r) => r.key === rawTab) || null, [visibleReports, rawTab]);
 
-  // Legacy accounting UX (feature flag): entering the AR section lands straight
-  // on the AR workspace (legacy software's "Accounts Receivable" home — KPIs +
-  // customer balances), not the report directory. Reports stay reachable via
-  // the workspace's View Reports dialog; ?tab= deep-links still win.
+  // Entering the AR / AP / GL section lands straight on its workspace (the
+  // legacy software's home — KPIs + balances), never the report directory
+  // (every org since 2026-11-12). Reports stay reachable via the workspace's
+  // View Reports dialog; ?tab= deep-links still win.
   const legacyLanding =
     !rawTab &&
-    isLegacyAccountingUxEnabled &&
     categories.length === 1 &&
     (categories[0] === "Receivables" || categories[0] === "Payables" || categories[0] === "Ledger")
       ? REPORTS.find(
@@ -333,28 +329,12 @@ function ReportsInner({
 
   const [search, setSearch] = useState("");
 
-  // (after all hooks) Legacy-UX landing takes over the AR directory view.
+  // (after all hooks) The workspace landing takes over the directory view.
+  // Monthly Payables orgs (enablePayables) reach their sheet from the
+  // Accounting menu entry, so the AP landing is the AP home for them too.
   if (legacyLanding && !activeReport) {
     const LandingComponent = legacyLanding.Component;
     return <LandingComponent />;
-  }
-
-  // Monthly-Payables landing (guru 2026-11-08: "I want the Excel view as the
-  // first thing for CIEL's AP, like Biofuel lands on its legacy home"): orgs
-  // with enablePayables land straight on the outgoing-payments sheet when
-  // entering Accounts Payable. Legacy UX wins when both flags are on (those
-  // orgs reach the sheet via the Accounting menu entry instead); ?tab= deep
-  // links and ?view=reports still open the report directory.
-  if (
-    !activeReport &&
-    !rawTab &&
-    !isLegacyAccountingUxEnabled &&
-    isPayablesEnabled &&
-    categories.length === 1 &&
-    categories[0] === "Payables" &&
-    searchParams.get("view") !== "reports"
-  ) {
-    return <MonthlyPayablesSheet reportsHref={`${basePath}?view=reports`} />;
   }
 
   const openReport = (key: string) => {

@@ -134,9 +134,6 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // "Sync to Xero" action in the document editor toolbar (accounting context):
   // pushes the invoice to Xero as a DRAFT with mapped accounts + tax settings.
   enableXeroDocSync: false,
-  // Accounting UX overhaul: legacy-software workflows (screen structure, entry
-  // flow) rendered with the modern AIMS UI. OFF = current Xero-like layout.
-  enableLegacyAccountingUx: false,
   // Keyboard hotkeys (F2 look up, F9 save…) + Settings → Hotkeys. Default ON for every org (guru 2026-11-09).
   enableHotkeys: true,
   // Machine intake (email ingestion, JSON ingest, /v1 API) posts documents to
@@ -358,7 +355,6 @@ export function useOrganizationFeatures() {
     isNettRoundDownEnabled: features.enableNettRoundDown ?? false,
     isQuotationProjectLinkEnabled: features.enableQuotationProjectLink ?? false,
     isXeroDocSyncEnabled: features.enableXeroDocSync ?? false,
-    isLegacyAccountingUxEnabled: features.enableLegacyAccountingUx ?? false,
     isHotkeysEnabled: features.enableHotkeys ?? true,
     isIdQuotationEnabled: features.enableIdQuotation ?? false,
     isDesignerAdvancesEnabled: features.enableDesignerAdvances ?? false,
