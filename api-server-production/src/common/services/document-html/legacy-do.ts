@@ -1,12 +1,15 @@
 /**
  * "Legacy DO" layout — the delivery order drawn to match the previous
  * accounting software's print preview (guru 2026-11-12, PT. Ekasindo Inti
- * Semesta's DO 151307 as the sample): no letterhead (pre-printed paper), the
- * document code top right, Bill To at the left with the title block at the
- * right (DELIVERY ORDER, NPWP / tax number, the number in bold, Date, P/O No.,
- * Terms, Salesman, Customer), an Attn line, then Item · Description · Quantity
- * · uom · Remarks under a single rule, and a pinned footer of "Goods Received
- * In Good Order & Condition" beside the company name over a double rule.
+ * Semesta's DO 151307 as the sample): the company letterhead (name, GST Reg
+ * No, address, Tel — guru 2026-11-13: the paper is NOT pre-printed), Bill To
+ * at the left with the title block at the right (DELIVERY ORDER, GST Reg No,
+ * the number in bold, Date, P/O No., Terms, Salesman, Customer), an Attn line, then Item · Description · Quantity
+ * · uom · Remarks under a single rule, and a pinned footer over a double rule:
+ * "Goods Received In Good Order & Condition" beside the company name, then the
+ * standard DO's three ruled sign-off lines — Received By (customer chop &
+ * sign), Company Stamp, Issued By (guru 2026-11-13: "the three fields at the
+ * bottom like we used to have").
  *
  * Chosen by the template's design knob `layout: 'legacy-do'` (Admin → org →
  * Manage Templates → Design → Layout). Only delivery orders use it; every
@@ -16,15 +19,17 @@
  * paper is Calibri).
  */
 import { DocumentDesign } from './design';
-import { billToText, descriptionText, escapeHtml, makeDi } from './shared';
+import { billToText, descriptionText, escapeHtml, logoBlock, makeDi } from './shared';
 
 const CSS = `
 <style>
   .ldo { font-size: 13px; color: #000; line-height: 1.5; display: flex; flex-direction: column; min-height: 257mm; }
   .ldo p { margin: 0; }
-  .ldo .code { text-align: right; font-size: 12.5px; margin-bottom: 2px; }
+  .ldo .lh { margin-bottom: 14px; }
+  .ldo .lh .co { font-size: 18px; font-weight: 700; letter-spacing: .5px; margin-bottom: 2px; }
+  .ldo .lh p { font-size: 13px; line-height: 1.45; }
   .ldo .top { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; }
-  .ldo .bill { flex: 1; min-width: 0; padding-top: 26px; }
+  .ldo .bill { flex: 1; min-width: 0; padding-top: 24px; }
   .ldo .bill .lbl { font-weight: 700; }
   .ldo .bill .nm { font-weight: 700; font-size: 14px; margin-top: 6px; white-space: pre-line; }
   .ldo .hdr { width: 300px; flex: 0 0 300px; }
@@ -52,6 +57,10 @@ const CSS = `
   .ldo .foot .dbl { border-top: 1.5px solid #000; border-bottom: 1.5px solid #000; height: 4px; margin-bottom: 10px; }
   .ldo .foot .row { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; }
   .ldo .foot .co { font-weight: 700; text-transform: uppercase; padding-right: 40px; }
+  .ldo .foot .sig { display: flex; gap: 28px; margin-top: 28px; }
+  .ldo .foot .sig .col { flex: 1; text-align: center; }
+  .ldo .foot .sig .slot { height: 58px; display: flex; align-items: flex-end; justify-content: center; font-size: 13px; padding-bottom: 3px; }
+  .ldo .foot .sig .line { border-top: 1px solid #000; width: 84%; margin: 0 auto; padding-top: 4px; font-size: 13px; }
   .ldo .remarks { margin-top: 14px; }
   .ldo .footnote { margin-top: 10px; font-size: 11px; color: #444; }
 </style>`;
@@ -96,13 +105,24 @@ export function renderLegacyDoBody(data: any, organization: any, design: Documen
   const billName = first(customer.name, data?.customerName);
   const billAddr = billToText(first(data?.billTo, customer.address, data?.customerAddress), billName);
   const attention = first(di('contact'), di('contactName'), data?.attention?.name, data?.deliveryAddress?.attention, customer.contactPerson);
-  const taxNo = first(org?.gstRegNo, org?.taxRegNo, org?.registrationNumber, company.gstRegNo);
+  const taxNo = first(company.gstRegNo, org?.gstRegNo, org?.taxRegNo, org?.registrationNumber);
   const customerCode = first(customer.customerCode, data?.customerCode, di('customerCode'));
   const terms = first(di('paymentTerms'), di('terms'), customer.paymentTerms, customer.terms);
   const poNo = first(di('poNo'), di('poNumber'), di('purchaseOrderNo'), data?.poNumber);
   const remarks = first(data?.remarks, di('remarks'));
   const footerMessage = first(di('footerMessage'), data?.footerMessage);
-  const companyName = first(org?.name, company.name);
+  const issueBy = first(di('issueBy'), data?.issueBy, di('issuedBy'), data?.issuedBy);
+  const companyName = first(company.name, org?.name);
+  const coRegNo = company.coRegNo ? ` Co. Reg No. : ${escapeHtml(company.coRegNo)}` : '';
+  const fax = company.fax ? ` Fax: ${escapeHtml(company.fax)}` : '';
+  const letterhead = `
+    ${logoBlock(data?.logoUrl, design.logoPosition)}
+    <div class="lh" style="text-align:${design.headerAlign};">
+      <p class="co">${escapeHtml(companyName)}</p>
+      <p>GST Reg No: ${escapeHtml(taxNo)}${coRegNo}</p>
+      <p>${escapeHtml(first(company.address, org?.address))}</p>
+      <p>Tel: ${escapeHtml(first(company.phoneNumber, org?.phoneNumber))}${fax}</p>
+    </div>`;
 
   // Columns: the paper's five, unless the template reorders / relabels them.
   const defaults = ['no', 'description', 'quantity', 'uom', 'remarks'];
@@ -143,7 +163,7 @@ export function renderLegacyDoBody(data: any, organization: any, design: Documen
     <div class="hdr">
       <div class="title">${escapeHtml(design.titleText || 'DELIVERY ORDER')}</div>
       <div class="kv">
-        ${taxNo ? kv('NPWP No.', taxNo) : ''}
+        ${taxNo ? kv('GST Reg No.', taxNo) : ''}
         <span class="k ttl">DELIVERY ORDER</span><span class="c"></span><span class="v no">${escapeHtml(docNumber)}</span>
         ${kv('Date', paperDate(di('date')))}
         ${kv('P/O No.', poNo)}
@@ -154,7 +174,7 @@ export function renderLegacyDoBody(data: any, organization: any, design: Documen
     </div>`;
 
   return `${CSS}<div class="ldo">
-    <div class="code">DO ${escapeHtml(docNumber)}</div>
+    ${letterhead}
     <div class="top">
       <div class="bill"><span class="lbl">Bill To &nbsp;&nbsp;:</span><div class="nm">${escapeHtml(billName)}${billAddr ? `\n${escapeHtml(billAddr)}` : ''}</div></div>
       ${headerBlock}
@@ -165,6 +185,11 @@ export function renderLegacyDoBody(data: any, organization: any, design: Documen
     <div class="foot">
       <div class="dbl"></div>
       <div class="row"><div>Goods Received In Good Order &amp; Condition</div><div class="co">${escapeHtml(companyName)}</div></div>
+      <div class="sig">
+        <div class="col"><div class="slot"></div><div class="line">Received By</div></div>
+        <div class="col"><div class="slot"></div><div class="line">Company Stamp</div></div>
+        <div class="col"><div class="slot">${escapeHtml(issueBy)}</div><div class="line">Issued By</div></div>
+      </div>
       ${footerMessage ? `<div class="footnote">${escapeHtml(footerMessage)}</div>` : ''}
       ${design.footerText ? `<div class="footnote" style="text-align:center;">${escapeHtml(design.footerText)}</div>` : ''}
     </div>
