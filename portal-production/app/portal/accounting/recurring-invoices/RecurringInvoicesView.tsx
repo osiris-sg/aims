@@ -176,7 +176,12 @@ export default function RecurringInvoicesView() {
     }
   };
   // Column sorting — same TableSortLabel mechanism as the shared components/Table.
-  const [sortCol, setSortCol] = useState<string>("code");
+  // Default to CUSTOMER, alphabetically (guru 2026-11-13). The ID column is
+  // creation order: a chain added today takes the next REC-0xx and lands at the
+  // bottom, so an ID-sorted list looked alphabetical only for as long as the
+  // original batch — which was seeded in customer order — stood alone. Click
+  // ID to get creation order back.
+  const [sortCol, setSortCol] = useState<string>("customer");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const requestSort = (col: string) => {
     if (sortCol === col) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
