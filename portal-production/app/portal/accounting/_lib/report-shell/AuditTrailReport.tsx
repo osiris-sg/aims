@@ -137,7 +137,7 @@ export default function AuditTrailReport() {
     const { unconfirmed, confirmed } = splitConfirmed(filtered, (l) => l.unconfirmed);
     for (const [sec, isUnc] of [[unconfirmed, true], [confirmed, false]] as Array<[TrailRow[], boolean]>) {
       if (!sec.length) continue;
-      out.push(bandRow(`band-${isUnc}`, bandLabel("Transaction", isUnc), 7, isUnc));
+      if (unconfirmed.length) out.push(bandRow(`band-${isUnc}`, bandLabel("Transaction", isUnc), 7, isUnc));
       sec.forEach((l, i) =>
         out.push({
           kind: "row",
@@ -145,7 +145,7 @@ export default function AuditTrailReport() {
           cells: [fmtDate(l.date), l.docRef, l.accountCode, l.account, l.description, l.debit || null, l.credit || null],
         }),
       );
-      out.push({ kind: "subtotal", key: `st-${isUnc}`, cells: ["SUB-TOTAL", "", "", "", "", R(sec.reduce((s, l) => s + l.debit, 0)), R(sec.reduce((s, l) => s + l.credit, 0))] });
+      if (unconfirmed.length) out.push({ kind: "subtotal", key: `st-${isUnc}`, cells: ["SUB-TOTAL", "", "", "", "", R(sec.reduce((s, l) => s + l.debit, 0)), R(sec.reduce((s, l) => s + l.credit, 0))] });
     }
     out.push({ kind: "total", key: "__total", cells: ["TOTAL", "", "", "", "", totalDebit, totalCredit] });
     return out;
