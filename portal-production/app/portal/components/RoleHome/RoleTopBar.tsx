@@ -64,6 +64,7 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 import { ROLES, ROLE_ORDER } from "./roles";
 import { useRoleView } from "./useRoleView";
 import AppSwitcher from "@/components/TopNav/AppSwitcher";
+import GlobalSearch from "@/components/TopNav/GlobalSearch";
 import { useTranslations } from "next-intl";
 import { isClientsPath } from "@/helpers/shipmentsNav";
 
@@ -420,6 +421,8 @@ export default function RoleTopBar() {
         </Stack>
 
         <Stack direction="row" alignItems="center" gap={0.5} sx={{ flexShrink: 0 }}>
+          {/* The same "search anything" field as the normal bar (guru 2026-11-13). */}
+          <GlobalSearch light />
           <TopNavOrgSwitcher light />
           <AppSwitcher iconColor={dark ? "rgba(255,255,255,0.7)" : "#94A3B8"} />
           <NotificationBell iconColor={dark ? "rgba(255,255,255,0.85)" : INK} />

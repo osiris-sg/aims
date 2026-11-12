@@ -5,6 +5,10 @@
 // grouped results drop down with enough context to recognise each hit.
 // Debounced 250ms; ↑↓ + Enter navigates; Esc closes. Results respect the
 // caller's tier server-side (a designer only sees their own records).
+// `light`: for a bar that follows the theme instead of staying dark navy (the
+// role-home bar, guru 2026-11-13 "include the search all field in the new ui")
+// — the same field, drawn as an ink-on-grey pill in light mode and a soft
+// white-on-paper pill in dark mode.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -25,12 +29,18 @@ type Results = {
 
 const money = (n: number | null) => (n == null ? null : `S$ ${new Intl.NumberFormat("en-SG", { maximumFractionDigits: 0 }).format(n)}`);
 
-export default function GlobalSearch() {
+export default function GlobalSearch({ light = false }: { light?: boolean } = {}) {
   const router = useRouter();
   const t = useTranslations("shell.search");
   const { getToken } = useAuth();
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down("md"));
+  const dark = theme.palette.mode === "dark";
+  // Light bar: ink text on a grey pill (dark theme: white on a faint pill).
+  const ink = light ? (dark ? "rgba(255,255,255,0.85)" : "#1C1A33") : "#fff";
+  const dim = light ? (dark ? "rgba(255,255,255,0.55)" : "#94A3B8") : "rgba(255,255,255,0.6)";
+  const fill = light ? (dark ? "rgba(255,255,255,0.06)" : "#F1F5F9") : "rgba(255,255,255,0.1)";
+  const fillFocus = light ? (dark ? "rgba(255,255,255,0.1)" : "#E9EDF3") : "rgba(255,255,255,0.16)";
   const [q, setQ] = useState("");
   const [res, setRes] = useState<Results | null>(null);
   const [loading, setLoading] = useState(false);
@@ -128,21 +138,21 @@ export default function GlobalSearch() {
           }}
           placeholder={compact ? t("short") : t("placeholder")}
           startAdornment={
-            <InputAdornment position="start" sx={{ color: "rgba(255,255,255,0.6)", ml: 0.5 }}>
-              {loading ? <CircularProgress size={14} sx={{ color: "rgba(255,255,255,0.7)" }} /> : <SearchIcon sx={{ fontSize: 18 }} />}
+            <InputAdornment position="start" sx={{ color: dim, ml: 0.5 }}>
+              {loading ? <CircularProgress size={14} sx={{ color: dim }} /> : <SearchIcon sx={{ fontSize: 18 }} />}
             </InputAdornment>
           }
           sx={{
-            color: "#fff",
-            bgcolor: "rgba(255,255,255,0.1)",
-            borderRadius: 1.5,
-            px: 1,
+            color: ink,
+            bgcolor: fill,
+            borderRadius: light ? 999 : 1.5,
+            px: light ? 1.25 : 1,
             py: 0.25,
             fontSize: "0.8125rem",
             width: compact ? 120 : 170,
             transition: "width .15s, background .15s",
-            "&:focus-within": { width: compact ? 180 : 320, bgcolor: "rgba(255,255,255,0.16)" },
-            "& input::placeholder": { color: "rgba(255,255,255,0.55)", opacity: 1 },
+            "&:focus-within": { width: compact ? 180 : 320, bgcolor: fillFocus },
+            "& input::placeholder": { color: dim, opacity: 1 },
           }}
           inputProps={{ "aria-label": t("aria") }}
           data-tour="global-search"
