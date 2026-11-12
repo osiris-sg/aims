@@ -1,0 +1,249 @@
+[
+ {
+  "at": "2026-11-12T02:46:52.891Z",
+  "mode": "APPLY",
+  "batch": "bcair-cn-2026-11-12",
+  "documents": [
+   {
+    "id": "047f4356-3427-4d6f-bbaf-26634261823f",
+    "name": "CNBA-23-0002",
+    "amount": 650,
+    "invoices": [
+     "SIBA-23-00009"
+    ]
+   },
+   {
+    "id": "01773f27-4c24-406c-ad5b-a43bf817ffd0",
+    "name": "CNBA-24-0001",
+    "amount": 3500,
+    "invoices": [
+     "SIBA-23-00062"
+    ]
+   },
+   {
+    "id": "e67b4206-d054-41bd-912f-834ef3e6eb1b",
+    "name": "CNBA-23-0001",
+    "amount": 1600,
+    "invoices": [
+     "SIBA-23-00066"
+    ]
+   },
+   {
+    "id": "789e0937-66a6-4fd4-a486-58109a2f6821",
+    "name": "CNBA-24-0002",
+    "amount": 2600,
+    "invoices": [
+     "SIBA-24-00021"
+    ]
+   },
+   {
+    "id": "10b1908f-5b9c-44fd-b6b6-b3b95ea5183f",
+    "name": "CNBA-24-0003",
+    "amount": 3300,
+    "invoices": [
+     "SIBA-24-00038"
+    ]
+   },
+   {
+    "id": "16c2de0a-a0ed-4e58-a2bf-5ec2f3e5a6b5",
+    "name": "CNBA-24-0004",
+    "amount": 850,
+    "invoices": [
+     "SIBA-24-00048"
+    ]
+   },
+   {
+    "id": "80f04ebf-12e9-4d52-b8c9-58717697a697",
+    "name": "CNBA-24-0005",
+    "amount": 1100,
+    "invoices": [
+     "SIBA-24-00087"
+    ]
+   },
+   {
+    "id": "d48e369f-ef2d-4c78-bccb-04990c411e70",
+    "name": "CNBA-24-0006",
+    "amount": 950,
+    "invoices": [
+     "SIBA-24-00118"
+    ]
+   },
+   {
+    "id": "43fcf82e-ae3b-4f22-a5d0-ded7cb70875f",
+    "name": "CNBA-26-0012",
+    "amount": 1498.55,
+    "invoices": [
+     "SIBA-24-00122"
+    ]
+   },
+   {
+    "id": "b4d32f25-7c99-416a-a0e9-757561e13621",
+    "name": "CNBA-25-0001",
+    "amount": 300,
+    "invoices": [
+     "SIBA-25-00034"
+    ]
+   },
+   {
+    "id": "3acaed32-98ee-4c49-a921-4d0e05253fc0",
+    "name": "CNBA-26-0007",
+    "amount": 1300,
+    "invoices": [
+     "SIBA-25-00055"
+    ]
+   },
+   {
+    "id": "ad0f8c21-c354-4727-8f66-81c417b2305b",
+    "name": "CNBA-26-0008",
+    "amount": 750,
+    "invoices": [
+     "SIBA-25-00083"
+    ]
+   },
+   {
+    "id": "b2a8a676-0973-4684-8e1c-52c731ebdaf0",
+    "name": "CNBA-26-0009",
+    "amount": 1300,
+    "invoices": [
+     "SIBA-25-00089"
+    ]
+   },
+   {
+    "id": "a01d6a38-0895-4955-916d-64104c3c2507",
+    "name": "CNBA-26-0010",
+    "amount": 1125,
+    "invoices": [
+     "SIBA-25-00105"
+    ]
+   },
+   {
+    "id": "c53386a2-f436-4f9a-b81f-eced9499ce89",
+    "name": "CNBA-26-0011",
+    "amount": 1300,
+    "invoices": [
+     "SIBA-25-00139"
+    ]
+   },
+   {
+    "id": "f7e3311b-a65b-4f78-8bed-81373b9689ea",
+    "name": "CN0009",
+    "amount": 5400,
+    "invoices": [
+     "I000315"
+    ]
+   },
+   {
+    "id": "f6352849-7016-4520-9afd-f9bcb575a903",
+    "name": "CN0011",
+    "amount": 3000,
+    "invoices": [
+     "I000651"
+    ]
+   }
+  ],
+  "amount": 30523.55,
+  "skippedNoAmount": [
+   "CNBA-26-0006",
+   "CNBA-26-0005",
+   "CNBA-26-0004",
+   "CNBA-26-0001",
+   "CNBA-26-0002",
+   "CNBA-26-0003",
+   "CN0015",
+   "CN0002",
+   "CN0006",
+   "CN0003",
+   "CN0004",
+   "CN0005",
+   "CN0014",
+   "CN0169",
+   "CN0021",
+   "CN0022",
+   "CN0016",
+   "CN0028",
+   "CN0063",
+   "CN0026",
+   "CN0027",
+   "CN0023",
+   "CN0029",
+   "CN0030",
+   "CN0031",
+   "CN0162",
+   "CN0033",
+   "CN0034",
+   "CN0035",
+   "CN0036",
+   "CN0049",
+   "CN0165",
+   "CN0044",
+   "CN0040",
+   "CN0042",
+   "CN0039",
+   "CN0074",
+   "CN0054",
+   "CN0073",
+   "CN0080",
+   "CN0077",
+   "CN0052",
+   "CN0174",
+   "CN0062",
+   "CN0066",
+   "CN0156",
+   "CN0081",
+   "CN0086",
+   "CN0085",
+   "CN0083",
+   "CN0082",
+   "CN0084",
+   "CN0087",
+   "CN0089",
+   "CN0119",
+   "CN0092",
+   "CN0094",
+   "CN0100",
+   "CN0095",
+   "CN0114",
+   "CN0137",
+   "CN0101",
+   "CN0111",
+   "CN0153",
+   "CN0112",
+   "CN0175",
+   "CN0127",
+   "CN0145",
+   "CN0146",
+   "CN0128",
+   "CN0130",
+   "CN0131",
+   "CN0164",
+   "CN0143",
+   "CN0147",
+   "CN0149",
+   "CN0151",
+   "CN0176",
+   "CN0179",
+   "CN0181"
+  ],
+  "glBefore": {
+   "journals": 7271,
+   "lines": 14603,
+   "dr": 43561975.1,
+   "cr": 43561975.1,
+   "lastJournalUpdate": "2026-11-06T14:26:58.953Z",
+   "debtors_1_9999": 496500.5,
+   "invoices": 3693,
+   "invoicesOpen": 495976.05
+  },
+  "glAfter": {
+   "journals": 7271,
+   "lines": 14603,
+   "dr": 43561975.1,
+   "cr": 43561975.1,
+   "lastJournalUpdate": "2026-11-06T14:26:58.953Z",
+   "debtors_1_9999": 496500.5,
+   "invoices": 3693,
+   "invoicesOpen": 495976.05
+  },
+  "glUnchanged": true
+ }
+]
