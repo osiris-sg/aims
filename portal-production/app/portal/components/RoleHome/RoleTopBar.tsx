@@ -241,13 +241,13 @@ export default function RoleTopBar() {
         }}
       >
         <Stack direction="row" alignItems="center" gap={1} sx={{ flexShrink: 0, cursor: "pointer" }} onClick={() => go("/portal")}>
-          {/* The mock-up's own logo file. It is dark ink on transparent, so on
-              the dark theme it is flattened to white to stay readable. */}
+          {/* Brand Kit R01 wordmark, the same files the landing uses; the cream
+              variant is used on the dark theme. */}
           <Box
             component="img"
-            src="/role-home/aims-logo.png"
+            src={dark ? "/role-home/aims-logo-white.png" : "/role-home/aims-logo.png"}
             alt="AIMS"
-            sx={{ height: 32, width: "auto", display: "block", userSelect: "none", filter: dark ? "brightness(0) invert(1)" : "none" }}
+            sx={{ height: 32, width: "auto", display: "block", userSelect: "none" }}
           />
         </Stack>
 
