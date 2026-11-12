@@ -503,6 +503,8 @@ export class OrdersService {
       statusLabel: WCT_ORDER_STATUS_LABEL[order.status as WctOrderStatus] ?? MANUAL_ORDER_STATUS_LABEL[order.status as ManualOrderStatus] ?? order.status,
       // Manual order flow: the page offers "Send service report" and "Complete job".
       manualFlow: await isManualOrderFlow(this.prisma, organizationId),
+      // The service reports on the order's jobs (drafts too), for the page's Service report section.
+      jobReports: await this.orderJobReports(organizationId, jobsRaw),
       sourceQuotation: sourceQuotation
         ? { id: sourceQuotation.id, name: sourceQuotation.name, status: sourceQuotation.status, type: sourceQuotation.type, documentTemplateId: sourceQuotation.documentTemplateId }
         : null,
@@ -604,6 +606,30 @@ export class OrdersService {
       take: 50,
     });
     return reports.map((r) => ({ ...r, jobNumber: r.deliveryId ? jobNo.get(r.deliveryId) ?? null : null, ofThisOrder: !!(r.deliveryId && jobNo.has(r.deliveryId)) }));
+  }
+
+  /** Service reports on the order's jobs, oldest job first: number, status, draft / uploaded, job number. */
+  private async orderJobReports(organizationId: string, jobs: Array<{ id: string; deliveryNumber?: number | null; status?: string }>) {
+    const live = jobs.filter((j) => j.status !== 'cancelled');
+    if (!live.length) return [];
+    const jobNo = new Map(live.map((j) => [j.id, j.deliveryNumber ?? null]));
+    const rows = await this.prisma.maintenanceServiceReport.findMany({
+      where: { organizationId, kind: 'SERVICE', deliveryId: { in: live.map((j) => j.id) } },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, reportNumber: true, status: true, deliveryId: true, serviceData: true },
+    });
+    return rows.map((r) => {
+      const sd = (r.serviceData as Record<string, any> | null) ?? {};
+      return {
+        id: r.id,
+        reportNumber: r.reportNumber,
+        status: r.status,
+        jobNumber: r.deliveryId ? jobNo.get(r.deliveryId) ?? null : null,
+        uploaded: sd.uploaded === true,
+        scheduled: sd.scheduled === true,
+        sentAt: sd.customerSentAt ?? null,
+      };
+    });
   }
 
   /** The attachments with each linked report's current number + status. */

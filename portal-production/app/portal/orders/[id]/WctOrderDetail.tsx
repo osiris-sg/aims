@@ -13,6 +13,7 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   CircularProgress,
   IconButton,
   Menu,
@@ -24,6 +25,7 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
@@ -200,6 +202,12 @@ export default function WctOrderDetail({ id }: { id: string }) {
   }
 
   const q = order.sourceQuotation;
+  // Service reports: the order's job reports, and the linked / uploaded ones not already among them.
+  const jobReports: Array<{ id: string; reportNumber: number | null; status: string; jobNumber: number | null; uploaded: boolean; sentAt: string | null }> = (order as any).jobReports ?? [];
+  const jobReportIds = new Set(jobReports.map((r) => r.id));
+  const otherAttachments = (order.attachments ?? []).filter((a) => !(a.kind === "report" && a.reportId && jobReportIds.has(a.reportId)));
+  const canSendReport =
+    jobReports.some((r) => r.status === "completed") || (order.attachments ?? []).some((a: any) => a.kind === "report" && a.report?.status === "completed");
   return (
     <MainCard>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
@@ -398,9 +406,13 @@ export default function WctOrderDetail({ id }: { id: string }) {
           </Button>
           {/* Manual order flow: email the order's service report(s) to the customer. */}
           {(order as any).manualFlow && (
-            <Button size="small" variant="contained" disableElevation onClick={() => setSendReportOpen(true)} data-tour="wct-order-send-report">
-              Send service report
-            </Button>
+            <Tooltip title={canSendReport ? "" : "Complete or upload a service report first"}>
+              <span>
+                <Button size="small" variant="contained" disableElevation disabled={!canSendReport} onClick={() => setSendReportOpen(true)} data-tour="wct-order-send-report">
+                  Send service report
+                </Button>
+              </span>
+            </Tooltip>
           )}
         </Stack>
         {(order as any).manualFlow && (order as any).statusDates?.serviceReportSentAt && (
@@ -419,15 +431,45 @@ export default function WctOrderDetail({ id }: { id: string }) {
             void load();
           }}
         />
-        {!order.attachments?.length ? (
+        {/* The service reports on the order's own jobs (drafts too), each with its status. */}
+        {jobReports.length > 0 && (
+          <TableContainer sx={{ border: 1, borderColor: "divider", borderRadius: 1, mb: 1 }}>
+            <Table size="small">
+              <TableBody>
+                {jobReports.map((r) => (
+                  <TableRow key={r.id} hover sx={{ cursor: "pointer" }} onClick={() => router.push(`/portal/maintenance-reports/${r.id}`)}>
+                    <TableCell sx={{ fontWeight: 600 }}>{r.reportNumber ? `Service report #${r.reportNumber}` : "Service report (draft)"}</TableCell>
+                    <TableCell>{r.jobNumber ? `Job #${r.jobNumber}` : ""}</TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        variant={r.status === "completed" ? "filled" : "outlined"}
+                        color={r.status === "completed" ? "success" : "default"}
+                        label={r.status === "completed" ? (r.uploaded ? "Uploaded" : "Completed") : "Draft"}
+                      />
+                      {r.sentAt && (
+                        <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                          Sent {moment(r.sentAt).format("DD/MM/YYYY")}
+                        </Typography>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+        {!otherAttachments.length ? (
+          jobReports.length ? null : (
           <Typography variant="body2" color="text.secondary">
             No service report on this order yet. Upload the file, or link a service report written in AIMS.
           </Typography>
+          )
         ) : (
           <TableContainer sx={{ border: 1, borderColor: "divider", borderRadius: 1 }}>
             <Table size="small">
               <TableBody>
-                {order.attachments.map((a) => (
+                {otherAttachments.map((a) => (
                   <TableRow
                     key={a.id}
                     hover

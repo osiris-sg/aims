@@ -254,7 +254,7 @@ export default function PublicSignPage() {
       {header}
       {signed && (
         <Alert icon={<CheckCircleIcon fontSize="inherit" />} severity="success" sx={{ mb: 2, alignItems: "center" }} action={data.pdfUrl ? <Button color="inherit" size="small" startIcon={<DownloadIcon />} href={data.pdfUrl} target="_blank" rel="noreferrer">PDF</Button> : undefined}>
-          Signed by <b>{data.signerName || name}</b> on {fmtDate(data.signedAt || done?.signedAt)}. Thank you — {org.name} has been notified.
+          Signed by <b>{data.signerName || name}</b> on {fmtDate(data.signedAt || done?.signedAt)}. Thank you. {org.name} has been notified.
         </Alert>
       )}
 

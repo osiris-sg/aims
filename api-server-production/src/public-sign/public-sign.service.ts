@@ -392,7 +392,8 @@ export class PublicSignService {
         newQuantum: isVo ? Number(cfg?.consolidation?.newQuantum) || null : null,
         currency: 'SGD',
       },
-      organization: { name: org?.name || '', logo: org?.logo || null, phoneNumber: org?.phoneNumber || null },
+      // The logo is usually stored as an S3 key ("logos/wct-logo.png"); the page needs a full URL.
+      organization: { name: org?.name || '', logo: logoUrlOf(org?.logo), phoneNumber: org?.phoneNumber || null },
       expiresAt: link.expiresAt,
       signedAt: link.signedAt,
       signerName: link.signerName,
@@ -671,6 +672,15 @@ export class PublicSignService {
 
 /** The generic quotation e-signature flag (WCT group); CIEL's ID quotations sign through enableIdQuotation instead. */
 export const QUOTATION_ESIGN_FLAG = 'enableQuotationESign';
+
+/** A stored logo as a URL the browser can load: full URLs / data URLs as they are, an S3 key under the public bucket URL. */
+export function logoUrlOf(logo: string | null | undefined): string | null {
+  const k = (logo ?? '').trim();
+  if (!k) return null;
+  if (/^(https?:|data:)/i.test(k)) return k;
+  const base = (process.env.S3_PUBLIC_URL ?? 'https://aims-osiris.s3.ap-southeast-1.amazonaws.com/').replace(/\/?$/, '/');
+  return base + k.replace(/^\/+/, '');
+}
 
 function escapeHtml(v: string): string {
   return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');

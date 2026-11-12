@@ -870,7 +870,7 @@ export default function DeliveryDetailPage() {
         )}
       </Stack>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Rider: {run.riderName ?? "—"}
+        {manualFlow && run.order ? "Done by" : "Rider"}: {run.riderName ?? "—"}
         {runWasStarted(run) ? ` · Started ${fmtDateTime(run.startedAt)}` : ""}
         {run.completedAt ? ` · Completed ${fmtDateTime(run.completedAt)}` : ""}
         {/* Project/customer omit-when-absent, same pattern as Site: — a

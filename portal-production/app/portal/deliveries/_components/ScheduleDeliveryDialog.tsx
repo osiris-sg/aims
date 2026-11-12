@@ -147,7 +147,7 @@ export default function ScheduleDeliveryDialog({
 }) {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
-  const { isQuotationToDeliveryEnabled, isSiteClockLinkEnabled, isJobFieldsEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
+  const { isQuotationToDeliveryEnabled, isSiteClockLinkEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled } = useOrganizationFeatures();
   // WCT reads "job" (helpers/jobWording.ts).
   const w = runWords(!!isWctOrdersEnabled);
   // Custom job fields (enableJobFields): the org's fields + this job's values.
@@ -1016,7 +1016,9 @@ export default function ScheduleDeliveryDialog({
       <DialogTitle>{editRun ? `Edit scheduled ${w.noun}` : prefill ? `Add a job to ${prefill.orderNumber}` : `Schedule a ${w.noun}`}</DialogTitle>
       <DialogContent dividers>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {serviceJobs
+          {serviceJobs && isManualOrderFlowEnabled
+            ? "The job is done by the office: when the work is finished, open the job and use Complete job for the customer's sign-off."
+            : serviceJobs
             ? "The job appears on the field app once scheduled. The technician starts it on site and the customer signs at the end."
             : "The run is fulfilled when a rider starts a matching unit in the field and assigns it to this project. No unit is reserved now."}
         </Typography>
