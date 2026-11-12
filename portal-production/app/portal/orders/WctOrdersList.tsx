@@ -7,11 +7,13 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
-import { Box, Tab, Tabs, Typography } from "@mui/material";
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, ListItemText, Menu, MenuItem, Tab, Tabs, Typography } from "@mui/material";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 import StatusPill from "./_components/StatusPill";
 import moment from "moment";
 import { toast } from "react-toastify";
-import { ORDER_TABS, OrderTab, fmtJobWhen, jobCountsLine, orderMatchesSearch, orderMatchesTab, orderStatusColor, orderStatusLabel } from "@/helpers/wctOrders";
+import { fmtJobWhen, orderMatchesSearch, orderStatusColor, orderStatusLabel } from "@/helpers/wctOrders";
+import { HUB_ACTION_LABEL, HUB_DESTRUCTIVE, hubListTarget, hubMatchesTab, hubRowActions, hubStatusInfo, hubStatusSortValue, hubTabs, type HubActionKey, type HubContext, type HubStatus } from "@/helpers/wctOrderHub";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 // WCT calendar add (2026-11-04): jobs made from the calendar with no order yet, so nothing gets forgotten.
@@ -40,7 +42,48 @@ interface WctOrderRow {
   /** The next job is all-day (2026-11-10): shown as its date only. */
   nextJobAllDay?: boolean;
   createdAt: string;
+  // Orders hub (2026-11-13).
+  subject?: string | null;
+  site?: string | null;
+  deliveryOrders?: { id: string; name: string | null; type: string; status: string; templateId: string }[];
+  invoices?: { id: string; name: string | null; type: string; status: string; templateId: string; total: number }[];
+  amount?: number | null;
+  actionJobs?: { draft: string | null; scheduled: string | null; completed: string | null };
+  serviceReportReady?: boolean;
 }
+
+const docHref = (d?: { id: string; type?: string; templateId?: string | null } | null, fallbackType = "QUOTATION") => (d && d.templateId ? `/portal/documents/${d.type || fallbackType}/${d.templateId}/${d.id}` : null);
+const hubContext = (o: WctOrderRow): HubContext => {
+  const q: any = o.sourceQuotation;
+  const draftInv = (o.invoices ?? []).find((i) => i.status === "draft" || i.status === "unconfirmed");
+  return {
+    orderId: o.id,
+    quotationHref: q ? docHref({ id: q.id, type: q.type, templateId: q.documentTemplateId }) : null,
+    doHref: docHref(o.deliveryOrders?.[0] ?? null, "DELIVERY_ORDER"),
+    invoiceHref: docHref(draftInv ?? (o.invoices ?? []).slice(-1)[0] ?? null, "INVOICE"),
+    draftJobId: o.actionJobs?.draft ?? null,
+    scheduledJobId: o.actionJobs?.scheduled ?? null,
+    completedJobId: o.actionJobs?.completed ?? null,
+  };
+};
+/** Document numbers in a cell: the first two, then "+N more". */
+function NumberList({ names }: { names: (string | null)[] }) {
+  const list = names.filter(Boolean) as string[];
+  if (!list.length) return null;
+  return (
+    <Box sx={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+      {list.slice(0, 2).map((n) => (
+        <div key={n}>{n}</div>
+      ))}
+      {list.length > 2 && (
+        <Typography variant="caption" color="text.secondary">
+          +{list.length - 2} more
+        </Typography>
+      )}
+    </Box>
+  );
+}
+const money = (n?: number | null) => (n == null ? "" : `S$ ${Number(n).toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 
 /** fixture: /preview/wct-jobs only (screenshots without sign-in); the page itself always fetches. */
 export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } = {}) {
@@ -49,7 +92,10 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
   const { getToken } = useAuth();
   const [orders, setOrders] = useState<WctOrderRow[]>(fixture ?? []);
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<OrderTab | "untagged">("all");
+  const [tab, setTab] = useState<HubStatus | "all" | "untagged">("all");
+  const [rowMenu, setRowMenu] = useState<{ pos: { left: number; top: number }; row: WctOrderRow } | null>(null);
+  const [confirm, setConfirm] = useState<{ action: HubActionKey; row: WctOrderRow; jobId?: string | null } | null>(null);
+  const [busy, setBusy] = useState(false);
   const { isWctOrdersEnabled, features } = useOrganizationFeatures();
   const calendarAdd = !fixture && !!isWctOrdersEnabled && !!features?.enableJobsCalendar;
   const [untagged, setUntagged] = useState<UntaggedJob[]>([]);
@@ -90,13 +136,39 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
     })();
   }, [calendarAdd, organization?.id, getToken]);
 
-  const counts = useMemo(() => {
-    const c = {} as Record<OrderTab, number>;
-    for (const t of ORDER_TABS) c[t.key] = orders.filter((o) => orderMatchesTab(o, t.key)).length;
-    return c;
-  }, [orders]);
+  // One tab per status, counted from the real statuses (the old "Open" tab missed DO drafts).
+  const tabs = useMemo(() => hubTabs(orders), [orders]);
 
-  const filtered = useMemo(() => (tab === "untagged" ? [] : orders.filter((o) => orderMatchesTab(o, tab) && orderMatchesSearch(o, search || ""))), [orders, tab, search]);
+  const filtered = useMemo(
+    () => (tab === "untagged" ? [] : orders.filter((o) => hubMatchesTab(o, tab) && (orderMatchesSearch(o, search || "") || [o.subject, o.site].some((v) => (v || "").toLowerCase().includes((search || "").trim().toLowerCase()))))),
+    [orders, tab, search],
+  );
+
+  /** A row action: open its screen, or confirm a cancel first. */
+  const runAction = (key: HubActionKey, row: WctOrderRow) => {
+    setRowMenu(null);
+    const t = hubListTarget(key, hubContext(row));
+    if (!t) return;
+    if ("href" in t) router.push(t.href);
+    else if (t.dialog === "cancel-order" || t.dialog === "cancel-job") setConfirm({ action: key, row, jobId: t.jobId });
+  };
+  const doConfirm = async () => {
+    if (!confirm) return;
+    setBusy(true);
+    try {
+      const token = await getToken();
+      const path = confirm.action === "cancel-order" ? `/orders/${confirm.row.id}/cancel` : `/deliveries/${confirm.jobId}/cancel`;
+      const res: any = await request({ path, method: "POST" }, {}, token ?? undefined);
+      if (res?.success === false) throw new Error(res?.message || "Could not cancel");
+      toast.success(confirm.action === "cancel-order" ? `Order ${confirm.row.orderNumber} cancelled` : "Job cancelled");
+      setConfirm(null);
+      await fetchOrders();
+    } catch (e: any) {
+      toast.error(e?.message || "Could not cancel");
+    } finally {
+      setBusy(false);
+    }
+  };
   const untaggedRows = useMemo(() => {
     const term = (search || "").trim().toLowerCase();
     return untagged.filter((j) => !term || [String(j.deliveryNumber), j.customer?.name, j.site, j.worker].some((v) => (v || "").toLowerCase().includes(term)));
@@ -110,36 +182,104 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
     { accessorKey: "state", header: "Status", size: 10, cell: ({ row }: any) => <StatusPill label={String(row.original.state).replace(/_/g, " ").replace(/^./, (c: string) => c.toUpperCase())} color="default" /> },
   ];
 
+  // ADH-style list (2026-11-13): status pill first, the row menu last; the row opens the order.
+  const plain = (v: any) => (v == null || v === "" ? "" : v);
   const columns: any[] = [
     {
+      id: "status",
+      accessorFn: (o: WctOrderRow) => hubStatusSortValue(o.status),
+      header: "Status",
+      size: 11,
+      cell: ({ row }: any) => {
+        const info = hubStatusInfo(row.original.status);
+        return (
+          <Box sx={{ "& .MuiChip-label": { whiteSpace: "nowrap", overflow: "visible" }, "& .MuiChip-root": { maxWidth: "none" } }}>
+            <StatusPill label={orderStatusLabel(row.original.status) || info.label} color={orderStatusColor(row.original.status)} hue={info.hue} />
+          </Box>
+        );
+      },
+    },
+    {
       accessorKey: "orderNumber",
-      header: "Order No.",
-      size: 12,
+      header: "Order no.",
+      size: 10,
       cell: ({ row }: any) => (
-        <Typography variant="body2" sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+        <Typography variant="body2" sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
           {row.original.orderNumber}
         </Typography>
       ),
     },
-    { accessorKey: "customer", header: "Customer", size: 14, cell: ({ row }: any) => row.original.customer?.name || "—" },
-    { accessorKey: "sourceQuotation", header: "Quotation", size: 12, cell: ({ row }: any) => row.original.sourceQuotation?.name || "—" },
-    { accessorKey: "jobs", header: "Jobs", size: 14, cell: ({ row }: any) => jobCountsLine(row.original.jobCounts) },
-    { accessorKey: "nextJobAt", header: "Next job", size: 12, cell: ({ row }: any) => (row.original.nextJobAt ? fmtJobWhen(row.original.nextJobAt, row.original.nextJobAllDay) : "—") },
+    { id: "customer", accessorFn: (o: WctOrderRow) => o.customer?.name || "", header: "Customer", size: 13, cell: ({ row }: any) => plain(row.original.customer?.name) },
     {
-      accessorKey: "status",
-      header: "Status",
-      size: 12,
-      cell: ({ row }: any) => <StatusPill label={orderStatusLabel(row.original.status)} color={orderStatusColor(row.original.status)} />,
+      id: "subject",
+      header: "Subject / site",
+      size: 15,
+      enableSorting: false,
+      cell: ({ row }: any) => (
+        <Box>
+          {row.original.subject && <Typography variant="body2">{row.original.subject}</Typography>}
+          {row.original.site && (
+            <Typography variant="caption" color="text.secondary">
+              {row.original.site}
+            </Typography>
+          )}
+        </Box>
+      ),
     },
-    { accessorKey: "createdAt", header: "Created", size: 9, cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY") },
+    { id: "quotation", header: "Quotation", size: 9, enableSorting: false, cell: ({ row }: any) => plain(row.original.sourceQuotation?.name) },
+    {
+      id: "jobs",
+      header: "Jobs",
+      size: 6,
+      enableSorting: false,
+      cell: ({ row }: any) => {
+        const c = row.original.jobCounts;
+        return c ? `${c.completed} / ${c.total}` : "";
+      },
+    },
+    {
+      id: "nextJobAt",
+      accessorFn: (o: WctOrderRow) => (o.nextJobAt ? new Date(o.nextJobAt).getTime() : Number.MAX_SAFE_INTEGER),
+      header: "Next job",
+      size: 9,
+      cell: ({ row }: any) => (row.original.nextJobAt ? fmtJobWhen(row.original.nextJobAt, row.original.nextJobAllDay) : ""),
+    },
+    { id: "dos", header: "DO(s)", size: 9, enableSorting: false, cell: ({ row }: any) => <NumberList names={(row.original.deliveryOrders ?? []).map((d: any) => d.name)} /> },
+    { id: "invoice", header: "Invoice", size: 9, enableSorting: false, cell: ({ row }: any) => <NumberList names={(row.original.invoices ?? []).map((d: any) => d.name)} /> },
+    {
+      id: "amount",
+      accessorFn: (o: WctOrderRow) => o.amount ?? -1,
+      header: "Amount",
+      size: 9,
+      cell: ({ row }: any) => <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(row.original.amount)}</Box>,
+    },
+    { id: "createdAt", accessorFn: (o: WctOrderRow) => new Date(o.createdAt).getTime(), header: "Created", size: 8, cell: ({ row }: any) => <Box sx={{ whiteSpace: "nowrap" }}>{moment(row.original.createdAt).format("DD/MM/YYYY")}</Box> },
+    {
+      id: "menu",
+      header: "",
+      size: 4,
+      enableSorting: false,
+      cell: ({ row }: any) => (
+        <IconButton
+          size="small"
+          aria-label="Order actions"
+          onClick={(e) => {
+            e.stopPropagation();
+            setRowMenu({ pos: { left: e.clientX, top: e.clientY }, row: row.original });
+          }}
+        >
+          <MoreVertIcon fontSize="small" />
+        </IconButton>
+      ),
+    },
   ];
 
   // Title + actions (PageTable's header) first, then the status tabs, then the table.
   const statusTabs = (
       <Box sx={{ borderBottom: 1, borderColor: "divider", mb: 2 }}>
-        <Tabs value={tab} onChange={(_, v) => { setTab(v as OrderTab); setPage(1); }} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile>
-          {ORDER_TABS.map((t) => (
-            <Tab key={t.key} value={t.key} label={`${t.label} (${counts[t.key] ?? 0})`} sx={{ textTransform: "none", minHeight: 48 }} />
+        <Tabs value={tab} onChange={(_, v) => { setTab(v); setPage(1); }} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile>
+          {tabs.map((t) => (
+            <Tab key={t.key} value={t.key} label={`${t.label} (${t.count})`} sx={{ textTransform: "none", minHeight: 48 }} />
           ))}
           {calendarAdd && <Tab value="untagged" label={`Untagged jobs (${untaggedCount ?? 0})`} sx={{ textTransform: "none", minHeight: 48 }} data-tour="orders-untagged-jobs" />}
         </Tabs>
@@ -172,7 +312,39 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
         filterConfig={[]}
         pageCount={1}
         totalDocs={tab === "untagged" ? untaggedRows.length : filtered.length}
+        noSelectionColumn
       />
+
+      {/* Row menu: anchored to the click position (table rows re-render). */}
+      <Menu open={!!rowMenu} onClose={() => setRowMenu(null)} anchorReference="anchorPosition" anchorPosition={rowMenu?.pos}>
+        {rowMenu &&
+          hubRowActions(rowMenu.row.status)
+            .filter((k) => !!hubListTarget(k, hubContext(rowMenu.row)))
+            .map((k) => (
+              <MenuItem key={k} onClick={() => runAction(k, rowMenu.row)} sx={HUB_DESTRUCTIVE.has(k) ? { color: "error.main" } : undefined}>
+                <ListItemText>{HUB_ACTION_LABEL[k]}</ListItemText>
+              </MenuItem>
+            ))}
+      </Menu>
+
+      <Dialog open={!!confirm} onClose={() => !busy && setConfirm(null)} fullWidth maxWidth="xs">
+        <DialogTitle>{confirm?.action === "cancel-order" ? `Cancel order ${confirm?.row.orderNumber}?` : "Cancel this job?"}</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {confirm?.action === "cancel-order"
+              ? "Its jobs are cancelled and their DOs are marked Cancelled. The numbers are kept. This can't be undone."
+              : "The job is cancelled and its DO is marked Cancelled. The number is kept."}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirm(null)} disabled={busy}>
+            Keep it
+          </Button>
+          <Button color="error" variant="contained" disableElevation onClick={doConfirm} disabled={busy}>
+            {confirm?.action === "cancel-order" ? "Cancel order" : "Cancel job"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </MainCard>
   );
 }

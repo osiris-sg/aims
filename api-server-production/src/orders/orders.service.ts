@@ -12,6 +12,7 @@ import { MANUAL_ORDER_STATUS_LABEL, isManualOrderFlow, type ManualOrderStatus } 
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { doStatusTag } from '../deliveries/do-number';
+import { photosFileOf } from '../maintenance-reports/uploaded-report';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { taggedSinsView } from '../bills/bill-quotation';
 import { bySchedule, dueBy } from '../deliveries/all-day';
@@ -376,12 +377,16 @@ export class OrdersService {
       orderBy: { createdAt: 'desc' },
       include: {
         customer: { select: { id: true, name: true, customerCode: true } },
-        sourceQuotation: { select: { id: true, name: true, status: true, type: true, documentTemplateId: true } },
-        deliveries: { select: { id: true, deliveryNumber: true, status: true, isDraft: true, scheduledFor: true, scheduledAllDay: true, verificationState: true }, orderBy: { deliveryNumber: 'asc' } },
+        sourceQuotation: { select: { id: true, name: true, status: true, type: true, documentTemplateId: true, config: true } },
+        deliveries: {
+          select: { id: true, deliveryNumber: true, status: true, isDraft: true, scheduledFor: true, scheduledAllDay: true, verificationState: true, siteAddress: true, orderInvoiceId: true, items: { select: { documentId: true } } },
+          orderBy: { deliveryNumber: 'asc' },
+        },
       },
     });
     const orders = rows.map(({ deliveries, ...o }: any) => ({ ...o, jobs: deliveries as any[] }));
     await this.syncWctStatuses(organizationId, orders);
+    const hub = await this.wctListHub(organizationId, orders);
     const now = Date.now();
     return orders.map(({ jobs, ...o }) => {
       const live = jobs.filter((j) => j.status !== 'cancelled');
@@ -403,8 +408,62 @@ export class OrdersService {
         },
         nextJobAt: upcoming ?? null,
         nextJobAllDay: !!next?.scheduledAllDay,
+        ...hub(o, jobs),
+        sourceQuotation: o.sourceQuotation ? { id: o.sourceQuotation.id, name: o.sourceQuotation.name, status: o.sourceQuotation.status, type: o.sourceQuotation.type, documentTemplateId: o.sourceQuotation.documentTemplateId } : null,
       };
     });
+  }
+
+  /**
+   * WCT orders list as the hub (2026-11-13): per order its subject / site, DO
+   * numbers, invoices, amount, the jobs each row action works on, and whether a
+   * service report is ready to send. Read-only; two batched queries.
+   */
+  private async wctListHub(organizationId: string, orders: Array<{ id: string; jobs: any[] }>) {
+    const allJobs = orders.flatMap((o) => o.jobs);
+    const doIds = [...new Set(allJobs.flatMap((j) => (j.items ?? []).map((i: any) => i.documentId)).filter(Boolean))] as string[];
+    const invIds = [...new Set(allJobs.map((j) => j.orderInvoiceId).filter((v) => v && !String(v).startsWith('claim:')))] as string[];
+    const docs = doIds.length || invIds.length
+      ? await this.prisma.document.findMany({
+          where: { organizationId, id: { in: [...doIds, ...invIds] } },
+          select: { id: true, name: true, type: true, status: true, documentTemplateId: true, config: true },
+          orderBy: { createdAt: 'asc' },
+        })
+      : [];
+    const byId = new Map(docs.map((d: any) => [d.id, d]));
+    const reports = allJobs.length
+      ? await this.prisma.maintenanceServiceReport.findMany({
+          where: { organizationId, kind: 'SERVICE', deliveryId: { in: allJobs.map((j) => j.id) } },
+          select: { deliveryId: true, status: true, serviceData: true },
+        })
+      : [];
+    const readyJobs = new Set(reports.filter((r: any) => r.status === 'completed' || (r.serviceData as any)?.uploaded === true).map((r: any) => r.deliveryId));
+    const docView = (d: any) => ({ id: d.id, name: d.name, type: d.type, status: d.status, templateId: d.documentTemplateId });
+    return (o: any, jobs: any[]) => {
+      const live = jobs.filter((j) => j.status !== 'cancelled');
+      const qc: any = o.sourceQuotation?.config || {};
+      const di: any = qc.documentInfo || {};
+      const dos = [...new Set(live.flatMap((j) => (j.items ?? []).map((i: any) => i.documentId)).filter(Boolean))].map((id) => byId.get(id)).filter(Boolean);
+      const invoices = [...new Set(live.map((j) => j.orderInvoiceId).filter((v) => v && !String(v).startsWith('claim:')))]
+        .map((id) => byId.get(id))
+        .filter(Boolean)
+        .map((d: any) => ({ ...docView(d), total: Number(d.config?.grandTotal ?? d.config?.documentInfo?.grandTotal ?? d.config?.nettTotal ?? 0) || 0 }));
+      const quoted = Number(qc.nettTotal ?? di.nettTotal ?? qc.grandTotal ?? di.grandTotal);
+      const firstOf = (f: (j: any) => boolean) => live.find(f)?.id ?? null;
+      return {
+        subject: String(qc.subject ?? di.subject ?? '').trim() || null,
+        site: String([...live].reverse().find((j) => j.siteAddress)?.siteAddress ?? di.jobLocation ?? di.location ?? '').split('\n')[0].trim() || null,
+        deliveryOrders: dos.map(docView),
+        invoices,
+        amount: invoices.length ? invoices.reduce((t: number, i: any) => t + i.total, 0) : Number.isFinite(quoted) ? quoted : null,
+        actionJobs: {
+          draft: firstOf((j) => j.isDraft),
+          scheduled: firstOf((j) => !j.isDraft && j.status !== 'completed'),
+          completed: [...live].reverse().find((j) => j.status === 'completed')?.id ?? null,
+        },
+        serviceReportReady: live.some((j) => readyJobs.has(j.id)),
+      };
+    };
   }
 
   private async getWctById(id: string, organizationId: string) {
@@ -547,6 +606,46 @@ export class OrdersService {
     return order;
   }
 
+  /**
+   * WCT orders hub (2026-11-13): "Cancel order" from the list's row menu. Only
+   * an order that has not started: its jobs are drafts or scheduled, none
+   * started or finished, nothing invoiced. Each job is cancelled the way a job
+   * cancel does it: its DO keeps its number and is tagged Cancelled, the
+   * unwritten scheduled service report goes. The order reads Cancelled and
+   * keeps that status. Counters are never touched.
+   */
+  async cancelWctOrder(id: string, organizationId: string) {
+    await this.wctOrderOrThrow(id, organizationId);
+    const order = await this.prisma.order.findFirst({ where: { id, organizationId }, select: { id: true, orderNumber: true, status: true, statusDates: true } });
+    if (!order) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
+    if (order.status === 'CANCELLED') return { id, status: 'CANCELLED' };
+    const jobs = await this.prisma.delivery.findMany({
+      where: { organizationId, orderId: id, status: { not: 'cancelled' } },
+      select: { id: true, deliveryNumber: true, status: true, isDraft: true, orderInvoiceId: true, items: { select: { documentId: true, deliveringAt: true, deliveredAt: true, completedAt: true } } },
+    });
+    const started = jobs.filter((j) => (!j.isDraft && j.status !== 'scheduled') || j.orderInvoiceId || j.items.some((i) => i.deliveringAt || i.deliveredAt || i.completedAt));
+    if (started.length) {
+      throw new HttpException(`Only an order that has not started can be cancelled (job #${started.map((j) => j.deliveryNumber).join(', #')} has started, finished or is invoiced). Cancel its jobs one by one instead.`, HttpStatus.BAD_REQUEST);
+    }
+    const { cancelledDoConfig } = await import('../deliveries/do-number');
+    const { withStatusDate } = await import('./manual-order-flow');
+    await this.prisma.$transaction(async (tx) => {
+      for (const j of jobs) {
+        const docIds = [...new Set(j.items.map((i) => i.documentId).filter(Boolean))] as string[];
+        for (const docId of docIds) {
+          const doc = await tx.document.findFirst({ where: { id: docId, organizationId }, select: { id: true, config: true } });
+          if (doc) await tx.document.update({ where: { id: doc.id }, data: { config: cancelledDoConfig(doc.config, j.deliveryNumber) as any } });
+        }
+        await tx.maintenanceServiceReport.deleteMany({
+          where: { deliveryId: j.id, kind: 'SERVICE', status: 'draft', reportNumber: null, serviceData: { path: ['scheduled'], equals: true } },
+        });
+        await tx.delivery.update({ where: { id: j.id }, data: { status: 'cancelled' } });
+      }
+      await tx.order.update({ where: { id }, data: { status: 'CANCELLED', statusDates: withStatusDate(order.statusDates, 'CANCELLED') as any } });
+    });
+    return { id, status: 'CANCELLED', jobsCancelled: jobs.length };
+  }
+
   /** Add an uploaded file, or link an AIMS service report, to the order. */
   async addOrderAttachment(
     id: string,
@@ -628,6 +727,8 @@ export class OrdersService {
         uploaded: sd.uploaded === true,
         scheduled: sd.scheduled === true,
         sentAt: sd.customerSentAt ?? null,
+        // The report's photos file (PhotosFileControls), for the order page's "Photos" link.
+        photosFile: !!photosFileOf(sd),
       };
     });
   }

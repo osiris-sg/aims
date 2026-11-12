@@ -90,6 +90,13 @@ export class OrdersController {
     return this.ordersService.removeOrderAttachment(id, orgId, body?.id);
   }
 
+  // WCT orders hub (2026-11-13): cancel an order that has not started (jobs still draft / scheduled, no invoice).
+  @Post(':id/cancel')
+  @Permissions('orders:update')
+  async cancelOrder(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    return this.ordersService.cancelWctOrder(id, req.userOrganization.id);
+  }
+
   @Post('from-quotation/:quotationId')
   @Permissions('orders:create')
   async createFromQuotation(

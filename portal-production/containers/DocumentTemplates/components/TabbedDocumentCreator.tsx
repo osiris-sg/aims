@@ -480,6 +480,8 @@ export default function TabbedDocumentCreator({
   // Order (matched by sourceQuotationId) and offer a one-click jump to it.
   const [convertQuotationDialogOpen, setConvertQuotationDialogOpen] = useState(false);
   const [linkedOrderId, setLinkedOrderId] = useState<string | null>(null);
+  // WCT orders hub (2026-11-13): this quotation's order, for the toolbar's "Go to order".
+  const [quotationOrder, setQuotationOrder] = useState<{ id: string; orderNumber: string } | null>(null);
   // Client e-sign link dialog (generic quotations — enableQuotationESign).
   const [signLinkDialogOpen, setSignLinkDialogOpen] = useState(false);
   const [isToolBarOpen, setToolBarOpen] = useState(false);
@@ -925,6 +927,25 @@ export default function TabbedDocumentCreator({
   const [isLoadingFieldConfig, setIsLoadingFieldConfig] = useState(true);
 
   const { getToken } = useAuth();
+  // WCT orders hub: find the order made from this quotation (GET /orders is the org's WCT order list).
+  const quotationIdForOrder = isQuotation && isWctOrdersEnabled ? ((documentId || (existingData as any)?.id) as string | undefined) : undefined;
+  useEffect(() => {
+    if (!quotationIdForOrder) return;
+    let gone = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        const res = await request({ path: "/orders", method: "GET" }, {}, token ?? undefined);
+        const found = (Array.isArray(res?.data) ? res.data : []).find((o: any) => o?.sourceQuotationId === quotationIdForOrder);
+        if (!gone) setQuotationOrder(found ? { id: found.id, orderNumber: found.orderNumber } : null);
+      } catch {
+        /* no button */
+      }
+    })();
+    return () => {
+      gone = true;
+    };
+  }, [quotationIdForOrder, getToken, isDocumentConfirmedStatus]);
 
   // Does this org have a Revenue Master File? Drives whether "Add Item" opens
   // the master-file picker (self-coding) or the product-catalog Stock Card.
@@ -4685,6 +4706,11 @@ export default function TabbedDocumentCreator({
           {/* WCT group (enableQuotationESign + enableWctOrders, 2026-11-13): CIEL's
               "Send for signature" toolbar button, just before Confirm Quotation;
               saved, unconfirmed quotations only (signing is what confirms them). */}
+          {quotationOrder && !isTemplateEditMode && (
+            <Button size="small" variant="outlined" startIcon={<OpenInNewIcon />} onClick={() => router.push(`/portal/orders/${quotationOrder.id}`)} data-tour="editor-go-to-order">
+              Go to order {quotationOrder.orderNumber}
+            </Button>
+          )}
           {wctSignFlow && (existingData?.id || documentId) && !isDocumentConfirmedStatus && !isTemplateEditMode && (
             <SendForSignatureButton onClick={() => setSignLinkDialogOpen(true)} dataTour="editor-send-signature" />
           )}

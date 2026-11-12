@@ -711,6 +711,18 @@ export default function DeliveryDetailPage() {
     }
   };
 
+  // Orders hub (?open=…, 2026-11-13): the order page's next-step button and the
+  // orders list's row menu open this page's own dialog, once.
+  const openedFromOrder = React.useRef(false);
+  useEffect(() => {
+    if (!run || openedFromOrder.current || typeof window === "undefined") return;
+    openedFromOrder.current = true;
+    const open = new URLSearchParams(window.location.search).get("open");
+    if (open === "schedule" && run.status === "scheduled") setEditOpen(true);
+    else if (open === "complete" && manualFlow && run.order && !run.isDraft && ["scheduled", "in_progress", "delivered"].includes(run.status)) setCompleteOpen(true);
+    else if (open === "upload") setTimeout(() => document.querySelector('[data-tour="run-upload-service-report"]')?.scrollIntoView({ behavior: "smooth", block: "center" }), 400);
+  }, [run, manualFlow]);
+
   if (loading) {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", py: 10 }}>

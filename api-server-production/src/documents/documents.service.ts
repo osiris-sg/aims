@@ -7594,6 +7594,13 @@ export class DocumentsService {
     }
   }
 
+  /** WCT orders hub: the PDF URL of an order's source quotation (null when the order has none). */
+  async orderQuotationPdfUrl(orderId: string, organizationId: string): Promise<string | null> {
+    const order = await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { sourceQuotationId: true } });
+    if (!order?.sourceQuotationId) return null;
+    return (await this.getOrGeneratePdfUrl(order.sourceQuotationId, organizationId)) ?? null;
+  }
+
   async getOrGeneratePdfUrl(
     documentId: string,
     organizationId: string,

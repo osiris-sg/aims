@@ -218,7 +218,24 @@ export default function DocumentListView({
   });
 
   // Real DO numbers (enableRealDoOnSchedule): a DO shows Pending / Completed / Cancelled next to its number.
-  const { isRealDoOnScheduleEnabled } = useOrganizationFeatures();
+  const { isRealDoOnScheduleEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
+  // WCT orders hub (2026-11-13): a quotation's order number, linked, in the Quotations list.
+  const showOrderColumn = !!isWctOrdersEnabled && documentTypes.some((t) => ["QUOTATION", "QO", "QO1", "QO2", "QT"].includes(t));
+  const [ordersByQuotation, setOrdersByQuotation] = useState<Map<string, { id: string; orderNumber: string }>>(new Map());
+  useEffect(() => {
+    if (!showOrderColumn) return;
+    (async () => {
+      try {
+        const token = await getToken();
+        const res: any = await request({ path: "/orders", method: "GET" }, {}, token ?? undefined);
+        const m = new Map<string, { id: string; orderNumber: string }>();
+        for (const o of Array.isArray(res?.data) ? res.data : []) if (o?.sourceQuotationId) m.set(o.sourceQuotationId, { id: o.id, orderNumber: o.orderNumber });
+        setOrdersByQuotation(m);
+      } catch {
+        /* no order links */
+      }
+    })();
+  }, [showOrderColumn, getToken]);
   const filterConfig: FilterField[] = useMemo(
     () => [
       { type: "dateRange", key: "createdOn", label: "Created On" },
@@ -309,6 +326,33 @@ export default function DocumentListView({
         );
       },
     },
+    ...(showOrderColumn
+      ? [
+          {
+            id: "order",
+            header: "Order",
+            enableSorting: false,
+            cell: ({ row }: any) => {
+              const o = ordersByQuotation.get(row.original.id);
+              if (!o) return "";
+              return (
+                <Box
+                  component="a"
+                  href={`/portal/orders/${o.id}`}
+                  onClick={(e: React.MouseEvent) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    router.push(`/portal/orders/${o.id}`);
+                  }}
+                  sx={{ color: "primary.main", fontWeight: 600, textDecoration: "none", "&:hover": { textDecoration: "underline" } }}
+                >
+                  {o.orderNumber}
+                </Box>
+              );
+            },
+          },
+        ]
+      : []),
     {
       accessorKey: "associated_customer",
       // Credit and debit notes run in BOTH directions — one we issue to a

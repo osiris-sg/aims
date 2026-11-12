@@ -1,4 +1,4 @@
-import { Controller, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, HttpException, HttpStatus, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { DocumentsService } from './documents.service';
@@ -14,6 +14,21 @@ import { DocumentsService } from './documents.service';
 @UseGuards(ClerkAuthGuard)
 export class OrderInvoiceController {
   constructor(private readonly documents: DocumentsService) {}
+
+  /**
+   * WCT orders hub (2026-11-13): the order's quotation as a PDF (the signed
+   * one once the customer signed), for the order page's Documents list. Only
+   * the order's own quotation; the same cached render the pay / sign pages use.
+   */
+  @Get(':id/quotation-pdf')
+  @Permissions('orders:read')
+  async quotationPdf(@Param('id') id: string, @Req() req: any) {
+    const orgId = req.userOrganization?.id;
+    if (!orgId) throw new HttpException('User is not assigned to any organization', HttpStatus.FORBIDDEN);
+    const url = await this.documents.orderQuotationPdfUrl(id, orgId);
+    if (!url) throw new HttpException('The quotation PDF is not available', HttpStatus.NOT_FOUND);
+    return { url };
+  }
 
   @Post(':id/invoice-now')
   @Permissions('documents:update')

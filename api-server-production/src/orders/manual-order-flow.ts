@@ -83,8 +83,11 @@ const DRAFT_INVOICE = new Set(['draft', 'unconfirmed']);
  *   every job finished and checked, no invoice yet    → DO_COMPLETED
  *   an invoice not sent yet                           → INVOICE_DRAFT
  *   invoices sent, not all paid                       → INVOICED
- *   every invoice paid                                → PAID, or SERVICE_REPORT_SENT
- *                                                       once the report went out
+ *   every invoice paid                                → PAID
+ *   invoices sent (paid or not) and the report sent   → SERVICE_REPORT_SENT (final)
+ * The service report comes AFTER the invoice (2026-11-13): a report sent while
+ * the order is not invoiced yet does not jump the order; it counts once the
+ * invoice is out.
  */
 export function deriveManualOrderStatus(
   jobs: { status: string; isDraft: boolean; verificationState?: string | null; orderInvoiceId?: string | null }[],
@@ -100,8 +103,8 @@ export function deriveManualOrderStatus(
   const invoiced = scheduled.every((j) => !!j.orderInvoiceId && !String(j.orderInvoiceId).startsWith('claim:'));
   if (!invoiced || !invoices.length) return 'DO_COMPLETED';
   if (invoices.some((s) => DRAFT_INVOICE.has(s))) return 'INVOICE_DRAFT';
-  if (!invoices.every((s) => s === 'paid')) return 'INVOICED';
-  return billing.serviceReportSent ? 'SERVICE_REPORT_SENT' : 'PAID';
+  if (billing.serviceReportSent) return 'SERVICE_REPORT_SENT';
+  return invoices.every((s) => s === 'paid') ? 'PAID' : 'INVOICED';
 }
 
 /**

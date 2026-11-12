@@ -39,6 +39,8 @@ import { uploadFile, publicFileUrl } from "@/helpers/fileUploader";
 import { attachmentLine, type OrderAttachment, type ReportOption } from "@/helpers/wctOrders";
 import { OrderJobPhotos } from "@/components/delivery/JobPhotos";
 import SendServiceReportDialog from "@/components/orders/SendServiceReportDialog";
+import OrderHubPanel from "./OrderHubPanel";
+import { hubActionTarget, hubStatusInfo, type HubActionKey } from "@/helpers/wctOrderHub";
 
 // WCT order page (enableWctOrders, 2026-11-01): the order header, its jobs
 // (Delivery runs), and "Add job", which opens the usual schedule dialog
@@ -136,6 +138,17 @@ export default function WctOrderDetail({ id }: { id: string }) {
     load();
   }, [load]);
 
+  // Orders list row menu (?open=…): open this page's own dialog once the order is in.
+  const openedFromList = React.useRef(false);
+  useEffect(() => {
+    if (!order || openedFromList.current || typeof window === "undefined") return;
+    openedFromList.current = true;
+    const open = new URLSearchParams(window.location.search).get("open");
+    if (open === "add-job") setAddOpen(true);
+    else if (open === "create-invoice") setInvoiceAsk(true);
+    else if (open === "send-report") setSendReportOpen(true);
+  }, [order]);
+
   /** POST + reload; the error shows inline. */
   const post = async (path: string, body: any) => {
     try {
@@ -208,6 +221,27 @@ export default function WctOrderDetail({ id }: { id: string }) {
   const otherAttachments = (order.attachments ?? []).filter((a) => !(a.kind === "report" && a.reportId && jobReportIds.has(a.reportId)));
   const canSendReport =
     jobReports.some((r) => r.status === "completed") || (order.attachments ?? []).some((a: any) => a.kind === "report" && a.report?.status === "completed");
+  // Orders hub (2026-11-13): the tracker's next-step button reuses the existing screens and dialogs.
+  const liveJobs = order.jobs.filter((j) => j.status !== "cancelled");
+  const runHub = (key: HubActionKey) => {
+    const draftInvoice = (order.invoices ?? []).find((i: any) => i.status === "draft" || i.status === "unconfirmed");
+    const lastInvoice = (order.invoices ?? []).slice(-1)[0];
+    const firstDo = liveJobs.find((j) => j.deliveryOrder)?.deliveryOrder;
+    const t = hubActionTarget(key, {
+      orderId: order.id,
+      quotationHref: q ? `/portal/documents/${q.type}/${q.documentTemplateId}/${q.id}` : null,
+      doHref: firstDo ? `/portal/documents/DELIVERY_ORDER/${(firstDo as any).templateId}/${firstDo.id}` : null,
+      invoiceHref: ((draftInvoice ?? lastInvoice) as any)?.href ?? null,
+      draftJobId: liveJobs.find((j) => j.isDraft)?.id ?? null,
+      scheduledJobId: liveJobs.find((j) => !j.isDraft && j.status !== "completed")?.id ?? null,
+      completedJobId: [...liveJobs].reverse().find((j) => j.status === "completed")?.id ?? null,
+    });
+    if (!t) return;
+    if ("href" in t) router.push(t.href);
+    else if (t.dialog === "add-job") setAddOpen(true);
+    else if (t.dialog === "create-invoice") setInvoiceAsk(true);
+    else if (t.dialog === "send-report") setSendReportOpen(true);
+  };
   return (
     <MainCard>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
@@ -225,7 +259,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
             <Typography variant="h5" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
               {order.orderNumber}
             </Typography>
-            <StatusPill label={orderStatusLabel(order.status)} color={orderStatusColor(order.status)} />
+            <StatusPill label={orderStatusLabel(order.status)} color={orderStatusColor(order.status)} hue={hubStatusInfo(order.status).hue} />
           </Stack>
           <Stack direction="row" spacing={3} sx={{ mt: 1 }} flexWrap="wrap" useFlexGap>
             <Box>
@@ -256,10 +290,15 @@ export default function WctOrderDetail({ id }: { id: string }) {
             </Box>
           </Stack>
         </Box>
-        <Button variant="contained" disableElevation startIcon={<AddIcon />} onClick={() => setAddOpen(true)} data-tour="wct-order-add-job">
-          Add job
-        </Button>
+        {/* Hidden on a cancelled order, and when Add job is already the next-step button below. */}
+        {order.status !== "CANCELLED" && order.status !== "QUOTATION_SIGNED" && (
+          <Button variant="outlined" startIcon={<AddIcon />} onClick={() => setAddOpen(true)} data-tour="wct-order-add-job">
+            Add job
+          </Button>
+        )}
       </Stack>
+
+      <OrderHubPanel order={order} serviceReportReady={canSendReport} onAction={runHub} />
 
       <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
         Jobs

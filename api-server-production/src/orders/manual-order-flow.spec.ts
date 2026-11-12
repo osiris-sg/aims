@@ -217,3 +217,19 @@ describe('manual flow: product lines move stock through the field path; field li
     expect(b.calls[0]).toBe('list:null');
   });
 });
+
+describe('deriveManualOrderStatus: the service report comes after the invoice (2026-11-13)', () => {
+  const done = [{ status: 'completed', isDraft: false, verificationState: 'verified', orderInvoiceId: 'inv-1' }];
+  it('a report sent before the invoice is out does not jump the order', () => {
+    expect(deriveManualOrderStatus(done, { invoiceStatuses: [], serviceReportSent: true })).toBe('DO_COMPLETED');
+    expect(deriveManualOrderStatus(done, { invoiceStatuses: ['unconfirmed'], serviceReportSent: true })).toBe('INVOICE_DRAFT');
+  });
+  it('once the invoice is out (sent or paid), a sent report is the final status', () => {
+    expect(deriveManualOrderStatus(done, { invoiceStatuses: ['pending_payment'], serviceReportSent: true })).toBe('SERVICE_REPORT_SENT');
+    expect(deriveManualOrderStatus(done, { invoiceStatuses: ['paid'], serviceReportSent: true })).toBe('SERVICE_REPORT_SENT');
+  });
+  it('without the report: Invoiced, then Paid', () => {
+    expect(deriveManualOrderStatus(done, { invoiceStatuses: ['pending_payment'] })).toBe('INVOICED');
+    expect(deriveManualOrderStatus(done, { invoiceStatuses: ['paid'] })).toBe('PAID');
+  });
+});
