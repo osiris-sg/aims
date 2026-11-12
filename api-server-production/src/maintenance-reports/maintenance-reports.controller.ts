@@ -16,6 +16,12 @@ interface ClerkRequest extends Request {
   user?: { id?: string };
 }
 
+/** Who edits a report, for its history line. */
+const reportActor = (req: ClerkRequest) => {
+  const u: any = (req as any).user || {};
+  return { id: u.id, name: [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email || undefined };
+};
+
 @ApiTags('maintenance-reports')
 @Controller('maintenance-reports')
 @UseGuards(ClerkAuthGuard)
@@ -92,6 +98,35 @@ export class MaintenanceReportsController {
   }
 
   /** Manual order flow: upload the file into the job's draft report (it becomes an uploaded, completed report). */
+  // ── Editing (manual order flow, 2026-11-13): same permission as creating a report ──
+  /** Uploaded report: replace the file (the number stays, the old file stays in the history). */
+  @Put(':id/file')
+  @Permissions('maintenance-reports:create')
+  replaceFile(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    return this.service.replaceUploadedFile(id, body ?? {}, org.id, reportActor(req));
+  }
+
+  /** Uploaded report: customer + DO (required), service date, location. */
+  @Patch(':id/details')
+  @Permissions('maintenance-reports:create')
+  updateDetails(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    return this.service.updateUploadedDetails(id, body ?? {}, org.id, reportActor(req));
+  }
+
+  /** A report written on the form: reopen it on the form (a signed one must be signed again). */
+  @Post(':id/reopen')
+  @Permissions('maintenance-reports:create')
+  reopen(@Param('id') id: string, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    return this.service.reopenForEditing(id, org.id, reportActor(req));
+  }
+
+  /** Delete a report not yet sent to the customer (the number stays a gap). */
+  @Delete(':id')
+  @Permissions('maintenance-reports:create')
+  remove(@Param('id') id: string, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    return this.service.deleteUnsent(id, org.id, reportActor(req));
+  }
+
   @Post(':id/upload-file')
   @Permissions('maintenance-reports:create')
   uploadIntoDraft(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {

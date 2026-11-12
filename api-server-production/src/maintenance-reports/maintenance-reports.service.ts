@@ -39,6 +39,15 @@ interface ReportForRender {
   organization: WctOrgProfile;
 }
 
+/** The report fields whose edits are recorded old -> new. */
+const REPORT_EDIT_FIELDS = ['customerName', 'jobLocation', 'serviceDate', 'clientEmail', 'remarks'];
+
+/** The report's history with one more line (newest last, at most 60 kept). */
+export function withHistory(history: unknown, line: Record<string, unknown>): Record<string, unknown>[] {
+  const list = Array.isArray(history) ? (history as Record<string, unknown>[]) : [];
+  return [...list, { at: new Date().toISOString(), ...line }].slice(-60);
+}
+
 @Injectable()
 export class MaintenanceReportsService {
   private readonly logger = new Logger(MaintenanceReportsService.name);
@@ -464,6 +473,12 @@ export class MaintenanceReportsService {
     const incoming = body.serviceData ?? {};
     const { scheduled: _scheduled, ...kept } = existing;
     void _scheduled;
+    // Re-completing a report reopened for editing: a history line with what changed (old -> new).
+    if (report.reportNumber != null) {
+      const changes = REPORT_EDIT_FIELDS.map((f) => ({ field: f, from: kept[f] ?? null, to: incoming[f] ?? kept[f] ?? null })).filter((c) => JSON.stringify(c.from) !== JSON.stringify(c.to));
+      if (JSON.stringify(kept.wct ?? null) !== JSON.stringify(incoming.wct ?? kept.wct ?? null)) changes.push({ field: 'photos and job types', from: 'previous', to: 'updated' } as any);
+      kept.history = withHistory(kept.history, { action: 'Completed again after editing', by: body.technicianName ?? null, changes });
+    }
     const serviceData: Record<string, any> = {
       ...kept,
       ...incoming,
@@ -483,7 +498,8 @@ export class MaintenanceReportsService {
         orderBy: { reportNumber: 'desc' },
         select: { reportNumber: true },
       });
-      const reportNumber = (latest?.reportNumber ?? 0) + 1;
+      // A report reopened for editing keeps its number (2026-11-13).
+      const reportNumber = report.reportNumber ?? (latest?.reportNumber ?? 0) + 1;
       try {
         updated = await this.prisma.maintenanceServiceReport.update({
           where: { id },
@@ -667,6 +683,135 @@ export class MaintenanceReportsService {
       await this.ordersService.addOrderAttachment(orderId, organizationId, { kind: 'report', reportId: created.id }, { id: userId });
     }
     return created;
+  }
+
+  // ── Editing service reports (manual order flow, 2026-11-13) ───────────────
+  // Same permission as creating a report. Every change leaves a line in the
+  // report's history (serviceData.history, old -> new); the HTTP call itself is
+  // in the Activity Log. Existing reports are only changed when someone edits them.
+
+  private async editableReport(id: string, organizationId: string) {
+    if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('Editing service reports needs the manual order flow');
+    const r = await this.prisma.maintenanceServiceReport.findFirst({
+      where: { id, organizationId, kind: 'SERVICE' },
+      select: { id: true, status: true, reportNumber: true, deliveryId: true, serviceData: true, signature: true, signedByName: true, signedAt: true },
+    });
+    if (!r) throw new NotFoundException('Service report not found');
+    const sd: Record<string, any> = (r.serviceData as Record<string, any> | null) ?? {};
+    if (sd.deletedAt) throw new BadRequestException('This service report was deleted');
+    return { r, sd };
+  }
+
+  /** Uploaded report: put a new file in place; the number stays and the old file stays in the history. */
+  async replaceUploadedFile(id: string, body: { fileKey?: string; fileName?: string; mimeType?: string }, organizationId: string, actor: { id?: string; name?: string }) {
+    const { sd } = await this.editableReport(id, organizationId);
+    if (!sd.uploaded || !sd.uploadedFile) throw new BadRequestException('Only an uploaded report has a file to replace');
+    const file = cleanReportFile(body, organizationId);
+    const history = withHistory(sd.history, {
+      action: 'Replaced the file',
+      by: actor.name ?? actor.id ?? null,
+      changes: [{ field: 'file', from: sd.uploadedFile?.fileName ?? null, to: file.fileName }],
+      oldFile: sd.uploadedFile,
+    });
+    return this.prisma.maintenanceServiceReport.update({
+      where: { id },
+      data: { serviceData: { ...sd, uploadedFile: file, history } as Prisma.InputJsonValue },
+      select: { id: true, reportNumber: true, status: true, serviceData: true },
+    });
+  }
+
+  /** Uploaded report: customer + DO (both required, the order follows the DO), service date, location. */
+  async updateUploadedDetails(
+    id: string,
+    body: { customerId?: string; doDocumentId?: string; serviceDate?: string; location?: string },
+    organizationId: string,
+    actor: { id?: string; name?: string },
+  ) {
+    const { r, sd } = await this.editableReport(id, organizationId);
+    if (!sd.uploaded) throw new BadRequestException('A report written on the form is edited on the form (Edit)');
+    if (!body?.customerId || !body?.doDocumentId) throw new BadRequestException('Pick the customer and the DO for this service report');
+    const customer = await this.prisma.customer.findFirst({ where: { id: body.customerId, organizationId }, select: { id: true, name: true } });
+    if (!customer) throw new NotFoundException('Customer not found in this organization');
+    const d = await this.customerDo(organizationId, customer.id, body.doDocumentId);
+    const serviceDate = cleanIsoDate(body.serviceDate) ?? sd.serviceDate ?? null;
+    const location = typeof body.location === 'string' ? body.location.trim().slice(0, 300) || null : sd.jobLocation ?? null;
+    const next = { customerId: customer.id, customerName: customer.name, doDocumentId: d.id, doNumber: d.name, orderId: d.orderId, orderNo: d.orderNo, serviceDate, jobLocation: location };
+    const changes = (['customerName', 'doNumber', 'orderNo', 'serviceDate', 'jobLocation'] as const)
+      .map((f) => ({ field: f, from: sd[f] ?? null, to: (next as any)[f] ?? null }))
+      .filter((c) => c.from !== c.to);
+    if (!changes.length) return this.prisma.maintenanceServiceReport.findFirst({ where: { id }, select: { id: true, reportNumber: true, status: true, serviceData: true } });
+    const history = withHistory(sd.history, { action: 'Edited the details', by: actor.name ?? actor.id ?? null, changes });
+    const updated = await this.prisma.maintenanceServiceReport.update({
+      where: { id },
+      data: { serviceData: { ...sd, ...next, history } as Prisma.InputJsonValue, deliveryId: d.jobId ?? null },
+      select: { id: true, reportNumber: true, status: true, serviceData: true },
+    });
+    // The order follows the DO: move the report's link from the old order to the new one.
+    if ((sd.orderId ?? null) !== (d.orderId ?? null)) {
+      if (sd.orderId) await this.unlinkReportFromOrder(sd.orderId, organizationId, id);
+      if (d.orderId) await this.ordersService.addOrderAttachment(d.orderId, organizationId, { kind: 'report', reportId: id }, { id: actor.id, name: actor.name }).catch(() => undefined);
+    }
+    void r;
+    return updated;
+  }
+
+  /**
+   * A report written on the form: back to an editable draft (the same form).
+   * The number stays. A signed report loses its signature (it must be signed
+   * again); the signed copy is kept in the history.
+   */
+  async reopenForEditing(id: string, organizationId: string, actor: { id?: string; name?: string }) {
+    const { r, sd } = await this.editableReport(id, organizationId);
+    if (sd.uploaded) throw new BadRequestException('An uploaded report is changed with Replace file / Edit details');
+    if (r.status !== 'completed') return { id, reopened: false, wasSigned: false };
+    const signed = !!(r.signature || sd.clientSignatureKey);
+    const { clientSignatureKey, signedByName, ...rest } = sd;
+    const history = withHistory(sd.history, {
+      action: signed ? 'Reopened for editing (signature cleared, to be signed again)' : 'Reopened for editing',
+      by: actor.name ?? actor.id ?? null,
+      changes: [{ field: 'status', from: 'completed', to: 'draft' }, ...(signed ? [{ field: 'signature', from: r.signedByName ?? signedByName ?? 'signed', to: null }] : [])],
+      ...(signed ? { signedCopy: { signature: r.signature ?? null, clientSignatureKey: clientSignatureKey ?? null, signedByName: r.signedByName ?? signedByName ?? null, signedAt: r.signedAt ?? null, wct: sd.wct ?? null, remarks: sd.remarks ?? null } } : {}),
+    });
+    await this.prisma.maintenanceServiceReport.update({
+      where: { id },
+      data: {
+        status: 'draft',
+        signature: null,
+        signedByName: null,
+        signedAt: null,
+        // Reopened in the office: completing it again does not email the customer by itself.
+        serviceData: { ...rest, scheduled: true, office: true, history } as Prisma.InputJsonValue,
+      },
+    });
+    return { id, reopened: true, wasSigned: signed };
+  }
+
+  /**
+   * Delete a report that has NOT been sent to the customer. Soft: the row stays
+   * (hidden everywhere, detached from its job, invoice and order) so its number
+   * stays a gap; numbers are never reused or renumbered.
+   */
+  async deleteUnsent(id: string, organizationId: string, actor: { id?: string; name?: string }) {
+    const { r, sd } = await this.editableReport(id, organizationId);
+    if (sd.customerSentAt || sd.emailSentAt) throw new BadRequestException('This report was sent to the customer: it can be edited or its file replaced, not deleted');
+    const history = withHistory(sd.history, { action: 'Deleted', by: actor.name ?? actor.id ?? null, changes: [{ field: 'report', from: r.reportNumber != null ? `#${r.reportNumber}` : 'draft', to: null }] });
+    await this.prisma.maintenanceServiceReport.update({
+      where: { id },
+      data: {
+        deliveryId: null,
+        invoiceDocumentId: null,
+        serviceData: { ...sd, deletedAt: new Date().toISOString(), deletedBy: actor.id ?? null, deletedByName: actor.name ?? null, deletedFromDeliveryId: r.deliveryId ?? null, history } as Prisma.InputJsonValue,
+      },
+    });
+    if (sd.orderId) await this.unlinkReportFromOrder(sd.orderId, organizationId, id);
+    return { id, deleted: true, reportNumber: r.reportNumber };
+  }
+
+  /** Take a report off an order's attachments (no-op when it is not there). */
+  private async unlinkReportFromOrder(orderId: string, organizationId: string, reportId: string) {
+    const order = await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { attachments: true } });
+    const att = (Array.isArray(order?.attachments) ? (order!.attachments as any[]) : []).find((a) => a?.kind === 'report' && a.reportId === reportId);
+    if (att) await this.ordersService.removeOrderAttachment(orderId, organizationId, att.id).catch(() => undefined);
   }
 
   /**
@@ -866,11 +1011,16 @@ export class MaintenanceReportsService {
         organizationId,
         kind: MaintenanceReportKind.SERVICE,
         status: 'completed',
-        OR: [{ deliveryId: { in: jobs.map((j) => j.id) } }, ...(linkedIds.length ? [{ id: { in: linkedIds } }] : [])],
+        OR: [
+          { deliveryId: { in: jobs.map((j) => j.id) } },
+          ...(linkedIds.length ? [{ id: { in: linkedIds } }] : []),
+          // DO first: a report written for one of the order's DOs with no job.
+          { deliveryId: null, serviceData: { path: ['orderId'], equals: orderId } },
+        ],
       },
       orderBy: { reportNumber: 'asc' },
       select: { id: true, reportNumber: true, serviceData: true },
-    });
+    }).then((rows) => rows.filter((r) => !(r.serviceData as any)?.deletedAt));
     if (!reports.length) throw new BadRequestException('There is no completed service report on this order yet');
     const typed = typeof body?.to === 'string' ? body.to.split(/[,;\s]+/).map((e) => e.trim()).filter(Boolean) : [];
     const fallback = order.customer?.email || ((reports[0].serviceData as any)?.clientEmail as string | undefined) || '';
@@ -1545,6 +1695,7 @@ export class MaintenanceReportsService {
       },
     });
     if (!report) throw new NotFoundException('Service report not found');
+    if ((report.serviceData as any)?.deletedAt) throw new NotFoundException('This service report was deleted');
     return report;
   }
 
@@ -1590,11 +1741,20 @@ export class MaintenanceReportsService {
                 AND COALESCE(r."serviceData" ->> 'scheduled', 'false') = 'true'`
           ).map((r) => r.id)
         : [];
+    // Deleted reports (soft, the number stays a gap) never list. Same raw-id approach as above.
+    const deletedIds = (
+      await this.prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT r.id FROM "MaintenanceServiceReport" r
+        WHERE r."organizationId" = ${organizationId}
+          AND r.kind = 'SERVICE'
+          AND r."serviceData" ->> 'deletedAt' IS NOT NULL`
+    ).map((r) => r.id);
+    const hidden = [...scheduledDraftIds, ...deletedIds];
     const where: Prisma.MaintenanceServiceReportWhereInput = {
       organizationId,
       kind: 'SERVICE',
       ...(status ? { status } : {}),
-      ...(scheduledDraftIds.length ? { id: { notIn: scheduledDraftIds } } : {}),
+      ...(hidden.length ? { id: { notIn: hidden } } : {}),
     };
 
     if (trimmed) {

@@ -450,7 +450,7 @@ export class OrdersService {
           select: { deliveryId: true, status: true, serviceData: true },
         })
       : [];
-    const readyJobs = new Set(reports.filter((r: any) => r.status === 'completed' || (r.serviceData as any)?.uploaded === true).map((r: any) => r.deliveryId));
+    const readyJobs = new Set(reports.filter((r: any) => !(r.serviceData as any)?.deletedAt && (r.status === 'completed' || (r.serviceData as any)?.uploaded === true)).map((r: any) => r.deliveryId));
     const docView = (d: any) => ({ id: d.id, name: d.name, type: d.type, status: d.status, templateId: d.documentTemplateId });
     return (o: any, jobs: any[]) => {
       const live = jobs.filter((j) => j.status !== 'cancelled');
@@ -812,7 +812,7 @@ export class OrdersService {
           })
         : []),
       ...doReports,
-    ];
+    ].filter((r) => !(r.serviceData as any)?.deletedAt);
     return rows.map((r) => {
       const sd = (r.serviceData as Record<string, any> | null) ?? {};
       return {

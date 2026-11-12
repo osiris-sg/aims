@@ -43,6 +43,7 @@ import ReportPhotos from "@/components/maintenance/ReportPhotos";
 import CustomerSignLinkButton from "../_components/CustomerSignLinkButton";
 import WctReportView from "../_components/WctReportView";
 import PhotosFileControls, { type PhotosFile } from "../_components/PhotosFileControls";
+import ReportEditActions, { ReportHistory } from "../_components/ReportEditActions";
 import ReportFileView, { type ReportFileHandle } from "@/components/maintenance/ReportFileView";
 import { fetchServiceReportFile, reportFileStem, saveBlob } from "@/helpers/serviceReportFileBlob";
 import { msrStatusChip } from "@/helpers/msrStatus";
@@ -292,6 +293,8 @@ export default function MaintenanceReportDetailPage() {
           Back to list
         </Button>
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+          {/* Manual order flow (2026-11-13): edit / replace / delete (renders nothing elsewhere). */}
+          <ReportEditActions report={report as any} isUploaded={isUploaded} />
           {/* Invoice action — three mutually exclusive states. */}
           {report.paymentRequired && !report.invoiceDocument && (
             <Button
@@ -640,6 +643,7 @@ export default function MaintenanceReportDetailPage() {
           .msr-signatures { break-before: auto; }
         }
       `}</style>
+      <ReportHistory history={(sd as any).history} />
     </Box>
   );
 }
