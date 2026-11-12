@@ -2080,9 +2080,10 @@ export class DocumentsService {
         await isManualOrderFlow(this.prisma, organizationId),
       );
       if (!documentTypesExcludedFromInventory.includes(dto.type) && !doFirstOrderDo && dto.config && Array.isArray(dto.config.items)) {
-        // Validate that all items have inventoryItemId
+        // PHYSICAL items only — a service row has no unit to point at
+        // (guru 2026-11-12). Same rule as the project-assignment block below.
         const itemsWithoutInventory = dto.config.items.filter(
-          (_item) => !_item.inventoryItemId || _item.inventoryItemId.trim() === ''
+          (_item) => !_item.isService && (!_item.inventoryItemId || _item.inventoryItemId.trim() === '')
         );
 
         if (itemsWithoutInventory.length > 0) {
@@ -2907,7 +2908,7 @@ export class DocumentsService {
           // rather than stock (guru 2026-11-12).
           if (!['QO1', 'QUOTATION', 'QT', 'QO', 'CREDIT_NOTE', 'CN', 'DEBIT_NOTE', 'DN'].includes(dto.type)) {
             const itemsWithoutInventory = dto.config.items.filter(
-              (_item: any) => !_item.inventoryItemId || _item.inventoryItemId.trim() === ''
+              (_item: any) => !_item.isService && (!_item.inventoryItemId || _item.inventoryItemId.trim() === '')
             );
 
             if (itemsWithoutInventory.length > 0) {
