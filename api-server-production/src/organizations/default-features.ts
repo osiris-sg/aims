@@ -199,6 +199,13 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // reads Invoiced → Paid → Closed (paid + service report on the order).
   // Default OFF; WCT only.
   enableWctOrderInvoice: false,
+  // WCT vehicles (2026-11-12): a Vehicles tab after Orders with the vans and
+  // lorries (number, model, COE and lifespan expiry) and each one's usage &
+  // repair log (driver, start / end date and mileage, damage or repair and its
+  // approval), printed as the paper form; COE / lifespan bells at 90 and 30
+  // days. Office users only (vehicles:read / update / approve). Default OFF;
+  // WCT (S) Systems only.
+  enableWctVehicles: false,
   // Custom job fields (2026-11-01, Phase 6): the org's admins define their own
   // fields on jobs (Settings → Job fields: yes/no, text, date, file upload,
   // link; icon + colours) — filled on the schedule / edit job form and the

@@ -26,6 +26,7 @@ import { useConfiguration } from "../../context/ConfigurationContext";
 import { useUserPermissions } from "../../hooks/useUserPermissions";
 import { useOrganizationFeatures } from "../../hooks/useOrganizationFeatures";
 import { LEGACY_MODULES, getGuide, guideCatalog, type Guide } from "./guides";
+import { canVehicles } from "@/helpers/wctVehicles";
 import TourOverlay from "./TourOverlay";
 
 // "AIMS Guide" — floating assistant bubble on the bottom-right of every portal
@@ -74,7 +75,7 @@ const SUGGESTIONS = [
 export default function GuideAssistant() {
   const { getToken } = useAuth();
   const { modules } = useConfiguration();
-  const { isModuleAllowed, userRoles } = useUserPermissions();
+  const { isModuleAllowed, userRoles, hasPermission } = useUserPermissions();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -86,7 +87,7 @@ export default function GuideAssistant() {
 
   // Flag-injected submenus the sidebar adds on top of the stored module config
   // (DynamicSidebarContent): the assistant must see them too.
-  const { isMaintenanceDatesEnabled } = useOrganizationFeatures();
+  const { isMaintenanceDatesEnabled, isWctVehiclesEnabled } = useOrganizationFeatures();
 
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -170,6 +171,11 @@ export default function GuideAssistant() {
             };
           });
 
+        // WCT Vehicles: a menu entry of its own (helpers/wctNav.ts), not a stored module.
+        if (isWctVehiclesEnabled && canVehicles(userRoles, hasPermission, "read")) {
+          accessibleModules.push({ code: "VEHICLES", label: "Vehicles", route: "/portal/vehicles", subMenus: [] });
+        }
+
         const context = {
           currentPath: pathname,
           modules: accessibleModules,
@@ -224,7 +230,7 @@ export default function GuideAssistant() {
         setLoading(false);
       }
     },
-    [loading, turns, getToken, pathname, modules, runAction, isModuleAllowed, isAdminUser, isMaintenanceDatesEnabled],
+    [loading, turns, getToken, pathname, modules, runAction, isModuleAllowed, isAdminUser, isMaintenanceDatesEnabled, isWctVehiclesEnabled, hasPermission, userRoles],
   );
 
   return (

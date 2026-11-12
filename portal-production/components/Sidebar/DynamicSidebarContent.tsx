@@ -47,7 +47,8 @@ import { usePathname } from "next/navigation";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
-import { menuOrderOverride, wctMenuModule } from "@/helpers/wctNav";
+import { menuOrderOverride, vehiclesNavModule, wctMenuModule } from "@/helpers/wctNav";
+import { canVehicles } from "@/helpers/wctVehicles";
 import { getListRouteFromPathname } from "@/app/portal/components/documentRoutes";
 import { useSidebar } from "./SidebarContext";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
@@ -86,14 +87,14 @@ export default function DynamicSidebarContent() {
   const theme = useTheme();
   const rawPathname = usePathname();
   const { modules, loading, error, isModuleEnabled } = useConfiguration();
-  const { isModuleAllowed, userRoles } = useUserPermissions();
+  const { isModuleAllowed, userRoles, hasPermission } = useUserPermissions();
   // adminOnly submenus (e.g. Accounting → Posting Queue) show only for
   // superadmin/Admin roles. Empty-roles fallback mirrors isModuleAllowed —
   // the backend still enforces real permissions on the page itself.
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
-  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isBusinessRulesEnabled, isPayablesEnabled, isLegacyAccountingUxEnabled, isHotkeysEnabled } = useOrganizationFeatures();
+  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isLegacyAccountingUxEnabled, isHotkeysEnabled } = useOrganizationFeatures();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
   const navLang = useUiLang().lang;
@@ -281,7 +282,10 @@ export default function DynamicSidebarContent() {
     ;
   // Round AM: "Clients" right after Sales for orgs whose menu has the SHIPMENTS module (same rule as the top bar).
   const salesModule = builtModules.find((m: any) => m.moduleCode === 'SHIPMENTS');
-  const enabledModules = [...builtModules, ...(salesModule ? [clientsNavModule(navLang, orderKey(salesModule)) as any] : [])]
+  // WCT: Vehicles right after Orders (helpers/wctNav.ts), for vehicles:read holders.
+  const ordersModule = builtModules.find((m: any) => m.moduleCode === 'ORDERS');
+  const vehiclesModule = isWctVehiclesEnabled && canVehicles(userRoles, hasPermission, 'read') ? [vehiclesNavModule(ordersModule ? orderKey(ordersModule) : 0.6) as any] : [];
+  const enabledModules = [...builtModules, ...(salesModule ? [clientsNavModule(navLang, orderKey(salesModule)) as any] : []), ...vehiclesModule]
     .sort((a, b) => orderKey(a) - orderKey(b));
 
   // Resolve the URL for a single submenu key — same rules used when rendering

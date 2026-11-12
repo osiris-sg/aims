@@ -17,6 +17,23 @@ export function wctMenuModule<M extends { moduleCode?: string; displayName?: str
   return isWct && m.moduleCode === "DELIVERIES" ? { ...m, displayName: "Jobs" } : m;
 }
 
+/**
+ * WCT Vehicles (enableWctVehicles, 2026-11-12): a menu entry of its own right
+ * after Orders, shown to users holding vehicles:read. Not a stored module, so
+ * no org needs a module row for it.
+ */
+export const VEHICLES_PATH = "/portal/vehicles";
+export function vehiclesNavModule(afterSortOrder: number) {
+  return {
+    moduleCode: "VEHICLES",
+    displayName: "Vehicles",
+    enabled: true,
+    icon: "LocalShipping",
+    sortOrder: afterSortOrder + 0.05,
+    config: { route: VEHICLES_PATH },
+  };
+}
+
 /** The Jobs page (WCT): /portal/deliveries, optionally on one status tab. */
 export const JOBS_PATH = "/portal/deliveries";
 export const jobsHref = (state?: string | null) => (state ? `${JOBS_PATH}?status=${state}` : JOBS_PATH);

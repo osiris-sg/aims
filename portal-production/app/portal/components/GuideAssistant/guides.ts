@@ -222,7 +222,36 @@ export const GUIDES: Guide[] = [
       'How to issue a credit note against a customer or invoice: where Credit Notes live and how to create and confirm one.',
   }),
   {
+    id: 'wct-vehicle-usage',
+    module: 'VEHICLES',
+    title: 'Log a vehicle usage',
+    description:
+      'WCT Vehicles: record a driver taking a van or lorry (Start usage) and bringing it back (End usage), log damage or a repair, and print the Vehicle / Lorry Usage & Repair Form. Starts from the Vehicles list; a vehicle must exist (Add vehicle) first.',
+    route: '/portal/vehicles',
+    steps: [
+      {
+        route: '/portal/vehicles',
+        selector: '[data-tour="vehicles-add"]',
+        title: 'Your vehicles',
+        body: 'Each row is a van or lorry with its current driver, last mileage and COE / lifespan expiry (amber from 90 days before). Add vehicle adds a new one. Click a row to open its log.',
+      },
+      {
+        title: 'Start usage',
+        body: 'On the vehicle page, Start usage records the driver (pick a WCT user or type a name), the start date and the mileage. While it is in use the button reads End usage, for the end date and mileage.',
+      },
+      {
+        title: 'Damage and repairs',
+        body: 'In a log row, the three dots have Log damage or repair. An admin approves the repair there; it is then locked until an admin unlocks it with a reason.',
+      },
+      {
+        title: 'The paper form',
+        body: 'Print / Export prints the Vehicle / Lorry Usage & Repair Form or saves it as a PDF, with every usage row and blank rows to fill by hand.',
+      },
+    ],
+  },
+  {
     id: 'upload-service-report',
+    module: 'MAINTENANCE',
     title: 'Upload a service report you already have',
     description:
       'File an EXISTING service report (a PDF or a photo / scan of the paper) on Service Reports, and attach a photos file to any report. NOT for writing a new report from scratch (that is done in the SiteJobs field app).',

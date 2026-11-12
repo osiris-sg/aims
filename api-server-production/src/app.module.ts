@@ -67,6 +67,7 @@ import { JobPhotosModule } from './job-photos/job-photos.module';
 import { SiteClockDeliveryModule } from './siteclock-delivery/siteclock-delivery.module';
 import { DeliveryGroupPostsModule } from './delivery-group-posts/delivery-group-posts.module';
 import { MaintenanceSchedulesModule } from './maintenance-schedules/maintenance-schedules.module';
+import { VehiclesModule } from './vehicles/vehicles.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AskModule } from './ask/ask.module';
 import { AnomaliesModule } from './anomalies/anomalies.module';
@@ -149,6 +150,7 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
     SiteClockDeliveryModule, // SiteClock worker delivery API (enableSiteClockDeliveries)
     DeliveryGroupPostsModule,
     MaintenanceSchedulesModule,
+    VehiclesModule,
     NotificationsModule,
     AskModule,
     DocumentAssistantModule,

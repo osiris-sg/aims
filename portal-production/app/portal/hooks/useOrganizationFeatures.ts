@@ -27,6 +27,7 @@ interface OrganizationFeatures {
   enableWctMyJobs?: boolean;
   enableWctFinishModes?: boolean;
   enableWctOrderInvoice?: boolean;
+  enableWctVehicles?: boolean;
   enableJobFields?: boolean;
   // Office-signed delivery orders (2026-11-05): a DO raised in the office, with
   // no field run behind it, can be shared for the customer to sign.
@@ -241,6 +242,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableWctOrders: false,
   // WCT worker logins (2026-11-01): field app "My jobs"; starting someone
   // else's job asks first. Default OFF.
+  // WCT vehicles (2026-11-12): Vehicles tab after Orders, usage & repair log. Default OFF.
+  enableWctVehicles: false,
   enableWctMyJobs: false,
   // WCT finish modes (2026-11-01): stamped-DO photo / paper finish, verified by
   // the office (Deliveries → Awaiting verification). Default OFF.
@@ -335,6 +338,7 @@ export function useOrganizationFeatures() {
     isWctMyJobsEnabled: features.enableWctMyJobs ?? false,
     isWctFinishModesEnabled: features.enableWctFinishModes ?? false,
     isWctOrderInvoiceEnabled: features.enableWctOrderInvoice ?? false,
+    isWctVehiclesEnabled: features.enableWctVehicles ?? false,
     isJobFieldsEnabled: features.enableJobFields ?? false,
     isOfficeDoSignEnabled: features.enableOfficeDoSign ?? false,
     isContraOffsetEnabled: features.enableContraOffset ?? false,

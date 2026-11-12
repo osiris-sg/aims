@@ -297,6 +297,7 @@ export function exportReportCsv(model: ReportExportModel) {
 export function ReportPrintExportButton({
   getModel,
   onPrint,
+  onSavePdf,
   onExportCsv,
   size = "small",
   variant = "outlined",
@@ -307,6 +308,8 @@ export function ReportPrintExportButton({
   withEmail?: boolean;
   /** override for Print — e.g. a paper page's window.print(), or the GL home's filter dialog */
   onPrint?: () => void;
+  /** override for Save as PDF: a paper document the server draws (e.g. the WCT vehicle usage form) */
+  onSavePdf?: () => void;
   /** per-report CSV override (richer than the generic model, e.g. full-range CSVs) */
   onExportCsv?: () => void;
   size?: "small" | "medium";
@@ -357,7 +360,16 @@ export function ReportPrintExportButton({
           <ListItemIcon><PrintOutlinedIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Print</ListItemText>
         </MenuItem>
-        <MenuItem onClick={() => run((m) => exportReportPdf(m))}>
+        <MenuItem
+          onClick={() => {
+            if (onSavePdf) {
+              setAnchor(null);
+              onSavePdf();
+            } else {
+              run((m) => exportReportPdf(m));
+            }
+          }}
+        >
           <ListItemIcon><PictureAsPdfOutlinedIcon fontSize="small" /></ListItemIcon>
           <ListItemText>Save as PDF</ListItemText>
         </MenuItem>

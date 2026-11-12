@@ -143,6 +143,9 @@ const VERB_ACTIONS: Record<string, string> = {
   // payment(s) for open invoices/bills and reconciles the line.
   settle: 'SETTLE',
   'log-edit-unlock': 'UNLOCK',
+  // WCT Vehicles (2026-11-12): an admin unlocks an approved repair (reason in the body); a vehicle is archived / restored.
+  // Also makes the period-close POST /close/unlock read UNLOCK instead of CREATE.
+  unlock: 'UNLOCK', archive: 'ARCHIVE',
   // Schedule assistant (CIEL): POST .../schedule/assist parses only (no writes);
   // .../schedule/assist/apply performs the approved changes. Same shape for
   // the Work Library price-list import (parse → apply).

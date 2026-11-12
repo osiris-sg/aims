@@ -588,3 +588,55 @@ model IdempotencyRecord {
 
   @@index([organizationId, createdAt])
 }
+
+// WCT VEHICLES (enableWctVehicles, 2026-11-12): the company's vans and lorries
+// and their "Vehicle / Lorry Usage & Repair Form", kept by the office. Not an
+// Asset (those are the sales catalogue and its stock units). Platform model in
+// per-org dev tenancy. Plain indexes only; "one open usage per vehicle" is a
+// service rule.
+model Vehicle {
+  id             String         @id @default(uuid())
+  organizationId String
+  vehicleNo      String // e.g. GBD1126U
+  model          String? // e.g. Nissan NV350 Panel Van
+  coeExpiry      DateTime? // date only (UTC midnight)
+  lifespanExpiry DateTime? // date only (UTC midnight)
+  // Optional link to the accounting register (FixedAsset.id); nothing posts from here.
+  fixedAssetId   String?
+  notes          String?
+  archivedAt     DateTime?
+  createdBy      String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  usages         VehicleUsage[]
+
+  @@index([organizationId])
+}
+
+// One row of the paper form: who drove it, from when / what mileage to when /
+// what mileage, and any damage, issue or repair with its approval.
+model VehicleUsage {
+  id                 String    @id @default(uuid())
+  organizationId     String
+  vehicleId          String
+  vehicle            Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  driverUserId       String? // an AIMS user of the org, or null with a typed driverName
+  driverName         String
+  startDate          DateTime // date only (UTC midnight)
+  startMileage       Int
+  endDate            DateTime?
+  endMileage         Int?
+  repairDetails      String? // damage / issue / repair details
+  repairLoggedAt     DateTime?
+  repairApprovedBy   String? // name as printed on the form
+  repairApprovedById String? // AIMS user id of the approver
+  repairApprovedAt   DateTime? // date only; set = approved and locked
+  // Every unlock: [{ at, byUserId, byName, reason, approvedBy, approvedAt }].
+  repairUnlocks      Json?
+  createdBy          String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([organizationId, vehicleId])
+  @@index([vehicleId, endDate])
+}
