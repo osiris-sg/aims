@@ -6,7 +6,7 @@
     "INVOICES": "請求書",
     "DOCUMENTS": "書類",
     "USER_MANAGEMENT": "ユーザー管理",
-    "AUDIT": "監査",
+    "AUDIT": "監査ログ",
     "INVENTORY": "在庫",
     "CUSTOMERS": "顧客",
     "SUPPLIERS": "仕入先",
@@ -61,6 +61,8 @@
   },
   "settings": {
     "company-profile": "会社情報",
+    "users": "ユーザー",
+    "audit": "監査ログ",
     "shipping": "出荷・書類",
     "customers": "顧客",
     "accounting-setup": "会計設定",

@@ -137,7 +137,9 @@ export const MODULE_CATALOG: CatalogModule[] = [
   },
   {
     moduleCode: 'AUDIT',
-    displayName: 'Audit',
+    // Shown as Org Settings → Audit Log since 2026-11-12 (the module itself
+    // left the menu, with User Management → Org Settings → Users).
+    displayName: 'Audit Log',
     icon: 'AnalyticsRounded',
     sortOrder: 9,
     defaultEnabled: true,

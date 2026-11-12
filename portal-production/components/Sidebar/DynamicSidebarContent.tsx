@@ -94,7 +94,7 @@ export default function DynamicSidebarContent() {
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
-  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isLegacyAccountingUxEnabled, isHotkeysEnabled } = useOrganizationFeatures();
+  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled } = useOrganizationFeatures();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
   const navLang = useUiLang().lang;
@@ -205,7 +205,9 @@ export default function DynamicSidebarContent() {
   // These now live under the "Master Files" hub (Organization Settings), so hide
   // their standalone sidebar entries here. Routes still work — this is display
   // only, avoiding per-org catalog/DB churn.
-  const HIDDEN_MODULES = new Set<string>(['CUSTOMERS', 'SUPPLIERS']);
+  // User Management and Audit left the menu for every org (guru 2026-11-12):
+  // they sit under Organization Settings as Users / Audit Log (below).
+  const HIDDEN_MODULES = new Set<string>(['CUSTOMERS', 'SUPPLIERS', 'USER_MANAGEMENT', 'AUDIT']);
   // Submenu keys to hide per module (also moved into Master Files).
   const HIDDEN_SUBMENUS: Record<string, string[]> = {
     INVENTORY: ['products', 'list'], // Products + Inventory Items → Master Files
@@ -270,9 +272,6 @@ export default function DynamicSidebarContent() {
       if (
         m.moduleCode === 'ACCOUNTING' &&
         isPayablesEnabled &&
-        // Payables orgs land on the sheet AT Accounts Payable — the extra menu
-        // entry only earns its place when the legacy home occupies that landing.
-        isLegacyAccountingUxEnabled &&
         !filtered.some((s: any) => (typeof s === 'string' ? s : s?.key) === 'monthly-payables')
       ) {
         filtered.push({ key: 'monthly-payables', label: 'Monthly Payables' });
@@ -476,6 +475,8 @@ export default function DynamicSidebarContent() {
   // Accounting Setup is hidden only for trade orgs (SHIPMENTS on, ACCOUNTING
   // off). Mirrored in useNavModules' settingsMenu (top bar + chat home).
   const accountingSetupShown = showAccountingSetup(isModuleEnabled);
+  // Module-backed Org Settings entries: the org has the module on and the role may open it.
+  const settingsModuleOn = (code: string) => modules.some((m: any) => m.moduleCode === code && m.enabled) && isModuleAllowed(code);
 
   // Secondary items (Settings, etc.) — supports nested submenus like main modules
   const secondaryItems: Array<{
@@ -491,6 +492,8 @@ export default function DynamicSidebarContent() {
       icon: 'SettingsRounded',
       subMenus: [
         { key: 'company-profile', label: 'Company Profile', path: '/portal/settings/company-profile' },
+        // Was the User Management module (guru 2026-11-12).
+        { key: 'users', label: 'Users', path: '/portal/user-management/users' },
         { key: 'shipping', label: 'Shipping & documents', path: '/portal/settings/shipping' },
         { key: 'customer-profiles', label: 'Customers', path: '/portal/settings/customers' },
         { key: 'accounting-setup', label: 'Accounting Setup', path: '/portal/settings/accounting-setup' },
@@ -500,7 +503,9 @@ export default function DynamicSidebarContent() {
         { key: 'masterfiles', label: 'Master Files', path: '/portal/masterfiles' },
         // Custom job fields (enableJobFields orgs only).
         { key: 'job-fields', label: 'Job fields', path: '/portal/settings/job-fields' },
-      ].filter((s) => (s.key !== 'accounting-setup' || accountingSetupShown) && (s.key !== 'business-rules' || isBusinessRulesEnabled) && (s.key !== 'hotkeys' || isHotkeysEnabled) && ((s.key !== 'shipping' && s.key !== 'customer-profiles') || showShippingSettings(isModuleEnabled)) && (s.key !== 'job-fields' || isJobFieldsEnabled))
+        // Was the Audit module (guru 2026-11-12: "audit should be called audit log").
+        { key: 'audit', label: 'Audit Log', path: '/portal/audit' },
+      ].filter((s) => (s.key !== 'users' || settingsModuleOn('USER_MANAGEMENT')) && (s.key !== 'audit' || settingsModuleOn('AUDIT')) && (s.key !== 'accounting-setup' || accountingSetupShown) && (s.key !== 'business-rules' || isBusinessRulesEnabled) && (s.key !== 'hotkeys' || isHotkeysEnabled) && ((s.key !== 'shipping' && s.key !== 'customer-profiles') || showShippingSettings(isModuleEnabled)) && (s.key !== 'job-fields' || isJobFieldsEnabled))
         .map((s) => ({ ...s, label: settingLabel(s) })),
     },
   ];

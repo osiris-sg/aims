@@ -30,7 +30,7 @@ import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import { useThemeMode } from "@/contexts/ThemeModeContext";
 import logo from "@/components/Sidebar/aims-logo.png";
-import { resolveSubmenuRoute, submenuLabel, useNavLabels, useNavModules } from "./useNavModules";
+import { resolveSubmenuRoute, submenuLabel, useNavLabels, useNavModules, isSettingsPath } from "./useNavModules";
 import { useTranslations } from "next-intl";
 import { HOME_VIEW_EVENT, closeAimee, openAimee, readHomeView, type HomeView } from "@/app/portal/chat/homeView";
 import AimeeFace from "@/app/portal/chat/AimeeFace";
@@ -351,10 +351,10 @@ export default function TopNavBar() {
             borderRadius: 0,
             whiteSpace: "nowrap",
             flexShrink: 0,
-            fontWeight: rawPathname.startsWith("/portal/settings") || rawPathname.startsWith("/portal/masterfiles") ? 700 : 500,
+            fontWeight: isSettingsPath(rawPathname) ? 700 : 500,
             fontSize: "0.8125rem",
             textTransform: "none",
-            boxShadow: rawPathname.startsWith("/portal/settings") || rawPathname.startsWith("/portal/masterfiles") ? "inset 0 -3px 0 #2f80ed" : "none",
+            boxShadow: isSettingsPath(rawPathname) ? "inset 0 -3px 0 #2f80ed" : "none",
             bgcolor: openMenu?.code === "ORG_SETTINGS" ? "rgba(255,255,255,0.08)" : "transparent",
             "&:hover": { bgcolor: "rgba(255,255,255,0.08)" },
           }}

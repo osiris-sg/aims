@@ -61,6 +61,8 @@
   },
   "settings": {
     "company-profile": "Company Profile",
+    "users": "Users",
+    "audit": "Audit Log",
     "shipping": "Shipping & documents",
     "customers": "Customers",
     "accounting-setup": "Accounting Setup",

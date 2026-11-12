@@ -18,7 +18,9 @@ import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helper
 import { clientsNavModule, visibleSalesSubmenus, withoutSalesMonthly } from "@/helpers/shipmentsNav";
 
 // Mirrors DynamicSidebarContent — keep the two in sync.
-const HIDDEN_MODULES = new Set<string>(["CUSTOMERS", "SUPPLIERS"]);
+// User Management and Audit left the menu for every org (guru 2026-11-12):
+// they are Org Settings → Users / Audit Log now (see settingsMenu below).
+const HIDDEN_MODULES = new Set<string>(["CUSTOMERS", "SUPPLIERS", "USER_MANAGEMENT", "AUDIT"]);
 const HIDDEN_SUBMENUS: Record<string, string[]> = {
   INVENTORY: ["products", "list"],
   // Accounting → Reports retired (guru 2026-10-24, top nav 2026-10-28): every
@@ -37,6 +39,8 @@ const ORDER_OVERRIDE: Record<string, number> = { SALES: 0.5 };
 // dropped only for trade orgs (showAccountingSetup), same as the sidebar.
 export const SETTINGS_MENU = [
   { label: "Company Profile", path: "/portal/settings/company-profile" },
+  // The org's people — was the User Management module (guru 2026-11-12); shown when the org has that module.
+  { label: "Users", path: "/portal/user-management/users" },
   { label: "Shipping & documents", path: "/portal/settings/shipping" },
   // Customer profiles (billing mode, port, trucks, templates) — Shipments orgs only.
   { label: "Customers", path: "/portal/settings/customers" },
@@ -48,7 +52,19 @@ export const SETTINGS_MENU = [
   { label: "Master Files", path: "/portal/masterfiles" },
   // Custom job fields (enableJobFields orgs only, filtered below).
   { label: "Job fields", path: "/portal/settings/job-fields" },
+  // Was the Audit module (guru 2026-11-12: "audit should be called audit log"); shown when the org has that module.
+  { label: "Audit Log", path: "/portal/audit" },
 ];
+
+/** Org Settings entries that belong to a module: shown only when the org has it on and the role may open it. */
+export const SETTINGS_MODULE_OF: Record<string, string> = {
+  "/portal/user-management/users": "USER_MANAGEMENT",
+  "/portal/audit": "AUDIT",
+};
+
+/** Is the page one of the Org Settings group (for the bar's highlight)? */
+export const isSettingsPath = (p: string) =>
+  p.startsWith("/portal/settings") || p.startsWith("/portal/masterfiles") || p.startsWith("/portal/user-management") || p.startsWith("/portal/audit");
 
 const ADMIN_ROLES = ["superadmin", "admin", "osirisadmin"];
 // Org administration is master-tier only (hierarchy access, guru 2026-09-25).
@@ -102,9 +118,11 @@ export function useNavModules() {
   const { modules, isModuleEnabled } = useConfiguration();
   const { isModuleAllowed, userRoles, hasPermission } = useUserPermissions();
   // Same rule as DynamicSidebarContent's Organization Settings group.
-  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isLegacyAccountingUxEnabled, isHotkeysEnabled } = useOrganizationFeatures();
+  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled } = useOrganizationFeatures();
+  const moduleOn = (code: string) => (modules || []).some((m: any) => m.moduleCode === code && m.enabled) && isModuleAllowed(code);
   const settingsMenu = SETTINGS_MENU.filter(
     (s) =>
+      (!SETTINGS_MODULE_OF[s.path] || moduleOn(SETTINGS_MODULE_OF[s.path])) &&
       (s.path !== "/portal/settings/accounting-setup" || showAccountingSetup(isModuleEnabled)) &&
       (s.path !== "/portal/settings/business-rules" || isBusinessRulesEnabled) &&
       (s.path !== "/portal/settings/hotkeys" || isHotkeysEnabled) &&
@@ -162,9 +180,6 @@ export function useNavModules() {
       if (
         m.moduleCode === "ACCOUNTING" &&
         isPayablesEnabled &&
-        // Payables orgs land on the sheet AT Accounts Payable — the extra menu
-        // entry only earns its place when the legacy home occupies that landing.
-        isLegacyAccountingUxEnabled &&
         !filtered.some((s: any) => (typeof s === "string" ? s : s?.key) === "monthly-payables")
       ) {
         filtered.push({ key: "monthly-payables", label: "Monthly Payables" });
