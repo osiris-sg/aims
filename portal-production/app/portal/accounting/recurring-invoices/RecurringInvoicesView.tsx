@@ -123,7 +123,14 @@ function tokenizeText(str: string, d: Date): string {
     .replace(new RegExp(`\\b${month}\\b`, "gi"), "{MONTH}");
 }
 
-type Row = { description: string; quantity: number; unitPrice: number; accountCode?: string };
+type Row = { description: string; quantity: number | string | null; unitPrice: number | string | null; accountCode?: string };
+
+/** A description-only line keeps qty/price BLANK, never 0/1 — the print
+ *  convention (guru 2026-09-03, still leaking through in 2026-11-12). Every
+ *  path in and out of the grid goes through this; `Number("")` is 0, so a
+ *  plain coercion silently refills the zeroes the user just cleared. */
+const blankNum = (v: any): number | null =>
+  v === null || v === undefined || String(v).trim() === "" ? null : Number(v);
 type Template = {
   id: string; name: string; customerId: string; frequency: string; nextRunDate: string;
   endDate?: string | null; autoSend: boolean; isActive: boolean; lastRunAt?: string | null; lastRunDocumentId?: string | null; nextRunNo?: number; code?: string | null;
@@ -264,8 +271,8 @@ export default function RecurringInvoicesView() {
         );
         const rows: Row[] = seedItems.map((it: any) => ({
           description: tokenizeText(String(it.description || ""), seedDate).replace(/(\d{1,3})(st|nd|rd|th)(\s+mth)/gi, "{NTH}$3"),
-          quantity: Number(it.quantity) || 1,
-          unitPrice: Number(it.unitPrice ?? it.price) || 0,
+          quantity: blankNum(it.quantity) ?? "",
+          unitPrice: blankNum(it.unitPrice ?? it.price) ?? "",
           accountCode: it.accountCode || (it.inventoryItemId && itemAccounts.get(it.inventoryItemId)) || "",
         }));
         // Rental month counter: seed text like "17th mth" → {NTH} token, and
@@ -379,10 +386,8 @@ export default function RecurringInvoicesView() {
         items: form.items.filter((r: Row) => r.description.trim()).map((r: Row, idx: number) => {
           // Description-only lines keep BLANK qty/price/amount (null) — the
           // print convention; coercing to 1/0/0 flattened them (guru 2026-09-03).
-          const qBlank = r.quantity === null || r.quantity === undefined || String(r.quantity).trim() === "";
-          const pBlank = r.unitPrice === null || r.unitPrice === undefined || String(r.unitPrice).trim() === "";
-          const qty = qBlank ? null : Number(r.quantity);
-          const up = pBlank ? null : Number(r.unitPrice);
+          const qty = blankNum(r.quantity);
+          const up = blankNum(r.unitPrice);
           const priced = up != null && up !== 0;
           const prevItem: any = (editing?.config?.items || [])[idx] || {};
           return {
@@ -606,8 +611,8 @@ export default function RecurringInvoicesView() {
                     {form.items.map((r: Row, i: number) => (
                       <TableRow key={i}>
                         <TableCell><TextField fullWidth size="small" multiline maxRows={6} value={r.description} placeholder="Services for {MONTH YEAR}" onFocus={() => { tokenTargetRef.current = { kind: "item", index: i }; }} onChange={(e) => setRow(i, { description: e.target.value })} /></TableCell>
-                        <TableCell><TextField size="small" type="number" value={r.quantity} onChange={(e) => setRow(i, { quantity: Number(e.target.value) })} /></TableCell>
-                        <TableCell><TextField size="small" type="number" value={r.unitPrice} onChange={(e) => setRow(i, { unitPrice: Number(e.target.value) })} /></TableCell>
+                        <TableCell><TextField size="small" type="number" value={r.quantity ?? ""} onChange={(e) => setRow(i, { quantity: e.target.value === "" ? "" : Number(e.target.value) })} /></TableCell>
+                        <TableCell><TextField size="small" type="number" value={r.unitPrice ?? ""} onChange={(e) => setRow(i, { unitPrice: e.target.value === "" ? "" : Number(e.target.value) })} /></TableCell>
                         <TableCell>
                           <Autocomplete
                             size="small"
@@ -801,9 +806,12 @@ export default function RecurringInvoicesView() {
                 .filter((r: Row) => r.description.trim())
                 .map((r: Row) => ({
                   description: resolveText(r.description, previewDate, Number(form.nextRunNo) || 1),
-                  quantity: Number(r.quantity) || 1,
-                  unitPrice: Number(r.unitPrice) || 0,
-                  amount: (Number(r.quantity) || 1) * (Number(r.unitPrice) || 0),
+                  quantity: blankNum(r.quantity),
+                  unitPrice: blankNum(r.unitPrice),
+                  amount:
+                    blankNum(r.unitPrice) != null && blankNum(r.unitPrice) !== 0
+                      ? Math.round((blankNum(r.quantity) ?? 1) * (blankNum(r.unitPrice) as number) * 100) / 100
+                      : blankNum(r.quantity) != null ? 0 : null,
                 })),
               notes: resolveText(form.notes || "", previewDate, Number(form.nextRunNo) || 1),
               date: form.nextRunDate,
