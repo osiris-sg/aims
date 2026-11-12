@@ -349,7 +349,8 @@ export class PublicDocumentService {
       const d = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { status: true, config: true } });
       if (!d || String(d.status).startsWith('delivered') || (d.config as any)?.cancelled === true) return;
       const c: any = d.config || {};
-      if ((c.items ?? []).some((it: any) => it?.assetId)) return; // product lines are completed on a job
+      // Product lines: their units were picked and reserved at Complete DO (sign link); a line without one waits.
+      if ((c.items ?? []).some((it: any) => it?.assetId && !it.inventoryItemId)) return;
       await this.prisma.document.update({ where: { id: documentId }, data: { config: { ...c, awaitingSignature: false, completionMode: c.completionMode ?? 'sign_link' } } });
       await this.documentsService.bulkCompleteDeliveryOrder(documentId, organizationId);
       await refreshOrderStatus(this.prisma, organizationId, orderId);

@@ -132,6 +132,7 @@ import BorderColorIcon from "@mui/icons-material/BorderColor";
 import QuotationSignLinkDialog from "./QuotationSignLinkDialog";
 import SignLinkDialog from "@/app/portal/sales/quotations/id/_components/SignLinkDialog";
 import SendForSignatureButton from "@/app/portal/sales/quotations/id/_components/SendForSignatureButton";
+import DoOrderToolbar from "@/components/delivery/DoOrderToolbar";
 import { usesCielSignFlow } from "@/helpers/signLinkWording";
 import { useDocumentLock } from "@/app/portal/hooks/useDocumentLock";
 import { toast } from "react-toastify";
@@ -738,6 +739,8 @@ export default function TabbedDocumentCreator({
   const isStockAdjustmentOut = documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_OUT";
   const isStockAdjustment = isStockAdjustmentIn || isStockAdjustmentOut;
   const isDeliveryOrder = documentType === "DO" || documentType === "DELIVERY_ORDER";
+  // DO first: a saved DO that belongs to an order in the manual order flow.
+  const doOnOrder = isDeliveryOrder && !!isManualOrderFlowEnabled && !!(existingData as any)?.id && !!((existingData as any)?.config?.orderId);
   // Return Delivery Order. Documents genuinely carry the canonical
   // RETURN_DELIVERY_ORDER type (not just the "RDO" variant), so every RDO-only
   // render branch matches BOTH: the editor tracks reality rather than relying on
@@ -4634,8 +4637,18 @@ export default function TabbedDocumentCreator({
               {isStockAdjustmentIn ? "Confirm Stock Adjustment In" : "Confirm Stock Adjustment Out"}
             </Button>
           )}
+          {/* Manual order flow, DO first (2026-11-13): a DO on an order gets the order toolbar (Complete DO, sign link,
+              Add job, Add service report, back to the order) instead of Confirm Delivery Order. */}
+          {doOnOrder && !isTemplateEditMode && (
+            <DoOrderToolbar
+              documentId={(documentId || (existingData as any)?.id) as string}
+              doName={(existingData as any)?.name ?? null}
+              status={documentStatus}
+              config={(existingData as any)?.config ?? formData}
+            />
+          )}
           {/* Confirm button for Delivery Orders */}
-          {!isDocumentConfirmedStatus && !isTemplateEditMode && isDeliveryOrder && (
+          {!isDocumentConfirmedStatus && !isTemplateEditMode && isDeliveryOrder && !doOnOrder && (
             <Button
               data-tour="editor-confirm"
               data-hotkey="confirm"

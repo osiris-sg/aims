@@ -162,7 +162,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
     else if (open === "send-report") setSendReportOpen(true);
     else if (open === "service-report") setSrChoose(true);
     else if (open === "complete-do") {
-      const d = ((order as any).deliveryOrders as OrderDo[] | undefined)?.find((x) => !x.completed && !x.awaitingSignature && !x.jobs.length && !x.hasProducts);
+      const d = ((order as any).deliveryOrders as OrderDo[] | undefined)?.find((x) => !x.completed);
       if (d) setCompleteDo(d);
     } else if (open === "sign-link") {
       const d = ((order as any).deliveryOrders as OrderDo[] | undefined)?.find((x) => x.awaitingSignature && !x.jobs.length);
@@ -247,7 +247,8 @@ export default function WctOrderDetail({ id }: { id: string }) {
   // DO first: the order's DOs; the first one completable on its own (no job, no product line).
   const dos: OrderDo[] = (order as any).deliveryOrders ?? [];
   const doFirst = !!(order as any).manualFlow && dos.length > 0;
-  const openDo = dos.find((d) => !d.completed && !d.awaitingSignature && !d.jobs.length && !d.hasProducts) ?? null;
+  // Complete DO works on any open DO, with or without a job (the server takes the job's way when it has one).
+  const openDo = dos.find((d) => !d.completed) ?? null;
   const awaitingDo = dos.find((d) => d.awaitingSignature && !d.jobs.length) ?? null;
   const addJobForDo = async (d: OrderDo) => {
     try {
@@ -267,7 +268,12 @@ export default function WctOrderDetail({ id }: { id: string }) {
     const t = hubActionTarget(key, {
       orderId: order.id,
       quotationHref: q ? `/portal/documents/${q.type}/${q.documentTemplateId}/${q.id}` : null,
-      doHref: firstDo ? `/portal/documents/DELIVERY_ORDER/${(firstDo as any).templateId}/${firstDo.id}` : null,
+      // DO first: View DO opens the order's first open DO (else its last one).
+      doHref: doFirst
+        ? ((d) => (d?.templateId ? `/portal/documents/DELIVERY_ORDER/${d.templateId}/${d.id}` : null))(dos.find((d) => !d.completed) ?? dos[dos.length - 1])
+        : firstDo
+          ? `/portal/documents/DELIVERY_ORDER/${(firstDo as any).templateId}/${firstDo.id}`
+          : null,
       invoiceHref: ((draftInvoice ?? lastInvoice) as any)?.href ?? null,
       draftJobId: liveJobs.find((j) => j.isDraft)?.id ?? null,
       scheduledJobId: liveJobs.find((j) => !j.isDraft && j.status !== "completed")?.id ?? null,
@@ -374,6 +380,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
           onClose={() => setCompleteDo(null)}
           deliveryId=""
           doId={completeDo.id}
+          productSlots={(completeDo.products ?? []).map((p) => ({ assetId: p.assetId, name: p.name, quantity: 1 }))}
           jobLabel={completeDo.name || "the DO"}
           defaultName={(order as any).customer?.name ?? null}
           onDone={(mode) => {

@@ -608,6 +608,10 @@ export class OrdersService {
           awaitingSignature: !completed && c.awaitingSignature === true,
           invoiceId: c.orderInvoiceId && !String(c.orderInvoiceId).startsWith('claim:') ? c.orderInvoiceId : null,
           hasProducts: (Array.isArray(c.items) ? c.items : []).some((it: any) => it?.assetId),
+          // Product rows still without a unit (one per unit): Complete DO picks them.
+          products: (Array.isArray(c.items) ? c.items : [])
+            .filter((it: any) => it?.assetId && !it.inventoryItemId)
+            .map((it: any) => ({ assetId: it.assetId as string, name: String(it.description || it.itemCode || 'Product') })),
           jobs: onJobs.map((j) => ({ id: j.id, deliveryNumber: j.deliveryNumber, status: j.status, isDraft: j.isDraft, scheduledFor: j.scheduledFor, verificationState: j.verificationState })),
         };
       });

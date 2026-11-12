@@ -117,7 +117,10 @@ test("manual flow: Add service report opens the order's create / upload chooser"
 });
 
 test("DO first: Complete DO on a DO with no job, a job is optional", () => {
-  assert.deepEqual(hubNextStep({ status: "DO_DRAFT", doFirst: true }), { primary: "complete-do", secondary: "add-job" });
+  // DO steps open the DO (its toolbar completes it); no Add job beside the button.
+  assert.deepEqual(hubNextStep({ status: "DO_DRAFT", doFirst: true }), { primary: "view-do" });
+  assert.deepEqual(hubNextStep({ status: "DO_SCHEDULED", doFirst: true }), { primary: "view-do" });
+  assert.deepEqual(hubNextStep({ status: "AWAITING_VERIFICATION", doFirst: true, awaitingDo: true }), { primary: "view-do" });
   assert.deepEqual(hubRowActions("DO_DRAFT", { doFirst: true }), ["view-order", "view-quotation", "view-do", "complete-do", "add-job", "cancel-order"]);
   const c = { orderId: "o1", manualFlow: true, openDoId: "d1", scheduledJobId: null };
   assert.deepEqual(hubActionTarget("complete-do", c), { dialog: "complete-do", doId: "d1" });

@@ -28,6 +28,8 @@ export interface OrderDo {
   awaitingSignature: boolean;
   invoiceId: string | null;
   hasProducts: boolean;
+  /** Product rows without a unit yet: Complete DO picks one unit each. */
+  products?: { assetId: string; name: string }[];
   jobs: { id: string; deliveryNumber: number; status: string; isDraft: boolean; scheduledFor?: string | null; verificationState?: string | null }[];
 }
 
@@ -83,7 +85,6 @@ export default function OrderDosSection({
     const r = await post(`/deliveries/order-dos/${d.id}/job`, "add the job");
     if (r?.id) router.push(`/portal/deliveries/${r.id}?open=schedule`);
   };
-  const openJob = (d: OrderDo) => d.jobs.find((j) => j.status !== "completed") ?? null;
 
   return (
     <Box sx={{ mb: 3 }} data-tour="wct-order-dos">
@@ -143,26 +144,22 @@ export default function OrderDosSection({
         </Typography>
       )}
 
+      {/* The DO's menu: View DO, Complete DO, Add job, Customer sign link, Add service report. */}
       <Menu open={!!menu} onClose={() => setMenu(null)} anchorReference="anchorPosition" anchorPosition={menu?.pos}>
-        {menu && !menu.d.completed && !menu.d.awaitingSignature && !menu.d.jobs.length && !menu.d.hasProducts && !cancelled && (
+        {menu && menu.d.templateId && (
+          <MenuItem onClick={() => { const d = menu.d; setMenu(null); router.push(`/portal/documents/DELIVERY_ORDER/${d.templateId}/${d.id}`); }}>View DO</MenuItem>
+        )}
+        {menu && !menu.d.completed && !cancelled && (
           <MenuItem onClick={() => { const d = menu.d; setMenu(null); onCompleteDo(d); }} data-tour="wct-order-complete-do">
             Complete DO
           </MenuItem>
         )}
-        {menu && !menu.d.completed && openJob(menu.d) && (
-          <MenuItem onClick={() => { const j = openJob(menu.d)!; setMenu(null); router.push(`/portal/deliveries/${j.id}?open=${j.isDraft ? "schedule" : "complete"}`); }}>
-            {openJob(menu.d)!.isDraft ? `Schedule job #${openJob(menu.d)!.deliveryNumber}` : `Complete on job #${openJob(menu.d)!.deliveryNumber}`}
-          </MenuItem>
-        )}
-        {menu && menu.d.awaitingSignature && (
+        {menu && !menu.d.completed && !cancelled && <MenuItem onClick={() => void addJob(menu.d)}>Add job</MenuItem>}
+        {menu && !menu.d.completed && !cancelled && (
           <MenuItem onClick={() => { const d = menu.d; setMenu(null); onSignLink(d); }}>Customer sign link</MenuItem>
         )}
-        {menu && !menu.d.completed && !cancelled && <MenuItem onClick={() => void addJob(menu.d)}>Add job</MenuItem>}
         {menu && !cancelled && (
           <MenuItem onClick={() => { const d = menu.d; setMenu(null); onServiceReport(d); }}>Add service report</MenuItem>
-        )}
-        {menu && menu.d.templateId && (
-          <MenuItem onClick={() => { const d = menu.d; setMenu(null); router.push(`/portal/documents/DELIVERY_ORDER/${d.templateId}/${d.id}`); }}>View DO</MenuItem>
         )}
       </Menu>
     </Box>

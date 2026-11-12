@@ -34,14 +34,15 @@ describe('Complete DO on a DO with no job (officeCompleteDo)', () => {
       organizationUIConfig: { findUnique: jest.fn(async () => ({ features: { enableWctOrders: true, enableManualOrderFlow: true } })) },
       document: { findFirst: jest.fn(async () => d), update: jest.fn(async (a: any) => writes.push(['doc', a])) },
       maintenanceServiceReport: { create: jest.fn(async (a: any) => writes.push(['proof', a])), findFirst: jest.fn(async () => null) },
-      deliveryItem: { findMany: jest.fn(async () => jobs.map((j) => ({ deliveryId: j.id }))) },
-      delivery: { findMany: jest.fn(async () => jobs) },
+      deliveryItem: { findMany: jest.fn(async () => jobs.map((j) => ({ deliveryId: j.id }))), updateMany: jest.fn(async (a: any) => (writes.push(['unlink', a]), { count: 1 })) },
+      delivery: { findMany: jest.fn(async () => jobs), update: jest.fn(async (a: any) => writes.push(['job', a])) },
       order: { findFirst: jest.fn(async () => null) },
     };
-    const documentsService: any = { bulkCompleteDeliveryOrder: jest.fn(async () => ({ success: true })), addAttachments: jest.fn(async () => undefined) };
+    const documentsService: any = { bulkCompleteDeliveryOrder: jest.fn(async () => ({ success: true })), addAttachments: jest.fn(async () => undefined), bindDoUnits: jest.fn(async () => ({ bound: 1 })) };
     const svc: any = Object.create(DeliveriesService.prototype);
-    Object.assign(svc, { prisma, documentsService, logger: { warn: jest.fn(), log: jest.fn() } });
-    return { svc: svc as DeliveriesService, writes, documentsService };
+    const officeCompleteJob = jest.fn(async (id: string) => ({ id }));
+    Object.assign(svc, { prisma, documentsService, officeCompleteJob, logger: { warn: jest.fn(), log: jest.fn() } });
+    return { svc: svc as DeliveriesService, writes, documentsService, officeCompleteJob };
   }
   const SIG = 'data:image/png;base64,iVBORw0KGgo=';
 
@@ -62,9 +63,39 @@ describe('Complete DO on a DO with no job (officeCompleteDo)', () => {
     expect(documentsService.bulkCompleteDeliveryOrder).not.toHaveBeenCalled();
   });
 
-  it('refuses a DO with a job, with product lines, completed or cancelled', async () => {
-    await expect(make(doc(), [{ id: 'j1' }]).svc.officeCompleteDo('org', 'd1', { mode: 'signature', signature: SIG, recipientName: 'A' }, {})).rejects.toThrow(/has a job/);
-    await expect(make(doc({ config: { items: [{ assetId: 'a1', description: 'Fan' }] } })).svc.officeCompleteDo('org', 'd1', { mode: 'sign_link' }, {})).rejects.toThrow(/product lines/);
+  it('product lines: the picked units are bound (and reserved) before the DO is completed, no job needed', async () => {
+    const units = [{ assetId: 'a1', inventoryId: 'u1' }];
+    const { svc, documentsService } = make(doc({ config: { items: [{ assetId: 'a1', description: 'UVC emitter' }] } }));
+    const out = await svc.officeCompleteDo('org', 'd1', { mode: 'signature', signature: SIG, recipientName: 'Lim', units }, { id: 'u' });
+    expect(out).toEqual({ id: 'd1', completed: true });
+    expect(documentsService.bindDoUnits).toHaveBeenCalledWith('d1', 'org', units);
+    expect(documentsService.bulkCompleteDeliveryOrder).toHaveBeenCalledWith('d1', 'org');
+    // A refused completion (no signature) reserves nothing.
+    const bad = make(doc({ config: { items: [{ assetId: 'a1', description: 'UVC emitter' }] } }));
+    await expect(bad.svc.officeCompleteDo('org', 'd1', { mode: 'signature', recipientName: 'Lim', units }, {})).rejects.toThrow(/sign in the box/);
+    expect(bad.documentsService.bindDoUnits).not.toHaveBeenCalled();
+  });
+
+  it('a DO whose job is scheduled: completed through that job (the job path, same body)', async () => {
+    const body = { mode: 'signature', signature: SIG, recipientName: 'A' };
+    const { svc, officeCompleteJob, documentsService } = make(doc(), [{ id: 'j1', deliveryNumber: 7, isDraft: false, status: 'scheduled' }]);
+    const out: any = await svc.officeCompleteDo('org', 'd1', body, { id: 'u' });
+    expect(officeCompleteJob).toHaveBeenCalledWith('j1', 'org', { id: 'u' }, body);
+    expect(out).toMatchObject({ id: 'd1', completed: true, viaJob: 7 });
+    expect(documentsService.bulkCompleteDeliveryOrder).not.toHaveBeenCalled();
+  });
+
+  it('a DO whose only job is an unscheduled draft (ORD202611-007): the draft is cancelled and unlinked, the DO completed', async () => {
+    const { svc, writes, documentsService, officeCompleteJob } = make(doc(), [{ id: 'j7', deliveryNumber: 7, isDraft: true, status: 'scheduled' }]);
+    const out = await svc.officeCompleteDo('org', 'd1', { mode: 'signature', signature: SIG, recipientName: 'A' }, { id: 'u' });
+    expect(out).toEqual({ id: 'd1', completed: true });
+    expect(officeCompleteJob).not.toHaveBeenCalled();
+    expect(writes.find((w) => w[0] === 'unlink')[1]).toMatchObject({ where: { deliveryId: 'j7', documentId: 'd1' }, data: { documentId: null } });
+    expect(writes.find((w) => w[0] === 'job')[1].data.status).toBe('cancelled');
+    expect(documentsService.bulkCompleteDeliveryOrder).toHaveBeenCalledWith('d1', 'org');
+  });
+
+  it('refuses a DO completed or cancelled', async () => {
     await expect(make(doc({ status: 'delivered_installed' })).svc.officeCompleteDo('org', 'd1', { mode: 'sign_link' }, {})).rejects.toThrow(/already completed/);
     await expect(make(doc({ config: { cancelled: true } })).svc.officeCompleteDo('org', 'd1', { mode: 'sign_link' }, {})).rejects.toThrow(/cancelled/);
   });

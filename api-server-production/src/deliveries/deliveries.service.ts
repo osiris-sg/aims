@@ -1533,7 +1533,7 @@ export class DeliveriesService {
   async officeCompleteDo(
     organizationId: string,
     doId: string,
-    body: { mode?: string; signature?: string; recipientName?: string; files?: string[] },
+    body: { mode?: string; signature?: string; recipientName?: string; files?: string[]; units?: Array<{ assetId?: string; inventoryId?: string }> },
     actor: { id?: string; name?: string },
   ) {
     if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('Complete DO needs the manual order flow');
@@ -1544,12 +1544,38 @@ export class DeliveriesService {
     if (c.cancelled === true) throw new BadRequestException(`${label} is cancelled`);
     if (String(d.status).startsWith('delivered')) throw new BadRequestException(`${label} is already completed`);
     if (!c.orderId) throw new BadRequestException(`${label} is not on an order`);
-    if ((await this.jobsOnDo(organizationId, d.id)).length) throw new BadRequestException(`${label} has a job: complete it on the job`);
-    if ((Array.isArray(c.items) ? c.items : []).some((it: any) => it?.assetId)) {
-      throw new BadRequestException(`${label} has product lines: add a job to pick the units, then complete it on the job`);
+    // A DO with a job (2026-11-13): a scheduled / started job is completed the job's way (same dialog, same
+    // stock path); unscheduled draft jobs are placeholders, cancelled and unlinked when the DO is completed here.
+    const jobs = await this.jobsOnDo(organizationId, d.id);
+    const active = jobs.find((j) => !j.isDraft && j.status !== 'completed');
+    if (active) {
+      const r: any = await this.officeCompleteJob(active.id, organizationId, actor as any, body as any);
+      return { id: d.id, completed: true, viaJob: active.deliveryNumber, job: r?.id ?? active.id };
     }
+    const draftJobs = jobs.filter((j) => j.isDraft);
     const mode = body?.mode;
     if (mode !== 'signature' && mode !== 'stamped_do' && mode !== 'sign_link') throw new BadRequestException('Choose how the customer signs off');
+    // Inputs first, so a refused completion never leaves units reserved.
+    if (mode === 'signature') {
+      if (!/^data:image\/(png|jpeg);base64,/.test(String(body.signature ?? ''))) throw new BadRequestException('Ask the customer to sign in the box');
+      if (!String(body.recipientName ?? '').trim()) throw new BadRequestException("Enter the customer's name");
+    }
+    if (mode === 'stamped_do' && !(Array.isArray(body.files) ? body.files : []).some((k) => typeof k === 'string' && k.trim())) {
+      throw new BadRequestException('Choose the signed or stamped DO');
+    }
+    // Product lines (2026-11-13): the units picked in the dialog are bound to the DO's lines and reserved now;
+    // completing the DO moves them through the DO deduction (once). No job needed.
+    if (draftJobs.length) {
+      for (const j of draftJobs) {
+        await this.prisma.deliveryItem.updateMany({ where: { deliveryId: j.id, documentId: d.id }, data: { documentId: null } });
+        await this.prisma.delivery.update({ where: { id: j.id }, data: { status: 'cancelled', notes: `Not needed: ${label} was completed in the office.` } });
+      }
+    }
+    if ((Array.isArray(c.items) ? c.items : []).some((it: any) => it?.assetId && !it.inventoryItemId)) {
+      await this.documentsService.bindDoUnits(d.id, organizationId, body?.units ?? []);
+      const fresh = await this.prisma.document.findFirst({ where: { id: d.id, organizationId }, select: { config: true } });
+      Object.assign(c, (fresh?.config as any) ?? {});
+    }
     const now = new Date();
     const by = actor.name || actor.id || 'office';
     if (mode === 'signature') {

@@ -7674,6 +7674,47 @@ export class DocumentsService {
   }
 
   /** Manual order flow: a newly accepted quotation's job gets its draft DO + draft service report. Never throws. */
+  /**
+   * DO first (manual order flow, 2026-11-13): the office picks the units for a
+   * job-less DO's product lines (one row per unit). Each product row gets its
+   * unit (config.items[].inventoryItemId, so the DO's lines become unit rows),
+   * the unit is reserved (instock -> reserved, guarded), and the DO's items are
+   * re-synced. Completing the DO then moves them through the existing DO
+   * deduction, once per line (deductedAt). Rows already holding a unit are kept.
+   */
+  async bindDoUnits(documentId: string, organizationId: string, units: Array<{ assetId?: string; inventoryId?: string }>) {
+    const d = await this.prisma.document.findFirst({ where: { id: documentId, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, name: true, config: true } });
+    if (!d) throw new HttpException('DO not found', HttpStatus.NOT_FOUND);
+    const cfg: any = d.config || {};
+    const items: any[] = Array.isArray(cfg.items) ? cfg.items.map((it: any) => ({ ...it })) : [];
+    const slots = items.map((it, i) => ({ it, i })).filter((x) => x.it?.assetId && !x.it.inventoryItemId);
+    if (!slots.length) return { bound: 0 };
+    const picked = (Array.isArray(units) ? units : []).filter((u) => typeof u?.inventoryId === 'string' && u.inventoryId);
+    if (picked.length !== slots.length) throw new HttpException(`Pick a unit for every product line (${slots.length} needed)`, HttpStatus.BAD_REQUEST);
+    const ids = picked.map((u) => u.inventoryId as string);
+    if (new Set(ids).size !== ids.length) throw new HttpException('The same unit is picked twice', HttpStatus.BAD_REQUEST);
+    const invs = await this.prisma.inventory.findMany({ where: { id: { in: ids }, organizationId }, select: { id: true, assetId: true, status: true, sku: true, serialNumber: true } });
+    const pool = [...invs];
+    const assigned: Array<{ index: number; unit: (typeof invs)[number] }> = [];
+    for (const sl of slots) {
+      const k = pool.findIndex((u) => u.assetId === sl.it.assetId);
+      if (k < 0) throw new HttpException(`Pick a unit of ${sl.it.description || 'the product'} for ${d.name || 'the DO'}`, HttpStatus.BAD_REQUEST);
+      const [unit] = pool.splice(k, 1);
+      if (unit.status !== InventoryStatus.instock) throw new HttpException(`Unit ${unit.serialNumber || unit.sku} is not in stock`, HttpStatus.BAD_REQUEST);
+      assigned.push({ index: sl.i, unit });
+    }
+    await this.prisma.$transaction(async (tx) => {
+      for (const a of assigned) {
+        const r = await tx.inventory.updateMany({ where: { id: a.unit.id, organizationId, status: InventoryStatus.instock }, data: { status: InventoryStatus.reserved } });
+        if (r.count !== 1) throw new HttpException(`Unit ${a.unit.serialNumber || a.unit.sku} was just taken, pick another`, HttpStatus.CONFLICT);
+      }
+      for (const a of assigned) items[a.index] = { ...items[a.index], inventoryItemId: a.unit.id, serialNumber: a.unit.serialNumber ?? a.unit.sku };
+      await tx.document.update({ where: { id: d.id }, data: { config: { ...cfg, items } } });
+    });
+    await this.syncDocumentItems(d.id, { ...cfg, items }, organizationId);
+    return { bound: assigned.length };
+  }
+
   /** Manual order flow, DO first: the order's draft DO (see DeliveriesService.prepareManualOrderDo). */
   async prepareManualOrderDo(orderId: string, organizationId: string) {
     return this.deliveriesService.prepareManualOrderDo(orderId, organizationId);

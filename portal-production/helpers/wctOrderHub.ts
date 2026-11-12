@@ -147,13 +147,14 @@ export function hubNextStep(o: { status?: string | null; invoices?: unknown[]; s
   switch (hubStatus(o.status)) {
     case "QUOTATION_SIGNED":
       return { primary: "add-job" };
+    // DO first (2026-11-13): a DO step opens the DO itself, whose toolbar completes it (and adds a job, the sign link,
+    // a service report). The order page has no Add job of its own.
     case "DO_DRAFT":
-      return o.doFirst ? { primary: "complete-do", secondary: "add-job" } : { primary: "schedule-do" };
+      return o.doFirst ? { primary: "view-do" } : { primary: "schedule-do" };
     case "DO_SCHEDULED":
-      return { primary: "complete-do" };
+      return o.doFirst ? { primary: "view-do" } : { primary: "complete-do" };
     case "AWAITING_VERIFICATION":
-      // DO first: a DO with no job waits for the customer on its DO link.
-      return o.awaitingDo ? { primary: "sign-link" } : { primary: "open-job" };
+      return o.doFirst ? { primary: "view-do" } : o.awaitingDo ? { primary: "sign-link" } : { primary: "open-job" };
     case "DO_COMPLETED":
       return (o.invoices?.length ?? 0) > 0 ? { primary: "view-invoice", label: "Open draft invoice" } : { primary: "create-invoice" };
     case "INVOICE_DRAFT":

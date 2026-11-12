@@ -54,7 +54,7 @@ export default function OfficeCompleteJobDialog({
   /** Product lines with no unit yet: the office picks the units here (same stock path as the field app). */
   productSlots?: ProductSlot[];
   onDone: (mode: Mode) => void;
-  /** DO first (manual flow, 2026-11-13): complete this DO, which has no job (deliveryId is unused then). */
+  /** DO first (manual flow, 2026-11-13): complete this DO (deliveryId is unused then; the server uses its job if it has a scheduled one). */
   doId?: string;
 }) {
   const isDo = !!doId;
@@ -190,7 +190,7 @@ export default function OfficeCompleteJobDialog({
               </Button>
             </Box>
             <Typography variant="caption" color="text.secondary">
-              The signature prints on the DO. The job is done and the order is invoiced once every job is done.
+              {isDo ? "The signature prints on the DO. The DO is completed and the order is invoiced once every DO is done." : "The signature prints on the DO. The job is done and the order is invoiced once every job is done."}
             </Typography>
           </Stack>
         )}
@@ -214,7 +214,7 @@ export default function OfficeCompleteJobDialog({
               </Typography>
             ))}
             <Typography variant="caption" color="text.secondary">
-              The file is attached to the DO. The job is done and the order is invoiced once every job is done.
+              {isDo ? "The file is attached to the DO. The DO is completed and the order is invoiced once every DO is done." : "The file is attached to the DO. The job is done and the order is invoiced once every job is done."}
             </Typography>
           </Stack>
         )}
