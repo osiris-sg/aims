@@ -72,11 +72,11 @@ export async function claimReturnRun(token: string, deliveryId: string): Promise
 
 /** Org-wide scheduled runs: the run-first entry point. */
 export const fetchScheduledRuns = (token: string) =>
-  fetchRuns(`/deliveries?status=scheduled&limit=100`, token, "Failed to load scheduled deliveries");
+  fetchRuns(`/deliveries?status=scheduled&limit=100&field=1`, token, "Failed to load scheduled deliveries");
 
 /** The rider's own runs in {in_progress, delivered}. */
 export const fetchInProgressRuns = (token: string) =>
-  fetchRuns(`/deliveries?mine=true&unfinished=true&limit=100`, token, "Failed to load deliveries");
+  fetchRuns(`/deliveries?mine=true&unfinished=true&limit=100&field=1`, token, "Failed to load deliveries");
 
 // 7-day display window: the run's completion time (fallback createdAt for any
 // historic completed row that predates completedAt stamping).

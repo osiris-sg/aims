@@ -1411,7 +1411,7 @@ export class DeliveriesService {
     deliveryId: string,
     organizationId: string,
     actor: { id?: string; name?: string },
-    dto: { mode?: string; signature?: string; recipientName?: string; files?: string[]; note?: string },
+    dto: { mode?: string; signature?: string; recipientName?: string; files?: string[]; note?: string; units?: Array<{ assetId?: string; inventoryId?: string }> },
   ) {
     if (!(await isManualOrderFlow(this.prisma, organizationId))) {
       throw new BadRequestException('Completing a job in the dashboard is not enabled for this organisation');
@@ -1423,6 +1423,60 @@ export class DeliveriesService {
     const files = (dto.files ?? []).map((k) => String(k).trim()).filter(Boolean);
     if (mode === 'stamped_do' && !files.length) throw new BadRequestException('Upload the signed or stamped DO first');
     const actorId = actor.id || 'office';
+
+    // PRODUCT LINES: the same stock path as the field app. The office picks one
+    // in-stock unit per product slot; each is claimed / added into its slot
+    // (reserve instock → reserved, deploy onto the job's project), started and
+    // delivered (reserved → rental / sold by its deployment), and finalize
+    // below commits the DO (deducts once), exactly as a rider's scans would.
+    const pre = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: {
+        id: true,
+        status: true,
+        isDraft: true,
+        orderId: true,
+        items: { select: { id: true, assetId: true, inventoryId: true, quantity: true, description: true, deliveryStatus: true } },
+      },
+    });
+    if (!pre) throw new NotFoundException('Job not found');
+    if (pre.orderId && !pre.isDraft && ['scheduled', 'in_progress', 'delivered'].includes(pre.status)) {
+      const need = new Map<string, { count: number; name: string }>();
+      for (const it of pre.items) {
+        if (it.assetId && !it.inventoryId) {
+          const cur = need.get(it.assetId) ?? { count: 0, name: it.description ?? 'Product' };
+          need.set(it.assetId, { count: cur.count + (it.quantity ?? 1), name: cur.name });
+        }
+      }
+      const units = (dto.units ?? []).filter((u) => u?.assetId && u?.inventoryId) as Array<{ assetId: string; inventoryId: string }>;
+      if (new Set(units.map((u) => u.inventoryId)).size !== units.length) throw new BadRequestException('The same unit was picked twice');
+      const missing = [...need.entries()].filter(([assetId, n]) => units.filter((u) => u.assetId === assetId).length !== n.count);
+      if (missing.length) {
+        throw new BadRequestException(`Pick a unit for each product line: ${missing.map(([, n]) => `${n.name} (${n.count})`).join(', ')}`);
+      }
+      let status = pre.status;
+      for (const u of units) {
+        if (status === 'scheduled') {
+          await this.claimScheduled(deliveryId, { inventoryId: u.inventoryId, assetId: u.assetId, riderName: actor.name ?? 'Office' } as ClaimScheduledDto, organizationId, actorId, { office: true });
+          status = 'in_progress';
+        } else {
+          await this.addItem(deliveryId, { inventoryId: u.inventoryId, assetId: u.assetId } as any, organizationId);
+        }
+      }
+      for (const u of units) {
+        await this.advanceDeliveryItem(deliveryId, u.inventoryId, 'start', organizationId);
+        await this.markUnitDelivered(deliveryId, u.inventoryId, { technicianName: actor.name } as any, organizationId, actorId);
+      }
+      // A job whose units were all already bound (started in the field) still
+      // delivers its units the same way.
+      const bound = pre.items.filter((it) => it.inventoryId && it.deliveryStatus === DeliveryStatus.not_delivered);
+      for (const it of bound) {
+        await this.advanceDeliveryItem(deliveryId, it.inventoryId!, 'start', organizationId);
+        await this.markUnitDelivered(deliveryId, it.inventoryId!, { technicianName: actor.name } as any, organizationId, actorId);
+      }
+      const delivering = pre.items.filter((it) => it.inventoryId && it.deliveryStatus === DeliveryStatus.delivering);
+      for (const it of delivering) await this.markUnitDelivered(deliveryId, it.inventoryId!, { technicianName: actor.name } as any, organizationId, actorId);
+    }
 
     await withRunLease(this.prisma, { organizationId, deliveryId, op: 'office-complete' }, async () => {
       const run = await this.prisma.delivery.findFirst({
@@ -1441,14 +1495,16 @@ export class DeliveriesService {
           data: { status: 'in_progress', ...(run.riderUserId ? {} : { riderUserId: actorId, riderName: actor.name ?? 'Office' }) },
         });
       }
+      // Free-typed (service) lines: done. Product units went through the field path above.
       await this.prisma.deliveryItem.updateMany({
-        where: { deliveryId, deliveryStatus: { in: [DeliveryStatus.not_delivered, DeliveryStatus.delivering] } },
+        where: { deliveryId, inventoryId: null, assetId: null, deliveryStatus: { in: [DeliveryStatus.not_delivered, DeliveryStatus.delivering] } },
         data: { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: now, skippedAt: null },
       });
       await this.recomputeRunStatus(deliveryId, organizationId);
       // The on-screen signature needs a proof row to land on (the field app's
       // walk makes one per item; the office has none), so the DO shows it.
-      if (mode === 'signature') {
+      const unitAcks = await this.prisma.maintenanceServiceReport.count({ where: { deliveryId, kind: 'DO_ACK', signature: null } });
+      if (mode === 'signature' && !unitAcks) {
         await this.prisma.maintenanceServiceReport.create({
           data: {
             organizationId,
@@ -2200,6 +2256,9 @@ export class DeliveriesService {
     dto: ClaimScheduledDto,
     organizationId: string,
     riderUserId: string,
+    // The office's "Complete job" (manual order flow) binds its product units
+    // through this same claim; only the field app / SiteClock are refused.
+    opts: { office?: boolean } = {},
   ) {
     const run = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
@@ -2210,7 +2269,7 @@ export class DeliveriesService {
     if (!run) throw new NotFoundException('Delivery not found');
     // Manual order flow: the office finishes jobs in the dashboard; the field
     // app and SiteClock do not start them.
-    if (run.orderId && (await isManualOrderFlow(this.prisma, organizationId))) {
+    if (!opts.office && run.orderId && (await isManualOrderFlow(this.prisma, organizationId))) {
       throw new BadRequestException(`${runNoun(run)} #${run.deliveryNumber} is completed by the office in AIMS, not in the field app`);
     }
     if (run.status !== 'scheduled') {
@@ -2977,9 +3036,14 @@ export class DeliveriesService {
       includeDrafts?: boolean;
       // WCT "My jobs": the caller, to mark the rows planned for them.
       viewerUserId?: string;
+      // The field app's lists (field=1). A manual-order-flow org's order jobs
+      // are completed by the office, so the ones not yet started are left out
+      // there; a job already started in the field stays, so it can be finished.
+      field?: boolean;
     } = {},
   ) {
     const page = Math.max(1, opts.page ?? 1);
+    const hideManualJobs = !!opts.field && (await isManualOrderFlow(this.prisma, organizationId));
     const limit = Math.min(100, Math.max(1, opts.limit ?? 20));
     // "Unlinked" is per-item now: a run stays in the queue while ANY item has
     // no DO. Cancelled runs drop out of the queue view (their items will never
@@ -2999,6 +3063,7 @@ export class DeliveriesService {
           : opts.unlinked
             ? { status: { not: 'cancelled' as any } }
             : {}),
+      ...(hideManualJobs ? { NOT: { orderId: { not: null }, status: 'scheduled' as any } } : {}),
     };
     const [docs, total] = await Promise.all([
       this.prisma.delivery.findMany({
@@ -4371,12 +4436,15 @@ export class DeliveriesService {
    * cannot be — so the final fallback is only ever theoretical.
    */
   async listOpenScheduledForPicker(organizationId: string, assetId?: string) {
+    // Field scan picker: a manual-order-flow org's order jobs are completed by the office.
+    const hideManualJobs = await isManualOrderFlow(this.prisma, organizationId);
     const runs = await this.prisma.delivery.findMany({
       where: {
         organizationId,
         status: 'scheduled',
         isDraft: false,
         direction: DeliveryDirection.OUTBOUND,
+        ...(hideManualJobs ? { orderId: null } : {}),
       },
       // Soonest scheduled first; then by run number for a stable order. An
       // all-day job (2026-11-10) moves after the timed jobs of its day below.

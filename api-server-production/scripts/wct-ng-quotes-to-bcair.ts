@@ -49,9 +49,43 @@ const NG = `(config->>'subject' ilike '%(NG)%' or config->>'referenceNo' ilike '
 
 const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.slice(k.length + 3);
 const APPLY = process.argv.includes('--apply');
+// Owner, 2026-11-12: move the held ones too (their real-amount WCT invoices stay in WCT; no GL change).
+const INCLUDE_HELD = process.argv.includes('--include-held');
 const OUT = arg('out') || path.join(process.cwd(), 'wct-ng-move-out');
 
 type Decision = { action: 'map'; bcCustomerId: string } | { action: 'create' };
+
+/**
+ * Broken characters in the imported T&C text: UTF-8 bytes that were read as
+ * Windows-1252 (e.g. "Ltd\u00e2\u20ac\u2122s" for "Ltd\u2019s"). Each such run
+ * is turned back into its bytes and decoded as UTF-8; a run that does not
+ * decode cleanly is left exactly as it is. Nothing else in the text changes.
+ * An em-dash comes back as a plain hyphen (house rule: no em-dashes).
+ */
+const CP1252: Record<string, number> = {
+  '\u20ac': 0x80, '\u201a': 0x82, '\u0192': 0x83, '\u201e': 0x84, '\u2026': 0x85, '\u2020': 0x86, '\u2021': 0x87, '\u02c6': 0x88,
+  '\u2030': 0x89, '\u0160': 0x8a, '\u2039': 0x8b, '\u0152': 0x8c, '\u017d': 0x8e, '\u2018': 0x91, '\u2019': 0x92, '\u201c': 0x93,
+  '\u201d': 0x94, '\u2022': 0x95, '\u2013': 0x96, '\u2014': 0x97, '\u02dc': 0x98, '\u2122': 0x99, '\u0161': 0x9a, '\u203a': 0x9b,
+  '\u0153': 0x9c, '\u017e': 0x9e, '\u0178': 0x9f,
+};
+const byteOf = (ch: string): number | null => {
+  if (CP1252[ch] !== undefined) return CP1252[ch];
+  const c = ch.charCodeAt(0);
+  return c >= 0x80 && c <= 0xff ? c : null;
+};
+const MOJIBAKE_RUN = /[\u00c2-\u00f4][\u0080-\u00bf\u0152\u0153\u0160\u0161\u0178\u017d\u017e\u0192\u02c6\u02dc\u2013\u2014\u2018-\u201e\u2020-\u2022\u2026\u2030\u2039\u203a\u20ac\u2122]+/g;
+export function fixMojibake(text: string): { text: string; fixes: number } {
+  let fixes = 0;
+  const out = text.replace(MOJIBAKE_RUN, (run) => {
+    const bytes = [...run].map(byteOf);
+    if (bytes.some((b) => b === null)) return run;
+    const decoded = Buffer.from(bytes as number[]).toString('utf8');
+    if (decoded.includes('\ufffd')) return run;
+    fixes++;
+    return decoded.replace(/\u2014/g, '-');
+  });
+  return { text: out, fixes };
+}
 
 const normName = (s: unknown) =>
   String(s ?? '')
@@ -123,7 +157,7 @@ const csv = (rows: Array<Record<string, unknown>>) => {
     for (const qt of quotes) {
       const real = (invByKey.get(`${qt.config.customerId}|${qt.config.subject}`) ?? []).filter((i) => (money(i.total) ?? 0) > 1);
       if (real.length) held.push({ qt, real });
-      else moving.push(qt);
+      if (!real.length || INCLUDE_HELD) moving.push(qt);
     }
 
     // ------------------------------------------------------------ 3. customers
@@ -343,7 +377,26 @@ const csv = (rows: Array<Record<string, unknown>>) => {
       target: isProd ? 'PROD' : 'non-prod',
       quotes: quotes.length,
       held: held.length,
+      heldMovedToo: INCLUDE_HELD,
       toMove: ready.length,
+      tncBrokenCharacters: (() => {
+        let quotesFixed = 0, runs = 0;
+        const samples: string[] = [];
+        for (const x of ready) {
+          const t = x.config.termsAndConditions;
+          if (typeof t !== 'string') continue;
+          const r = fixMojibake(t);
+          if (!r.fixes) continue;
+          quotesFixed++;
+          runs += r.fixes;
+          if (samples.length < 3) {
+            const i = t.search(MOJIBAKE_RUN);
+            samples.push(`${JSON.stringify(t.slice(Math.max(0, i - 12), i + 14))} -> ${JSON.stringify(fixMojibake(t.slice(Math.max(0, i - 12), i + 14)).text)}`);
+          }
+        }
+        const leftover = ready.filter((x) => typeof x.config.termsAndConditions === 'string' && /\u00e2\u20ac|\u00c3[\u0080-\u00bf]|\u00c2[\u0080-\u00bf]/.test(fixMojibake(x.config.termsAndConditions).text)).length;
+        return { quotesFixed, runs, samples, quotesStillWithBrokenCharacters: leftover };
+      })(),
       blockedByOpenCustomerDecision: blocked.length,
       customers: {
         used: wctCustIds.length,
@@ -387,7 +440,9 @@ const csv = (rows: Array<Record<string, unknown>>) => {
       }
       for (const x of ready) {
         const m = mapping.get(x.config.customerId)!;
+        const tnc = typeof x.config.termsAndConditions === 'string' ? fixMojibake(x.config.termsAndConditions) : null;
         const patch = {
+          ...(tnc && tnc.fixes ? { termsAndConditions: tnc.text } : {}),
           customerId: m.bcId,
           customerName: m.bcName,
           customerCode: m.bcCode ?? '',

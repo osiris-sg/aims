@@ -158,3 +158,62 @@ describe('quotation e-sign follow-ups (PDF refresh + Activity Log row)', () => {
     expect(calls).toEqual(['document.update', 'link.update', 'link.updateMany', 'bell', 'pdf.regenerate', 'log:SIGN:org']);
   });
 });
+
+describe('manual flow: product lines move stock through the field path; field lists', () => {
+  const MANUALF = { enableWctOrders: true, enableManualOrderFlow: true };
+  const build = (items: any[], status = 'scheduled', features: Record<string, any> = MANUALF) => {
+    const s: any = Object.create(DeliveriesService.prototype);
+    const calls: string[] = [];
+    const run = { id: 'run1', status, isDraft: false, orderId: 'o1', deliveryNumber: 9, riderUserId: null, items };
+    s.prisma = {
+      ...ui(features),
+      delivery: { findFirst: async () => run, update: async () => run, findMany: async (a: any) => (calls.push(`list:${JSON.stringify(a.where.NOT ?? null)}`), []), count: async () => 0 },
+      deliveryItem: { updateMany: async (a: any) => void calls.push(`items:${a.where.inventoryId === null ? 'free' : 'all'}`) },
+      maintenanceServiceReport: { count: async () => 1, create: async () => void calls.push('runAck') },
+      $executeRawUnsafe: async () => 1,
+      $queryRawUnsafe: async () => [{ ok: true }],
+    };
+    s.logger = { warn: () => undefined, log: () => undefined };
+    s.claimScheduled = async (_id: string, dto: any, _o: string, _u: string, opts: any) => {
+      calls.push(`claim:${dto.inventoryId}:${opts?.office}`);
+      run.status = 'in_progress';
+    };
+    s.addItem = async (_id: string, dto: any) => void calls.push(`add:${dto.inventoryId}`);
+    s.advanceDeliveryItem = async (_id: string, inv: string, action: string) => void calls.push(`${action}:${inv}`);
+    s.markUnitDelivered = async (_id: string, inv: string) => void calls.push(`delivered:${inv}`);
+    s.recomputeRunStatus = async () => undefined;
+    s.finalizeRun = async () => (calls.push('finalize'), { id: 'run1' });
+    s.verifyJob = async () => undefined;
+    s.orderFollowsRun = async () => undefined;
+    return { s: s as DeliveriesService, calls };
+  };
+  const leaseless = () => jest.spyOn(require('../deliveries/run-lease'), 'withRunLease').mockImplementation(async (_p: any, _k: any, fn: any) => fn());
+
+  it('refuses when a product line has no unit picked, before any stock moves', async () => {
+    leaseless();
+    const { s, calls } = build([{ id: 'i1', assetId: 'fan', inventoryId: null, quantity: 2, description: 'Exhaust fan' }]);
+    await expect(s.officeCompleteJob('run1', 'org', { id: 'u' }, { mode: 'sign_link', units: [{ assetId: 'fan', inventoryId: 'u1' }] })).rejects.toThrow(/Pick a unit for each product line: Exhaust fan \(2\)/);
+    expect(calls).toEqual([]);
+  });
+
+  it('claims the first unit as the office, adds the rest, then starts and delivers each (the field path), then finalizes', async () => {
+    leaseless();
+    const { s, calls } = build([
+      { id: 'i1', assetId: 'fan', inventoryId: null, quantity: 2, description: 'Exhaust fan' },
+      { id: 'i2', assetId: null, inventoryId: null, quantity: 1, description: 'Degreasing' },
+    ]);
+    await s.officeCompleteJob('run1', 'org', { id: 'u', name: 'Office' }, { mode: 'sign_link', units: [{ assetId: 'fan', inventoryId: 'u1' }, { assetId: 'fan', inventoryId: 'u2' }] });
+    expect(calls).toEqual(['claim:u1:true', 'add:u2', 'start:u1', 'delivered:u1', 'start:u2', 'delivered:u2', 'items:free', 'finalize']);
+  });
+
+  it('field lists hide only NOT-started order jobs, and only for manual-flow orgs', async () => {
+    const a = build([]);
+    await a.s.list('org', { field: true, status: 'scheduled' });
+    await a.s.list('org', { status: 'scheduled' }); // office list: unchanged
+    const b = build([], 'scheduled', { enableWctOrders: true });
+    await b.s.list('org', { field: true, status: 'scheduled' });
+    expect(a.calls[0]).toBe('list:{"orderId":{"not":null},"status":"scheduled"}');
+    expect(a.calls[1]).toBe('list:null');
+    expect(b.calls[0]).toBe('list:null');
+  });
+});

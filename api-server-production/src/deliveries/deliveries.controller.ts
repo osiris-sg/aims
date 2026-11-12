@@ -149,6 +149,8 @@ export class DeliveriesController {
     @Query('unfinished') unfinished?: string,
     // Office only: opt IN to seeing drafts. Riders never pass this.
     @Query('includeDrafts') includeDrafts?: string,
+    // The field app's lists (field=1): a manual-order-flow org's not-started order jobs stay out.
+    @Query('field') field?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
@@ -161,6 +163,7 @@ export class DeliveriesController {
       riderUserId: isMine ? req.user?.id : undefined,
       unfinished: unfinished === 'true' || unfinished === '1',
       includeDrafts: includeDrafts === 'true' || includeDrafts === '1',
+      field: field === 'true' || field === '1',
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
       // WCT "My jobs": each row says whether it is planned for the caller.

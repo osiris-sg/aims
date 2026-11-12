@@ -897,6 +897,9 @@ export default function DeliveryDetailPage() {
         onClose={() => setCompleteOpen(false)}
         deliveryId={run.id}
         jobLabel={runTitle(w, run.deliveryNumber)}
+        productSlots={run.items
+          .filter((i) => !!i.asset && !i.inventory)
+          .map((i) => ({ assetId: i.asset!.id, name: i.asset!.name ?? i.description ?? "Product", quantity: i.quantity ?? 1 }))}
         defaultName={run.customer?.name ?? null}
         onDone={() => {
           setCompleteOpen(false);
@@ -980,8 +983,12 @@ export default function DeliveryDetailPage() {
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
             {orderDraft
-              ? "Edit the job to set the date and confirm the schedule. It goes to the worker once it is confirmed."
-              : "Waiting for a rider. They claim it by scanning any unit of a scheduled product. Nothing is reserved until then."}
+              ? manualFlow
+                ? "Edit the job to set the date and confirm the schedule."
+                : "Edit the job to set the date and confirm the schedule. It goes to the worker once it is confirmed."
+              : manualFlow && run.order
+                ? "Done in the office: when the work is finished, use Complete job (top right). Product lines get their units there."
+                : "Waiting for a rider. They claim it by scanning any unit of a scheduled product. Nothing is reserved until then."}
           </Typography>
           <Button variant="outlined" color="error" onClick={() => setConfirmAction("cancel")} disabled={acting}>
             Cancel scheduled {w.noun}

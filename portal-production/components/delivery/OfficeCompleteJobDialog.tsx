@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   CircularProgress,
@@ -23,6 +24,10 @@ import { uploadFile } from "@/helpers/fileUploader";
 
 type Mode = "signature" | "stamped_do" | "sign_link";
 
+/** A product line still waiting for its unit(s): one in-stock unit is picked per quantity. */
+export type ProductSlot = { assetId: string; name: string; quantity: number };
+type Unit = { id: string; sku: string; serialNumber: string | null; assetId: string };
+
 /**
  * Manual order flow (enableManualOrderFlow, 2026-11-12): the office finishes a
  * job in the dashboard, one of three ways.
@@ -37,6 +42,7 @@ export default function OfficeCompleteJobDialog({
   deliveryId,
   jobLabel,
   defaultName,
+  productSlots = [],
   onDone,
 }: {
   open: boolean;
@@ -44,6 +50,8 @@ export default function OfficeCompleteJobDialog({
   deliveryId: string;
   jobLabel: string;
   defaultName?: string | null;
+  /** Product lines with no unit yet: the office picks the units here (same stock path as the field app). */
+  productSlots?: ProductSlot[];
   onDone: (mode: Mode) => void;
 }) {
   const { getToken } = useAuth();
@@ -54,9 +62,41 @@ export default function OfficeCompleteJobDialog({
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // One pick per unit needed, keyed "<assetId>#<n>".
+  // Keyed by the slot's position too: one product can sit on several slots (one row per unit).
+  const sameProduct = (assetId: string) => productSlots.filter((x) => x.assetId === assetId).reduce((t, x) => t + Math.max(1, x.quantity), 0);
+  const needed = productSlots.flatMap((s, i) =>
+    Array.from({ length: Math.max(1, s.quantity) }, (_, n) => ({ key: `${i}:${s.assetId}#${n}`, assetId: s.assetId, name: s.name })),
+  ).map((n, idx, all) => {
+    const total = sameProduct(n.assetId);
+    const nth = all.slice(0, idx + 1).filter((x) => x.assetId === n.assetId).length;
+    return { key: n.key, assetId: n.assetId, label: total > 1 ? `${n.name} (${nth} of ${total})` : n.name };
+  });
+  const [units, setUnits] = useState<Unit[] | null>(null);
+  const [picked, setPicked] = useState<Record<string, Unit | null>>({});
+
+  useEffect(() => {
+    if (!open || !needed.length) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res: any = await request({ path: "/inventories/by-status", method: "POST" }, { status: "instock" }, token);
+        const rows: any[] = Array.isArray(res?.data ?? res) ? (res?.data ?? res) : [];
+        if (!cancelled) setUnits(rows.map((u) => ({ id: u.id, sku: u.sku, serialNumber: u.serialNumber ?? null, assetId: u.assetId ?? u.asset?.id })));
+      } catch {
+        if (!cancelled) setUnits([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, needed.length, getToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!open) return;
+    setPicked({});
     setMode("signature");
     setName(defaultName ?? "");
     setFiles([]);
@@ -70,6 +110,11 @@ export default function OfficeCompleteJobDialog({
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const body: Record<string, any> = { mode };
+      if (needed.length) {
+        const missing = needed.filter((n) => !picked[n.key]);
+        if (missing.length) throw new Error(`Pick a unit for ${missing.map((m) => m.label).join(", ")}`);
+        body.units = needed.map((n) => ({ assetId: n.assetId, inventoryId: picked[n.key]!.id }));
+      }
       if (mode === "signature") {
         if (!sig.current || sig.current.isEmpty()) throw new Error("Ask the customer to sign in the box");
         if (!name.trim()) throw new Error("Enter the customer's name");
@@ -99,6 +144,32 @@ export default function OfficeCompleteJobDialog({
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Every item on the job is marked as done and the DO is completed. Choose how the customer signs off.
         </Typography>
+        {needed.length > 0 && (
+          <Stack spacing={1.25} sx={{ mb: 2 }}>
+            <Typography variant="subtitle2">Units delivered</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Pick the unit for each product line. Stock moves the same way as when a worker scans it in the field app.
+            </Typography>
+            {needed.map((n) => {
+              const taken = new Set(Object.entries(picked).filter(([k, u]) => k !== n.key && u).map(([, u]) => u!.id));
+              const options = (units ?? []).filter((u) => u.assetId === n.assetId && !taken.has(u.id));
+              return (
+                <Autocomplete
+                  key={n.key}
+                  size="small"
+                  loading={units === null}
+                  options={options}
+                  value={picked[n.key] ?? null}
+                  onChange={(_, v) => setPicked((p) => ({ ...p, [n.key]: v }))}
+                  getOptionLabel={(u) => (u.serialNumber ? `${u.sku} · S/No ${u.serialNumber}` : u.sku)}
+                  isOptionEqualToValue={(a, b) => a.id === b.id}
+                  noOptionsText="No unit of this product in stock"
+                  renderInput={(params) => <TextField {...params} label={n.label} />}
+                />
+              );
+            })}
+          </Stack>
+        )}
         <ToggleButtonGroup exclusive fullWidth size="small" value={mode} onChange={(_, v) => v && setMode(v)} sx={{ mb: 2 }}>
           <ToggleButton value="signature">Customer signs here</ToggleButton>
           <ToggleButton value="stamped_do">Upload signed DO</ToggleButton>

@@ -875,17 +875,8 @@ export default function TabbedDocumentCreator({
     organization?.id === BIOFUEL_ORG_ID ||
     organization?.name === "Biofuel Industries Pte Ltd";
   // The Subject field on quotations: orgs with enableQuotationSubject keep it
-  // (the WCT paper layout has a Subject box); every other org still drops it.
-  // TEMPORARY fallback: WCT's own id still shows it until enableQuotationSubject
-  // is applied to WCT on prod (WCT-group settings apply), then this goes.
-  // Admin "viewing as WCT" sets the active-org in sessionStorage, so the doc's
-  // org is resolved the same way the preview does.
-  const WCT_ORG_ID = "5c700000-0000-4000-8000-5c7000000001";
-  const docOrgId =
-    (existingData as any)?.organizationId ||
-    (typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null) ||
-    organization?.id;
-  const showQuotationSubject = !!isQuotationSubjectEnabled || docOrgId === WCT_ORG_ID || organization?.name === "WCT";
+  // (the WCT paper layout has a Subject box, WCT group); every other org drops it.
+  const showQuotationSubject = !!isQuotationSubjectEnabled;
 
   // Delivery route dialog state (DO-only). Opens with the linked DO_START
   // MaintenanceServiceReport's id; the shared DeliveryRouteDialog handles
