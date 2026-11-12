@@ -1,13 +1,16 @@
 "use client";
 
 // "Send for signature": mints the client e-sign link, shows it with Copy /
-// WhatsApp share, expiry and revoke; shows the signed state once signed.
+// WhatsApp share, an "Email the link" box (guru 2026-11-13: the server emails
+// the link, prefilled with the client's email), expiry and revoke; shows the
+// signed state once signed.
 
 import React, { useEffect, useState } from "react";
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, Stack, TextField, Tooltip, Typography } from "@mui/material";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import LinkOffIcon from "@mui/icons-material/LinkOff";
+import EmailOutlinedIcon from "@mui/icons-material/EmailOutlined";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { toast } from "react-toastify";
 import { useIdQuoteApi } from "../_lib/api";
@@ -19,6 +22,8 @@ interface Props {
   documentNumber: string | null;
   clientName: string;
   clientPhone: string;
+  /** Prefills the "Email the link" box; the user can change it. */
+  clientEmail?: string;
   grandTotal: number;
   /** "vo" = a variation order link (Mike 2026-11-07): same flow, VO wording; signing confirms the VO and adds its net to the contract sum. */
   kind?: "quotation" | "vo";
@@ -37,13 +42,19 @@ const absolute = (url: string | null | undefined) => {
   return typeof window !== "undefined" ? `${window.location.origin}${url.startsWith("/") ? "" : "/"}${url}` : url;
 };
 
-export default function SignLinkDialog({ open, documentId, documentNumber, clientName, clientPhone, grandTotal, kind = "quotation", wording = "ciel", onClose }: Props) {
+export default function SignLinkDialog({ open, documentId, documentNumber, clientName, clientPhone, clientEmail = "", grandTotal, kind = "quotation", wording = "ciel", onClose }: Props) {
   const isVo = kind === "vo";
   const w = SIGN_LINK_WORDING[wording];
   const api = useIdQuoteApi();
   const [loading, setLoading] = useState(false);
   const [link, setLink] = useState<{ url: string; expiresAt: string | null } | null>(null);
   const [signed, setSigned] = useState<{ signedAt: string; signerName: string | null } | null>(null);
+  const [email, setEmail] = useState(clientEmail);
+  const [emailing, setEmailing] = useState(false);
+  const [emailedTo, setEmailedTo] = useState<string[]>([]);
+  useEffect(() => {
+    if (open) setEmail(clientEmail);
+  }, [open, clientEmail]);
 
   useEffect(() => {
     if (!open) return;
@@ -71,6 +82,27 @@ export default function SignLinkDialog({ open, documentId, documentNumber, clien
       toast.success("Link copied");
     } catch {
       toast.error(w.copyFailed);
+    }
+  };
+
+  const emailLink = async () => {
+    const to = email.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+      toast.error("Enter the client's email address");
+      return;
+    }
+    setEmailing(true);
+    try {
+      const r = await api.sendSignLink(documentId, { via: "email", to });
+      if (r.url) setLink({ url: r.url, expiresAt: r.expiresAt });
+      if (r.sent) {
+        setEmailedTo((prev) => [...prev, r.to]);
+        toast.success(`Emailed to ${r.to}`);
+      } else toast.error(r.reason || "Could not send the email");
+    } catch (e: any) {
+      toast.error(e.message || "Could not send the email");
+    } finally {
+      setEmailing(false);
     }
   };
 
@@ -137,6 +169,26 @@ export default function SignLinkDialog({ open, documentId, documentNumber, clien
                 </Typography>
               )}
             </Stack>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }}>
+              <TextField
+                size="small"
+                fullWidth
+                label="Email"
+                placeholder="client@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                InputProps={{ startAdornment: <InputAdornment position="start"><EmailOutlinedIcon fontSize="small" /></InputAdornment> }}
+                data-testid="sign-link-email"
+              />
+              <Button variant="outlined" onClick={emailLink} disabled={!link || emailing} sx={{ textTransform: "none", whiteSpace: "nowrap" }} data-testid="sign-link-email-send">
+                {emailing ? "Sending…" : "Email the link"}
+              </Button>
+            </Stack>
+            {emailedTo.length > 0 && (
+              <Typography variant="caption" sx={{ color: "success.main" }}>
+                Emailed to {emailedTo.join(", ")}
+              </Typography>
+            )}
             <Typography variant="caption" sx={{ color: "text.disabled" }}>
               {w.footer}
             </Typography>

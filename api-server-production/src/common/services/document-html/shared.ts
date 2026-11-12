@@ -9,6 +9,7 @@
  */
 
 import { accentTint, DEFAULT_DESIGN, DESIGN_FONTS, DocumentDesign } from './design';
+import { resolveTimeZone } from '../../org-today';
 
 /** The family the portal ACTUALLY renders in: MUI's Typography variants override
  *  the Paper's Carlito with the theme family, so text is Helvetica/Arial. */
@@ -314,4 +315,38 @@ export function designFooter(design?: DocumentDesign): string {
   const d = design || DEFAULT_DESIGN;
   if (!d.footerText) return '';
   return `<div style="margin-top:8px;padding-top:4px;border-top:1px solid ${escapeHtml(d.accentColor)};text-align:center;font-size:11px;color:#444;">${escapeHtml(d.footerText)}</div>`;
+}
+
+/** The shape public-sign stores; only this reaches an img src. */
+const SIG_IMAGE_RE = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/;
+
+/**
+ * E-signed document (public /sign link): the client's drawn signature with the
+ * signer's name and the signed date in the org's time zone, or null. Shared by
+ * the standard quotation (2026-11-13, Chong Aik) and the client layouts.
+ */
+export function clientSignatureOf(cfg: any): { image: string; who: string } | null {
+  const sig: any = cfg?.clientSignature;
+  if (typeof sig?.image !== 'string' || !SIG_IMAGE_RE.test(sig.image)) return null;
+  let date = typeof sig.signedDateText === 'string' ? sig.signedDateText.trim() : '';
+  if (!date && sig.signedAt) {
+    const d = new Date(sig.signedAt);
+    if (!isNaN(d.getTime())) date = new Intl.DateTimeFormat('en-GB', { timeZone: resolveTimeZone(cfg?.timeZone), day: '2-digit', month: '2-digit', year: 'numeric' }).format(d);
+  }
+  const who = [typeof sig.name === 'string' ? sig.name.trim() : '', date].filter(Boolean).map((x) => escapeHtml(x)).join(' &nbsp;·&nbsp; ');
+  return { image: sig.image, who };
+}
+
+/**
+ * "Agreed & accepted by" block for the STANDARD layouts: the drawn signature
+ * over a rule, the signer and date in small type. Empty when unsigned.
+ */
+export function clientSignatureBlock(cfg: any): string {
+  const sig = clientSignatureOf(cfg);
+  if (!sig) return '';
+  return `<div style="margin-top:20px;page-break-inside:avoid;break-inside:avoid;width:260px;">
+    <p style="font-size:13px;font-weight:600;margin:0 0 4px;">Agreed &amp; accepted by</p>
+    <img src="${sig.image}" alt="signature" style="max-height:56px;max-width:220px;display:block;" />
+    <div style="border-top:1px solid #000;margin-top:4px;padding-top:4px;font-size:11px;color:#444;">${sig.who || 'Client'}</div>
+  </div>`;
 }

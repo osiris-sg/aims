@@ -115,6 +115,9 @@ export function useIdQuoteApi() {
       signLinkStatus: (id: string) =>
         request<{ active: { url: string; expiresAt: string | null; createdAt: string } | null; signed: { signedAt: string; signerName: string | null } | null }>(`/documents/${id}/sign-link`),
       revokeSignLink: (id: string) => request(`/documents/${id}/sign-link/revoke`, { method: "POST" }),
+      // Send the sign link from the server (email via Resend, WhatsApp via the org's line); guru 2026-11-13: the dialog's "Email the link".
+      sendSignLink: (id: string, body: { via: "email" | "whatsapp"; to: string }) =>
+        request<{ sent: boolean; via: "email" | "whatsapp"; to: string; url: string; expiresAt: string | null; reason?: string }>(`/documents/${id}/sign-link/send`, { method: "POST", body: JSON.stringify(body) }),
       revertSignature: (id: string) => request<{ ok: boolean; name: string | null }>(`/documents/${id}/revert-signature`, { method: "POST" }),
       // Designer counter-signature + own saved signature (CIEL 09-01)
       designerSign: (id: string, body: { signatureImage: string; name?: string; saveToProfile?: boolean }) =>

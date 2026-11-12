@@ -23,11 +23,12 @@ test("WCT wording: owner's intro, no em-dashes anywhere", () => {
   assert.equal(w.message("Acme", "QO202611-0024", 1090, "https://x/sign/t"), "Hi Acme, please review and sign quotation QO202611-0024 (S$ 1,090.00) here: https://x/sign/t");
 });
 
-test("only WCT-group quotations (e-sign + WCT orders) take CIEL's button + dialog", () => {
-  assert.equal(usesCielSignFlow({ isQuotation: true, eSign: true, wctOrders: true }), true);
-  assert.equal(usesCielSignFlow({ isQuotation: true, eSign: true, wctOrders: false }), false); // e.g. AIMS Demo keeps the ⋮ entry
-  assert.equal(usesCielSignFlow({ isQuotation: true, eSign: false, wctOrders: true }), false);
-  assert.equal(usesCielSignFlow({ isQuotation: false, eSign: true, wctOrders: true }), false);
+test("every e-sign org's quotation takes CIEL's button + dialog, whatever its other modules", () => {
+  // Widened 2026-11-13: it was the WCT group only (e-sign AND WCT orders).
+  // Chong Aik has e-sign and no orders, and must still get the toolbar button.
+  assert.equal(usesCielSignFlow({ isQuotation: true, eSign: true }), true);
+  assert.equal(usesCielSignFlow({ isQuotation: true, eSign: false }), false);
+  assert.equal(usesCielSignFlow({ isQuotation: false, eSign: true }), false);
 });
 
 test("sign page title: draft quotes read (draft), numbered ones unchanged", () => {

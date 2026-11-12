@@ -17,6 +17,7 @@ import {
   designFooter,
   richContent,
   billToText,
+  clientSignatureBlock,
 } from './shared';
 import { DEFAULT_DESIGN, DocumentDesign } from './design';
 
@@ -166,14 +167,19 @@ export function renderQuotationBody(data: any, organization: any, design: Docume
 
   // The two hardcoded closing lines are suppressed when the org configures its
   // own footer message, and the note/T&C order flips — same as the portal.
-  const closing = hasDocTypeDefaults
-    ? tncBlock + notesBlock
-    : `<p style="font-size:13px;margin-bottom:16px;">Hope the above Quotation meets your requirement. Pls contact us if you have any doubt.</p>` +
-      (design.showGeneratedNote
-        ? `<p style="font-size:13px;font-style:italic;margin-bottom:24px;">This is a computer generated Quotation. No signature is required.</p>`
-        : '') +
-      notesBlock +
-      tncBlock;
+  // E-signed (public /sign link, enableQuotationESign): the client's drawn
+  // signature prints after the closing text, and the "no signature is required"
+  // line is dropped since there is one (2026-11-13, Chong Aik).
+  const signatureBlock = clientSignatureBlock(data);
+  const closing =
+    (hasDocTypeDefaults
+      ? tncBlock + notesBlock
+      : `<p style="font-size:13px;margin-bottom:16px;">Hope the above Quotation meets your requirement. Pls contact us if you have any doubt.</p>` +
+        (design.showGeneratedNote && !signatureBlock
+          ? `<p style="font-size:13px;font-style:italic;margin-bottom:24px;">This is a computer generated Quotation. No signature is required.</p>`
+          : '') +
+        notesBlock +
+        tncBlock) + signatureBlock;
 
   const footerMsgBlock = footerMessage
     ? `<div style="margin-top:16px;padding-top:8px;border-top:1px dashed rgba(0,0,0,0.15);page-break-inside:avoid;">

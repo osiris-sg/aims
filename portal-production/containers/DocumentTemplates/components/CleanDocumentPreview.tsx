@@ -5322,6 +5322,8 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             // to the original layout — hardcoded lines and Notes-before-T&Cs —
             // completely unchanged.
             const hasDocTypeDefaults = !!(data.footerMessage || data.documentInfo?.footerMessage);
+            const rawSig: any = (data as any).clientSignature;
+            const clientSig = typeof rawSig?.image === "string" && /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(rawSig.image) ? rawSig : null;
 
             const notesBlock = (data.note || data.remarks) && (
               <Box sx={{ display: "flex", gap: 3, mb: 2 }}>
@@ -5377,7 +5379,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
 
                 {/* Computer Generated Notice — suppressed once the org has its
                     own configured footer (which carries the equivalent line). */}
-                {!hasDocTypeDefaults && dsn.showGeneratedNote && (
+                {!hasDocTypeDefaults && dsn.showGeneratedNote && !clientSig && (
                   <Typography sx={{ fontSize: "0.8125rem", fontStyle: "italic", mb: 3 }}>
                     This is a computer generated Quotation. No signature is required.
                   </Typography>
@@ -5393,6 +5395,18 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     {notesBlock}
                     {tncBlock}
                   </>
+                )}
+
+                {/* E-signed (public /sign link): the client's drawn signature,
+                    as the server's quotation.ts prints it (2026-11-13). */}
+                {clientSig && (
+                  <Box sx={{ mt: 2.5, width: 260, pageBreakInside: "avoid", breakInside: "avoid" }}>
+                    <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, mb: 0.5 }}>Agreed & accepted by</Typography>
+                    <Box component="img" src={clientSig.image} alt="signature" sx={{ maxHeight: 56, maxWidth: 220, display: "block" }} />
+                    <Box sx={{ borderTop: "1px solid #000", mt: 0.5, pt: 0.5, fontSize: "0.6875rem", color: "#444" }}>
+                      {[clientSig.name, clientSig.signedDateText || (clientSig.signedAt ? new Date(clientSig.signedAt).toLocaleDateString("en-GB") : "")].filter(Boolean).join("  ·  ") || "Client"}
+                    </Box>
+                  </Box>
                 )}
               </>
             );
