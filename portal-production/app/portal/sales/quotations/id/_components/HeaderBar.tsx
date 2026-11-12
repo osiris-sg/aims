@@ -13,6 +13,7 @@ import DrawIcon from "@mui/icons-material/DrawOutlined";
 import UndoIcon from "@mui/icons-material/Undo";
 import AccountTreeIcon from "@mui/icons-material/AccountTreeOutlined";
 import StatusChip from "@/components/StatusChip";
+import SendForSignatureButton from "./SendForSignatureButton";
 
 export type SaveState = "idle" | "dirty" | "saving" | "saved" | "error" | "conflict";
 
@@ -139,9 +140,7 @@ export default function HeaderBar({ number, clientName, status, saveState, inter
       </Button>
       {!readOnly ? (
         <>
-          <Button size="small" variant="outlined" startIcon={<DrawIcon />} onClick={onSendForSignature} data-tour="idq-send-signature">
-            {compact ? "Sign" : "Send for signature"}
-          </Button>
+          <SendForSignatureButton onClick={onSendForSignature} compact={compact} />
           {onConfirm && (
             <Tooltip title="Confirm without a client signature (e.g. signed on paper)">
               <Button size="small" variant="contained" startIcon={<CheckCircleIcon />} onClick={onConfirm} data-tour="idq-confirm">

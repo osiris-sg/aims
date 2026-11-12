@@ -130,6 +130,9 @@ import { uploadImage } from "@/helpers/imageUploader";
 import AddAPhotoIcon from "@mui/icons-material/AddAPhoto";
 import BorderColorIcon from "@mui/icons-material/BorderColor";
 import QuotationSignLinkDialog from "./QuotationSignLinkDialog";
+import SignLinkDialog from "@/app/portal/sales/quotations/id/_components/SignLinkDialog";
+import SendForSignatureButton from "@/app/portal/sales/quotations/id/_components/SendForSignatureButton";
+import { usesCielSignFlow } from "@/helpers/signLinkWording";
 import { useDocumentLock } from "@/app/portal/hooks/useDocumentLock";
 import { toast } from "react-toastify";
 import { useForm, Controller } from "react-hook-form";
@@ -367,7 +370,7 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isAimsChatEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isManualOrderFlowEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isAimsChatEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
   // Manual order flow: after an order's invoice is emailed, offer to send its service report too.
   const [offerReportFor, setOfferReportFor] = useState<{ orderId: string; orderNumber: string | null; email: string | null } | null>(null);
   // The Project header row + the DO "project required" rule only make sense
@@ -857,6 +860,8 @@ export default function TabbedDocumentCreator({
     documentType === "QO1" ||
     documentType === "QO2" ||
     documentType === "QT";
+  // WCT group quotations: CIEL's "Send for signature" button + dialog (2026-11-13).
+  const wctSignFlow = usesCielSignFlow({ isQuotation, eSign: isQuotationESignEnabled, wctOrders: isWctOrdersEnabled });
   // Component-scope invoice flag so the header project picker (appendRow) can
   // cover invoices too. (Inner callbacks keep their own local copies.)
   const isInvoiceTypeDoc = documentType === "INVOICE" || documentType === "TI" || documentType === "TI2";
@@ -4677,6 +4682,12 @@ export default function TabbedDocumentCreator({
               </Menu>
             </>
           )}
+          {/* WCT group (enableQuotationESign + enableWctOrders, 2026-11-13): CIEL's
+              "Send for signature" toolbar button, just before Confirm Quotation;
+              saved, unconfirmed quotations only (signing is what confirms them). */}
+          {wctSignFlow && (existingData?.id || documentId) && !isDocumentConfirmedStatus && !isTemplateEditMode && (
+            <SendForSignatureButton onClick={() => setSignLinkDialogOpen(true)} dataTour="editor-send-signature" />
+          )}
           {/* Confirm button for Quotations — only when enableConfirmQuotation is on.
               After confirm saves, a popup asks if the user wants to convert the
               quotation into a PO / DO / Invoice. */}
@@ -4878,7 +4889,7 @@ export default function TabbedDocumentCreator({
             )}
             {/* Client e-sign link (enableQuotationESign): saved, unconfirmed
                 quotations only — signing is what confirms them. */}
-            {isQuotation && isQuotationESignEnabled && (existingData?.id || documentId) && !isDocumentConfirmedStatus && (
+            {isQuotation && isQuotationESignEnabled && !wctSignFlow && (existingData?.id || documentId) && !isDocumentConfirmedStatus && (
               <MenuItem onClick={() => { closeMoreMenu(); setSignLinkDialogOpen(true); }}>
                 <ListItemIcon><BorderColorIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Send for signature</ListItemText>
@@ -8235,7 +8246,19 @@ export default function TabbedDocumentCreator({
       </Dialog>
 
       {/* Client e-sign link for generic quotations (enableQuotationESign). */}
-      {signLinkDialogOpen && (
+      {signLinkDialogOpen && wctSignFlow && (
+        <SignLinkDialog
+          open={signLinkDialogOpen}
+          documentId={(documentId || (existingData as any)?.id) as string}
+          documentNumber={formData?.documentInfo?.documentNumber || (existingData as any)?.name || null}
+          clientName={(formData as any)?.customer?.name || ""}
+          clientPhone={(formData as any)?.attention?.phoneNumber || (formData as any)?.customer?.mobile || (formData as any)?.customer?.phoneNumber || ""}
+          grandTotal={Number((formData as any)?.nettTotal ?? (formData as any)?.documentInfo?.nettTotal) || 0}
+          wording="wct"
+          onClose={() => setSignLinkDialogOpen(false)}
+        />
+      )}
+      {signLinkDialogOpen && !wctSignFlow && (
         <QuotationSignLinkDialog
           open={signLinkDialogOpen}
           documentId={(documentId || (existingData as any)?.id) as string}

@@ -13,6 +13,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import DownloadIcon from "@mui/icons-material/Download";
 import SignatureCanvas from "react-signature-canvas";
 import LightPageTheme from "@/components/LightPageTheme";
+import { signPageTitle } from "@/helpers/signPage";
 import { ToggleButton, ToggleButtonGroup } from "@mui/material";
 
 // The document itself re-renders server-side per language; these are the few
@@ -225,7 +226,7 @@ export default function PublicSignPage() {
       </ToggleButtonGroup>
       <Box sx={{ textAlign: "right" }}>
         <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-          {isVo ? `Variation order ${d.number}` : `Quotation ${d.number}`}
+          {signPageTitle(isVo, d.number)}
         </Typography>
         <Typography variant="body2" sx={{ color: "#555" }}>
           {d.clientName}

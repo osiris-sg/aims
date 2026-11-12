@@ -11,6 +11,7 @@ import LinkOffIcon from "@mui/icons-material/LinkOff";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { toast } from "react-toastify";
 import { useIdQuoteApi } from "../_lib/api";
+import { SIGN_LINK_WORDING, type SignLinkWording } from "@/helpers/signLinkWording";
 
 interface Props {
   open: boolean;
@@ -21,6 +22,8 @@ interface Props {
   grandTotal: number;
   /** "vo" = a variation order link (Mike 2026-11-07): same flow, VO wording; signing confirms the VO and adds its net to the contract sum. */
   kind?: "quotation" | "vo";
+  /** Quotation wording: "ciel" (default, unchanged) or "wct" (WCT group, 2026-11-13). */
+  wording?: SignLinkWording;
   onClose: () => void;
 }
 
@@ -34,8 +37,9 @@ const absolute = (url: string | null | undefined) => {
   return typeof window !== "undefined" ? `${window.location.origin}${url.startsWith("/") ? "" : "/"}${url}` : url;
 };
 
-export default function SignLinkDialog({ open, documentId, documentNumber, clientName, clientPhone, grandTotal, kind = "quotation", onClose }: Props) {
+export default function SignLinkDialog({ open, documentId, documentNumber, clientName, clientPhone, grandTotal, kind = "quotation", wording = "ciel", onClose }: Props) {
   const isVo = kind === "vo";
+  const w = SIGN_LINK_WORDING[wording];
   const api = useIdQuoteApi();
   const [loading, setLoading] = useState(false);
   const [link, setLink] = useState<{ url: string; expiresAt: string | null } | null>(null);
@@ -58,7 +62,7 @@ export default function SignLinkDialog({ open, documentId, documentNumber, clien
   const fullUrl = absolute(link?.url);
   const message = isVo
     ? `Hi ${clientName || ""}, please review and sign variation order ${documentNumber || ""} (net S$ ${grandTotal.toLocaleString("en-SG", { minimumFractionDigits: 2 })}) here: ${fullUrl}`
-    : `Hi ${clientName || ""}, please review and sign your renovation quotation ${documentNumber || ""} (S$ ${grandTotal.toLocaleString("en-SG", { minimumFractionDigits: 2 })}) here: ${fullUrl}`;
+    : w.message(clientName, documentNumber || "", grandTotal, fullUrl);
   const waHref = `https://wa.me/${(clientPhone || "").replace(/\D/g, "").replace(/^0/, "")}${clientPhone ? "" : ""}?text=${encodeURIComponent(message)}`;
 
   const copy = async () => {
@@ -66,7 +70,7 @@ export default function SignLinkDialog({ open, documentId, documentNumber, clien
       await navigator.clipboard.writeText(fullUrl);
       toast.success("Link copied");
     } catch {
-      toast.error("Copy failed — select the link and copy it manually");
+      toast.error(w.copyFailed);
     }
   };
 
@@ -90,14 +94,14 @@ export default function SignLinkDialog({ open, documentId, documentNumber, clien
         {signed ? (
           <Alert icon={<CheckCircleIcon fontSize="inherit" />} severity="success">
             Signed by <b>{signed.signerName || clientName}</b> on {fmtDate(signed.signedAt)}.{" "}
-            {isVo ? "The variation order is confirmed and its net amount is on the contract sum." : "The quotation is confirmed and linked to its project."}
+            {isVo ? "The variation order is confirmed and its net amount is on the contract sum." : w.signed}
           </Alert>
         ) : (
           <Stack spacing={2}>
             <Typography variant="body2" sx={{ color: "text.secondary" }}>
               {isVo
                 ? "The homeowner opens this link (no login), reads the variation order exactly as the printed sheet, and draws their signature. On signing, the VO is confirmed, its net amount is added to the contract sum, and management is notified."
-                : "The client opens this link (no login), reads the quotation exactly as the PDF, draws their signature and accepts the T&Cs. On signing, the quotation is confirmed, a project is created and management is notified."}
+                : w.intro}
             </Typography>
             <TextField
               size="small"
@@ -134,7 +138,7 @@ export default function SignLinkDialog({ open, documentId, documentNumber, clien
               )}
             </Stack>
             <Typography variant="caption" sx={{ color: "text.disabled" }}>
-              Any edit you make after sharing is what the client sees when they open the link — the page always renders the latest saved version.
+              {w.footer}
             </Typography>
           </Stack>
         )}
