@@ -1081,7 +1081,7 @@ export class JournalService {
         },
       },
       include: {
-        journalEntry: { select: { journalNumber: true, entryDate: true, type: true, reference: true, description: true, sourceDocumentId: true } },
+        journalEntry: { select: { journalNumber: true, entryDate: true, type: true, reference: true, description: true, sourceDocumentId: true, isUnconfirmed: true } },
         account: { select: { id: true, code: true, name: true, accountType: true } },
       },
       orderBy: [{ journalEntry: { entryDate: 'asc' } }, { lineNumber: 'asc' }],
@@ -1119,6 +1119,9 @@ export class JournalService {
         ...this.legacyRefs(l.journalEntry, glDocFor(l.journalEntry)),
         debit: ROUND(l.debit),
         credit: ROUND(l.credit),
+        // Posted by a document that is not yet confirmed — the GL Detail
+        // report prints these under an "Unconfirmed" band (guru 2026-11-12).
+        unconfirmed: !!(l.journalEntry as any).isUnconfirmed,
       });
       e.debit += l.debit;
       e.credit += l.credit;

@@ -27,7 +27,10 @@ const monthRange = () => {
   return { from: iso(new Date(now.getFullYear(), now.getMonth(), 1)), to: iso(new Date(now.getFullYear(), now.getMonth() + 1, 0)) };
 };
 
+import { bandLabel, bandRow, splitConfirmed } from "./confirmBands";
+
 type TrailRow = {
+  unconfirmed: boolean;
   date: string;
   docRef: string;
   accountCode: string;
@@ -62,6 +65,7 @@ export default function AuditTrailReport() {
           const docRef = j.reference || (j.journalNumber ? `J/V ${String(j.journalNumber).replace(/^JV-?/, "")}` : "");
           for (const l of j.lines || []) {
             out.push({
+              unconfirmed: !!j.isUnconfirmed,
               date: l.date || j.entryDate,
               docRef,
               accountCode: l.accountCode || "",
@@ -127,11 +131,22 @@ export default function AuditTrailReport() {
 
   const rows = useMemo<ReportRow[]>(() => {
     if (!filtered) return [];
-    const out: ReportRow[] = filtered.map((l, i) => ({
-      kind: "row",
-      key: `l${i}`,
-      cells: [fmtDate(l.date), l.docRef, l.accountCode, l.account, l.description, l.debit || null, l.credit || null],
-    }));
+    // Legacy split: Unconfirmed first (red band), then Confirmed, each with
+    // its own SUB-TOTAL (guru 2026-11-12: every report).
+    const out: ReportRow[] = [];
+    const { unconfirmed, confirmed } = splitConfirmed(filtered, (l) => l.unconfirmed);
+    for (const [sec, isUnc] of [[unconfirmed, true], [confirmed, false]] as Array<[TrailRow[], boolean]>) {
+      if (!sec.length) continue;
+      out.push(bandRow(`band-${isUnc}`, bandLabel("Transaction", isUnc), 7, isUnc));
+      sec.forEach((l, i) =>
+        out.push({
+          kind: "row",
+          key: `l${isUnc ? "u" : "c"}${i}`,
+          cells: [fmtDate(l.date), l.docRef, l.accountCode, l.account, l.description, l.debit || null, l.credit || null],
+        }),
+      );
+      out.push({ kind: "subtotal", key: `st-${isUnc}`, cells: ["SUB-TOTAL", "", "", "", "", R(sec.reduce((s, l) => s + l.debit, 0)), R(sec.reduce((s, l) => s + l.credit, 0))] });
+    }
     out.push({ kind: "total", key: "__total", cells: ["TOTAL", "", "", "", "", totalDebit, totalCredit] });
     return out;
   }, [filtered, totalDebit, totalCredit]);
@@ -139,8 +154,8 @@ export default function AuditTrailReport() {
   const exportCsv = () => {
     if (!filtered) return;
     downloadCsv(`Audit-Trail-${prefix || "all"}-${from}-${to}.csv`, [
-      columns.map((c) => c.label),
-      ...filtered.map((l) => [fmtDate(l.date), l.docRef, l.accountCode, l.account, l.description, l.debit.toFixed(2), l.credit.toFixed(2)]),
+      [...columns.map((c) => c.label), "Status"],
+      ...filtered.map((l) => [fmtDate(l.date), l.docRef, l.accountCode, l.account, l.description, l.debit.toFixed(2), l.credit.toFixed(2), l.unconfirmed ? "Unconfirmed" : "Confirmed"]),
       ["TOTAL", "", "", "", "", totalDebit.toFixed(2), totalCredit.toFixed(2)],
     ]);
   };

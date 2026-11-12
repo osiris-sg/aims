@@ -1,5 +1,9 @@
 "use client";
 
+import { bandLabel, bandRow, splitConfirmed } from "./confirmBands";
+
+const R = (n: number) => Math.round(n * 100) / 100;
+
 // Xero-parity General Ledger reports.
 // - GLDetailReport: every posted line in the period, grouped per account with
 //   running balance, per-account Total + Net movement rows.
@@ -151,12 +155,24 @@ export function GLDetailReport({
     const out: ReportRow[] = [];
     for (const g of data.groups || []) {
       out.push({ kind: "group", key: `g-${g.accountId}`, cells: [`${g.code} — ${g.name}`] });
-      g.rows.forEach((r: any, i: number) => {
-        out.push({
-          kind: "row", key: `${g.accountId}-${i}`,
-          cells: [fmtDate(r.date), r.source, r.description, r.reference, r.debit, r.credit, r.runningBalance],
+      // Legacy split (guru 2026-11-12: every report): confirmed lines first in
+      // date order, then an "Unconfirmed" band with the lines posted by
+      // documents not yet confirmed. The running balance is rebuilt in that
+      // order from the account's opening (the server computed it by date).
+      const { unconfirmed, confirmed } = splitConfirmed<any>(g.rows || [], (r) => !!r.unconfirmed);
+      const first = g.rows?.[0];
+      let running = first ? R((first.runningBalance ?? 0) - (first.debit || 0) + (first.credit || 0)) : 0;
+      for (const [sec, isUnc] of [[confirmed, false], [unconfirmed, true]] as Array<[any[], boolean]>) {
+        if (!sec.length) continue;
+        if (unconfirmed.length) out.push(bandRow(`band-${g.accountId}-${isUnc}`, bandLabel("Transaction", isUnc), 7, isUnc));
+        sec.forEach((r: any, i: number) => {
+          running = R(running + (r.debit || 0) - (r.credit || 0));
+          out.push({
+            kind: "row", key: `${g.accountId}-${isUnc ? "u" : "c"}${i}`,
+            cells: [fmtDate(r.date), r.source, r.description, r.reference, r.debit, r.credit, running],
+          });
         });
-      });
+      }
       out.push({ kind: "subtotal", key: `t-${g.accountId}`, cells: [`Total ${g.name}`, "", "", "", g.totalDebit, g.totalCredit, g.netMovement] });
       out.push({ kind: "subtotal", key: `n-${g.accountId}`, cells: ["Net movement", "", "", "", "", "", g.netMovement] });
     }

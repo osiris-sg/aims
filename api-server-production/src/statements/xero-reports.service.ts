@@ -1,3 +1,4 @@
+import { isUnconfirmedDoc } from '../common/doc-status';
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { docRef, documentReferenceOf } from '../common/doc-ref';
@@ -159,6 +160,9 @@ export class XeroReportsService {
         outstanding,
         lastPaymentDate: payInfo?.last ?? null,
         status: doc.status || (outstanding <= 0.005 ? 'paid' : 'outstanding'),
+        // Saved but not yet confirmed — ageing / statement reports print it
+        // under an "Unconfirmed" band (every report, guru 2026-11-12).
+        unconfirmed: isUnconfirmedDoc(doc.status),
         source: isAR ? 'Receivable Invoice' : 'Payable Invoice',
         currency: isForeign ? docCurrency : null,
         foreignGross,

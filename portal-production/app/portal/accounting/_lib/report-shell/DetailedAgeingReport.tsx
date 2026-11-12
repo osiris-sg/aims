@@ -1,5 +1,7 @@
 "use client";
 
+import { bandLabel, bandRow, splitConfirmed } from "./confirmBands";
+
 // Debtor Detailed Ageing Analysis (legacy screenshots 67/68 — guru 2026-07-20:
 // Xero style, legacy words verbatim): every outstanding document per customer,
 // aged into CALENDAR-MONTH buckets — columns DOCUMENT | DATE | month (Current)
@@ -44,7 +46,7 @@ const monthEndISO = (iso: string) => {
 const MONTH_LABELS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 const N_MONTHS = 6;
 
-type AgedDoc = { id: string; number: string; date: string; reference: string | null; total: number; currency: string | null };
+type AgedDoc = { id: string; number: string; date: string; reference: string | null; total: number; currency: string | null; unconfirmed?: boolean };
 
 function monthColumns(cutISO: string) {
   const cut = new Date(cutISO);
@@ -143,14 +145,22 @@ export default function DetailedAgeingReport({ side = "receivable" }: { side?: R
       const buckets = Array(N_MONTHS + 1).fill(0);
       let run = 0;
       const docs = [...g.docs].sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.number.localeCompare(b.number));
-      for (const d of docs) {
-        const idx = bucketIndex(d.date, asOf);
-        const amt = Number(d.total) || 0;
-        buckets[idx] = R(buckets[idx] + amt);
-        run = R(run + amt);
-        const docCells = Array(N_MONTHS + 1).fill(null);
-        docCells[idx] = amt;
-        out.push({ kind: "row", key: `d-${d.id}`, cells: [docCell(d) as any, fmtDate(d.date), ...docCells, run] });
+      // Legacy split (guru 2026-11-12: every report): Unconfirmed documents
+      // first under a red band, then Confirmed; the customer's SUB-TOTAL
+      // covers both.
+      const { unconfirmed, confirmed } = splitConfirmed(docs, (d) => !!d.unconfirmed);
+      for (const [sec, isUnc] of [[unconfirmed, true], [confirmed, false]] as Array<[AgedDoc[], boolean]>) {
+        if (!sec.length) continue;
+        if (unconfirmed.length) out.push(bandRow(`band-${g.contactId}-${isUnc}`, bandLabel("Document", isUnc), N_MONTHS + 4, isUnc));
+        for (const d of sec) {
+          const idx = bucketIndex(d.date, asOf);
+          const amt = Number(d.total) || 0;
+          buckets[idx] = R(buckets[idx] + amt);
+          run = R(run + amt);
+          const docCells = Array(N_MONTHS + 1).fill(null);
+          docCells[idx] = amt;
+          out.push({ kind: "row", key: `d-${d.id}`, cells: [docCell(d) as any, fmtDate(d.date), ...docCells, run] });
+        }
       }
       const total = R(buckets.reduce((s, v) => s + v, 0));
       out.push({ kind: "subtotal", key: `t-${g.contactId}`, cells: ["SUB-TOTAL", "", ...buckets.map((v) => v || 0), total] });

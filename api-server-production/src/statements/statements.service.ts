@@ -1,3 +1,4 @@
+import { isUnconfirmedDoc } from '../common/doc-status';
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { amountPaidOf, grossOf, outstandingOf, owedOf } from '../common/document-money';
@@ -48,7 +49,7 @@ export class StatementsService {
             { config: { path: ['customer', 'id'], equals: customer.id } },
           ],
         },
-        select: { id: true, name: true, type: true, documentTemplateId: true, createdAt: true, config: true },
+        select: { id: true, name: true, type: true, documentTemplateId: true, status: true, createdAt: true, config: true },
       });
       const payments = await this.prisma.payment.findMany({
         where: { organizationId, customerId: customer.id },
@@ -59,7 +60,9 @@ export class StatementsService {
       // docId/docTypeKey/templateId ride along so the statement's Reference
       // cell can be a real link to the document (guru 2026-10-21). They are
       // absent on payment rows, which address no document of their own.
-      type Tx = { date: Date; reference: string; description: string; docReference?: string | null; transactionType: string; debit: number; credit: number; balance: number; documentType?: string; paymentMethod?: string; docId?: string; docTypeKey?: string; templateId?: string | null };
+      // unconfirmed: the document is saved (posted as an unconfirmed entry) but
+      // not yet confirmed — reports print it under an "Unconfirmed" band.
+      type Tx = { date: Date; reference: string; description: string; docReference?: string | null; transactionType: string; debit: number; credit: number; balance: number; documentType?: string; paymentMethod?: string; docId?: string; docTypeKey?: string; templateId?: string | null; unconfirmed?: boolean };
       const all: Tx[] = [];
       let openingBalance = 0;
       const add = (d: Date, tx: Tx, netEffect: number) => {
@@ -89,7 +92,7 @@ export class StatementsService {
           // docReference carries the raw value so the Debtor Statement can
           // print its own legacy "INVOICE" placeholder instead.
           const ref = documentReferenceOf(c);
-          add(d, { date: d, reference: docRef(doc.type, doc.name || '(no #)'), description: ref || `Invoice ${doc.name || ''}`.trim(), docReference: ref || null, transactionType: 'INVOICE', debit: gross, credit: 0, balance: 0, documentType: 'INVOICE', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId }, gross);
+          add(d, { date: d, reference: docRef(doc.type, doc.name || '(no #)'), description: ref || `Invoice ${doc.name || ''}`.trim(), docReference: ref || null, transactionType: 'INVOICE', debit: gross, credit: 0, balance: 0, documentType: 'INVOICE', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId, unconfirmed: isUnconfirmedDoc((doc as any).status) }, gross);
           const paid = R(gross - R(outstandingOf(c) ?? gross));
           if (isXero && paid > 0.005) {
             add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: `Payment / credits applied — ${doc.name || ''}`.trim(), transactionType: 'PAYMENT', debit: 0, credit: paid, balance: 0, documentType: 'PAYMENT', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId }, -paid);
@@ -106,7 +109,7 @@ export class StatementsService {
           // invoice's "Paid in previous system" line above, so it would be counted twice.
           if (isErpImported(c)) continue;
           const ref = documentReferenceOf(c);
-          add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: ref || `Credit Note ${doc.name || ''}`.trim(), docReference: ref || null, transactionType: 'CREDIT_NOTE', debit: 0, credit: gross, balance: 0, documentType: 'CREDIT_NOTE', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId }, -gross);
+          add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: ref || `Credit Note ${doc.name || ''}`.trim(), docReference: ref || null, transactionType: 'CREDIT_NOTE', debit: 0, credit: gross, balance: 0, documentType: 'CREDIT_NOTE', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId, unconfirmed: isUnconfirmedDoc((doc as any).status) }, -gross);
         }
       }
       for (const p of payments) {
@@ -138,7 +141,7 @@ export class StatementsService {
             totalCredit: R(all.reduce((s, t) => s + t.credit, 0)),
             transactionCount: all.length,
           },
-          transactions: all.map((t) => ({ date: t.date, reference: t.reference, description: t.description, docReference: t.docReference ?? null, transactionType: t.transactionType, debit: t.debit, credit: t.credit, balance: t.balance, documentType: t.documentType, paymentMethod: t.paymentMethod, docId: t.docId, docTypeKey: t.docTypeKey, templateId: t.templateId })),
+          transactions: all.map((t) => ({ date: t.date, reference: t.reference, description: t.description, docReference: t.docReference ?? null, transactionType: t.transactionType, debit: t.debit, credit: t.credit, balance: t.balance, documentType: t.documentType, paymentMethod: t.paymentMethod, docId: t.docId, docTypeKey: t.docTypeKey, templateId: t.templateId, unconfirmed: !!t.unconfirmed })),
           monthlyBalances,
           agingAnalysis,
           generatedAt: new Date(),
@@ -408,6 +411,8 @@ export class StatementsService {
       // (guru 2026-10-21).
       docTypeKey?: string;
       templateId?: string | null;
+      // Saved but not yet confirmed — printed under an "Unconfirmed" band.
+      unconfirmed?: boolean;
     };
 
     const txs: Tx[] = [];
@@ -445,6 +450,7 @@ export class StatementsService {
         documentId: b.id,
         docTypeKey: 'BILL',
         templateId: b.documentTemplateId,
+        unconfirmed: isUnconfirmedDoc((b as any).status),
       });
 
       // For Xero-imported paid bills we don't have exact payment dates, so

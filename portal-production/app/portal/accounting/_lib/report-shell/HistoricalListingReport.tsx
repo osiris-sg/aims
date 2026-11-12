@@ -1,5 +1,7 @@
 "use client";
 
+import { bandLabel, bandRow, splitConfirmed } from "./confirmBands";
+
 // Debtor Historical Listing (legacy screenshots 71/72 — guru 2026-07-20:
 // Xero style, legacy words verbatim): per-debtor transaction history for a
 // period — BALANCE B/F opening row, then every transaction with columns
@@ -43,7 +45,7 @@ type DebtorBlock = {
   code: string;
   name: string;
   currency: string; // customer master currency
-  rows: Array<{ reference: string; date: string | null; remarks: string; debit: number; credit: number }>;
+  rows: Array<{ reference: string; date: string | null; remarks: string; debit: number; credit: number; unconfirmed: boolean }>;
   opening: number;
   closing: number;
   totalDebit: number;
@@ -111,6 +113,7 @@ export default function HistoricalListingReport({ side = "receivable" }: { side?
             remarks: t.description || t.transactionType || "",
             debit: Number(t.debit) || 0,
             credit: Number(t.credit) || 0,
+            unconfirmed: !!t.unconfirmed,
           }));
           built.push({
             code: codeOf(c),
@@ -175,8 +178,17 @@ export default function HistoricalListingReport({ side = "receivable" }: { side?
           ],
         });
       }
-      for (let i = 0; i < bl.rows.length; i++) {
-        const r = bl.rows[i];
+      // Legacy split (guru 2026-11-12: every report): confirmed rows first
+      // (after BALANCE B/F), then an "Unconfirmed" band with the documents
+      // not yet confirmed; the SUB-TOTAL covers both.
+      const { unconfirmed, confirmed } = splitConfirmed(bl.rows, (r) => r.unconfirmed);
+      const ordered = [...confirmed, ...unconfirmed];
+      for (let i = 0; i < ordered.length; i++) {
+        const r = ordered[i];
+        if (unconfirmed.length && (i === 0 || i === confirmed.length)) {
+          const isUnc = i === confirmed.length;
+          out.push(bandRow(`band-${bl.code}-${isUnc ? "u" : "c"}`, bandLabel("Transaction", isUnc), 9, isUnc));
+        }
         const net = R(r.debit - r.credit);
         out.push({
           kind: "row",

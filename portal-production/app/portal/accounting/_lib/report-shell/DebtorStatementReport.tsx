@@ -1,5 +1,7 @@
 "use client";
 
+import { bandLabel, bandRow } from "./confirmBands";
+
 // Statement-Of-Accounts (legacy screenshots 61/62 — guru 2026-07-20: Xero
 // style + From/To customer-code RANGE for month-end statement runs): pick a
 // customer range + period ending + scope and every customer's statement
@@ -99,7 +101,7 @@ function bucketizeByMonth(docs: AgedDoc[], cutISO: string) {
   return list;
 }
 
-type StRow = { reference: string; date: string | null; remarks: string; debit: number; credit: number; running: number };
+type StRow = { reference: string; date: string | null; remarks: string; debit: number; credit: number; running: number; unconfirmed?: boolean };
 type CustomerStatement = {
   customer: { id: string; name: string; code: string };
   rows: StRow[];
@@ -179,19 +181,21 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
             const prevDocs = prevByContact.get(c.id) || [];
             const nowDocs = nowByContact.get(c.id) || [];
 
-            const rows: StRow[] = [];
+            // Rows are collected first, then ordered confirmed-first with the
+            // unconfirmed documents appended under their band (guru
+            // 2026-11-12: every report), and the running balance is built in
+            // that order so BALANCE B/F and the closing figure read straight.
+            const pending: StRow[] = [];
             let run = 0;
             if (sc === "outstanding") {
               for (const d of prevDocs) {
-                run = R(run + (Number(d.total) || 0));
-                rows.push({ reference: d.number, date: d.date, remarks: d.reference || (side === "payable" ? "SUPPLIER INVOICE" : "INVOICE"), debit: Number(d.total) || 0, credit: 0, running: run });
+                pending.push({ reference: d.number, date: d.date, remarks: d.reference || (side === "payable" ? "SUPPLIER INVOICE" : "INVOICE"), debit: Number(d.total) || 0, credit: 0, running: 0, unconfirmed: !!(d as any).unconfirmed });
               }
             } else {
               run = R(soaSummaryOf(soa).opening);
-              rows.push({ reference: "", date: null, remarks: "BALANCE B/F", debit: 0, credit: 0, running: run });
+              pending.push({ reference: "", date: null, remarks: "BALANCE B/F", debit: 0, credit: 0, running: run });
             }
             for (const t of monthTxs) {
-              run = R(run + (Number(t.debit) || 0) - (Number(t.credit) || 0));
               // Remarks = the document's reference text, same as the
               // prior-month rows above; a document with no reference prints
               // the legacy placeholder rather than "Invoice BI…" (guru
@@ -204,15 +208,21 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
                   : t.transactionType === "CREDIT_NOTE"
                     ? t.docReference || "CREDIT NOTE"
                     : null;
-              rows.push({
+              pending.push({
                 reference: t.reference,
                 date: t.date,
                 remarks: docRemarks || t.description || t.transactionType,
                 debit: Number(t.debit) || 0,
                 credit: Number(t.credit) || 0,
-                running: run,
+                running: 0,
+                unconfirmed: !!t.unconfirmed,
               });
             }
+            const rows: StRow[] = [...pending.filter((r) => !r.unconfirmed), ...pending.filter((r) => r.unconfirmed)].map((r) => {
+              if (r.remarks === "BALANCE B/F" && !r.date) return r;
+              run = R(run + r.debit - r.credit);
+              return { ...r, running: run };
+            });
             // A range run skips customers with nothing to say; an explicitly
             // picked single customer always shows (even if empty).
             const hasContent = rows.some((r) => r.debit || r.credit || Math.abs(r.running) > 0.005);
@@ -269,14 +279,23 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
     [],
   );
 
-  const rowsFor = (s: CustomerStatement): ReportRow[] => [
-    ...s.rows.map((r, i) => ({
-      kind: "row" as const,
-      key: `${s.customer.id}-r${i}`,
-      cells: [r.reference, r.date ? fmtDate(r.date) : "", r.remarks, r.debit || null, r.credit || null, r.running] as any,
-    })),
-    { kind: "total" as const, key: `${s.customer.id}-total`, cells: ["TOTAL", "", "", s.totalDebit, s.totalCredit, s.closing] as any },
-  ];
+  // Band before the first unconfirmed row (they are appended last, see load).
+  const firstUnconfirmed = (s: CustomerStatement) => s.rows.findIndex((r) => r.unconfirmed);
+  const rowsFor = (s: CustomerStatement): ReportRow[] => {
+    const fu = firstUnconfirmed(s);
+    const out: ReportRow[] = [];
+    s.rows.forEach((r, i) => {
+      if (fu >= 0 && i === 0 && fu > 0) out.push(bandRow(`${s.customer.id}-band-c`, bandLabel("Transaction", false), 6, false));
+      if (fu >= 0 && i === fu) out.push(bandRow(`${s.customer.id}-band-u`, bandLabel("Transaction", true), 6, true));
+      out.push({
+        kind: "row" as const,
+        key: `${s.customer.id}-r${i}`,
+        cells: [r.reference, r.date ? fmtDate(r.date) : "", r.remarks, r.debit || null, r.credit || null, r.running] as any,
+      });
+    });
+    out.push({ kind: "total" as const, key: `${s.customer.id}-total`, cells: ["TOTAL", "", "", s.totalDebit, s.totalCredit, s.closing] as any });
+    return out;
+  };
 
   const grandOwed = R((statements || []).reduce((s, st) => s + st.closing, 0));
 
@@ -300,14 +319,20 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
     autoTable(doc, {
       startY: 48,
       head: [["Reference", "Date", "Remarks", "Debit", "Credit", "Balance"]],
-      body: s.rows.map((r) => [
-        r.reference,
-        r.date ? fmtDate(r.date) : "",
-        r.remarks,
-        r.debit ? fmt(r.debit) : "",
-        r.credit ? fmt(r.credit) : "",
-        fmt(r.running),
-      ]),
+      body: s.rows.flatMap((r, i) => {
+        const fu = firstUnconfirmed(s);
+        const band: string[][] = [];
+        if (fu >= 0 && i === 0 && fu > 0) band.push([bandLabel("Transaction", false), "", "", "", "", ""]);
+        if (fu >= 0 && i === fu) band.push([bandLabel("Transaction", true), "", "", "", "", ""]);
+        return [...band, [
+          r.reference,
+          r.date ? fmtDate(r.date) : "",
+          r.remarks,
+          r.debit ? fmt(r.debit) : "",
+          r.credit ? fmt(r.credit) : "",
+          fmt(r.running),
+        ]];
+      }),
       foot: [["TOTAL", "", "", fmt(s.totalDebit), fmt(s.totalCredit), fmt(s.closing)]],
       theme: "plain",
       styles: { fontSize: 8, cellPadding: 1.2, textColor: 0 },
@@ -317,6 +342,12 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
       // amounts sat left of their columns (guru 2026-11-11 "not aligned").
       didParseCell: (d: any) => {
         if (d.section === "foot" && d.column.index >= 3) d.cell.styles.halign = "right";
+        // Band rows: bold label, the unconfirmed one tinted like on screen.
+        if (d.section === "body" && d.column.index === 0 && /^(Unconfirmed|Confirmed) Transaction\(s\)$/.test(String(d.cell.raw || ""))) {
+          d.cell.styles.fontStyle = "bold";
+          d.cell.colSpan = 6;
+          if (String(d.cell.raw).startsWith("Unconfirmed")) d.cell.styles.fillColor = [253, 236, 234];
+        }
       },
       columnStyles: {
         0: { cellWidth: 34 },
