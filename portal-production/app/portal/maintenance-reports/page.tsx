@@ -25,9 +25,12 @@ import {
 import SearchIcon from "@mui/icons-material/Search";
 import AddIcon from "@mui/icons-material/Add";
 import DownloadIcon from "@mui/icons-material/Download";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import { request } from "@/helpers/request";
 import { MAX_BULK_REPORTS } from "@/helpers/serviceReportFiles";
 import { downloadServiceReportsZip } from "@/helpers/downloadServiceReportsZip";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import UploadServiceReportDialog from "./_components/UploadServiceReportDialog";
 
 interface ServiceData {
   customerName?: string | null;
@@ -35,6 +38,8 @@ interface ServiceData {
   jobLocation?: string | null;
   /** WCT: created with the delivery run, not yet written by the technician. */
   scheduled?: boolean;
+  /** Filed from the office as an existing file (Upload Service Report). */
+  uploaded?: boolean;
 }
 
 interface MsrRow {
@@ -83,6 +88,8 @@ const LIMIT = 20;
 export default function MaintenanceReportsListPage() {
   const router = useRouter();
   const { getToken } = useAuth();
+  const { isWctOrdersEnabled } = useOrganizationFeatures();
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -190,19 +197,41 @@ export default function MaintenanceReportsListPage() {
         {/* Disabled "New Report" button — reports originate from the field app's
             NFC scan flow. The span wrapper is required because MUI disabled
             buttons don't fire pointer events, which would suppress the Tooltip. */}
-        <Tooltip title="Use the SiteJobs app to create reports">
-          <span>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              disabled
-              sx={{ minHeight: 40 }}
-            >
-              New Report
-            </Button>
-          </span>
-        </Tooltip>
+        <Stack direction="row" spacing={1} alignItems="center">
+          {/* A report that already exists as a file (PDF / scan). */}
+          <Button
+            variant="outlined"
+            startIcon={<CloudUploadIcon />}
+            onClick={() => setUploadOpen(true)}
+            sx={{ minHeight: 40 }}
+            data-tour="service-report-upload"
+          >
+            Upload Service Report
+          </Button>
+          <Tooltip title="Use the SiteJobs app to create reports">
+            <span>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                disabled
+                sx={{ minHeight: 40 }}
+              >
+                New Report
+              </Button>
+            </span>
+          </Tooltip>
+        </Stack>
       </Stack>
+
+      <UploadServiceReportDialog
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        wctOrders={isWctOrdersEnabled}
+        onUploaded={(r) => {
+          setUploadOpen(false);
+          router.push(`/portal/maintenance-reports/${r.id}`);
+        }}
+      />
 
       <TextField
         placeholder="Search by report number, customer, location, model or serial"
@@ -314,10 +343,13 @@ export default function MaintenanceReportsListPage() {
                   <TableCell>{row.serviceData?.serviceDate ?? "—"}</TableCell>
                   <TableCell>{new Date(row.createdAt).toLocaleString()}</TableCell>
                   <TableCell>
-                    {(() => {
-                      const chip = statusChipProps(statusFor(row));
-                      return <Chip size="small" label={chip.label} color={chip.color} variant={chip.variant} />;
-                    })()}
+                    <Stack direction="row" spacing={0.5} alignItems="center">
+                      {(() => {
+                        const chip = statusChipProps(statusFor(row));
+                        return <Chip size="small" label={chip.label} color={chip.color} variant={chip.variant} />;
+                      })()}
+                      {row.serviceData?.uploaded && <Chip size="small" label="Uploaded" variant="outlined" />}
+                    </Stack>
                   </TableCell>
                 </TableRow>
               ))

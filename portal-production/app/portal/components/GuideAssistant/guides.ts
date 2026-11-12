@@ -222,6 +222,29 @@ export const GUIDES: Guide[] = [
       'How to issue a credit note against a customer or invoice: where Credit Notes live and how to create and confirm one.',
   }),
   {
+    id: 'upload-service-report',
+    title: 'Upload a service report you already have',
+    description:
+      'File an EXISTING service report (a PDF or a photo / scan of the paper) on Service Reports, and attach a photos file to any report. NOT for writing a new report from scratch (that is done in the SiteJobs field app).',
+    route: '/portal/maintenance-reports',
+    steps: [
+      {
+        route: '/portal/maintenance-reports',
+        selector: '[data-tour="service-report-upload"]',
+        title: 'Upload Service Report',
+        body: 'Pick the file (PDF or image), then optionally the customer, location and service date (today by default). The report gets the next number and is filed as Completed with an "Uploaded" chip. It is never emailed to the customer.',
+      },
+      {
+        title: 'Open it from the list',
+        body: 'Click the row. The page shows your file, and Download / Print act on that file.',
+      },
+      {
+        title: 'Photos on any report',
+        body: 'On a report page, "Attach photos" (next to Download PDF / Print) adds one PDF or image of photos. The page then gets Service report and Photos tabs, and Download / Print follow the open tab. Replace photos or Remove photos (asks first) change it later.',
+      },
+    ],
+  },
+  {
     id: 'use-aimee',
     title: 'Meet AIMEE',
     description:

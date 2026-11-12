@@ -21,7 +21,16 @@ import { request } from "@/helpers/request";
 const API = (process.env.NEXT_PUBLIC_BACKEND_API_URL || "").replace(/\/$/, "");
 const A4_WIDTH_PX = 794;
 
-export default function WctReportView({ reportId, reportNumber }: { reportId: string; reportNumber: number | null }) {
+export default function WctReportView({
+  reportId,
+  reportNumber,
+  extraActions,
+}: {
+  reportId: string;
+  reportNumber: number | null;
+  /** Buttons placed before Download PDF / Print (the photos file controls). */
+  extraActions?: React.ReactNode;
+}) {
   const { getToken } = useAuth();
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [html, setHtml] = useState<string | null>(null);
@@ -97,7 +106,8 @@ export default function WctReportView({ reportId, reportNumber }: { reportId: st
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
-      <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap" sx={{ "@media print": { display: "none" } }}>
+      <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap" useFlexGap sx={{ "@media print": { display: "none" } }}>
+        {extraActions}
         <Button variant="outlined" startIcon={<PictureAsPdfIcon />} onClick={download} disabled={!html || !!busy} data-tour="service-report-download-pdf">
           {busy ?? "Download PDF"}
         </Button>

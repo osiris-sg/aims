@@ -5,6 +5,7 @@ import { EmailModule } from '../email/email.module';
 import { DocumentsModule } from '../documents/documents.module';
 import { DocumentTemplatesModule } from '../documentTemplates/documentTemplates.module';
 import { DeliveriesModule } from '../deliveries/deliveries.module';
+import { OrdersModule } from '../orders/orders.module';
 import { MaintenanceReportsController } from './maintenance-reports.controller';
 import { MaintenanceReportsService } from './maintenance-reports.service';
 
@@ -16,7 +17,9 @@ import { MaintenanceReportsService } from './maintenance-reports.service';
   // off an Invoice document from an MSR with paymentRequired === true.
   // DocumentTemplatesModule exports DocumentTemplatesService for the
   // field-accessible do-view aggregator (resolves variant + field config).
-  imports: [CommonModule, EmailModule, DocumentsModule, DocumentTemplatesModule, DeliveriesModule],
+  // OrdersModule: an uploaded report is linked to a WCT order through the
+  // order's own "Link a service report" attachment (addOrderAttachment).
+  imports: [CommonModule, EmailModule, DocumentsModule, DocumentTemplatesModule, DeliveriesModule, OrdersModule],
   controllers: [MaintenanceReportsController],
   providers: [MaintenanceReportsService, PrismaService],
   // Exported so PublicDeliveryModule can reuse create()/sign() for the guest

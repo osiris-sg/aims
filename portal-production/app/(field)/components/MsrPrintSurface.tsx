@@ -160,6 +160,9 @@ export function useMsrPrint(): UseMsrPrintResult {
       const data = res?.data ?? res;
       if (!data?.id) throw new Error("Report not found");
       const title = `Report-${data.reportNumber ?? data.id.slice(0, 8)}`;
+      // An uploaded report is a file the office filed, not a sheet to draw:
+      // the field app shows it (view only) and never re-renders it as a blank form.
+      if (data.serviceData?.uploaded) throw new Error("An uploaded report can only be viewed here");
       // A WCT report is a paper of its own that only the server draws (letterhead
       // on every page, photo pages, advisory): print the server's HTML as-is,
       // exactly as the DO with a named layout does — there is no offscreen sheet.

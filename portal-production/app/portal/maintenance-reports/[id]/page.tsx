@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
@@ -13,15 +13,18 @@ import {
   Grid,
   Paper,
   Stack,
+  Tab,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableRow,
+  Tabs,
   Typography,
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import PrintIcon from "@mui/icons-material/Print";
+import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import CheckBoxIcon from "@mui/icons-material/CheckBox";
 import CheckBoxOutlineBlankIcon from "@mui/icons-material/CheckBoxOutlineBlank";
 import ReceiptIcon from "@mui/icons-material/Receipt";
@@ -39,6 +42,9 @@ import {
 import ReportPhotos from "@/components/maintenance/ReportPhotos";
 import CustomerSignLinkButton from "../_components/CustomerSignLinkButton";
 import WctReportView from "../_components/WctReportView";
+import PhotosFileControls, { type PhotosFile } from "../_components/PhotosFileControls";
+import ReportFileView, { type ReportFileHandle } from "@/components/maintenance/ReportFileView";
+import { fetchServiceReportFile, reportFileStem, saveBlob } from "@/helpers/serviceReportFileBlob";
 import { msrStatusChip } from "@/helpers/msrStatus";
 
 // Labels come from the SHARED catalogue (see the drift warning there). Which
@@ -72,6 +78,11 @@ interface ServiceData {
   // Stamped by the API when the report PDF was actually emailed to the customer.
   emailSentAt?: string;
   emailSentTo?: string;
+  /** Filed from the office as an existing file (Upload Service Report). */
+  uploaded?: boolean;
+  uploadedFile?: { key: string; fileName: string; mimeType: string } | null;
+  /** Optional photos attachment: one PDF or image. */
+  photosFile?: PhotosFile;
 }
 
 interface MsrDetail {
@@ -125,6 +136,10 @@ export default function MaintenanceReportDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [creatingInvoice, setCreatingInvoice] = useState(false);
+  // "Service report" | "Photos" (tabs only when a photos file is attached).
+  const [tab, setTab] = useState<"report" | "photos">("report");
+  const [downloading, setDownloading] = useState(false);
+  const photosView = useRef<ReportFileHandle>(null);
 
   const createInvoice = async () => {
     if (!report) return;
@@ -204,6 +219,49 @@ export default function MaintenanceReportDetailPage() {
   }
 
   const sd = report.serviceData ?? {};
+  const isUploaded = !!(sd.uploaded && sd.uploadedFile);
+  const photosFile = sd.photosFile ?? null;
+  const onPhotos = !!photosFile && tab === "photos";
+  const fileStem = reportFileStem(report.reportNumber, report.id);
+  const setPhotosFile = (next: PhotosFile) => {
+    setReport((r) => (r ? { ...r, serviceData: { ...(r.serviceData ?? {}), photosFile: next } } : r));
+    if (!next) setTab("report");
+  };
+  const photosControls = (
+    <PhotosFileControls reportId={report.id} photosFile={photosFile} onChange={setPhotosFile} onError={setError} />
+  );
+  // Generic / ESS: the page itself is the report (Print = the browser's print);
+  // Download PDF is the server's PDF of it.
+  const downloadGenerated = async () => {
+    setDownloading(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error("Not signed in");
+      saveBlob(await fetchServiceReportFile(report.id, "report", token), `${fileStem}.pdf`);
+    } catch (e: any) {
+      setError(e?.message ?? "Could not download the PDF");
+    } finally {
+      setDownloading(false);
+    }
+  };
+  const tabs = photosFile ? (
+    <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ borderBottom: 1, borderColor: "divider", "@media print": { display: "none" } }}>
+      <Tab value="report" label="Service report" />
+      <Tab value="photos" label="Photos" data-tour="service-report-photos-tab" />
+    </Tabs>
+  ) : null;
+  const photosTab = (opts: { hideActions?: boolean } = {}) => (
+    <ReportFileView
+      ref={photosView}
+      key={photosFile?.key}
+      reportId={report.id}
+      kind="photos"
+      mimeType={photosFile?.mimeType}
+      downloadName={`${fileStem}-photos`}
+      hideActions={opts.hideActions}
+      extraActions={photosControls}
+    />
+  );
   // A row with no stamped id is GENERIC_V1 — that is the entire back-compat
   // story for reports captured before templates existed.
   const templateId = templateFor(sd.templateId);
@@ -259,7 +317,7 @@ export default function MaintenanceReportDetailPage() {
               serviceData.emailSentAt on a successful send). A finished report
               with no customer email says why nothing went out; a draft or
               scheduled report says nothing here. */}
-          {!report.paymentRequired && (report.serviceData as any)?.emailSentAt && (
+          {!isUploaded && !report.paymentRequired && (report.serviceData as any)?.emailSentAt && (
             <Chip
               icon={<EmailIcon />}
               label={`Report emailed to customer${(report.serviceData as any)?.emailSentTo ? ` · ${(report.serviceData as any).emailSentTo}` : ""}`}
@@ -267,7 +325,7 @@ export default function MaintenanceReportDetailPage() {
               variant="outlined"
             />
           )}
-          {!report.paymentRequired && report.status === "completed" && !(report.serviceData as any)?.emailSentAt && (
+          {!isUploaded && !report.paymentRequired && report.status === "completed" && !(report.serviceData as any)?.emailSentAt && (
             <Chip
               icon={<EmailIcon />}
               label={(report.serviceData as any)?.clientEmail ? "Email not sent yet" : "Not emailed — no customer email on the report"}
@@ -276,13 +334,31 @@ export default function MaintenanceReportDetailPage() {
           )}
           {/* Unsigned: let the customer sign remotely (one-use link). The WCT
               paper carries no customer signature, so it never offers one. */}
-          {report.status !== "completed" && !isWct && (
+          {report.status !== "completed" && !isWct && !isUploaded && (
             <CustomerSignLinkButton reportId={report.id} hasTechSignature={!!(report.serviceData as any)?.techSignatureKey} />
           )}
-          {!isWct && (
-            <Button variant="contained" startIcon={<PrintIcon />} onClick={() => window.print()}>
-              Print
-            </Button>
+          {/* Generic / ESS: the actions live here and follow the open tab. */}
+          {!isWct && !isUploaded && (
+            <>
+              {photosControls}
+              <Button
+                variant="outlined"
+                startIcon={downloading ? <CircularProgress size={16} color="inherit" /> : <PictureAsPdfIcon />}
+                onClick={() => (onPhotos ? photosView.current?.download() : void downloadGenerated())}
+                disabled={downloading}
+                data-tour="service-report-download-pdf"
+              >
+                Download PDF
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<PrintIcon />}
+                onClick={() => (onPhotos ? photosView.current?.print() : window.print())}
+                data-tour="service-report-print"
+              >
+                Print
+              </Button>
+            </>
           )}
         </Stack>
       </Stack>
@@ -307,11 +383,49 @@ export default function MaintenanceReportDetailPage() {
               />
             </Stack>
           </Paper>
-          <WctReportView reportId={report.id} reportNumber={report.reportNumber} />
+          {tabs}
+          {onPhotos ? photosTab() : <WctReportView reportId={report.id} reportNumber={report.reportNumber} extraActions={photosControls} />}
         </>
       )}
 
-      {!isWct && (<>
+      {isUploaded && (
+        <>
+          <Paper variant="outlined" sx={{ p: 2 }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
+              <Box>
+                <Typography variant="h6" fontWeight={700}>
+                  Service Report #{report.reportNumber ?? "—"}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {sd.customerName ?? "—"} · {sd.jobLocation ?? "—"} · {sd.serviceDate ?? "—"} · uploaded {formatDateTime(report.createdAt)}
+                </Typography>
+              </Box>
+              <Stack direction="row" spacing={0.5}>
+                <Chip size="small" label={msrStatusChip(report).label} color={msrStatusChip(report).color} variant={msrStatusChip(report).variant} />
+                <Chip size="small" label="Uploaded" variant="outlined" />
+              </Stack>
+            </Stack>
+          </Paper>
+          {tabs}
+          {onPhotos ? (
+            photosTab()
+          ) : (
+            <ReportFileView
+              key={sd.uploadedFile?.key}
+              reportId={report.id}
+              kind="report"
+              mimeType={sd.uploadedFile?.mimeType}
+              downloadName={fileStem}
+              extraActions={photosControls}
+            />
+          )}
+        </>
+      )}
+
+      {!isWct && !isUploaded && tabs}
+      {!isWct && !isUploaded && onPhotos && photosTab({ hideActions: true })}
+
+      {!isWct && !isUploaded && !onPhotos && (<>
       <Paper variant="outlined" sx={{ p: 3 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 2 }}>
           <Box>

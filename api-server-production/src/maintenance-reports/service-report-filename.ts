@@ -31,10 +31,10 @@ export function serviceReportFileName(r: {
   return ['Service report', number, customer, date].filter(Boolean).join(' ') + '.pdf';
 }
 
-/** "name.pdf", "name (2).pdf", … so two files in one zip never collide. */
+/** "name.pdf", "name (2).pdf", … so two files in one zip never collide (any extension: an uploaded report may be an image). */
 export function uniqueFileName(name: string, taken: Set<string>): string {
   let out = name;
-  for (let n = 2; taken.has(out.toLowerCase()); n++) out = name.replace(/\.pdf$/i, ` (${n}).pdf`);
+  for (let n = 2; taken.has(out.toLowerCase()); n++) out = /\.[a-z0-9]+$/i.test(name) ? name.replace(/(\.[a-z0-9]+)$/i, ` (${n})$1`) : `${name} (${n})`;
   taken.add(out.toLowerCase());
   return out;
 }

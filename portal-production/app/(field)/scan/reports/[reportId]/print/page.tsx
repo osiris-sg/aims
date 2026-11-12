@@ -12,6 +12,8 @@ import { request } from "@/helpers/request";
 import { isSystemPrintAvailable } from "../../../../lib/systemPrint";
 import { useMsrPrint } from "../../../../components/MsrPrintSurface";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import ReportFileView from "@/components/maintenance/ReportFileView";
+import { reportFileStem } from "@/helpers/serviceReportFileBlob";
 
 /**
  * PRINT / DOWNLOAD A SIGNED MAINTENANCE REPORT.
@@ -78,6 +80,29 @@ export default function PrintReportPage() {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", py: 10 }}>
         <CircularProgress />
+      </Box>
+    );
+  }
+
+  // An uploaded report (filed by the office as a PDF / image): the file
+  // itself, view only. It has no signatures and nothing to print from here.
+  if (sd.uploaded && sd.uploadedFile) {
+    return (
+      <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2 }}>
+        <Box sx={{ textAlign: "center" }}>
+          <Typography variant="h6">Report #{report.reportNumber ?? "—"} (uploaded)</Typography>
+          <Typography variant="body2" color="text.secondary">
+            {[sd.customerName, sd.jobLocation, sd.serviceDate].filter(Boolean).join(" · ")}
+          </Typography>
+        </Box>
+        <ReportFileView
+          reportId={reportId}
+          kind="report"
+          mimeType={sd.uploadedFile.mimeType}
+          downloadName={reportFileStem(report.reportNumber, reportId)}
+          viewOnly
+        />
+        <Button onClick={() => router.push("/scan/reports")}>Back to reports</Button>
       </Box>
     );
   }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, Res, UnauthorizedException, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req, Res, UnauthorizedException, UseGuards, UseInterceptors } from '@nestjs/common';
 import { IdempotencyInterceptor } from 'src/common/idempotency/idempotency.interceptor';
 import { ApiTags } from '@nestjs/swagger';
 import { Request, Response } from 'express';
@@ -59,6 +59,20 @@ export class MaintenanceReportsController {
       throw new UnauthorizedException('Missing authenticated user');
     }
     return this.service.create(dto, org.id, technicianUserId);
+  }
+
+  /**
+   * Office upload of a service report that already exists as a file (PDF or
+   * image): a completed SERVICE report with the next number, never emailed.
+   * Body { fileKey, fileName, mimeType, customerId?, location?, serviceDate?, orderId? }.
+   */
+  @Post('upload')
+  @UseInterceptors(IdempotencyInterceptor)
+  @Permissions('maintenance-reports:create')
+  upload(@Body() body: any, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException('Missing authenticated user');
+    return this.service.createUploaded(body ?? {}, org.id, userId);
   }
 
   /**
@@ -135,14 +149,37 @@ export class MaintenanceReportsController {
     return this.service.getReportHtml(id, org.id);
   }
 
-  /** The report PDF — identical to the one emailed to the customer. */
+  /** The report PDF, identical to the one emailed to the customer. An uploaded report returns its own file. */
   @Get(':id/pdf')
   @Permissions('maintenance-reports:read')
   async getPdf(@Param('id') id: string, @UserOrganization() org: { id: string }, @Res() res: Response) {
-    const { buffer, filename } = await this.service.getReportPdf(id, org.id);
-    res.setHeader('Content-Type', 'application/pdf');
+    const { buffer, filename, contentType } = await this.service.getReportPdf(id, org.id);
+    res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
     res.send(buffer);
+  }
+
+  /** The report's photos attachment (one PDF or image). */
+  @Get(':id/photos-file')
+  @Permissions('maintenance-reports:read')
+  async getPhotosFile(@Param('id') id: string, @UserOrganization() org: { id: string }, @Res() res: Response) {
+    const { buffer, filename, contentType } = await this.service.getPhotosFile(id, org.id);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.send(buffer);
+  }
+
+  /** Attach or replace the photos file. Body { fileKey, fileName, mimeType }. */
+  @Put(':id/photos-file')
+  @Permissions('maintenance-reports:create')
+  setPhotosFile(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    return this.service.setPhotosFile(id, body ?? {}, org.id, req.user?.id);
+  }
+
+  @Delete(':id/photos-file')
+  @Permissions('maintenance-reports:create')
+  removePhotosFile(@Param('id') id: string, @UserOrganization() org: { id: string }) {
+    return this.service.removePhotosFile(id, org.id);
   }
 
   /**

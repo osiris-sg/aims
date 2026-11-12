@@ -17,6 +17,9 @@ import type { WctOrgProfile } from './service-report-wct';
 import { minPhotosForAssetClass } from 'src/common/asset-class';
 import { orgToday, orgTodayFor } from '../common/org-today';
 import { serviceReportFileName, uniqueFileName } from './service-report-filename';
+import { cleanIsoDate, cleanReportFile, photosFileOf, reportFileExt, uploadedFileOf, withExt, type ReportFile } from './uploaded-report';
+import { isWctOrdersEnabled } from '../orders/wct-orders';
+import { OrdersService } from '../orders/orders.service';
 
 /** Org fields every renderer may need: name/logo for the stock sheets, the rest for the WCT letterhead + footer. */
 /** Most reports one bulk download may carry (POST /maintenance-reports/bulk-pdf). */
@@ -66,6 +69,7 @@ export class MaintenanceReportsService {
     private readonly waterSg: WaterSgService,
     private readonly deliveriesService: DeliveriesService,
     private readonly s3Service: S3Service,
+    private readonly ordersService: OrdersService,
   ) {}
 
   /**
@@ -349,41 +353,7 @@ export class MaintenanceReportsService {
       return created;
     }
 
-    // Sequential per-org report number. Race protection: unique index on
-    // (organizationId, reportNumber); on P2002 we re-read the max and retry
-    // once. Field-tech concurrent submissions are rare enough that two retries
-    // would be a strong signal of a different bug.
-    const computeNextNumber = async () => {
-      const latest = await this.prisma.maintenanceServiceReport.findFirst({
-        where: { organizationId, reportNumber: { not: null } },
-        orderBy: { reportNumber: 'desc' },
-        select: { reportNumber: true },
-      });
-      return (latest?.reportNumber ?? 0) + 1;
-    };
-
-    let created: Awaited<ReturnType<typeof this.prisma.maintenanceServiceReport.create>> | null = null;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const reportNumber = await computeNextNumber();
-      try {
-        created = await this.prisma.maintenanceServiceReport.create({
-          data: { ...baseData, reportNumber },
-        });
-        break;
-      } catch (err) {
-        if (
-          err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === 'P2002' &&
-          attempt === 0
-        ) {
-          continue; // someone else grabbed this number — recompute and retry
-        }
-        throw err;
-      }
-    }
-    if (!created) {
-      throw new Error('Failed to assign a unique report number after retries');
-    }
+    const created = await this.createNumbered(organizationId, baseData);
 
     // Fire-and-forget: when the tech says payment isn't required, email the
     // report PDF to the customer (CC admin). Failures are logged, never
@@ -397,11 +367,48 @@ export class MaintenanceReportsService {
     // email is deferred to sign(), which fires it once the signature exists.
     if (!created.paymentRequired && created.status === 'completed') {
       void this.sendReportEmailInBackground(created.id).catch((err) =>
-        this.logger.error(`Background MSR email failed for ${created!.id}: ${err?.message}`, err?.stack),
+        this.logger.error(`Background MSR email failed for ${created.id}: ${err?.message}`, err?.stack),
       );
     }
 
     return created;
+  }
+
+  /**
+   * Create a SERVICE report with the next per-org report number. Race
+   * protection: unique index on (organizationId, reportNumber); on P2002 we
+   * re-read the max and retry once. Field-tech concurrent submissions are rare
+   * enough that two retries would be a strong signal of a different bug. Used
+   * by the field submission and the office upload alike.
+   */
+  private async createNumbered(organizationId: string, baseData: Prisma.MaintenanceServiceReportUncheckedCreateInput) {
+    const computeNextNumber = async () => {
+      const latest = await this.prisma.maintenanceServiceReport.findFirst({
+        where: { organizationId, reportNumber: { not: null } },
+        orderBy: { reportNumber: 'desc' },
+        select: { reportNumber: true },
+      });
+      return (latest?.reportNumber ?? 0) + 1;
+    };
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const reportNumber = await computeNextNumber();
+      try {
+        return await this.prisma.maintenanceServiceReport.create({
+          data: { ...baseData, reportNumber },
+        });
+      } catch (err) {
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002' &&
+          attempt === 0
+        ) {
+          continue; // someone else grabbed this number — recompute and retry
+        }
+        throw err;
+      }
+    }
+    throw new Error('Failed to assign a unique report number after retries');
   }
 
   /**
@@ -552,15 +559,133 @@ export class MaintenanceReportsService {
   /** GET /maintenance-reports/:id/html → the rendered report (JSON-wrapped). */
   async getReportHtml(id: string, organizationId: string): Promise<{ html: string; templateId: string }> {
     const report = await this.loadForRender(id, organizationId);
+    if (uploadedFileOf(report.serviceData)) throw new BadRequestException('This report is an uploaded file; open it with GET :id/pdf');
     const sd = (report.serviceData as any) ?? {};
     return { html: this.renderReportHtml(report), templateId: templateFor(sd.templateId) };
   }
 
-  /** GET /maintenance-reports/:id/pdf → the same PDF the customer is emailed. */
-  async getReportPdf(id: string, organizationId: string): Promise<{ buffer: Buffer; filename: string }> {
+  /**
+   * GET /maintenance-reports/:id/pdf → the same PDF the customer is emailed.
+   * An UPLOADED report returns its uploaded file as stored (a PDF or an image).
+   */
+  async getReportPdf(id: string, organizationId: string): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
     const report = await this.loadForRender(id, organizationId);
+    const base = `service-report-${report.reportNumber ?? report.id.slice(0, 8)}`;
+    const uploaded = uploadedFileOf(report.serviceData);
+    if (uploaded) {
+      return { buffer: await this.s3Service.downloadFile(uploaded.key), filename: `${base}.${reportFileExt(uploaded)}`, contentType: uploaded.mimeType };
+    }
     const buffer = await this.renderReportPdf(report);
-    return { buffer, filename: `service-report-${report.reportNumber ?? report.id.slice(0, 8)}.pdf` };
+    return { buffer, filename: `${base}.pdf`, contentType: 'application/pdf' };
+  }
+
+  /** GET /maintenance-reports/:id/photos-file → the report's photos attachment. */
+  async getPhotosFile(id: string, organizationId: string): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
+    const report = await this.prisma.maintenanceServiceReport.findFirst({
+      where: { id, organizationId },
+      select: { id: true, reportNumber: true, serviceData: true },
+    });
+    if (!report) throw new NotFoundException('Service report not found');
+    const file = photosFileOf(report.serviceData);
+    if (!file) throw new NotFoundException('This report has no photos attached');
+    return {
+      buffer: await this.s3Service.downloadFile(file.key),
+      filename: `service-report-${report.reportNumber ?? report.id.slice(0, 8)}-photos.${reportFileExt(file)}`,
+      contentType: file.mimeType,
+    };
+  }
+
+  /**
+   * POST /maintenance-reports/upload (2026-11-12): file a service report the
+   * office already has on paper or as a PDF. An ordinary SERVICE report with
+   * the next report number, stored as completed (so it never shows in the
+   * field app's Pending Sign list) but NOT signed: signedAt stays null, so it
+   * is never counted as a signed maintenance visit (Maintenance Dates read
+   * signed reports per unit, and this one has no unit either). It is never
+   * emailed to the customer. With an order (WCT), it is linked through the
+   * order's existing "Link a service report" attachment.
+   */
+  async createUploaded(
+    body: { fileKey?: string; fileName?: string; mimeType?: string; customerId?: string; location?: string; serviceDate?: string; orderId?: string },
+    organizationId: string,
+    userId: string,
+  ) {
+    const file = cleanReportFile(body, organizationId);
+    let customer: { id: string; name: string } | null = null;
+    if (body?.customerId) {
+      customer = await this.prisma.customer.findFirst({ where: { id: body.customerId, organizationId }, select: { id: true, name: true } });
+      if (!customer) throw new NotFoundException('Customer not found in this organization');
+    }
+    const orderId = typeof body?.orderId === 'string' && body.orderId.trim() ? body.orderId.trim() : null;
+    if (orderId) {
+      if (!(await isWctOrdersEnabled(this.prisma, organizationId))) throw new BadRequestException('Orders with jobs are not enabled for this organisation');
+      const order = await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true } });
+      if (!order) throw new NotFoundException('Order not found');
+    }
+    const location = typeof body?.location === 'string' ? body.location.trim().slice(0, 300) : '';
+    const serviceDate = cleanIsoDate(body?.serviceDate) ?? (await orgTodayFor(this.prisma, organizationId));
+
+    const created = await this.createNumbered(organizationId, {
+      organizationId,
+      kind: MaintenanceReportKind.SERVICE,
+      technicianUserId: userId,
+      description: 'Uploaded service report',
+      photos: [],
+      paymentRequired: false,
+      status: 'completed',
+      serviceData: {
+        uploaded: true,
+        uploadedFile: file,
+        uploadedAt: new Date().toISOString(),
+        customerId: customer?.id ?? null,
+        customerName: customer?.name ?? null,
+        jobLocation: location || null,
+        serviceDate,
+      } as Prisma.InputJsonValue,
+    });
+
+    if (orderId) {
+      await this.ordersService.addOrderAttachment(orderId, organizationId, { kind: 'report', reportId: created.id }, { id: userId });
+    }
+    return created;
+  }
+
+  /** PUT /maintenance-reports/:id/photos-file: attach or replace the ONE photos file (any SERVICE report, signed or not). */
+  async setPhotosFile(id: string, body: { fileKey?: string; fileName?: string; mimeType?: string }, organizationId: string, userId?: string) {
+    const report = await this.serviceReportForFiles(id, organizationId);
+    const file: ReportFile & { addedAt: string; addedBy: string | null } = {
+      ...cleanReportFile(body, organizationId),
+      addedAt: new Date().toISOString(),
+      addedBy: userId ?? null,
+    };
+    const sd = (report.serviceData as Record<string, any> | null) ?? {};
+    return this.prisma.maintenanceServiceReport.update({
+      where: { id: report.id },
+      data: { serviceData: { ...sd, photosFile: file } as Prisma.InputJsonValue },
+      select: { id: true, serviceData: true },
+    });
+  }
+
+  /** DELETE /maintenance-reports/:id/photos-file: remove the photos file (the stored object is kept). */
+  async removePhotosFile(id: string, organizationId: string) {
+    const report = await this.serviceReportForFiles(id, organizationId);
+    const { photosFile, ...sd } = (report.serviceData as Record<string, any> | null) ?? {};
+    if (!photosFile) throw new NotFoundException('This report has no photos attached');
+    return this.prisma.maintenanceServiceReport.update({
+      where: { id: report.id },
+      data: { serviceData: sd as Prisma.InputJsonValue },
+      select: { id: true, serviceData: true },
+    });
+  }
+
+  private async serviceReportForFiles(id: string, organizationId: string) {
+    const report = await this.prisma.maintenanceServiceReport.findFirst({
+      where: { id, organizationId },
+      select: { id: true, kind: true, serviceData: true },
+    });
+    if (!report) throw new NotFoundException('Service report not found');
+    if (report.kind !== MaintenanceReportKind.SERVICE) throw new BadRequestException('Only service reports carry a photos file');
+    return report;
   }
 
   /**
@@ -606,6 +731,13 @@ export class MaintenanceReportsService {
     const taken = new Set<string>();
     for (const id of ids) {
       const report = byId.get(id)!;
+      // An uploaded report goes in as its own file (a PDF, or an image under the same name).
+      const uploaded = uploadedFileOf(report.serviceData);
+      if (uploaded) {
+        const name = withExt(serviceReportFileName(report, tz), reportFileExt(uploaded));
+        zip.addFile(uniqueFileName(name, taken), await this.s3Service.downloadFile(uploaded.key));
+        continue;
+      }
       zip.addFile(uniqueFileName(serviceReportFileName(report, tz), taken), await this.renderReportPdf(report));
     }
     return { buffer: zip.toBuffer(), filename: `Service reports ${orgToday(tz)} (${ids.length}).zip` };
@@ -688,6 +820,8 @@ export class MaintenanceReportsService {
       this.logger.warn(`MSR email skipped — report ${reportId} not found`);
       return;
     }
+    // An uploaded report is the office's own copy: never sent to the customer.
+    if (uploadedFileOf(report.serviceData)) return;
 
     const sd = (report.serviceData as any) ?? {};
     const clientEmail: string | undefined = sd.clientEmail;
