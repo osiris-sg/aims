@@ -32,9 +32,9 @@ const CSS = `
   .ldo .bill { flex: 1; min-width: 0; padding-top: 24px; }
   .ldo .bill .lbl { font-weight: 700; }
   .ldo .bill .nm { font-weight: 700; font-size: 14px; margin-top: 6px; white-space: pre-line; }
-  .ldo .hdr { width: 300px; flex: 0 0 300px; }
+  .ldo .hdr { width: 320px; flex: 0 0 320px; }
   .ldo .hdr .title { font-weight: 700; font-size: 20px; letter-spacing: .3px; line-height: 1.2; }
-  .ldo .hdr .kv { display: grid; grid-template-columns: 96px 12px 1fr; column-gap: 4px; row-gap: 3px; margin-top: 4px; }
+  .ldo .hdr .kv { display: grid; grid-template-columns: 124px 12px 1fr; column-gap: 4px; row-gap: 3px; margin-top: 4px; }
   .ldo .hdr .kv .k { white-space: nowrap; }
   .ldo .hdr .kv .c { text-align: center; }
   .ldo .hdr .kv .v { white-space: nowrap; }
@@ -158,13 +158,16 @@ export function renderLegacyDoBody(data: any, organization: any, design: Documen
     )
     .join('');
 
-  const kv = (k: string, v: string, extra = '') => `<span class="k ${extra}">${escapeHtml(k)}</span><span class="c">:</span><span class="v ${extra}">${escapeHtml(v)}</span>`;
+  // A blank field prints nothing — label and colon included — like every other
+  // layout's info rows (guru 2026-11-13).
+  const kv = (k: string, v: string, extra = '') =>
+    v ? `<span class="k ${extra}">${escapeHtml(k)}</span><span class="c">:</span><span class="v ${extra}">${escapeHtml(v)}</span>` : '';
   const headerBlock = `
     <div class="hdr">
       <div class="title">${escapeHtml(design.titleText || 'DELIVERY ORDER')}</div>
       <div class="kv">
-        ${taxNo ? kv('GST Reg No.', taxNo) : ''}
-        <span class="k ttl">DELIVERY ORDER</span><span class="c"></span><span class="v no">${escapeHtml(docNumber)}</span>
+        ${kv('GST Reg No.', taxNo)}
+        ${docNumber ? `<span class="k ttl">DELIVERY ORDER</span><span class="c">:</span><span class="v no">${escapeHtml(docNumber)}</span>` : ''}
         ${kv('Date', paperDate(di('date')))}
         ${kv('P/O No.', poNo)}
         ${kv('Terms', terms)}
@@ -179,7 +182,7 @@ export function renderLegacyDoBody(data: any, organization: any, design: Documen
       <div class="bill"><span class="lbl">Bill To &nbsp;&nbsp;:</span><div class="nm">${escapeHtml(billName)}${billAddr ? `\n${escapeHtml(billAddr)}` : ''}</div></div>
       ${headerBlock}
     </div>
-    <div class="attn"><b>Attn:</b>${escapeHtml(attention)}</div>
+    ${attention ? `<div class="attn"><b>Attn:</b>${escapeHtml(attention)}</div>` : ''}
     <table class="ldo-lines"><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>
     ${remarks ? `<div class="remarks"><b>Remarks:</b> ${escapeHtml(remarks)}</div>` : ''}
     <div class="foot">
