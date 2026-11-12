@@ -7,6 +7,7 @@ import { CreatePaymentDto } from './dto/create-payment.dto';
 import { UpdatePaymentDto } from './dto/update-payment.dto';
 import { Prisma, DocumentStatus } from '@prisma/client';
 import { JournalAutoPostService } from '../journal/journal-auto-post.service';
+import { isOrgFeatureEnabled, POST_INVOICES_ON_CONFIRM_FLAG, invoicePostingHeld } from '../common/org-features';
 
 @Injectable()
 export class PaymentsService {
@@ -38,6 +39,11 @@ export class PaymentsService {
       // No-draft model: a SAVED invoice is already in the GL/AR and can take
       // payments. Only block documents that were never posted (unsaved legacy
       // drafts with no journal entry).
+      // postInvoicesOnConfirm (WCT group): a draft is not in the GL / AR yet,
+      // so it takes no payment until it is confirmed or sent.
+      if (invoicePostingHeld(await isOrgFeatureEnabled(this.prisma, organizationId, POST_INVOICES_ON_CONFIRM_FLAG), document.status)) {
+        throw new HttpException('Confirm or send the invoice first.', HttpStatus.BAD_REQUEST);
+      }
       if (['draft', 'unconfirmed'].includes((document.status || '').toLowerCase())) {
         const posted = await this.prisma.journalEntry.findFirst({
           where: { organizationId, sourceDocumentId: document.id, type: 'INVOICE', status: { not: 'VOID' } },

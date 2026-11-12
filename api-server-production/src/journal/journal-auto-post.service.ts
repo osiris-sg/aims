@@ -306,6 +306,17 @@ export class JournalAutoPostService {
       if (!acctId && rl.accountCode) acctId = (await this.resolveAccountByCode(organizationId, rl.accountCode))?.id || null;
       if (acctId) byAccount.set(acctId, ROUND((byAccount.get(acctId) || 0) + amt));
     }
+    // A header (document) discount: the lines add up to MORE than the net.
+    // Spread it over the line accounts pro rata so each account carries its
+    // share. Before this the excess went out as a DEBIT "Sales (unmapped)"
+    // plug on the default sales account (balanced, but the whole discount on
+    // one account and the entry's total inflated; dev WCT 2026-11-12).
+    // Lines that do not exceed the net are untouched.
+    const linesTotal = ROUND([...byAccount.values()].reduce((sum, a) => sum + a, 0));
+    if (linesTotal > 0 && ROUND(net - linesTotal) < -0.02) {
+      const ratio = net / linesTotal;
+      for (const [acctId, amt] of byAccount) byAccount.set(acctId, ROUND(amt * ratio));
+    }
     if (byAccount.size === 0) {
       creditLines.push({ accountId: sales.id, debit: 0, credit: toBase(net), description: glRemarks || `Sales — ${invoiceNumber ?? ''}`.trim(), ...fxFields(net) });
     } else {
