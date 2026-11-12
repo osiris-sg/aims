@@ -456,7 +456,6 @@ export default function TabbedDocumentCreator({
 
   // Confirmed documents now open on the (read-only) edit screen, not preview.
   const [previewMode, setPreviewMode] = useState(initialPreviewMode);
-  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [confirmPODialogOpen, setConfirmPODialogOpen] = useState(false);
   const [confirmAdjustmentDialogOpen, setConfirmAdjustmentDialogOpen] = useState(false);
   const [confirmDODialogOpen, setConfirmDODialogOpen] = useState(false);
@@ -977,12 +976,14 @@ export default function TabbedDocumentCreator({
 
   const guardedSave = useCallback(async (saveData: any) => {
     if (lockReadOnly) {
-      toast.error(
-        lock.lostLock
-          ? `${lock.holderName || "Someone"} took over editing — reload to see their changes.`
-          : `${lock.holderName || "Someone"} is editing this document. Take over to make changes.`,
-      );
-      return;
+      const msg = lock.lostLock
+        ? `${lock.holderName || "Someone"} took over editing — reload to see their changes.`
+        : `${lock.holderName || "Someone"} is editing this document. Take over to make changes.`;
+      toast.error(msg);
+      // Throw rather than return: every caller awaits this and reads a clean
+      // return as "saved". Returning here let a blocked save go on to toast
+      // "Document saved" and navigate away (guru 2026-11-12).
+      throw Object.assign(new Error(msg), { reported: true });
     }
     const result = await onSave?.({ ...saveData, version: lockEnabled ? lock.version : undefined });
     if (lockEnabled) lock.refreshVersion();
@@ -1004,6 +1005,9 @@ export default function TabbedDocumentCreator({
   // finalise/stock/lock step and no longer owns GL.
   const autosaveActive = false;
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  // Set when the failed save already showed the server's own message, so the
+  // caller doesn't add a second, vaguer error toast on top of it.
+  const saveErrorReportedRef = useRef(false);
   const isAutosavingRef = useRef(false);
   // Render-visible dirty flag (isDirtyRef mirrors it for non-render checks).
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -3044,13 +3048,12 @@ export default function TabbedDocumentCreator({
       await persistProjectLinkIfChanged();
 
       toast.success("Document confirmed successfully");
-      setConfirmDialogOpen(false);
 
       // Full page reload to update the status
       reloadAfterCommit();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error confirming document:", error);
-      toast.error("Failed to confirm document");
+      if (!error?.reported) toast.error("Failed to confirm document");
     } finally {
       setIsConfirming(false);
     }
@@ -3127,9 +3130,9 @@ export default function TabbedDocumentCreator({
       }
 
       setConvertQuotationDialogOpen(true);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error confirming quotation:", error);
-      toast.error("Failed to confirm quotation");
+      if (!error?.reported) toast.error("Failed to confirm quotation");
     } finally {
       setIsConfirming(false);
     }
@@ -3175,10 +3178,10 @@ export default function TabbedDocumentCreator({
 
       // Full page reload to update the status
       reloadAfterCommit();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error confirming PO/PR:", error);
       const docLabel = isPurchaseReturn ? "Purchase Return" : "Purchase Order";
-      toast.error(`Failed to confirm ${docLabel}`);
+      if (!error?.reported) toast.error(`Failed to confirm ${docLabel}`);
     } finally {
       setIsConfirming(false);
     }
@@ -3219,10 +3222,10 @@ export default function TabbedDocumentCreator({
 
       // Full page reload to update the status
       reloadAfterCommit();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error confirming adjustment:", error);
       const docLabel = isStockAdjustmentIn ? "Stock Adjustment In" : "Stock Adjustment Out";
-      toast.error(`Failed to confirm ${docLabel}`);
+      if (!error?.reported) toast.error(`Failed to confirm ${docLabel}`);
     } finally {
       setIsConfirming(false);
     }
@@ -3287,9 +3290,9 @@ export default function TabbedDocumentCreator({
 
       // Full page reload to update the status
       reloadAfterCommit();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error confirming DO:", error);
-      toast.error("Failed to confirm Delivery Order");
+      if (!error?.reported) toast.error("Failed to confirm Delivery Order");
     } finally {
       setIsConfirming(false);
     }
@@ -3368,9 +3371,9 @@ export default function TabbedDocumentCreator({
 
       // Full page reload to update the status
       reloadAfterCommit();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error confirming PR:", error);
-      toast.error("Failed to confirm Purchase Return");
+      if (!error?.reported) toast.error("Failed to confirm Purchase Return");
     } finally {
       setIsConfirming(false);
     }
@@ -3446,9 +3449,9 @@ export default function TabbedDocumentCreator({
 
       // Full page reload to update the status
       reloadAfterCommit();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error confirming Invoice:", error);
-      toast.error("Failed to confirm Invoice");
+      if (!error?.reported) toast.error("Failed to confirm Invoice");
       makeRecurringAfterConfirmRef.current = false;
     } finally {
       setIsConfirming(false);
@@ -4138,6 +4141,7 @@ export default function TabbedDocumentCreator({
       }
     }
     setSaveStatus("saving");
+    saveErrorReportedRef.current = false;
     try {
       const name = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || "SYS";
       const ts = new Date().toISOString();
@@ -4159,8 +4163,11 @@ export default function TabbedDocumentCreator({
       setHasUnsavedChanges(false);
       setSaveStatus("saved");
       return true;
-    } catch {
+    } catch (err: any) {
       setSaveStatus("error");
+      // The save handler already put the server's own words on screen
+      // ("Please select inventory items…"). Don't stack a generic toast on it.
+      saveErrorReportedRef.current = !!err?.reported;
       return false;
     }
   };
@@ -4249,30 +4256,38 @@ export default function TabbedDocumentCreator({
     const currentUserName = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || 'SYS';
     const currentTimestamp = new Date().toISOString();
 
-    if (isTemplateEditMode) {
-      const templateConfig = templateMethods.getValues();
-      await guardedSave({ ...formData, config: templateConfig });
-    } else {
-      // Include items in the save data with tracking info
-      const saveData = {
-        ...formData,
-        items: items, // Include items array
-        name: formData.name || formData.documentInfo.documentNumber,
-        // Tracking info for draft save
-        savedBy: currentUserName,
-        savedAt: currentTimestamp,
-        lastUsedBy: currentUserName,
-        lastUsedAt: currentTimestamp,
-      };
-      await guardedSave(saveData);
-      // Commit the quotation project link after the document itself has
-      // persisted. Safe no-op for non-quotation flows and for unchanged links.
-      await persistProjectLinkIfChanged();
+    try {
+      if (isTemplateEditMode) {
+        const templateConfig = templateMethods.getValues();
+        await guardedSave({ ...formData, config: templateConfig });
+      } else {
+        // Include items in the save data with tracking info
+        const saveData = {
+          ...formData,
+          items: items, // Include items array
+          name: formData.name || formData.documentInfo.documentNumber,
+          // Tracking info for draft save
+          savedBy: currentUserName,
+          savedAt: currentTimestamp,
+          lastUsedBy: currentUserName,
+          lastUsedAt: currentTimestamp,
+        };
+        await guardedSave(saveData);
+        // Commit the quotation project link after the document itself has
+        // persisted. Safe no-op for non-quotation flows and for unchanged links.
+        await persistProjectLinkIfChanged();
+      }
+      toast.success("Document saved");
+      // Navigate to parent page after saving
+      router.push(resolveBackRoute(documentType));
+    } catch (err: any) {
+      // A rejected save must NOT say "Document saved" and leave the page — the
+      // edits would be gone (guru 2026-11-12). Stay put; the handler has
+      // already shown why, unless it threw something anonymous.
+      if (!err?.reported) toast.error(err?.message || "Save failed — please try again");
     }
-    toast.success("Document saved");
-    // Navigate to parent page after saving
-    router.push(resolveBackRoute(documentType));
   };
+
 
   // Handle delete from dialog
   const handleDelete = async () => {
@@ -4686,11 +4701,12 @@ export default function TabbedDocumentCreator({
             <Button
               size="small"
               variant="contained"
-              startIcon={<CheckCircleIcon />}
-              onClick={() => setConfirmDialogOpen(true)}
+              startIcon={isConfirming ? <CircularProgress size={16} /> : <CheckCircleIcon />}
+              onClick={handleConfirmDocument}
+              disabled={isConfirming}
               sx={TOOLBAR_GREEN}
             >
-              Confirm Document
+              {isConfirming ? "Confirming..." : "Confirm Document"}
             </Button>
           )}
           {/* Send Email button for invoices and quotations — ANY status,
@@ -4792,7 +4808,7 @@ export default function TabbedDocumentCreator({
                 onClick={async () => {
                   const ok = await performManualSave();
                   if (ok) toast.success(isTemplateEditMode ? "Template saved" : "Document saved");
-                  else toast.error("Save failed — please try again");
+                  else if (!saveErrorReportedRef.current) toast.error("Save failed — please try again");
                 }}
               >
                 {isTemplateEditMode ? "Save Template" : "Save"}
@@ -7794,46 +7810,6 @@ export default function TabbedDocumentCreator({
             }}
           >
             Save &amp; leave
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Confirm Document Dialog */}
-      <Dialog
-        open={confirmDialogOpen}
-        onClose={() => !isConfirming && setConfirmDialogOpen(false)}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle>Confirm Document</DialogTitle>
-        <DialogContent>
-          <Typography variant="body1" sx={{ mb: 2 }}>
-            Are you sure you want to confirm this document? Once confirmed:
-          </Typography>
-          <Box component="ul" sx={{ pl: 2 }}>
-            <Typography component="li" variant="body2" sx={{ mb: 1 }}>
-              The document will be locked and cannot be edited
-            </Typography>
-            <Typography component="li" variant="body2" sx={{ mb: 1 }}>
-              Any changes will require creating a revision
-            </Typography>
-            <Typography component="li" variant="body2">
-              The document status will change to &quot;Confirmed&quot;
-            </Typography>
-          </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmDialogOpen(false)} disabled={isConfirming}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleConfirmDocument}
-            variant="contained"
-            color="success"
-            disabled={isConfirming}
-            startIcon={isConfirming ? <CircularProgress size={16} /> : <CheckCircleIcon />}
-          >
-            {isConfirming ? "Confirming..." : "Confirm Document"}
           </Button>
         </DialogActions>
       </Dialog>

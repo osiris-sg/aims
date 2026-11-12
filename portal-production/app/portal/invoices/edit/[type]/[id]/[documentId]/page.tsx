@@ -162,11 +162,19 @@ export default function page() {
       if (response.success) {
         toast.success("Invoice saved successfully!");
       } else {
-        toast.error(response.message || "Failed to save invoice");
+        // Throw, don't just toast — the editor awaits this and reads a clean
+        // return as success (guru 2026-11-12). `reported` says the message is
+        // already on screen, so the caller doesn't stack a second one.
+        const msg = response.message || "Failed to save invoice";
+        toast.error(msg);
+        throw Object.assign(new Error(msg), { reported: true });
       }
-    } catch (error) {
-      toast.error("Failed to save invoice");
+    } catch (error: any) {
+      if (error?.reported) throw error;
       console.error("Error saving invoice:", error);
+      const msg = error?.message || "Failed to save invoice";
+      toast.error(msg);
+      throw Object.assign(new Error(msg), { reported: true });
     }
   };
 

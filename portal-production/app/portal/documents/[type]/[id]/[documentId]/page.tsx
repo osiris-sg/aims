@@ -609,12 +609,22 @@ export default function page() {
       } else {
         console.error("Save failed - Full response:", response);
         console.error("Save failed - Data sent:", updatePayload);
-        toast.error(response.message || "Failed to save document");
+        // THROW, don't just toast (guru 2026-11-12: a credit note that the
+        // server rejected still showed "Document saved" and navigated away).
+        // The editor awaits this handler and treats a clean return as success,
+        // so swallowing the failure here is what produced the two contradictory
+        // toasts. `reported` tells the editor the message is already on screen.
+        const msg = response.message || "Failed to save document";
+        toast.error(msg);
+        throw Object.assign(new Error(msg), { reported: true });
       }
     } catch (error: any) {
+      if (error?.reported) throw error;
       console.error("Error saving document - Full error:", error);
       console.error("Error response data:", error?.response?.data);
-      toast.error("Failed to save document");
+      const msg = error?.message || "Failed to save document";
+      toast.error(msg);
+      throw Object.assign(new Error(msg), { reported: true });
     }
   };
 

@@ -2006,7 +2006,14 @@ export class DocumentsService {
       // If config.items exists and is an array, handle inventory/timeline logic (for DO, RDO, etc.)
       // Exclude invoice types (TI, TI2, INVOICE), quotations (QO1, QUOTATION, QT, QO), service reports (MSR), and Purchase Orders (PO) from inventory status validation
       // Note: PO is handled separately above with receivedQty logic
-      const documentTypesExcludedFromInventory = ['QO1', 'QUOTATION', 'QT', 'QO', 'MSR', 'TI', 'TI2', 'INVOICE', 'PO', 'PURCHASE_ORDER'];
+      // Credit / debit notes (guru 2026-11-12) adjust MONEY, not stock: nothing
+      // leaves or returns to the yard when one is raised, and a CN is routinely
+      // a single service line (a pro-rate, a rebate) with no unit behind it at
+      // all. Validating them here rejected the save with "Please select
+      // inventory items for all rows", and the loop below would only have
+      // written timeline rows with an EMPTY status message (newStatus is
+      // undefined for every type but DO/RDO).
+      const documentTypesExcludedFromInventory = ['QO1', 'QUOTATION', 'QT', 'QO', 'MSR', 'TI', 'TI2', 'INVOICE', 'PO', 'PURCHASE_ORDER', 'CREDIT_NOTE', 'CN', 'DEBIT_NOTE', 'DN'];
       if (!documentTypesExcludedFromInventory.includes(dto.type) && dto.config && Array.isArray(dto.config.items)) {
         // Validate that all items have inventoryItemId
         const itemsWithoutInventory = dto.config.items.filter(
@@ -2829,8 +2836,11 @@ export class DocumentsService {
 
         // Only process items for non-MSR documents
         if (dto.config.items && Array.isArray(dto.config.items) && dto.type !== 'MSR') {
-          // Validate that all items have inventoryItemId (except for QO1)
-          if (dto.type !== 'QO1') {
+          // Validate that all items have inventoryItemId.
+          // Same carve-outs as the update path above: quotations are priced
+          // before any unit is picked, and credit / debit notes adjust money
+          // rather than stock (guru 2026-11-12).
+          if (!['QO1', 'QUOTATION', 'QT', 'QO', 'CREDIT_NOTE', 'CN', 'DEBIT_NOTE', 'DN'].includes(dto.type)) {
             const itemsWithoutInventory = dto.config.items.filter(
               (_item: any) => !_item.inventoryItemId || _item.inventoryItemId.trim() === ''
             );
