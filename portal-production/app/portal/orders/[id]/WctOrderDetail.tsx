@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
+import { toast } from "react-toastify";
 import MainCard from "@/components/MainCard";
 import DoStatusTag from "@/components/DoStatusTag";
 import StatusPill from "../_components/StatusPill";
@@ -353,7 +354,16 @@ export default function WctOrderDetail({ id }: { id: string }) {
         </Box>
         {/* Hidden on a cancelled order, and when Add job is already the next-step button below. */}
         {order.status !== "CANCELLED" && order.status !== "QUOTATION_SIGNED" && !doFirst && (
-          <Button variant="outlined" startIcon={<AddIcon />} onClick={() => setAddOpen(true)} data-tour="wct-order-add-job">
+          <Button
+            variant="outlined"
+            startIcon={<AddIcon />}
+            onClick={() => {
+              // Prefilled with the quoted lines still to deliver (2026-11-13); empty with a note when nothing is left.
+              if ((order as any).prefill?.note) toast.info(`${(order as any).prefill.note} The job starts empty.`);
+              setAddOpen(true);
+            }}
+            data-tour="wct-order-add-job"
+          >
             Add job
           </Button>
         )}

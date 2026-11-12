@@ -29,6 +29,7 @@ import {
   FormControlLabel,
   Checkbox,
   Chip,
+  Alert,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -4128,6 +4129,34 @@ export default function TabbedDocumentCreator({
   // Save the current editor state (the manual Save action; also used by the
   // exit prompt's "Save & leave"). Saving posts the document to the GL
   // server-side (void old journal + repost on every save).
+  // DO first (2026-11-13): before a DO of an order is saved, lines beyond the quote are shown first:
+  // above the quote on this DO = billed as extra; quoted work already on another DO = repeated.
+  const [doLinesWarn, setDoLinesWarn] = useState<{ billedExtra: { description: string; quantity: number }[]; repeated: { description: string; quantity: number }[] } | null>(null);
+  const doLinesOk = async (): Promise<boolean> => {
+    try {
+      const token = await getToken();
+      const res: any = await request(
+        { path: `/deliveries/order-dos/${(documentId || (existingData as any)?.id) as string}/lines-check`, method: "POST" },
+        { items: (formData as any)?.items ?? [] },
+        token ?? undefined,
+      );
+      const w = res?.data ?? res;
+      if (w && (w.billedExtra?.length || w.repeated?.length)) {
+        setDoLinesWarn({ billedExtra: w.billedExtra ?? [], repeated: w.repeated ?? [] });
+        return false;
+      }
+    } catch {
+      /* the check never blocks a save */
+    }
+    return true;
+  };
+  const saveDespiteDoLines = async () => {
+    setDoLinesWarn(null);
+    const ok = await performManualSave();
+    if (ok) toast.success("Document saved");
+    else if (!saveErrorReportedRef.current) toast.error("Save failed — please try again");
+  };
+
   const performManualSave = async (): Promise<boolean> => {
     // Official Receipt: server posts ONE journal on save, so the receipt must
     // be complete and fully allocated (legacy rule: Balance 0.00, no
@@ -4856,6 +4885,8 @@ export default function TabbedDocumentCreator({
                 startIcon={saveStatus === "saving" ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
                 disabled={saveStatus === "saving"}
                 onClick={async () => {
+                  // DO first (2026-11-13): a DO of an order warns before saving lines beyond the quote.
+                  if (doOnOrder && !(await doLinesOk())) return;
                   const ok = await performManualSave();
                   if (ok) toast.success(isTemplateEditMode ? "Template saved" : "Document saved");
                   else if (!saveErrorReportedRef.current) toast.error("Save failed — please try again");
@@ -8280,6 +8311,42 @@ export default function TabbedDocumentCreator({
             }}
           >
             Go to Order
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!doLinesWarn} onClose={() => setDoLinesWarn(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Lines beyond the quotation</DialogTitle>
+        <DialogContent>
+          {!!doLinesWarn?.billedExtra.length && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              <b>Billed as extra</b> (above what the quotation covers):
+              <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+                {doLinesWarn.billedExtra.map((l, i) => (
+                  <li key={i}>
+                    {l.description || "Line"}: {l.quantity} more
+                  </li>
+                ))}
+              </ul>
+            </Alert>
+          )}
+          {!!doLinesWarn?.repeated.length && (
+            <Alert severity="info">
+              <b>Already on another DO of this order</b> (repeats quoted work; not billed again):
+              <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+                {doLinesWarn.repeated.map((l, i) => (
+                  <li key={i}>
+                    {l.description || "Line"}: {l.quantity}
+                  </li>
+                ))}
+              </ul>
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDoLinesWarn(null)}>Go back and edit</Button>
+          <Button variant="contained" color="warning" disableElevation onClick={() => void saveDespiteDoLines()}>
+            Save anyway
           </Button>
         </DialogActions>
       </Dialog>

@@ -12,6 +12,7 @@ import { MANUAL_ORDER_STATUS_LABEL, isManualOrderFlow, type ManualOrderStatus } 
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { doStatusTag } from '../deliveries/do-number';
+import { assetKey, descKey, remainingAllowance, remainingQuoteLines } from './order-billing';
 import { photosFileOf } from '../maintenance-reports/uploaded-report';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { taggedSinsView } from '../bills/bill-quotation';
@@ -623,7 +624,15 @@ export class OrdersService {
     const qcfg: any = sourceQuotation?.config || {};
     const di: any = qcfg.documentInfo || {};
     const { quotationLinesForJob } = await import('../deliveries/quotation-to-delivery');
-    const quotationLines = sourceQuotation ? await quotationLinesForJob(this.prisma, organizationId, qcfg) : [];
+    const quotedLines = sourceQuotation ? await quotationLinesForJob(this.prisma, organizationId, qcfg) : [];
+    // Only what is still to deliver (2026-11-13): quoted minus the order's live DOs and its jobs with no DO.
+    const used = [
+      ...allDos.filter((d: any) => d.config?.cancelled !== true).flatMap((d: any) => (Array.isArray(d.config?.items) ? d.config.items : []).map((it: any) => ({ key: assetKey(it?.assetId) ?? descKey(it?.description), quantity: Number(it?.quantity) || 1 }))),
+      ...jobsRaw.filter((j: any) => j.status !== 'cancelled').flatMap((j: any) => j.items.filter((i: any) => !i.documentId).map((i: any) => ({ key: assetKey(i.assetId) ?? descKey(i.description), quantity: Number(i.quantity) || 1 }))),
+    ];
+    const keyed = quotedLines.map((l) => ({ line: l, key: l.asset ? assetKey(l.asset.id) : descKey(l.description), quantity: l.quantity }));
+    const quotationLines = remainingQuoteLines(keyed, remainingAllowance(keyed, used)).map(({ line, quantity }) => ({ ...line, quantity }));
+    const prefillNote = quotedLines.length && !quotationLines.length ? 'Everything quoted is already on a DO or a job.' : null;
     const lastSite = [...jobsRaw].reverse().find((j) => j.siteAddress)?.siteAddress;
     const siteAddress = String(lastSite || di.location || di.jobLocation || qcfg.location || qcfg.deliveryTo || order.customer?.address || '').trim() || null;
 
@@ -639,7 +648,7 @@ export class OrdersService {
         : null,
       jobs,
       deliveryOrders,
-      prefill: { siteAddress, lines: quotationLines },
+      prefill: { siteAddress, lines: quotationLines, note: prefillNote },
       ...(await this.wctBilling(organizationId, jobsRaw, joblessInvoiceIds)),
       toInvoiceDos,
       attachments: await this.orderAttachmentsView(organizationId, Array.isArray(order.attachments) ? (order.attachments as any[]) : []),

@@ -76,7 +76,9 @@ export default function OrderDosSection({
   const addDo = async () => {
     const r = await post(`/deliveries/order/${orderId}/dos`, "add the DO");
     if (r) {
-      toast.success(`${r.doName || "A draft DO"} added`);
+      // Prefilled with what is still to deliver; empty when everything quoted is already on a DO.
+      if (r.note) toast.info(`${r.doName || "A draft DO"} added. ${r.note}`);
+      else toast.success(`${r.doName || "A draft DO"} added with what is still to deliver`);
       await onReload();
     }
   };

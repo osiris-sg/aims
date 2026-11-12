@@ -60,6 +60,7 @@ import { REAL_DO_ON_SCHEDULE_FLAG, cancelledDoConfig, isIssuedOnSchedule } from 
 import { SiteClockLinkService, SiteClockScheduleInput } from '../siteclock/siteclock-link.service';
 import { applyOrderToDoConfig, isWctOrdersEnabled, refreshOrderStatus, refreshOrderStatusForRun } from '../orders/wct-orders';
 import { isManualOrderFlow } from '../orders/manual-order-flow';
+import { assetKey, descKey, doLineWarnings, remainingAllowance, remainingQuoteLines } from '../orders/order-billing';
 import { plannedRiderView, savePlannedRider } from './planned-rider';
 import { CompletionMode, WCT_FINISH_MODES_FLAG, finishModeProblem, initialVerification, isCompletionMode } from './finish-modes';
 import { checkJobFieldValues, isJobFieldsEnabled, jobFieldDefs, jobFieldValues, saveJobFieldValues } from './job-fields';
@@ -1383,6 +1384,40 @@ export class DeliveriesService {
     return opts.withCancelled ? docs : docs.filter((d) => (d.config as any)?.cancelled !== true);
   }
 
+  /**
+   * DO first: the lines the order already carries, keyed like billing: every
+   * live DO's lines (except `excludeDoId`) and the lines of live jobs with no DO.
+   */
+  async orderLinesInUse(organizationId: string, orderId: string, excludeDoId?: string): Promise<Array<{ key: string | null; quantity: number }>> {
+    const dos = await this.orderDos(organizationId, orderId);
+    const out: Array<{ key: string | null; quantity: number }> = [];
+    for (const d of dos) {
+      if (d.id === excludeDoId) continue;
+      for (const it of Array.isArray((d.config as any)?.items) ? (d.config as any).items : []) {
+        out.push({ key: assetKey(it?.assetId) ?? descKey(it?.description), quantity: Number(it?.quantity) || 1 });
+      }
+    }
+    const loose = await this.prisma.deliveryItem.findMany({
+      where: { documentId: null, delivery: { organizationId, orderId, status: { not: 'cancelled' } } },
+      select: { assetId: true, description: true, quantity: true },
+    });
+    for (const it of loose) out.push({ key: assetKey(it.assetId) ?? descKey(it.description), quantity: Number(it.quantity) || 1 });
+    return out;
+  }
+
+  /** DO first: before a DO of an order is saved, what its lines would bill as extra or repeat from another DO. */
+  async checkDoLines(organizationId: string, doId: string, items: any[]) {
+    const d = await this.prisma.document.findFirst({ where: { id: doId, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, config: true } });
+    const orderId = (d?.config as any)?.orderId;
+    if (!d || !orderId) return { billedExtra: [], repeated: [] };
+    const order = await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { sourceQuotationId: true } });
+    const quotation = order?.sourceQuotationId ? await this.prisma.document.findFirst({ where: { id: order.sourceQuotationId, organizationId }, select: { config: true } }) : null;
+    const resolved = quotation ? await quotationLinesForJob(this.prisma, organizationId, quotation.config || {}) : [];
+    const quote = resolved.map((l) => ({ key: l.asset ? assetKey(l.asset.id) : descKey(l.description), quantity: l.quantity }));
+    const lines = (Array.isArray(items) ? items : []).map((it: any) => ({ key: assetKey(it?.assetId) ?? descKey(it?.description), quantity: Number(it?.quantity) || 1, description: String(it?.description ?? '') }));
+    return doLineWarnings(quote, await this.orderLinesInUse(organizationId, orderId, d.id), lines);
+  }
+
   /** The live (not cancelled) jobs on a DO. */
   async jobsOnDo(organizationId: string, doId: string) {
     const items = await this.prisma.deliveryItem.findMany({
@@ -1406,7 +1441,7 @@ export class DeliveriesService {
    * accept); with it ("Add DO") another draft DO is issued. Never throws on the
    * accept path (returns null); "Add DO" passes throwOnError.
    */
-  async prepareManualOrderDo(orderId: string, organizationId: string, opts: { force?: boolean; throwOnError?: boolean } = {}): Promise<{ doId: string; doName: string | null } | null> {
+  async prepareManualOrderDo(orderId: string, organizationId: string, opts: { force?: boolean; throwOnError?: boolean } = {}): Promise<{ doId: string; doName: string | null; note?: string } | null> {
     try {
       if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('DOs on an order need the manual order flow');
       const order = await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, customerId: true, sourceQuotationId: true } });
@@ -1422,13 +1457,18 @@ export class DeliveriesService {
       const qcfg: any = quotation?.config || {};
       const di: any = qcfg.documentInfo || {};
       const resolved = quotation ? await quotationLinesForJob(this.prisma, organizationId, qcfg) : [];
-      const lines = resolved.map((l) => ({
+      // Only what is still to deliver (2026-11-13): quoted minus the order's other DOs (and jobs with no DO).
+      const keyed = resolved.map((l) => ({ line: l, key: l.asset ? assetKey(l.asset.id) : descKey(l.description), quantity: l.quantity }));
+      const left = remainingAllowance(keyed, await this.orderLinesInUse(organizationId, order.id));
+      const remaining = remainingQuoteLines(keyed, left);
+      const note = resolved.length && !remaining.length ? 'Everything quoted is already on a DO: this DO starts empty.' : undefined;
+      const lines = remaining.map(({ line: l, quantity }) => ({
         assetId: l.asset?.id,
         description: l.description,
-        quantity: l.quantity,
+        quantity,
         assetClass: l.asset ? undefined : ((l.assetClass as AssetClass | null) ?? AssetClass.SERVICE),
       }));
-      const assets = resolved.filter((l) => l.asset).map((l) => l.asset!);
+      const assets = remaining.filter((r) => r.line.asset).map((r) => r.line.asset!);
       const customer = order.customerId
         ? await this.prisma.customer.findFirst({
             where: { id: order.customerId, organizationId },
@@ -1454,7 +1494,7 @@ export class DeliveriesService {
         quotation?.projectId ?? undefined,
       );
       await refreshOrderStatus(this.prisma, organizationId, order.id);
-      return { doId: doc.id, doName: doc.name ?? null };
+      return { doId: doc.id, doName: doc.name ?? null, ...(note ? { note } : {}) };
     } catch (err: any) {
       if (opts.throwOnError) throw err;
       this.logger.warn(`manual order flow: DO for order ${orderId} not issued: ${err?.message}`);

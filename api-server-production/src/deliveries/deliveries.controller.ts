@@ -229,6 +229,13 @@ export class DeliveriesController {
     return this.service.officeCompleteDo(org.id, doId, body ?? {}, actorOf(req));
   }
 
+  // Before saving a DO of an order: what its lines bill as extra / repeat from another DO. Body { items }. Read-only.
+  @Post('order-dos/:doId/lines-check')
+  @Permissions('documents:read')
+  checkOrderDoLines(@Param('doId') doId: string, @Body() body: any, @UserOrganization() org: { id: string }) {
+    return this.service.checkDoLines(org.id, doId, body?.items ?? []);
+  }
+
   // One-off DO-first migration: draft jobs with no DO get their DO. Dry run unless { apply: true, confirm: "DO-FIRST" }.
   @Post('order-dos/migrate')
   @Permissions('orders:update')

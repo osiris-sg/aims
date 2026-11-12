@@ -152,3 +152,69 @@ export function invoiceDiscountPercent(quoteConfig: any, discountAmount: number,
   if (quoteOnly && pct !== null && pct > 0 && Math.abs(Math.round(invoiceGross * pct) / 100 - discountAmount) < 0.005) return pct;
   return Math.round((discountAmount / invoiceGross) * 100 * 1e6) / 1e6;
 }
+
+// ── Remaining quantities (DO first, 2026-11-13) ─────────────────────────────
+// What a new DO / job of an order is prefilled with: the quoted quantity minus
+// what the order's other DOs (and jobs with no DO) already carry, per line key
+// (product, else description: the same keys as billing).
+
+/** The quote's allowance left after the lines already on the order's DOs (shared across them). */
+export function remainingAllowance(
+  quote: Array<{ key: ScopeKey | null; quantity?: any }>,
+  used: Array<{ key: ScopeKey | null; quantity?: any }>,
+): Map<ScopeKey, number> {
+  const left = quoteAllowance(quote);
+  for (const u of used) {
+    if (!u.key || !left.has(u.key)) continue;
+    left.set(u.key, Math.max(0, (left.get(u.key) || 0) - qty(u)));
+  }
+  return left;
+}
+
+/** The quote's lines with the quantity still to deliver (lines with none left are dropped). */
+export function remainingQuoteLines<T>(lines: Array<{ line: T; key: ScopeKey | null; quantity?: any }>, left: Map<ScopeKey, number>): Array<{ line: T; quantity: number }> {
+  const pool = new Map(left);
+  const out: Array<{ line: T; quantity: number }> = [];
+  for (const l of lines) {
+    if (!l.key) continue;
+    const take = Math.min(qty(l), pool.get(l.key) || 0);
+    if (take <= 0) continue;
+    pool.set(l.key, (pool.get(l.key) || 0) - take);
+    out.push({ line: l.line, quantity: take });
+  }
+  return out;
+}
+
+/**
+ * The warnings before a DO of an order is saved: a line above what the quote
+ * covers on THIS DO is billed as an extra (billing gives each DO the full
+ * quoted scope); a line within the quote but above what is left after the
+ * order's other DOs repeats work already on another DO (not billed again).
+ */
+export function doLineWarnings(
+  quote: Array<{ key: ScopeKey | null; quantity?: any }>,
+  usedElsewhere: Array<{ key: ScopeKey | null; quantity?: any }>,
+  doLines: Array<{ key: ScopeKey | null; quantity?: any; description?: string | null }>,
+): { billedExtra: Array<{ description: string; quantity: number }>; repeated: Array<{ description: string; quantity: number }> } {
+  const full = quoteAllowance(quote);
+  const left = remainingAllowance(quote, usedElsewhere);
+  const totals = new Map<string, { description: string; q: number; key: ScopeKey | null }>();
+  for (const l of doLines) {
+    const d = String(l.description ?? '').trim();
+    if (!l.key && !d) continue;
+    const k = l.key ?? `new:${d.toLowerCase()}`;
+    const t = totals.get(k) ?? { description: d, q: 0, key: l.key };
+    t.q += qty(l);
+    totals.set(k, t);
+  }
+  const billedExtra: Array<{ description: string; quantity: number }> = [];
+  const repeated: Array<{ description: string; quantity: number }> = [];
+  for (const t of totals.values()) {
+    const quoted = t.key ? full.get(t.key) || 0 : 0;
+    if (t.q > quoted) billedExtra.push({ description: t.description, quantity: t.q - quoted });
+    const within = Math.min(t.q, quoted);
+    const rest = t.key ? left.get(t.key) || 0 : 0;
+    if (within > rest) repeated.push({ description: t.description, quantity: within - rest });
+  }
+  return { billedExtra, repeated };
+}

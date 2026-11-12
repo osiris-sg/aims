@@ -154,7 +154,7 @@ const VERB_ACTIONS: Record<string, string> = {
   // the Work Library price-list import (parse → apply).
   assist: 'VIEW', apply: 'UPDATE', 'import-pricelist': 'VIEW',
   // Project quest steps (CIEL): POST quest/:stepId/complete|skip|reset
-  complete: 'COMPLETE', migrate: 'RUN', skip: 'SKIP', reset: 'UPDATE', replay: 'RUN',
+  complete: 'COMPLETE', migrate: 'RUN', 'lines-check': 'VIEW', skip: 'SKIP', reset: 'UPDATE', replay: 'RUN',
   // Delivery runs: bring a skipped item back into the walk (POST items/:itemId/unskip).
   unskip: 'UNSKIP',
   // Ad-hoc delivery: POST :id/attach-project (deploy + commit + draft invoice).
