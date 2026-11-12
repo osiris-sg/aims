@@ -1,3 +1,4 @@
+import { orgTimeZoneFor } from '../common/org-today';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
@@ -507,7 +508,11 @@ export class PublicSignService {
     // consolidation, adds the net to the contract as a `vo` milestone).
     if (isVo) {
       if (!doc.projectId) throw new BadRequestException('This variation order is not linked to a project — please contact the office');
-      const clientSignature = { name, image, signedAt: signedAt.toISOString(), ip: meta.ip || null };
+      // The date as the org reads it (its time zone, Financial Settings), for the printed signature line:
+      // the PDF renders on a UTC server (WCT 2026-11-13).
+      const tz = await orgTimeZoneFor(this.prisma, doc.organizationId);
+      const signedDateText = new Intl.DateTimeFormat('en-GB', { timeZone: tz, day: '2-digit', month: '2-digit', year: 'numeric' }).format(signedAt);
+      const clientSignature = { name, image, signedAt: signedAt.toISOString(), signedDateText, ip: meta.ip || null };
       await this.prisma.document.update({
         where: { id: doc.id },
         data: { config: { ...cfg, clientSignature }, version: { increment: 1 } },

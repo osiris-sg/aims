@@ -99,7 +99,7 @@ export const HUB_ACTION_LABEL: Record<HubActionKey, string> = {
   "confirm-invoice": "Confirm invoice",
   "send-invoice": "Send invoice",
   "record-payment": "Record payment",
-  "upload-report": "Upload service report",
+  "upload-report": "Add service report",
   "send-report": "Send service report",
   "resend-report": "Resend service report",
 };
@@ -293,11 +293,13 @@ export interface HubContext {
   draftJobId?: string | null;
   scheduledJobId?: string | null;
   completedJobId?: string | null;
+  /** Manual order flow: a service report is created or uploaded from the order (customer + DO prefilled). */
+  manualFlow?: boolean;
 }
 
 export type HubTarget =
   | { href: string }
-  | { dialog: "add-job" | "create-invoice" | "send-report" | "cancel-order" | "cancel-job"; jobId?: string | null }
+  | { dialog: "add-job" | "create-invoice" | "send-report" | "service-report" | "cancel-order" | "cancel-job"; jobId?: string | null }
   | null;
 
 /**
@@ -331,7 +333,7 @@ export function hubActionTarget(key: HubActionKey, c: HubContext): HubTarget {
     case "open-job":
       return job(c.scheduledJobId ?? c.completedJobId);
     case "upload-report":
-      return job(c.completedJobId, "upload");
+      return c.manualFlow ? { dialog: "service-report" } : job(c.completedJobId, "upload");
     case "cancel-job":
       return c.scheduledJobId ? { dialog: "cancel-job", jobId: c.scheduledJobId } : null;
     case "cancel-order":
@@ -349,7 +351,7 @@ export function hubActionTarget(key: HubActionKey, c: HubContext): HubTarget {
 /** On the list, the order page's own dialogs open on the order page (?open=…). */
 export function hubListTarget(key: HubActionKey, c: HubContext): HubTarget {
   const t = hubActionTarget(key, c);
-  if (t && "dialog" in t && (t.dialog === "add-job" || t.dialog === "create-invoice" || t.dialog === "send-report")) {
+  if (t && "dialog" in t && (t.dialog === "add-job" || t.dialog === "create-invoice" || t.dialog === "send-report" || t.dialog === "service-report")) {
     return { href: `/portal/orders/${c.orderId}?open=${t.dialog}` };
   }
   return t;

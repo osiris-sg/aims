@@ -449,11 +449,19 @@ export class OrdersService {
         .filter(Boolean)
         .map((d: any) => ({ ...docView(d), total: Number(d.config?.grandTotal ?? d.config?.documentInfo?.grandTotal ?? d.config?.nettTotal ?? 0) || 0 }));
       const quoted = Number(qc.nettTotal ?? di.nettTotal ?? qc.grandTotal ?? di.grandTotal);
+      // The earliest date among the order's DOs still open (not delivered, not cancelled): the list's "DO date".
+      const OPEN_DO = new Set(['draft', 'unconfirmed', 'confirmed', 'pending_delivery']);
+      const doDates = dos
+        .filter((d: any) => OPEN_DO.has(String(d.status)) && d.config?.cancelled !== true)
+        .map((d: any) => String(d.config?.date ?? d.config?.documentInfo?.date ?? '').slice(0, 10))
+        .filter((v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v))
+        .sort();
       const firstOf = (f: (j: any) => boolean) => live.find(f)?.id ?? null;
       return {
         subject: String(qc.subject ?? di.subject ?? '').trim() || null,
         site: String([...live].reverse().find((j) => j.siteAddress)?.siteAddress ?? di.jobLocation ?? di.location ?? '').split('\n')[0].trim() || null,
         deliveryOrders: dos.map(docView),
+        doDate: doDates[0] ?? null,
         invoices,
         amount: invoices.length ? invoices.reduce((t: number, i: any) => t + i.total, 0) : Number.isFinite(quoted) ? quoted : null,
         actionJobs: {

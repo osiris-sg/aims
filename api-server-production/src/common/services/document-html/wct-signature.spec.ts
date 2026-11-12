@@ -12,7 +12,7 @@ describe('WCT quotation signature block', () => {
   it('unsigned: plain label, no image', () => {
     const html = quote({});
     expect(html).toContain('<div class="closing">');
-    expect(html).toContain('<div>Company Stamp &amp; Authorized Signature</div>');
+    expect(html).toContain('<div class="stamp">Company Stamp &amp; Authorized Signature</div>');
     expect(html).not.toContain('<img class="sigimg"');
     expect(html).toContain('<div class="r">Confirmation of Order</div>');
   });
@@ -34,5 +34,18 @@ describe('WCT quotation signature block', () => {
   it('invoices never print it', () => {
     const html = renderWctBody('invoice', { name: 'INV-1', config: { clientSignature: { image: SIG } }, documentInfo: {}, items: [] }, org, design);
     expect(html).not.toContain('<img class="sigimg"');
+  });
+
+  it('the signature line sits above the label, signed or not (2026-11-13)', () => {
+    expect(quote({})).toMatch(/\.wct \.closing \.stamp \{[^}]*border-top: 1px solid #000/);
+  });
+
+  it('the signed date is the org\'s date, not the server\'s UTC (2026-11-13)', () => {
+    // 23:30 UTC on 4 Nov is 5 Nov in Singapore.
+    const late = quote({ clientSignature: { image: SIG, name: 'A', signedAt: '2026-11-04T23:30:00Z' } });
+    expect(late).toContain('A &nbsp;·&nbsp; 05/11/2026');
+    // A date stamped at signing (in the org's zone) wins.
+    const stamped = quote({ clientSignature: { image: SIG, name: 'A', signedAt: '2026-11-04T23:30:00Z', signedDateText: '05/11/2026' } });
+    expect(stamped).toContain('A &nbsp;·&nbsp; 05/11/2026');
   });
 });

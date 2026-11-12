@@ -7,7 +7,7 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, ListItemText, Menu, MenuItem, Tab, Tabs, Typography } from "@mui/material";
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, ListItemText, Menu, MenuItem, TextField, Typography } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import StatusPill from "./_components/StatusPill";
 import moment from "moment";
@@ -48,12 +48,14 @@ interface WctOrderRow {
   deliveryOrders?: { id: string; name: string | null; type: string; status: string; templateId: string }[];
   invoices?: { id: string; name: string | null; type: string; status: string; templateId: string; total: number }[];
   amount?: number | null;
+  /** The earliest open DO's date (YYYY-MM-DD), else the next job's date is shown. */
+  doDate?: string | null;
   actionJobs?: { draft: string | null; scheduled: string | null; completed: string | null };
   serviceReportReady?: boolean;
 }
 
 const docHref = (d?: { id: string; type?: string; templateId?: string | null } | null, fallbackType = "QUOTATION") => (d && d.templateId ? `/portal/documents/${d.type || fallbackType}/${d.templateId}/${d.id}` : null);
-const hubContext = (o: WctOrderRow): HubContext => {
+const hubContext = (o: WctOrderRow, manualFlow = false): HubContext => {
   const q: any = o.sourceQuotation;
   const draftInv = (o.invoices ?? []).find((i) => i.status === "draft" || i.status === "unconfirmed");
   return {
@@ -64,6 +66,7 @@ const hubContext = (o: WctOrderRow): HubContext => {
     draftJobId: o.actionJobs?.draft ?? null,
     scheduledJobId: o.actionJobs?.scheduled ?? null,
     completedJobId: o.actionJobs?.completed ?? null,
+    manualFlow,
   };
 };
 /** Document numbers in a cell: the first two, then "+N more". */
@@ -96,7 +99,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
   const [rowMenu, setRowMenu] = useState<{ pos: { left: number; top: number }; row: WctOrderRow } | null>(null);
   const [confirm, setConfirm] = useState<{ action: HubActionKey; row: WctOrderRow; jobId?: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
-  const { isWctOrdersEnabled, features } = useOrganizationFeatures();
+  const { isWctOrdersEnabled, isManualOrderFlowEnabled, features } = useOrganizationFeatures();
   const calendarAdd = !fixture && !!isWctOrdersEnabled && !!features?.enableJobsCalendar;
   const [untagged, setUntagged] = useState<UntaggedJob[]>([]);
   const [untaggedCount, setUntaggedCount] = useState<number | null>(null);
@@ -147,7 +150,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
   /** A row action: open its screen, or confirm a cancel first. */
   const runAction = (key: HubActionKey, row: WctOrderRow) => {
     setRowMenu(null);
-    const t = hubListTarget(key, hubContext(row));
+    const t = hubListTarget(key, hubContext(row, !!isManualOrderFlowEnabled));
     if (!t) return;
     if ("href" in t) router.push(t.href);
     else if (t.dialog === "cancel-order" || t.dialog === "cancel-job") setConfirm({ action: key, row, jobId: t.jobId });
@@ -228,21 +231,18 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
     },
     { id: "quotation", header: "Quotation", size: 9, enableSorting: false, cell: ({ row }: any) => plain(row.original.sourceQuotation?.name) },
     {
-      id: "jobs",
-      header: "Jobs",
-      size: 6,
-      enableSorting: false,
-      cell: ({ row }: any) => {
-        const c = row.original.jobCounts;
-        return c ? `${c.completed} / ${c.total}` : "";
-      },
-    },
-    {
-      id: "nextJobAt",
-      accessorFn: (o: WctOrderRow) => (o.nextJobAt ? new Date(o.nextJobAt).getTime() : Number.MAX_SAFE_INTEGER),
-      header: "Next job",
+      id: "doDate",
+      accessorFn: (o: WctOrderRow) => (o.doDate ? Date.parse(`${o.doDate}T00:00:00+08:00`) : o.nextJobAt ? new Date(o.nextJobAt).getTime() : Number.MAX_SAFE_INTEGER),
+      header: "DO date",
       size: 9,
-      cell: ({ row }: any) => (row.original.nextJobAt ? fmtJobWhen(row.original.nextJobAt, row.original.nextJobAllDay) : ""),
+      cell: ({ row }: any) =>
+        row.original.doDate ? (
+          <Box sx={{ whiteSpace: "nowrap" }}>{moment(row.original.doDate, "YYYY-MM-DD").format("DD/MM/YYYY")}</Box>
+        ) : row.original.nextJobAt ? (
+          fmtJobWhen(row.original.nextJobAt, row.original.nextJobAllDay)
+        ) : (
+          ""
+        ),
     },
     { id: "dos", header: "DO(s)", size: 9, enableSorting: false, cell: ({ row }: any) => <NumberList names={(row.original.deliveryOrders ?? []).map((d: any) => d.name)} /> },
     { id: "invoice", header: "Invoice", size: 9, enableSorting: false, cell: ({ row }: any) => <NumberList names={(row.original.invoices ?? []).map((d: any) => d.name)} /> },
@@ -275,15 +275,33 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
   ];
 
   // Title + actions (PageTable's header) first, then the status tabs, then the table.
+  // Status filter (2026-11-13): one dropdown with the count per status, replacing the tabs.
   const statusTabs = (
-      <Box sx={{ borderBottom: 1, borderColor: "divider", mb: 2 }}>
-        <Tabs value={tab} onChange={(_, v) => { setTab(v); setPage(1); }} variant="scrollable" scrollButtons="auto" allowScrollButtonsMobile>
-          {tabs.map((t) => (
-            <Tab key={t.key} value={t.key} label={`${t.label} (${t.count})`} sx={{ textTransform: "none", minHeight: 48 }} />
-          ))}
-          {calendarAdd && <Tab value="untagged" label={`Untagged jobs (${untaggedCount ?? 0})`} sx={{ textTransform: "none", minHeight: 48 }} data-tour="orders-untagged-jobs" />}
-        </Tabs>
-      </Box>
+    <Box sx={{ mb: 2, display: "flex", alignItems: "center", gap: 2 }}>
+      <TextField
+        select
+        size="small"
+        label="Status"
+        value={tab}
+        onChange={(e) => {
+          setTab(e.target.value as any);
+          setPage(1);
+        }}
+        sx={{ minWidth: 260 }}
+        data-tour="orders-status-filter"
+      >
+        {tabs.map((t) => (
+          <MenuItem key={t.key} value={t.key}>
+            {t.key === "all" ? "All statuses" : t.label} ({t.count})
+          </MenuItem>
+        ))}
+        {calendarAdd && (
+          <MenuItem value="untagged" data-tour="orders-untagged-jobs">
+            Untagged jobs ({untaggedCount ?? 0})
+          </MenuItem>
+        )}
+      </TextField>
+    </Box>
   );
 
   return (
@@ -319,7 +337,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
       <Menu open={!!rowMenu} onClose={() => setRowMenu(null)} anchorReference="anchorPosition" anchorPosition={rowMenu?.pos}>
         {rowMenu &&
           hubRowActions(rowMenu.row.status)
-            .filter((k) => !!hubListTarget(k, hubContext(rowMenu.row)))
+            .filter((k) => !!hubListTarget(k, hubContext(rowMenu.row, !!isManualOrderFlowEnabled)))
             .map((k) => (
               <MenuItem key={k} onClick={() => runAction(k, rowMenu.row)} sx={HUB_DESTRUCTIVE.has(k) ? { color: "error.main" } : undefined}>
                 <ListItemText>{HUB_ACTION_LABEL[k]}</ListItemText>

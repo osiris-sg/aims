@@ -108,3 +108,10 @@ test("Documents list: PDF for the signed quotation and finished DOs, Photos for 
   const unsigned = hubSteps({ id: "o1", status: "QUOTATION_SIGNED", sourceQuotation: { id: "q", name: "QO1", status: "unconfirmed" } });
   assert.equal(unsigned[0].docs[0].file, null);
 });
+
+test("manual flow: Add service report opens the order's create / upload chooser", () => {
+  const c = { orderId: "o1", completedJobId: "j3", manualFlow: true };
+  assert.deepEqual(hubActionTarget("upload-report", c), { dialog: "service-report" });
+  assert.deepEqual(hubListTarget("upload-report", c), { href: "/portal/orders/o1?open=service-report" });
+  assert.deepEqual(hubActionTarget("upload-report", { ...c, manualFlow: false }), { href: "/portal/deliveries/j3?open=upload" });
+});

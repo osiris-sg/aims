@@ -29,6 +29,7 @@
  * (pdfOptionsFor in ./index.ts) — only the print engine knows the page count.
  * On screen the footer line prints once at the end instead.
  */
+import { resolveTimeZone } from '../../org-today';
 import { DocumentDesign } from './design';
 import { amountPaidOf, outstandingOf } from '../../document-money';
 import { billToText, descriptionText, escapeHtml, makeDi, money, richContent } from './shared';
@@ -111,7 +112,8 @@ const CSS = `
      the signer and date in small type under the label (the only added height, ~16px). Unsigned quotations keep
      the plain layout. */
   .wct .closing.signed { padding-bottom: 16px; }
-  .wct .closing .stamp { position: relative; }
+  /* The signature line above the label (2026-11-13), signed or not. */
+  .wct .closing .stamp { position: relative; border-top: 1px solid #000; padding-top: 4px; min-width: 230px; text-align: center; }
   .wct .closing .stamp .sigimg { position: absolute; right: 0; bottom: 100%; display: block; max-width: 180px; max-height: 68px; }
   .wct .closing .stamp .who { position: absolute; right: 0; top: 100%; white-space: nowrap; font-size: 10.5px; color: #333; }
   .wct .footnote { margin-top: 10px; font-weight: 700; }
@@ -127,6 +129,13 @@ const paperDate = (v: any): string => {
   if (isNaN(d.getTime())) return String(v);
   const p = (n: number) => String(n).padStart(2, '0');
   return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
+};
+
+/** dd/mm/yyyy in a time zone (the paper's date for an instant). */
+const paperDateIn = (v: any, timeZone: string): string => {
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return String(v);
+  return new Intl.DateTimeFormat('en-GB', { timeZone, day: '2-digit', month: '2-digit', year: 'numeric' }).format(d);
 };
 
 /** "$1,850.00" for SGD (the paper's symbol); "USD 1,850.00" otherwise. */
@@ -309,7 +318,10 @@ function signBlock(di: (k: string, d?: any) => any): string {
 function clientSignatureOf(cfg: any): { image: string; who: string } | null {
   const sig: any = cfg?.clientSignature;
   if (typeof sig?.image !== 'string' || !SIG_RE.test(sig.image)) return null;
-  const who = [first(sig.name), sig.signedAt ? paperDate(sig.signedAt) : ''].filter(Boolean).map((x) => escapeHtml(x)).join(' &nbsp;·&nbsp; ');
+  // The signed date as the org reads it: stamped at signing in the org's time zone; older signatures are
+  // formatted in the org's zone (default Asia/Singapore), never the server's UTC (2026-11-13).
+  const date = first(sig.signedDateText, sig.signedAt ? paperDateIn(sig.signedAt, resolveTimeZone(cfg?.timeZone)) : '');
+  const who = [first(sig.name), date].filter(Boolean).map((x) => escapeHtml(x)).join(' &nbsp;·&nbsp; ');
   return { image: sig.image, who };
 }
 
@@ -491,7 +503,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
             ? `<div class="stamp"><img class="sigimg" src="${signature.image}" alt="" />Company Stamp &amp; Authorized Signature${
                 signature.who ? `<div class="who">${signature.who}</div>` : ''
               }</div>`
-            : '<div>Company Stamp &amp; Authorized Signature</div>'
+            : '<div class="stamp">Company Stamp &amp; Authorized Signature</div>'
         }
       </div>`;
 

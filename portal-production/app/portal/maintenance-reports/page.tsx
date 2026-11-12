@@ -30,6 +30,7 @@ import { request } from "@/helpers/request";
 import { MAX_BULK_REPORTS } from "@/helpers/serviceReportFiles";
 import { downloadServiceReportsZip } from "@/helpers/downloadServiceReportsZip";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import NewServiceReportDialog from "./_components/NewServiceReportDialog";
 import UploadServiceReportDialog from "./_components/UploadServiceReportDialog";
 
 interface ServiceData {
@@ -88,8 +89,9 @@ const LIMIT = 20;
 export default function MaintenanceReportsListPage() {
   const router = useRouter();
   const { getToken } = useAuth();
-  const { isWctOrdersEnabled } = useOrganizationFeatures();
+  const { isWctOrdersEnabled, isManualOrderFlowEnabled } = useOrganizationFeatures();
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [newOpen, setNewOpen] = useState(false);
 
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -208,25 +210,34 @@ export default function MaintenanceReportsListPage() {
           >
             Upload Service Report
           </Button>
-          <Tooltip title="Use the SiteJobs app to create reports">
-            <span>
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                disabled
-                sx={{ minHeight: 40 }}
-              >
-                New Report
-              </Button>
-            </span>
-          </Tooltip>
+          {/* Manual order flow (2026-11-13): the office writes the WCT report in the portal. */}
+          {isManualOrderFlowEnabled ? (
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setNewOpen(true)} sx={{ minHeight: 40 }} data-tour="service-report-new">
+              New Report
+            </Button>
+          ) : (
+            <Tooltip title="Use the SiteJobs app to create reports">
+              <span>
+                <Button
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  disabled
+                  sx={{ minHeight: 40 }}
+                >
+                  New Report
+                </Button>
+              </span>
+            </Tooltip>
+          )}
         </Stack>
       </Stack>
 
+      <NewServiceReportDialog open={newOpen} onClose={() => setNewOpen(false)} />
       <UploadServiceReportDialog
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
         wctOrders={isWctOrdersEnabled}
+        manualFlow={!!isManualOrderFlowEnabled}
         onUploaded={(r) => {
           setUploadOpen(false);
           router.push(`/portal/maintenance-reports/${r.id}`);

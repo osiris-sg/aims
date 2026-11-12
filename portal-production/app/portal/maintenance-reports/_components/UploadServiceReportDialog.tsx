@@ -21,6 +21,7 @@ import { request } from "@/helpers/request";
 import { uploadFile } from "@/helpers/fileUploader";
 import { todayIso } from "@/helpers/orgToday";
 import CustomerPicker from "@/components/CustomerPicker";
+import CustomerDoPicker, { type DoOption } from "./CustomerDoPicker";
 import { useOrganization } from "@hooks/useOrganization";
 import { REPORT_FILE_ACCEPT } from "./PhotosFileControls";
 
@@ -39,11 +40,16 @@ export default function UploadServiceReportDialog({
   onClose,
   onUploaded,
   wctOrders,
+  manualFlow = false,
+  prefill,
 }: {
   open: boolean;
   onClose: () => void;
   onUploaded: (report: { id: string; reportNumber: number | null }) => void;
   wctOrders: boolean;
+  /** Manual order flow (2026-11-13): the customer AND one of their DOs are required; the order follows from the DO. */
+  manualFlow?: boolean;
+  prefill?: { customer: { id: string; name: string } | null; doId?: string | null };
 }) {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
@@ -56,6 +62,8 @@ export default function UploadServiceReportDialog({
   const [orders, setOrders] = useState<OrderOption[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mfCustomer, setMfCustomer] = useState<{ id: string; name: string } | null>(null);
+  const [mfDoId, setMfDoId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -65,6 +73,9 @@ export default function UploadServiceReportDialog({
     setServiceDate(todayIso());
     setOrder(null);
     setError(null);
+    setMfCustomer(prefill?.customer ?? null);
+    setMfDoId(prefill?.doId ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // Orders load once, the first time the dialog opens in a WCT-orders org.
@@ -112,10 +123,10 @@ export default function UploadServiceReportDialog({
           fileKey: up.fileKey,
           fileName: up.fileName,
           mimeType: up.mimeType,
-          ...(customerId ? { customerId } : {}),
+          ...(manualFlow ? { customerId: mfCustomer?.id, doDocumentId: mfDoId } : customerId ? { customerId } : {}),
           ...(location.trim() ? { location: location.trim() } : {}),
           ...(serviceDate ? { serviceDate } : {}),
-          ...(order ? { orderId: order.id } : {}),
+          ...(!manualFlow && order ? { orderId: order.id } : {}),
         },
         token,
       );
@@ -157,7 +168,20 @@ export default function UploadServiceReportDialog({
               {file ? file.name : "Choose the report file (PDF or image), or drop it here"}
             </Typography>
           </Box>
-          <CustomerPicker value={customerId} onChange={(c) => { setCustomerId(c?.id ?? null); setOrder(null); }} label="Customer (optional)" />
+          {manualFlow ? (
+            <CustomerDoPicker
+              customer={mfCustomer}
+              doId={mfDoId}
+              onCustomer={(c) => setMfCustomer(c)}
+              onDo={(d: DoOption | null) => {
+                setMfDoId(d?.id ?? null);
+                if (d?.site && !location.trim()) setLocation(d.site);
+              }}
+              disabled={saving}
+            />
+          ) : (
+            <CustomerPicker value={customerId} onChange={(c) => { setCustomerId(c?.id ?? null); setOrder(null); }} label="Customer (optional)" />
+          )}
           <TextField size="small" label="Location (optional)" value={location} onChange={(e) => setLocation(e.target.value)} fullWidth />
           <TextField
             size="small"
@@ -168,7 +192,7 @@ export default function UploadServiceReportDialog({
             InputLabelProps={{ shrink: true }}
             fullWidth
           />
-          {wctOrders && (
+          {wctOrders && !manualFlow && (
             <Autocomplete
               size="small"
               options={orderOptions}
@@ -190,7 +214,7 @@ export default function UploadServiceReportDialog({
         <Button
           variant="contained"
           onClick={() => void submit()}
-          disabled={!file || saving}
+          disabled={!file || saving || (manualFlow && (!mfCustomer || !mfDoId))}
           startIcon={saving ? <CircularProgress size={16} color="inherit" /> : <CloudUploadIcon />}
         >
           {saving ? "Uploading…" : "Upload"}

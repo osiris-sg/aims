@@ -435,9 +435,11 @@ export class MaintenanceReportsService {
     if (report.status === 'completed') throw new BadRequestException('This service report is already completed');
     const existing = (report.serviceData as Record<string, any> | null) ?? {};
     if (existing.scheduled !== true) throw new BadRequestException('Only a scheduled service report can be completed this way');
-    if (!report.deliveryId) throw new BadRequestException('This scheduled report is not tied to a delivery');
+    // An office report (manual flow, 2026-11-13) is tied to its DO; a job is optional.
+    const officeDoId = typeof existing.doDocumentId === 'string' && existing.doDocumentId ? existing.doDocumentId : null;
+    if (!report.deliveryId && !officeDoId) throw new BadRequestException('This scheduled report is not tied to a delivery');
 
-    const run = await this.prisma.delivery.findFirst({
+    const run = !report.deliveryId ? null : await this.prisma.delivery.findFirst({
       where: { id: report.deliveryId, organizationId },
       select: {
         siteAddress: true,
@@ -445,11 +447,12 @@ export class MaintenanceReportsService {
         items: { select: { id: true, documentId: true, assetId: true, assetClass: true }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
       },
     });
-    if (!run) throw new NotFoundException('Delivery not found in this organization');
+    if (report.deliveryId && !run) throw new NotFoundException('Delivery not found in this organization');
+    const runItems = run?.items ?? [];
     const serviceLine = body.deliveryItemId
-      ? run.items.find((i) => i.id === body.deliveryItemId)
-      : run.items.find((i) => !i.assetId && i.assetClass === 'SERVICE');
-    const doIds = [...new Set(run.items.map((i) => i.documentId).filter((v): v is string => !!v))];
+      ? runItems.find((i) => i.id === body.deliveryItemId)
+      : runItems.find((i) => !i.assetId && i.assetClass === 'SERVICE');
+    const doIds = [...new Set([...runItems.map((i) => i.documentId), officeDoId].filter((v): v is string => !!v))];
     const invoice = doIds.length
       ? await this.prisma.document.findFirst({
           where: { organizationId, type: 'INVOICE', OR: doIds.map((d) => ({ config: { path: ['sourceDocumentId'], equals: d } })) },
@@ -466,9 +469,9 @@ export class MaintenanceReportsService {
       ...incoming,
       templateId: 'WCT_V1',
       templateVersion: incoming.templateVersion ?? kept.templateVersion ?? 1,
-      customerName: incoming.customerName || kept.customerName || run.customer?.name || null,
-      jobLocation: incoming.jobLocation || kept.jobLocation || run.siteAddress || null,
-      clientEmail: incoming.clientEmail || kept.clientEmail || run.customer?.email || null,
+      customerName: incoming.customerName || kept.customerName || run?.customer?.name || null,
+      jobLocation: incoming.jobLocation || kept.jobLocation || run?.siteAddress || null,
+      clientEmail: incoming.clientEmail || kept.clientEmail || run?.customer?.email || null,
     };
 
     // Same per-org running number as create(): unique on (org, reportNumber),
@@ -493,6 +496,10 @@ export class MaintenanceReportsService {
             serviceData: serviceData as Prisma.InputJsonValue,
             ...(serviceLine ? { deliveryItemId: serviceLine.id } : {}),
             ...(invoice ? { invoiceDocumentId: invoice.id } : {}),
+            // An office report signed on screen (manual flow): the customer's signature comes with the completion.
+            ...(kept.office === true && typeof serviceData.clientSignatureKey === 'string' && serviceData.clientSignatureKey
+              ? { signature: serviceData.clientSignatureKey, signedByName: String(serviceData.signedByName || '').trim() || null, signedAt: new Date() }
+              : {}),
           },
         });
       } catch (err) {
@@ -502,6 +509,8 @@ export class MaintenanceReportsService {
     }
     if (!updated) throw new Error('Failed to assign a unique report number after retries');
 
+    // An office report is signed on screen next and sent with "Send service report": no email now.
+    if (kept.office === true) return updated;
     void this.sendReportEmailInBackground(updated.id).catch((err) =>
       this.logger.error(`Background MSR email failed for ${updated!.id}: ${err?.message}`, err?.stack),
     );
@@ -607,11 +616,17 @@ export class MaintenanceReportsService {
    * order's existing "Link a service report" attachment.
    */
   async createUploaded(
-    body: { fileKey?: string; fileName?: string; mimeType?: string; customerId?: string; location?: string; serviceDate?: string; orderId?: string },
+    body: { fileKey?: string; fileName?: string; mimeType?: string; customerId?: string; location?: string; serviceDate?: string; orderId?: string; doDocumentId?: string },
     organizationId: string,
     userId: string,
   ) {
     const file = cleanReportFile(body, organizationId);
+    // Manual order flow (2026-11-13): every service report names its customer AND its DO; the order follows from the DO.
+    const manual = await isManualOrderFlow(this.prisma, organizationId);
+    if (manual && (!body?.customerId || !body?.doDocumentId)) throw new BadRequestException('Pick the customer and the DO for this service report');
+    const doLink = body?.doDocumentId ? await this.customerDo(organizationId, body.customerId ?? null, body.doDocumentId) : null;
+    if (doLink && !body.orderId && doLink.orderId) body = { ...body, orderId: doLink.orderId };
+    if (doLink && !body.location && doLink.site) body = { ...body, location: doLink.site };
     let customer: { id: string; name: string } | null = null;
     if (body?.customerId) {
       customer = await this.prisma.customer.findFirst({ where: { id: body.customerId, organizationId }, select: { id: true, name: true } });
@@ -642,13 +657,111 @@ export class MaintenanceReportsService {
         customerName: customer?.name ?? null,
         jobLocation: location || null,
         serviceDate,
+        ...(doLink ? { doDocumentId: doLink.id, doNumber: doLink.name, orderId: doLink.orderId, orderNo: doLink.orderNo } : {}),
       } as Prisma.InputJsonValue,
+      // The DO's job, when it has one: the report then shows on the job and the order like a field report.
+      ...(doLink?.jobId ? { deliveryId: doLink.jobId } : {}),
     });
 
     if (orderId) {
       await this.ordersService.addOrderAttachment(orderId, organizationId, { kind: 'report', reportId: created.id }, { id: userId });
     }
     return created;
+  }
+
+  /**
+   * Manual order flow (2026-11-13): a DO of this customer, with its order and its job (when it has one).
+   * Throws when the DO is not this customer's, is not a DO, or is cancelled.
+   */
+  private async customerDo(organizationId: string, customerId: string | null, doDocumentId: string) {
+    const d = await this.prisma.document.findFirst({
+      where: { id: doDocumentId, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } },
+      select: { id: true, name: true, config: true },
+    });
+    if (!d) throw new NotFoundException('DO not found');
+    const c: any = d.config || {};
+    if (c.cancelled === true) throw new BadRequestException(`${d.name ?? 'This DO'} is cancelled`);
+    const docCustomer = c.customerId ?? c.customer?.id ?? null;
+    if (customerId && docCustomer && docCustomer !== customerId) throw new BadRequestException(`${d.name ?? 'This DO'} is for another customer`);
+    const item = await this.prisma.deliveryItem.findFirst({ where: { documentId: d.id }, select: { deliveryId: true, delivery: { select: { siteAddress: true } } } });
+    const site = String(item?.delivery?.siteAddress ?? c.deliveryTo ?? c.documentInfo?.location ?? c.location ?? '').trim() || null;
+    return { id: d.id, name: d.name ?? null, orderId: (c.orderId as string) ?? null, orderNo: (c.orderNo as string) ?? null, jobId: item?.deliveryId ?? null, site, date: (c.date ?? c.documentInfo?.date ?? null) as string | null };
+  }
+
+  /** GET /maintenance-reports/do-options?customerId=: the customer's DOs for the report pickers (manual flow). */
+  async doOptions(organizationId: string, customerId: string) {
+    if (!customerId) return [];
+    const docs = await this.prisma.document.findMany({
+      where: {
+        organizationId,
+        type: { in: ['DELIVERY_ORDER', 'DO'] },
+        OR: [{ config: { path: ['customerId'], equals: customerId } }, { config: { path: ['customer', 'id'], equals: customerId } }],
+      },
+      select: { id: true, name: true, status: true, config: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    const live = docs.filter((d: any) => (d.config as any)?.cancelled !== true);
+    const items = live.length
+      ? await this.prisma.deliveryItem.findMany({ where: { documentId: { in: live.map((d) => d.id) } }, select: { documentId: true, deliveryId: true, delivery: { select: { siteAddress: true, scheduledFor: true } } } })
+      : [];
+    const jobOf = new Map(items.map((i: any) => [i.documentId, i]));
+    return live.map((d: any) => {
+      const c: any = d.config || {};
+      const j: any = jobOf.get(d.id);
+      return {
+        id: d.id,
+        name: d.name,
+        status: d.status,
+        date: c.date ?? c.documentInfo?.date ?? (j?.delivery?.scheduledFor ? new Date(j.delivery.scheduledFor).toISOString().slice(0, 10) : null),
+        site: String(j?.delivery?.siteAddress ?? c.deliveryTo ?? c.documentInfo?.location ?? '').split('\n')[0].trim() || null,
+        orderId: c.orderId ?? null,
+        orderNo: c.orderNo ?? null,
+        jobId: j?.deliveryId ?? null,
+      };
+    });
+  }
+
+  /**
+   * POST /maintenance-reports/office (manual order flow, 2026-11-13): the office starts a WCT service report for a
+   * customer's DO. A draft with no number yet (it gets one on complete); the DO's job's own open draft is reused.
+   */
+  async createOffice(body: { customerId?: string; doDocumentId?: string }, organizationId: string, userId: string) {
+    if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('Office service reports need the manual order flow');
+    if (!body?.customerId || !body?.doDocumentId) throw new BadRequestException('Pick the customer and the DO for this service report');
+    const customer = await this.prisma.customer.findFirst({ where: { id: body.customerId, organizationId }, select: { id: true, name: true, email: true } });
+    if (!customer) throw new NotFoundException('Customer not found in this organization');
+    const d = await this.customerDo(organizationId, customer.id, body.doDocumentId);
+    const link = { office: true, customerId: customer.id, customerName: customer.name, clientEmail: customer.email ?? null, doDocumentId: d.id, doNumber: d.name, orderId: d.orderId, orderNo: d.orderNo, jobLocation: d.site };
+    if (d.jobId) {
+      const open = await this.prisma.maintenanceServiceReport.findFirst({
+        where: { organizationId, deliveryId: d.jobId, kind: 'SERVICE', status: { not: 'completed' }, reportNumber: null },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, serviceData: true },
+      });
+      if (open) {
+        const sd = (open.serviceData as Record<string, any> | null) ?? {};
+        return this.prisma.maintenanceServiceReport.update({
+          where: { id: open.id },
+          data: { serviceData: { ...sd, ...link, scheduled: true, customerName: sd.customerName || customer.name, jobLocation: sd.jobLocation || d.site } as Prisma.InputJsonValue },
+          select: { id: true, reportNumber: true, status: true },
+        });
+      }
+    }
+    return this.prisma.maintenanceServiceReport.create({
+      data: {
+        organizationId,
+        kind: MaintenanceReportKind.SERVICE,
+        technicianUserId: userId,
+        description: 'Service report',
+        photos: [],
+        paymentRequired: false,
+        status: 'draft',
+        ...(d.jobId ? { deliveryId: d.jobId } : {}),
+        serviceData: { ...link, scheduled: true, templateId: 'WCT_V1', serviceDate: await orgTodayFor(this.prisma, organizationId) } as Prisma.InputJsonValue,
+      },
+      select: { id: true, reportNumber: true, status: true },
+    });
   }
 
   /** PUT /maintenance-reports/:id/photos-file: attach or replace the ONE photos file (any SERVICE report, signed or not). */

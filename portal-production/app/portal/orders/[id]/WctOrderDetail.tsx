@@ -40,6 +40,8 @@ import { attachmentLine, type OrderAttachment, type ReportOption } from "@/helpe
 import { OrderJobPhotos } from "@/components/delivery/JobPhotos";
 import SendServiceReportDialog from "@/components/orders/SendServiceReportDialog";
 import OrderHubPanel from "./OrderHubPanel";
+import NewServiceReportDialog from "@/app/portal/maintenance-reports/_components/NewServiceReportDialog";
+import UploadServiceReportDialog from "@/app/portal/maintenance-reports/_components/UploadServiceReportDialog";
 import { hubActionTarget, hubStatusInfo, type HubActionKey } from "@/helpers/wctOrderHub";
 
 // WCT order page (enableWctOrders, 2026-11-01): the order header, its jobs
@@ -118,6 +120,10 @@ export default function WctOrderDetail({ id }: { id: string }) {
   const [attMenu, setAttMenu] = useState<{ pos: { left: number; top: number }; att: OrderAttachment } | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [sendReportOpen, setSendReportOpen] = useState(false);
+  // Manual order flow (2026-11-13): add a service report from the order, created or uploaded (customer + DO prefilled).
+  const [srChoose, setSrChoose] = useState(false);
+  const [srNew, setSrNew] = useState(false);
+  const [srUpload, setSrUpload] = useState(false);
 
   const load = useCallback(async () => {
     if (!organization?.id) return;
@@ -147,6 +153,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
     if (open === "add-job") setAddOpen(true);
     else if (open === "create-invoice") setInvoiceAsk(true);
     else if (open === "send-report") setSendReportOpen(true);
+    else if (open === "service-report") setSrChoose(true);
   }, [order]);
 
   /** POST + reload; the error shows inline. */
@@ -235,12 +242,19 @@ export default function WctOrderDetail({ id }: { id: string }) {
       draftJobId: liveJobs.find((j) => j.isDraft)?.id ?? null,
       scheduledJobId: liveJobs.find((j) => !j.isDraft && j.status !== "completed")?.id ?? null,
       completedJobId: [...liveJobs].reverse().find((j) => j.status === "completed")?.id ?? null,
+      manualFlow: !!(order as any).manualFlow,
     });
     if (!t) return;
     if ("href" in t) router.push(t.href);
     else if (t.dialog === "add-job") setAddOpen(true);
     else if (t.dialog === "create-invoice") setInvoiceAsk(true);
     else if (t.dialog === "send-report") setSendReportOpen(true);
+    else if (t.dialog === "service-report") setSrChoose(true);
+  };
+  // The report's customer and DO, prefilled: the order's customer, the DO of its last finished job (else its first DO).
+  const srPrefill = {
+    customer: order.customer ? { id: order.customer.id, name: order.customer.name } : null,
+    doId: ([...liveJobs].reverse().find((j) => j.status === "completed" && j.deliveryOrder) ?? liveJobs.find((j) => j.deliveryOrder))?.deliveryOrder?.id ?? null,
   };
   return (
     <MainCard>
@@ -436,6 +450,11 @@ export default function WctOrderDetail({ id }: { id: string }) {
             Service report
           </Typography>
           <Box sx={{ flex: 1 }} />
+          {(order as any).manualFlow && (
+            <Button size="small" variant="contained" disableElevation onClick={() => setSrChoose(true)} data-tour="wct-order-add-report">
+              Add service report
+            </Button>
+          )}
           <input ref={fileRef} type="file" accept="application/pdf,image/*" hidden onChange={(e) => void uploadAttachment(e.target.files?.[0])} />
           <Button size="small" variant="outlined" disabled={uploading} onClick={() => fileRef.current?.click()} data-tour="wct-order-upload-report">
             {uploading ? <CircularProgress size={16} /> : "Upload file"}
@@ -631,6 +650,34 @@ export default function WctOrderDetail({ id }: { id: string }) {
           <Button onClick={() => setLinkOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
+
+      <Dialog open={srChoose} onClose={() => setSrChoose(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Add a service report</DialogTitle>
+        <DialogContent>
+          <DialogContentText>Write it here on the WCT form, or upload a report you already have as a file. Either way it is for a DO of {order.customer?.name || "the customer"}.</DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSrChoose(false)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => { setSrChoose(false); setSrUpload(true); }}>
+            Upload file
+          </Button>
+          <Button variant="contained" disableElevation onClick={() => { setSrChoose(false); setSrNew(true); }}>
+            Create new
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <NewServiceReportDialog open={srNew} onClose={() => setSrNew(false)} prefill={srPrefill} />
+      <UploadServiceReportDialog
+        open={srUpload}
+        onClose={() => setSrUpload(false)}
+        wctOrders
+        manualFlow
+        prefill={srPrefill}
+        onUploaded={() => {
+          setSrUpload(false);
+          void load();
+        }}
+      />
 
       <Dialog open={invoiceAsk} onClose={() => setInvoiceAsk(false)} fullWidth maxWidth="xs">
         <DialogTitle>Invoice now</DialogTitle>

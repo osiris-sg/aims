@@ -66,6 +66,22 @@ export class MaintenanceReportsController {
    * image): a completed SERVICE report with the next number, never emailed.
    * Body { fileKey, fileName, mimeType, customerId?, location?, serviceDate?, orderId? }.
    */
+  /** Manual order flow (2026-11-13): the customer's DOs for the report pickers (DO no., date, site, order). */
+  @Get('do-options')
+  @Permissions('maintenance-reports:read')
+  doOptions(@Query('customerId') customerId: string, @UserOrganization() org: { id: string }) {
+    return this.service.doOptions(org.id, String(customerId || ''));
+  }
+
+  /** Manual order flow (2026-11-13): start a WCT service report in the portal for a customer's DO. Body { customerId, doDocumentId }. */
+  @Post('office')
+  @Permissions('maintenance-reports:create')
+  createOffice(@Body() body: any, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException('Missing authenticated user');
+    return this.service.createOffice(body ?? {}, org.id, userId);
+  }
+
   @Post('upload')
   @UseInterceptors(IdempotencyInterceptor)
   @Permissions('maintenance-reports:create')
