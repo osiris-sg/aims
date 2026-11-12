@@ -2,7 +2,7 @@
 
 // The role-home top bar (guru 2026-11-06: "change the top navbar also, also
 // the font"). This is the mock-up's bar, not the Xero-style dark one: a white
-// 64px bar with the AIMS mark, AIMEE beside it, text menus with dropdowns, and
+// 64px bar with the AIMS mark, AIMEE beside it, the module menu (see below), and
 // the profile chip on the right carrying the role switcher.
 //
 // What it LOOKS like is the mock-up's; what it CONTAINS is the normal AIMS

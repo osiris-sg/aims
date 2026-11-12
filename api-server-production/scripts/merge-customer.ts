@@ -12,7 +12,9 @@
  *   - every column named customerId / listCustomerId on every table
  *   - Document.config JSON, which carries its own copy of the customer
  *     (config.customer.id / .customerId) plus the displayed name and code
- * The source customer is deleted only when nothing references it any more.
+ * The source customer is deleted only when nothing references it any more,
+ * its Xero link is carried over if the target has none, and the deletion is
+ * written to the Activity Log.
  */
 import { createScriptPrisma } from './xero-migration/_common';
 
@@ -39,6 +41,9 @@ async function main() {
   const cols: any[] = await prisma.$queryRaw`
     SELECT table_name::text AS table_name, column_name::text AS column_name
     FROM information_schema.columns
+    -- 'public' is staging / prod's layout. On a per-org tenancy database the
+    -- org's tables live in org_<code>, so this finds nothing there: pass that
+    -- schema instead before running it on dev.
     WHERE table_schema = 'public' AND column_name IN ('customerId', 'listCustomerId')
     ORDER BY table_name, column_name`;
 
@@ -82,7 +87,15 @@ async function main() {
     }
   }
 
-  // ---- 3. retire the source, but only once nothing points at it
+  // ---- 3. carry the Xero link, if only the source has one. Dropping it would
+  // leave the surviving customer unlinked and the next Xero sync would create a
+  // THIRD contact for the same company.
+  if (!(to as any).xeroId && (from as any).xeroId) {
+    console.log(`\n  Xero link ${(from as any).xeroId} carried to ${TO_CODE} (it had none)`);
+    if (APPLY) await prisma.customer.update({ where: { id: to.id }, data: { xeroId: (from as any).xeroId } as any });
+  }
+
+  // ---- 4. retire the source, but only once nothing points at it
   if (APPLY) {
     let left = 0;
     for (const { table_name, column_name } of cols) {
@@ -94,7 +107,21 @@ async function main() {
       console.log(`\n✗ ${left} references still point at ${FROM_CODE} — NOT deleting it.`);
     } else {
       await prisma.customer.delete({ where: { id: from.id } });
-      console.log(`\n✓ merged into ${TO_CODE}; ${FROM_CODE} deleted.`);
+      // Deleting a customer on a live org has to be on the Activity Log
+      // (CLAUDE.md: non-HTTP work writes its own row, actor "System creation").
+      await prisma.actionLog.create({
+        data: {
+          actorType: 'SYSTEM', actorId: 'system:merge-customer', actorName: 'System creation',
+          organizationId: ORG, channel: 'cron', action: 'DELETE', resource: 'customers', resourceId: from.id,
+          details: {
+            note: `merged into ${TO_CODE} ${to.name}`,
+            removed: `${FROM_CODE} ${from.name}`,
+            rowsMoved: moved,
+            documentsMoved: touched.length,
+          },
+        },
+      });
+      console.log(`\n✓ merged into ${TO_CODE}; ${FROM_CODE} deleted (logged on the Activity Log).`);
     }
   } else {
     console.log(`\nWould then delete ${FROM_CODE} (${from.name}).`);
