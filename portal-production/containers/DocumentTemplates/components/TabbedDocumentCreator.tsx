@@ -134,6 +134,7 @@ import QuotationSignLinkDialog from "./QuotationSignLinkDialog";
 import SignLinkDialog from "@/app/portal/sales/quotations/id/_components/SignLinkDialog";
 import SendForSignatureButton from "@/app/portal/sales/quotations/id/_components/SendForSignatureButton";
 import DoOrderToolbar from "@/components/delivery/DoOrderToolbar";
+import { doOrderIdOf } from "@/helpers/doOrder";
 import { usesCielSignFlow } from "@/helpers/signLinkWording";
 import { useDocumentLock } from "@/app/portal/hooks/useDocumentLock";
 import { toast } from "react-toastify";
@@ -741,7 +742,8 @@ export default function TabbedDocumentCreator({
   const isStockAdjustment = isStockAdjustmentIn || isStockAdjustmentOut;
   const isDeliveryOrder = documentType === "DO" || documentType === "DELIVERY_ORDER";
   // DO first: a saved DO that belongs to an order in the manual order flow.
-  const doOnOrder = isDeliveryOrder && !!isManualOrderFlowEnabled && !!(existingData as any)?.id && !!((existingData as any)?.config?.orderId);
+  // The document page passes the DO's config flattened (orderId at the top, no .id / .config): read both shapes.
+  const doOnOrder = isDeliveryOrder && !!isManualOrderFlowEnabled && !!(documentId || (existingData as any)?.id) && !!doOrderIdOf(existingData);
   // Return Delivery Order. Documents genuinely carry the canonical
   // RETURN_DELIVERY_ORDER type (not just the "RDO" variant), so every RDO-only
   // render branch matches BOTH: the editor tracks reality rather than relying on
@@ -4671,9 +4673,9 @@ export default function TabbedDocumentCreator({
           {doOnOrder && !isTemplateEditMode && (
             <DoOrderToolbar
               documentId={(documentId || (existingData as any)?.id) as string}
-              doName={(existingData as any)?.name ?? null}
+              doName={(existingData as any)?.name ?? (existingData as any)?.documentNumber ?? null}
               status={documentStatus}
-              config={(existingData as any)?.config ?? formData}
+              config={(existingData as any)?.config ?? existingData ?? formData}
             />
           )}
           {/* Confirm button for Delivery Orders */}

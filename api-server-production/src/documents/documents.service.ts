@@ -32,6 +32,7 @@ import { confirmPostsToGl, erpPaidAtImport, erpStoredTotalsOf, isErpImported, mo
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
 import { refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
 import { isManualOrderFlow } from '../orders/manual-order-flow';
+import { skipsDoSaveStockRule } from './do-first-save';
 import { isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, invoicePostingHeld } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { assetKey, descKey, invoiceDiscountPercent, isDisplayRow, orderInvoiceReference, planOrderInvoice, quoteDiscountAmount } from '../orders/order-billing';
@@ -2070,7 +2071,15 @@ export class DocumentsService {
       // written timeline rows with an EMPTY status message (newStatus is
       // undefined for every type but DO/RDO).
       const documentTypesExcludedFromInventory = ['QO1', 'QUOTATION', 'QT', 'QO', 'MSR', 'TI', 'TI2', 'INVOICE', 'PO', 'PURCHASE_ORDER', 'CREDIT_NOTE', 'CN', 'DEBIT_NOTE', 'DN'];
-      if (!documentTypesExcludedFromInventory.includes(dto.type) && dto.config && Array.isArray(dto.config.items)) {
+      // DO first (manual order flow, 2026-11-13): a DO on an order moves stock only through Complete DO (or its job),
+      // and carries service lines and product rows without a unit until then; this save-time block (every row must
+      // name a unit, each unit set to rental on every save) does not apply to it.
+      const doFirstOrderDo = skipsDoSaveStockRule(
+        dto.type || existingDocument.type,
+        (dto.config as any)?.orderId ?? (existingDocument.config as any)?.orderId,
+        await isManualOrderFlow(this.prisma, organizationId),
+      );
+      if (!documentTypesExcludedFromInventory.includes(dto.type) && !doFirstOrderDo && dto.config && Array.isArray(dto.config.items)) {
         // Validate that all items have inventoryItemId
         const itemsWithoutInventory = dto.config.items.filter(
           (_item) => !_item.inventoryItemId || _item.inventoryItemId.trim() === ''
