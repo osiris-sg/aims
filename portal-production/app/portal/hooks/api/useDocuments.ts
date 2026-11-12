@@ -74,6 +74,10 @@ interface PaginatedDocsOptions {
   sortDir?: 'asc' | 'desc';
   // Only documents built on this template (editor Locate dialog).
   templateId?: string;
+  // Which side of the books, for the types that exist in both directions:
+  // a credit / debit note we issued to a customer, or one a supplier issued
+  // to us (guru 2026-11-12).
+  counterparty?: 'CUSTOMER' | 'SUPPLIER';
   enabled?: boolean;
 }
 
@@ -144,17 +148,17 @@ export function useGetDocumentsPaginated(options: PaginatedDocsOptions = {}) {
 }
 
 // Stat-card counts (total / this-month / drafts) for a document-type set.
-export function useGetDocumentStats(documentTypes?: string[]) {
+export function useGetDocumentStats(documentTypes?: string[], counterparty?: 'CUSTOMER' | 'SUPPLIER') {
   const { organization } = useOrganization();
   const { getToken } = useAuth();
   const organizationId = organization?.id;
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['document-stats', organizationId, documentTypes],
+    queryKey: ['document-stats', organizationId, documentTypes, counterparty],
     queryFn: async () => {
       const token = await getToken();
       if (!token || !organizationId) return { total: 0, thisMonth: 0, drafts: 0 };
-      const response = await request({ path: '/documents/stats', method: 'POST' }, { documentTypes }, token);
+      const response = await request({ path: '/documents/stats', method: 'POST' }, { documentTypes, counterparty }, token);
       return response.success ? (response.data || { total: 0, thisMonth: 0, drafts: 0 }) : { total: 0, thisMonth: 0, drafts: 0 };
     },
     enabled: !!organizationId,

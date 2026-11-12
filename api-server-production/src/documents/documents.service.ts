@@ -4111,7 +4111,14 @@ export class DocumentsService {
         id: doc.id,
         name: doc.name,
         associated_item: doc.sku ?? 'N/A',
-        associated_customer: (doc.customerId ? customerMap.get(doc.customerId) : null) ?? 'N/A',
+        // Same fallback as the paginated list below: a supplier-side credit /
+        // debit note names a supplier, not a customer (guru 2026-11-12).
+        associated_customer:
+          (doc.customerId ? customerMap.get(doc.customerId) : null) ??
+          (doc.config as any)?.supplier?.name ??
+          (doc.config as any)?.supplierName ??
+          'N/A',
+        counterpartyKind: counterpartyKind(doc.config as any),
         documentType: doc.type,
         templateId: doc.documentTemplateId,
         status: doc.status,
@@ -4181,6 +4188,11 @@ export class DocumentsService {
       // (it used to pull EVERY document in the org and filter in the browser:
       // 12s for Chong Aik's 25.8k documents — guru 2026-10-23).
       templateId?: string;
+      // Which side of the books. Credit and debit notes exist in BOTH
+      // directions under one type, and Sales must show only the ones we issue
+      // to a customer — a supplier's credit note belongs in the purchase
+      // journal under AP (guru 2026-11-12).
+      counterparty?: 'CUSTOMER' | 'SUPPLIER';
     } = {},
     callerUserId?: string,
   ) {
@@ -4253,6 +4265,31 @@ export class DocumentsService {
           }
         } else if (s.length === 1) where.status = s[0];
         else if (s.length > 1) where.status = { in: s };
+      }
+
+      // A supplier-side document is one that names a supplier: on an AP credit
+      // note the customer block, where present, is OUR OWN company as the
+      // recipient, so "has a customer" is not the test. Matched in SQL because
+      // Prisma's JSON filters can't express "this key exists and isn't null"
+      // across both shapes (config.supplier.id and the flat config.supplierId).
+      if (opts.counterparty) {
+        const typeFilter = opts.documentTypes?.length ? opts.documentTypes : null;
+        const supplierSide: Array<{ id: string }> = typeFilter
+          ? await this.prisma.$queryRaw`
+              SELECT d.id FROM "Document" d
+              WHERE d."organizationId" = ${organizationId}
+                AND d.type = ANY(${typeFilter})
+                AND COALESCE(d.config #>> '{supplier,id}', d.config ->> 'supplierId') IS NOT NULL`
+          : await this.prisma.$queryRaw`
+              SELECT d.id FROM "Document" d
+              WHERE d."organizationId" = ${organizationId}
+                AND COALESCE(d.config #>> '{supplier,id}', d.config ->> 'supplierId') IS NOT NULL`;
+        const ids = supplierSide.map((r) => r.id);
+        if (opts.counterparty === 'SUPPLIER') {
+          and.push({ id: { in: ids } });
+        } else if (ids.length) {
+          and.push({ id: { notIn: ids } });
+        }
       }
 
       if (opts.customerId) {
@@ -4398,7 +4435,23 @@ export class DocumentsService {
           id: doc.id,
           name: doc.name,
           associated_item: config?.items?.[0]?.sku ?? 'N/A',
-          associated_customer: (cid && customerMap.get(cid)) || config?.customer?.name || 'N/A',
+          // Who the document is WITH. A credit/debit note raised against a
+          // SUPPLIER has no customer at all, and the column used to read a bare
+          // "N/A" for every one of them (guru 2026-11-12) — fall back to the
+          // supplier the document actually names before giving up.
+          associated_customer:
+            (cid && customerMap.get(cid)) ||
+            config?.customer?.name ||
+            config?.supplier?.name ||
+            config?.supplierName ||
+            'N/A',
+          // ...and WHICH side that name is. A credit note list mixes the ones
+          // we issue to a customer with the ones a supplier issues to us, and
+          // the two move money in opposite directions (guru 2026-11-12: "it
+          // should state if its a supplier cn or we send to the customer").
+          // A named supplier is the decisive signal: on an AP note the
+          // customer block, when present at all, is US as the recipient.
+          counterpartyKind: counterpartyKind(config),
           documentType: doc.type,
           templateId: doc.documentTemplateId,
           status: doc.status,
@@ -4427,10 +4480,25 @@ export class DocumentsService {
   // computed server-side so they stay accurate when the list is server-paginated
   // (the paginated query only returns one page). Counts the full type set,
   // independent of the user's search/filter.
-  async getDocumentStats(organizationId: string, opts: { documentTypes?: string[] } = {}) {
+  async getDocumentStats(
+    organizationId: string,
+    opts: { documentTypes?: string[]; counterparty?: 'CUSTOMER' | 'SUPPLIER' } = {},
+  ) {
     try {
       const base: any = { organizationId };
       if (opts.documentTypes?.length) base.type = { in: opts.documentTypes };
+      // The cards sit above the list and must count the SAME rows it shows:
+      // a Sales credit-note list scoped to customers can't head a total that
+      // includes the supplier ones (guru 2026-11-12).
+      if (opts.counterparty) {
+        const supplierSide: Array<{ id: string }> = await this.prisma.$queryRaw`
+          SELECT d.id FROM "Document" d
+          WHERE d."organizationId" = ${organizationId}
+            AND COALESCE(d.config #>> '{supplier,id}', d.config ->> 'supplierId') IS NOT NULL`;
+        const ids = supplierSide.map((r) => r.id);
+        if (opts.counterparty === 'SUPPLIER') base.id = { in: ids };
+        else if (ids.length) base.id = { notIn: ids };
+      }
       const monthStart = new Date();
       monthStart.setDate(1);
       monthStart.setHours(0, 0, 0, 0);
@@ -8068,6 +8136,22 @@ export class DocumentsService {
     });
     return { ok: true };
   }
+}
+
+/**
+ * Which side of the books a document faces: the one we ISSUE to a customer, or
+ * the one a SUPPLIER issued to us. Credit and debit notes come in both
+ * directions and move money opposite ways, so a list that mixes them has to say
+ * which is which (guru 2026-11-12).
+ *
+ * A named supplier decides it — on a supplier's note the customer block, where
+ * it exists, holds OUR OWN company as the recipient. null when neither side is
+ * named (nothing to state rather than a wrong guess).
+ */
+export function counterpartyKind(config: any): 'CUSTOMER' | 'SUPPLIER' | null {
+  if (config?.supplier?.id || config?.supplierId) return 'SUPPLIER';
+  if (config?.customer?.id || config?.customerId) return 'CUSTOMER';
+  return null;
 }
 
 /**

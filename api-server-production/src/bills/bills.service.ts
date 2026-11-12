@@ -111,18 +111,37 @@ export class BillsService {
   // Reshape a Document(type=BILL) row into the Bill-shaped response the
   // /bills frontend expects. Handles both AIMS-native bills (full config)
   // and Xero-imported bills (uses xeroGross / xeroBalance etc.).
-  private toBill(doc: { id: string; name: string | null; createdAt: Date; updatedAt: Date; status: any; config: any; attachments: any }, supplierName?: string | null) {
+  /**
+   * Which purchase document a row is. Rows loaded by `findOne` and the older
+   * paths carry no `type` (they are bills by construction), so a missing type
+   * reads as 'SIN'.
+   */
+  private docKind(doc: any): 'SIN' | 'CN' | 'DN' {
+    const t = String(doc?.type || 'BILL').toUpperCase();
+    if (t === 'CREDIT_NOTE' || t === 'CN') return 'CN';
+    if (t === 'DEBIT_NOTE' || t === 'DN') return 'DN';
+    return 'SIN';
+  }
+
+  private toBill(doc: { id: string; name: string | null; createdAt: Date; updatedAt: Date; status: any; config: any; attachments: any; type?: string; documentTemplateId?: string | null }, supplierName?: string | null) {
+    const docKindOf = (d: any) => this.docKind(d);
     const c: any = doc.config || {};
     const subtotal = c.subtotal ?? c.xeroSubtotal ?? 0;
     const taxAmount = c.taxAmount ?? c.xeroTax ?? 0;
     const totalAmount = c.totalAmount ?? grossStampOf(c) ?? 0;
     const xeroBalance = outstandingOf(c);
-    const amountPaid =
+    let amountPaid =
       c.amountPaid !== undefined
         ? c.amountPaid
         : xeroBalance !== undefined
           ? ROUND(totalAmount - xeroBalance)
           : amountPaidOf(c) ?? 0;
+    // A credit / debit note's stamped outstanding is signed the credit way
+    // (AP credit allocations are stored negative), so read what is left of
+    // it by magnitude — otherwise a half-used note would show as fully used.
+    if (docKindOf(doc) !== 'SIN' && c.amountPaid === undefined && xeroBalance !== undefined && xeroBalance !== null) {
+      amountPaid = ROUND(totalAmount - Math.abs(xeroBalance));
+    }
     // Resolve status. Prefer config.billStatus (AIMS-native), else derive from
     // xeroStatus / DocumentStatus.
     let billStatus: BillStatus = c.billStatus as BillStatus;
@@ -176,6 +195,18 @@ export class BillsService {
       attachments: doc.attachments || c.attachments || null,
       supplierId: c.supplierId || c.supplier?.id || null,
       supplier: c.supplier ? { id: c.supplier.id, name: supplierName ?? c.supplier.name, gstRegNo: null } : null,
+      // What KIND of purchase document this row is. 'SIN' for a supplier
+      // invoice (every row until 2026-11-12), 'CN'/'DN' for a supplier credit
+      // or debit note, which the Purchase Journal now lists beside the bills
+      // it offsets (guru: "supplier credit notes should be in purchase journal
+      // in ap"). A credit note REDUCES what is owed, so its signed total is
+      // negative — totalAmount itself stays the document's own face value.
+      docKind: docKindOf(doc),
+      signedTotal: docKindOf(doc) === 'CN' ? -Math.abs(totalAmount) : totalAmount,
+      // A note is a Document of its own type: the Purchase Journal opens it
+      // in the document editor (/portal/documents/<type>/<template>/<id>).
+      documentType: doc.type || 'BILL',
+      documentTemplateId: doc.documentTemplateId || null,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
     };
@@ -192,7 +223,22 @@ export class BillsService {
 
   async list(
     organizationId: string,
-    opts?: { status?: string; supplierId?: string; startDate?: Date; endDate?: Date; limit?: number; quotationId?: string },
+    opts?: {
+      status?: string;
+      supplierId?: string;
+      startDate?: Date;
+      endDate?: Date;
+      limit?: number;
+      quotationId?: string;
+      /** Also return the supplier's CREDIT / DEBIT notes, which sit in the
+       *  Document table under their own type rather than as bills (guru
+       *  2026-11-12). OFF by default: every other AP caller — aging, the
+       *  payment voucher's offset grid, supplier statements, bank rec —
+       *  means "supplier invoices" when it asks for bills, and a credit note
+       *  silently joining those lists would double-count. Only the Purchase
+       *  Journal asks for them. */
+      includeSupplierCredits?: boolean;
+    },
   ) {
     // The list never shows lines, so strip the heavy config keys IN THE
     // DATABASE (lines / items / images / extraction). Chong Aik's 3,353
@@ -204,11 +250,21 @@ export class BillsService {
     // '@prisma/client' are not recognised and get sent as "$2" (syntax error).
     const supplierId: string | null = opts?.supplierId ?? null;
     const limit: number | null = opts?.limit ?? null; // LIMIT NULL = no limit
+    // A credit / debit note qualifies only when it NAMES A SUPPLIER: the same
+    // document type is used for the notes we issue to customers, and those are
+    // AR — they belong on the sales side, not in the purchase journal.
+    const credits = opts?.includeSupplierCredits === true;
     const docs: any[] = await this.prisma.$queryRaw`
-      SELECT d.id, d.name, d.status, d."createdAt", d."updatedAt", d.attachments,
+      SELECT d.id, d.name, d.type, d."documentTemplateId", d.status, d."createdAt", d."updatedAt", d.attachments,
              (d.config - 'lines' - 'items' - 'logo' - 'stamp' - 'signature' - 'signatures' - 'email' - 'extraction' - 'extractedData') AS config
       FROM "Document" d
-      WHERE d."organizationId" = ${organizationId} AND d.type = 'BILL'
+      WHERE d."organizationId" = ${organizationId}
+        AND (
+          d.type = 'BILL'
+          OR (${credits}::boolean
+              AND d.type IN ('CREDIT_NOTE', 'CN', 'DEBIT_NOTE', 'DN')
+              AND COALESCE(d.config #>> '{supplier,id}', d.config ->> 'supplierId') IS NOT NULL)
+        )
         AND (${supplierId}::text IS NULL OR d.config->>'supplierId' = ${supplierId}::text OR d.config#>>'{supplier,id}' = ${supplierId}::text)
       ORDER BY d."createdAt" DESC
       LIMIT ${limit}::int`;

@@ -1,4 +1,4 @@
-import { IsDate, IsString } from 'class-validator';
+import { IsDate, IsIn, IsOptional, IsString } from 'class-validator';
 
 export class GetDocumentDto {
   @IsString()
@@ -12,6 +12,12 @@ export class GetDocumentDto {
 
   @IsString()
   associated_customer: string;
+
+  /** Which side associated_customer names: a customer we issued to, or a
+   *  supplier who issued to us. Only credit / debit notes occur both ways. */
+  @IsOptional()
+  @IsIn(['CUSTOMER', 'SUPPLIER'])
+  counterpartyKind?: 'CUSTOMER' | 'SUPPLIER' | null;
 
   @IsString()
   documentType: string;

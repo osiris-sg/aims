@@ -18,6 +18,9 @@ interface GoToLatestDocumentProps {
   documentTypes: string[]; // e.g., ["SO", "SALES_ORDER"] - types to filter by
   documentLabel: string; // e.g., "Sales Order", "Delivery Order"
   createDocumentType: string; // e.g., "SO" - the type to create if none exist
+  /** One side of the books only — Sales credit notes are the ones WE issue to a
+   *  customer; a supplier's credit note belongs in AP (guru 2026-11-12). */
+  counterparty?: "CUSTOMER" | "SUPPLIER";
   pluralLabel?: string; // e.g., "Sales Orders" — used by list view stat cards
 }
 
@@ -25,6 +28,7 @@ export default function GoToLatestDocument({
   documentTypes,
   documentLabel,
   createDocumentType,
+  counterparty,
   pluralLabel,
 }: GoToLatestDocumentProps) {
   const router = useRouter();
@@ -112,6 +116,7 @@ export default function GoToLatestDocument({
         documentLabel={documentLabel}
         pluralLabel={pluralLabel}
         createDocumentType={createDocumentType}
+        counterparty={counterparty}
       />
     );
   }

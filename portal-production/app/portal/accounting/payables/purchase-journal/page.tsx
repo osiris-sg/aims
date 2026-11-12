@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { withActiveOrg } from "@/helpers/request";
 import {
   Box,
   Chip,
@@ -57,6 +58,13 @@ type Bill = {
   reference?: string | null;
   supplier?: { id: string; name: string } | null;
   supplierId?: string | null;
+  kind?: "SIN" | "SPR";
+  // 2026-11-12: the list also carries the supplier's CREDIT / DEBIT notes
+  // (Documents of their own type, opened in the document editor).
+  docKind?: "SIN" | "CN" | "DN";
+  signedTotal?: number;
+  documentType?: string;
+  documentTemplateId?: string | null;
 };
 
 const STATUS_COLOR: Record<string, "default" | "info" | "warning" | "success" | "error"> = {
@@ -68,6 +76,11 @@ const STATUS_COLOR: Record<string, "default" | "info" | "warning" | "success" | 
 };
 
 const fmt = (n: number) => (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// A supplier credit note (like an SPR) REDUCES what is owed: it shows with a
+// minus and subtracts from the cards. A supplier debit note adds to them.
+const isNote = (b: Bill) => b.docKind === "CN" || b.docKind === "DN";
+const signOf = (b: Bill) => (b.kind === "SPR" || b.docKind === "CN" ? -1 : 1);
+const outstandingOf = (b: Bill) => (b.status === "POSTED" || b.status === "PAID" ? Math.max(0, b.totalAmount - (b.amountPaid || 0)) : 0);
 
 export default function BillsPage() {
   const { request } = useAccountingApi();
@@ -101,7 +114,10 @@ export default function BillsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await request<Bill[]>("/bills");
+      // includeSupplierCredits: the journal is the ONE AP list that shows
+      // the supplier's credit / debit notes beside the invoices they offset
+      // (guru 2026-11-12); every other AP caller means invoices only.
+      const res = await request<Bill[]>("/bills?includeSupplierCredits=true");
       setItems(res || []);
     } catch (e: any) {
       toast.error(e?.message || "Failed to load bills");
@@ -112,7 +128,7 @@ export default function BillsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // ?new=1 (AP workspace's Purchase Journal button) lands here with the
+  // ?new=1 (deep link, e.g. from AIMEE) lands here with the
   // New Supplier Invoice dialog already open.
   useEffect(() => {
     if (searchParams.get("new") === "1") {
@@ -180,15 +196,26 @@ export default function BillsPage() {
   // Reset to first page whenever the filtered set changes.
   useEffect(() => { setPage(1); }, [tab, search, quotationFilter]);
 
+  // A row opens its editor: a bill in the Supplier Invoice dialog, a credit /
+  // debit note in the document editor it was keyed in (Back returns here).
+  const openRow = (b: Bill) => {
+    if (isNote(b)) {
+      const from = encodeURIComponent("/portal/accounting/payables/purchase-journal");
+      router.push(withActiveOrg(`/portal/documents/${b.documentType}/${b.documentTemplateId}/${b.id}?from=${from}`));
+      return;
+    }
+    setEditing(b);
+    setEditorOpen(true);
+  };
+
   const totals = useMemo(() => {
     return visible.reduce(
       (s, b) => {
-        // SPR (purchase return) reduces payables — subtract it from both cards.
-        const sign = (b as any).kind === "SPR" ? -1 : 1;
+        // SPR / credit note reduces payables — subtract it from both cards.
+        const sign = signOf(b);
         return {
           total: s.total + sign * b.totalAmount,
-          outstanding:
-            s.outstanding + (b.status === "POSTED" ? sign * Math.max(0, b.totalAmount - (b.amountPaid || 0)) : 0),
+          outstanding: s.outstanding + (b.status === "POSTED" ? sign * outstandingOf(b) : 0),
         };
       },
       { total: 0, outstanding: 0 },
@@ -199,10 +226,8 @@ export default function BillsPage() {
   // the table is in manualSorting mode. Getters mirror the computed cells.
   const { sorted, sorting, sortingProps } = useClientSort(visible, {
     supplier: (b: Bill) => b.supplier?.name || "",
-    outstanding: (b: Bill) =>
-      b.status === "POSTED" || b.status === "PAID"
-        ? Math.max(0, b.totalAmount - (b.amountPaid || 0))
-        : null,
+    outstanding: (b: Bill) => (b.status === "POSTED" || b.status === "PAID" ? signOf(b) * outstandingOf(b) : null),
+    totalAmount: (b: Bill) => signOf(b) * b.totalAmount,
     status: (b: Bill) =>
       b.status === "DRAFT" ? "UNCONFIRMED" : b.status === "POSTED" ? "AWAITING PAYMENT" : (b.status || "").replace("_", " "),
     xeroSyncStatus: (b: any) => (b.xeroBillId ? b.xeroSyncStatus || "SYNCED" : ""),
@@ -264,6 +289,11 @@ export default function BillsPage() {
             {(b as any).kind === "SPR" && (
               <Tooltip title="Supplier Purchase Return (supplier credit/debit note) — posts reversed">
                 <Chip size="small" label="SPR" color="secondary" variant="outlined" sx={{ ml: 0.5, height: 16, fontSize: "0.6rem", "& .MuiChip-label": { px: 0.5 } }} />
+              </Tooltip>
+            )}
+            {isNote(b) && (
+              <Tooltip title={b.docKind === "CN" ? "Supplier credit note — reduces what is owed; offset it on a Payment Voucher" : "Supplier debit note — adds to what is owed"}>
+                <Chip size="small" label={b.docKind} color={b.docKind === "CN" ? "secondary" : "info"} variant="outlined" sx={{ ml: 0.5, height: 16, fontSize: "0.6rem", "& .MuiChip-label": { px: 0.5 } }} />
               </Tooltip>
             )}
             {b.matchStatus && b.matchStatus !== "MATCHED" && (
@@ -331,7 +361,9 @@ export default function BillsPage() {
       accessorKey: "totalAmount",
       header: "Total",
       cell: ({ row }: any) => (
-        <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(row.original.totalAmount)}</Box>
+        <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums", color: signOf(row.original) < 0 ? "error.main" : undefined }}>
+          {fmt(signOf(row.original) * row.original.totalAmount)}
+        </Box>
       ),
     },
     {
@@ -339,12 +371,10 @@ export default function BillsPage() {
       header: "Outstanding",
       cell: ({ row }: any) => {
         const b: Bill = row.original;
-        const outstanding = (b.status === "POSTED" || b.status === "PAID")
-          ? Math.max(0, b.totalAmount - (b.amountPaid || 0))
-          : 0;
+        const outstanding = outstandingOf(b);
         return (
-          <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: outstanding > 0 ? 600 : 400 }}>
-            {b.status === "POSTED" || b.status === "PAID" ? fmt(outstanding) : "—"}
+          <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: outstanding > 0 ? 600 : 400, color: outstanding > 0 && signOf(b) < 0 ? "error.main" : undefined }}>
+            {b.status === "POSTED" || b.status === "PAID" ? fmt(signOf(b) * outstanding) : "—"}
           </Box>
         );
       },
@@ -386,9 +416,10 @@ export default function BillsPage() {
       ),
     },
     kebabColumn((b: Bill) => {
-      const outstanding = (b.status === "POSTED" || b.status === "PAID")
-        ? Math.max(0, b.totalAmount - (b.amountPaid || 0))
-        : 0;
+      // A credit / debit note is managed in its own editor (void, duplicate…);
+      // the bill actions below call /bills endpoints that don't know it.
+      if (isNote(b)) return [{ label: "Open", onClick: () => openRow(b) }];
+      const outstanding = outstandingOf(b);
       return [
         { label: "View / edit", onClick: () => { setEditing(b); setEditorOpen(true); } },
         { label: "Duplicate", onClick: () => duplicateBill(b) },
@@ -456,12 +487,12 @@ export default function BillsPage() {
 
       {/* Standard reusable table (same component as Invoices, Inventory, etc.) */}
       <PageTable
-        onRowClick={(b: Bill) => { setEditing(b); setEditorOpen(true); }}
+        onRowClick={openRow}
         columns={columns}
         data={paged}
         {...sortingProps}
         tableName="Purchase Journal"
-        subTitle="Supplier invoices (purchase journal) — save posts to GL as unconfirmed; confirm from the Posting Queue"
+        subTitle="Supplier invoices, credit notes and debit notes (purchase journal) — save posts to GL as unconfirmed; confirm from the Posting Queue"
         buttonName="New Purchase Entry"
         onAddClick={() => setKindPickerOpen(true)}
         actionButtons={[

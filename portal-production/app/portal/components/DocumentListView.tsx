@@ -73,6 +73,11 @@ interface Props {
   dateColumn?: "created" | "issue";
   /** Trade invoices (Shipments orgs): a "Covers" column — the orders / shipments the invoice bills ("#9-1, #9-2"). */
   showCovers?: boolean;
+  /** Limit the list to one side of the books. Credit and debit notes exist in
+   *  BOTH directions under one document type — Sales shows only the ones we
+   *  issue to a customer; a supplier's note belongs in the purchase journal
+   *  under AP (guru 2026-11-12). */
+  counterparty?: "CUSTOMER" | "SUPPLIER";
 }
 
 interface DocumentRow {
@@ -85,6 +90,9 @@ interface DocumentRow {
   issueDate?: string;
   associated_customer?: string;
   associated_item?: string;
+  /** Which side the name above is on — set by the API from the document's
+   *  own supplier / customer block. */
+  counterpartyKind?: "CUSTOMER" | "SUPPLIER" | null;
   config?: any;
 }
 
@@ -188,6 +196,7 @@ export default function DocumentListView({
   hideSubtitle,
   dateColumn = "created",
   showCovers = false,
+  counterparty,
 }: Props) {
   const router = useRouter();
   const { getToken } = useAuth();
@@ -239,10 +248,20 @@ export default function DocumentListView({
     createdOn: filters.createdOn,
     sortBy,
     sortDir: sortDir as any,
+    counterparty,
   });
 
-  // Stat-card counts across the full type set (independent of the filters).
-  const { stats, isLoading: statsLoading, refetch: refetchStats } = useGetDocumentStats(documentTypes);
+  // Stat-card counts across the full type set (independent of the filters) —
+  // but on the SAME side, or the total would count rows the list doesn't show.
+  const { stats, isLoading: statsLoading, refetch: refetchStats } = useGetDocumentStats(documentTypes, counterparty);
+
+  // Credit / debit notes are the only document types that exist in both
+  // directions (we raise one for a customer; a supplier raises one for us).
+  // A list that is already scoped to one side doesn't need to say so on every
+  // row; one that shows both does.
+  const twoSidedList =
+    !counterparty &&
+    documentTypes.some((t) => ["CREDIT_NOTE", "CN", "DEBIT_NOTE", "DN"].includes(String(t).toUpperCase()));
   const [uploadOpen, setUploadOpen] = useState(false);
   const [docToDelete, setDocToDelete] = useState<DocumentRow | null>(null);
   // Anchored to the CLICK POSITION, not the button element — the table
@@ -292,9 +311,31 @@ export default function DocumentListView({
     },
     {
       accessorKey: "associated_customer",
-      header: "Customer",
+      // Credit and debit notes run in BOTH directions — one we issue to a
+      // customer, one a supplier issued to us — so the column names the side
+      // as well as the party (guru 2026-11-12: "it should state if its a
+      // supplier cn or we send to the customer"). Every other document type
+      // has only one direction, so it keeps the plain header and no tag.
+      header: twoSidedList ? "Customer / Supplier" : "Customer",
       enableSorting: false, // JSON-derived (config), not server-sortable
-      cell: ({ row }: any) => row.original.associated_customer || "—",
+      cell: ({ row }: any) => {
+        const r = row.original;
+        const who = r.associated_customer && r.associated_customer !== "N/A" ? r.associated_customer : "—";
+        if (!twoSidedList || !r.counterpartyKind) return who;
+        const fromSupplier = r.counterpartyKind === "SUPPLIER";
+        return (
+          <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+            <Box component="span">{who}</Box>
+            <Chip
+              size="small"
+              variant="outlined"
+              color={fromSupplier ? "warning" : "info"}
+              label={fromSupplier ? "From supplier" : "To customer"}
+              sx={{ height: 20, fontSize: "0.7rem" }}
+            />
+          </Stack>
+        );
+      },
     },
     {
       // Free-text Reference — what the document is FOR (guru 2026-07-24:

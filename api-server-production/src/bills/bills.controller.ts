@@ -40,6 +40,7 @@ export class BillsController {
   @ApiQuery({ name: 'supplierId', required: false })
   @ApiQuery({ name: 'startDate', required: false })
   @ApiQuery({ name: 'endDate', required: false })
+  @ApiQuery({ name: 'includeSupplierCredits', required: false, description: "'true' also returns the supplier's credit / debit notes (Purchase Journal)" })
   list(@Req() req: RequestWithOrganization, @Query() q: any) {
     return this.service.list(requireOrgId(req), {
       status: q.status,
@@ -48,6 +49,9 @@ export class BillsController {
       endDate: q.endDate ? new Date(q.endDate) : undefined,
       limit: q.limit ? parseInt(q.limit) : undefined,
       quotationId: q.quotationId || undefined,
+      // Opt-in, and only ever from the Purchase Journal: every other AP
+      // consumer of this endpoint means supplier INVOICES when it says bills.
+      includeSupplierCredits: String(q.includeSupplierCredits) === 'true',
     });
   }
 
