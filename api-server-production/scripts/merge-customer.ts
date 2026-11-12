@@ -1,67 +1,105 @@
 /**
- * Merge one customer record into another and retire the loser.
- * Usage: --keep=<code|id> --lose=<code|id> [--apply]
+ * Merge one customer into another, then retire the source.
+ * (guru 2026-11-12: "merge all to cq008 thats the correct one remove the 007"
+ *  — QJI-CCG Joint Venture / CQ007 was a second record for the JV whose
+ *  invoices all sit under QJI-GCC / CQ008, so its delivery orders were
+ *  stranded on a customer with no billing.)
  *
- * Built after the FIREFLY asset merge failed on an unscanned foreign key: this
- * walks EVERY model that references Customer, repoints each, rewrites the
- * customerId inside Document.config JSON, and only then deletes.
+ * DRY RUN by default. Pass --apply to write.
+ *
+ * Repoints EVERY reference, found by scanning information_schema rather than
+ * a hand-kept list of models, so a table added later isn't silently missed:
+ *   - every column named customerId / listCustomerId on every table
+ *   - Document.config JSON, which carries its own copy of the customer
+ *     (config.customer.id / .customerId) plus the displayed name and code
+ * The source customer is deleted only when nothing references it any more.
  */
-import { PrismaClient } from "@prisma/client";
-import { PrismaNeon } from "@prisma/adapter-neon";
-import { neonConfig } from "@neondatabase/serverless";
-import * as fs from "fs"; import ws = require("ws");
-neonConfig.webSocketConstructor = ws as unknown as typeof WebSocket;
-const prisma = new PrismaClient({ adapter: new PrismaNeon({ connectionString: fs.readFileSync(".env.production","utf8").match(/^DATABASE_URL="?([^"\n]+)"?/m)![1] }) } as any);
-const ORG = "52e90ba8-bfbd-48b0-bb76-4f9667bf74f1";
-const APPLY = process.argv.includes("--apply");
-const arg = (k: string) => process.argv.find((a) => a.startsWith(`--${k}=`))?.split("=")[1];
+import { createScriptPrisma } from './xero-migration/_common';
 
-(async () => {
-  const all = await prisma.customer.findMany({ where: { organizationId: ORG }, select: { id: true, name: true, customerCode: true, xeroId: true } });
-  const pick = (v?: string) => all.find((c) => c.id === v || c.customerCode === v);
-  const keep = pick(arg("keep")), lose = pick(arg("lose"));
-  if (!keep || !lose) throw new Error("keep/lose not found");
-  console.log(`keep  ${keep.customerCode}  ${keep.name}  ${keep.xeroId ? "(Xero linked)" : "(no Xero link)"}`);
-  console.log(`lose  ${lose.customerCode}  ${lose.name}  ${lose.xeroId ? "(Xero linked)" : "(no Xero link)"}\n`);
+const prisma = createScriptPrisma();
+const APPLY = process.argv.includes('--apply');
+const arg = (k: string, d: string) =>
+  (process.argv.find((a) => a.startsWith(`--${k}=`)) || '').split('=')[1] || d;
 
-  // every relational table that points at Customer
-  const tables: Array<[string, any]> = [
-    ["CustomerBalance", prisma.customerBalance], ["CustomerContact", prisma.customerContact],
-    ["CustomerInfoRequest", prisma.customerInfoRequest], ["Delivery", prisma.delivery],
-    ["DocumentEmbedding", prisma.documentEmbedding], ["DocumentSignLink", prisma.documentSignLink],
-    ["Order", prisma.order], ["Payment", prisma.payment], ["PriceHistory", prisma.priceHistory],
-    ["Project", prisma.project], ["RecurringInvoiceTemplate", prisma.recurringInvoiceTemplate],
-    ["SiteOffice", prisma.siteOffice], ["Transaction", prisma.transaction],
-  ];
+const ORG = arg('org', '52e90ba8-bfbd-48b0-bb76-4f9667bf74f1');
+const FROM_CODE = arg('from', 'CQ007');
+const TO_CODE = arg('to', 'CQ008');
+
+async function main() {
+  const from = await prisma.customer.findFirst({ where: { organizationId: ORG, customerCode: FROM_CODE } });
+  const to = await prisma.customer.findFirst({ where: { organizationId: ORG, customerCode: TO_CODE } });
+  if (!from || !to) throw new Error(`customer not found: ${!from ? FROM_CODE : TO_CODE}`);
+  if (from.id === to.id) throw new Error('source and target are the same customer');
+
+  console.log(`FROM  ${FROM_CODE}  ${from.name}  ${from.id}`);
+  console.log(`TO    ${TO_CODE}  ${to.name}  ${to.id}`);
+  console.log(APPLY ? '\n*** APPLY ***\n' : '\n(dry run — nothing is written; pass --apply)\n');
+
+  // ---- 1. every FK-ish column, discovered not assumed
+  const cols: any[] = await prisma.$queryRaw`
+    SELECT table_name::text AS table_name, column_name::text AS column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND column_name IN ('customerId', 'listCustomerId')
+    ORDER BY table_name, column_name`;
+
   let moved = 0;
-  for (const [name, model] of tables) {
-    let n = 0;
-    try { n = await model.count({ where: { customerId: lose.id } }); } catch { console.log(`   (${name}: no customerId column, skipped)`); continue; }
-    if (!n) continue;
-    console.log(`   ${name.padEnd(26)} ${n}`);
-    moved += n;
-    if (APPLY) await model.updateMany({ where: { customerId: lose.id }, data: { customerId: keep.id } });
+  for (const { table_name, column_name } of cols) {
+    const n: any[] = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS n FROM "${table_name}" WHERE "${column_name}" = $1`, from.id);
+    const count = n[0]?.n ?? 0;
+    if (!count) continue;
+    console.log(`  ${String(count).padStart(5)}  ${table_name}.${column_name}`);
+    moved += count;
+    if (APPLY) {
+      await prisma.$executeRawUnsafe(
+        `UPDATE "${table_name}" SET "${column_name}" = $1 WHERE "${column_name}" = $2`, to.id, from.id);
+    }
   }
-  if (!moved) console.log("   (no relational rows)");
+  if (!moved) console.log('  (no column references)');
 
-  // Document.config.customerId lives in JSON
-  const docs = await prisma.document.findMany({ where: { organizationId: ORG }, select: { id: true, name: true, config: true } });
-  const touched = docs.filter((d) => (d.config as any)?.customerId === lose.id);
-  console.log(`\n   Document.config.customerId      ${touched.length}  ${touched.slice(0, 5).map((d) => d.name).join(", ")}${touched.length > 5 ? " …" : ""}`);
-  if (APPLY) for (const d of touched) {
-    const c: any = d.config;
-    await prisma.document.update({ where: { id: d.id }, data: { config: { ...c, customerId: keep.id, customerName: keep.name, customerCode: keep.customerCode ?? c.customerCode } as any } });
+  // ---- 2. Document.config, which holds its own copy of the customer
+  const docs = await prisma.document.findMany({
+    where: { organizationId: ORG },
+    select: { id: true, name: true, type: true, config: true },
+  });
+  const touched = docs.filter((d) => {
+    const c: any = d.config || {};
+    return c?.customer?.id === from.id || c?.customerId === from.id;
+  });
+  console.log(`\n  ${String(touched.length).padStart(5)}  Document.config customer block`);
+  for (const d of touched) console.log(`           ${String(d.type).padEnd(22)} ${d.name}`);
+
+  if (APPLY) {
+    for (const d of touched) {
+      const c: any = { ...(d.config as any) };
+      if (c.customer && typeof c.customer === 'object') {
+        c.customer = { ...c.customer, id: to.id, name: to.name, customerCode: (to as any).customerCode ?? c.customer.customerCode };
+      }
+      if (c.customerId === from.id) c.customerId = to.id;
+      if (c.customerName === from.name) c.customerName = to.name;
+      if (c.customerCode === FROM_CODE) c.customerCode = TO_CODE;
+      await prisma.document.update({ where: { id: d.id }, data: { config: c } });
+    }
   }
 
-  if (!APPLY) { console.log("\n[DRY] nothing written"); process.exit(0); }
-  // carry a Xero link across if the keeper lacks one
-  if (!keep.xeroId && lose.xeroId) { await prisma.customer.update({ where: { id: keep.id }, data: { xeroId: lose.xeroId } }); console.log("   carried the Xero link to the keeper"); }
-  await prisma.customer.delete({ where: { id: lose.id } });
-  await prisma.actionLog.create({ data: {
-    actorType: "SYSTEM", actorId: "system:merge-customer", actorName: "System creation",
-    organizationId: ORG, channel: "cron", action: "DELETE", resource: "customers", resourceId: lose.id,
-    details: { note: `merged into ${keep.customerCode} ${keep.name}`, removed: `${lose.customerCode} ${lose.name}`, documentsMoved: touched.length, rowsMoved: moved },
-  } });
-  console.log(`\nDONE: ${moved} rows + ${touched.length} documents moved to ${keep.customerCode}; ${lose.customerCode} deleted`);
-  process.exit(0);
-})();
+  // ---- 3. retire the source, but only once nothing points at it
+  if (APPLY) {
+    let left = 0;
+    for (const { table_name, column_name } of cols) {
+      const n: any[] = await prisma.$queryRawUnsafe(
+        `SELECT count(*)::int AS n FROM "${table_name}" WHERE "${column_name}" = $1`, from.id);
+      left += n[0]?.n ?? 0;
+    }
+    if (left) {
+      console.log(`\n✗ ${left} references still point at ${FROM_CODE} — NOT deleting it.`);
+    } else {
+      await prisma.customer.delete({ where: { id: from.id } });
+      console.log(`\n✓ merged into ${TO_CODE}; ${FROM_CODE} deleted.`);
+    }
+  } else {
+    console.log(`\nWould then delete ${FROM_CODE} (${from.name}).`);
+  }
+
+  await prisma.$disconnect();
+}
+main().catch(async (e) => { console.error(e); await prisma.$disconnect(); process.exit(1); });
