@@ -6,6 +6,7 @@ import { PdfGeneratorService } from '../common/services/pdf-generator.service';
 import { S3Service } from '../common/services/s3.service';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { runAsOrg } from '../common/tenancy/tenant-context';
+import { orgTimeZoneFor } from '../common/org-today';
 import { PublicDocumentService } from '../public-document/public-document.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ActionLogService } from '../action-log/action-log.service';
@@ -165,6 +166,7 @@ export class DeliveryGroupPostsService implements OnModuleInit {
     }
     if (!link?.url || !/^https?:\/\//.test(link.url)) throw new Error('PORTAL_URL is not configured, so the DO page cannot be opened');
     const buffer = await this.pdf.generatePdfFromUrl(link.url, {
+      timeZone: await orgTimeZoneFor(this.prisma, organizationId),
       waitForSelector: DO_SHEET,
       fitToPage: { selector: DO_SHEET, bandMm: 285 },
       timeoutMs: 60_000,

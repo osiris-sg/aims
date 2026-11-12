@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import * as puppeteer from 'puppeteer';
 import { renderDocumentHtml } from './document-html';
+import { resolveTimeZone } from '../org-today';
 import { DESCRIPTION_HAS_MODEL, DESCRIPTION_HAS_SERIAL } from './document-html/shared';
 
 @Injectable()
@@ -187,6 +188,9 @@ export class PdfGeneratorService {
       fitToPage?: { selector: string; bandMm: number };
       margin?: { top: string; right: string; bottom: string; left: string };
       timeoutMs?: number;
+      /** The org's time zone: the page's dates and times are printed in it
+       *  (the server runs in UTC). Asia/Singapore when not given. */
+      timeZone?: string | null;
     },
   ): Promise<Buffer> {
     const timeoutMs = options.timeoutMs ?? 60_000;
@@ -198,6 +202,9 @@ export class PdfGeneratorService {
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
       });
       const page = await browser.newPage();
+      // Render in the org's time zone, not the server's UTC (2026-11-12: Biofuel's
+      // signed RDO timeline read 5:51 am for 1:51 pm, and an all-day 19 Oct as 18 Oct).
+      await page.emulateTimezone(resolveTimeZone(options.timeZone));
       // Wide enough that the page's phone-fit scaling stays at 1; light scheme.
       await page.setViewport({ width: 1280, height: 1800 });
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);

@@ -456,7 +456,8 @@ export default function PublicDocumentViewPage() {
           <Stack spacing={2} sx={{ pt: 1 }}>
             {signError && <Alert severity="error">{signError}</Alert>}
             <TextField
-              label="Name"
+              label="Name of the person signing"
+              required
               size="small"
               fullWidth
               autoFocus
