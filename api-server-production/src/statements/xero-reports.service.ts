@@ -42,6 +42,10 @@ interface DocRow {
   outstanding: number; // BASE
   lastPaymentDate: Date | null;
   status: string;
+  // Saved but not yet confirmed — the ageing / statement reports band these
+  // separately (guru 2026-11-12). Declared here so the field survives the
+  // DocRow -> payload mapping instead of being dropped silently.
+  unconfirmed: boolean;
   source: string;
   // Multi-currency: trading currency + face amounts (null when base-currency doc)
   currency: string | null;
