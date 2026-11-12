@@ -192,7 +192,7 @@ export default function TopNavBar() {
   const { user } = useUser();
   const { organization } = useOrganization(); // active org (respects admin "view as")
   const { mode, toggleMode } = useThemeMode();
-  const { isAimsChatEnabled } = useOrganizationFeatures();
+  const { isAimsChatEnabled, isAppSwitcherHidden } = useOrganizationFeatures();
   const { navModules, isMasterTier, settingsMenu } = useNavModules();
   const { moduleName, subLabel, settingLabel } = useNavLabels();
   const tn = useTranslations("shell.nav");
@@ -413,7 +413,7 @@ export default function TopNavBar() {
         )}
         <GlobalSearch />
         <TopNavOrgSwitcher />
-        <AppSwitcher />
+        {!isAppSwitcherHidden && <AppSwitcher />}
         <NotificationBell />
         <LangSwitch />
         <Tooltip title={mode === "dark" ? tn("lightMode") : tn("darkMode")}>

@@ -105,7 +105,7 @@ export default function RoleTopBar() {
   const { signOut, openUserProfile } = useClerk();
   const { navModules, settingsMenu, isMasterTier } = useNavModules();
   const { moduleName, subLabel, settingLabel } = useNavLabels();
-  const { isAimsChatEnabled } = useOrganizationFeatures();
+  const { isAimsChatEnabled, isAppSwitcherHidden } = useOrganizationFeatures();
   const { roleId, setRoleId, role } = useRoleView();
   const [menu, setMenu] = React.useState<{ code: string; anchor: HTMLElement } | null>(null);
 
@@ -424,7 +424,7 @@ export default function RoleTopBar() {
           {/* The same "search anything" field as the normal bar (guru 2026-11-13). */}
           <GlobalSearch light />
           <TopNavOrgSwitcher light />
-          <AppSwitcher iconColor={dark ? "rgba(255,255,255,0.7)" : "#94A3B8"} />
+          {!isAppSwitcherHidden && <AppSwitcher iconColor={dark ? "rgba(255,255,255,0.7)" : "#94A3B8"} />}
           <NotificationBell iconColor={dark ? "rgba(255,255,255,0.85)" : INK} />
           <Tooltip title={mode === "dark" ? "Light mode" : "Dark mode"}>
             <IconButton size="small" onClick={toggleMode} sx={{ color: "text.secondary" }}>

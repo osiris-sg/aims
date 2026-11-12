@@ -75,6 +75,9 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // Role home (2026-11-06): /portal lands on the role-based home screen and
   // the org wears the role-home look on every page. Default OFF.
   enableRoleHome: false,
+  // Hide the app switcher (guru 2026-11-13, Chong Aik): no grid icon / AIMS ↔ SiteClock
+  // launcher in the top bar for orgs that have no SiteClock. Default OFF (shown).
+  hideAppSwitcher: false,
   // Admin → org → Manage Templates → Design: per-template look knobs (colour, font, logo, blocks).
   enableTemplateDesign: false,
   // Maintenance Dates (Biofuel, 2026-09): Service Reports -> Maintenance Dates.

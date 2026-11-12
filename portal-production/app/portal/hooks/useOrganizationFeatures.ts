@@ -6,6 +6,7 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 
 interface OrganizationFeatures {
+  hideAppSwitcher?: boolean;
   enableAssetTrackingMode?: boolean;
   enableProjects?: boolean;
   enableAnalytics?: boolean;
@@ -184,6 +185,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // switcher that re-cuts the whole screen. AIMS functions underneath are
   // unchanged; only the home UI differs. Default OFF.
   enableRoleHome: false,
+  // Hide the app switcher (2026-11-13): no grid icon / AIMS ↔ SiteClock launcher
+  // in the top bar. ON for Chong Aik. Default OFF (shown).
+  hideAppSwitcher: false,
   enableTemplateDesign: false,
   // Spend Money / Receive Money (2026-11-06): direct bank transactions with
   // no invoice behind them (Xero's Spend/Receive Money) under AP / AR.
@@ -367,6 +371,7 @@ export function useOrganizationFeatures() {
     isOpsDashboardEnabled: features.enableOpsDashboard ?? false,
     isAimsChatEnabled: features.enableAimsChat ?? false,
     isRoleHomeEnabled: features.enableRoleHome ?? FEATURE_FLAG_DEFAULTS.enableRoleHome,
+    isAppSwitcherHidden: features.hideAppSwitcher ?? FEATURE_FLAG_DEFAULTS.hideAppSwitcher,
     isTemplateDesignEnabled: features.enableTemplateDesign ?? FEATURE_FLAG_DEFAULTS.enableTemplateDesign,
     isSpendMoneyEnabled: features.enableSpendMoney ?? FEATURE_FLAG_DEFAULTS.enableSpendMoney,
     isShipmentsHomeEnabled: features.enableShipmentsHome ?? FEATURE_FLAG_DEFAULTS.enableShipmentsHome,
