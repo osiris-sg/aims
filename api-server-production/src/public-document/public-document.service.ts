@@ -12,7 +12,8 @@ import {
   DESCRIPTION_HAS_SERIAL,
 } from '../common/services/document-html/shared';
 import { DocumentsService } from '../documents/documents.service';
-import { refreshOrderStatusForRun } from '../orders/wct-orders';
+import { refreshOrderStatus, refreshOrderStatusForRun } from '../orders/wct-orders';
+import { isManualOrderFlow } from '../orders/manual-order-flow';
 import { OFFICE_DO_SIGN_FLAG, isOrgFeatureEnabled } from '../common/org-features';
 
 // Only delivery orders (outbound + return) get a view-only link.
@@ -326,7 +327,35 @@ export class PublicDocumentService {
   /** Office signing on for this org AND no run behind the DO (a field DO keeps the field path). */
   private async officeSignApplies(documentId: string, organizationId: string): Promise<boolean> {
     if (await this.runBehindDocument(documentId)) return false;
-    return isOrgFeatureEnabled(this.prisma, organizationId, OFFICE_DO_SIGN_FLAG);
+    return (await isOrgFeatureEnabled(this.prisma, organizationId, OFFICE_DO_SIGN_FLAG)) || !!(await this.doFirstOrderOf(documentId, organizationId));
+  }
+
+  /**
+   * DO first (manual order flow, 2026-11-13): a DO on an order with no job is
+   * signed on its own link (no enableOfficeDoSign needed); its order id, else null.
+   */
+  private async doFirstOrderOf(documentId: string, organizationId: string): Promise<string | null> {
+    if (!(await isManualOrderFlow(this.prisma, organizationId))) return null;
+    const d = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { type: true, config: true } });
+    const orderId = (d?.config as any)?.orderId;
+    return d && ['DELIVERY_ORDER', 'DO'].includes(String(d.type)) && typeof orderId === 'string' && orderId ? orderId : null;
+  }
+
+  /** DO first: the customer signed a job-less DO's link, so the DO is completed and the order follows (it may bill itself). */
+  private async completeDoFirstAfterSign(documentId: string, organizationId: string): Promise<void> {
+    try {
+      const orderId = await this.doFirstOrderOf(documentId, organizationId);
+      if (!orderId) return;
+      const d = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { status: true, config: true } });
+      if (!d || String(d.status).startsWith('delivered') || (d.config as any)?.cancelled === true) return;
+      const c: any = d.config || {};
+      if ((c.items ?? []).some((it: any) => it?.assetId)) return; // product lines are completed on a job
+      await this.prisma.document.update({ where: { id: documentId }, data: { config: { ...c, awaitingSignature: false, completionMode: c.completionMode ?? 'sign_link' } } });
+      await this.documentsService.bulkCompleteDeliveryOrder(documentId, organizationId);
+      await refreshOrderStatus(this.prisma, organizationId, orderId);
+    } catch (err: any) {
+      console.warn(`DO first: completing ${documentId} after the link signature failed: ${err?.message}`);
+    }
   }
 
   /**
@@ -525,7 +554,7 @@ export class PublicDocumentService {
     // The office branch is reachable ONLY when there is genuinely no run, so a
     // field DO's signature path is untouched.
     const runId = await this.runBehindDocument(link.documentId);
-    const officeSign = !runId && (await isOrgFeatureEnabled(this.prisma, link.organizationId, OFFICE_DO_SIGN_FLAG));
+    const officeSign = !runId && ((await isOrgFeatureEnabled(this.prisma, link.organizationId, OFFICE_DO_SIGN_FLAG)) || !!(await this.doFirstOrderOf(link.documentId, link.organizationId)));
     if (!runId && !officeSign) {
       throw new BadRequestException('This document has no delivery run to sign against.');
     }
@@ -600,6 +629,7 @@ export class PublicDocumentService {
       return { ok: false, alreadySigned: true, signedCount: 0, message: 'This delivery order has already been signed.' };
     }
     if (runId) await this.verifyAfterLinkSign(runId, link.organizationId, name);
+    else await this.completeDoFirstAfterSign(link.documentId, link.organizationId);
     return { ok: true, alreadySigned: false, signedCount, signedAt: now };
   }
 

@@ -2,6 +2,7 @@ import { ConflictException } from '@nestjs/common';
 import { isOrgFeatureEnabled } from 'src/common/org-features';
 import { runAsOrg } from 'src/common/tenancy/tenant-context';
 import { ensureOrderNumberFormat, isWctOrdersEnabled, issueOrderNumberInTx, lockQuotation } from 'src/orders/wct-orders';
+import { isManualOrderFlow } from 'src/orders/manual-order-flow';
 
 /**
  * Quotation → Delivery (WCT 2026-10-26): when a quotation is ACCEPTED (staff
@@ -60,10 +61,13 @@ export async function autoDraftDeliveryFromQuotation(
   organizationId: string,
   documentId: string,
   logger?: { warn: (m: string) => void; log?: (m: string) => void },
-): Promise<{ id: string; deliveryNumber: number; orderId?: string; orderNumber?: string } | null> {
+): Promise<{ id: string; deliveryNumber: number; orderId?: string; orderNumber?: string; doFirst?: boolean } | null> {
   try {
     if (!(await isOrgFeatureEnabled(prisma, organizationId, QUOTATION_TO_DELIVERY_FLAG))) return null;
     const wctOrders = await isWctOrdersEnabled(prisma, organizationId);
+    // Manual order flow (2026-11-13, DOs without jobs): the accepted quotation makes the order only; the caller
+    // then issues its first DRAFT DO (prepareManualOrderDo). Jobs are optional, added later on a DO.
+    const doFirst = wctOrders && (await isManualOrderFlow(prisma, organizationId));
 
     const doc = await prisma.document.findFirst({
       where: { id: documentId, organizationId },
@@ -165,6 +169,10 @@ export async function autoDraftDeliveryFromQuotation(
       ...(orderId ? { orderId } : {}),
     });
 
+    if (doFirst) {
+      const o = await createOrderWithFirstJob(prisma, organizationId, doc, customer?.id ?? null, lines, runData, logger, { withJob: false });
+      return o ? { ...o, doFirst: true } : null;
+    }
     if (wctOrders) return await createOrderWithFirstJob(prisma, organizationId, doc, customer?.id ?? null, lines, runData, logger);
 
     // Same per-org serial + P2002 retry as createScheduled.
@@ -241,6 +249,7 @@ async function createOrderWithFirstJob(
   lines: any[],
   runData: (deliveryNumber: number, orderId: string | null) => any,
   logger?: { warn: (m: string) => void; log?: (m: string) => void },
+  opts: { withJob: boolean } = { withJob: true },
 ): Promise<{ id: string; deliveryNumber: number; orderId: string; orderNumber: string } | null> {
   const format = await ensureOrderNumberFormat(prisma, organizationId);
   const items = orderItemsOf(lines);
@@ -250,6 +259,8 @@ async function createOrderWithFirstJob(
         prisma.$transaction(async (tx: any) => {
           await lockQuotation(tx, doc.id);
           let order = await tx.order.findFirst({ where: { organizationId, sourceQuotationId: doc.id }, select: { id: true, orderNumber: true } });
+          // DO-first (manual flow): one order per quotation and no job; an existing order is left as it is.
+          if (order && !opts.withJob) return null;
           if (order && (await tx.delivery.count({ where: { organizationId, orderId: order.id } })) > 0) return null;
           if (!order) {
             const orderNumber = await issueOrderNumberInTx(prisma, tx, organizationId, format.id);
@@ -267,12 +278,13 @@ async function createOrderWithFirstJob(
               select: { id: true, orderNumber: true },
             });
           }
+          if (!opts.withJob) return { id: '', deliveryNumber: 0, orderId: order!.id, orderNumber: order!.orderNumber as string };
           const latest = await tx.delivery.findFirst({ where: { organizationId }, orderBy: { deliveryNumber: 'desc' }, select: { deliveryNumber: true } });
           const run = await tx.delivery.create({ data: runData((latest?.deliveryNumber ?? 0) + 1, order!.id), select: { id: true, deliveryNumber: true } });
           return { ...run, orderId: order!.id, orderNumber: order!.orderNumber as string };
         }),
       );
-      if (out) logger?.log?.(`quotation→order: ${out.orderNumber} with draft job #${out.deliveryNumber} created from quotation ${doc.name || doc.id}`);
+      if (out) logger?.log?.(opts.withJob ? `quotation→order: ${out.orderNumber} with draft job #${out.deliveryNumber} created from quotation ${doc.name || doc.id}` : `quotation→order: ${out.orderNumber} created from quotation ${doc.name || doc.id} (DO first, no job)`);
       return out;
     } catch (err: any) {
       if (err?.code === 'P2002') continue; // a delivery or order number raced — retry the whole transaction

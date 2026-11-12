@@ -3,7 +3,7 @@
 // Manual order flow (2026-11-13): a service report names its customer AND one
 // of that customer's DOs (the order and quotation follow from the DO). Shared
 // by "+ New Report", the upload dialog and the order page.
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { Box, MenuItem, Stack, TextField, Typography } from "@mui/material";
 import moment from "moment";
@@ -36,6 +36,16 @@ export default function CustomerDoPicker({
 }) {
   const { getToken } = useAuth();
   const [options, setOptions] = useState<DoOption[] | null>(null);
+  // A DO prefilled by the caller (the order page) is reported once its row has loaded, so the caller gets its site etc.
+  const reported = useRef<string | null>(null);
+  useEffect(() => {
+    if (!doId || !options || reported.current === doId) return;
+    const o = options.find((x) => x.id === doId);
+    if (!o) return;
+    reported.current = doId;
+    onDo(o);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doId, options]);
 
   useEffect(() => {
     if (!customer?.id) {

@@ -1283,7 +1283,7 @@ export class DeliveriesService {
    * has a DO or a report keeps it) and best-effort: never throws, never fails
    * the quotation's confirmation. No-op for every other org.
    */
-  async prepareManualOrderJob(deliveryId: string, organizationId: string): Promise<{ doId: string | null; reportId: string | null } | null> {
+  async prepareManualOrderJob(deliveryId: string, organizationId: string, opts: { withReport?: boolean } = {}): Promise<{ doId: string | null; reportId: string | null } | null> {
     try {
       if (!(await isManualOrderFlow(this.prisma, organizationId))) return null;
       const run = await this.prisma.delivery.findFirst({
@@ -1351,13 +1351,295 @@ export class DeliveriesService {
         doId = doc.id;
         await this.prisma.deliveryItem.updateMany({ where: { deliveryId: run.id }, data: { documentId: doc.id } });
       }
-      const reportId = await this.ensureManualDraftReport(run.id, organizationId, doId);
+      const reportId = opts.withReport === false ? null : await this.ensureManualDraftReport(run.id, organizationId, doId);
       await this.orderFollowsRun(organizationId, run.id);
       return { doId, reportId };
     } catch (err: any) {
       this.logger.warn(`manual order flow: preparing job ${deliveryId} failed: ${err?.message}`);
       return null;
     }
+  }
+
+  // ── Manual order flow, DO first (2026-11-13): DOs without jobs ─────────────
+  // An order's DOs are the DELIVERY_ORDERs whose config.orderId is the order,
+  // plus any DO its jobs point at (orders made before DO-first). A job is
+  // optional: it links to ONE DO through its lines (DeliveryItem.documentId).
+
+  /** The order's DOs (not cancelled ones unless asked), oldest first. */
+  async orderDos(organizationId: string, orderId: string, opts: { withCancelled?: boolean } = {}) {
+    const viaJobs = await this.prisma.deliveryItem.findMany({
+      where: { documentId: { not: null }, delivery: { organizationId, orderId } },
+      select: { documentId: true },
+    });
+    const docs = await this.prisma.document.findMany({
+      where: {
+        organizationId,
+        type: { in: ['DELIVERY_ORDER', 'DO'] },
+        OR: [{ config: { path: ['orderId'], equals: orderId } }, { id: { in: [...new Set(viaJobs.map((i) => i.documentId as string))] } }],
+      },
+      select: { id: true, name: true, status: true, config: true, documentTemplateId: true, createdAt: true, projectId: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return opts.withCancelled ? docs : docs.filter((d) => (d.config as any)?.cancelled !== true);
+  }
+
+  /** The live (not cancelled) jobs on a DO. */
+  async jobsOnDo(organizationId: string, doId: string) {
+    const items = await this.prisma.deliveryItem.findMany({
+      where: { documentId: doId, delivery: { organizationId, status: { not: 'cancelled' } } },
+      select: { deliveryId: true },
+    });
+    const ids = [...new Set(items.map((i) => i.deliveryId))];
+    return ids.length
+      ? this.prisma.delivery.findMany({
+          where: { id: { in: ids }, organizationId },
+          select: { id: true, deliveryNumber: true, status: true, isDraft: true, verificationState: true, scheduledFor: true, orderInvoiceId: true },
+          orderBy: { deliveryNumber: 'asc' },
+        })
+      : [];
+  }
+
+  /**
+   * DO first: a DRAFT DO for the order, with its REAL number, lines from the
+   * quotation, linked to the order and the quotation. No job. Without `force`
+   * an order that already has a DO keeps it (idempotent: the first DO on
+   * accept); with it ("Add DO") another draft DO is issued. Never throws on the
+   * accept path (returns null); "Add DO" passes throwOnError.
+   */
+  async prepareManualOrderDo(orderId: string, organizationId: string, opts: { force?: boolean; throwOnError?: boolean } = {}): Promise<{ doId: string; doName: string | null } | null> {
+    try {
+      if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('DOs on an order need the manual order flow');
+      const order = await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, customerId: true, sourceQuotationId: true } });
+      if (!order) throw new NotFoundException('Order not found');
+      if (order.status === 'CANCELLED') throw new BadRequestException('This order is cancelled');
+      if (!opts.force) {
+        const existing = (await this.orderDos(organizationId, orderId))[0];
+        if (existing) return { doId: existing.id, doName: existing.name ?? null };
+      }
+      const quotation = order.sourceQuotationId
+        ? await this.prisma.document.findFirst({ where: { id: order.sourceQuotationId, organizationId }, select: { id: true, config: true, projectId: true } })
+        : null;
+      const qcfg: any = quotation?.config || {};
+      const di: any = qcfg.documentInfo || {};
+      const resolved = quotation ? await quotationLinesForJob(this.prisma, organizationId, qcfg) : [];
+      const lines = resolved.map((l) => ({
+        assetId: l.asset?.id,
+        description: l.description,
+        quantity: l.quantity,
+        assetClass: l.asset ? undefined : ((l.assetClass as AssetClass | null) ?? AssetClass.SERVICE),
+      }));
+      const assets = resolved.filter((l) => l.asset).map((l) => l.asset!);
+      const customer = order.customerId
+        ? await this.prisma.customer.findFirst({
+            where: { id: order.customerId, organizationId },
+            select: { id: true, name: true, customerCode: true, address: true, email: true },
+          })
+        : null;
+      const site = String(di.location || di.jobLocation || qcfg.location || qcfg.deliveryTo || qcfg.customerAddress || customer?.address || '').trim();
+      const templateId = await this.resolveDeliveryOrderTemplateId(organizationId);
+      const doConfig = this.buildScheduledDoConfig({
+        scheduledFor: null,
+        items: lines as any,
+        assetById: new Map(assets.map((a) => [a.id, a])),
+        projectName: '',
+        deliveryAddress: site,
+        customer: customer ? { id: customer.id, name: customer.name, customerCode: customer.customerCode, address: customer.address, email: customer.email } : null,
+      } as any);
+      if (order.sourceQuotationId) await applyQuotationLinkToDoConfig(this.prisma, organizationId, order.sourceQuotationId, doConfig, this.logger);
+      await applyOrderToDoConfig(this.prisma, organizationId, order.id, doConfig);
+      const doc = await this.documentsService.createNumberedDeliveryOrder(
+        templateId,
+        organizationId,
+        { ...doConfig, issuedOnSchedule: true, issuedOnDraft: true, doFirst: true },
+        quotation?.projectId ?? undefined,
+      );
+      await refreshOrderStatus(this.prisma, organizationId, order.id);
+      return { doId: doc.id, doName: doc.name ?? null };
+    } catch (err: any) {
+      if (opts.throwOnError) throw err;
+      this.logger.warn(`manual order flow: DO for order ${orderId} not issued: ${err?.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * DO first: a job for calendar / assignment, linked to ONE DO of the order
+   * (its lines mirror the DO's lines and point at it). Draft, no date: the
+   * office schedules it on the job page like any job. Its DO keeps its number.
+   */
+  async createJobForDo(organizationId: string, doId: string) {
+    if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('Jobs on a DO need the manual order flow');
+    const d = await this.prisma.document.findFirst({ where: { id: doId, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, name: true, status: true, config: true, projectId: true } });
+    if (!d) throw new NotFoundException('DO not found');
+    const c: any = d.config || {};
+    if (c.cancelled === true) throw new BadRequestException(`${d.name ?? 'This DO'} is cancelled`);
+    if (String(d.status).startsWith('delivered')) throw new BadRequestException(`${d.name ?? 'This DO'} is already completed`);
+    if (!c.orderId) throw new BadRequestException(`${d.name ?? 'This DO'} is not on an order`);
+    const order = await this.prisma.order.findFirst({ where: { id: c.orderId, organizationId }, select: { id: true, customerId: true, sourceQuotationId: true, status: true } });
+    if (!order || order.status === 'CANCELLED') throw new BadRequestException('The order is not open');
+    const items: any[] = Array.isArray(c.items) ? c.items : [];
+    const groupIdx = new Map<string, number>();
+    const rows = items.map((it: any, i: number) => {
+      if (it.assetId) {
+        const g = String(it.deliveryGroup ?? it.assetId);
+        const n = groupIdx.get(g) ?? 0;
+        groupIdx.set(g, n + 1);
+        return { assetId: it.assetId, inventoryId: null, description: it.description ?? null, assetClass: null, quantity: 1, sortOrder: i * 100 + n, documentId: d.id };
+      }
+      return { assetId: null, inventoryId: null, description: String(it.description ?? '').trim() || 'Item', assetClass: AssetClass.SERVICE, quantity: Math.max(1, Math.round(Number(it.quantity)) || 1), sortOrder: i * 100, documentId: d.id };
+    });
+    const site = String(c.deliveryTo ?? c.documentInfo?.location ?? c.location ?? '').trim() || null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const latest = await this.prisma.delivery.findFirst({ where: { organizationId }, orderBy: { deliveryNumber: 'desc' }, select: { deliveryNumber: true } });
+      try {
+        const run = await this.prisma.delivery.create({
+          data: {
+            organizationId,
+            deliveryNumber: (latest?.deliveryNumber ?? 0) + 1,
+            status: 'scheduled',
+            isDraft: true,
+            scheduledFor: null,
+            orderId: order.id,
+            customerId: order.customerId ?? null,
+            sourceQuotationId: order.sourceQuotationId ?? null,
+            projectId: d.projectId ?? null,
+            siteAddress: site,
+            notes: `Job for ${d.name ?? 'the DO'}`,
+            items: { create: rows },
+          } as any,
+          select: { id: true, deliveryNumber: true },
+        });
+        await refreshOrderStatus(this.prisma, organizationId, order.id);
+        return run;
+      } catch (err: any) {
+        if (err?.code === 'P2002') continue;
+        throw err;
+      }
+    }
+    throw new BadRequestException('Could not allocate a job number, try again');
+  }
+
+  /**
+   * DO first: "Complete DO" on a DO with NO job (a DO with a job is completed
+   * on its job, the existing Complete job). Three ways, as on a job:
+   *  - signature: the customer signs on screen; the DO is completed at once
+   *  - stamped_do: the signed / stamped DO is uploaded; completed at once
+   *  - sign_link: the DO waits for the customer's signature on the DO link;
+   *    signing it completes the DO (public-document.service)
+   * A DO with product lines needs its units picked on a job (the field stock
+   * path), so it is refused here. Completing a DO lets the order invoice
+   * itself once every DO is done (createInvoiceFromDeliveryOrder → order).
+   */
+  async officeCompleteDo(
+    organizationId: string,
+    doId: string,
+    body: { mode?: string; signature?: string; recipientName?: string; files?: string[] },
+    actor: { id?: string; name?: string },
+  ) {
+    if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('Complete DO needs the manual order flow');
+    const d = await this.prisma.document.findFirst({ where: { id: doId, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, name: true, status: true, config: true } });
+    if (!d) throw new NotFoundException('DO not found');
+    const c: any = d.config || {};
+    const label = d.name ?? 'This DO';
+    if (c.cancelled === true) throw new BadRequestException(`${label} is cancelled`);
+    if (String(d.status).startsWith('delivered')) throw new BadRequestException(`${label} is already completed`);
+    if (!c.orderId) throw new BadRequestException(`${label} is not on an order`);
+    if ((await this.jobsOnDo(organizationId, d.id)).length) throw new BadRequestException(`${label} has a job: complete it on the job`);
+    if ((Array.isArray(c.items) ? c.items : []).some((it: any) => it?.assetId)) {
+      throw new BadRequestException(`${label} has product lines: add a job to pick the units, then complete it on the job`);
+    }
+    const mode = body?.mode;
+    if (mode !== 'signature' && mode !== 'stamped_do' && mode !== 'sign_link') throw new BadRequestException('Choose how the customer signs off');
+    const now = new Date();
+    const by = actor.name || actor.id || 'office';
+    if (mode === 'signature') {
+      const signature = String(body.signature ?? '');
+      const name = String(body.recipientName ?? '').trim();
+      if (!/^data:image\/(png|jpeg);base64,/.test(signature)) throw new BadRequestException('Ask the customer to sign in the box');
+      if (!name) throw new BadRequestException("Enter the customer's name");
+      await this.prisma.maintenanceServiceReport.create({
+        data: {
+          organizationId,
+          documentId: d.id,
+          deliveryId: null,
+          technicianUserId: actor.id || 'office',
+          technicianName: actor.name ?? null,
+          kind: 'DO_ACK',
+          status: 'completed',
+          description: 'Signed in the office',
+          photos: [],
+          signature,
+          signedByName: name,
+          signedAt: now,
+          serviceData: { signedVia: 'office-screen', signedSubmittedAt: now.toISOString() } as Prisma.InputJsonValue,
+        } as any,
+      });
+    } else if (mode === 'stamped_do') {
+      const files = (Array.isArray(body.files) ? body.files : []).filter((k) => typeof k === 'string' && k.trim());
+      if (!files.length) throw new BadRequestException('Choose the signed or stamped DO');
+      await this.prisma.maintenanceServiceReport.create({
+        data: {
+          organizationId,
+          documentId: d.id,
+          deliveryId: null,
+          technicianUserId: actor.id || 'office',
+          technicianName: actor.name ?? null,
+          kind: 'DO_ACK',
+          status: 'completed',
+          description: 'Signed / stamped DO uploaded in the office',
+          photos: files,
+          serviceData: { signedVia: 'office-upload', uploadedAt: now.toISOString() } as Prisma.InputJsonValue,
+        } as any,
+      });
+      await this.documentsService.addAttachments(
+        d.id,
+        organizationId,
+        files.map((key, n) => ({ fileKey: key, fileName: `Stamped DO${files.length > 1 ? ` ${n + 1}` : ''}.${(key.split('.').pop() || 'jpg').toLowerCase()}`, mimeType: 'image/jpeg', label: 'Stamped DO' })),
+        { id: actor.id, name: actor.name },
+      );
+    } else {
+      // Waits for the customer: the DO link's signature completes it. An unsigned proof row is what the link signs.
+      const open = await this.prisma.maintenanceServiceReport.findFirst({ where: { documentId: d.id, deliveryId: null, kind: 'DO_ACK', signature: null } });
+      if (!open) {
+        await this.prisma.maintenanceServiceReport.create({
+          data: { organizationId, documentId: d.id, deliveryId: null, technicianUserId: actor.id || 'office', kind: 'DO_ACK', status: 'draft', description: 'Waiting for the customer to sign the DO link', photos: [] } as any,
+        });
+      }
+      await this.prisma.document.update({ where: { id: d.id }, data: { config: { ...c, awaitingSignature: true, completionMode: 'sign_link', completionBy: by, completionAt: now.toISOString() } } });
+      await refreshOrderStatus(this.prisma, organizationId, c.orderId);
+      return { id: d.id, completed: false, awaitingSignature: true };
+    }
+    await this.prisma.document.update({ where: { id: d.id }, data: { config: { ...c, awaitingSignature: false, completionMode: mode, completionBy: by, completionAt: now.toISOString() } } });
+    await this.documentsService.bulkCompleteDeliveryOrder(d.id, organizationId);
+    await refreshOrderStatus(this.prisma, organizationId, c.orderId);
+    return { id: d.id, completed: true };
+  }
+
+  /**
+   * DO first, one-off (2026-11-13): orders made before DO-first have draft jobs
+   * with NO DO (WCT ORD202611-003 / -005). Each such job gets its draft DO from
+   * its own lines and stays linked to it (the owner keeps the jobs). Dry run by
+   * default: lists what it would do. Numbers come from the normal DO issuer.
+   * No draft service report is added. Manual-flow org only.
+   */
+  async migrateDoFirst(organizationId: string, apply: boolean) {
+    if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('Only for the manual order flow');
+    const jobs = await this.prisma.delivery.findMany({
+      where: { organizationId, orderId: { not: null }, status: { not: 'cancelled' }, items: { some: {} }, NOT: { items: { some: { documentId: { not: null } } } } },
+      select: { id: true, deliveryNumber: true, status: true, isDraft: true, order: { select: { orderNumber: true, status: true } }, _count: { select: { items: true } } },
+      orderBy: { deliveryNumber: 'asc' },
+    });
+    const plan = jobs
+      .filter((j) => j.order?.status !== 'CANCELLED')
+      .map((j) => ({ jobId: j.id, job: j.deliveryNumber, state: `${j.status}${j.isDraft ? ' (draft)' : ''}`, order: j.order?.orderNumber ?? null, lines: j._count.items }));
+    if (!apply) return { apply: false, jobs: plan, note: 'Dry run: each job above would get one draft DO (next DO number) from its own lines, and stay linked to it.' };
+    const done: any[] = [];
+    for (const p of plan) {
+      const r = await this.prepareManualOrderJob(p.jobId, organizationId, { withReport: false });
+      const doDoc = r?.doId ? await this.prisma.document.findFirst({ where: { id: r.doId, organizationId }, select: { name: true } }) : null;
+      done.push({ ...p, doId: r?.doId ?? null, doName: doDoc?.name ?? null });
+    }
+    return { apply: true, jobs: done };
   }
 
   /** The job's draft service report (manual flow): one per job, created once, never touched after it is written. */

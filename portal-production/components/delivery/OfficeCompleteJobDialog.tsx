@@ -44,6 +44,7 @@ export default function OfficeCompleteJobDialog({
   defaultName,
   productSlots = [],
   onDone,
+  doId,
 }: {
   open: boolean;
   onClose: () => void;
@@ -53,7 +54,10 @@ export default function OfficeCompleteJobDialog({
   /** Product lines with no unit yet: the office picks the units here (same stock path as the field app). */
   productSlots?: ProductSlot[];
   onDone: (mode: Mode) => void;
+  /** DO first (manual flow, 2026-11-13): complete this DO, which has no job (deliveryId is unused then). */
+  doId?: string;
 }) {
+  const isDo = !!doId;
   const { getToken } = useAuth();
   const sig = useRef<SignatureCanvas>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -124,14 +128,14 @@ export default function OfficeCompleteJobDialog({
       if (mode === "stamped_do") {
         if (!files.length) throw new Error("Choose the signed or stamped DO");
         const keys: string[] = [];
-        for (const f of files) keys.push((await uploadFile({ file: f, folder: `deliveries/${deliveryId}/signed-do`, token })).fileKey);
+        for (const f of files) keys.push((await uploadFile({ file: f, folder: isDo ? `documents/${doId}/signed-do` : `deliveries/${deliveryId}/signed-do`, token })).fileKey);
         body.files = keys;
       }
-      const res: any = await request({ path: `/deliveries/${deliveryId}/office-complete`, method: "POST" }, body, token);
-      if (res?.success === false) throw new Error(res.message || "Could not complete the job");
+      const res: any = await request({ path: isDo ? `/deliveries/order-dos/${doId}/complete` : `/deliveries/${deliveryId}/office-complete`, method: "POST" }, body, token);
+      if (res?.success === false) throw new Error(res.message || (isDo ? "Could not complete the DO" : "Could not complete the job"));
       onDone(mode);
     } catch (e: any) {
-      setError(e?.message ?? "Could not complete the job");
+      setError(e?.message ?? (isDo ? "Could not complete the DO" : "Could not complete the job"));
     } finally {
       setBusy(false);
     }
@@ -142,7 +146,7 @@ export default function OfficeCompleteJobDialog({
       <DialogTitle>Complete {jobLabel}</DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Every item on the job is marked as done and the DO is completed. Choose how the customer signs off.
+          {isDo ? "The DO is completed. Choose how the customer signs off." : "Every item on the job is marked as done and the DO is completed. Choose how the customer signs off."}
         </Typography>
         {needed.length > 0 && (
           <Stack spacing={1.25} sx={{ mb: 2 }}>
@@ -217,8 +221,9 @@ export default function OfficeCompleteJobDialog({
 
         {mode === "sign_link" && (
           <Alert severity="info" variant="outlined">
-            The job is marked done now. Then copy the customer sign link on this page and send it. When the customer signs the DO, the job is verified and the order is
-            invoiced once every job is done.
+            {isDo
+              ? "The DO waits for the customer. Copy the DO sign link (shown next) and send it. When the customer signs, the DO is completed and the order is invoiced once every DO is done."
+              : "The job is marked done now. Then copy the customer sign link on this page and send it. When the customer signs the DO, the job is verified and the order is invoiced once every job is done."}
           </Alert>
         )}
 
@@ -233,7 +238,7 @@ export default function OfficeCompleteJobDialog({
           Cancel
         </Button>
         <Button variant="contained" onClick={() => void submit()} disabled={busy} startIcon={busy ? <CircularProgress size={16} color="inherit" /> : undefined} data-tour="office-complete-job-submit">
-          Complete job
+          {isDo ? "Complete DO" : "Complete job"}
         </Button>
       </DialogActions>
     </Dialog>

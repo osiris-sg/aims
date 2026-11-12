@@ -23,7 +23,7 @@ import {
  * Order.status so lists can filter on it; every job write that can move it
  * calls refreshOrderStatus, and the order pages refresh on read as well.
  */
-import { deriveManualOrderStatus, isManualOrderFlow, withStatusDate, type ManualOrderStatus } from './manual-order-flow';
+import { deriveManualOrderStatus, isManualOrderFlow, withStatusDate, type ManualOrderStatus, deriveManualOrderStatusFromUnits, unitStateOfJobs, type OrderUnit } from './manual-order-flow';
 
 export const WCT_ORDERS_FLAG = 'enableWctOrders';
 
@@ -164,11 +164,37 @@ async function refreshManualOrderStatus(prisma: any, organizationId: string, ord
   if (!order) return null;
   // A cancelled order (set by the office / a cleanup) stays cancelled.
   if (order.status === 'CANCELLED') return null;
-  const jobs = await prisma.delivery.findMany({ where: { organizationId, orderId }, select: { status: true, isDraft: true, verificationState: true, orderInvoiceId: true } });
-  const invoiceIds = [...new Set(jobs.map((j: any) => j.orderInvoiceId).filter((v: any) => v && !String(v).startsWith('claim:')))] as string[];
+  // DO first (2026-11-13): the status follows the order's DOs; a job counts through its DO, a job with no DO on its own.
+  const jobs = await prisma.delivery.findMany({
+    where: { organizationId, orderId, status: { not: 'cancelled' } },
+    select: { id: true, status: true, isDraft: true, verificationState: true, orderInvoiceId: true, items: { select: { documentId: true } } },
+  });
+  const jobDoIds = [...new Set(jobs.flatMap((j: any) => j.items.map((i: any) => i.documentId)).filter(Boolean))] as string[];
+  const dos = (
+    await prisma.document.findMany({
+      where: { organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] }, OR: [{ config: { path: ['orderId'], equals: orderId } }, { id: { in: jobDoIds } }] },
+      select: { id: true, status: true, config: true },
+    })
+  ).filter((d: any) => d.config?.cancelled !== true);
+  const realInvoice = (v: any) => (v && !String(v).startsWith('claim:') ? String(v) : null);
+  const units: OrderUnit[] = [];
+  for (const d of dos as any[]) {
+    const on = jobs.filter((j: any) => j.items.some((i: any) => i.documentId === d.id));
+    if (on.length) {
+      const ids = on.map((j: any) => realInvoice(j.orderInvoiceId));
+      units.push({ state: unitStateOfJobs(on), invoiceId: ids.every(Boolean) ? ids[0] : null });
+    } else {
+      const done = String(d.status).startsWith('delivered');
+      units.push({ state: done ? 'done' : d.config?.awaitingSignature ? 'awaiting' : 'draft', invoiceId: realInvoice(d.config?.orderInvoiceId) });
+    }
+  }
+  for (const j of jobs.filter((j: any) => !j.items.some((i: any) => i.documentId)) as any[]) {
+    units.push({ state: unitStateOfJobs([j]), invoiceId: realInvoice(j.orderInvoiceId) });
+  }
+  const invoiceIds = [...new Set(units.map((u) => u.invoiceId).filter(Boolean))] as string[];
   const invoices = invoiceIds.length ? await prisma.document.findMany({ where: { id: { in: invoiceIds }, organizationId }, select: { status: true } }) : [];
   const dates = (order.statusDates as Record<string, string> | null) ?? {};
-  const status = deriveManualOrderStatus(jobs, { invoiceStatuses: invoices.map((d: any) => String(d.status)), serviceReportSent: !!dates.serviceReportSentAt });
+  const status = deriveManualOrderStatusFromUnits(units, { invoiceStatuses: invoices.map((d: any) => String(d.status)), serviceReportSent: !!dates.serviceReportSentAt });
   // The order exists because the quotation was signed / accepted: that first
   // step is dated by the order itself, even when the first refresh already
   // sees its draft job.

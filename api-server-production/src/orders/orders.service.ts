@@ -423,14 +423,27 @@ export class OrdersService {
     const allJobs = orders.flatMap((o) => o.jobs);
     const doIds = [...new Set(allJobs.flatMap((j) => (j.items ?? []).map((i: any) => i.documentId)).filter(Boolean))] as string[];
     const invIds = [...new Set(allJobs.map((j) => j.orderInvoiceId).filter((v) => v && !String(v).startsWith('claim:')))] as string[];
-    const docs = doIds.length || invIds.length
+    // DO first (2026-11-13): an order's DOs also include those with no job (config.orderId).
+    const docs = doIds.length || invIds.length || orders.length
       ? await this.prisma.document.findMany({
-          where: { organizationId, id: { in: [...doIds, ...invIds] } },
+          where: {
+            organizationId,
+            OR: [
+              { id: { in: [...doIds, ...invIds] } },
+              ...(orders.length ? [{ type: { in: ['DELIVERY_ORDER', 'DO'] }, OR: orders.map((o) => ({ config: { path: ['orderId'], equals: o.id } })) }] : []),
+            ],
+          } as any,
           select: { id: true, name: true, type: true, status: true, documentTemplateId: true, config: true },
           orderBy: { createdAt: 'asc' },
         })
       : [];
+    const isDo = (d: any) => d.type === 'DELIVERY_ORDER' || d.type === 'DO';
     const byId = new Map(docs.map((d: any) => [d.id, d]));
+    // DO first: invoices that bill a DO with no job are named on the DO (config.orderInvoiceId).
+    const doInvIds = [...new Set(docs.filter((d: any) => isDo(d)).map((d: any) => (d.config as any)?.orderInvoiceId).filter((v: any) => v && !String(v).startsWith('claim:') && !byId.has(v)))] as string[];
+    if (doInvIds.length) {
+      for (const d of await this.prisma.document.findMany({ where: { organizationId, id: { in: doInvIds } }, select: { id: true, name: true, type: true, status: true, documentTemplateId: true, config: true } })) byId.set(d.id, d);
+    }
     const reports = allJobs.length
       ? await this.prisma.maintenanceServiceReport.findMany({
           where: { organizationId, kind: 'SERVICE', deliveryId: { in: allJobs.map((j) => j.id) } },
@@ -443,8 +456,14 @@ export class OrdersService {
       const live = jobs.filter((j) => j.status !== 'cancelled');
       const qc: any = o.sourceQuotation?.config || {};
       const di: any = qc.documentInfo || {};
-      const dos = [...new Set(live.flatMap((j) => (j.items ?? []).map((i: any) => i.documentId)).filter(Boolean))].map((id) => byId.get(id)).filter(Boolean);
-      const invoices = [...new Set(live.map((j) => j.orderInvoiceId).filter((v) => v && !String(v).startsWith('claim:')))]
+      const jobDoIds = new Set(live.flatMap((j) => (j.items ?? []).map((i: any) => i.documentId)).filter(Boolean));
+      const dos = [
+        ...[...jobDoIds].map((id) => byId.get(id as string)).filter(Boolean),
+        ...docs.filter((d: any) => isDo(d) && (d.config as any)?.orderId === o.id && !jobDoIds.has(d.id)),
+      ].filter((d: any) => (d.config as any)?.cancelled !== true);
+      const joblessDos = dos.filter((d: any) => !jobDoIds.has(d.id));
+      const doDone = (d: any) => String(d.status).startsWith('delivered');
+      const invoices = [...new Set([...live.map((j) => j.orderInvoiceId), ...joblessDos.map((d: any) => (d.config as any)?.orderInvoiceId)].filter((v) => v && !String(v).startsWith('claim:')))]
         .map((id) => byId.get(id))
         .filter(Boolean)
         .map((d: any) => ({ ...docView(d), total: Number(d.config?.grandTotal ?? d.config?.documentInfo?.grandTotal ?? d.config?.nettTotal ?? 0) || 0 }));
@@ -470,6 +489,13 @@ export class OrdersService {
           completed: [...live].reverse().find((j) => j.status === 'completed')?.id ?? null,
         },
         serviceReportReady: live.some((j) => readyJobs.has(j.id)),
+        // DO first: the DOs the row actions work on (a draft DO with no job, an open one, the last completed one).
+        actionDos: {
+          draft: joblessDos.find((d: any) => !doDone(d) && !(d.config as any)?.awaitingSignature)?.id ?? null,
+          open: joblessDos.find((d: any) => !doDone(d))?.id ?? null,
+          awaiting: joblessDos.find((d: any) => !doDone(d) && (d.config as any)?.awaitingSignature)?.id ?? null,
+          completed: [...dos].reverse().find((d: any) => doDone(d))?.id ?? null,
+        },
       };
     };
   }
@@ -557,6 +583,38 @@ export class OrdersService {
       };
     });
 
+    // DO first (2026-11-13): the order's DOs, with or without a job, each with its state and its jobs.
+    const jobDocIds = new Set(docs.map((d: any) => d.id));
+    const ownDos = await this.prisma.document.findMany({
+      where: { organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] }, config: { path: ['orderId'], equals: order.id } },
+      select: { id: true, name: true, status: true, documentTemplateId: true, config: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const allDos = [...docs, ...ownDos.filter((d: any) => !jobDocIds.has(d.id))].sort((a: any, b: any) => +new Date(a.createdAt) - +new Date(b.createdAt));
+    const deliveryOrders = allDos
+      .filter((d: any) => d.config?.cancelled !== true)
+      .map((d: any) => {
+        const c: any = d.config || {};
+        const onJobs = jobs.filter((j) => j.status !== 'cancelled' && j.deliveryOrder?.id === d.id);
+        const completed = String(d.status).startsWith('delivered');
+        return {
+          id: d.id,
+          name: d.name,
+          status: d.status,
+          templateId: d.documentTemplateId,
+          tag: doStatusTag({ status: d.status, config: c }),
+          date: c.date ?? c.documentInfo?.date ?? null,
+          completed,
+          awaitingSignature: !completed && c.awaitingSignature === true,
+          invoiceId: c.orderInvoiceId && !String(c.orderInvoiceId).startsWith('claim:') ? c.orderInvoiceId : null,
+          hasProducts: (Array.isArray(c.items) ? c.items : []).some((it: any) => it?.assetId),
+          jobs: onJobs.map((j) => ({ id: j.id, deliveryNumber: j.deliveryNumber, status: j.status, isDraft: j.isDraft, scheduledFor: j.scheduledFor, verificationState: j.verificationState })),
+        };
+      });
+    const joblessInvoiceIds = deliveryOrders.filter((d) => !d.jobs.length && d.invoiceId).map((d) => d.invoiceId as string);
+    // Completed DOs with no job and no invoice yet (Invoice now bills them too).
+    const toInvoiceDos = deliveryOrders.filter((d) => !d.jobs.length && d.completed && !d.invoiceId).map((d) => d.name);
+
     // "Add job" prefill: the quotation's billable lines and where the work is.
     const qcfg: any = sourceQuotation?.config || {};
     const di: any = qcfg.documentInfo || {};
@@ -571,13 +629,15 @@ export class OrdersService {
       // Manual order flow: the page offers "Send service report" and "Complete job".
       manualFlow: await isManualOrderFlow(this.prisma, organizationId),
       // The service reports on the order's jobs (drafts too), for the page's Service report section.
-      jobReports: await this.orderJobReports(organizationId, jobsRaw),
+      jobReports: await this.orderJobReports(organizationId, jobsRaw, order.id),
       sourceQuotation: sourceQuotation
         ? { id: sourceQuotation.id, name: sourceQuotation.name, status: sourceQuotation.status, type: sourceQuotation.type, documentTemplateId: sourceQuotation.documentTemplateId }
         : null,
       jobs,
+      deliveryOrders,
       prefill: { siteAddress, lines: quotationLines },
-      ...(await this.wctBilling(organizationId, jobsRaw)),
+      ...(await this.wctBilling(organizationId, jobsRaw, joblessInvoiceIds)),
+      toInvoiceDos,
       attachments: await this.orderAttachmentsView(organizationId, Array.isArray(order.attachments) ? (order.attachments as any[]) : []),
       // The supplier invoices tagged to this order's quotation (job costs, read-only).
       supplierInvoices: await this.wctSupplierInvoices(organizationId, order.sourceQuotationId),
@@ -635,9 +695,24 @@ export class OrdersService {
     if (started.length) {
       throw new HttpException(`Only an order that has not started can be cancelled (job #${started.map((j) => j.deliveryNumber).join(', #')} has started, finished or is invoiced). Cancel its jobs one by one instead.`, HttpStatus.BAD_REQUEST);
     }
+    // DO first: the order's DOs with no job must not have started either.
+    const jobDocs = new Set(jobs.flatMap((j) => j.items.map((i) => i.documentId)).filter(Boolean) as string[]);
+    const ownDos = (
+      await this.prisma.document.findMany({
+        where: { organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] }, config: { path: ['orderId'], equals: id } },
+        select: { id: true, name: true, status: true, config: true },
+      })
+    ).filter((d) => !jobDocs.has(d.id) && (d.config as any)?.cancelled !== true);
+    const doneDos = ownDos.filter((d) => String(d.status).startsWith('delivered') || (d.config as any)?.awaitingSignature || (d.config as any)?.orderInvoiceId);
+    if (doneDos.length) {
+      throw new HttpException(`Only an order that has not started can be cancelled (${doneDos.map((d) => d.name ?? 'a DO').join(', ')} is completed, waiting for a signature or invoiced).`, HttpStatus.BAD_REQUEST);
+    }
     const { cancelledDoConfig } = await import('../deliveries/do-number');
     const { withStatusDate } = await import('./manual-order-flow');
     await this.prisma.$transaction(async (tx) => {
+      for (const d of ownDos) {
+        await tx.document.update({ where: { id: d.id }, data: { config: { ...((d.config as any) ?? {}), cancelled: true, cancelledAt: new Date().toISOString(), cancelledReason: 'The order was cancelled' } } });
+      }
       for (const j of jobs) {
         const docIds = [...new Set(j.items.map((i) => i.documentId).filter(Boolean))] as string[];
         for (const docId of docIds) {
@@ -651,7 +726,7 @@ export class OrdersService {
       }
       await tx.order.update({ where: { id }, data: { status: 'CANCELLED', statusDates: withStatusDate(order.statusDates, 'CANCELLED') as any } });
     });
-    return { id, status: 'CANCELLED', jobsCancelled: jobs.length };
+    return { id, status: 'CANCELLED', jobsCancelled: jobs.length, dosCancelled: ownDos.length };
   }
 
   /** Add an uploaded file, or link an AIMS service report, to the order. */
@@ -716,15 +791,28 @@ export class OrdersService {
   }
 
   /** Service reports on the order's jobs, oldest job first: number, status, draft / uploaded, job number. */
-  private async orderJobReports(organizationId: string, jobs: Array<{ id: string; deliveryNumber?: number | null; status?: string }>) {
+  private async orderJobReports(organizationId: string, jobs: Array<{ id: string; deliveryNumber?: number | null; status?: string }>, orderId?: string) {
     const live = jobs.filter((j) => j.status !== 'cancelled');
-    if (!live.length) return [];
+    // DO first: reports written for one of the order's DOs without a job (serviceData.orderId).
+    const doReports = orderId
+      ? await this.prisma.maintenanceServiceReport.findMany({
+          where: { organizationId, kind: 'SERVICE', deliveryId: null, serviceData: { path: ['orderId'], equals: orderId } },
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, reportNumber: true, status: true, deliveryId: true, serviceData: true },
+        })
+      : [];
+    if (!live.length && !doReports.length) return [];
     const jobNo = new Map(live.map((j) => [j.id, j.deliveryNumber ?? null]));
-    const rows = await this.prisma.maintenanceServiceReport.findMany({
-      where: { organizationId, kind: 'SERVICE', deliveryId: { in: live.map((j) => j.id) } },
-      orderBy: { createdAt: 'asc' },
-      select: { id: true, reportNumber: true, status: true, deliveryId: true, serviceData: true },
-    });
+    const rows = [
+      ...(live.length
+        ? await this.prisma.maintenanceServiceReport.findMany({
+            where: { organizationId, kind: 'SERVICE', deliveryId: { in: live.map((j) => j.id) } },
+            orderBy: { createdAt: 'asc' },
+            select: { id: true, reportNumber: true, status: true, deliveryId: true, serviceData: true },
+          })
+        : []),
+      ...doReports,
+    ];
     return rows.map((r) => {
       const sd = (r.serviceData as Record<string, any> | null) ?? {};
       return {
@@ -777,9 +865,9 @@ export class OrdersService {
    * "Invoice now" has anything to bill (completed + verified jobs not on an
    * invoice yet). invoicing = enableWctOrderInvoice.
    */
-  private async wctBilling(organizationId: string, jobs: any[]) {
+  private async wctBilling(organizationId: string, jobs: any[], extraInvoiceIds: string[] = []) {
     const invoicing = await isOrgFeatureEnabled(this.prisma, organizationId, WCT_ORDER_INVOICE_FLAG);
-    const ids = [...new Set(jobs.map((j) => j.orderInvoiceId).filter((v) => v && !String(v).startsWith('claim:')))] as string[];
+    const ids = [...new Set([...jobs.map((j) => j.orderInvoiceId), ...extraInvoiceIds].filter((v) => v && !String(v).startsWith('claim:')))] as string[];
     const docs = ids.length
       ? await this.prisma.document.findMany({
           where: { id: { in: ids }, organizationId },

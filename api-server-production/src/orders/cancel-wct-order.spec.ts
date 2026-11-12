@@ -1,7 +1,7 @@
 import { OrdersService } from './orders.service';
 
 // WCT orders hub (2026-11-13): "Cancel order" only for an order that has not started.
-function make(jobs: any[], status = 'DO_DRAFT') {
+function make(jobs: any[], status = 'DO_DRAFT', ownDos: any[] = []) {
   const updates: any[] = [];
   const tx: any = {
     document: { findFirst: jest.fn(async ({ where }: any) => ({ id: where.id, config: { remarks: 'x' } })), update: jest.fn(async (a: any) => updates.push(['doc', a])) },
@@ -13,6 +13,7 @@ function make(jobs: any[], status = 'DO_DRAFT') {
     organizationUIConfig: { findUnique: jest.fn(async () => ({ features: { enableWctOrders: true } })) },
     order: { findFirst: jest.fn(async () => ({ id: 'o1', orderNumber: 'ORD1', status, attachments: [], statusDates: {} })) },
     delivery: { findMany: jest.fn(async () => jobs) },
+    document: { findMany: jest.fn(async () => ownDos) },
     $transaction: jest.fn(async (fn: any) => fn(tx)),
   };
   return { svc: new OrdersService(prisma, {} as any, {} as any), updates };
@@ -26,7 +27,7 @@ describe('cancelWctOrder', () => {
       { id: 'j2', deliveryNumber: 9, status: 'scheduled', isDraft: false, orderInvoiceId: null, items: [item({ documentId: 'do2' })] },
     ]);
     const out = await svc.cancelWctOrder('o1', 'org');
-    expect(out).toEqual({ id: 'o1', status: 'CANCELLED', jobsCancelled: 2 });
+    expect(out).toEqual({ id: 'o1', status: 'CANCELLED', jobsCancelled: 2, dosCancelled: 0 });
     const docs = updates.filter((u) => u[0] === 'doc').map((u) => u[1]);
     expect(docs.map((d) => d.where.id)).toEqual(['do1', 'do2']);
     expect(docs[0].data.config).toMatchObject({ cancelled: true, cancelledReason: 'Delivery #8 was cancelled', remarks: 'x' });
@@ -47,5 +48,15 @@ describe('cancelWctOrder', () => {
       await expect(svc.cancelWctOrder('o1', 'org')).rejects.toThrow(/has not started/);
       expect(updates).toHaveLength(0);
     }
+  });
+
+  it('DO first: tags a DO with no job Cancelled too, and refuses one already completed', async () => {
+    const { svc, updates } = make([], 'DO_DRAFT', [{ id: 'dx', name: 'DO202611030', status: 'unconfirmed', config: { orderId: 'o1' } }]);
+    const out: any = await svc.cancelWctOrder('o1', 'org');
+    expect(out.dosCancelled).toBe(1);
+    expect(updates.find((u) => u[0] === 'doc')[1]).toMatchObject({ where: { id: 'dx' }, data: { config: { cancelled: true, orderId: 'o1' } } });
+    const done = make([], 'DO_COMPLETED', [{ id: 'dy', name: 'DO202611031', status: 'delivered_installed', config: { orderId: 'o1' } }]);
+    await expect(done.svc.cancelWctOrder('o1', 'org')).rejects.toThrow(/DO202611031/);
+    expect(done.updates).toHaveLength(0);
   });
 });

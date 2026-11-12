@@ -599,7 +599,9 @@ export class PublicSignService {
     const { autoDraftDeliveryFromQuotation } = await import('../deliveries/quotation-to-delivery');
     const run = await autoDraftDeliveryFromQuotation(this.prisma, doc.organizationId, doc.id, this.logger);
     // Manual order flow: the job's draft DO + draft service report (no-op otherwise).
-    if (run) await this.documents.prepareManualOrderJob(run.id, doc.organizationId);
+    // DO first (2026-11-13): the order's first draft DO and no job; otherwise the job's DO + draft report.
+    const firstDo = run?.doFirst && run.orderId ? await this.documents.prepareManualOrderDo(run.orderId, doc.organizationId) : null;
+    if (run && !run.doFirst) await this.documents.prepareManualOrderJob(run.id, doc.organizationId);
 
     const clientLabel = quote?.header?.clientName || cfg?.customer?.name || cfg?.customerName || '';
     // The office on WhatsApp (guru 2026-10-28): the customer signed; in a
@@ -609,12 +611,14 @@ export class PublicSignService {
       doc.organizationId,
       `Quotation ${allocatedName || doc.name || ''} signed by ${name}${clientLabel ? ` (${clientLabel})` : ''}.` +
         (run
-          ? run.orderNumber
+          ? run.doFirst
+            ? ` Order ${run.orderNumber} created with draft DO ${firstDo?.doName || ''}: complete the DO when the work is done (add a job for a date or a technician if needed).`
+            : run.orderNumber
             ? ` Order ${run.orderNumber} created with draft job #${run.deliveryNumber}: please schedule a date and confirm the items.`
             : ` Draft delivery #${run.deliveryNumber} created: please schedule a date and confirm the items.`
           : ' It is now confirmed.'),
       {
-        linkPath: run ? `/portal/deliveries/${run.id}` : isIdQuote ? `/portal/sales/quotations/id/${doc.id}` : doc.documentTemplateId ? `/portal/documents/${doc.type}/${doc.documentTemplateId}/${doc.id}` : '/portal',
+        linkPath: run ? (run.doFirst ? `/portal/orders/${run.orderId}` : `/portal/deliveries/${run.id}`) : isIdQuote ? `/portal/sales/quotations/id/${doc.id}` : doc.documentTemplateId ? `/portal/documents/${doc.type}/${doc.documentTemplateId}/${doc.id}` : '/portal',
         dedupeKey: `quotation-signed:${doc.id}`,
       },
     );

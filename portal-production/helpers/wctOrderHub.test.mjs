@@ -115,3 +115,24 @@ test("manual flow: Add service report opens the order's create / upload chooser"
   assert.deepEqual(hubListTarget("upload-report", c), { href: "/portal/orders/o1?open=service-report" });
   assert.deepEqual(hubActionTarget("upload-report", { ...c, manualFlow: false }), { href: "/portal/deliveries/j3?open=upload" });
 });
+
+test("DO first: Complete DO on a DO with no job, a job is optional", () => {
+  assert.deepEqual(hubNextStep({ status: "DO_DRAFT", doFirst: true }), { primary: "complete-do", secondary: "add-job" });
+  assert.deepEqual(hubRowActions("DO_DRAFT", { doFirst: true }), ["view-order", "view-quotation", "view-do", "complete-do", "add-job", "cancel-order"]);
+  const c = { orderId: "o1", manualFlow: true, openDoId: "d1", scheduledJobId: null };
+  assert.deepEqual(hubActionTarget("complete-do", c), { dialog: "complete-do", doId: "d1" });
+  assert.deepEqual(hubListTarget("complete-do", c), { href: "/portal/orders/o1?open=complete-do" });
+  // A DO with a job: completed on the job, as before.
+  assert.deepEqual(hubActionTarget("complete-do", { orderId: "o1", manualFlow: true, openDoId: null, scheduledJobId: "j2" }), { href: "/portal/deliveries/j2?open=complete" });
+  const steps = hubSteps({ id: "o1", status: "DO_SCHEDULED", deliveryOrders: [{ id: "d1", name: "DO1", templateId: "t", completed: false, awaitingSignature: true }, { id: "d2", name: "DO2", templateId: "t", completed: true, jobs: [{ id: "j1", status: "completed" }] }] });
+  assert.deepEqual(steps[1].docs.map((d) => `${d.label} ${d.status}`), ["DO1 Awaiting signature", "DO2 Completed"]);
+  assert.equal(steps[1].docs[1].file.path, "/delivery-group-posts/delivery/j1/signed-do?documentId=d2");
+});
+
+test("DO first: a DO waiting for the customer offers its sign link", () => {
+  assert.deepEqual(hubNextStep({ status: "AWAITING_VERIFICATION", awaitingDo: true }), { primary: "sign-link" });
+  assert.deepEqual(hubNextStep({ status: "AWAITING_VERIFICATION" }), { primary: "open-job" });
+  assert.deepEqual(hubActionTarget("sign-link", { orderId: "o1", awaitingDoId: "d2" }), { dialog: "sign-link", doId: "d2" });
+  assert.deepEqual(hubListTarget("sign-link", { orderId: "o1", awaitingDoId: "d2" }), { href: "/portal/orders/o1?open=sign-link" });
+  assert.equal(hubActionTarget("sign-link", { orderId: "o1" }), null);
+});

@@ -107,6 +107,37 @@ export function deriveManualOrderStatus(
   return invoices.every((s) => s === 'paid') ? 'PAID' : 'INVOICED';
 }
 
+/** One billable piece of an order (DO first, 2026-11-13): a DO (with or without jobs) or a job that has no DO. */
+export interface OrderUnit {
+  state: 'draft' | 'scheduled' | 'awaiting' | 'done';
+  invoiceId: string | null;
+}
+
+/** A DO's (or a DO-less job's) state from its live jobs; same reading as the job-based status. */
+export function unitStateOfJobs(jobs: { status: string; isDraft: boolean; verificationState?: string | null }[]): OrderUnit['state'] {
+  if (jobs.every((j) => j.isDraft)) return 'draft';
+  if (jobs.some((j) => j.isDraft) || jobs.some((j) => j.status !== 'completed')) return 'scheduled';
+  if (!jobs.every((j) => j.verificationState == null || j.verificationState === 'verified')) return 'awaiting';
+  return 'done';
+}
+
+/**
+ * Manual flow, DO first: the order's status from its DOs (each DO's jobs, if
+ * any, decide that DO's state), its invoices and whether the service report
+ * was sent. Same steps as deriveManualOrderStatus, read per DO.
+ */
+export function deriveManualOrderStatusFromUnits(units: OrderUnit[], billing: { invoiceStatuses?: string[]; serviceReportSent?: boolean } = {}): ManualOrderStatus {
+  if (!units.length) return 'QUOTATION_SIGNED';
+  if (units.every((u) => u.state === 'draft')) return 'DO_DRAFT';
+  if (units.some((u) => u.state === 'scheduled' || u.state === 'draft')) return 'DO_SCHEDULED';
+  if (units.some((u) => u.state === 'awaiting')) return 'AWAITING_VERIFICATION';
+  const invoices = billing.invoiceStatuses ?? [];
+  if (!units.every((u) => !!u.invoiceId) || !invoices.length) return 'DO_COMPLETED';
+  if (invoices.some((s) => DRAFT_INVOICE.has(s))) return 'INVOICE_DRAFT';
+  if (billing.serviceReportSent) return 'SERVICE_REPORT_SENT';
+  return invoices.every((s) => s === 'paid') ? 'PAID' : 'INVOICED';
+}
+
 /**
  * statusDates after a move to `status`: the first time each status is reached
  * is kept (a later move back and forth never rewrites it).

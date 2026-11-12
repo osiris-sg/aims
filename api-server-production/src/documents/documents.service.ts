@@ -31,6 +31,7 @@ import { outstandingOf, grossStampOf, amountPaidOf, computeDocumentTotals, stamp
 import { confirmPostsToGl, erpPaidAtImport, erpStoredTotalsOf, isErpImported, moneySignature } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
 import { refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
+import { isManualOrderFlow } from '../orders/manual-order-flow';
 import { isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, invoicePostingHeld } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { assetKey, descKey, invoiceDiscountPercent, isDisplayRow, orderInvoiceReference, planOrderInvoice, quoteDiscountAmount } from '../orders/order-billing';
@@ -1846,16 +1847,20 @@ export class DocumentsService {
           // and best-effort inside; never fails the confirm.
           // Manual order flow: the new job's draft DO + draft service report
           // (no-op unless enableManualOrderFlow; never throws).
-          if (run) await this.prepareManualOrderJob(run.id, organizationId);
+          // Manual order flow, DO first (2026-11-13): the order's first draft DO, no job.
+          const firstDo = run?.doFirst && run.orderId ? await this.prepareManualOrderDo(run.orderId, organizationId) : null;
+          if (run && !run.doFirst) await this.prepareManualOrderJob(run.id, organizationId);
           if (run) {
             const c: any = configAsPlainObject || {};
             const who = c.customerName || c.customer?.name || '';
             await this.staffWhatsApp.push(
               organizationId,
-              run.orderNumber
+              run.doFirst
+                ? `Quotation ${updatedDocument.name || ''}${who ? ` (${who})` : ''} confirmed. Order ${run.orderNumber} created with draft DO ${firstDo?.doName || ''}: complete the DO when the work is done (add a job for a date or a technician if needed).`
+                : run.orderNumber
                 ? `Quotation ${updatedDocument.name || ''}${who ? ` (${who})` : ''} confirmed. Order ${run.orderNumber} created with draft job #${run.deliveryNumber}: please schedule a date and confirm the items.`
                 : `Quotation ${updatedDocument.name || ''}${who ? ` (${who})` : ''} confirmed. Draft delivery #${run.deliveryNumber} created: please schedule a date and confirm the items.`,
-              { linkPath: `/portal/deliveries/${run.id}`, dedupeKey: `quotation-confirmed:${id}` },
+              { linkPath: run.doFirst ? `/portal/orders/${run.orderId}` : `/portal/deliveries/${run.id}`, dedupeKey: `quotation-confirmed:${id}` },
             );
           }
         }
@@ -6409,9 +6414,76 @@ export class DocumentsService {
   // invoice posts to the GL and notifies like the per-DO one did.
 
   /** Automatic: bill the order when every job is done and verified and some are not invoiced yet. Never throws. */
+  // ── DO first (manual order flow, 2026-11-13): DOs billed without a job ─────
+  /** The order's completed DOs with no job and no invoice yet. */
+  private async billableJoblessDos(organizationId: string, orderId: string) {
+    const dos = await this.deliveriesService.orderDos(organizationId, orderId);
+    const out: Array<{ id: string; name: string | null }> = [];
+    for (const d of dos) {
+      const c: any = d.config || {};
+      if (!String(d.status).startsWith('delivered') || c.orderInvoiceId) continue;
+      if ((await this.deliveriesService.jobsOnDo(organizationId, d.id)).length) continue;
+      out.push({ id: d.id, name: d.name ?? null });
+    }
+    return out;
+  }
+
+  /** Claim DO-only units for one invoice run, under a per-order lock (the jobs keep their own claim). */
+  private async claimJoblessDos(organizationId: string, orderId: string, ids: string[], claim: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock(hashtext($1))', `order-invoice:${orderId}`);
+      const docs = await tx.document.findMany({ where: { id: { in: ids }, organizationId }, select: { id: true, name: true, config: true } });
+      const won: Array<{ id: string; name: string | null }> = [];
+      for (const d of docs) {
+        const c: any = d.config || {};
+        if (c.orderInvoiceId) continue;
+        await tx.document.update({ where: { id: d.id }, data: { config: { ...c, orderInvoiceId: claim } } });
+        won.push({ id: d.id, name: d.name ?? null });
+      }
+      return won;
+    });
+  }
+
+  /** Move DO-only units from a claim to the invoice (or back to unbilled with null). */
+  private async setDoInvoiceClaim(organizationId: string, ids: string[], claim: string, invoiceId: string | null) {
+    if (!ids.length) return;
+    const docs = await this.prisma.document.findMany({ where: { id: { in: ids }, organizationId }, select: { id: true, config: true } });
+    for (const d of docs) {
+      const c: any = d.config || {};
+      if (c.orderInvoiceId !== claim) continue;
+      const { orderInvoiceId: _drop, ...rest } = c;
+      void _drop;
+      await this.prisma.document.update({ where: { id: d.id }, data: { config: invoiceId ? { ...c, orderInvoiceId: invoiceId } : rest } });
+    }
+  }
+
   async maybeInvoiceOrder(orderId: string, organizationId: string) {
     try {
       if (!(await isOrgFeatureEnabled(this.prisma, organizationId, WCT_ORDER_INVOICE_FLAG))) return null;
+      // DO first: the order bills itself once every live DO is done (a DO with a job: its jobs verified too).
+      if (await isManualOrderFlow(this.prisma, organizationId)) {
+        const dos = await this.deliveriesService.orderDos(organizationId, orderId);
+        if (dos.length) {
+          let unbilled = false;
+          for (const d of dos) {
+            const jobs = await this.deliveriesService.jobsOnDo(organizationId, d.id);
+            if (jobs.length) {
+              if (jobs.some((j) => j.isDraft || !isVerifiedJob(j))) return null;
+              if (jobs.some((j) => !j.orderInvoiceId)) unbilled = true;
+            } else {
+              if (!String(d.status).startsWith('delivered')) return null;
+              if (!(d.config as any)?.orderInvoiceId) unbilled = true;
+            }
+          }
+          const loose = await this.prisma.delivery.findMany({
+            where: { organizationId, orderId, status: { not: 'cancelled' }, NOT: { items: { some: { documentId: { not: null } } } } },
+            select: { id: true },
+          });
+          if (loose.length) return null; // a job with no DO yet (before DO first): finish it the old way
+          if (!unbilled) return null;
+          return await this.invoiceOrder(orderId, organizationId, { trigger: 'auto' });
+        }
+      }
       const jobs = await this.prisma.delivery.findMany({
         where: { organizationId, orderId },
         select: { id: true, status: true, isDraft: true, verificationState: true, orderInvoiceId: true },
@@ -6462,21 +6534,28 @@ export class DocumentsService {
         billable = billable.filter((b) => b.id !== j.id);
       }
     }
-    if (!billable.length) {
-      if (opts.trigger === 'now') throw new HttpException('Nothing to invoice: no completed and verified job is waiting for an invoice.', HttpStatus.BAD_REQUEST);
+    // Manual order flow, DO first (2026-11-13): a completed DO with no job is billed on its own (a "DO unit").
+    const manualDo = await isManualOrderFlow(this.prisma, organizationId);
+    const doCandidates = manualDo ? await this.billableJoblessDos(organizationId, orderId) : [];
+    if (!billable.length && !doCandidates.length) {
+      if (opts.trigger === 'now') throw new HttpException('Nothing to invoice: no completed DO or verified job is waiting for an invoice.', HttpStatus.BAD_REQUEST);
       return null;
     }
 
     // Claim the jobs first: only rows still unbilled are taken, so a second
-    // trigger at the same moment finds nothing left and stops.
+    // trigger at the same moment finds nothing left and stops. DO-only units
+    // are claimed the same way under a per-order lock.
     const claim = `claim:${randomUUID()}`;
-    await this.prisma.delivery.updateMany({ where: { id: { in: billable.map((j) => j.id) }, organizationId, orderInvoiceId: null }, data: { orderInvoiceId: claim } });
+    if (billable.length) {
+      await this.prisma.delivery.updateMany({ where: { id: { in: billable.map((j) => j.id) }, organizationId, orderInvoiceId: null }, data: { orderInvoiceId: claim } });
+    }
     const claimed = await this.prisma.delivery.findMany({
       where: { organizationId, orderInvoiceId: claim },
       select: { id: true, deliveryNumber: true, projectId: true },
       orderBy: { deliveryNumber: 'asc' },
     });
-    if (!claimed.length) return null;
+    const claimedDos = doCandidates.length ? await this.claimJoblessDos(organizationId, orderId, doCandidates.map((d) => d.id), claim) : [];
+    if (!claimed.length && !claimedDos.length) return null;
 
     try {
       // Each job's DO, in job order: the jobs' lines, to tell the quote's scope from the extras.
@@ -6489,10 +6568,16 @@ export class DocumentsService {
             doIdsInOrder.push(it.documentId);
             doJob.set(it.documentId, j.id);
           }
+      for (const d of claimedDos) {
+        if (!doIdsInOrder.includes(d.id)) doIdsInOrder.push(d.id);
+        doJob.set(d.id, `do:${d.id}`);
+      }
       const dos = await this.prisma.document.findMany({ where: { id: { in: doIdsInOrder }, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } } });
       const doById = new Map(dos.map((d) => [d.id, d]));
       const orderedDos = doIdsInOrder.map((id) => doById.get(id)).filter(Boolean) as any[];
       if (!orderedDos.length) throw new Error('the jobs have no Delivery Order to invoice from');
+      // What this invoice bills, for the messages: job numbers and DO-only DOs.
+      const unitsText = [...claimed.map((j) => `job #${j.deliveryNumber}`), ...claimedDos.map((d) => d.name || 'DO')].join(', ');
 
       // The quotation is the contract: billed once per order (order-billing.ts).
       // It is already billed when an earlier invoice of this order exists (the
@@ -6518,7 +6603,7 @@ export class DocumentsService {
       const plan = planOrderInvoice({
         quoteBilled: earlier.length > 0,
         quoteLines: quoteItems,
-        jobs: claimed.map((j) => ({
+        jobs: [...claimed.map((j) => ({ id: j.id })), ...claimedDos.map((d) => ({ id: `do:${d.id}` }))].map((j) => ({
           jobId: j.id,
           lines: orderedDos
             .filter((d) => doJob.get(d.id) === j.id)
@@ -6535,6 +6620,7 @@ export class DocumentsService {
         // No quotation lines and nothing extra: nothing at all to bill (the catch hands the jobs back).
         if (!cover) throw new HttpException('Nothing to invoice: the quotation has no lines and the jobs add none.', HttpStatus.BAD_REQUEST);
         await this.prisma.delivery.updateMany({ where: { organizationId, orderInvoiceId: claim }, data: { orderInvoiceId: cover.id } });
+        await this.setDoInvoiceClaim(organizationId, claimedDos.map((d) => d.id), claim, cover.id);
         console.log(`🧾 ORDER→INVOICE: ${order.orderNumber} jobs ${claimed.map((j) => `#${j.deliveryNumber}`).join(', ')} add no lines to the quotation; covered by ${cover.name} (${opts.trigger}).`);
         await refreshOrderStatus(this.prisma, organizationId, order.id);
         return { id: cover.id, name: cover.name, type: 'INVOICE', covered: true, jobNumbers: claimed.map((j) => j.deliveryNumber) } as any;
@@ -6605,13 +6691,14 @@ export class DocumentsService {
         { gross: totals.nettTotal, outstanding: totals.nettTotal, paid: 0 },
       );
       const templateId = await this.resolveTemplateIdForType('INVOICE', organizationId);
-      const invoice = await this.createBasicDocument(templateId, 'INVOICE', organizationId, invoiceConfig, claimed[0].projectId ?? orderedDos[0].projectId ?? undefined);
+      const invoice = await this.createBasicDocument(templateId, 'INVOICE', organizationId, invoiceConfig, claimed[0]?.projectId ?? orderedDos[0].projectId ?? undefined);
 
       await this.prisma.delivery.updateMany({ where: { organizationId, orderInvoiceId: claim }, data: { orderInvoiceId: invoice.id } });
+      await this.setDoInvoiceClaim(organizationId, claimedDos.map((d) => d.id), claim, invoice.id);
       const ld: any = (order.linkedDocuments as any) || { po: [], do: [], invoice: [], salesOrder: [] };
       ld.invoice = [...(Array.isArray(ld.invoice) ? ld.invoice : []), { id: invoice.id, name: invoice.name, jobIds: claimed.map((j) => j.id) }];
       await this.prisma.order.update({ where: { id: order.id }, data: { invoiceDocumentId: invoice.id, linkedDocuments: ld } });
-      console.log(`🧾 ORDER→INVOICE: ${invoice.name} for ${order.orderNumber} (${opts.trigger}; jobs ${claimed.map((j) => `#${j.deliveryNumber}`).join(', ')})`);
+      console.log(`🧾 ORDER→INVOICE: ${invoice.name} for ${order.orderNumber} (${opts.trigger}; ${unitsText})`);
 
       // The jobs' service reports point at the invoice that bills them.
       await this.prisma.maintenanceServiceReport
@@ -6621,12 +6708,12 @@ export class DocumentsService {
         console.warn(`ORDER→INVOICE: GL post for ${invoice.name} skipped: ${e?.message}`),
       );
       const link = `/portal/documents/${invoice.type ?? 'INVOICE'}/${templateId}/${invoice.id}`;
-      const jobsText = claimed.map((j) => `#${j.deliveryNumber}`).join(', ');
+      const jobsText = unitsText;
       await this.notifications.emit({
         organizationId,
         kind: 'INVOICE_DRAFT',
         title: 'Draft invoice created',
-        body: `${invoice.name || 'A draft invoice'} for order ${order.orderNumber} (jobs ${jobsText}) is ready to review and confirm.`,
+        body: `${invoice.name || 'A draft invoice'} for order ${order.orderNumber} (${jobsText}) is ready to review and confirm.`,
         entityType: 'document',
         entityId: invoice.id,
         linkUrl: link,
@@ -6635,7 +6722,7 @@ export class DocumentsService {
         const who = (invoiceConfig as any).customerName || (invoiceConfig as any).customer?.name || '';
         await this.staffWhatsApp.push(
           organizationId,
-          `Order ${order.orderNumber}${who ? ` (${who})` : ''}: ${opts.trigger === 'now' ? 'invoiced now for' : 'all jobs done and verified,'} jobs ${jobsText}. Draft invoice ${invoice.name || ''} is ${(await isOrgFeatureEnabled(this.prisma as any, organizationId, POST_INVOICES_ON_CONFIRM_FLAG)) ? 'ready to review and confirm (it posts to the ledger when confirmed or sent).' : 'created and posted to the ledger: please review and confirm it.'}`,
+          `Order ${order.orderNumber}${who ? ` (${who})` : ''}: ${opts.trigger === 'now' ? 'invoiced now for' : 'all done and verified,'} ${jobsText}. Draft invoice ${invoice.name || ''} is ${(await isOrgFeatureEnabled(this.prisma as any, organizationId, POST_INVOICES_ON_CONFIRM_FLAG)) ? 'ready to review and confirm (it posts to the ledger when confirmed or sent).' : 'created and posted to the ledger: please review and confirm it.'}`,
           { linkPath: link, dedupeKey: `order-invoice:${invoice.id}` },
         );
       }
@@ -6644,6 +6731,7 @@ export class DocumentsService {
     } catch (e: any) {
       // Hand the jobs back so the next trigger can bill them.
       await this.prisma.delivery.updateMany({ where: { organizationId, orderInvoiceId: claim }, data: { orderInvoiceId: null } }).catch(() => undefined);
+      await this.setDoInvoiceClaim(organizationId, claimedDos.map((d) => d.id), claim, null).catch(() => undefined);
       throw e;
     }
   }
@@ -7586,6 +7674,11 @@ export class DocumentsService {
   }
 
   /** Manual order flow: a newly accepted quotation's job gets its draft DO + draft service report. Never throws. */
+  /** Manual order flow, DO first: the order's draft DO (see DeliveriesService.prepareManualOrderDo). */
+  async prepareManualOrderDo(orderId: string, organizationId: string) {
+    return this.deliveriesService.prepareManualOrderDo(orderId, organizationId);
+  }
+
   async prepareManualOrderJob(deliveryId: string, organizationId: string) {
     try {
       return await this.deliveriesService.prepareManualOrderJob(deliveryId, organizationId);

@@ -51,6 +51,8 @@ interface WctOrderRow {
   /** The earliest open DO's date (YYYY-MM-DD), else the next job's date is shown. */
   doDate?: string | null;
   actionJobs?: { draft: string | null; scheduled: string | null; completed: string | null };
+  /** DO first: the DOs with no job the row actions work on. */
+  actionDos?: { draft: string | null; open: string | null; completed: string | null; awaiting?: string | null };
   serviceReportReady?: boolean;
 }
 
@@ -67,6 +69,9 @@ const hubContext = (o: WctOrderRow, manualFlow = false): HubContext => {
     scheduledJobId: o.actionJobs?.scheduled ?? null,
     completedJobId: o.actionJobs?.completed ?? null,
     manualFlow,
+    openDoId: manualFlow ? o.actionDos?.draft ?? null : null,
+    // The job-less DO waiting for the customer's signature on its DO link.
+    awaitingDoId: manualFlow ? o.actionDos?.awaiting ?? null : null,
   };
 };
 /** Document numbers in a cell: the first two, then "+N more". */
@@ -336,7 +341,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
       {/* Row menu: anchored to the click position (table rows re-render). */}
       <Menu open={!!rowMenu} onClose={() => setRowMenu(null)} anchorReference="anchorPosition" anchorPosition={rowMenu?.pos}>
         {rowMenu &&
-          hubRowActions(rowMenu.row.status)
+          hubRowActions(rowMenu.row.status, { doFirst: !!isManualOrderFlowEnabled })
             .filter((k) => !!hubListTarget(k, hubContext(rowMenu.row, !!isManualOrderFlowEnabled)))
             .map((k) => (
               <MenuItem key={k} onClick={() => runAction(k, rowMenu.row)} sx={HUB_DESTRUCTIVE.has(k) ? { color: "error.main" } : undefined}>

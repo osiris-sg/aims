@@ -40,6 +40,9 @@ import { attachmentLine, type OrderAttachment, type ReportOption } from "@/helpe
 import { OrderJobPhotos } from "@/components/delivery/JobPhotos";
 import SendServiceReportDialog from "@/components/orders/SendServiceReportDialog";
 import OrderHubPanel from "./OrderHubPanel";
+import OrderDosSection, { type OrderDo } from "./OrderDosSection";
+import OfficeCompleteJobDialog from "@/components/delivery/OfficeCompleteJobDialog";
+import CustomerSignLink from "@/components/delivery/CustomerSignLink";
 import NewServiceReportDialog from "@/app/portal/maintenance-reports/_components/NewServiceReportDialog";
 import UploadServiceReportDialog from "@/app/portal/maintenance-reports/_components/UploadServiceReportDialog";
 import { hubActionTarget, hubStatusInfo, type HubActionKey } from "@/helpers/wctOrderHub";
@@ -124,6 +127,10 @@ export default function WctOrderDetail({ id }: { id: string }) {
   const [srChoose, setSrChoose] = useState(false);
   const [srNew, setSrNew] = useState(false);
   const [srUpload, setSrUpload] = useState(false);
+  // DO first (manual flow, 2026-11-13): complete a DO with no job; its sign link; a report for one DO.
+  const [completeDo, setCompleteDo] = useState<OrderDo | null>(null);
+  const [signLinkDo, setSignLinkDo] = useState<OrderDo | null>(null);
+  const [srDoId, setSrDoId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!organization?.id) return;
@@ -154,6 +161,13 @@ export default function WctOrderDetail({ id }: { id: string }) {
     else if (open === "create-invoice") setInvoiceAsk(true);
     else if (open === "send-report") setSendReportOpen(true);
     else if (open === "service-report") setSrChoose(true);
+    else if (open === "complete-do") {
+      const d = ((order as any).deliveryOrders as OrderDo[] | undefined)?.find((x) => !x.completed && !x.awaitingSignature && !x.jobs.length && !x.hasProducts);
+      if (d) setCompleteDo(d);
+    } else if (open === "sign-link") {
+      const d = ((order as any).deliveryOrders as OrderDo[] | undefined)?.find((x) => x.awaitingSignature && !x.jobs.length);
+      if (d) setSignLinkDo(d);
+    }
   }, [order]);
 
   /** POST + reload; the error shows inline. */
@@ -230,6 +244,22 @@ export default function WctOrderDetail({ id }: { id: string }) {
     jobReports.some((r) => r.status === "completed") || (order.attachments ?? []).some((a: any) => a.kind === "report" && a.report?.status === "completed");
   // Orders hub (2026-11-13): the tracker's next-step button reuses the existing screens and dialogs.
   const liveJobs = order.jobs.filter((j) => j.status !== "cancelled");
+  // DO first: the order's DOs; the first one completable on its own (no job, no product line).
+  const dos: OrderDo[] = (order as any).deliveryOrders ?? [];
+  const doFirst = !!(order as any).manualFlow && dos.length > 0;
+  const openDo = dos.find((d) => !d.completed && !d.awaitingSignature && !d.jobs.length && !d.hasProducts) ?? null;
+  const awaitingDo = dos.find((d) => d.awaitingSignature && !d.jobs.length) ?? null;
+  const addJobForDo = async (d: OrderDo) => {
+    try {
+      const token = await getToken();
+      const res: any = await request({ path: `/deliveries/order-dos/${d.id}/job`, method: "POST" }, {}, token ?? undefined);
+      if (res?.success === false) throw new Error(res?.message || "Could not add the job");
+      const r = res?.data ?? res;
+      if (r?.id) router.push(`/portal/deliveries/${r.id}?open=schedule`);
+    } catch (e: any) {
+      setActionError(e?.message || "Could not add the job");
+    }
+  };
   const runHub = (key: HubActionKey) => {
     const draftInvoice = (order.invoices ?? []).find((i: any) => i.status === "draft" || i.status === "unconfirmed");
     const lastInvoice = (order.invoices ?? []).slice(-1)[0];
@@ -243,18 +273,29 @@ export default function WctOrderDetail({ id }: { id: string }) {
       scheduledJobId: liveJobs.find((j) => !j.isDraft && j.status !== "completed")?.id ?? null,
       completedJobId: [...liveJobs].reverse().find((j) => j.status === "completed")?.id ?? null,
       manualFlow: !!(order as any).manualFlow,
+      openDoId: openDo?.id ?? null,
+      awaitingDoId: awaitingDo?.id ?? null,
     });
     if (!t) return;
     if ("href" in t) router.push(t.href);
-    else if (t.dialog === "add-job") setAddOpen(true);
-    else if (t.dialog === "create-invoice") setInvoiceAsk(true);
+    // DO first: Add job makes a job for the order's first open DO (a job always belongs to a DO).
+    else if (t.dialog === "add-job") {
+      if (doFirst) void addJobForDo(dos.find((d) => !d.completed) ?? dos[0]);
+      else setAddOpen(true);
+    } else if (t.dialog === "create-invoice") setInvoiceAsk(true);
     else if (t.dialog === "send-report") setSendReportOpen(true);
     else if (t.dialog === "service-report") setSrChoose(true);
+    else if (t.dialog === "complete-do" && openDo) setCompleteDo(openDo);
+    else if (t.dialog === "sign-link" && awaitingDo) setSignLinkDo(awaitingDo);
   };
   // The report's customer and DO, prefilled: the order's customer, the DO of its last finished job (else its first DO).
   const srPrefill = {
     customer: order.customer ? { id: order.customer.id, name: order.customer.name } : null,
-    doId: ([...liveJobs].reverse().find((j) => j.status === "completed" && j.deliveryOrder) ?? liveJobs.find((j) => j.deliveryOrder))?.deliveryOrder?.id ?? null,
+    doId:
+      srDoId ??
+      ([...dos].reverse().find((d) => d.completed) ?? dos[0])?.id ??
+      ([...liveJobs].reverse().find((j) => j.status === "completed" && j.deliveryOrder) ?? liveJobs.find((j) => j.deliveryOrder))?.deliveryOrder?.id ??
+      null,
   };
   return (
     <MainCard>
@@ -305,20 +346,57 @@ export default function WctOrderDetail({ id }: { id: string }) {
           </Stack>
         </Box>
         {/* Hidden on a cancelled order, and when Add job is already the next-step button below. */}
-        {order.status !== "CANCELLED" && order.status !== "QUOTATION_SIGNED" && (
+        {order.status !== "CANCELLED" && order.status !== "QUOTATION_SIGNED" && !doFirst && (
           <Button variant="outlined" startIcon={<AddIcon />} onClick={() => setAddOpen(true)} data-tour="wct-order-add-job">
             Add job
           </Button>
         )}
       </Stack>
 
-      <OrderHubPanel order={order} serviceReportReady={canSendReport} onAction={runHub} />
+      <OrderHubPanel order={order} serviceReportReady={canSendReport} onAction={runHub} doFirst={doFirst} awaitingDo={!!awaitingDo} />
+      {(order as any).manualFlow && (
+        <OrderDosSection
+          orderId={order.id}
+          dos={dos}
+          cancelled={order.status === "CANCELLED"}
+          onReload={load}
+          onCompleteDo={(d) => setCompleteDo(d)}
+          onSignLink={(d) => setSignLinkDo(d)}
+          onServiceReport={(d) => {
+            setSrDoId(d.id);
+            setSrChoose(true);
+          }}
+        />
+      )}
+      {completeDo && (
+        <OfficeCompleteJobDialog
+          open
+          onClose={() => setCompleteDo(null)}
+          deliveryId=""
+          doId={completeDo.id}
+          jobLabel={completeDo.name || "the DO"}
+          defaultName={(order as any).customer?.name ?? null}
+          onDone={(mode) => {
+            const d = completeDo;
+            setCompleteDo(null);
+            if (mode === "sign_link") setSignLinkDo(d);
+            void load();
+          }}
+        />
+      )}
+      <Dialog open={!!signLinkDo} onClose={() => setSignLinkDo(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Customer sign link</DialogTitle>
+        <DialogContent>{signLinkDo && <CustomerSignLink documentId={signLinkDo.id} doName={signLinkDo.name} />}</DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSignLinkDo(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
 
       <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
         Jobs
       </Typography>
       {order.jobs.length === 0 ? (
-        <Alert severity="info">No jobs yet. Use Add job to schedule the first one.</Alert>
+        <Alert severity="info">{doFirst ? "No jobs. A job is optional: use Add job in a DO's menu for a date or a technician." : "No jobs yet. Use Add job to schedule the first one."}</Alert>
       ) : (
         <TableContainer sx={{ border: 1, borderColor: "divider", borderRadius: 1 }}>
           <Table size="small">
@@ -400,7 +478,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
               Invoices
             </Typography>
             <Box sx={{ flex: 1 }} />
-            <Button size="small" variant="outlined" disabled={!order.toInvoice?.length || invoicing} onClick={() => setInvoiceAsk(true)} data-tour="wct-order-invoice-now">
+            <Button size="small" variant="outlined" disabled={(!order.toInvoice?.length && !(order as any).toInvoiceDos?.length) || invoicing} onClick={() => setInvoiceAsk(true)} data-tour="wct-order-invoice-now">
               Invoice now
             </Button>
           </Stack>
@@ -408,7 +486,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
             <Typography variant="body2" color="text.secondary">
               {order.toInvoice?.length
                 ? `${order.toInvoice.length} verified job${order.toInvoice.length === 1 ? "" : "s"} not invoiced yet. The order is invoiced automatically once every job is done and verified, or use Invoice now.`
-                : "The order is invoiced once every job is done and verified."}
+                : (order as any).toInvoiceDos?.length ? `${(order as any).toInvoiceDos.join(", ")} completed, not invoiced yet. The order is invoiced automatically once every DO is completed, or use Invoice now.` : doFirst ? "The order is invoiced once every DO is completed." : "The order is invoiced once every job is done and verified."}
             </Typography>
           ) : (
             <TableContainer sx={{ border: 1, borderColor: "divider", borderRadius: 1 }}>
@@ -666,10 +744,10 @@ export default function WctOrderDetail({ id }: { id: string }) {
           </Button>
         </DialogActions>
       </Dialog>
-      <NewServiceReportDialog open={srNew} onClose={() => setSrNew(false)} prefill={srPrefill} />
+      <NewServiceReportDialog open={srNew} onClose={() => { setSrNew(false); setSrDoId(null); }} prefill={srPrefill} />
       <UploadServiceReportDialog
         open={srUpload}
-        onClose={() => setSrUpload(false)}
+        onClose={() => { setSrUpload(false); setSrDoId(null); }}
         wctOrders
         manualFlow
         prefill={srPrefill}

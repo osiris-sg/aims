@@ -66,7 +66,7 @@ function StepBox({ step, n }: { step: HubStep; n: number }) {
   );
 }
 
-export default function OrderHubPanel({ order, serviceReportReady, onAction }: { order: any; serviceReportReady: boolean; onAction: (key: HubActionKey) => void }) {
+export default function OrderHubPanel({ order, serviceReportReady, onAction, doFirst = false, awaitingDo = false }: { order: any; serviceReportReady: boolean; onAction: (key: HubActionKey) => void; doFirst?: boolean; awaitingDo?: boolean }) {
   const router = useRouter();
   const { getToken } = useAuth();
   const steps = hubSteps(order);
@@ -99,7 +99,7 @@ export default function OrderHubPanel({ order, serviceReportReady, onAction }: {
       toast.error(e?.message || "Could not open the file");
     }
   };
-  const next = hubNextStep({ status: order.status, invoices: order.invoices, serviceReportReady });
+  const next = hubNextStep({ status: order.status, invoices: order.invoices, serviceReportReady, doFirst, awaitingDo });
   const docs = [
     ...steps[0].docs.map((d) => ({ type: "Quotation", ...d })),
     ...steps[1].docs.map((d) => ({ type: "Delivery order", ...d })),

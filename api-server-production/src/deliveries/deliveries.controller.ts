@@ -206,6 +206,37 @@ export class DeliveriesController {
   // quick job from an empty slot (no quotation, no order, no DO), its edit, the
   // PTW state of any job, and "Link to…" a quotation / order / invoice / DO.
   // Same office persona as the schedule endpoints. Declared before :id.
+  // Manual order flow, DO first (2026-11-13): DOs without jobs. Declared before :id.
+  // "Add DO" on the order: another draft DO (real number, the quotation's lines), no job.
+  @Post('order/:orderId/dos')
+  @Permissions('documents:create-basic')
+  addOrderDo(@Param('orderId') orderId: string, @UserOrganization() org: { id: string }) {
+    return this.service.prepareManualOrderDo(orderId, org.id, { force: true, throwOnError: true });
+  }
+
+  // "Add job" on a DO: a draft job for the calendar / a technician, linked to that DO.
+  @Post('order-dos/:doId/job')
+  @Permissions('documents:create-basic')
+  addJobForDo(@Param('doId') doId: string, @UserOrganization() org: { id: string }) {
+    return this.service.createJobForDo(org.id, doId);
+  }
+
+  // "Complete DO" on a DO with no job. Body { mode: signature | stamped_do | sign_link, signature?, recipientName?, files? }.
+  @Post('order-dos/:doId/complete')
+  @UseInterceptors(IdempotencyInterceptor)
+  @Permissions('documents:update')
+  completeOrderDo(@Param('doId') doId: string, @Body() body: any, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    return this.service.officeCompleteDo(org.id, doId, body ?? {}, actorOf(req));
+  }
+
+  // One-off DO-first migration: draft jobs with no DO get their DO. Dry run unless { apply: true, confirm: "DO-FIRST" }.
+  @Post('order-dos/migrate')
+  @Permissions('orders:update')
+  migrateDoFirst(@Body() body: any, @UserOrganization() org: { id: string }) {
+    const apply = body?.apply === true && body?.confirm === 'DO-FIRST';
+    return this.service.migrateDoFirst(org.id, apply);
+  }
+
   @Post('quick-job')
   @Permissions('documents:create-basic')
   createQuickJob(@Body() body: any, @UserOrganization() org: { id: string }) {

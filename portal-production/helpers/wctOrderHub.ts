@@ -80,7 +80,8 @@ export type HubActionKey =
   | "record-payment"
   | "upload-report"
   | "send-report"
-  | "resend-report";
+  | "resend-report"
+  | "sign-link";
 
 export const HUB_ACTION_LABEL: Record<HubActionKey, string> = {
   "view-order": "View order",
@@ -102,22 +103,26 @@ export const HUB_ACTION_LABEL: Record<HubActionKey, string> = {
   "upload-report": "Add service report",
   "send-report": "Send service report",
   "resend-report": "Resend service report",
+  "sign-link": "Customer sign link",
 };
 
 /** Destructive row actions: styled red and confirmed first. */
 export const HUB_DESTRUCTIVE = new Set<HubActionKey>(["cancel-job", "cancel-order"]);
 
 /** The row menu (⋮) by status: only what is valid at that step. */
-export function hubRowActions(status: string | null | undefined): HubActionKey[] {
+export function hubRowActions(status: string | null | undefined, opts: { doFirst?: boolean } = {}): HubActionKey[] {
   switch (hubStatus(status)) {
     case "QUOTATION_SIGNED":
       return ["view-order", "view-quotation", "add-job", "cancel-order"];
     case "DO_DRAFT":
-      return ["view-order", "view-quotation", "view-do", "schedule-do", "add-job", "cancel-order"];
+      // DO first (manual flow, 2026-11-13): the DO is completed on its own; a job is optional.
+      return opts.doFirst
+        ? ["view-order", "view-quotation", "view-do", "complete-do", "add-job", "cancel-order"]
+        : ["view-order", "view-quotation", "view-do", "schedule-do", "add-job", "cancel-order"];
     case "DO_SCHEDULED":
       return ["view-order", "view-do", "complete-do", "reschedule", "cancel-job"];
     case "AWAITING_VERIFICATION":
-      return ["view-order", "view-do", "open-job"];
+      return opts.doFirst ? ["view-order", "view-do", "sign-link", "open-job"] : ["view-order", "view-do", "open-job"];
     case "DO_COMPLETED":
       return ["view-signed-do", "create-invoice"];
     case "INVOICE_DRAFT":
@@ -138,16 +143,17 @@ export function hubRowActions(status: string | null | undefined): HubActionKey[]
  * one (Send invoice beside Confirm invoice). null = no button: "Completed" for a
  * finished order, nothing for a cancelled one.
  */
-export function hubNextStep(o: { status?: string | null; invoices?: unknown[]; serviceReportReady?: boolean }): { primary: HubActionKey; secondary?: HubActionKey; label?: string } | null {
+export function hubNextStep(o: { status?: string | null; invoices?: unknown[]; serviceReportReady?: boolean; doFirst?: boolean; awaitingDo?: boolean }): { primary: HubActionKey; secondary?: HubActionKey; label?: string } | null {
   switch (hubStatus(o.status)) {
     case "QUOTATION_SIGNED":
       return { primary: "add-job" };
     case "DO_DRAFT":
-      return { primary: "schedule-do" };
+      return o.doFirst ? { primary: "complete-do", secondary: "add-job" } : { primary: "schedule-do" };
     case "DO_SCHEDULED":
       return { primary: "complete-do" };
     case "AWAITING_VERIFICATION":
-      return { primary: "open-job" };
+      // DO first: a DO with no job waits for the customer on its DO link.
+      return o.awaitingDo ? { primary: "sign-link" } : { primary: "open-job" };
     case "DO_COMPLETED":
       return (o.invoices?.length ?? 0) > 0 ? { primary: "view-invoice", label: "Open draft invoice" } : { primary: "create-invoice" };
     case "INVOICE_DRAFT":
@@ -190,6 +196,8 @@ export function hubSteps(order: {
   statusDates?: Record<string, string> | null;
   createdAt?: string | null;
   sourceQuotation?: { id: string; name?: string | null; status?: string | null; type?: string | null; documentTemplateId?: string | null } | null;
+  /** DO first: the order's DOs with or without a job (the DO step lists these). */
+  deliveryOrders?: { id: string; name?: string | null; tag?: string | null; templateId?: string | null; completed?: boolean; awaitingSignature?: boolean; jobs?: { id: string; status: string; isDraft?: boolean }[] }[];
   jobs?: { id?: string; status: string; isDraft?: boolean; deliveryOrder?: { id: string; name?: string | null; tag?: string | null; templateId?: string | null } | null }[];
   invoices?: { id: string; name?: string | null; status?: string | null; type?: string | null; documentTemplateId?: string | null; href?: string | null }[];
   jobReports?: { id: string; reportNumber?: number | null; status: string; uploaded?: boolean; sentAt?: string | null; photosFile?: boolean }[];
@@ -226,7 +234,18 @@ export function hubSteps(order: {
       done: reached("DO_COMPLETED"),
       current: false,
       date: ymd(d.DO_COMPLETED) ?? ymd(d.DO_SCHEDULED) ?? ymd(d.DO_DRAFT),
-      docs: live
+      docs: order.deliveryOrders
+        ? order.deliveryOrders.map((d) => {
+            const done = (d.jobs ?? []).find((j) => j.status === "completed");
+            return {
+              label: d.name || "DO",
+              // Same words as the order page's Delivery orders section.
+              status: d.completed ? "Completed" : d.awaitingSignature ? "Awaiting signature" : (d.jobs ?? []).some((j) => j.isDraft === false) ? "Scheduled" : "Draft",
+              href: docHref("DELIVERY_ORDER", d.templateId, d.id),
+              file: d.completed && done ? { label: "PDF" as const, path: `/delivery-group-posts/delivery/${done.id}/signed-do?documentId=${d.id}` } : null,
+            };
+          })
+        : live
         .filter((j) => j.deliveryOrder)
         .map((j) => ({
           label: j.deliveryOrder!.name || "DO",
@@ -295,11 +314,15 @@ export interface HubContext {
   completedJobId?: string | null;
   /** Manual order flow: a service report is created or uploaded from the order (customer + DO prefilled). */
   manualFlow?: boolean;
+  /** DO first: the first open DO WITHOUT a job (completed on its own, from the order page). */
+  openDoId?: string | null;
+  /** DO first: a DO with no job waiting for the customer's signature on its link. */
+  awaitingDoId?: string | null;
 }
 
 export type HubTarget =
   | { href: string }
-  | { dialog: "add-job" | "create-invoice" | "send-report" | "service-report" | "cancel-order" | "cancel-job"; jobId?: string | null }
+  | { dialog: "add-job" | "create-invoice" | "send-report" | "service-report" | "cancel-order" | "cancel-job" | "complete-do" | "sign-link"; jobId?: string | null; doId?: string | null }
   | null;
 
 /**
@@ -325,11 +348,12 @@ export function hubActionTarget(key: HubActionKey, c: HubContext): HubTarget {
     case "record-payment":
       return href(c.invoiceHref);
     case "schedule-do":
-      return job(c.draftJobId, "schedule");
+      return c.manualFlow && !c.draftJobId ? { dialog: "add-job" } : job(c.draftJobId, "schedule");
     case "reschedule":
       return job(c.scheduledJobId, "schedule");
     case "complete-do":
-      return job(c.scheduledJobId, "complete");
+      // DO first: a DO with no job is completed from the order page; a DO with a job, on its job.
+      return c.manualFlow && c.openDoId ? { dialog: "complete-do", doId: c.openDoId } : job(c.scheduledJobId, "complete");
     case "open-job":
       return job(c.scheduledJobId ?? c.completedJobId);
     case "upload-report":
@@ -340,6 +364,8 @@ export function hubActionTarget(key: HubActionKey, c: HubContext): HubTarget {
       return { dialog: "cancel-order" };
     case "add-job":
       return { dialog: "add-job" };
+    case "sign-link":
+      return c.awaitingDoId ? { dialog: "sign-link", doId: c.awaitingDoId } : null;
     case "create-invoice":
       return { dialog: "create-invoice" };
     case "send-report":
@@ -351,7 +377,7 @@ export function hubActionTarget(key: HubActionKey, c: HubContext): HubTarget {
 /** On the list, the order page's own dialogs open on the order page (?open=…). */
 export function hubListTarget(key: HubActionKey, c: HubContext): HubTarget {
   const t = hubActionTarget(key, c);
-  if (t && "dialog" in t && (t.dialog === "add-job" || t.dialog === "create-invoice" || t.dialog === "send-report" || t.dialog === "service-report")) {
+  if (t && "dialog" in t && (t.dialog === "add-job" || t.dialog === "create-invoice" || t.dialog === "send-report" || t.dialog === "service-report" || t.dialog === "complete-do" || t.dialog === "sign-link")) {
     return { href: `/portal/orders/${c.orderId}?open=${t.dialog}` };
   }
   return t;
