@@ -80,6 +80,7 @@ import {
   Autorenew as AutorenewIcon,
   DragIndicator as DragIndicatorIcon,
 } from "@mui/icons-material";
+import SendServiceReportDialog from "@/components/orders/SendServiceReportDialog";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { launchAimee } from "@/app/portal/chat/launchAimee";
 import DoStatusTag from "@/components/DoStatusTag";
@@ -366,7 +367,9 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isAimsChatEnabled, isHeaderGlAccountEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isAimsChatEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isManualOrderFlowEnabled } = useOrganizationFeatures();
+  // Manual order flow: after an order's invoice is emailed, offer to send its service report too.
+  const [offerReportFor, setOfferReportFor] = useState<{ orderId: string; orderNumber: string | null; email: string | null } | null>(null);
   // The Project header row + the DO "project required" rule only make sense
   // for orgs that run the Projects module. An org without it (Chong Aik, guru
   // 2026-10-22) must not see "Select a project / Create new project" even when
@@ -871,16 +874,18 @@ export default function TabbedDocumentCreator({
   const isBiofuel =
     organization?.id === BIOFUEL_ORG_ID ||
     organization?.name === "Biofuel Industries Pte Ltd";
-  // WCT keeps the Subject field on quotations (its paper layout has a Subject
-  // box); every other org still drops it. Admin "viewing as WCT" sets the
-  // active-org in sessionStorage, so resolve the doc's org the same way the
-  // preview does rather than from the admin's own org.
+  // The Subject field on quotations: orgs with enableQuotationSubject keep it
+  // (the WCT paper layout has a Subject box); every other org still drops it.
+  // TEMPORARY fallback: WCT's own id still shows it until enableQuotationSubject
+  // is applied to WCT on prod (WCT-group settings apply), then this goes.
+  // Admin "viewing as WCT" sets the active-org in sessionStorage, so the doc's
+  // org is resolved the same way the preview does.
   const WCT_ORG_ID = "5c700000-0000-4000-8000-5c7000000001";
   const docOrgId =
     (existingData as any)?.organizationId ||
     (typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null) ||
     organization?.id;
-  const isWct = docOrgId === WCT_ORG_ID || organization?.name === "WCT";
+  const showQuotationSubject = !!isQuotationSubjectEnabled || docOrgId === WCT_ORG_ID || organization?.name === "WCT";
 
   // Delivery route dialog state (DO-only). Opens with the linked DO_START
   // MaintenanceServiceReport's id; the shared DeliveryRouteDialog handles
@@ -5260,7 +5265,7 @@ export default function TabbedDocumentCreator({
                       let fields = tab.fields;
                       if (isQuotation) {
                         // WCT keeps Subject (its layout prints a Subject box).
-                        if (!isWct) fields = fields.filter((f: any) => f.fieldName !== "documentInfo.subject");
+                        if (!showQuotationSubject) fields = fields.filter((f: any) => f.fieldName !== "documentInfo.subject");
                         // Salesperson mobile (default seeded "9818 9200", saved via
                         // formData.salesMobile) — a normal header row under Salesman
                         // code (ordering via HEADER_FIELD_ORDER). Biofuel quotes only,
@@ -8019,6 +8024,18 @@ export default function TabbedDocumentCreator({
         }}
       />
 
+      {offerReportFor && (
+        <SendServiceReportDialog
+          open
+          onClose={() => setOfferReportFor(null)}
+          orderId={offerReportFor.orderId}
+          orderNumber={offerReportFor.orderNumber}
+          defaultEmail={offerReportFor.email}
+          intro="The invoice was sent. Send the service report to the customer now?"
+          onSent={(r) => toast.success(`Service report sent to ${r.sentTo.join(", ")}`)}
+        />
+      )}
+
       {/* Send Email Dialog */}
       {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || isQuotation) && (
         <SendInvoiceEmailDialog
@@ -8026,6 +8043,10 @@ export default function TabbedDocumentCreator({
           onClose={() => setSendEmailDialogOpen(false)}
           onSent={() => {
             setSendEmailDialogOpen(false);
+            const orderId = !isQuotation ? ((formData as any)?.orderId as string | undefined) : undefined;
+            if (isManualOrderFlowEnabled && orderId) {
+              setOfferReportFor({ orderId, orderNumber: (formData as any)?.orderNo ?? (formData as any)?.orderNumber ?? null, email: formData.customer?.email ?? null });
+            }
             router.refresh(); // Refresh to update status
           }}
           invoice={{

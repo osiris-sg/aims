@@ -99,7 +99,11 @@ export class SiteClockLinkService {
     const ids = new Set<string>();
     for (const c of conns) {
       const ui = await this.prisma.organizationUIConfig.findUnique({ where: { organizationId: c.organizationId }, select: { features: true } });
-      if (((ui?.features as any) || {})[SITECLOCK_LINK_FLAG] === true) ids.add(c.organizationId);
+      const f = (ui?.features as any) || {};
+      // Manual order flow (enableManualOrderFlow + enableWctOrders): the office
+      // runs jobs in AIMS, so nothing syncs to SiteClock even with the link on.
+      const manualFlow = f.enableManualOrderFlow === true && f.enableWctOrders === true;
+      if (f[SITECLOCK_LINK_FLAG] === true && !manualFlow) ids.add(c.organizationId);
     }
     this.linkedOrgs = { at: Date.now(), ids };
     return ids;

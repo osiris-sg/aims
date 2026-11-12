@@ -26,6 +26,8 @@ export interface SendServiceReportEmailParams {
   reportNumber: number | string;
   serviceDate: string;
   pdfBuffer?: Buffer;
+  /** Further files (an uploaded report as stored, its photos file); added after pdfBuffer. Optional: older callers send none. */
+  extraAttachments?: Array<{ filename: string; content: Buffer }>;
 }
 
 @Injectable()
@@ -286,6 +288,12 @@ export class EmailService {
             filename: `Service-Report-${params.reportNumber}.pdf`,
             content: params.pdfBuffer.toString('base64'),
           },
+        ];
+      }
+      if (params.extraAttachments?.length) {
+        emailData.attachments = [
+          ...(emailData.attachments ?? []),
+          ...params.extraAttachments.map((a) => ({ filename: a.filename, content: a.content.toString('base64') })),
         ];
       }
 

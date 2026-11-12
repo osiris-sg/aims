@@ -59,6 +59,7 @@ import { isCalendarAddEnabled, parseLinkKind, parsePtwRemark, parsePtwStatus, pa
 import { REAL_DO_ON_SCHEDULE_FLAG, cancelledDoConfig, isIssuedOnSchedule } from './do-number';
 import { SiteClockLinkService, SiteClockScheduleInput } from '../siteclock/siteclock-link.service';
 import { applyOrderToDoConfig, isWctOrdersEnabled, refreshOrderStatus, refreshOrderStatusForRun } from '../orders/wct-orders';
+import { isManualOrderFlow } from '../orders/manual-order-flow';
 import { plannedRiderView, savePlannedRider } from './planned-rider';
 import { CompletionMode, WCT_FINISH_MODES_FLAG, finishModeProblem, initialVerification, isCompletionMode } from './finish-modes';
 import { checkJobFieldValues, isJobFieldsEnabled, jobFieldDefs, jobFieldValues, saveJobFieldValues } from './job-fields';
@@ -1272,6 +1273,218 @@ export class DeliveriesService {
     }
   }
 
+  // ── Manual (dashboard-only) order flow (enableManualOrderFlow) ─────────
+
+  /**
+   * On quotation acceptance, for a manual-flow org: the order's first (draft)
+   * job gets its DRAFT DO at once, with its REAL number (never a PENDING
+   * placeholder), plus a DRAFT service report linked to the job and the DO.
+   * Every job has a DO, service-only jobs too. Idempotent (a job that already
+   * has a DO or a report keeps it) and best-effort: never throws, never fails
+   * the quotation's confirmation. No-op for every other org.
+   */
+  async prepareManualOrderJob(deliveryId: string, organizationId: string): Promise<{ doId: string | null; reportId: string | null } | null> {
+    try {
+      if (!(await isManualOrderFlow(this.prisma, organizationId))) return null;
+      const run = await this.prisma.delivery.findFirst({
+        where: { id: deliveryId, organizationId },
+        select: {
+          id: true,
+          orderId: true,
+          sourceQuotationId: true,
+          projectId: true,
+          customerId: true,
+          siteAddress: true,
+          scheduledFor: true,
+          items: { select: { id: true, assetId: true, description: true, quantity: true, assetClass: true, sortOrder: true, documentId: true }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+        },
+      });
+      if (!run || !run.orderId) return null;
+      let doId = run.items.find((i) => i.documentId)?.documentId ?? null;
+      if (!doId && run.items.length) {
+        // The draft's rows back into dialog-shaped lines (asset lines are
+        // stored one row per unit, grouped by sortOrder / 100).
+        const groups = new Map<number, typeof run.items>();
+        for (const it of run.items) {
+          const k = Math.floor((it.sortOrder ?? 0) / 100);
+          groups.set(k, [...(groups.get(k) ?? []), it]);
+        }
+        const ordered = [...groups.keys()].sort((a, b) => a - b).map((k) => groups.get(k)!);
+        const lines = ordered.map((rows) => ({
+          assetId: rows[0].assetId ?? undefined,
+          description: rows[0].description ?? '',
+          quantity: rows[0].assetId ? rows.length : rows[0].quantity ?? 1,
+          assetClass: rows[0].assetId ? undefined : rows[0].assetClass ?? AssetClass.SERVICE,
+        }));
+        const assetIds = [...new Set(lines.map((l) => l.assetId).filter((v): v is string => !!v))];
+        const assets = assetIds.length
+          ? await this.prisma.asset.findMany({ where: { id: { in: assetIds }, organizationId }, select: { id: true, name: true, skuKey: true } })
+          : [];
+        const customer = run.customerId
+          ? await this.prisma.customer.findFirst({
+              where: { id: run.customerId, organizationId },
+              select: { id: true, name: true, customerCode: true, address: true, email: true, phone: true, gstRegNo: true },
+            })
+          : null;
+        const templateId = await this.resolveDeliveryOrderTemplateId(organizationId);
+        const doConfig = this.buildScheduledDoConfig({
+          scheduledFor: run.scheduledFor,
+          items: lines as any,
+          assetById: new Map(assets.map((a) => [a.id, a])),
+          projectName: '',
+          deliveryAddress: run.siteAddress ?? '',
+          customer: customer
+            ? { id: customer.id, name: customer.name, customerCode: customer.customerCode, address: customer.address, email: customer.email }
+            : null,
+          deliveryItemIdFor: (lineIdx, n) => ordered[lineIdx]?.[n]?.id,
+        });
+        if (run.sourceQuotationId) await applyQuotationLinkToDoConfig(this.prisma, organizationId, run.sourceQuotationId, doConfig, this.logger);
+        await applyOrderToDoConfig(this.prisma, organizationId, run.orderId, doConfig);
+        // Real number now (issuedOnSchedule: the same "numbered, keep it when
+        // cancelled" rule as enableRealDoOnSchedule), marked as issued on the draft.
+        const doc = await this.documentsService.createNumberedDeliveryOrder(
+          templateId,
+          organizationId,
+          { ...doConfig, issuedOnSchedule: true, issuedOnDraft: true },
+          run.projectId ?? undefined,
+        );
+        doId = doc.id;
+        await this.prisma.deliveryItem.updateMany({ where: { deliveryId: run.id }, data: { documentId: doc.id } });
+      }
+      const reportId = await this.ensureManualDraftReport(run.id, organizationId, doId);
+      await this.orderFollowsRun(organizationId, run.id);
+      return { doId, reportId };
+    } catch (err: any) {
+      this.logger.warn(`manual order flow: preparing job ${deliveryId} failed: ${err?.message}`);
+      return null;
+    }
+  }
+
+  /** The job's draft service report (manual flow): one per job, created once, never touched after it is written. */
+  private async ensureManualDraftReport(deliveryId: string, organizationId: string, doId: string | null): Promise<string | null> {
+    const existing = await this.prisma.maintenanceServiceReport.findFirst({ where: { deliveryId, kind: 'SERVICE' }, select: { id: true } });
+    if (existing) return existing.id;
+    const run = await this.prisma.delivery.findFirst({
+      where: { id: deliveryId, organizationId },
+      select: { siteAddress: true, scheduledFor: true, orderId: true, customer: { select: { name: true, email: true } } },
+    });
+    const created = await this.prisma.maintenanceServiceReport.create({
+      data: {
+        organizationId,
+        deliveryId,
+        kind: 'SERVICE',
+        status: 'draft',
+        technicianUserId: 'scheduled',
+        description: 'Scheduled service report',
+        serviceData: {
+          templateId: 'WCT_V1',
+          templateVersion: 1,
+          scheduled: true,
+          manualFlow: true,
+          customerName: run?.customer?.name ?? null,
+          clientEmail: run?.customer?.email ?? null,
+          jobLocation: run?.siteAddress ?? null,
+          serviceDate: run?.scheduledFor ? new Date(run.scheduledFor).toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' }) : null,
+          ...(doId ? { doDocumentId: doId } : {}),
+          ...(run?.orderId ? { orderId: run.orderId } : {}),
+          wct: { jobTypes: [], sections: {} },
+        } as Prisma.InputJsonValue,
+      },
+      select: { id: true },
+    });
+    return created.id;
+  }
+
+  /**
+   * The office's "Complete job" (manual flow only). The job must be scheduled
+   * (not a draft). The office takes the job on itself, every item is marked
+   * handed over, and the job is finished through the same finalizeRun as the
+   * field app, in one of three ways:
+   *   signature  - the customer signs on screen: done and verified at once;
+   *   stamped_do - the signed / stamped DO is uploaded (files): the office's own
+   *                upload, so it is verified at once too;
+   *   sign_link  - the customer signs by link later: the job waits for that
+   *                signature (the DO's sign link verifies it, then bills).
+   * Every-job-verified bills the order exactly as today.
+   */
+  async officeCompleteJob(
+    deliveryId: string,
+    organizationId: string,
+    actor: { id?: string; name?: string },
+    dto: { mode?: string; signature?: string; recipientName?: string; files?: string[]; note?: string },
+  ) {
+    if (!(await isManualOrderFlow(this.prisma, organizationId))) {
+      throw new BadRequestException('Completing a job in the dashboard is not enabled for this organisation');
+    }
+    const mode = dto.mode === 'signature' || dto.mode === 'stamped_do' || dto.mode === 'sign_link' ? dto.mode : null;
+    if (!mode) throw new BadRequestException('Choose how the job was signed off');
+    if (mode === 'signature' && !dto.signature) throw new BadRequestException('The customer signature is required');
+    if (mode === 'signature' && !dto.recipientName?.trim()) throw new BadRequestException("Enter the customer's name");
+    const files = (dto.files ?? []).map((k) => String(k).trim()).filter(Boolean);
+    if (mode === 'stamped_do' && !files.length) throw new BadRequestException('Upload the signed or stamped DO first');
+    const actorId = actor.id || 'office';
+
+    await withRunLease(this.prisma, { organizationId, deliveryId, op: 'office-complete' }, async () => {
+      const run = await this.prisma.delivery.findFirst({
+        where: { id: deliveryId, organizationId },
+        select: { id: true, status: true, isDraft: true, orderId: true, deliveryNumber: true, riderUserId: true },
+      });
+      if (!run) throw new NotFoundException('Job not found');
+      if (!run.orderId) throw new BadRequestException('Only a job of an order can be completed here');
+      if (run.isDraft) throw new BadRequestException('Schedule this job (set its date) before completing it');
+      if (run.status === 'completed') throw new BadRequestException('This job is already completed');
+      if (run.status === 'cancelled') throw new BadRequestException('This job is cancelled');
+      const now = new Date();
+      if (run.status === 'scheduled') {
+        await this.prisma.delivery.update({
+          where: { id: deliveryId },
+          data: { status: 'in_progress', ...(run.riderUserId ? {} : { riderUserId: actorId, riderName: actor.name ?? 'Office' }) },
+        });
+      }
+      await this.prisma.deliveryItem.updateMany({
+        where: { deliveryId, deliveryStatus: { in: [DeliveryStatus.not_delivered, DeliveryStatus.delivering] } },
+        data: { deliveryStatus: DeliveryStatus.not_installed, deliveredAt: now, skippedAt: null },
+      });
+      await this.recomputeRunStatus(deliveryId, organizationId);
+      // The on-screen signature needs a proof row to land on (the field app's
+      // walk makes one per item; the office has none), so the DO shows it.
+      if (mode === 'signature') {
+        await this.prisma.maintenanceServiceReport.create({
+          data: {
+            organizationId,
+            technicianUserId: actorId,
+            assetId: null,
+            inventoryId: null,
+            deliveryId,
+            kind: 'DO_ACK',
+            status: 'draft',
+            description: 'Signed on screen in the office',
+            ...(actor.name ? { technicianName: actor.name } : {}),
+          },
+        });
+      }
+    });
+
+    const finished = await this.finalizeRun(
+      deliveryId,
+      {
+        completionMode: mode as CompletionMode,
+        signature: mode === 'signature' ? dto.signature : undefined,
+        recipientName: dto.recipientName?.trim() || undefined,
+        stampedDoPhotos: mode === 'stamped_do' ? files : undefined,
+        completionNote: dto.note?.trim() || (mode === 'sign_link' ? 'Completed in the office; the customer signs by link' : undefined),
+        technicianName: actor.name,
+      },
+      organizationId,
+      actorId,
+      { manual: true },
+    );
+    // The office uploaded the signed / stamped DO itself: nothing left to check.
+    if (mode === 'stamped_do') await this.verifyJob(deliveryId, organizationId, actor);
+    await this.orderFollowsRun(organizationId, deliveryId);
+    return { ...(finished as any), mode };
+  }
+
   /** Drop the scheduled (never written) service report of a run being cancelled or deleted. */
   private async dropScheduledServiceReport(deliveryId: string): Promise<void> {
     await this.prisma.maintenanceServiceReport.deleteMany({
@@ -1995,6 +2208,11 @@ export class DeliveriesService {
       include: { items: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
     });
     if (!run) throw new NotFoundException('Delivery not found');
+    // Manual order flow: the office finishes jobs in the dashboard; the field
+    // app and SiteClock do not start them.
+    if (run.orderId && (await isManualOrderFlow(this.prisma, organizationId))) {
+      throw new BadRequestException(`${runNoun(run)} #${run.deliveryNumber} is completed by the office in AIMS, not in the field app`);
+    }
     if (run.status !== 'scheduled') {
       throw new BadRequestException(`${runNoun(run)} #${run.deliveryNumber} is not scheduled (status: ${run.status})`);
     }
@@ -4847,7 +5065,9 @@ export class DeliveriesService {
     technicianUserId: string,
     // Partial sign-off is the RIDER's action only. The guest share link calls
     // this without it, so a guest still can only sign a fully delivered run.
-    opts: { allowPartial?: boolean } = {},
+    // `manual`: the office's "Complete job" (enableManualOrderFlow), which
+    // finishes with the same three modes as WCT's field finish options.
+    opts: { allowPartial?: boolean; manual?: boolean } = {},
   ) {
     // One sign-off at a time per run (SiteJobs, SiteClock, the driver's link):
     // the second waits for the lease, then re-reads the run below and stops at
@@ -4862,7 +5082,7 @@ export class DeliveriesService {
     dto: Parameters<DeliveriesService['finalizeRun']>[1],
     organizationId: string,
     technicianUserId: string,
-    opts: { allowPartial?: boolean },
+    opts: { allowPartial?: boolean; manual?: boolean },
   ) {
     const run = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, organizationId },
@@ -4876,7 +5096,7 @@ export class DeliveriesService {
     // signature, only behind the flag and only for a full finish. Without the
     // flag (and for every other org) the signature rule is exactly as before.
     const mode: CompletionMode = isCompletionMode(dto.completionMode) ? dto.completionMode : 'signature';
-    const finishModes = await isOrgFeatureEnabled(this.prisma, organizationId, WCT_FINISH_MODES_FLAG);
+    const finishModes = (await isOrgFeatureEnabled(this.prisma, organizationId, WCT_FINISH_MODES_FLAG)) || !!opts.manual;
     const finishProblem = finishModeProblem({
       mode,
       flagOn: finishModes,
@@ -5069,7 +5289,9 @@ export class DeliveriesService {
   }
 
   private async assertFinishModes(organizationId: string) {
-    if (!(await isOrgFeatureEnabled(this.prisma, organizationId, WCT_FINISH_MODES_FLAG))) {
+    // The manual order flow verifies its own office-completed jobs (it has the
+    // same verification states) without needing the field finish modes.
+    if (!(await isOrgFeatureEnabled(this.prisma, organizationId, WCT_FINISH_MODES_FLAG)) && !(await isManualOrderFlow(this.prisma, organizationId))) {
       throw new BadRequestException('Job verification is not enabled for this organisation');
     }
   }

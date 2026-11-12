@@ -18,7 +18,8 @@ import { minPhotosForAssetClass } from 'src/common/asset-class';
 import { orgToday, orgTodayFor } from '../common/org-today';
 import { serviceReportFileName, uniqueFileName } from './service-report-filename';
 import { cleanIsoDate, cleanReportFile, photosFileOf, reportFileExt, uploadedFileOf, withExt, type ReportFile } from './uploaded-report';
-import { isWctOrdersEnabled } from '../orders/wct-orders';
+import { isWctOrdersEnabled, refreshOrderStatus } from '../orders/wct-orders';
+import { isManualOrderFlow } from '../orders/manual-order-flow';
 import { OrdersService } from '../orders/orders.service';
 
 /** Org fields every renderer may need: name/logo for the stock sheets, the rest for the WCT letterhead + footer. */
@@ -676,6 +677,126 @@ export class MaintenanceReportsService {
       data: { serviceData: sd as Prisma.InputJsonValue },
       select: { id: true, serviceData: true },
     });
+  }
+
+  /**
+   * Manual order flow: the office uploads the job's service report into the
+   * job's DRAFT report (made when the quotation was accepted). The draft
+   * becomes an uploaded, completed report with the next report number, the
+   * same as "Upload Service Report", and it is put on the order. Never
+   * emailed here: "Send service report" on the order does that.
+   */
+  async completeDraftByUpload(id: string, body: { fileKey?: string; fileName?: string; mimeType?: string }, organizationId: string, userId: string) {
+    if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('This is part of the manual order flow, which is not enabled for this organisation');
+    const file = cleanReportFile(body, organizationId);
+    const report = await this.prisma.maintenanceServiceReport.findFirst({
+      where: { id, organizationId },
+      select: { id: true, kind: true, status: true, serviceData: true, deliveryId: true, reportNumber: true },
+    });
+    if (!report) throw new NotFoundException('Service report not found');
+    if (report.kind !== MaintenanceReportKind.SERVICE) throw new BadRequestException('Only service reports can be uploaded');
+    if (report.status === 'completed') throw new BadRequestException('This service report is already completed');
+    const sd = ((report.serviceData as Record<string, any> | null) ?? {}) as Record<string, any>;
+    const { scheduled: _drop, draft: _draft, ...rest } = sd;
+    const data = {
+      status: 'completed' as const,
+      technicianUserId: userId,
+      description: 'Uploaded service report',
+      serviceData: { ...rest, uploaded: true, uploadedFile: file, uploadedAt: new Date().toISOString() } as Prisma.InputJsonValue,
+    };
+    // Same per-org running number and P2002 retry as every other report.
+    let saved: { id: string; reportNumber: number | null } | null = null;
+    for (let attempt = 0; attempt < 2 && !saved; attempt++) {
+      const latest = await this.prisma.maintenanceServiceReport.findFirst({
+        where: { organizationId, reportNumber: { not: null } },
+        orderBy: { reportNumber: 'desc' },
+        select: { reportNumber: true },
+      });
+      try {
+        saved = await this.prisma.maintenanceServiceReport.update({
+          where: { id },
+          data: { ...data, reportNumber: report.reportNumber ?? (latest?.reportNumber ?? 0) + 1 },
+          select: { id: true, reportNumber: true },
+        });
+      } catch (err) {
+        if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002' && attempt === 0) continue;
+        throw err;
+      }
+    }
+    if (!saved) throw new Error('Failed to assign a unique report number after retries');
+    const orderId = sd.orderId ?? (report.deliveryId ? (await this.prisma.delivery.findFirst({ where: { id: report.deliveryId, organizationId }, select: { orderId: true } }))?.orderId : null);
+    if (orderId) {
+      await this.ordersService.addOrderAttachment(orderId, organizationId, { kind: 'report', reportId: saved.id }, { id: userId }).catch(() => undefined);
+    }
+    return saved;
+  }
+
+  /**
+   * "Send service report to customer" for an order (manual order flow): every
+   * completed service report of the order (its jobs' reports and the reports
+   * linked on the order) goes out in ONE email: each report as its PDF (an
+   * uploaded one as stored) plus its photos file. To the address given, else
+   * the order's customer email, else the report's client email. Stamps the
+   * send on each report and on the order (Order.statusDates.serviceReportSentAt).
+   */
+  async sendOrderReportsToCustomer(orderId: string, body: { to?: string }, organizationId: string) {
+    if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('This is part of the manual order flow, which is not enabled for this organisation');
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, organizationId },
+      select: { id: true, orderNumber: true, attachments: true, statusDates: true, customer: { select: { name: true, email: true } } },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    const jobs = await this.prisma.delivery.findMany({ where: { organizationId, orderId }, select: { id: true } });
+    const linkedIds = (Array.isArray(order.attachments) ? (order.attachments as any[]) : []).filter((a) => a?.kind === 'report' && a.reportId).map((a) => a.reportId);
+    const reports = await this.prisma.maintenanceServiceReport.findMany({
+      where: {
+        organizationId,
+        kind: MaintenanceReportKind.SERVICE,
+        status: 'completed',
+        OR: [{ deliveryId: { in: jobs.map((j) => j.id) } }, ...(linkedIds.length ? [{ id: { in: linkedIds } }] : [])],
+      },
+      orderBy: { reportNumber: 'asc' },
+      select: { id: true, reportNumber: true, serviceData: true },
+    });
+    if (!reports.length) throw new BadRequestException('There is no completed service report on this order yet');
+    const typed = typeof body?.to === 'string' ? body.to.split(/[,;\s]+/).map((e) => e.trim()).filter(Boolean) : [];
+    const fallback = order.customer?.email || ((reports[0].serviceData as any)?.clientEmail as string | undefined) || '';
+    const to = typed.length ? typed : fallback ? [fallback] : [];
+    if (!to.length) throw new BadRequestException("Enter the customer's email address");
+    if (to.some((e) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e))) throw new BadRequestException('Check the email address');
+
+    const files: Array<{ filename: string; content: Buffer }> = [];
+    for (const r of reports) {
+      const main = await this.getReportPdf(r.id, organizationId);
+      files.push({ filename: main.filename, content: main.buffer });
+      if (photosFileOf(r.serviceData)) {
+        const photos = await this.getPhotosFile(r.id, organizationId);
+        files.push({ filename: photos.filename, content: photos.buffer });
+      }
+    }
+    const org = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } });
+    const sd0 = (reports[0].serviceData as any) ?? {};
+    const result = await this.email.sendServiceReportEmail({
+      to,
+      customerName: order.customer?.name || sd0.customerName || 'Customer',
+      organizationName: org?.name ?? '',
+      reportNumber: reports.map((r) => r.reportNumber ?? r.id.slice(0, 8)).join(', '),
+      serviceDate: sd0.serviceDate ?? '',
+      extraAttachments: files,
+    });
+    if (!result.success) throw new BadRequestException(result.error || 'The email could not be sent');
+    const sentAt = new Date().toISOString();
+    for (const r of reports) {
+      const sd = (r.serviceData as Record<string, any>) ?? {};
+      await this.prisma.maintenanceServiceReport.update({
+        where: { id: r.id },
+        data: { serviceData: { ...sd, customerSentAt: sentAt, customerSentTo: to.join(', ') } as Prisma.InputJsonValue },
+      });
+    }
+    const dates = (order.statusDates as Record<string, string> | null) ?? {};
+    await this.prisma.order.update({ where: { id: orderId }, data: { statusDates: { ...dates, serviceReportSentAt: sentAt } } });
+    await refreshOrderStatus(this.prisma, organizationId, orderId);
+    return { sentTo: to, reports: reports.map((r) => r.reportNumber), attachments: files.length, sentAt };
   }
 
   private async serviceReportForFiles(id: string, organizationId: string) {

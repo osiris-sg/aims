@@ -27,8 +27,22 @@ export const ORDER_STATUS_COLOR: Record<WctOrderStatus, "default" | "info" | "wa
   CLOSED: "default",
 };
 
-export const orderStatusLabel = (s: string | null | undefined) => ORDER_STATUS_LABEL[s as WctOrderStatus] ?? (s || "—");
-export const orderStatusColor = (s: string | null | undefined) => ORDER_STATUS_COLOR[s as WctOrderStatus] ?? "default";
+/**
+ * Manual order flow (enableManualOrderFlow): the order's own steps, same keys
+ * as the API's MANUAL_ORDER_STATUS_LABEL. AWAITING_VERIFICATION and PAID are
+ * shared with the list above.
+ */
+export const MANUAL_ORDER_STATUS: Record<string, { label: string; color: "default" | "info" | "warning" | "success" }> = {
+  QUOTATION_SIGNED: { label: "Quotation signed", color: "default" },
+  DO_DRAFT: { label: "DO draft", color: "default" },
+  DO_SCHEDULED: { label: "DO scheduled", color: "info" },
+  DO_COMPLETED: { label: "DO completed", color: "success" },
+  INVOICE_DRAFT: { label: "Invoice draft", color: "warning" },
+  SERVICE_REPORT_SENT: { label: "Service report sent", color: "success" },
+};
+
+export const orderStatusLabel = (s: string | null | undefined) => ORDER_STATUS_LABEL[s as WctOrderStatus] ?? MANUAL_ORDER_STATUS[s ?? ""]?.label ?? (s || "—");
+export const orderStatusColor = (s: string | null | undefined) => ORDER_STATUS_COLOR[s as WctOrderStatus] ?? MANUAL_ORDER_STATUS[s ?? ""]?.color ?? "default";
 
 export type OrderTab = "all" | "open" | "active" | "completed" | "billing";
 export const ORDER_TABS: { key: OrderTab; label: string }[] = [

@@ -75,6 +75,22 @@ export class MaintenanceReportsController {
     return this.service.createUploaded(body ?? {}, org.id, userId);
   }
 
+  /** Manual order flow: upload the file into the job's draft report (it becomes an uploaded, completed report). */
+  @Post(':id/upload-file')
+  @Permissions('maintenance-reports:create')
+  uploadIntoDraft(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    const userId = req.user?.id;
+    if (!userId) throw new UnauthorizedException('Missing authenticated user');
+    return this.service.completeDraftByUpload(id, body ?? {}, org.id, userId);
+  }
+
+  /** "Send service report to customer" for an order: body { to? }. The id is the ORDER id. */
+  @Post('orders/:id/send-to-customer')
+  @Permissions('maintenance-reports:create')
+  sendOrderReports(@Param('id') id: string, @Body() body: { to?: string }, @UserOrganization() org: { id: string }) {
+    return this.service.sendOrderReportsToCustomer(id, body ?? {}, org.id);
+  }
+
   /**
    * Spin off an Invoice document from a SERVICE report that the field tech
    * marked as paymentRequired. Idempotent: a second call returns the same

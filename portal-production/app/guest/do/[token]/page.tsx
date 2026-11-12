@@ -105,6 +105,8 @@ interface PublicDocView {
   // only side that knows the signature has somewhere to land). Absent on an
   // older backend, which is treated as "offer it", exactly as before.
   canSign?: boolean;
+  /** WCT orders: a server-drawn DO has no clickable RECEIVED BY box, so a button under it opens signing. */
+  signButton?: boolean;
 }
 
 function NeutralMessage() {
@@ -446,6 +448,14 @@ export default function PublicDocumentViewPage() {
             </div>
           </Box>
         </Box>
+        {/* WCT orders: signing a server-drawn DO (it has no clickable RECEIVED BY box). */}
+        {view.signButton && !view.viewOnly && (
+          <Box sx={{ display: "flex", justifyContent: "center", mt: 2, "@media print": { display: "none" } }}>
+            <Button variant="contained" size="large" onClick={openSignDialog} data-tour="guest-do-sign">
+              Sign this delivery order
+            </Button>
+          </Box>
+        )}
       </Box>
 
       {/* Signing dialog. Rendered in a portal, so the page's fit-to-width scale

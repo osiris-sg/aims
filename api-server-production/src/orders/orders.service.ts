@@ -8,6 +8,7 @@ import {
   SupplierReconciliationData,
 } from '../document-extraction/document-extraction.service';
 import { isWctOrdersEnabled, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
+import { MANUAL_ORDER_STATUS_LABEL, isManualOrderFlow, type ManualOrderStatus } from './manual-order-flow';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { doStatusTag } from '../deliveries/do-number';
@@ -392,7 +393,7 @@ export class OrdersService {
       const upcoming = next ? new Date(next.scheduledFor).toISOString() : undefined;
       return {
         ...o,
-        statusLabel: WCT_ORDER_STATUS_LABEL[o.status as WctOrderStatus] ?? o.status,
+        statusLabel: WCT_ORDER_STATUS_LABEL[o.status as WctOrderStatus] ?? MANUAL_ORDER_STATUS_LABEL[o.status as ManualOrderStatus] ?? o.status,
         jobCounts: {
           total: live.length,
           drafts: live.filter((j) => j.isDraft).length,
@@ -410,7 +411,7 @@ export class OrdersService {
     const row: any = await this.prisma.order.findFirst({
       where: { id, organizationId },
       include: {
-        customer: { select: { id: true, name: true, customerCode: true, address: true } },
+        customer: { select: { id: true, name: true, customerCode: true, address: true, email: true } },
         sourceQuotation: { select: { id: true, name: true, status: true, type: true, documentTemplateId: true, config: true } },
         deliveries: {
           orderBy: { deliveryNumber: 'asc' },
@@ -499,7 +500,9 @@ export class OrdersService {
 
     return {
       ...order,
-      statusLabel: WCT_ORDER_STATUS_LABEL[order.status as WctOrderStatus] ?? order.status,
+      statusLabel: WCT_ORDER_STATUS_LABEL[order.status as WctOrderStatus] ?? MANUAL_ORDER_STATUS_LABEL[order.status as ManualOrderStatus] ?? order.status,
+      // Manual order flow: the page offers "Send service report" and "Complete job".
+      manualFlow: await isManualOrderFlow(this.prisma, organizationId),
       sourceQuotation: sourceQuotation
         ? { id: sourceQuotation.id, name: sourceQuotation.name, status: sourceQuotation.status, type: sourceQuotation.type, documentTemplateId: sourceQuotation.documentTemplateId }
         : null,

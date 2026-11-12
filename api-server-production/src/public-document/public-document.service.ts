@@ -766,6 +766,10 @@ export class PublicDocumentService {
       viewOnly,
       // Whether the page should offer signing at all (see above).
       canSign,
+      // WCT orders (WCT group): the DO is drawn by the server (WCT layout), which
+      // has no clickable RECEIVED BY box, so the page offers a "Sign this
+      // delivery order" button under it instead. Every other org: false, page unchanged.
+      signButton: !!(canSign && served?.html && (await isOrgFeatureEnabled(this.prisma, link.organizationId, 'enableWctOrders'))),
       documentType,
       data,
       serverHtml: served?.html ?? null,

@@ -206,6 +206,17 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // days. Office users only (vehicles:read / update / approve). Default OFF;
   // WCT (S) Systems only.
   enableWctVehicles: false,
+  // Manual (dashboard-only) order flow (2026-11-12; needs enableWctOrders): the
+  // office runs an order end to end in AIMS. Accepting a quotation also makes
+  // the job's DRAFT DO (real number) and DRAFT service report; the office
+  // completes the job itself (on-screen signature, uploaded signed / stamped DO
+  // or the customer's sign link), uploads the service report and sends it to
+  // the customer. No SiteClock sync, no field-app steps. The order keeps one
+  // status (+ the date of each). Default OFF; WCT group only.
+  enableManualOrderFlow: false,
+  // Show the Subject field on quotations (the WCT paper has a Subject box).
+  // Default OFF; WCT group.
+  enableQuotationSubject: false,
   // Custom job fields (2026-11-01, Phase 6): the org's admins define their own
   // fields on jobs (Settings → Job fields: yes/no, text, date, file upload,
   // link; icon + colours) — filled on the schedule / edit job form and the

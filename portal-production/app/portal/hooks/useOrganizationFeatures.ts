@@ -28,6 +28,8 @@ interface OrganizationFeatures {
   enableWctFinishModes?: boolean;
   enableWctOrderInvoice?: boolean;
   enableWctVehicles?: boolean;
+  enableManualOrderFlow?: boolean;
+  enableQuotationSubject?: boolean;
   enableJobFields?: boolean;
   // Office-signed delivery orders (2026-11-05): a DO raised in the office, with
   // no field run behind it, can be shared for the customer to sign.
@@ -244,6 +246,11 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // else's job asks first. Default OFF.
   // WCT vehicles (2026-11-12): Vehicles tab after Orders, usage & repair log. Default OFF.
   enableWctVehicles: false,
+  // Manual (dashboard-only) order flow (2026-11-12, needs enableWctOrders): draft DO + service report on
+  // acceptance, the office completes jobs and sends the service report. Default OFF; WCT group.
+  enableManualOrderFlow: false,
+  // Subject field on quotations (the WCT paper has a Subject box). Default OFF; WCT group.
+  enableQuotationSubject: false,
   enableWctMyJobs: false,
   // WCT finish modes (2026-11-01): stamped-DO photo / paper finish, verified by
   // the office (Deliveries → Awaiting verification). Default OFF.
@@ -339,6 +346,9 @@ export function useOrganizationFeatures() {
     isWctFinishModesEnabled: features.enableWctFinishModes ?? false,
     isWctOrderInvoiceEnabled: features.enableWctOrderInvoice ?? false,
     isWctVehiclesEnabled: features.enableWctVehicles ?? false,
+    // Needs WCT orders too, the flow it extends (same rule as the API).
+    isManualOrderFlowEnabled: (features.enableManualOrderFlow ?? false) && (features.enableWctOrders ?? false),
+    isQuotationSubjectEnabled: features.enableQuotationSubject ?? false,
     isJobFieldsEnabled: features.enableJobFields ?? false,
     isOfficeDoSignEnabled: features.enableOfficeDoSign ?? false,
     isContraOffsetEnabled: features.enableContraOffset ?? false,

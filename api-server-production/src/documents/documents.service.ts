@@ -1798,6 +1798,9 @@ export class DocumentsService {
           // Tell the office on WhatsApp (guru 2026-10-28): the quotation is
           // confirmed and its draft delivery is waiting for a date. Flag-gated
           // and best-effort inside; never fails the confirm.
+          // Manual order flow: the new job's draft DO + draft service report
+          // (no-op unless enableManualOrderFlow; never throws).
+          if (run) await this.prepareManualOrderJob(run.id, organizationId);
           if (run) {
             const c: any = configAsPlainObject || {};
             const who = c.customerName || c.customer?.name || '';
@@ -7448,6 +7451,15 @@ export class DocumentsService {
     };
     const html = this.pdfGeneratorService.generateInvoiceHtml(renderData);
     return html ? { html, pdfOptions: pdfOptionsFor(doc.type, renderData) } : null;
+  }
+
+  /** Manual order flow: a newly accepted quotation's job gets its draft DO + draft service report. Never throws. */
+  async prepareManualOrderJob(deliveryId: string, organizationId: string) {
+    try {
+      return await this.deliveriesService.prepareManualOrderJob(deliveryId, organizationId);
+    } catch {
+      return null;
+    }
   }
 
   async getOrGeneratePdfUrl(

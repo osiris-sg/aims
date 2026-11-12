@@ -6,6 +6,10 @@ import { attachmentLine, invoiceNowText, orderStatusLabel, orderStatusColor, ord
 
 test("order status: labels, colours, unknown values pass through", () => {
   assert.equal(orderStatusLabel("IN_PROGRESS"), "In progress");
+  // Manual order flow statuses (enableManualOrderFlow).
+  assert.equal(orderStatusLabel("DO_DRAFT"), "DO draft");
+  assert.equal(orderStatusLabel("SERVICE_REPORT_SENT"), "Service report sent");
+  assert.equal(orderStatusColor("INVOICE_DRAFT"), "warning");
   assert.equal(orderStatusLabel("OPEN"), "Open");
   assert.equal(orderStatusLabel("WHATEVER"), "WHATEVER");
   assert.equal(orderStatusLabel(null), "—");

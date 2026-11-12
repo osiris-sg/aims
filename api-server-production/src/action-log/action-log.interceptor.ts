@@ -146,6 +146,9 @@ const VERB_ACTIONS: Record<string, string> = {
   // WCT Vehicles (2026-11-12): an admin unlocks an approved repair (reason in the body); a vehicle is archived / restored.
   // Also makes the period-close POST /close/unlock read UNLOCK instead of CREATE.
   unlock: 'UNLOCK', archive: 'ARCHIVE',
+  // Manual order flow (2026-11-12): the office finishes a job in the dashboard; the job's service report
+  // file uploaded into its draft; the order's service reports emailed to the customer.
+  'office-complete': 'COMPLETE', 'upload-file': 'UPLOAD', 'send-to-customer': 'SEND',
   // Schedule assistant (CIEL): POST .../schedule/assist parses only (no writes);
   // .../schedule/assist/apply performs the approved changes. Same shape for
   // the Work Library price-list import (parse → apply).

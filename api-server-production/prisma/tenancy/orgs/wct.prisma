@@ -1300,6 +1300,9 @@ model Order {
   sourceQuotationId String?  @db.Uuid // Document.id of the originating quotation
   orderType         String? // Carried from the QF quotation's "Type" field: Project / Route Order
   status            String   @default("DRAFT") // DRAFT / IN_PROGRESS / COMPLETED / CANCELLED (free-form)
+  // Manual order flow (enableManualOrderFlow): when each status was first
+  // reached, e.g. { DO_DRAFT: iso, INVOICED: iso, serviceReportSentAt: iso }.
+  statusDates       Json?
   items             Json // Snapshot at order-creation time: [{ itemCode, description, quantity, unitPrice, costPrice?, taggedAssetCode?, ... }]
   linkedDocuments   Json? // { po: [{id,name}], do: [{id,name}], invoice: [{id,name}] }
   notes             String?

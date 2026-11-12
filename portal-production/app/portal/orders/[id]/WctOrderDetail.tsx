@@ -36,6 +36,7 @@ import { Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, L
 import { uploadFile, publicFileUrl } from "@/helpers/fileUploader";
 import { attachmentLine, type OrderAttachment, type ReportOption } from "@/helpers/wctOrders";
 import { OrderJobPhotos } from "@/components/delivery/JobPhotos";
+import SendServiceReportDialog from "@/components/orders/SendServiceReportDialog";
 
 // WCT order page (enableWctOrders, 2026-11-01): the order header, its jobs
 // (Delivery runs), and "Add job", which opens the usual schedule dialog
@@ -112,6 +113,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
   const [options, setOptions] = useState<ReportOption[] | null>(null);
   const [attMenu, setAttMenu] = useState<{ pos: { left: number; top: number }; att: OrderAttachment } | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  const [sendReportOpen, setSendReportOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!organization?.id) return;
@@ -394,7 +396,29 @@ export default function WctOrderDetail({ id }: { id: string }) {
           <Button size="small" variant="outlined" onClick={() => void openLink()} data-tour="wct-order-link-report">
             Link a service report
           </Button>
+          {/* Manual order flow: email the order's service report(s) to the customer. */}
+          {(order as any).manualFlow && (
+            <Button size="small" variant="contained" disableElevation onClick={() => setSendReportOpen(true)} data-tour="wct-order-send-report">
+              Send service report
+            </Button>
+          )}
         </Stack>
+        {(order as any).manualFlow && (order as any).statusDates?.serviceReportSentAt && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+            Sent to the customer on {moment((order as any).statusDates.serviceReportSentAt).format("DD/MM/YYYY HH:mm")}
+          </Typography>
+        )}
+        <SendServiceReportDialog
+          open={sendReportOpen}
+          onClose={() => setSendReportOpen(false)}
+          orderId={order.id}
+          orderNumber={(order as any).orderNumber}
+          defaultEmail={(order as any).customer?.email ?? null}
+          onSent={(r) => {
+            setActionInfo(`Service report sent to ${r.sentTo.join(", ")}`);
+            void load();
+          }}
+        />
         {!order.attachments?.length ? (
           <Typography variant="body2" color="text.secondary">
             No service report on this order yet. Upload the file, or link a service report written in AIMS.

@@ -290,6 +290,16 @@ export class DeliveriesController {
     return this.service.saveJobFields(id, org.id, body?.values || {});
   }
 
+  // Manual order flow (enableManualOrderFlow): the office completes the job in
+  // the dashboard. Body { mode: signature | stamped_do | sign_link, signature?,
+  // recipientName?, files?, note? }.
+  @Post(':id/office-complete')
+  @UseInterceptors(IdempotencyInterceptor)
+  @Permissions('documents:update')
+  officeComplete(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    return this.service.officeCompleteJob(id, org.id, actorOf(req), body ?? {});
+  }
+
   // WCT finish modes: the admin accepts a stamped-DO / paper finish.
   @Post(':id/verify')
   @Permissions('documents:update')

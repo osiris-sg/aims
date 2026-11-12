@@ -9,6 +9,8 @@ import { EmailService } from '../email/email.service';
 import { StaffWhatsAppService } from '../staff-whatsapp/staff-whatsapp.service';
 import { WhatsAppAdapter } from '../operator/adapters/whatsapp.adapter';
 import { TemplateStatusService } from '../operator/template-status.service';
+import { ActionLogService } from '../action-log/action-log.service';
+import { isOrgFeatureEnabled } from '../common/org-features';
 
 const QUOTATION_TYPES = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'];
 const VO_TYPE = 'VARIATION_ORDER'; // VOs sign by the same link flow (Mike 2026-11-07)
@@ -30,6 +32,7 @@ export class PublicSignService {
     private readonly staffWhatsApp: StaffWhatsAppService,
     private readonly whatsapp: WhatsAppAdapter,
     private readonly templates: TemplateStatusService,
+    private readonly actionLog: ActionLogService,
   ) {}
 
   /** Shared by e-sign and manual confirm: create the project if missing, seed its payment schedule. */
@@ -589,6 +592,8 @@ export class PublicSignService {
     // inside, idempotent, never throws.
     const { autoDraftDeliveryFromQuotation } = await import('../deliveries/quotation-to-delivery');
     const run = await autoDraftDeliveryFromQuotation(this.prisma, doc.organizationId, doc.id, this.logger);
+    // Manual order flow: the job's draft DO + draft service report (no-op otherwise).
+    if (run) await this.documents.prepareManualOrderJob(run.id, doc.organizationId);
 
     const clientLabel = quote?.header?.clientName || cfg?.customer?.name || cfg?.customerName || '';
     // The office on WhatsApp (guru 2026-10-28): the customer signed; in a
@@ -622,10 +627,50 @@ export class PublicSignService {
           ? `/portal/documents/${doc.type}/${doc.documentTemplateId}/${doc.id}`
           : null,
     });
+    // E-signature orgs (enableQuotationESign, the WCT group): the signed PDF
+    // is drawn again now, so the copy the customer and the office open shows
+    // the signature (the stored PDF is otherwise reused as it was before
+    // signing), and the customer's signature gets its own Activity Log row on
+    // the org (the public request has no org of its own). CIEL / ID
+    // quotations sign without this flag and are untouched.
+    if (await isOrgFeatureEnabled(this.prisma, doc.organizationId, QUOTATION_ESIGN_FLAG)) {
+      await this.afterESign(doc, { name, ip: meta.ip, userAgent: meta.userAgent, documentNumber: allocatedName || doc.name || null, orderNumber: run?.orderNumber ?? null });
+    }
     this.logger.log(`quotation ${doc.name} signed by ${name} (${meta.ip || 'ip?'})`);
     return { ok: true, signedAt, projectId };
   }
+
+  /** enableQuotationESign orgs only: re-render the signed PDF and log the customer's signature. Never throws. */
+  private async afterESign(
+    doc: { id: string; organizationId: string; type: string },
+    who: { name: string; ip?: string; userAgent?: string; documentNumber: string | null; orderNumber: string | null },
+  ): Promise<void> {
+    try {
+      await this.documents.getOrGeneratePdfUrl(doc.id, doc.organizationId, undefined, true);
+    } catch (e: any) {
+      this.logger.warn(`signed PDF refresh failed for ${doc.id}: ${e?.message}`);
+    }
+    await this.actionLog.log({
+      actorType: 'GUEST',
+      actorId: `signer:${who.name}`.slice(0, 120),
+      actorName: `${who.name} (customer, sign link)`,
+      organizationId: doc.organizationId,
+      channel: 'public',
+      method: 'POST',
+      path: '/public/sign/:token',
+      action: 'SIGN',
+      resource: 'documents',
+      resourceId: doc.id,
+      statusCode: 201,
+      ipAddress: who.ip ?? null,
+      userAgent: (who.userAgent || '').slice(0, 300) || null,
+      details: { documentType: doc.type, documentNumber: who.documentNumber, signerName: who.name, ...(who.orderNumber ? { orderNumber: who.orderNumber } : {}) },
+    });
+  }
 }
+
+/** The generic quotation e-signature flag (WCT group); CIEL's ID quotations sign through enableIdQuotation instead. */
+export const QUOTATION_ESIGN_FLAG = 'enableQuotationESign';
 
 function escapeHtml(v: string): string {
   return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');

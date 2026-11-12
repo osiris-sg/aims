@@ -1,6 +1,7 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { SITECLOCK_DELIVERIES_FLAG, isOrgFeatureEnabled } from '../common/org-features';
+import { isManualOrderFlow } from '../orders/manual-order-flow';
 import { resolveSiteClockWorker, WORKER_REFUSAL } from '../siteclock/siteclock-worker';
 
 export const WORKER_HEADER = 'x-siteclock-worker-id';
@@ -28,7 +29,8 @@ export class SiteClockWorkerGuard implements CanActivate {
     const req = context.switchToHttp().getRequest();
     const organizationId: string | undefined = req.userOrganization?.id;
     if (!organizationId) throw new UnauthorizedException('Missing SiteClock key');
-    if (!(await isOrgFeatureEnabled(this.prisma, organizationId, SITECLOCK_DELIVERIES_FLAG))) {
+    // Manual order flow: the office completes jobs in AIMS, so SiteClock deliveries are off for it.
+    if (!(await isOrgFeatureEnabled(this.prisma, organizationId, SITECLOCK_DELIVERIES_FLAG)) || (await isManualOrderFlow(this.prisma, organizationId))) {
       throw new ForbiddenException({ message: 'Deliveries in SiteClock are turned off for this organisation.', data: { code: 'DELIVERIES_OFF' } });
     }
     const raw = req.headers?.[WORKER_HEADER];

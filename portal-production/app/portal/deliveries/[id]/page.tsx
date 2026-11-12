@@ -60,6 +60,8 @@ import type { JobFieldDef } from "@/helpers/jobFields";
 import VerificationPanel, { JobVerification } from "@/components/delivery/VerificationPanel";
 import { DeliveryJobPhotos } from "@/components/delivery/JobPhotos";
 import CustomerSignLink from "@/components/delivery/CustomerSignLink";
+import OfficeCompleteJobDialog from "@/components/delivery/OfficeCompleteJobDialog";
+import { uploadFile } from "@/helpers/fileUploader";
 import { runDoTag } from "@/helpers/doStatusTag";
 import JobPtwLinkPanel from "@/app/portal/deliveries/_components/JobPtwLinkPanel";
 import QuickJobDialog from "@/components/Dashboard/jobs-calendar/QuickJobDialog";
@@ -288,7 +290,10 @@ export default function DeliveryDetailPage() {
   // Service-job org (enableQuotationToDelivery — WCT 2026-10-27): runs are jobs
   // from an accepted quotation, not rental deployments. No project to attach,
   // and a line is Equipment or SERVICE (work on site) instead of Rental / Sale.
-  const { isQuotationToDeliveryEnabled: serviceJobs, isRealDoOnScheduleEnabled: realDoNumbers, isWctOrdersEnabled, features } = useOrganizationFeatures();
+  const { isQuotationToDeliveryEnabled: serviceJobs, isRealDoOnScheduleEnabled: realDoNumbers, isWctOrdersEnabled, isManualOrderFlowEnabled: manualFlow, features } = useOrganizationFeatures();
+  const [completeOpen, setCompleteOpen] = useState(false);
+  const [srUploading, setSrUploading] = useState(false);
+  const srFileRef = React.useRef<HTMLInputElement>(null);
   // WCT calendar add (enableWctOrders + enableJobsCalendar): PTW, "Link to…", and quick jobs edited with their own form.
   const calendarAdd = !!isWctOrdersEnabled && !!features?.enableJobsCalendar;
   const deliveryId = params?.id as string;
@@ -821,9 +826,18 @@ export default function DeliveryDetailPage() {
         {run.order && (
           <Chip size="small" variant="outlined" color="primary" clickable label={`Order ${run.order.orderNumber}`} onClick={() => router.push(`/portal/orders/${run.order!.id}`)} />
         )}
-        {run.status === "scheduled" && run.direction !== "RETURN" && (
+        {/* Manual order flow: the office finishes the job here (no field app). */}
+        {manualFlow && run.order && !run.isDraft && run.direction !== "RETURN" && ["scheduled", "in_progress", "delivered"].includes(run.status) && (
           <>
             <Box sx={{ flex: 1 }} />
+            <Button size="small" variant="contained" disableElevation onClick={() => setCompleteOpen(true)} data-tour="office-complete-job">
+              Complete job
+            </Button>
+          </>
+        )}
+        {run.status === "scheduled" && run.direction !== "RETURN" && (
+          <>
+            {!(manualFlow && run.order && !run.isDraft) && <Box sx={{ flex: 1 }} />}
             {/* A quick job (calendar, no order, no lines) is edited with the quick form. */}
             <Button size="small" variant="outlined" onClick={() => (calendarAdd && !run.order && run.items.length === 0 ? setQuickEditOpen(true) : setEditOpen(true))}>
               Edit
@@ -877,6 +891,18 @@ export default function DeliveryDetailPage() {
           <VerificationPanel verification={run.verification} canDecide onChanged={() => void load()} />
         </Box>
       )}
+
+      <OfficeCompleteJobDialog
+        open={completeOpen}
+        onClose={() => setCompleteOpen(false)}
+        deliveryId={run.id}
+        jobLabel={runTitle(w, run.deliveryNumber)}
+        defaultName={run.customer?.name ?? null}
+        onDone={() => {
+          setCompleteOpen(false);
+          void load();
+        }}
+      />
 
       {/* SiteClock "Skip": finished with no signature; the customer signs the DO link. */}
       {run.verification?.completionMode === "sign_link" && run.verification.verificationState !== "verified" && distinctDocs[0] && (
@@ -1259,10 +1285,43 @@ export default function DeliveryDetailPage() {
                 it was submitted unsigned and waits for the customer's signature. */}
             <Chip
               size="small"
-              label={done ? "Completed" : serviceJobs ? "Scheduled, awaiting the technician" : "Pending sign"}
+              label={done ? "Completed" : manualFlow ? "Draft, upload the report" : serviceJobs ? "Scheduled, awaiting the technician" : "Pending sign"}
               color={done ? "success" : serviceJobs ? "info" : "warning"}
               variant={done ? "filled" : "outlined"}
             />
+            {/* Manual order flow: the service report is uploaded (a PDF or photo of the paper). */}
+            {manualFlow && !done && (
+              <>
+                <input
+                  ref={srFileRef}
+                  type="file"
+                  hidden
+                  accept="application/pdf,image/jpeg,image/png,image/webp,image/gif"
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    if (!f || !organization?.id) return;
+                    setSrUploading(true);
+                    setActionError(null);
+                    try {
+                      const token = await getToken();
+                      if (!token) throw new Error("Not signed in");
+                      const up = await uploadFile({ file: f, folder: `maintenance-reports/${organization.id}/uploads`, token });
+                      const res: any = await request({ path: `/maintenance-reports/${sr.id}/upload-file`, method: "POST" }, { fileKey: up.fileKey, fileName: up.fileName, mimeType: up.mimeType }, token);
+                      if (res?.success === false) throw new Error(res.message || "Upload failed");
+                      await load();
+                    } catch (err: any) {
+                      setActionError(err?.message ?? "Upload failed");
+                    } finally {
+                      setSrUploading(false);
+                      if (srFileRef.current) srFileRef.current.value = "";
+                    }
+                  }}
+                />
+                <Button size="small" variant="contained" disableElevation disabled={srUploading} onClick={() => srFileRef.current?.click()} data-tour="run-upload-service-report">
+                  {srUploading ? <CircularProgress size={16} color="inherit" /> : "Upload service report"}
+                </Button>
+              </>
+            )}
             <Button size="small" variant="outlined" onClick={() => router.push(`/portal/maintenance-reports/${sr.id}`)} data-tour="run-service-report">
               {done ? "Open report" : "Preview"}
             </Button>

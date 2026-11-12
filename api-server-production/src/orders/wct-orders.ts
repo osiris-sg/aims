@@ -23,6 +23,8 @@ import {
  * Order.status so lists can filter on it; every job write that can move it
  * calls refreshOrderStatus, and the order pages refresh on read as well.
  */
+import { deriveManualOrderStatus, isManualOrderFlow, withStatusDate, type ManualOrderStatus } from './manual-order-flow';
+
 export const WCT_ORDERS_FLAG = 'enableWctOrders';
 
 /** WCT invoice per order (Phase 4): the order is billed on its own invoice(s), not one per DO. */
@@ -134,6 +136,9 @@ export async function refreshOrderStatus(prisma: any, organizationId: string, or
   if (!orderId) return null;
   try {
     return await runAsOrg(organizationId, async () => {
+      // Manual (dashboard-only) flow: its own status list + the date each was
+      // reached. Every other org takes the unchanged path below.
+      if (await isManualOrderFlow(prisma, organizationId)) return (await refreshManualOrderStatus(prisma, organizationId, orderId)) as any;
       const order = await prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, attachments: true } });
       if (!order) return null;
       const jobs = await prisma.delivery.findMany({ where: { organizationId, orderId }, select: { status: true, isDraft: true, verificationState: true, orderInvoiceId: true } });
@@ -149,6 +154,25 @@ export async function refreshOrderStatus(prisma: any, organizationId: string, or
   } catch {
     return null;
   }
+}
+
+/** Manual flow: derive, store the status and stamp its first date. Caller is inside runAsOrg. */
+async function refreshManualOrderStatus(prisma: any, organizationId: string, orderId: string): Promise<ManualOrderStatus | null> {
+  const order = await prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, statusDates: true, createdAt: true } });
+  if (!order) return null;
+  const jobs = await prisma.delivery.findMany({ where: { organizationId, orderId }, select: { status: true, isDraft: true, verificationState: true, orderInvoiceId: true } });
+  const invoiceIds = [...new Set(jobs.map((j: any) => j.orderInvoiceId).filter((v: any) => v && !String(v).startsWith('claim:')))] as string[];
+  const invoices = invoiceIds.length ? await prisma.document.findMany({ where: { id: { in: invoiceIds }, organizationId }, select: { status: true } }) : [];
+  const dates = (order.statusDates as Record<string, string> | null) ?? {};
+  const status = deriveManualOrderStatus(jobs, { invoiceStatuses: invoices.map((d: any) => String(d.status)), serviceReportSent: !!dates.serviceReportSentAt });
+  // The order exists because the quotation was signed / accepted: that first
+  // step is dated by the order itself, even when the first refresh already
+  // sees its draft job.
+  const nextDates = withStatusDate(withStatusDate(dates, 'QUOTATION_SIGNED', new Date(order.createdAt)), status);
+  if (order.status !== status || JSON.stringify(nextDates) !== JSON.stringify(dates)) {
+    await prisma.order.update({ where: { id: orderId }, data: { status, statusDates: nextDates } });
+  }
+  return status;
 }
 
 /** The order of a run, for callers that only hold the run id. Best-effort. */
