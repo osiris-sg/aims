@@ -16,7 +16,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
   Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
-  FormControl, IconButton, MenuItem, Select, Stack, Typography, alpha, useTheme,
+  FormControl, IconButton, MenuItem, Select, Stack, Typography, alpha, lighten, useTheme,
 } from "@mui/material";
 import Checkbox from "@mui/material/Checkbox";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
@@ -266,7 +266,7 @@ function Priorities({ title, badge, rows }: { title: string; badge: string; rows
           <ErrorOutlineIcon />
           <Typography sx={{ fontSize: 18, fontWeight: 600 }}>{title}</Typography>
         </Stack>
-        <Chip size="small" label={`${rows.length} ${badge}`} sx={{ bgcolor: dark ? alpha(RED, 0.22) : "#FDE6EA", color: dark ? "#FF8A9B" : RED, fontWeight: 500, fontSize: 14, height: 28, px: 0.5 }} />
+        <Chip size="small" label={`${rows.length} ${badge}`} sx={{ bgcolor: dark ? alpha(RED, 0.3) : "#FDE6EA", color: dark ? "#FFB4BE" : RED, fontWeight: 500, fontSize: 14, height: 28, px: 0.5 }} />
       </Stack>
       <Stack>
         {rows.map((p, i) => (
@@ -281,11 +281,15 @@ function Priorities({ title, badge, rows }: { title: string; badge: string; rows
               py: 1.5,
               borderRadius: 2,
               ...(p.urgent
-                ? { bgcolor: dark ? alpha(RED, 0.16) : "#FDE6EA", borderLeft: `4px solid ${RED}` }
+                // Tint only — no red left stripe (guru 2026-11-12: "remove this
+                // dark area everywhere for any card").
+                // Dark mode (guru 2026-11-12: "make sure the colour contrast is
+                // easier to see"): stronger tint plus a red outline.
+                ? { bgcolor: dark ? alpha(RED, 0.24) : "#FDE6EA", ...(dark ? { boxShadow: `inset 0 0 0 1px ${alpha(RED, 0.55)}` } : {}) }
                 : { borderBottom: "1px solid", borderColor: "divider", "&:last-of-type": { borderBottom: "none" } }),
             }}
           >
-            <Box sx={{ height: 40, width: 40, borderRadius: "50%", display: "grid", placeItems: "center", bgcolor: alpha(ICON_TONE[p.icon] ?? TEAL, dark ? 0.24 : 0.12), color: ICON_TONE[p.icon] ?? TEAL }}>
+            <Box sx={{ height: 40, width: 40, borderRadius: "50%", display: "grid", placeItems: "center", bgcolor: alpha(ICON_TONE[p.icon] ?? TEAL, dark ? 0.28 : 0.12), color: dark ? lighten(ICON_TONE[p.icon] ?? TEAL, 0.35) : ICON_TONE[p.icon] ?? TEAL }}>
               <RoleIcon name={p.icon} fontSize="small" />
             </Box>
             <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -304,8 +308,12 @@ function Priorities({ title, badge, rows }: { title: string; badge: string; rows
                 fontWeight: 500,
                 fontSize: 14,
                 ...(p.urgent
-                  ? { bgcolor: NAVY, color: "#fff", "&:hover": { bgcolor: "#3A2F72" } }
-                  : { bgcolor: dark ? alpha("#fff", 0.08) : "#EEF0F8", color: dark ? "text.primary" : "#1C1A33", "&:hover": { bgcolor: dark ? alpha("#fff", 0.14) : "#E2E5F2" } }),
+                  // Dark: navy on the maroon row was near-invisible — use the
+                  // dark theme's lavender primary with ink text instead.
+                  ? dark
+                    ? { bgcolor: "#B9B0F2", color: "#1C1A33", "&:hover": { bgcolor: "#CFC8F7" } }
+                    : { bgcolor: NAVY, color: "#fff", "&:hover": { bgcolor: "#3A2F72" } }
+                  : { bgcolor: dark ? alpha("#fff", 0.12) : "#EEF0F8", color: dark ? "text.primary" : "#1C1A33", "&:hover": { bgcolor: dark ? alpha("#fff", 0.2) : "#E2E5F2" } }),
               }}
             >
               {p.action}
@@ -351,7 +359,7 @@ function Overview({ metrics }: { metrics: Metric[] }) {
           return (
             <Box key={m.label} data-testid={`role-home-metric-${i}`} sx={{ borderRadius: "12px", border: "1px solid", borderColor: dark ? alpha("#fff", 0.08) : "#F1F5F9", bgcolor: dark ? "transparent" : "#FFFFFF", p: 2, transition: "box-shadow .15s", "&:hover": { boxShadow: dark ? "none" : "0 4px 6px -1px rgba(0,0,0,.1), 0 2px 4px -2px rgba(0,0,0,.1)" } }}>
               <Stack direction="row" alignItems="center" gap={1.5}>
-                <Box sx={{ height: 32, width: 32, borderRadius: "50%", display: "grid", placeItems: "center", bgcolor: alpha(ICON_TONE[m.icon] ?? TEAL, dark ? 0.24 : 0.12), color: ICON_TONE[m.icon] ?? TEAL }}>
+                <Box sx={{ height: 32, width: 32, borderRadius: "50%", display: "grid", placeItems: "center", bgcolor: alpha(ICON_TONE[m.icon] ?? TEAL, dark ? 0.28 : 0.12), color: dark ? lighten(ICON_TONE[m.icon] ?? TEAL, 0.35) : ICON_TONE[m.icon] ?? TEAL }}>
                   <RoleIcon name={m.icon} sx={{ fontSize: 18 }} />
                 </Box>
                 <Typography variant="body2">{m.label}</Typography>
@@ -560,7 +568,7 @@ function AssistantCard({ prompts }: { prompts: string[] }) {
           data-testid="role-home-assistant-input"
           sx={{ flex: 1, border: "none", outline: "none", bgcolor: "transparent", color: "text.primary", fontSize: 14, py: 1, fontFamily: "inherit" }}
         />
-        <IconButton type="submit" data-testid="role-home-assistant-send" sx={{ bgcolor: NAVY, color: "#fff", "&:hover": { bgcolor: "#3A2F72" } }} size="small">
+        <IconButton type="submit" data-testid="role-home-assistant-send" sx={dark ? { bgcolor: "#B9B0F2", color: "#1C1A33", "&:hover": { bgcolor: "#CFC8F7" } } : { bgcolor: NAVY, color: "#fff", "&:hover": { bgcolor: "#3A2F72" } }} size="small">
           <SendIcon fontSize="small" />
         </IconButton>
       </Box>

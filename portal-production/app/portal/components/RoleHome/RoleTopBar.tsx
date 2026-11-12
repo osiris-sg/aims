@@ -7,11 +7,19 @@
 //
 // What it LOOKS like is the mock-up's; what it CONTAINS is the normal AIMS
 // menu, item for item (guru 2026-11-06: "make the navigation the same as how
-// we do it now"): every module from useNavModules() with its usual dropdown,
-// then Org Settings — same list, order, routes and permission rules as
-// TopNavBar. The role chosen on the profile chip changes the HOME SCREEN
-// only; it does not filter this menu. (An app-launcher / per-app menu from the
-// mock-up was tried and removed the same day.)
+// we do it now"): every module from useNavModules(), then Org Settings — same
+// list, order, routes and permission rules as TopNavBar. The role chosen on
+// the profile chip changes the HOME SCREEN only; it does not filter this menu.
+//
+// NO DROPDOWNS (guru 2026-11-12: "when I click Sales the Sales tab opens with
+// only those [items]… and they can still select the home icon and select the
+// other modules"). The bar has two levels:
+//   • modules row — Dashboard · Sales · Inventory · … · Org Settings. A module
+//     with sub-pages swaps the bar to its level; one without (Dashboard,
+//     Projects, Deliveries) just opens.
+//   • module level — [⌂] Sales │ Quotations · Invoices · … — the sub-pages
+//     the dropdown used to list, as flat tabs. ⌂ returns to the modules row.
+// Landing inside a module (deep link, list → record) opens its level.
 
 import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -20,6 +28,7 @@ import {
   Tooltip, Typography, alpha, useTheme,
 } from "@mui/material";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import HomeRoundedIcon from "@mui/icons-material/HomeRounded";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import CheckIcon from "@mui/icons-material/Check";
@@ -96,6 +105,13 @@ export default function RoleTopBar() {
     setMenu(null);
     router.push(path);
   };
+
+  // Which level the bar shows. null = follow the page (inside a module → that
+  // module's level; elsewhere → the modules row); "home" = the modules row
+  // even while inside a module (⌂ pressed); { code } = that module's level
+  // (module pressed, page not changed yet). Any navigation resets to "follow".
+  const [level, setLevel] = React.useState<"home" | { code: string } | null>(null);
+  React.useEffect(() => setLevel(null), [navPath]);
 
   // Same highlight rule as the normal bar.
   const isActive = (m: any): boolean => {
@@ -204,60 +220,90 @@ export default function RoleTopBar() {
             WebkitMaskImage: "linear-gradient(to right, black calc(100% - 28px), transparent)",
           }}
         >
-          {/* The SAME menu as the normal AIMS bar (guru 2026-11-06): every
-              module the org has and the user may open, in the org's order,
-              each with its usual dropdown, then Org Settings. Only the
-              styling is the role-home bar's. */}
-          {navModules.map((m: any) => {
-            const subs: any[] = (m.config as any)?.subMenus || [];
-            return (
-              <React.Fragment key={m.moduleCode}>
-                <Button
-                  size="small"
-                  onClick={(e) =>
-                    subs.length
-                      ? setMenu(menu?.code === m.moduleCode ? null : { code: m.moduleCode, anchor: e.currentTarget })
-                      : go(m.config?.route || "/portal")
-                  }
-                  endIcon={subs.length ? <KeyboardArrowDownIcon sx={{ fontSize: "1rem !important", opacity: 0.7 }} /> : undefined}
-                  sx={navBtnSx(isActive(m), menu?.code === m.moduleCode)}
-                >
-                  {moduleName(m)}
-                </Button>
-                {!!subs.length &&
-                  dropdown(
-                    m.moduleCode,
-                    subs.map((s: any, i: number) => (
-                      <MenuItem key={i} onClick={() => go(resolveSubmenuRoute(m, s))} sx={{ fontSize: "0.875rem", py: 1 }}>
-                        {subLabel(m, s, submenuLabel(s))}
-                      </MenuItem>
-                    )),
-                  )}
-              </React.Fragment>
-            );
-          })}
+          {(() => {
+            // The SAME menu as the normal AIMS bar (guru 2026-11-06): every
+            // module the org has and the user may open, in the org's order,
+            // then Org Settings (master tier only). Only the styling — and the
+            // no-dropdown levels — are the role-home bar's.
+            type Tab = { label: string; path: string };
+            type Bar = { code: string; label: string; route: string; tabs: Tab[]; active: boolean };
+            const bars: Bar[] = [
+              ...navModules.map((m: any): Bar => ({
+                code: m.moduleCode,
+                label: moduleName(m),
+                route: m.config?.route || "/portal",
+                tabs: ((m.config as any)?.subMenus || []).map((s: any): Tab => ({ label: subLabel(m, s, submenuLabel(s)), path: resolveSubmenuRoute(m, s) })),
+                active: isActive(m),
+              })),
+              ...(isMasterTier
+                ? [{
+                    code: "ORG_SETTINGS",
+                    label: tn("orgSettings"),
+                    route: "",
+                    tabs: settingsMenu.map((s): Tab => ({ label: settingLabel(s), path: s.path })),
+                    active: pathname.startsWith("/portal/settings") || pathname.startsWith("/portal/masterfiles"),
+                  }]
+                : []),
+            ];
+            const followed = bars.find((b) => b.active && b.tabs.length)?.code ?? null;
+            const openCode = level === "home" ? null : level?.code ?? followed;
+            const open = openCode ? bars.find((b) => b.code === openCode) : undefined;
 
-          {/* Organization Settings — master tier only, as on the normal bar. */}
-          {isMasterTier && (
-            <>
-              <Button
-                size="small"
-                onClick={(e) => setMenu(menu?.code === "ORG_SETTINGS" ? null : { code: "ORG_SETTINGS", anchor: e.currentTarget })}
-                endIcon={<KeyboardArrowDownIcon sx={{ fontSize: "1rem !important", opacity: 0.7 }} />}
-                sx={navBtnSx(pathname.startsWith("/portal/settings") || pathname.startsWith("/portal/masterfiles"), menu?.code === "ORG_SETTINGS")}
-              >
-                {tn("orgSettings")}
-              </Button>
-              {dropdown(
-                "ORG_SETTINGS",
-                settingsMenu.map((s) => (
-                  <MenuItem key={s.path} onClick={() => go(s.path)} sx={{ fontSize: "0.875rem", py: 1 }}>
-                    {settingLabel(s)}
-                  </MenuItem>
-                )),
-              )}
-            </>
-          )}
+            if (!open) {
+              // Modules row.
+              return bars.map((b) => (
+                <Button
+                  key={b.code}
+                  size="small"
+                  data-testid={`role-nav-module-${b.code}`}
+                  onClick={() => (b.tabs.length ? setLevel({ code: b.code }) : go(b.route))}
+                  sx={navBtnSx(b.active, false)}
+                >
+                  {b.label}
+                </Button>
+              ));
+            }
+
+            // Module level: ⌂ · module name │ its sub-pages as tabs. The tab
+            // whose route is the longest prefix of the page is the current one
+            // (a module's own route is a prefix of every page under it).
+            const current = open.tabs
+              .filter((tb) => navPath === tb.path || navPath.startsWith(tb.path + "/"))
+              .sort((a, b) => b.path.length - a.path.length)[0];
+            return (
+              <>
+                <Tooltip title="All modules">
+                  <IconButton
+                    size="small"
+                    data-testid="role-nav-home"
+                    aria-label="All modules"
+                    onClick={() => setLevel("home")}
+                    sx={{ color: dark ? "text.primary" : INK, flexShrink: 0, "&:hover": { bgcolor: dark ? alpha("#fff", 0.08) : "#F2F4FA" } }}
+                  >
+                    <HomeRoundedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Typography
+                  data-testid="role-nav-level"
+                  sx={{ fontSize: "0.875rem", fontWeight: 600, color: dark ? "text.primary" : INK, px: 0.75, whiteSpace: "nowrap", flexShrink: 0 }}
+                >
+                  {open.label}
+                </Typography>
+                <Box sx={{ width: "1px", height: 20, bgcolor: dark ? alpha("#fff", 0.16) : "#E2E6F0", mx: 0.5, flexShrink: 0 }} />
+                {open.tabs.map((tb) => (
+                  <Button
+                    key={tb.path}
+                    size="small"
+                    data-testid="role-nav-tab"
+                    onClick={() => go(tb.path)}
+                    sx={navBtnSx(current?.path === tb.path, false)}
+                  >
+                    {tb.label}
+                  </Button>
+                ))}
+              </>
+            );
+          })()}
         </Stack>
 
         <Stack direction="row" alignItems="center" gap={0.5} sx={{ flexShrink: 0 }}>
