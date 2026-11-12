@@ -1,7 +1,7 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { amountPaidOf, grossOf, outstandingOf, owedOf } from '../common/document-money';
-import { erpPaidAtImport } from '../common/erp-import';
+import { erpPaidAtImport, isErpImported } from '../common/erp-import';
 import { docRef, documentReferenceOf, refWith } from '../common/doc-ref';
 import { GenerateSOADto } from './dto/generate-soa.dto';
 
@@ -102,6 +102,9 @@ export class StatementsService {
             add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: `Paid in previous system — ${doc.name || ''}`.trim(), transactionType: 'PAYMENT', debit: 0, credit: erpPaid, balance: 0, documentType: 'PAYMENT', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId }, -erpPaid);
           }
         } else if (doc.type === 'CREDIT_NOTE' && !isXero) {
+          // An imported credit note (BC Air 2026-11-12) is history: its credit is already inside its
+          // invoice's "Paid in previous system" line above, so it would be counted twice.
+          if (isErpImported(c)) continue;
           const ref = documentReferenceOf(c);
           add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: ref || `Credit Note ${doc.name || ''}`.trim(), docReference: ref || null, transactionType: 'CREDIT_NOTE', debit: 0, credit: gross, balance: 0, documentType: 'CREDIT_NOTE', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId }, -gross);
         }

@@ -6,15 +6,19 @@
  *              YMM (the Sales pages show a list instead of opening the newest document). One
  *              ActionLog row per org (System creation).
  *   cns        the tracker credit notes (bcair-sales-summary + wct-nongst-cn-summary) as
- *              CREDIT_NOTE documents: the original CN number, the "Imported" tag
+ *              CREDIT_NOTE documents: the original CN number, the imported marker
  *              (config.erpImport, source bcair-cn-tracker), linked to their imported invoice
  *              (config.sourceDocumentId / sourceDocumentNumber / sourceDocumentType INVOICE).
  *              NO GL: the credits are already in the GL as the erp-gl CREDIT_NOTE journals and
  *              already inside each invoice's paid-in-previous-system amount, so every CN is
  *              stamped fully applied (outstanding 0) and never touches its invoice. Counters
  *              never touched (BC Air has no number formats).
+ *              Owner (2026-11-12): ONLY the credit notes with an amount become documents; the
+ *              ones the trackers give no amount for stay a note on their invoice and are listed
+ *              in --csv <file> (CN no, invoice no, customer, date) for WCT finance.
  *
- *   DBURL=… node scripts/bcair-list-view-and-cns.js list-view|cns [--apply] [--rollback]
+ *   DBURL=… node scripts/bcair-list-view-and-cns.js list-view [--apply] [--rollback]
+ *   DBURL=… node scripts/bcair-list-view-and-cns.js cns --dir <_imports/wct> [--csv <file>] [--apply] [--rollback]
  */
 const { Client, types } = require('pg');
 const crypto = require('crypto');
@@ -36,6 +40,7 @@ const args = process.argv.slice(2);
 const CMD = args[0];
 const APPLY = args.includes('--apply');
 const ROLLBACK = args.includes('--rollback');
+const CSV = args.includes('--csv') ? args[args.indexOf('--csv') + 1] : null;
 const LOG = (step) => path.resolve(__dirname, `bcair-list-view-and-cns.${step}.log.json`);
 const R2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const money = (n) => R2(n).toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -118,6 +123,15 @@ async function stepListView() {
 
 // ================================================================ cns
 
+/** BC Air's GL at a glance: journal count / totals, the debtors account 1-9999, open AR on documents. */
+async function ledgerPrint(q) {
+  const j = (await q(`SELECT count(*)::int n, round(sum("totalDebit")::numeric, 2) dr, round(sum("totalCredit")::numeric, 2) cr, max("updatedAt") last FROM "JournalEntry" WHERE "organizationId" = $1`, [ORG.BCAIR]))[0];
+  const l = (await q(`SELECT count(*)::int n FROM "JournalEntryLine" l JOIN "JournalEntry" e ON e.id = l."journalEntryId" WHERE e."organizationId" = $1`, [ORG.BCAIR]))[0];
+  const ar = (await q(`SELECT round(sum(l.debit - l.credit)::numeric, 2) bal FROM "JournalEntryLine" l JOIN "JournalEntry" e ON e.id = l."journalEntryId" JOIN "ChartOfAccount" a ON a.id = l."accountId" WHERE e."organizationId" = $1 AND e.status = 'POSTED' AND a.code = '1-9999'`, [ORG.BCAIR]))[0];
+  const inv = (await q(`SELECT count(*)::int n, round(sum((config->>'outstandingBalance')::numeric), 2) open FROM "Document" WHERE "organizationId" = $1 AND type = 'INVOICE'`, [ORG.BCAIR]))[0];
+  return { journals: j.n, lines: l.n, dr: j.dr, cr: j.cr, lastJournalUpdate: j.last ? new Date(j.last).toISOString() : null, debtors_1_9999: ar.bal, invoices: inv.n, invoicesOpen: inv.open };
+}
+
 async function planCns(q) {
   const wct = await q(`SELECT id, name, config->>'date' date, config->>'customerName' cust, config->>'subject' subject, COALESCE((config->>'totalWithTax')::numeric, 0) total, COALESCE((config->>'gstAmount')::numeric, 0) gst, (config->>'outstandingBalance')::numeric owed, config->'erpImport'->>'status' st FROM "Document" WHERE "organizationId" = $1 AND type = 'INVOICE' AND config ? 'erpImport'`, [ORG.WCT]);
   const wctDocs = new Map(wct.map((r) => [r.name, r]));
@@ -189,7 +203,7 @@ async function planCns(q) {
       // Money keys as stampDocumentMoney writes them: fully applied, nothing open.
       totalWithTax: amount, xeroGross: amount, outstandingBalance: 0, xeroBalance: 0, paidToDate: amount, xeroAmountPaid: amount,
     };
-    docs.push({ id: crypto.randomUUID(), name: no, createdAt, config, amount, date, invoices: invsOf.map((i) => i.name), customer: cust.name, src: [...new Set(list.map((o) => o.src))].join('+'), uses: list.length });
+    docs.push({ id: crypto.randomUUID(), name: no, createdAt, config, amount, date, invoices: invsOf.map((i) => i.name), customer: cust.name, src: [...new Set(list.map((o) => o.src))].join('+'), uses: list.length, occ: list });
   }
   const gl = await q(`SELECT reference, round(sum("totalDebit")::numeric, 2) amt FROM "JournalEntry" WHERE "organizationId" = $1 AND "createdBy" = 'erp-gl:bcair-gl-2026-11-06' AND type = 'CREDIT_NOTE' GROUP BY 1`, [ORG.BCAIR]);
   return { occ, docs, flags, already, gl };
@@ -220,25 +234,35 @@ async function stepCns() {
     const p = await planCns(q);
     const glBy = new Map(p.gl.map((g) => [g.reference, g.amt]));
     const withAmt = p.docs.filter((d) => d.amount > 0.005);
+    const noAmt = p.docs.filter((d) => !(d.amount > 0.005));
+    if (CSV) {
+      const cell = (v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+      const rows = noAmt.flatMap((d) => d.occ.map((o) => [d.name, o.inv.name, o.inv.config.customerName, o.date, o.src === 'bcair' ? 'BC AIR - Full Sales Summary' : 'WCT - NON GST UPDATE & CN SUMMARY', o.row]));
+      fs.writeFileSync(CSV, ['CN no,Invoice no,Customer,Date,Tracker,Tracker row', ...rows.map((r) => r.map(cell).join(','))].join('\n') + '\n');
+      console.log(`CSV: ${noAmt.length} credit notes with no amount (${rows.length} CN / invoice rows) → ${CSV}`);
+    }
     console.log(`tracker CN numbers: ${p.occ.length} (credit-note cells → numbers; BC Air tracker ${p.occ.filter((o) => o.src === 'bcair').length}, non-GST tracker ${p.occ.filter((o) => o.src === 'wctc').length})`);
-    console.log(`credit notes to create: ${p.docs.length} (already imported ${p.already}) · with an amount ${withAmt.length} = ${money(withAmt.reduce((a, d) => a + d.amount, 0))} · $0 (no amount in the tracker) ${p.docs.length - withAmt.length}`);
+    console.log(`credit notes in the trackers: ${p.docs.length} (already imported ${p.already}) · TO CREATE (with an amount) ${withAmt.length} = ${money(withAmt.reduce((a, d) => a + d.amount, 0))} · skipped, no amount in the tracker ${noAmt.length} (stay a note on their invoice)`);
     console.log(`GL check: erp-gl CREDIT_NOTE journals ${p.gl.length} = ${money(p.gl.reduce((a, g) => a + g.amt, 0))}; every amount matches its journal: ${withAmt.every((d) => Math.abs((glBy.get(d.name) || 0) - d.amount) < 0.005) && withAmt.length === p.gl.length ? 'YES' : 'NO'}`);
     for (const d of withAmt) if (Math.abs((glBy.get(d.name) || 0) - d.amount) >= 0.005) console.log(`  MISMATCH ${d.name} doc ${money(d.amount)} vs GL ${money(glBy.get(d.name) || 0)}`);
-    console.table(p.docs.map((d) => ({ cn: d.name, date: d.date, amount: money(d.amount), invoices: d.invoices.join(', '), customer: d.customer.slice(0, 34), tracker: d.src })));
+    console.table(withAmt.map((d) => ({ cn: d.name, date: d.date, amount: money(d.amount), invoices: d.invoices.join(', '), customer: d.customer.slice(0, 34), tracker: d.src })));
     if (p.flags.length) { console.log('flags:'); for (const f of p.flags) console.log(`  - ${f}`); }
-    console.log('Each: type CREDIT_NOTE, status confirmed, template "Credit Note", Imported tag, outstanding 0 (fully applied), GST 0, linked via sourceDocumentId to its invoice. Invoices, GL, payments and number formats untouched. 1 ActionLog row.');
+    console.log('Each: type CREDIT_NOTE, status confirmed, template "Credit Note", imported marker (config.erpImport, no badge), outstanding 0 (fully applied), GST 0, linked via sourceDocumentId to its invoice. Invoices, GL, payments and number formats untouched. 1 ActionLog row.');
     if (!APPLY) { console.log('DRY RUN: nothing written'); return; }
+    const before = await ledgerPrint(q);
     await c.query('BEGIN');
-    for (const d of p.docs) {
+    for (const d of withAmt) {
       await c.query(`INSERT INTO "Document" (id, "createdAt", "updatedAt", config, "documentTemplateId", type, "organizationId", name, status, "revisionNumber", version) VALUES ($1::uuid, $2::timestamp, $2::timestamp, $3::jsonb, $4, 'CREDIT_NOTE', $5, $6, 'confirmed'::"DocumentStatus", 0, 0)`,
         [d.id, d.createdAt.toISOString(), JSON.stringify(d.config), CN_TEMPLATE, ORG.BCAIR, d.name]);
     }
-    const je = (await c.query(`SELECT count(*)::int n FROM "JournalEntry" WHERE "sourceDocumentId" = ANY($1::text[])`, [p.docs.map((d) => d.id)])).rows[0].n;
+    const je = (await c.query(`SELECT count(*)::int n FROM "JournalEntry" WHERE "sourceDocumentId" = ANY($1::text[])`, [withAmt.map((d) => d.id)])).rows[0].n;
     if (je) throw new Error(`${je} journals appeared on the new credit notes`);
-    await actionLog(c, ORG.BCAIR, 'IMPORT', 'documents', { note: `Imported ${p.docs.length} tracker credit notes (history only, no GL)`, batch: CN_BATCH, documents: p.docs.length });
+    await actionLog(c, ORG.BCAIR, 'IMPORT', 'documents', { note: `Imported ${withAmt.length} tracker credit notes with an amount (history only, no GL)`, batch: CN_BATCH, documents: withAmt.length, amount: R2(withAmt.reduce((a, d) => a + d.amount, 0)) });
     await c.query('COMMIT');
-    writeLog('cns', { at: new Date().toISOString(), mode: 'APPLY', batch: CN_BATCH, documents: p.docs.map((d) => ({ id: d.id, name: d.name, amount: d.amount })) });
-    console.log(`APPLIED ${p.docs.length} credit notes`);
+    const after = await ledgerPrint(q);
+    const glSame = JSON.stringify(before) === JSON.stringify(after);
+    writeLog('cns', { at: new Date().toISOString(), mode: 'APPLY', batch: CN_BATCH, documents: withAmt.map((d) => ({ id: d.id, name: d.name, amount: d.amount, invoices: d.invoices })), amount: R2(withAmt.reduce((a, d) => a + d.amount, 0)), skippedNoAmount: noAmt.map((d) => d.name), glBefore: before, glAfter: after, glUnchanged: glSame });
+    console.log(`APPLIED ${withAmt.length} credit notes · GL ${glSame ? 'UNCHANGED' : 'CHANGED'}: ${JSON.stringify(after)}`);
   } catch (e) { await c.query('ROLLBACK').catch(() => {}); throw e; } finally { await c.end(); }
 }
 

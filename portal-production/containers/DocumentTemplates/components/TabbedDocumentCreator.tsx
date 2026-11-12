@@ -432,8 +432,6 @@ export default function TabbedDocumentCreator({
   // Items section tabs
   const [itemsTabValue, setItemsTabValue] = useState(0);
   const documentStatus = existingData?.status || "unconfirmed";
-  // Imported from the previous ERP (document pages pass config.erpImport through as existingData.erpImport).
-  const erpImportMeta: any = existingData?.erpImport ?? existingData?.config?.erpImport ?? null;
   // A document is editable ONLY while it is UNCONFIRMED (guru 2026-07-24
   // status model; "draft" stays readable for pre-backfill data). Once it moves
   // past that — "confirmed" and every post-confirm status (pending_payment,
@@ -4817,11 +4815,6 @@ export default function TabbedDocumentCreator({
               <CheckCircleIcon fontSize="small" />
               {confirmedEditUnlocked ? 'Editing confirmed document' : 'Document Confirmed'}
             </Typography>
-          )}
-          {erpImportMeta?.source && (
-            <Tooltip title={`Imported from the previous system${erpImportMeta.originalNumber ? ` (${erpImportMeta.originalNumber}${erpImportMeta.status ? `, ${erpImportMeta.status}` : ""})` : ""}: kept as history, never posted to the GL`}>
-              <Chip size="small" variant="outlined" label="Imported" />
-            </Tooltip>
           )}
           {confirmedReadOnly && !isTemplateEditMode && (
             <Button

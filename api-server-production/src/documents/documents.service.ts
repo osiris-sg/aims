@@ -28,7 +28,7 @@ import * as moment from 'moment';
 import { pdfOptionsFor, isNamedLayout } from '../common/services/document-html';
 import { resolveDesign } from '../common/services/document-html/design';
 import { outstandingOf, grossStampOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
-import { erpPaidAtImport, erpStoredTotalsOf, isErpImported, moneySignature } from '../common/erp-import';
+import { confirmPostsToGl, erpPaidAtImport, erpStoredTotalsOf, isErpImported, moneySignature } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
 import { refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
 import { isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG } from '../common/org-features';
@@ -1877,7 +1877,8 @@ export class DocumentsService {
         }
       }
 
-      if (becomingConfirmed && glType) {
+      // ERP-imported history never posts (common/erp-import.ts), even when its status is re-confirmed.
+      if (confirmPostsToGl(becomingConfirmed, glType, configAsPlainObject || existingDocument.config)) {
         console.log('📒 [GL auto-post] entering for', dto.type, '→', glType);
         try {
           const existing = await this.journalAutoPost.alreadyPostedForDocument(organizationId, id, glType);

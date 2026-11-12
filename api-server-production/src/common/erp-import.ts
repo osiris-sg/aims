@@ -25,6 +25,11 @@ export function erpImportOf(config: any): ErpImportMeta | null {
 
 export const isErpImported = (config: any): boolean => erpImportOf(config) !== null;
 
+/** Does confirming this document post its GL journal (CN / DN / PO / PR)? Never for imported history,
+ *  even when its status is set back and confirmed again (BC Air credit notes, 2026-11-12). */
+export const confirmPostsToGl = (becomingConfirmed: boolean, glType: string | undefined, config: any): boolean =>
+  !!(becomingConfirmed && glType && !isErpImported(config));
+
 /** The part of an imported invoice that was already paid in the ERP (0 for any other document). */
 export function erpPaidAtImport(config: any, gross: number): number {
   const m = erpImportOf(config);
