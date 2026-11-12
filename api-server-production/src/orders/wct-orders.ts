@@ -160,6 +160,8 @@ export async function refreshOrderStatus(prisma: any, organizationId: string, or
 async function refreshManualOrderStatus(prisma: any, organizationId: string, orderId: string): Promise<ManualOrderStatus | null> {
   const order = await prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, statusDates: true, createdAt: true } });
   if (!order) return null;
+  // A cancelled order (set by the office / a cleanup) stays cancelled.
+  if (order.status === 'CANCELLED') return null;
   const jobs = await prisma.delivery.findMany({ where: { organizationId, orderId }, select: { status: true, isDraft: true, verificationState: true, orderInvoiceId: true } });
   const invoiceIds = [...new Set(jobs.map((j: any) => j.orderInvoiceId).filter((v: any) => v && !String(v).startsWith('claim:')))] as string[];
   const invoices = invoiceIds.length ? await prisma.document.findMany({ where: { id: { in: invoiceIds }, organizationId }, select: { status: true } }) : [];

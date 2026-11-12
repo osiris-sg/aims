@@ -80,6 +80,22 @@ export const SITECLOCK_DELIVERIES_FLAG = 'enableSiteClockDeliveries';
 // journal's description. Off = per-line accounts as before.
 export const HEADER_GL_ACCOUNT_FLAG = 'enableHeaderGlAccount';
 
+// INVOICES POST TO THE GL ON CONFIRM (2026-11-12; WCT group). The platform's
+// no-draft model posts an invoice as soon as it exists and on every save. With
+// this on, an invoice still in draft / unconfirmed never posts (a stale entry
+// from an earlier save is voided); it posts when it leaves draft: on confirm,
+// on a status change, or when it is emailed (which moves it to pending
+// payment). Saves after that repost as before. Off = the no-draft model.
+export const POST_INVOICES_ON_CONFIRM_FLAG = 'postInvoicesOnConfirm';
+
+/** Invoice statuses that are still a draft (no GL entry under the flag above). */
+export const DRAFT_INVOICE_STATUSES = ['draft', 'unconfirmed'];
+
+/** True when the flag holds this invoice's GL entry back (still a draft). */
+export function invoicePostingHeld(flagOn: boolean, status: string | null | undefined): boolean {
+  return flagOn && DRAFT_INVOICE_STATUSES.includes(String(status ?? '').toLowerCase());
+}
+
 /**
  * A feature entry that carries a VALUE rather than a switch.
  *

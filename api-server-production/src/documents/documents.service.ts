@@ -31,7 +31,7 @@ import { outstandingOf, grossStampOf, amountPaidOf, computeDocumentTotals, stamp
 import { confirmPostsToGl, erpPaidAtImport, erpStoredTotalsOf, isErpImported, moneySignature } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
 import { refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
-import { isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG } from '../common/org-features';
+import { isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, invoicePostingHeld } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { assetKey, descKey, invoiceDiscountPercent, isDisplayRow, orderInvoiceReference, planOrderInvoice, quoteDiscountAmount } from '../orders/order-billing';
 import { quotationLinesForJob } from '../deliveries/quotation-to-delivery';
@@ -267,6 +267,23 @@ export class DocumentsService {
     // ERP-imported history never posts (common/erp-import.ts), even when edited and saved.
     if (isErpImported(config)) return;
     try {
+      // postInvoicesOnConfirm (WCT group): a draft invoice has no GL entry yet;
+      // one left by an earlier save is voided. It posts when it leaves draft.
+      if (jeType === 'INVOICE' && (await this.invoicePostingHeldFor(organizationId, documentId))) {
+        const stale = await this.journalAutoPost.alreadyPostedForDocument(organizationId, documentId, jeType);
+        if (stale) {
+          await this.journalService.void(organizationId, stale.id, actor?.id);
+          void this.logDocumentEvent({
+            documentId,
+            organizationId,
+            action: 'EDITED',
+            detail: `GL entry ${stale.journalNumber} voided: the invoice is a draft (it posts when confirmed or sent)`,
+            documentName: documentName ?? undefined,
+            actor,
+          });
+        }
+        return;
+      }
       const cfg: any = config || {};
       const di: any = cfg.documentInfo || {};
       const items: any[] = cfg.items || [];
@@ -384,6 +401,35 @@ export class DocumentsService {
       }
     } catch (e) {
       console.error('[GL on save] failed for', docType, documentId, e);
+    }
+  }
+
+  /** postInvoicesOnConfirm is on and the invoice is still a draft / unconfirmed. */
+  private async invoicePostingHeldFor(organizationId: string, documentId: string): Promise<boolean> {
+    if (!(await isOrgFeatureEnabled(this.prisma as any, organizationId, POST_INVOICES_ON_CONFIRM_FLAG))) return false;
+    const doc = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { status: true } });
+    return invoicePostingHeld(true, doc?.status as any);
+  }
+
+  /**
+   * postInvoicesOnConfirm: the invoice just left draft (status change, or
+   * emailed to the customer) and has no GL entry yet, so post it now. No-op
+   * without the flag, for a non-invoice, a draft, or when an entry exists.
+   * Best-effort, like every GL post here.
+   */
+  async postInvoiceLeavingDraft(organizationId: string, documentId: string, actor?: DocumentActor): Promise<void> {
+    try {
+      if (!(await isOrgFeatureEnabled(this.prisma as any, organizationId, POST_INVOICES_ON_CONFIRM_FLAG))) return;
+      const doc = await this.prisma.document.findFirst({
+        where: { id: documentId, organizationId },
+        select: { type: true, status: true, name: true, config: true },
+      });
+      if (!doc || DocumentsService.SAVE_GL_TYPES[(doc.type || '').toUpperCase()] !== 'INVOICE') return;
+      if (invoicePostingHeld(true, doc.status as any)) return;
+      if (await this.journalAutoPost.alreadyPostedForDocument(organizationId, documentId, 'INVOICE')) return;
+      await this.repostGlForDocument(organizationId, documentId, doc.type, doc.config, doc.name, actor);
+    } catch (e) {
+      console.error('[GL on confirm] failed for invoice', documentId, e);
     }
   }
 
@@ -1835,6 +1881,11 @@ export class DocumentsService {
           updatedDocument.name,
           actor,
         );
+      }
+      // postInvoicesOnConfirm: a status change out of draft (no lines in the
+      // save) posts the invoice now. Idempotent; no-op without the flag.
+      if (dto.status && invoicePostingHeld(true, existingDocument.status as any) && !invoicePostingHeld(true, dto.status as any)) {
+        await this.postInvoiceLeavingDraft(organizationId, id, actor);
       }
 
       // ---- GL auto-post for non-invoice transactional types ----
@@ -5144,6 +5195,9 @@ export class DocumentsService {
             status: DocumentStatus.pending_payment,
           },
         });
+        // postInvoicesOnConfirm: emailing a draft takes it out of draft, so
+        // this is where its GL entry is posted (no-op otherwise).
+        await this.postInvoiceLeavingDraft(organizationId, documentId, actor);
       }
 
       return {
@@ -6265,7 +6319,7 @@ export class DocumentsService {
       const who = c.customerName || c.customer?.name || '';
       await this.staffWhatsApp.push(
         organizationId,
-        `Job done: ${doDoc.name || 'the delivery order'} is signed off${who ? ` by ${who}` : ''}. Draft invoice ${invoice.name || ''} is created and posted to the ledger: please review and confirm it.`,
+        `Job done: ${doDoc.name || 'the delivery order'} is signed off${who ? ` by ${who}` : ''}. Draft invoice ${invoice.name || ''} is created${(await isOrgFeatureEnabled(this.prisma as any, organizationId, POST_INVOICES_ON_CONFIRM_FLAG)) ? ': please review and confirm it (it posts to the ledger when confirmed or sent).' : ' and posted to the ledger: please review and confirm it.'}`,
         { linkPath: `/portal/documents/${invoice.type ?? 'INVOICE'}/${templateId}/${invoice.id}`, dedupeKey: `invoice-draft:${invoice.id}` },
       );
     }
@@ -6513,7 +6567,7 @@ export class DocumentsService {
         const who = (invoiceConfig as any).customerName || (invoiceConfig as any).customer?.name || '';
         await this.staffWhatsApp.push(
           organizationId,
-          `Order ${order.orderNumber}${who ? ` (${who})` : ''}: ${opts.trigger === 'now' ? 'invoiced now for' : 'all jobs done and verified,'} jobs ${jobsText}. Draft invoice ${invoice.name || ''} is created and posted to the ledger: please review and confirm it.`,
+          `Order ${order.orderNumber}${who ? ` (${who})` : ''}: ${opts.trigger === 'now' ? 'invoiced now for' : 'all jobs done and verified,'} jobs ${jobsText}. Draft invoice ${invoice.name || ''} is ${(await isOrgFeatureEnabled(this.prisma as any, organizationId, POST_INVOICES_ON_CONFIRM_FLAG)) ? 'ready to review and confirm (it posts to the ledger when confirmed or sent).' : 'created and posted to the ledger: please review and confirm it.'}`,
           { linkPath: link, dedupeKey: `order-invoice:${invoice.id}` },
         );
       }

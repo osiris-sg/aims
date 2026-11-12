@@ -39,6 +39,7 @@ export const MANUAL_ORDER_STATUS: Record<string, { label: string; color: "defaul
   DO_COMPLETED: { label: "DO completed", color: "success" },
   INVOICE_DRAFT: { label: "Invoice draft", color: "warning" },
   SERVICE_REPORT_SENT: { label: "Service report sent", color: "success" },
+  CANCELLED: { label: "Cancelled", color: "default" },
 };
 
 export const orderStatusLabel = (s: string | null | undefined) => ORDER_STATUS_LABEL[s as WctOrderStatus] ?? MANUAL_ORDER_STATUS[s ?? ""]?.label ?? (s || "—");

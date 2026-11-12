@@ -214,6 +214,9 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // the customer. No SiteClock sync, no field-app steps. The order keeps one
   // status (+ the date of each). Default OFF; WCT group only.
   enableManualOrderFlow: false,
+  // Invoices post to the GL when they leave draft (confirm / status change /
+  // emailed), not on creation or draft saves. Default OFF; WCT group only.
+  postInvoicesOnConfirm: false,
   // Show the Subject field on quotations (the WCT paper has a Subject box).
   // Default OFF; WCT group.
   enableQuotationSubject: false,
