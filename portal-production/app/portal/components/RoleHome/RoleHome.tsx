@@ -42,6 +42,7 @@ import { withActiveOrg } from "@/helpers/request";
 import { QUICK_ACTIONS, ROLES, ROLE_ORDER, type Metric, type Priority, type QuickActionId, type Snapshot, type Summary } from "./roles";
 import { RoleIcon, ICON_TONE } from "./icons";
 import { useRoleView } from "./useRoleView";
+import { useNavModules } from "@/components/TopNav/useNavModules";
 
 // The mock-up's palette. Ink/surface come from the theme so dark mode works;
 // the accents are the same in both.
@@ -478,6 +479,7 @@ function QuickActions({
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [picked, setPicked] = React.useState<QuickActionId[]>(active);
+  const max = Math.min(3, pool.length);
   // One create flow per tile that creates a document — the same hook the
   // "Create <type>" buttons use, so numbering, template and number-format
   // pickers all behave exactly as they do elsewhere.
@@ -546,12 +548,12 @@ function QuickActions({
         <DialogTitle sx={{ fontWeight: 600 }}>Customise quick actions</DialogTitle>
         <DialogContent dividers>
           <Typography variant="body2" sx={{ color: "text.secondary", mb: 1.5 }}>
-            Choose 3 of {pool.length}. ({picked.length}/3 selected)
+            Choose {max} of {pool.length}. ({picked.length}/{max} selected)
           </Typography>
           <Stack gap={1}>
             {pool.map((id) => {
               const on = picked.includes(id);
-              const full = !on && picked.length >= 3;
+              const full = !on && picked.length >= max;
               return (
                 <Stack
                   key={id}
@@ -580,7 +582,7 @@ function QuickActions({
           <Button onClick={() => setOpen(false)} sx={{ textTransform: "none" }}>Cancel</Button>
           <Button
             variant="contained"
-            disabled={picked.length !== 3}
+            disabled={picked.length !== max}
             onClick={() => { onSave(picked); setOpen(false); }}
             data-testid="role-home-customise-save"
             sx={{ borderRadius: 999, textTransform: "none", px: 3 }}
@@ -680,6 +682,13 @@ function useRoleHomeSnapshot(days: string) {
 
 export default function RoleHome() {
   const { roleId, setRoleId, role, activeShortcuts, setShortcuts } = useRoleView();
+  // Quick actions that open a module's screen only exist while the org runs
+  // that module (Chong Aik runs no Deliveries, so no "New Delivery").
+  const { navModules } = useNavModules();
+  const moduleOn = React.useCallback((id: QuickActionId) => { const m = QUICK_ACTIONS[id].module; return !m || navModules.some((n: any) => n.moduleCode === m); }, [navModules]);
+  const actionPool = role.actionPool.filter(moduleOn);
+  const shortcuts = activeShortcuts.filter(moduleOn);
+  const prompts = role.prompts.map((p) => (typeof p === "string" ? p : navModules.some((n: any) => n.moduleCode === p.module) ? p.text : p.fallback));
   const { organization } = useOrganization();
   const [range, setRange] = React.useState("30");
   const { snapshot, loading } = useRoleHomeSnapshot(range);
@@ -702,8 +711,8 @@ export default function RoleHome() {
             <Overview metrics={cut.overview} range={range} setRange={setRange} />
           </Stack>
           <Stack gap={2} className="aims-rise" key={`r-${roleId}`} sx={{ animationDelay: "120ms" }}>
-            <QuickActions pool={role.actionPool} active={activeShortcuts} onSave={setShortcuts} />
-            <AssistantCard prompts={role.prompts} />
+            <QuickActions pool={actionPool} active={shortcuts} onSave={setShortcuts} />
+            <AssistantCard prompts={prompts} />
           </Stack>
         </Box>
         <Typography variant="caption" sx={{ display: "block", mt: 2, color: "text.secondary" }}>

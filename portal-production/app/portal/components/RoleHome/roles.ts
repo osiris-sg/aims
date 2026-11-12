@@ -54,6 +54,8 @@ export type QuickAction = {
   createType?: string;
   /** …or a screen to open. */
   href?: string;
+  /** The module that owns the screen: the tile is hidden when the org has it off. */
+  module?: string;
 };
 
 /** What GET /dashboard/role-home returns (api-server: dashboard/role-home.service.ts). */
@@ -83,7 +85,8 @@ export type RoleDef = {
   prioritiesTitle?: string;
   prioritiesBadge?: string;
   actionPool: QuickActionId[];
-  prompts: string[];
+  /** Suggested AIMEE prompts; a module-bound one falls back when the org has that module off. */
+  prompts: Array<string | { text: string; module: string; fallback: string }>;
   /** The role's cards from the org's snapshot (null = still loading). */
   cut: (s: Snapshot | null) => RoleCut;
 };
@@ -120,9 +123,9 @@ export const QUICK_ACTIONS: Record<QuickActionId, QuickAction> = {
   addEmployee: { label: "Add User", icon: "userPlus", href: R.users },
   runPayroll: { label: "Payables", icon: "payroll", href: R.payables },
   approveLeave: { label: "Posting Queue", icon: "check", href: R.postingQueue },
-  newDelivery: { label: "New Delivery", icon: "truck", href: R.deliveries },
-  stockAdjust: { label: "Stock Adjustment", icon: "box", href: R.inventory },
-  newProject: { label: "New Project", icon: "briefcase", href: R.projects },
+  newDelivery: { label: "New Delivery", icon: "truck", href: R.deliveries, module: "DELIVERIES" },
+  stockAdjust: { label: "Stock Adjustment", icon: "box", href: R.inventory, module: "INVENTORY" },
+  newProject: { label: "New Project", icon: "briefcase", href: R.projects, module: "PROJECTS" },
 };
 
 // ── Formatting ────────────────────────────────────────────────────────────
@@ -260,7 +263,7 @@ export const ROLES: Record<RoleId, RoleDef> = {
     prioritiesTitle: "Job issues",
     prioritiesBadge: "open",
     actionPool: ["newDelivery", "stockAdjust", "createPO", "newProject"],
-    prompts: ["Show today's deliveries", "What is low on stock?", "Open service reports"],
+    prompts: [{ text: "Show today's deliveries", module: "DELIVERIES", fallback: "Which delivery orders are pending?" }, "What is low on stock?", "Open service reports"],
     cut(s) {
       if (!s)
         return empty([{ label: "Jobs today", unit: "jobs", count: null, href: R.deliveries }, { label: "Upcoming jobs", unit: "next 5 days", count: null, href: R.deliveries }], [loading("check", "Jobs completed"), loading("clock", "On-time completion"), loading("truck", "Open jobs"), loading("box", "Low stock")]);
