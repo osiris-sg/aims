@@ -9,8 +9,10 @@
 // A "Viewing as" switcher re-cuts the whole screen for the three roles.
 //
 // The FUNCTIONS are AIMS's: every row and tile opens a real screen or runs the
-// real create flow. The NUMBERS are sample data, labelled as such, so the
-// screen reads on a fresh org.
+// real create flow. The NUMBERS are the org's own (guru 2026-11-12: "make sure
+// all the data is correct and not sample data"): one snapshot from
+// GET /dashboard/role-home, cut per role in roles.ts; the weather is the
+// live reading for the browser's time zone.
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
@@ -32,11 +34,12 @@ import WbSunnyOutlinedIcon from "@mui/icons-material/WbSunnyOutlined";
 import SendIcon from "@mui/icons-material/Send";
 import { useUser } from "@clerk/nextjs";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
+import { useAccountingApi } from "@/app/portal/accounting/_lib/api";
 import { openAimee } from "@/app/portal/chat/homeView";
 import { AimeeKeyframes, AimeeRobot } from "./Aimee";
 import { useCreateDocumentFlow } from "@/app/portal/components/useCreateDocumentFlow";
 import { withActiveOrg } from "@/helpers/request";
-import { QUICK_ACTIONS, ROLES, ROLE_ORDER, type Metric, type Priority, type QuickActionId } from "./roles";
+import { QUICK_ACTIONS, ROLES, ROLE_ORDER, type Metric, type Priority, type QuickActionId, type Snapshot, type Summary } from "./roles";
 import { RoleIcon, ICON_TONE } from "./icons";
 import { useRoleView } from "./useRoleView";
 
@@ -98,12 +101,66 @@ function Sparkline({ data, color = TEAL }: { data: number[]; color?: string }) {
 const SKYLINE =
   "https://static.prod-images.emergentagent.com/jobs/a605cd83-f653-41dd-80d1-bba56175a9ed/images/a9ab420a121eac5c614c3693040a603e259a16fc1fb2a2f419e6ab98fd8089a4.jpeg";
 
+// Live weather for where the user is: the browser's time zone picks the city
+// (open-meteo, no key). Unknown zone or a failed call → no weather shown,
+// never a made-up reading.
+const CITY_BY_ZONE: Record<string, [number, number]> = {
+  "Asia/Singapore": [1.3521, 103.8198],
+  "Asia/Kuala_Lumpur": [3.139, 101.6869],
+  "Asia/Jakarta": [-6.2088, 106.8456],
+  "Asia/Bangkok": [13.7563, 100.5018],
+  "Asia/Manila": [14.5995, 120.9842],
+  "Asia/Ho_Chi_Minh": [10.8231, 106.6297],
+  "Asia/Hong_Kong": [22.3193, 114.1694],
+  "Asia/Tokyo": [35.6762, 139.6503],
+  "Asia/Seoul": [37.5665, 126.978],
+  "Asia/Shanghai": [31.2304, 121.4737],
+  "Asia/Taipei": [25.033, 121.5654],
+  "Asia/Kolkata": [19.076, 72.8777],
+  "Asia/Dubai": [25.2048, 55.2708],
+  "Australia/Sydney": [-33.8688, 151.2093],
+  "Australia/Melbourne": [-37.8136, 144.9631],
+  "Australia/Perth": [-31.9505, 115.8605],
+  "Europe/London": [51.5072, -0.1276],
+  "America/New_York": [40.7128, -74.006],
+  "America/Los_Angeles": [34.0522, -118.2437],
+};
+const WEATHER_WORDS: Array<[number, string]> = [
+  [0, "Clear sky"], [1, "Mainly clear"], [2, "Partly cloudy"], [3, "Overcast"], [45, "Fog"], [48, "Fog"],
+  [51, "Light drizzle"], [53, "Drizzle"], [55, "Drizzle"], [61, "Light rain"], [63, "Rain"], [65, "Heavy rain"],
+  [66, "Freezing rain"], [67, "Freezing rain"], [71, "Snow"], [73, "Snow"], [75, "Heavy snow"], [77, "Snow"],
+  [80, "Showers"], [81, "Showers"], [82, "Heavy showers"], [85, "Snow showers"], [86, "Snow showers"],
+  [95, "Thunderstorm"], [96, "Thunderstorm"], [99, "Thunderstorm"],
+];
+function useWeather() {
+  const [w, setW] = React.useState<{ temp: number; words: string } | null>(null);
+  React.useEffect(() => {
+    let zone = "";
+    try { zone = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { /* no zone → no weather */ }
+    const city = CITY_BY_ZONE[zone];
+    if (!city) return;
+    const ctrl = new AbortController();
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${city[0]}&longitude=${city[1]}&current=temperature_2m,weather_code`, { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        const temp = Number(j?.current?.temperature_2m);
+        const code = Number(j?.current?.weather_code);
+        if (!Number.isFinite(temp)) return;
+        setW({ temp: Math.round(temp), words: WEATHER_WORDS.find(([c]) => c === code)?.[1] ?? "" });
+      })
+      .catch(() => { /* offline → no weather */ });
+    return () => ctrl.abort();
+  }, []);
+  return w;
+}
+
 function Greeting({ children }: { children?: React.ReactNode }) {
   const { user } = useUser();
   const t = useTheme();
   const dark = t.palette.mode === "dark";
   const [now, setNow] = React.useState<Date | null>(null);
   const [imgOk, setImgOk] = React.useState(true);
+  const weather = useWeather();
   React.useEffect(() => setNow(new Date()), []);
   // Clerk's firstName is often blank on seeded accounts — fall back to the
   // full name, then the email local part, before the generic greeting.
@@ -161,14 +218,18 @@ function Greeting({ children }: { children?: React.ReactNode }) {
             gap={2.5}
             sx={{ display: { xs: "none", md: "flex" }, px: 2.5, py: 1.5, borderRadius: 4, bgcolor: dark ? alpha("#0B1033", 0.6) : "rgba(255,255,255,0.7)", backdropFilter: "blur(12px)", boxShadow: "0 1px 2px rgba(0,0,0,.05)" }}
           >
-            <Stack direction="row" alignItems="center" gap={1}>
-              <WbSunnyOutlinedIcon sx={{ color: "#FBBF24", fontSize: 32 }} />
-              <Box sx={{ lineHeight: 1.2 }}>
-                <Typography sx={{ fontSize: 20, fontWeight: 600, lineHeight: 1.2 }}>26°C</Typography>
-                <Typography sx={{ fontSize: 11, color: "text.secondary" }}>Partly cloudy</Typography>
-              </Box>
-            </Stack>
-            <Box sx={{ height: 36, width: "1px", bgcolor: dark ? alpha("#fff", 0.2) : "#CBD5E1" }} />
+            {weather && (
+              <>
+                <Stack direction="row" alignItems="center" gap={1} data-testid="role-home-weather">
+                  <WbSunnyOutlinedIcon sx={{ color: "#FBBF24", fontSize: 32 }} />
+                  <Box sx={{ lineHeight: 1.2 }}>
+                    <Typography sx={{ fontSize: 20, fontWeight: 600, lineHeight: 1.2 }}>{weather.temp}°C</Typography>
+                    {weather.words && <Typography sx={{ fontSize: 11, color: "text.secondary" }}>{weather.words}</Typography>}
+                  </Box>
+                </Stack>
+                <Box sx={{ height: 36, width: "1px", bgcolor: dark ? alpha("#fff", 0.2) : "#CBD5E1" }} />
+              </>
+            )}
             <Typography sx={{ fontSize: 14 }}>
               {now ? now.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" }) : ""}
             </Typography>
@@ -207,7 +268,7 @@ function RoleSwitch({ roleId, onChange }: { roleId: string; onChange: (id: any) 
 }
 
 // ── Due today / Pending ──────────────────────────────────────────────────
-function SummaryCards({ items }: { items: { label: string; unit: string; count: number; href: string }[] }) {
+function SummaryCards({ items }: { items: Summary[] }) {
   const card = useCardSx();
   const router = useRouter();
   const t = useTheme();
@@ -241,7 +302,7 @@ function SummaryCards({ items }: { items: { label: string; unit: string; count: 
             <Box sx={{ flex: 1 }}>
               <Typography sx={{ fontSize: 15, fontWeight: 500 }}>{it.label}</Typography>
               <Stack direction="row" alignItems="baseline" gap={1}>
-                <Typography sx={{ fontSize: 30, fontWeight: 600, lineHeight: 1.2 }}>{it.count}</Typography>
+                <Typography sx={{ fontSize: 30, fontWeight: 600, lineHeight: 1.2, fontVariantNumeric: "tabular-nums" }}>{it.count === null ? "—" : it.count.toLocaleString("en-SG")}</Typography>
                 <Typography variant="body2" sx={{ color: "text.secondary" }}>{it.unit}</Typography>
               </Stack>
             </Box>
@@ -254,7 +315,7 @@ function SummaryCards({ items }: { items: { label: string; unit: string; count: 
 }
 
 // ── Your priorities ──────────────────────────────────────────────────────
-function Priorities({ title, badge, rows }: { title: string; badge: string; rows: Priority[] }) {
+function Priorities({ title, badge, rows, loading }: { title: string; badge: string; rows: Priority[]; loading: boolean }) {
   const card = useCardSx();
   const router = useRouter();
   const t = useTheme();
@@ -266,8 +327,19 @@ function Priorities({ title, badge, rows }: { title: string; badge: string; rows
           <ErrorOutlineIcon />
           <Typography sx={{ fontSize: 18, fontWeight: 600 }}>{title}</Typography>
         </Stack>
-        <Chip size="small" label={`${rows.length} ${badge}`} sx={{ bgcolor: dark ? alpha(RED, 0.3) : "#FDE6EA", color: dark ? "#FFB4BE" : RED, fontWeight: 500, fontSize: 14, height: 28, px: 0.5 }} />
+        <Chip
+          size="small"
+          label={loading ? "…" : `${rows.length} ${badge}`}
+          sx={rows.length
+            ? { bgcolor: dark ? alpha(RED, 0.3) : "#FDE6EA", color: dark ? "#FFB4BE" : RED, fontWeight: 500, fontSize: 14, height: 28, px: 0.5 }
+            : { bgcolor: dark ? alpha("#fff", 0.1) : "#EEF0F8", color: "text.secondary", fontWeight: 500, fontSize: 14, height: 28, px: 0.5 }}
+        />
       </Stack>
+      {!loading && rows.length === 0 && (
+        <Typography data-testid="role-home-priorities-empty" sx={{ py: 3, textAlign: "center", color: "text.secondary", fontSize: 15 }}>
+          Nothing needs attention right now.
+        </Typography>
+      )}
       <Stack>
         {rows.map((p, i) => (
           <Stack
@@ -326,29 +398,35 @@ function Priorities({ title, badge, rows }: { title: string; badge: string; rows
 }
 
 // ── Business overview ────────────────────────────────────────────────────
-const RANGES: Record<string, { label: string; points: number }> = {
-  "7": { label: "Last 7 days", points: 7 },
-  "30": { label: "Last 30 days", points: 14 },
-  "90": { label: "Last 90 days", points: 14 },
-};
+export const RANGES: Record<string, string> = { "7": "Last 7 days", "30": "Last 30 days", "90": "Last 90 days" };
 
-function Overview({ metrics }: { metrics: Metric[] }) {
+// A daily series folded into at most 14 points so the line reads at any range
+// (sum the flows; a balance line keeps the last value of each fold).
+function fold(data: number[], balance: boolean): number[] {
+  if (data.length <= 14) return data;
+  const size = Math.ceil(data.length / 14);
+  const out: number[] = [];
+  for (let i = 0; i < data.length; i += size) {
+    const chunk = data.slice(i, i + size);
+    out.push(balance ? chunk[chunk.length - 1] : chunk.reduce((a, b) => a + b, 0));
+  }
+  return out;
+}
+
+function Overview({ metrics, range, setRange }: { metrics: Metric[]; range: string; setRange: (v: string) => void }) {
   const card = useCardSx();
   const t = useTheme();
   const dark = t.palette.mode === "dark";
-  const [range, setRange] = React.useState("30");
-  const points = RANGES[range].points;
   return (
     <Box sx={{ ...card, p: { xs: 2, md: 2.5 } }} data-testid="role-home-overview">
       <Stack direction="row" alignItems="center" justifyContent="space-between" mb={2} gap={1} flexWrap="wrap">
         <Stack direction="row" alignItems="center" gap={1.5}>
           <InsightsOutlinedIcon />
           <Typography sx={{ fontSize: 18, fontWeight: 600 }}>Business overview</Typography>
-          <Chip size="small" label="Sample data" sx={{ height: 20, fontSize: 11, bgcolor: alpha(t.palette.text.primary, 0.08) }} />
         </Stack>
         <Select size="small" value={range} onChange={(e) => setRange(e.target.value)} data-testid="role-home-range" sx={{ borderRadius: 2, minWidth: 150 }}>
-          {Object.entries(RANGES).map(([v, r]) => (
-            <MenuItem key={v} value={v}>{r.label}</MenuItem>
+          {Object.entries(RANGES).map(([v, label]) => (
+            <MenuItem key={v} value={v}>{label}</MenuItem>
           ))}
         </Select>
       </Stack>
@@ -364,15 +442,19 @@ function Overview({ metrics }: { metrics: Metric[] }) {
                 </Box>
                 <Typography variant="body2">{m.label}</Typography>
               </Stack>
-              <Typography sx={{ fontSize: 20, fontWeight: 600, mt: 0.5, pl: 5.5 }}>{m.value}</Typography>
-              <Stack direction="row" alignItems="center" gap={0.5} sx={{ pl: 5.5, color: dark && !m.bad ? "#4ADE9B" : tone }}>
-                {down ? <ArrowDownwardIcon sx={{ fontSize: 16 }} /> : <ArrowUpwardIcon sx={{ fontSize: 16 }} />}
-                <Typography variant="body2" sx={{ fontWeight: 600 }}>{m.change}</Typography>
-              </Stack>
+              <Typography sx={{ fontSize: 20, fontWeight: 600, mt: 0.5, pl: 5.5, fontVariantNumeric: "tabular-nums" }}>{m.value}</Typography>
+              {m.change && (
+                <Stack direction="row" alignItems="center" gap={0.5} sx={{ pl: 5.5, color: dark && !m.bad ? "#4ADE9B" : tone }}>
+                  {down ? <ArrowDownwardIcon sx={{ fontSize: 16 }} /> : <ArrowUpwardIcon sx={{ fontSize: 16 }} />}
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{m.change}</Typography>
+                </Stack>
+              )}
               {m.sub && <Typography sx={{ pl: 5.5, fontSize: 11, color: dark ? "text.secondary" : "#64748B" }}>{m.sub}</Typography>}
-              <Box sx={{ mt: 1 }}>
-                <Sparkline data={m.data.slice(-points)} color={m.bad ? RED : TEAL} />
-              </Box>
+              {m.data && m.data.length > 1 && (
+                <Box sx={{ mt: 1 }}>
+                  <Sparkline data={fold(m.data, m.label === "Cash Balance")} color={m.bad ? RED : TEAL} />
+                </Box>
+              )}
             </Box>
           );
         })}
@@ -577,9 +659,31 @@ function AssistantCard({ prompts }: { prompts: string[] }) {
 }
 
 // ── The screen ───────────────────────────────────────────────────────────
+// One snapshot per range; refetched when the range or the org changes.
+function useRoleHomeSnapshot(days: string) {
+  const { request } = useAccountingApi();
+  const [snapshot, setSnapshot] = React.useState<Snapshot | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    request<Snapshot>(`/dashboard/role-home?days=${days}&today=${today}&tzOffset=${now.getTimezoneOffset()}`)
+      .then((s) => { if (alive) setSnapshot(s); })
+      .catch(() => { if (alive) setSnapshot(null); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [request, days]);
+  return { snapshot, loading };
+}
+
 export default function RoleHome() {
   const { roleId, setRoleId, role, activeShortcuts, setShortcuts } = useRoleView();
   const { organization } = useOrganization();
+  const [range, setRange] = React.useState("30");
+  const { snapshot, loading } = useRoleHomeSnapshot(range);
+  const cut = React.useMemo(() => role.cut(snapshot), [role, snapshot]);
   return (
     <Box sx={{ minHeight: "100%", bgcolor: (th) => (th.palette.mode === "dark" ? "background.default" : "#F2F4FA") }} data-testid="role-home">
       <AimeeKeyframes />
@@ -593,9 +697,9 @@ export default function RoleHome() {
       <Box sx={{ maxWidth: 1440, mx: "auto", px: { xs: 2, md: 4 }, py: 2.5 }}>
         <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "1fr 380px" }, gap: 2, alignItems: "start" }}>
           <Stack gap={2} className="aims-rise" key={`l-${roleId}`}>
-            <SummaryCards items={role.summary} />
-            <Priorities title={role.prioritiesTitle ?? "Your priorities"} badge={role.prioritiesBadge ?? "pending"} rows={role.priorities} />
-            <Overview metrics={role.overview} />
+            <SummaryCards items={cut.summary} />
+            <Priorities title={role.prioritiesTitle ?? "Your priorities"} badge={role.prioritiesBadge ?? "pending"} rows={cut.priorities} loading={loading && !snapshot} />
+            <Overview metrics={cut.overview} range={range} setRange={setRange} />
           </Stack>
           <Stack gap={2} className="aims-rise" key={`r-${roleId}`} sx={{ animationDelay: "120ms" }}>
             <QuickActions pool={role.actionPool} active={activeShortcuts} onSave={setShortcuts} />
@@ -603,7 +707,7 @@ export default function RoleHome() {
           </Stack>
         </Box>
         <Typography variant="caption" sx={{ display: "block", mt: 2, color: "text.secondary" }}>
-          {organization?.name ?? "This organisation"} • role-based home. Figures are sample data; every button opens the real AIMS screen.
+          {organization?.name ?? "This organisation"} • role-based home.
         </Typography>
       </Box>
     </Box>

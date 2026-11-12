@@ -2,6 +2,7 @@ import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Re
 import { DashboardService } from './dashboard.service';
 import { JobsCalendarService } from './jobs-calendar.service';
 import { CalendarNotesService } from './calendar-notes.service';
+import { RoleHomeService } from './role-home.service';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
@@ -25,6 +26,7 @@ export class DashboardController {
     private readonly dashboardService: DashboardService,
     private readonly jobsCalendar: JobsCalendarService,
     private readonly calendarNotes: CalendarNotesService,
+    private readonly roleHome: RoleHomeService,
   ) {}
 
   @Get('overview')
@@ -37,6 +39,23 @@ export class DashboardController {
       throw new Error('User is not assigned to any organization');
     }
     return await this.dashboardService.getDashboardOverview(organizationId);
+  }
+
+  // Role-based home (enableRoleHome): every card's figure from the org's own
+  // data, cut per role on the client. `today` + `tzOffset` are the user's
+  // local day; `days` is the overview range (7 | 30 | 90).
+  @Get('role-home')
+  @Permissions('dashboard:read')
+  @ApiOperation({ summary: 'Role-based home screen snapshot (real figures)' })
+  async getRoleHome(
+    @Req() req: RequestWithOrganization,
+    @Query('days') days?: string,
+    @Query('today') today?: string,
+    @Query('tzOffset') tzOffset?: string,
+  ) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return await this.roleHome.snapshot(organizationId, { days: Number(days), today, tzOffset: Number(tzOffset) });
   }
 
   @Get('assets-overview')
