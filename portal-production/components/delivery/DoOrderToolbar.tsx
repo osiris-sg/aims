@@ -4,21 +4,19 @@
 // an order, like the quotation's. Complete DO (the same 3-way dialog, with the
 // unit picker for product lines; a DO with a scheduled job is completed the
 // job's way by the server), Customer sign link, Add job (optional, for the
-// calendar / a technician), Add service report. Once completed it reads
-// Completed, with the way back to the order.
+// calendar / a technician). Once completed it reads Completed, with the way
+// back to the order. Service reports are added from the order page only (2026-11-13).
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Button, Chip, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from "@mui/material";
+import { Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
 import OfficeCompleteJobDialog from "./OfficeCompleteJobDialog";
 import CustomerSignLink from "./CustomerSignLink";
-import NewServiceReportDialog from "@/app/portal/maintenance-reports/_components/NewServiceReportDialog";
-import UploadServiceReportDialog from "@/app/portal/maintenance-reports/_components/UploadServiceReportDialog";
 
 export default function DoOrderToolbar({ documentId, doName, status, config }: { documentId: string; doName: string | null; status: string; config: any }) {
   const router = useRouter();
@@ -27,9 +25,6 @@ export default function DoOrderToolbar({ documentId, doName, status, config }: {
   const completed = String(status || "").startsWith("delivered");
   const [completeOpen, setCompleteOpen] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
-  const [srChoose, setSrChoose] = useState(false);
-  const [srNew, setSrNew] = useState(false);
-  const [srUpload, setSrUpload] = useState(false);
   const [busy, setBusy] = useState(false);
   const customer = c.customerId || c.customer?.id ? { id: c.customerId || c.customer?.id, name: c.customerName || c.customer?.name || "" } : null;
   const products = (Array.isArray(c.items) ? c.items : []).filter((it: any) => it?.assetId && !it.inventoryItemId);
@@ -61,9 +56,6 @@ export default function DoOrderToolbar({ documentId, doName, status, config }: {
         <Chip color="success" icon={<CheckCircleIcon />} label="Completed" data-tour="do-completed" />
       ) : (
         <>
-          <Button size="small" variant="outlined" onClick={() => setSrChoose(true)} data-tour="do-add-service-report">
-            Add service report
-          </Button>
           <Button size="small" variant="outlined" disabled={busy} onClick={() => void addJob()} data-tour="do-add-job">
             Add job
           </Button>
@@ -74,11 +66,6 @@ export default function DoOrderToolbar({ documentId, doName, status, config }: {
             Complete DO
           </Button>
         </>
-      )}
-      {completed && (
-        <Button size="small" variant="outlined" onClick={() => setSrChoose(true)} data-tour="do-add-service-report">
-          Add service report
-        </Button>
       )}
 
       {completeOpen && (
@@ -106,33 +93,6 @@ export default function DoOrderToolbar({ documentId, doName, status, config }: {
           <Button onClick={() => { setLinkOpen(false); window.location.reload(); }}>Close</Button>
         </DialogActions>
       </Dialog>
-      <Dialog open={srChoose} onClose={() => setSrChoose(false)} fullWidth maxWidth="xs">
-        <DialogTitle>Add a service report</DialogTitle>
-        <DialogContent>
-          <DialogContentText>Write it here on the WCT form, or upload a report you already have as a file. It is for {doName || "this DO"}.</DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setSrChoose(false)}>Cancel</Button>
-          <Button variant="outlined" onClick={() => { setSrChoose(false); setSrUpload(true); }}>
-            Upload file
-          </Button>
-          <Button variant="contained" disableElevation onClick={() => { setSrChoose(false); setSrNew(true); }}>
-            Create new
-          </Button>
-        </DialogActions>
-      </Dialog>
-      <NewServiceReportDialog open={srNew} onClose={() => setSrNew(false)} prefill={{ customer, doId: documentId }} />
-      <UploadServiceReportDialog
-        open={srUpload}
-        onClose={() => setSrUpload(false)}
-        wctOrders
-        manualFlow
-        prefill={{ customer, doId: documentId }}
-        onUploaded={(r) => {
-          setSrUpload(false);
-          router.push(`/portal/maintenance-reports/${r.id}`);
-        }}
-      />
     </>
   );
 }

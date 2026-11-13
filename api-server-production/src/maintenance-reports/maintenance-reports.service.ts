@@ -1696,7 +1696,27 @@ export class MaintenanceReportsService {
     });
     if (!report) throw new NotFoundException('Service report not found');
     if ((report.serviceData as any)?.deletedAt) throw new NotFoundException('This service report was deleted');
-    return report;
+    return { ...report, order: await this.orderOfReport(report, organizationId) };
+  }
+
+  /**
+   * WCT orders (2026-11-13): the order a report belongs to, for the report page's
+   * "Back to order": its own link (uploaded / office reports), else its job's
+   * order, else an order that lists it among its attachments. Read only.
+   */
+  private async orderOfReport(report: { id: string; deliveryId: string | null; serviceData: unknown }, organizationId: string): Promise<{ id: string; orderNumber: string } | null> {
+    const sd = (report.serviceData ?? {}) as any;
+    const select = { id: true, orderNumber: true } as const;
+    const byId = async (orderId: string | null | undefined) =>
+      orderId ? this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select }) : null;
+    const own = await byId(typeof sd.orderId === 'string' ? sd.orderId : null);
+    if (own) return own;
+    if (report.deliveryId) {
+      const job = await this.prisma.delivery.findFirst({ where: { id: report.deliveryId, organizationId }, select: { orderId: true } });
+      const viaJob = await byId(job?.orderId);
+      if (viaJob) return viaJob;
+    }
+    return this.prisma.order.findFirst({ where: { organizationId, attachments: { array_contains: [{ reportId: report.id }] } }, select });
   }
 
   /**

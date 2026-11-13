@@ -32,6 +32,7 @@ import { downloadServiceReportsZip } from "@/helpers/downloadServiceReportsZip";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import NewServiceReportDialog from "./_components/NewServiceReportDialog";
 import UploadServiceReportDialog from "./_components/UploadServiceReportDialog";
+import { readServiceReportFlow, type ServiceReportPrefill } from "@/helpers/serviceReportFlow";
 
 interface ServiceData {
   customerName?: string | null;
@@ -92,6 +93,17 @@ export default function MaintenanceReportsListPage() {
   const { isWctOrdersEnabled, isManualOrderFlowEnabled } = useOrganizationFeatures();
   const [uploadOpen, setUploadOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  // WCT manual flow (2026-11-13): the order page's "Add service report" lands here with the customer + DO prefilled.
+  const [flowPrefill, setFlowPrefill] = useState<ServiceReportPrefill | undefined>(undefined);
+  useEffect(() => {
+    if (!isManualOrderFlowEnabled || typeof window === "undefined") return;
+    const flow = readServiceReportFlow(window.location.search);
+    if (!flow) return;
+    setFlowPrefill({ customer: flow.customer, doId: flow.doId });
+    if (flow.mode === "new") setNewOpen(true);
+    else setUploadOpen(true);
+    router.replace("/portal/maintenance-reports");
+  }, [isManualOrderFlowEnabled, router]);
 
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -232,14 +244,16 @@ export default function MaintenanceReportsListPage() {
         </Stack>
       </Stack>
 
-      <NewServiceReportDialog open={newOpen} onClose={() => setNewOpen(false)} />
+      <NewServiceReportDialog open={newOpen} onClose={() => { setNewOpen(false); setFlowPrefill(undefined); }} prefill={flowPrefill} />
       <UploadServiceReportDialog
         open={uploadOpen}
-        onClose={() => setUploadOpen(false)}
+        onClose={() => { setUploadOpen(false); setFlowPrefill(undefined); }}
         wctOrders={isWctOrdersEnabled}
         manualFlow={!!isManualOrderFlowEnabled}
+        prefill={flowPrefill}
         onUploaded={(r) => {
           setUploadOpen(false);
+          setFlowPrefill(undefined);
           router.push(`/portal/maintenance-reports/${r.id}`);
         }}
       />

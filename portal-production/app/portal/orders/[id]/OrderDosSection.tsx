@@ -43,7 +43,6 @@ export default function OrderDosSection({
   onReload,
   onCompleteDo,
   onSignLink,
-  onServiceReport,
 }: {
   orderId: string;
   dos: OrderDo[];
@@ -51,7 +50,6 @@ export default function OrderDosSection({
   onReload: () => Promise<void> | void;
   onCompleteDo: (d: OrderDo) => void;
   onSignLink: (d: OrderDo) => void;
-  onServiceReport: (d: OrderDo) => void;
 }) {
   const router = useRouter();
   const { getToken } = useAuth();
@@ -146,7 +144,7 @@ export default function OrderDosSection({
         </Typography>
       )}
 
-      {/* The DO's menu: View DO, Complete DO, Add job, Customer sign link, Add service report. */}
+      {/* The DO's menu: View DO, Complete DO, Add job, Customer sign link (service reports: the order's Service report step only). */}
       <Menu open={!!menu} onClose={() => setMenu(null)} anchorReference="anchorPosition" anchorPosition={menu?.pos}>
         {menu && menu.d.templateId && (
           <MenuItem onClick={() => { const d = menu.d; setMenu(null); router.push(`/portal/documents/DELIVERY_ORDER/${d.templateId}/${d.id}`); }}>View DO</MenuItem>
@@ -159,9 +157,6 @@ export default function OrderDosSection({
         {menu && !menu.d.completed && !cancelled && <MenuItem onClick={() => void addJob(menu.d)}>Add job</MenuItem>}
         {menu && !menu.d.completed && !cancelled && (
           <MenuItem onClick={() => { const d = menu.d; setMenu(null); onSignLink(d); }}>Customer sign link</MenuItem>
-        )}
-        {menu && !cancelled && (
-          <MenuItem onClick={() => { const d = menu.d; setMenu(null); onServiceReport(d); }}>Add service report</MenuItem>
         )}
       </Menu>
     </Box>

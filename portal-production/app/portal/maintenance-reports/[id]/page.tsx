@@ -23,6 +23,7 @@ import {
   Typography,
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import PrintIcon from "@mui/icons-material/Print";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import CheckBoxIcon from "@mui/icons-material/CheckBox";
@@ -88,6 +89,8 @@ interface ServiceData {
 
 interface MsrDetail {
   id: string;
+  /** WCT orders (2026-11-13): the order this report belongs to (own link, its job's, or an order attachment). */
+  order?: { id: string; orderNumber: string } | null;
   reportNumber: number | null;
   /** Optional proof photos (S3 keys), shown at the end. */
   photos?: string[] | null;
@@ -130,6 +133,7 @@ const formatTimeOnly = (iso?: string | null) => {
 export default function MaintenanceReportDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const { isManualOrderFlowEnabled } = useOrganizationFeatures();
   const { getToken } = useAuth();
   const id = params?.id as string;
 
@@ -289,9 +293,17 @@ export default function MaintenanceReportDetailPage() {
         sx={{ "@media print": { display: "none" } }}
         className="msr-toolbar"
       >
-        <Button startIcon={<ArrowBackIcon />} onClick={() => router.push("/portal/maintenance-reports")}>
-          Back to list
-        </Button>
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+          <Button startIcon={<ArrowBackIcon />} onClick={() => router.push("/portal/maintenance-reports")}>
+            Back to list
+          </Button>
+          {/* WCT manual flow (2026-11-13): back to the order the report belongs to, as on the DO page. */}
+          {isManualOrderFlowEnabled && report.order && (
+            <Button startIcon={<ArrowBackIcon />} onClick={() => router.push(`/portal/orders/${report.order!.id}`)} data-tour="service-report-back-to-order">
+              Back to order {report.order.orderNumber}
+            </Button>
+          )}
+        </Stack>
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
           {/* Manual order flow (2026-11-13): edit / replace / delete (renders nothing elsewhere). */}
           <ReportEditActions report={report as any} isUploaded={isUploaded} />

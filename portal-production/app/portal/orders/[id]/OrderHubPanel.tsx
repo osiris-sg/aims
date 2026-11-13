@@ -18,7 +18,7 @@ import { HUB_ACTION_LABEL, hubNextStep, hubSteps, type HubActionKey, type HubSte
 
 const fmt = (d: string | null) => (d ? moment(d).format("DD/MM/YYYY") : "");
 
-function StepBox({ step, n }: { step: HubStep; n: number }) {
+function StepBox({ step, n, onOpen }: { step: HubStep; n: number; onOpen: (href: string) => void }) {
   return (
     <Box
       sx={{
@@ -51,9 +51,21 @@ function StepBox({ step, n }: { step: HubStep; n: number }) {
       {step.docs.length ? (
         step.docs.map((d, i) => (
           <Typography key={i} variant="caption" component="div" sx={{ color: "text.secondary" }}>
-            <Box component="span" sx={{ color: "text.primary", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
-              {d.label}
-            </Box>
+            {/* WCT manual flow (2026-11-13): a service report opens its own page. */}
+            {step.key === "report" && d.href ? (
+              <Box
+                component="span"
+                role="link"
+                onClick={() => onOpen(d.href!)}
+                sx={{ color: "primary.main", fontWeight: 600, fontVariantNumeric: "tabular-nums", cursor: "pointer", "&:hover": { textDecoration: "underline" } }}
+              >
+                {d.label}
+              </Box>
+            ) : (
+              <Box component="span" sx={{ color: "text.primary", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+                {d.label}
+              </Box>
+            )}
             {d.status ? ` · ${d.status}` : ""}
           </Typography>
         ))
@@ -66,7 +78,7 @@ function StepBox({ step, n }: { step: HubStep; n: number }) {
   );
 }
 
-export default function OrderHubPanel({ order, serviceReportReady, onAction, doFirst = false, awaitingDo = false }: { order: any; serviceReportReady: boolean; onAction: (key: HubActionKey) => void; doFirst?: boolean; awaitingDo?: boolean }) {
+export default function OrderHubPanel({ order, serviceReportReady, onAction, doFirst = false, awaitingDo = false }: { order: any; serviceReportReady: boolean; onAction: (key: HubActionKey, pos?: { left: number; top: number }) => void; doFirst?: boolean; awaitingDo?: boolean }) {
   const router = useRouter();
   const { getToken } = useAuth();
   const steps = hubSteps(order);
@@ -113,18 +125,18 @@ export default function OrderHubPanel({ order, serviceReportReady, onAction, doF
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ xs: "stretch", md: "center" }} sx={{ mb: 2 }}>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ flex: 1 }}>
           {steps.map((s, i) => (
-            <StepBox key={s.key} step={s} n={i + 1} />
+            <StepBox key={s.key} step={s} n={i + 1} onOpen={(href) => router.push(href)} />
           ))}
         </Stack>
         <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ minWidth: 200 }}>
           {next ? (
             <>
               {next.secondary && (
-                <Button variant="outlined" onClick={() => onAction(next.secondary!)}>
+                <Button variant="outlined" onClick={(e) => onAction(next.secondary!, { left: e.clientX, top: e.clientY })}>
                   {HUB_ACTION_LABEL[next.secondary]}
                 </Button>
               )}
-              <Button variant="contained" disableElevation onClick={() => onAction(next.primary)} data-tour={next.primary === "add-job" ? "wct-order-add-job" : "wct-order-next-step"}>
+              <Button variant="contained" disableElevation onClick={(e) => onAction(next.primary, { left: e.clientX, top: e.clientY })} data-tour={next.primary === "add-job" ? "wct-order-add-job" : "wct-order-next-step"}>
                 {next.label ?? HUB_ACTION_LABEL[next.primary]}
               </Button>
             </>

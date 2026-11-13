@@ -4620,7 +4620,7 @@ export default function TabbedDocumentCreator({
             </Button>
           )}
           {/* Manual order flow, DO first (2026-11-13): a DO on an order gets the order toolbar (Complete DO, sign link,
-              Add job, Add service report, back to the order) instead of Confirm Delivery Order. */}
+              Add job, back to the order) instead of Confirm Delivery Order. */}
           {doOnOrder && !isTemplateEditMode && (
             <DoOrderToolbar
               documentId={(documentId || (existingData as any)?.id) as string}

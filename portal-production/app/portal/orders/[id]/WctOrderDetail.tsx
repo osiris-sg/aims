@@ -44,8 +44,7 @@ import OrderHubPanel from "./OrderHubPanel";
 import OrderDosSection, { type OrderDo } from "./OrderDosSection";
 import OfficeCompleteJobDialog from "@/components/delivery/OfficeCompleteJobDialog";
 import CustomerSignLink from "@/components/delivery/CustomerSignLink";
-import NewServiceReportDialog from "@/app/portal/maintenance-reports/_components/NewServiceReportDialog";
-import UploadServiceReportDialog from "@/app/portal/maintenance-reports/_components/UploadServiceReportDialog";
+import { serviceReportFlowHref, type ServiceReportPrefill } from "@/helpers/serviceReportFlow";
 import { hubActionTarget, hubStatusInfo, type HubActionKey } from "@/helpers/wctOrderHub";
 
 // WCT order page (enableWctOrders, 2026-11-01): the order header, its jobs
@@ -124,14 +123,17 @@ export default function WctOrderDetail({ id }: { id: string }) {
   const [attMenu, setAttMenu] = useState<{ pos: { left: number; top: number }; att: OrderAttachment } | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [sendReportOpen, setSendReportOpen] = useState(false);
-  // Manual order flow (2026-11-13): add a service report from the order, created or uploaded (customer + DO prefilled).
-  const [srChoose, setSrChoose] = useState(false);
-  const [srNew, setSrNew] = useState(false);
-  const [srUpload, setSrUpload] = useState(false);
+  // Manual order flow (2026-11-13): "Add service report" = a small Create new / Upload file menu at the click,
+  // each going to the Service Reports page's own flow with the customer + DO prefilled (no dialog here).
+  const [srMenu, setSrMenu] = useState<{ pos: { left: number; top: number }; doId: string | null } | null>(null);
+  const addReportBtn = React.useRef<HTMLButtonElement>(null);
+  const openSrMenuAtButton = (doId: string | null = null) => {
+    const r = addReportBtn.current?.getBoundingClientRect();
+    setSrMenu({ pos: r ? { left: r.left, top: r.bottom } : { left: window.innerWidth / 2, top: 120 }, doId });
+  };
   // DO first (manual flow, 2026-11-13): complete a DO with no job; its sign link; a report for one DO.
   const [completeDo, setCompleteDo] = useState<OrderDo | null>(null);
   const [signLinkDo, setSignLinkDo] = useState<OrderDo | null>(null);
-  const [srDoId, setSrDoId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!organization?.id) return;
@@ -161,7 +163,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
     if (open === "add-job") setAddOpen(true);
     else if (open === "create-invoice") setInvoiceAsk(true);
     else if (open === "send-report") setSendReportOpen(true);
-    else if (open === "service-report") setSrChoose(true);
+    else if (open === "service-report") openSrMenuAtButton();
     else if (open === "complete-do") {
       const d = ((order as any).deliveryOrders as OrderDo[] | undefined)?.find((x) => !x.completed);
       if (d) setCompleteDo(d);
@@ -262,7 +264,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
       setActionError(e?.message || "Could not add the job");
     }
   };
-  const runHub = (key: HubActionKey) => {
+  const runHub = (key: HubActionKey, pos?: { left: number; top: number }) => {
     const draftInvoice = (order.invoices ?? []).find((i: any) => i.status === "draft" || i.status === "unconfirmed");
     const lastInvoice = (order.invoices ?? []).slice(-1)[0];
     const firstDo = liveJobs.find((j) => j.deliveryOrder)?.deliveryOrder;
@@ -291,19 +293,19 @@ export default function WctOrderDetail({ id }: { id: string }) {
       else setAddOpen(true);
     } else if (t.dialog === "create-invoice") setInvoiceAsk(true);
     else if (t.dialog === "send-report") setSendReportOpen(true);
-    else if (t.dialog === "service-report") setSrChoose(true);
+    else if (t.dialog === "service-report") (pos ? setSrMenu({ pos, doId: null }) : openSrMenuAtButton());
     else if (t.dialog === "complete-do" && openDo) setCompleteDo(openDo);
     else if (t.dialog === "sign-link" && awaitingDo) setSignLinkDo(awaitingDo);
   };
   // The report's customer and DO, prefilled: the order's customer, the DO of its last finished job (else its first DO).
-  const srPrefill = {
+  const srPrefillFor = (doId: string | null): ServiceReportPrefill => ({
     customer: order.customer ? { id: order.customer.id, name: order.customer.name } : null,
     doId:
-      srDoId ??
+      doId ??
       ([...dos].reverse().find((d) => d.completed) ?? dos[0])?.id ??
       ([...liveJobs].reverse().find((j) => j.status === "completed" && j.deliveryOrder) ?? liveJobs.find((j) => j.deliveryOrder))?.deliveryOrder?.id ??
       null,
-  };
+  });
   return (
     <MainCard>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
@@ -378,10 +380,6 @@ export default function WctOrderDetail({ id }: { id: string }) {
           onReload={load}
           onCompleteDo={(d) => setCompleteDo(d)}
           onSignLink={(d) => setSignLinkDo(d)}
-          onServiceReport={(d) => {
-            setSrDoId(d.id);
-            setSrChoose(true);
-          }}
         />
       )}
       {completeDo && (
@@ -546,7 +544,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
           </Typography>
           <Box sx={{ flex: 1 }} />
           {(order as any).manualFlow && (
-            <Button size="small" variant="contained" disableElevation onClick={() => setSrChoose(true)} data-tour="wct-order-add-report">
+            <Button ref={addReportBtn} size="small" variant="contained" disableElevation onClick={(e) => setSrMenu({ pos: { left: e.clientX, top: e.clientY }, doId: null })} data-tour="wct-order-add-report">
               Add service report
             </Button>
           )}
@@ -746,33 +744,26 @@ export default function WctOrderDetail({ id }: { id: string }) {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={srChoose} onClose={() => setSrChoose(false)} fullWidth maxWidth="xs">
-        <DialogTitle>Add a service report</DialogTitle>
-        <DialogContent>
-          <DialogContentText>Write it here on the WCT form, or upload a report you already have as a file. Either way it is for a DO of {order.customer?.name || "the customer"}.</DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setSrChoose(false)}>Cancel</Button>
-          <Button variant="outlined" onClick={() => { setSrChoose(false); setSrUpload(true); }}>
-            Upload file
-          </Button>
-          <Button variant="contained" disableElevation onClick={() => { setSrChoose(false); setSrNew(true); }}>
-            Create new
-          </Button>
-        </DialogActions>
-      </Dialog>
-      <NewServiceReportDialog open={srNew} onClose={() => { setSrNew(false); setSrDoId(null); }} prefill={srPrefill} />
-      <UploadServiceReportDialog
-        open={srUpload}
-        onClose={() => { setSrUpload(false); setSrDoId(null); }}
-        wctOrders
-        manualFlow
-        prefill={srPrefill}
-        onUploaded={() => {
-          setSrUpload(false);
-          void load();
-        }}
-      />
+      <Menu anchorReference="anchorPosition" anchorPosition={srMenu?.pos} open={!!srMenu} onClose={() => setSrMenu(null)}>
+        <MenuItem
+          onClick={() => {
+            const doId = srMenu?.doId ?? null;
+            setSrMenu(null);
+            router.push(serviceReportFlowHref("new", srPrefillFor(doId)));
+          }}
+        >
+          Create new
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            const doId = srMenu?.doId ?? null;
+            setSrMenu(null);
+            router.push(serviceReportFlowHref("upload", srPrefillFor(doId)));
+          }}
+        >
+          Upload file
+        </MenuItem>
+      </Menu>
 
       <Dialog open={invoiceAsk} onClose={() => setInvoiceAsk(false)} fullWidth maxWidth="xs">
         <DialogTitle>Invoice now</DialogTitle>
