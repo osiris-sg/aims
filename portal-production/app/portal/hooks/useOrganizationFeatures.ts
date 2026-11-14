@@ -7,6 +7,9 @@ import { request } from "@/helpers/request";
 
 interface OrganizationFeatures {
   hideAppSwitcher?: boolean;
+  enableQuotationGst?: boolean;
+  enableQuotationTotalsToggle?: boolean;
+  enableRecurringInvoices?: boolean;
   enableAssetTrackingMode?: boolean;
   enableProjects?: boolean;
   enableAnalytics?: boolean;
@@ -188,6 +191,15 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Hide the app switcher (2026-11-13): no grid icon / AIMS ↔ SiteClock launcher
   // in the top bar. ON for Chong Aik. Default OFF (shown).
   hideAppSwitcher: false,
+  // GST on quotations (2026-11-14): the printed quotation shows the GST row and
+  // nett total. ON for Chong Aik. Default OFF (Sub-Total / Total, no tax).
+  enableQuotationGst: false,
+  // "Show totals on the document" checkbox on quotations (2026-11-14): off
+  // for every org; the totals always print without it.
+  enableQuotationTotalsToggle: false,
+  // Recurring invoices (2026-11-14): "Confirm & make recurring" on the invoice
+  // editor + its setup screen. Default ON; OFF for Chong Aik.
+  enableRecurringInvoices: true,
   enableTemplateDesign: false,
   // Spend Money / Receive Money (2026-11-06): direct bank transactions with
   // no invoice behind them (Xero's Spend/Receive Money) under AP / AR.
@@ -372,6 +384,9 @@ export function useOrganizationFeatures() {
     isAimsChatEnabled: features.enableAimsChat ?? false,
     isRoleHomeEnabled: features.enableRoleHome ?? FEATURE_FLAG_DEFAULTS.enableRoleHome,
     isAppSwitcherHidden: features.hideAppSwitcher ?? FEATURE_FLAG_DEFAULTS.hideAppSwitcher,
+    isQuotationGstEnabled: features.enableQuotationGst ?? FEATURE_FLAG_DEFAULTS.enableQuotationGst,
+    isQuotationTotalsToggleEnabled: features.enableQuotationTotalsToggle ?? FEATURE_FLAG_DEFAULTS.enableQuotationTotalsToggle,
+    isRecurringInvoicesEnabled: features.enableRecurringInvoices ?? FEATURE_FLAG_DEFAULTS.enableRecurringInvoices,
     isTemplateDesignEnabled: features.enableTemplateDesign ?? FEATURE_FLAG_DEFAULTS.enableTemplateDesign,
     isSpendMoneyEnabled: features.enableSpendMoney ?? FEATURE_FLAG_DEFAULTS.enableSpendMoney,
     isShipmentsHomeEnabled: features.enableShipmentsHome ?? FEATURE_FLAG_DEFAULTS.enableShipmentsHome,

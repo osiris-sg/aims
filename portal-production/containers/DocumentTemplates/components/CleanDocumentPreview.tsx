@@ -917,89 +917,101 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           },
         }}
       >
-        {/* Company letterhead */}
-        <Box sx={{ textAlign: "center", mb: 1 }}>
-          <Typography sx={{ fontWeight: 700, fontSize: "1.15rem" }}>{r.company?.name || organization?.name || ""}</Typography>
-          {(r.company?.address || organization?.address) && (
-            <Typography sx={{ fontSize: "0.8125rem" }}>{r.company?.address || organization?.address}</Typography>
-          )}
-          <Typography sx={{ fontSize: "0.8125rem" }}>
-            {(r.company?.phoneNumber || organization?.phoneNumber) ? `Tel: ${r.company?.phoneNumber || organization?.phoneNumber}` : ""}
-            {(r.company?.gstRegNo || organization?.registrationNumber) ? `  GST Reg. No. ${r.company?.gstRegNo || organization?.registrationNumber}` : ""}
-          </Typography>
-        </Box>
-        <Typography sx={{ textAlign: "center", fontWeight: 700, fontSize: "1rem", letterSpacing: 2, my: 2 }}>
-          OFFICIAL RECEIPT
-        </Typography>
-
-        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
-          <Box>
-            <Typography sx={{ fontSize: "0.8125rem" }}>Received From:</Typography>
-            <Typography sx={{ fontSize: "0.9375rem", fontWeight: 700 }}>{r.customerLabel || "—"}</Typography>
-            {r.remarks && <Typography sx={{ fontSize: "0.8125rem", mt: 0.5 }}>{r.remarks}</Typography>}
-          </Box>
-          <Box sx={{ textAlign: "right" }}>
-            <Typography sx={{ fontSize: "0.8125rem" }}>
-              Receipt No. : <b>{r.receiptNumber || ""}</b>
-            </Typography>
-            <Typography sx={{ fontSize: "0.8125rem" }}>Date : {r.date ? new Date(r.date).toLocaleDateString("en-GB") : ""}</Typography>
-            {r.chequeNo && <Typography sx={{ fontSize: "0.8125rem" }}>Cheque No. : {r.chequeNo}</Typography>}
-            {r.paymentMethod && (
-              <Typography sx={{ fontSize: "0.8125rem", textTransform: "capitalize" }}>Payment : {r.paymentMethod}</Typography>
-            )}
-          </Box>
-        </Box>
-
-        <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", "& th, & td": { fontSize: "0.8125rem", py: 0.6, px: 1 } }}>
-          <Box component="thead">
-            <Box component="tr" sx={{ "& th": { borderTop: "1px solid #000", borderBottom: "1px solid #000", textAlign: "left" } }}>
-              <Box component="th">Reference</Box>
-              <Box component="th">Date</Box>
-              <Box component="th">Description</Box>
-              <Box component="th" sx={{ textAlign: "right !important" }}>Amount ({r.currency || "SGD"})</Box>
+        {/* ACKNOWLEDGEMENT RECEIPT — the legacy software's receipt paper
+            (guru 2026-11-14: "they don't call it official receipt"): letterhead;
+            "Received with thanks from" with the customer's name (code), address
+            and Tel / Fax at the left, the title and RECEIPT NO. / DATE / PAGE NO
+            at the right; Remarks; "Received for the followings" as a plain list
+            (invoice, date, amount); pinned footer "Bank / Cheque", the double-
+            ruled Total Amount, the amount in words, and the generated note. */}
+        {(() => {
+          const addrLines = String(r.customerAddress || "").split(/\n/).map((l: string) => l.trim()).filter(Boolean);
+          const kv = (k: string, v: React.ReactNode) => (
+            <Box sx={{ display: "grid", gridTemplateColumns: "120px 12px 1fr", columnGap: 0.5, fontSize: "0.8125rem", lineHeight: 1.9 }}>
+              <span>{k}</span><span>:</span><span>{v}</span>
             </Box>
-          </Box>
-          <Box component="tbody">
-            {allocs.map((a: any, i: number) => (
-              <Box component="tr" key={i}>
-                <Box component="td" sx={{ fontVariantNumeric: "tabular-nums" }}>{a.reference}</Box>
-                <Box component="td">{a.date ? new Date(a.date).toLocaleDateString("en-GB") : ""}</Box>
-                <Box component="td">{a.description || "INVOICE"}</Box>
-                <Box component="td" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                  {(Number(a.amount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          );
+          const dmy = (d: any) => (d ? new Date(d).toLocaleDateString("en-GB") : "");
+          const total = Number(r.receiptAmount) || receiptTotal;
+          return (
+            <>
+              <Box sx={{ textAlign: "center", mb: 2 }}>
+                <Typography sx={{ fontWeight: 700, fontSize: "1.15rem" }}>{r.company?.name || organization?.name || ""}</Typography>
+                {(r.company?.address || organization?.address) && (
+                  <Typography sx={{ fontSize: "0.8125rem" }}>{r.company?.address || organization?.address}</Typography>
+                )}
+                <Typography sx={{ fontSize: "0.8125rem" }}>
+                  {(r.company?.phoneNumber || organization?.phoneNumber) ? `Tel: ${r.company?.phoneNumber || organization?.phoneNumber}` : ""}
+                  {(r.company?.fax || organization?.fax) ? `   Fax: ${r.company?.fax || organization?.fax}` : ""}
+                  {(r.company?.gstRegNo || organization?.registrationNumber) ? `   GST Reg. No. ${r.company?.gstRegNo || organization?.registrationNumber}` : ""}
+                </Typography>
+              </Box>
+
+              <Box sx={{ display: "flex", justifyContent: "space-between", gap: 4, mb: 2 }}>
+                <Box sx={{ flex: 1, minWidth: 0, pt: 1.5 }}>
+                  <Typography sx={{ fontSize: "0.8125rem" }}>Received with thanks from&nbsp;&nbsp;&nbsp;:</Typography>
+                  <Typography sx={{ fontSize: "0.9375rem", fontWeight: 700, mt: 0.5 }}>
+                    {r.customerName || r.customerLabel || ""}{r.customerCode ? `   ( ${r.customerCode} )` : ""}
+                  </Typography>
+                  {addrLines.map((l: string, i: number) => (
+                    <Typography key={i} sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>{l}</Typography>
+                  ))}
+                  {(r.customerPhone || r.customerFax) && (
+                    <Typography sx={{ fontSize: "0.8125rem", mt: 2 }}>
+                      {r.customerPhone ? `Tel :  ${r.customerPhone}` : ""}
+                      {r.customerPhone && r.customerFax ? "          " : ""}
+                      {r.customerFax ? `Fax :  ${r.customerFax}` : ""}
+                    </Typography>
+                  )}
+                </Box>
+                <Box sx={{ width: 300, flexShrink: 0 }}>
+                  <Typography sx={{ fontSize: "1.05rem", letterSpacing: 1, textAlign: "right", mb: 1.5 }}>ACKNOWLEDGEMENT RECEIPT</Typography>
+                  {kv("RECEIPT  NO.", <b>{r.receiptNumber || ""}</b>)}
+                  {kv("DATE", dmy(r.date))}
+                  {kv("PAGE NO", "1")}
                 </Box>
               </Box>
-            ))}
-          </Box>
-        </Box>
 
-        <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1 }}>
-          <Box sx={{ minWidth: 240, borderTop: "1px solid #000", pt: 0.5 }}>
-            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-              <Typography sx={{ fontSize: "0.875rem", fontWeight: 700 }}>Total Received</Typography>
-              <Typography sx={{ fontSize: "0.875rem", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-                {(r.currency || "SGD")}{" "}
-                {(Number(r.receiptAmount) || receiptTotal).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </Typography>
-            </Box>
-          </Box>
-        </Box>
-        <Typography sx={{ fontSize: "0.8125rem", mt: 2, borderBottom: "2px solid #000", pb: 1 }}>
-          S'PORE DOLLAR {orWords(orBase)}
-        </Typography>
+              <Box sx={{ mt: 2 }}>
+                {kv("Remarks", r.remarks || "")}
+                <Typography sx={{ fontSize: "0.8125rem", lineHeight: 1.9 }}>Received for the followings&nbsp;&nbsp;:</Typography>
+                <Box component="table" sx={{ borderCollapse: "collapse", mt: 0.5, ml: 2, "& td": { fontSize: "0.8125rem", py: 0.3, pr: 4, fontVariantNumeric: "tabular-nums" } }}>
+                  <Box component="tbody">
+                    {allocs.map((a: any, i: number) => (
+                      <Box component="tr" key={i}>
+                        <Box component="td" sx={{ minWidth: 150 }}>{a.reference}</Box>
+                        <Box component="td" sx={{ minWidth: 110 }}>{dmy(a.date)}</Box>
+                        <Box component="td" sx={{ textAlign: "right", minWidth: 110 }}>
+                          {(Number(a.amount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Box>
+                      </Box>
+                    ))}
+                  </Box>
+                </Box>
+              </Box>
 
-        <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2 }}>
-          <Typography sx={{ fontSize: "0.8125rem" }}>{r.depositLabel ? `Deposit to: ${r.depositLabel}` : ""}</Typography>
-          {r.currency && r.currency !== "SGD" && (
-            <Typography sx={{ fontSize: "0.8125rem" }}>Rate: {r.rate} ({r.currency} → SGD)</Typography>
-          )}
-        </Box>
-
-        <Box sx={{ mt: "auto", pt: 4, textAlign: "right" }}>
-          <Typography sx={{ fontSize: "0.75rem", fontStyle: "italic" }}>
-            This is a computer generated receipt. No signature is required.
-          </Typography>
-        </Box>
+              <Box sx={{ mt: "auto", pt: 4 }}>
+                <Box sx={{ display: "flex", gap: 6, fontSize: "0.8125rem", pb: 0.5 }}>
+                  <span>Bank / Cheque&nbsp;&nbsp;:</span><span>{(r.chequeNo || "TRANSFER").toString().toUpperCase()}</span>
+                </Box>
+                <Box sx={{ borderTop: "1px solid #000", borderBottom: "1px solid #000", height: 3 }} />
+                <Box sx={{ display: "flex", alignItems: "baseline", gap: 6, fontSize: "0.8125rem", py: 0.75 }}>
+                  <span>Total Amount</span>
+                  <span>{r.currency || "SGD"}</span>
+                  <span style={{ fontVariantNumeric: "tabular-nums", marginLeft: 48 }}>
+                    {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                  {r.currency && r.currency !== "SGD" && <span style={{ marginLeft: "auto" }}>Rate : {Number(r.rate || 1).toFixed(7)}</span>}
+                </Box>
+                <Box sx={{ borderTop: "1px solid #000", borderBottom: "1px solid #000", height: 3 }} />
+                <Typography sx={{ fontSize: "0.8125rem", mt: 1.5 }}>DOLLARS {orWords(orBase)}</Typography>
+                <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", mt: 3 }}>
+                  This is a computer generated Receipt. No signature is required.
+                </Typography>
+              </Box>
+            </>
+          );
+        })()}
       </Paper>
     );
   }
@@ -4528,7 +4540,19 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     const qfNett = Number(data.documentInfo?.nettTotal ?? qfDiscountedPrice) || 0;
     const qfTaxApplicable = data.documentInfo?.taxApplicable !== "N" && data.documentInfo?.taxApplicable !== false;
     const qfGstPct = data.documentInfo?.gstPercent || 9;
-    const finalAmount = isQfQuote ? qfNett : subtotalAfterDiscount;
+    // GST on quotations (enableQuotationGst, passed by the editor as
+    // data.quotationGst): the Tax Y/N, GST % and Absorb tax settings decide a
+    // GST row — the same maths as the server's quotation.ts. Absorb tax = the
+    // lines are gross, so Sub-Total prints net of GST and Total stays at the
+    // line amount; otherwise GST is added. Off = Sub-Total / Total, no tax.
+    const qTaxApplicable = data.documentInfo?.taxApplicable !== "N" && data.documentInfo?.taxApplicable !== false;
+    const qGstRaw = parseFloat(data.documentInfo?.gstPercent);
+    const qGstPercent = Number.isFinite(qGstRaw) ? qGstRaw : Number(organization?.taxRate ?? 9) || 0;
+    const qAbsorbTax = data.documentInfo?.absorbTax === "Y" || data.documentInfo?.absorbTax === true;
+    const showQuotationGst = !isQfQuote && (data as any).quotationGst === true && qTaxApplicable && qGstPercent > 0;
+    const qGstAmount = !showQuotationGst ? 0 : qAbsorbTax ? (subtotalAfterDiscount * qGstPercent) / (100 + qGstPercent) : subtotalAfterDiscount * (qGstPercent / 100);
+    const qPrintedSubtotal = showQuotationGst && qAbsorbTax ? subtotal - qGstAmount : subtotal;
+    const finalAmount = isQfQuote ? qfNett : showQuotationGst && !qAbsorbTax ? subtotalAfterDiscount + qGstAmount : subtotalAfterDiscount;
 
     // Number to words function
     const numberToWords = (num: number): string => {
@@ -4601,8 +4625,10 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     // Distinct from taxApplicable:"N", which already suppresses the GST and
     // Total-Include rows but keeps Sub-Total. The two compose: this removes all
     // three.
+    // Only orgs with enableQuotationTotalsToggle (the editor passes
+    // data.quotationTotalsToggle) can hide the block (guru 2026-11-14).
     const showTotals =
-      (((data as any).showTotals ?? (data as any).documentInfo?.showTotals) ?? true) !== false;
+      (data as any).quotationTotalsToggle !== true || (((data as any).showTotals ?? (data as any).documentInfo?.showTotals) ?? true) !== false;
 
     return (
       <Paper
@@ -5189,7 +5215,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 <>
                   <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                     <Typography sx={{ fontSize: "0.8125rem" }}>Sub-Total</Typography>
-                    <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{qPrintedSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
                   </Box>
                   {discountAmount > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
@@ -5197,11 +5223,17 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                       <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
                     </Box>
                   )}
+                  {showQuotationGst && (
+                    <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
+                      <Typography sx={{ fontSize: "0.8125rem" }}>GST ({qGstPercent}%)</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{qGstAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
+                    </Box>
+                  )}
                   <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3, borderTop: "1px solid #000", mt: 0.5, pt: 0.5 }}>
                     <Typography sx={{ fontSize: "0.8125rem" }}>Total</Typography>
                     <Box sx={{ display: "flex", gap: 1 }}>
                       <Typography sx={{ fontSize: "0.8125rem" }}>{currency}</Typography>
-                      <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right" }}>{subtotalAfterDiscount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right" }}>{finalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Typography>
                     </Box>
                   </Box>
                 </>

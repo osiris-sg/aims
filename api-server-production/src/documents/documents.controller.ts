@@ -550,10 +550,12 @@ export class DocumentsController {
     const revisionNumber = docId ? await this.documentsService.revisionNumberOf(docId, organizationId) : null;
     // ERP-imported documents preview their stored totals (common/erp-import.ts).
     const erpStoredTotals = docId ? await this.documentsService.erpStoredTotalsForDocument(docId, organizationId) : null;
+    const renderFlags = await this.documentsService.quotationRenderFlags(organizationId);
     const html = this.pdfGeneratorService.generateInvoiceHtml({
       documentType: body.documentType,
       ...(body.data || {}),
       ...(erpStoredTotals ? { erpStoredTotals } : {}),
+      ...renderFlags,
       revisionNumber,
       design: styled.design,
       logoUrl: styled.logoUrl,

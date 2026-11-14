@@ -80,6 +80,16 @@ export const SITECLOCK_DELIVERIES_FLAG = 'enableSiteClockDeliveries';
 // journal's description. Off = per-line accounts as before.
 export const HEADER_GL_ACCOUNT_FLAG = 'enableHeaderGlAccount';
 
+// GST on quotations (guru 2026-11-14): the printed standard quotation shows the
+// GST row and the nett total (absorb tax: Sub-Total net of GST). Read by the
+// server render paths and passed to the renderer as data.quotationGst.
+export const QUOTATION_GST_FLAG = 'enableQuotationGst';
+
+// "Show totals on the document" (guru 2026-11-14): only orgs with this flag
+// have the checkbox, and only for them does config.showTotals === false hide
+// the totals block (passed to the renderers as data.quotationTotalsToggle).
+export const QUOTATION_TOTALS_TOGGLE_FLAG = 'enableQuotationTotalsToggle';
+
 // INVOICES POST TO THE GL ON CONFIRM (2026-11-12; WCT group). The platform's
 // no-draft model posts an invoice as soon as it exists and on every save. With
 // this on, an invoice still in draft / unconfirmed never posts (a stale entry

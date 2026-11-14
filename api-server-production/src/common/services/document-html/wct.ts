@@ -450,7 +450,8 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
     di('invoiceRev'),
     data?.revisionNumber !== undefined && data?.revisionNumber !== null && data?.revisionNumber !== '' ? `R${data.revisionNumber}` : '',
   );
-  const showTotals = ((data?.showTotals ?? data?.documentInfo?.showTotals) ?? true) !== false;
+  // Hidden only for orgs with enableQuotationTotalsToggle (data.quotationTotalsToggle, 2026-11-14).
+  const showTotals = data?.quotationTotalsToggle !== true || ((data?.showTotals ?? data?.documentInfo?.showTotals) ?? true) !== false;
   // WCT invoice per order: the order and the DOs the invoice covers. Only an order invoice carries them.
   const orderNo = isInvoice ? first(di('orderNo'), data?.orderNo) : '';
   const doNos = Array.isArray(data?.deliveryOrderNos) ? data.deliveryOrderNos.filter(Boolean).join(', ') : '';

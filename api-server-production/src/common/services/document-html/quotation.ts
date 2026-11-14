@@ -52,7 +52,19 @@ export function renderQuotationBody(data: any, organization: any, design: Docume
   const discountAmount = Number(di('discountAmount')) || 0;
   const subtotalAfterDiscount = subtotal - discountAmount;
   const currency = di('currency', 'SGD');
-  const finalAmount = subtotalAfterDiscount;
+  // GST on quotations (enableQuotationGst, passed as data.quotationGst): the
+  // editor's Tax Y/N, GST % and Absorb tax settings decide a GST row. Absorb
+  // tax = the lines are gross, so the printed Sub-Total is net of GST and the
+  // Total stays at the line amount; otherwise GST is added on top. Off (every
+  // org by default) = Sub-Total / Total with no tax, as before.
+  const taxApplicable = di('taxApplicable') !== 'N' && di('taxApplicable') !== false;
+  const gstRaw = parseFloat(di('gstPercent'));
+  const gstPercent = Number.isFinite(gstRaw) ? gstRaw : Number(organization?.taxRate ?? 9) || 0;
+  const absorbTax = di('absorbTax') === 'Y' || di('absorbTax') === true;
+  const showGst = data?.quotationGst === true && taxApplicable && gstPercent > 0;
+  const gstAmount = !showGst ? 0 : absorbTax ? (subtotalAfterDiscount * gstPercent) / (100 + gstPercent) : subtotalAfterDiscount * (gstPercent / 100);
+  const printedSubtotal = showGst && absorbTax ? subtotal - gstAmount : subtotal; // the invoice's displayGross rule
+  const finalAmount = showGst && !absorbTax ? subtotalAfterDiscount + gstAmount : subtotalAfterDiscount;
 
   const company = data?.company || {};
   const customer = data?.customer || {};
@@ -119,21 +131,26 @@ export function renderQuotationBody(data: any, organization: any, design: Docume
   // (flag ?? true) !== false so every quotation predating the key is unchanged.
   // DISPLAY ONLY — subTotal / gstAmount / nettTotal are still computed and
   // stored by the editor, and still read by posting and by conversions.
+  // Only orgs with enableQuotationTotalsToggle (data.quotationTotalsToggle)
+  // can hide it; everyone else always prints the totals (guru 2026-11-14).
   const showTotals =
-    (((data as any)?.showTotals ?? (data as any)?.documentInfo?.showTotals) ?? true) !== false;
+    data?.quotationTotalsToggle !== true || (((data as any)?.showTotals ?? (data as any)?.documentInfo?.showTotals) ?? true) !== false;
   const totals = !showTotals ? '' : `
   <div style="margin-top:16px;">
     <div style="display:flex;justify-content:flex-end;border-top:1px solid #000;padding-top:8px;page-break-inside:avoid;break-inside:avoid;">
       <div style="min-width:200px;">
         <div style="display:flex;justify-content:space-between;padding:2.4px 0;font-size:13px;">
-          <span>Sub-Total</span><span>${money(subtotal)}</span>
+          <span>Sub-Total</span><span>${money(printedSubtotal)}</span>
         </div>
         ${discountAmount > 0
           ? `<div style="display:flex;justify-content:space-between;padding:2.4px 0;font-size:13px;"><span>Discount</span><span>${money(discountAmount)}</span></div>`
           : ''}
+        ${showGst
+          ? `<div style="display:flex;justify-content:space-between;padding:2.4px 0;font-size:13px;"><span>GST (${escapeHtml(String(gstPercent))}%)</span><span>${money(gstAmount)}</span></div>`
+          : ''}
         <div style="display:flex;justify-content:space-between;padding:4px 0 0;margin-top:4px;border-top:1px solid #000;font-size:13px;">
           <span>Total</span>
-          <span style="display:flex;gap:8px;"><span>${escapeHtml(currency)}</span><span style="font-weight:600;">${money(subtotalAfterDiscount)}</span></span>
+          <span style="display:flex;gap:8px;"><span>${escapeHtml(currency)}</span><span style="font-weight:600;">${money(finalAmount)}</span></span>
         </div>
       </div>
     </div>

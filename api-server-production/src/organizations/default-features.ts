@@ -78,6 +78,19 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // Hide the app switcher (guru 2026-11-13, Chong Aik): no grid icon / AIMS ↔ SiteClock
   // launcher in the top bar for orgs that have no SiteClock. Default OFF (shown).
   hideAppSwitcher: false,
+  // GST on quotations (guru 2026-11-14): the printed standard quotation shows a
+  // GST row and the nett total (absorb tax: Sub-Total net of GST). Off = the
+  // quotation prints Sub-Total / Total with no tax, as every org had. Per org.
+  enableQuotationGst: false,
+  // "Show totals on the document" checkbox on the quotation editor (guru
+  // 2026-11-14: off for every org, a flag for the ones that want it). With it
+  // off the checkbox is gone and the totals always print.
+  enableQuotationTotalsToggle: false,
+  // Recurring invoices (guru 2026-11-14): the invoice editor's "Confirm &
+  // make recurring" split-button option and the recurring-invoice setup it
+  // opens. Default ON; turned OFF for orgs that never bill on a schedule
+  // (Chong Aik). Per org.
+  enableRecurringInvoices: true,
   // Admin → org → Manage Templates → Design: per-template look knobs (colour, font, logo, blocks).
   enableTemplateDesign: false,
   // Maintenance Dates (Biofuel, 2026-09): Service Reports -> Maintenance Dates.

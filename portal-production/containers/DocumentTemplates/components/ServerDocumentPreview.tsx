@@ -28,6 +28,8 @@ interface Props {
   data: any;
   /** Dark-mode-safe backdrop is the parent's; the paper itself is always white. */
   minHeight?: number | string;
+  /** Fires once the rendered HTML has loaded in the iframe (the editor's hidden print stage prints then). */
+  onLoaded?: () => void;
 }
 
 // The document is laid out at A4 width and scaled DOWN to fit the preview
@@ -42,7 +44,7 @@ const PREVIEW_CSS = `<style>
 </style>`;
 
 const ServerDocumentPreview = forwardRef<ServerDocumentPreviewHandle, Props>(function ServerDocumentPreview(
-  { documentType, documentId, templateId, data, minHeight = "calc(100vh - 220px)" },
+  { documentType, documentId, templateId, data, minHeight = "calc(100vh - 220px)", onLoaded },
   ref,
 ) {
   const { getToken } = useAuth();
@@ -145,7 +147,10 @@ const ServerDocumentPreview = forwardRef<ServerDocumentPreviewHandle, Props>(fun
             ref={iframeRef}
             title="Document preview"
             srcDoc={html}
-            onLoad={measure}
+            onLoad={() => {
+              measure();
+              onLoaded?.();
+            }}
             sx={{
               width: `${FRAME_W}px`,
               height: contentH ? `${contentH}px` : minHeight,

@@ -33,7 +33,7 @@ import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-numb
 import { refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
 import { isManualOrderFlow } from '../orders/manual-order-flow';
 import { skipsDoSaveStockRule } from './do-first-save';
-import { isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, invoicePostingHeld } from '../common/org-features';
+import { isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { assetKey, descKey, invoiceDiscountPercent, isDisplayRow, orderInvoiceReference, planOrderInvoice, quoteDiscountAmount } from '../orders/order-billing';
 import { quotationLinesForJob } from '../deliveries/quotation-to-delivery';
@@ -3301,6 +3301,12 @@ export class DocumentsService {
       // in case the form expects it there.
       if (!initialConfig.currency && orgCurrency) {
         initialConfig.currency = orgCurrency;
+      }
+      // Exchange rate: a new document is at par with the base currency
+      // (1, shown as 1.0000000 — rates carry 7 decimals) until the user keys
+      // another rate (guru 2026-11-14: the Rate box must never sit blank).
+      if (di.rate === undefined || di.rate === null || di.rate === '' || Number(di.rate) === 0) {
+        di.rate = 1;
       }
 
       // Per-doc-type boilerplate: T&Cs / Notes / Footer message. Looked up
@@ -8114,6 +8120,19 @@ export class DocumentsService {
    * document renderer. Used by GET /documents/:id/html so the ID quotation
    * editor's preview iframe shows exactly what the PDF will contain.
    */
+  /**
+   * The org's quotation print settings for the renderers: quotationGst
+   * (enableQuotationGst: the GST row + nett total) and quotationTotalsToggle
+   * (enableQuotationTotalsToggle: config.showTotals === false may hide the block).
+   */
+  async quotationRenderFlags(organizationId: string): Promise<{ quotationGst: boolean; quotationTotalsToggle: boolean }> {
+    const [quotationGst, quotationTotalsToggle] = await Promise.all([
+      isOrgFeatureEnabled(this.prisma, organizationId, QUOTATION_GST_FLAG),
+      isOrgFeatureEnabled(this.prisma, organizationId, QUOTATION_TOTALS_TOGGLE_FLAG),
+    ]);
+    return { quotationGst, quotationTotalsToggle };
+  }
+
   async renderDocumentHtml(documentId: string, organizationId: string, lang?: string): Promise<{ html: string; name: string | null; type: string }> {
     const document = await this.prisma.document.findFirst({
       where: { id: documentId, organizationId },
@@ -8155,10 +8174,12 @@ export class DocumentsService {
     const items: any[] = Array.isArray(config.items) ? config.items : [];
     const isQuotation = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(String(document.type).toUpperCase());
     const styled = await this.designForTemplate(document.documentTemplateId, document.organization);
+    const renderFlags = isQuotation ? await this.quotationRenderFlags(organizationId) : null;
     const html = this.pdfGeneratorService.generateInvoiceHtml({
       documentType: document.type,
       lang: lang === 'zh' ? 'zh' : 'en',
       ...config,
+      ...(renderFlags || {}),
       design: styled.design,
       logoUrl: styled.logoUrl,
       name: document.name,
