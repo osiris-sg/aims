@@ -66,59 +66,65 @@ export default function InventoryCostTab() {
   const [search, setSearch] = useState("");
   // Map of assetId → edited costPrice (only entries with pending changes).
   const [dirty, setDirty] = useState<Record<string, number>>({});
-  const [summary, setSummary] = useState<{ total: number; itemCount: number; itemsWithMissingCost: number } | null>(null);
+  const [summary, setSummary] = useState<{ total: number; itemCount: number; itemsWithMissingCost: number; shown: number; matchCount: number } | null>(null);
 
   const authedFetch = useCallback(
     async (path: string, init?: RequestInit) => {
       const token = await getToken();
+      // Admin "Viewing as org": the active org travels on every request, or
+      // the server answers for the admin's home org (2026-11-14).
+      const activeOrgId = typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null;
       return fetch(`${apiBase}${path}`, {
         ...init,
         headers: {
           ...(init?.headers || {}),
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
+          ...(activeOrgId ? { "X-Active-Org-Id": activeOrgId } : {}),
         },
       });
     },
     [apiBase, getToken],
   );
 
+  // The server searches and pages (top 200 by value): the totals always cover
+  // every item, the grid shows the matches of the search box (2026-11-14).
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await authedFetch("/accounting/closing-stock");
+      const res = await authedFetch(`/accounting/closing-stock?limit=200${search.trim() ? `&q=${encodeURIComponent(search.trim())}` : ""}`);
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
       const data: ClosingStockResult = json?.data ?? json;
       setRows(data.items || []);
-      setSummary({ total: data.total, itemCount: data.itemCount, itemsWithMissingCost: data.itemsWithMissingCost });
+      setSummary({ total: data.total, itemCount: data.itemCount, itemsWithMissingCost: data.itemsWithMissingCost, shown: (data as any).shown ?? (data.items || []).length, matchCount: (data as any).matchCount ?? data.itemCount });
       setDirty({});
     } catch (e: any) {
       toast.error(e?.message || "Failed to load inventory cost");
     } finally {
       setLoading(false);
     }
-  }, [authedFetch]);
+  }, [authedFetch, search]);
 
+  // Debounced: a keystroke in the search box re-queries the server 300 ms later.
   useEffect(() => {
-    load();
+    const t = setTimeout(() => void load(), 300);
+    return () => clearTimeout(t);
   }, [load]);
 
-  const visible = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) => r.code.toLowerCase().includes(q) || r.name.toLowerCase().includes(q));
-  }, [rows, search]);
+  const visible = rows;
 
   const dirtyCount = Object.keys(dirty).length;
 
-  // Live total reflects unsaved edits so the user sees the impact before saving.
+  // Live total = the server's total over EVERY item, moved by the unsaved
+  // edits on the rows shown, so the user sees the impact before saving.
   const liveTotal = useMemo(() => {
+    const base = summary?.total ?? 0;
     return rows.reduce((s, r) => {
       const cost = dirty[r.assetId] !== undefined ? dirty[r.assetId] : r.costPrice;
-      return s + r.quantity * cost;
-    }, 0);
-  }, [rows, dirty]);
+      return s + r.quantity * (cost - r.costPrice);
+    }, base);
+  }, [rows, dirty, summary]);
 
   const setRowCost = (assetId: string, value: string) => {
     const n = parseFloat(value);
@@ -171,6 +177,9 @@ export default function InventoryCostTab() {
       {summary && (
         <Stack direction="row" gap={2} flexWrap="wrap">
           <Stat label="Items with stock" value={summary.itemCount.toString()} />
+          {(search.trim() || summary.shown < summary.itemCount) && (
+            <Stat label={search.trim() ? "Matches shown" : "Shown (highest value first)"} value={`${summary.shown} of ${search.trim() ? summary.matchCount : summary.itemCount}`} />
+          )}
           <Stat label="Total valuation (live)" value={fmt(liveTotal)} accent="primary" />
           {summary.itemsWithMissingCost > 0 && (
             <Stat

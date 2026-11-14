@@ -27,8 +27,15 @@ export class InventoryValuationController {
   @Permissions('accounting:read')
   @ApiOperation({ summary: 'Closing stock valuation = Σ(currentQty × costPrice) across all active assets' })
   @ApiQuery({ name: 'asOfDate', required: false, description: 'YYYY-MM-DD; defaults to today. v1 uses CURRENT quantities regardless.' })
-  closingStock(@Req() req: RequestWithOrganization, @Query('asOfDate') asOfDate?: string) {
-    return this.service.closingStock(requireOrgId(req), asOfDate ? new Date(asOfDate) : undefined);
+  @ApiQuery({ name: 'q', required: false, description: 'Filter the item list by SKU or name (the totals always cover every item)' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Item rows returned, highest value first (default 200, max 2000)' })
+  closingStock(
+    @Req() req: RequestWithOrganization,
+    @Query('asOfDate') asOfDate?: string,
+    @Query('q') q?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.closingStock(requireOrgId(req), asOfDate ? new Date(asOfDate) : undefined, { q, limit: limit ? Number(limit) : undefined });
   }
 
   @Patch('cost-prices')

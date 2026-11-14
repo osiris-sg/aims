@@ -43,77 +43,99 @@ export type ClosingStockResult = {
 export class InventoryValuationService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async closingStock(organizationId: string, asOfDate?: Date): Promise<ClosingStockResult> {
+  /**
+   * Closing stock = Σ(on-hand qty × costPrice) over the org's active assets.
+   * The TOTALS are one SQL aggregate over every in-stock asset; the ITEM LIST
+   * is a page (highest value first, default 200 rows) filtered by `q` on SKU
+   * or name — Chong Aik's 86k items used to be walked in Node and sent whole,
+   * which left the Inventory Cost tab spinning (guru 2026-11-14).
+   *
+   * Tracked assets count their non-sold Inventory rows; untracked ones use
+   * Asset.quantity. Rows with no on-hand stock are left out, as before.
+   */
+  async closingStock(
+    organizationId: string,
+    asOfDate?: Date,
+    opts: { q?: string; limit?: number } = {},
+  ): Promise<ClosingStockResult & { shown: number; matchCount: number; limit: number }> {
     const at = asOfDate ?? new Date();
-
-    // Pull active assets for the org. Include the count of non-sold inventory
-    // rows per asset in the same query so we don't N+1.
-    const assets = await this.prisma.asset.findMany({
-      where: {
+    const limit = Math.min(Math.max(Number(opts.limit) || 200, 1), 2000);
+    const q = String(opts.q || '').trim();
+    // One row per in-stock asset with its quantity and value. Positional
+    // params only (the tenancy router rejects Prisma.sql fragments).
+    const stockCte = `
+      WITH stock AS (
+        SELECT a.id, a."skuKey" AS code, a.name, a."isTracked",
+               CASE WHEN a."isTracked" THEN COALESCE(i.cnt, 0) ELSE COALESCE(a.quantity, 0) END AS quantity,
+               COALESCE(a."costPrice", 0) AS "costPrice"
+        FROM "Asset" a
+        LEFT JOIN (
+          SELECT "assetId", COUNT(*)::int AS cnt FROM "Inventory"
+          WHERE "organizationId" = $1 AND status <> 'sold' GROUP BY "assetId"
+        ) i ON a."isTracked" AND i."assetId" = a.id
+        WHERE a."organizationId" = $1 AND a."deletedAt" IS NULL
+      )`;
+    const empty = { asOfDate: at.toISOString(), total: 0, itemCount: 0, itemsWithMissingCost: 0, items: [], shown: 0, matchCount: 0, limit };
+    let totalsRows: any[];
+    try {
+      totalsRows = (await this.prisma.$queryRawUnsafe(
+        `${stockCte}
+         SELECT COUNT(*)::int AS "itemCount",
+                COALESCE(SUM(quantity * "costPrice"), 0)::float AS total,
+                COUNT(*) FILTER (WHERE "costPrice" = 0)::int AS "itemsWithMissingCost"
+         FROM stock WHERE quantity <> 0`,
         organizationId,
-        deletedAt: null,
-      },
-      select: {
-        id: true,
-        skuKey: true,
-        name: true,
-        isTracked: true,
-        quantity: true,
-        costPrice: true,
-      },
-    });
-
-    // Batch-count inventory rows per asset (tracked items only).
-    const trackedAssetIds = assets.filter((a) => a.isTracked).map((a) => a.id);
-    const inventoryCounts = await this.prisma.inventory.groupBy({
-      by: ['assetId'],
-      where: {
-        organizationId,
-        assetId: { in: trackedAssetIds },
-        status: { not: 'sold' },
-      },
-      _count: { _all: true },
-    });
-    const countByAsset = new Map(inventoryCounts.map((c) => [c.assetId, c._count._all]));
-
-    const items: ClosingStockItem[] = [];
-    let total = 0;
-    let itemsWithMissingCost = 0;
-
-    for (const a of assets) {
-      const quantity = a.isTracked
-        ? countByAsset.get(a.id) ?? 0
-        : a.quantity ?? 0;
-
-      if (quantity === 0) continue; // skip rows with no on-hand stock
-
-      const costPrice = a.costPrice ?? 0;
-      const value = ROUND(quantity * costPrice);
-      const missingCost = !a.costPrice || a.costPrice === 0;
-
-      total += value;
-      if (missingCost) itemsWithMissingCost += 1;
-
-      items.push({
-        assetId: a.id,
-        code: a.skuKey,
-        name: a.name,
-        isTracked: a.isTracked,
-        quantity,
-        costPrice,
-        value,
-        missingCost,
-      });
+      )) as any[];
+    } catch (e: any) {
+      // An org without the inventory module has no Asset / Inventory tables
+      // in its schema (42P01): it simply holds no stock.
+      if (e?.meta?.code === '42P01' || /does not exist/.test(String(e?.message))) return empty;
+      throw e;
     }
+    const totals = totalsRows[0] || { itemCount: 0, total: 0, itemsWithMissingCost: 0 };
 
-    items.sort((x, y) => y.value - x.value); // highest-value first
+    const params: any[] = [organizationId];
+    let where = 'quantity <> 0';
+    if (q) {
+      params.push(`%${q}%`);
+      where += ` AND (code ILIKE $${params.length} OR name ILIKE $${params.length})`;
+    }
+    // How many items the search matches (the grid shows the first `limit`).
+    let matchCount = Number(totals.itemCount) || 0;
+    if (q) {
+      const m = (await this.prisma.$queryRawUnsafe(`${stockCte} SELECT COUNT(*)::int AS n FROM stock WHERE ${where}`, ...params)) as any[];
+      matchCount = Number(m[0]?.n) || 0;
+    }
+    params.push(limit);
+    const rows = (await this.prisma.$queryRawUnsafe(
+      `${stockCte}
+       SELECT id, code, name, "isTracked", quantity, "costPrice", (quantity * "costPrice")::float AS value
+       FROM stock WHERE ${where}
+       ORDER BY value DESC, code ASC
+       LIMIT $${params.length}`,
+      ...params,
+    )) as any[];
+
+    const items: ClosingStockItem[] = rows.map((r) => ({
+      assetId: r.id,
+      code: r.code,
+      name: r.name,
+      isTracked: !!r.isTracked,
+      quantity: Number(r.quantity) || 0,
+      costPrice: Number(r.costPrice) || 0,
+      value: ROUND(Number(r.value) || 0),
+      missingCost: !(Number(r.costPrice) || 0),
+    }));
 
     return {
       asOfDate: at.toISOString(),
-      total: ROUND(total),
-      itemCount: items.length,
-      itemsWithMissingCost,
+      total: ROUND(Number(totals.total) || 0),
+      itemCount: Number(totals.itemCount) || 0,
+      itemsWithMissingCost: Number(totals.itemsWithMissingCost) || 0,
       items,
+      shown: items.length,
+      matchCount,
+      limit,
     };
   }
 
