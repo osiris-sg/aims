@@ -146,10 +146,14 @@ export default function ReportShell({
             </Box>
           </Box>
 
-          {/* Footer bar */}
+          {/* Footer bar — shares the report card's centred 1140 column so its
+              info (e.g. "Customer 1 of 2 · Range total owed") aligns with the
+              report's right edge, not the far bottom-right of the screen
+              (guru 2026-11-14). */}
           <Box sx={{
             borderTop: (t) => `1px solid ${t.palette.divider}`,
             px: { xs: 1.5, md: 3 }, py: 1,
+            maxWidth: 1140, mx: "auto", width: "100%",
             display: "flex", alignItems: "center", justifyContent: "space-between",
             flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1,
             position: "sticky", bottom: 0,
