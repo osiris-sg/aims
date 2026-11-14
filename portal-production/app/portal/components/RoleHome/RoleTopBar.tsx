@@ -25,6 +25,7 @@
 // Landing inside a module (deep link, list → record) opens its level.
 
 import * as React from "react";
+import { documentEditorNavPath } from "@/helpers/documentNavPath";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Box, Button, ButtonBase, Divider, IconButton, Menu, MenuItem, Paper, Popper, Stack,
@@ -121,7 +122,9 @@ export default function RoleTopBar() {
       setFromPath(null);
     }
   }, [pathname]);
-  const navPath = fromPath ?? pathname;
+  // A directly-opened document editor highlights its owning module (Sales /
+  // Inventory) even without a ?from (guru 2026-11-14).
+  const navPath = fromPath ?? documentEditorNavPath(pathname) ?? pathname;
 
   // AIMEE's open/closed state, so the face can toggle it like the normal bar.
   const [homeView, setHomeView] = React.useState(readHomeView());
@@ -304,6 +307,19 @@ export default function RoleTopBar() {
                   }]
                 : []),
             ];
+            // Picking a module OPENS ITS MAIN PAGE as well as its level (guru
+            // 2026-11-14): Accounting → General Ledger (its Dashboard tab is
+            // gone), Sales → the Sales page, Inventory → the Inventory overview;
+            // any other module → its own route when that is one of its tabs,
+            // else its first tab.
+            const MODULE_HOME: Record<string, string> = { ACCOUNTING: "/portal/accounting/ledger", SALES: "/portal/sales", INVENTORY: "/portal/inventory/overview" };
+            const homeOf = (b: Bar) => MODULE_HOME[b.code] ?? (b.tabs.some((t) => t.path === b.route) || !b.tabs.length ? b.route : b.tabs[0].path);
+            const pick = (b: Bar) => {
+              setHomeList(null);
+              if (b.tabs.length) setLevel({ code: b.code });
+              const home = homeOf(b);
+              if (home && home !== navPath) go(home);
+            };
             const followed = bars.find((b) => b.active && b.tabs.length)?.code ?? null;
             const openCode = level === "home" ? null : level?.code ?? followed;
             const open = openCode ? bars.find((b) => b.code === openCode) : undefined;
@@ -315,7 +331,7 @@ export default function RoleTopBar() {
                   key={b.code}
                   size="small"
                   data-testid={`role-nav-module-${b.code}`}
-                  onClick={() => (b.tabs.length ? setLevel({ code: b.code }) : go(b.route))}
+                  onClick={() => pick(b)}
                   sx={navBtnSx(b.active, false)}
                 >
                   {b.label}
@@ -372,11 +388,7 @@ export default function RoleTopBar() {
                           <ButtonBase
                             key={b.code}
                             data-testid={`role-nav-home-item-${b.code}`}
-                            onClick={() => {
-                              setHomeList(null);
-                              if (b.tabs.length) setLevel({ code: b.code });
-                              else go(b.route);
-                            }}
+                            onClick={() => pick(b)}
                             sx={{
                               display: "flex", flexDirection: "column", alignItems: "center", gap: 1, py: 1.5, borderRadius: "16px",
                               bgcolor: here ? (dark ? alpha("#fff", 0.08) : "#ECEAF7") : "transparent",

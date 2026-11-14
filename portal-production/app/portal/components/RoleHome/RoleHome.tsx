@@ -662,7 +662,7 @@ function AssistantCard({ prompts }: { prompts: string[] }) {
 
 // ── The screen ───────────────────────────────────────────────────────────
 // One snapshot per range; refetched when the range or the org changes.
-function useRoleHomeSnapshot(days: string) {
+export function useRoleHomeSnapshot(days: string) {
   const { request } = useAccountingApi();
   const [snapshot, setSnapshot] = React.useState<Snapshot | null>(null);
   const [loading, setLoading] = React.useState(true);

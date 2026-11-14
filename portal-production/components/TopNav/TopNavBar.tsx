@@ -8,6 +8,7 @@
 // active module underlined. Desktop (md+) only — mobile keeps the drawer.
 
 import LangSwitch from "./LangSwitch";
+import { documentEditorNavPath } from "@/helpers/documentNavPath";
 import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -188,7 +189,9 @@ export default function TopNavBar() {
       setFromPath(null);
     }
   }, [rawPathname]);
-  const navPath = fromPath ?? rawPathname;
+  // A directly-opened document editor highlights its owning module (Sales /
+  // Inventory) even without a ?from (guru 2026-11-14).
+  const navPath = fromPath ?? documentEditorNavPath(rawPathname) ?? rawPathname;
   const { user } = useUser();
   const { organization } = useOrganization(); // active org (respects admin "view as")
   const { mode, toggleMode } = useThemeMode();

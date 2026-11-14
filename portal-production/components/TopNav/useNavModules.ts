@@ -26,7 +26,9 @@ const HIDDEN_SUBMENUS: Record<string, string[]> = {
   // Accounting → Reports retired (guru 2026-10-24, top nav 2026-10-28): every
   // report sits under General Ledger / AR / AP. Hidden here so orgs whose
   // stored subMenus still carry it don't show it.
-  ACCOUNTING: ["reports"],
+  // Accounting → Dashboard retired (guru 2026-11-14): the module opens on
+  // General Ledger; the accounting dashboard page stays reachable by URL only.
+  ACCOUNTING: ["reports", "list"],
   // User Management → Roles retired (guru 2026-10-28): roles are picked on the
   // user itself. Hidden here so orgs whose stored subMenus still carry it
   // don't show it.

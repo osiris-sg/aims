@@ -214,7 +214,9 @@ export default function DynamicSidebarContent() {
     // Accounting → Reports retired (guru 2026-10-24): every report sits under
     // General Ledger / AR / AP. Hidden here so orgs whose stored subMenus still
     // carry it (see scripts/retire-accounting-reports-submenu.ts) don't show it.
-    ACCOUNTING: ['reports'],
+    // Accounting → Dashboard retired too (guru 2026-11-14): the module opens
+    // on General Ledger; the Finance Hub page stays reachable by URL only.
+    ACCOUNTING: ['reports', 'list'],
     // User Management → Roles retired (guru 2026-10-28): roles are picked on
     // the user itself, so the separate screen is gone. Hidden here so orgs
     // whose stored subMenus still carry it don't show it.
