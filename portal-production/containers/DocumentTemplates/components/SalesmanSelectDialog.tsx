@@ -22,6 +22,7 @@ import {
   Close as CloseIcon,
   Search as SearchIcon,
 } from "@mui/icons-material";
+import { useListKeyboardNav } from "@/helpers/useListKeyboardNav";
 
 interface Salesman {
   id: string;
@@ -89,6 +90,13 @@ export default function SalesmanSelectDialog({
     onClose();
   };
 
+  // Keyboard navigation (guru 2026-11-14): ↑/↓ highlight, Enter picks, Esc closes.
+  const { activeIndex, setActiveIndex, handleKeyDown, setRowRef } = useListKeyboardNav(
+    filteredSalesmen,
+    (salesman: Salesman) => handleRowClick(salesman),
+    { onClose: handleClose },
+  );
+
   return (
     <Dialog
       open={open}
@@ -148,6 +156,7 @@ export default function SalesmanSelectDialog({
             placeholder="Search salesmen..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyDown={handleKeyDown}
             size="small"
             autoFocus
             InputProps={{
@@ -218,7 +227,10 @@ export default function SalesmanSelectDialog({
                 filteredSalesmen.map((salesman: Salesman, index: number) => (
                   <TableRow
                     key={salesman.id || index}
+                    ref={setRowRef(index)}
                     hover
+                    selected={index === activeIndex}
+                    onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => handleRowClick(salesman)}
                     sx={{
                       cursor: "pointer",
@@ -227,6 +239,10 @@ export default function SalesmanSelectDialog({
                       },
                       "&:nth-of-type(even)": {
                         bgcolor: "surfaceTones.low",
+                      },
+                      "&.Mui-selected, &.Mui-selected:hover": {
+                        bgcolor: "primary.main",
+                        "& .MuiTableCell-root": { color: "primary.contrastText" },
                       },
                     }}
                   >

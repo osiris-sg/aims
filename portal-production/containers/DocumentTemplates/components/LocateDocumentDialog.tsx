@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import StatusChip from "@/components/StatusChip";
 import {
   Dialog,
   DialogTitle,
@@ -17,13 +18,13 @@ import {
   IconButton,
   Typography,
   InputAdornment,
-  Chip,
 } from "@mui/material";
 import {
   Close as CloseIcon,
   Search as SearchIcon,
 } from "@mui/icons-material";
 import moment from "moment";
+import { useListKeyboardNav } from "@/helpers/useListKeyboardNav";
 
 interface Document {
   id: string;
@@ -85,19 +86,12 @@ export default function LocateDocumentDialog({
     onClose();
   };
 
-  const getStatusColor = (status?: string) => {
-    switch (status) {
-      case "confirmed":
-        return "success";
-      case "pending_payment":
-        return "warning";
-      case "paid":
-        return "info";
-      case "draft":
-      default:
-        return "default";
-    }
-  };
+  // Keyboard navigation (guru 2026-11-14): ↑/↓ highlight, Enter picks, Esc closes.
+  const { activeIndex, setActiveIndex, handleKeyDown, setRowRef } = useListKeyboardNav(
+    filteredDocuments,
+    (doc) => handleRowClick(doc),
+    { onClose: handleClose },
+  );
 
   const formatCurrency = (amount?: number, currency?: string) => {
     if (amount === undefined || amount === null) return "-";
@@ -161,6 +155,7 @@ export default function LocateDocumentDialog({
             placeholder={`Search ${documentLabel.toLowerCase()}s...`}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyDown={handleKeyDown}
             size="small"
             autoFocus
             InputProps={{
@@ -279,7 +274,10 @@ export default function LocateDocumentDialog({
                 filteredDocuments.map((doc, index) => (
                   <TableRow
                     key={doc.id || index}
+                    ref={setRowRef(index)}
                     hover
+                    selected={index === activeIndex}
+                    onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => handleRowClick(doc)}
                     sx={{
                       cursor: "pointer",
@@ -288,6 +286,10 @@ export default function LocateDocumentDialog({
                       },
                       "&:nth-of-type(even)": {
                         bgcolor: "surfaceTones.low",
+                      },
+                      "&.Mui-selected, &.Mui-selected:hover": {
+                        bgcolor: "primary.main",
+                        "& .MuiTableCell-root": { color: "primary.contrastText" },
                       },
                     }}
                   >
@@ -307,16 +309,8 @@ export default function LocateDocumentDialog({
                     <TableCell>{doc.config?.poNo || "-"}</TableCell>
                     <TableCell>{doc.config?.doNo || "-"}</TableCell>
                     <TableCell align="center">
-                      <Chip
-                        label={doc.status || "draft"}
-                        size="small"
-                        color={getStatusColor(doc.status)}
-                        sx={{
-                          fontWeight: 500,
-                          fontSize: "0.7rem",
-                          textTransform: "capitalize",
-                        }}
-                      />
+                      {/* The shared chip: an invoice reads Awaiting Payment / Paid, never a raw status key. */}
+                      <StatusChip status={doc.status} doc={doc} />
                     </TableCell>
                   </TableRow>
                 ))

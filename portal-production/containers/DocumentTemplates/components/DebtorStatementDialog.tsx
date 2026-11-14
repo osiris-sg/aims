@@ -13,7 +13,8 @@
 //    render on screen, no options-then-print flow) deep-linked to this
 //    customer + cut-off; printing happens from the report footer.
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useListKeyboardNav } from "@/helpers/useListKeyboardNav";
 import { useRouter } from "next/navigation";
 import {
   Box,
@@ -99,7 +100,7 @@ export default function DebtorStatementDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  customer: { id: string; name?: string; customerCode?: string; address?: string; email?: string } | null;
+  customer: { id: string; name?: string; customerCode?: string; address?: string; email?: string; phone?: string; fax?: string; creditLimit?: number | string | null } | null;
 }) {
   const { getToken } = useAuth();
   const router = useRouter();
@@ -110,6 +111,10 @@ export default function DebtorStatementDialog({
   const [txs, setTxs] = useState<SoaTx[]>([]);
   const [agedDocs, setAgedDocs] = useState<AgedDoc[]>([]);
   const [monthDetail, setMonthDetail] = useState<{ label: string; docs: AgedDoc[] } | null>(null);
+  // Keyboard navigation over the month ageing cards (guru 2026-11-14: "add the
+  // keydown function here as well"): ↑/↓ highlight a month, Enter opens its
+  // Detailed Ageing Analysis (only months with an outstanding amount react).
+  const agedGridRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open || !customer?.id) return;
@@ -178,6 +183,19 @@ export default function DebtorStatementDialog({
     return list;
   }, [agedDocs, cutOff]);
 
+  const { activeIndex: agedActive, setActiveIndex: setAgedActive, handleKeyDown: agedKeyDown, setRowRef: setAgedRowRef } = useListKeyboardNav(
+    buckets,
+    (b) => { if (b.amount > 0) setMonthDetail({ label: b.label, docs: b.docs }); },
+  );
+  // Focus the month grid once the statement has loaded so the arrow keys work
+  // without a mouse click first.
+  useEffect(() => {
+    if (open && !loading) {
+      const t = setTimeout(() => agedGridRef.current?.focus(), 50);
+      return () => clearTimeout(t);
+    }
+  }, [open, loading]);
+
   // Print = the Xero-style report, deep-linked to this customer + cut-off.
   // ?back= returns to the page hosting this dialog (the receipt) from the
   // report's Back button.
@@ -224,7 +242,7 @@ export default function DebtorStatementDialog({
         </Stack>
       </DialogTitle>
 
-      <DialogContent sx={{ p: 2 }}>
+      <DialogContent sx={{ px: 3, py: 2.5 }}>
         {/* ---------- header block ---------- */}
         <Box sx={{ display: "flex", justifyContent: "space-between", gap: 3, flexWrap: "wrap", mb: 1.5 }}>
           <Box sx={{ minWidth: 280 }}>
@@ -235,6 +253,16 @@ export default function DebtorStatementDialog({
             <Stack direction="row" gap={1.5} alignItems="baseline" sx={{ mt: 0.5 }}>
               <Typography sx={fieldLabelSx}>Address</Typography>
               <Typography sx={{ fontSize: "0.85rem", whiteSpace: "pre-line" }}>{customer?.address || "—"}</Typography>
+            </Stack>
+            <Stack direction="row" gap={3} alignItems="baseline" sx={{ mt: 0.5 }}>
+              <Stack direction="row" gap={1.5} alignItems="baseline">
+                <Typography sx={fieldLabelSx}>Telephone</Typography>
+                <Typography sx={{ fontSize: "0.85rem" }}>{customer?.phone || "—"}</Typography>
+              </Stack>
+              <Stack direction="row" gap={1.5} alignItems="baseline">
+                <Typography sx={fieldLabelSx}>Fax</Typography>
+                <Typography sx={{ fontSize: "0.85rem" }}>{customer?.fax || "—"}</Typography>
+              </Stack>
             </Stack>
           </Box>
           <Box>
@@ -251,6 +279,15 @@ export default function DebtorStatementDialog({
             <Stack direction="row" gap={1.5} alignItems="center" justifyContent="flex-end" sx={{ mt: 0.5 }}>
               <Typography sx={fieldLabelSx}>Accounts Code</Typography>
               <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{customer?.customerCode || "—"}</Typography>
+            </Stack>
+            <Stack direction="row" gap={1.5} alignItems="center" justifyContent="flex-end" sx={{ mt: 0.5 }}>
+              <Typography sx={fieldLabelSx}>Available Credit</Typography>
+              <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
+                {(() => {
+                  const limit = Number(customer?.creditLimit);
+                  return Number.isFinite(limit) && limit > 0 ? fmt(R(limit - closing)) : "—";
+                })()}
+              </Typography>
             </Stack>
             <Stack direction="row" gap={1.5} alignItems="center" justifyContent="flex-end" sx={{ mt: 1 }}>
               <Typography sx={{ ...fieldLabelSx, color: "text.primary" }}>BALANCE B/F</Typography>
@@ -323,23 +360,30 @@ export default function DebtorStatementDialog({
 
             {/* ---------- money owed by month ---------- */}
             <Box
+              ref={agedGridRef}
+              tabIndex={0}
+              onKeyDown={agedKeyDown}
               sx={{
                 mt: 2,
                 display: "grid",
                 gridTemplateColumns: { xs: "repeat(3, 1fr)", md: "repeat(6, 1fr)" },
                 gap: 1,
+                outline: "none",
               }}
             >
-              {buckets.map((b) => (
+              {buckets.map((b, i) => (
                 <Paper
                   key={b.label}
+                  ref={setAgedRowRef(i)}
                   variant="outlined"
+                  onMouseEnter={() => setAgedActive(i)}
                   onClick={() => b.amount > 0 && setMonthDetail({ label: b.label, docs: b.docs })}
                   sx={{
                     p: 1,
                     borderRadius: 1.5,
                     cursor: b.amount > 0 ? "pointer" : "default",
                     opacity: b.amount > 0 ? 1 : 0.65,
+                    ...(i === agedActive ? { borderColor: "primary.main", boxShadow: (t: any) => `0 0 0 2px ${t.palette.primary.main}` } : null),
                     "&:hover": b.amount > 0 ? { borderColor: "text.secondary", bgcolor: "action.hover" } : undefined,
                   }}
                   title={b.amount > 0 ? "Detailed Ageing Analysis" : undefined}

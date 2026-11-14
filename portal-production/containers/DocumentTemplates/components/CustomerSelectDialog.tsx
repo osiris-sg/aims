@@ -32,6 +32,7 @@ import { useCreateCustomer } from "@/app/portal/hooks/api";
 import { customerIdsLine, customerIdsMatch, rankCustomers } from "@/helpers/customerIds";
 import { rememberCustomers, useCustomerSearch } from "@/app/portal/hooks/api/useCustomerPicker";
 import { useOrganization } from "@hooks/useOrganization";
+import { useListKeyboardNav } from "@/helpers/useListKeyboardNav";
 
 interface Customer {
   id: string;
@@ -142,6 +143,14 @@ export default function CustomerSelectDialog({
     onClose();
   };
 
+  // Keyboard navigation (guru 2026-11-14): ↑/↓ move the highlight, Enter picks,
+  // Esc closes — the picker works without the mouse.
+  const { activeIndex, setActiveIndex, handleKeyDown, setRowRef } = useListKeyboardNav(
+    filteredCustomers,
+    (customer) => handleRowClick(customer),
+    { onClose: handleClose },
+  );
+
   return (
     <Dialog
       open={open}
@@ -200,6 +209,7 @@ export default function CustomerSelectDialog({
               placeholder="Search customers..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={handleKeyDown}
               size="small"
               autoFocus
               InputProps={{
@@ -350,7 +360,10 @@ export default function CustomerSelectDialog({
                 filteredCustomers.map((customer, index) => (
                   <TableRow
                     key={customer.id || index}
+                    ref={setRowRef(index)}
                     hover
+                    selected={index === activeIndex}
+                    onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => handleRowClick(customer)}
                     sx={{
                       cursor: "pointer",
@@ -359,6 +372,10 @@ export default function CustomerSelectDialog({
                       },
                       "&:nth-of-type(even)": {
                         bgcolor: "surfaceTones.low",
+                      },
+                      "&.Mui-selected, &.Mui-selected:hover": {
+                        bgcolor: "primary.main",
+                        "& .MuiTableCell-root": { color: "primary.contrastText" },
                       },
                     }}
                   >

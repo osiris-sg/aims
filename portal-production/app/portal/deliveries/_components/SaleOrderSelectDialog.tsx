@@ -22,6 +22,7 @@ import {
   Typography,
 } from "@mui/material";
 import { Close as CloseIcon, Search as SearchIcon } from "@mui/icons-material";
+import { useListKeyboardNav } from "@/helpers/useListKeyboardNav";
 
 /**
  * Sales Order picker for the schedule-delivery dialog — same shape as the
@@ -110,6 +111,13 @@ export default function SaleOrderSelectDialog({ open, onClose, rows, loading, on
     onClose();
   };
 
+  // Keyboard navigation (guru 2026-11-14): ↑/↓ highlight, Enter picks, Esc closes.
+  const { activeIndex, setActiveIndex, handleKeyDown, setRowRef } = useListKeyboardNav(
+    filtered,
+    (row) => handleRowClick(row),
+    { onClose: handleClose },
+  );
+
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
       <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", pb: 1 }}>
@@ -131,6 +139,7 @@ export default function SaleOrderSelectDialog({ open, onClose, rows, loading, on
               placeholder="Search by Sales Order No, customer or customer PO"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={handleKeyDown}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
@@ -184,15 +193,22 @@ export default function SaleOrderSelectDialog({ open, onClose, rows, loading, on
                   </TableCell>
                 </TableRow>
               ) : (
-                filtered.map((r) => (
+                filtered.map((r, index) => (
                   <TableRow
                     key={r.id}
+                    ref={setRowRef(index)}
                     hover
+                    selected={index === activeIndex}
+                    onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => handleRowClick(r)}
                     sx={{
                       cursor: "pointer",
                       "&:hover": { bgcolor: "surfaceTones.high" },
                       "&:nth-of-type(even)": { bgcolor: "surfaceTones.low" },
+                      "&.Mui-selected, &.Mui-selected:hover": {
+                        bgcolor: "primary.main",
+                        "& .MuiTableCell-root": { color: "primary.contrastText" },
+                      },
                     }}
                   >
                     <TableCell sx={{ fontWeight: 500, color: "text.primary" }}>{r.name || "-"}</TableCell>

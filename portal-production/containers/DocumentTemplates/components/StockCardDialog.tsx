@@ -612,7 +612,16 @@ export default function StockCardDialog({
                     onClick={() => handleRowClick(item)}
                     onMouseEnter={() => setActiveIndex(index)}
                     selected={index === activeIndex}
-                    sx={{ cursor: "pointer" }}
+                    sx={{
+                      cursor: "pointer",
+                      // Strong highlight so the keyboard-selected row is clearly
+                      // visible (guru 2026-11-14: the default tint was too faint).
+                      "&.Mui-selected, &.Mui-selected:hover": {
+                        bgcolor: "primary.main",
+                        "& .MuiTableCell-root": { color: "primary.contrastText" },
+                        "& .MuiTypography-root": { color: "primary.contrastText" },
+                      },
+                    }}
                   >
                     <TableCell sx={{ fontWeight: 500, color: "text.primary" }}>
                       {item.sku || "-"}
