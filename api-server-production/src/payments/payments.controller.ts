@@ -122,6 +122,18 @@ export class PaymentsController {
     return this.paymentsService.findByDocument(documentId, organizationId);
   }
 
+  @Get('document/:documentId/offsets')
+  @Permissions('payments:read')
+  @ApiOperation({ summary: 'Offsetted entries for an invoice (receipts + credit notes), each with its document to open' })
+  @ApiResponse({ status: 200, description: 'Returns the offset rows for the document' })
+  offsetEntries(@Param('documentId') documentId: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) {
+      throw new Error('User is not assigned to any organization');
+    }
+    return this.paymentsService.offsetEntries(documentId, organizationId);
+  }
+
   @Get(':id')
   @Permissions('payments:read')
   @ApiOperation({ summary: 'Get a payment by ID' })

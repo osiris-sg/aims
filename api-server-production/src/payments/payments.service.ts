@@ -361,6 +361,136 @@ export class PaymentsService {
   }
 
   /**
+   * Offsetted entries for an invoice (the legacy "View Offsetted Entries"
+   * popup): every settlement against this invoice — Official Receipts and
+   * credit-note Manual Offsets — as Reference / Date / Amount rows, each
+   * carrying the document the row opens (click → go to that exact document).
+   *
+   * A receipt allocation is one row (REC number → the receipt). A Manual
+   * Offset is expanded into the credit note(s) it applied (C/N number → that
+   * credit note), so the popup matches the legacy software, which lists the
+   * credit notes directly rather than the offset wrapper.
+   */
+  async offsetEntries(documentId: string, organizationId: string) {
+    const payments = await this.prisma.payment.findMany({
+      where: { documentId, organizationId },
+      orderBy: { paymentDate: 'asc' },
+      select: {
+        id: true,
+        amount: true,
+        paymentDate: true,
+        paymentMethod: true,
+        reference: true,
+        receiptId: true,
+      },
+    });
+
+    // The documents each row opens: receipts (receiptId) and the credit notes
+    // inside any Manual Offset. Fetched once, by id.
+    const offsetDocIds = payments
+      .filter((p) => p.paymentMethod === 'offset' && p.receiptId)
+      .map((p) => p.receiptId as string);
+    const receiptIds = payments
+      .filter((p) => p.paymentMethod !== 'offset' && p.receiptId)
+      .map((p) => p.receiptId as string);
+
+    const offsetDocs = offsetDocIds.length
+      ? await this.prisma.document.findMany({
+          where: { id: { in: offsetDocIds }, organizationId },
+          select: { id: true, config: true },
+        })
+      : [];
+    const offsetById = new Map(offsetDocs.map((d) => [d.id, d]));
+
+    // Credit note documents referenced by the offsets — for their type +
+    // template (to build the editor route) and a fallback date.
+    const creditNoteIds = new Set<string>();
+    for (const d of offsetDocs) {
+      const credits: any[] = Array.isArray((d.config as any)?.credits) ? (d.config as any).credits : [];
+      for (const c of credits) if (c?.documentId) creditNoteIds.add(String(c.documentId));
+    }
+    const cnDocs = creditNoteIds.size
+      ? await this.prisma.document.findMany({
+          where: { id: { in: [...creditNoteIds] }, organizationId },
+          select: { id: true, name: true, type: true, documentTemplateId: true, config: true },
+        })
+      : [];
+    const cnById = new Map(cnDocs.map((d) => [d.id, d]));
+
+    const receiptDocs = receiptIds.length
+      ? await this.prisma.document.findMany({
+          where: { id: { in: receiptIds }, organizationId },
+          select: { id: true, type: true, documentTemplateId: true },
+        })
+      : [];
+    const receiptById = new Map(receiptDocs.map((d) => [d.id, d]));
+
+    type Row = {
+      reference: string;
+      date: string | null;
+      amount: number; // negative: it reduces what the invoice owes
+      documentId: string | null;
+      docType: string | null; // OFFICIAL_RECEIPT | CN | MANUAL_OFFSET | …
+      templateId: string | null;
+    };
+    const rows: Row[] = [];
+    const dstr = (d: any): string | null => {
+      if (!d) return null;
+      try {
+        return new Date(d).toISOString().slice(0, 10);
+      } catch {
+        return typeof d === 'string' ? d.slice(0, 10) : null;
+      }
+    };
+
+    for (const p of payments) {
+      const amt = -(Number(p.amount) || 0);
+      if (p.paymentMethod === 'offset' && p.receiptId && offsetById.has(p.receiptId)) {
+        const mo = offsetById.get(p.receiptId)!;
+        const credits: any[] = Array.isArray((mo.config as any)?.credits) ? (mo.config as any).credits : [];
+        if (credits.length) {
+          // One row per credit note applied by this offset.
+          for (const c of credits) {
+            const cn = c?.documentId ? cnById.get(String(c.documentId)) : undefined;
+            rows.push({
+              reference: cn?.name || c?.reference || 'C/N',
+              date: dstr(c?.date) || dstr(p.paymentDate),
+              amount: -(Number(c?.amount) || 0),
+              documentId: cn?.id || c?.documentId || null,
+              docType: cn?.type || 'CN',
+              templateId: cn?.documentTemplateId || null,
+            });
+          }
+          continue;
+        }
+        // No credit detail — fall back to the offset document itself.
+        rows.push({
+          reference: p.reference || 'Offset',
+          date: dstr(p.paymentDate),
+          amount: amt,
+          documentId: p.receiptId,
+          docType: 'MANUAL_OFFSET',
+          templateId: null,
+        });
+        continue;
+      }
+      // Receipt allocation (or a legacy imported payment with no receipt doc).
+      const rc = p.receiptId ? receiptById.get(p.receiptId) : undefined;
+      rows.push({
+        reference: p.reference || 'Receipt',
+        date: dstr(p.paymentDate),
+        amount: amt,
+        documentId: p.receiptId || null,
+        docType: rc?.type || (p.receiptId ? 'OFFICIAL_RECEIPT' : null),
+        templateId: rc?.documentTemplateId || null,
+      });
+    }
+
+    rows.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')) || a.reference.localeCompare(b.reference));
+    return { rows, count: rows.length };
+  }
+
+  /**
    * Update a payment record
    */
   async update(id: string, updatePaymentDto: UpdatePaymentDto, organizationId: string) {
