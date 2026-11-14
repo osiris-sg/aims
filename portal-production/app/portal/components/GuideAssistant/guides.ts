@@ -822,9 +822,9 @@ export const GUIDES: Guide[] = [
         body: 'Tick the invoice(s) this payment covers — ticking auto-fills the allocation, or type a per-invoice amount for partial payments. The Balance at the bottom right must reach 0.00 (fully allocated).',
       },
       {
-        selector: '[data-tour="editor-save"]',
-        title: 'Save the receipt',
-        body: 'Press Save — it posts the receipt and marks the allocated invoices as paid (partial allocations leave the rest outstanding). Save stays blocked until the balance is exactly 0.00.',
+        selector: '[data-tour="or-offset-grid"]',
+        title: 'It saves itself',
+        body: 'Once the balance is exactly 0.00 the receipt saves on its own a moment after your last edit — that posts it and marks the allocated invoices as paid (partial allocations leave the rest outstanding). Until then the toolbar reads "Unsaved changes".',
       },
     ],
   },

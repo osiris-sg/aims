@@ -20,7 +20,9 @@ export default function EditorRail({ buttons }: { buttons: EditorRailButton[] })
           startIcon={b.icon}
           onClick={b.onClick}
           fullWidth
-          sx={{ justifyContent: "flex-start", whiteSpace: "nowrap", "& .MuiButton-startIcon": { ml: 0 } }}
+          // A long module name wraps onto two lines (the invoice's "Unconfirm
+          // Invoice Listing By Customer") instead of being clipped.
+          sx={{ justifyContent: "flex-start", whiteSpace: "normal", textAlign: "left", lineHeight: 1.25, "& .MuiButton-startIcon": { ml: 0, flexShrink: 0 } }}
         >
           {b.label}
         </Button>

@@ -62,7 +62,6 @@ import {
   AttachFile as AttachFileIcon,
   Close as CloseIcon,
   Email as EmailIcon,
-  Payment as PaymentIcon,
   CloudSync as CloudSyncIcon,
   NavigateBefore as NavigateBeforeIcon,
   ExpandMore as ExpandMoreIcon,
@@ -119,11 +118,15 @@ import CustomerSelectDialog from "./CustomerSelectDialog";
 import SalesmanSelectDialog from "./SalesmanSelectDialog";
 import PriceHistoryPopup from "@/components/PriceHistory/PriceHistoryPopup";
 import SendInvoiceEmailDialog from "@/app/portal/invoices/components/SendInvoiceEmailDialog";
-import RecordPaymentDialog from "@/app/portal/invoices/components/RecordPaymentDialog";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useReactToPrint } from "react-to-print";
 import { installPrintFit } from "@/lib/printScale";
-import { request } from "@/helpers/request";
+import { request, withActiveOrg } from "@/helpers/request";
+import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
+import EditorRail from "./EditorRail";
+import DebtorStatementDialog from "./DebtorStatementDialog";
+import ViewListOutlinedIcon from "@mui/icons-material/ViewListOutlined";
+import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
 import { enterScopeProps } from "@/helpers/enterAdvance";
 import { uploadImage } from "@/helpers/imageUploader";
 import AddAPhotoIcon from "@mui/icons-material/AddAPhoto";
@@ -196,6 +199,43 @@ const TOOLBAR_GREEN = (t: { palette: { mode: string } }) =>
   t.palette.mode === "dark"
     ? { bgcolor: "#8AD79E", color: "#0C2F17", backgroundImage: "none", "&:hover": { bgcolor: "#9FE0AF", backgroundImage: "none" } }
     : { bgcolor: "#15803D", color: "#FFFFFF", backgroundImage: "none", "&:hover": { bgcolor: "#116632", backgroundImage: "none" } };
+// Legacy invoice toolbar buttons (guru 2026-11-14 "make the colors stand out"):
+// each action its own solid colour — saturated on light, pastel with dark text
+// on the dark theme (same recipe as TOOLBAR_GREEN). Disabled ones fall back to
+// the theme's grey through .Mui-disabled.
+const legacyBtn = (light: string, lightHover: string, dark: string, darkHover: string, darkText: string) =>
+  (t: { palette: { mode: string } }) => ({
+    textTransform: "none" as const,
+    whiteSpace: "nowrap" as const,
+    px: 1.25,
+    boxShadow: "none",
+    backgroundImage: "none",
+    ...(t.palette.mode === "dark"
+      ? { bgcolor: dark, color: darkText, "&:hover": { bgcolor: darkHover, backgroundImage: "none", boxShadow: "none" } }
+      : { bgcolor: light, color: "#FFFFFF", "&:hover": { bgcolor: lightHover, backgroundImage: "none", boxShadow: "none" } }),
+  });
+const LEGACY_BTN = {
+  add: legacyBtn("#15803D", "#116632", "#8AD79E", "#9FE0AF", "#0C2F17"),
+  delete: legacyBtn("#DC2626", "#B91C1C", "#F4A6A6", "#F7B9B9", "#3B0A0A"),
+  nav: legacyBtn("#475569", "#334155", "#B6C2D4", "#C6D0DF", "#111827"),
+  print: legacyBtn("#4F46E5", "#4338CA", "#B4B0F5", "#C3C0F8", "#1A1650"),
+  locate: legacyBtn("#0F766E", "#115E59", "#8FD8D0", "#A3E1DA", "#082F2B"),
+  extract: legacyBtn("#B45309", "#92400E", "#F5C76B", "#F8D286", "#3D2300"),
+  duplicate: legacyBtn("#0077C5", "#005F9E", "#8FC7F2", "#A5D3F5", "#082A44"),
+  preview: legacyBtn("#BE185D", "#9D174D", "#F5A8C9", "#F8BBD6", "#4A0A2B"),
+};
+// A fully-uppercase tab label (a legacy config's "DETAILS") becomes Title case;
+// labels that already have lower-case letters (e.g. "Delivery Address") are
+// left untouched.
+const titleCaseTabLabel = (label?: string): string => {
+  if (!label) return label ?? "";
+  if (!/[a-z]/.test(label) && /[A-Z]/.test(label)) {
+    return label
+      .toLowerCase()
+      .replace(/\b[a-z]/g, (c) => c.toUpperCase());
+  }
+  return label;
+};
 const TOOLBAR_BLUE = (t: { palette: { mode: string } }) =>
   t.palette.mode === "dark"
     ? { bgcolor: "#8FC7F2", color: "#082A44", backgroundImage: "none", "&:hover": { bgcolor: "#A5D3F5", backgroundImage: "none" } }
@@ -371,7 +411,7 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled } = useOrganizationFeatures();
   // Manual order flow: after an order's invoice is emailed, offer to send its service report too.
   const [offerReportFor, setOfferReportFor] = useState<{ orderId: string; orderNumber: string | null; email: string | null } | null>(null);
   // The Project header row + the DO "project required" rule only make sense
@@ -453,6 +493,60 @@ export default function TabbedDocumentCreator({
   // the document were editable again — while the backend stamps each save
   // as EDITED_AFTER_CONFIRM in the document history.
   const [confirmedEditUnlocked, setConfirmedEditUnlocked] = useState(false);
+  // PAID invoice (guru 2026-11-14: "already paid, cannot edit any more … where
+  // can I see the receipt number?"): the receipts that settled it, from the
+  // Payment rows (reference = receipt number, receiptId = the receipt document).
+  const isPaidInvoice = documentStatus === "paid";
+  const [settledBy, setSettledBy] = useState<Array<{ id: string; reference: string | null; receiptId: string | null; amount: number; date: string | null }>>([]);
+  useEffect(() => {
+    const id = (documentId || existingData?.id) as string | undefined;
+    if (!id || String(id).startsWith("temp_") || !isDocumentConfirmedStatus) { setSettledBy([]); return; }
+    let alive = true;
+    (async () => {
+      try {
+        const token = await getToken();
+        const res: any = await request({ path: `/payments/document/${id}`, method: "GET" }, undefined, token ?? undefined);
+        const rows: any[] = res?.data?.payments || res?.payments || [];
+        if (alive) setSettledBy(rows.map((p: any) => ({ id: p.id, reference: p.reference || null, receiptId: p.receiptId || null, amount: Number(p.amount) || 0, date: p.paymentDate || null })));
+      } catch {
+        if (alive) setSettledBy([]);
+      }
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId, existingData?.id, documentStatus]);
+  // "View Offsetted Entries" popup (legacy AR): every settlement against this
+  // invoice (receipts + credit notes), each row opening its exact document.
+  const [offsetDialogOpen, setOffsetDialogOpen] = useState(false);
+  const [offsetRows, setOffsetRows] = useState<Array<{ reference: string; date: string | null; amount: number; documentId: string | null; docType: string | null; templateId: string | null }>>([]);
+  const [offsetLoading, setOffsetLoading] = useState(false);
+  const openOffsetDialog = async () => {
+    setOffsetDialogOpen(true);
+    setOffsetLoading(true);
+    try {
+      const id = (documentId || existingData?.id) as string | undefined;
+      const token = await getToken();
+      const res: any = await request({ path: `/payments/document/${id}/offsets`, method: "GET" }, undefined, token ?? undefined);
+      setOffsetRows((res?.data?.rows || res?.rows || []) as any[]);
+    } catch {
+      setOffsetRows([]);
+    } finally {
+      setOffsetLoading(false);
+    }
+  };
+  const openOffsetEntry = (r: { documentId: string | null; docType: string | null; templateId: string | null }) => {
+    if (!r.documentId) return;
+    const t = String(r.docType || "").toUpperCase();
+    if (t === "OFFICIAL_RECEIPT" || t === "RECEIPT") {
+      router.push(withActiveOrg(`/portal/accounting/receipts/${r.documentId}`));
+      setOffsetDialogOpen(false);
+      return;
+    }
+    if (r.templateId && r.docType) {
+      router.push(withActiveOrg(`/portal/documents/${r.docType}/${r.templateId}/${r.documentId}`));
+      setOffsetDialogOpen(false);
+    }
+  };
   const [confirmedEditWarningOpen, setConfirmedEditWarningOpen] = useState(false);
   const isDocumentConfirmed = isDocumentConfirmedStatus && !confirmedEditUnlocked;
   const confirmedReadOnly = isDocumentConfirmedStatus && !confirmedEditUnlocked;
@@ -460,6 +554,11 @@ export default function TabbedDocumentCreator({
 
   // Confirmed documents now open on the (read-only) edit screen, not preview.
   const [previewMode, setPreviewMode] = useState(initialPreviewMode);
+  // Print never leaves the form (guru 2026-11-14): while printStage is on,
+  // the document is rendered off-screen (the same preview content) and
+  // printed from there; the stage is dropped once the print dialog closes.
+  const [printStage, setPrintStage] = useState(false);
+  const printWhenLoadedRef = useRef(false);
   const [confirmPODialogOpen, setConfirmPODialogOpen] = useState(false);
   const [confirmAdjustmentDialogOpen, setConfirmAdjustmentDialogOpen] = useState(false);
   const [confirmDODialogOpen, setConfirmDODialogOpen] = useState(false);
@@ -556,6 +655,7 @@ export default function TabbedDocumentCreator({
     onAfterPrint: () => {
       printFitCleanup.current?.();
       printFitCleanup.current = null;
+      setPrintStage(false);
     },
     pageStyle: `
       @page {
@@ -605,7 +705,6 @@ export default function TabbedDocumentCreator({
   const [sendEmailDialogOpen, setSendEmailDialogOpen] = useState(false);
 
   // Payment dialog state
-  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
 
   // Price history popup state
   const [priceHistoryDialogOpen, setPriceHistoryDialogOpen] = useState(false);
@@ -872,12 +971,40 @@ export default function TabbedDocumentCreator({
   // Component-scope invoice flag so the header project picker (appendRow) can
   // cover invoices too. (Inner callbacks keep their own local copies.)
   const isInvoiceTypeDoc = documentType === "INVOICE" || documentType === "TI" || documentType === "TI2";
+  // Legacy invoice screen's left-rail modules (guru 2026-11-14, like the O/R,
+  // P/V and J/V pages): Stock Card, Debtor Statement. They sit at the top-left
+  // of the margin the invoice editor keeps on both sides.
+  const [invoiceDebtorOpen, setInvoiceDebtorOpen] = useState(false);
+  const invoiceRailButtons = (isInvoiceTypeDoc || isDeliveryOrder) && !isTemplateEditMode
+    ? [
+        { label: "Stock Card", icon: <ViewListOutlinedIcon />, onClick: () => setStockCardDialogOpen(true), "data-tour": "invoice-stock-card" },
+        { label: "Debtor Statement", icon: <DescriptionOutlinedIcon />, onClick: () => (formData?.customer?.id ? setInvoiceDebtorOpen(true) : toast.warn("Select a customer first")), "data-tour": "invoice-debtor-statement" },
+      ]
+    : [];
   // ACCOUNTS TO CREDIT on the invoice header (enableHeaderGlAccount, guru
   // 2026-11-11, legacy "Details" tab): ONE sales account + a GL remark for the
   // whole invoice instead of a GL account per line. The per-line chip hides;
   // posting credits that one account for the net (blank = the org's default
   // sales account).
   const headerGlMode = isHeaderGlAccountEnabled && isInvoiceTypeDoc;
+  // LEGACY INVOICE SCREEN (guru 2026-11-14, Chong Aik — rides on the same
+  // enableHeaderGlAccount flag): General / Details / Delivery Address tabs laid
+  // out like the previous software, the toolbar in its Add · Edit · Delete ·
+  // Previous · Next · Print · Locate · Extract · Confirm · Duplicate · Exit
+  // order, and Accounts to Credit + GL Remarks on the Details tab.
+  const legacyInvoice = headerGlMode && !isTemplateEditMode;
+  // LEGACY DELIVERY ORDER (guru 2026-11-14, "do DO exactly like the invoice"):
+  // the DO editor gets the SAME chrome as the legacy invoice — 204px side
+  // margins, the Stock Card / Debtor Statement rail, and the coloured toolbar
+  // (Add · Undo · Redo · Delete · Previous · Next · Preview · Print · Locate ·
+  // Extract · Confirm · Duplicate). It rides the same enableHeaderGlAccount
+  // flag. It does NOT get the invoice's "Accounts to Credit" GL row (a DO posts
+  // nothing); its tabs come from the DO template (General / Details) plus the
+  // injected Delivery Address. `legacyLayout` gates everything the two screens
+  // share; `legacyInvoice` stays for the invoice-only GL bits.
+  const legacyDo = isHeaderGlAccountEnabled && isDeliveryOrder && !isTemplateEditMode;
+  const legacyLayout = legacyInvoice || legacyDo;
+  const [invoiceDeleteOpen, setInvoiceDeleteOpen] = useState(false);
 
   // Biofuel org gate — drives the Biofuel-only quotation header fields
   // (editable Sale person / Mobile, defaulting to Eugene Lee / 9818 9200).
@@ -915,6 +1042,25 @@ export default function TabbedDocumentCreator({
 
   // Dynamic form field configuration
   const [templateFieldConfig, setTemplateFieldConfig] = useState<TemplateFieldConfig | null>(null);
+  // The header tabs the editor draws: the template's, plus — legacy invoice —
+  // a Delivery Address tab (Company Name + Address) after Details.
+  const editorTabs = useMemo(() => {
+    const tabs = templateFieldConfig?.tabs ?? [];
+    // Delivery Address tab is the legacy INVOICE's only (guru 2026-11-14: the
+    // DO does not get it).
+    if (!legacyInvoice || !tabs.length || tabs.some((t: any) => t.tabId === "deliveryAddress")) return tabs;
+    return [
+      ...tabs,
+      {
+        tabId: "deliveryAddress",
+        tabLabel: "Delivery Address",
+        fields: [
+          { fieldName: "deliveryAddress.companyName", displayLabel: "Company Name", fieldType: "text", required: false },
+          { fieldName: "deliveryTo", displayLabel: "Address", fieldType: "textarea", required: false },
+        ],
+      } as any,
+    ];
+  }, [templateFieldConfig, legacyInvoice]);
   // Active template's display name — drives the Stock Card rental/sales lock
   // (guru 2026-08-03: a "… Rental …" template must only offer rental items).
   const [activeTemplateName, setActiveTemplateName] = useState<string>("");
@@ -1029,13 +1175,18 @@ export default function TabbedDocumentCreator({
     return result;
   }, [onSave, lockEnabled, lockReadOnly, lock.lostLock, lock.holderName, lock.version, lock.refreshVersion]);
 
-  // Manual-save model (2026-07-15, global): autosave is RETIRED. Documents are
-  // edited freely in memory and persist only on Save — which also posts the
-  // document to the GL (save = post; re-save = void old journal + repost).
-  // Leaving with unsaved changes prompts Save / Discard. Confirm stays the
-  // finalise/stock/lock step and no longer owns GL.
-  const autosaveActive = false;
+  // AUTOSAVE IS BACK (guru 2026-11-14, every document): 2s after the last edit
+  // the document saves itself — no Save button. A save still posts the
+  // document to the GL server-side (void old journal + repost), exactly as the
+  // manual Save did. Receipts / vouchers that fail their completeness rules
+  // (balance 0.00, a bank, a line…) stay unsaved (shown as "Unsaved changes")
+  // until they pass; F9 forces a save with the usual error message. Leaving
+  // flushes the pending save; only a save that cannot pass still prompts
+  // Save / Discard. Template editing keeps its explicit Save Template button.
+  const autosaveActive = !isTemplateEditMode;
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const saveStatusRef = useRef(saveStatus);
+  saveStatusRef.current = saveStatus;
   // Set when the failed save already showed the server's own message, so the
   // caller doesn't add a second, vaguer error toast on top of it.
   const saveErrorReportedRef = useRef(false);
@@ -1173,7 +1324,8 @@ export default function TabbedDocumentCreator({
       qinRef: existingData?.documentInfo?.qinRef || existingData?.qinRef || "",
       // Additional fields for quotation extraction
       contact: existingData?.documentInfo?.contact || existingData?.contact || "",
-      rate: existingData?.documentInfo?.rate || existingData?.rate || "",
+      // Exchange rate: a new document is at par (1.0000000, base currency) until the user keys another (guru 2026-11-14).
+      rate: existingData?.documentInfo?.rate || existingData?.rate || 1,
       // New docs fall back to the org's Tax Defaults (Company Profile page).
       // The form Select uses "Y" / "N" string values, but the org stores
       // booleans — coerce so the select renders the right option instead of
@@ -1472,7 +1624,17 @@ export default function TabbedDocumentCreator({
   // document dirty. The back button uses this to decide whether to prompt
   // Save / Cancel / Delete — no prompt is shown if nothing was touched.
   const isDirtyRef = useRef(false);
-  const markEdited = lock.markEdited;
+  // Set on the FIRST real edit of this session and never cleared — unlike
+  // isDirtyRef, which autosave clears on every save. The exit-time empty-draft
+  // auto-delete reads this so a header-only invoice the user actually typed
+  // into is never mistaken for an untouched blank once autosave has saved it
+  // (guru 2026-11-14: an edited blank-line invoice was being deleted on exit).
+  const everDirtyRef = useRef(false);
+  const lockMarkEdited = lock.markEdited;
+  const markEdited = useCallback(() => {
+    everDirtyRef.current = true;
+    lockMarkEdited();
+  }, [lockMarkEdited]);
 
   // ── Undo / Redo (guru 2026-08-18: Google-Docs-style revert) ────────────
   // Every REAL user edit (routed through the setFormData/setItems wrappers —
@@ -2911,27 +3073,28 @@ export default function TabbedDocumentCreator({
   };
 
   const handlePrint = () => {
-    if (usesServerPreview) {
-      // Server-rendered layout: print the preview iframe (its letterhead
-      // repeats per page; page numbers come with the generated PDF).
-      if (!previewMode) {
-        setPreviewMode(true);
-        setTimeout(() => serverPreviewRef.current?.print(), 1200);
-      } else {
-        serverPreviewRef.current?.print();
-      }
+    // Already on the preview: print what is on screen.
+    if (previewMode) {
+      if (usesServerPreview) serverPreviewRef.current?.print();
+      else handleBrowserPrint();
       return;
     }
-    // Switch to preview mode first if not already, then trigger browser print
-    if (!previewMode) {
-      setPreviewMode(true);
-      // Wait for preview to render before printing
-      setTimeout(() => {
-        handleBrowserPrint();
-      }, 500);
-    } else {
-      handleBrowserPrint();
+    // On the form: mount the hidden print stage and print from it. The
+    // screen stays on the form the whole time.
+    setPrintStage(true);
+    if (usesServerPreview) {
+      // The server layout prints once its HTML has loaded in the iframe.
+      printWhenLoadedRef.current = true;
+      return;
     }
+    setTimeout(() => handleBrowserPrint(), 500);
+  };
+  const printStageLoaded = () => {
+    if (!printWhenLoadedRef.current) return;
+    printWhenLoadedRef.current = false;
+    // contentWindow.print() blocks until the dialog closes.
+    serverPreviewRef.current?.print();
+    setPrintStage(false);
   };
 
   // Prefetch price history for an asset
@@ -4060,6 +4223,7 @@ export default function TabbedDocumentCreator({
       !isTemplateEditMode &&
       !initialPreviewMode &&
       !isDirtyRef.current &&
+      !everDirtyRef.current &&
       !isAutosavingRef.current &&
       saveStatus !== "saving" &&
       (items?.length ?? 0) === 0 &&
@@ -4082,7 +4246,30 @@ export default function TabbedDocumentCreator({
       router.push(backRoute);
       return;
     }
-    // Manual-save model: never silently save on exit — the user decides.
+    if (autosaveActive) {
+      // Autosave: wait for the in-flight save, flush what is still dirty, go.
+      // Only a document that cannot be saved (an incomplete receipt, a lost
+      // lock) falls through to the Save / Discard prompt.
+      setSavingExitDialogOpen(true);
+      try {
+        while (isAutosavingRef.current) await new Promise((r) => setTimeout(r, 100));
+        let ok = !isDirtyRef.current;
+        if (!ok) {
+          isAutosavingRef.current = true;
+          try {
+            ok = await performManualSaveRef.current({ silent: true });
+          } finally {
+            isAutosavingRef.current = false;
+          }
+        }
+        if (ok) {
+          router.push(backRoute);
+          return;
+        }
+      } finally {
+        setSavingExitDialogOpen(false);
+      }
+    }
     exitAfterPromptRef.current = backRoute;
     setUnsavedExitDialogOpen(true);
   };
@@ -4118,14 +4305,19 @@ export default function TabbedDocumentCreator({
     else if (!saveErrorReportedRef.current) toast.error("Save failed — please try again");
   };
 
-  const performManualSave = async (): Promise<boolean> => {
+  // silent = the autosave timer / exit flush: a document that fails its
+  // completeness rules (or is locked by someone else) is left unsaved with no
+  // toast — F9 / the exit prompt say why.
+  const performManualSave = async (opts?: { silent?: boolean }): Promise<boolean> => {
+    const silent = !!opts?.silent;
+    if (silent && lockReadOnly) return false;
     // Official Receipt: server posts ONE journal on save, so the receipt must
     // be complete and fully allocated (legacy rule: Balance 0.00, no
     // on-account credit) before it can leave the editor.
     if (isJournalVoucher) {
       const jvError = jvValidationError(formData);
       if (jvError) {
-        toast.error(jvError);
+        if (!silent) toast.error(jvError);
         return false;
       }
     }
@@ -4134,7 +4326,7 @@ export default function TabbedDocumentCreator({
       // (0 only when a supplier credit note settles the invoices outright).
       const pvError = pvValidationError(formData);
       if (pvError) {
-        toast.error(pvError);
+        if (!silent) toast.error(pvError);
         return false;
       }
     }
@@ -4155,7 +4347,7 @@ export default function TabbedDocumentCreator({
         ? "Balance must be 0.00 — allocate the full receipt amount to invoices"
         : null;
       if (orError) {
-        toast.error(orError);
+        if (!silent) toast.error(orError);
         return false;
       }
     }
@@ -4190,6 +4382,24 @@ export default function TabbedDocumentCreator({
       return false;
     }
   };
+  // The autosave timer and the hotkey listener live in effects with stale
+  // closures; they reach the latest save function through this ref.
+  const performManualSaveRef = useRef(performManualSave);
+  performManualSaveRef.current = performManualSave;
+
+  // F9 (hotkey "save") with no Save button on screen: force the save now and
+  // say why it cannot save (the autosave timer is silent about that).
+  useEffect(() => {
+    if (!autosaveActive) return;
+    const onHotkey = async (e: Event) => {
+      if ((e as CustomEvent).detail?.action !== "save") return;
+      const ok = await performManualSaveRef.current();
+      if (ok) toast.success("Document saved");
+      else if (!saveErrorReportedRef.current && saveStatusRef.current === "error") toast.error("Save failed — please try again");
+    };
+    window.addEventListener("aims:hotkey", onHotkey);
+    return () => window.removeEventListener("aims:hotkey", onHotkey);
+  }, [autosaveActive]);
 
   // Handle save as draft from dialog
   // OSI-8: persist the editor state BEFORE the send dialog opens. The backend
@@ -4362,34 +4572,19 @@ export default function TabbedDocumentCreator({
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [hasUnsavedChanges]);
 
-  // Debounce: 2s after the last edit, autosave the draft. Re-runs on every
+  // Debounce: 2s after the last edit, autosave the document. Re-runs on every
   // items/formData change (resetting the timer), so it only fires once editing
-  // pauses. Gated on holding the lock + having real unsaved edits (isDirtyRef).
-  // RETIRED under the manual-save model — autosaveActive is hard false.
+  // pauses. Same save path as F9 (performManualSave) so the receipt / voucher
+  // completeness rules and the edit lock apply — silently: a document that
+  // cannot be saved yet just stays "Unsaved changes" until it can.
   useEffect(() => {
     if (!autosaveActive) return;
     if (!isDirtyRef.current) return;
     const t = setTimeout(async () => {
       if (isAutosavingRef.current || !isDirtyRef.current) return;
       isAutosavingRef.current = true;
-      setSaveStatus("saving");
       try {
-        const name = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || "SYS";
-        const ts = new Date().toISOString();
-        await guardedSave({
-          ...formData,
-          items,
-          name: formData.name || (formData?.documentInfo as any)?.documentNumber,
-          savedBy: name,
-          savedAt: ts,
-          lastUsedBy: name,
-          lastUsedAt: ts,
-        });
-        await persistProjectLinkIfChanged();
-        isDirtyRef.current = false;
-        setSaveStatus("saved");
-      } catch {
-        setSaveStatus("error");
+        await performManualSaveRef.current({ silent: true });
       } finally {
         isAutosavingRef.current = false;
       }
@@ -4410,6 +4605,151 @@ export default function TabbedDocumentCreator({
       </Box>
     );
   }
+
+  // The printable document (preview pane AND the hidden print stage share it).
+  const renderPreviewContent = () => {
+    return usesServerPreview ? (
+              <ServerDocumentPreview
+                ref={serverPreviewRef}
+                onLoaded={printStageLoaded}
+                documentType={documentType}
+                documentId={documentId}
+                templateId={previewTemplateId}
+                data={{
+                  ...formData,
+                  items,
+                  tableColumnOrder: (existingData as any)?.tableColumnOrder ?? existingData?.config?.tableColumnOrder,
+                  columnLabels: (existingData as any)?.columnLabels ?? existingData?.config?.columnLabels,
+                  internalColumns: (existingData as any)?.internalColumns ?? existingData?.config?.internalColumns,
+                  // Money stamps live on the saved config, not the form: the
+                  // invoice layout prints Amount Paid / Amount Due from them.
+                  paidToDate: existingData?.config?.paidToDate,
+                  outstandingBalance: existingData?.config?.outstandingBalance,
+                }}
+              />
+            ) : (
+            <div ref={printContentRef}>
+              <CleanDocumentPreview
+                documentType={documentType}
+                data={{
+                  ...formData,
+                  items: items,
+                  // Forward the resolved order Type so the PO/PR preview can
+                  // gate the "Less Points" deduction. orderType lives on
+                  // existingData (and documentInfo) — formData alone drops it,
+                  // which is why the footer showed Less Points but the preview
+                  // didn't.
+                  orderType: poOrderType || (formData as any)?.orderType,
+                  // The DOC's owning org (not the viewer's active org) — org-
+                  // specific preview styling (e.g. Biofuel's bordered quotation
+                  // grid) must follow the document even for admin sessions
+                  // whose active org differs.
+                  // Saved docs carry their own org; NEW docs fall back to the
+                  // admin "Viewing as" org (sessionStorage) — the legacy Redux
+                  // organization prop is the admin's REAL org, so without this
+                  // a fresh Biofuel quote previewed unboxed (guru 2026-09-14).
+                  documentOrganizationId:
+                    (existingData as any)?.organizationId ||
+                    (typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null) ||
+                    undefined,
+                  logo: organization?.logo, // Pass the logo from organization
+                  // Forward the per-template column layout so the preview
+                  // renders the configured columns (e.g. FCU/CU Quotation).
+                  tableColumnOrder:
+                    (existingData as any)?.tableColumnOrder ?? existingData?.config?.tableColumnOrder,
+                  columnLabels:
+                    (existingData as any)?.columnLabels ?? existingData?.config?.columnLabels,
+                  internalColumns:
+                    (existingData as any)?.internalColumns ?? existingData?.config?.internalColumns,
+                  // Client e-signature (public /sign link): lives on the saved
+                  // config only, never in the form state (2026-11-13).
+                  clientSignature: (formData as any)?.clientSignature ?? (existingData as any)?.clientSignature ?? existingData?.config?.clientSignature,
+                  // GST on quotations (enableQuotationGst): the preview prints the
+                  // GST row and nett total exactly as the server PDF does.
+                  quotationGst: isQuotationGstEnabled,
+                  quotationTotalsToggle: isQuotationTotalsToggleEnabled,
+                  // Official Receipt: map the editor state onto the preview's
+                  // OFFICIAL_RECEIPT data contract (allocations are stored
+                  // enriched with reference/date/description by the grid).
+                  ...(isJournalVoucher
+                    ? (() => {
+                        const jd: any = (formData as any).jvData || {};
+                        const t = jvTotals(formData);
+                        return {
+                          voucherNumber: formData.documentInfo?.documentNumber || formData.name,
+                          date: jd.date,
+                          preparedBy: jd.preparedBy || "",
+                          notes: jd.notes || "",
+                          lines: Array.isArray(jd.lines) ? jd.lines : [],
+                          totalDebit: t.debit,
+                          totalCredit: t.credit,
+                        };
+                      })()
+                    : {}),
+                  ...(isPaymentVoucher
+                    ? (() => {
+                        const pd: any = (formData as any).pvData || {};
+                        const lines: any[] = Array.isArray(pd.lines) ? pd.lines : [];
+                        const creditor = lines.find((l: any) => l?.offset?.supplierId);
+                        return {
+                          voucherNumber: formData.documentInfo?.documentNumber || formData.name,
+                          date: pd.date,
+                          chequeNo: pd.chequeNo,
+                          remarks: pd.remarks,
+                          notes: pd.notes,
+                          payee: pd.payee || creditor?.offset?.supplierName || "",
+                          preparedBy: pd.preparedBy || "",
+                          supplierLabel: creditor ? `${creditor.offset.supplierCode ? `${creditor.offset.supplierCode} — ` : ""}${creditor.offset.supplierName || ""}` : pd.payee || "",
+                          paymentMethod: pd.chequeNo ? "cheque" : "transfer",
+                          currency: pd.currency || "SGD",
+                          rate: Number(pd.rate) || 1,
+                          voucherAmount: pvTotal(formData),
+                          paidFromLabel: pd.bankLabel || pd.bankAccountCode || "",
+                          lines,
+                          allocations: creditor?.offset?.allocations || [],
+                        };
+                      })()
+                    : {}),
+                  ...(isOfficialReceipt
+                    ? (() => {
+                        const od: any = (formData as any).orData || {};
+                        return {
+                          receiptNumber: formData.documentInfo?.documentNumber || formData.name,
+                          date: od.date,
+                          chequeNo: od.chequeNo,
+                          remarks: od.remarks,
+                          customerLabel: formData.customer?.id
+                            ? `${formData.customer.customerCode ? `${formData.customer.customerCode} — ` : ""}${formData.customer.name || ""}`
+                            : "",
+                          // Acknowledgement receipt (legacy paper, 2026-11-14): name, code, address, phone.
+                          customerName: formData.customer?.name || "",
+                          customerCode: formData.customer?.customerCode || "",
+                          customerAddress: formData.customer?.address || "",
+                          customerPhone: (formData.customer as any)?.phone || "",
+                          customerFax: (formData.customer as any)?.fax || "",
+                          paymentMethod: od.chequeNo ? "cheque" : "transfer",
+                          currency: od.currency || "SGD",
+                          rate: Number(od.rate) || 1,
+                          receiptAmount: Number(od.receiptAmount) || 0,
+                          depositLabel: od.depositLabel || od.debitAccountCode || "",
+                          allocations: Array.isArray(od.allocations) ? od.allocations : [],
+                        };
+                      })()
+                    : {}),
+                }}
+                organization={organization}
+                design={templateDesign}
+                // Field-tech delivery reports linked to this document. When
+                // present and non-empty AND documentType === 'DO', the preview
+                // renders a Proof of Delivery section at the bottom (photos +
+                // signatures). The data is loaded by the parent page via
+                // GET /documents/:id (which now includes the relation) and
+                // forwarded onto existingData by fetchDocumentData.
+                maintenanceReports={(existingData as any)?.maintenanceReports ?? []}
+              />
+            </div>
+            )
+  };
 
   return (
     // flex:1 + minHeight:0 (NOT height:100%): the layout column also holds the
@@ -4456,7 +4796,10 @@ export default function TabbedDocumentCreator({
       <Box
         sx={{
           py: 0.5,
-          px: { xs: 1, md: 2 },
+          // Legacy invoice: the toolbar keeps the same margins as the document
+          // below it (guru 2026-11-14), so the title and the buttons line up
+          // with the header card.
+          px: legacyLayout ? { xs: 1, md: "204px" } : { xs: 1, md: 2 },
           borderBottom: 1,
           borderColor: "divider",
           display: "flex",
@@ -4505,8 +4848,55 @@ export default function TabbedDocumentCreator({
         {/* Phone: the cluster must be allowed to shrink (flexShrink 0 sized it to
     full content width, so flexWrap never engaged and buttons ran off-screen). */}
 <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexShrink: { xs: 1, md: 0 }, minWidth: 0, flexWrap: { xs: "wrap", md: "nowrap" }, justifyContent: { xs: "flex-end", md: "initial" } }}>
+          {/* LEGACY INVOICE TOOLBAR (guru 2026-11-14): the previous software's
+              button order — Add · Delete · Previous · Next · Preview · Print ·
+              Locate · Extract — then Confirm · Duplicate. No Edit (a confirmed invoice
+              stays locked), no Exit (the back arrow) and no Save (autosave). */}
+          {legacyLayout && (
+            <>
+              <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={handleAddNewDocument} sx={LEGACY_BTN.add} data-tour="editor-legacy-add">Add</Button>
+              {/* Undo / Redo sit next to Add on the legacy toolbar (guru 2026-11-14). */}
+              {!isDocumentConfirmed && (
+                <>
+                  <Tooltip title="Undo">
+                    <span>
+                      <IconButton size="small" onClick={handleUndo} disabled={undoHistoryRef.current.length === 0}>
+                        <UndoIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Redo">
+                    <span>
+                      <IconButton size="small" onClick={handleRedo} disabled={redoHistoryRef.current.length === 0}>
+                        <RedoIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </>
+              )}
+              <Button size="small" variant="contained" startIcon={<DeleteIcon />} onClick={() => setInvoiceDeleteOpen(true)} disabled={!(existingData?.id || documentId) || isPaidInvoice} sx={LEGACY_BTN.delete} data-tour="editor-legacy-delete">Delete</Button>
+              <Button size="small" variant="contained" startIcon={<NavigateBeforeIcon />} onClick={onPrevious} disabled={!onPrevious || !hasPrevious} sx={LEGACY_BTN.nav}>Previous</Button>
+              <Button size="small" variant="contained" endIcon={<NavigateNextIcon />} onClick={onNext} disabled={!onNext || !hasNext} sx={LEGACY_BTN.nav}>Next</Button>
+              {/* Preview sits in the left group here (guru 2026-11-14); it is
+                  the same toggle as the generic Preview / Edit button. */}
+              <Button
+                data-tour="editor-preview"
+                data-hotkey="preview"
+                size="small"
+                variant="contained"
+                startIcon={previewMode ? <EditIcon /> : <PreviewIcon />}
+                onClick={() => setPreviewMode(!previewMode)}
+                sx={LEGACY_BTN.preview}
+              >
+                {previewMode ? "Edit" : "Preview"}
+              </Button>
+              <Button size="small" variant="contained" startIcon={<PrintIcon />} onClick={handlePrint} sx={LEGACY_BTN.print} data-tour="editor-legacy-print">Print</Button>
+              <Button size="small" variant="contained" startIcon={<SearchIcon />} onClick={() => setLocateDialogOpen(true)} sx={LEGACY_BTN.locate} data-tour="editor-legacy-locate">Locate</Button>
+              <Button size="small" variant="contained" startIcon={<ContentCopyIcon />} onClick={isDeliveryOrder ? handleExtractForDO : handleExtractForInvoice} sx={LEGACY_BTN.extract} data-tour="editor-legacy-extract">Extract</Button>
+            </>
+          )}
           {/* Prev/Next document navigation — compact icon arrows */}
-          {(onPrevious || onNext) && (
+          {!legacyLayout && (onPrevious || onNext) && (
             <>
               <Tooltip title="Previous document">
                 <span>
@@ -4525,8 +4915,9 @@ export default function TabbedDocumentCreator({
             </>
           )}
           {/* Undo / Redo — Google-Docs-style revert of in-editor edits
-              (line-item deletes, field changes) since the page was opened. */}
-          {!isTemplateEditMode && !isDocumentConfirmed && (
+              (line-item deletes, field changes) since the page was opened.
+              On the legacy invoice toolbar they sit right after Add instead. */}
+          {!isTemplateEditMode && !isDocumentConfirmed && !legacyLayout && (
             <>
               <Tooltip title="Undo">
                 <span>
@@ -4548,17 +4939,19 @@ export default function TabbedDocumentCreator({
               document AI assistant drawer on orgs without AIMEE). Retired for
               every org and document type, guru 2026-11-13. AIMEE stays
               reachable from the top-bar face / dashboard strip. */}
-          <Button
-            data-tour="editor-preview"
-            data-hotkey="preview"
-            size="small"
-            variant={previewMode ? "contained" : "text"}
-            startIcon={previewMode ? <EditIcon /> : <PreviewIcon />}
-            onClick={() => setPreviewMode(!previewMode)}
-            sx={previewMode ? TOOLBAR_BLUE : PREVIEW_LINK_SX}
-          >
-            {previewMode ? (isDocumentConfirmedStatus ? "Details" : "Edit") : "Preview"}
-          </Button>
+          {!legacyLayout && (
+            <Button
+              data-tour="editor-preview"
+              data-hotkey="preview"
+              size="small"
+              variant={previewMode ? "contained" : "text"}
+              startIcon={previewMode ? <EditIcon /> : <PreviewIcon />}
+              onClick={() => setPreviewMode(!previewMode)}
+              sx={previewMode ? TOOLBAR_BLUE : PREVIEW_LINK_SX}
+            >
+              {previewMode ? (isDocumentConfirmedStatus ? "Details" : "Edit") : "Preview"}
+            </Button>
+          )}
           {/* Receive button for Purchase Orders only (before receiving mode) */}
           {!isDocumentConfirmedStatus && !isTemplateEditMode && isPurchaseOrder && !isReceiving && (
             <Button
@@ -4654,7 +5047,25 @@ export default function TabbedDocumentCreator({
           {/* Confirm split-button for Invoices: primary confirms as always;
               the dropdown adds "Confirm & make recurring", which confirms then
               opens the recurring setup prefilled from this invoice. */}
-          {!isDocumentConfirmedStatus && !isTemplateEditMode && isInvoiceType && (
+          {/* Orgs without recurring billing (enableRecurringInvoices off, e.g.
+              Chong Aik) get a plain Confirm button — no split dropdown. */}
+          {!isDocumentConfirmedStatus && !isTemplateEditMode && isInvoiceType && !isRecurringInvoicesEnabled && (
+            <Button
+              size="small"
+              variant="contained"
+              data-tour="editor-confirm"
+              data-hotkey="confirm"
+              startIcon={<CheckCircleIcon />}
+              onClick={() => {
+                makeRecurringAfterConfirmRef.current = false;
+                setConfirmInvoiceDialogOpen(true);
+              }}
+              sx={TOOLBAR_GREEN}
+            >
+              Confirm Invoice
+            </Button>
+          )}
+          {!isDocumentConfirmedStatus && !isTemplateEditMode && isInvoiceType && isRecurringInvoicesEnabled && (
             <>
               <ButtonGroup size="small" variant="contained">
                 <Button
@@ -4697,6 +5108,9 @@ export default function TabbedDocumentCreator({
                 </MenuItem>
               </Menu>
             </>
+          )}
+          {legacyLayout && (
+            <Button size="small" variant="contained" startIcon={<ContentCopyIcon />} onClick={handleDuplicateDocument} disabled={!(existingData?.id || documentId)} sx={LEGACY_BTN.duplicate} data-tour="editor-legacy-duplicate">Duplicate</Button>
           )}
           {/* enableQuotationESign (2026-11-13): CIEL's "Send for signature" toolbar
               button, just before Confirm Quotation; saved, unconfirmed quotations
@@ -4774,19 +5188,9 @@ export default function TabbedDocumentCreator({
               {isSyncingXero ? "Syncing..." : "Sync to Xero"}
             </Button>
           )}
-          {/* Mark as Paid button for pending_payment invoices */}
-          {documentStatus === "pending_payment" &&
-           (documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") && (
-            <Button
-              size="small"
-              variant="contained"
-              startIcon={<PaymentIcon />}
-              onClick={() => setPaymentDialogOpen(true)}
-              sx={TOOLBAR_GREEN}
-            >
-              Mark as Paid
-            </Button>
-          )}
+          {/* "Mark as Paid" was removed from the invoice editor (guru 2026-11-14,
+              every org): invoices are paid only through the Official Receipt
+              page, so there is one way to receive money. */}
           {/* Autosave status indicator — replaces the manual Save button while
               we hold the lock on a persisted draft (Confirm stays explicit). */}
           {!isDocumentConfirmed && autosaveActive && (
@@ -4801,6 +5205,8 @@ export default function TabbedDocumentCreator({
                 </>
               ) : saveStatus === "error" ? (
                 "Couldn't save"
+              ) : hasUnsavedChanges ? (
+                <Box component="span" sx={{ color: "warning.main", fontWeight: 600 }}>Unsaved changes</Box>
               ) : (
                 <>
                   <CheckCircleIcon fontSize="small" color="success" />
@@ -4809,28 +5215,28 @@ export default function TabbedDocumentCreator({
               )}
             </Typography>
           )}
+          {/* Confirm for receipts / vouchers (guru 2026-11-10 "do we have a
+              confirm feature for the PV and OR"): the legacy toolbar's
+              Confirm, here = the Posting Queue's confirm for this one
+              document — flips it to confirmed and tags its journal. */}
+          {!isDocumentConfirmed && isSettlementDoc && !isDocumentConfirmedStatus && (existingData?.id || documentId) && ((formData as any)?.savedAt || liveTracking.savedAt) && (
+            <Button
+              data-hotkey="confirm"
+              size="small"
+              variant="outlined"
+              startIcon={<CheckCircleIcon />}
+              disabled={saveStatus === "saving" || settlementConfirming}
+              onClick={() => setSettlementConfirmOpen(true)}
+            >
+              Confirm
+            </Button>
+          )}
           {!isDocumentConfirmed && !autosaveActive && (
             <>
               {hasUnsavedChanges && saveStatus !== "saving" && (
                 <Typography variant="body2" sx={{ color: "warning.main", fontWeight: 600, px: 0.5 }}>
                   Unsaved changes
                 </Typography>
-              )}
-              {/* Confirm for receipts / vouchers (guru 2026-11-10 "do we have a
-                  confirm feature for the PV and OR"): the legacy toolbar's
-                  Confirm, here = the Posting Queue's confirm for this one
-                  document — flips it to confirmed and tags its journal. */}
-              {isSettlementDoc && !isDocumentConfirmedStatus && (existingData?.id || documentId) && (formData as any)?.savedAt && (
-                <Button
-                  data-hotkey="confirm"
-                  size="small"
-                  variant="outlined"
-                  startIcon={<CheckCircleIcon />}
-                  disabled={saveStatus === "saving" || settlementConfirming}
-                  onClick={() => setSettlementConfirmOpen(true)}
-                >
-                  Confirm
-                </Button>
               )}
               <Button
                 data-tour="editor-save"
@@ -4867,10 +5273,41 @@ export default function TabbedDocumentCreator({
               }}
             >
               <CheckCircleIcon fontSize="small" />
-              {confirmedEditUnlocked ? 'Editing confirmed document' : 'Document Confirmed'}
+              {confirmedEditUnlocked ? 'Editing confirmed document' : isPaidInvoice ? 'Paid' : 'Document Confirmed'}
             </Typography>
           )}
-          {confirmedReadOnly && !isTemplateEditMode && (
+          {/* "View Offsetted Entries" (legacy AR): on a settled invoice, a popup
+              lists every receipt + credit note offsetting it; a row opens that
+              document. The legacy screen uses this one button instead of the
+              per-receipt chips. */}
+          {isDocumentConfirmedStatus && isInvoiceTypeDoc && settledBy.length > 0 && (
+            <Button
+              size="small"
+              variant="outlined"
+              color="error"
+              startIcon={<ReceiptLongOutlinedIcon />}
+              onClick={openOffsetDialog}
+              sx={{ textTransform: "none", whiteSpace: "nowrap" }}
+            >
+              View Offsetted Entries
+            </Button>
+          )}
+          {/* The receipts that settled this invoice — each chip opens the receipt.
+              Hidden on the legacy screen, where the button above replaces them. */}
+          {!legacyInvoice && settledBy.filter((p) => p.reference).map((p) => (
+            <Chip
+              key={p.id}
+              size="small"
+              variant="outlined"
+              color="success"
+              icon={<ReceiptLongOutlinedIcon />}
+              label={`${p.reference} · ${p.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              onClick={p.receiptId ? () => router.push(withActiveOrg(`/portal/accounting/receipts/${p.receiptId}`)) : undefined}
+              data-testid="invoice-settled-by"
+              sx={{ fontWeight: 600 }}
+            />
+          ))}
+          {confirmedReadOnly && !isTemplateEditMode && !isPaidInvoice && !legacyLayout && (
             <Button
               size="small"
               variant="outlined"
@@ -4896,11 +5333,11 @@ export default function TabbedDocumentCreator({
             slotProps={{ paper: { sx: { minWidth: 230 } } }}
           >
             {/* Create / copy */}
-            <MenuItem onClick={() => { closeMoreMenu(); handleAddNewDocument(); }}>
+            {!legacyLayout && <MenuItem onClick={() => { closeMoreMenu(); handleAddNewDocument(); }}>
               <ListItemIcon><AddIcon fontSize="small" /></ListItemIcon>
               <ListItemText>New {getDocumentTitle()}</ListItemText>
-            </MenuItem>
-            {(existingData?.id || documentId) && !isSettlementDoc && (
+            </MenuItem>}
+            {(existingData?.id || documentId) && !isSettlementDoc && !legacyLayout && (
               <MenuItem onClick={() => { closeMoreMenu(); handleDuplicateDocument(); }}>
                 <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Duplicate</ListItemText>
@@ -4932,7 +5369,7 @@ export default function TabbedDocumentCreator({
                 <ListItemText>Extract from Quotation</ListItemText>
               </MenuItem>
             )}
-            {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || documentType?.toUpperCase() === "INVOICE") && (
+            {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || documentType?.toUpperCase() === "INVOICE") && !legacyInvoice && (
               <MenuItem onClick={() => { closeMoreMenu(); handleExtractForInvoice(); }}>
                 <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Extract from DO</ListItemText>
@@ -4940,14 +5377,14 @@ export default function TabbedDocumentCreator({
             )}
             <Divider />
             {/* Tools */}
-            <MenuItem onClick={() => { closeMoreMenu(); handlePrint(); }}>
+            {!legacyLayout && <MenuItem onClick={() => { closeMoreMenu(); handlePrint(); }}>
               <ListItemIcon><PrintIcon fontSize="small" /></ListItemIcon>
               <ListItemText>Print / PDF</ListItemText>
-            </MenuItem>
-            <MenuItem onClick={() => { closeMoreMenu(); setLocateDialogOpen(true); }}>
+            </MenuItem>}
+            {!legacyLayout && <MenuItem onClick={() => { closeMoreMenu(); setLocateDialogOpen(true); }}>
               <ListItemIcon><SearchIcon fontSize="small" /></ListItemIcon>
               <ListItemText>Locate</ListItemText>
-            </MenuItem>
+            </MenuItem>}
             {!isSettlementDoc && (
               <MenuItem onClick={() => { closeMoreMenu(); setStockCardDialogOpen(true); }}>
                 <ListItemIcon><InventoryIcon fontSize="small" /></ListItemIcon>
@@ -5104,7 +5541,9 @@ export default function TabbedDocumentCreator({
             // Enter walks the form like the legacy software: next field, not
             // Tab (guru 2026-11-08). Covers the header rows and the body grid.
             {...enterScopeProps}
-            sx={{ flex: 1, minWidth: 0, overflow: "visible", position: "relative", display: "flex", flexDirection: "column" }}
+            // Invoice (guru 2026-11-14): a margin on BOTH sides of the document
+            // and the legacy module buttons at the top-left of that margin.
+            sx={{ flex: 1, minWidth: 0, overflow: "visible", position: "relative", display: "flex", flexDirection: "column", ...(invoiceRailButtons.length ? { pl: "204px", pr: "204px" } : {}) }}
           >
             {/* Template Settings Toggle Button */}
             {isTemplateEditMode && (
@@ -5123,6 +5562,11 @@ export default function TabbedDocumentCreator({
               </IconButton>
             )}
 
+            {invoiceRailButtons.length > 0 && (
+              <Box sx={{ position: "absolute", left: 16, top: 16 }}>
+                <EditorRail buttons={invoiceRailButtons} />
+              </Box>
+            )}
             {/* Document Tracking Info - Unconfirmed User, Confirmed User & Last Used */}
             <Box
               sx={{
@@ -5148,20 +5592,24 @@ export default function TabbedDocumentCreator({
                   <DoStatusTag tag={docDoTag({ status: existingData?.status, config: existingData })} />
                 </Box>
               )}
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                <Typography variant="body2" sx={{ fontStyle: "italic", fontWeight: 600, color: "text.secondary" }}>
-                  Unconfirmed User:
-                </Typography>
-                <Typography variant="body2" sx={{ color: "text.primary" }}>
-                  {(() => {
-                    const savedBy = liveTracking.savedBy ?? existingData?.savedBy;
-                    const savedAt = liveTracking.savedAt ?? existingData?.savedAt;
-                    return savedBy && existingData?.status !== 'confirmed'
-                      ? `${savedBy} ${savedAt ? new Date(savedAt).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}`
-                      : '-';
-                  })()}
-                </Typography>
-              </Box>
+              {/* The legacy invoice/DO screen shows only Confirmed User + Last Used
+                  (guru 2026-11-14: "remove the unconfirmed user"). */}
+              {!legacyLayout && (
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <Typography variant="body2" sx={{ fontStyle: "italic", fontWeight: 600, color: "text.secondary" }}>
+                    Unconfirmed User:
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: "text.primary" }}>
+                    {(() => {
+                      const savedBy = liveTracking.savedBy ?? existingData?.savedBy;
+                      const savedAt = liveTracking.savedAt ?? existingData?.savedAt;
+                      return savedBy && existingData?.status !== 'confirmed'
+                        ? `${savedBy} ${savedAt ? new Date(savedAt).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : ''}`
+                        : '-';
+                    })()}
+                  </Typography>
+                </Box>
+              )}
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                 <Typography variant="body2" sx={{ fontStyle: "italic", fontWeight: 600, color: "text.secondary" }}>
                   Confirmed User:
@@ -5201,8 +5649,10 @@ export default function TabbedDocumentCreator({
               ) : (
                 <>
                 <Tabs value={mainTabValue} onChange={handleMainTabChange} sx={{ minHeight: 36, "& .MuiTab-root": { minHeight: 36, py: 0 } }}>
-                  {templateFieldConfig?.tabs.map((tab) => (
-                    <Tab key={tab.tabId} label={tab.tabLabel} />
+                  {editorTabs.map((tab) => (
+                    // An all-caps tab label (the legacy "DETAILS") reads as
+                    // Title case like every other tab (guru 2026-11-14).
+                    <Tab key={tab.tabId} label={titleCaseTabLabel(tab.tabLabel)} />
                   ))}
                   {/* Legacy delivery address tab for specific document types - only when no dynamic template config */}
                   {!templateFieldConfig && (documentType === "DO" || isRDO || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (
@@ -5225,7 +5675,7 @@ export default function TabbedDocumentCreator({
 
 
           {/* Dynamic Tabs based on template config */}
-          {templateFieldConfig?.tabs.map((tab, index) => (
+          {editorTabs.map((tab, index) => (
             <TabPanel key={tab.tabId} value={mainTabValue} index={index}>
               <Card sx={{ flexShrink: 0, maxHeight: isSettlementDoc ? 420 : 320, display: "flex", flexDirection: "column" }}>
                 <CardContent
@@ -5284,7 +5734,7 @@ export default function TabbedDocumentCreator({
                        document with no showTotals key reads ticked — only an
                        explicit false hides. */
                     prependRightRow={
-                      isQuotation ? (
+                      isQuotation && isQuotationTotalsToggleEnabled ? (
                         <FormControlLabel
                           sx={{ m: 0 }}
                           control={
@@ -5326,6 +5776,7 @@ export default function TabbedDocumentCreator({
                       // Official Receipts keep their fixed legacy layout.
                       if (
                         !isSettlementDoc &&
+                        !legacyLayout &&
                         tab.tabId === "general" &&
                         !fields.some((f: any) => f.fieldName === "documentInfo.referenceNo" || f.fieldName === "referenceNo")
                       ) {
@@ -5352,7 +5803,18 @@ export default function TabbedDocumentCreator({
                       // the field in General (TI2 defaults), so it is moved,
                       // never duplicated; a template with no DETAILS tab keeps
                       // it in General.
-                      if (documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") {
+                      if (legacyInvoice) {
+                        // Legacy invoice screen: General keeps "Deliver to" in its
+                        // own place; Details = Company Name, Address, Accounts to
+                        // Credit (+ GL Remarks); Delivery Address is its own tab.
+                        if (tab.tabId === "details") {
+                          fields = [
+                            { fieldName: "billCompanyName", displayLabel: "Company Name", fieldType: "text", required: false },
+                            { fieldName: "billTo", displayLabel: "Address", fieldType: "textarea", required: false },
+                            { fieldName: "glAccountRow", displayLabel: "Accounts to Credit", fieldType: "text", required: false },
+                          ];
+                        }
+                      } else if (documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") {
                         const home = templateFieldConfig?.tabs.some((t: any) => t.tabId === "details") ? "details" : "general";
                         fields = fields.filter((f: any) => f.fieldName !== "deliveryTo");
                         if (tab.tabId === home) {
@@ -5371,7 +5833,19 @@ export default function TabbedDocumentCreator({
                       // next to Rate). Deliver To is NOT hidden any more: it is
                       // an editable DETAILS-tab field (see the fields builder
                       // above). Quotations drop Currency too.
-                      documentType === "TI" || documentType === "TI2" || documentType === "INVOICE"
+                      legacyInvoice
+                        ? tab.tabId === "details"
+                          ? ["documentInfo.currency"]
+                          : ["billTo", "documentInfo.currency"]
+                        : legacyDo
+                        ? // Legacy DO General (guru 2026-11-14): Delivery Order No.,
+                          // Date, Customer code, Salesman code, P/O Number, Issue
+                          // By, Deliver to, Contact, Terms. Bill to, currency, the
+                          // raw contact name/number and the delivery date/time are
+                          // hidden (currency shows in the totals; the Contact row
+                          // hosts the attention trio).
+                          ["billTo", "documentInfo.currency", "documentInfo.contactName", "documentInfo.contactNumber", "documentInfo.deliveryDate", "documentInfo.deliveryTime", "documentInfo.issueBy"]
+                        : documentType === "TI" || documentType === "TI2" || documentType === "INVOICE"
                         ? ["billTo", "documentInfo.currency"]
                         : isQuotation
                         ? ["documentInfo.currency"]
@@ -5387,7 +5861,41 @@ export default function TabbedDocumentCreator({
                       // Official Receipt: the legacy header rows that need more
                       // than a plain input (read-only number, customer picker
                       // without the attention trio, account echoes, amount trio).
-                      isJournalVoucher
+                      legacyInvoice && tab.tabId === "details"
+                        ? {
+                            billCompanyName: (
+                              <TextField size="small" value={formData.customer?.name || ""} disabled sx={{ ...headerInputSx, flex: 1, maxWidth: 560 }} />
+                            ),
+                            glAccountRow: (
+                              <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flex: 1, flexWrap: "wrap" }}>
+                                <Autocomplete
+                                  autoHighlight
+                                  size="small"
+                                  sx={{ minWidth: 280, flex: "0 1 360px" }}
+                                  options={(glAccounts ?? []).slice().sort((a, b) => glRank(a) - glRank(b) || a.code.localeCompare(b.code))}
+                                  getOptionLabel={(a: any) => (a ? `${a.code} — ${a.name}` : "")}
+                                  groupBy={(a: any) => (glRank(a) === 0 ? "Sales / revenue" : "Other accounts")}
+                                  value={(glAccounts ?? []).find((a) => a.code === formData.glAccountCode) || null}
+                                  onChange={(_, acc: any) =>
+                                    setFormData((prev: any) => ({ ...prev, glAccountCode: acc?.code ?? "", glAccountName: acc?.name ?? "" }))
+                                  }
+                                  disabled={confirmedReadOnly}
+                                  loading={glAccounts === null}
+                                  renderInput={(params) => <TextField {...params} placeholder="Default sales account" sx={headerInputSx} />}
+                                />
+                                <Typography sx={{ fontSize: "13px", fontWeight: 700, ml: 1 }}>GL Remarks</Typography>
+                                <TextField
+                                  size="small"
+                                  placeholder="INVOICE"
+                                  value={formData.glRemarks || ""}
+                                  onChange={(e) => setFormData((prev: any) => ({ ...prev, glRemarks: e.target.value }))}
+                                  disabled={confirmedReadOnly}
+                                  sx={{ flex: "1 1 240px", ...headerInputSx }}
+                                />
+                              </Box>
+                            ),
+                          }
+                        : isJournalVoucher
                         ? {
                             jvVoucherNo: <JvVoucherNoInput formData={formData} setFormData={setFormData} />,
                             jvPrepareRow: <JvPrepareByInput formData={formData} setFormData={setFormData} />,
@@ -6195,7 +6703,7 @@ export default function TabbedDocumentCreator({
             />
           ) : (
           <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-            <Card sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+            <Card sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
               <CardContent sx={{ p: 1, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>
                 {/* Items Sub-tabs */}
                 <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
@@ -6213,46 +6721,6 @@ export default function TabbedDocumentCreator({
                     {...readOnlyShield(confirmedReadOnly)}
                     sx={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 120, ...(readOnlyShield(confirmedReadOnly).sx || {}) }}
                   >
-                    {/* ACCOUNTS TO CREDIT + GL REMARKS — the legacy invoice's
-                        Details tab, one account for the whole invoice
-                        (enableHeaderGlAccount). */}
-                    {headerGlMode && (
-                      <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "center", px: 0.5, pt: 1, pb: 1.5 }}>
-                        <Autocomplete
-                          autoHighlight
-                          size="small"
-                          sx={{ minWidth: 320, flex: "0 1 420px" }}
-                          options={(glAccounts ?? []).slice().sort((a, b) => glRank(a) - glRank(b) || a.code.localeCompare(b.code))}
-                          getOptionLabel={(a: any) => (a ? `${a.code} — ${a.name}` : "")}
-                          groupBy={(a: any) => (glRank(a) === 0 ? "Sales / revenue" : "Other accounts")}
-                          value={(glAccounts ?? []).find((a) => a.code === formData.glAccountCode) || null}
-                          onChange={(_, acc: any) =>
-                            setFormData((prev: any) => ({ ...prev, glAccountCode: acc?.code ?? "", glAccountName: acc?.name ?? "" }))
-                          }
-                          disabled={confirmedReadOnly}
-                          loading={glAccounts === null}
-                          renderInput={(params) => (
-                            <TextField
-                              {...params}
-                              label="Accounts to Credit"
-                              placeholder="Default sales account"
-                              InputLabelProps={{ shrink: true }}
-                              sx={headerInputSx}
-                            />
-                          )}
-                        />
-                        <TextField
-                          size="small"
-                          label="GL Remarks"
-                          placeholder="INVOICE"
-                          value={formData.glRemarks || ""}
-                          onChange={(e) => setFormData((prev: any) => ({ ...prev, glRemarks: e.target.value }))}
-                          disabled={confirmedReadOnly}
-                          InputLabelProps={{ shrink: true }}
-                          sx={{ flex: "1 1 320px", ...headerInputSx }}
-                        />
-                      </Box>
-                    )}
                     <Box sx={{ display: "flex", flexDirection: "column" }}>
                       <TableContainer
                         sx={{
@@ -6950,7 +7418,10 @@ export default function TabbedDocumentCreator({
                                     (item.unitPrice == null || item.unitPrice === "");
                                   return (
                                     <TableCell key={columnId} align="right">
-                                      {isTextLine ? "" : (item.amount || 0).toFixed(2)}
+                                      {/* Any number of decimals (guru 2026-11-14:
+                                          "allow any dp"), not forced to 2 — trailing
+                                          zeros and float noise are trimmed. */}
+                                      {isTextLine ? "" : (Number(item.amount) || 0).toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: 10 })}
                                     </TableCell>
                                   );
                                 } else if (columnId === "taggedAsset") {
@@ -7581,136 +8052,12 @@ export default function TabbedDocumentCreator({
               "@media print": { "& > div": { zoom: 1 } },
             }}
           >
-            {usesServerPreview ? (
-              <ServerDocumentPreview
-                ref={serverPreviewRef}
-                documentType={documentType}
-                documentId={documentId}
-                templateId={previewTemplateId}
-                data={{
-                  ...formData,
-                  items,
-                  tableColumnOrder: (existingData as any)?.tableColumnOrder ?? existingData?.config?.tableColumnOrder,
-                  columnLabels: (existingData as any)?.columnLabels ?? existingData?.config?.columnLabels,
-                  internalColumns: (existingData as any)?.internalColumns ?? existingData?.config?.internalColumns,
-                  // Money stamps live on the saved config, not the form: the
-                  // invoice layout prints Amount Paid / Amount Due from them.
-                  paidToDate: existingData?.config?.paidToDate,
-                  outstandingBalance: existingData?.config?.outstandingBalance,
-                }}
-              />
-            ) : (
-            <div ref={printContentRef}>
-              <CleanDocumentPreview
-                documentType={documentType}
-                data={{
-                  ...formData,
-                  items: items,
-                  // Forward the resolved order Type so the PO/PR preview can
-                  // gate the "Less Points" deduction. orderType lives on
-                  // existingData (and documentInfo) — formData alone drops it,
-                  // which is why the footer showed Less Points but the preview
-                  // didn't.
-                  orderType: poOrderType || (formData as any)?.orderType,
-                  // The DOC's owning org (not the viewer's active org) — org-
-                  // specific preview styling (e.g. Biofuel's bordered quotation
-                  // grid) must follow the document even for admin sessions
-                  // whose active org differs.
-                  // Saved docs carry their own org; NEW docs fall back to the
-                  // admin "Viewing as" org (sessionStorage) — the legacy Redux
-                  // organization prop is the admin's REAL org, so without this
-                  // a fresh Biofuel quote previewed unboxed (guru 2026-09-14).
-                  documentOrganizationId:
-                    (existingData as any)?.organizationId ||
-                    (typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null) ||
-                    undefined,
-                  logo: organization?.logo, // Pass the logo from organization
-                  // Forward the per-template column layout so the preview
-                  // renders the configured columns (e.g. FCU/CU Quotation).
-                  tableColumnOrder:
-                    (existingData as any)?.tableColumnOrder ?? existingData?.config?.tableColumnOrder,
-                  columnLabels:
-                    (existingData as any)?.columnLabels ?? existingData?.config?.columnLabels,
-                  internalColumns:
-                    (existingData as any)?.internalColumns ?? existingData?.config?.internalColumns,
-                  // Client e-signature (public /sign link): lives on the saved
-                  // config only, never in the form state (2026-11-13).
-                  clientSignature: (formData as any)?.clientSignature ?? (existingData as any)?.clientSignature ?? existingData?.config?.clientSignature,
-                  // Official Receipt: map the editor state onto the preview's
-                  // OFFICIAL_RECEIPT data contract (allocations are stored
-                  // enriched with reference/date/description by the grid).
-                  ...(isJournalVoucher
-                    ? (() => {
-                        const jd: any = (formData as any).jvData || {};
-                        const t = jvTotals(formData);
-                        return {
-                          voucherNumber: formData.documentInfo?.documentNumber || formData.name,
-                          date: jd.date,
-                          preparedBy: jd.preparedBy || "",
-                          notes: jd.notes || "",
-                          lines: Array.isArray(jd.lines) ? jd.lines : [],
-                          totalDebit: t.debit,
-                          totalCredit: t.credit,
-                        };
-                      })()
-                    : {}),
-                  ...(isPaymentVoucher
-                    ? (() => {
-                        const pd: any = (formData as any).pvData || {};
-                        const lines: any[] = Array.isArray(pd.lines) ? pd.lines : [];
-                        const creditor = lines.find((l: any) => l?.offset?.supplierId);
-                        return {
-                          voucherNumber: formData.documentInfo?.documentNumber || formData.name,
-                          date: pd.date,
-                          chequeNo: pd.chequeNo,
-                          remarks: pd.remarks,
-                          notes: pd.notes,
-                          payee: pd.payee || creditor?.offset?.supplierName || "",
-                          preparedBy: pd.preparedBy || "",
-                          supplierLabel: creditor ? `${creditor.offset.supplierCode ? `${creditor.offset.supplierCode} — ` : ""}${creditor.offset.supplierName || ""}` : pd.payee || "",
-                          paymentMethod: pd.chequeNo ? "cheque" : "transfer",
-                          currency: pd.currency || "SGD",
-                          rate: Number(pd.rate) || 1,
-                          voucherAmount: pvTotal(formData),
-                          paidFromLabel: pd.bankLabel || pd.bankAccountCode || "",
-                          lines,
-                          allocations: creditor?.offset?.allocations || [],
-                        };
-                      })()
-                    : {}),
-                  ...(isOfficialReceipt
-                    ? (() => {
-                        const od: any = (formData as any).orData || {};
-                        return {
-                          receiptNumber: formData.documentInfo?.documentNumber || formData.name,
-                          date: od.date,
-                          chequeNo: od.chequeNo,
-                          remarks: od.remarks,
-                          customerLabel: formData.customer?.id
-                            ? `${formData.customer.customerCode ? `${formData.customer.customerCode} — ` : ""}${formData.customer.name || ""}`
-                            : "",
-                          paymentMethod: od.chequeNo ? "cheque" : "transfer",
-                          currency: od.currency || "SGD",
-                          rate: Number(od.rate) || 1,
-                          receiptAmount: Number(od.receiptAmount) || 0,
-                          depositLabel: od.depositLabel || od.debitAccountCode || "",
-                          allocations: Array.isArray(od.allocations) ? od.allocations : [],
-                        };
-                      })()
-                    : {}),
-                }}
-                organization={organization}
-                design={templateDesign}
-                // Field-tech delivery reports linked to this document. When
-                // present and non-empty AND documentType === 'DO', the preview
-                // renders a Proof of Delivery section at the bottom (photos +
-                // signatures). The data is loaded by the parent page via
-                // GET /documents/:id (which now includes the relation) and
-                // forwarded onto existingData by fetchDocumentData.
-                maintenanceReports={(existingData as any)?.maintenanceReports ?? []}
-              />
-            </div>
-            )}
+            {renderPreviewContent()}
+          </Box>
+        )}
+        {printStage && !previewMode && (
+          <Box aria-hidden sx={{ position: "fixed", left: -20000, top: 0, width: 794, overflow: "hidden", pointerEvents: "none", bgcolor: "#fff" }}>
+            {renderPreviewContent()}
           </Box>
         )}
       </Box>
@@ -8077,25 +8424,8 @@ export default function TabbedDocumentCreator({
         />
       )}
 
-      {/* Payment Dialog for marking invoice as paid */}
-      {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE") && (
-        <RecordPaymentDialog
-          open={paymentDialogOpen}
-          onClose={() => setPaymentDialogOpen(false)}
-          onSuccess={() => {
-            setPaymentDialogOpen(false);
-            router.refresh(); // Refresh to update status
-            toast.success("Payment recorded and invoice marked as paid");
-          }}
-          invoice={{
-            id: documentId || "",
-            name: formData.name || formData.documentInfo?.documentNumber || "",
-            customerId: formData.customer?.id,
-            customerName: formData.customer?.name,
-            status: documentStatus,
-          }}
-        />
-      )}
+      {/* The "Mark as Paid" dialog was removed (guru 2026-11-14): invoices are
+          paid only on the Official Receipt page. */}
 
       {/* Per-line price tier menu — populated from the active row's asset.customPrices */}
       <Menu
@@ -8309,6 +8639,12 @@ export default function TabbedDocumentCreator({
         </DialogActions>
       </Dialog>
 
+      {/* Invoice left-rail dialogs (legacy screen modules). */}
+      {isInvoiceTypeDoc && (
+        <>
+          <DebtorStatementDialog open={invoiceDebtorOpen} onClose={() => setInvoiceDebtorOpen(false)} customer={formData?.customer?.id ? formData.customer : null} />
+        </>
+      )}
       {/* Client e-sign link for generic quotations (enableQuotationESign). */}
       {signLinkDialogOpen && cielSignFlow && (
         <SignLinkDialog
@@ -8443,6 +8779,57 @@ export default function TabbedDocumentCreator({
         }}
       />
 
+      {/* View Offsetted Entries — the legacy AR popup: receipts + credit notes
+          that settled this invoice; a row opens that exact document. */}
+      {isDocumentConfirmedStatus && isInvoiceTypeDoc && (
+        <Dialog open={offsetDialogOpen} onClose={() => setOffsetDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle>Offsetted Entries</DialogTitle>
+          <DialogContent dividers>
+            {offsetLoading ? (
+              <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+                <CircularProgress size={28} />
+              </Box>
+            ) : offsetRows.length === 0 ? (
+              <Typography variant="body2" sx={{ color: "text.secondary", py: 2 }}>
+                No offsetted entries for this invoice.
+              </Typography>
+            ) : (
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700 }}>Reference</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 700 }}>Amount</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {offsetRows.map((r, i) => {
+                    const clickable = !!r.documentId && (String(r.docType || "").toUpperCase() === "OFFICIAL_RECEIPT" || String(r.docType || "").toUpperCase() === "RECEIPT" || !!r.templateId);
+                    return (
+                      <TableRow
+                        key={`${r.reference}-${i}`}
+                        hover={clickable}
+                        onClick={clickable ? () => openOffsetEntry(r) : undefined}
+                        sx={{ cursor: clickable ? "pointer" : "default" }}
+                      >
+                        <TableCell sx={{ color: clickable ? "primary.main" : "text.primary", fontWeight: 600 }}>{r.reference}</TableCell>
+                        <TableCell>{r.date ? new Date(r.date).toLocaleDateString("en-GB") : "-"}</TableCell>
+                        <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums", color: r.amount < 0 ? "error.main" : "text.primary" }}>
+                          {r.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setOffsetDialogOpen(false)}>Close</Button>
+          </DialogActions>
+        </Dialog>
+      )}
+
       {/* Official Receipt delete confirmation (⋮ menu → Delete) */}
       {isSettlementDoc && (
         <Dialog open={settlementConfirmOpen} onClose={() => !settlementConfirming && setSettlementConfirmOpen(false)} maxWidth="xs" fullWidth>
@@ -8478,6 +8865,20 @@ export default function TabbedDocumentCreator({
           </DialogActions>
         </Dialog>
       )}
+
+      {/* Legacy invoice toolbar — Delete asks first. */}
+      <Dialog open={invoiceDeleteOpen} onClose={() => setInvoiceDeleteOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Delete invoice</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            Delete {formData.documentInfo?.documentNumber || formData.name || "this invoice"}? This cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setInvoiceDeleteOpen(false)}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={() => { setInvoiceDeleteOpen(false); void handleDelete(); }}>Delete</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Per-document History & notes (⋮ menu) */}
       <DocumentHistoryDrawer

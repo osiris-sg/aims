@@ -80,7 +80,7 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
       },
       {
         tabId: "details",
-        tabLabel: "DETAILS",
+        tabLabel: "Details",
         fields: [
           {
             fieldName: "documentInfo.qinRef",
@@ -299,7 +299,7 @@ export const TEMPLATE_FIELD_DEFINITIONS: Record<string, TemplateFieldConfig> = {
       },
       {
         tabId: "details",
-        tabLabel: "DETAILS",
+        tabLabel: "Details",
         fields: [
           {
             fieldName: "documentInfo.qinRef",
