@@ -62,6 +62,16 @@ const SALES_STATUS_OPTIONS = [
   { value: "returned", label: "Returned" },
 ];
 
+// Invoices (guru 2026-11-14): never "Confirmed" — an invoice is Unconfirmed,
+// Awaiting Payment, Partially Paid or Paid.
+const INVOICE_STATUS_OPTIONS = [
+  { value: "unconfirmed", label: "Unconfirmed" },
+  { value: "pending_payment", label: "Awaiting Payment" },
+  { value: "partially_paid", label: "Partially Paid" },
+  { value: "paid", label: "Paid" },
+];
+const INVOICE_TYPES = new Set(["INVOICE", "TI", "TI2"]);
+
 const prettyDocType = (t: string) =>
   String(t || "")
     .replace(/_/g, " ")
@@ -133,7 +143,7 @@ export default function SalesDocumentList({
   const filterConfig: FilterField[] = useMemo(() => {
     const cfg: FilterField[] = [
       { type: "dateRange", key: "createdOn", label: "Created On" },
-      { type: "select", key: "status", label: "Status", options: SALES_STATUS_OPTIONS },
+      { type: "select", key: "status", label: "Status", options: documentTypes?.length && documentTypes.every((t) => INVOICE_TYPES.has(String(t).toUpperCase())) ? INVOICE_STATUS_OPTIONS : SALES_STATUS_OPTIONS },
       // Server-search customer picker (orgs have thousands of customers).
       { type: "customer", key: "customerId", label: "Customer" },
     ];

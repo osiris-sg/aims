@@ -50,8 +50,15 @@ export const docOutstandingOf = (config: any): number | null => num(config?.outs
 // every list reads the same (guru 2026-11-06, BIPL-JPSG-20260929-0002: a part
 // payment showed as plain "Awaiting Payment").
 export const PARTIALLY_PAID = "partially_paid";
-export function docDisplayStatus(doc: { status?: string | null; config?: any } | null | undefined): string {
-  const s = (doc?.status || "unconfirmed").toLowerCase();
+// An invoice is never "Confirmed" (guru 2026-11-14): once confirmed it is
+// AWAITING PAYMENT until it is paid. Rows that still carry the generic
+// `confirmed` status (imported books) read as Awaiting Payment here, and the
+// same rule drives the list filters.
+const INVOICE_TYPES = new Set(["INVOICE", "TI", "TI2"]);
+export const isInvoiceType = (t?: string | null) => INVOICE_TYPES.has(String(t || "").toUpperCase());
+export function docDisplayStatus(doc: { status?: string | null; config?: any; type?: string | null } | null | undefined): string {
+  let s = (doc?.status || "unconfirmed").toLowerCase();
+  if (s === "confirmed" && isInvoiceType(doc?.type)) s = "pending_payment";
   if (["paid", "cancelled", "voided", "returned"].includes(s)) return s;
   const c = doc?.config || {};
   if (c.voided) return s;
@@ -63,9 +70,9 @@ export function docDisplayStatus(doc: { status?: string | null; config?: any } |
 
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export default function StatusChip({ status, doc }: { status?: string | null; doc?: { status?: string | null; config?: any } | null }) {
+export default function StatusChip({ status, doc }: { status?: string | null; doc?: { status?: string | null; config?: any; type?: string | null } | null }) {
   // With the document in hand the chip derives "Partially Paid" itself.
-  const s = doc ? docDisplayStatus({ status: status ?? doc.status, config: doc.config }) : (status || "unconfirmed").toLowerCase();
+  const s = doc ? docDisplayStatus({ status: status ?? doc.status, config: doc.config, type: doc.type }) : (status || "unconfirmed").toLowerCase();
   const label =
     STATUS_LABEL[s] ||
     s

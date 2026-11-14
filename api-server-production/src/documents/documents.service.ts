@@ -4255,10 +4255,15 @@ export class DocumentsService {
         // those rows the way the lists' chips do. Matched in SQL with COALESCE:
         // a Prisma JSON `gt` on a missing key is NULL, and NOT(NULL) drops the
         // row, so the never-stamped invoices vanished from Awaiting Payment.
+        // An invoice is never "Confirmed" (guru 2026-11-14): a row still at the
+        // generic `confirmed` status (imported books) is Awaiting Payment, so
+        // the Awaiting Payment filter on an invoice list includes it.
+        const INVOICE_T = ['INVOICE', 'TI', 'TI2'];
+        if (opts.documentTypes?.length && opts.documentTypes.every((t) => INVOICE_T.includes(String(t).toUpperCase())) && all.includes('pending_payment') && !all.includes('confirmed')) all.push('confirmed');
         const PARTIAL = 'partially_paid';
         const s = all.filter((x) => x !== PARTIAL);
         const wantsPartial = all.includes(PARTIAL);
-        const splitsPending = s.length === 1 && s[0] === 'pending_payment';
+        const splitsPending = s.length >= 1 && s.includes('pending_payment') && s.every((x) => x === 'pending_payment' || x === 'confirmed');
         if (wantsPartial || splitsPending) {
           const partial: Array<{ id: string }> = await this.prisma.$queryRaw`
             SELECT d.id FROM "Document" d
@@ -4275,7 +4280,7 @@ export class DocumentsService {
             const inPartial = { id: { in: partialIds } };
             and.push(s.length ? { OR: [inPartial, { status: { in: s } }] } : inPartial);
           } else {
-            where.status = 'pending_payment';
+            where.status = s.length > 1 ? { in: s } : 'pending_payment';
             if (partialIds.length) and.push({ id: { notIn: partialIds } });
           }
         } else if (s.length === 1) where.status = s[0];

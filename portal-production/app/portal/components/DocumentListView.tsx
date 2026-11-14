@@ -41,6 +41,15 @@ import type { FilterField } from "@/components/FilterDrawer";
 
 // Document statuses (NOT the legacy inventory statuses the old `availableFilters`
 // path produced). Customer is appended at runtime.
+// Invoices (guru 2026-11-14): never "Confirmed" — Unconfirmed, Awaiting
+// Payment, Partially Paid or Paid, nothing else.
+const INVOICE_STATUS_OPTIONS = [
+  { value: "unconfirmed", label: "Unconfirmed" },
+  { value: "pending_payment", label: "Awaiting Payment" },
+  { value: "partially_paid", label: "Partially Paid" },
+  { value: "paid", label: "Paid" },
+];
+const INVOICE_TYPE_SET = new Set(["INVOICE", "TI", "TI2"]);
 const DOC_STATUS_OPTIONS = [
   { value: "unconfirmed", label: "Unconfirmed" },
   { value: "confirmed", label: "Confirmed" },
@@ -239,11 +248,11 @@ export default function DocumentListView({
   const filterConfig: FilterField[] = useMemo(
     () => [
       { type: "dateRange", key: "createdOn", label: "Created On" },
-      { type: "select", key: "status", label: "Status", options: DOC_STATUS_OPTIONS },
+      { type: "select", key: "status", label: "Status", options: documentTypes.length && documentTypes.every((t) => INVOICE_TYPE_SET.has(String(t).toUpperCase())) ? INVOICE_STATUS_OPTIONS : DOC_STATUS_OPTIONS },
       // Server-search customer picker (orgs have thousands of customers).
       { type: "customer", key: "customerId", label: "Customer" },
     ],
-    [],
+    [documentTypes],
   );
 
   // Column-header sort → server sort field (name/status/createdAt only; the
