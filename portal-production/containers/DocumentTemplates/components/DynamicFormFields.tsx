@@ -6,6 +6,7 @@
  */
 
 import React from 'react';
+import RateInput from '@/components/RateInput';
 import {
   Autocomplete,
   Box,
@@ -1421,7 +1422,7 @@ export default function DynamicFormFields({
               <MenuItem value="N" sx={{ fontSize: '13px' }}>N</MenuItem>
             </Select>
           </FormControl>
-          <Typography sx={{ fontSize: '13px', fontWeight: 500, px: 0.5 }}>Tax Inclusive</Typography>
+          <Typography sx={{ fontSize: '13px', fontWeight: 500, px: 0.5 }}>Absorb Tax</Typography>
           <FormControl size="small" sx={{ width: 56 }}>
             <Select value={absorbTaxValue} onChange={(e) => setFormData(setNestedValue(formData, 'documentInfo.absorbTax', e.target.value))} sx={selectSx}>
               <MenuItem value="Y" sx={{ fontSize: '13px' }}>Y</MenuItem>
@@ -1526,12 +1527,10 @@ export default function DynamicFormFields({
         <Typography sx={rightLabelSx}>{field.displayLabel}</Typography>
         {field.fieldName === 'documentInfo.rate' ? (
           <>
-            <TextField
-              type="number"
+            <RateInput
               value={value}
-              onChange={(e) => setFormData(setNestedValue(formData, field.fieldName, parseFloat(e.target.value) || 0))}
-              size="small"
-              sx={{ ...inputSx, width: 80 }}
+              onCommit={(n) => setFormData(setNestedValue(formData, field.fieldName, n))}
+              sx={{ ...inputSx, width: 104 }}
             />
             {/* Push the currency code to the right edge, in line with the other rows */}
             <Box sx={{ flex: 1 }} />

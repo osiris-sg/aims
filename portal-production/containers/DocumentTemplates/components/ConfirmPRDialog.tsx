@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import RateInput from "@/components/RateInput";
 import {
   Dialog,
   DialogTitle,
@@ -237,14 +238,7 @@ export default function ConfirmPRDialog({
           {/* Rate */}
           <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
             <Typography sx={{ width: 160 }}>Rate</Typography>
-            <TextField
-              value={rate}
-              onChange={(e) => setRate(parseFloat(e.target.value) || 0)}
-              size="small"
-              type="number"
-              inputProps={{ step: "0.0000001", min: 0 }}
-              sx={{ flex: 1 }}
-            />
+            <RateInput value={rate} onCommit={(n) => setRate(Number(n) || 1)} align="left" sx={{ flex: 1 }} />
           </Box>
 
           {/* Account Linking Fields */}

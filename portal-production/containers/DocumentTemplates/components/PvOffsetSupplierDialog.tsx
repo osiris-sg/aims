@@ -21,6 +21,8 @@
 // The control codes come from each org's Accounting Setup (AR / AP control).
 
 import React, { useEffect, useMemo, useState } from "react";
+import MoneyInput from "@/components/MoneyInput";
+import RateInput from "@/components/RateInput";
 import {
   Alert,
   Box,
@@ -422,15 +424,12 @@ export default function PvOffsetSupplierDialog({
         <Stack direction="row" alignItems="center" spacing={1.5} flexWrap="wrap">
           <Typography sx={{ fontWeight: 700, fontSize: "0.8125rem", width: 110 }}>Amount</Typography>
           <Typography sx={{ fontWeight: 700, fontSize: "0.8125rem", color: "text.secondary" }}>{voucherCurrency}</Typography>
-          <TextField size="small" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} inputProps={{ step: "0.01", min: 0, style: { textAlign: "right" } }} sx={smallBox} />
+          <MoneyInput value={amount} onCommit={(v) => setAmount(v)} sx={smallBox} />
           <Typography sx={{ fontWeight: 700, fontSize: "0.8125rem", ml: 2 }}>Rate</Typography>
-          <TextField
-            size="small"
-            type="number"
+          <RateInput
             value={rate}
             disabled={sameCurrency}
-            onChange={(e) => setRate(e.target.value)}
-            inputProps={{ step: "0.0000001", min: 0, style: { textAlign: "right" } }}
+            onCommit={(n) => setRate(String(n))}
             sx={{ width: 130 }}
             title={sameCurrency ? "Same currency" : `${partyCurrency} per ${voucherCurrency}`}
           />
@@ -495,13 +494,11 @@ export default function PvOffsetSupplierDialog({
                         <TableCell sx={{ textAlign: "right" }}>
                           <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="flex-end">
                             {ticked && <Chip size="small" variant="outlined" label={Math.abs(amt - b.outstanding) < 0.005 ? "Full" : "Partial"} sx={{ height: 18, fontSize: "0.65rem" }} />}
-                            <TextField
-                              size="small"
-                              type="number"
+                            <MoneyInput
                               value={ticked ? amt : ""}
-                              onChange={(e) => setLineAmount(b, e.target.value)}
+                              onCommit={(v) => setLineAmount(b, v)}
                               disabled={!ticked}
-                              inputProps={{ step: "0.01", min: 0, max: b.outstanding, style: { textAlign: "right" } }}
+                              max={b.outstanding}
                               sx={{ width: 120 }}
                             />
                           </Stack>

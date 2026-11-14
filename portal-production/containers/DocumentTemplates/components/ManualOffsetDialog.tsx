@@ -9,6 +9,7 @@
 // historical rates (the legacy "Update Exchange Gain/Loss Accounts" box).
 
 import React, { useEffect, useMemo, useState } from "react";
+import MoneyInput from "@/components/MoneyInput";
 import {
   Alert,
   Box,
@@ -29,7 +30,6 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  TextField,
   Typography,
   alpha,
 } from "@mui/material";
@@ -224,13 +224,11 @@ export default function ManualOffsetDialog({
                     </TableCell>
                     <TableCell sx={mono}>{fmt(it.outstanding)}</TableCell>
                     <TableCell sx={{ textAlign: "right" }}>
-                      <TextField
-                        size="small"
-                        type="number"
+                      <MoneyInput
                         value={ticked ? side[it.documentId] : ""}
-                        onChange={(e) => setAmount(side, setSide, it, e.target.value)}
+                        onCommit={(v) => setAmount(side, setSide, it, v)}
                         disabled={!ticked}
-                        inputProps={{ step: "0.01", min: 0, max: it.outstanding, style: { textAlign: "right" } }}
+                        max={it.outstanding}
                         sx={{ width: 130 }}
                       />
                     </TableCell>

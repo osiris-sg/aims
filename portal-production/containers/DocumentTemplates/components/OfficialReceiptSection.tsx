@@ -12,6 +12,8 @@
 // exit prompt and Save path all work unchanged.
 
 import React, { useEffect, useMemo, useState } from "react";
+import MoneyInput from "@/components/MoneyInput";
+import RateInput from "@/components/RateInput";
 import {
   Alert,
   Box,
@@ -71,7 +73,8 @@ export const OR_FIELD_DEFINITIONS: TemplateFieldConfig = {
       fields: [
         { fieldName: "orReceiptNo", displayLabel: "Receipt No.", fieldType: "text", required: false },
         { fieldName: "orData.date", displayLabel: "Date", fieldType: "date", required: true },
-        { fieldName: "orData.chequeNo", displayLabel: "Cheque No.", fieldType: "text", required: false },
+        // Bank advice (cheque / transfer reference; guru 2026-11-14, as on the Payment Voucher). Stored as chequeNo.
+        { fieldName: "orData.chequeNo", displayLabel: "Bank advice", fieldType: "text", required: false },
         { fieldName: "orData.remarks", displayLabel: "Remarks", fieldType: "text", required: false },
         { fieldName: "orCustomer", displayLabel: "Customer code", fieldType: "text", required: true },
         { fieldName: "orCredit", displayLabel: "Accounts to  CREDIT", fieldType: "text", required: false },
@@ -205,8 +208,8 @@ export function receiptCustomerPatch(formData: any, c: any) {
   const cur = String(c?.currency || "SGD").toUpperCase();
   return {
     customer: c
-      ? { id: c.id, name: c.name || "", customerCode: c.customerCode || "", address: c.address || "", email: c.email || "" }
-      : { id: "", name: "", customerCode: "", address: "", email: "" },
+      ? { id: c.id, name: c.name || "", customerCode: c.customerCode || "", address: c.address || "", email: c.email || "", phone: c.phone || "", fax: c.fax || "" }
+      : { id: "", name: "", customerCode: "", address: "", email: "", phone: "", fax: "" },
     orData: {
       ...(formData.orData || {}),
       allocations: [],
@@ -485,24 +488,11 @@ export function OrAmountInput({ formData, setFormData }: RowProps) {
     // data-tour: anchor for AIMS Guide walkthroughs (receipt amount step)
     <Box data-tour="or-amount" sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "nowrap" }}>
       <Typography sx={{ fontSize: "13px", fontWeight: 700, color: "text.secondary" }}>{currency}</Typography>
-      <TextField
-        size="small"
-        type="number"
-        value={od.receiptAmount ?? ""}
-        onChange={(e) => setOrData(formData, setFormData, { receiptAmount: e.target.value })}
-        inputProps={{ step: "0.01", min: 0, style: { textAlign: "right" } }}
-        sx={{ ...headerInputSx, width: 180 }}
-      />
+      <MoneyInput value={od.receiptAmount ?? ""} onCommit={(v) => setOrData(formData, setFormData, { receiptAmount: v })} sx={{ ...headerInputSx, width: 180 }} />
       <Typography sx={{ fontSize: "13px", fontWeight: 700, ml: 1.5 }}>Rate</Typography>
-      <TextField
-        size="small"
-        type="number"
-        value={od.rate ?? 1}
-        onChange={(e) => setOrData(formData, setFormData, { rate: e.target.value })}
-        disabled={currency === "SGD"}
-        inputProps={{ step: "0.0000001", min: 0, style: { textAlign: "right" } }}
-        sx={{ ...headerInputSx, width: 140 }}
-      />
+      {/* Always editable (guru 2026-11-14: "don't disable the rate here"); a
+          base-currency receipt starts at 1.0000000 and the user may key another rate. */}
+      <RateInput value={od.rate ?? 1} onCommit={(n) => setOrData(formData, setFormData, { rate: n })} sx={{ ...headerInputSx, width: 140 }} />
       <Typography sx={{ fontSize: "13px", fontWeight: 700, ml: 1.5 }}>Amount&nbsp;&nbsp;SGD</Typography>
       <TextField
         size="small"
@@ -742,13 +732,11 @@ export function OfficialReceiptOffsetSection({
                             />
                           </TableCell>
                           <TableCell sx={{ textAlign: "right" }}>
-                            <TextField
-                              size="small"
-                              type="number"
+                            <MoneyInput
                               value={ticked ? allocById.get(inv.documentId) : ""}
-                              onChange={(e) => setLineAmount(inv, e.target.value)}
+                              onCommit={(v) => setLineAmount(inv, v)}
                               disabled={disabled || !ticked}
-                              inputProps={{ step: "0.01", min: 0, max: inv.outstanding, style: { textAlign: "right" } }}
+                              max={inv.outstanding}
                               sx={{ width: 130 }}
                             />
                           </TableCell>

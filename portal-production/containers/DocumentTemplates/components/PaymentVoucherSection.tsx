@@ -25,6 +25,8 @@
 // line (creditor control per allocated invoice, ± realised FX).
 
 import React, { useEffect, useMemo, useState } from "react";
+import MoneyInput from "@/components/MoneyInput";
+import RateInput from "@/components/RateInput";
 import {
   Alert,
   Box,
@@ -248,13 +250,10 @@ export function PvBankInput({ formData, setFormData }: RowProps) {
         />
       )}
       <Typography sx={{ fontSize: "13px", fontWeight: 700 }}>Rate</Typography>
-      <TextField
-        size="small"
-        type="number"
+      <RateInput
         value={pd.rate ?? 1}
-        onChange={(e) => setPvData(formData, setFormData, { rate: e.target.value })}
+        onCommit={(n) => setPvData(formData, setFormData, { rate: n })}
         disabled={!foreign}
-        inputProps={{ step: "0.0000001", min: 0, style: { textAlign: "right" } }}
         sx={{ ...headerInputSx, width: 140, mr: 1 }}
         title={foreign ? `${currency} → SGD` : "Base currency voucher"}
       />
@@ -606,13 +605,11 @@ export function PaymentVoucherLinesSection({
                           )}
                         </TableCell>
                         <TableCell sx={{ textAlign: "right" }}>
-                          <TextField
-                            size="small"
-                            type="number"
+                          <MoneyInput
                             value={l.amount ?? ""}
                             disabled={disabled || isCreditor}
-                            onChange={(e) => patchLine(l.id, { amount: e.target.value })}
-                            inputProps={{ step: "0.01", style: { textAlign: "right" } }}
+                            onCommit={(v) => patchLine(l.id, { amount: v })}
+                            allowNegative
                             sx={{ width: 150 }}
                             title={isCreditor ? "Set in the offset dialog" : "Negative = a credit to this account"}
                           />

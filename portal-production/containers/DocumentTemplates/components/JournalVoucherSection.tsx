@@ -18,6 +18,7 @@
 // voucher number.
 
 import React, { useEffect, useState } from "react";
+import MoneyInput from "@/components/MoneyInput";
 import {
   Alert,
   Box,
@@ -352,25 +353,19 @@ export function JournalVoucherLinesSection({
                           )}
                         </TableCell>
                         <TableCell sx={{ textAlign: "right" }}>
-                          <TextField
-                            size="small"
-                            type="number"
+                          <MoneyInput
                             value={l.debit ?? ""}
                             disabled={disabled || isCreditor}
-                            onChange={(e) => patchLine(l.id, { debit: e.target.value, ...(parseFloat(e.target.value) > 0 ? { credit: "" } : {}) })}
-                            inputProps={{ step: "0.01", min: 0, style: { textAlign: "right" } }}
+                            onCommit={(v) => patchLine(l.id, { debit: v, ...(parseFloat(v) > 0 ? { credit: "" } : {}) })}
                             sx={{ width: 135 }}
                             title={isCreditor ? "Set in Offset Supplier Invoices" : undefined}
                           />
                         </TableCell>
                         <TableCell sx={{ textAlign: "right" }}>
-                          <TextField
-                            size="small"
-                            type="number"
+                          <MoneyInput
                             value={l.credit ?? ""}
                             disabled={disabled || isCreditor}
-                            onChange={(e) => patchLine(l.id, { credit: e.target.value, ...(parseFloat(e.target.value) > 0 ? { debit: "" } : {}) })}
-                            inputProps={{ step: "0.01", min: 0, style: { textAlign: "right" } }}
+                            onCommit={(v) => patchLine(l.id, { credit: v, ...(parseFloat(v) > 0 ? { debit: "" } : {}) })}
                             sx={{ width: 135 }}
                           />
                         </TableCell>

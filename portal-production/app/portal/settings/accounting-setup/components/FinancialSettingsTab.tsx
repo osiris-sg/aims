@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import RateInput from "@/components/RateInput";
 import {
   Box,
   Button,
@@ -168,11 +169,10 @@ export default function FinancialSettingsTab({
                 onChange={(e) => setRates((rs) => rs.map((x, xi) => (xi === i ? { ...x, code: e.target.value.toUpperCase() } : x)))}
                 placeholder="USD"
               />
-              <TextField
-                size="small" label={`Rate to ${form.baseCurrency || "SGD"}`} type="number" value={r.rate} sx={{ width: 160 }}
-                onChange={(e) => setRates((rs) => rs.map((x, xi) => (xi === i ? { ...x, rate: e.target.value } : x)))}
-                placeholder="1.35"
-                inputProps={{ step: "0.0000001", min: 0 }}
+              <RateInput
+                label={`Rate to ${form.baseCurrency || "SGD"}`} value={r.rate} fallback="" sx={{ width: 160 }}
+                onCommit={(n) => setRates((rs) => rs.map((x, xi) => (xi === i ? { ...x, rate: n === "" ? "" : String(n) } : x)))}
+                placeholder="1.3500000" align="left"
               />
               <Typography variant="caption" color="text.secondary">
                 {r.code && Number(r.rate) > 0 ? `1 ${r.code} = ${r.rate} ${form.baseCurrency || "SGD"}` : ""}
