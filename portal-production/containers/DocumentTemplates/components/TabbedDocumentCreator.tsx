@@ -975,10 +975,16 @@ export default function TabbedDocumentCreator({
   // P/V and J/V pages): Stock Card, Debtor Statement. They sit at the top-left
   // of the margin the invoice editor keeps on both sides.
   const [invoiceDebtorOpen, setInvoiceDebtorOpen] = useState(false);
-  const invoiceRailButtons = (isInvoiceTypeDoc || isDeliveryOrder) && !isTemplateEditMode
+  // Rail: invoice/DO keep it on every org; on a legacy-layout org
+  // (enableHeaderGlAccount) EVERY document type gets it (guru 2026-11-16).
+  // Debtor Statement (customer AR) is dropped on purchase documents.
+  const showLegacyRail = !isTemplateEditMode && !isSettlementDoc && (isInvoiceTypeDoc || isDeliveryOrder || isHeaderGlAccountEnabled);
+  const invoiceRailButtons = showLegacyRail
     ? [
         { label: "Stock Card", icon: <ViewListOutlinedIcon />, onClick: () => setStockCardDialogOpen(true), "data-tour": "invoice-stock-card" },
-        { label: "Debtor Statement", icon: <DescriptionOutlinedIcon />, onClick: () => (formData?.customer?.id ? setInvoiceDebtorOpen(true) : toast.warn("Select a customer first")), "data-tour": "invoice-debtor-statement" },
+        ...(!isPurchaseDocument
+          ? [{ label: "Debtor Statement", icon: <DescriptionOutlinedIcon />, onClick: () => (formData?.customer?.id ? setInvoiceDebtorOpen(true) : toast.warn("Select a customer first")), "data-tour": "invoice-debtor-statement" }]
+          : []),
       ]
     : [];
   // ACCOUNTS TO CREDIT on the invoice header (enableHeaderGlAccount, guru
@@ -1003,7 +1009,12 @@ export default function TabbedDocumentCreator({
   // injected Delivery Address. `legacyLayout` gates everything the two screens
   // share; `legacyInvoice` stays for the invoice-only GL bits.
   const legacyDo = isHeaderGlAccountEnabled && isDeliveryOrder && !isTemplateEditMode;
-  const legacyLayout = legacyInvoice || legacyDo;
+  // EVERY document editor type gets the legacy chrome — 204px margins, the rail
+  // and the coloured toolbar (guru 2026-11-16: "do that for all documents
+  // now"). Settlement docs (OR / PV / JV) keep their own legacy screens, so
+  // they are excluded. `legacyInvoice` / `legacyDo` stay for the type-specific
+  // field bits (the invoice GL row, the DO hidden fields).
+  const legacyLayout = isHeaderGlAccountEnabled && !isTemplateEditMode && !isSettlementDoc;
   const [invoiceDeleteOpen, setInvoiceDeleteOpen] = useState(false);
 
   // Biofuel org gate — drives the Biofuel-only quotation header fields
@@ -4892,7 +4903,11 @@ export default function TabbedDocumentCreator({
               </Button>
               <Button size="small" variant="contained" startIcon={<PrintIcon />} onClick={handlePrint} sx={LEGACY_BTN.print} data-tour="editor-legacy-print">Print</Button>
               <Button size="small" variant="contained" startIcon={<SearchIcon />} onClick={() => setLocateDialogOpen(true)} sx={LEGACY_BTN.locate} data-tour="editor-legacy-locate">Locate</Button>
-              <Button size="small" variant="contained" startIcon={<ContentCopyIcon />} onClick={isDeliveryOrder ? handleExtractForDO : handleExtractForInvoice} sx={LEGACY_BTN.extract} data-tour="editor-legacy-extract">Extract</Button>
+              {/* Extract is only wired for invoices (from a DO) and DOs (from a
+                  quotation); other document types have nothing to extract. */}
+              {(isInvoiceTypeDoc || isDeliveryOrder) && (
+                <Button size="small" variant="contained" startIcon={<ContentCopyIcon />} onClick={isDeliveryOrder ? handleExtractForDO : handleExtractForInvoice} sx={LEGACY_BTN.extract} data-tour="editor-legacy-extract">Extract</Button>
+              )}
             </>
           )}
           {/* Prev/Next document navigation — compact icon arrows */}
@@ -8868,10 +8883,10 @@ export default function TabbedDocumentCreator({
 
       {/* Legacy invoice toolbar — Delete asks first. */}
       <Dialog open={invoiceDeleteOpen} onClose={() => setInvoiceDeleteOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle>Delete invoice</DialogTitle>
+        <DialogTitle>Delete {getDocumentTitle().toLowerCase()}</DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            Delete {formData.documentInfo?.documentNumber || formData.name || "this invoice"}? This cannot be undone.
+            Delete {formData.documentInfo?.documentNumber || formData.name || `this ${getDocumentTitle().toLowerCase()}`}? This cannot be undone.
           </Typography>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
