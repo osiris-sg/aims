@@ -51,7 +51,8 @@ export function noteTitle(n: Pick<CalendarNote, "title" | "allDay" | "startTime"
  * before the jobs of each day (displayOrder 0; jobs are 1).
  */
 export function noteToCalendarInput(n: CalendarNote) {
-  const color = noteType(n.type).color;
+  // One small neutral chip for every note type (2026-11-16); the type is in its title and card.
+  const color = "#cfd8dc";
   return {
     id: `note:${n.id}`,
     title: noteTitle(n),
@@ -60,7 +61,7 @@ export function noteToCalendarInput(n: CalendarNote) {
     allDay: true,
     backgroundColor: color,
     borderColor: color,
-    textColor: "#ffffff",
+    textColor: "#37474f",
     classNames: ["aims-jc-event", "aims-jc-note"],
     displayOrder: 0,
     extendedProps: { note: n },

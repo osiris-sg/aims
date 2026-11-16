@@ -94,6 +94,28 @@ export const KIND_COLOR: Record<EventKind, string> = {
 };
 export const CANCELLED_COLOR = "#9e9e9e";
 
+// WCT (jobWords, 2026-11-16): colours by PTW, not by source. An AIMS job and a
+// SiteClock job are the same "Job" blue; a job whose PTW is still needed
+// (required or submitted) is amber; an approved PTW is green. Notes are one
+// neutral slim chip (calendarAdd.ts).
+export type PtwState = "job" | "needed" | "approved";
+export const PTW_STATE_COLOR: Record<PtwState, string> = { job: "#1e88e5", needed: "#f9a825", approved: "#2e7d32" };
+export const NOTE_CHIP_COLOR = "#cfd8dc";
+
+/** A job's PTW state from its PTW status (the field that replaced the permit job fields); no PTW data = a plain job. */
+export function ptwStateOf(e: Pick<CalendarEvent, "ptw">): PtwState {
+  const s = String(e.ptw?.status ?? "").toUpperCase();
+  if (s === "APPROVED") return "approved";
+  if (s === "REQUIRED" || s === "SUBMITTED") return "needed";
+  return "job";
+}
+
+/** An event's colour: grey when cancelled; WCT by PTW state, everyone else by source / kind. */
+export function eventColor(e: Pick<CalendarEvent, "cancelled" | "kind" | "ptw">, byPtw = false): string {
+  if (e.cancelled) return CANCELLED_COLOR;
+  return byPtw ? PTW_STATE_COLOR[ptwStateOf(e)] : KIND_COLOR[e.kind];
+}
+
 export const KIND_LABEL: Record<EventKind, string> = {
   delivery: "Delivery",
   return: "Return",
@@ -106,8 +128,16 @@ export function kindLabel(kind: EventKind, jobWords: boolean): string {
   return jobWords && (kind === "delivery" || kind === "return") ? "Job" : KIND_LABEL[kind];
 }
 
-/** The calendar's colour legend; WCT's first entry reads "Job". */
+/** The calendar's colour legend. WCT (jobWords): Job · PTW needed · PTW approved · Note (Show cancelled is the checkbox). */
 export function calendarLegendItems(jobWords: boolean): Array<{ label: string; color: string }> {
+  if (jobWords) {
+    return [
+      { label: "Job", color: PTW_STATE_COLOR.job },
+      { label: "PTW needed", color: PTW_STATE_COLOR.needed },
+      { label: "PTW approved", color: PTW_STATE_COLOR.approved },
+      { label: "Note", color: NOTE_CHIP_COLOR },
+    ];
+  }
   return [
     { label: jobWords ? "Job" : "Delivery / return", color: KIND_COLOR.delivery },
     { label: "Service run", color: KIND_COLOR.service },
@@ -140,12 +170,12 @@ export function isMovable(e: Pick<CalendarEvent, "source" | "allDay" | "status" 
 /** The run id behind an AIMS event ("aims:<deliveryId>"), or null. */
 export const runIdOf = (eventId: string): string | null => (eventId.startsWith("aims:") ? eventId.slice(5) : null);
 
-/** What FullCalendar draws for each event; cancelled ones only when asked for. `movable` = drag is on. */
-export function toCalendarInputs(events: CalendarEvent[], showCancelled: boolean, movable = false) {
+/** What FullCalendar draws for each event; cancelled ones only when asked for. `movable` = drag is on; `byPtw` = WCT colours. */
+export function toCalendarInputs(events: CalendarEvent[], showCancelled: boolean, movable = false, byPtw = false) {
   return events
     .filter((e) => showCancelled || !e.cancelled)
     .map((e) => {
-      const color = e.cancelled ? CANCELLED_COLOR : KIND_COLOR[e.kind];
+      const color = eventColor(e, byPtw);
       return {
         id: e.id,
         title: e.title,
@@ -155,7 +185,7 @@ export function toCalendarInputs(events: CalendarEvent[], showCancelled: boolean
         ...(movable && isMovable(e) ? { startEditable: true, durationEditable: false } : {}),
         backgroundColor: color,
         borderColor: color,
-        textColor: "#ffffff",
+        textColor: byPtw && !e.cancelled && ptwStateOf(e) === "needed" ? "#3e2723" : "#ffffff",
         classNames: ["aims-jc-event", ...(e.completed ? ["aims-jc-completed"] : []), ...(e.cancelled ? ["aims-jc-cancelled"] : [])],
         extendedProps: { event: e },
       };
@@ -173,6 +203,16 @@ export function timeWindow(e: Pick<CalendarEvent, "start" | "end" | "allDay">): 
   if (!e.end) return start;
   const sameDay = dayFmt(e.start) === dayFmt(e.end);
   return `${start} – ${sameDay ? "" : `${dayFmt(e.end)} · `}${timeFmt(e.end)}`;
+}
+
+/**
+ * WCT: where a click on an event goes. An AIMS job opens its order (else its
+ * DO, else the job); a SiteClock job opens in SiteClock (new tab). null = none.
+ */
+export function eventClickTarget(e: Pick<CalendarEvent, "source" | "orderHref" | "doHref" | "href" | "siteclockUrl">): { href: string; external: boolean } | null {
+  if (e.source === "siteclock") return e.siteclockUrl ? { href: e.siteclockUrl, external: true } : null;
+  const href = e.orderHref || e.doHref || e.href;
+  return href ? { href, external: false } : null;
 }
 
 /** "Ali · arrived 10:05 am · left 11:20 am" for the popup. */

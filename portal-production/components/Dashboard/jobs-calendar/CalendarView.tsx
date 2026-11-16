@@ -5,10 +5,13 @@
 // Singapore time via the Luxon plugin. Clicking an event opens a small card at
 // the click position.
 // WCT calendar add (2026-11-04, canAdd): a click on an empty day / slot offers
-// "Job" or "Note"; notes are all-day bars listed above the jobs; job chips show a
-// PTW badge and an "Untagged" mark.
+// "Job" or "Note"; notes are slim neutral chips listed above the jobs; job chips
+// show a PTW badge and an "Untagged" mark.
+// WCT (openOnClick, 2026-11-16): colours by PTW state; the details card shows on
+// HOVER (desktop) or on a tap (touch screens); a click opens the job at once (an
+// AIMS job: its order, else its DO; a SiteClock job: in SiteClock).
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
@@ -16,14 +19,14 @@ import luxonPlugin from "@fullcalendar/luxon3";
 import interactionPlugin, { type DateClickArg } from "@fullcalendar/interaction";
 import type { DatesSetArg, EventClickArg, EventContentArg, EventDropArg } from "@fullcalendar/core";
 import JobFieldIcon from "@/components/jobFields/JobFieldIcon";
-import { Box, Button, Chip, Divider, ListItemIcon, ListItemText, Menu, MenuItem, Popover, Stack, Typography } from "@mui/material";
+import { Box, Button, Chip, Divider, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Popover, Popper, Stack, Typography } from "@mui/material";
 import WorkOutlineIcon from "@mui/icons-material/WorkOutline";
 import StickyNote2OutlinedIcon from "@mui/icons-material/StickyNote2Outlined";
 import { noteToCalendarInput, ptwColor, slotOf, type CalendarNote } from "@/helpers/calendarAdd";
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
-import { CALENDAR_TZ, CANCELLED_COLOR, KIND_COLOR, badgeTitle, crewLine, kindLabel, timeWindow, toCalendarInputs, ymdOf, type CalendarEvent } from "./calendarModel";
+import { CALENDAR_TZ, badgeTitle, crewLine, eventClickTarget, eventColor, kindLabel, timeWindow, toCalendarInputs, ymdOf, type CalendarEvent } from "./calendarModel";
 import { useRouter } from "next/navigation";
 import DoStatusTag from "@/components/DoStatusTag";
 
@@ -69,10 +72,22 @@ export default function CalendarView({
   const [viewType, setViewType] = useState<string>(initialView);
   const [open, setOpen] = useState<{ pos: { left: number; top: number }; event: CalendarEvent } | null>(null);
   const [addMenu, setAddMenu] = useState<{ pos: { left: number; top: number }; slot: { date: string; time: string } } | null>(null);
+  // WCT: the hover card (desktop). A touch screen has no hover, so a tap shows the card instead.
+  const [hover, setHover] = useState<{ el: HTMLElement; event: CalendarEvent } | null>(null);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [touch, setTouch] = useState(false);
+  useEffect(() => {
+    setTouch(typeof window !== "undefined" && !!window.matchMedia?.("(hover: none)").matches);
+  }, []);
+  const keepHover = () => hideTimer.current && clearTimeout(hideTimer.current);
+  const dropHover = () => {
+    keepHover();
+    hideTimer.current = setTimeout(() => setHover(null), 150);
+  };
   // Notes first on each day (displayOrder 0), then the jobs.
   const inputs = useMemo(
-    () => [...(notes ?? []).map(noteToCalendarInput), ...toCalendarInputs(events, showCancelled, !!onMove).map((i) => ({ ...i, displayOrder: 1 }))],
-    [events, showCancelled, notes, onMove],
+    () => [...(notes ?? []).map(noteToCalendarInput), ...toCalendarInputs(events, showCancelled, !!onMove, openOnClick).map((i) => ({ ...i, displayOrder: 1 }))],
+    [events, showCancelled, notes, onMove, openOnClick],
   );
 
   const onDateClick = (arg: DateClickArg) => {
@@ -84,8 +99,13 @@ export default function CalendarView({
     const note = arg.event.extendedProps.note as CalendarNote | undefined;
     if (note) return onNoteClick?.(note);
     const e = arg.event.extendedProps.event as CalendarEvent;
-    // WCT: a job opens its page at once; a SiteClock-only job (no AIMS page) keeps the card.
-    if (openOnClick && e.href) return router.push(e.href);
+    // WCT on desktop: the click opens the job at once (the card is on hover). On a touch screen the tap shows the card.
+    if (openOnClick && !touch) {
+      const t = eventClickTarget(e);
+      setHover(null);
+      if (t?.external) return void window.open(t.href, "_blank", "noopener,noreferrer");
+      if (t) return router.push(t.href);
+    }
     setOpen({ pos: { left: arg.jsEvent.clientX, top: arg.jsEvent.clientY }, event: e });
   };
 
@@ -126,6 +146,9 @@ export default function CalendarView({
         "& .aims-jc-event": { cursor: "pointer" },
         ...(canAdd ? { "& .fc-daygrid-day, & .fc-timegrid-slot-lane": { cursor: "copy" } } : {}),
         "& .aims-jc-completed": { opacity: 0.5 },
+        // Notes: one slim neutral chip, not a full bar.
+        "& .aims-jc-note": { fontSize: "0.68rem", lineHeight: 1.25, borderRadius: "8px", mx: "2px", px: "2px", py: 0, fontWeight: 500 },
+        "& .aims-jc-note .fc-event-main": { color: "#37474f", padding: "0 2px" },
         "& .aims-jc-cancelled .fc-event-title, & .aims-jc-cancelled .fc-event-time": { textDecoration: "line-through" },
         "@media (max-width: 600px)": { "& .fc .fc-toolbar": { flexDirection: "column", gap: 1 } },
       }}
@@ -151,6 +174,17 @@ export default function CalendarView({
         eventTimeFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
         events={inputs}
         eventClick={onClick}
+        eventMouseEnter={
+          openOnClick && !touch
+            ? (arg) => {
+                const ev = arg.event.extendedProps.event as CalendarEvent | undefined;
+                if (!ev) return;
+                keepHover();
+                setHover({ el: arg.el, event: ev });
+              }
+            : undefined
+        }
+        eventMouseLeave={openOnClick && !touch ? () => dropHover() : undefined}
         eventDrop={onMove ? onDrop : undefined}
         eventAllow={(drop) => drop.allDay}
         // Custom job fields: the job's icons after its time + title (default rendering otherwise).
@@ -185,6 +219,13 @@ export default function CalendarView({
         }}
       />
 
+      {/* WCT: the details card on hover (stays while the pointer is on it). */}
+      <Popper open={!!hover} anchorEl={hover?.el} placement="bottom-start" sx={{ zIndex: 1300 }} modifiers={[{ name: "offset", options: { offset: [0, 6] } }]}>
+        <Paper elevation={6} onMouseEnter={keepHover} onMouseLeave={dropHover} sx={{ maxWidth: 360, p: 2 }} data-tour="jobs-calendar-hover-card">
+          {hover && <EventCard event={hover.event} jobWords={jobWords} byPtw={openOnClick} />}
+        </Paper>
+      </Popper>
+
       <Popover
         open={!!open}
         onClose={() => setOpen(null)}
@@ -193,7 +234,7 @@ export default function CalendarView({
         transformOrigin={{ vertical: "top", horizontal: "left" }}
         slotProps={{ paper: { sx: { maxWidth: 360, p: 2 } } }}
       >
-        {open && <EventCard event={open.event} jobWords={jobWords} />}
+        {open && <EventCard event={open.event} jobWords={jobWords} byPtw={openOnClick} />}
       </Popover>
 
       {/* WCT calendar add: what to add on the clicked day / slot. */}
@@ -240,8 +281,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function EventCard({ event: e, jobWords }: { event: CalendarEvent; jobWords: boolean }) {
-  const color = e.cancelled ? CANCELLED_COLOR : KIND_COLOR[e.kind];
+function EventCard({ event: e, jobWords, byPtw = false }: { event: CalendarEvent; jobWords: boolean; byPtw?: boolean }) {
+  const color = eventColor(e, byPtw);
   return (
     <Box>
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>

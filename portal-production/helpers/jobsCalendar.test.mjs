@@ -2,7 +2,7 @@
 // 2026-10-30: Dashboard jobs calendar (WCT, enableJobsCalendar): range, colours, cancelled toggle, popup text, banner.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { rangeOf, toCalendarInputs, timeWindow, crewLine, siteclockBanner, KIND_COLOR, CANCELLED_COLOR, badgeTitle, legendTitle } from "../components/Dashboard/jobs-calendar/calendarModel.ts";
+import { rangeOf, toCalendarInputs, timeWindow, crewLine, siteclockBanner, KIND_COLOR, CANCELLED_COLOR, badgeTitle, legendTitle, PTW_STATE_COLOR, ptwStateOf, calendarLegendItems, eventClickTarget } from "../components/Dashboard/jobs-calendar/calendarModel.ts";
 
 const ev = (over = {}) => ({
   id: "aims:1", source: "aims", kind: "delivery", title: "#12 Acme", start: "2026-11-03T02:00:00.000Z", end: "2026-11-03T03:30:00.000Z",
@@ -77,4 +77,35 @@ test("all-day jobs (2026-11-10): only a scheduled AIMS all-day job is draggable,
   assert.equal("startEditable" in off, false);
   const [timed] = toCalendarInputs([{ ...base, allDay: false, start: "2026-11-11T01:00:00.000Z" }], false, true);
   assert.equal("startEditable" in timed, false);
+});
+
+// WCT (2026-11-16): colours by PTW, a short legend, a click opens the job.
+test("WCT colours by PTW state: AIMS and SiteClock jobs the same blue, needed amber, approved green, cancelled grey", () => {
+  const list = [
+    ev({ id: "a" }),
+    ev({ id: "sc", kind: "siteclock", source: "siteclock" }),
+    ev({ id: "s", kind: "service", ptw: { status: "NOT_NEEDED", label: "Not needed", remark: null } }),
+    ev({ id: "r", ptw: { status: "REQUIRED", label: "Required", remark: null } }),
+    ev({ id: "sub", ptw: { status: "SUBMITTED", label: "Submitted", remark: null } }),
+    ev({ id: "ok", ptw: { status: "APPROVED", label: "Approved", remark: null } }),
+    ev({ id: "x", cancelled: true, ptw: { status: "APPROVED", label: "Approved", remark: null } }),
+  ];
+  const c = Object.fromEntries(toCalendarInputs(list, true, false, true).map((o) => [o.id, o.backgroundColor]));
+  assert.deepEqual(c, { a: PTW_STATE_COLOR.job, sc: PTW_STATE_COLOR.job, s: PTW_STATE_COLOR.job, r: PTW_STATE_COLOR.needed, sub: PTW_STATE_COLOR.needed, ok: PTW_STATE_COLOR.approved, x: CANCELLED_COLOR });
+  assert.equal(ptwStateOf({}), "job");
+  // Other orgs keep the source colours.
+  assert.equal(toCalendarInputs([ev({ kind: "service", ptw: { status: "APPROVED", label: "Approved", remark: null } })], true)[0].backgroundColor, KIND_COLOR.service);
+});
+
+test("WCT legend: Job, PTW needed, PTW approved, Note (others unchanged)", () => {
+  assert.deepEqual(calendarLegendItems(true).map((l) => l.label), ["Job", "PTW needed", "PTW approved", "Note"]);
+  assert.deepEqual(calendarLegendItems(false).map((l) => l.label), ["Delivery / return", "Service run", "SiteClock job", "Cancelled"]);
+});
+
+test("WCT click: an AIMS job opens its order, else its DO, else the job; a SiteClock job opens in SiteClock", () => {
+  assert.deepEqual(eventClickTarget(ev({ orderHref: "/portal/orders/o1", doHref: "/d" })), { href: "/portal/orders/o1", external: false });
+  assert.deepEqual(eventClickTarget(ev({ doHref: "/portal/documents/DELIVERY_ORDER/t/d1" })), { href: "/portal/documents/DELIVERY_ORDER/t/d1", external: false });
+  assert.deepEqual(eventClickTarget(ev()), { href: "/portal/deliveries/1", external: false });
+  assert.deepEqual(eventClickTarget(ev({ source: "siteclock", href: null, siteclockUrl: "https://siteclock.example/#/jobs/9" })), { href: "https://siteclock.example/#/jobs/9", external: true });
+  assert.equal(eventClickTarget(ev({ source: "siteclock", href: null, siteclockUrl: null })), null);
 });

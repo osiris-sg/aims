@@ -62,7 +62,8 @@ test("calendar: WCT's legend says Job (not Job / return), popup kind Job; others
   assert.equal(kindLabel("delivery", false), "Delivery");
   assert.equal(kindLabel("service", true), "Service run");
   const view = read("components/Dashboard/jobs-calendar/CalendarView.tsx");
-  assert.match(view, /if \(openOnClick && e\.href\) return router\.push\(e\.href\);/);
+  // 2026-11-16: on desktop a WCT click opens the job (order / DO / SiteClock); the card is on hover.
+  assert.match(view, /if \(openOnClick && !touch\) \{\s+const t = eventClickTarget\(e\);/);
   assert.match(view, /jobWords \? "Open job" : "Open delivery"/);
 });
 

@@ -35,13 +35,14 @@ test("note body: title, dates, times", () => {
   assert.deepEqual(noteBody({ ...f, allDay: false, startTime: "09:00", endTime: "12:00" }).body.startTime, "09:00");
 });
 
-test("a note is an all-day bar (end exclusive), coloured by type, before the jobs", () => {
+test("a note is an all-day slim chip (end exclusive), one neutral colour, before the jobs", () => {
   const n = { id: "n1", title: "Road closed", type: "BLOCKAGE", staffId: null, staffName: null, startDate: "2026-12-09", endDate: "2026-12-11", allDay: false, startTime: "09:00", endTime: "12:00", remark: null };
   const e = noteToCalendarInput(n);
   assert.equal(e.allDay, true);
   assert.equal(e.start, "2026-12-09");
   assert.equal(e.end, "2026-12-12");
-  assert.equal(e.backgroundColor, "#c62828");
+  assert.equal(e.backgroundColor, "#cfd8dc"); // every note type the same (2026-11-16)
+  assert.equal(noteToCalendarInput({ ...n, type: "LEAVE" }).backgroundColor, "#cfd8dc");
   assert.equal(e.displayOrder, 0);
   assert.equal(e.title, "09:00–12:00 Road closed");
   assert.equal(noteTitle({ ...n, allDay: true, staffName: "Ali" }), "Road closed · Ali");

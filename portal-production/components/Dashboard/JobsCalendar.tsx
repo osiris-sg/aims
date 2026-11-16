@@ -18,7 +18,7 @@ import { useCalendarApi } from "./jobs-calendar/calendarAddApi";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
-import { NOTE_TYPES, type CalendarNote } from "@/helpers/calendarAdd";
+import { type CalendarNote } from "@/helpers/calendarAdd";
 import QuickJobDialog from "./jobs-calendar/QuickJobDialog";
 import NoteDialog from "./jobs-calendar/NoteDialog";
 
@@ -181,7 +181,7 @@ export function JobsCalendarPanel({
           </Typography>
           {loading && <CircularProgress size={16} />}
         </Stack>
-        <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
+        <Stack direction="row" spacing={jobWords ? 1.5 : 2} alignItems="center" flexWrap={jobWords ? "nowrap" : "wrap"} useFlexGap>
           {calendarLegendItems(jobWords).map((l) => (
             <Stack key={l.label} direction="row" spacing={0.75} alignItems="center">
               <Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: l.color }} />
@@ -190,8 +190,8 @@ export function JobsCalendarPanel({
               </Typography>
             </Stack>
           ))}
-          {/* Custom job fields: what each event icon means (hover for its colours). */}
-          {(data?.legend ?? []).map((l) => (
+          {/* Custom job fields: what each event icon means (hover for its colours). WCT: its own short legend only. */}
+          {(jobWords ? [] : data?.legend ?? []).map((l) => (
             <Tooltip key={l.fieldId} title={legendTitle(l)}>
               <Stack direction="row" spacing={0.5} alignItems="center" data-tour="jobs-calendar-field-legend">
                 <JobFieldIcon icon={l.icon} sx={{ fontSize: 15, color: l.colours[0]?.colour }} />
@@ -201,16 +201,6 @@ export function JobsCalendarPanel({
               </Stack>
             </Tooltip>
           ))}
-          {/* WCT calendar add: the note colours. */}
-          {canAdd &&
-            NOTE_TYPES.map((t) => (
-              <Stack key={t.value} direction="row" spacing={0.75} alignItems="center">
-                <Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: t.color, opacity: 0.85 }} />
-                <Typography variant="caption" color="text.secondary">
-                  {t.value === "PTW" ? "PTW note" : t.label}
-                </Typography>
-              </Stack>
-            ))}
           <FormControlLabel
             sx={{ mr: 0 }}
             control={<Checkbox size="small" checked={showCancelled} onChange={(e) => onShowCancelled(e.target.checked)} />}
@@ -227,11 +217,6 @@ export function JobsCalendarPanel({
         <Alert severity="error" sx={{ mb: 1.5 }}>
           {error}
         </Alert>
-      )}
-      {canAdd && (
-        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-          Click an empty day or time to add a job or a note.
-        </Typography>
       )}
       <CalendarView
         events={data?.events ?? []}
