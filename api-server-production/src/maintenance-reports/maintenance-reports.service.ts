@@ -20,6 +20,7 @@ import { serviceReportFileName, uniqueFileName } from './service-report-filename
 import { cleanIsoDate, cleanReportFile, photosFileOf, reportFileExt, uploadedFileOf, withExt, type ReportFile } from './uploaded-report';
 import { isWctOrdersEnabled, refreshOrderStatus } from '../orders/wct-orders';
 import { isManualOrderFlow } from '../orders/manual-order-flow';
+import { isOrgFeatureEnabled, NO_AUTO_CUSTOMER_EMAILS_FLAG } from '../common/org-features';
 import { OrdersService } from '../orders/orders.service';
 
 /** Org fields every renderer may need: name/logo for the stock sheets, the rest for the WCT letterhead + footer. */
@@ -1206,6 +1207,11 @@ export class MaintenanceReportsService {
     }
     // An uploaded report is the office's own copy: never sent to the customer.
     if (uploadedFileOf(report.serviceData)) return;
+    // disableAutoCustomerEmails (WCT group): the office sends it with "Send service report".
+    if (await isOrgFeatureEnabled(this.prisma as any, report.organizationId, NO_AUTO_CUSTOMER_EMAILS_FLAG)) {
+      this.logger.log(`MSR ${reportId}: automatic customer emails are off for this organisation; not emailed`);
+      return;
+    }
 
     const sd = (report.serviceData as any) ?? {};
     const clientEmail: string | undefined = sd.clientEmail;

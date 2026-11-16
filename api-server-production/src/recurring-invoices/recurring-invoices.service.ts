@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma.service';
 import { DocumentsService } from '../documents/documents.service';
 import { ActionLogService } from '../action-log/action-log.service';
+import { isOrgFeatureEnabled, NO_AUTO_CUSTOMER_EMAILS_FLAG } from '../common/org-features';
 
 export type Frequency = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
 
@@ -526,7 +527,11 @@ export class RecurringInvoicesService {
         const customer = await this.prisma.customer.findFirst({ where: { id: template.customerId, organizationId }, select: { name: true, email: true } });
         // Recipients: schedule overrides win; else the customer's saved email.
         const to: string[] = emailPrefs?.to?.length ? emailPrefs.to : customer?.email ? [customer.email] : [];
-        if (to.length) {
+        // disableAutoCustomerEmails (WCT group): generated and confirmed, but the office sends it.
+        const autoEmailOff = await isOrgFeatureEnabled(this.prisma as any, organizationId, NO_AUTO_CUSTOMER_EMAILS_FLAG);
+        if (autoEmailOff) {
+          this.logger.log(`[recurring] automatic customer emails are off for org ${organizationId}; generated ${doc.id} but did not send`);
+        } else if (to.length) {
           // Subject/body: overrides (tokens already resolved) or a composed
           // default — previously these were sent UNDEFINED.
           const org = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } });

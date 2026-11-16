@@ -98,6 +98,13 @@ export const QUOTATION_TOTALS_TOGGLE_FLAG = 'enableQuotationTotalsToggle';
 // payment). Saves after that repost as before. Off = the no-draft model.
 export const POST_INVOICES_ON_CONFIRM_FLAG = 'postInvoicesOnConfirm';
 
+// NO AUTOMATIC CUSTOMER EMAILS (2026-11-16; WCT group). With this on, AIMS never
+// emails a customer by itself: a completed / signed service report is not
+// mailed on completion, and a recurring invoice set to auto-send is generated
+// but not emailed. Emails the office sends with a button (Send for signature,
+// Send invoice, Send service report, statements) are unchanged. Default OFF.
+export const NO_AUTO_CUSTOMER_EMAILS_FLAG = 'disableAutoCustomerEmails';
+
 /** Invoice statuses that are still a draft (no GL entry under the flag above). */
 export const DRAFT_INVOICE_STATUSES = ['draft', 'unconfirmed'];
 

@@ -233,6 +233,9 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // Invoices post to the GL when they leave draft (confirm / status change /
   // emailed), not on creation or draft saves. Default OFF; WCT group only.
   postInvoicesOnConfirm: false,
+  // AIMS never emails a customer by itself (service report on completion,
+  // auto-send recurring invoices); button sends unchanged. Default OFF; WCT group.
+  disableAutoCustomerEmails: false,
   // Show the Subject field on quotations (the WCT paper has a Subject box).
   // Default OFF; WCT group.
   enableQuotationSubject: false,
