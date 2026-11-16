@@ -120,7 +120,7 @@ export function useNavModules() {
   const { modules, isModuleEnabled } = useConfiguration();
   const { isModuleAllowed, userRoles, hasPermission } = useUserPermissions();
   // Same rule as DynamicSidebarContent's Organization Settings group.
-  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled } = useOrganizationFeatures();
+  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled } = useOrganizationFeatures();
   const moduleOn = (code: string) => (modules || []).some((m: any) => m.moduleCode === code && m.enabled) && isModuleAllowed(code);
   const settingsMenu = SETTINGS_MENU.filter(
     (s) =>
@@ -128,6 +128,9 @@ export function useNavModules() {
       (s.path !== "/portal/settings/accounting-setup" || showAccountingSetup(isModuleEnabled)) &&
       (s.path !== "/portal/settings/business-rules" || isBusinessRulesEnabled) &&
       (s.path !== "/portal/settings/hotkeys" || isHotkeysEnabled) &&
+      // Orgs that surface User Management as a Master Files tab drop the
+      // duplicate Org Settings → Users entry (guru 2026-11-16).
+      (s.path !== "/portal/user-management/users" || !isUserMgmtMasterfileEnabled) &&
       ((s.path !== "/portal/settings/shipping" && s.path !== "/portal/settings/customers") || showShippingSettings(isModuleEnabled)) &&
       (s.path !== "/portal/settings/job-fields" || isJobFieldsEnabled),
   );

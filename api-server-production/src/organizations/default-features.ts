@@ -91,6 +91,24 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // opens. Default ON; turned OFF for orgs that never bill on a schedule
   // (Chong Aik). Per org.
   enableRecurringInvoices: true,
+  // User Management as a Master Files tab (guru 2026-11-16): adds a "User
+  // Management" tab to the LEFT of Customers on the Master Files hub, so an org
+  // that lives in Master Files can manage users without leaving for Org
+  // Settings. Default OFF (Users still live under Org Settings elsewhere).
+  // Per org (Chong Aik).
+  enableUserMgmtMasterfile: false,
+  // Purchase Journal as a legacy Dr/Cr journal (guru 2026-11-16, Chong Aik):
+  // the AP "Purchase Journal" SIN/SPR entry opens a full-page journal editor
+  // (Batch Type SIN=Purchase Order / SPR=Purchase Returned, Account code ·
+  // Description · Remarks · Debit · Credit, auto Trade-Creditor credit line)
+  // instead of the bill FORM dialog. The entry is still a supplier bill
+  // underneath, so AP reports + Payment Vouchers are unchanged. Default OFF.
+  enablePurchaseJournalGrid: false,
+  // Tracked-inventory-only master files (guru 2026-11-16, Chong Aik): every
+  // product is a tracked inventory item, so the Master Files "Products" tab is
+  // relabelled "Inventory" and the separate "Inventory" tab is dropped — one
+  // master list instead of two. Default OFF. Per org.
+  enableTrackedInventoryOnly: false,
   // Admin → org → Manage Templates → Design: per-template look knobs (colour, font, logo, blocks).
   enableTemplateDesign: false,
   // Maintenance Dates (Biofuel, 2026-09): Service Reports -> Maintenance Dates.

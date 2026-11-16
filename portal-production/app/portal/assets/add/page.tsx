@@ -1,6 +1,6 @@
 "use client";
 import React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Box, Button, Chip, Divider, IconButton, Stack, Typography } from "@mui/material";
 import { FormProvider } from "react-hook-form";
 import { ROUTES } from "@/routes";
@@ -17,6 +17,10 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 export default function AddAssetPage() {
   const theme = useTheme();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Return to the launching page (e.g. Master Files → Inventory) when carried.
+  const fromParam = searchParams.get("from");
+  const backPath = fromParam && fromParam.startsWith("/portal/") ? fromParam : ROUTES.ASSETS;
   const { activeStep, handleNext, handleBack, methods, handleSubmit, onSubmit, isAssetUpdating, isSkuCheckInProgress, isSkuKeyAvailable, error, isEditMode, logFormState } = useAddAssetFormHandler();
 
   // Get organization's tracking mode - ON = Assets, OFF = Products
@@ -46,7 +50,7 @@ export default function AddAssetPage() {
         }}
       >
         <Stack direction="row" spacing="var(--default-gap)" alignItems="center">
-          <IconButton onClick={() => router.push(ROUTES.ASSETS)}>
+          <IconButton onClick={() => router.push(backPath)}>
             <ArrowBackIcon color="action" />
           </IconButton>
           <Typography variant="body1">All {itemType}s</Typography>
@@ -127,7 +131,7 @@ export default function AddAssetPage() {
                 }}
               >
                 {activeStep === 0 && (
-                  <Button variant="outlined" onClick={() => router.push(ROUTES.ASSETS)}>
+                  <Button variant="outlined" onClick={() => router.push(backPath)}>
                     Cancel
                   </Button>
                 )}

@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import { kebabColumn } from "@/components/RowKebab";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { Avatar, IconButton, Typography, Box, TextField, ToggleButton, ToggleButtonGroup } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
 import CheckIcon from "@mui/icons-material/Check";
@@ -40,6 +40,11 @@ function EditableSkuKeyCell({ row, onSave, onCancel }: { row: any; onSave: (id: 
 
 export default function ProductsPage() {
   const router = useRouter();
+  // Carry the current list path (this page is reused at /portal/masterfiles/products)
+  // so the add/edit asset editor returns here instead of the standalone assets
+  // list (guru 2026-11-16: products live in Master Files now).
+  const pathname = usePathname();
+  const fromQ = `from=${encodeURIComponent(pathname)}`;
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [search, setSearch] = useState("");
@@ -49,7 +54,7 @@ export default function ProductsPage() {
   const [assetToDelete, setAssetToDelete] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"table" | "hierarchy">("table");
 
-  const { isAssetTrackingModeEnabled, isEditInventorySkuEnabled } = useOrganizationFeatures();
+  const { isAssetTrackingModeEnabled, isEditInventorySkuEnabled, isTrackedInventoryOnlyEnabled } = useOrganizationFeatures();
   const [editingSkuId, setEditingSkuId] = useState<string | null>(null);
   const updateAssetMutation = useUpdateAsset();
 
@@ -175,7 +180,7 @@ export default function ProductsPage() {
     },
     kebabColumn((row: any) => [
       { label: "Open", onClick: () => router.push(`${ROUTES.ASSETS}/${row.skuKey}`) },
-      { label: "Edit", onClick: () => router.push(`${ROUTES.ADD_ASSET}?id=${row.id}`) },
+      { label: "Edit", onClick: () => router.push(`${ROUTES.ADD_ASSET}?id=${row.id}&${fromQ}`) },
       {
         label: "Delete",
         destructive: true,
@@ -193,17 +198,22 @@ export default function ProductsPage() {
   return (
     <MainCard>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2, flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
-        <Typography variant="h6">Products</Typography>
-        <ToggleButtonGroup value={viewMode} exclusive onChange={(_, newView) => newView && setViewMode(newView)} aria-label="view mode">
-          <ToggleButton value="table" aria-label="table view">
-            <ViewListIcon sx={{ mr: 1 }} />
-            Table
-          </ToggleButton>
-          <ToggleButton value="hierarchy" aria-label="hierarchy view">
-            <AccountTreeIcon sx={{ mr: 1 }} />
-            Hierarchy
-          </ToggleButton>
-        </ToggleButtonGroup>
+        <Typography variant="h6">{isTrackedInventoryOnlyEnabled ? "Inventory" : "Products"}</Typography>
+        {/* Tracked-inventory-only orgs (Chong Aik) have no product hierarchy —
+            every item is a flat tracked unit, so the Table / Hierarchy toggle is
+            dropped and the list stays in table view (guru 2026-11-16). */}
+        {!isTrackedInventoryOnlyEnabled && (
+          <ToggleButtonGroup value={viewMode} exclusive onChange={(_, newView) => newView && setViewMode(newView)} aria-label="view mode">
+            <ToggleButton value="table" aria-label="table view">
+              <ViewListIcon sx={{ mr: 1 }} />
+              Table
+            </ToggleButton>
+            <ToggleButton value="hierarchy" aria-label="hierarchy view">
+              <AccountTreeIcon sx={{ mr: 1 }} />
+              Hierarchy
+            </ToggleButton>
+          </ToggleButtonGroup>
+        )}
       </Box>
 
       {viewMode === "table" ? (
@@ -212,9 +222,9 @@ export default function ProductsPage() {
           loading={isLoading}
           columns={columns}
           data={assets}
-          tableName="All Products"
-          subTitle="Products Detail Information"
-          buttonName="Add Product"
+          tableName={isTrackedInventoryOnlyEnabled ? "All Inventory" : "All Products"}
+          subTitle={isTrackedInventoryOnlyEnabled ? "Inventory Detail Information" : "Products Detail Information"}
+          buttonName={isTrackedInventoryOnlyEnabled ? "Add Inventory" : "Add Product"}
           page={page}
           limit={limit}
           search={search}
@@ -223,7 +233,7 @@ export default function ProductsPage() {
           setLimit={setLimit}
           setSearch={setSearch}
           setFilters={setFilters}
-          onAddClick={() => router.push(ROUTES.ADD_ASSET)}
+          onAddClick={() => router.push(`${ROUTES.ADD_ASSET}?${fromQ}`)}
           availableFilters={["category"]}
           pageCount={Math.ceil(total / limit)}
           totalDocs={total}
@@ -234,14 +244,14 @@ export default function ProductsPage() {
           categories={categories}
           loading={isLoading}
           onView={(skuKey) => router.push(`${ROUTES.ASSETS}/${skuKey}`)}
-          onEdit={(id) => router.push(`${ROUTES.ADD_ASSET}?id=${id}`)}
+          onEdit={(id) => router.push(`${ROUTES.ADD_ASSET}?id=${id}&${fromQ}`)}
           onDelete={(id, name) => {
             setDeleteName(name);
             setAssetToDelete(id);
             setConfirmOpen(true);
           }}
-          onAddPart={(parentId) => router.push(`${ROUTES.ADD_ASSET}?parentId=${parentId}`)}
-          onAddRootAsset={() => router.push(ROUTES.ADD_ASSET)}
+          onAddPart={(parentId) => router.push(`${ROUTES.ADD_ASSET}?parentId=${parentId}&${fromQ}`)}
+          onAddRootAsset={() => router.push(`${ROUTES.ADD_ASSET}?${fromQ}`)}
           onRefresh={refetchAssets}
         />
       )}

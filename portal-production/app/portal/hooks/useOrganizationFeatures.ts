@@ -102,6 +102,16 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableDocumentAI: true,
   enableCustomFields: true,
   enableServiceItems: true,
+  // User Management as a Master Files tab (guru 2026-11-16): "User Management"
+  // tab to the LEFT of Customers on the Master Files hub. Default OFF.
+  enableUserMgmtMasterfile: false,
+  // Purchase Journal as a legacy Dr/Cr journal editor (guru 2026-11-16, Chong
+  // Aik). Default OFF.
+  enablePurchaseJournalGrid: false,
+  // Tracked-inventory-only master files (guru 2026-11-16, Chong Aik): the
+  // "Products" tab is relabelled "Inventory" and the separate "Inventory" tab
+  // is dropped (every product is a tracked item). Default OFF.
+  enableTrackedInventoryOnly: false,
   // Integrations / mode toggles (opt-in)
   enableXeroIntegration: false,
   enableEditInventorySku: false,
@@ -340,6 +350,9 @@ export function useOrganizationFeatures() {
     isAnalyticsEnabled: features.enableAnalytics ?? true,
     isEditInventorySkuEnabled: features.enableEditInventorySku ?? false,
     isServiceItemsEnabled: features.enableServiceItems ?? false,
+    isUserMgmtMasterfileEnabled: features.enableUserMgmtMasterfile ?? false,
+    isPurchaseJournalGridEnabled: features.enablePurchaseJournalGrid ?? false,
+    isTrackedInventoryOnlyEnabled: features.enableTrackedInventoryOnly ?? false,
     isFieldScanAppEnabled: features.enableFieldScanApp ?? false,
     isDocumentListViewEnabled: features.enableDocumentListView ?? false,
     isPOAsProjectEnabled: features.enablePOAsProject ?? false,

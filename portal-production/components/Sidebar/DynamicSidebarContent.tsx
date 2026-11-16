@@ -94,7 +94,7 @@ export default function DynamicSidebarContent() {
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
-  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled } = useOrganizationFeatures();
+  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled } = useOrganizationFeatures();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
   const navLang = useUiLang().lang;
@@ -506,7 +506,7 @@ export default function DynamicSidebarContent() {
         { key: 'job-fields', label: 'Job fields', path: '/portal/settings/job-fields' },
         // Was the Audit module (guru 2026-11-12: "audit should be called audit log").
         { key: 'audit', label: 'Audit Log', path: '/portal/audit' },
-      ].filter((s) => (s.key !== 'users' || settingsModuleOn('USER_MANAGEMENT')) && (s.key !== 'audit' || settingsModuleOn('AUDIT')) && (s.key !== 'accounting-setup' || accountingSetupShown) && (s.key !== 'business-rules' || isBusinessRulesEnabled) && (s.key !== 'hotkeys' || isHotkeysEnabled) && ((s.key !== 'shipping' && s.key !== 'customer-profiles') || showShippingSettings(isModuleEnabled)) && (s.key !== 'job-fields' || isJobFieldsEnabled))
+      ].filter((s) => (s.key !== 'users' || (settingsModuleOn('USER_MANAGEMENT') && !isUserMgmtMasterfileEnabled)) && (s.key !== 'audit' || settingsModuleOn('AUDIT')) && (s.key !== 'accounting-setup' || accountingSetupShown) && (s.key !== 'business-rules' || isBusinessRulesEnabled) && (s.key !== 'hotkeys' || isHotkeysEnabled) && ((s.key !== 'shipping' && s.key !== 'customer-profiles') || showShippingSettings(isModuleEnabled)) && (s.key !== 'job-fields' || isJobFieldsEnabled))
         .map((s) => ({ ...s, label: settingLabel(s) })),
     },
   ];

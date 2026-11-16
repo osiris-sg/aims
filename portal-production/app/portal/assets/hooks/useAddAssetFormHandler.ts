@@ -380,8 +380,11 @@ export const useAddAssetFormHandler = () => {
         console.log("Update response:", response);
 
         if (response.success) {
-          console.log("Update successful, redirecting to assets page");
-          router.push(ROUTES.ASSETS);
+          // Return to where the editor was launched from (e.g. the Master Files
+          // → Inventory tab) when a ?from path is carried, else the assets list
+          // (guru 2026-11-16: products live in Master Files now).
+          const from = searchParams.get("from");
+          router.push(from && from.startsWith("/portal/") ? from : ROUTES.ASSETS);
         } else {
           console.error("Update failed:", response.message);
         }
@@ -397,7 +400,8 @@ export const useAddAssetFormHandler = () => {
         quantity: Number.isFinite(Number(data.quantity)) ? Math.max(0, Math.floor(Number(data.quantity))) : 0,
       });
       if (success) {
-        router.push(ROUTES.ASSETS);
+        const from = searchParams.get("from");
+        router.push(from && from.startsWith("/portal/") ? from : ROUTES.ASSETS);
       }
     }
   };

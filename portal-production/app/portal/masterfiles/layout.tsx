@@ -11,13 +11,26 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 export default function MasterFilesLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { isIdQuotationEnabled, isServiceItemsEnabled } = useOrganizationFeatures();
+  const {
+    isIdQuotationEnabled,
+    isServiceItemsEnabled,
+    isUserMgmtMasterfileEnabled,
+    isTrackedInventoryOnlyEnabled,
+  } = useOrganizationFeatures();
 
   const tabs = [
+    // User Management as the first tab, left of Customers (guru 2026-11-16).
+    // Gated per org — elsewhere Users live under Org Settings.
+    ...(isUserMgmtMasterfileEnabled
+      ? [{ label: "User Management", value: "/portal/masterfiles/user-management" }]
+      : []),
     { label: "Customers", value: "/portal/masterfiles/customers" },
     { label: "Suppliers", value: "/portal/masterfiles/suppliers" },
-    { label: "Products", value: "/portal/masterfiles/products" },
-    { label: "Inventory", value: "/portal/masterfiles/inventory" },
+    // Tracked-inventory-only orgs (Chong Aik): every product IS a tracked item,
+    // so "Products" is the single master list and is labelled "Inventory"; the
+    // separate Inventory tab is dropped below.
+    { label: isTrackedInventoryOnlyEnabled ? "Inventory" : "Products", value: "/portal/masterfiles/products" },
+    ...(isTrackedInventoryOnlyEnabled ? [] : [{ label: "Inventory", value: "/portal/masterfiles/inventory" }]),
     // Gated per org (guru 2026-10-08: CIEL doesn't use service items — their
     // library lives in the Work Library tab).
     ...(isServiceItemsEnabled ? [{ label: "Services", value: "/portal/masterfiles/services" }] : []),
