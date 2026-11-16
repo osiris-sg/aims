@@ -13,6 +13,9 @@ const JA: Array<[RegExp, string | ((...m: string[]) => string)]> = [
   [/^CI (.+) − deposit paid (.+)$/, (_, ci, dep) => `CI ${ci} − 支払済み前払金 ${dep}`],
   [/^full CI \(deposit not paid yet\)$/, "CI全額（前払金未払い）"],
   [/^CI balance$/, "CI残額"],
+  // Round BU: the CI's boxed TOTAL, and the advance check.
+  [/^CI TOTAL \(Sub Total (.+?)(?: − discount (.+?))? − advance (.+)\)$/, (_, sub, disc, adv) => `CI TOTAL（小計 ${sub}${disc ? ` − 値引 ${disc}` : ""} − 前払金 ${adv}）`],
+  [/^CI advance (.+) ≠ AIMS deposit (.+)$/, (_, adv, dep) => `CIの前払金 ${adv} ≠ AIMSの前払金 ${dep}`],
   [/^CI amount not in yet$/, "CI金額未確定"],
   [/^import permit \(actual\)$/, "輸入許可書（実額）"],
   [/^import permit filed — its total is not read yet \(step 10\)$/, "輸入許可書あり — 金額未読取（ステップ10）"],

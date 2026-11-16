@@ -15,9 +15,15 @@ export interface CiText {
   status: CiStatus | null;
   /** Sub Total = net × rate (the CI amount AIMS stores). */
   subTotal: number | null;
+  /** Round BU: Trade Discount(US$) — off the Sub Total like the advance. */
+  tradeDiscount: number | null;
   advance: number | null;
-  /** TOTAL payable after the advance. */
+  /** The boxed TOTAL = Sub Total − Trade Discount − Advance: the balance ADH pays on step 6. */
   total: number | null;
+  /** Round BU: the CIF build-up printed at the foot (FOB Value + Freight + Insurance). */
+  fobValue: number | null;
+  freight: number | null;
+  insurance: number | null;
   netMt: number | null;
   lme: number | null;
   premium: number | null;
@@ -98,6 +104,12 @@ export function parseCiText(text: string): CiText {
   const pick = (label: string, amt: string) => num(new RegExp(`(?<![\\d/.,])${amt}[ \\t]*${label}|${label}\\s*:?\\s*${amt}`, 'i').exec(t)?.slice(1).find(Boolean));
   const subTotal = pick('Sub\\s*Total', '(\\d+(?:,\\d{3})*\\.\\d{2})');
   const advance = pick('Advance\\s*\\(US\\$\\)', AMT);
+  const tradeDiscount = pick('Trade\\s*Discount\\s*\\(US\\$\\)', AMT);
+  // Foot of the page: "354,239.01FOB Value", "775.00Freight", "27.98Insurance" (amount first, as the totals block).
+  const foot = (label: string) => num(new RegExp(`(?<![\\d/.,])${AMT}[ \\t]*${label}\\s*$|^\\s*${label}\\s*:?\\s*${AMT}`, 'im').exec(t)?.slice(1).find(Boolean));
+  const fobValue = foot('FOB\\s*Value');
+  const freight = foot('Freight');
+  const insurance = foot('Insurance');
   // "PRICE IS FINAL 183.693TOTAL 634,743.90" / "PRICE IS FINAL TOTAL 49.971 128,088.17": the amount is the last number.
   const tot = new RegExp(`PRICE IS (?:FINAL|PROVISIONAL)[^\\n]*?TOTAL\\s*(?:${AMT}\\s+)?${AMT}`, 'i').exec(t);
   const total = tot ? num(tot[2]) : null;
@@ -116,11 +128,23 @@ export function parseCiText(text: string): CiText {
   if (netMt === null) netMt = num(/(\d+\.\d{3})\s*Qty Net\(MT\)/i.exec(t)?.[1]);
   const origin = /COUNTRY OF ORIGIN\s*:\s*([A-Z][A-Z ]+?)\s*$/im.exec(t)?.[1]?.trim() ?? null;
   const hs = /HS CODE\s*:\s*(\d{4})\.?(\d{2})/i.exec(t);
-  return { ciNumber, ciDate, status, subTotal, advance, total, netMt, lme, premium, rate, shipperBlock: shipperOf(lines), countryOfOrigin: origin, hsCode: hs ? `${hs[1]}.${hs[2]}` : null };
+  return { ciNumber, ciDate, status, subTotal, tradeDiscount, advance, total, fobValue, freight, insurance, netMt, lme, premium, rate, shipperBlock: shipperOf(lines), countryOfOrigin: origin, hsCode: hs ? `${hs[1]}.${hs[2]}` : null };
 }
 
 /** The CI amount AIMS stores: the Sub Total (before the advance), else the printed total. */
 export const ciAmountOf = (c: Pick<CiText, 'subTotal' | 'total'>) => c.subTotal ?? c.total ?? null;
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
+/**
+ * Round BU — the balance payable on step 6: the CI's boxed TOTAL (Sub Total − Trade Discount − Advance). Only when the
+ * read has its Sub Total (older AI reads stored one amount and it is unknown which); computed when TOTAL wasn't read.
+ */
+export function ciPayableOf(c: { subTotal?: number | null; tradeDiscount?: number | null; advance?: number | null; total?: number | null }): number | null {
+  if (c.subTotal === null || c.subTotal === undefined) return null;
+  if (c.total !== null && c.total !== undefined) return c.total;
+  if (c.advance === null || c.advance === undefined) return null;
+  return r2(c.subTotal - (c.tradeDiscount ?? 0) - c.advance);
+}
 
 export interface CiVersion {
   fileId: string;
@@ -132,6 +156,10 @@ export interface CiVersion {
   amount: number | null;
   lme?: number | null;
   premium?: number | null;
+  /** Round BU: the boxed TOTAL (balance payable after the advance), the advance and the discount, when read. */
+  payable?: number | null;
+  advance?: number | null;
+  tradeDiscount?: number | null;
 }
 
 /** "REVISED" / "Reviced" / "REVISE" in a file name marks a re-issued CI. */
@@ -181,7 +209,31 @@ export function ciVersionOf(raw: Record<string, unknown> | null | undefined, fil
     amount: n(raw?.subTotal) ?? n(raw?.totalAmount),
     lme: n(raw?.lme),
     premium: n(raw?.premium),
+    payable: ciPayableOf({ subTotal: n(raw?.subTotal), tradeDiscount: n(raw?.tradeDiscount), advance: n(raw?.advance), total: n(raw?.totalAmount) }),
+    advance: n(raw?.subTotal) === null ? null : n(raw?.advance),
+    tradeDiscount: n(raw?.tradeDiscount),
   };
+}
+
+export interface CiBalance {
+  ciNumber: string | null;
+  /** The CI amount (Sub Total) of the version the balance comes from. */
+  amount: number;
+  payable: number;
+  advance: number | null;
+  tradeDiscount: number | null;
+  fileId: string;
+}
+
+/**
+ * Round BU — step 6's "Balance payable": the TOTAL of the CI version whose Sub Total is the stored CI amount (the
+ * latest such version; the latest version when nothing is stored). Null when that version's TOTAL wasn't read.
+ */
+export function ciBalanceOf(stored: number | null, versions: CiVersion[]): CiBalance | null {
+  const list = ciHistory(versions);
+  const v = stored === null ? list.at(-1) : [...list].reverse().find((x) => x.amount !== null && Math.abs(x.amount - stored) < 0.005);
+  if (!v || v.amount === null || v.payable === null || v.payable === undefined) return null;
+  return { ciNumber: v.ciNumber, amount: v.amount, payable: v.payable, advance: v.advance ?? null, tradeDiscount: v.tradeDiscount ?? null, fileId: v.fileId };
 }
 
 /** Every read CI version of the shipment's (visible) CI files — the newest read per file. */
@@ -200,3 +252,66 @@ export async function ciVersionsFor(db: Db, organizationId: string, shipmentId: 
   }
   return ciHistory(out);
 }
+
+/** Round BU: ciVersionsFor for many shipments in one query (the Dashboard Unpaid list). */
+export async function ciVersionsByShipment(db: Db, organizationId: string, shipmentIds: string[]): Promise<Map<string, CiVersion[]>> {
+  const out = new Map<string, CiVersion[]>();
+  if (!shipmentIds.length) return out;
+  const rows = await db.tradeExtraction.findMany({
+    where: { organizationId, kind: 'CI', status: 'DONE', file: { links: { some: { shipmentId: { in: shipmentIds }, hiddenAt: null } } } },
+    orderBy: { createdAt: 'desc' },
+    select: { fileId: true, result: true, file: { select: { id: true, fileName: true, createdAt: true, links: { where: { hiddenAt: null, shipmentId: { in: shipmentIds } }, select: { shipmentId: true } } } } },
+  });
+  const seen = new Set<string>();
+  for (const r of rows) {
+    if (seen.has(r.fileId)) continue;
+    seen.add(r.fileId);
+    const v = ciVersionOf((r.result as { raw?: Record<string, unknown> } | null)?.raw ?? null, r.file);
+    for (const l of r.file.links ?? []) if (l.shipmentId) out.set(l.shipmentId, [...(out.get(l.shipmentId) ?? []), v]);
+  }
+  for (const [k, list] of out) out.set(k, ciHistory(list));
+  return out;
+}
+
+type DepositSource = { piAmount?: unknown; depositPct?: unknown; depositAmount?: unknown };
+const depositFrom = (x: DepositSource | null | undefined): number | null => {
+  if (!x) return null;
+  if (x.depositAmount !== null && x.depositAmount !== undefined) return Number(x.depositAmount);
+  if (x.piAmount === null || x.piAmount === undefined) return null;
+  const pct = x.depositPct === null || x.depositPct === undefined ? 10 : Number(x.depositPct);
+  return Math.round(Number(x.piAmount) * pct) / 100;
+};
+
+/**
+ * Round BU — the deposit AIMS has for an order (what the CI's Advance should equal): the order's own deposit / PI
+ * amount × %, else its supplier order's when that supplier order buys for this order alone (a PI shared by several
+ * orders is no per-order figure).
+ */
+export function aimsDepositOf(
+  order: DepositSource,
+  supplierOrder?: (DepositSource & { _count?: { customerOrders?: number } }) | null,
+): { amount: number; source: 'order' | 'supplierOrder' } | null {
+  const own = depositFrom(order);
+  if (own !== null && own > 0) return { amount: own, source: 'order' };
+  if (supplierOrder && (supplierOrder._count?.customerOrders ?? 1) <= 1) {
+    const so = depositFrom(supplierOrder);
+    if (so !== null && so > 0) return { amount: so, source: 'supplierOrder' };
+  }
+  return null;
+}
+
+/**
+ * Round BU — the CI's Advance vs the deposit AIMS has (null = nothing to flag). Only a CI that deducts an advance, or
+ * the order's first shipment's CI (where the deposit comes off), is compared; a deposit split over several CIs of the
+ * order is fine when their advances add up to it.
+ */
+export function advanceMismatch(advance: number | null | undefined, deposit: number | null | undefined, opts: { first: boolean; orderAdvances?: number | null }): string | null {
+  if (deposit === null || deposit === undefined) return null;
+  const adv = advance ?? 0;
+  if (!adv && !opts.first) return null;
+  if (advance === null || advance === undefined) return null; // not read: nothing to compare
+  if (Math.abs(adv - deposit) < 0.01) return null;
+  if (opts.orderAdvances !== null && opts.orderAdvances !== undefined && Math.abs(opts.orderAdvances - deposit) < 0.01) return null;
+  return `CI advance ${money2(adv)} ≠ AIMS deposit ${money2(deposit)}`;
+}
+const money2 = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });

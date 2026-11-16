@@ -16,7 +16,7 @@ import { ORDER_SUMMARY_SELECT } from './trade-selects';
 import { ShipmentsNotifyService } from './shipments-notify.service';
 import { latestBlCheck } from './trade-extract.service';
 import { hsWarning, productHsForShipment } from './trade-hs';
-import { ciProposal, ciVersionsFor } from './trade-ci';
+import { ciBalanceOf, ciProposal, ciVersionsFor } from './trade-ci';
 import { TradeTaxInputsService } from './trade-tax-inputs';
 import { Db, DOC_LINK_SELECT, isUniqueViolation, optText, pageArgs, TradeConfigService } from './trade-config.service';
 
@@ -221,6 +221,8 @@ export class ShipmentsService {
       hsWarning: hsWarning(s.hsCode, productHs?.hsCode),
       ciVersions,
       ciProposal: ciProposal(s.ciAmount === null ? null : Number(s.ciAmount), ciVersions),
+      // Round BU: step 6's "Balance payable" — the CI's boxed TOTAL (Sub Total − discount − advance), when read.
+      ciBalance: ciBalanceOf(s.ciAmount === null ? null : Number(s.ciAmount), ciVersions),
       /** "8/6 → 8/16 → 8/17" — every ETA the shipment has had. */
       etaTrail: etaTrail(s.etaHistory),
       carrier: carrierOf(s.blNumber, s.shippingLine),

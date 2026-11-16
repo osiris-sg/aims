@@ -7,6 +7,8 @@
  *   · A payment step that is DONE is paid, with or without a proof file (step 1 deposit, step 6 CI balance, step 8
  *     import tax, step 12 logistics, the customer's receipt step). Completed orders never appear.
  *   · CI balance = CI amount − the deposit actually paid (step 1 done / recorded), on the order's first shipment.
+ *     Round BU: the CI's boxed TOTAL (Sub Total − Trade Discount − Advance) when the CI was read; the row is flagged
+ *     when the CI's Advance isn't the deposit AIMS has for the order.
  *   · Logistics: one row per actual invoice / bill (Mitsui Soko's 請求書 per shipment, its monthly A3279 bill shared by
  *     several shipments, carriers' debit notes), at the invoice's own total and due date — read from the filed PDF
  *     (TradeExtraction kind INVOICE, trade-invoice-read.ts). A re-issued invoice (same Mitsui Soko IM3Z… reference)
@@ -28,6 +30,7 @@ import { TradeActor } from './shipments.request';
 import { TradeDueService } from './trade-due.service';
 import { TradeStepsService } from './trade-steps.service';
 import { generatedInvoiceTotal } from './trade-payments.service';
+import { advanceMismatch, aimsDepositOf, ciBalanceOf, CiVersion, ciVersionsByShipment } from './trade-ci';
 import { stepPaymentOf, STEP_PAYMENT, ACCOUNTS, PaymentAccount } from './trade-payments';
 import { receiptNotTracked } from './trade-alerts';
 import { TradeConfigService } from './trade-config.service';
@@ -68,6 +71,8 @@ export interface UnpaidRow {
   /** The filed invoice / bill (PDF) the row is for. */
   fileId: string | null;
   proofDocType: string;
+  /** Round BU: a check to make (the CI's Advance ≠ the deposit AIMS has). */
+  flag?: string | null;
 }
 
 const day = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString().slice(0, 10) : null);
@@ -101,6 +106,27 @@ export function depositPaidOf(o: { depositAmount?: unknown; piAmount?: unknown; 
   if (!paid) return null;
   const dep = o.depositAmount !== null && o.depositAmount !== undefined ? Number(o.depositAmount) : depositOf(o.piAmount as any, (o.depositPct as any) ?? 10);
   return dep && dep > 0 ? dep : null;
+}
+
+/**
+ * Round BU — the CI's Advance vs the deposit AIMS has for the order (null = fine / nothing to compare). A deposit split
+ * over the order's CIs is fine when their advances add up to it.
+ */
+export function advanceFlag(
+  o: { depositAmount?: unknown; piAmount?: unknown; depositPct?: unknown; supplierOrder?: any; shipments?: Array<{ id: string }>; customerId?: unknown },
+  shipmentId: string,
+  first: boolean,
+  advance: number | null,
+  reads: Map<string, CiVersion[]>,
+): string | null {
+  const dep = aimsDepositOf(o, o.supplierOrder);
+  if (!dep) return null;
+  let sum = 0;
+  for (const x of o.shipments ?? [{ id: shipmentId }]) {
+    const b = ciBalanceOf(null, reads.get(x.id) ?? []);
+    sum += b?.advance ?? 0;
+  }
+  return advanceMismatch(advance, dep.amount, { first, orderAdvances: r2(sum) });
 }
 
 /**
@@ -273,6 +299,7 @@ export class TradeUnpaidService {
                 depositPct: true,
                 depositPaidAt: true,
                 supplier: { select: { name: true } },
+                supplierOrder: { select: { piAmount: true, depositPct: true, depositAmount: true, _count: { select: { customerOrders: true } } } },
                 steps: { where: { code: 'PI_PAYMENT' }, select: { status: true, payment: true } },
                 shipments: { where: { status: { not: 'CANCELLED' } }, orderBy: { seqNo: 'asc' }, select: { id: true } },
               },
@@ -283,6 +310,10 @@ export class TradeUnpaidService {
         },
       },
     });
+    // Round BU: the CI reads of the step 6 shipments and their orders' other shipments (advances split over CIs).
+    const ciShipIds = new Set<string>();
+    for (const s of steps) if (s.code === 'CI_PAYMENT' && s.shipment) for (const x of [s.shipment, ...(s.shipment.order?.shipments ?? [])]) ciShipIds.add(x.id);
+    const ciReads = await ciVersionsByShipment(this.prisma, organizationId, [...ciShipIds]).catch(() => new Map());
     for (const s of steps) {
       if (stepPaymentOf(s.payment)) continue;
       const spec = STEP_PAYMENT[s.code];
@@ -301,11 +332,23 @@ export class TradeUnpaidService {
         // The deposit comes off the order's first shipment's CI — only once it is actually paid (step 1 done / recorded).
         const first = o?.shipments?.[0]?.id === sh.id;
         const depPaid = first && o ? depositPaidOf(o, o.steps?.[0]) : null;
-        const amount = sh.ciAmount === null ? null : r2(Math.max(0, Number(sh.ciAmount) - (depPaid ?? 0)));
-        const note = sh.ciAmount === null ? 'CI amount not in yet' : depPaid ? `CI ${money(Number(sh.ciAmount))} − deposit paid ${money(depPaid)}` : first && (o?.depositAmount !== null || o?.piAmount !== null) ? 'full CI (deposit not paid yet)' : 'CI balance';
+        const stored = sh.ciAmount === null ? null : Number(sh.ciAmount);
+        const bal = ciBalanceOf(stored, ciReads.get(sh.id) ?? []);
+        // Round BU: the CI's own TOTAL when read; else CI amount − deposit paid (round BQ).
+        const amount = bal ? bal.payable : stored === null ? null : r2(Math.max(0, stored - (depPaid ?? 0)));
+        const flag = bal && o ? advanceFlag(o, sh.id, first, bal.advance, ciReads) : null;
+        const note = bal
+          ? `CI TOTAL (Sub Total ${money(bal.amount)}${bal.tradeDiscount ? ` − discount ${money(bal.tradeDiscount)}` : ''} − advance ${money(bal.advance ?? 0)})`
+          : sh.ciAmount === null
+            ? 'CI amount not in yet'
+            : depPaid
+              ? `CI ${money(Number(sh.ciAmount))} − deposit paid ${money(depPaid)}`
+              : first && (o?.depositAmount !== null || o?.piAmount !== null)
+                ? 'full CI (deposit not paid yet)'
+                : 'CI balance';
         const proof = sh.fileLinks?.length ? ' · a CI payment proof is filed — check step 6' : '';
         pay.push(
-          row({ key: `step:${s.id}`, side: 'pay', kind: 'CI', ref: shipmentRef(o?.orderNo, sh.seqNo), orderId: o?.id ?? null, shipmentId: sh.id, shipmentIds: [sh.id], counterparty: o?.supplier?.name ?? null, documentNo: sh.ciNumber ? `CI ${sh.ciNumber}` : null, amount, currency: sh.currency ?? 'USD', dueDate, paid: 0, note, reason: notDone('6') + proof, stepId: s.id, recordOn: 'step', generatedDocId: null, fileId: null, proofDocType: spec.proofDocType }),
+          row({ key: `step:${s.id}`, side: 'pay', kind: 'CI', ref: shipmentRef(o?.orderNo, sh.seqNo), orderId: o?.id ?? null, shipmentId: sh.id, shipmentIds: [sh.id], counterparty: o?.supplier?.name ?? null, documentNo: sh.ciNumber ? `CI ${sh.ciNumber}` : null, amount, currency: sh.currency ?? 'USD', dueDate, paid: 0, note, reason: notDone('6') + proof, ...(flag ? { flag } : {}), stepId: s.id, recordOn: 'step', generatedDocId: null, fileId: null, proofDocType: spec.proofDocType }),
         );
       } else if (s.code === 'TAX_FUNDS' && s.shipment) {
         const sh = s.shipment;

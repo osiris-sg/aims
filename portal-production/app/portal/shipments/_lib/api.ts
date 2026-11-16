@@ -286,6 +286,7 @@ export type BlExtraction = Extraction & {
 };
 /** Round BJ — one read CI version (PROVISIONAL → FINAL; the latest is the CI amount). */
 export type CiVersion = { fileId: string; fileName: string; uploadedAt: string; ciNumber: string | null; ciDate: string | null; status: "FINAL" | "PROVISIONAL" | null; amount: number | null; lme?: number | null; premium?: number | null };
+export type CiBalance = { ciNumber: string | null; amount: number; payable: number; advance: number | null; tradeDiscount: number | null; fileId: string };
 export type CiProposal = { from: number | null; to: number; fileId: string; fileName: string; ciNumber: string | null; ciDate: string | null; status: "FINAL" | "PROVISIONAL" | null };
 /** Arrival notice read (AI): the arriving vessel, containers, weights, charges collect. */
 export type ArrivalNoticeDraft = {
@@ -1183,6 +1184,8 @@ export type UnpaidRow = {
   generatedDocId: string | null;
   fileId: string | null;
   proofDocType: string;
+  /** Round BU: a check to make — the CI's Advance ≠ the deposit AIMS has. */
+  flag?: string | null;
 };
 export type UnpaidList = { today: string; pay: UnpaidRow[]; payTotals: Record<string, number>; receive: UnpaidRow[]; receiveTotals: Record<string, number> };
 
@@ -1588,6 +1591,8 @@ export type Shipment = {
   /** Round BJ: CI versions oldest → latest, and the latest's amount when it isn't the stored one. */
   ciVersions?: CiVersion[];
   ciProposal?: CiProposal | null;
+  /** Round BU: step 6's balance payable — the CI's boxed TOTAL (Sub Total − Trade Discount − Advance), when read. */
+  ciBalance?: CiBalance | null;
 };
 
 export type TradeFileLink = {

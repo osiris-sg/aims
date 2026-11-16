@@ -77,14 +77,18 @@ const TEXT_FIRST: Partial<Record<ExtractKind, (text: string) => { data: unknown;
   },
 };
 /** A text-layer CI read in the AI read's shape (+ Sub Total, advance, FINAL / PROVISIONAL, shipper). */
-const ciRawFromText = (c: CiText): CiRaw & Record<string, unknown> => ({
+export const ciRawFromText = (c: CiText): CiRaw & Record<string, unknown> => ({
   ciNumber: c.ciNumber,
   ciDate: c.ciDate,
   blNumber: null,
   currency: 'USD',
   totalAmount: c.total,
   subTotal: c.subTotal,
+  tradeDiscount: c.tradeDiscount,
   advance: c.advance,
+  fobValue: c.fobValue,
+  freight: c.freight,
+  insurance: c.insurance,
   status: c.status,
   netWeightMt: c.netMt,
   unitPrice: c.rate,

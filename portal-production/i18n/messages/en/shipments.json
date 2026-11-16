@@ -455,7 +455,9 @@
     },
     "ciRevised": "CI revised: {from} → {to} — not applied; use it under CI amount (step 3a)",
     "depositPayable": "Deposit payable {amount}{by}",
-    "depositBy": " by {date}"
+    "depositBy": " by {date}",
+    "ciBalancePayable": "Balance payable {amount}{advance}",
+    "ciBalanceAdvance": " (advance {amount})"
   },
   "shipmentPage": {
     "notFound": "Shipment not found"

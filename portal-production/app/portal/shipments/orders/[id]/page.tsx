@@ -576,7 +576,7 @@ export default function OrderPage() {
                       <StepPaymentForm
                         step={st}
                         fileLinks={s.fileLinks}
-                        expected={st.code === "CI_PAYMENT" ? (s.ciAmount != null ? Number(s.ciAmount) : null) : st.code === "TAX_FUNDS" ? (s.estimate?.importTax.actual ?? s.estimate?.importTax.estimate ?? null) : null}
+                        expected={st.code === "CI_PAYMENT" ? (s.ciBalance?.payable ?? (s.ciAmount != null ? Number(s.ciAmount) : null)) : st.code === "TAX_FUNDS" ? (s.estimate?.importTax.actual ?? s.estimate?.importTax.estimate ?? null) : null}
                         currency={st.code === "CI_PAYMENT" ? s.currency : "JPY"}
                         canEdit={s.status === "OPEN"}
                       />
@@ -758,6 +758,13 @@ function orderTitle(o: Order): string {
 
 /** What each order step / document is about. */
 /** Round BP: "Deposit payable USD 35,900.00 by 6 Nov" (the PI's Amount Payable and "Instrument to be received by"). */
+/** Round BU: the CI's TOTAL after the advance — what step 6 pays. */
+function ciBalanceLine(s: Shipment, t: Tr): string | null {
+  const b = s.ciBalance;
+  if (!b) return null;
+  return t("ciBalancePayable", { amount: fmtMoney(b.payable, s.currency), advance: b.advance ? t("ciBalanceAdvance", { amount: fmtMoney(b.advance, null) }) : "" });
+}
+
 function depositPayable(o: Order, t: Tr): string | null {
   if (o.depositAmount == null) return null;
   const by = o.depositDueDate ? t("depositBy", { date: fmtDay(o.depositDueDate) }) : "";
@@ -795,7 +802,8 @@ function shipmentContext(o: Order, s: Shipment, t: Tr): StepContext {
     // Round R: no step / slot lines that repeat the shipment card (ref, B/L, customer, vessel, tonnage).
     stepLine: (st) => (st.code === "BL_DRAFT_APPROVAL" ? `${t("orderLabel", { label: o.label })} · ${o.productLabel}` : null),
     docLine: (d) => {
-      if (d === "CI_PAYMENT_PROOF") return s.ciAmount != null ? `CI ${s.ciNumber ?? ""} · ${fmtMoney(s.ciAmount, s.currency)}`.replace("CI  ·", "CI ·") : null;
+      // Round BU: "CI XP2652102958 · USD 355,041.99 · Balance payable USD 316,471.59 (advance 38,570.40)".
+      if (d === "CI_PAYMENT_PROOF") return s.ciAmount != null ? [`CI ${s.ciNumber ?? ""}`.trim(), fmtMoney(s.ciAmount, s.currency), ciBalanceLine(s, t)].filter(Boolean).join(" · ") : null;
       // File OR field (prod click-through): the code from Vedanta's email, the SI's delivery dates, the in-app estimate.
       if (d === "TELEX_RELEASE") return s.telexReleaseCode ? t("telexCode", { code: s.telexReleaseCode }) : t("telexUpload");
       if (d === "DELIVERY_SCHEDULE") return t("deliverySchedule");

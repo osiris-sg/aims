@@ -121,6 +121,11 @@ export default function UnpaidCard() {
                         {unpaidText(r.note, lang)}
                       </Typography>
                     )}
+                    {r.flag && (
+                      <Typography variant="caption" color="warning.main" display="block" sx={{ fontWeight: 600 }}>
+                        ⚠ {unpaidText(r.flag, lang)}
+                      </Typography>
+                    )}
                   </TableCell>
                   <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
                     {money(r.amount, r.currency)}
