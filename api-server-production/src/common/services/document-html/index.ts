@@ -18,6 +18,7 @@ import { renderNoteBody } from './note';
 import { renderWctBody, wctFooterLine } from './wct';
 import { renderLegacyDoBody } from './legacy-do';
 import { DocumentDesign, resolveDesign } from './design';
+import { BCAIR_DOC } from './wct-brand';
 
 /** Interior-design quotation (config.templateVariant 'ID' / config.quote tree). */
 const isIdQuotation = (data: any): boolean =>
@@ -67,8 +68,12 @@ export function isNamedLayout(type: string, design: any): boolean {
 export function pdfOptionsFor(
   type: string,
   data: any,
-): { margin: { top: string; right: string; bottom: string; left: string }; pageNumbers?: { label?: string; format?: 'of' | 'slash'; fontPx?: number; paddingX?: string } } | undefined {
+): { margin: { top: string; right: string; bottom: string; left: string }; pageNumbers?: { label?: string; format?: 'of' | 'slash' | 'stacked'; fontPx?: number; paddingX?: string; italic?: boolean } } | undefined {
   if (isWctLayout(type, data?.design)) {
+    // BC Air's invoice / DO (wct-brand.ts): "Page n | N" at the right over its centred thank-you line.
+    if (data?.design?.brand === 'BCAIR' && (INVOICE_TYPES.includes(String(type || '').toUpperCase()) || DELIVERY_ORDER_TYPES.includes(String(type || '').toUpperCase()))) {
+      return { margin: WCT_PDF_MARGIN, pageNumbers: { label: BCAIR_DOC.footer, format: 'stacked', fontPx: 10, paddingX: WCT_PDF_MARGIN.left, italic: true } };
+    }
     return { margin: WCT_PDF_MARGIN, pageNumbers: { label: wctFooterLine(data), format: 'slash', fontPx: 10, paddingX: WCT_PDF_MARGIN.left } };
   }
   if (isLegacyDoLayout(type, data?.design)) return { margin: PORTED_PDF_MARGIN };

@@ -141,3 +141,11 @@ test("Vehicles: no row menu or edit pop-up on the list; Edit and Add are full pa
   assert.doesNotMatch(form, /<Dialog/);
   assert.doesNotMatch(read("app/portal/assets/vehicles/_components/VehicleDialogs.tsx"), /VehicleFormDialog/);
 });
+
+test("calendar (WCT group, 2026-11-16): no Untagged mark; purple Misc job alone means no order; quick job dialog has no helper line", () => {
+  const view = read("components/Dashboard/jobs-calendar/CalendarView.tsx");
+  assert.doesNotMatch(view, />\s*Untagged\s*</);
+  assert.doesNotMatch(view, /e\.untagged/);
+  assert.doesNotMatch(read("components/Dashboard/jobs-calendar/QuickJobDialog.tsx"), /shows as Untagged/);
+  assert.doesNotMatch(read("components/Dashboard/JobsCalendar.tsx"), /Untagged/);
+});

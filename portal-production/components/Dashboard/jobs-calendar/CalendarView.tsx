@@ -6,7 +6,7 @@
 // the click position.
 // WCT calendar add (2026-11-04, canAdd): a click on an empty day / slot offers
 // "Job" or "Note"; notes are slim neutral chips listed above the jobs; job chips
-// show a PTW badge and an "Untagged" mark.
+// show a PTW badge. (The "Untagged" mark went 2026-11-16: purple = no order.)
 // WCT (openOnClick, 2026-11-16): colours by PTW state and order (purple = Misc
 // job, no order). A click or tap opens the job's details in a panel on the right
 // (links order > DO > job; a SiteClock job opens in SiteClock); it stays open
@@ -177,16 +177,11 @@ export default function CalendarView({
         // Custom job fields: the job's icons after its time + title (default rendering otherwise).
         eventContent={(arg: EventContentArg) => {
           const e = arg.event.extendedProps.event as CalendarEvent;
-          if (!e?.badges?.length && !e?.ptw && !e?.untagged) return true;
+          if (!e?.badges?.length && !e?.ptw) return true;
           return (
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, overflow: "hidden", px: 0.25 }}>
               {arg.timeText && <Box component="span" sx={{ fontWeight: 600, flexShrink: 0 }}>{arg.timeText}</Box>}
               <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{arg.event.title}</Box>
-              {e.untagged && (
-                <Box component="span" title="No quotation or order yet" sx={{ flexShrink: 0, fontSize: 10, fontWeight: 700, lineHeight: "14px", px: 0.5, borderRadius: "3px", bgcolor: "#fff", color: "#424242" }}>
-                  Untagged
-                </Box>
-              )}
               {e.ptw && (
                 <Box component="span" title={`PTW: ${e.ptw.label}${e.ptw.remark ? ` (${e.ptw.remark})` : ""}`} sx={{ flexShrink: 0, fontSize: 10, fontWeight: 700, lineHeight: "14px", px: 0.5, borderRadius: "3px", bgcolor: "#fff", color: ptwColor(e.ptw.status) }}>
                   PTW
@@ -324,7 +319,6 @@ function EventCard({ event: e, jobWords, byPtw = false }: { event: CalendarEvent
       </Row>
       {e.verificationLabel && <Row label="Sign-off">{e.verificationLabel}</Row>}
       {e.ptw && <Row label="PTW">{`${e.ptw.label}${e.ptw.remark ? ` (${e.ptw.remark})` : ""}`}</Row>}
-      {e.untagged && <Row label="Order">Untagged: link it from the job page</Row>}
       {(e.badges ?? []).map((b) => (
         <Row key={b.fieldId} label={b.label}>
           <Stack direction="row" spacing={0.5} alignItems="center">

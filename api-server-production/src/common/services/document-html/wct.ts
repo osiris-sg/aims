@@ -34,6 +34,7 @@ import { DocumentDesign } from './design';
 import { amountPaidOf, outstandingOf } from '../../document-money';
 import { billToText, descriptionText, escapeHtml, makeDi, money, richContent } from './shared';
 import { erpStoredTotalsOf, moneySignature, type ErpStoredTotals } from '../../erp-import';
+import { BCAIR_DOC } from './wct-brand';
 
 export type WctDocKind = 'quotation' | 'invoice' | 'do';
 
@@ -155,6 +156,36 @@ const first = (...vals: any[]): string => {
   }
   return '';
 };
+
+/** BC Air (features.wctDocumentBrand = 'BCAIR', invoice + DO): its letterhead lines as printed on I003278. */
+const BC_CSS = `
+<style>
+  .wct.bc .lh .co .nm { text-transform: none; letter-spacing: 0; font-size: 18px; }
+  .wct.bc .lh .co { font-size: 12.5px; }
+  .wct.bc .lh img { max-height: 80px; }
+  .wct.bc .tnc .ln { font-size: 12px; line-height: 1.5; font-weight: 700; margin-bottom: 4px; }
+  /* I003278 prints its terms from the top of page 2. */
+  .wct.bc .tnc { page-break-before: always; break-before: page; margin-top: 0; }
+  .wct.bc .totals table { border-collapse: collapse; }
+  .wct.bc .totals td { border: 1px solid #000; padding: 3px 8px; }
+  .wct.bc .totals tr.due td { background: #ddeef5; }
+  .wct.bc .bcsign { display: flex; justify-content: space-between; gap: 24px; margin-top: 40px; font-weight: 700; page-break-inside: avoid; break-inside: avoid; }
+  .wct.bc .bcsign .scr { font-family: "Brush Script MT", "Segoe Script", cursive; font-size: 28px; font-weight: 400; margin: 6px 0 4px; }
+  .wct.bc .bcsign .r { display: flex; flex-direction: column; justify-content: space-between; text-align: right; }
+</style>`;
+
+function bcLetterhead(data: any, numberLabel: string, docNumber: string): string {
+  const logoUrl = data?.logoUrl;
+  const line = (parts: Array<{ label?: string; text: string; mail?: boolean }>) =>
+    parts.map((p) => `${p.label ? `<b>${escapeHtml(p.label)}</b> ` : ''}${escapeHtml(p.text)}`).join(' ');
+  return `
+  <div class="lh">
+    ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="" />` : ''}
+    <div class="co"><div class="nm">${escapeHtml(BCAIR_DOC.name)}</div>${BCAIR_DOC.lines.map((l) => `<div>${line(l)}</div>`).join('')}</div>
+  </div>
+  <div class="rule"></div>
+  <div class="docno">${escapeHtml(numberLabel)} : ${escapeHtml(docNumber)}</div>`;
+}
 
 function letterhead(org: any, data: any, numberLabel: string, docNumber: string): string {
   const company = data?.company || {};
@@ -390,6 +421,8 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   const items: any[] = (Array.isArray(data?.items) ? data.items : []).filter((it: any) => it && !it.isTagGroup);
   const docNumber = first(di('documentNumber'), data?.name);
   const footerMessage = first(di('footerMessage'), data?.footerMessage);
+  // BC Air (wct-brand.ts): its letterhead, totals, terms and sign-off on the invoice and DO.
+  const bc = data?.design?.brand === 'BCAIR' && kind !== 'quotation';
 
   // ── delivery order ──────────────────────────────────────────────────────
   if (kind === 'do') {
@@ -428,7 +461,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
     ${proof.received}
     ${footerMessage ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>` : ''}
     ${proof.appendix}`;
-    return sheet(letterhead(org, data, 'Delivery Order No', docNumber), body);
+    return bc ? sheet(bcLetterhead(data, BCAIR_DOC.numberLabel.do, docNumber), body, true) : sheet(letterhead(org, data, 'Delivery Order No', docNumber), body);
   }
 
   // ── quotation / tax invoice ─────────────────────────────────────────────
@@ -457,7 +490,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   const doNos = Array.isArray(data?.deliveryOrderNos) ? data.deliveryOrderNos.filter(Boolean).join(', ') : '';
 
   const header = `
-  <div class="title">${escapeHtml(design.titleText || (isInvoice ? 'TAX INVOICE' : 'QUOTATION'))}</div>
+  <div class="title">${escapeHtml(design.titleText || (isInvoice ? (bc ? BCAIR_DOC.invoiceTitle : 'TAX INVOICE') : 'QUOTATION'))}</div>
   <div class="party">
     ${billToBlock(data, di)}
     <div class="kv">
@@ -473,8 +506,18 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
 
   const gstRow = t.gstPercent > 0 ? `<tr><td class="l">GST ${escapeHtml(String(t.gstPercent))}%:</td><td class="v">${cash(t.gstAmount, t.currency)}</td></tr>` : '';
   const discountRow = t.discountAmount > 0 ? `<tr><td class="l">Discount:</td><td class="v">(${cash(t.discountAmount, t.currency)})</td></tr>` : '';
+  const L = BCAIR_DOC.totals;
   const totals = !showTotals
     ? ''
+    : bc
+    ? `<div class="totals"><table>
+    <tr><td class="l">${L.total}</td><td class="v">${cash(t.displayNet + t.discountAmount, t.currency)}</td></tr>
+    <tr><td class="l">${L.discount}</td><td class="v">${cash(t.discountAmount, t.currency)}</td></tr>
+    ${gstRow}
+    <tr><td class="l">${L.paid}</td><td class="v">${cash(paid, t.currency)}</td></tr>
+    <tr class="due"><td class="l">${L.due}</td><td class="v">${cash(due, t.currency)}</td></tr>
+    <tr><td class="l">${L.paymentType}</td><td class="v"></td></tr>
+  </table></div>`
     : `<div class="totals"><table>
     <tr><td class="l">Total:</td><td class="v">${cash(t.displayNet + t.discountAmount, t.currency)}</td></tr>
     ${discountRow}${gstRow}
@@ -489,6 +532,11 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   const remarksBlock = remarks ? `<div class="remarks"><b>Remarks:</b>${richContent(remarks, 'font-size:12.5px;line-height:1.5;')}</div>` : '';
   const tnc = first(data?.termsAndConditions, di('termsAndConditions'));
   const tncBlock = tnc ? `<div class="tnc"><h3>Terms and Conditions:</h3>${richContent(tnc, 'font-size:12px;line-height:1.6;')}</div>` : '';
+  const bcTnc = `<div class="tnc"><h3>${escapeHtml(BCAIR_DOC.tncTitle)}</h3>${
+    tnc ? richContent(tnc, 'font-size:12px;line-height:1.6;') : BCAIR_DOC.tnc.map((l) => `<div class="ln">${escapeHtml(l)}</div>`).join('')
+  }</div>`;
+  const S = BCAIR_DOC.sign;
+  const bcSign = `<div class="bcsign"><div class="l"><div>${escapeHtml(S.closing)}</div><div class="scr">${escapeHtml(S.name)}</div><div>${escapeHtml(S.title)}</div><div>${escapeHtml(S.company)}</div></div><div class="r"><div>${escapeHtml(S.confirm)}</div><div>${escapeHtml(S.stamp)}</div></div></div>`;
 
   const signature = isInvoice ? null : clientSignatureOf(cfg);
   const closing = isInvoice
@@ -508,11 +556,16 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
         }
       </div>`;
 
+  if (bc) {
+    const bcBody = `${header}${linesTable(data, items, kind, t.currency)}${totals}${remarksBlock}${bcTnc}${bcSign}${footerMessage ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>` : ''}`;
+    return sheet(bcLetterhead(data, BCAIR_DOC.numberLabel.invoice, docNumber), bcBody, true);
+  }
   const body = `${header}${linesTable(data, items, kind, t.currency)}${totals}${remarksBlock}${tncBlock}${signBlock(di)}${closing}`;
   return sheet(letterhead(org, data, isInvoice ? 'Invoice No' : 'Quotation No', docNumber), body);
 }
 
-function sheet(head: string, body: string): string {
+function sheet(head: string, body: string, bc = false): string {
+  if (bc) return `${CSS}${BC_CSS}<div class="wct bc"><table class="wct-sheet"><thead><tr><td>${head}</td></tr></thead><tbody><tr><td>${body}</td></tr></tbody></table></div>`;
   return `${CSS}<div class="wct"><table class="wct-sheet"><thead><tr><td>${head}</td></tr></thead><tbody><tr><td>${body}</td></tr></tbody></table></div>`;
 }
 

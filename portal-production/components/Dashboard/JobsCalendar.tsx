@@ -115,7 +115,7 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
             onSaved={(id) => {
               setAdding(null);
               reload();
-              toast.success("Job added. It shows as Untagged until you link it.", { onClick: () => router.push(`/portal/deliveries/${id}`) });
+              toast.success("Job added", { onClick: () => router.push(`/portal/deliveries/${id}`) });
             }}
           />
           <NoteDialog

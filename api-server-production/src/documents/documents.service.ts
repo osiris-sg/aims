@@ -27,6 +27,7 @@ import { StaffWhatsAppService } from '../staff-whatsapp/staff-whatsapp.service';
 import * as moment from 'moment';
 import { pdfOptionsFor, isNamedLayout } from '../common/services/document-html';
 import { resolveDesign } from '../common/services/document-html/design';
+import { effectiveDesign, isImportedDoc } from '../common/services/document-html/wct-brand';
 import { outstandingOf, grossStampOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
 import { confirmPostsToGl, erpPaidAtImport, erpStoredTotalsOf, isErpImported, moneySignature } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
@@ -7733,14 +7734,21 @@ export class DocumentsService {
    * shared pool, so the lookup is by id alone (the document already points at
    * it). Never throws: a missing template means the stock look.
    */
-  async designForTemplate(documentTemplateId: string | null | undefined, organization: any): Promise<{ design: any; logoUrl: string | null }> {
+  async designForTemplate(documentTemplateId: string | null | undefined, organization: any, doc?: { imported?: boolean }): Promise<{ design: any; logoUrl: string | null }> {
     let raw: any = null;
+    let templateType: string | null = null;
     if (documentTemplateId) {
-      raw = (
-        await this.prisma.documentTemplate.findUnique({ where: { id: documentTemplateId }, select: { styleConfig: true } }).catch(() => null)
-      )?.styleConfig;
+      const tpl = await this.prisma.documentTemplate.findUnique({ where: { id: documentTemplateId }, select: { styleConfig: true, type: true } }).catch(() => null);
+      raw = tpl?.styleConfig;
+      templateType = tpl?.type ?? null;
     }
-    const design = resolveDesign(raw);
+    // WCT group (features.wctDocumentBrand, BC Air 2026-11-16): its stock invoice / DO print on the WCT layout in its brand.
+    // Orgs without the setting: exactly the template's design, as before.
+    const orgId: string | undefined = organization?.id;
+    const features = orgId
+      ? ((await this.prisma.organizationUIConfig.findUnique({ where: { organizationId: orgId }, select: { features: true } }).catch(() => null))?.features as any)
+      : null;
+    const design = effectiveDesign(raw, templateType, features, doc);
     let logoUrl: string | null = null;
     const key = organization?.logo;
     if (design.logoPosition !== 'none' && key) {
@@ -7756,13 +7764,13 @@ export class DocumentsService {
   async designForDocument(documentId: string | undefined, organizationId: string, templateId?: string | null): Promise<{ design: any; logoUrl: string | null }> {
     const doc = documentId
       ? await this.prisma.document
-          .findFirst({ where: { id: documentId, organizationId }, select: { documentTemplateId: true, organization: { select: { logo: true } } } })
+          .findFirst({ where: { id: documentId, organizationId }, select: { documentTemplateId: true, config: true, organization: { select: { id: true, logo: true } } } })
           .catch(() => null)
       : null;
-    const org = doc?.organization ?? (await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { logo: true } }).catch(() => null));
+    const org = doc?.organization ?? (await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true, logo: true } }).catch(() => null));
     const effectiveTemplateId = doc?.documentTemplateId || templateId || null;
     if (!effectiveTemplateId) return { design: resolveDesign(null), logoUrl: null };
-    return this.designForTemplate(effectiveTemplateId, org);
+    return this.designForTemplate(effectiveTemplateId, org, { imported: isImportedDoc(doc?.config) });
   }
 
   /**
@@ -7924,7 +7932,7 @@ export class DocumentsService {
             dueDate,
           };
         }
-        const styled = await this.designForTemplate(p.document.documentTemplateId, p.document.organization);
+        const styled = await this.designForTemplate(p.document.documentTemplateId, p.document.organization, { imported: isImportedDoc(p.document.config ?? p.config) });
         const renderData = {
           // Selects the ported portal layout for this type (falls back to the
           // legacy generic layout for types not ported yet).
@@ -8290,7 +8298,7 @@ export class DocumentsService {
     const documentInfo = config.documentInfo || { documentNumber: document.name };
     const items: any[] = Array.isArray(config.items) ? config.items : [];
     const isQuotation = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(String(document.type).toUpperCase());
-    const styled = await this.designForTemplate(document.documentTemplateId, document.organization);
+    const styled = await this.designForTemplate(document.documentTemplateId, document.organization, { imported: isImportedDoc(document.config) });
     const renderFlags = isQuotation ? await this.quotationRenderFlags(organizationId) : null;
     const html = this.pdfGeneratorService.generateInvoiceHtml({
       documentType: document.type,

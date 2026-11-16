@@ -36,7 +36,8 @@ export class PdfGeneratorService {
       pageNumbers?: {
         label?: string;
         /** "Page 2 of 3" (default) or "Page 2/3" (client layouts that print it so); 'none' = the label only (BC Air's report). */
-        format?: 'of' | 'slash' | 'none';
+        format?: 'of' | 'slash' | 'none' | 'stacked';
+        /* 'stacked' (BC Air's invoice / DO): "Page n | N" at the right, the label centred below it. */
         /** 'center' = the label centred (with format 'none'). Default: label left, page number right. */
         align?: 'center';
         italic?: boolean;
@@ -112,7 +113,11 @@ export class PdfGeneratorService {
               // An empty header is deliberate: with displayHeaderFooter on and
               // no template, Chrome prints its own title/date strip.
               headerTemplate: '<span></span>',
-              footerTemplate: footer.format === 'none'
+              footerTemplate: footer.format === 'stacked'
+                ? `<div style="width:100%;font-size:${footer.fontPx || 8}px;font-family:Helvetica,Arial,sans-serif;color:#000;padding:0 ${footer.paddingX || '10mm'};">` +
+                  `<div style="text-align:right;letter-spacing:2px;margin-bottom:6px;">Page <span class="pageNumber"></span> | <span class="totalPages"></span></div>` +
+                  `<div style="text-align:center;${footer.italic ? 'font-style:italic;' : ''}font-weight:700;">${(footer.label || '').replace(/[<>&]/g, '')}</div></div>`
+                : footer.format === 'none'
                 ? `<div style="width:100%;font-size:${footer.fontPx || 8}px;font-family:Helvetica,Arial,sans-serif;color:${(footer.color || '#444').replace(/[^#a-zA-Z0-9]/g, '')};` +
                   `padding:0 ${footer.paddingX || '10mm'};text-align:${footer.align === 'center' ? 'center' : 'left'};${footer.italic ? 'font-style:italic;font-weight:600;' : ''}">` +
                   `${(footer.label || '').replace(/[<>&]/g, '')}</div>`

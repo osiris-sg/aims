@@ -1,7 +1,7 @@
 "use client";
 
 // WCT jobs calendar add (2026-11-04): the quick "Job" form from an empty calendar slot, and its edit from the job
-// page. No quotation: the job shows as "Untagged" until "Link to…" puts it under an order. The first worker is the
+// page. No quotation: the job shows as a purple Misc job until "Link to…" puts it under an order. The first worker is the
 // SiteClock assignee; the others are listed in the SiteClock job's notes.
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -107,10 +107,7 @@ export default function QuickJobDialog({
     <Dialog open={open} onClose={() => !saving && onClose()} fullWidth maxWidth="sm" fullScreen={phone}>
       <DialogTitle>{edit ? "Edit job" : "New job"}</DialogTitle>
       <DialogContent dividers>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          No quotation needed. The job shows as Untagged until you link it to a quotation, order, invoice or DO from its page.
-        </Typography>
-        <Stack spacing={2}>
+        <Stack spacing={2} sx={{ mt: 1 }}>
           <CustomerPicker
             value={form.customerId}
             initialCustomer={customer}

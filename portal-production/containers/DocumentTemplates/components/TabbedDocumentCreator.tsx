@@ -147,7 +147,7 @@ import { getTemplateFormFields } from "../utils/templateFieldSync";
 import { useGetDocumentsPaginated } from "@/app/portal/hooks/api";
 
 // Template name + design per template id, shared by every editor mount in the session.
-const templateMetaCache = new Map<string, { name: string; design: any }>();
+const templateMetaCache = new Map<string, { name: string; design: any; effective?: any }>();
 import { TemplateFieldConfig } from "../types/templateFieldTypes";
 import {
   OrReceiptNoInput,
@@ -1535,10 +1535,14 @@ export default function TabbedDocumentCreator({
       setTemplateDesign(null);
       return;
     }
+    // `effective` (WCT group, e.g. BC Air's invoice / DO on the WCT layout) wins over the template's own knobs,
+    // except on imported (ABSS / ERP) documents, which keep their stock look like their PDF (api wct-brand.ts).
+    const imported = !!((existingData as any)?.config?.erpImport ?? (existingData as any)?.erpImport);
+    const pick = (m: { design: any; effective?: any }) => (!imported && m.effective) || m.design;
     const cached = templateMetaCache.get(effectiveTemplateId);
     if (cached) {
       setActiveTemplateName(cached.name);
-      setTemplateDesign(cached.design);
+      setTemplateDesign(pick(cached));
       return;
     }
     let cancelled = false;
@@ -1558,11 +1562,11 @@ export default function TabbedDocumentCreator({
         const json = await res.json();
         const tpl = json?.data ?? json;
         const djson = dres && dres.ok ? await dres.json().catch(() => null) : null;
-        const meta = { name: tpl?.name || "", design: djson?.data?.design ?? djson?.design ?? tpl?.styleConfig ?? null };
+        const meta = { name: tpl?.name || "", design: djson?.data?.design ?? djson?.design ?? tpl?.styleConfig ?? null, effective: djson?.data?.effective ?? djson?.effective ?? undefined };
         if (res.ok) templateMetaCache.set(effectiveTemplateId, meta);
         if (!cancelled) {
           setActiveTemplateName(meta.name);
-          setTemplateDesign(meta.design);
+          setTemplateDesign(pick(meta));
         }
       } catch {
         if (!cancelled) setActiveTemplateName("");
@@ -1571,7 +1575,7 @@ export default function TabbedDocumentCreator({
     return () => {
       cancelled = true;
     };
-  }, [templateId, existingData?.documentTemplateId, existingData?.templateId, getToken]);
+  }, [templateId, existingData?.documentTemplateId, existingData?.templateId, (existingData as any)?.config?.erpImport, getToken]);
 
   // A template whose name says "Rental" locks the Stock Card to rental items
   // only; a "Sales …" template locks it to sales. Ambiguous/plain names don't

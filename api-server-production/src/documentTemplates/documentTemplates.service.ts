@@ -1,3 +1,4 @@
+import { effectiveDesign } from '../common/services/document-html/wct-brand';
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { PrismaService } from 'src/common/prisma.service';
 import { GetDocumentTemplateDto } from './dto/get-documentTemplate.dto';
@@ -33,9 +34,14 @@ export class DocumentTemplatesService {
     return t;
   }
 
-  async getDesign(id: string, organizationId: string): Promise<{ design: DocumentDesign; defaults: DocumentDesign }> {
+  async getDesign(id: string, organizationId: string): Promise<{ design: DocumentDesign; defaults: DocumentDesign; effective?: DocumentDesign }> {
     const t = await this.templateForOrg(id, organizationId);
-    return { design: resolveDesign(t.styleConfig), defaults: DEFAULT_DESIGN };
+    const design = resolveDesign(t.styleConfig);
+    // WCT group (features.wctDocumentBrand, BC Air): what the editor's preview draws when it differs from the
+    // template's own knobs. `design` stays the template's, so the admin Design dialog never saves the override.
+    const features = (await this.prisma.organizationUIConfig.findUnique({ where: { organizationId }, select: { features: true } }).catch(() => null))?.features;
+    const effective = effectiveDesign(t.styleConfig, (t as any).type, features);
+    return { design, defaults: DEFAULT_DESIGN, ...(effective.layout !== design.layout ? { effective } : {}) };
   }
 
   /** Save the knobs. Edits propagate to every org that activated the template, like the rest of a shared template. */
