@@ -601,6 +601,10 @@ model Vehicle {
   model          String? // e.g. Nissan NV350 Panel Van
   coeExpiry      DateTime? // date only (UTC midnight)
   lifespanExpiry DateTime? // date only (UTC midnight)
+  // Log book (2026-11-16): renewals logged on the vehicle also update these (date only).
+  roadTaxExpiry    DateTime?
+  insuranceExpiry  DateTime?
+  inspectionExpiry DateTime?
   // Optional link to the accounting register (FixedAsset.id); nothing posts from here.
   fixedAssetId   String?
   notes          String?
@@ -609,8 +613,48 @@ model Vehicle {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   usages         VehicleUsage[]
+  logEntries     VehicleLogEntry[]
 
   @@index([organizationId])
+}
+
+// WCT VEHICLE LOG BOOK (2026-11-16, enableWctVehicles): every transaction of a
+// vehicle, newest first on screen. Replaces start / end usage; VehicleUsage
+// rows are kept and converted once (sourceUsageId). type: DRIVER (driver
+// assigned) | REPAIR | FUEL | RENEWAL (road tax / insurance / COE /
+// inspection) | PARKING (parking / ERP / fines) | OTHER. Deleting hides the
+// entry (deletedAt). Plain indexes only.
+model VehicleLogEntry {
+  id                 String    @id @default(uuid())
+  organizationId     String
+  vehicleId          String
+  vehicle            Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  date               DateTime // date only (UTC midnight)
+  type               String
+  description        String?
+  mileage            Int?
+  amount             Decimal?  @db.Decimal(12, 2) // SGD
+  // { key, fileName, mimeType } of a receipt / photo / PDF in S3.
+  attachment         Json?
+  driverUserId       String?
+  driverName         String?
+  vendor             String? // repair / servicing
+  renewalKind        String? // ROAD_TAX | INSURANCE | COE | INSPECTION
+  renewalExpiry      DateTime? // the new expiry (also set on the vehicle)
+  repairApprovedBy   String?
+  repairApprovedById String?
+  repairApprovedAt   DateTime? // set = approved and locked
+  repairUnlocks      Json?
+  sourceUsageId      String? // converted from VehicleUsage
+  deletedAt          DateTime?
+  deletedBy          String?
+  createdBy          String?
+  createdByName      String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([organizationId, vehicleId, date])
+  @@index([sourceUsageId])
 }
 
 // One row of the paper form: who drove it, from when / what mileage to when /

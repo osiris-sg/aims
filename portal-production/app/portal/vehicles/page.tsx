@@ -10,13 +10,14 @@ import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
-import { canVehicles, expiryChip, fmtDate, fmtKm, vehiclesApi, type VehicleRow } from "@/helpers/wctVehicles";
+import { canVehicles, expiryChip, fmtDate, fmtKm, fmtMoney, vehiclesApi, type VehicleRow } from "@/helpers/wctVehicles";
 import { VehicleFormDialog } from "./_components/VehicleDialogs";
 
 /**
- * WCT Vehicles (enableWctVehicles, 2026-11-12): the vans and lorries with who
- * has each one now, the last mileage, and the COE / lifespan expiry (amber
- * under 90 days, red once past). Click a row for its usage & repair log.
+ * WCT Vehicles (enableWctVehicles, 2026-11-12; log book 2026-11-16): the vans
+ * and lorries with the current driver (latest "Driver assigned" entry), the
+ * last mileage, what each cost this year, and the COE / lifespan expiry (amber
+ * under 90 days, red once past). Click a row for its log book.
  */
 function ExpiryCell({ date, days }: { date: string | null; days: number | null }) {
   const chip = expiryChip(days);
@@ -104,16 +105,22 @@ export default function VehiclesPage() {
           <Box>
             <Typography variant="body2">{row.original.currentDriver}</Typography>
             <Typography variant="caption" color="text.secondary">
-              since {fmtDate(row.original.inUseSince)}
+              since {fmtDate(row.original.driverSince)}
             </Typography>
           </Box>
         ) : (
           <Typography variant="body2" color="text.secondary">
-            Available
+            Not assigned
           </Typography>
         ),
     },
     { accessorKey: "lastMileage", header: "Last mileage", size: 10, cell: ({ row }: any) => fmtKm(row.original.lastMileage) },
+    {
+      accessorKey: "spentThisYear",
+      header: "Spent this year",
+      size: 10,
+      cell: ({ row }: any) => <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtMoney(row.original.spentThisYear ?? 0)}</span>,
+    },
     { accessorKey: "coeExpiry", header: "COE expiry", size: 15, cell: ({ row }: any) => <ExpiryCell date={row.original.coeExpiry} days={row.original.coeDays} /> },
     { accessorKey: "lifespanExpiry", header: "Lifespan expiry", size: 15, cell: ({ row }: any) => <ExpiryCell date={row.original.lifespanExpiry} days={row.original.lifespanDays} /> },
     {
@@ -166,7 +173,7 @@ export default function VehiclesPage() {
         columns={columns}
         data={filtered}
         tableName="Vehicles"
-        subTitle="Vans and lorries, who has each one and its usage & repair log. COE and lifespan expiry turn amber 90 days before."
+        subTitle="Vans and lorries: current driver, what each costs and its log book. COE and lifespan expiry turn amber 90 days before."
         headerContent={
           <FormControlLabel
             sx={{ mb: 1 }}

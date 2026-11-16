@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
@@ -43,34 +43,29 @@ export class VehiclesController {
     return this.service.create(body ?? {}, org.id, { id: req.user?.id });
   }
 
-  // ---- usage rows (declared before the :id vehicle routes)
+  // ---- log entries (declared before the :id vehicle routes)
 
-  @Post('usages/:id/end')
+  @Patch('log/:id')
   @Permissions('vehicles:update')
-  endUsage(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }) {
-    return this.service.endUsage(id, body ?? {}, org.id);
+  editEntry(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }) {
+    return this.service.editEntry(id, body ?? {}, org.id);
   }
 
-  @Patch('usages/:id')
+  /** Hides the entry (kept for the record); the request is the Activity Log row. */
+  @Delete('log/:id')
   @Permissions('vehicles:update')
-  editUsage(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }) {
-    return this.service.editUsage(id, body ?? {}, org.id);
+  deleteEntry(@Param('id') id: string, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    return this.service.deleteEntry(id, org.id, { id: req.user?.id });
   }
 
-  @Put('usages/:id/repair')
-  @Permissions('vehicles:update')
-  logRepair(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }) {
-    return this.service.logRepair(id, body ?? {}, org.id);
-  }
-
-  @Post('usages/:id/approve')
+  @Post('log/:id/approve')
   @Permissions('vehicles:approve')
   approveRepair(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
     return this.service.approveRepair(id, body ?? {}, org.id, { id: req.user?.id });
   }
 
-  /** Body { reason } (required): recorded on the row and, as the request body, in the Activity Log. */
-  @Post('usages/:id/unlock')
+  /** Body { reason } (required): recorded on the entry and, as the request body, in the Activity Log. */
+  @Post('log/:id/unlock')
   @Permissions('vehicles:approve')
   unlockRepair(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
     return this.service.unlockRepair(id, body ?? {}, org.id, { id: req.user?.id });
@@ -96,17 +91,18 @@ export class VehiclesController {
     return this.service.setArchived(id, body?.archived !== false, org.id);
   }
 
-  @Post(':id/usages/start')
+  /** A log entry of any type (Driver assigned, Repair / servicing, Fuel, renewals, Parking / ERP / fines, Other). */
+  @Post(':id/log')
   @Permissions('vehicles:update')
-  startUsage(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
-    return this.service.startUsage(id, body ?? {}, org.id, { id: req.user?.id });
+  addEntry(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    return this.service.addEntry(id, body ?? {}, org.id, { id: req.user?.id });
   }
 
-  /** The usage log as the paper "Vehicle / Lorry Usage & Repair Form" (A4 landscape PDF). */
+  /** The log book in the paper form's layout (A4 landscape PDF); ?type= &from= &to= follow the page's filters. */
   @Get(':id/log-pdf')
   @Permissions('vehicles:read')
-  async logPdf(@Param('id') id: string, @UserOrganization() org: { id: string }, @Res() res: Response) {
-    const { buffer, filename } = await this.service.logPdf(id, org.id);
+  async logPdf(@Param('id') id: string, @UserOrganization() org: { id: string }, @Res() res: Response, @Query('type') type?: string, @Query('from') from?: string, @Query('to') to?: string) {
+    const { buffer, filename } = await this.service.logPdf(id, org.id, { type, from, to });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(filename)}`);
     res.send(buffer);

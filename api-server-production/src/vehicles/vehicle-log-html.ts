@@ -1,6 +1,6 @@
 /**
- * WCT "Vehicle / Lorry Usage & Repair Form" (enableWctVehicles, 2026-11-12):
- * one vehicle's usage log drawn as the paper form, for the PDF / print.
+ * WCT vehicle LOG BOOK in the paper "Vehicle / Lorry Usage & Repair Form" layout (enableWctVehicles, 2026-11-12; log entries 2026-11-16):
+ * one vehicle's log entries drawn as the paper form, for the PDF / print, with the grand total on the last page.
  *
  * A4 landscape. Pages are split here (by row height: a long repair text takes
  * more than one ruled line) so EVERY
@@ -11,14 +11,14 @@
 
 const S3_PREFIX = process.env.S3_PUBLIC_URL ?? 'https://aims-osiris.s3.ap-southeast-1.amazonaws.com/';
 
-/** Ruled lines per page; a row takes one line per ~55 characters of its longest text. */
+/** Ruled lines per page; a row takes one line per ~60 characters of its longest text. */
 export const ROWS_PER_PAGE = 12;
-const LINE_CHARS = 55;
-const rowLines = (u: { repairDetails: string | null; driverName: string }) =>
-  Math.min(ROWS_PER_PAGE, Math.max(1, Math.ceil((u.repairDetails ?? '').length / LINE_CHARS), Math.ceil(u.driverName.length / 24)));
+const LINE_CHARS = 60;
+const rowLines = (u: { details: string | null; driverName: string | null }) =>
+  Math.min(ROWS_PER_PAGE, Math.max(1, Math.ceil((u.details ?? '').length / LINE_CHARS), Math.ceil((u.driverName ?? '').length / 22)));
 
 /** Rows split into pages by their lines; never an empty page except for an empty log. */
-export function paginate<T extends { repairDetails: string | null; driverName: string }>(rows: T[]): Array<{ rows: T[]; spare: number }> {
+export function paginate<T extends { details: string | null; driverName: string | null }>(rows: T[]): Array<{ rows: T[]; spare: number }> {
   const pages: Array<{ rows: T[]; used: number }> = [{ rows: [], used: 0 }];
   for (const r of rows) {
     const need = rowLines(r);
@@ -27,7 +27,10 @@ export function paginate<T extends { repairDetails: string | null; driverName: s
     page.rows.push(r);
     page.used += need;
   }
-  return pages.map((p) => ({ rows: p.rows, spare: Math.max(0, ROWS_PER_PAGE - p.used) }));
+  // The last page keeps a line for the grand total.
+  const last = pages[pages.length - 1];
+  if (last.rows.length && last.used + 1 > ROWS_PER_PAGE) pages.push({ rows: [], used: 0 });
+  return pages.map((p, i) => ({ rows: p.rows, spare: Math.max(0, ROWS_PER_PAGE - p.used - (i === pages.length - 1 ? 1 : 0)) }));
 }
 
 export type VehicleLogOrg = { name: string; logo?: string | null; address?: string | null; phoneNumber?: string | null; email?: string | null; registrationNumber?: string | null };
@@ -35,16 +38,18 @@ export type VehicleLogOrg = { name: string; logo?: string | null; address?: stri
 export type VehicleLogInput = {
   org: VehicleLogOrg;
   vehicle: { vehicleNo: string; model: string | null; coeExpiry: string | null; lifespanExpiry: string | null };
+  /** "Type: Fuel · From 2026-01-01" when the page's filters are on; printed under the title. */
+  filterLine?: string | null;
   /** Oldest first, as the paper is filled. Dates YYYY-MM-DD. */
-  usages: Array<{
-    driverName: string;
-    startDate: string;
-    startMileage: number;
-    endDate: string | null;
-    endMileage: number | null;
-    repairDetails: string | null;
-    repairApprovedBy: string | null;
-    repairApprovedAt: string | null;
+  entries: Array<{
+    date: string;
+    type: string;
+    details: string | null;
+    driverName: string | null;
+    mileage: number | null;
+    amount: number | null;
+    approvedBy: string | null;
+    approvedAt: string | null;
   }>;
   printedOn: string; // YYYY-MM-DD
 };
@@ -65,6 +70,7 @@ export const paperDate = (v: string | null | undefined): string => {
 };
 
 const km = (n: number | null | undefined) => (n == null ? '' : `${n.toLocaleString('en-SG')}`);
+export const money = (n: number | null | undefined) => (n == null ? '' : n.toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
 const STYLE = `
   @page { size: A4 landscape; margin: 0; }
@@ -77,7 +83,8 @@ const STYLE = `
   .lh .co { font-weight: 700; font-size: 14px; letter-spacing: .3px; }
   .lh .sub { font-size: 10px; color: #333; line-height: 1.4; }
   .lh .pg { margin-left: auto; text-align: right; font-size: 10px; white-space: nowrap; }
-  h1 { font-size: 15px; text-align: center; margin: 8px 0 6px; letter-spacing: .5px; }
+  h1 { font-size: 15px; text-align: center; margin: 8px 0 4px; letter-spacing: .5px; }
+  .flt { text-align: center; font-size: 10px; color: #333; margin-bottom: 4px; }
   .veh { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #111; margin-bottom: 6px; }
   .veh div { padding: 5px 8px; border-bottom: 1px solid #111; display: flex; gap: 8px; }
   .veh div:nth-child(odd) { border-right: 1px solid #111; }
@@ -88,28 +95,29 @@ const STYLE = `
   th { background: #eee; font-size: 10px; text-align: center; }
   td { height: 9.6mm; font-size: 10.5px; word-wrap: break-word; }
   td.c { text-align: center; } td.r { text-align: right; }
+  tr.tot td { font-weight: 700; border-top: 3px double #111; }
   .foot { display: flex; justify-content: space-between; font-size: 9px; color: #444; margin-top: 4px; }
 `;
 
 const COLS = `
   <colgroup>
-    <col style="width:4%"><col style="width:14%"><col style="width:9%"><col style="width:9%">
-    <col style="width:9%"><col style="width:9%"><col style="width:24%"><col style="width:12%"><col style="width:10%">
+    <col style="width:4%"><col style="width:9%"><col style="width:13%"><col style="width:27%">
+    <col style="width:12%"><col style="width:8%"><col style="width:9%"><col style="width:10%"><col style="width:8%">
   </colgroup>`;
 
 const HEAD = `
   <tr>
-    <th>No.</th><th>Assigned Driver</th><th>Usage Start Date</th><th>Mileage at Start (km)</th>
-    <th>Usage End Date</th><th>Mileage at End (km)</th><th>Damage / Issue / Repair Details</th>
-    <th>Repair Approved By</th><th>Repair Approved Date</th>
+    <th>No.</th><th>Date</th><th>Type</th><th>Details</th><th>Driver</th>
+    <th>Mileage (km)</th><th>Amount (SGD)</th><th>Repair Approved By</th><th>Repair Approved Date</th>
   </tr>`;
 
 export function buildVehicleLogHtml(input: VehicleLogInput): string {
-  const { org, vehicle, usages } = input;
-  const split = paginate(usages);
+  const { org, vehicle, entries } = input;
+  const split = paginate(entries);
   const pages = split.length;
   const logo = url(org.logo);
   const contact = [org.phoneNumber ? `Tel: ${org.phoneNumber}` : '', org.email ? `Email: ${org.email}` : ''].filter(Boolean).join('  ·  ');
+  const total = Math.round(entries.reduce((t, e) => t + (e.amount ?? 0), 0) * 100) / 100;
 
   const body: string[] = [];
   let no = 0;
@@ -118,18 +126,20 @@ export function buildVehicleLogHtml(input: VehicleLogInput): string {
     const rows = slice.map(
       (u) => `<tr>
         <td class="c">${++no}</td>
+        <td class="c">${paperDate(u.date)}</td>
+        <td>${esc(u.type)}</td>
+        <td>${esc(u.details)}</td>
         <td>${esc(u.driverName)}</td>
-        <td class="c">${paperDate(u.startDate)}</td>
-        <td class="r">${km(u.startMileage)}</td>
-        <td class="c">${paperDate(u.endDate)}</td>
-        <td class="r">${km(u.endMileage)}</td>
-        <td>${esc(u.repairDetails)}</td>
-        <td>${esc(u.repairApprovedBy)}</td>
-        <td class="c">${paperDate(u.repairApprovedAt)}</td>
+        <td class="r">${km(u.mileage)}</td>
+        <td class="r">${money(u.amount)}</td>
+        <td>${esc(u.approvedBy)}</td>
+        <td class="c">${paperDate(u.approvedAt)}</td>
       </tr>`,
     );
     // Blank ruled rows: the form stays fillable by hand.
     for (let i = 0; i < split[p].spare; i++) rows.push(`<tr>${'<td></td>'.repeat(9)}</tr>`);
+    // Grand total on the last page (double-ruled).
+    if (p === pages - 1) rows.push(`<tr class="tot"><td colspan="6" class="r">TOTAL</td><td class="r">${money(total)}</td><td></td><td></td></tr>`);
     body.push(`<section class="page">
       <div class="lh">
         ${logo ? `<img src="${esc(logo)}" alt="" />` : ''}
@@ -141,7 +151,8 @@ export function buildVehicleLogHtml(input: VehicleLogInput): string {
         </div>
         <div class="pg">Date : ${paperDate(input.printedOn)}<br/>Page No : ${p + 1} of ${pages}</div>
       </div>
-      <h1>VEHICLE / LORRY USAGE &amp; REPAIR FORM</h1>
+      <h1>VEHICLE / LORRY LOG BOOK</h1>
+      ${input.filterLine ? `<div class="flt">${esc(input.filterLine)}</div>` : ''}
       <div class="veh">
         <div><b>Vehicle / Lorry No. :</b> ${esc(vehicle.vehicleNo)}</div>
         <div><b>Model :</b> ${esc(vehicle.model)}</div>
@@ -149,8 +160,8 @@ export function buildVehicleLogHtml(input: VehicleLogInput): string {
         <div><b>Vehicle Lifespan Expiry Date :</b> ${paperDate(vehicle.lifespanExpiry)}</div>
       </div>
       <table>${COLS}<thead>${HEAD}</thead><tbody>${rows.join('')}</tbody></table>
-      <div class="foot"><span>${esc(vehicle.vehicleNo)} usage log</span><span>This is a computer-generated document.</span></div>
+      <div class="foot"><span>${esc(vehicle.vehicleNo)} log book</span><span>This is a computer-generated document.</span></div>
     </section>`);
   }
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(vehicle.vehicleNo)} usage log</title><style>${STYLE}</style></head><body>${body.join('')}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(vehicle.vehicleNo)} log book</title><style>${STYLE}</style></head><body>${body.join('')}</body></html>`;
 }

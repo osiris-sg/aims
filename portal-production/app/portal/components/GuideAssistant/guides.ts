@@ -224,28 +224,28 @@ export const GUIDES: Guide[] = [
   {
     id: 'wct-vehicle-usage',
     module: 'VEHICLES',
-    title: 'Log a vehicle usage',
+    title: 'Keep a vehicle log book',
     description:
-      'WCT Vehicles: record a driver taking a van or lorry (Start usage) and bringing it back (End usage), log damage or a repair, and print the Vehicle / Lorry Usage & Repair Form. Starts from the Vehicles list; a vehicle must exist (Add vehicle) first.',
+      'WCT Vehicles: assign a new driver to a van or lorry, log fuel, repairs, renewals, parking / ERP / fines and other costs (with mileage, amount and a receipt), see what each vehicle costs, and print or export the log. Starts from the Vehicles list; a vehicle must exist (Add vehicle) first.',
     route: '/portal/vehicles',
     steps: [
       {
         route: '/portal/vehicles',
         selector: '[data-tour="vehicles-add"]',
         title: 'Your vehicles',
-        body: 'Each row is a van or lorry with its current driver, last mileage and COE / lifespan expiry (amber from 90 days before). Add vehicle adds a new one. Click a row to open its log.',
+        body: 'Each row is a van or lorry with its current driver, last mileage, what it cost this year and its COE / lifespan expiry (amber from 90 days before). Add vehicle adds a new one. Click a row to open its log book.',
       },
       {
-        title: 'Start usage',
-        body: 'On the vehicle page, Start usage records the driver (pick a WCT user or type a name), the start date and the mileage. While it is in use the button reads End usage, for the end date and mileage.',
+        title: 'Assign new driver',
+        body: 'On the vehicle page, Assign new driver records who has the vehicle from a date (pick a WCT user or type a name) with the mileage. The latest one is the current driver.',
       },
       {
-        title: 'Damage and repairs',
-        body: 'In a log row, the three dots have Log damage or repair. An admin approves the repair there; it is then locked until an admin unlocks it with a reason.',
+        title: 'Add log entry',
+        body: 'Add log entry records anything else: Repair / servicing (vendor and details; an admin approves it, then it is locked), Fuel, Road tax / insurance / COE / inspection (a new expiry date also updates the vehicle), Parking / ERP / fines, or Other. Each takes a date, optional mileage, amount and a receipt, photo or PDF.',
       },
       {
-        title: 'The paper form',
-        body: 'Print / Export prints the Vehicle / Lorry Usage & Repair Form or saves it as a PDF, with every usage row and blank rows to fill by hand.',
+        title: 'Money and the paper form',
+        body: 'Money spent shows this month, this year and all time by type. Filter the log by type and dates; Print / Export prints the log in the paper form layout or exports it to Excel / CSV with the amounts.',
       },
     ],
   },

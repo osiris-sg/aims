@@ -2,20 +2,28 @@
 
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { Alert, Autocomplete, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Autocomplete, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Stack, TextField, Typography } from "@mui/material";
+import AttachFileIcon from "@mui/icons-material/AttachFile";
+import CloseIcon from "@mui/icons-material/Close";
 import { toast } from "react-toastify";
 import { todayIso } from "@/helpers/orgToday";
-import { fmtDate, fmtKm, vehiclesApi, type VehicleRow, type VehicleUsage } from "@/helpers/wctVehicles";
+import { uploadFile } from "@/helpers/fileUploader";
+import { useOrganization } from "@hooks/useOrganization";
+import { LOG_TYPES, LOG_TYPE_LABEL, RENEWAL_KINDS, fmtDate, fmtKm, fmtMoney, vehiclesApi, type LogAttachment, type LogType, type VehicleLogEntry, type VehicleRow } from "@/helpers/wctVehicles";
 
 /**
- * Every Vehicles form (2026-11-12). Each dialog posts one request and hands the
- * result back through onDone; mileage that goes backwards still saves and the
- * server's warnings show as toasts so the reading can be checked.
+ * Every Vehicles form (2026-11-12; log book 2026-11-16). Each dialog posts one
+ * request and hands the result back through onDone; mileage that goes backwards
+ * still saves and the server's warnings show as toasts so the reading can be
+ * checked; a renewal that moved an expiry date says so.
  */
 
 type Driver = { id: string; name: string };
 
-const showWarnings = (res: any) => (res?.warnings ?? []).forEach((w: string) => toast.warning(w, { autoClose: 9000 }));
+const showWarnings = (res: any) => {
+  (res?.warnings ?? []).forEach((w: string) => toast.warning(w, { autoClose: 9000 }));
+  if (res?.renewed) toast.success(`${res.renewed.label} expiry on the vehicle is now ${fmtDate(res.renewed.expiry)}`);
+};
 
 function useSubmit(onDone: (res: any) => void) {
   const { getToken } = useAuth();
@@ -64,19 +72,31 @@ function Shell({ open, title, onClose, busy, error, onSubmit, submitLabel, submi
 const dateField = (label: string, value: string, onChange: (v: string) => void, required = false) => (
   <TextField size="small" type="date" label={label} value={value} onChange={(e) => onChange(e.target.value)} InputLabelProps={{ shrink: true }} required={required} fullWidth />
 );
-const kmField = (label: string, value: string, onChange: (v: string) => void, helperText?: string) => (
-  <TextField size="small" label={label} value={value} onChange={(e) => onChange(e.target.value.replace(/[^\d,]/g, ""))} inputProps={{ inputMode: "numeric" }} InputProps={{ endAdornment: <Typography variant="body2" color="text.secondary">km</Typography> }} helperText={helperText} required fullWidth />
+const kmField = (label: string, value: string, onChange: (v: string) => void, helperText?: string, required = false) => (
+  <TextField size="small" label={label} value={value} onChange={(e) => onChange(e.target.value.replace(/[^\d,]/g, ""))} inputProps={{ inputMode: "numeric" }} InputProps={{ endAdornment: <Typography variant="body2" color="text.secondary">km</Typography> }} helperText={helperText} required={required} fullWidth />
+);
+const moneyField = (label: string, value: string, onChange: (v: string) => void, required = false) => (
+  <TextField size="small" label={label} value={value} onChange={(e) => onChange(e.target.value.replace(/[^\d.,]/g, ""))} inputProps={{ inputMode: "decimal" }} InputProps={{ startAdornment: <Typography variant="body2" color="text.secondary" sx={{ mr: 0.5 }}>S$</Typography> }} required={required} fullWidth />
 );
 
 // ------------------------------------------------------------------ vehicle
 
 export function VehicleFormDialog({ open, onClose, vehicle, onDone }: { open: boolean; onClose: () => void; vehicle?: VehicleRow | null; onDone: (v: VehicleRow) => void }) {
-  const [f, setF] = useState({ vehicleNo: "", model: "", coeExpiry: "", lifespanExpiry: "", notes: "" });
+  const [f, setF] = useState({ vehicleNo: "", model: "", coeExpiry: "", lifespanExpiry: "", roadTaxExpiry: "", insuranceExpiry: "", inspectionExpiry: "", notes: "" });
   const s = useSubmit(onDone);
   useEffect(() => {
     if (!open) return;
     s.setError(null);
-    setF({ vehicleNo: vehicle?.vehicleNo ?? "", model: vehicle?.model ?? "", coeExpiry: vehicle?.coeExpiry ?? "", lifespanExpiry: vehicle?.lifespanExpiry ?? "", notes: vehicle?.notes ?? "" });
+    setF({
+      vehicleNo: vehicle?.vehicleNo ?? "",
+      model: vehicle?.model ?? "",
+      coeExpiry: vehicle?.coeExpiry ?? "",
+      lifespanExpiry: vehicle?.lifespanExpiry ?? "",
+      roadTaxExpiry: vehicle?.roadTaxExpiry ?? "",
+      insuranceExpiry: vehicle?.insuranceExpiry ?? "",
+      inspectionExpiry: vehicle?.inspectionExpiry ?? "",
+      notes: vehicle?.notes ?? "",
+    });
   }, [open, vehicle]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (k: keyof typeof f) => (v: string) => setF((p) => ({ ...p, [k]: v }));
   return (
@@ -94,6 +114,9 @@ export function VehicleFormDialog({ open, onClose, vehicle, onDone }: { open: bo
       <TextField size="small" label="Model" placeholder="e.g. Nissan NV350 Panel Van" value={f.model} onChange={(e) => set("model")(e.target.value)} fullWidth />
       {dateField("COE Expiry Date", f.coeExpiry, set("coeExpiry"))}
       {dateField("Vehicle Lifespan Expiry Date", f.lifespanExpiry, set("lifespanExpiry"))}
+      {dateField("Road tax expiry", f.roadTaxExpiry, set("roadTaxExpiry"))}
+      {dateField("Insurance expiry", f.insuranceExpiry, set("insuranceExpiry"))}
+      {dateField("Inspection due", f.inspectionExpiry, set("inspectionExpiry"))}
       <TextField size="small" label="Notes (optional)" value={f.notes} onChange={(e) => set("notes")(e.target.value)} multiline minRows={2} fullWidth />
     </Shell>
   );
@@ -101,7 +124,7 @@ export function VehicleFormDialog({ open, onClose, vehicle, onDone }: { open: bo
 
 // ------------------------------------------------------------------ driver picker
 
-export function DriverField({ drivers, userId, name, onChange }: { drivers: Driver[]; userId: string | null; name: string; onChange: (v: { userId: string | null; name: string }) => void }) {
+export function DriverField({ drivers, userId, name, onChange, label = "Driver", required = true }: { drivers: Driver[]; userId: string | null; name: string; onChange: (v: { userId: string | null; name: string }) => void; label?: string; required?: boolean }) {
   const value = userId ? drivers.find((d) => d.id === userId) ?? { id: userId, name } : name;
   return (
     <Autocomplete
@@ -115,161 +138,276 @@ export function DriverField({ drivers, userId, name, onChange }: { drivers: Driv
       onInputChange={(_, text, reason) => {
         if (reason === "input") onChange({ userId: null, name: text });
       }}
-      renderInput={(params) => <TextField {...params} label="Assigned driver" helperText="Pick a WCT user, or type a name" required />}
+      renderInput={(params) => <TextField {...params} label={label} helperText="Pick a WCT user, or type a name" required={required} />}
     />
   );
 }
 
-// ------------------------------------------------------------------ usage
+// ------------------------------------------------------------------ log book
 
-export function StartUsageDialog({ open, onClose, vehicle, drivers, onDone }: { open: boolean; onClose: () => void; vehicle: VehicleRow; drivers: Driver[]; onDone: () => void }) {
+/** A receipt / photo / PDF on an entry: upload, show, remove. */
+function AttachmentField({ value, onChange, onBusy }: { value: LogAttachment | null; onChange: (v: LogAttachment | null) => void; onBusy: (b: boolean) => void }) {
+  const { getToken } = useAuth();
+  const { organization } = useOrganization();
+  const [busy, setBusy] = useState(false);
+  const pick = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    onBusy(true);
+    try {
+      const token = await getToken();
+      if (!token || !organization?.id) throw new Error("Not signed in");
+      const up = await uploadFile({ file, folder: `vehicles/${organization.id}/log`, token });
+      onChange({ key: up.fileKey, fileName: up.fileName, mimeType: up.mimeType });
+    } catch (e: any) {
+      toast.error(e?.message ?? "Could not upload the file");
+    } finally {
+      setBusy(false);
+      onBusy(false);
+    }
+  };
+  return (
+    <Box>
+      {value ? (
+        <Stack direction="row" spacing={1} alignItems="center">
+          <AttachFileIcon fontSize="small" color="action" />
+          <Typography variant="body2" sx={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {value.fileName || "Attachment"}
+          </Typography>
+          <IconButton size="small" aria-label="Remove attachment" onClick={() => onChange(null)}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </Stack>
+      ) : (
+        <Button component="label" size="small" variant="outlined" startIcon={busy ? <CircularProgress size={14} /> : <AttachFileIcon />} disabled={busy}>
+          {busy ? "Uploading…" : "Attach receipt / photo / PDF"}
+          <input hidden type="file" accept="image/*,application/pdf" onChange={(e) => void pick(e.target.files?.[0])} />
+        </Button>
+      )}
+    </Box>
+  );
+}
+
+/** "Assign new driver": driver, date, mileage. */
+export function AssignDriverDialog({ open, onClose, vehicle, drivers, onDone }: { open: boolean; onClose: () => void; vehicle: VehicleRow; drivers: Driver[]; onDone: () => void }) {
   const [driver, setDriver] = useState<{ userId: string | null; name: string }>({ userId: null, name: "" });
-  const [startDate, setStartDate] = useState(todayIso());
+  const [date, setDate] = useState(todayIso());
   const [km, setKm] = useState("");
   const s = useSubmit(onDone);
   useEffect(() => {
     if (!open) return;
     s.setError(null);
     setDriver({ userId: null, name: "" });
-    setStartDate(todayIso());
+    setDate(todayIso());
     setKm(vehicle.lastMileage != null ? String(vehicle.lastMileage) : "");
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Shell
       open={open}
       onClose={onClose}
-      title={`Start usage: ${vehicle.vehicleNo}`}
+      title={`Assign new driver: ${vehicle.vehicleNo}`}
       busy={s.busy}
       error={s.error}
-      submitLabel="Start usage"
-      disabled={!driver.name.trim() || !startDate || !km}
-      onSubmit={() =>
-        s.run((t) => vehiclesApi(`/${vehicle.id}/usages/start`, "POST", t, { driverUserId: driver.userId, driverName: driver.name, startDate, startMileage: km }))
-      }
+      submitLabel="Assign driver"
+      disabled={!driver.name.trim() || !date}
+      onSubmit={() => s.run((t) => vehiclesApi(`/${vehicle.id}/log`, "POST", t, { type: "DRIVER", driverUserId: driver.userId, driverName: driver.name, date, mileage: km }))}
     >
+      {vehicle.currentDriver && (
+        <Typography variant="body2" color="text.secondary">
+          Now with {vehicle.currentDriver} since {fmtDate(vehicle.driverSince)}.
+        </Typography>
+      )}
       <DriverField drivers={drivers} userId={driver.userId} name={driver.name} onChange={setDriver} />
-      {dateField("Usage start date", startDate, setStartDate, true)}
-      {kmField("Mileage at start", km, setKm, vehicle.lastMileage != null ? `Last recorded: ${fmtKm(vehicle.lastMileage)}` : undefined)}
+      {dateField("Date", date, setDate, true)}
+      {kmField("Mileage", km, setKm, vehicle.lastMileage != null ? `Last recorded: ${fmtKm(vehicle.lastMileage)}` : "Optional")}
     </Shell>
   );
 }
 
-export function EndUsageDialog({ open, onClose, usage, vehicleNo, onDone }: { open: boolean; onClose: () => void; usage: VehicleUsage | null; vehicleNo: string; onDone: () => void }) {
-  const [endDate, setEndDate] = useState(todayIso());
-  const [km, setKm] = useState("");
+type EntryForm = {
+  type: LogType;
+  date: string;
+  description: string;
+  mileage: string;
+  amount: string;
+  driverUserId: string | null;
+  driverName: string;
+  vendor: string;
+  renewalKind: string;
+  renewalExpiry: string;
+  attachment: LogAttachment | null;
+};
+
+/** "Add log entry" (any type) and Edit (the type stays). */
+export function LogEntryDialog({
+  open,
+  onClose,
+  vehicle,
+  drivers,
+  entry,
+  onDone,
+}: {
+  open: boolean;
+  onClose: () => void;
+  vehicle: VehicleRow & { currentDriverUserId?: string | null };
+  drivers: Driver[];
+  entry?: VehicleLogEntry | null;
+  onDone: () => void;
+}) {
+  const blank = (): EntryForm => ({
+    type: "FUEL",
+    date: todayIso(),
+    description: "",
+    mileage: "",
+    amount: "",
+    driverUserId: vehicle.currentDriverUserId ?? null,
+    driverName: vehicle.currentDriver ?? "",
+    vendor: "",
+    renewalKind: "",
+    renewalExpiry: "",
+    attachment: null,
+  });
+  const [f, setF] = useState<EntryForm>(blank);
+  const [uploading, setUploading] = useState(false);
   const s = useSubmit(onDone);
   useEffect(() => {
     if (!open) return;
     s.setError(null);
-    setEndDate(todayIso());
-    setKm("");
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!usage) return null;
+    setF(
+      entry
+        ? {
+            type: entry.type,
+            date: entry.date,
+            description: entry.description ?? "",
+            mileage: entry.mileage != null ? String(entry.mileage) : "",
+            amount: entry.amount != null ? String(entry.amount) : "",
+            driverUserId: entry.driverUserId,
+            driverName: entry.driverName ?? "",
+            vendor: entry.vendor ?? "",
+            renewalKind: entry.renewalKind ?? "",
+            renewalExpiry: entry.renewalExpiry ?? "",
+            attachment: entry.attachment,
+          }
+        : blank(),
+    );
+  }, [open, entry]); // eslint-disable-line react-hooks/exhaustive-deps
+  const set = <K extends keyof EntryForm>(k: K) => (v: EntryForm[K]) => setF((p) => ({ ...p, [k]: v }));
+  const t = f.type;
+  const missing =
+    !f.date ||
+    (t === "DRIVER" && !f.driverName.trim()) ||
+    (t === "REPAIR" && !f.description.trim() && !f.vendor.trim()) ||
+    (t === "RENEWAL" && !f.renewalKind) ||
+    ((t === "FUEL" || t === "PARKING") && !entry && !f.amount);
+  const body = () => ({
+    type: t,
+    date: f.date,
+    description: f.description,
+    mileage: f.mileage,
+    amount: f.amount,
+    driverUserId: f.driverUserId,
+    driverName: f.driverName,
+    vendor: f.vendor,
+    renewalKind: f.renewalKind,
+    renewalExpiry: f.renewalExpiry,
+    attachment: f.attachment,
+  });
   return (
     <Shell
       open={open}
       onClose={onClose}
-      title={`End usage: ${vehicleNo}`}
-      busy={s.busy}
+      title={entry ? `Edit: ${entry.typeLabel}` : `Add log entry: ${vehicle.vehicleNo}`}
+      busy={s.busy || uploading}
       error={s.error}
-      submitLabel="End usage"
-      disabled={!endDate || !km}
-      onSubmit={() => s.run((t) => vehiclesApi(`/usages/${usage.id}/end`, "POST", t, { endDate, endMileage: km }))}
+      submitLabel={entry ? "Save" : "Add entry"}
+      disabled={missing}
+      onSubmit={() => s.run((tk) => (entry ? vehiclesApi(`/log/${entry.id}`, "PATCH", tk, body()) : vehiclesApi(`/${vehicle.id}/log`, "POST", tk, body())))}
     >
-      <Typography variant="body2" color="text.secondary">
-        {usage.driverName} since {fmtDate(usage.startDate)}, {fmtKm(usage.startMileage)} at start.
-      </Typography>
-      {dateField("Usage end date", endDate, setEndDate, true)}
-      {kmField("Mileage at end", km, setKm)}
-    </Shell>
-  );
-}
-
-export function EditUsageDialog({ open, onClose, usage, drivers, onDone }: { open: boolean; onClose: () => void; usage: VehicleUsage | null; drivers: Driver[]; onDone: () => void }) {
-  const [f, setF] = useState({ userId: null as string | null, name: "", startDate: "", startKm: "", endDate: "", endKm: "" });
-  const s = useSubmit(onDone);
-  useEffect(() => {
-    if (!open || !usage) return;
-    s.setError(null);
-    setF({
-      userId: usage.driverUserId,
-      name: usage.driverName,
-      startDate: usage.startDate,
-      startKm: String(usage.startMileage),
-      endDate: usage.endDate ?? "",
-      endKm: usage.endMileage != null ? String(usage.endMileage) : "",
-    });
-  }, [open, usage]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!usage) return null;
-  return (
-    <Shell
-      open={open}
-      onClose={onClose}
-      title="Edit usage"
-      busy={s.busy}
-      error={s.error}
-      submitLabel="Save"
-      disabled={!f.name.trim() || !f.startDate || !f.startKm}
-      onSubmit={() =>
-        s.run((t) =>
-          vehiclesApi(`/usages/${usage.id}`, "PATCH", t, {
-            driverUserId: f.userId,
-            driverName: f.name,
-            startDate: f.startDate,
-            startMileage: f.startKm,
-            endDate: f.endDate || null,
-            endMileage: f.endKm || null,
-          }),
-        )
-      }
-    >
-      <DriverField drivers={drivers} userId={f.userId} name={f.name} onChange={(d) => setF((p) => ({ ...p, userId: d.userId, name: d.name }))} />
-      {dateField("Usage start date", f.startDate, (v) => setF((p) => ({ ...p, startDate: v })), true)}
-      {kmField("Mileage at start", f.startKm, (v) => setF((p) => ({ ...p, startKm: v })))}
-      {dateField("Usage end date", f.endDate, (v) => setF((p) => ({ ...p, endDate: v })))}
+      <TextField select size="small" label="Type" value={t} onChange={(e) => set("type")(e.target.value as LogType)} disabled={!!entry} fullWidth data-tour="vehicle-log-type">
+        {LOG_TYPES.map((k) => (
+          <MenuItem key={k} value={k}>
+            {LOG_TYPE_LABEL[k]}
+          </MenuItem>
+        ))}
+      </TextField>
+      {dateField("Date", f.date, set("date"), true)}
+      {t === "RENEWAL" && (
+        <>
+          <TextField select size="small" label="Renewed" value={f.renewalKind} onChange={(e) => set("renewalKind")(e.target.value)} required fullWidth>
+            {RENEWAL_KINDS.map((k) => (
+              <MenuItem key={k.key} value={k.key}>
+                {k.label}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            size="small"
+            type="date"
+            label="New expiry date (optional)"
+            value={f.renewalExpiry}
+            onChange={(e) => set("renewalExpiry")(e.target.value)}
+            InputLabelProps={{ shrink: true }}
+            helperText="Also updates this date on the vehicle"
+            fullWidth
+          />
+        </>
+      )}
+      {t === "REPAIR" && <TextField size="small" label="Vendor / workshop" value={f.vendor} onChange={(e) => set("vendor")(e.target.value)} fullWidth />}
       <TextField
         size="small"
-        label="Mileage at end"
-        value={f.endKm}
-        onChange={(e) => setF((p) => ({ ...p, endKm: e.target.value.replace(/[^\d,]/g, "") }))}
-        helperText="Leave the end date and mileage empty while the vehicle is still in use"
+        label={t === "REPAIR" ? "Damage / issue / repair details" : "Description"}
+        value={f.description}
+        onChange={(e) => set("description")(e.target.value)}
+        multiline
+        minRows={t === "REPAIR" ? 3 : 1}
+        required={t === "REPAIR" && !f.vendor.trim()}
         fullWidth
       />
+      <DriverField
+        drivers={drivers}
+        userId={f.driverUserId}
+        name={f.driverName}
+        onChange={(d) => setF((p) => ({ ...p, driverUserId: d.userId, driverName: d.name }))}
+        label={t === "DRIVER" ? "Driver" : "Driver (optional)"}
+        required={t === "DRIVER"}
+      />
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+        {kmField("Mileage (optional)", f.mileage, set("mileage"), vehicle.lastMileage != null ? `Last recorded: ${fmtKm(vehicle.lastMileage)}` : undefined)}
+        {moneyField(t === "FUEL" || t === "PARKING" ? "Amount" : "Amount (optional)", f.amount, set("amount"), (t === "FUEL" || t === "PARKING") && !entry)}
+      </Stack>
+      <AttachmentField value={f.attachment} onChange={set("attachment")} onBusy={setUploading} />
+      {t === "REPAIR" && (
+        <Typography variant="caption" color="text.secondary">
+          An admin approves the repair from the entry&apos;s menu; once approved it is locked.
+        </Typography>
+      )}
     </Shell>
   );
 }
 
-// ------------------------------------------------------------------ repair
-
-export function RepairDialog({ open, onClose, usage, onDone }: { open: boolean; onClose: () => void; usage: VehicleUsage | null; onDone: () => void }) {
-  const [text, setText] = useState("");
+export function DeleteEntryDialog({ open, onClose, entry, onDone }: { open: boolean; onClose: () => void; entry: VehicleLogEntry | null; onDone: () => void }) {
   const s = useSubmit(onDone);
   useEffect(() => {
-    if (!open) return;
-    s.setError(null);
-    setText(usage?.repairDetails ?? "");
-  }, [open, usage]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!usage) return null;
+    if (open) s.setError(null);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!entry) return null;
   return (
-    <Shell
-      open={open}
-      onClose={onClose}
-      title="Log damage or repair"
-      busy={s.busy}
-      error={s.error}
-      submitLabel="Save"
-      onSubmit={() => s.run((t) => vehiclesApi(`/usages/${usage.id}/repair`, "PUT", t, { repairDetails: text }))}
-    >
-      <Typography variant="body2" color="text.secondary">
-        {usage.driverName}, {fmtDate(usage.startDate)}
-        {usage.endDate ? ` to ${fmtDate(usage.endDate)}` : " (in use)"}
+    <Shell open={open} onClose={onClose} title="Delete log entry?" busy={s.busy} error={s.error} submitLabel="Delete" submitColor="error" onSubmit={() => s.run((t) => vehiclesApi(`/log/${entry.id}`, "DELETE", t))}>
+      <Typography variant="body2">
+        {fmtDate(entry.date)} · {entry.typeLabel}
+        {entry.amount != null ? ` · ${fmtMoney(entry.amount)}` : ""}
+        {entry.details ? ` · ${entry.details}` : ""}
       </Typography>
-      <TextField size="small" label="Damage / issue / repair details" value={text} onChange={(e) => setText(e.target.value)} multiline minRows={3} fullWidth autoFocus />
+      <Typography variant="caption" color="text.secondary">
+        It disappears from the log and the totals. The deletion is recorded in the Activity Log.
+      </Typography>
     </Shell>
   );
 }
 
-export function ApproveRepairDialog({ open, onClose, usage, myName, onDone }: { open: boolean; onClose: () => void; usage: VehicleUsage | null; myName: string; onDone: () => void }) {
+// ------------------------------------------------------------------ repair approval
+
+export function ApproveRepairDialog({ open, onClose, entry, myName, onDone }: { open: boolean; onClose: () => void; entry: VehicleLogEntry | null; myName: string; onDone: () => void }) {
   const [by, setBy] = useState("");
   const [date, setDate] = useState(todayIso());
   const s = useSubmit(onDone);
@@ -279,7 +417,7 @@ export function ApproveRepairDialog({ open, onClose, usage, myName, onDone }: { 
     setBy(myName);
     setDate(todayIso());
   }, [open, myName]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!usage) return null;
+  if (!entry) return null;
   return (
     <Shell
       open={open}
@@ -290,10 +428,11 @@ export function ApproveRepairDialog({ open, onClose, usage, myName, onDone }: { 
       submitLabel="Approve"
       submitColor="success"
       disabled={!by.trim() || !date}
-      onSubmit={() => s.run((t) => vehiclesApi(`/usages/${usage.id}/approve`, "POST", t, { approvedBy: by, approvedDate: date }))}
+      onSubmit={() => s.run((t) => vehiclesApi(`/log/${entry.id}/approve`, "POST", t, { approvedBy: by, approvedDate: date }))}
     >
       <Alert severity="info" variant="outlined">
-        {usage.repairDetails}
+        {entry.details}
+        {entry.amount != null ? ` (${fmtMoney(entry.amount)})` : ""}
       </Alert>
       <TextField size="small" label="Repair approved by" value={by} onChange={(e) => setBy(e.target.value)} required fullWidth />
       {dateField("Repair approved date", date, setDate, true)}
@@ -304,7 +443,7 @@ export function ApproveRepairDialog({ open, onClose, usage, myName, onDone }: { 
   );
 }
 
-export function UnlockRepairDialog({ open, onClose, usage, onDone }: { open: boolean; onClose: () => void; usage: VehicleUsage | null; onDone: () => void }) {
+export function UnlockRepairDialog({ open, onClose, entry, onDone }: { open: boolean; onClose: () => void; entry: VehicleLogEntry | null; onDone: () => void }) {
   const [reason, setReason] = useState("");
   const s = useSubmit(onDone);
   useEffect(() => {
@@ -312,7 +451,7 @@ export function UnlockRepairDialog({ open, onClose, usage, onDone }: { open: boo
     s.setError(null);
     setReason("");
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!usage) return null;
+  if (!entry) return null;
   return (
     <Shell
       open={open}
@@ -323,10 +462,10 @@ export function UnlockRepairDialog({ open, onClose, usage, onDone }: { open: boo
       submitLabel="Unlock"
       submitColor="warning"
       disabled={!reason.trim()}
-      onSubmit={() => s.run((t) => vehiclesApi(`/usages/${usage.id}/unlock`, "POST", t, { reason }))}
+      onSubmit={() => s.run((t) => vehiclesApi(`/log/${entry.id}/unlock`, "POST", t, { reason }))}
     >
       <Typography variant="body2">
-        Approved by {usage.repairApprovedBy} on {fmtDate(usage.repairApprovedAt)}. Unlocking removes the approval so the details can be changed; it is recorded with your reason in the Activity Log.
+        Approved by {entry.repairApprovedBy} on {fmtDate(entry.repairApprovedAt)}. Unlocking removes the approval so the entry can be changed; it is recorded with your reason in the Activity Log.
       </Typography>
       <TextField size="small" label="Reason" value={reason} onChange={(e) => setReason(e.target.value)} required multiline minRows={2} fullWidth autoFocus />
     </Shell>
