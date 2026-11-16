@@ -403,11 +403,8 @@ export default function ImportInvoices() {
   return (
     <Box sx={{ p: { xs: 1.5, md: 4 }, width: "100%" }}>
       {/* Header */}
-      <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
+      <Typography variant="h4" sx={{ fontWeight: 700, mb: 3 }}>
         {t("title")}
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        {t("subtitle")}
       </Typography>
 
       {/* Stats Cards */}
