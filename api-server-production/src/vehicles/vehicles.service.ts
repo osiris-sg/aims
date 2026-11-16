@@ -344,7 +344,7 @@ export class VehiclesService {
             body: v.model ?? null,
             entityType: 'vehicle',
             entityId,
-            linkUrl: `/portal/vehicles/${v.id}`,
+            linkUrl: `/portal/assets/vehicles/${v.id}`,
           });
           this.actionLog.system('vehicle-expiry-reminders', 'SEND', 'vehicles', {
             organizationId,

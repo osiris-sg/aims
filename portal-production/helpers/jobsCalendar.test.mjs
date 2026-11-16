@@ -2,7 +2,7 @@
 // 2026-10-30: Dashboard jobs calendar (WCT, enableJobsCalendar): range, colours, cancelled toggle, popup text, banner.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { rangeOf, toCalendarInputs, timeWindow, crewLine, siteclockBanner, KIND_COLOR, CANCELLED_COLOR, badgeTitle, legendTitle, PTW_STATE_COLOR, ptwStateOf, calendarLegendItems, eventClickTarget } from "../components/Dashboard/jobs-calendar/calendarModel.ts";
+import { rangeOf, toCalendarInputs, timeWindow, crewLine, siteclockBanner, KIND_COLOR, CANCELLED_COLOR, badgeTitle, legendTitle, PTW_STATE_COLOR, ptwStateOf, calendarLegendItems, eventClickTarget, wctStateOf, isMiscJob, panelLinks, dayJobsOf, dayOfInstant, wctKindLabel, eventColor } from "../components/Dashboard/jobs-calendar/calendarModel.ts";
 
 const ev = (over = {}) => ({
   id: "aims:1", source: "aims", kind: "delivery", title: "#12 Acme", start: "2026-11-03T02:00:00.000Z", end: "2026-11-03T03:30:00.000Z",
@@ -82,23 +82,23 @@ test("all-day jobs (2026-11-10): only a scheduled AIMS all-day job is draggable,
 // WCT (2026-11-16): colours by PTW, a short legend, a click opens the job.
 test("WCT colours by PTW state: AIMS and SiteClock jobs the same blue, needed amber, approved green, cancelled grey", () => {
   const list = [
-    ev({ id: "a" }),
+    ev({ id: "a", orderNumber: "ORD1" }),
     ev({ id: "sc", kind: "siteclock", source: "siteclock" }),
-    ev({ id: "s", kind: "service", ptw: { status: "NOT_NEEDED", label: "Not needed", remark: null } }),
+    ev({ id: "s", kind: "service", orderNumber: "ORD1", ptw: { status: "NOT_NEEDED", label: "Not needed", remark: null } }),
     ev({ id: "r", ptw: { status: "REQUIRED", label: "Required", remark: null } }),
     ev({ id: "sub", ptw: { status: "SUBMITTED", label: "Submitted", remark: null } }),
     ev({ id: "ok", ptw: { status: "APPROVED", label: "Approved", remark: null } }),
     ev({ id: "x", cancelled: true, ptw: { status: "APPROVED", label: "Approved", remark: null } }),
   ];
   const c = Object.fromEntries(toCalendarInputs(list, true, false, true).map((o) => [o.id, o.backgroundColor]));
-  assert.deepEqual(c, { a: PTW_STATE_COLOR.job, sc: PTW_STATE_COLOR.job, s: PTW_STATE_COLOR.job, r: PTW_STATE_COLOR.needed, sub: PTW_STATE_COLOR.needed, ok: PTW_STATE_COLOR.approved, x: CANCELLED_COLOR });
+  assert.deepEqual(c, { a: PTW_STATE_COLOR.job, sc: PTW_STATE_COLOR.misc, s: PTW_STATE_COLOR.job, r: PTW_STATE_COLOR.needed, sub: PTW_STATE_COLOR.needed, ok: PTW_STATE_COLOR.approved, x: CANCELLED_COLOR });
   assert.equal(ptwStateOf({}), "job");
   // Other orgs keep the source colours.
   assert.equal(toCalendarInputs([ev({ kind: "service", ptw: { status: "APPROVED", label: "Approved", remark: null } })], true)[0].backgroundColor, KIND_COLOR.service);
 });
 
-test("WCT legend: Job, PTW needed, PTW approved, Note (others unchanged)", () => {
-  assert.deepEqual(calendarLegendItems(true).map((l) => l.label), ["Job", "PTW needed", "PTW approved", "Note"]);
+test("WCT legend: Job, Misc job, PTW needed, PTW approved, Note (others unchanged)", () => {
+  assert.deepEqual(calendarLegendItems(true).map((l) => l.label), ["Job", "Misc job", "PTW needed", "PTW approved", "Note"]);
   assert.deepEqual(calendarLegendItems(false).map((l) => l.label), ["Delivery / return", "Service run", "SiteClock job", "Cancelled"]);
 });
 
@@ -108,4 +108,40 @@ test("WCT click: an AIMS job opens its order, else its DO, else the job; a SiteC
   assert.deepEqual(eventClickTarget(ev()), { href: "/portal/deliveries/1", external: false });
   assert.deepEqual(eventClickTarget(ev({ source: "siteclock", href: null, siteclockUrl: "https://siteclock.example/#/jobs/9" })), { href: "https://siteclock.example/#/jobs/9", external: true });
   assert.equal(eventClickTarget(ev({ source: "siteclock", href: null, siteclockUrl: null })), null);
+});
+
+// 2026-11-16: WCT group calendar: Misc job colour, side panel links, "+n more" list, one chip = one job.
+test("WCT Misc job: no order (or a SiteClock job) is purple; PTW colours win; order jobs stay blue; cancelled grey", () => {
+  assert.equal(PTW_STATE_COLOR.misc, "#8e24aa");
+  assert.equal(wctStateOf(ev({ orderNumber: "ORD1" })), "job");
+  assert.equal(wctStateOf(ev()), "misc");
+  assert.equal(wctStateOf(ev({ source: "siteclock", kind: "siteclock", orderNumber: "ORD1" })), "misc");
+  assert.equal(wctStateOf(ev({ ptw: { status: "REQUIRED", label: "Required", remark: null } })), "needed");
+  assert.equal(wctStateOf(ev({ source: "siteclock", ptw: { status: "APPROVED", label: "Approved", remark: null } })), "approved");
+  assert.equal(eventColor(ev({ cancelled: true }), true), CANCELLED_COLOR);
+  assert.equal(isMiscJob(ev({ untagged: true })), true);
+  assert.equal(wctKindLabel(ev()), "Misc job");
+  assert.equal(wctKindLabel(ev({ source: "siteclock", kind: "siteclock" })), "Misc job (SiteClock)");
+  assert.equal(wctKindLabel(ev({ orderNumber: "ORD1" })), "Job");
+  // Other orgs: colours by kind, a job with no order is still the delivery blue.
+  assert.equal(eventColor(ev(), false), KIND_COLOR.delivery);
+  assert.equal(eventColor(ev({ source: "siteclock", kind: "siteclock" }), false), KIND_COLOR.siteclock);
+});
+
+test("WCT panel links: order > DO > job; a SiteClock job only opens in SiteClock", () => {
+  assert.deepEqual(panelLinks(ev({ orderHref: "/portal/orders/o1", doHref: "/d" })).map((l) => l.label), ["Open order", "View DO", "Open job"]);
+  assert.deepEqual(panelLinks(ev()).map((l) => [l.label, l.href]), [["Open job", "/portal/deliveries/1"]]);
+  assert.deepEqual(panelLinks(ev({ source: "siteclock", href: null, siteclockUrl: "https://sc/#/jobs/9" })), [{ label: "Open in SiteClock", href: "https://sc/#/jobs/9", external: true }]);
+  assert.deepEqual(panelLinks(ev({ source: "siteclock", href: null, siteclockUrl: null })), []);
+});
+
+test("a busy day: every chip carries its own job (a click opens that one), and +n more lists the day's jobs once each, notes left out", () => {
+  const day = ["a", "b", "c", "d", "e", "f"].map((id, i) => ev({ id, title: `Job ${id}`, start: `2026-11-03T0${i}:00:00.000Z` }));
+  const inputs = toCalendarInputs(day, false, false, true);
+  assert.deepEqual(inputs.map((i) => i.id), day.map((e) => e.id));
+  for (const i of inputs) assert.equal(i.extendedProps.event.id, i.id);
+  const segs = [...inputs, inputs[2], { event: { extendedProps: { note: { id: "n1" } } } }].map((i) => ("event" in i ? i : { event: { extendedProps: i.extendedProps } }));
+  assert.deepEqual(dayJobsOf(segs).map((e) => e.id), ["a", "b", "c", "d", "e", "f"]);
+  assert.equal(dayOfInstant(new Date("2026-11-16T16:00:00.000Z")), "2026-11-17");
+  assert.equal(dayOfInstant(new Date("2026-11-17T00:00:00.000Z")), "2026-11-17");
 });

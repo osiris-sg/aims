@@ -12,7 +12,7 @@ import { useUiLang } from "@/i18n/UiLangProvider";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
-import { menuOrderOverride, vehiclesNavModule, wctMenuModule } from "@/helpers/wctNav";
+import { menuOrderOverride, assetsNavModule, wctMenuModule } from "@/helpers/wctNav";
 import { canVehicles } from "@/helpers/wctVehicles";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
 import { clientsNavModule, visibleSalesSubmenus, withoutSalesMonthly } from "@/helpers/shipmentsNav";
@@ -190,9 +190,8 @@ export function useNavModules() {
     });
   // Round AM: "Clients" right after Sales for orgs whose menu has the SHIPMENTS module (Sales).
   const sales = built.find((m: any) => m.moduleCode === "SHIPMENTS");
-  // WCT: Vehicles right after Orders (helpers/wctNav.ts), for vehicles:read holders.
-  const orders = built.find((m: any) => m.moduleCode === "ORDERS");
-  const vehicles = isWctVehiclesEnabled && canVehicles(userRoles, hasPermission, "read") ? [vehiclesNavModule(orders ? orderKey(orders) : 0.6)] : [];
+  // WCT: Assets (Vehicles) after Service reports (helpers/wctNav.ts), for vehicles:read holders.
+  const vehicles = isWctVehiclesEnabled && canVehicles(userRoles, hasPermission, "read") ? [assetsNavModule()] : [];
   const navModules = [...built, ...(sales ? [clientsNavModule(lang, orderKey(sales))] : []), ...vehicles].sort((a: any, b: any) => orderKey(a) - orderKey(b));
 
   // Flat list of every screen the user can reach: module roots + submenus +

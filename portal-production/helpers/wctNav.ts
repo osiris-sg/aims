@@ -8,9 +8,13 @@
 
 /** Display-order overrides that win over each module's stored sortOrder. */
 export function menuOrderOverride(isWct: boolean): Record<string, number> {
-  // Sales sits just below Dashboard for every org; WCT's Orders, then Jobs, right after it.
-  return isWct ? { SALES: 0.5, ORDERS: 0.6, DELIVERIES: 0.7 } : { SALES: 0.5 };
+  // Sales sits just below Dashboard for every org. WCT group (2026-11-16): Orders,
+  // Jobs, Service reports, then Assets (ASSETS_ORDER) and Inventory.
+  return isWct ? { SALES: 0.5, ORDERS: 0.6, DELIVERIES: 0.7, MAINTENANCE: 0.75, INVENTORY: 0.85 } : { SALES: 0.5 };
 }
+
+/** Where the WCT Assets entry sits: after Service reports, before Inventory. */
+export const ASSETS_ORDER = 0.8;
 
 /** The menu entry as WCT reads it: DELIVERIES is "Jobs". Other orgs: the module as stored. */
 export function wctMenuModule<M extends { moduleCode?: string; displayName?: string }>(m: M, isWct: boolean): M {
@@ -18,19 +22,24 @@ export function wctMenuModule<M extends { moduleCode?: string; displayName?: str
 }
 
 /**
- * WCT Vehicles (enableWctVehicles, 2026-11-12): a menu entry of its own right
- * after Orders, shown to users holding vehicles:read. Not a stored module, so
- * no org needs a module row for it.
+ * WCT Assets (enableWctVehicles, 2026-11-16): a menu entry after Service
+ * reports with Vehicles as its sub tab (Vehicles was its own entry from
+ * 2026-11-12; /portal/vehicles now redirects here). Shown to users holding
+ * vehicles:read. Not a stored module, so no org needs a module row for it.
  */
-export const VEHICLES_PATH = "/portal/vehicles";
-export function vehiclesNavModule(afterSortOrder: number) {
+export const ASSETS_PATH = "/portal/assets/vehicles";
+export const VEHICLES_PATH = "/portal/assets/vehicles";
+export const vehicleHref = (id: string) => `${VEHICLES_PATH}/${encodeURIComponent(id)}`;
+export const vehicleEditHref = (id: string) => `${vehicleHref(id)}/edit`;
+export const VEHICLE_NEW_PATH = `${VEHICLES_PATH}/new`;
+export function assetsNavModule(sortOrder: number = ASSETS_ORDER) {
   return {
-    moduleCode: "VEHICLES",
-    displayName: "Vehicles",
+    moduleCode: "VEHICLES", // the Guide matches its vehicle guides on this code
+    displayName: "Assets",
     enabled: true,
     icon: "LocalShipping",
-    sortOrder: afterSortOrder + 0.05,
-    config: { route: VEHICLES_PATH },
+    sortOrder,
+    config: { route: ASSETS_PATH, subMenus: [{ key: "vehicles", label: "Vehicles", href: VEHICLES_PATH }] },
   };
 }
 

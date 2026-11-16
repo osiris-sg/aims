@@ -12,7 +12,8 @@ import { useOrganization } from "@hooks/useOrganization";
 import { LOG_TYPES, LOG_TYPE_LABEL, RENEWAL_KINDS, fmtDate, fmtKm, fmtMoney, vehiclesApi, type LogAttachment, type LogType, type VehicleLogEntry, type VehicleRow } from "@/helpers/wctVehicles";
 
 /**
- * Every Vehicles form (2026-11-12; log book 2026-11-16). Each dialog posts one
+ * The log book pop-ups (2026-11-12; log book 2026-11-16; add / edit vehicle is a
+ * full page since 2026-11-16, VehicleForm.tsx). Each dialog posts one
  * request and hands the result back through onDone; mileage that goes backwards
  * still saves and the server's warnings show as toasts so the reading can be
  * checked; a renewal that moved an expiry date says so.
@@ -78,49 +79,6 @@ const kmField = (label: string, value: string, onChange: (v: string) => void, he
 const moneyField = (label: string, value: string, onChange: (v: string) => void, required = false) => (
   <TextField size="small" label={label} value={value} onChange={(e) => onChange(e.target.value.replace(/[^\d.,]/g, ""))} inputProps={{ inputMode: "decimal" }} InputProps={{ startAdornment: <Typography variant="body2" color="text.secondary" sx={{ mr: 0.5 }}>S$</Typography> }} required={required} fullWidth />
 );
-
-// ------------------------------------------------------------------ vehicle
-
-export function VehicleFormDialog({ open, onClose, vehicle, onDone }: { open: boolean; onClose: () => void; vehicle?: VehicleRow | null; onDone: (v: VehicleRow) => void }) {
-  const [f, setF] = useState({ vehicleNo: "", model: "", coeExpiry: "", lifespanExpiry: "", roadTaxExpiry: "", insuranceExpiry: "", inspectionExpiry: "", notes: "" });
-  const s = useSubmit(onDone);
-  useEffect(() => {
-    if (!open) return;
-    s.setError(null);
-    setF({
-      vehicleNo: vehicle?.vehicleNo ?? "",
-      model: vehicle?.model ?? "",
-      coeExpiry: vehicle?.coeExpiry ?? "",
-      lifespanExpiry: vehicle?.lifespanExpiry ?? "",
-      roadTaxExpiry: vehicle?.roadTaxExpiry ?? "",
-      insuranceExpiry: vehicle?.insuranceExpiry ?? "",
-      inspectionExpiry: vehicle?.inspectionExpiry ?? "",
-      notes: vehicle?.notes ?? "",
-    });
-  }, [open, vehicle]); // eslint-disable-line react-hooks/exhaustive-deps
-  const set = (k: keyof typeof f) => (v: string) => setF((p) => ({ ...p, [k]: v }));
-  return (
-    <Shell
-      open={open}
-      onClose={onClose}
-      title={vehicle ? `Edit ${vehicle.vehicleNo}` : "Add vehicle"}
-      busy={s.busy}
-      error={s.error}
-      submitLabel={vehicle ? "Save" : "Add vehicle"}
-      disabled={!f.vehicleNo.trim()}
-      onSubmit={() => s.run((t) => (vehicle ? vehiclesApi(`/${vehicle.id}`, "PATCH", t, f) : vehiclesApi("", "POST", t, f)))}
-    >
-      <TextField size="small" label="Vehicle / Lorry No." placeholder="e.g. GBD1126U" value={f.vehicleNo} onChange={(e) => set("vehicleNo")(e.target.value)} required fullWidth />
-      <TextField size="small" label="Model" placeholder="e.g. Nissan NV350 Panel Van" value={f.model} onChange={(e) => set("model")(e.target.value)} fullWidth />
-      {dateField("COE Expiry Date", f.coeExpiry, set("coeExpiry"))}
-      {dateField("Vehicle Lifespan Expiry Date", f.lifespanExpiry, set("lifespanExpiry"))}
-      {dateField("Road tax expiry", f.roadTaxExpiry, set("roadTaxExpiry"))}
-      {dateField("Insurance expiry", f.insuranceExpiry, set("insuranceExpiry"))}
-      {dateField("Inspection due", f.inspectionExpiry, set("inspectionExpiry"))}
-      <TextField size="small" label="Notes (optional)" value={f.notes} onChange={(e) => set("notes")(e.target.value)} multiline minRows={2} fullWidth />
-    </Shell>
-  );
-}
 
 // ------------------------------------------------------------------ driver picker
 

@@ -127,6 +127,24 @@ describe('jobs calendar merge', () => {
     expect(day).toMatchObject({ allDay: true, start: '2026-11-03', end: null, completed: true, statusLabel: 'Done' });
   });
 
+  it('a SiteClock-assigned job shows once on every sync (listed twice, re-fetched); no order, read only (no AIMS page)', () => {
+    const sc = [scJob({ id: 'm1' }), scJob({ id: 'm1' })];
+    const first = buildCalendarEvents([], [], sc);
+    const again = buildCalendarEvents([], [], sc);
+    expect(first.map((e) => e.id)).toEqual(['sc:m1']);
+    expect(again).toEqual(first);
+    expect(first[0]).toMatchObject({ source: 'siteclock', href: null, deliveryNumber: null });
+    expect(first[0].orderNumber).toBeUndefined();
+  });
+
+  it('jobs AIMS pushed to SiteClock never come back as SiteClock (misc) jobs, whatever their generation', () => {
+    const links = [{ deliveryId: D1, workerName: 'Ali', durationMin: 60, externalRef: `aims-delivery:${D1}:3` }];
+    const sc = [1, 2, 3].map((g) => scJob({ id: `g${g}`, source: 'external', externalRef: g === 1 ? `aims-delivery:${D1}` : `aims-delivery:${D1}:${g}` }));
+    const ev = buildCalendarEvents([run({ order: { id: 'o1', orderNumber: 'ORD1' } })], links, sc);
+    expect(ev.map((e) => e.id)).toEqual([`aims:${D1}`]);
+    expect(ev[0].orderNumber).toBe('ORD1');
+  });
+
   it("a run's DO: completed DO → Completed, voided DO → Cancelled, no DO → nothing", () => {
     const dl = (deliveryOrder: any) => buildCalendarEvents([run({ deliveryOrder })], [], null)[0];
     expect(dl({ id: 'd', name: 'DO202610007', status: 'delivered_installed', templateId: 't', cancelled: false })).toMatchObject({ doNumber: 'DO202610007', doTag: 'Completed' });

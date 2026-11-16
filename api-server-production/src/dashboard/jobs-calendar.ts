@@ -10,7 +10,8 @@
  *    worker is the SiteClock planned worker, and the AIMS rider once claimed.
  *  - SiteClock jobs AIMS created (externalRef "aims-delivery:…") never show on
  *    their own: their crew and arrive / leave times merge onto the AIMS event.
- *  - Every other SiteClock job is its own event.
+ *  - Every other SiteClock job is its own event, once (WCT shows it as a Misc
+ *    job: no order; read only in AIMS, it opens in SiteClock).
  *  - An AIMS run's popup carries its DO number, the DO's Pending / Completed /
  *    Cancelled tag and the office DO page (WCT real DO numbers, 2026-10-30).
  *  - A job of a WCT order (enableWctOrders, 2026-11-01) leads its title with
@@ -215,7 +216,11 @@ export function buildCalendarEvents(runs: CalendarRun[], links: CalendarLink[], 
   const aimsJobs = new Map<string, CalendarSiteClockJob[]>();
   const events: CalendarEvent[] = [];
 
+  const seenSc = new Set<string>();
   for (const j of siteclockJobs ?? []) {
+    // Each SiteClock job once, however often SiteClock lists it (2026-11-16).
+    if (seenSc.has(j.id)) continue;
+    seenSc.add(j.id);
     const deliveryId = deliveryIdOfRef(j.externalRef);
     if (deliveryId) {
       // AIMS-created: merged onto the run below, never shown twice.

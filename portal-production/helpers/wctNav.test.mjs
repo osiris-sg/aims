@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { JOB_TABS, jobsHref, jobsTab, menuOrderOverride, ordersTabRedirect, verifiedText, wctMenuModule, ORDER_JOB_STATE_LABEL, orderJobStateColor } from "./wctNav.ts";
+import { JOB_TABS, jobsHref, jobsTab, menuOrderOverride, assetsNavModule, ASSETS_ORDER, VEHICLES_PATH, vehicleHref, vehicleEditHref, VEHICLE_NEW_PATH, ordersTabRedirect, verifiedText, wctMenuModule, ORDER_JOB_STATE_LABEL, orderJobStateColor } from "./wctNav.ts";
 import { jobLabel, runTitle, runWords } from "./jobWording.ts";
 import { calendarLegendItems, kindLabel } from "../components/Dashboard/jobs-calendar/calendarModel.ts";
 
@@ -18,7 +18,7 @@ test("menu: WCT reads Dashboard, Sales, Orders, Jobs (the Deliveries module rena
       .sort((a, b) => (o[a[0]] ?? a[1]) - (o[b[0]] ?? b[1]))
       .map(([c]) => wctMenuModule({ moduleCode: c, displayName: c === "DELIVERIES" ? "Deliveries" : c }, isWct).displayName);
   };
-  assert.deepEqual(menu(true).slice(0, 5), ["DASHBOARD", "SALES", "ORDERS", "Jobs", "INVENTORY"]);
+  assert.deepEqual(menu(true).slice(0, 6), ["DASHBOARD", "SALES", "ORDERS", "Jobs", "MAINTENANCE", "INVENTORY"]);
   assert.equal(menu(true).filter((n) => n === "Jobs" || n === "Deliveries").length, 1); // one entry, no duplicate
   assert.deepEqual(menu(false).slice(0, 4), ["DASHBOARD", "SALES", "INVENTORY", "Deliveries"]);
   assert.deepEqual(menuOrderOverride(false), { SALES: 0.5 });
@@ -62,8 +62,10 @@ test("calendar: WCT's legend says Job (not Job / return), popup kind Job; others
   assert.equal(kindLabel("delivery", false), "Delivery");
   assert.equal(kindLabel("service", true), "Service run");
   const view = read("components/Dashboard/jobs-calendar/CalendarView.tsx");
-  // 2026-11-16: on desktop a WCT click opens the job (order / DO / SiteClock); the card is on hover.
-  assert.match(view, /if \(openOnClick && !touch\) \{\s+const t = eventClickTarget\(e\);/);
+  // 2026-11-16 (later): a WCT click or tap opens the job in the side panel (no hover card); other orgs keep the pop-over.
+  assert.match(view, /if \(openOnClick\) return setPanel\(\{ event: e, day: null \}\);/);
+  assert.doesNotMatch(view, /eventMouseEnter|<Popper/);
+  assert.match(view, /setOpen\(\{ pos: \{ left: arg\.jsEvent\.clientX, top: arg\.jsEvent\.clientY \}, event: e \}\);/);
   assert.match(view, /jobWords \? "Open job" : "Open delivery"/);
 });
 
@@ -92,4 +94,50 @@ test("screens: Orders is one list (title, then status tabs, then table); Jobs is
   assert.match(read("app/portal/documents/[type]/[id]/[documentId]/page.tsx"), /Order \{linkedOrder\.orderNumber\} created/);
   assert.match(read("app/portal/sales/components/SalesDocumentList.tsx"), /Order \{row\.original\.linkedOrder\.orderNumber\}/);
   assert.match(read("app/portal/deliveries/[id]/page.tsx"), /runTitle\(w, run\.deliveryNumber\)/);
+});
+
+// 2026-11-16: WCT group nav: Orders, Jobs, Service reports, Assets, Inventory; Vehicles under Assets.
+test("menu (WCT group): Orders, Jobs, Service reports, Assets, Inventory; other orgs unchanged", () => {
+  const stored = { DASHBOARD: 0, INVENTORY: 1, DELIVERIES: 2, SALES: 3, CUSTOMERS: 4, ORDERS: 5, SUPPLIERS: 5, MAINTENANCE: 5, USER_MANAGEMENT: 5, ACCOUNTING: 7 };
+  const menu = (isWct, withAssets) => {
+    const o = menuOrderOverride(isWct);
+    const mods = Object.entries(stored).map(([c, n]) => ({ moduleCode: c, sortOrder: n, displayName: c }));
+    if (withAssets) mods.push(assetsNavModule());
+    return mods.sort((a, b) => (o[a.moduleCode] ?? a.sortOrder) - (o[b.moduleCode] ?? b.sortOrder)).map((m) => wctMenuModule(m, isWct).displayName);
+  };
+  assert.deepEqual(menu(true, true).slice(1, 7), ["SALES", "ORDERS", "Jobs", "MAINTENANCE", "Assets", "INVENTORY"]);
+  // Racking / BC Air: no vehicles flag, so no Assets entry; the rest in the same order.
+  assert.deepEqual(menu(true, false).slice(1, 6), ["SALES", "ORDERS", "Jobs", "MAINTENANCE", "INVENTORY"]);
+  // Every other org: exactly as before this change.
+  assert.deepEqual(menu(false, false), ["DASHBOARD", "SALES", "INVENTORY", "DELIVERIES", "CUSTOMERS", "ORDERS", "SUPPLIERS", "MAINTENANCE", "USER_MANAGEMENT", "ACCOUNTING"]);
+  assert.equal(ASSETS_ORDER > menuOrderOverride(true).MAINTENANCE && ASSETS_ORDER < menuOrderOverride(true).INVENTORY, true);
+});
+
+test("Assets entry: Vehicles sub tab; vehicle routes under /portal/assets/vehicles; old /portal/vehicles pages redirect", () => {
+  const m = assetsNavModule();
+  assert.equal(m.displayName, "Assets");
+  assert.deepEqual(m.config.subMenus, [{ key: "vehicles", label: "Vehicles", href: "/portal/assets/vehicles" }]);
+  assert.equal(VEHICLES_PATH, "/portal/assets/vehicles");
+  assert.equal(vehicleHref("v1"), "/portal/assets/vehicles/v1");
+  assert.equal(vehicleEditHref("v1"), "/portal/assets/vehicles/v1/edit");
+  assert.equal(VEHICLE_NEW_PATH, "/portal/assets/vehicles/new");
+  assert.match(read("app/portal/vehicles/page.tsx"), /redirect\(VEHICLES_PATH\)/);
+  assert.match(read("app/portal/vehicles/[id]/page.tsx"), /redirect\(vehicleHref\(params\.id\)\)/);
+  // The Assets entry is only added with the vehicles flag (top bar and sidebar).
+  assert.match(read("components/TopNav/useNavModules.ts"), /isWctVehiclesEnabled && canVehicles\(userRoles, hasPermission, "read"\) \? \[assetsNavModule\(\)\]/);
+  assert.match(read("components/Sidebar/DynamicSidebarContent.tsx"), /isWctVehiclesEnabled && canVehicles\(userRoles, hasPermission, 'read'\) \? \[assetsNavModule\(\) as any\]/);
+});
+
+test("Vehicles: no row menu or edit pop-up on the list; Edit and Add are full pages; Archive / Restore on the edit page", () => {
+  const list = read("app/portal/assets/vehicles/page.tsx");
+  assert.doesNotMatch(list, /MoreVert|<Menu|VehicleFormDialog/);
+  assert.match(list, /router\.push\(VEHICLE_NEW_PATH\)/);
+  const page = read("app/portal/assets/vehicles/[id]/page.tsx");
+  assert.doesNotMatch(page, /VehicleFormDialog/);
+  assert.match(page, /router\.push\(vehicleEditHref\(v\.id\)\)/);
+  const form = read("app/portal/assets/vehicles/_components/VehicleForm.tsx");
+  assert.match(form, /Archive/);
+  assert.match(form, /Restore/);
+  assert.doesNotMatch(form, /<Dialog/);
+  assert.doesNotMatch(read("app/portal/assets/vehicles/_components/VehicleDialogs.tsx"), /VehicleFormDialog/);
 });

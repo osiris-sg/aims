@@ -47,7 +47,7 @@ import { usePathname } from "next/navigation";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
-import { menuOrderOverride, vehiclesNavModule, wctMenuModule } from "@/helpers/wctNav";
+import { menuOrderOverride, assetsNavModule, wctMenuModule } from "@/helpers/wctNav";
 import { canVehicles } from "@/helpers/wctVehicles";
 import { getListRouteFromPathname } from "@/app/portal/components/documentRoutes";
 import { useSidebar } from "./SidebarContext";
@@ -283,9 +283,8 @@ export default function DynamicSidebarContent() {
     ;
   // Round AM: "Clients" right after Sales for orgs whose menu has the SHIPMENTS module (same rule as the top bar).
   const salesModule = builtModules.find((m: any) => m.moduleCode === 'SHIPMENTS');
-  // WCT: Vehicles right after Orders (helpers/wctNav.ts), for vehicles:read holders.
-  const ordersModule = builtModules.find((m: any) => m.moduleCode === 'ORDERS');
-  const vehiclesModule = isWctVehiclesEnabled && canVehicles(userRoles, hasPermission, 'read') ? [vehiclesNavModule(ordersModule ? orderKey(ordersModule) : 0.6) as any] : [];
+  // WCT: Assets (Vehicles) after Service reports (helpers/wctNav.ts), for vehicles:read holders.
+  const vehiclesModule = isWctVehiclesEnabled && canVehicles(userRoles, hasPermission, 'read') ? [assetsNavModule() as any] : [];
   const enabledModules = [...builtModules, ...(salesModule ? [clientsNavModule(navLang, orderKey(salesModule)) as any] : []), ...vehiclesModule]
     .sort((a, b) => orderKey(a) - orderKey(b));
 

@@ -8,7 +8,7 @@ export const ROUTES = {
   EDIT_ASSET: "/portal/assets/edit",
 
   // WCT vehicles (enableWctVehicles): the register and one vehicle's usage log.
-  VEHICLES: "/portal/vehicles",
+  VEHICLES: "/portal/assets/vehicles",
 
   INVENTORY: "/portal/inventory",
   INVENTORY_PRODUCTS: "/portal/inventory/products",

@@ -7,11 +7,14 @@
 // WCT calendar add (2026-11-04, canAdd): a click on an empty day / slot offers
 // "Job" or "Note"; notes are slim neutral chips listed above the jobs; job chips
 // show a PTW badge and an "Untagged" mark.
-// WCT (openOnClick, 2026-11-16): colours by PTW state; the details card shows on
-// HOVER (desktop) or on a tap (touch screens); a click opens the job at once (an
-// AIMS job: its order, else its DO; a SiteClock job: in SiteClock).
+// WCT (openOnClick, 2026-11-16): colours by PTW state and order (purple = Misc
+// job, no order). A click or tap opens the job's details in a panel on the right
+// (links order > DO > job; a SiteClock job opens in SiteClock); it stays open
+// until closed or another job is clicked. "+n more" lists that day's jobs in the
+// panel. (Replaced the hover card, whose card covered the chips below it, so a
+// click there opened the hovered job instead of the one under the pointer.)
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
@@ -19,15 +22,16 @@ import luxonPlugin from "@fullcalendar/luxon3";
 import interactionPlugin, { type DateClickArg } from "@fullcalendar/interaction";
 import type { DatesSetArg, EventClickArg, EventContentArg, EventDropArg } from "@fullcalendar/core";
 import JobFieldIcon from "@/components/jobFields/JobFieldIcon";
-import { Box, Button, Chip, Divider, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Popover, Popper, Stack, Typography } from "@mui/material";
+import { Box, Button, Chip, Divider, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Popover, Stack, Typography } from "@mui/material";
+import CloseIcon from "@mui/icons-material/Close";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import WorkOutlineIcon from "@mui/icons-material/WorkOutline";
 import StickyNote2OutlinedIcon from "@mui/icons-material/StickyNote2Outlined";
 import { noteToCalendarInput, ptwColor, slotOf, type CalendarNote } from "@/helpers/calendarAdd";
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
-import { CALENDAR_TZ, badgeTitle, crewLine, eventClickTarget, eventColor, kindLabel, timeWindow, toCalendarInputs, ymdOf, type CalendarEvent } from "./calendarModel";
-import { useRouter } from "next/navigation";
+import { CALENDAR_TZ, badgeTitle, crewLine, dayJobsOf, dayOfInstant, eventColor, kindLabel, panelLinks, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent } from "./calendarModel";
 import DoStatusTag from "@/components/DoStatusTag";
 
 interface Props {
@@ -39,7 +43,7 @@ interface Props {
   initialView?: "dayGridMonth" | "timeGridWeek" | "timeGridDay";
   /** WCT (enableWctOrders): "Job" wording. */
   jobWords?: boolean;
-  /** WCT: clicking a job opens its page (no card), when it has one. */
+  /** WCT: a click opens the job in the side panel; "+n more" lists the day there. */
   openOnClick?: boolean;
   /** WCT: the calendar is the whole dashboard, so it fills the screen. */
   fullHeight?: boolean;
@@ -68,22 +72,11 @@ export default function CalendarView({
   onMove,
 }: Props) {
   const theme = useTheme();
-  const router = useRouter();
   const [viewType, setViewType] = useState<string>(initialView);
   const [open, setOpen] = useState<{ pos: { left: number; top: number }; event: CalendarEvent } | null>(null);
   const [addMenu, setAddMenu] = useState<{ pos: { left: number; top: number }; slot: { date: string; time: string } } | null>(null);
-  // WCT: the hover card (desktop). A touch screen has no hover, so a tap shows the card instead.
-  const [hover, setHover] = useState<{ el: HTMLElement; event: CalendarEvent } | null>(null);
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [touch, setTouch] = useState(false);
-  useEffect(() => {
-    setTouch(typeof window !== "undefined" && !!window.matchMedia?.("(hover: none)").matches);
-  }, []);
-  const keepHover = () => hideTimer.current && clearTimeout(hideTimer.current);
-  const dropHover = () => {
-    keepHover();
-    hideTimer.current = setTimeout(() => setHover(null), 150);
-  };
+  // WCT: the side panel: one job, or a day's jobs ("+n more"; a job picked from it keeps the way back).
+  const [panel, setPanel] = useState<{ event: CalendarEvent | null; day: { date: string; events: CalendarEvent[] } | null } | null>(null);
   // Notes first on each day (displayOrder 0), then the jobs.
   const inputs = useMemo(
     () => [...(notes ?? []).map(noteToCalendarInput), ...toCalendarInputs(events, showCancelled, !!onMove, openOnClick).map((i) => ({ ...i, displayOrder: 1 }))],
@@ -99,13 +92,8 @@ export default function CalendarView({
     const note = arg.event.extendedProps.note as CalendarNote | undefined;
     if (note) return onNoteClick?.(note);
     const e = arg.event.extendedProps.event as CalendarEvent;
-    // WCT on desktop: the click opens the job at once (the card is on hover). On a touch screen the tap shows the card.
-    if (openOnClick && !touch) {
-      const t = eventClickTarget(e);
-      setHover(null);
-      if (t?.external) return void window.open(t.href, "_blank", "noopener,noreferrer");
-      if (t) return router.push(t.href);
-    }
+    // WCT: the clicked job, in the panel (desktop and touch alike).
+    if (openOnClick) return setPanel({ event: e, day: null });
     setOpen({ pos: { left: arg.jsEvent.clientX, top: arg.jsEvent.clientY }, event: e });
   };
 
@@ -144,6 +132,8 @@ export default function CalendarView({
         "& .fc .fc-col-header-cell-cushion, & .fc .fc-daygrid-day-number": { color: "text.primary", textDecoration: "none" },
         "& .fc a": { color: "inherit" },
         "& .aims-jc-event": { cursor: "pointer" },
+        // WCT: "+n more" lists the day in the side panel, not FullCalendar's own pop-over.
+        ...(openOnClick ? { "& .fc-more-popover": { display: "none" } } : {}),
         ...(canAdd ? { "& .fc-daygrid-day, & .fc-timegrid-slot-lane": { cursor: "copy" } } : {}),
         "& .aims-jc-completed": { opacity: 0.5 },
         // Notes: one slim neutral chip, not a full bar.
@@ -174,17 +164,14 @@ export default function CalendarView({
         eventTimeFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
         events={inputs}
         eventClick={onClick}
-        eventMouseEnter={
-          openOnClick && !touch
+        moreLinkClick={
+          openOnClick
             ? (arg) => {
-                const ev = arg.event.extendedProps.event as CalendarEvent | undefined;
-                if (!ev) return;
-                keepHover();
-                setHover({ el: arg.el, event: ev });
+                setPanel({ event: null, day: { date: dayOfInstant(arg.date), events: dayJobsOf(arg.allSegs as any) } });
+                return undefined;
               }
             : undefined
         }
-        eventMouseLeave={openOnClick && !touch ? () => dropHover() : undefined}
         eventDrop={onMove ? onDrop : undefined}
         eventAllow={(drop) => drop.allDay}
         // Custom job fields: the job's icons after its time + title (default rendering otherwise).
@@ -219,12 +206,16 @@ export default function CalendarView({
         }}
       />
 
-      {/* WCT: the details card on hover (stays while the pointer is on it). */}
-      <Popper open={!!hover} anchorEl={hover?.el} placement="bottom-start" sx={{ zIndex: 1300 }} modifiers={[{ name: "offset", options: { offset: [0, 6] } }]}>
-        <Paper elevation={6} onMouseEnter={keepHover} onMouseLeave={dropHover} sx={{ maxWidth: 360, p: 2 }} data-tour="jobs-calendar-hover-card">
-          {hover && <EventCard event={hover.event} jobWords={jobWords} byPtw={openOnClick} />}
-        </Paper>
-      </Popper>
+      {/* WCT: the details panel on the right (stays until closed or another job is clicked). */}
+      {openOnClick && panel && (
+        <JobPanel
+          panel={panel}
+          jobWords={jobWords}
+          onPick={(event) => setPanel((p) => ({ event, day: p?.day ?? null }))}
+          onBack={() => setPanel((p) => (p?.day ? { event: null, day: p.day } : null))}
+          onClose={() => setPanel(null)}
+        />
+      )}
 
       <Popover
         open={!!open}
@@ -283,12 +274,13 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 function EventCard({ event: e, jobWords, byPtw = false }: { event: CalendarEvent; jobWords: boolean; byPtw?: boolean }) {
   const color = eventColor(e, byPtw);
+  const links = byPtw ? panelLinks(e) : null;
   return (
     <Box>
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
         <Box sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: color, flexShrink: 0 }} />
         <Typography variant="caption" color="text.secondary">
-          {kindLabel(e.kind, jobWords)}
+          {byPtw ? wctKindLabel(e) : kindLabel(e.kind, jobWords)}
         </Typography>
       </Stack>
       <Typography variant="subtitle1" sx={{ fontWeight: 600, lineHeight: 1.3, mb: 1, textDecoration: e.cancelled ? "line-through" : "none" }}>
@@ -355,7 +347,21 @@ function EventCard({ event: e, jobWords, byPtw = false }: { event: CalendarEvent
         </Row>
       )}
       <Divider sx={{ my: 1.5 }} />
-      {e.href ? (
+      {links ? (
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          {links.map((l, i) =>
+            l.external ? (
+              <Button key={l.label} href={l.href} target="_blank" rel="noopener noreferrer" size="small" variant="outlined" endIcon={<OpenInNewIcon fontSize="small" />}>
+                {l.label}
+              </Button>
+            ) : (
+              <Button key={l.label} component={Link} href={l.href} size="small" variant={i === 0 ? "contained" : "outlined"} disableElevation>
+                {l.label}
+              </Button>
+            ),
+          )}
+        </Stack>
+      ) : e.href ? (
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           <Button component={Link} href={e.href} size="small" variant="contained" disableElevation>
             {jobWords ? "Open job" : "Open delivery"}
@@ -377,5 +383,76 @@ function EventCard({ event: e, jobWords, byPtw = false }: { event: CalendarEvent
         </Button>
       ) : null}
     </Box>
+  );
+}
+
+const panelDay = (date: string) => new Intl.DateTimeFormat("en-SG", { timeZone: CALENDAR_TZ, weekday: "short", day: "numeric", month: "short" }).format(new Date(`${date}T12:00:00+08:00`));
+const chipTime = (e: CalendarEvent) => (e.allDay ? "All day" : new Intl.DateTimeFormat("en-SG", { timeZone: CALENDAR_TZ, hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(e.start)).toLowerCase());
+
+/** WCT: the side panel. One job's details, or a day's jobs ("+n more") to pick from. */
+function JobPanel({
+  panel,
+  jobWords,
+  onPick,
+  onBack,
+  onClose,
+}: {
+  panel: { event: CalendarEvent | null; day: { date: string; events: CalendarEvent[] } | null };
+  jobWords: boolean;
+  onPick: (e: CalendarEvent) => void;
+  onBack: () => void;
+  onClose: () => void;
+}) {
+  const { event, day } = panel;
+  return (
+    <Paper
+      elevation={8}
+      square
+      data-tour="jobs-calendar-panel"
+      sx={{
+        position: "fixed",
+        top: { xs: 56, sm: 64 },
+        right: 0,
+        bottom: 0,
+        width: { xs: "100%", sm: 380 },
+        zIndex: (t) => t.zIndex.drawer + 1,
+        display: "flex",
+        flexDirection: "column",
+        borderLeft: 1,
+        borderColor: "divider",
+      }}
+    >
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
+        {event && day && (
+          <IconButton size="small" aria-label="Back" onClick={onBack}>
+            <ArrowBackIcon fontSize="small" />
+          </IconButton>
+        )}
+        <Typography variant="subtitle1" sx={{ fontWeight: 600, flex: 1 }}>
+          {event ? (jobWords ? "Job" : "Delivery") : day ? panelDay(day.date) : ""}
+        </Typography>
+        <IconButton size="small" aria-label="Close" onClick={onClose}>
+          <CloseIcon fontSize="small" />
+        </IconButton>
+      </Stack>
+      <Box sx={{ p: 2, overflowY: "auto", flex: 1 }}>
+        {event ? (
+          <EventCard event={event} jobWords={jobWords} byPtw />
+        ) : day ? (
+          <List dense disablePadding>
+            {day.events.map((e) => (
+              <ListItemButton key={e.id} onClick={() => onPick(e)} sx={{ borderRadius: 1, alignItems: "flex-start" }}>
+                <Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: eventColor(e, true), mt: 0.75, mr: 1.25, flexShrink: 0 }} />
+                <ListItemText
+                  primary={e.title}
+                  secondary={`${chipTime(e)} · ${e.statusLabel}`}
+                  primaryTypographyProps={{ sx: { fontWeight: 500, textDecoration: e.cancelled ? "line-through" : "none", wordBreak: "break-word" } }}
+                />
+              </ListItemButton>
+            ))}
+          </List>
+        ) : null}
+      </Box>
+    </Paper>
   );
 }

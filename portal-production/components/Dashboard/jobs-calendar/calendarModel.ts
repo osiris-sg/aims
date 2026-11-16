@@ -94,26 +94,36 @@ export const KIND_COLOR: Record<EventKind, string> = {
 };
 export const CANCELLED_COLOR = "#9e9e9e";
 
-// WCT (jobWords, 2026-11-16): colours by PTW, not by source. An AIMS job and a
-// SiteClock job are the same "Job" blue; a job whose PTW is still needed
-// (required or submitted) is amber; an approved PTW is green. Notes are one
-// neutral slim chip (calendarAdd.ts).
-export type PtwState = "job" | "needed" | "approved";
-export const PTW_STATE_COLOR: Record<PtwState, string> = { job: "#1e88e5", needed: "#f9a825", approved: "#2e7d32" };
+// WCT (jobWords, 2026-11-16): colours by PTW and order, not by source. A job of
+// an order is "Job" blue; a job with no order (a quick job not linked yet, or a
+// job made / assigned in SiteClock) is "Misc job" purple; a job whose PTW is
+// still needed (required or submitted) is amber, an approved PTW green: the PTW
+// colours win. Notes are one neutral slim chip (calendarAdd.ts).
+export type PtwState = "job" | "misc" | "needed" | "approved";
+export const PTW_STATE_COLOR: Record<PtwState, string> = { job: "#1e88e5", misc: "#8e24aa", needed: "#f9a825", approved: "#2e7d32" };
 export const NOTE_CHIP_COLOR = "#cfd8dc";
 
 /** A job's PTW state from its PTW status (the field that replaced the permit job fields); no PTW data = a plain job. */
-export function ptwStateOf(e: Pick<CalendarEvent, "ptw">): PtwState {
+export function ptwStateOf(e: Pick<CalendarEvent, "ptw">): Exclude<PtwState, "misc"> {
   const s = String(e.ptw?.status ?? "").toUpperCase();
   if (s === "APPROVED") return "approved";
   if (s === "REQUIRED" || s === "SUBMITTED") return "needed";
   return "job";
 }
 
-/** An event's colour: grey when cancelled; WCT by PTW state, everyone else by source / kind. */
-export function eventColor(e: Pick<CalendarEvent, "cancelled" | "kind" | "ptw">, byPtw = false): string {
+/** WCT: a job with no order linked (every SiteClock job counts: AIMS's own SiteClock jobs are merged onto their AIMS job). */
+export const isMiscJob = (e: Pick<CalendarEvent, "source" | "orderNumber">): boolean => e.source === "siteclock" || !e.orderNumber;
+
+/** WCT colour state: PTW first, then Misc job (no order), else Job. */
+export function wctStateOf(e: Pick<CalendarEvent, "ptw" | "source" | "orderNumber">): PtwState {
+  const p = ptwStateOf(e);
+  return p !== "job" ? p : isMiscJob(e) ? "misc" : "job";
+}
+
+/** An event's colour: grey when cancelled; WCT by PTW / order, everyone else by source / kind. */
+export function eventColor(e: Pick<CalendarEvent, "cancelled" | "kind" | "ptw" | "source" | "orderNumber">, byPtw = false): string {
   if (e.cancelled) return CANCELLED_COLOR;
-  return byPtw ? PTW_STATE_COLOR[ptwStateOf(e)] : KIND_COLOR[e.kind];
+  return byPtw ? PTW_STATE_COLOR[wctStateOf(e)] : KIND_COLOR[e.kind];
 }
 
 export const KIND_LABEL: Record<EventKind, string> = {
@@ -128,11 +138,17 @@ export function kindLabel(kind: EventKind, jobWords: boolean): string {
   return jobWords && (kind === "delivery" || kind === "return") ? "Job" : KIND_LABEL[kind];
 }
 
-/** The calendar's colour legend. WCT (jobWords): Job · PTW needed · PTW approved · Note (Show cancelled is the checkbox). */
+/** The WCT panel's kind line: "Misc job" for a job with no order, else the kind as above. */
+export function wctKindLabel(e: Pick<CalendarEvent, "kind" | "source" | "orderNumber">): string {
+  return isMiscJob(e) ? (e.source === "siteclock" ? "Misc job (SiteClock)" : "Misc job") : kindLabel(e.kind, true);
+}
+
+/** The calendar's colour legend. WCT (jobWords): Job · Misc job · PTW needed · PTW approved · Note (Show cancelled is the checkbox). */
 export function calendarLegendItems(jobWords: boolean): Array<{ label: string; color: string }> {
   if (jobWords) {
     return [
       { label: "Job", color: PTW_STATE_COLOR.job },
+      { label: "Misc job", color: PTW_STATE_COLOR.misc },
       { label: "PTW needed", color: PTW_STATE_COLOR.needed },
       { label: "PTW approved", color: PTW_STATE_COLOR.approved },
       { label: "Note", color: NOTE_CHIP_COLOR },
@@ -185,7 +201,7 @@ export function toCalendarInputs(events: CalendarEvent[], showCancelled: boolean
         ...(movable && isMovable(e) ? { startEditable: true, durationEditable: false } : {}),
         backgroundColor: color,
         borderColor: color,
-        textColor: byPtw && !e.cancelled && ptwStateOf(e) === "needed" ? "#3e2723" : "#ffffff",
+        textColor: byPtw && !e.cancelled && wctStateOf(e) === "needed" ? "#3e2723" : "#ffffff",
         classNames: ["aims-jc-event", ...(e.completed ? ["aims-jc-completed"] : []), ...(e.cancelled ? ["aims-jc-cancelled"] : [])],
         extendedProps: { event: e },
       };
@@ -213,6 +229,38 @@ export function eventClickTarget(e: Pick<CalendarEvent, "source" | "orderHref" |
   if (e.source === "siteclock") return e.siteclockUrl ? { href: e.siteclockUrl, external: true } : null;
   const href = e.orderHref || e.doHref || e.href;
   return href ? { href, external: false } : null;
+}
+
+/**
+ * WCT details panel: the links in order, order > DO > job; a SiteClock job
+ * opens in SiteClock (read only in AIMS).
+ */
+export function panelLinks(e: Pick<CalendarEvent, "source" | "orderHref" | "doHref" | "href" | "siteclockUrl">): Array<{ label: string; href: string; external: boolean }> {
+  if (e.source === "siteclock") return e.siteclockUrl ? [{ label: "Open in SiteClock", href: e.siteclockUrl, external: true }] : [];
+  return [
+    ...(e.orderHref ? [{ label: "Open order", href: e.orderHref, external: false }] : []),
+    ...(e.doHref ? [{ label: "View DO", href: e.doHref, external: false }] : []),
+    ...(e.href ? [{ label: "Open job", href: e.href, external: false }] : []),
+  ];
+}
+
+/** The Singapore day (yyyy-MM-dd) of an instant, e.g. the date FullCalendar hands a "+n more" click. */
+export const dayOfInstant = (d: Date): string => new Intl.DateTimeFormat("en-CA", { timeZone: CALENDAR_TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+
+/**
+ * "+n more" (WCT): the day's jobs for the panel, from FullCalendar's segments
+ * (notes left out, each job once, in the calendar's order).
+ */
+export function dayJobsOf(segs: Array<{ event: { extendedProps?: Record<string, any> } }>): CalendarEvent[] {
+  const seen = new Set<string>();
+  const out: CalendarEvent[] = [];
+  for (const s of segs) {
+    const e = s.event.extendedProps?.event as CalendarEvent | undefined;
+    if (!e || seen.has(e.id)) continue;
+    seen.add(e.id);
+    out.push(e);
+  }
+  return out;
 }
 
 /** "Ali · arrived 10:05 am · left 11:20 am" for the popup. */

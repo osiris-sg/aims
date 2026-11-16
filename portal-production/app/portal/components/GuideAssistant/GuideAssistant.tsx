@@ -173,7 +173,7 @@ export default function GuideAssistant() {
 
         // WCT Vehicles: a menu entry of its own (helpers/wctNav.ts), not a stored module.
         if (isWctVehiclesEnabled && canVehicles(userRoles, hasPermission, "read")) {
-          accessibleModules.push({ code: "VEHICLES", label: "Vehicles", route: "/portal/vehicles", subMenus: [] });
+          accessibleModules.push({ code: "VEHICLES", label: "Assets", route: "/portal/assets/vehicles", subMenus: [] });
         }
 
         const context = {

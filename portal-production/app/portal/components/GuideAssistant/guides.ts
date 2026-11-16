@@ -227,10 +227,10 @@ export const GUIDES: Guide[] = [
     title: 'Keep a vehicle log book',
     description:
       'WCT Vehicles: assign a new driver to a van or lorry, log fuel, repairs, renewals, parking / ERP / fines and other costs (with mileage, amount and a receipt), see what each vehicle costs, and print or export the log. Starts from the Vehicles list; a vehicle must exist (Add vehicle) first.',
-    route: '/portal/vehicles',
+    route: '/portal/assets/vehicles',
     steps: [
       {
-        route: '/portal/vehicles',
+        route: '/portal/assets/vehicles',
         selector: '[data-tour="vehicles-add"]',
         title: 'Your vehicles',
         body: 'Each row is a van or lorry with its current driver, last mileage, what it cost this year and its COE / lifespan expiry (amber from 90 days before). Add vehicle adds a new one. Click a row to open its log book.',
