@@ -138,7 +138,7 @@ export function DriverField({ drivers, userId, name, onChange, label = "Driver",
       onInputChange={(_, text, reason) => {
         if (reason === "input") onChange({ userId: null, name: text });
       }}
-      renderInput={(params) => <TextField {...params} label={label} required={required} />}
+      renderInput={(params) => <TextField {...params} label={label} helperText="Pick a WCT user, or type a name" required={required} />}
     />
   );
 }
@@ -347,6 +347,7 @@ export function LogEntryDialog({
             value={f.renewalExpiry}
             onChange={(e) => set("renewalExpiry")(e.target.value)}
             InputLabelProps={{ shrink: true }}
+            helperText="Also updates this date on the vehicle"
             fullWidth
           />
         </>
@@ -375,6 +376,11 @@ export function LogEntryDialog({
         {moneyField(t === "FUEL" || t === "PARKING" ? "Amount" : "Amount (optional)", f.amount, set("amount"), (t === "FUEL" || t === "PARKING") && !entry)}
       </Stack>
       <AttachmentField value={f.attachment} onChange={set("attachment")} onBusy={setUploading} />
+      {t === "REPAIR" && (
+        <Typography variant="caption" color="text.secondary">
+          An admin approves the repair from the entry&apos;s menu; once approved it is locked.
+        </Typography>
+      )}
     </Shell>
   );
 }
@@ -391,6 +397,9 @@ export function DeleteEntryDialog({ open, onClose, entry, onDone }: { open: bool
         {fmtDate(entry.date)} · {entry.typeLabel}
         {entry.amount != null ? ` · ${fmtMoney(entry.amount)}` : ""}
         {entry.details ? ` · ${entry.details}` : ""}
+      </Typography>
+      <Typography variant="caption" color="text.secondary">
+        It disappears from the log and the totals. The deletion is recorded in the Activity Log.
       </Typography>
     </Shell>
   );
@@ -427,6 +436,9 @@ export function ApproveRepairDialog({ open, onClose, entry, myName, onDone }: { 
       </Alert>
       <TextField size="small" label="Repair approved by" value={by} onChange={(e) => setBy(e.target.value)} required fullWidth />
       {dateField("Repair approved date", date, setDate, true)}
+      <Typography variant="caption" color="text.secondary">
+        Once approved the repair is locked. Only an admin can unlock it, with a reason.
+      </Typography>
     </Shell>
   );
 }

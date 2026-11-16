@@ -32,7 +32,6 @@ import {
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
-import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import moment from "moment";
 import ScheduleDeliveryDialog from "@/app/portal/deliveries/_components/ScheduleDeliveryDialog";
 import { addJobPrefill, fmtJobWhen, invoiceNowText, jobStatusColor, jobStatusLabel, orderStatusColor, orderStatusLabel, type PrefillLine } from "@/helpers/wctOrders";
@@ -510,18 +509,11 @@ export default function WctOrderDetail({ id }: { id: string }) {
             </Button>
           </Stack>
           {!order.invoices?.length ? (
-            <Stack direction="row" spacing={0.5} alignItems="center">
-              <Typography variant="body2" color="text.secondary">
-                {order.toInvoice?.length
-                  ? `${order.toInvoice.length} verified job${order.toInvoice.length === 1 ? "" : "s"} not invoiced yet.`
-                  : (order as any).toInvoiceDos?.length
-                    ? `${(order as any).toInvoiceDos.join(", ")} completed, not invoiced yet.`
-                    : "No invoice yet."}
-              </Typography>
-              <Tooltip title={doFirst ? "Create invoice bills the quotation now, or the order is invoiced automatically once every DO is completed." : "The order is invoiced automatically once every job is done and verified, or use Invoice now."}>
-                <InfoOutlinedIcon fontSize="small" color="action" />
-              </Tooltip>
-            </Stack>
+            <Typography variant="body2" color="text.secondary">
+              {order.toInvoice?.length
+                ? `${order.toInvoice.length} verified job${order.toInvoice.length === 1 ? "" : "s"} not invoiced yet. The order is invoiced automatically once every job is done and verified, or use Invoice now.`
+                : (order as any).toInvoiceDos?.length ? `${(order as any).toInvoiceDos.join(", ")} completed, not invoiced yet. The order is invoiced automatically once every DO is completed, or use Invoice now.` : doFirst ? "The order is invoiced once every DO is completed." : "The order is invoiced once every job is done and verified."}
+            </Typography>
           ) : (
             <TableContainer sx={{ border: 1, borderColor: "divider", borderRadius: 1 }}>
               <Table size="small">
@@ -632,7 +624,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
         {!otherAttachments.length ? (
           jobReports.length ? null : (
           <Typography variant="body2" color="text.secondary">
-            No service report yet.
+            No service report on this order yet. Upload the file, or link a service report written in AIMS.
           </Typography>
           )
         ) : (
@@ -668,7 +660,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
         </Typography>
         {!order.supplierInvoices?.rows?.length ? (
           <Typography variant="body2" color="text.secondary">
-            No supplier invoice lines for {order.sourceQuotation?.name || "this order's quotation"} yet.
+            No supplier invoice lines tagged to {order.sourceQuotation?.name || "this order's quotation"} yet. Set the Quotation No. on a supplier invoice's lines to list it here.
           </Typography>
         ) : (
           <TableContainer sx={{ border: 1, borderColor: "divider", borderRadius: 1 }}>
@@ -738,7 +730,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
             <CircularProgress size={20} />
           ) : options.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
-              No service report found.
+              No service report found. The order&apos;s own jobs have none yet; search by report number.
             </Typography>
           ) : (
             <List dense>

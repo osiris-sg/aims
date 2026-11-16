@@ -317,6 +317,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
         columns={tab === "untagged" ? jobColumns : columns}
         data={tab === "untagged" ? untaggedRows : filtered}
         tableName="Orders"
+        subTitle={tab === "untagged" ? "Jobs added from the calendar with no quotation or order yet. Open one and use Link to… to put it under an order." : undefined}
         headerContent={statusTabs}
         loading={loading}
         page={page}

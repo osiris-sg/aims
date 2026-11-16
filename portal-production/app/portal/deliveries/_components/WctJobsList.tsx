@@ -230,6 +230,7 @@ export default function WctJobsList({ fixture }: { fixture?: JobsFixture } = {})
         columns={columns}
         data={rows}
         tableName="Jobs"
+        subTitle="Every job of every order. Open a job to see its details, photos and DO."
         headerContent={header}
         loading={loading}
         page={page}
