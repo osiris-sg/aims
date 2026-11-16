@@ -636,7 +636,7 @@ export default function RecurringInvoicesView() {
                   </TableBody>
                 </Table>
               </TableContainer>
-              <Button size="small" startIcon={<AddIcon />} onClick={addRow} sx={{ mt: 1 }}>Add line</Button>
+              <Button variant="contained" size="small" startIcon={<AddIcon />} onClick={addRow} sx={{ mt: 1 }}>Add line</Button>
             </Box>
 
             <TextField label="Reference (optional, tokens allowed)" size="small" fullWidth value={form.reference} placeholder="e.g. Rental {MONTH YEAR}" onFocus={() => { tokenTargetRef.current = { kind: "reference" } as any; }} onChange={(e) => setForm((f: any) => ({ ...f, reference: e.target.value }))} />

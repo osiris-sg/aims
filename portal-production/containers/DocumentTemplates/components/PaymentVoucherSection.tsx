@@ -24,7 +24,7 @@
 // prompt and Save path work unchanged. Accounting: Cr bank total / Dr each
 // line (creditor control per allocated invoice, ± realised FX).
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useRef, useEffect, useMemo, useState } from "react";
 import MoneyInput from "@/components/MoneyInput";
 import RateInput from "@/components/RateInput";
 import {
@@ -70,6 +70,7 @@ import { AccountSelectDialog, numberIsPending, peekDocumentNumber, useOrAccounts
 import type { TemplateFieldConfig } from "../types/templateFieldTypes";
 import { todayIso } from "@/helpers/orgToday";
 import EditorRail from "./EditorRail";
+import { useOrganization } from "@/app/portal/hooks/useOrganization";
 
 export type { PvLine, PvOffset };
 
@@ -175,9 +176,19 @@ export function PvVoucherNoInput({ formData, setFormData }: RowProps) {
 
 // Bank Account — the paid-from bank/cash (credit side), with Rate beside the
 // bank name on the same row. A FOREIGN_BANK account unlocks Currency + Rate.
+// The bank is remembered PER ORG in this browser (guru 2026-11-16: "keep the
+// prev bank account so they don't need to always key in bank account"): the
+// code the user last picked prefills the next NEW voucher; a saved voucher
+// keeps its own. localStorage is a convenience only — wrapped so a blocked
+// store never breaks the editor.
+const lastBankKey = (kind: string, orgId?: string) => `aims:last-bank:${kind}:${orgId || "org"}`;
+const readLastBank = (kind: string, orgId?: string): string => { try { return localStorage.getItem(lastBankKey(kind, orgId)) || ""; } catch { return ""; } };
+const writeLastBank = (kind: string, orgId: string | undefined, code: string) => { try { localStorage.setItem(lastBankKey(kind, orgId), code); } catch { /* ignore */ } };
+
 export function PvBankInput({ formData, setFormData }: RowProps) {
   const accounts = useOrAccounts();
   const { getToken } = useAuth();
+  const { organization } = useOrganization();
   const banks = useMemo(() => accounts.filter(isBankish), [accounts]);
   const pd = formData?.pvData || {};
   const code = pd.bankAccountCode || "";
@@ -187,16 +198,28 @@ export function PvBankInput({ formData, setFormData }: RowProps) {
   const selected = accounts.find((a) => a.code === code);
   const foreign = selected?.accountType === "FOREIGN_BANK";
   const currency = String(pd.currency || "SGD").toUpperCase();
-  const commit = (acc: OrAccount) =>
+  const commit = (acc: OrAccount) => {
+    writeLastBank("pv", organization?.id, acc.code);
     setPvData(formData, setFormData, {
       bankAccountCode: acc.code,
       bankLabel: `${acc.code} — ${acc.name}`,
       ...(acc.accountType !== "FOREIGN_BANK" ? { currency: "SGD", rate: 1 } : {}),
     });
+  };
   // Unsaved voucher: the number box follows the bank AND the date (guru
   // 2026-11-05). A number typed by hand stands.
   const date = pd.date || "";
   const unsaved = (!formData?.savedAt || numberIsPending(formData?.name)) && !formData?.numberTouched;
+  // A new voucher opens on the bank used last time (once the chart is here).
+  const prefilled = useRef(false);
+  useEffect(() => {
+    if (prefilled.current || code || !unsaved || !banks.length) return;
+    prefilled.current = true;
+    const last = readLastBank("pv", organization?.id);
+    const acc = last ? banks.find((b) => b.code === last) : undefined;
+    if (acc) commit(acc);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, unsaved, banks, organization?.id]);
   useEffect(() => {
     if (!code || !unsaved) return;
     let cancelled = false;
@@ -319,6 +342,20 @@ export function PvChequeRow({ formData, setFormData }: RowProps) {
         value={pd.preparedBy || ""}
         onChange={(e) => setPvData(formData, setFormData, { preparedBy: e.target.value })}
         sx={{ ...headerInputSx, width: 220 }}
+        // Last header field: Enter with an empty grid adds the first line and
+        // lands in it (guru 2026-11-16: "enter, enter, enter … the next enter
+        // adds an item automatically"). With lines present Enter simply walks on.
+        onKeyDown={(e) => {
+          if (e.key !== "Enter" || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+          if (pvLines(formData).length) return;
+          e.preventDefault();
+          e.stopPropagation();
+          setPvData(formData, setFormData, { lines: [newLine()] });
+        setTimeout(() => {
+          const first = document.querySelector<HTMLInputElement>("[data-voucher-grid] tbody tr input:not([disabled])");
+          first?.focus();
+        }, 60);
+        }}
       />
     </Box>
   );
@@ -379,12 +416,17 @@ export function PaymentVoucherLinesSection({
   voucherId,
   suppliers = [],
   disabled = false,
+  framed = false,
 }: {
   formData: any;
   setFormData: (next: any) => void;
   voucherId?: string;
   suppliers?: any[];
   disabled?: boolean;
+  // Legacy chrome (enableHeaderGlAccount): the editor frames the body with a
+  // 204px left margin and expects the rail to sit IN that margin, like the
+  // invoice (guru 2026-11-16). Pull the rail left out of the flow when set.
+  framed?: boolean;
 }) {
   const router = useRouter();
   const accounts = useOrAccounts();
@@ -401,6 +443,27 @@ export function PaymentVoucherLinesSection({
   const patchLine = (id: string, patch: Partial<PvLine>) => writeLines(lines.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   const removeLine = (id: string) => writeLines(lines.filter((l) => l.id !== id));
   const addLine = () => writeLines([...lines, newLine()]);
+
+  // Enter on the LAST line's last money box adds the next line and lands in
+  // its Account code (guru 2026-11-16: "press enter through the first row,
+  // it should auto add the second row"). MoneyInput commits on Enter by
+  // blurring first; the add is deferred a tick so it builds on the committed
+  // lines, not on this render's snapshot. Enter on an earlier line just walks
+  // into the next row as before.
+  const addLineRef = useRef(addLine);
+  addLineRef.current = addLine;
+  const onLastMoneyKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.key !== "Enter" || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || disabled) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setTimeout(() => {
+      addLineRef.current();
+      setTimeout(() => {
+        const rows = Array.from(document.querySelectorAll<HTMLTableRowElement>("[data-voucher-grid] tbody tr")).filter((r) => r.querySelector("input"));
+        rows[rows.length - 1]?.querySelector<HTMLInputElement>("input:not([disabled])")?.focus();
+      }, 60);
+    }, 0);
+  };
 
   // Offset Supplier Invoices dialog — opened from the Payee pencil (header),
   // the creditor line's pencil, or by KEYING THE CREDITOR CONTROL CODE on a
@@ -520,9 +583,13 @@ export function PaymentVoucherLinesSection({
   ];
 
   return (
-    <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", gap: 1 }}>
-      {/* Side rail — the legacy screen's left module buttons */}
-      <EditorRail buttons={railButtons} />
+    <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", gap: 1, position: framed ? "relative" : undefined }}>
+      {/* Side rail — the legacy screen's left module buttons. Framed (legacy
+          chrome): the rail sits in the editor's 204px left margin instead of a
+          flow column, matching the invoice/DO. */}
+      <Box sx={framed ? { position: "absolute", left: "-192px", top: 8, width: 172 } : undefined}>
+        <EditorRail buttons={railButtons} />
+      </Box>
 
       <Card data-tour="pv-lines" sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <CardContent sx={{ p: 1, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>
@@ -538,7 +605,7 @@ export function PaymentVoucherLinesSection({
                 Read-only — another session holds this voucher&apos;s edit lock. Close the other tab or use &quot;Take over&quot; in the banner at the top of the page.
               </Alert>
             )}
-            <TableContainer component={Paper} variant="outlined" sx={{ flex: 1, minHeight: 0, borderRadius: 1.5 }}>
+            <TableContainer data-voucher-grid component={Paper} variant="outlined" sx={{ flex: 1, minHeight: 0, borderRadius: 1.5 }}>
               <Table
                 size="small"
                 stickyHeader
@@ -563,7 +630,8 @@ export function PaymentVoucherLinesSection({
                       </TableCell>
                     </TableRow>
                   )}
-                  {lines.map((l) => {
+                  {lines.map((l, idx) => {
+                    const isLast = idx === lines.length - 1;
                     const isCreditor = !!l.offset;
                     const acc = accounts.find((a) => a.code === l.accountCode);
                     return (
@@ -604,7 +672,7 @@ export function PaymentVoucherLinesSection({
                             <TextField size="small" fullWidth value={l.remarks || ""} disabled={disabled} onChange={(e) => patchLine(l.id, { remarks: e.target.value })} />
                           )}
                         </TableCell>
-                        <TableCell sx={{ textAlign: "right" }}>
+                        <TableCell sx={{ textAlign: "right" }} onKeyDown={isLast && !isCreditor ? onLastMoneyKeyDown : undefined}>
                           <MoneyInput
                             value={l.amount ?? ""}
                             disabled={disabled || isCreditor}
@@ -632,14 +700,21 @@ export function PaymentVoucherLinesSection({
                       </TableRow>
                     );
                   })}
+                  {/* Add line lives INSIDE the grid as its last row (guru
+                      2026-11-16), so it reads as part of the table rather than
+                      a control floating above it. */}
+                  <TableRow>
+                    <TableCell colSpan={5} sx={{ py: 0.75, borderBottom: "none !important" }}>
+                      <Button data-hotkey="addLine" variant="contained" size="small" startIcon={<AddIcon />} onClick={addLine} disabled={disabled}>
+                        Add line
+                      </Button>
+                    </TableCell>
+                  </TableRow>
                 </TableBody>
               </Table>
             </TableContainer>
 
             <Stack direction="row" alignItems="center" sx={{ mt: 1, pr: 1 }} spacing={2}>
-              <Button data-hotkey="addLine" size="small" startIcon={<AddIcon />} onClick={addLine} disabled={disabled}>
-                Add line
-              </Button>
               <Box sx={{ flex: 1 }} />
               <Typography sx={{ fontWeight: 700 }}>Amount</Typography>
               <Typography sx={{ fontWeight: 700, color: "warning.main" }}>{currency}</Typography>

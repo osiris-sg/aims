@@ -13,6 +13,31 @@ import { BIOFUEL_SIGNATURE_DATA_URI, BIOFUEL_STAMP_DATA_URI, BIOFUEL_LOGO_DATA_U
 import DeliveryRouteDialog from "@/components/DeliveryRouteDialog";
 import { resolveRateMerges } from "./quotationItemGroups";
 
+// Legacy voucher papers spell the total out: "S'PORE DOLLAR THREE HUNDRED
+// TWELVE ONLY." / "S'PORE DOLLAR ZERO AND CENTS TWO ONLY." (guru's samples).
+function legacyAmountWords(num: number, currency = "SGD"): string {
+  const ones = ["", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE", "TEN", "ELEVEN", "TWELVE", "THIRTEEN", "FOURTEEN", "FIFTEEN", "SIXTEEN", "SEVENTEEN", "EIGHTEEN", "NINETEEN"];
+  const tens = ["", "", "TWENTY", "THIRTY", "FORTY", "FIFTY", "SIXTY", "SEVENTY", "EIGHTY", "NINETY"];
+  const hundreds = (n: number): string => {
+    let str = "";
+    if (n >= 100) { str += ones[Math.floor(n / 100)] + " HUNDRED "; n %= 100; }
+    if (n >= 20) { str += tens[Math.floor(n / 10)] + " "; n %= 10; }
+    if (n > 0) str += ones[n] + " ";
+    return str;
+  };
+  const abs = Math.abs(Number(num) || 0);
+  const dollars = Math.floor(abs);
+  const cents = Math.round((abs - dollars) * 100);
+  let words = "";
+  if (dollars >= 1000000) words += hundreds(Math.floor(dollars / 1000000)) + "MILLION ";
+  if (dollars >= 1000) words += hundreds(Math.floor((dollars % 1000000) / 1000)) + "THOUSAND ";
+  words += hundreds(dollars % 1000);
+  if (!dollars) words = "ZERO ";
+  if (cents > 0) words += "AND CENTS " + hundreds(cents);
+  const unit = currency === "SGD" ? "S'PORE DOLLAR" : `${currency} DOLLAR`;
+  return `${unit} ${words.trim()} ONLY.`;
+}
+
 // Font handling:
 // - Using Carlito from Google Fonts (open-source, metric-compatible with Calibri)
 // - Fallback chain: Carlito → Calibri (if installed) → Arial → sans-serif
@@ -613,21 +638,52 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
   };
 
-  // ── Payment Voucher (AP twin of the Official Receipt, 2026-10-21) ────────
-  // data: voucherNumber, date, chequeNo, remarks, supplierLabel, paymentMethod,
-  // currency, rate, voucherAmount, paidFromLabel, allocations[{reference, date,
-  // description, amount}].
-  if (documentType === "PAYMENT_VOUCHER" || documentType === "PV") {
+  // ── Legacy voucher paper: PAYMENT VOUCHER + JOURNAL VOUCHER ──────────────
+  // Rebuilt 2026-11-16 to print like the legacy software (guru's samples):
+  //   letterhead (name; GST Reg No / Co. Reg No; address; Tel / Fax)
+  //   big grey serif title at the left, VOUCHER|JOURNAL NO. / DATE /
+  //   PREPARE BY / PAGE NO at the right; PAYEE (P/V only); a double-ruled
+  //   table — Account | Description | Amount  (P/V)
+  //                   — Account | Description | Debit | Credit (J/V)
+  //   each line's remarks and the offset's documents print as small lines
+  //   under its description; a pinned footer: double rule, "Bank / Cheque :
+  //   … Rate : … Total Amount SGD …" (P/V) or TOTAL (J/V), the amount in words,
+  //   then PAYMENT APPROVED BY / PAYMENT RECEIVED BY (J/V: JOURNAL APPROVED BY).
+  if (documentType === "PAYMENT_VOUCHER" || documentType === "PV" || documentType === "JOURNAL_VOUCHER" || documentType === "JV") {
     const v: any = data || {};
-    const allocs: any[] = Array.isArray(v.allocations) ? v.allocations : [];
-    // Legacy P/V screen (2026-11-09): GL lines (Account | Description |
-    // Remarks | Amount) print as the body; the supplier offset's invoices are
-    // listed under its line. Vouchers saved before that print allocations only.
-    const pvLines: any[] = Array.isArray(v.lines) ? v.lines.filter((l: any) => l?.accountCode || l?.offset) : [];
-    const total = pvLines.length
-      ? pvLines.reduce((sum: number, l: any) => sum + (Number(l.amount) || 0), 0)
-      : allocs.reduce((sum: number, a: any) => sum + (Number(a.amount) || 0), 0);
+    const isJv = documentType === "JOURNAL_VOUCHER" || documentType === "JV";
     const money = (n: number) => (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const dmy = (d: any) => (d ? new Date(d).toLocaleDateString("en-GB") : "");
+    const allocs: any[] = Array.isArray(v.allocations) ? v.allocations : [];
+    // Lines: the GL grid (a line is an account or the offset's control line).
+    // P/V vouchers saved before the grid existed carry allocations only — they
+    // print as one creditor line with the invoices under it.
+    const rawLines: any[] = Array.isArray(v.lines) ? v.lines.filter((l: any) => l?.accountCode || l?.offset) : [];
+    const lines: any[] = rawLines.length || isJv
+      ? rawLines
+      : allocs.length
+        ? [{ accountCode: "", description: v.supplierLabel || v.payee || "", amount: allocs.reduce((s: number, a: any) => s + (Number(a.amount) || 0), 0), offset: { allocations: allocs } }]
+        : [];
+    const total = isJv ? 0 : lines.reduce((s: number, l: any) => s + (Number(l.amount) || 0), 0);
+    const totalDebit = isJv ? (Number(v.totalDebit) || lines.reduce((s: number, l: any) => s + (Number(l.debit) || 0), 0)) : 0;
+    const totalCredit = isJv ? (Number(v.totalCredit) || lines.reduce((s: number, l: any) => s + (Number(l.credit) || 0), 0)) : 0;
+    const currency = String(v.currency || "SGD");
+    const wordsOf = legacyAmountWords(isJv ? totalDebit : Number(v.voucherAmount) || total, currency);
+    const co: any = v.company || {};
+    const gstReg = co.gstRegNo || (organization as any)?.gstNumber || "";
+    const coReg = co.registrationNumber || organization?.registrationNumber || "";
+    const tel = co.phoneNumber || organization?.phoneNumber || "";
+    const fax = co.fax || (organization as any)?.fax || "";
+    const addr = String(co.address || organization?.address || "");
+    const kv = (k: string, val: React.ReactNode, bold = false) => (
+      <Box sx={{ display: "grid", gridTemplateColumns: "118px 10px 1fr", columnGap: 0.75, fontSize: "0.8125rem", lineHeight: 2.1 }}>
+        <span>{k}</span><span>:</span><span style={{ fontWeight: bold ? 700 : 400 }}>{val}</span>
+      </Box>
+    );
+    const sub = (text: React.ReactNode, key: string | number) => (
+      <Typography key={key} sx={{ fontSize: "0.75rem", lineHeight: 1.6, color: "#222" }}>{text}</Typography>
+    );
+    const cell = { fontSize: "0.8125rem", py: "6px", px: 0.75, verticalAlign: "top" };
     return (
       <Paper
         data-print-paper
@@ -635,234 +691,138 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           width: "210mm",
           minHeight: "297mm",
           margin: "0 auto",
-          p: "20mm",
+          p: "16mm 18mm",
           backgroundColor: "white",
-          fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
+          fontFamily: "'Book Antiqua', 'Palatino Linotype', Palatino, Georgia, serif",
           fontWeight: 400,
           fontSize: "0.8125rem",
-          lineHeight: 1.6,
+          lineHeight: 1.5,
           color: "#000",
           display: "flex",
           flexDirection: "column",
-          "@media print": { margin: 0, padding: 0, boxShadow: "none" },
+          "@media print": { margin: 0, padding: "12mm 14mm", boxShadow: "none" },
         }}
       >
-        <Box sx={{ textAlign: "center", mb: 1 }}>
-          <Typography sx={{ fontWeight: 700, fontSize: "1.15rem" }}>{v.company?.name || organization?.name || ""}</Typography>
-          {(v.company?.address || organization?.address) && (
-            <Typography sx={{ fontSize: "0.8125rem" }}>{v.company?.address || organization?.address}</Typography>
-          )}
-          <Typography sx={{ fontSize: "0.8125rem" }}>
-            {(v.company?.phoneNumber || organization?.phoneNumber) ? `Tel: ${v.company?.phoneNumber || organization?.phoneNumber}` : ""}
-            {(v.company?.gstRegNo || organization?.registrationNumber) ? `  GST Reg. No. ${v.company?.gstRegNo || organization?.registrationNumber}` : ""}
-          </Typography>
-        </Box>
-        <Typography sx={{ textAlign: "center", fontWeight: 700, fontSize: "1rem", letterSpacing: 2, my: 2 }}>
-          PAYMENT VOUCHER
-        </Typography>
-
-        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
-          <Box>
-            <Typography sx={{ fontSize: "0.8125rem" }}>Paid To:</Typography>
-            <Typography sx={{ fontSize: "0.9375rem", fontWeight: 700 }}>{v.payee || v.supplierLabel || "—"}</Typography>
-            {v.remarks && <Typography sx={{ fontSize: "0.8125rem", mt: 0.5 }}>{v.remarks}</Typography>}
-          </Box>
-          <Box sx={{ textAlign: "right" }}>
-            <Typography sx={{ fontSize: "0.8125rem" }}>
-              Voucher No. : <b>{v.voucherNumber || ""}</b>
+        {/* Letterhead */}
+        <Box sx={{ textAlign: "center", mb: 1.5, lineHeight: 1.6 }}>
+          <Typography sx={{ fontWeight: 700, fontSize: "1.05rem", fontFamily: "inherit" }}>{co.name || organization?.name || ""}</Typography>
+          {(gstReg || coReg) && (
+            <Typography sx={{ fontSize: "0.8125rem", fontFamily: "inherit" }}>
+              {gstReg ? `GST Reg No: ${gstReg}` : ""}{gstReg && coReg ? "   " : ""}{coReg ? `Co. Reg No. : ${coReg}` : ""}
             </Typography>
-            <Typography sx={{ fontSize: "0.8125rem" }}>Date : {v.date ? new Date(v.date).toLocaleDateString("en-GB") : ""}</Typography>
-            {v.chequeNo && <Typography sx={{ fontSize: "0.8125rem" }}>Bank advice : {v.chequeNo}</Typography>}
-            {v.paymentMethod && (
-              <Typography sx={{ fontSize: "0.8125rem", textTransform: "capitalize" }}>Payment : {v.paymentMethod}</Typography>
-            )}
-          </Box>
+          )}
+          {addr.split(/\n/).map((l: string, i: number) => l.trim() && <Typography key={i} sx={{ fontSize: "0.8125rem", fontFamily: "inherit" }}>{l.trim()}</Typography>)}
+          {(tel || fax) && (
+            <Typography sx={{ fontSize: "0.8125rem", fontFamily: "inherit" }}>{tel ? `Tel: ${tel}` : ""}{tel && fax ? "   " : ""}{fax ? `Fax: ${fax}` : ""}</Typography>
+          )}
         </Box>
 
-        {pvLines.length > 0 ? (
-          <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", "& th, & td": { fontSize: "0.8125rem", py: 0.6, px: 1 } }}>
+        {/* Title left, voucher particulars right */}
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mt: 1, mb: 1 }}>
+          <Typography sx={{ fontSize: "1.55rem", fontWeight: 700, letterSpacing: 1, color: "#555", fontFamily: "inherit", pt: 0.5 }}>
+            {isJv ? "JOURNAL VOUCHER" : "PAYMENT VOUCHER"}
+          </Typography>
+          <Box sx={{ width: 290, flexShrink: 0, pt: 2 }}>
+            {kv(isJv ? "JOURNAL  NO." : "VOUCHER  NO.", v.voucherNumber || "", true)}
+            {kv("DATE", dmy(v.date))}
+            {kv("PREPARE  BY", v.preparedBy || "")}
+            {kv("PAGE NO", "1")}
+          </Box>
+        </Box>
+        {!isJv && (
+          <Box sx={{ display: "flex", gap: 6, fontSize: "0.8125rem", mb: 0.5 }}>
+            <span>PAYEE :</span><span>{v.payee || v.supplierLabel || ""}</span>
+          </Box>
+        )}
+
+        {/* Lines */}
+        <Box sx={{ borderTop: "3px double #000" }}>
+          <Box component="table" sx={{ width: "100%", borderCollapse: "collapse" }}>
             <Box component="thead">
-              <Box component="tr" sx={{ "& th": { borderTop: "1px solid #000", borderBottom: "1px solid #000", textAlign: "left" } }}>
-                <Box component="th">Account code</Box>
+              <Box component="tr" sx={{ "& th": { ...cell, fontWeight: 700, textAlign: "left", borderBottom: "1px solid #000" } }}>
+                <Box component="th" sx={{ width: 110 }}>Account</Box>
                 <Box component="th">Description</Box>
-                <Box component="th">Remarks</Box>
-                <Box component="th" sx={{ textAlign: "right !important" }}>Amount ({v.currency || "SGD"})</Box>
+                {isJv ? (
+                  <>
+                    <Box component="th" sx={{ textAlign: "right !important", width: 120 }}>Debit</Box>
+                    <Box component="th" sx={{ textAlign: "right !important", width: 120 }}>Credit</Box>
+                  </>
+                ) : (
+                  <Box component="th" sx={{ textAlign: "right !important", width: 130 }}>Amount</Box>
+                )}
               </Box>
             </Box>
             <Box component="tbody">
-              {pvLines.map((l: any, i: number) => (
-                <React.Fragment key={l.id || i}>
-                  <Box component="tr">
-                    <Box component="td" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{l.accountCode}</Box>
-                    <Box component="td">{l.description || l.accountName || ""}</Box>
-                    <Box component="td">{l.remarks || ""}</Box>
-                    <Box component="td" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(Number(l.amount) || 0)}</Box>
-                  </Box>
-                  {(l.offset?.allocations || []).map((a: any, j: number) => (
-                    <Box component="tr" key={`${l.id || i}-${j}`} sx={{ "& td": { color: "#333", fontSize: "0.75rem !important", py: "2px !important" } }}>
-                      <Box component="td" />
-                      <Box component="td" sx={{ pl: "20px !important" }}>{a.reference}{a.date ? ` · ${new Date(a.date).toLocaleDateString("en-GB")}` : ""}</Box>
-                      <Box component="td">{a.description || "SUPPLIER INVOICE"}</Box>
-                      <Box component="td" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(Number(a.amount) || 0)}</Box>
+              {lines.map((l: any, i: number) => {
+                const offsetDocs: any[] = l.offset?.allocations || [];
+                const party = l.offset?.supplierName || l.offset?.customerName || "";
+                return (
+                  <Box component="tr" key={l.id || i} sx={{ "& td": cell }}>
+                    <Box component="td" sx={{ fontVariantNumeric: "tabular-nums" }}>{l.accountCode}</Box>
+                    <Box component="td">
+                      <Typography sx={{ fontSize: "0.8125rem", lineHeight: 1.5, fontFamily: "inherit" }}>{String(l.description || l.accountName || "").toUpperCase()}</Typography>
+                      {party && !l.remarks && sub(String(party).toUpperCase(), "party")}
+                      {l.remarks && sub(l.remarks, "remarks")}
+                      {offsetDocs.map((a: any, j: number) =>
+                        sub(
+                          <Box component="span" sx={{ display: "inline-grid", gridTemplateColumns: "140px 16px 90px", fontVariantNumeric: "tabular-nums" }}>
+                            <span>{a.reference}</span><span>$</span><span style={{ textAlign: "right" }}>{money(Number(a.amount) || 0)}</span>
+                          </Box>,
+                          j,
+                        ),
+                      )}
                     </Box>
-                  ))}
-                </React.Fragment>
-              ))}
-            </Box>
-          </Box>
-        ) : (
-        <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", "& th, & td": { fontSize: "0.8125rem", py: 0.6, px: 1 } }}>
-          <Box component="thead">
-            <Box component="tr" sx={{ "& th": { borderTop: "1px solid #000", borderBottom: "1px solid #000", textAlign: "left" } }}>
-              <Box component="th">Reference</Box>
-              <Box component="th">Date</Box>
-              <Box component="th">Description</Box>
-              <Box component="th" sx={{ textAlign: "right !important" }}>Amount ({v.currency || "SGD"})</Box>
-            </Box>
-          </Box>
-          <Box component="tbody">
-            {allocs.map((a: any, i: number) => (
-              <Box component="tr" key={i}>
-                <Box component="td" sx={{ fontVariantNumeric: "tabular-nums" }}>{a.reference}</Box>
-                <Box component="td">{a.date ? new Date(a.date).toLocaleDateString("en-GB") : ""}</Box>
-                <Box component="td">{a.description || "SUPPLIER INVOICE"}</Box>
-                <Box component="td" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(Number(a.amount) || 0)}</Box>
-              </Box>
-            ))}
-          </Box>
-        </Box>
-
-        )}
-
-        <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1 }}>
-          <Box sx={{ minWidth: 240, borderTop: "1px solid #000", pt: 0.5 }}>
-            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-              <Typography sx={{ fontSize: "0.875rem", fontWeight: 700 }}>Total Paid</Typography>
-              <Typography sx={{ fontSize: "0.875rem", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-                {(v.currency || "SGD")} {money(Number(v.voucherAmount) || total)}
-              </Typography>
-            </Box>
-          </Box>
-        </Box>
-
-        <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2, borderTop: "2px solid #000", pt: 1 }}>
-          <Typography sx={{ fontSize: "0.8125rem" }}>{v.paidFromLabel ? `Paid from: ${v.paidFromLabel}` : ""}</Typography>
-          {v.currency && v.currency !== "SGD" && (
-            <Typography sx={{ fontSize: "0.8125rem" }}>Rate: {v.rate} ({v.currency} → SGD)</Typography>
-          )}
-        </Box>
-
-        <Box sx={{ mt: "auto", pt: 6, display: "flex", justifyContent: "space-between" }}>
-          {["Prepared by", "Approved by", "Received by"].map((l) => (
-            <Box key={l} sx={{ width: "28%", borderTop: "1px solid #000", pt: 0.5, textAlign: "center" }}>
-              <Typography sx={{ fontSize: "0.75rem" }}>{l}</Typography>
-              {l === "Prepared by" && v.preparedBy && <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>{v.preparedBy}</Typography>}
-            </Box>
-          ))}
-        </Box>
-      </Paper>
-    );
-  }
-
-  // ── Journal Voucher (legacy J/V screen as a document, 2026-11-09) ───────
-  // data: voucherNumber, date, preparedBy, notes, lines[{accountCode,
-  // description, remarks, debit, credit, offset?{allocations}}], totalDebit,
-  // totalCredit.
-  if (documentType === "JOURNAL_VOUCHER" || documentType === "JV") {
-    const v: any = data || {};
-    const jvLines: any[] = (Array.isArray(v.lines) ? v.lines : []).filter((l: any) => l?.accountCode || l?.offset);
-    const money = (n: number) => (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const td = Number(v.totalDebit) || jvLines.reduce((s: number, l: any) => s + (Number(l.debit) || 0), 0);
-    const tc = Number(v.totalCredit) || jvLines.reduce((s: number, l: any) => s + (Number(l.credit) || 0), 0);
-    return (
-      <Paper
-        data-print-paper
-        sx={{
-          width: "210mm",
-          minHeight: "297mm",
-          margin: "0 auto",
-          p: "20mm",
-          backgroundColor: "white",
-          fontFamily: "var(--font-carlito), 'Calibri', 'Arial', sans-serif",
-          fontWeight: 400,
-          fontSize: "0.8125rem",
-          lineHeight: 1.6,
-          color: "#000",
-          display: "flex",
-          flexDirection: "column",
-          "@media print": { margin: 0, padding: 0, boxShadow: "none" },
-        }}
-      >
-        <Box sx={{ textAlign: "center", mb: 1 }}>
-          <Typography sx={{ fontWeight: 700, fontSize: "1.15rem" }}>{v.company?.name || organization?.name || ""}</Typography>
-          {(v.company?.address || organization?.address) && <Typography sx={{ fontSize: "0.8125rem" }}>{v.company?.address || organization?.address}</Typography>}
-        </Box>
-        <Typography sx={{ textAlign: "center", fontWeight: 700, fontSize: "1rem", letterSpacing: 2, my: 2 }}>JOURNAL VOUCHER</Typography>
-        <Box sx={{ display: "flex", justifyContent: "space-between", mb: 2 }}>
-          <Box>
-            {v.notes && <Typography sx={{ fontSize: "0.8125rem", whiteSpace: "pre-wrap" }}>{v.notes}</Typography>}
-          </Box>
-          <Box sx={{ textAlign: "right" }}>
-            <Typography sx={{ fontSize: "0.8125rem" }}>
-              Voucher No. : <b>{v.voucherNumber || ""}</b>
-            </Typography>
-            <Typography sx={{ fontSize: "0.8125rem" }}>Date : {v.date ? new Date(v.date).toLocaleDateString("en-GB") : ""}</Typography>
-            {v.preparedBy && <Typography sx={{ fontSize: "0.8125rem" }}>Prepared by : {v.preparedBy}</Typography>}
-          </Box>
-        </Box>
-        <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", "& th, & td": { fontSize: "0.8125rem", py: 0.6, px: 1 } }}>
-          <Box component="thead">
-            <Box component="tr" sx={{ "& th": { borderTop: "1px solid #000", borderBottom: "1px solid #000", textAlign: "left" } }}>
-              <Box component="th">Account code</Box>
-              <Box component="th">Description</Box>
-              <Box component="th">Remarks</Box>
-              <Box component="th" sx={{ textAlign: "right !important" }}>Debit</Box>
-              <Box component="th" sx={{ textAlign: "right !important" }}>Credit</Box>
-            </Box>
-          </Box>
-          <Box component="tbody">
-            {jvLines.map((l: any, i: number) => (
-              <React.Fragment key={l.id || i}>
-                <Box component="tr">
-                  <Box component="td" sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{l.accountCode}</Box>
-                  <Box component="td">{l.description || l.accountName || ""}</Box>
-                  <Box component="td">{l.remarks || ""}</Box>
-                  <Box component="td" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{Number(l.debit) ? money(Number(l.debit)) : ""}</Box>
-                  <Box component="td" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{Number(l.credit) ? money(Number(l.credit)) : ""}</Box>
-                </Box>
-                {(l.offset?.allocations || []).map((a: any, j: number) => (
-                  <Box component="tr" key={`${l.id || i}-${j}`} sx={{ "& td": { color: "#333", fontSize: "0.75rem !important", py: "2px !important" } }}>
-                    <Box component="td" />
-                    <Box component="td" sx={{ pl: "20px !important" }}>{a.reference}{a.date ? ` · ${new Date(a.date).toLocaleDateString("en-GB")}` : ""}</Box>
-                    <Box component="td">{a.description || "SUPPLIER INVOICE"}</Box>
-                    <Box component="td" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(Number(a.amount) || 0)}</Box>
-                    <Box component="td" />
+                    {isJv ? (
+                      <>
+                        <Box component="td" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{Number(l.debit) ? money(Number(l.debit)) : ""}</Box>
+                        <Box component="td" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{Number(l.credit) ? money(Number(l.credit)) : ""}</Box>
+                      </>
+                    ) : (
+                      <Box component="td" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(Number(l.amount) || 0)}</Box>
+                    )}
                   </Box>
-                ))}
-              </React.Fragment>
-            ))}
-          </Box>
-        </Box>
-        <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1 }}>
-          <Box sx={{ minWidth: 320, borderTop: "1px solid #000", pt: 0.5, display: "flex", justifyContent: "space-between" }}>
-            <Typography sx={{ fontSize: "0.875rem", fontWeight: 700 }}>Total</Typography>
-            <Typography sx={{ fontSize: "0.875rem", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{money(td)}</Typography>
-            <Typography sx={{ fontSize: "0.875rem", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{money(tc)}</Typography>
-          </Box>
-        </Box>
-        <Box sx={{ mt: "auto", pt: 6, display: "flex", justifyContent: "space-between" }}>
-          {["Prepared by", "Checked by", "Approved by"].map((l) => (
-            <Box key={l} sx={{ width: "28%", borderTop: "1px solid #000", pt: 0.5, textAlign: "center" }}>
-              <Typography sx={{ fontSize: "0.75rem" }}>{l}</Typography>
-              {l === "Prepared by" && v.preparedBy && <Typography sx={{ fontSize: "0.75rem", fontWeight: 600 }}>{v.preparedBy}</Typography>}
+                );
+              })}
             </Box>
-          ))}
+          </Box>
+        </Box>
+
+        {/* Pinned footer */}
+        <Box sx={{ mt: "auto", pt: 4 }}>
+          <Box sx={{ borderTop: "3px double #000", borderBottom: "1px solid #000", py: 0.75, display: "flex", alignItems: "baseline", fontSize: "0.8125rem" }}>
+            {isJv ? (
+              <>
+                <Box sx={{ flex: 1, fontWeight: 700, letterSpacing: 1 }}>TOTAL</Box>
+                <Box sx={{ width: 120, textAlign: "right", fontVariantNumeric: "tabular-nums", pr: 0.75 }}>{money(totalDebit)}</Box>
+                <Box sx={{ width: 120, textAlign: "right", fontVariantNumeric: "tabular-nums", pr: 0.75 }}>{money(totalCredit)}</Box>
+              </>
+            ) : (
+              <>
+                <Box sx={{ flex: 1 }}>Bank / Cheque :&nbsp;&nbsp;{[v.paidFromLabel, v.chequeNo].filter(Boolean).join("  ")}</Box>
+                <Box sx={{ width: 160 }}>Rate :&nbsp;&nbsp;&nbsp;{(Number(v.rate) || 1).toFixed(6)}</Box>
+                <Box sx={{ width: 130 }}>Total Amount&nbsp;&nbsp;&nbsp;{currency}</Box>
+                <Box sx={{ width: 110, textAlign: "right", fontVariantNumeric: "tabular-nums", pr: 0.75 }}>{money(Number(v.voucherAmount) || total)}</Box>
+              </>
+            )}
+          </Box>
+          <Typography sx={{ fontSize: "0.8125rem", mt: 0.75, fontFamily: "inherit" }}>{wordsOf}</Typography>
+          <Box sx={{ display: "flex", justifyContent: "space-between", mt: 4, px: 2 }}>
+            <Box sx={{ width: 240 }}>
+              <Typography sx={{ fontSize: "0.8125rem", fontFamily: "inherit" }}>{isJv ? "JOURNAL APPROVED BY" : "PAYMENT APPROVED BY"}</Typography>
+              <Box sx={{ borderBottom: "1px solid #000", mt: 5 }} />
+            </Box>
+            {!isJv && (
+              <Box sx={{ width: 240 }}>
+                <Typography sx={{ fontSize: "0.8125rem", fontFamily: "inherit" }}>PAYMENT RECEIVED BY</Typography>
+                <Box sx={{ borderBottom: "1px solid #000", mt: 5 }} />
+              </Box>
+            )}
+          </Box>
         </Box>
       </Paper>
     );
   }
 
-  // Special layout for Tax Invoice
   // ── Official Receipt (legacy-UX overhaul) ────────────────────────────────
   // One receipt allocated across a customer's invoices. data carries:
   // receiptNumber, date, chequeNo, remarks, customerLabel, paymentMethod,

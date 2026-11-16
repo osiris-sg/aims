@@ -11,7 +11,7 @@
 // Receipt state rides in formData.orData so the editor's dirty tracking,
 // exit prompt and Save path all work unchanged.
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useRef, useEffect, useMemo, useState } from "react";
 import MoneyInput from "@/components/MoneyInput";
 import RateInput from "@/components/RateInput";
 import {
@@ -58,6 +58,7 @@ import type { TemplateFieldConfig } from "../types/templateFieldTypes";
 import DocumentRefLink from "@/components/DocumentRefLink";
 import { todayIso } from "@/helpers/orgToday";
 import EditorRail from "./EditorRail";
+import { useOrganization } from "@/app/portal/hooks/useOrganization";
 
 // ---------------------------------------------------------------------------
 // Field definitions — none of these names appear in HEADER_FIELD_ORDER (or the
@@ -418,17 +419,29 @@ export function OrCreditInput({ formData, setFormData }: RowProps) {
 // Accounts to DEBIT (deposit to) — code box with a search adornment opening a
 // Locate Account dialog (bank/cash accounts only); typing an exact code
 // commits directly. Same field pattern as Customer code.
+// The bank is remembered PER ORG in this browser (guru 2026-11-16: "keep the
+// prev bank account so they don't need to always key in bank account"): the
+// code the user last picked prefills the next NEW voucher; a saved voucher
+// keeps its own. localStorage is a convenience only — wrapped so a blocked
+// store never breaks the editor.
+const lastBankKey = (kind: string, orgId?: string) => `aims:last-bank:${kind}:${orgId || "org"}`;
+const readLastBank = (kind: string, orgId?: string): string => { try { return localStorage.getItem(lastBankKey(kind, orgId)) || ""; } catch { return ""; } };
+const writeLastBank = (kind: string, orgId: string | undefined, code: string) => { try { localStorage.setItem(lastBankKey(kind, orgId), code); } catch { /* ignore */ } };
+
 export function OrDebitInput({ formData, setFormData }: RowProps) {
   const accounts = useOrAccounts();
   const { getToken } = useAuth();
+  const { organization } = useOrganization();
   const banks = useMemo(() => accounts.filter(isBankish), [accounts]);
   const code = formData?.orData?.debitAccountCode || "";
   const [input, setInput] = useState(code);
   const [dialogOpen, setDialogOpen] = useState(false);
   useEffect(() => setInput(code), [code]);
   const selected = accounts.find((a) => a.code === code);
-  const commit = (acc: OrAccount) =>
+  const commit = (acc: OrAccount) => {
+    writeLastBank("or", organization?.id, acc.code);
     setOrData(formData, setFormData, { debitAccountCode: acc.code, depositLabel: `${acc.code} — ${acc.name}` });
+  };
   // Unsaved receipt: the number box follows the bank AND the date (guru
   // 2026-11-05) — SCBOR2611-001 becomes SCBOR2610-001 when the date is moved
   // into October. Re-peeked whenever either changes; a saved receipt keeps
@@ -438,6 +451,16 @@ export function OrDebitInput({ formData, setFormData }: RowProps) {
   // A number typed by hand is the user's, not the series' — the preview
   // stands down for good once they have edited the box.
   const unsaved = (!formData?.savedAt || numberIsPending(formData?.name)) && !formData?.numberTouched;
+  // A new receipt opens on the deposit bank used last time (once the chart is here).
+  const prefilled = useRef(false);
+  useEffect(() => {
+    if (prefilled.current || code || !unsaved || !banks.length) return;
+    prefilled.current = true;
+    const last = readLastBank("or", organization?.id);
+    const acc = last ? banks.find((b) => b.code === last) : undefined;
+    if (acc) commit(acc);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, unsaved, banks, organization?.id]);
   useEffect(() => {
     if (!code || !unsaved) return;
     let cancelled = false;
@@ -525,11 +548,14 @@ export function OfficialReceiptOffsetSection({
   setFormData,
   receiptId,
   disabled = false,
+  framed = false,
 }: {
   formData: any;
   setFormData: (next: any) => void;
   receiptId?: string;
   disabled?: boolean;
+  // Legacy chrome: put the rail in the editor's 204px left margin (guru 2026-11-16).
+  framed?: boolean;
 }) {
   const { getToken } = useAuth();
   const router = useRouter();
@@ -642,9 +668,12 @@ export function OfficialReceiptOffsetSection({
   ];
 
   return (
-    <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", gap: 1 }}>
-      {/* Side rail — the legacy screen's left module buttons */}
-      <EditorRail buttons={railButtons} />
+    <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", gap: 1, position: framed ? "relative" : undefined }}>
+      {/* Side rail — the legacy screen's left module buttons. Framed: the rail
+          sits in the editor's 204px left margin, matching the invoice/DO. */}
+      <Box sx={framed ? { position: "absolute", left: "-192px", top: 8, width: 172 } : undefined}>
+        <EditorRail buttons={railButtons} />
+      </Box>
 
       <Card data-tour="or-offset-grid" sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <CardContent sx={{ p: 1, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>

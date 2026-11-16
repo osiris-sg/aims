@@ -1011,10 +1011,13 @@ export default function TabbedDocumentCreator({
   const legacyDo = isHeaderGlAccountEnabled && isDeliveryOrder && !isTemplateEditMode;
   // EVERY document editor type gets the legacy chrome — 204px margins, the rail
   // and the coloured toolbar (guru 2026-11-16: "do that for all documents
-  // now"). Settlement docs (OR / PV / JV) keep their own legacy screens, so
-  // they are excluded. `legacyInvoice` / `legacyDo` stay for the type-specific
-  // field bits (the invoice GL row, the DO hidden fields).
-  const legacyLayout = isHeaderGlAccountEnabled && !isTemplateEditMode && !isSettlementDoc;
+  // now", incl. the settlement screens OR / PV / JV). Settlement docs keep
+  // their OWN left rail (Manual Offset / Creditor Statement / Audit Trail) via
+  // their sections — the invoice rail (`showLegacyRail`/`invoiceRailButtons`)
+  // still excludes them — but they now share the framed body + coloured top
+  // toolbar. `legacyInvoice` / `legacyDo` stay for the type-specific field bits
+  // (the invoice GL row, the DO hidden fields).
+  const legacyLayout = isHeaderGlAccountEnabled && !isTemplateEditMode;
   const [invoiceDeleteOpen, setInvoiceDeleteOpen] = useState(false);
 
   // Biofuel org gate — drives the Biofuel-only quotation header fields
@@ -1639,6 +1642,32 @@ export default function TabbedDocumentCreator({
   // document dirty. The back button uses this to decide whether to prompt
   // Save / Cancel / Delete — no prompt is shown if nothing was touched.
   const isDirtyRef = useRef(false);
+  // Settlement docs (OR / PV / JV) post ONE journal on save, so autosave is
+  // BLOCKED until the document is complete (legacy completeness rules). The
+  // autosave timer is silent about that, which made a receipt look like it just
+  // wasn't saving (guru 2026-11-16: "how come this doesnt autosave"). Compute
+  // the same reason here so the "Unsaved changes" indicator can show WHY.
+  const settlementSaveBlockReason = useMemo<string | null>(() => {
+    if (isJournalVoucher) return jvValidationError(formData);
+    if (isPaymentVoucher) return pvValidationError(formData);
+    if (isOfficialReceipt) {
+      const od: any = (formData as any).orData || {};
+      const received = Math.round((parseFloat(od.receiptAmount) || 0) * 100) / 100;
+      const offset = Math.round(
+        ((Array.isArray(od.allocations) ? od.allocations : []) as any[]).reduce((s, a) => s + (Number(a.amount) || 0), 0) * 100,
+      ) / 100;
+      return !formData.customer?.id
+        ? "Select a customer first"
+        : !od.debitAccountCode
+        ? "Select the account to DEBIT (deposit to)"
+        : received <= 0
+        ? "Enter the receipt amount"
+        : Math.abs(received - offset) > 0.005
+        ? "Balance must be 0.00 — allocate the full receipt amount to invoices"
+        : null;
+    }
+    return null;
+  }, [isJournalVoucher, isPaymentVoucher, isOfficialReceipt, formData]);
   // Set on the FIRST real edit of this session and never cleared — unlike
   // isDirtyRef, which autosave clears on every save. The exit-time empty-draft
   // auto-delete reads this so a header-only invoice the user actually typed
@@ -5225,7 +5254,17 @@ export default function TabbedDocumentCreator({
               ) : saveStatus === "error" ? (
                 "Couldn't save"
               ) : hasUnsavedChanges ? (
-                <Box component="span" sx={{ color: "warning.main", fontWeight: 600 }}>Unsaved changes</Box>
+                settlementSaveBlockReason ? (
+                  // Autosave can't post this settlement doc yet — say why, so it
+                  // doesn't look stuck (full text on hover).
+                  <Tooltip title={settlementSaveBlockReason} arrow>
+                    <Box component="span" sx={{ color: "warning.main", fontWeight: 600, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "help" }}>
+                      Can&apos;t autosave — {settlementSaveBlockReason}
+                    </Box>
+                  </Tooltip>
+                ) : (
+                  <Box component="span" sx={{ color: "warning.main", fontWeight: 600 }}>Unsaved changes</Box>
+                )
               ) : (
                 <>
                   <CheckCircleIcon fontSize="small" color="success" />
@@ -5242,10 +5281,11 @@ export default function TabbedDocumentCreator({
             <Button
               data-hotkey="confirm"
               size="small"
-              variant="outlined"
+              variant={legacyLayout ? "contained" : "outlined"}
               startIcon={<CheckCircleIcon />}
               disabled={saveStatus === "saving" || settlementConfirming}
               onClick={() => setSettlementConfirmOpen(true)}
+              sx={legacyLayout ? TOOLBAR_GREEN : undefined}
             >
               Confirm
             </Button>
@@ -5562,7 +5602,7 @@ export default function TabbedDocumentCreator({
             {...enterScopeProps}
             // Invoice (guru 2026-11-14): a margin on BOTH sides of the document
             // and the legacy module buttons at the top-left of that margin.
-            sx={{ flex: 1, minWidth: 0, overflow: "visible", position: "relative", display: "flex", flexDirection: "column", ...(invoiceRailButtons.length ? { pl: "204px", pr: "204px" } : {}) }}
+            sx={{ flex: 1, minWidth: 0, overflow: "visible", position: "relative", display: "flex", flexDirection: "column", ...((invoiceRailButtons.length || (isSettlementDoc && legacyLayout)) ? { pl: "204px", pr: "204px" } : {}) }}
           >
             {/* Template Settings Toggle Button */}
             {isTemplateEditMode && (
@@ -6704,6 +6744,7 @@ export default function TabbedDocumentCreator({
               voucherId={(existingData?.id || documentId) as string | undefined}
               suppliers={suppliers}
               disabled={lockReadOnly}
+              framed={legacyLayout}
             />
           ) : isPaymentVoucher ? (
             <PaymentVoucherLinesSection
@@ -6712,6 +6753,7 @@ export default function TabbedDocumentCreator({
               voucherId={(existingData?.id || documentId) as string | undefined}
               suppliers={suppliers}
               disabled={lockReadOnly}
+              framed={legacyLayout}
             />
           ) : isOfficialReceipt ? (
             <OfficialReceiptOffsetSection
@@ -6719,6 +6761,7 @@ export default function TabbedDocumentCreator({
               setFormData={setFormData}
               receiptId={(existingData?.id || documentId) as string | undefined}
               disabled={lockReadOnly}
+              framed={legacyLayout}
             />
           ) : (
           <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>

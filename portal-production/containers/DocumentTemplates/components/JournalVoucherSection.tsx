@@ -17,7 +17,7 @@
 // unchanged. Saving posts / updates ONE manual journal whose number is the
 // voucher number.
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import MoneyInput from "@/components/MoneyInput";
 import {
   Alert,
@@ -139,6 +139,19 @@ export function JvPrepareByInput({ formData, setFormData }: RowProps) {
       value={jd.preparedBy || ""}
       onChange={(e) => setJvData(formData, setFormData, { preparedBy: e.target.value })}
       sx={{ ...headerInputSx, width: 260 }}
+      // Last header field: Enter with an empty grid adds the first line and
+      // lands in it (guru 2026-11-16). With lines present Enter walks on.
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+        if ((Array.isArray(jd.lines) ? jd.lines : []).length) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setJvData(formData, setFormData, { lines: [newLine()] });
+      setTimeout(() => {
+        const first = document.querySelector<HTMLInputElement>("[data-voucher-grid] tbody tr input:not([disabled])");
+        first?.focus();
+      }, 60);
+      }}
     />
   );
 }
@@ -188,12 +201,16 @@ export function JournalVoucherLinesSection({
   voucherId,
   suppliers = [],
   disabled = false,
+  framed = false,
 }: {
   formData: any;
   setFormData: (next: any) => void;
   voucherId?: string;
   suppliers?: any[];
   disabled?: boolean;
+  // Legacy chrome: put the rail in the editor's 204px left margin, like the
+  // invoice (guru 2026-11-16).
+  framed?: boolean;
 }) {
   const router = useRouter();
   const accounts = useOrAccounts();
@@ -209,6 +226,27 @@ export function JournalVoucherLinesSection({
   const patchLine = (id: string, patch: Partial<JvLine>) => writeLines(lines.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   const removeLine = (id: string) => writeLines(lines.filter((l) => l.id !== id));
   const addLine = () => writeLines([...lines, newLine()]);
+
+  // Enter on the LAST line's last money box adds the next line and lands in
+  // its Account code (guru 2026-11-16: "press enter through the first row,
+  // it should auto add the second row"). MoneyInput commits on Enter by
+  // blurring first; the add is deferred a tick so it builds on the committed
+  // lines, not on this render's snapshot. Enter on an earlier line just walks
+  // into the next row as before.
+  const addLineRef = useRef(addLine);
+  addLineRef.current = addLine;
+  const onLastMoneyKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.key !== "Enter" || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || disabled) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setTimeout(() => {
+      addLineRef.current();
+      setTimeout(() => {
+        const rows = Array.from(document.querySelectorAll<HTMLTableRowElement>("[data-voucher-grid] tbody tr")).filter((r) => r.querySelector("input"));
+        rows[rows.length - 1]?.querySelector<HTMLInputElement>("input:not([disabled])")?.focus();
+      }, 60);
+    }, 0);
+  };
 
   // Trade Creditors keyed on a line → Offset Supplier Invoices (same as P/V).
   const [offsetOpen, setOffsetOpen] = useState(false);
@@ -286,9 +324,12 @@ export function JournalVoucherLinesSection({
   ];
 
   return (
-    <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", gap: 1 }}>
-      {/* Side rail — the legacy screen's left module buttons */}
-      <EditorRail buttons={railButtons} />
+    <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", gap: 1, position: framed ? "relative" : undefined }}>
+      {/* Side rail — the legacy screen's left module buttons. Framed: the rail
+          sits in the editor's 204px left margin, matching the invoice/DO. */}
+      <Box sx={framed ? { position: "absolute", left: "-192px", top: 8, width: 172 } : undefined}>
+        <EditorRail buttons={railButtons} />
+      </Box>
 
       <Card data-tour="jv-lines" sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
         <CardContent sx={{ p: 1, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>
@@ -303,7 +344,7 @@ export function JournalVoucherLinesSection({
                 Read-only — another session holds this voucher&apos;s edit lock.
               </Alert>
             )}
-            <TableContainer component={Paper} variant="outlined" sx={{ flex: 1, minHeight: 0, borderRadius: 1.5 }}>
+            <TableContainer data-voucher-grid component={Paper} variant="outlined" sx={{ flex: 1, minHeight: 0, borderRadius: 1.5 }}>
               <Table size="small" stickyHeader sx={(t) => ({ "& tbody td": { py: 0.5, borderBottom: `1px solid ${t.palette.mode === "dark" ? "rgba(255,255,255,0.32)" : "rgba(0,0,0,0.32)"}` } })}>
                 <TableHead>
                   <TableRow>
@@ -323,7 +364,8 @@ export function JournalVoucherLinesSection({
                       </TableCell>
                     </TableRow>
                   )}
-                  {lines.map((l) => {
+                  {lines.map((l, idx) => {
+                    const isLast = idx === lines.length - 1;
                     const isCreditor = !!l.offset;
                     const acc = accounts.find((a) => a.code === l.accountCode);
                     return (
@@ -361,7 +403,7 @@ export function JournalVoucherLinesSection({
                             title={isCreditor ? "Set in Offset Supplier Invoices" : undefined}
                           />
                         </TableCell>
-                        <TableCell sx={{ textAlign: "right" }}>
+                        <TableCell sx={{ textAlign: "right" }} onKeyDown={isLast && !isCreditor ? onLastMoneyKeyDown : undefined}>
                           <MoneyInput
                             value={l.credit ?? ""}
                             disabled={disabled || isCreditor}
@@ -387,14 +429,21 @@ export function JournalVoucherLinesSection({
                       </TableRow>
                     );
                   })}
+                  {/* Add line lives INSIDE the grid as its last row (guru
+                      2026-11-16), so it reads as part of the table rather than
+                      a control floating above it. */}
+                  <TableRow>
+                    <TableCell colSpan={6} sx={{ py: 0.75, borderBottom: "none !important" }}>
+                      <Button data-hotkey="addLine" variant="contained" size="small" startIcon={<AddIcon />} onClick={addLine} disabled={disabled}>
+                        Add line
+                      </Button>
+                    </TableCell>
+                  </TableRow>
                 </TableBody>
               </Table>
             </TableContainer>
 
             <Stack direction="row" alignItems="center" sx={{ mt: 1, pr: 1 }} spacing={2}>
-              <Button data-hotkey="addLine" size="small" startIcon={<AddIcon />} onClick={addLine} disabled={disabled}>
-                Add line
-              </Button>
               <Box sx={{ flex: 1 }} />
               {lines.length > 0 && (
                 <Chip
