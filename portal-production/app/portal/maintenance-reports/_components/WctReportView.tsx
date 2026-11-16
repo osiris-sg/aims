@@ -2,7 +2,8 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { Alert, Box, Button, CircularProgress, ListItemIcon, Menu, MenuItem, Stack, Typography } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, ListItemIcon, Menu, MenuItem, Stack, Tooltip, Typography } from "@mui/material";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import PrintIcon from "@mui/icons-material/Print";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import UndoIcon from "@mui/icons-material/Undo";
@@ -422,9 +423,9 @@ export default function WctReportView({
       <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center" flexWrap="wrap" useFlexGap sx={{ "@media print": { display: "none" } }}>
         {editable && draft && (
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mr: "auto" }} data-tour="service-report-edit-in-place">
-            <Typography variant="body2" color="text.secondary">
-              Click a photo box, a tick or a text on the report to change it.
-            </Typography>
+            <Tooltip title="Click a photo box, a tick or a text on the report to change it. Changes save by themselves.">
+              <InfoOutlinedIcon fontSize="small" color="action" />
+            </Tooltip>
             {saveText && (
               <Stack direction="row" spacing={0.5} alignItems="center" sx={{ color: save === "failed" ? "error.main" : save === "saved" && !uploading ? "success.main" : "text.secondary" }}>
                 {save === "saved" && !uploading ? <CheckIcon fontSize="small" /> : save !== "failed" ? <CircularProgress size={12} /> : null}
