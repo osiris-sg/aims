@@ -1081,7 +1081,7 @@ export class JournalService {
         },
       },
       include: {
-        journalEntry: { select: { journalNumber: true, entryDate: true, type: true, reference: true, description: true, sourceDocumentId: true, isUnconfirmed: true } },
+        journalEntry: { select: { journalNumber: true, entryDate: true, type: true, reference: true, description: true, sourceDocumentId: true, sourcePaymentId: true, isUnconfirmed: true } },
         account: { select: { id: true, code: true, name: true, accountType: true } },
       },
       orderBy: [{ journalEntry: { entryDate: 'asc' } }, { lineNumber: 'asc' }],
@@ -1103,6 +1103,28 @@ export class JournalService {
       ADJUSTMENT: 'Adjustment',
     };
 
+    // A PAYMENT journal is a collection OR a disbursement; the accountant reads
+    // "Receipt" for money in and "Payment" for Payment Vouchers only (Uncle
+    // Ben, 2026-11-15). Decided from the document behind it, else from the
+    // prefix of its reference / journal number (imported books number their
+    // journals "REC 0112543" / "P/V 000123"), else from the customer-payment
+    // link; a Manual Offset is neither and says "Offset".
+    const paymentLabel = (je: any, src?: { type?: string | null } | null): string => {
+      const t = String(src?.type || '').toUpperCase();
+      if (t === 'OFFICIAL_RECEIPT' || t === 'RECEIVE_MONEY') return 'Receipt';
+      if (t === 'PAYMENT_VOUCHER' || t === 'SPEND_MONEY' || t === 'BILL') return 'Payment';
+      const head = (v: any) => String(v || '').trim().toUpperCase();
+      for (const v of [je.reference, je.journalNumber]) {
+        const h = head(v);
+        if (h.startsWith('REC ') || h.startsWith('RCM ') || h.startsWith('OR-')) return 'Receipt';
+        if (h.startsWith('P/V ') || h.startsWith('SPM ')) return 'Payment';
+        if (h.startsWith('MO-')) return 'Offset';
+      }
+      if (/^MANUAL OFFSET\b/i.test(String(je.description || ''))) return 'Offset';
+      if (t === 'INVOICE' || t === 'CREDIT_NOTE' || je.sourcePaymentId) return 'Receipt';
+      return 'Payment';
+    };
+
     const byAccount = new Map<string, { code: string; name: string; accountType: string; rows: any[]; debit: number; credit: number }>();
     // Legacy Reference / X-Reference per line (guru 2026-11-09): the document
     // behind the line, prefixed, not the internal journal number.
@@ -1110,17 +1132,18 @@ export class JournalService {
     for (const l of lines) {
       const a = l.account;
       const e = byAccount.get(a.id) || { code: a.code, name: a.name, accountType: a.accountType, rows: [], debit: 0, credit: 0 };
+      const src = glDocFor(l.journalEntry);
       e.rows.push({
         date: l.journalEntry.entryDate.toISOString(),
-        source: SOURCE_LABEL[l.journalEntry.type] || l.journalEntry.type,
+        source: l.journalEntry.type === 'PAYMENT' ? paymentLabel(l.journalEntry, src) : SOURCE_LABEL[l.journalEntry.type] || l.journalEntry.type,
         description: l.description ?? l.journalEntry.description ?? '',
         reference: l.journalEntry.reference ?? l.journalEntry.journalNumber,
         journalNumber: l.journalEntry.journalNumber,
-        ...this.legacyRefs(l.journalEntry, glDocFor(l.journalEntry)),
+        ...this.legacyRefs(l.journalEntry, src),
         debit: ROUND(l.debit),
         credit: ROUND(l.credit),
         // Posted by a document that is not yet confirmed — the GL Detail
-        // report prints these under an "Unconfirmed" band (guru 2026-11-12).
+        // report flags these in its Status column (guru 2026-11-16).
         unconfirmed: !!(l.journalEntry as any).isUnconfirmed,
       });
       e.debit += l.debit;
