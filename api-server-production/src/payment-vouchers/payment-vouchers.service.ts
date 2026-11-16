@@ -7,6 +7,7 @@ import { AuditService } from 'src/common/audit.service';
 import { outstandingOf, grossStampOf } from '../common/document-money';
 import { AP_CREDIT_OFFSET_FLAG, isOrgFeatureEnabled } from '../common/org-features';
 import { documentReferenceOf } from '../common/doc-ref';
+import { assertLedgerNotElsewhere } from '../common/imported-ledger';
 import { DocumentNumberingService, bankCodeOf, patternNeedsBank } from '../document-numbering/document-numbering.service';
 import { orgToday } from '../common/org-today';
 import { ReceiptsService } from '../receipts/receipts.service';
@@ -401,6 +402,7 @@ export class PaymentVouchersService {
     const doc = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'PAYMENT_VOUCHER' } });
     if (!doc) throw new NotFoundException('Payment voucher not found');
     const cfg: any = doc.config || {};
+    assertLedgerNotElsewhere(cfg, 'payment voucher');
 
     // Legacy client shape → one creditor line.
     const dto: SaveVoucherDto = { ...dtoIn };

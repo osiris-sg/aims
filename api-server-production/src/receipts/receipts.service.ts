@@ -6,6 +6,7 @@ import { PaymentsService } from '../payments/payments.service';
 import { AuditService } from 'src/common/audit.service';
 import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
 import { documentReferenceOf } from '../common/doc-ref';
+import { assertLedgerNotElsewhere } from '../common/imported-ledger';
 import { DocumentNumberingService, bankCodeOf, patternNeedsBank } from '../document-numbering/document-numbering.service';
 import { orgToday } from '../common/org-today';
 
@@ -361,6 +362,7 @@ export class ReceiptsService {
   async save(organizationId: string, id: string, dto: SaveReceiptDto, actor?: Actor) {
     const doc = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'OFFICIAL_RECEIPT' } });
     if (!doc) throw new NotFoundException('Receipt not found');
+    assertLedgerNotElsewhere(doc.config, 'receipt');
 
     if (!dto.customerId) throw new BadRequestException('Customer is required');
     if (!dto.debitAccountCode) throw new BadRequestException('Deposit-to (debit) account is required');
