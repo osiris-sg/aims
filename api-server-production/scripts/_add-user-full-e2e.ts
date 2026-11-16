@@ -137,7 +137,7 @@ async function main() {
 
     // ── E email of one login + mobile of another ──
     const e = await add({ email: eC, phone: mD });
-    ok(e.status === 400 && e.body?.message === 'This person could not be added. Check the email address and try again.', 'E: the one generic error', `${e.status} ${e.body?.message}`);
+    ok(e.status === 400 && e.body?.message === 'This email and this mobile cannot be added together. Try again with only the email (leave Mobile blank), or only the mobile.', 'E: the "not together" error', `${e.status} ${e.body?.message}`);
     // form checks
     const f1 = await add({});
     const f2 = await add({ phone: '6123 4567' });

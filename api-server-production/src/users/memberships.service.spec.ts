@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 
-import { ADD_MEMBER_FAILED, ADD_MEMBER_REPLY, ADMIN_SET_PASSWORD_FLAG, MembershipsService, SET_PASSWORD_LINK_SECONDS, memberLabel, normSgMobile } from './memberships.service';
+import { ADD_MEMBER_EMAIL_PHONE_CONFLICT, ADD_MEMBER_FAILED, ADD_MEMBER_REPLY, ADMIN_SET_PASSWORD_FLAG, MembershipsService, SET_PASSWORD_LINK_SECONDS, memberLabel, normSgMobile } from './memberships.service';
 
 const A = 'org-a';
 const B = 'org-b';
@@ -217,11 +217,13 @@ describe('MembershipsService', () => {
     expect(memberOfA(w, 'phoneonly')).toBeTruthy();
   });
 
-  it('email matching one login and phone matching ANOTHER: refused with the one generic error, nothing made', async () => {
+  it('email matching one login and phone matching ANOTHER: refused with the "not together" error (names no login), nothing made', async () => {
     const w = world();
     const e = await add(w, { email: 'existing@x.sg', phone: '9888 7777' }).catch((x: any) => x);
     expect(e).toBeInstanceOf(BadRequestException);
-    expect(e.message).toBe(ADD_MEMBER_FAILED);
+    expect(e.message).toBe(ADD_MEMBER_EMAIL_PHONE_CONFLICT);
+    expect(e.message).not.toMatch(/existing@x\.sg|phoneonly/);
+    expect(w.clerk.users.createUser).not.toHaveBeenCalled();
     expect(memberOfA(w, 'existing')).toBeFalsy();
     expect(memberOfA(w, 'phoneonly')).toBeFalsy();
     // email matches, phone is new: the existing login (its phone is not added)

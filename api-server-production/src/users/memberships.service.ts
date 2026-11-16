@@ -40,6 +40,16 @@ export const ADD_MEMBER_REPLY = (who: string, org: string) => `${who} has been a
 /** The one error text for anything that stops "Add user" after the form checks (it never says why). */
 export const ADD_MEMBER_FAILED = 'This person could not be added. Check the email address and try again.';
 
+/**
+ * The one case the form CAN act on: the email and the mobile each match a different existing login.
+ * Says what to do without naming the other login (no lookup of who owns a number through "Add user").
+ */
+export const ADD_MEMBER_EMAIL_PHONE_CONFLICT = 'This email and this mobile cannot be added together. Try again with only the email (leave Mobile blank), or only the mobile.';
+
+/** Clerk's own reason ("form_identifier_exists: …") for the server log; the UI never shows it. */
+const clerkReason = (e: any) =>
+  [e?.message, ...(Array.isArray(e?.errors) ? e.errors.map((x: any) => [x?.code, x?.longMessage || x?.message].filter(Boolean).join(': ')) : [])].filter(Boolean).join(' | ');
+
 /** How long the "set your password" link in a new login's welcome email works. */
 export const SET_PASSWORD_LINK_SECONDS = 7 * 24 * 3600;
 
@@ -171,11 +181,15 @@ export class MembershipsService {
     let created = false;
     try {
       const existing = await this.existingLogin(email, phone);
-      if (existing === 'conflict') throw new Error('email and phone belong to different logins');
+      if (existing === 'conflict') {
+        this.logger.warn(`addMember: org ${organizationId}: the email and the mobile match two different logins`);
+        throw new BadRequestException(ADD_MEMBER_EMAIL_PHONE_CONFLICT);
+      }
       userId = existing ?? (await this.createLogin({ email, phone, firstName, lastName, password }));
       created = !existing;
     } catch (e: any) {
-      this.logger.error(`addMember: login lookup / create failed: ${e?.message}`);
+      if (e instanceof BadRequestException) throw e;
+      this.logger.error(`addMember: org ${organizationId}: login lookup / create failed: ${clerkReason(e)}`);
       throw new BadRequestException(ADD_MEMBER_FAILED);
     }
     // A platform admin's login is never added to an org this way.
