@@ -6,7 +6,9 @@
  *   features.disableAutoCustomerEmails  -> true   (no automatic customer emails, as WCT)
  *   features.serviceReportTemplate      -> 'BCAIR' (BC Air's service report: letterhead + wording)
  *   Organization.logo                   -> BC Air's logo (from its SR master), ONLY if empty (uploaded to S3)
- *   Organization.email                  -> info@bcair.com.sg (from its SR master), ONLY if empty
+ *   Organization.email                  -> admin@bcair.com.sg (Elroy 16 Nov), ONLY if empty
+ *                                          (the SR letter keeps info@bcair.com.sg from the master, in code)
+ *   OrganizationModule INVENTORY, SUPPLIERS -> enabled (BC Air sells products; Elroy 16 Nov)
  *
  * Fill-empty / set-new only: a value already set differently is reported and
  * left as it is. Dry run by default (prints the diff); --apply writes, with one
@@ -22,7 +24,8 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 
 const BCAIR = '5c700000-0000-4000-8000-5c7000000004';
 const FEATURES: Record<string, unknown> = { enableManualOrderFlow: true, disableAutoCustomerEmails: true, serviceReportTemplate: 'BCAIR' };
-const EMAIL = 'info@bcair.com.sg';
+const EMAIL = 'admin@bcair.com.sg';
+const MODULES = ['INVENTORY', 'SUPPLIERS'];
 const LOGO_FILE = `${__dirname}/assets/bcair-logo.png`;
 const LOGO_KEY = `organizations/${BCAIR}/logo-bcair.png`;
 
@@ -50,6 +53,11 @@ const apply = process.argv.includes('--apply');
     else plan.push({ what: `features.${k}`, from: f[k] ?? '(not set)', to: v });
   }
   plan.push(org.email ? { what: 'Organization.email', from: org.email, to: EMAIL, skip: org.email === EMAIL ? 'already set' : 'set to something else: left as it is' } : { what: 'Organization.email', from: '(empty)', to: EMAIL });
+  const mods = await q(`select id, "moduleCode" code, enabled from ${S}."OrganizationModule" where "organizationId" = $1 and "moduleCode" = any($2)`, [BCAIR, MODULES]);
+  for (const m of MODULES) {
+    const r = mods.find((x: any) => x.code === m);
+    plan.push(!r ? { what: `module.${m}`, from: '(no row)', to: true, skip: 'no module row: not created by this script' } : r.enabled ? { what: `module.${m}`, from: true, to: true, skip: 'already on' } : { what: `module.${m}`, from: false, to: true });
+  }
   plan.push(org.logo ? { what: 'Organization.logo', from: org.logo, to: LOGO_KEY, skip: 'already has a logo: left as it is' } : { what: 'Organization.logo', from: '(empty)', to: `${LOGO_KEY} (uploaded from scripts/assets/bcair-logo.png)` });
 
   console.log(`${env.toUpperCase()} ${org.name} (${BCAIR}):`);
@@ -73,12 +81,13 @@ const apply = process.argv.includes('--apply');
     for (const p of todo.filter((x) => x.what.startsWith('features.'))) feats[p.what.slice(9)] = p.to;
     if (todo.some((x) => x.what.startsWith('features.'))) await c.query(`update ${S}."OrganizationUIConfig" set features = $2 where id = $1`, [ui.id, JSON.stringify(feats)]);
     if (todo.some((x) => x.what === 'Organization.email')) await c.query(`update ${S}."Organization" set email = $2 where id = $1 and email is null`, [BCAIR, EMAIL]);
+    for (const p of todo.filter((x) => x.what.startsWith('module.'))) await c.query(`update ${S}."OrganizationModule" set enabled = true, "updatedAt" = now() where "organizationId" = $1 and "moduleCode" = $2 and enabled = false`, [BCAIR, p.what.slice(7)]);
     if (logoTodo) await c.query(`update ${S}."Organization" set logo = $2 where id = $1 and logo is null`, [BCAIR, LOGO_KEY]);
     for (const p of todo) {
       await c.query(
         `insert into ${S}."ActionLog"(id, "actorType", "actorId", "actorName", "organizationId", channel, action, resource, "resourceId", details, status)
          values (gen_random_uuid(), 'SYSTEM', 'system:wct-bcair-parity', 'System creation', $1, 'operator', 'UPDATE', $2, $1, $3, 'SUCCESS')`,
-        [BCAIR, p.what.startsWith('features.') ? 'organization-features' : 'organization', JSON.stringify({ note: `${p.what}: ${JSON.stringify(p.from)} -> ${JSON.stringify(p.to)} (BC Air parity, Elroy 16 Nov)` })],
+        [BCAIR, p.what.startsWith('features.') ? 'organization-features' : p.what.startsWith('module.') ? 'organization-module' : 'organization', JSON.stringify({ note: `${p.what}: ${JSON.stringify(p.from)} -> ${JSON.stringify(p.to)} (BC Air parity, Elroy 16 Nov)` })],
       );
     }
     await c.query('commit');

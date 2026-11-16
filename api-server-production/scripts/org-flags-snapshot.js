@@ -1,6 +1,6 @@
 /**
  * READ-ONLY: every org's feature flags / settings (OrganizationUIConfig.features)
- * plus the letterhead fields, to a JSON file; with --compare <old.json> it also
+ * plus module toggles and the letterhead fields, to a JSON file; with --compare <old.json> it also
  * lists every org whose values changed. Used around a flag change to prove only
  * the intended org moved.
  *
@@ -31,7 +31,9 @@ const compare = arg('--compare');
          from ${S}."Organization" o left join ${S}."OrganizationUIConfig" u on u."organizationId" = o.id order by o.name`,
     )
   ).rows;
-  const snap = Object.fromEntries(rows.map((r) => [r.id, { name: r.name, email: r.email, hasLogo: r.hasLogo, phoneNumber: r.phoneNumber, features: r.features || {} }]));
+  const mods = (await c.query(`select "organizationId" o, "moduleCode" m, enabled from ${S}."OrganizationModule"`)).rows;
+  const modsOf = (id) => Object.fromEntries(mods.filter((x) => x.o === id).sort((a, b) => a.m.localeCompare(b.m)).map((x) => [x.m, x.enabled]));
+  const snap = Object.fromEntries(rows.map((r) => [r.id, { name: r.name, email: r.email, hasLogo: r.hasLogo, phoneNumber: r.phoneNumber, features: r.features || {}, modules: modsOf(r.id) }]));
   fs.writeFileSync(out, JSON.stringify(snap, null, 1));
   console.log(`${env}: ${rows.length} orgs written to ${out}`);
   if (compare) {
@@ -44,6 +46,7 @@ const compare = arg('--compare');
       for (const k of ['name', 'email', 'hasLogo', 'phoneNumber']) if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) diffs.push(`${k}: ${JSON.stringify(a[k])} -> ${JSON.stringify(b[k])}`);
       const fk = new Set([...Object.keys(a.features || {}), ...Object.keys(b.features || {})]);
       for (const k of fk) if (JSON.stringify((a.features || {})[k]) !== JSON.stringify((b.features || {})[k])) diffs.push(`features.${k}: ${JSON.stringify((a.features || {})[k])} -> ${JSON.stringify((b.features || {})[k])}`);
+      if (a.modules) for (const k of new Set([...Object.keys(a.modules), ...Object.keys(b.modules || {})])) if ((a.modules || {})[k] !== (b.modules || {})[k]) diffs.push(`modules.${k}: ${(a.modules || {})[k]} -> ${(b.modules || {})[k]}`);
       if (diffs.length) changed.push({ id, name: b.name || a.name, diffs });
     }
     console.log(changed.length ? `CHANGED ORGS (${changed.length}):` : 'NO ORG CHANGED');
