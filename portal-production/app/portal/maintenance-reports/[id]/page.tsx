@@ -392,14 +392,14 @@ export default function MaintenanceReportDetailPage() {
               </Box>
               <Chip
                 size="small"
-                label={report.status === "draft" && sd.scheduled ? "Scheduled — awaiting the technician" : msrStatusChip(report).label}
+                label={report.status === "draft" && sd.scheduled ? ((sd as any).office ? "Draft (being written in the office)" : "Scheduled — awaiting the technician") : msrStatusChip(report).label}
                 color={msrStatusChip(report).color}
                 variant={msrStatusChip(report).variant}
               />
             </Stack>
           </Paper>
           {tabs}
-          {onPhotos ? photosTab() : <WctReportView reportId={report.id} reportNumber={report.reportNumber} extraActions={photosControls} />}
+          {onPhotos ? photosTab() : <WctReportView reportId={report.id} reportNumber={report.reportNumber} extraActions={photosControls} editable={report.status !== "completed" && !(sd as any).deletedAt} />}
         </>
       )}
 

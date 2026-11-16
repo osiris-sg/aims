@@ -39,6 +39,7 @@ import {
   wctSlotsFor,
   WCT_PHOTOS_PER_PAGE,
   WCT_SINGLE_PHOTOS_PER_PAGE,
+  WCT_MAX_PHOTOS_PER_GRID,
   type WctSectionSlot,
   type WctSectionResult,
   type WctServiceData,
@@ -91,6 +92,14 @@ export interface WctServiceReportInput {
     wct?: WctServiceData | null;
   } | null;
   org: WctOrgProfile;
+  /**
+   * In-place editing (office report page, 2026-11-16): the same paper with
+   * click targets (data-* attributes): photo slots (empty template boxes too,
+   * plus one more page once a page is full), job-type ticks, work lines, the
+   * Company / Location / Date / Remarks text and the box captions. Never used
+   * for the PDF; the edit CSS also hides every control in print.
+   */
+  edit?: boolean;
 }
 
 const CSS = `
@@ -198,6 +207,26 @@ const CSS = `
   .wm { position: relative; }
 `;
 
+/** Edit mode only: hover and empty-slot styling; nothing of it prints. */
+const EDIT_CSS = `
+  [data-k][data-g] { position: relative; cursor: pointer; }
+  [data-k][data-g].empty { background: repeating-linear-gradient(45deg, #f7f7f7, #f7f7f7 8px, #efefef 8px, #efefef 16px); outline: 1px dashed #bbb; }
+  [data-k][data-g].empty::after { content: "+ Add photo"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #888; font: 600 13px Arial, sans-serif; }
+  [data-k][data-g]:hover { outline: 2px solid #1a73e8; }
+  [data-k][data-g]:not(.empty):hover::before { content: "Replace"; position: absolute; left: 6px; bottom: 6px; background: rgba(26,115,232,.92); color: #fff; font: 600 11px Arial, sans-serif; padding: 2px 6px; border-radius: 3px; z-index: 1; }
+  [data-jt], [data-l], [data-f], [data-label] { cursor: pointer; }
+  [data-jt]:hover, [data-l]:hover, [data-f]:hover, [data-label]:hover { background: #e8f0fe; }
+  [data-f]:empty::before, [data-label]:empty::before { content: attr(data-ph); color: #aaa; font-style: italic; }
+  [contenteditable="true"] { outline: 2px solid #1a73e8; background: #fff; cursor: text; }
+  .ed-ui { position: absolute; z-index: 2; }
+  @media print {
+    .ed-ui { display: none !important; }
+    [data-k][data-g].empty { background: none !important; outline: none !important; }
+    [data-k][data-g].empty::after, [data-k][data-g]::before, [data-f]:empty::before, [data-label]:empty::before { content: none !important; }
+    [data-k][data-g]:hover, [data-jt]:hover, [data-l]:hover, [data-f]:hover, [data-label]:hover { outline: none !important; background: none !important; }
+  }
+`;
+
 function letterhead(org: WctOrgProfile): string {
   const logo = url(org.logo);
   const lines = [
@@ -214,17 +243,18 @@ function letterhead(org: WctOrgProfile): string {
 }
 
 /** The side-by-side Chemical Degreasing | De-Dusting table and the Additions band. */
-function jobTypeTable(ticked: Set<string>): string {
+function jobTypeTable(ticked: Set<string>, edit = false): string {
   const [chem, dust, adds] = WCT_JOB_TYPE_GROUPS;
   const stamp = (id: string) => (ticked.has(id) ? '<span class="stamp">&#10003;</span>' : '');
+  const jt = (id: string) => (edit ? ` data-jt="${esc(id)}" title="Tick / untick"` : '');
   const cell = (it: { id: string; label: string; sub?: string; note?: string } | undefined) =>
     it
-      ? `<td class="lbl">${esc(it.label)}${it.sub ? `<div class="sub">${esc(it.sub)}</div>` : ''}${it.note ? `<div class="note">${esc(it.note)}</div>` : ''}</td><td class="mk">${stamp(it.id)}</td>`
+      ? `<td class="lbl">${esc(it.label)}${it.sub ? `<div class="sub">${esc(it.sub)}</div>` : ''}${it.note ? `<div class="note">${esc(it.note)}</div>` : ''}</td><td class="mk"${jt(it.id)}>${stamp(it.id)}</td>`
       : '<td class="lbl"></td><td class="mk"></td>';
   const rows = Math.max(chem.items.length, dust.items.length);
   let body = '';
   for (let i = 0; i < rows; i++) body += `<tr>${cell(chem.items[i])}${cell(dust.items[i])}</tr>`;
-  const addRows = adds.items.map((it) => `<tr><td class="lbl" colspan="3">${esc(it.label)}</td><td class="mk">${stamp(it.id)}</td></tr>`).join('');
+  const addRows = adds.items.map((it) => `<tr><td class="lbl" colspan="3">${esc(it.label)}</td><td class="mk"${jt(it.id)}>${stamp(it.id)}</td></tr>`).join('');
   return `
   <table class="jt">
     <colgroup><col style="width:41%"/><col style="width:9%"/><col style="width:41%"/><col style="width:9%"/></colgroup>
@@ -244,34 +274,63 @@ function photoGrid(keys: readonly string[] | undefined, single: boolean): string
   return `<div class="${cls}">${list.map((k) => `<div class="ph"><img src="${esc(url(k))}" alt="" /></div>`).join('')}</div>`;
 }
 
+/**
+ * Edit mode: the photos of one grid on one page as slots. Every slot names its
+ * section (data-k), grid (data-g) and index in the whole grid (data-i); the
+ * empty ones fill the page to its capacity so a blank template shows its boxes.
+ */
+function editGrid(all: string[], key: string, grid: 'before' | 'after' | 'photos', page: number, perPage: number, single: boolean): string {
+  const start = page * perPage;
+  const shown = all.slice(start, start + perPage);
+  const slots = Math.min(perPage, Math.max(shown.length + (all.length < WCT_MAX_PHOTOS_PER_GRID ? 1 : 0), single ? 1 : perPage));
+  const cells: string[] = [];
+  for (let n = 0; n < slots; n++) {
+    const i = start + n;
+    const k = shown[n];
+    const attrs = `data-k="${esc(key)}" data-g="${grid}" data-i="${i}"`;
+    cells.push(k ? `<div class="ph" ${attrs}><img src="${esc(url(k))}" alt="" /></div>` : `<div class="ph empty" ${attrs} data-count="${all.length}"></div>`);
+  }
+  const one = single && cells.length === 1;
+  return `<div class="grid${one ? ' one' : ''} n${cells.length}">${cells.join('')}</div>`;
+}
+
 const cleanKeys = (keys: readonly string[] | undefined): string[] =>
   (keys ?? []).filter((k) => typeof k === 'string' && !!k && !k.startsWith('data:'));
 
 const chunk = <T,>(list: T[], size: number, page: number): T[] => list.slice(page * size, page * size + size);
 
-/** One section, as many pages as its photos need (always at least one). */
-function sectionPages(s: WctSectionSlot, r: WctSectionResult | undefined): string {
-  const lines = s.lines.map((l, i) => `<div class="${wctLineTicked(r, i) ? '' : 'off'}">${esc(l)}</div>`).join('');
+/** One section, as many pages as its photos need (always at least one; in edit mode one more once the last page is full). */
+function sectionPages(s: WctSectionSlot, r: WctSectionResult | undefined, label: string | undefined, edit = false): string {
+  const lines = s.lines
+    .map((l, i) => `<div class="${wctLineTicked(r, i) ? '' : 'off'}"${edit ? ` data-k="${esc(s.key)}" data-l="${i}" title="Tick / untick"` : ''}>${esc(l)}</div>`)
+    .join('');
   const heading = s.subject ? `${esc(s.heading)} <u>${esc(s.subject)}</u> -` : `${esc(s.heading)} -`;
   const before = cleanKeys(r?.before);
   const after = cleanKeys(r?.after);
   const photos = cleanKeys(r?.photos);
-  const pages =
-    s.mode === 'before-after'
-      ? Math.max(1, Math.ceil(Math.max(before.length, after.length) / WCT_PHOTOS_PER_PAGE))
-      : Math.max(1, Math.ceil(photos.length / WCT_SINGLE_PHOTOS_PER_PAGE));
-  // A box caption instead of the heading line: Unit Location and Company / Brand.
+  const ba = s.mode === 'before-after';
+  const perPage = ba ? WCT_PHOTOS_PER_PAGE : WCT_SINGLE_PHOTOS_PER_PAGE;
+  const most = ba ? Math.max(before.length, after.length) : photos.length;
+  let pages = Math.max(1, Math.ceil(most / perPage));
+  // Edit mode: a full last page gets a next one to add to (up to the maximum).
+  if (edit && most > 0 && most % perPage === 0 && most < WCT_MAX_PHOTOS_PER_GRID) pages += 1;
+  // A box caption instead of the heading line: Unit Location and Company / Brand; a typed name follows it.
   const boxed = s.id === 'UNIT_LOCATION' || s.id === 'BRAND';
-  const caption = s.id === 'UNIT_LOCATION' && s.unit ? `Unit Location #${s.unit}` : `${esc(s.heading)} -`;
+  const base = s.id === 'UNIT_LOCATION' && s.unit ? `Unit Location #${s.unit}` : esc(s.heading);
+  const name = label ? esc(label) : '';
+  const caption = edit
+    ? `${base} - <span data-label="${esc(s.key)}" data-ph="add a name">${name}</span>`
+    : `${base} -${name ? ` ${name}` : ''}`;
   let out = '';
   for (let p = 0; p < pages; p++) {
-    const body =
-      s.mode === 'before-after'
-        ? `<div class="cap"><span class="tag before">Before</span></div>${photoGrid(chunk(before, WCT_PHOTOS_PER_PAGE, p), false)}
-           <div class="cap"><span class="tag after">After</span></div>${photoGrid(chunk(after, WCT_PHOTOS_PER_PAGE, p), false)}`
-        : boxed
-          ? `<div class="cap">${caption}</div>${photoGrid(chunk(photos, WCT_SINGLE_PHOTOS_PER_PAGE, p), true)}`
-          : photoGrid(chunk(photos, WCT_SINGLE_PHOTOS_PER_PAGE, p), true);
+    const grid = (keys: string[], g: 'before' | 'after' | 'photos', single: boolean) =>
+      edit ? editGrid(keys, s.key, g, p, perPage, single) : photoGrid(chunk(keys, perPage, p), single);
+    const body = ba
+      ? `<div class="cap"><span class="tag before">Before</span></div>${grid(before, 'before', false)}
+           <div class="cap"><span class="tag after">After</span></div>${grid(after, 'after', false)}`
+      : boxed
+        ? `<div class="cap">${caption}</div>${grid(photos, 'photos', true)}`
+        : grid(photos, 'photos', true);
     out += `
   <div class="pg">
     ${boxed ? '<div style="height:70px"></div>' : `<div class="sec-h">${heading}</div>`}
@@ -353,26 +412,28 @@ export function buildWctServiceReportHtml(input: WctServiceReportInput): string 
   const sd = input.serviceData ?? {};
   const wct: WctServiceData = sd.wct ?? { jobTypes: [], sections: {} };
   const ticked = new Set(wct.jobTypes ?? []);
-  const sections = wctSlotsFor(wct).map((s) => sectionPages(s, wct.sections?.[s.key]));
+  const edit = !!input.edit;
+  const sections = wctSlotsFor(wct).map((s) => sectionPages(s, wct.sections?.[s.key], wct.labels?.[s.key], edit));
+  const field = (f: string, value: string, ph: string) => (edit ? `<span data-f="${f}" data-ph="${ph}">${value}</span>` : value);
 
   const page1 = `
     <div class="no">${esc(wctReportNumber(input.reportNumber))}</div>
     <div class="title">SERVICE REPORT</div>
     <div class="client">
-      <div class="k">Company</div><div class="v">${esc(sd.customerName)}</div>
-      <div class="k">Location</div><div class="v">${esc(sd.jobLocation)}</div>
+      <div class="k">Company</div><div class="v">${field('customerName', esc(sd.customerName), 'company')}</div>
+      <div class="k">Location</div><div class="v">${field('jobLocation', esc(sd.jobLocation), 'location')}</div>
     </div>
-    <div class="dos"><b>Date of Servicing :</b> ${esc(paperDate(sd.serviceDate))}</div>
+    <div class="dos"><b>Date of Servicing :</b> ${edit ? `<span data-f="serviceDate" data-v="${esc(String(sd.serviceDate ?? '').slice(0, 10))}" data-ph="pick a date">${esc(paperDate(sd.serviceDate))}</span>` : esc(paperDate(sd.serviceDate))}</div>
     <div class="jt-head">Type of Service/Job –</div>
-    ${jobTypeTable(ticked)}
-    ${sd.remarks ? `<div class="remarks"><div class="h">Remarks –</div><div class="box">${esc(sd.remarks)}</div></div>` : ''}`;
+    ${jobTypeTable(ticked, edit)}
+    ${sd.remarks || edit ? `<div class="remarks"><div class="h">Remarks –</div><div class="box">${field('remarks', esc(sd.remarks ?? ''), 'add remarks')}</div></div>` : ''}`;
 
   return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <title>Service Report ${esc(wctReportNumber(input.reportNumber))}</title>
-  <style>${CSS}</style>
+  <style>${CSS}${edit ? EDIT_CSS : ''}</style>
 </head>
 <body>
   <table class="sheet">

@@ -3,16 +3,18 @@
 // Editing a service report (manual order flow, 2026-11-13; same permission as
 // creating one). Uploaded report: Replace file (the number stays, the old file
 // stays in the history) and Edit details (customer + DO required, service date,
-// location). Report written on the form: Edit reopens the WCT form (a signed
-// report loses its signature and is signed again; the signed copy stays in the
-// history). Delete only while it has not been sent to the customer; the number
+// location). Report written on the form: Edit reopens it for editing in place on
+// this page (2026-11-16; a signed report loses its signature and is signed again;
+// the signed copy stays in the history). A report still being written is edited
+// on the page; its ⋮ holds "Continue on the form" and "Complete and sign". Delete only while it has not been sent to the customer; the number
 // stays a gap. Every change is in the Activity Log and the report's history.
 
 import React, { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
-import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, Menu, MenuItem, Stack, TextField, Typography } from "@mui/material";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 import EditIcon from "@mui/icons-material/Edit";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -41,6 +43,7 @@ export default function ReportEditActions({ report, isUploaded }: { report: { id
   const [serviceDate, setServiceDate] = useState<string>(String(sd.serviceDate ?? "").slice(0, 10));
   const [location, setLocation] = useState<string>(sd.jobLocation ?? "");
   const [error, setError] = useState<string | null>(null);
+  const [more, setMore] = useState<{ left: number; top: number } | null>(null);
   if (!isManualOrderFlowEnabled) return null;
 
   const sent = !!(sd.customerSentAt || sd.emailSentAt);
@@ -92,9 +95,10 @@ export default function ReportEditActions({ report, isUploaded }: { report: { id
     }
   };
 
+  // Edit in place (2026-11-16): reopen, then this page turns editable.
   const reopen = async () => {
     const ok = await call("edit", `/maintenance-reports/${report.id}/reopen`, "POST");
-    if (ok) router.push(`/portal/maintenance-reports/${report.id}/form`);
+    if (ok) window.location.reload();
   };
 
   const remove = async () => {
@@ -122,9 +126,15 @@ export default function ReportEditActions({ report, isUploaded }: { report: { id
           Edit
         </Button>
       ) : (
-        <Button variant="outlined" startIcon={<EditIcon />} onClick={() => router.push(`/portal/maintenance-reports/${report.id}/form`)}>
-          Continue on the form
-        </Button>
+        <>
+          <IconButton aria-label="More" onClick={(e) => setMore({ left: e.clientX, top: e.clientY })} data-tour="service-report-more">
+            <MoreVertIcon />
+          </IconButton>
+          <Menu open={!!more} onClose={() => setMore(null)} anchorReference="anchorPosition" anchorPosition={more ?? undefined}>
+            <MenuItem onClick={() => router.push(`/portal/maintenance-reports/${report.id}/form?step=finish`)}>Complete and sign</MenuItem>
+            <MenuItem onClick={() => router.push(`/portal/maintenance-reports/${report.id}/form`)}>Continue on the form</MenuItem>
+          </Menu>
+        </>
       )}
       {!sent && (
         <Button variant="outlined" color="error" startIcon={<DeleteOutlineIcon />} disabled={!!busy} onClick={() => setAskDelete(true)} data-tour="service-report-delete">

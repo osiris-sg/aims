@@ -944,9 +944,85 @@ export interface WctServiceData {
   sections: Record<string, WctSectionResult>;
   /** Stalls: absent / 1 = the Single master; n > 1 = the multi-stall master with n stalls. */
   units?: number;
+  /** Section key → the name typed after a box caption ("Unit Location #2 - Chicken rice stall", "Company / Brand - KFC"). */
+  labels?: Record<string, string>;
 }
 
 /** True when a section's line i is ticked on a stored result. */
 export function wctLineTicked(result: WctSectionResult | undefined, i: number): boolean {
   return !result?.lines || result.lines.includes(i);
 }
+
+// ── The editing draft (form and in-place editor, 2026-11-16) ───────────────────
+// Both editors keep their work in serviceData.draft, in this shape; the report
+// is drawn from it until it is completed (wctDraftToData), and a completed
+// report is turned back into one when it is reopened (wctDataToDraft).
+
+export interface WctDraftGrid {
+  before: string[];
+  after: string[];
+  photos: string[];
+  /** Ticked line indexes. */
+  lines: number[];
+}
+
+export interface WctDraft {
+  jobTypes: string[];
+  grids: Record<string, WctDraftGrid>;
+  customerName?: string;
+  jobLocation?: string;
+  serviceDate?: string;
+  clientEmail?: string;
+  remarks?: string;
+  units?: number;
+  labels?: Record<string, string>;
+  cursor?: unknown;
+}
+
+const keysOf = (v: unknown): string[] => (Array.isArray(v) ? v.filter((k): k is string => typeof k === 'string' && !!k) : []);
+
+/** The draft as the stored report data (the same rule the form's Finish uses). */
+export function wctDraftToData(draft: Partial<WctDraft> | null | undefined): WctServiceData {
+  const jobTypes = keysOf(draft?.jobTypes);
+  const units = wctUnitCount(draft?.units);
+  const out: WctServiceData = { jobTypes, sections: {}, ...(units > 1 ? { units } : {}) };
+  for (const s of wctSlotsFor({ jobTypes, units })) {
+    const g: any = (draft?.grids as any)?.[s.key];
+    if (!g) continue;
+    const r: WctSectionResult = s.mode === 'before-after' ? { before: keysOf(g.before), after: keysOf(g.after) } : { photos: keysOf(g.photos) };
+    const lines = Array.isArray(g.lines) ? [...new Set(g.lines.filter((i: unknown) => Number.isInteger(i)) as number[])].sort((a, b) => a - b) : null;
+    if (lines && lines.length !== s.lines.length) r.lines = lines;
+    out.sections[s.key] = r;
+  }
+  const labels = Object.fromEntries(Object.entries(draft?.labels ?? {}).filter(([, v]) => typeof v === 'string' && v.trim()).map(([k, v]) => [k, String(v).trim().slice(0, 120)]));
+  if (Object.keys(labels).length) out.labels = labels;
+  return out;
+}
+
+/** A stored report back into a draft (on reopen, or when a report has no draft yet). */
+export function wctDataToDraft(
+  wct: Partial<WctServiceData> | null | undefined,
+  fields: { customerName?: string | null; jobLocation?: string | null; serviceDate?: string | null; clientEmail?: string | null; remarks?: string | null } = {},
+): WctDraft {
+  const jobTypes = keysOf(wct?.jobTypes);
+  const units = wctUnitCount(wct?.units);
+  const grids: Record<string, WctDraftGrid> = {};
+  for (const s of wctSlotsFor({ jobTypes, units })) {
+    const r: any = wct?.sections?.[s.key];
+    if (!r) continue;
+    grids[s.key] = { before: keysOf(r.before), after: keysOf(r.after), photos: keysOf(r.photos), lines: Array.isArray(r.lines) ? r.lines : s.lines.map((_, i) => i) };
+  }
+  return {
+    jobTypes,
+    grids,
+    customerName: fields.customerName ?? '',
+    jobLocation: fields.jobLocation ?? '',
+    serviceDate: String(fields.serviceDate ?? '').slice(0, 10),
+    clientEmail: fields.clientEmail ?? '',
+    remarks: fields.remarks ?? '',
+    units,
+    labels: { ...(wct?.labels ?? {}) },
+    cursor: { phase: 'job' },
+  };
+}
+

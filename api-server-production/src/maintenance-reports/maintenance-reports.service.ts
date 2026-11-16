@@ -12,7 +12,7 @@ import { CreateMaintenanceReportDto } from './dto/create-maintenance-report.dto'
 import { SignMaintenanceReportDto } from './dto/sign-maintenance-report.dto';
 import { CreateLocationPingsDto } from './dto/location-ping.dto';
 import { buildServiceReportHtml, MAX_SERVICE_REPORT_PHOTOS, servicePdfOptions } from './service-report-pdf';
-import { templateFor } from './msr-templates';
+import { templateFor, wctDataToDraft, wctDraftToData, type WctDraft } from './msr-templates';
 import type { WctOrgProfile } from './service-report-wct';
 import { minPhotosForAssetClass } from 'src/common/asset-class';
 import { orgToday, orgTodayFor } from '../common/org-today';
@@ -31,6 +31,8 @@ const REPORT_ORG_SELECT = { name: true, logo: true, address: true, phoneNumber: 
 
 interface ReportForRender {
   id?: string;
+  /** Needed to draw a WCT report from its draft; absent = drawn as stored. */
+  status?: string;
   reportNumber: number | null;
   technicianName: string | null;
   serviceData: unknown;
@@ -548,15 +550,30 @@ export class MaintenanceReportsService {
    * BREAKS cleanly rather than shrink, as the field print does.
    */
   async renderReportPdf(report: ReportForRender): Promise<Buffer> {
-    const sd = (report.serviceData as any) ?? {};
+    const sd = this.wctServiceDataForRender(report as any);
     const html = this.renderReportHtml(report);
     return this.pdfGenerator.generatePdfFromHtml(html, servicePdfOptions(sd, report.photos, report.organization));
   }
 
+  /**
+   * A WCT report not completed yet is drawn from its draft (the form and the
+   * in-place editor both keep their work there, 2026-11-16), so the preview,
+   * the print and the PDF show what is being written. Completed: as stored.
+   */
+  private wctServiceDataForRender(report: { status?: string; serviceData: unknown }): Record<string, any> {
+    const sd = ((report.serviceData as any) ?? {}) as Record<string, any>;
+    // Only a row known to be unfinished (status present and not completed): a completed report keeps its old draft too.
+    if (templateFor(sd.templateId) !== 'WCT_V1' || !report.status || report.status === 'completed' || !sd.draft || typeof sd.draft !== 'object') return sd;
+    const d = sd.draft as Partial<WctDraft>;
+    const pick = (k: 'customerName' | 'jobLocation' | 'serviceDate' | 'remarks') => (typeof d[k] === 'string' ? d[k] : sd[k]);
+    return { ...sd, customerName: pick('customerName'), jobLocation: pick('jobLocation'), serviceDate: pick('serviceDate'), remarks: pick('remarks'), wct: wctDraftToData(d) };
+  }
+
   /** The report as HTML — the office preview and the field print show this verbatim for the WCT paper. */
-  renderReportHtml(report: ReportForRender): string {
-    const sd = (report.serviceData as any) ?? {};
+  renderReportHtml(report: ReportForRender, opts: { edit?: boolean } = {}): string {
+    const sd = this.wctServiceDataForRender(report);
     return buildServiceReportHtml({
+      edit: opts.edit,
       reportNumber: report.reportNumber,
       technicianName: report.technicianName,
       serviceData: sd,
@@ -584,11 +601,79 @@ export class MaintenanceReportsService {
   }
 
   /** GET /maintenance-reports/:id/html → the rendered report (JSON-wrapped). */
-  async getReportHtml(id: string, organizationId: string): Promise<{ html: string; templateId: string }> {
+  async getReportHtml(id: string, organizationId: string, opts: { edit?: boolean } = {}): Promise<{ html: string; templateId: string }> {
     const report = await this.loadForRender(id, organizationId);
     if (uploadedFileOf(report.serviceData)) throw new BadRequestException('This report is an uploaded file; open it with GET :id/pdf');
     const sd = (report.serviceData as any) ?? {};
-    return { html: this.renderReportHtml(report), templateId: templateFor(sd.templateId) };
+    // Edit mode only for a WCT report still being written.
+    const edit = !!opts.edit && templateFor(sd.templateId) === 'WCT_V1' && report.status !== 'completed';
+    return { html: this.renderReportHtml(report, { edit }), templateId: templateFor(sd.templateId) };
+  }
+
+  // ── In-place editing on the report page (WCT, 2026-11-16) ──────────────────
+
+  /** The draft the in-place editor starts from: the saved draft, else one built from the report. */
+  async editState(id: string, organizationId: string): Promise<{ draft: WctDraft; status: string; editable: boolean }> {
+    const r = await this.prisma.maintenanceServiceReport.findFirst({ where: { id, organizationId }, select: { id: true, status: true, kind: true, serviceData: true } });
+    if (!r) throw new NotFoundException('Service report not found');
+    const sd = (r.serviceData as any) ?? {};
+    if (templateFor(sd.templateId) !== 'WCT_V1' || uploadedFileOf(sd)) throw new BadRequestException('Only a WCT report written in AIMS is edited on the page');
+    const draft: WctDraft = sd.draft && typeof sd.draft === 'object' ? { ...wctDataToDraft(null, sd), ...sd.draft } : wctDataToDraft(sd.wct, sd);
+    return { draft, status: r.status, editable: r.status !== 'completed' && !sd.deletedAt };
+  }
+
+  /**
+   * One in-place save: the whole draft (the same shape the form saves), then
+   * the page's edit view drawn from it. The page batches its changes, so this
+   * is one request (and one Activity Log row) per save, not per keystroke.
+   */
+  async saveInPlace(id: string, draft: unknown, organizationId: string): Promise<{ html: string; savedAt: string }> {
+    const r = await this.prisma.maintenanceServiceReport.findFirst({ where: { id, organizationId }, select: { serviceData: true, status: true } });
+    if (!r) throw new NotFoundException('Service report not found');
+    const sd = (r.serviceData as any) ?? {};
+    if (templateFor(sd.templateId) !== 'WCT_V1' || uploadedFileOf(sd)) throw new BadRequestException('Only a WCT report written in AIMS is edited on the page');
+    if (sd.deletedAt) throw new BadRequestException('This report is deleted');
+    if (r.status === 'completed') throw new BadRequestException('This report is completed. Use Edit first (a signed report must be signed again).');
+    const clean = this.cleanWctDraft(draft, organizationId);
+    await this.saveDraft(id, clean as any, organizationId);
+    const report = await this.loadForRender(id, organizationId);
+    return { html: this.renderReportHtml(report, { edit: true }), savedAt: new Date().toISOString() };
+  }
+
+  /** A draft from the page: known keys only; photos must be report photos (maintenance-reports/...). */
+  private cleanWctDraft(v: unknown, organizationId: string): WctDraft {
+    void organizationId;
+    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new BadRequestException('draft must be an object');
+    const d = v as Record<string, any>;
+    const photo = (k: unknown) => {
+      if (typeof k !== 'string' || !k) return null;
+      if (!k.startsWith('maintenance-reports/') || k.includes('..') || k.length > 300) throw new BadRequestException('A photo is not a report photo');
+      return k;
+    };
+    const list = (a: unknown) => (Array.isArray(a) ? (a.map(photo).filter(Boolean) as string[]).slice(0, 12) : []);
+    const grids: WctDraft['grids'] = {};
+    for (const [key, g] of Object.entries(d.grids && typeof d.grids === 'object' ? d.grids : {})) {
+      if (!/^[A-Z_]+(@\d+)?$/.test(key) || !g || typeof g !== 'object') continue;
+      const gg = g as any;
+      grids[key] = { before: list(gg.before), after: list(gg.after), photos: list(gg.photos), lines: Array.isArray(gg.lines) ? gg.lines.filter((i: unknown) => Number.isInteger(i) && (i as number) >= 0 && (i as number) < 50) : [] };
+    }
+    const text = (x: unknown, max: number) => (typeof x === 'string' ? x.slice(0, max) : '');
+    const labels: Record<string, string> = {};
+    for (const [k, l] of Object.entries(d.labels && typeof d.labels === 'object' ? d.labels : {})) if (/^[A-Z_]+(@\d+)?$/.test(k) && typeof l === 'string') labels[k] = l.slice(0, 120);
+    const serviceDate = text(d.serviceDate, 10);
+    if (serviceDate && !/^\d{4}-\d{2}-\d{2}$/.test(serviceDate)) throw new BadRequestException('Date of Servicing must be a date');
+    return {
+      jobTypes: Array.isArray(d.jobTypes) ? d.jobTypes.filter((j: unknown) => typeof j === 'string' && /^[A-Z_]+$/.test(j)).slice(0, 40) : [],
+      grids,
+      customerName: text(d.customerName, 200),
+      jobLocation: text(d.jobLocation, 500),
+      serviceDate,
+      clientEmail: text(d.clientEmail, 200),
+      remarks: text(d.remarks, 2000),
+      units: Number.isInteger(d.units) ? Math.min(Math.max(d.units, 1), 40) : 1,
+      labels,
+      cursor: d.cursor && typeof d.cursor === 'object' ? d.cursor : { phase: 'job' },
+    };
   }
 
   /**
@@ -781,7 +866,9 @@ export class MaintenanceReportsService {
         signedByName: null,
         signedAt: null,
         // Reopened in the office: completing it again does not email the customer by itself.
-        serviceData: { ...rest, scheduled: true, office: true, history } as Prisma.InputJsonValue,
+        // The draft is rebuilt from the completed report (2026-11-16): the form and the
+        // in-place editor both continue from what was completed, not an older walk.
+        serviceData: { ...rest, scheduled: true, office: true, history, ...(templateFor(sd.templateId) === 'WCT_V1' ? { draft: { ...wctDataToDraft(sd.wct, sd), savedAt: new Date().toISOString() } } : {}) } as unknown as Prisma.InputJsonValue,
       },
     });
     return { id, reopened: true, wasSigned: signed };

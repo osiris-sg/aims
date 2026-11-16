@@ -122,6 +122,8 @@ interface Draft {
   cursor: Cursor;
   /** Stalls (1 = the Single master). */
   units?: number;
+  /** Box caption names typed on the report page (kept as they are by the form). */
+  labels?: Record<string, string>;
 }
 
 /**
@@ -154,6 +156,10 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
   const [jobTypes, setJobTypes] = useState<Set<string>>(new Set());
   // Which master: Single (1) or Multiple stalls (n). The field shows "" while typing.
   const [units, setUnits] = useState(1);
+  // Box caption names typed on the report page (in-place editor): the form keeps them.
+  const [labels, setLabels] = useState<Record<string, string>>({});
+  // "Complete and sign" from the report page opens the form at its last step.
+  const startAtFinish = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("step") === "finish";
   const [unitsText, setUnitsText] = useState("10");
   const [grids, setGrids] = useState<Grids>({});
   const [remarks, setRemarks] = useState("");
@@ -215,7 +221,9 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
     if (d.serviceDate) setServiceDate(d.serviceDate);
     if (d.clientEmail) setClientEmail(d.clientEmail);
     if (d.remarks) setRemarks(d.remarks);
-    if (d.cursor && d.cursor.phase) setCursor(d.cursor);
+    if (d.labels && typeof d.labels === "object") setLabels(d.labels);
+    if (startAtFinish && Array.isArray(d.jobTypes) && d.jobTypes.length) setCursor({ phase: "finish" });
+    else if (d.cursor && d.cursor.phase) setCursor(d.cursor);
   };
 
   // ── load the run (or, in the office, the report), then resume from the saved draft ──
@@ -300,8 +308,8 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
     for (const [id, v] of Object.entries(grids)) {
       g[id] = { before: v.before.map((p) => p.key), after: v.after.map((p) => p.key), photos: v.photos.map((p) => p.key), lines: Array.from(v.lines).sort((a, b) => a - b) };
     }
-    return { jobTypes: Array.from(jobTypes), grids: g, customerName, jobLocation, serviceDate, clientEmail, remarks, cursor, units };
-  }, [grids, jobTypes, customerName, jobLocation, serviceDate, clientEmail, remarks, cursor, units]);
+    return { jobTypes: Array.from(jobTypes), grids: g, customerName, jobLocation, serviceDate, clientEmail, remarks, cursor, units, labels };
+  }, [grids, jobTypes, customerName, jobLocation, serviceDate, clientEmail, remarks, cursor, units, labels]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSaved = useRef<string>("");
   useEffect(() => {
@@ -413,7 +421,8 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const wct: WctServiceData = { jobTypes: Array.from(jobTypes), sections: {}, ...(units > 1 ? { units } : {}) };
+      const keptLabels = Object.fromEntries(Object.entries(labels).filter(([k, v]) => v.trim() && sections.some((s) => s.key === k)));
+      const wct: WctServiceData = { jobTypes: Array.from(jobTypes), sections: {}, ...(units > 1 ? { units } : {}), ...(Object.keys(keptLabels).length ? { labels: keptLabels } : {}) };
       for (const s of sections) {
         const g = grids[s.key];
         if (!g) continue;

@@ -212,8 +212,22 @@ export class MaintenanceReportsController {
    */
   @Get(':id/html')
   @Permissions('maintenance-reports:read')
-  getHtml(@Param('id') id: string, @UserOrganization() org: { id: string }) {
-    return this.service.getReportHtml(id, org.id);
+  getHtml(@Param('id') id: string, @UserOrganization() org: { id: string }, @Query('edit') edit?: string) {
+    return this.service.getReportHtml(id, org.id, { edit: edit === '1' || edit === 'true' });
+  }
+
+  /** In-place editing (WCT, 2026-11-16): the draft the report page starts from. */
+  @Get(':id/edit-state')
+  @Permissions('maintenance-reports:read')
+  editState(@Param('id') id: string, @UserOrganization() org: { id: string }) {
+    return this.service.editState(id, org.id);
+  }
+
+  /** In-place editing: save the whole draft (one batched save) and get the edit view back. One Activity Log row per save. */
+  @Patch(':id/inplace')
+  @Permissions('maintenance-reports:create')
+  saveInPlace(@Param('id') id: string, @Body() body: { draft?: unknown }, @UserOrganization() org: { id: string }) {
+    return this.service.saveInPlace(id, body?.draft, org.id);
   }
 
   /** The report PDF, identical to the one emailed to the customer. An uploaded report returns its own file. */

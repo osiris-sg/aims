@@ -76,6 +76,8 @@ interface ServiceData {
 }
 
 export interface ServiceReportPdfInput {
+  /** WCT only: the in-place editing view (click targets); never for the PDF. */
+  edit?: boolean;
   reportNumber: number | null;
   technicianName: string | null;
   serviceData: ServiceData | null;
@@ -444,6 +446,7 @@ export function buildServiceReportHtml(input: ServiceReportPdfInput): string {
       technicianName: input.technicianName,
       serviceData: sd,
       org: input.org ?? { name: input.orgName, logo: input.orgLogo },
+      edit: input.edit,
     });
   }
   const checkedSet = new Set(sd.checklist ?? []);
