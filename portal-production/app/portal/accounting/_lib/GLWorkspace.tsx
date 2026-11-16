@@ -9,6 +9,7 @@
 // same pattern as ARWorkspace / APWorkspace.
 
 import React, { useEffect, useMemo, useState, useRef } from "react";
+import TableTotalsRow from "./TableTotalsRow";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Autocomplete,
@@ -49,6 +50,9 @@ import { PaperSheet, ReportHeader, ReportPrintCss, fmt as docFmt, formatShortDat
 import { ReportPrintExportButton, type ReportExportModel, type ReportExportTable } from "./report-export";
 import { todayIso } from "@/helpers/orgToday";
 
+// Width of the action-button rail beside the AR / AP / GL home table.
+const RAIL_WIDTH = 220;
+
 const fmt = (n: number) =>
   (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const unwrap = (r: any) => (r && typeof r === "object" && r.success !== undefined && r.data !== undefined ? r.data : r);
@@ -73,8 +77,7 @@ const GL_REPORTS: { key: string; label: string; description: string; tab?: strin
   { key: "bank-rec", label: "Bank Reconciliation", description: "Match bank statement lines to ledger entries", href: "/portal/accounting/bank-reconciliation" },
   { key: "foreign-banks", label: "Foreign Bank Listing", description: "Foreign-currency bank accounts — foreign and local balances", tab: "foreign-banks" },
   { key: "jv-listing", label: "Journal Voucher Listing", description: "Every journal line for a period — Unconfirmed and Confirmed vouchers", tab: "jv-listing" },
-  { key: "gl-detail", label: "General Ledger Detail", description: "Every posted line per account with running balance", tab: "gl" },
-  { key: "gl-summary", label: "General Ledger Summary", description: "Debit, credit and net movement per account for a period", tab: "gl-summary" },
+  { key: "gl-detail", label: "General Ledger", description: "Every posted line per account with running balance", tab: "gl" },
   { key: "account-transactions", label: "Account Transactions", description: "Transactions for chosen accounts over a period", tab: "account-transactions" },
   { key: "journal", label: "Journal Report", description: "Every posted journal with its balanced lines", tab: "journal" },
   { key: "bank-summary", label: "Bank Summary", description: "Opening balance, cash in and out, closing balance per bank account", tab: "bank-summary" },
@@ -300,7 +303,22 @@ export default function GLWorkspace() {
     };
   }, [request, selected, fromPeriod, toPeriod]);
 
-  // ---------- print flow (legacy: Print → filter dialog → document) ----------
+  // The home table IS the trial balance as at the cut-off; Print / Export
+  // hands it over as the legacy TRIAL BALANCE document (guru 2026-11-16).
+  const homeExportModel = (): ReportExportModel => {
+    const rows = visibleRows.map((r) => [r.code, r.name, r.netDebit ? fmt(r.netDebit) : "", r.netCredit ? fmt(r.netCredit) : ""]);
+    rows.push(["TOTAL", search.trim() ? "(ALL ACCOUNTS)" : "", fmt(totals.debit), fmt(totals.credit)]);
+    return {
+      title: "Trial Balance",
+      orgName: organization?.name || "",
+      metaLines: [`Cut-Off-Date : ${formatShortDate(cutOff)}`],
+      tables: [{ headers: ["Account", "Description", "Debit", "Credit"], rows, boldRows: [rows.length - 1] }],
+    };
+  };
+
+  // ---------- GENERAL LEDGER print flow (legacy: filter dialog → document) ----------
+  // No opener on the home since 2026-11-16 (its Print is the Trial Balance);
+  // the printed General Ledger is reached from the General Ledger report.
   const sortedCodes = useMemo(
     () => [...netRows].sort((a, b) => a.code.localeCompare(b.code)),
     [netRows],
@@ -458,29 +476,18 @@ export default function GLWorkspace() {
                       </TableRow>
                     )}
                   </TableBody>
+                  <TableTotalsRow
+                    note="Total"
+                    noteColSpan={4}
+                    cells={[
+                      { label: "Total Debit", value: fmt((ledger?.rows || []).reduce((s, r) => s + (Number(r.debit) || 0), 0)) },
+                      { label: "Total Credit", value: fmt((ledger?.rows || []).reduce((s, r) => s + (Number(r.credit) || 0), 0)) },
+                      { label: "Closing Balance", value: fmt(ledger?.closing ?? 0) },
+                    ]}
+                  />
                 </Table>
               </TableContainer>
             )}
-
-            <Paper
-              variant="outlined"
-              sx={(t) => ({
-                mt: 1.5,
-                p: 1.5,
-                borderRadius: 2,
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: 4,
-                bgcolor: alpha(t.palette.text.primary, 0.03),
-              })}
-            >
-              <Box sx={{ textAlign: "right" }}>
-                <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                  Closing Balance
-                </Typography>
-                <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{fmt(ledger?.closing ?? 0)}</Typography>
-              </Box>
-            </Paper>
           </>
         )}
       </DialogContent>
@@ -524,8 +531,9 @@ export default function GLWorkspace() {
   // Landing: KPI tile groups + account balances
   // =====================================================================
   return (
-    <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3, maxWidth: 1400, mx: "auto", width: "100%" }}>
-      <Stack direction={{ xs: "column", md: "row" }} gap={1.5} sx={{ mb: 2 }}>
+    <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3, maxWidth: 1640, mx: "auto", width: "100%" }}>
+      {/* KPI cards start at the table's left edge, like the filter row (guru 2026-11-16). */}
+      <Stack direction={{ xs: "column", md: "row" }} gap={1.5} sx={{ mb: 2, pl: { xs: 0, md: `${RAIL_WIDTH + 16}px` } }}>
         {tiles.map((tile) => (
           // Same card as the AR / AP workspaces (guru 2026-11-11): uppercase
           // caption, one BIG tabular number per figure, the tone colouring it.
@@ -558,9 +566,9 @@ export default function GLWorkspace() {
         )}
       </Stack>
 
-      {/* Buttons that wrap to a second line stay on the RIGHT, under the
-          other actions (the spacer only pushes the first line apart). */}
-      <Stack direction="row" gap={1.5} alignItems="center" sx={{ mb: 1.5, flexWrap: "wrap", justifyContent: { xs: "flex-start", md: "flex-end" } }}>
+      {/* Filters row, indented by the rail's width so it starts at the table's
+          left edge (guru 2026-11-16); the action buttons live in the rail. */}
+      <Stack direction="row" gap={1.5} alignItems="center" sx={{ mb: 1.5, flexWrap: "wrap", pl: { xs: 0, md: `${RAIL_WIDTH + 16}px` } }}>
         <TextField
           size="small"
           type="date"
@@ -587,6 +595,16 @@ export default function GLWorkspace() {
           {visibleRows.length} of {netRows.length} accounts
         </Typography>
         <Box sx={{ flex: 1 }} />
+        {/* Print / Export sits at the RIGHT end of the filter row, over the
+            table's right edge (guru 2026-11-16). GL: the legacy TRIAL BALANCE
+            as at the cut-off; AR / AP: the DEBTOR / CREDITOR LISTING. */}
+        <ReportPrintExportButton size="medium" getModel={homeExportModel} />
+      </Stack>
+
+      {/* Action buttons stacked in a rail to the LEFT of the table, in its
+          margin (guru 2026-11-16) — not a row above it. Phones: rail on top. */}
+      <Box sx={{ display: "flex", flexDirection: { xs: "column", md: "row" }, gap: 2, alignItems: "flex-start" }}>
+      <Stack gap={1} sx={{ width: { xs: "100%", md: RAIL_WIDTH }, flexShrink: 0, "& .MuiButton-root": { justifyContent: "flex-start", whiteSpace: "nowrap" } }}>
         {/* Legacy GL home's two module shortcuts — jump to the AR / AP homes. */}
         <Button
           variant="contained"
@@ -602,13 +620,11 @@ export default function GLWorkspace() {
         >
           Accounts Payable
         </Button>
-        {/* No Print / Export or Send Email on the GL / AR / AP home tables
-            (guru 2026-11-11) — those live on the reports and documents. */}
         <Button variant="outlined" startIcon={<AssessmentOutlinedIcon />} onClick={() => setReportsOpen(true)}>
           View Reports
         </Button>
       </Stack>
-
+      <Box sx={{ flex: 1, minWidth: 0, width: "100%" }}>
       {loading ? (
         <Box sx={{ display: "flex", justifyContent: "center", p: 6 }}>
           <CircularProgress />
@@ -659,39 +675,20 @@ export default function GLWorkspace() {
                 </TableRow>
               )}
             </TableBody>
+            <TableTotalsRow
+              note="Click an account to view its general ledger"
+              noteColSpan={2}
+              cells={[
+                { label: "Total Debit", value: fmt(totals.debit) },
+                { label: "Total Credit", value: fmt(totals.credit) },
+              ]}
+            />
           </Table>
         </TableContainer>
       )}
 
-      <Paper
-        variant="outlined"
-        sx={(t) => ({
-          mt: 1.5,
-          p: 1.5,
-          borderRadius: 2,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          bgcolor: alpha(t.palette.text.primary, 0.03),
-        })}
-      >
-        <Typography variant="caption" sx={{ color: "text.secondary" }}>
-          Click an account to view its general ledger
-        </Typography>
-        <Stack direction="row" gap={4}>
-          {[
-            { label: "Total Debit", value: totals.debit },
-            { label: "Total Credit", value: totals.credit },
-          ].map((x) => (
-            <Box key={x.label} sx={{ textAlign: "right" }}>
-              <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                {x.label}
-              </Typography>
-              <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{fmt(x.value)}</Typography>
-            </Box>
-          ))}
-        </Stack>
-      </Paper>
+      </Box>
+      </Box>
 
       {/* ---------- Account ledger dialog ---------- */}
       {accountDialog}

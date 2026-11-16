@@ -8,6 +8,7 @@
 // hint instead of navigating.
 
 import React, { useEffect, useMemo, useState, useRef } from "react";
+import TableTotalsRow from "./TableTotalsRow";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Box,
@@ -44,8 +45,15 @@ import { useAccountingApi } from "./api";
 import { clickableRowSx, sourceHref } from "./open-source";
 import { useGetSuppliers } from "@/app/portal/hooks/api/useSuppliers";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import JournalEntryDialog from "./JournalEntryDialog";
 import { todayIso } from "@/helpers/orgToday";
+import { ReportPrintExportButton, type ReportExportModel } from "./report-export";
+import { formatShortDate } from "./report-doc";
+import { useOpenVoucher } from "./VoucherListPage";
+
+// Width of the action-button rail beside the AR / AP / GL home table.
+const RAIL_WIDTH = 220;
 
 const fmt = (n: number) =>
   (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -97,7 +105,9 @@ type LedgerTx = {
 export default function APWorkspace() {
   const router = useRouter();
   const { request } = useAccountingApi();
+  const openVoucher = useOpenVoucher();
   const { organization } = useOrganization();
+  const { isPurchaseJournalGridEnabled } = useOrganizationFeatures();
   // Phone: the creditor-ledger dialog goes full-screen below sm
   const phoneDialog = useMediaQuery((t: any) => t.breakpoints.down("sm"));
 
@@ -200,6 +210,24 @@ export default function APWorkspace() {
     );
   }, [rows, search, codeById]);
   const visibleTotal = visibleRows.reduce((s, r) => s + r.total, 0);
+
+  // The home table printed as the legacy CREDITOR LISTING document (guru 2026-11-16).
+  const homeExportModel = (): ReportExportModel => {
+    const rows = visibleRows.map((r) => [
+      r.contactCode || codeById.get(r.contactId) || "",
+      r.contactName,
+      fmt(r.total),
+      r.currency || "SGD",
+      r.currency ? fmt(r.foreignTotal || 0) : fmt(r.total),
+    ]);
+    rows.push(["TOTAL", search.trim() ? "(FILTERED)" : "", fmt(search ? visibleTotal : grandTotal), "", ""]);
+    return {
+      title: "Creditor Listing",
+      orgName: organization?.name || "",
+      metaLines: [`Cut-Off-Date : ${formatShortDate(cutOff)}`],
+      tables: [{ headers: ["Supplier Code", "Name", "Amount", "Curr", "Foreign Amount"], rows, boldRows: [rows.length - 1] }],
+    };
+  };
 
   // ---------- drill-in (creditor ledger) ----------
   // From period opens on the FIRST OF THE MONTH of the cut-off (guru 2026-11-11), never blank.
@@ -384,35 +412,18 @@ export default function APWorkspace() {
                       </TableRow>
                     )}
                   </TableBody>
+                  <TableTotalsRow
+                    note="Total"
+                    noteColSpan={3}
+                    cells={[
+                      { label: "Total Debit", value: fmt(ledger?.totalDebit ?? 0) },
+                      { label: "Total Credit", value: fmt(ledger?.totalCredit ?? 0) },
+                      { label: "Balance", value: fmt(ledger?.closing ?? 0) },
+                    ]}
+                  />
                 </Table>
               </TableContainer>
             )}
-
-            <Paper
-              variant="outlined"
-              sx={(t) => ({
-                mt: 1.5,
-                p: 1.5,
-                borderRadius: 2,
-                display: "flex",
-                justifyContent: "flex-end",
-                gap: 4,
-                bgcolor: alpha(t.palette.text.primary, 0.03),
-              })}
-            >
-              {[
-                { label: "Total Debit", value: ledger?.totalDebit ?? 0 },
-                { label: "Total Credit", value: ledger?.totalCredit ?? 0 },
-                { label: "Balance", value: ledger?.closing ?? 0 },
-              ].map((x) => (
-                <Box key={x.label} sx={{ textAlign: "right" }}>
-                  <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                    {x.label}
-                  </Typography>
-                  <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{fmt(x.value)}</Typography>
-                </Box>
-              ))}
-            </Paper>
           </>
         )}
       </DialogContent>
@@ -423,17 +434,18 @@ export default function APWorkspace() {
   // Landing: supplier balances
   // =====================================================================
   return (
-    <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3, maxWidth: 1400, mx: "auto", width: "100%" }}>
-      <Stack direction={{ xs: "column", md: "row" }} gap={1.5} sx={{ mb: 2 }}>
+    <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3, maxWidth: 1640, mx: "auto", width: "100%" }}>
+      {/* KPI cards start at the table's left edge, like the filter row (guru 2026-11-16). */}
+      <Stack direction={{ xs: "column", md: "row" }} gap={1.5} sx={{ mb: 2, pl: { xs: 0, md: `${RAIL_WIDTH + 16}px` } }}>
         {card("Purchases", purchases)}
         {card("Payables", grandTotal)}
         {card("Overdue", overdue, "error.main")}
         {card("Payments", payments, "success.main")}
       </Stack>
 
-      {/* Buttons that wrap to a second line stay on the RIGHT, under the
-          other actions (the spacer only pushes the first line apart). */}
-      <Stack direction="row" gap={1.5} alignItems="center" sx={{ mb: 1.5, flexWrap: "wrap", justifyContent: { xs: "flex-start", md: "flex-end" } }}>
+      {/* Filters row, indented by the rail's width so it starts at the table's
+          left edge (guru 2026-11-16); the action buttons live in the rail. */}
+      <Stack direction="row" gap={1.5} alignItems="center" sx={{ mb: 1.5, flexWrap: "wrap", pl: { xs: 0, md: `${RAIL_WIDTH + 16}px` } }}>
         <TextField
           size="small"
           type="date"
@@ -460,34 +472,47 @@ export default function APWorkspace() {
           {visibleRows.length} of {rows.length} suppliers with balances
         </Typography>
         <Box sx={{ flex: 1 }} />
+        {/* Print / Export sits at the RIGHT end of the filter row, over the
+            table's right edge (guru 2026-11-16). GL: the legacy TRIAL BALANCE
+            as at the cut-off; AR / AP: the DEBTOR / CREDITOR LISTING. */}
+        <ReportPrintExportButton size="medium" getModel={homeExportModel} />
+      </Stack>
+
+      {/* Action buttons stacked in a rail to the LEFT of the table, in its
+          margin (guru 2026-11-16) — not a row above it. Phones: rail on top. */}
+      <Box sx={{ display: "flex", flexDirection: { xs: "column", md: "row" }, gap: 2, alignItems: "flex-start" }}>
+      <Stack gap={1} sx={{ width: { xs: "100%", md: RAIL_WIDTH }, flexShrink: 0, "& .MuiButton-root": { justifyContent: "flex-start", whiteSpace: "nowrap" } }}>
         {/* Legacy AP home's actions. No separate Payment Voucher action —
             paying is the Record Payment step on the Purchase Journal
             (guru 2026-08-01). */}
         {/* Payment Voucher — the legacy AP home's primary action, now a real
-            document (AP twin of the Official Receipt, guru 2026-10-21). Since
-            2026-11-11 it opens the Payment Vouchers LIST (every org): Create
-            there makes a fresh PV-numbered shell, a row opens it. */}
+            document (AP twin of the Official Receipt, guru 2026-10-21). It and
+            Journal Voucher follow enableDocumentListView (guru 2026-11-16):
+            ON → the list; OFF → a fresh voucher opens straight away. */}
         <Button
           data-tour="ap-payment-voucher"
           data-hotkey="new"
           variant="contained"
           startIcon={<ReceiptLongOutlinedIcon />}
-          onClick={() => router.push("/portal/accounting/payment-vouchers")}
+          onClick={() => void openVoucher("payment-voucher")}
         >
           Payment Voucher
         </Button>
         {/* Spend Money retired 2026-11-09: the Payment Voucher now takes direct
             GL lines (bank charges, fees) as well as supplier invoices. */}
-        <Button variant="contained" startIcon={<PostAddOutlinedIcon />} onClick={() => router.push("/portal/accounting/journal-vouchers")}>
+        <Button variant="contained" startIcon={<PostAddOutlinedIcon />} onClick={() => void openVoucher("journal-voucher")}>
           Journal Voucher
         </Button>
         {/* Opens the Purchase Journal LIST, like the PV and J/V buttons; the
             list's own New Purchase Entry starts a supplier invoice (guru
-            2026-11-12: don't open the supplier invoice straight away). */}
+            2026-11-12: don't open the supplier invoice straight away).
+            enablePurchaseJournalGrid (Chong Aik): open the full-page Dr/Cr
+            journal editor directly on the latest entry — no list — like OR/PV
+            with the list view off (guru 2026-11-16). */}
         <Button
           variant="contained"
           startIcon={<MenuBookOutlinedIcon />}
-          onClick={() => router.push("/portal/accounting/payables/purchase-journal")}
+          onClick={() => router.push(isPurchaseJournalGridEnabled ? "/portal/accounting/payables/purchase-journal/entry/latest" : "/portal/accounting/payables/purchase-journal")}
         >
           Purchase Journal
         </Button>
@@ -495,7 +520,7 @@ export default function APWorkspace() {
           View Reports
         </Button>
       </Stack>
-
+      <Box sx={{ flex: 1, minWidth: 0, width: "100%" }}>
       {loading ? (
         <Box sx={{ display: "flex", justifyContent: "center", p: 6 }}>
           <CircularProgress />
@@ -552,32 +577,20 @@ export default function APWorkspace() {
                 </TableRow>
               )}
             </TableBody>
+            <TableTotalsRow
+              note="Click a supplier to view their transaction history"
+              noteColSpan={2}
+              cells={[
+                { label: `Total Payables${search ? " (filtered)" : ""}`, value: fmt(search ? visibleTotal : grandTotal) },
+                { colSpan: 2 },
+              ]}
+            />
           </Table>
         </TableContainer>
       )}
 
-      <Paper
-        variant="outlined"
-        sx={(t) => ({
-          mt: 1.5,
-          p: 1.5,
-          borderRadius: 2,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          bgcolor: alpha(t.palette.text.primary, 0.03),
-        })}
-      >
-        <Typography variant="caption" sx={{ color: "text.secondary" }}>
-          Click a supplier to view their transaction history
-        </Typography>
-        <Box sx={{ textAlign: "right" }}>
-          <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Total Payables{search ? " (filtered)" : ""}
-          </Typography>
-          <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{fmt(search ? visibleTotal : grandTotal)}</Typography>
-        </Box>
-      </Paper>
+      </Box>
+      </Box>
 
       {/* ---------- Creditor ledger dialog ---------- */}
       {creditorDialog}

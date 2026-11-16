@@ -7,6 +7,7 @@
 // every AR report is reachable from a "View Reports" dialog.
 
 import React, { useEffect, useMemo, useState, useRef } from "react";
+import TableTotalsRow from "./TableTotalsRow";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import {
@@ -47,6 +48,12 @@ import { useCustomersByIds } from "@/app/portal/hooks/api/useCustomerPicker";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import JournalEntryDialog from "./JournalEntryDialog";
 import { todayIso } from "@/helpers/orgToday";
+import { ReportPrintExportButton, type ReportExportModel } from "./report-export";
+import { formatShortDate } from "./report-doc";
+import { useOpenVoucher } from "./VoucherListPage";
+
+// Width of the action-button rail beside the AR / AP / GL home table.
+const RAIL_WIDTH = 220;
 
 const fmt = (n: number) =>
   (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -106,6 +113,7 @@ export default function ARWorkspace() {
   const router = useRouter();
   const { isSpendMoneyEnabled } = useOrganizationFeatures();
   const { request } = useAccountingApi();
+  const openVoucher = useOpenVoucher();
   const { organization } = useOrganization();
   // Phone: the debtor-ledger dialog goes full-screen below sm
   const phoneDialog = useMediaQuery((t: any) => t.breakpoints.down("sm"));
@@ -215,6 +223,24 @@ export default function ARWorkspace() {
     );
   }, [rows, search, codeById]);
   const visibleTotal = visibleRows.reduce((s, r) => s + r.total, 0);
+
+  // The home table printed as the legacy DEBTOR LISTING document (guru 2026-11-16).
+  const homeExportModel = (): ReportExportModel => {
+    const rows = visibleRows.map((r) => [
+      r.contactCode || codeById.get(r.contactId) || "",
+      r.contactName,
+      fmt(r.total),
+      r.currency || "SGD",
+      r.currency ? fmt(r.foreignTotal || 0) : fmt(r.total),
+    ]);
+    rows.push(["TOTAL", search.trim() ? "(FILTERED)" : "", fmt(search ? visibleTotal : grandTotal), "", ""]);
+    return {
+      title: "Debtor Listing",
+      orgName: organization?.name || "",
+      metaLines: [`Cut-Off-Date : ${formatShortDate(cutOff)}`],
+      tables: [{ headers: ["Customer Code", "Name", "Amount", "Curr", "Foreign Amount"], rows, boldRows: [rows.length - 1] }],
+    };
+  };
 
   // ---------- drill-in (debtor ledger) ----------
   // From period opens on the FIRST OF THE MONTH of the cut-off (guru 2026-11-11), never blank.
@@ -401,35 +427,18 @@ export default function ARWorkspace() {
                   </TableRow>
                 )}
               </TableBody>
+              <TableTotalsRow
+                note="Total"
+                noteColSpan={3}
+                cells={[
+                  { label: "Total Debit", value: fmt(ledger?.totalDebit ?? 0) },
+                  { label: "Total Credit", value: fmt(ledger?.totalCredit ?? 0) },
+                  { label: "Balance", value: fmt(ledger?.closing ?? 0) },
+                ]}
+              />
             </Table>
           </TableContainer>
         )}
-
-        <Paper
-          variant="outlined"
-          sx={(t) => ({
-            mt: 1.5,
-            p: 1.5,
-            borderRadius: 2,
-            display: "flex",
-            justifyContent: "flex-end",
-            gap: 4,
-            bgcolor: alpha(t.palette.text.primary, 0.03),
-          })}
-        >
-          {[
-            { label: "Total Debit", value: ledger?.totalDebit ?? 0 },
-            { label: "Total Credit", value: ledger?.totalCredit ?? 0 },
-            { label: "Balance", value: ledger?.closing ?? 0 },
-          ].map((x) => (
-            <Box key={x.label} sx={{ textAlign: "right" }}>
-              <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                {x.label}
-              </Typography>
-              <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{fmt(x.value)}</Typography>
-            </Box>
-          ))}
-        </Paper>
           </>
         )}
       </DialogContent>
@@ -442,17 +451,18 @@ export default function ARWorkspace() {
   return (
     // Same page frame as the other accounting pages (e.g. Bills): padded and
     // width-capped instead of edge-to-edge.
-    <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3, maxWidth: 1400, mx: "auto", width: "100%" }}>
-      <Stack direction={{ xs: "column", md: "row" }} gap={1.5} sx={{ mb: 2 }}>
+    <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3, maxWidth: 1640, mx: "auto", width: "100%" }}>
+      {/* KPI cards start at the table's left edge, like the filter row (guru 2026-11-16). */}
+      <Stack direction={{ xs: "column", md: "row" }} gap={1.5} sx={{ mb: 2, pl: { xs: 0, md: `${RAIL_WIDTH + 16}px` } }}>
         {card("Sales", sales)}
         {card("Receivables", grandTotal)}
         {card("Overdue", overdue, "error.main")}
         {card("Receipts", receipts, "success.main")}
       </Stack>
 
-      {/* Buttons that wrap to a second line stay on the RIGHT, under the
-          other actions (the spacer only pushes the first line apart). */}
-      <Stack direction="row" gap={1.5} alignItems="center" sx={{ mb: 1.5, flexWrap: "wrap", justifyContent: { xs: "flex-start", md: "flex-end" } }}>
+      {/* Filters row, indented by the rail's width so it starts at the table's
+          left edge (guru 2026-11-16); the action buttons live in the rail. */}
+      <Stack direction="row" gap={1.5} alignItems="center" sx={{ mb: 1.5, flexWrap: "wrap", pl: { xs: 0, md: `${RAIL_WIDTH + 16}px` } }}>
         <TextField
           size="small"
           type="date"
@@ -479,15 +489,25 @@ export default function ARWorkspace() {
           {visibleRows.length} of {rows.length} customers with balances
         </Typography>
         <Box sx={{ flex: 1 }} />
+        {/* Print / Export sits at the RIGHT end of the filter row, over the
+            table's right edge (guru 2026-11-16). GL: the legacy TRIAL BALANCE
+            as at the cut-off; AR / AP: the DEBTOR / CREDITOR LISTING. */}
+        <ReportPrintExportButton size="medium" getModel={homeExportModel} />
+      </Stack>
+
+      {/* Action buttons stacked in a rail to the LEFT of the table, in its
+          margin (guru 2026-11-16) — not a row above it. Phones: rail on top. */}
+      <Box sx={{ display: "flex", flexDirection: { xs: "column", md: "row" }, gap: 2, alignItems: "flex-start" }}>
+      <Stack gap={1} sx={{ width: { xs: "100%", md: RAIL_WIDTH }, flexShrink: 0, "& .MuiButton-root": { justifyContent: "flex-start", whiteSpace: "nowrap" } }}>
         {/* Legacy AR home's two primary actions, modernised into header buttons.
-            Official Receipt opens the Official Receipts LIST (2026-11-11, every
-            org): Create there makes a fresh OR-numbered shell, a row opens it. */}
+            Official Receipt / Journal Voucher follow enableDocumentListView
+            (guru 2026-11-16): ON → the list; OFF → a fresh voucher opens. */}
         <Button
           data-tour="ar-official-receipt"
           data-hotkey="new"
           variant="contained"
           startIcon={<ReceiptLongOutlinedIcon />}
-          onClick={() => router.push("/portal/accounting/receipts")}
+          onClick={() => void openVoucher("receipt")}
         >
           Official Receipt
         </Button>
@@ -503,14 +523,14 @@ export default function ARWorkspace() {
             Receive Money
           </Button>
         )}
-        <Button variant="contained" startIcon={<PostAddOutlinedIcon />} onClick={() => router.push("/portal/accounting/journal-vouchers")}>
+        <Button variant="contained" startIcon={<PostAddOutlinedIcon />} onClick={() => void openVoucher("journal-voucher")}>
           Journal Voucher
         </Button>
         <Button variant="outlined" startIcon={<AssessmentOutlinedIcon />} onClick={() => setReportsOpen(true)}>
           View Reports
         </Button>
       </Stack>
-
+      <Box sx={{ flex: 1, minWidth: 0, width: "100%" }}>
       {loading ? (
         <Box sx={{ display: "flex", justifyContent: "center", p: 6 }}>
           <CircularProgress />
@@ -574,32 +594,20 @@ export default function ARWorkspace() {
                 </TableRow>
               )}
             </TableBody>
+            <TableTotalsRow
+              note="Click a customer to view their transaction history"
+              noteColSpan={2}
+              cells={[
+                { label: `Total Receivables${search ? " (filtered)" : ""}`, value: fmt(search ? visibleTotal : grandTotal) },
+                { colSpan: 2 },
+              ]}
+            />
           </Table>
         </TableContainer>
       )}
 
-      <Paper
-        variant="outlined"
-        sx={(t) => ({
-          mt: 1.5,
-          p: 1.5,
-          borderRadius: 2,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          bgcolor: alpha(t.palette.text.primary, 0.03),
-        })}
-      >
-        <Typography variant="caption" sx={{ color: "text.secondary" }}>
-          Click a customer to view their transaction history
-        </Typography>
-        <Box sx={{ textAlign: "right" }}>
-          <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Total Receivables{search ? " (filtered)" : ""}
-          </Typography>
-          <Typography sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{fmt(search ? visibleTotal : grandTotal)}</Typography>
-        </Box>
-      </Paper>
+      </Box>
+      </Box>
 
       {/* ---------- Debtor ledger dialog ---------- */}
       {debtorDialog}

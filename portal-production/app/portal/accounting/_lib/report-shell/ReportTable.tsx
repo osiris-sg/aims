@@ -129,7 +129,14 @@ export default function ReportTable({
           fontSize: "0.8125rem",
           color: "text.primary",
           whiteSpace: "nowrap",
+          // A free-text column with no fixed width (Description, Account…)
+          // is clipped with an ellipsis instead of pushing the money columns
+          // off the right edge of the card (Uncle Ben 2026-11-15: "Credit
+          // amount didn't show" — it was there, beyond a horizontal scroll).
+          // Hover shows the full text; exports read the DOM text, not the clip.
+          ...(col.width || typeof c === "number" ? {} : { maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis" }),
         }}
+        title={!col.width && typeof content === "string" && content.length > 40 ? content : undefined}
       >
         {content}
       </Typography>

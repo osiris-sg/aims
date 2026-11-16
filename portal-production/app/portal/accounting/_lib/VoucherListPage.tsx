@@ -3,8 +3,13 @@
 // Official Receipts / Payment Vouchers / Journal Vouchers as LIST pages
 // (guru 2026-11-11: "for OR, JV and PV do the same way, for all orgs"): the
 // same idiom as the Sales document list — stat cards, a Create button, a
-// row opens the voucher in its editor and comes back here. Every org gets
-// it; there is no flag, the home buttons simply land here.
+// row opens the voucher in its editor and comes back here.
+//
+// The AR / AP home buttons (Official Receipt, Payment Voucher, Journal
+// Voucher) follow the org's enableDocumentListView flag like every other
+// document module (guru 2026-11-16: the flag is OFF for Chong Aik, so keying
+// a PV must open a voucher, not this list): ON → this list; OFF → a fresh
+// voucher is created and its editor opens straight away (`useOpenVoucher`).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -13,8 +18,9 @@ import { toast } from "react-toastify";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import { useAccountingApi } from "./api";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
-type Kind = "receipt" | "payment-voucher" | "journal-voucher";
+export type Kind = "receipt" | "payment-voucher" | "journal-voucher";
 
 type Spec = {
   kind: Kind;
@@ -86,6 +92,30 @@ function StatCard({ title, value, tone }: { title: string; value: string | numbe
         {value}
       </Typography>
     </Paper>
+  );
+}
+
+/** Home-button opener: list when enableDocumentListView is ON, else create + open the editor. */
+export function useOpenVoucher() {
+  const router = useRouter();
+  const { request } = useAccountingApi();
+  const { isDocumentListViewEnabled } = useOrganizationFeatures();
+  return useCallback(
+    async (kind: Kind) => {
+      const spec = SPECS[kind];
+      if (isDocumentListViewEnabled) {
+        router.push(spec.listPath);
+        return;
+      }
+      try {
+        const v = unwrap(await request(spec.apiPath, { method: "POST", body: JSON.stringify({}) }));
+        if (!v?.id) throw new Error(`Couldn't create the ${spec.label.toLowerCase()}`);
+        router.push(`${spec.editorBase}/${v.id}?from=${encodeURIComponent(spec.listPath)}`);
+      } catch (e: any) {
+        toast.error(e?.message || `Couldn't create the ${spec.label.toLowerCase()}`);
+      }
+    },
+    [router, request, isDocumentListViewEnabled],
   );
 }
 
