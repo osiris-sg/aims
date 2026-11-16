@@ -212,7 +212,7 @@ export default function SummaryAgeingReport({ side = "receivable" }: { side?: Re
     <ReportShell
       title={`${words.party} Summary Ageing Analysis`}
       loading={loading}
-      onUpdate={() => load()}
+      onUpdate={load}
       filters={
         <>
           {customerPicker(`From ${words.contactNoun}`, fromCustomer, setFromCustomer)}

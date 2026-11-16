@@ -241,13 +241,13 @@ export default function GSTReport({ basePath }: { basePath: string }) {
       title="Goods and Services Tax"
       breadcrumb={{ label: "Reports", href: basePath }}
       loading={loading}
-      onUpdate={() => load()}
+      onUpdate={load}
       filters={
         <>
           <DateRangeSelect label="Date range" from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />
           <FilterSelect
             label="Category" value={category} width={260}
-            onChange={(v) => { setCategory(v); load(v); }}
+            onChange={(v) => setCategory(v)}
             options={codeOptions}
           />
         </>

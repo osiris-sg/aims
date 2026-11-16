@@ -164,7 +164,7 @@ export default function AuditTrailReport() {
     <ReportShell
       title="Audit Trail"
       loading={loading}
-      onUpdate={() => load()}
+      onUpdate={load}
       filters={
         <>
           <DateRangeSelect label="Date range" from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />
@@ -212,7 +212,7 @@ export default function AuditTrailReport() {
         </>
       ) : (
         <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
-          Pick a period and press Update to build the audit trail.
+          Pick a period to build the audit trail.
         </Typography>
       )}
     </ReportShell>

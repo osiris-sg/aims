@@ -190,7 +190,7 @@ export default function ReceiptListingReport() {
     <ReportShell
       title="Receipts Listing"
       loading={loading}
-      onUpdate={() => load()}
+      onUpdate={load}
       filters={
         <>
           <DateRangeSelect label="Period" from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />

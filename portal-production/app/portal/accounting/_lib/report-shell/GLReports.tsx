@@ -91,12 +91,8 @@ export function GLDetailReport({
 
   useEffect(() => { load(); // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Refetch once an account-type preset has been applied.
-  useEffect(() => {
-    if (presetApplied && presetAccountTypes?.length) load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presetApplied]);
+  // (Applying the preset changes `accountIds`, so the shell's auto-update
+  // refetches scoped to those accounts — no second effect needed.)
 
   const groupFields = useMemo<GroupField[]>(() => [
     { key: "account", label: "Account" },

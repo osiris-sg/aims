@@ -131,10 +131,9 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
 
   const load = useCallback(
     async (fromC = fromCustomer, toC = toCustomer, cut = asOf, sc = scope) => {
-      if (!fromC?.id && !toC?.id) {
-        toast.warn(`Pick the ${words.contactNoun} range first`);
-        return;
-      }
+      // No Update button: the shell re-runs this on every filter change, so
+      // an empty range is "nothing to show yet", not a warning.
+      if (!fromC?.id && !toC?.id) return;
       const a = fromC || toC;
       const b = toC || fromC;
       const [lo, hi] = codeOf(a).localeCompare(codeOf(b)) <= 0 ? [codeOf(a), codeOf(b)] : [codeOf(b), codeOf(a)];
@@ -475,7 +474,7 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
     <ReportShell
       title="Statement-Of-Accounts"
       loading={loading}
-      onUpdate={() => load()}
+      onUpdate={load}
       filters={
         <>
           {customerPicker(`From ${words.contactNoun}`, fromCustomer, (v) => {
@@ -648,7 +647,7 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
         </>
       ) : (
         <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
-          Pick a range and press Update to build the statements.
+          Pick a {words.contactNoun} range to build the statements.
         </Typography>
       )}
     </ReportShell>

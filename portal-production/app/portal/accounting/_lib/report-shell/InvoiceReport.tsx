@@ -157,17 +157,15 @@ export default function InvoiceReport({
     downloadCsv(`${title.replace(/\s+/g, "-")}-${from}-${to}.csv`, [header, ...body]);
   };
 
-  const setFormat = (s: "all" | "outstanding" | "paid") => {
-    setStatus(s);
-    load(s);
-  };
+  // The shell re-runs `load` once `status` changes (no Update button).
+  const setFormat = (s: "all" | "outstanding" | "paid") => setStatus(s);
 
   return (
     <ReportShell
       title={title}
       breadcrumb={{ label: "Reports", href: basePath }}
       loading={loading}
-      onUpdate={() => load()}
+      onUpdate={load}
       filters={
         <>
           <DateRangeSelect label="Date range" from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />

@@ -36,7 +36,9 @@ export default function ContactTransactionsReport({ basePath }: { basePath: stri
   const options = suppliers || [];
 
   const load = useCallback(async () => {
-    if (!contact?.id) { toast.warn("Pick a contact first"); return; }
+    // No Update button: the shell re-runs this on every filter change, so
+    // an empty contact is simply "nothing to show yet", not a warning.
+    if (!contact?.id) return;
     setLoading(true);
     try {
       const res = await request<any>(
@@ -123,7 +125,7 @@ export default function ContactTransactionsReport({ basePath }: { basePath: stri
       ) : (
         <Box sx={{ py: 6, textAlign: "center" }}>
           <Typography variant="body2" color="text.secondary">
-            {loading ? "Loading…" : "Pick a contact and date range, then press Update."}
+            {loading ? "Loading…" : "Pick a contact and a date range."}
           </Typography>
         </Box>
       )}

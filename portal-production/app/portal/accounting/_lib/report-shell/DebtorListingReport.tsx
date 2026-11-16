@@ -160,7 +160,7 @@ export default function DebtorListingReport({ side = "receivable" }: { side?: Re
     <ReportShell
       title={`${words.party} Listing`}
       loading={loading}
-      onUpdate={() => load()}
+      onUpdate={load}
       filters={
         <>
           <Box>

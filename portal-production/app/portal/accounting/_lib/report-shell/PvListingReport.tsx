@@ -193,7 +193,7 @@ export default function PvListingReport() {
     <ReportShell
       title="Payment Voucher Listing"
       loading={loading}
-      onUpdate={() => load()}
+      onUpdate={load}
       filters={
         <>
           <DateRangeSelect label="Period" from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />

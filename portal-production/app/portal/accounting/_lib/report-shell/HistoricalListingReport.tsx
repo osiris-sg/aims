@@ -255,7 +255,7 @@ export default function HistoricalListingReport({ side = "receivable" }: { side?
     <ReportShell
       title={`${words.party} Historical Listing`}
       loading={loading}
-      onUpdate={() => load()}
+      onUpdate={load}
       filters={
         <>
           <DateRangeSelect label="Period" from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />
@@ -278,7 +278,7 @@ export default function HistoricalListingReport({ side = "receivable" }: { side?
         <ReportTable columns={columns} rows={rows} />
       ) : (
         <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
-          Pick the period and the range, then press Update.
+          Pick the period and the range.
         </Typography>
       )}
     </ReportShell>

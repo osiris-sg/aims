@@ -179,7 +179,7 @@ export default function JvListingReport() {
     <ReportShell
       title="Journal Voucher Listing"
       loading={loading}
-      onUpdate={() => load()}
+      onUpdate={load}
       filters={
         <Stack direction="row" gap={1.5} alignItems="flex-end" flexWrap="wrap">
           <DateRangeSelect label="Period" from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />

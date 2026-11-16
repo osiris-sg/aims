@@ -210,7 +210,7 @@ export default function DetailedAgeingReport({ side = "receivable" }: { side?: R
     <ReportShell
       title={`${words.party} Detailed Ageing Analysis`}
       loading={loading}
-      onUpdate={() => load()}
+      onUpdate={load}
       filters={
         <>
           {customerPicker(`From ${words.contactNoun}`, fromCustomer, setFromCustomer)}

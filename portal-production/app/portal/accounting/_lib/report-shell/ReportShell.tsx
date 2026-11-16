@@ -1,12 +1,18 @@
 "use client";
 
-// Xero-style report shell: breadcrumb + title header, filter bar with explicit
-// Update button, white report card, and a footer bar (compact toggle, row
-// info, export). All colors via theme tokens — dark-mode safe.
+// Xero-style report shell: breadcrumb + title header, filter bar, white report
+// card, and a footer bar (compact toggle, row info, export). All colors via
+// theme tokens — dark-mode safe.
+//
+// No Update button (guru 2026-11-16): changing a filter re-runs the report by
+// itself. The shell watches `onUpdate`'s identity — every report builds it with
+// useCallback over its fetch filters — and calls it, debounced, whenever that
+// identity changes after mount. Reports must therefore pass the memoised
+// callback itself (onUpdate={load}), never an inline arrow.
 
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
-  Box, Button, CircularProgress, FormControlLabel, InputAdornment,
+  Box, FormControlLabel, InputAdornment, LinearProgress,
   Stack, Switch, TextField, Typography,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
@@ -17,8 +23,9 @@ import { ReportPrintExportButton, ReportEmailButton, domToExportModel, type Repo
 export interface ReportShellProps {
   title: string;
   breadcrumb?: { label: string; href: string };
-  /** filter controls; the shell renders them in a row with the Update button */
+  /** filter controls; the shell renders them in a row */
   filters: React.ReactNode;
+  /** memoised fetch (useCallback over the filters) — re-run whenever its identity changes */
   onUpdate: () => void;
   loading?: boolean;
   /** lines under the in-card title: org name, "As at ...", etc. */
@@ -41,6 +48,19 @@ export default function ReportShell({
   // In-report search — provided via context so every ReportTable in this
   // report filters its rows live (guru 2026-07-15: search on ALL reports).
   const [reportSearch, setReportSearch] = useState("");
+
+  // Auto-update: when a filter changes, the report's memoised `onUpdate`
+  // gets a new identity; re-run it after a short pause so typing a date does
+  // not fire a request per keystroke. The first identity is the mount — the
+  // report already loads itself then — and an unchanged identity (StrictMode
+  // re-run, unrelated re-render) is a no-op.
+  const lastUpdate = useRef(onUpdate);
+  useEffect(() => {
+    if (lastUpdate.current === onUpdate) return;
+    lastUpdate.current = onUpdate;
+    const t = setTimeout(() => onUpdate(), 400);
+    return () => clearTimeout(t);
+  }, [onUpdate]);
 
   // Print & export per the report standard (CLAUDE.md "Report print & export
   // standard"): the rendered tables are captured generically from the DOM into
@@ -72,15 +92,6 @@ export default function ReportShell({
             <Box sx={{ px: { xs: 1.5, md: 3 }, py: 2, maxWidth: 1140, mx: "auto", width: "100%" }}>
               <Stack direction="row" flexWrap="wrap" alignItems="flex-end" sx={{ gap: { xs: 1.5, md: 2 } }}>
                 {filters}
-                <Button
-                  variant="contained"
-                  onClick={onUpdate}
-                  disabled={loading}
-                  startIcon={loading ? <CircularProgress size={14} color="inherit" /> : undefined}
-                  sx={{ height: 40 }}
-                >
-                  Update
-                </Button>
               </Stack>
             </Box>
             {/* Top-right of the page, outside the column; drops under the
@@ -113,7 +124,13 @@ export default function ReportShell({
               borderRadius: 1.5,
               p: { xs: 1.5, md: 3 },
               overflowX: "auto",
+              position: "relative",
             }}>
+              {/* The only "loading" signal now that the Update button is gone:
+                  a thin bar along the card's top edge. */}
+              {loading && (
+                <LinearProgress sx={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, borderRadius: "6px 6px 0 0" }} />
+              )}
               {/* Phone: title + search wrap onto two rows instead of clipping */}
               <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1, flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1 }}>
                 <Box>
