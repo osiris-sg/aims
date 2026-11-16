@@ -116,22 +116,24 @@ export function GLDetailReport({
 
   const isAccountGroupView = grouping.mode === "group" && grouping.fieldKey === "account";
 
+  // Column order is the legacy ledger's (guru 2026-11-16): Reference, Date,
+  // Source, Description, Debit, Credit, Balance.
   const accountViewColumns = useMemo(() => [
+    { key: "reference", label: "Reference", align: "left" as const, width: 160 },
     { key: "date", label: "Date", align: "left" as const, width: 105 },
     { key: "source", label: "Source", align: "left" as const, width: 130 },
     { key: "description", label: "Description", align: "left" as const },
-    { key: "reference", label: "Reference", align: "left" as const, width: 160 },
     { key: "debit", label: "Debit", align: "right" as const, width: 110 },
     { key: "credit", label: "Credit", align: "right" as const, width: 110 },
-    { key: "running", label: "Running Balance", align: "right" as const, width: 130 },
+    { key: "running", label: "Balance", align: "right" as const, width: 130 },
   ], []);
 
   const engineColumns = useMemo<FlatColumn[]>(() => [
     { key: "account", label: "Account", align: "left" },
+    { key: "reference", label: "Reference", align: "left", width: 160 },
     { key: "date", label: "Date", align: "left", width: 105, kind: "date" },
     { key: "source", label: "Source", align: "left", width: 130 },
     { key: "description", label: "Description", align: "left" },
-    { key: "reference", label: "Reference", align: "left", width: 160 },
     { key: "debit", label: "Debit", align: "right", width: 110, kind: "number", aggregate: true },
     { key: "credit", label: "Credit", align: "right", width: 110, kind: "number", aggregate: true },
   ], []);
@@ -165,7 +167,7 @@ export function GLDetailReport({
           running = R(running + (r.debit || 0) - (r.credit || 0));
           out.push({
             kind: "row", key: `${g.accountId}-${isUnc ? "u" : "c"}${i}`,
-            cells: [fmtDate(r.date), r.source, r.description, r.reference, r.debit, r.credit, running],
+            cells: [r.reference, fmtDate(r.date), r.source, r.description, r.debit, r.credit, running],
           });
         });
       }
