@@ -422,9 +422,6 @@ export default function WctReportView({
       <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center" flexWrap="wrap" useFlexGap sx={{ "@media print": { display: "none" } }}>
         {editable && draft && (
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mr: "auto" }} data-tour="service-report-edit-in-place">
-            <Typography variant="body2" color="text.secondary">
-              Click a photo box, a tick or a text on the report to change it.
-            </Typography>
             {saveText && (
               <Stack direction="row" spacing={0.5} alignItems="center" sx={{ color: save === "failed" ? "error.main" : save === "saved" && !uploading ? "success.main" : "text.secondary" }}>
                 {save === "saved" && !uploading ? <CheckIcon fontSize="small" /> : save !== "failed" ? <CircularProgress size={12} /> : null}

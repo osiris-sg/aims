@@ -173,7 +173,6 @@ export default function VehiclesPage() {
         columns={columns}
         data={filtered}
         tableName="Vehicles"
-        subTitle="Vans and lorries: current driver, what each costs and its log book. COE and lifespan expiry turn amber 90 days before."
         headerContent={
           <FormControlLabel
             sx={{ mb: 1 }}

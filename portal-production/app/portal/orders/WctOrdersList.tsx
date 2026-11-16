@@ -235,20 +235,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
       ),
     },
     { id: "quotation", header: "Quotation", size: 9, enableSorting: false, cell: ({ row }: any) => plain(row.original.sourceQuotation?.name) },
-    {
-      id: "doDate",
-      accessorFn: (o: WctOrderRow) => (o.doDate ? Date.parse(`${o.doDate}T00:00:00+08:00`) : o.nextJobAt ? new Date(o.nextJobAt).getTime() : Number.MAX_SAFE_INTEGER),
-      header: "DO date",
-      size: 9,
-      cell: ({ row }: any) =>
-        row.original.doDate ? (
-          <Box sx={{ whiteSpace: "nowrap" }}>{moment(row.original.doDate, "YYYY-MM-DD").format("DD/MM/YYYY")}</Box>
-        ) : row.original.nextJobAt ? (
-          fmtJobWhen(row.original.nextJobAt, row.original.nextJobAllDay)
-        ) : (
-          ""
-        ),
-    },
+    // "DO date" column hidden for now (Elroy 16 Nov); the API still sends doDate.
     { id: "dos", header: "DO(s)", size: 9, enableSorting: false, cell: ({ row }: any) => <NumberList names={(row.original.deliveryOrders ?? []).map((d: any) => d.name)} /> },
     { id: "invoice", header: "Invoice", size: 9, enableSorting: false, cell: ({ row }: any) => <NumberList names={(row.original.invoices ?? []).map((d: any) => d.name)} /> },
     {
