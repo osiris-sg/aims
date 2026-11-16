@@ -3,8 +3,9 @@
 // pill, tabs, row menu) and the order page (4-step tracker, next step).
 // The manual flow's statuses are the canonical ones; the older WCT statuses
 // (WCT Racking / BC Air, not on the manual flow) map onto the same stages.
-// Invoice and DO in either order (2026-11-16): after the quotation the DO and
-// the invoice are two parallel steps; the service report comes last.
+// Invoice and DO in either order (2026-11-16): one row, Quotation -> Invoice ->
+// DO -> Service report (WCT invoices first), but Invoice and DO each tick on
+// their own whichever happens first; the service report comes last.
 
 export type HubStatus =
   | "QUOTATION_SIGNED"
@@ -203,7 +204,7 @@ export interface HubStep {
   current: boolean;
   date: string | null;
   docs: HubStepDoc[];
-  /** DO and Invoice run side by side (either may come first). */
+  /** Invoice and DO: either may be done first. */
   parallel?: boolean;
 }
 
@@ -259,6 +260,20 @@ export function hubSteps(order: {
         : [],
     },
     {
+      key: "invoice",
+      title: "Invoice",
+      done: !cancelled && INVOICE_DONE.has(st),
+      current: false,
+      parallel: true,
+      date: first("INVOICED_DO_PENDING", "READY_FOR_SERVICE_REPORT", "INVOICED", "PAID") ?? first("INVOICE_DRAFT_DO_PENDING", "INVOICE_DRAFT"),
+      docs: (order.invoices ?? []).map((i) => ({
+        label: i.name || "Invoice",
+        // An invoice for lines added to a DO on top of the quotation (2026-11-16).
+        status: i.extra ? (i.status === "draft" || i.status === "unconfirmed" ? "Extra invoice draft" : `Extra invoice, ${invoiceStatusLabel(i.status).toLowerCase()}`) : invoiceStatusLabel(i.status),
+        href: i.href ?? docHref(i.type || "INVOICE", i.documentTemplateId, i.id),
+      })),
+    },
+    {
       key: "do",
       title: "DO",
       done: !cancelled && DO_DONE.has(st),
@@ -287,20 +302,6 @@ export function hubSteps(order: {
         })),
     },
     {
-      key: "invoice",
-      title: "Invoice",
-      done: !cancelled && INVOICE_DONE.has(st),
-      current: false,
-      parallel: true,
-      date: first("INVOICED_DO_PENDING", "READY_FOR_SERVICE_REPORT", "INVOICED", "PAID") ?? first("INVOICE_DRAFT_DO_PENDING", "INVOICE_DRAFT"),
-      docs: (order.invoices ?? []).map((i) => ({
-        label: i.name || "Invoice",
-        // An invoice for lines added to a DO on top of the quotation (2026-11-16).
-        status: i.extra ? (i.status === "draft" || i.status === "unconfirmed" ? "Extra invoice draft" : `Extra invoice, ${invoiceStatusLabel(i.status).toLowerCase()}`) : invoiceStatusLabel(i.status),
-        href: i.href ?? docHref(i.type || "INVOICE", i.documentTemplateId, i.id),
-      })),
-    },
-    {
       key: "report",
       title: "Service report",
       done: reached("SERVICE_REPORT_SENT"),
@@ -315,7 +316,7 @@ export function hubSteps(order: {
     },
   ];
   if (!cancelled) {
-    // Quotation first; then DO and Invoice side by side (each is current until it is done); the report once both are.
+    // Quotation first; then Invoice and DO (either order: each is current until it is done); the report once both are.
     if (!steps[0].done) steps[0].current = true;
     else if (!steps[1].done || !steps[2].done) {
       steps[1].current = !steps[1].done;

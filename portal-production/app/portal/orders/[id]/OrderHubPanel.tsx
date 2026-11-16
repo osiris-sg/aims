@@ -1,7 +1,7 @@
 "use client";
 
 // WCT orders hub (enableWctOrders, 2026-11-13): the top of the order page.
-// A tracker (Quotation -> DO and Invoice side by side, in either order (2026-11-16) -> Service report) with each
+// A 4-step tracker (Quotation -> Invoice -> DO -> Service report; Invoice and DO tick in either order, 2026-11-16) with each
 // step's documents, status and date, ONE primary button for the next step, and
 // a Documents list of everything linked to the order. Every button reuses an
 // existing screen or dialog (see hubActionTarget); the sections below the panel
@@ -82,6 +82,7 @@ export default function OrderHubPanel({ order, serviceReportReady, onAction, doF
   const router = useRouter();
   const { getToken } = useAuth();
   const steps = hubSteps(order);
+  const stepOf = (k: HubStep["key"]) => steps.find((s) => s.key === k)!;
   // Open a file from the API: the signed quotation PDF (a signed URL back), the signed DO or a photos file (the bytes).
   const openFile = async (path: string) => {
     const tab = window.open("", "_blank");
@@ -113,10 +114,10 @@ export default function OrderHubPanel({ order, serviceReportReady, onAction, doF
   };
   const next = hubNextStep({ status: order.status, invoices: order.invoices, serviceReportReady, doFirst, awaitingDo });
   const docs = [
-    ...steps[0].docs.map((d) => ({ type: "Quotation", ...d })),
-    ...steps[1].docs.map((d) => ({ type: "Delivery order", ...d })),
-    ...steps[2].docs.map((d) => ({ type: "Invoice", ...d })),
-    ...steps[3].docs.map((d) => ({ type: "Service report", ...d, status: `${d.status}${d.status !== "Draft" ? " · photos on the report" : ""}` })),
+    ...stepOf("quotation").docs.map((d) => ({ type: "Quotation", ...d })),
+    ...stepOf("invoice").docs.map((d) => ({ type: "Invoice", ...d })),
+    ...stepOf("do").docs.map((d) => ({ type: "Delivery order", ...d })),
+    ...stepOf("report").docs.map((d) => ({ type: "Service report", ...d, status: `${d.status}${d.status !== "Draft" ? " · photos on the report" : ""}` })),
   ];
   const finished = order.status === "SERVICE_REPORT_SENT" || order.status === "CLOSED";
 
@@ -124,13 +125,9 @@ export default function OrderHubPanel({ order, serviceReportReady, onAction, doF
     <Paper variant="outlined" sx={{ p: 2, mb: 3, borderRadius: 2 }} data-tour="wct-order-hub">
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ xs: "stretch", md: "center" }} sx={{ mb: 2 }}>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ flex: 1 }}>
-          <StepBox step={steps[0]} n={1} onOpen={(href) => router.push(href)} />
-          {/* DO and Invoice: two parallel steps, each ticks when done, in either order. */}
-          <Stack spacing={1} sx={{ flex: 1, minWidth: 160 }} data-tour="wct-order-parallel-steps">
-            <StepBox step={steps[1]} n={2} onOpen={(href) => router.push(href)} />
-            <StepBox step={steps[2]} n={2} onOpen={(href) => router.push(href)} />
-          </Stack>
-          <StepBox step={steps[3]} n={3} onOpen={(href) => router.push(href)} />
+          {steps.map((s, i) => (
+            <StepBox key={s.key} step={s} n={i + 1} onOpen={(href) => router.push(href)} />
+          ))}
         </Stack>
         <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ minWidth: 200 }}>
           {next ? (

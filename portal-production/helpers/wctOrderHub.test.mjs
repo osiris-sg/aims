@@ -61,14 +61,14 @@ test("tracker: 4 steps, ticks follow the status, docs listed", () => {
     jobReports: [{ id: "r", reportNumber: null, status: "draft" }],
   };
   const s = hubSteps(order);
-  assert.deepEqual(s.map((x) => x.title), ["Quotation", "DO", "Invoice", "Service report"]);
+  assert.deepEqual(s.map((x) => x.title), ["Quotation", "Invoice", "DO", "Service report"]);
   assert.deepEqual(s.map((x) => x.done), [true, true, true, false]);
   assert.deepEqual(s.map((x) => x.current), [false, false, false, true]);
-  assert.deepEqual(s[1].docs.map((d) => d.label), ["DO1"]); // the cancelled job's DO is not listed
-  assert.equal(s[2].docs[0].status, "Sent, awaiting payment");
+  assert.deepEqual(s[2].docs.map((d) => d.label), ["DO1"]); // the cancelled job's DO is not listed
+  assert.equal(s[1].docs[0].status, "Sent, awaiting payment");
   assert.equal(s[3].docs[0].label, "Service report (draft)");
-  assert.equal(s[1].href, undefined);
-  assert.equal(s[1].docs[0].href, "/portal/documents/DELIVERY_ORDER/t2/d");
+  assert.equal(s[2].href, undefined);
+  assert.equal(s[2].docs[0].href, "/portal/documents/DELIVERY_ORDER/t2/d");
   const done = hubSteps({ ...order, status: "SERVICE_REPORT_SENT" });
   assert.ok(done.every((x) => x.done && !x.current));
 });
@@ -101,8 +101,8 @@ test("Documents list: PDF for the signed quotation and finished DOs, Photos for 
     jobReports: [{ id: "r1", reportNumber: 7, status: "completed", photosFile: true }, { id: "r2", status: "draft" }],
   });
   assert.deepEqual(s[0].docs[0].file, { label: "PDF", path: "/orders/o1/quotation-pdf" });
-  assert.deepEqual(s[1].docs[0].file, { label: "PDF", path: "/delivery-group-posts/delivery/j1/signed-do?documentId=d1" });
-  assert.equal(s[1].docs[1].file, null); // not signed yet
+  assert.deepEqual(s[2].docs[0].file, { label: "PDF", path: "/delivery-group-posts/delivery/j1/signed-do?documentId=d1" });
+  assert.equal(s[2].docs[1].file, null); // not signed yet
   assert.deepEqual(s[3].docs[0].file, { label: "Photos", path: "/maintenance-reports/r1/photos-file" });
   assert.equal(s[3].docs[1].file, null);
   const unsigned = hubSteps({ id: "o1", status: "QUOTATION_SIGNED", sourceQuotation: { id: "q", name: "QO1", status: "unconfirmed" } });
@@ -129,8 +129,8 @@ test("DO first: Complete DO on a DO with no job, a job is optional", () => {
   // A DO with a job: completed on the job, as before.
   assert.deepEqual(hubActionTarget("complete-do", { orderId: "o1", manualFlow: true, openDoId: null, scheduledJobId: "j2" }), { href: "/portal/deliveries/j2?open=complete" });
   const steps = hubSteps({ id: "o1", status: "DO_SCHEDULED", deliveryOrders: [{ id: "d1", name: "DO1", templateId: "t", completed: false, awaitingSignature: true }, { id: "d2", name: "DO2", templateId: "t", completed: true, jobs: [{ id: "j1", status: "completed" }] }] });
-  assert.deepEqual(steps[1].docs.map((d) => `${d.label} ${d.status}`), ["DO1 Awaiting signature", "DO2 Completed"]);
-  assert.equal(steps[1].docs[1].file.path, "/delivery-group-posts/delivery/j1/signed-do?documentId=d2");
+  assert.deepEqual(steps[2].docs.map((d) => `${d.label} ${d.status}`), ["DO1 Awaiting signature", "DO2 Completed"]);
+  assert.equal(steps[2].docs[1].file.path, "/delivery-group-posts/delivery/j1/signed-do?documentId=d2");
 });
 
 test("DO first: a DO waiting for the customer offers its sign link", () => {
@@ -162,15 +162,15 @@ test("invoiced first: the DO is what is left; DO first: the invoice is", () => {
   assert.equal(hubNextStep({ status: "READY_FOR_SERVICE_REPORT", serviceReportReady: true }).primary, "send-report");
 });
 
-test("tracker: DO and Invoice are parallel steps, each ticks on its own; report last", () => {
+test("tracker: one row Quotation, Invoice, DO, Service report; Invoice and DO tick in either order", () => {
   const base = { id: "o1", sourceQuotation: { id: "q", name: "QO1", status: "confirmed" } };
   const view = (status) => hubSteps({ ...base, status }).map((x) => [x.key, x.done, x.current]);
-  assert.deepEqual(view("DO_DRAFT"), [["quotation", true, false], ["do", false, true], ["invoice", false, true], ["report", false, false]]);
-  assert.deepEqual(view("INVOICED_DO_PENDING"), [["quotation", true, false], ["do", false, true], ["invoice", true, false], ["report", false, false]]);
-  assert.deepEqual(view("INVOICE_DRAFT_DO_PENDING"), [["quotation", true, false], ["do", false, true], ["invoice", false, true], ["report", false, false]]);
-  assert.deepEqual(view("DO_COMPLETED"), [["quotation", true, false], ["do", true, false], ["invoice", false, true], ["report", false, false]]);
-  assert.deepEqual(view("READY_FOR_SERVICE_REPORT"), [["quotation", true, false], ["do", true, false], ["invoice", true, false], ["report", false, true]]);
-  assert.ok(hubSteps({ ...base, status: "DO_DRAFT" })[1].parallel && hubSteps({ ...base, status: "DO_DRAFT" })[2].parallel);
+  assert.deepEqual(view("DO_DRAFT"), [["quotation", true, false], ["invoice", false, true], ["do", false, true], ["report", false, false]]);
+  assert.deepEqual(view("INVOICED_DO_PENDING"), [["quotation", true, false], ["invoice", true, false], ["do", false, true], ["report", false, false]]);
+  assert.deepEqual(view("INVOICE_DRAFT_DO_PENDING"), [["quotation", true, false], ["invoice", false, true], ["do", false, true], ["report", false, false]]);
+  assert.deepEqual(view("DO_COMPLETED"), [["quotation", true, false], ["invoice", false, true], ["do", true, false], ["report", false, false]]);
+  assert.deepEqual(view("READY_FOR_SERVICE_REPORT"), [["quotation", true, false], ["invoice", true, false], ["do", true, false], ["report", false, true]]);
+  assert.ok(hubSteps({ ...base, status: "DO_DRAFT" })[1].parallel && hubSteps({ ...base, status: "DO_DRAFT" })[2].parallel); // invoice, then DO
 });
 
 test("labels and tabs", () => {
