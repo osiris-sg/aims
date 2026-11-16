@@ -207,13 +207,16 @@ describe('VehiclesService', () => {
       vehicles: [
         { id: 'v1', organizationId: ORG, vehicleNo: 'GBD1126U', model: 'NV350', coeExpiry: plus(60), lifespanExpiry: plus(400), archivedAt: null },
         { id: 'v2', organizationId: ORG, vehicleNo: 'GBE2', model: null, coeExpiry: plus(-3), lifespanExpiry: plus(10), archivedAt: null },
+        // Road tax / insurance / inspection (log book, 2026-11-16): the same 90 / 30-day bells.
+        { id: 'v3', organizationId: ORG, vehicleNo: 'GBE3', model: null, coeExpiry: null, lifespanExpiry: null, roadTaxExpiry: plus(20), insuranceExpiry: plus(70), inspectionExpiry: plus(200), archivedAt: null },
       ],
     });
     // Singapore "today" may be a day ahead of UTC; the thresholds absorb it.
     const sent = await svc.runExpiryReminders(today);
-    expect(sent.map((s) => `${s.vehicleId}:${s.which}:${s.threshold}`).sort()).toEqual(['v1:COE:90', 'v2:LIFESPAN:30']);
+    expect(sent.map((s) => `${s.vehicleId}:${s.which}:${s.threshold}`).sort()).toEqual(['v1:COE:90', 'v2:LIFESPAN:30', 'v3:INSURANCE:90', 'v3:ROAD_TAX:30']);
     expect(notify.emit).toHaveBeenCalledWith(expect.objectContaining({ kind: 'VEHICLE_EXPIRY', linkUrl: '/portal/vehicles/v1' }));
-    expect(actionLog.system).toHaveBeenCalledTimes(2);
+    expect(notify.emit).toHaveBeenCalledWith(expect.objectContaining({ title: expect.stringMatching(/^Road tax of GBE3 expires on/) }));
+    expect(actionLog.system).toHaveBeenCalledTimes(4);
     expect(await svc.runExpiryReminders(today)).toEqual([]);
   });
 });

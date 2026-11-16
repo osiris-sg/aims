@@ -294,7 +294,7 @@ export class VehiclesService {
 
   // ---------------------------------------------------------------- reminders
 
-  /** 08:55 Singapore: a bell at 90 and at 30 days before each COE / lifespan expiry. */
+  /** 08:55 Singapore: a bell at 90 and at 30 days before each COE / lifespan / road tax / insurance / inspection date. */
   @Cron('55 0 * * *')
   async dailyExpiryReminders() {
     try {
@@ -325,6 +325,10 @@ export class VehiclesService {
         for (const [which, label, date] of [
           ['COE', 'COE', v.coeExpiry],
           ['LIFESPAN', 'Vehicle lifespan', v.lifespanExpiry],
+          // Log book (2026-11-16): the renewal dates get the same 90 / 30-day bells.
+          ['ROAD_TAX', 'Road tax', v.roadTaxExpiry],
+          ['INSURANCE', 'Insurance', v.insuranceExpiry],
+          ['INSPECTION', 'Inspection', v.inspectionExpiry],
         ] as const) {
           const days = daysUntil(date, today);
           const threshold = reminderThreshold(days);
@@ -336,7 +340,7 @@ export class VehiclesService {
           await this.notifications.emit({
             organizationId,
             kind: 'VEHICLE_EXPIRY',
-            title: `${label} of ${v.vehicleNo} expires on ${expiry.split('-').reverse().join('/')} (${days === 0 ? 'today' : `in ${days} day${days === 1 ? '' : 's'}`})`,
+            title: `${label} of ${v.vehicleNo} ${which === 'INSPECTION' ? 'is due' : 'expires'} on ${expiry.split('-').reverse().join('/')} (${days === 0 ? 'today' : `in ${days} day${days === 1 ? '' : 's'}`})`,
             body: v.model ?? null,
             entityType: 'vehicle',
             entityId,
