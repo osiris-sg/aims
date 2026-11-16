@@ -43,7 +43,7 @@ export class StatementsService {
       const docs = await this.prisma.document.findMany({
         where: {
           organizationId,
-          type: { in: ['INVOICE', 'CREDIT_NOTE'] },
+          type: { in: ['INVOICE', 'CREDIT_NOTE', 'CN'] },
           OR: [
             { config: { path: ['customerId'], equals: customer.id } },
             { config: { path: ['customer', 'id'], equals: customer.id } },
@@ -70,6 +70,15 @@ export class StatementsService {
         if (d > endDate) return;
         all.push(tx);
       };
+
+      // Credit notes this statement prints as their own credit line, and the
+      // ones it deliberately hides. Applying a credit note (Manual Offset)
+      // writes a Payment row on EACH side — the leg against the credit note is
+      // the credit being used up, not money in, so it prints as a DEBIT and the
+      // pair nets to zero. A hidden credit note must not leave its leg behind
+      // either, or the statement gains a debit out of nowhere.
+      const shownCreditNotes = new Set<string>();
+      const hiddenCreditNotes = new Set<string>();
 
       for (const doc of docs) {
         const c: any = doc.config || {};
@@ -104,10 +113,21 @@ export class StatementsService {
           if (erpPaid > 0.005) {
             add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: `Paid in previous system — ${doc.name || ''}`.trim(), transactionType: 'PAYMENT', debit: 0, credit: erpPaid, balance: 0, documentType: 'PAYMENT', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId }, -erpPaid);
           }
-        } else if (doc.type === 'CREDIT_NOTE' && !isXero) {
-          // An imported credit note (BC Air 2026-11-12) is history: its credit is already inside its
-          // invoice's "Paid in previous system" line above, so it would be counted twice.
-          if (isErpImported(c)) continue;
+        } else {
+          // Credit notes. Two of them are already counted somewhere else and
+          // must stay off the statement:
+          //   - a XERO-IMPORTED one: Xero folds a credit note into its
+          //     invoice's AmountDue, so it is inside the "Payment / credits
+          //     applied" line above;
+          //   - an ERP-IMPORTED one (BC Air 2026-11-12): it is inside the
+          //     invoice's "Paid in previous system" line.
+          // Everything else is a credit note keyed in AIMS and it belongs on
+          // the statement — including one keyed in an org whose history came
+          // from Xero (guru 2026-11-16: MegaBuilders' CN202611004 never showed,
+          // because ONE imported invoice anywhere in the account used to hide
+          // EVERY credit note in it).
+          if ((isXero && c.xeroImported) || isErpImported(c)) { hiddenCreditNotes.add(doc.id); continue; }
+          shownCreditNotes.add(doc.id);
           const ref = documentReferenceOf(c);
           add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: ref || `Credit Note ${doc.name || ''}`.trim(), docReference: ref || null, transactionType: 'CREDIT_NOTE', debit: 0, credit: gross, balance: 0, documentType: 'CREDIT_NOTE', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId, unconfirmed: isUnconfirmedDoc((doc as any).status) }, -gross);
         }
@@ -115,8 +135,26 @@ export class StatementsService {
       for (const p of payments) {
         // Customer money in = REC; Manual Offsets stay plain (a function, not
         // a document type — guru's prefix plan).
+        if (p.documentId && hiddenCreditNotes.has(p.documentId)) continue;
+        const usesCredit = !!p.documentId && shownCreditNotes.has(p.documentId);
         const payRef = p.reference || p.id.slice(0, 8);
-        add(p.paymentDate, { date: p.paymentDate, reference: p.paymentMethod === 'offset' ? payRef : refWith('REC', payRef), description: `Payment via ${p.paymentMethod || ''}${p.reference ? ` ref ${p.reference}` : ''}`.trim(), transactionType: 'PAYMENT', debit: 0, credit: p.amount, balance: 0, documentType: 'PAYMENT', paymentMethod: p.paymentMethod }, -p.amount);
+        add(
+          p.paymentDate,
+          {
+            date: p.paymentDate,
+            reference: p.paymentMethod === 'offset' ? payRef : refWith('REC', payRef),
+            description: usesCredit
+              ? `Credit applied${p.reference ? ` ref ${p.reference}` : ''}`
+              : `Payment via ${p.paymentMethod || ''}${p.reference ? ` ref ${p.reference}` : ''}`.trim(),
+            transactionType: usesCredit ? 'CREDIT_APPLIED' : 'PAYMENT',
+            debit: usesCredit ? p.amount : 0,
+            credit: usesCredit ? 0 : p.amount,
+            balance: 0,
+            documentType: usesCredit ? 'CREDIT_APPLIED' : 'PAYMENT',
+            paymentMethod: p.paymentMethod,
+          },
+          usesCredit ? p.amount : -p.amount,
+        );
       }
 
       all.sort((a, b) => a.date.getTime() - b.date.getTime());
