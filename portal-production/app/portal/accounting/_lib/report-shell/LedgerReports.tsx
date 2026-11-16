@@ -1,8 +1,6 @@
 "use client";
 
-import { bandLabel, bandRow, splitConfirmed } from "./confirmBands";
 
-const R = (n: number) => Math.round(n * 100) / 100;
 
 // Xero-parity ledger-side reports:
 // - TrialBalanceXero: as-at TB with Compare-with-N-years columns.
@@ -194,24 +192,18 @@ export function JournalReportXero({ basePath }: { basePath: string }) {
   const rows = useMemo<ReportRow[]>(() => {
     if (!data) return [];
     const out: ReportRow[] = [];
-    // Legacy split: Unconfirmed journals first (red band), then Confirmed,
-    // each with a SUB-TOTAL (guru 2026-11-12: every report).
-    const { unconfirmed, confirmed } = splitConfirmed<any>(data.journals || [], (j) => !!j.isUnconfirmed);
-    for (const [sec, isUnc] of [[unconfirmed, true], [confirmed, false]] as Array<[any[], boolean]>) {
-      if (!sec.length) continue;
-      if (unconfirmed.length) out.push(bandRow(`band-${isUnc}`, bandLabel("Journal", isUnc), 7, isUnc));
-      for (const j of sec) {
-        const narration = j.description || j.reference || "";
-        out.push({ kind: "group", key: `g-${j.id}`, cells: [`${j.journalNumber}${narration ? ` — ${narration}` : ""}`] });
-        j.lines.forEach((l: any, i: number) => {
-          out.push({
-            kind: "row", key: `${j.id}-${i}`,
-            cells: [fmtDate(l.date), l.accountCode, l.account, l.description, l.debit, l.credit, j.postedBy],
-          });
+    // No Unconfirmed / Confirmed bands on the GL reports (guru 2026-11-16:
+    // those belong to the Receipt / PV / JV listings only).
+    for (const j of data.journals || []) {
+      const narration = j.description || j.reference || "";
+      out.push({ kind: "group", key: `g-${j.id}`, cells: [`${j.journalNumber}${narration ? ` — ${narration}` : ""}`] });
+      j.lines.forEach((l: any, i: number) => {
+        out.push({
+          kind: "row", key: `${j.id}-${i}`,
+          cells: [fmtDate(l.date), l.accountCode, l.account, l.description, l.debit, l.credit, j.postedBy],
         });
-        out.push({ kind: "subtotal", key: `t-${j.id}`, cells: ["Total", "", "", "", j.totalDebit, j.totalCredit, ""] });
-      }
-      if (unconfirmed.length) out.push({ kind: "subtotal", key: `st-${isUnc}`, cells: ["SUB-TOTAL", "", "", "", R(sec.reduce((s: number, j: any) => s + (j.totalDebit || 0), 0)), R(sec.reduce((s: number, j: any) => s + (j.totalCredit || 0), 0)), ""] });
+      });
+      out.push({ kind: "subtotal", key: `t-${j.id}`, cells: ["Total", "", "", "", j.totalDebit, j.totalCredit, ""] });
     }
     out.push({ kind: "total", key: "__total", cells: ["Total", "", "", "", data.totals?.debit ?? 0, data.totals?.credit ?? 0, ""] });
     return out;

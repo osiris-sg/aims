@@ -38,7 +38,7 @@ import {
   ReceivableInvoices, ReceivableInvoiceDetail, PayableInvoices, PayableInvoiceDetail,
   ContactTransactionsSummary, IncomeExpensesByContact, DebtorStatement, AuditTrail, ReceiptListing, SummaryAgeing, DetailedAgeing, DebtorListing, HistoricalListing, JvListing, PvListing,
   CreditorStatement, ApSummaryAgeing, ApDetailedAgeing, CreditorListing, ApHistoricalListing,
-  GeneralLedgerDetail, GeneralLedgerSummary,
+  GeneralLedgerDetail,
   AccountTransactions, ExpenseListing, TrialBalanceReport, JournalReport, BankSummary,
   ProfitLoss, BalanceSheet, ForeignBankListing, GSTReturn,
 } from "./report-shell/entries";
@@ -115,8 +115,7 @@ export const REPORTS: ReportEntry[] = [
   { key: "pbs", label: "Purchases by Supplier", description: "Spend breakdown by supplier", category: "Payables", Component: PurchasesBySupplierPage },
 
   // Ledger
-  { key: "gl", label: "General Ledger Detail", description: "Every posted line per account with running balance", category: "Ledger", Component: GeneralLedgerDetail },
-  { key: "gl-summary", label: "General Ledger Summary", description: "Debit, credit and net movement per account for a period", category: "Ledger", Component: GeneralLedgerSummary },
+  { key: "gl", label: "General Ledger", description: "Every posted line per account with running balance", category: "Ledger", Component: GeneralLedgerDetail },
   { key: "account-transactions", label: "Account Transactions", description: "Transactions for chosen accounts over a period", category: "Ledger", Component: AccountTransactions },
   { key: "tb", label: "Trial Balance", description: "Debits and credits across all accounts, with year comparison", category: "Ledger", Component: TrialBalanceReport },
   { key: "journal", label: "Journal Report", description: "Every posted journal with its balanced lines", category: "Ledger", Component: JournalReport },

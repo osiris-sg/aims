@@ -1,16 +1,12 @@
 "use client";
 
-import { bandLabel, bandRow, splitConfirmed } from "./confirmBands";
 
-const R = (n: number) => Math.round(n * 100) / 100;
 
-// Xero-parity General Ledger reports.
-// - GLDetailReport: every posted line in the period, grouped per account with
-//   running balance, per-account Total + Net movement rows.
-//   Data: GET /journal/reports/gl-detail
-// - GLSummaryReport: one row per active account — Debit / Credit / Net
-//   Movement / Account Type + balanced Total.
-//   Data: GET /journal/reports/account-activity
+// The General Ledger report (GLDetailReport): every posted line in the
+// period, grouped per account with running balance, per-account Total + Net
+// movement rows. Data: GET /journal/reports/gl-detail
+// (The "General Ledger Summary" was retired 2026-11-16 — guru: it is the
+// Trial Balance by another name. Account Transactions reuses this component.)
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Typography } from "@mui/material";
@@ -47,7 +43,7 @@ function useChartOfAccounts() {
 // Also powers "Account Transactions" and the legacy "Expense Listing"
 // (same Xero report with a different title / preselected account types).
 export function GLDetailReport({
-  basePath, title = "General Ledger Detail", presetAccountTypes, initialRange,
+  basePath, title = "General Ledger", presetAccountTypes, initialRange,
 }: {
   basePath: string;
   title?: string;
@@ -108,7 +104,7 @@ export function GLDetailReport({
     const rows: any[] = [];
     for (const g of data.groups || []) {
       g.rows.forEach((r: any, i: number) =>
-        rows.push({ ...r, account: `${g.code} — ${g.name}`, __key: `${g.accountId}-${i}` }),
+        rows.push({ ...r, account: `${g.code} — ${g.name}`, status: r.unconfirmed ? "Unconfirmed" : "", __key: `${g.accountId}-${i}` }),
       );
     }
     return rows;
@@ -126,6 +122,8 @@ export function GLDetailReport({
     { key: "debit", label: "Debit", align: "right" as const, width: 110 },
     { key: "credit", label: "Credit", align: "right" as const, width: 110 },
     { key: "running", label: "Balance", align: "right" as const, width: 130 },
+    // Unconfirmed lines are flagged here, not split into bands (guru 2026-11-16).
+    { key: "status", label: "Status", align: "left" as const, width: 110 },
   ], []);
 
   const engineColumns = useMemo<FlatColumn[]>(() => [
@@ -136,6 +134,7 @@ export function GLDetailReport({
     { key: "description", label: "Description", align: "left" },
     { key: "debit", label: "Debit", align: "right", width: 110, kind: "number", aggregate: true },
     { key: "credit", label: "Credit", align: "right", width: 110, kind: "number", aggregate: true },
+    { key: "status", label: "Status", align: "left", width: 110 },
   ], []);
 
   const engine = useMemo(
@@ -153,28 +152,19 @@ export function GLDetailReport({
     const out: ReportRow[] = [];
     for (const g of data.groups || []) {
       out.push({ kind: "group", key: `g-${g.accountId}`, cells: [`${g.code} — ${g.name}`] });
-      // Legacy split (guru 2026-11-12: every report): confirmed lines first in
-      // date order, then an "Unconfirmed" band with the lines posted by
-      // documents not yet confirmed. The running balance is rebuilt in that
-      // order from the account's opening (the server computed it by date).
-      const { unconfirmed, confirmed } = splitConfirmed<any>(g.rows || [], (r) => !!r.unconfirmed);
-      const first = g.rows?.[0];
-      let running = first ? R((first.runningBalance ?? 0) - (first.debit || 0) + (first.credit || 0)) : 0;
-      for (const [sec, isUnc] of [[confirmed, false], [unconfirmed, true]] as Array<[any[], boolean]>) {
-        if (!sec.length) continue;
-        if (unconfirmed.length) out.push(bandRow(`band-${g.accountId}-${isUnc}`, bandLabel("Transaction", isUnc), 7, isUnc));
-        sec.forEach((r: any, i: number) => {
-          running = R(running + (r.debit || 0) - (r.credit || 0));
-          out.push({
-            kind: "row", key: `${g.accountId}-${isUnc ? "u" : "c"}${i}`,
-            cells: [r.reference, fmtDate(r.date), r.source, r.description, r.debit, r.credit, running],
-          });
+      // Lines stay in date order with the server's running balance; a line
+      // posted by a not-yet-confirmed document says so in the Status column
+      // (guru 2026-11-16: no Unconfirmed/Confirmed bands on this report).
+      (g.rows || []).forEach((r: any, i: number) => {
+        out.push({
+          kind: "row", key: `${g.accountId}-${i}`,
+          cells: [r.reference, fmtDate(r.date), r.source, r.description, r.debit, r.credit, r.runningBalance, r.unconfirmed ? "Unconfirmed" : ""],
         });
-      }
-      out.push({ kind: "subtotal", key: `t-${g.accountId}`, cells: [`Total ${g.name}`, "", "", "", g.totalDebit, g.totalCredit, g.netMovement] });
-      out.push({ kind: "subtotal", key: `n-${g.accountId}`, cells: ["Net movement", "", "", "", "", "", g.netMovement] });
+      });
+      out.push({ kind: "subtotal", key: `t-${g.accountId}`, cells: [`Total ${g.name}`, "", "", "", g.totalDebit, g.totalCredit, g.netMovement, ""] });
+      out.push({ kind: "subtotal", key: `n-${g.accountId}`, cells: ["Net movement", "", "", "", "", "", g.netMovement, ""] });
     }
-    out.push({ kind: "total", key: "__total", cells: ["Total", "", "", "", data.totals?.debit ?? 0, data.totals?.credit ?? 0, ""] });
+    out.push({ kind: "total", key: "__total", cells: ["Total", "", "", "", data.totals?.debit ?? 0, data.totals?.credit ?? 0, "", ""] });
     return out;
   }, [data, isAccountGroupView, engine]);
 
@@ -201,96 +191,6 @@ export function GLDetailReport({
       }
       headerLines={[`For the period ${fmtDate(from)} to ${fmtDate(to)}`]}
       footerInfo={data ? `Showing ${data.lineCount ?? 0} lines across ${(data.groups || []).length} accounts${data.truncated ? " (truncated — narrow the date range)" : ""}` : ""}
-      onExportCsv={exportCsv}
-      compact={compact}
-      onCompactChange={setCompact}
-    >
-      {data ? (
-        <ReportTable columns={columns} rows={rows} compact={compact} />
-      ) : (
-        <Box sx={{ py: 6, textAlign: "center" }}>
-          <Typography variant="body2" color="text.secondary">{loading ? "Loading…" : "No data"}</Typography>
-        </Box>
-      )}
-    </ReportShell>
-  );
-}
-
-// ---------------------------------------------------------------------
-export function GLSummaryReport({ basePath }: { basePath: string }) {
-  const { request } = useAccountingApi();
-  const accounts = useChartOfAccounts();
-  const init = monthRange();
-  const [from, setFrom] = useState(init.from);
-  const [to, setTo] = useState(init.to);
-  const [accountIds, setAccountIds] = useState<string[]>([]);
-  const [data, setData] = useState<any[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [compact, setCompact] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await request<any>(`/journal/reports/account-activity?startDate=${from}&endDate=${to}`);
-      setData(Array.isArray(res) ? res : res?.data ?? []);
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to load report");
-    } finally {
-      setLoading(false);
-    }
-  }, [request, from, to]);
-
-  useEffect(() => { load(); // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const filtered = useMemo(() => {
-    if (!data) return [];
-    const rows = accountIds.length ? data.filter((r) => accountIds.includes(r.id)) : data;
-    return [...rows].sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  }, [data, accountIds]);
-
-  const columns = useMemo(() => [
-    { key: "name", label: "Account", align: "left" as const },
-    { key: "code", label: "Account Code", align: "left" as const, width: 120 },
-    { key: "debit", label: "Debit", align: "right" as const, width: 130 },
-    { key: "credit", label: "Credit", align: "right" as const, width: 130 },
-    { key: "net", label: "Net Movement", align: "right" as const, width: 130 },
-    { key: "type", label: "Account Type", align: "left" as const, width: 150 },
-  ], []);
-
-  const rows = useMemo<ReportRow[]>(() => {
-    const out: ReportRow[] = filtered.map((r) => ({
-      kind: "row" as const,
-      key: r.id,
-      cells: [r.name, r.code, r.debit, r.credit, Math.round((r.debit - r.credit) * 100) / 100, r.accountType],
-    }));
-    const td = filtered.reduce((s, r) => s + r.debit, 0);
-    const tc = filtered.reduce((s, r) => s + r.credit, 0);
-    out.push({ kind: "total", key: "__total", cells: ["Total", "", Math.round(td * 100) / 100, Math.round(tc * 100) / 100, Math.round((td - tc) * 100) / 100, ""] });
-    return out;
-  }, [filtered]);
-
-  const exportCsv = () => {
-    downloadCsv(
-      `General-Ledger-Summary-${from}-${to}.csv`,
-      [columns.map((c) => c.label), ...rows.map((r) => r.cells.map((c) => (typeof c === "number" ? c.toFixed(2) : String(c ?? ""))))],
-    );
-  };
-
-  return (
-    <ReportShell
-      title="General Ledger Summary"
-      breadcrumb={{ label: "Reports", href: basePath }}
-      loading={loading}
-      onUpdate={load}
-      filters={
-        <>
-          <AccountsSelect accounts={accounts} selected={accountIds} onChange={setAccountIds} />
-          <DateRangeSelect label="Date range" from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />
-        </>
-      }
-      headerLines={[`For the period ${fmtDate(from)} to ${fmtDate(to)}`]}
-      footerInfo={data ? `Showing ${filtered.length} accounts` : ""}
       onExportCsv={exportCsv}
       compact={compact}
       onCompactChange={setCompact}

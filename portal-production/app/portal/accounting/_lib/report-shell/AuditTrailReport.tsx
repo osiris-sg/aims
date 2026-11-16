@@ -27,7 +27,6 @@ const monthRange = () => {
   return { from: iso(new Date(now.getFullYear(), now.getMonth(), 1)), to: iso(new Date(now.getFullYear(), now.getMonth() + 1, 0)) };
 };
 
-import { bandLabel, bandRow, splitConfirmed } from "./confirmBands";
 
 type TrailRow = {
   unconfirmed: boolean;
@@ -51,6 +50,8 @@ export default function AuditTrailReport() {
   const [order, setOrder] = useState<"document" | "date">("document");
   const [loading, setLoading] = useState(false);
   const [lines, setLines] = useState<TrailRow[] | null>(null);
+  // The journal feed stops at 500 journals; say so instead of silently dropping the newest.
+  const [truncated, setTruncated] = useState(false);
 
   const load = useCallback(
     async (f = from, t = to) => {
@@ -77,6 +78,7 @@ export default function AuditTrailReport() {
           }
         }
         setLines(out);
+        setTruncated(!!data?.truncated);
       } catch (e: any) {
         toast.error(e?.message || "Failed to load the audit trail");
       } finally {
@@ -131,22 +133,13 @@ export default function AuditTrailReport() {
 
   const rows = useMemo<ReportRow[]>(() => {
     if (!filtered) return [];
-    // Legacy split: Unconfirmed first (red band), then Confirmed, each with
-    // its own SUB-TOTAL (guru 2026-11-12: every report).
-    const out: ReportRow[] = [];
-    const { unconfirmed, confirmed } = splitConfirmed(filtered, (l) => l.unconfirmed);
-    for (const [sec, isUnc] of [[unconfirmed, true], [confirmed, false]] as Array<[TrailRow[], boolean]>) {
-      if (!sec.length) continue;
-      if (unconfirmed.length) out.push(bandRow(`band-${isUnc}`, bandLabel("Transaction", isUnc), 7, isUnc));
-      sec.forEach((l, i) =>
-        out.push({
-          kind: "row",
-          key: `l${isUnc ? "u" : "c"}${i}`,
-          cells: [fmtDate(l.date), l.docRef, l.accountCode, l.account, l.description, l.debit || null, l.credit || null],
-        }),
-      );
-      if (unconfirmed.length) out.push({ kind: "subtotal", key: `st-${isUnc}`, cells: ["SUB-TOTAL", "", "", "", "", R(sec.reduce((s, l) => s + l.debit, 0)), R(sec.reduce((s, l) => s + l.credit, 0))] });
-    }
+    // No Unconfirmed / Confirmed bands on the GL reports (guru 2026-11-16:
+    // those belong to the Receipt / PV / JV listings only).
+    const out: ReportRow[] = filtered.map((l, i) => ({
+      kind: "row",
+      key: `l${i}`,
+      cells: [fmtDate(l.date), l.docRef, l.accountCode, l.account, l.description, l.debit || null, l.credit || null],
+    }));
     out.push({ kind: "total", key: "__total", cells: ["TOTAL", "", "", "", "", totalDebit, totalCredit] });
     return out;
   }, [filtered, totalDebit, totalCredit]);
@@ -154,8 +147,8 @@ export default function AuditTrailReport() {
   const exportCsv = () => {
     if (!filtered) return;
     downloadCsv(`Audit-Trail-${prefix || "all"}-${from}-${to}.csv`, [
-      [...columns.map((c) => c.label), "Status"],
-      ...filtered.map((l) => [fmtDate(l.date), l.docRef, l.accountCode, l.account, l.description, l.debit.toFixed(2), l.credit.toFixed(2), l.unconfirmed ? "Unconfirmed" : "Confirmed"]),
+      columns.map((c) => c.label),
+      ...filtered.map((l) => [fmtDate(l.date), l.docRef, l.accountCode, l.account, l.description, l.debit.toFixed(2), l.credit.toFixed(2)]),
       ["TOTAL", "", "", "", "", totalDebit.toFixed(2), totalCredit.toFixed(2)],
     ]);
   };
@@ -200,7 +193,7 @@ export default function AuditTrailReport() {
             ]
           : []
       }
-      footerInfo={filtered ? `${filtered.length} line${filtered.length === 1 ? "" : "s"}` : ""}
+      footerInfo={filtered ? `${filtered.length} line${filtered.length === 1 ? "" : "s"}${truncated ? " — only the first 500 journals are shown, narrow the date range" : ""}` : ""}
       onExportCsv={filtered ? exportCsv : undefined}
     >
       {filtered ? (

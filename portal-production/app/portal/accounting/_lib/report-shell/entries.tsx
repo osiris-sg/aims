@@ -17,7 +17,7 @@ import HistoricalListingReportInner from "./HistoricalListingReport";
 import JvListingReportInner from "./JvListingReport";
 import PvListingReportInner from "./PvListingReport";
 import IncomeExpenseByContactReport from "./IncomeExpenseByContactReport";
-import { GLDetailReport, GLSummaryReport } from "./GLReports";
+import { GLDetailReport } from "./GLReports";
 import { TrialBalanceXero, JournalReportXero, BankSummaryReport, ForeignBankListingReport } from "./LedgerReports";
 import { ProfitLossXero, BalanceSheetXero } from "./FinancialStatements";
 import GSTReportShell from "./GSTReport";
@@ -52,7 +52,6 @@ export const JvListing = () => <JvListingReportInner />;
 export const PvListing = () => <PvListingReportInner />;
 export const IncomeExpensesByContact = () => <IncomeExpenseByContactReport basePath={AR_BASE} />;
 export const GeneralLedgerDetail = () => <GLDetailReport basePath={GL_BASE} />;
-export const GeneralLedgerSummary = () => <GLSummaryReport basePath={GL_BASE} />;
 export const AccountTransactions = () => <GLDetailReport basePath={GL_BASE} title="Account Transactions" />;
 // Expense Listing opens on the YEAR to date (Summer 2026-11-07: company
 // expenses "for the year and the past year" — set the From to last year for
