@@ -84,7 +84,7 @@ const outstandingOf = (b: Bill) => (b.status === "POSTED" || b.status === "PAID"
 
 export default function BillsPage() {
   const { request } = useAccountingApi();
-  const { isXeroDocSyncEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
+  const { isXeroDocSyncEnabled, isWctOrdersEnabled, isPurchaseJournalGridEnabled } = useOrganizationFeatures();
   // WCT (enableWctOrders, 2026-11-03): the Quotation No. column + filter ("none" = not tagged).
   const [quotationFilter, setQuotationFilter] = useState<QuotationTag | "none" | null>(null);
   const router = useRouter();
@@ -202,6 +202,12 @@ export default function BillsPage() {
     if (isNote(b)) {
       const from = encodeURIComponent("/portal/accounting/payables/purchase-journal");
       router.push(withActiveOrg(`/portal/documents/${b.documentType}/${b.documentTemplateId}/${b.id}?from=${from}`));
+      return;
+    }
+    // Chong Aik (enablePurchaseJournalGrid): open the full-page legacy Dr/Cr
+    // Purchase Journal editor instead of the bill form dialog.
+    if (isPurchaseJournalGridEnabled) {
+      router.push(withActiveOrg(`/portal/accounting/payables/purchase-journal/entry/${b.id}`));
       return;
     }
     setEditing(b);
@@ -494,7 +500,12 @@ export default function BillsPage() {
         tableName="Purchase Journal"
         subTitle="Supplier invoices, credit notes and debit notes (purchase journal) — save posts to GL as unconfirmed; confirm from the Posting Queue"
         buttonName="New Purchase Entry"
-        onAddClick={() => setKindPickerOpen(true)}
+        onAddClick={() => {
+          // Chong Aik: straight into the full-page journal (Batch Type is a
+          // field in the editor) instead of the SIN/SPR chooser dialog.
+          if (isPurchaseJournalGridEnabled) { router.push(withActiveOrg("/portal/accounting/payables/purchase-journal/entry/new?kind=SIN")); return; }
+          setKindPickerOpen(true);
+        }}
         actionButtons={[
           <Button key="upload-bills" data-tour="bills-upload" variant="outlined" startIcon={<CloudUploadIcon />} onClick={() => uploadInputRef.current?.click()}>
             Upload Supplier Invoices
