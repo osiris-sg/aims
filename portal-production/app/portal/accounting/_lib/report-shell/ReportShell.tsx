@@ -12,10 +12,13 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import {
-  Box, FormControlLabel, InputAdornment, LinearProgress,
+  Box, Button, FormControlLabel, InputAdornment, LinearProgress, ListItemText, ListSubheader, Menu, MenuItem,
   Stack, Switch, TextField, Typography,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
+import ListAltIcon from "@mui/icons-material/ListAlt";
+import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
+import { useReportDirectory } from "./ReportDirectoryContext";
 import { ReportSearchContext } from "./ReportTable";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { ReportPrintExportButton, ReportEmailButton, domToExportModel, type ReportExportModel } from "../report-export";
@@ -68,6 +71,10 @@ export default function ReportShell({
   // GENERATED DOCUMENT with the print dialog, never the raw app screen.
   const { organization } = useOrganization();
   const reportContentRef = useRef<HTMLDivElement | null>(null);
+  // "View other reports" (guru 2026-11-16): the section's report list, so the
+  // user switches report here instead of going Back to check the directory.
+  const directory = useReportDirectory();
+  const [reportsAnchor, setReportsAnchor] = useState<null | HTMLElement>(null);
   const captureModel = () =>
     getExportModel ? getExportModel() : domToExportModel(reportContentRef.current, title, organization?.name || "", headerLines);
   // NOTE: the hosting section page already shows "Back to X | <Report name>",
@@ -113,6 +120,42 @@ export default function ReportShell({
             >
               <ReportPrintExportButton getModel={captureModel} onExportCsv={onExportCsv} size="medium" />
               <ReportEmailButton getModel={captureModel} size="medium" />
+              {directory && directory.reports.length > 1 && (
+                <>
+                  <Button
+                    variant="outlined"
+                    size="medium"
+                    startIcon={<ListAltIcon />}
+                    endIcon={<ArrowDropDownIcon />}
+                    onClick={(e) => setReportsAnchor(e.currentTarget)}
+                    sx={{ textTransform: "none", whiteSpace: "nowrap" }}
+                  >
+                    View other reports
+                  </Button>
+                  <Menu
+                    anchorEl={reportsAnchor}
+                    open={Boolean(reportsAnchor)}
+                    onClose={() => setReportsAnchor(null)}
+                    slotProps={{ paper: { sx: { width: 380, maxWidth: "calc(100vw - 32px)", maxHeight: 480 } } }}
+                  >
+                    <ListSubheader sx={{ lineHeight: "32px", bgcolor: "background.paper" }}>{directory.title}</ListSubheader>
+                    {directory.reports.map((r) => (
+                      <MenuItem
+                        key={r.key}
+                        selected={r.key === directory.activeKey}
+                        onClick={() => { setReportsAnchor(null); if (r.key !== directory.activeKey) directory.open(r.key); }}
+                      >
+                        <ListItemText
+                          primary={r.label}
+                          secondary={r.description}
+                          primaryTypographyProps={{ fontWeight: r.key === directory.activeKey ? 700 : 500 }}
+                          secondaryTypographyProps={{ noWrap: true }}
+                        />
+                      </MenuItem>
+                    ))}
+                  </Menu>
+                </>
+              )}
             </Box>
           </Box>
 

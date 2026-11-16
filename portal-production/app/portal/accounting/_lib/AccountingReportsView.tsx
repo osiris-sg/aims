@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
+import { ReportDirectoryContext } from "./report-shell/ReportDirectoryContext";
 import {
   Box,
   Button,
@@ -366,6 +367,17 @@ function ReportsInner({
   if (activeReport) {
     const ActiveComponent = activeReport.Component;
     const isFavourite = favourites.has(activeReport.key);
+    // The section's other reports, for the shell's "View other reports" menu
+    // (guru 2026-11-16) — the directory's list minus the AR/AP/GL homes.
+    const HOME_KEYS = ["ar", "ap", "gl-home"];
+    const directory = {
+      title: `${categories[0] || "Accounting"} reports`,
+      reports: visibleReports
+        .filter((r) => categories.includes(r.category) && !HOME_KEYS.includes(r.key))
+        .map((r) => ({ key: r.key, label: r.label, description: r.description })),
+      activeKey: activeReport.key,
+      open: openReport,
+    };
     return (
       <Box sx={{ display: "flex", flexDirection: "column" }}>
         <Box
@@ -400,7 +412,9 @@ function ReportsInner({
             </IconButton>
           </Tooltip>
         </Box>
-        <ActiveComponent />
+        <ReportDirectoryContext.Provider value={directory}>
+          <ActiveComponent />
+        </ReportDirectoryContext.Provider>
       </Box>
     );
   }
