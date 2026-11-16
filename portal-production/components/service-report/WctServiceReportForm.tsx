@@ -14,6 +14,8 @@ import {
   LinearProgress,
   Stack,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -32,7 +34,10 @@ import {
   TEMPLATE_VERSIONS,
   WCT_JOB_TYPE_GROUPS,
   WCT_MAX_PHOTOS_PER_GRID,
-  wctSectionsFor,
+  WCT_MAX_UNITS,
+  wctSlotsFor,
+  wctSlotTitle,
+  wctUnitCount,
   type WctSectionResult,
   type WctServiceData,
 } from "@/lib/msr-templates";
@@ -115,6 +120,8 @@ interface Draft {
   clientEmail: string;
   remarks: string;
   cursor: Cursor;
+  /** Stalls (1 = the Single master). */
+  units?: number;
 }
 
 /**
@@ -145,6 +152,9 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
   const [serviceDate, setServiceDate] = useState(isoDate());
   const [clientEmail, setClientEmail] = useState("");
   const [jobTypes, setJobTypes] = useState<Set<string>>(new Set());
+  // Which master: Single (1) or Multiple stalls (n). The field shows "" while typing.
+  const [units, setUnits] = useState(1);
+  const [unitsText, setUnitsText] = useState("10");
   const [grids, setGrids] = useState<Grids>({});
   const [remarks, setRemarks] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -180,12 +190,16 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
         : (run?.reports ?? []).find((r) => r.kind === "SERVICE" && r.status === "completed") ?? null,
     [run, office, officeReport],
   );
-  const sections = useMemo(() => wctSectionsFor(Array.from(jobTypes)), [jobTypes]);
+  // Photo sections in print order; `key` is where each one's photos are stored.
+  const sections = useMemo(() => wctSlotsFor({ jobTypes: Array.from(jobTypes), units }), [jobTypes, units]);
 
   // Resume from a saved draft (serviceData.draft).
   const applyDraft = (d: Draft | undefined) => {
     if (!d || !Array.isArray(d.jobTypes)) return;
     setJobTypes(new Set(d.jobTypes));
+    const u = wctUnitCount(d.units);
+    setUnits(u);
+    if (u > 1) setUnitsText(String(u));
     const g: Grids = {};
     for (const [id, v] of Object.entries(d.grids ?? {})) {
       g[id] = {
@@ -265,16 +279,16 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
     setGrids((prev) => {
       const next: Grids = { ...prev };
       for (const s of sections) {
-        if (next[s.id]) continue;
+        if (next[s.key]) continue;
         const seed =
-          s.id === "UNIT_LOCATION"
+          s.key === "UNIT_LOCATION"
             ? (run?.reports ?? [])
                 .filter((r) => r.kind === "DO_START" && (serviceItems.length === 0 || serviceItems.some((it) => it.id === r.deliveryItemId)))
                 .flatMap((r) => r.photos ?? [])
                 .slice(0, WCT_MAX_PHOTOS_PER_GRID)
                 .map(toPhoto)
             : [];
-        next[s.id] = { before: [], after: [], photos: seed, lines: new Set(s.lines.map((_, i) => i)) };
+        next[s.key] = { before: [], after: [], photos: seed, lines: new Set(s.lines.map((_, i) => i)) };
       }
       return next;
     });
@@ -286,8 +300,8 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
     for (const [id, v] of Object.entries(grids)) {
       g[id] = { before: v.before.map((p) => p.key), after: v.after.map((p) => p.key), photos: v.photos.map((p) => p.key), lines: Array.from(v.lines).sort((a, b) => a - b) };
     }
-    return { jobTypes: Array.from(jobTypes), grids: g, customerName, jobLocation, serviceDate, clientEmail, remarks, cursor };
-  }, [grids, jobTypes, customerName, jobLocation, serviceDate, clientEmail, remarks, cursor]);
+    return { jobTypes: Array.from(jobTypes), grids: g, customerName, jobLocation, serviceDate, clientEmail, remarks, cursor, units };
+  }, [grids, jobTypes, customerName, jobLocation, serviceDate, clientEmail, remarks, cursor, units]);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSaved = useRef<string>("");
   useEffect(() => {
@@ -388,7 +402,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
     if (cursor.phase === "job") return "Job";
     if (cursor.phase === "finish") return "Finish";
     const s = sections[cursor.index];
-    const name = s ? `${s.heading}${s.subject ? ` ${s.subject}` : ""}` : "Section";
+    const name = s ? wctSlotTitle(s) : "Section";
     return cursor.sub === "before" ? `${name}: Before` : cursor.sub === "after" ? `${name}: After` : name;
   })();
 
@@ -399,9 +413,9 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const wct: WctServiceData = { jobTypes: Array.from(jobTypes), sections: {} };
+      const wct: WctServiceData = { jobTypes: Array.from(jobTypes), sections: {}, ...(units > 1 ? { units } : {}) };
       for (const s of sections) {
-        const g = grids[s.id];
+        const g = grids[s.key];
         if (!g) continue;
         const r: WctSectionResult = {};
         if (s.mode === "before-after") {
@@ -412,7 +426,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
         }
         // Store the ticked line indexes only when one was un-ticked; absent = all.
         if (g.lines.size !== s.lines.length) r.lines = Array.from(g.lines).sort((a, b) => a - b);
-        wct.sections[s.id] = r;
+        wct.sections[s.key] = r;
       }
       // Office: the customer's signature drawn on screen (optional), stored with the completion.
       let signature: { clientSignatureKey: string; signedByName: string | null } | null = null;
@@ -584,7 +598,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
 
   const canStart = jobTypes.size > 0 && customerName.trim().length > 0;
   const section = cursor.phase === "section" ? sections[cursor.index] : null;
-  const grid = section ? grids[section.id] : null;
+  const grid = section ? grids[section.key] : null;
   const saveNote = saveState === "saving" ? "Saving…" : saveState === "saved" ? "Progress saved" : saveState === "failed" ? "Could not save progress. Check the connection." : "";
 
   return (
@@ -615,6 +629,38 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
           <TextField label="Company" value={customerName} onChange={(e) => setCustomerName(e.target.value)} fullWidth size="small" />
           <TextField label="Location" value={jobLocation} onChange={(e) => setJobLocation(e.target.value)} fullWidth size="small" multiline minRows={2} />
           <TextField label="Date of Servicing" type="date" value={serviceDate} onChange={(e) => setServiceDate(e.target.value)} fullWidth size="small" InputLabelProps={{ shrink: true }} />
+          <Divider />
+          <Typography variant="subtitle2">Report template</Typography>
+          <ToggleButtonGroup
+            exclusive
+            size="small"
+            fullWidth
+            value={units > 1 ? "stalls" : "single"}
+            onChange={(_, v) => {
+              if (v === "single") setUnits(1);
+              if (v === "stalls") setUnits(wctUnitCount(unitsText) > 1 ? wctUnitCount(unitsText) : 2);
+            }}
+            data-tour="wct-sr-template"
+          >
+            <ToggleButton value="single">Single</ToggleButton>
+            <ToggleButton value="stalls">Multiple stalls</ToggleButton>
+          </ToggleButtonGroup>
+          {units > 1 && (
+            <TextField
+              label="Number of stalls"
+              type="number"
+              value={unitsText}
+              onChange={(e) => {
+                setUnitsText(e.target.value);
+                const n = wctUnitCount(e.target.value);
+                if (n > 1) setUnits(n);
+              }}
+              inputProps={{ min: 2, max: WCT_MAX_UNITS }}
+              helperText={`A Company / Brand page, then Unit Location and Hood photos for each stall (2 to ${WCT_MAX_UNITS}).`}
+              fullWidth
+              size="small"
+            />
+          )}
           <Divider />
           <Typography variant="subtitle2">Type of Service/Job</Typography>
           {WCT_JOB_TYPE_GROUPS.map((g) => (
@@ -649,14 +695,14 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
         <Stack spacing={2}>
           <Box sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 1.5 }}>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>
-              {section.heading}{section.subject ? ` ${section.subject}` : ""}
+              {wctSlotTitle(section)}
             </Typography>
             {cursor.sub === "before" && (
               <>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                   Take the Before photos, then do the work.
                 </Typography>
-                <PhotoCaptureField label="Before" photos={grid.before} onChange={(p) => setGrid(section.id, { before: p })} upload={upload} maxPhotos={WCT_MAX_PHOTOS_PER_GRID} onError={(m) => setError(m || null)} onUploadingChange={setUploading} />
+                <PhotoCaptureField label="Before" photos={grid.before} onChange={(p) => setGrid(section.key, { before: p })} upload={upload} maxPhotos={WCT_MAX_PHOTOS_PER_GRID} onError={(m) => setError(m || null)} onUploadingChange={setUploading} />
               </>
             )}
             {cursor.sub === "after" && (
@@ -664,11 +710,11 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                   Work done. Take the After photos and un-tick anything not done.
                 </Typography>
-                <PhotoCaptureField label="After" photos={grid.after} onChange={(p) => setGrid(section.id, { after: p })} upload={upload} maxPhotos={WCT_MAX_PHOTOS_PER_GRID} onError={(m) => setError(m || null)} onUploadingChange={setUploading} />
+                <PhotoCaptureField label="After" photos={grid.after} onChange={(p) => setGrid(section.key, { after: p })} upload={upload} maxPhotos={WCT_MAX_PHOTOS_PER_GRID} onError={(m) => setError(m || null)} onUploadingChange={setUploading} />
               </>
             )}
             {cursor.sub === "photo" && (
-              <PhotoCaptureField label="Photo" photos={grid.photos} onChange={(p) => setGrid(section.id, { photos: p })} upload={upload} maxPhotos={WCT_MAX_PHOTOS_PER_GRID} onError={(m) => setError(m || null)} onUploadingChange={setUploading} />
+              <PhotoCaptureField label="Photo" photos={grid.photos} onChange={(p) => setGrid(section.key, { photos: p })} upload={upload} maxPhotos={WCT_MAX_PHOTOS_PER_GRID} onError={(m) => setError(m || null)} onUploadingChange={setUploading} />
             )}
             {cursor.sub !== "before" && (
               <Box sx={{ mt: 1 }}>
@@ -684,7 +730,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
                           const n = new Set(grid.lines);
                           if (n.has(i)) n.delete(i);
                           else n.add(i);
-                          setGrid(section.id, { lines: n });
+                          setGrid(section.key, { lines: n });
                         }}
                         sx={{ py: 0.25 }}
                       />

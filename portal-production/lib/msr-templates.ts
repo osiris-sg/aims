@@ -525,6 +525,14 @@ export const ESS_ITEM_COUNT = ESS_CATEGORIES.reduce((n, c) => n + c.items.length
 // ─────────────────────────────────────────────────────────────────────────────
 // WCT_V1 — WCT (S) Systems kitchen-exhaust SERVICE REPORT (2026-10-27).
 //
+// 2026-11-16: matched to WCT's blank masters "SR (SINGLE)" (19 pages) and
+// "SR (10 Stalls)" (38 pages), same paper version (LH)21.07.2023: the paper's
+// wording for Exhaust Louvre / Air Cleaners (Tray/Base) / Fresh Air Grille,
+// the paper's page order, two Before + two After photos per page (more photos
+// = more pages, as on the masters), and the multi-stall layout (a Company /
+// Brand page, then Unit Location #n + its Hood page per stall). See
+// wctSlotsFor.
+//
 // Transcribed from the client's paper report #012392 (Da Paolo Gastronomia,
 // 12/10/2026, 12 pages): page 1 is the job sheet (Company / Location, Date of
 // Servicing, the "Type of Service/Job" tick table), page 2 the cover letter,
@@ -572,7 +580,7 @@ export const WCT_JOB_TYPE_GROUPS: WctJobTypeGroup[] = [
       { id: 'CD_HOOD', label: 'Exhaust Hood' },
       { id: 'CD_FAN', label: 'Exhaust Fan' },
       { id: 'CD_DUCT', label: 'Exhaust Ductworks' },
-      { id: 'CD_LOUVRE', label: 'Exhaust Louvre Grille' },
+      { id: 'CD_LOUVRE', label: 'Exhaust Louvre' },
       { id: 'CD_AIR_CLEANER', label: 'Air Cleaner' },
       { id: 'CD_UV', label: 'UV Light' },
     ],
@@ -680,23 +688,6 @@ export const WCT_PHOTO_SECTIONS: WctPhotoSection[] = [
     lines: [CD_PROTECT, CD_SCRAPE, 'Chemical degreasing for UV lights in the ductwork.', CD_WASH, CD_JOINTS],
   },
   {
-    id: 'LOUVRE',
-    heading: 'Chemical Degreasing of',
-    subject: 'Exhaust Louvre Grille',
-    mode: 'before-after',
-    jobTypes: ['CD_LOUVRE'],
-    lines: [CD_PROTECT, CD_SCRAPE, 'Chemical degreasing for exhaust lourves grille/discharge', CD_WASH, 'Checking of wire mesh condition for Exhaust lourves.'],
-  },
-  {
-    id: 'AIR_CLEANER',
-    heading: 'Chemical Degreasing of',
-    subject: 'Air Cleaner',
-    mode: 'before-after',
-    jobTypes: ['CD_AIR_CLEANER', 'AA_AC_FILTER'],
-    lines: [CD_PROTECT, CD_SCRAPE, 'Chemical degreasing for air cleaner cells and filters.', CD_WASH],
-    draftedLines: true,
-  },
-  {
     id: 'FA_DUCT',
     heading: 'De-Dusting of',
     subject: 'Fresh Air Ductwork',
@@ -716,12 +707,33 @@ export const WCT_PHOTO_SECTIONS: WctPhotoSection[] = [
   },
   {
     id: 'FA_GRILLE',
-    heading: 'De-Dusting of',
+    heading: 'De-dusting of',
     subject: 'Fresh Air Grille',
     mode: 'before-after',
     jobTypes: ['DD_GRILLE'],
-    lines: [CD_PROTECT, 'Dust accumulations are removed from the fresh air grilles.', 'Checking of grille condition.'],
-    draftedLines: true,
+    lines: [CD_PROTECT, 'Cleaning & de-dusting of fresh air grilles.'],
+  },
+  {
+    id: 'AIR_CLEANER',
+    heading: 'Chemical Degreasing of',
+    subject: 'Air Cleaners (Tray/Base)',
+    mode: 'before-after',
+    jobTypes: ['CD_AIR_CLEANER', 'AA_AC_FILTER'],
+    lines: [
+      CD_PROTECT,
+      CD_SCRAPE,
+      'Chemical degreasing for Electrostatic Air-cleaner, Air cleaner cell, existing grease tray under air cleaner & Electrostatic',
+      CD_WASH,
+      CD_JOINTS,
+    ],
+  },
+  {
+    id: 'LOUVRE',
+    heading: 'Chemical Degreasing of',
+    subject: 'Exhaust Louvre',
+    mode: 'before-after',
+    jobTypes: ['CD_LOUVRE'],
+    lines: [CD_PROTECT, CD_SCRAPE, 'Chemical degreasing for exhaust lourves/discharge', CD_WASH, 'Checking of wire mesh condition for Exhaust lourves.'],
   },
   {
     id: 'ADDITIONS',
@@ -746,8 +758,71 @@ export function wctSectionsFor(jobTypes: readonly string[] | null | undefined): 
   return WCT_PHOTO_SECTIONS.filter((s) => s.always || (s.jobTypes ?? []).some((j) => ticked.has(j)));
 }
 
-/** Most photos per Before / After / single grid (two per row, two rows, as on paper). */
-export const WCT_MAX_PHOTOS_PER_GRID = 4;
+/** Most photos per Before / After / single grid (the report adds pages as needed). */
+export const WCT_MAX_PHOTOS_PER_GRID = 12;
+
+/** Photos per Before / After grid on ONE page: two side by side, as on the masters. */
+export const WCT_PHOTOS_PER_PAGE = 2;
+
+/** Photos per single grid (Unit Location, Area Cleaning, Company / Brand) on one page. */
+export const WCT_SINGLE_PHOTOS_PER_PAGE = 4;
+
+/** Most stalls on a multi-stall report. */
+export const WCT_MAX_UNITS = 40;
+
+/** The multi-stall master's first photo page (once per report, before Unit Location #1). */
+export const WCT_BRAND_SECTION: WctPhotoSection = {
+  id: 'BRAND',
+  heading: 'Company / Brand',
+  mode: 'single',
+  always: true,
+  lines: ['Checking, testing of electrical readings before service conduct.'],
+};
+
+/** Sections repeated per stall on a multi-stall report, in this order. */
+export const WCT_PER_UNIT_SECTIONS = ['UNIT_LOCATION', 'HOOD'];
+
+/**
+ * One photo section as it appears on a report: the catalogue section plus the
+ * key its photos are stored under (`serviceData.wct.sections[key]`) and, on a
+ * multi-stall report, the stall number. Stall 1 keeps the plain section id, so
+ * a report switched between Single and Multiple stalls keeps its photos.
+ */
+export interface WctSectionSlot extends WctPhotoSection {
+  key: string;
+  unit?: number;
+}
+
+/** Stalls on a stored / draft report: 1 = the Single master. */
+export function wctUnitCount(units: unknown): number {
+  const n = Math.floor(Number(units));
+  return Number.isFinite(n) && n > 1 ? Math.min(n, WCT_MAX_UNITS) : 1;
+}
+
+/** The storage key of a section for stall n (stall 1 = the plain id). */
+export const wctSlotKey = (id: string, unit?: number): string => (unit && unit > 1 ? `${id}@${unit}` : id);
+
+/**
+ * The photo sections a report prints / captures, in print order.
+ * Single: wctSectionsFor. Multiple stalls (units > 1): Company / Brand, then per
+ * stall Unit Location #n and (when ticked) its Hood, then the shared sections.
+ */
+export function wctSlotsFor(wct: { jobTypes?: readonly string[] | null; units?: unknown } | null | undefined): WctSectionSlot[] {
+  const sections = wctSectionsFor(wct?.jobTypes);
+  const units = wctUnitCount(wct?.units);
+  if (units === 1) return sections.map((s) => ({ ...s, key: s.id }));
+  const perUnit = sections.filter((s) => WCT_PER_UNIT_SECTIONS.includes(s.id));
+  const shared = sections.filter((s) => !WCT_PER_UNIT_SECTIONS.includes(s.id));
+  const out: WctSectionSlot[] = [{ ...WCT_BRAND_SECTION, key: WCT_BRAND_SECTION.id }];
+  for (let u = 1; u <= units; u++) for (const s of perUnit) out.push({ ...s, key: wctSlotKey(s.id, u), unit: u });
+  return [...out, ...shared.map((s) => ({ ...s, key: s.id }))];
+}
+
+/** "Unit Location #3" on a multi-stall report; the plain heading otherwise. */
+export function wctSlotTitle(slot: WctSectionSlot): string {
+  const base = `${slot.heading}${slot.subject ? ` ${slot.subject}` : ''}`;
+  return slot.unit ? (slot.id === 'UNIT_LOCATION' ? `Unit Location #${slot.unit}` : `${base} (#${slot.unit})`) : base;
+}
 
 /** "#012392" — the paper prints the running number six digits wide. */
 export function wctReportNumber(n?: number | null): string {
@@ -871,8 +946,10 @@ export interface WctSectionResult {
 export interface WctServiceData {
   /** Ticked "Type of Service/Job" ids (WCT_JOB_TYPES). */
   jobTypes: string[];
-  /** Section id → photos and ticked lines. Only captured sections are present. */
+  /** Section key (wctSlotsFor) → photos and ticked lines. Only captured sections are present. */
   sections: Record<string, WctSectionResult>;
+  /** Stalls: absent / 1 = the Single master; n > 1 = the multi-stall master with n stalls. */
+  units?: number;
 }
 
 /** True when a section's line i is ticked on a stored result. */

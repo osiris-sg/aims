@@ -12,7 +12,11 @@
  *       De-Dusting Work, then Additions and Alterations Work) · remarks
  *   p2  the cover letter, contacts, Mission / Vision / Drive, signatory
  *   p3… one page per photo section: Unit Location, each equipment's Before /
- *       After grid with its ✓ work lines, Area Cleaning
+ *       After grid with its ✓ work lines, Area Cleaning. Two Before + two
+ *       After per page; more photos print more pages of the same section
+ *       (WCT's masters "SR (SINGLE)" / "SR (10 Stalls)", 2026-11-16). A
+ *       multi-stall report opens with Company / Brand, then Unit Location #n
+ *       and its Hood per stall (wctSlotsFor).
  *   then the SCDF / NEA advisory, the cleaning-frequency table and the closing
  *   lines (English + Chinese).
  *   "Page n of N" and the TEL / WEBSITE / EMAIL / ADDRESS line come from
@@ -32,8 +36,10 @@ import {
   wctLineTicked,
   wctReportNumber,
   wctScopeSentence,
-  wctSectionsFor,
-  type WctPhotoSection,
+  wctSlotsFor,
+  WCT_PHOTOS_PER_PAGE,
+  WCT_SINGLE_PHOTOS_PER_PAGE,
+  type WctSectionSlot,
   type WctSectionResult,
   type WctServiceData,
 } from './msr-templates';
@@ -231,28 +237,48 @@ function jobTypeTable(ticked: Set<string>): string {
 }
 
 function photoGrid(keys: readonly string[] | undefined, single: boolean): string {
-  const list = (keys ?? []).filter((k) => typeof k === 'string' && k && !k.startsWith('data:')).slice(0, 4);
+  const list = (keys ?? []).filter((k) => typeof k === 'string' && k && !k.startsWith('data:'));
   if (!list.length) return `<div class="grid${single ? ' one' : ''}"><div class="ph"></div></div>`;
   const one = single && list.length === 1;
   const cls = `grid${one ? ' one' : ''} n${list.length}`;
   return `<div class="${cls}">${list.map((k) => `<div class="ph"><img src="${esc(url(k))}" alt="" /></div>`).join('')}</div>`;
 }
 
-function sectionPage(s: WctPhotoSection, r: WctSectionResult | undefined): string {
+const cleanKeys = (keys: readonly string[] | undefined): string[] =>
+  (keys ?? []).filter((k) => typeof k === 'string' && !!k && !k.startsWith('data:'));
+
+const chunk = <T,>(list: T[], size: number, page: number): T[] => list.slice(page * size, page * size + size);
+
+/** One section, as many pages as its photos need (always at least one). */
+function sectionPages(s: WctSectionSlot, r: WctSectionResult | undefined): string {
   const lines = s.lines.map((l, i) => `<div class="${wctLineTicked(r, i) ? '' : 'off'}">${esc(l)}</div>`).join('');
   const heading = s.subject ? `${esc(s.heading)} <u>${esc(s.subject)}</u> -` : `${esc(s.heading)} -`;
-  const body =
+  const before = cleanKeys(r?.before);
+  const after = cleanKeys(r?.after);
+  const photos = cleanKeys(r?.photos);
+  const pages =
     s.mode === 'before-after'
-      ? `<div class="cap"><span class="tag before">Before</span></div>${photoGrid(r?.before, false)}
-         <div class="cap"><span class="tag after">After</span></div>${photoGrid(r?.after, false)}`
-      : s.id === 'UNIT_LOCATION'
-        ? `<div class="cap">${esc(s.heading)} -</div>${photoGrid(r?.photos, true)}`
-        : photoGrid(r?.photos, true);
-  return `
+      ? Math.max(1, Math.ceil(Math.max(before.length, after.length) / WCT_PHOTOS_PER_PAGE))
+      : Math.max(1, Math.ceil(photos.length / WCT_SINGLE_PHOTOS_PER_PAGE));
+  // A box caption instead of the heading line: Unit Location and Company / Brand.
+  const boxed = s.id === 'UNIT_LOCATION' || s.id === 'BRAND';
+  const caption = s.id === 'UNIT_LOCATION' && s.unit ? `Unit Location #${s.unit}` : `${esc(s.heading)} -`;
+  let out = '';
+  for (let p = 0; p < pages; p++) {
+    const body =
+      s.mode === 'before-after'
+        ? `<div class="cap"><span class="tag before">Before</span></div>${photoGrid(chunk(before, WCT_PHOTOS_PER_PAGE, p), false)}
+           <div class="cap"><span class="tag after">After</span></div>${photoGrid(chunk(after, WCT_PHOTOS_PER_PAGE, p), false)}`
+        : boxed
+          ? `<div class="cap">${caption}</div>${photoGrid(chunk(photos, WCT_SINGLE_PHOTOS_PER_PAGE, p), true)}`
+          : photoGrid(chunk(photos, WCT_SINGLE_PHOTOS_PER_PAGE, p), true);
+    out += `
   <div class="pg">
-    ${s.id === 'UNIT_LOCATION' ? '<div style="height:70px"></div>' : `<div class="sec-h">${heading}</div>`}
+    ${boxed ? '<div style="height:70px"></div>' : `<div class="sec-h">${heading}</div>`}
     <div class="sec">${body}<div class="lines">${lines}</div></div>
   </div>`;
+  }
+  return out;
 }
 
 function coverLetter(jobTypes: readonly string[], org: WctOrgProfile): string {
@@ -327,7 +353,7 @@ export function buildWctServiceReportHtml(input: WctServiceReportInput): string 
   const sd = input.serviceData ?? {};
   const wct: WctServiceData = sd.wct ?? { jobTypes: [], sections: {} };
   const ticked = new Set(wct.jobTypes ?? []);
-  const sections = wctSectionsFor(wct.jobTypes).map((s) => sectionPage(s, wct.sections?.[s.id]));
+  const sections = wctSlotsFor(wct).map((s) => sectionPages(s, wct.sections?.[s.key]));
 
   const page1 = `
     <div class="no">${esc(wctReportNumber(input.reportNumber))}</div>
