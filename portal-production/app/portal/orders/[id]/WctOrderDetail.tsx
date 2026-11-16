@@ -75,6 +75,10 @@ interface OrderInvoice {
   jobNumbers: number[];
   /** Emailed to the customer at least once (else only confirmed). */
   emailed?: boolean;
+  /** Bills only lines added on top of the quotation (2026-11-16). */
+  extra?: boolean;
+  /** Made from the quotation before any DO was done. */
+  fromQuotation?: boolean;
 }
 interface WctOrder {
   id: string;
@@ -98,8 +102,12 @@ interface WctOrder {
 
 const INVOICE_STATUS: Record<string, string> = { draft: "Draft", unconfirmed: "Draft", confirmed: "Confirmed", pending_payment: "Confirmed, awaiting payment", paid: "Paid" };
 // "Sent" only when the invoice was actually emailed (the API's `emailed`).
-const invoiceStatusLabel = (inv: { status: string; emailed?: boolean }) =>
-  inv.status === "pending_payment" && inv.emailed ? "Sent, awaiting payment" : INVOICE_STATUS[inv.status] ?? inv.status;
+const invoiceStatusLabel = (inv: { status: string; emailed?: boolean; extra?: boolean }) => {
+  const base = inv.status === "pending_payment" && inv.emailed ? "Sent, awaiting payment" : INVOICE_STATUS[inv.status] ?? inv.status;
+  // An invoice for lines added to a DO on top of the quotation (2026-11-16).
+  if (!inv.extra) return base;
+  return inv.status === "draft" || inv.status === "unconfirmed" ? "Extra invoice draft" : `Extra invoice, ${base.charAt(0).toLowerCase()}${base.slice(1)}`;
+};
 
 const doHref = (d: NonNullable<Job["deliveryOrder"]>) => `/portal/documents/DELIVERY_ORDER/${d.templateId}/${d.id}`;
 
@@ -250,6 +258,9 @@ export default function WctOrderDetail({ id }: { id: string }) {
   // DO first: the order's DOs; the first one completable on its own (no job, no product line).
   const dos: OrderDo[] = (order as any).deliveryOrders ?? [];
   const doFirst = !!(order as any).manualFlow && dos.length > 0;
+  // Invoice first (2026-11-16): on the manual flow, an order with no invoice and nothing completed yet is invoiced from its quotation.
+  const invoiceFromQuotation =
+    !!(order as any).manualFlow && order.status !== "CANCELLED" && !(order.invoices?.length ?? 0) && !order.toInvoice?.length && !(order as any).toInvoiceDos?.length;
   // Complete DO works on any open DO, with or without a job (the server takes the job's way when it has one).
   const openDo = dos.find((d) => !d.completed) ?? null;
   const awaitingDo = dos.find((d) => d.awaitingSignature && !d.jobs.length) ?? null;
@@ -493,8 +504,8 @@ export default function WctOrderDetail({ id }: { id: string }) {
               Invoices
             </Typography>
             <Box sx={{ flex: 1 }} />
-            <Button size="small" variant="outlined" disabled={(!order.toInvoice?.length && !(order as any).toInvoiceDos?.length) || invoicing} onClick={() => setInvoiceAsk(true)} data-tour="wct-order-invoice-now">
-              Invoice now
+            <Button size="small" variant="outlined" disabled={(!order.toInvoice?.length && !(order as any).toInvoiceDos?.length && !invoiceFromQuotation) || invoicing} onClick={() => setInvoiceAsk(true)} data-tour="wct-order-invoice-now">
+              {invoiceFromQuotation ? "Create invoice" : "Invoice now"}
             </Button>
           </Stack>
           {!order.invoices?.length ? (
@@ -766,13 +777,14 @@ export default function WctOrderDetail({ id }: { id: string }) {
       </Menu>
 
       <Dialog open={invoiceAsk} onClose={() => setInvoiceAsk(false)} fullWidth maxWidth="xs">
-        <DialogTitle>Invoice now</DialogTitle>
+        <DialogTitle>{invoiceFromQuotation ? "Create invoice" : "Invoice now"}</DialogTitle>
         <DialogContent>
           <DialogContentText>
             {invoiceNowText(
               order.toInvoice ?? [],
               order.jobs.filter((j) => j.status !== "cancelled" && !j.invoiceId && !(order.toInvoice ?? []).includes(j.deliveryNumber)).length,
               (order.invoices?.length ?? 0) > 0,
+              invoiceFromQuotation,
             )}
           </DialogContentText>
         </DialogContent>

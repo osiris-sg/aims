@@ -39,9 +39,12 @@ export type ManualOrderStatus =
   | 'DO_DRAFT'
   | 'DO_SCHEDULED'
   | 'AWAITING_VERIFICATION'
+  | 'INVOICE_DRAFT_DO_PENDING'
+  | 'INVOICED_DO_PENDING'
   | 'DO_COMPLETED'
   | 'INVOICE_DRAFT'
   | 'INVOICED'
+  | 'READY_FOR_SERVICE_REPORT'
   | 'PAID'
   | 'SERVICE_REPORT_SENT';
 
@@ -50,9 +53,12 @@ export const MANUAL_ORDER_STATUSES: ManualOrderStatus[] = [
   'DO_DRAFT',
   'DO_SCHEDULED',
   'AWAITING_VERIFICATION',
+  'INVOICE_DRAFT_DO_PENDING',
+  'INVOICED_DO_PENDING',
   'DO_COMPLETED',
   'INVOICE_DRAFT',
   'INVOICED',
+  'READY_FOR_SERVICE_REPORT',
   'PAID',
   'SERVICE_REPORT_SENT',
 ];
@@ -62,9 +68,13 @@ export const MANUAL_ORDER_STATUS_LABEL: Record<ManualOrderStatus, string> = {
   DO_DRAFT: 'DO draft',
   DO_SCHEDULED: 'DO scheduled',
   AWAITING_VERIFICATION: 'Awaiting customer signature',
-  DO_COMPLETED: 'DO completed',
+  INVOICE_DRAFT_DO_PENDING: 'Invoice draft, DO pending',
+  INVOICED_DO_PENDING: 'Invoiced, DO pending',
+  DO_COMPLETED: 'DO completed, invoice pending',
   INVOICE_DRAFT: 'Invoice draft',
+  // Kept for orders stored before 2026-11-16; derived as READY_FOR_SERVICE_REPORT now.
   INVOICED: 'Invoiced',
+  READY_FOR_SERVICE_REPORT: 'Ready for service report',
   PAID: 'Paid',
   SERVICE_REPORT_SENT: 'Service report sent',
 };
@@ -104,7 +114,7 @@ export function deriveManualOrderStatus(
   if (!invoiced || !invoices.length) return 'DO_COMPLETED';
   if (invoices.some((s) => DRAFT_INVOICE.has(s))) return 'INVOICE_DRAFT';
   if (billing.serviceReportSent) return 'SERVICE_REPORT_SENT';
-  return invoices.every((s) => s === 'paid') ? 'PAID' : 'INVOICED';
+  return invoices.every((s) => s === 'paid') ? 'PAID' : 'READY_FOR_SERVICE_REPORT';
 }
 
 /** One billable piece of an order (DO first, 2026-11-13): a DO (with or without jobs) or a job that has no DO. */
@@ -123,19 +133,35 @@ export function unitStateOfJobs(jobs: { status: string; isDraft: boolean; verifi
 
 /**
  * Manual flow, DO first: the order's status from its DOs (each DO's jobs, if
- * any, decide that DO's state), its invoices and whether the service report
- * was sent. Same steps as deriveManualOrderStatus, read per DO.
+ * any, decide that DO's state), ALL of the order's invoices and whether the
+ * service report was sent.
+ *
+ * Invoice and DO in either order (2026-11-16, WCT usually invoices first):
+ *   DOs not all done, an invoice exists → INVOICE_DRAFT_DO_PENDING (draft) /
+ *                                         INVOICED_DO_PENDING (sent / paid)
+ *   DOs not all done, no invoice        → DO_DRAFT / DO_SCHEDULED / AWAITING_VERIFICATION
+ *   every DO done, a DO not on an invoice
+ *     yet (or no invoice at all)        → DO_COMPLETED ("DO completed, invoice pending")
+ *   every DO done and invoiced: a draft → INVOICE_DRAFT; sent and the report
+ *     sent → SERVICE_REPORT_SENT; all paid → PAID; else READY_FOR_SERVICE_REPORT.
+ * An invoice made first is linked to the DOs when the last one completes
+ * (the quotation is already billed, so no second invoice: order-billing.ts).
  */
 export function deriveManualOrderStatusFromUnits(units: OrderUnit[], billing: { invoiceStatuses?: string[]; serviceReportSent?: boolean } = {}): ManualOrderStatus {
-  if (!units.length) return 'QUOTATION_SIGNED';
-  if (units.every((u) => u.state === 'draft')) return 'DO_DRAFT';
-  if (units.some((u) => u.state === 'scheduled' || u.state === 'draft')) return 'DO_SCHEDULED';
-  if (units.some((u) => u.state === 'awaiting')) return 'AWAITING_VERIFICATION';
   const invoices = billing.invoiceStatuses ?? [];
+  const invoiceDraft = invoices.some((s) => DRAFT_INVOICE.has(s));
+  const invoicedFirst: ManualOrderStatus = invoiceDraft ? 'INVOICE_DRAFT_DO_PENDING' : 'INVOICED_DO_PENDING';
+  if (!units.length) return invoices.length ? invoicedFirst : 'QUOTATION_SIGNED';
+  if (!units.every((u) => u.state === 'done')) {
+    if (invoices.length) return invoicedFirst;
+    if (units.every((u) => u.state === 'draft')) return 'DO_DRAFT';
+    if (units.some((u) => u.state === 'scheduled' || u.state === 'draft')) return 'DO_SCHEDULED';
+    return 'AWAITING_VERIFICATION';
+  }
   if (!units.every((u) => !!u.invoiceId) || !invoices.length) return 'DO_COMPLETED';
-  if (invoices.some((s) => DRAFT_INVOICE.has(s))) return 'INVOICE_DRAFT';
+  if (invoiceDraft) return 'INVOICE_DRAFT';
   if (billing.serviceReportSent) return 'SERVICE_REPORT_SENT';
-  return invoices.every((s) => s === 'paid') ? 'PAID' : 'INVOICED';
+  return invoices.every((s) => s === 'paid') ? 'PAID' : 'READY_FOR_SERVICE_REPORT';
 }
 
 /**

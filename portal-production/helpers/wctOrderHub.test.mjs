@@ -118,10 +118,11 @@ test("manual flow: Add service report opens the order's create / upload chooser"
 
 test("DO first: Complete DO on a DO with no job, a job is optional", () => {
   // DO steps open the DO (its toolbar completes it); no Add job beside the button.
-  assert.deepEqual(hubNextStep({ status: "DO_DRAFT", doFirst: true }), { primary: "view-do" });
-  assert.deepEqual(hubNextStep({ status: "DO_SCHEDULED", doFirst: true }), { primary: "view-do" });
-  assert.deepEqual(hubNextStep({ status: "AWAITING_VERIFICATION", doFirst: true, awaitingDo: true }), { primary: "view-do" });
-  assert.deepEqual(hubRowActions("DO_DRAFT", { doFirst: true }), ["view-order", "view-quotation", "view-do", "complete-do", "add-job", "cancel-order"]);
+  // 2026-11-16: Create invoice sits beside View DO (either may come first).
+  assert.deepEqual(hubNextStep({ status: "DO_DRAFT", doFirst: true }), { primary: "create-invoice", secondary: "view-do" });
+  assert.deepEqual(hubNextStep({ status: "DO_SCHEDULED", doFirst: true }), { primary: "create-invoice", secondary: "view-do" });
+  assert.deepEqual(hubNextStep({ status: "AWAITING_VERIFICATION", doFirst: true, awaitingDo: true }), { primary: "create-invoice", secondary: "view-do" });
+  assert.deepEqual(hubRowActions("DO_DRAFT", { doFirst: true }), ["view-order", "view-quotation", "view-do", "complete-do", "create-invoice", "add-job", "cancel-order"]);
   const c = { orderId: "o1", manualFlow: true, openDoId: "d1", scheduledJobId: null };
   assert.deepEqual(hubActionTarget("complete-do", c), { dialog: "complete-do", doId: "d1" });
   assert.deepEqual(hubListTarget("complete-do", c), { href: "/portal/orders/o1?open=complete-do" });
@@ -138,4 +139,47 @@ test("DO first: a DO waiting for the customer offers its sign link", () => {
   assert.deepEqual(hubActionTarget("sign-link", { orderId: "o1", awaitingDoId: "d2" }), { dialog: "sign-link", doId: "d2" });
   assert.deepEqual(hubListTarget("sign-link", { orderId: "o1", awaitingDoId: "d2" }), { href: "/portal/orders/o1?open=sign-link" });
   assert.equal(hubActionTarget("sign-link", { orderId: "o1" }), null);
+});
+
+// ── Invoice and DO in either order (2026-11-16) ─────────────────────────────
+test("signed (manual flow): BOTH next steps, Create invoice and View DO", () => {
+  for (const status of ["DO_DRAFT", "DO_SCHEDULED", "AWAITING_VERIFICATION"]) {
+    assert.deepEqual(hubNextStep({ status, doFirst: true }), { primary: "create-invoice", secondary: "view-do" });
+    assert.ok(hubRowActions(status, { doFirst: true }).includes("create-invoice"));
+  }
+  // Older WCT orders (no manual flow) keep their one button.
+  assert.deepEqual(hubNextStep({ status: "DO_DRAFT" }), { primary: "schedule-do" });
+  assert.ok(!hubRowActions("DO_DRAFT").includes("create-invoice"));
+});
+
+test("invoiced first: the DO is what is left; DO first: the invoice is", () => {
+  assert.deepEqual(hubNextStep({ status: "INVOICE_DRAFT_DO_PENDING" }), { primary: "confirm-invoice", secondary: "view-do" });
+  assert.deepEqual(hubNextStep({ status: "INVOICED_DO_PENDING" }), { primary: "view-do" });
+  assert.ok(hubRowActions("INVOICED_DO_PENDING").includes("complete-do"));
+  assert.ok(!hubRowActions("INVOICED_DO_PENDING").includes("create-invoice"));
+  assert.equal(hubNextStep({ status: "DO_COMPLETED", invoices: [] }).primary, "create-invoice");
+  assert.equal(hubNextStep({ status: "READY_FOR_SERVICE_REPORT", serviceReportReady: false }).primary, "upload-report");
+  assert.equal(hubNextStep({ status: "READY_FOR_SERVICE_REPORT", serviceReportReady: true }).primary, "send-report");
+});
+
+test("tracker: DO and Invoice are parallel steps, each ticks on its own; report last", () => {
+  const base = { id: "o1", sourceQuotation: { id: "q", name: "QO1", status: "confirmed" } };
+  const view = (status) => hubSteps({ ...base, status }).map((x) => [x.key, x.done, x.current]);
+  assert.deepEqual(view("DO_DRAFT"), [["quotation", true, false], ["do", false, true], ["invoice", false, true], ["report", false, false]]);
+  assert.deepEqual(view("INVOICED_DO_PENDING"), [["quotation", true, false], ["do", false, true], ["invoice", true, false], ["report", false, false]]);
+  assert.deepEqual(view("INVOICE_DRAFT_DO_PENDING"), [["quotation", true, false], ["do", false, true], ["invoice", false, true], ["report", false, false]]);
+  assert.deepEqual(view("DO_COMPLETED"), [["quotation", true, false], ["do", true, false], ["invoice", false, true], ["report", false, false]]);
+  assert.deepEqual(view("READY_FOR_SERVICE_REPORT"), [["quotation", true, false], ["do", true, false], ["invoice", true, false], ["report", false, true]]);
+  assert.ok(hubSteps({ ...base, status: "DO_DRAFT" })[1].parallel && hubSteps({ ...base, status: "DO_DRAFT" })[2].parallel);
+});
+
+test("labels and tabs", () => {
+  const label = (k) => HUB_STATUSES.find((s) => s.key === k).label;
+  assert.equal(label("INVOICED_DO_PENDING"), "Invoiced, DO pending");
+  assert.equal(label("DO_COMPLETED"), "DO completed, invoice pending");
+  assert.equal(label("READY_FOR_SERVICE_REPORT"), "Ready for service report");
+  const tabs = hubTabs([{ status: "INVOICED_DO_PENDING" }]);
+  assert.ok(tabs.some((t) => t.key === "INVOICED_DO_PENDING" && t.count === 1));
+  assert.ok(tabs.some((t) => t.key === "READY_FOR_SERVICE_REPORT"));
+  assert.ok(!tabs.some((t) => t.key === "INVOICED")); // legacy: shown only when used
 });

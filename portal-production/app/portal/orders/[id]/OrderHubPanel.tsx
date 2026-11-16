@@ -1,7 +1,7 @@
 "use client";
 
 // WCT orders hub (enableWctOrders, 2026-11-13): the top of the order page.
-// A 4-step tracker (Quotation -> DO -> Invoice -> Service report) with each
+// A tracker (Quotation -> DO and Invoice side by side, in either order (2026-11-16) -> Service report) with each
 // step's documents, status and date, ONE primary button for the next step, and
 // a Documents list of everything linked to the order. Every button reuses an
 // existing screen or dialog (see hubActionTarget); the sections below the panel
@@ -124,9 +124,13 @@ export default function OrderHubPanel({ order, serviceReportReady, onAction, doF
     <Paper variant="outlined" sx={{ p: 2, mb: 3, borderRadius: 2 }} data-tour="wct-order-hub">
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ xs: "stretch", md: "center" }} sx={{ mb: 2 }}>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ flex: 1 }}>
-          {steps.map((s, i) => (
-            <StepBox key={s.key} step={s} n={i + 1} onOpen={(href) => router.push(href)} />
-          ))}
+          <StepBox step={steps[0]} n={1} onOpen={(href) => router.push(href)} />
+          {/* DO and Invoice: two parallel steps, each ticks when done, in either order. */}
+          <Stack spacing={1} sx={{ flex: 1, minWidth: 160 }} data-tour="wct-order-parallel-steps">
+            <StepBox step={steps[1]} n={2} onOpen={(href) => router.push(href)} />
+            <StepBox step={steps[2]} n={2} onOpen={(href) => router.push(href)} />
+          </Stack>
+          <StepBox step={steps[3]} n={3} onOpen={(href) => router.push(href)} />
         </Stack>
         <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ minWidth: 200 }}>
           {next ? (

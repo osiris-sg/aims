@@ -29,10 +29,10 @@ describe('manual order status', () => {
     expect(deriveManualOrderStatus([job('completed', { verificationState: 'verified' })])).toBe('DO_COMPLETED');
     const billed = [job('completed', { verificationState: 'verified', orderInvoiceId: 'inv1' })];
     expect(deriveManualOrderStatus(billed, { invoiceStatuses: ['draft'] })).toBe('INVOICE_DRAFT');
-    expect(deriveManualOrderStatus(billed, { invoiceStatuses: ['pending_payment'] })).toBe('INVOICED');
+    expect(deriveManualOrderStatus(billed, { invoiceStatuses: ['pending_payment'] })).toBe('READY_FOR_SERVICE_REPORT');
     expect(deriveManualOrderStatus(billed, { invoiceStatuses: ['paid'] })).toBe('PAID');
     expect(deriveManualOrderStatus(billed, { invoiceStatuses: ['paid'], serviceReportSent: true })).toBe('SERVICE_REPORT_SENT');
-    expect(MANUAL_ORDER_STATUSES).toHaveLength(9);
+    expect(MANUAL_ORDER_STATUSES).toHaveLength(12) // +3 for invoice first (2026-11-16);
   });
 
   it('a draft next to a finished job keeps the order at DO scheduled; cancelled jobs do not count; claims are not invoices', () => {
@@ -228,8 +228,8 @@ describe('deriveManualOrderStatus: the service report comes after the invoice (2
     expect(deriveManualOrderStatus(done, { invoiceStatuses: ['pending_payment'], serviceReportSent: true })).toBe('SERVICE_REPORT_SENT');
     expect(deriveManualOrderStatus(done, { invoiceStatuses: ['paid'], serviceReportSent: true })).toBe('SERVICE_REPORT_SENT');
   });
-  it('without the report: Invoiced, then Paid', () => {
-    expect(deriveManualOrderStatus(done, { invoiceStatuses: ['pending_payment'] })).toBe('INVOICED');
+  it('without the report: Ready for service report, then Paid', () => {
+    expect(deriveManualOrderStatus(done, { invoiceStatuses: ['pending_payment'] })).toBe('READY_FOR_SERVICE_REPORT');
     expect(deriveManualOrderStatus(done, { invoiceStatuses: ['paid'] })).toBe('PAID');
   });
 });

@@ -36,8 +36,11 @@ export const MANUAL_ORDER_STATUS: Record<string, { label: string; color: "defaul
   QUOTATION_SIGNED: { label: "Quotation signed", color: "default" },
   DO_DRAFT: { label: "DO draft", color: "default" },
   DO_SCHEDULED: { label: "DO scheduled", color: "info" },
-  DO_COMPLETED: { label: "DO completed", color: "success" },
+  INVOICE_DRAFT_DO_PENDING: { label: "Invoice draft, DO pending", color: "warning" },
+  INVOICED_DO_PENDING: { label: "Invoiced, DO pending", color: "info" },
+  DO_COMPLETED: { label: "DO completed, invoice pending", color: "success" },
   INVOICE_DRAFT: { label: "Invoice draft", color: "warning" },
+  READY_FOR_SERVICE_REPORT: { label: "Ready for service report", color: "info" },
   SERVICE_REPORT_SENT: { label: "Service report sent", color: "success" },
   CANCELLED: { label: "Cancelled", color: "default" },
 };
@@ -157,7 +160,11 @@ export function addJobPrefill(order: {
  * The quotation is billed once per order (on its first invoice); a later
  * invoice bills only the lines added to its jobs on top of the quotation.
  */
-export function invoiceNowText(toInvoice: number[], openJobs: number, quoteBilled = false): string {
+export function invoiceNowText(toInvoice: number[], openJobs: number, quoteBilled = false, fromQuotation = false): string {
+  // Invoice first (manual flow, 2026-11-16): nothing completed yet, the invoice is made from the quotation.
+  if (fromQuotation) {
+    return "Create the invoice from the quotation now? It bills the quotation once. When the DO is completed it is linked to this invoice, so nothing is billed twice. Lines added to a DO on top of the quotation go on a second invoice.";
+  }
   const many = toInvoice.length !== 1;
   const jobs = toInvoice.map((n) => `#${n}`).join(", ");
   if (quoteBilled) {

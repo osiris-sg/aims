@@ -30,7 +30,7 @@ import { resolveDesign } from '../common/services/document-html/design';
 import { outstandingOf, grossStampOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
 import { confirmPostsToGl, erpPaidAtImport, erpStoredTotalsOf, isErpImported, moneySignature } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
-import { refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
+import { orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
 import { isManualOrderFlow } from '../orders/manual-order-flow';
 import { skipsDoSaveStockRule } from './do-first-save';
 import { isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
@@ -6559,6 +6559,8 @@ export class DocumentsService {
     const manualDo = await isManualOrderFlow(this.prisma, organizationId);
     const doCandidates = manualDo ? await this.billableJoblessDos(organizationId, orderId) : [];
     if (!billable.length && !doCandidates.length) {
+      // Invoice first (manual flow, 2026-11-16): nothing completed yet, so "Create invoice" bills the quotation.
+      if (opts.trigger === 'now' && manualDo) return this.invoiceOrderFromQuotation(orderId, organizationId);
       if (opts.trigger === 'now') throw new HttpException('Nothing to invoice: no completed DO or verified job is waiting for an invoice.', HttpStatus.BAD_REQUEST);
       return null;
     }
@@ -6753,6 +6755,121 @@ export class DocumentsService {
       // Hand the jobs back so the next trigger can bill them.
       await this.prisma.delivery.updateMany({ where: { organizationId, orderInvoiceId: claim }, data: { orderInvoiceId: null } }).catch(() => undefined);
       await this.setDoInvoiceClaim(organizationId, claimedDos.map((d) => d.id), claim, null).catch(() => undefined);
+      throw e;
+    }
+  }
+
+  /**
+   * Invoice first (manual order flow, 2026-11-16; WCT invoices before it
+   * delivers). The order's invoice made from its quotation while no DO is done
+   * yet: the quotation's lines exactly as quoted, once (its discount and tax
+   * too), the header from the order's DO (the DO made at signing carries the
+   * quotation's customer and addresses), else from the quotation. Recorded on
+   * the order (linkedDocuments.invoice + invoiceDocumentId) and NOT on any DO:
+   * when the last DO completes, maybeInvoiceOrder finds the quotation already
+   * billed and links the DOs to this invoice ("covered"), so no second invoice
+   * is made unless a DO carries lines on top of the quote. Refused when the
+   * order already has an invoice. Drafts post per postInvoicesOnConfirm as usual.
+   */
+  async invoiceOrderFromQuotation(orderId: string, organizationId: string) {
+    if (!(await isManualOrderFlow(this.prisma, organizationId))) {
+      throw new HttpException('Invoicing from the quotation is part of the manual order flow, which is not enabled for this organisation', HttpStatus.BAD_REQUEST);
+    }
+    const emptyLinks = () => ({ po: [], do: [], invoice: [], salesOrder: [] });
+    // Under the order lock: check there is no invoice yet and claim the order for this run
+    // (a second click waits on the lock, then sees the claim or the invoice).
+    const { order, qo, qc, quoteItems, workLines, claim } = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock(hashtext($1))', `order-invoice:${orderId}`);
+      const order = await tx.order.findFirst({
+        where: { id: orderId, organizationId },
+        select: { id: true, orderNumber: true, status: true, sourceQuotationId: true, linkedDocuments: true, invoiceDocumentId: true },
+      });
+      if (!order) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
+      if (order.status === 'CANCELLED') throw new HttpException('This order is cancelled', HttpStatus.BAD_REQUEST);
+      const existingIds = orderInvoiceIdsOf(order);
+      const existing = existingIds.length ? await tx.document.findFirst({ where: { organizationId, id: { in: existingIds }, type: 'INVOICE' }, select: { name: true } }) : null;
+      if (existing) throw new HttpException(`This order already has an invoice (${existing.name ?? 'invoice'}).`, HttpStatus.BAD_REQUEST);
+      if (!order.sourceQuotationId) throw new HttpException('This order has no quotation to invoice from.', HttpStatus.BAD_REQUEST);
+      const qo = await tx.document.findFirst({ where: { id: order.sourceQuotationId, organizationId }, select: { id: true, name: true, config: true } });
+      if (!qo) throw new HttpException('The quotation of this order is gone.', HttpStatus.BAD_REQUEST);
+      const qc: any = qo.config || {};
+      const quoteItems: any[] = Array.isArray(qc.items) ? qc.items : [];
+      const workLines = quoteItems.filter((l) => !isDisplayRow(l));
+      if (!workLines.length) throw new HttpException('Nothing to invoice: the quotation has no lines.', HttpStatus.BAD_REQUEST);
+      const ld: any = (order.linkedDocuments as any) || emptyLinks();
+      if (ld.invoiceClaim && Date.now() - Date.parse(ld.invoiceClaim.at) < 5 * 60_000) {
+        throw new HttpException('An invoice for this order is being created. Refresh in a moment.', HttpStatus.CONFLICT);
+      }
+      const claim = { id: randomUUID(), at: new Date().toISOString() };
+      await tx.order.update({ where: { id: order.id }, data: { linkedDocuments: { ...ld, invoiceClaim: claim } } });
+      return { order, qo, qc, quoteItems, workLines, claim };
+    });
+    // Drop this run's claim and, when made, record the invoice on the order (same lock).
+    const release = (invoice: { id: string; name: string | null } | null) =>
+      this.prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock(hashtext($1))', `order-invoice:${order.id}`);
+        const fresh = await tx.order.findFirst({ where: { id: order.id, organizationId }, select: { linkedDocuments: true } });
+        const { invoiceClaim, ...rest }: any = (fresh?.linkedDocuments as any) || emptyLinks();
+        const next: any = invoiceClaim && invoiceClaim.id !== claim.id ? { ...rest, invoiceClaim } : rest;
+        if (invoice) next.invoice = [...(Array.isArray(next.invoice) ? next.invoice : []), { id: invoice.id, name: invoice.name, jobIds: [], fromQuotation: true }];
+        await tx.order.update({ where: { id: order.id }, data: { linkedDocuments: next, ...(invoice ? { invoiceDocumentId: invoice.id } : {}) } });
+      });
+    try {
+      // Header: the order's first live DO (made at signing from this quotation), else the quotation itself.
+      const dos = (await this.deliveriesService.orderDos(organizationId, order.id)).filter((d: any) => (d.config as any)?.cancelled !== true);
+      const headerSrc: any = (dos[0]?.config as any) ?? qc;
+      const {
+        documentNumber: _n, savedAt: _sa, savedBy: _sb, lastUsedAt: _la, lastUsedBy: _lb, confirmedAt: _ca, stockDeducted: _sd,
+        signature: _sg, signedAt: _st, signedByName: _sn, dueDate: _dd, columnLabels: _cl, tableColumnOrder: _tco, internalColumns: _ic,
+        issuedOnSchedule: _is, cancelled: _cn, cancelledAt: _cat, cancelledReason: _cr, items: _it, orderInvoiceId: _oi, awaitingSignature: _aw,
+        ...base
+      } = (headerSrc ?? {}) as Record<string, any>;
+      let taxSrc: any = { gstPercent: qc.gstPercent ?? qc.documentInfo?.gstPercent, taxApplicable: qc.taxApplicable ?? qc.documentInfo?.taxApplicable, absorbTax: qc.absorbTax ?? qc.documentInfo?.absorbTax };
+      if (taxSrc.gstPercent == null && taxSrc.taxApplicable == null && taxSrc.absorbTax == null) {
+        const orgRow: any = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { taxRate: true, taxApplicable: true } }).catch(() => null);
+        taxSrc = { gstPercent: orgRow?.taxRate ?? 9, taxApplicable: orgRow?.taxApplicable === false ? 'N' : 'Y', absorbTax: 'N' };
+      }
+      const lines = quoteItems.map((l) => ({ ...l, fromQuotation: true }));
+      const quoteGross = computeDocumentTotals(workLines, taxSrc).grossTotal;
+      const discount = quoteDiscountAmount(qc, quoteGross);
+      const totals = computeDocumentTotals(lines, taxSrc, { discountAmount: discount });
+      const discountPercent = invoiceDiscountPercent(qc, discount, totals.grossTotal, true);
+      const discountKeys = discount > 0 ? { discountAmount: totals.discountAmount ?? 0, discountPercent } : {};
+      const doNumbers = dos.map((d: any) => d.name).filter(Boolean) as string[];
+      const reference = orderInvoiceReference(order.orderNumber, doNumbers, (base as any).referenceNo ?? (base as any).documentInfo?.referenceNo);
+      const invoiceConfig = stampDocumentMoney(
+        {
+          ...base,
+          items: lines,
+          date: await orgTodayFor(this.prisma, organizationId),
+          sourceDocumentId: qo.id,
+          sourceDocumentType: 'QUOTATION',
+          ...(qo.name ? { sourceDocumentNumber: qo.name } : {}),
+          orderId: order.id,
+          orderNo: order.orderNumber,
+          orderJobIds: [],
+          orderBillsQuote: true,
+          orderInvoicedFirst: true,
+          deliveryOrderNos: doNumbers,
+          referenceNo: reference,
+          ...totals,
+          ...discountKeys,
+          showTotals: true,
+          documentInfo: { ...((base as any).documentInfo || {}), ...totals, ...discountKeys, referenceNo: reference },
+        },
+        { gross: totals.nettTotal, outstanding: totals.nettTotal, paid: 0 },
+      );
+      const templateId = await this.resolveTemplateIdForType('INVOICE', organizationId);
+      const invoice = await this.createBasicDocument(templateId, 'INVOICE', organizationId, invoiceConfig, (dos[0] as any)?.projectId ?? undefined);
+      await release({ id: invoice.id, name: invoice.name ?? null });
+      console.log(`🧾 ORDER→INVOICE: ${invoice.name} for ${order.orderNumber} from quotation ${qo.name ?? qo.id} (invoice first)`);
+      await this.repostGlForDocument(organizationId, invoice.id, 'INVOICE', invoiceConfig, invoice.name).catch((e: any) =>
+        console.warn(`ORDER→INVOICE: GL post for ${invoice.name} skipped: ${e?.message}`),
+      );
+      await refreshOrderStatus(this.prisma, organizationId, order.id);
+      return invoice;
+    } catch (e) {
+      await release(null).catch(() => undefined);
       throw e;
     }
   }

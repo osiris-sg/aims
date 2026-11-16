@@ -160,7 +160,7 @@ export async function refreshOrderStatus(prisma: any, organizationId: string, or
 
 /** Manual flow: derive, store the status and stamp its first date. Caller is inside runAsOrg. */
 async function refreshManualOrderStatus(prisma: any, organizationId: string, orderId: string): Promise<ManualOrderStatus | null> {
-  const order = await prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, statusDates: true, createdAt: true } });
+  const order = await prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, statusDates: true, createdAt: true, linkedDocuments: true, invoiceDocumentId: true } });
   if (!order) return null;
   // A cancelled order (set by the office / a cleanup) stays cancelled.
   if (order.status === 'CANCELLED') return null;
@@ -191,8 +191,9 @@ async function refreshManualOrderStatus(prisma: any, organizationId: string, ord
   for (const j of jobs.filter((j: any) => !j.items.some((i: any) => i.documentId)) as any[]) {
     units.push({ state: unitStateOfJobs([j]), invoiceId: realInvoice(j.orderInvoiceId) });
   }
-  const invoiceIds = [...new Set(units.map((u) => u.invoiceId).filter(Boolean))] as string[];
-  const invoices = invoiceIds.length ? await prisma.document.findMany({ where: { id: { in: invoiceIds }, organizationId }, select: { status: true } }) : [];
+  // Every invoice of the order: those billing a DO / job, plus one made from the quotation before any DO was done (invoice first).
+  const invoiceIds = [...new Set([...units.map((u) => u.invoiceId), ...orderInvoiceIdsOf(order)].filter(Boolean))] as string[];
+  const invoices = invoiceIds.length ? await prisma.document.findMany({ where: { id: { in: invoiceIds }, organizationId, type: 'INVOICE' }, select: { status: true } }) : [];
   const dates = (order.statusDates as Record<string, string> | null) ?? {};
   const status = deriveManualOrderStatusFromUnits(units, { invoiceStatuses: invoices.map((d: any) => String(d.status)), serviceReportSent: !!dates.serviceReportSentAt });
   // The order exists because the quotation was signed / accepted: that first
@@ -230,6 +231,18 @@ export async function applyOrderToDoConfig(prisma: any, organizationId: string, 
     /* best-effort: the DO is still made without the order line */
   }
   return cfg;
+}
+
+/**
+ * The invoices recorded on the order itself (linkedDocuments.invoice, and
+ * invoiceDocumentId): every order invoice is, including one made from the
+ * quotation before any DO is done (invoice first, 2026-11-16), which no DO or
+ * job points at yet. Ids only; callers read the live rows (a deleted one is gone).
+ */
+export function orderInvoiceIdsOf(order: { linkedDocuments?: unknown; invoiceDocumentId?: string | null } | null | undefined): string[] {
+  const ld: any = order?.linkedDocuments;
+  const fromLinks = Array.isArray(ld?.invoice) ? ld.invoice.map((x: any) => x?.id).filter((v: any) => typeof v === 'string' && v) : [];
+  return [...new Set([...fromLinks, ...(order?.invoiceDocumentId ? [order.invoiceDocumentId] : [])])] as string[];
 }
 
 /** Phase 5: the order carries a service report (an uploaded file or a linked AIMS report). */

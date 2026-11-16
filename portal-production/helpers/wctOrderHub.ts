@@ -3,14 +3,19 @@
 // pill, tabs, row menu) and the order page (4-step tracker, next step).
 // The manual flow's statuses are the canonical ones; the older WCT statuses
 // (WCT Racking / BC Air, not on the manual flow) map onto the same stages.
+// Invoice and DO in either order (2026-11-16): after the quotation the DO and
+// the invoice are two parallel steps; the service report comes last.
 
 export type HubStatus =
   | "QUOTATION_SIGNED"
   | "DO_DRAFT"
   | "DO_SCHEDULED"
   | "AWAITING_VERIFICATION"
+  | "INVOICE_DRAFT_DO_PENDING"
+  | "INVOICED_DO_PENDING"
   | "DO_COMPLETED"
   | "INVOICE_DRAFT"
+  | "READY_FOR_SERVICE_REPORT"
   | "INVOICED"
   | "PAID"
   | "SERVICE_REPORT_SENT"
@@ -22,9 +27,13 @@ export const HUB_STATUSES: { key: HubStatus; label: string; hue: string }[] = [
   { key: "DO_DRAFT", label: "DO draft", hue: "#94a3b8" },
   { key: "DO_SCHEDULED", label: "DO scheduled", hue: "#0ea5e9" },
   { key: "AWAITING_VERIFICATION", label: "Awaiting customer signature", hue: "#f59e0b" },
-  { key: "DO_COMPLETED", label: "DO completed", hue: "#14b8a6" },
+  { key: "INVOICE_DRAFT_DO_PENDING", label: "Invoice draft, DO pending", hue: "#fb923c" },
+  { key: "INVOICED_DO_PENDING", label: "Invoiced, DO pending", hue: "#a855f7" },
+  { key: "DO_COMPLETED", label: "DO completed, invoice pending", hue: "#14b8a6" },
   { key: "INVOICE_DRAFT", label: "Invoice draft", hue: "#f97316" },
-  { key: "INVOICED", label: "Invoiced", hue: "#8b5cf6" },
+  { key: "READY_FOR_SERVICE_REPORT", label: "Ready for service report", hue: "#8b5cf6" },
+  // Older WCT orders (no manual flow) and manual-flow orders stored before 2026-11-16.
+  { key: "INVOICED", label: "Invoiced", hue: "#6d28d9" },
   { key: "PAID", label: "Paid", hue: "#22c55e" },
   { key: "SERVICE_REPORT_SENT", label: "Service report sent", hue: "#15803d" },
   { key: "CANCELLED", label: "Cancelled", hue: "#ef4444" },
@@ -52,7 +61,7 @@ export const hubStatusIndex = (status: string | null | undefined) => HUB_STATUSE
 export function hubTabs(orders: { status?: string | null }[]) {
   const counts = new Map<HubStatus, number>();
   for (const o of orders) counts.set(hubStatus(o.status), (counts.get(hubStatus(o.status)) ?? 0) + 1);
-  const always = new Set<HubStatus>(["DO_DRAFT", "DO_SCHEDULED", "DO_COMPLETED", "INVOICE_DRAFT", "INVOICED", "PAID", "SERVICE_REPORT_SENT"]);
+  const always = new Set<HubStatus>(["DO_DRAFT", "DO_SCHEDULED", "INVOICED_DO_PENDING", "DO_COMPLETED", "INVOICE_DRAFT", "READY_FOR_SERVICE_REPORT", "PAID", "SERVICE_REPORT_SENT"]);
   return [
     { key: "all" as const, label: "All", count: orders.length },
     ...HUB_STATUSES.filter((s) => always.has(s.key) || (counts.get(s.key) ?? 0) > 0).map((s) => ({ key: s.key, label: s.label, count: counts.get(s.key) ?? 0 })),
@@ -113,20 +122,26 @@ export const HUB_DESTRUCTIVE = new Set<HubActionKey>(["cancel-job", "cancel-orde
 export function hubRowActions(status: string | null | undefined, opts: { doFirst?: boolean } = {}): HubActionKey[] {
   switch (hubStatus(status)) {
     case "QUOTATION_SIGNED":
-      return ["view-order", "view-quotation", "add-job", "cancel-order"];
+      return opts.doFirst ? ["view-order", "view-quotation", "create-invoice", "add-job", "cancel-order"] : ["view-order", "view-quotation", "add-job", "cancel-order"];
     case "DO_DRAFT":
       // DO first (manual flow, 2026-11-13): the DO is completed on its own; a job is optional.
+      // Invoice first (2026-11-16): the invoice can be made before the DO.
       return opts.doFirst
-        ? ["view-order", "view-quotation", "view-do", "complete-do", "add-job", "cancel-order"]
+        ? ["view-order", "view-quotation", "view-do", "complete-do", "create-invoice", "add-job", "cancel-order"]
         : ["view-order", "view-quotation", "view-do", "schedule-do", "add-job", "cancel-order"];
     case "DO_SCHEDULED":
-      return ["view-order", "view-do", "complete-do", "reschedule", "cancel-job"];
+      return opts.doFirst ? ["view-order", "view-do", "complete-do", "create-invoice", "reschedule", "cancel-job"] : ["view-order", "view-do", "complete-do", "reschedule", "cancel-job"];
     case "AWAITING_VERIFICATION":
-      return opts.doFirst ? ["view-order", "view-do", "sign-link", "open-job"] : ["view-order", "view-do", "open-job"];
+      return opts.doFirst ? ["view-order", "view-do", "sign-link", "open-job", "create-invoice"] : ["view-order", "view-do", "open-job"];
+    case "INVOICE_DRAFT_DO_PENDING":
+      return ["view-order", "view-do", "complete-do", "sign-link", "view-invoice", "confirm-invoice", "send-invoice"];
+    case "INVOICED_DO_PENDING":
+      return ["view-order", "view-do", "complete-do", "sign-link", "view-invoice", "record-payment"];
     case "DO_COMPLETED":
       return ["view-signed-do", "create-invoice"];
     case "INVOICE_DRAFT":
       return ["view-invoice", "confirm-invoice", "send-invoice"];
+    case "READY_FOR_SERVICE_REPORT":
     case "INVOICED":
       return ["view-invoice", "record-payment", "upload-report", "send-report"];
     case "PAID":
@@ -146,19 +161,25 @@ export function hubRowActions(status: string | null | undefined, opts: { doFirst
 export function hubNextStep(o: { status?: string | null; invoices?: unknown[]; serviceReportReady?: boolean; doFirst?: boolean; awaitingDo?: boolean }): { primary: HubActionKey; secondary?: HubActionKey; label?: string } | null {
   switch (hubStatus(o.status)) {
     case "QUOTATION_SIGNED":
-      return { primary: "add-job" };
+      return o.doFirst ? { primary: "create-invoice", secondary: "add-job" } : { primary: "add-job" };
     // DO first (2026-11-13): a DO step opens the DO itself, whose toolbar completes it (and adds a job, the sign link,
     // a service report). The order page has no Add job of its own.
+    // Invoice first (2026-11-16): after the quotation, BOTH next steps (Create invoice and View DO), in either order.
     case "DO_DRAFT":
-      return o.doFirst ? { primary: "view-do" } : { primary: "schedule-do" };
+      return o.doFirst ? { primary: "create-invoice", secondary: "view-do" } : { primary: "schedule-do" };
     case "DO_SCHEDULED":
-      return o.doFirst ? { primary: "view-do" } : { primary: "complete-do" };
+      return o.doFirst ? { primary: "create-invoice", secondary: "view-do" } : { primary: "complete-do" };
     case "AWAITING_VERIFICATION":
-      return o.doFirst ? { primary: "view-do" } : o.awaitingDo ? { primary: "sign-link" } : { primary: "open-job" };
+      return o.doFirst ? { primary: "create-invoice", secondary: "view-do" } : o.awaitingDo ? { primary: "sign-link" } : { primary: "open-job" };
+    case "INVOICE_DRAFT_DO_PENDING":
+      return { primary: "confirm-invoice", secondary: "view-do" };
+    case "INVOICED_DO_PENDING":
+      return { primary: "view-do" };
     case "DO_COMPLETED":
       return (o.invoices?.length ?? 0) > 0 ? { primary: "view-invoice", label: "Open draft invoice" } : { primary: "create-invoice" };
     case "INVOICE_DRAFT":
       return { primary: "confirm-invoice", secondary: "send-invoice" };
+    case "READY_FOR_SERVICE_REPORT":
     case "INVOICED":
     case "PAID":
       return o.serviceReportReady ? { primary: "send-report" } : { primary: "upload-report" };
@@ -182,7 +203,13 @@ export interface HubStep {
   current: boolean;
   date: string | null;
   docs: HubStepDoc[];
+  /** DO and Invoice run side by side (either may come first). */
+  parallel?: boolean;
 }
+
+/** Statuses where every DO is done / the invoice has gone out (each ticks on its own). */
+const DO_DONE = new Set<HubStatus>(["DO_COMPLETED", "INVOICE_DRAFT", "READY_FOR_SERVICE_REPORT", "INVOICED", "PAID", "SERVICE_REPORT_SENT"]);
+const INVOICE_DONE = new Set<HubStatus>(["INVOICED_DO_PENDING", "READY_FOR_SERVICE_REPORT", "INVOICED", "PAID", "SERVICE_REPORT_SENT"]);
 
 const ymd = (v: unknown) => (typeof v === "string" && v ? v : null);
 
@@ -200,12 +227,14 @@ export function hubSteps(order: {
   /** DO first: the order's DOs with or without a job (the DO step lists these). */
   deliveryOrders?: { id: string; name?: string | null; tag?: string | null; templateId?: string | null; completed?: boolean; awaitingSignature?: boolean; jobs?: { id: string; status: string; isDraft?: boolean }[] }[];
   jobs?: { id?: string; status: string; isDraft?: boolean; deliveryOrder?: { id: string; name?: string | null; tag?: string | null; templateId?: string | null } | null }[];
-  invoices?: { id: string; name?: string | null; status?: string | null; type?: string | null; documentTemplateId?: string | null; href?: string | null }[];
+  invoices?: { id: string; name?: string | null; status?: string | null; type?: string | null; documentTemplateId?: string | null; href?: string | null; extra?: boolean }[];
   jobReports?: { id: string; reportNumber?: number | null; status: string; uploaded?: boolean; sentAt?: string | null; photosFile?: boolean }[];
 }): HubStep[] {
   const idx = hubStatusIndex(order.status);
   const at = (k: HubStatus) => HUB_STATUSES.findIndex((x) => x.key === k);
-  const cancelled = hubStatus(order.status) === "CANCELLED";
+  const st = hubStatus(order.status);
+  const cancelled = st === "CANCELLED";
+  const first = (...keys: string[]) => keys.map((k) => ymd((order.statusDates ?? ({} as any))[k])).find(Boolean) ?? null;
   const d = order.statusDates ?? {};
   const docHref = (type: string | null | undefined, tpl: string | null | undefined, id: string) => (tpl ? `/portal/documents/${type || "QUOTATION"}/${tpl}/${id}` : null);
   const q = order.sourceQuotation;
@@ -232,9 +261,10 @@ export function hubSteps(order: {
     {
       key: "do",
       title: "DO",
-      done: reached("DO_COMPLETED"),
+      done: !cancelled && DO_DONE.has(st),
       current: false,
-      date: ymd(d.DO_COMPLETED) ?? ymd(d.DO_SCHEDULED) ?? ymd(d.DO_DRAFT),
+      parallel: true,
+      date: first("DO_COMPLETED", "INVOICE_DRAFT", "READY_FOR_SERVICE_REPORT", "INVOICED", "PAID") ?? ymd(d.DO_SCHEDULED) ?? ymd(d.DO_DRAFT),
       docs: order.deliveryOrders
         ? order.deliveryOrders.map((d) => {
             const done = (d.jobs ?? []).find((j) => j.status === "completed");
@@ -259,10 +289,16 @@ export function hubSteps(order: {
     {
       key: "invoice",
       title: "Invoice",
-      done: reached("INVOICED"),
+      done: !cancelled && INVOICE_DONE.has(st),
       current: false,
-      date: ymd(d.PAID) ?? ymd(d.INVOICED) ?? ymd(d.INVOICE_DRAFT),
-      docs: (order.invoices ?? []).map((i) => ({ label: i.name || "Invoice", status: invoiceStatusLabel(i.status), href: i.href ?? docHref(i.type || "INVOICE", i.documentTemplateId, i.id) })),
+      parallel: true,
+      date: first("INVOICED_DO_PENDING", "READY_FOR_SERVICE_REPORT", "INVOICED", "PAID") ?? first("INVOICE_DRAFT_DO_PENDING", "INVOICE_DRAFT"),
+      docs: (order.invoices ?? []).map((i) => ({
+        label: i.name || "Invoice",
+        // An invoice for lines added to a DO on top of the quotation (2026-11-16).
+        status: i.extra ? (i.status === "draft" || i.status === "unconfirmed" ? "Extra invoice draft" : `Extra invoice, ${invoiceStatusLabel(i.status).toLowerCase()}`) : invoiceStatusLabel(i.status),
+        href: i.href ?? docHref(i.type || "INVOICE", i.documentTemplateId, i.id),
+      })),
     },
     {
       key: "report",
@@ -279,8 +315,12 @@ export function hubSteps(order: {
     },
   ];
   if (!cancelled) {
-    const firstOpen = steps.findIndex((s) => !s.done);
-    if (firstOpen >= 0) steps[firstOpen].current = true;
+    // Quotation first; then DO and Invoice side by side (each is current until it is done); the report once both are.
+    if (!steps[0].done) steps[0].current = true;
+    else if (!steps[1].done || !steps[2].done) {
+      steps[1].current = !steps[1].done;
+      steps[2].current = !steps[2].done;
+    } else if (!steps[3].done) steps[3].current = true;
   }
   return steps;
 }

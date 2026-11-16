@@ -7,7 +7,7 @@ import {
   DocumentExtractionService,
   SupplierReconciliationData,
 } from '../document-extraction/document-extraction.service';
-import { isWctOrdersEnabled, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
+import { isWctOrdersEnabled, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
 import { MANUAL_ORDER_STATUS_LABEL, isManualOrderFlow, type ManualOrderStatus } from './manual-order-flow';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { isOrgFeatureEnabled } from '../common/org-features';
@@ -423,7 +423,10 @@ export class OrdersService {
   private async wctListHub(organizationId: string, orders: Array<{ id: string; jobs: any[] }>) {
     const allJobs = orders.flatMap((o) => o.jobs);
     const doIds = [...new Set(allJobs.flatMap((j) => (j.items ?? []).map((i: any) => i.documentId)).filter(Boolean))] as string[];
-    const invIds = [...new Set(allJobs.map((j) => j.orderInvoiceId).filter((v) => v && !String(v).startsWith('claim:')))] as string[];
+    // Manual flow: an invoice made first (from the quotation) is on the order before any DO / job points at it.
+    const manual = await isManualOrderFlow(this.prisma, organizationId);
+    const orderInv = (o: any): string[] => (manual ? orderInvoiceIdsOf(o) : []);
+    const invIds = [...new Set([...allJobs.map((j) => j.orderInvoiceId), ...orders.flatMap((o) => orderInv(o))].filter((v) => v && !String(v).startsWith('claim:')))] as string[];
     // DO first (2026-11-13): an order's DOs also include those with no job (config.orderId).
     const docs = doIds.length || invIds.length || orders.length
       ? await this.prisma.document.findMany({
@@ -464,9 +467,9 @@ export class OrdersService {
       ].filter((d: any) => (d.config as any)?.cancelled !== true);
       const joblessDos = dos.filter((d: any) => !jobDoIds.has(d.id));
       const doDone = (d: any) => String(d.status).startsWith('delivered');
-      const invoices = [...new Set([...live.map((j) => j.orderInvoiceId), ...joblessDos.map((d: any) => (d.config as any)?.orderInvoiceId)].filter((v) => v && !String(v).startsWith('claim:')))]
+      const invoices = [...new Set([...live.map((j) => j.orderInvoiceId), ...joblessDos.map((d: any) => (d.config as any)?.orderInvoiceId), ...orderInv(o)].filter((v) => v && !String(v).startsWith('claim:')))]
         .map((id) => byId.get(id))
-        .filter(Boolean)
+        .filter((d: any) => !!d && d.type === 'INVOICE')
         .map((d: any) => ({ ...docView(d), total: Number(d.config?.grandTotal ?? d.config?.documentInfo?.grandTotal ?? d.config?.nettTotal ?? 0) || 0 }));
       const quoted = Number(qc.nettTotal ?? di.nettTotal ?? qc.grandTotal ?? di.grandTotal);
       // The earliest date among the order's DOs still open (not delivered, not cancelled): the list's "DO date".
@@ -649,7 +652,7 @@ export class OrdersService {
       jobs,
       deliveryOrders,
       prefill: { siteAddress, lines: quotationLines, note: prefillNote },
-      ...(await this.wctBilling(organizationId, jobsRaw, joblessInvoiceIds)),
+      ...(await this.wctBilling(organizationId, jobsRaw, [...joblessInvoiceIds, ...((await isManualOrderFlow(this.prisma, organizationId)) ? orderInvoiceIdsOf(order as any) : [])])),
       toInvoiceDos,
       attachments: await this.orderAttachmentsView(organizationId, Array.isArray(order.attachments) ? (order.attachments as any[]) : []),
       // The supplier invoices tagged to this order's quotation (job costs, read-only).
@@ -697,9 +700,13 @@ export class OrdersService {
    */
   async cancelWctOrder(id: string, organizationId: string) {
     await this.wctOrderOrThrow(id, organizationId);
-    const order = await this.prisma.order.findFirst({ where: { id, organizationId }, select: { id: true, orderNumber: true, status: true, statusDates: true } });
+    const order = await this.prisma.order.findFirst({ where: { id, organizationId }, select: { id: true, orderNumber: true, status: true, statusDates: true, linkedDocuments: true, invoiceDocumentId: true } });
     if (!order) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
     if (order.status === 'CANCELLED') return { id, status: 'CANCELLED' };
+    // Invoice first (2026-11-16): an order with an invoice has started, even before its DO.
+    const orderInvoiceIds = orderInvoiceIdsOf(order);
+    const liveInvoice = orderInvoiceIds.length ? await this.prisma.document.findFirst({ where: { organizationId, id: { in: orderInvoiceIds }, type: 'INVOICE' }, select: { name: true } }) : null;
+    if (liveInvoice) throw new HttpException(`Only an order that has not started can be cancelled (${liveInvoice.name ?? 'an invoice'} is already made on it).`, HttpStatus.BAD_REQUEST);
     const jobs = await this.prisma.delivery.findMany({
       where: { organizationId, orderId: id, status: { not: 'cancelled' } },
       select: { id: true, deliveryNumber: true, status: true, isDraft: true, orderInvoiceId: true, items: { select: { documentId: true, deliveringAt: true, deliveredAt: true, completedAt: true } } },
@@ -908,6 +915,10 @@ export class OrdersService {
       total: Number(d.config?.grandTotal ?? d.config?.documentInfo?.grandTotal ?? d.config?.nettTotal ?? 0) || 0,
       jobNumbers: jobs.filter((j) => j.orderInvoiceId === d.id).map((j) => j.deliveryNumber),
       createdAt: d.createdAt,
+      // Bills only lines added to a DO / job on top of the quotation (the quote is on another invoice).
+      extra: d.config?.orderBillsQuote === false,
+      // Made from the quotation before any DO was done (invoice first, 2026-11-16).
+      fromQuotation: d.config?.orderInvoicedFirst === true,
     }));
     const toInvoice = jobs.filter((j) => isVerifiedJob(j) && !j.orderInvoiceId).map((j) => j.deliveryNumber);
     return { invoicing, invoices, toInvoice };

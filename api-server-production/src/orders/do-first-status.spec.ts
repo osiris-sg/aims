@@ -12,7 +12,7 @@ describe('order status from DOs', () => {
     expect(deriveManualOrderStatusFromUnits([U('done'), U('awaiting')])).toBe('AWAITING_VERIFICATION');
     expect(deriveManualOrderStatusFromUnits([U('done'), U('done')])).toBe('DO_COMPLETED');
     expect(deriveManualOrderStatusFromUnits([U('done', 'i1'), U('done', 'i1')], { invoiceStatuses: ['unconfirmed'] })).toBe('INVOICE_DRAFT');
-    expect(deriveManualOrderStatusFromUnits([U('done', 'i1')], { invoiceStatuses: ['pending_payment'] })).toBe('INVOICED');
+    expect(deriveManualOrderStatusFromUnits([U('done', 'i1')], { invoiceStatuses: ['pending_payment'] })).toBe('READY_FOR_SERVICE_REPORT');
     expect(deriveManualOrderStatusFromUnits([U('done', 'i1')], { invoiceStatuses: ['paid'] })).toBe('PAID');
     expect(deriveManualOrderStatusFromUnits([U('done', 'i1')], { invoiceStatuses: ['pending_payment'], serviceReportSent: true })).toBe('SERVICE_REPORT_SENT');
     // A DO not billed yet keeps the order at DO completed.
