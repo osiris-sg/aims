@@ -1,0 +1,18 @@
+{
+  "at": "2026-11-16T10:47:20.304Z",
+  "created": [
+    {
+      "id": "648af25c-28d6-47df-a798-8b9e209bed03",
+      "sourceUsageId": "58fca022-6ef6-46cd-99b7-63ef4567a3c4",
+      "driverUserId": "user_3K0uOX0vfvUMX7HunntnLYhngH8",
+      "driverName": "Elroy Lee",
+      "amount": null,
+      "type": "DRIVER",
+      "date": "2026-11-16T00:00:00.000Z",
+      "mileage": 2200,
+      "description": "Usage started (converted from the usage form)",
+      "vehicleId": "d211ef42-cb65-4c43-bcfa-db75771345ed",
+      "vehicleNo": "123"
+    }
+  ]
+}
