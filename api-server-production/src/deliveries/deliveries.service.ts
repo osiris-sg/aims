@@ -65,6 +65,7 @@ import { plannedRiderView, savePlannedRider } from './planned-rider';
 import { CompletionMode, WCT_FINISH_MODES_FLAG, finishModeProblem, initialVerification, isCompletionMode } from './finish-modes';
 import { checkJobFieldValues, isJobFieldsEnabled, jobFieldDefs, jobFieldValues, saveJobFieldValues } from './job-fields';
 import { runNoun } from './job-wording';
+import { wctBrandStamp } from '../maintenance-reports/wct-brand';
 import { withRunLease } from './run-lease';
 import { bySchedule, orgTimeZone, scheduleFields } from './all-day';
 @Injectable()
@@ -1264,6 +1265,7 @@ export class DeliveriesService {
             templateId: 'WCT_V1',
             templateVersion: 1,
             scheduled: true,
+            ...(await wctBrandStamp(this.prisma as any, organizationId)),
             ...header,
             wct: { jobTypes: [], sections: {} },
           } as Prisma.InputJsonValue,
@@ -1729,6 +1731,7 @@ export class DeliveriesService {
           templateVersion: 1,
           scheduled: true,
           manualFlow: true,
+          ...(await wctBrandStamp(this.prisma as any, organizationId)),
           customerName: run?.customer?.name ?? null,
           clientEmail: run?.customer?.email ?? null,
           jobLocation: run?.siteAddress ?? null,

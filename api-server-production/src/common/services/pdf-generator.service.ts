@@ -35,8 +35,12 @@ export class PdfGeneratorService {
        *  print engine knows the page count. */
       pageNumbers?: {
         label?: string;
-        /** "Page 2 of 3" (default) or "Page 2/3" (client layouts that print it so). */
-        format?: 'of' | 'slash';
+        /** "Page 2 of 3" (default) or "Page 2/3" (client layouts that print it so); 'none' = the label only (BC Air's report). */
+        format?: 'of' | 'slash' | 'none';
+        /** 'center' = the label centred (with format 'none'). Default: label left, page number right. */
+        align?: 'center';
+        italic?: boolean;
+        color?: string;
         fontPx?: number;
         /** Horizontal inset, normally the page's left/right margin. */
         paddingX?: string;
@@ -108,7 +112,11 @@ export class PdfGeneratorService {
               // An empty header is deliberate: with displayHeaderFooter on and
               // no template, Chrome prints its own title/date strip.
               headerTemplate: '<span></span>',
-              footerTemplate:
+              footerTemplate: footer.format === 'none'
+                ? `<div style="width:100%;font-size:${footer.fontPx || 8}px;font-family:Helvetica,Arial,sans-serif;color:${(footer.color || '#444').replace(/[^#a-zA-Z0-9]/g, '')};` +
+                  `padding:0 ${footer.paddingX || '10mm'};text-align:${footer.align === 'center' ? 'center' : 'left'};${footer.italic ? 'font-style:italic;font-weight:600;' : ''}">` +
+                  `${(footer.label || '').replace(/[<>&]/g, '')}</div>`
+                :
                 `<div style="width:100%;font-size:${footer.fontPx || 8}px;font-family:Helvetica,Arial,sans-serif;` +
                 `color:${footer.fontPx ? '#000' : '#444'};padding:0 ${footer.paddingX || '10mm'};display:flex;justify-content:space-between;align-items:flex-end;">` +
                 `<span style="${footer.fontPx ? 'font-weight:700;' : ''}">${(footer.label || '').replace(/[<>&]/g, '')}</span>` +

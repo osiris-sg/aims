@@ -32,7 +32,7 @@ import PhotoCaptureField, { CapturedPhoto } from "@/components/delivery/PhotoCap
 import SignaturePadField, { type SignaturePadHandle } from "@/components/delivery/SignaturePadField";
 import {
   TEMPLATE_VERSIONS,
-  WCT_JOB_TYPE_GROUPS,
+  wctBrand,
   WCT_MAX_PHOTOS_PER_GRID,
   WCT_MAX_UNITS,
   wctSlotsFor,
@@ -156,6 +156,8 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
   const [jobTypes, setJobTypes] = useState<Set<string>>(new Set());
   // Which master: Single (1) or Multiple stalls (n). The field shows "" while typing.
   const [units, setUnits] = useState(1);
+  // WCT group brand stamped on the report (BC Air: its own job types); absent = WCT.
+  const [brand, setBrand] = useState<string | null>(null);
   // Box caption names typed on the report page (in-place editor): the form keeps them.
   const [labels, setLabels] = useState<Record<string, string>>({});
   // "Complete and sign" from the report page opens the form at its last step.
@@ -240,6 +242,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
           const rep: any = rr?.data ?? rr;
           const sd: any = rep?.serviceData ?? {};
           setOfficeReport({ id: rep.id, status: rep.status, reportNumber: rep.reportNumber ?? null, doNumber: sd.doNumber ?? null, orderNo: sd.orderNo ?? null });
+          setBrand(sd.brand ?? null);
           setCustomerName(sd.customerName ?? "");
           setJobLocation(sd.jobLocation ?? "");
           if (sd.serviceDate) setServiceDate(String(sd.serviceDate).slice(0, 10));
@@ -261,6 +264,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
           try {
             const full = await request({ path: `/maintenance-reports/${draftRow.id}`, method: "GET" }, {}, token);
             const d: Draft | undefined = (full?.data ?? full)?.serviceData?.draft;
+            if (!cancelled) setBrand((full?.data ?? full)?.serviceData?.brand ?? null);
             if (!cancelled) applyDraft(d);
           } catch {
             /* no draft to resume — start from the top */
@@ -448,6 +452,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
       const serviceData = {
         ...(signature ?? {}),
         templateId: "WCT_V1",
+        ...(brand ? { brand } : {}),
         templateVersion: TEMPLATE_VERSIONS.WCT_V1,
         customerName: customerName.trim() || null,
         jobLocation: jobLocation.trim() || null,
@@ -672,7 +677,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
           )}
           <Divider />
           <Typography variant="subtitle2">Type of Service/Job</Typography>
-          {WCT_JOB_TYPE_GROUPS.map((g) => (
+          {wctBrand(brand).jobTypeGroups.map((g) => (
             <Box key={g.id}>
               <Typography variant="body2" sx={{ fontWeight: 600, textDecoration: "underline", mb: 0.5 }}>{g.title}</Typography>
               {g.items.map((it) => (

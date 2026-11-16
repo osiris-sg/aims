@@ -13,6 +13,7 @@ import { SignMaintenanceReportDto } from './dto/sign-maintenance-report.dto';
 import { CreateLocationPingsDto } from './dto/location-ping.dto';
 import { buildServiceReportHtml, MAX_SERVICE_REPORT_PHOTOS, servicePdfOptions } from './service-report-pdf';
 import { templateFor, wctDataToDraft, wctDraftToData, type WctDraft } from './msr-templates';
+import { wctBrandSetting, wctBrandStamp } from './wct-brand';
 import type { WctOrgProfile } from './service-report-wct';
 import { minPhotosForAssetClass } from 'src/common/asset-class';
 import { orgToday, orgTodayFor } from '../common/org-today';
@@ -317,6 +318,8 @@ export class MaintenanceReportsService {
       ...(dto.serviceData || dto.angles?.length || dto.photoDamaged?.length || dto.photoComments?.length
         ? {
             serviceData: {
+              // WCT paper: the org's brand (BC Air) unless the form already sent one.
+              ...(templateFor(dto.serviceData?.templateId) === 'WCT_V1' && !dto.serviceData?.brand ? await wctBrandStamp(this.prisma as any, organizationId) : {}),
               ...(dto.serviceData ?? {}),
               // Run-derived header fields fill only what the form left blank
               // (an explicit null from the form counts as blank).
@@ -483,6 +486,8 @@ export class MaintenanceReportsService {
       kept.history = withHistory(kept.history, { action: 'Completed again after editing', by: body.technicianName ?? null, changes });
     }
     const serviceData: Record<string, any> = {
+      // The brand stamped when the report was made wins; an older row takes the org's setting now.
+      ...(kept.brand ? {} : await wctBrandStamp(this.prisma as any, organizationId)),
       ...kept,
       ...incoming,
       templateId: 'WCT_V1',
@@ -597,6 +602,12 @@ export class MaintenanceReportsService {
       },
     });
     if (!report) throw new NotFoundException('Service report not found');
+    // A WCT report made before its brand was stamped takes the org's setting (BC Air); WCT: none.
+    const sd: any = report.serviceData ?? {};
+    if (templateFor(sd.templateId) === 'WCT_V1' && !sd.brand) {
+      const brand = await wctBrandSetting(this.prisma as any, organizationId);
+      if (brand) return { ...report, serviceData: { ...sd, brand } };
+    }
     return report;
   }
 
@@ -991,7 +1002,7 @@ export class MaintenanceReportsService {
         paymentRequired: false,
         status: 'draft',
         ...(d.jobId ? { deliveryId: d.jobId } : {}),
-        serviceData: { ...link, scheduled: true, templateId: 'WCT_V1', serviceDate: await orgTodayFor(this.prisma, organizationId) } as Prisma.InputJsonValue,
+        serviceData: { ...link, scheduled: true, templateId: 'WCT_V1', ...(await wctBrandStamp(this.prisma as any, organizationId)), serviceDate: await orgTodayFor(this.prisma, organizationId) } as Prisma.InputJsonValue,
       },
       select: { id: true, reportNumber: true, status: true },
     });

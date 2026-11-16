@@ -824,13 +824,13 @@ export function wctReportNumber(n?: number | null): string {
 }
 
 /** The cover letter's scope sentence follows what was ticked. */
-export function wctScopeSentence(jobTypes: readonly string[] | null | undefined): string {
-  const groups = new Set(WCT_JOB_TYPES.filter((j) => (jobTypes ?? []).includes(j.id)).map((j) => j.groupId));
+export function wctScopeSentence(jobTypes: readonly string[] | null | undefined, brand: WctBrand = 'WCT'): string {
+  const groups = new Set(wctBrand(brand).jobTypes.filter((j) => (jobTypes ?? []).includes(j.id)).map((j) => j.groupId));
   const parts: string[] = [];
   if (groups.has('chemical') || groups.size === 0) parts.push('Chemical Degreasing of kitchen exhaust systems');
   if (groups.has('dedusting')) parts.push('De-Dusting of fresh air systems');
   if (groups.has('additions')) parts.push('Additions and Alterations work');
-  return `The scope of work includes providing skilled labor and using appropriate materials to Supply and ${parts.join(', ')}.`;
+  return `The scope of work includes providing skilled ${brand === 'BCAIR' ? 'labour' : 'labor'} and using appropriate materials to Supply and ${parts.join(', ')}.`;
 }
 
 /** Page 2 — printed, never captured (the paper's letter, verbatim). */
@@ -1024,5 +1024,117 @@ export function wctDataToDraft(
     labels: { ...(wct?.labels ?? {}) },
     cursor: { phase: 'job' },
   };
+}
+
+// ── Brands of the WCT paper (2026-11-16) ──────────────────────────────────────
+// The same report (sections, pages, photos, stalls) for the WCT group's
+// companies, each with its own letterhead and wording. Chosen by the org's
+// setting `serviceReportTemplate` ('BCAIR' = BC Air; absent = WCT) and stamped
+// on each report as serviceData.brand when it is made, so a finished report
+// never changes look. BC Air's wording is copied from its masters "BC Air SR
+// Template" (single, 19 pp) and "BC Air SR Template - 10stall" (40 pp).
+
+export type WctBrand = 'WCT' | 'BCAIR';
+/** The org setting (OrganizationUIConfig.features) that picks the brand. */
+export const WCT_BRAND_SETTING = 'serviceReportTemplate';
+export const wctBrandOf = (v: unknown): WctBrand => (v === 'BCAIR' ? 'BCAIR' : 'WCT');
+
+export interface WctBrandProfile {
+  brand: WctBrand;
+  jobTypeGroups: WctJobTypeGroup[];
+  jobTypes: (WctJobTypeItem & { groupId: WctJobGroupId })[];
+  /** Section id -> the underlined subject printed instead of the catalogue's. */
+  subjects: Record<string, string>;
+  letter: typeof WCT_COVER_LETTER;
+  /** The "For your kind attention" contacts block; null = none. */
+  contacts: { label: string; value: string }[] | null;
+  signatory: { regards: string; name: string; title: string; company: string | null; email: string; emailLabel: string; website: boolean };
+  frequency: typeof WCT_FREQUENCY;
+  closing: typeof WCT_CLOSING;
+  /** 'report' = "#012392" (the report number); 'do' = "#DO202611023" (the report's DO). */
+  number: 'report' | 'do';
+  /** Page footer: WCT's contact line + "Page n of N", or one centred line and no page numbers. */
+  footer: { kind: 'contact-pages' } | { kind: 'line'; text: string };
+  /** bizSAFE / BCA line in the letterhead. */
+  accreditation: boolean;
+  /** Red rule under the letterhead. */
+  letterheadRule: boolean;
+  /** The dashed Company / Location box. */
+  boxColor: string;
+  /** The letterhead text as on the master (the logo still comes from the org); null = from the org's details (WCT). */
+  letterhead: { name: string; lines: Array<{ label?: string; text: string }> } | null;
+}
+
+const BCAIR_JOB_TYPE_GROUPS: WctJobTypeGroup[] = WCT_JOB_TYPE_GROUPS.map((g) =>
+  g.id === 'chemical'
+    ? { ...g, items: [...g.items, { id: 'CD_CARBON_BANK', label: 'Carbon Bank' }] }
+    : g.id === 'additions'
+      ? { ...g, items: g.items.map((it) => (it.id === 'AA_MOTOR' ? { ...it, label: 'Replacement of Exhaust Booster Fan' } : it)) }
+      : g,
+);
+
+const WCT_PROFILE: WctBrandProfile = {
+  brand: 'WCT',
+  jobTypeGroups: WCT_JOB_TYPE_GROUPS,
+  jobTypes: WCT_JOB_TYPES,
+  subjects: {},
+  letter: WCT_COVER_LETTER,
+  contacts: WCT_CONTACTS,
+  signatory: { ...WCT_SIGNATORY, company: null, emailLabel: 'Email:', website: true },
+  frequency: WCT_FREQUENCY,
+  closing: WCT_CLOSING,
+  number: 'report',
+  footer: { kind: 'contact-pages' },
+  accreditation: true,
+  letterheadRule: true,
+  boxColor: '#e07c2e',
+  letterhead: null,
+};
+
+const BCAIR_PROFILE: WctBrandProfile = {
+  brand: 'BCAIR',
+  jobTypeGroups: BCAIR_JOB_TYPE_GROUPS,
+  jobTypes: BCAIR_JOB_TYPE_GROUPS.flatMap((g) => g.items.map((it) => ({ ...it, groupId: g.id }))),
+  subjects: { AIR_CLEANER: 'Air Cleaner' },
+  letter: {
+    salutation: 'Dear Valued Client ,',
+    opening: 'With reference above, we are pleased to inform you that We have successfully completed the job at the above mentioned location.',
+    scheduled: 'The work was scheduled on the date mentioned above.',
+    photos: WCT_COVER_LETTER.photos,
+    insight: WCT_COVER_LETTER.insight,
+    // The master reads "Thank you for choosing WCT (S) Systems Pte Ltd." (a copy of WCT's letter); BC Air's own name here.
+    thanks: 'Your satisfaction is our goal, and we are looking forward to serving you better. Thank you for choosing BC Air Pte Ltd.',
+    attention: '',
+  },
+  contacts: null,
+  signatory: { regards: 'Warmest Regards,', name: 'Ms Yew', title: 'Administrative Assistant', company: 'BC Air Pte Ltd', email: 'info@bcair.com.sg', emailLabel: 'Email :', website: false },
+  frequency: {
+    ...WCT_FREQUENCY,
+    rows: WCT_FREQUENCY.rows.map(([k, v]) => [k.replace('24-hour', '24 hour'), v]),
+  },
+  closing: { ...WCT_CLOSING, en: WCT_CLOSING.en.replace('products, please', 'products please') },
+  number: 'do',
+  footer: { kind: 'line', text: 'Thank You for Your Patronage . We look forward to serving you again!' },
+  accreditation: false,
+  letterheadRule: false,
+  boxColor: '#9fd3e3',
+  letterhead: {
+    name: 'BC Air Pte Ltd',
+    lines: [
+      { text: '19 Kaki Bukit Industrial Terrace, Level 3,' },
+      { text: 'Singapore 416099' },
+      { label: 'Tel :', text: '6741 1697 / 8989 2833' },
+      { label: 'Email:', text: 'info@bcair.com.sg' },
+      { label: 'UEN:', text: '202205130K' },
+    ],
+  },
+};
+
+export const wctBrand = (b: unknown): WctBrandProfile => (wctBrandOf(b) === 'BCAIR' ? BCAIR_PROFILE : WCT_PROFILE);
+
+/** "#DO202611023": BC Air numbers its report by the report's DO. */
+export function wctDoNumberLabel(doNumber?: string | null): string {
+  const d = String(doNumber ?? '').trim();
+  return d ? `#${/^DO/i.test(d) ? d : `DO${d}`}` : '#DO—';
 }
 

@@ -94,11 +94,14 @@ export interface ServiceReportPdfInput {
 
 /** PDF options for a report: page inset for the multi-page layouts, plus the WCT paper's per-page footer. */
 export function servicePdfOptions(
-  serviceData: { templateId?: string | null } | null,
+  serviceData: { templateId?: string | null; brand?: string | null } | null,
   photos: string[] | null | undefined,
   org: WctOrgProfile,
-): { margin: { top: string; right: string; bottom: string; left: string }; pageNumbers?: { label?: string; format?: 'of' | 'slash'; fontPx?: number; paddingX?: string } } | undefined {
-  if (templateFor(serviceData?.templateId) === 'WCT_V1') return wctServicePdfOptions(org);
+): {
+  margin: { top: string; right: string; bottom: string; left: string };
+  pageNumbers?: { label?: string; format?: 'of' | 'slash' | 'none'; fontPx?: number; paddingX?: string; align?: 'center'; italic?: boolean; color?: string };
+} | undefined {
+  if (templateFor(serviceData?.templateId) === 'WCT_V1') return wctServicePdfOptions(org, serviceData?.brand);
   const margin = servicePdfMargin(serviceData, photos);
   return margin ? { margin } : undefined;
 }

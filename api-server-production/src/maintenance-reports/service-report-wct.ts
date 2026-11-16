@@ -37,6 +37,9 @@ import {
   wctReportNumber,
   wctScopeSentence,
   wctSlotsFor,
+  wctBrand,
+  wctDoNumberLabel,
+  type WctBrandProfile,
   WCT_PHOTOS_PER_PAGE,
   WCT_SINGLE_PHOTOS_PER_PAGE,
   WCT_MAX_PHOTOS_PER_GRID,
@@ -90,6 +93,10 @@ export interface WctServiceReportInput {
     serviceDate?: string | null;
     remarks?: string | null;
     wct?: WctServiceData | null;
+    /** WCT group brand (2026-11-16): 'BCAIR' = BC Air's letterhead and wording; absent = WCT. */
+    brand?: string | null;
+    /** BC Air numbers the report by its DO ("#DO202611023"). */
+    doNumber?: string | null;
   } | null;
   org: WctOrgProfile;
   /**
@@ -207,6 +214,16 @@ const CSS = `
   .wm { position: relative; }
 `;
 
+/** BC Air only (2026-11-16): its letterhead (no red rule, no accreditation line), light-blue box, letter sign-off. */
+const BCAIR_CSS = `
+  .lh.bc { border-bottom: 0; align-items: center; margin-bottom: 18px; }
+  .lh.bc img.logo { max-height: 90px; max-width: 260px; }
+  .lh.bc .co { font-size: 13px; line-height: 1.45; }
+  .lh.bc .co .nm { color: #000; font-size: 17px; }
+  .lh.bc .co b { font-weight: 700; }
+  .letter .signoff .co.bc { color: #e00000; }
+`;
+
 /** Edit mode only: hover and empty-slot styling; nothing of it prints. */
 const EDIT_CSS = `
   [data-k][data-g] { position: relative; cursor: pointer; }
@@ -227,8 +244,17 @@ const EDIT_CSS = `
   }
 `;
 
-function letterhead(org: WctOrgProfile): string {
+function letterhead(org: WctOrgProfile, B?: WctBrandProfile): string {
   const logo = url(org.logo);
+  // BC Air: the master's letterhead text (the logo is the org's); no accreditation line.
+  if (B?.letterhead) {
+    const lines = B.letterhead.lines.map((l) => `<div>${l.label ? `<b>${esc(l.label)}</b> ` : ''}${esc(l.text)}</div>`).join('');
+    return `
+  <div class="lh bc">
+    ${logo ? `<img class="logo" src="${esc(logo)}" alt="" />` : ''}
+    <div class="co"><div class="nm">${esc(B.letterhead.name)}</div>${lines}</div>
+  </div>`;
+  }
   const lines = [
     org.address ? esc(org.address) : '',
     [org.phoneNumber ? `Tel : ${esc(org.phoneNumber)}` : '', org.email ? `Email : ${esc(org.email)}` : ''].filter(Boolean).join(' '),
@@ -243,8 +269,8 @@ function letterhead(org: WctOrgProfile): string {
 }
 
 /** The side-by-side Chemical Degreasing | De-Dusting table and the Additions band. */
-function jobTypeTable(ticked: Set<string>, edit = false): string {
-  const [chem, dust, adds] = WCT_JOB_TYPE_GROUPS;
+function jobTypeTable(ticked: Set<string>, edit = false, groups = WCT_JOB_TYPE_GROUPS): string {
+  const [chem, dust, adds] = groups;
   const stamp = (id: string) => (ticked.has(id) ? '<span class="stamp">&#10003;</span>' : '');
   const jt = (id: string) => (edit ? ` data-jt="${esc(id)}" title="Tick / untick"` : '');
   const cell = (it: { id: string; label: string; sub?: string; note?: string } | undefined) =>
@@ -300,7 +326,8 @@ const cleanKeys = (keys: readonly string[] | undefined): string[] =>
 const chunk = <T,>(list: T[], size: number, page: number): T[] => list.slice(page * size, page * size + size);
 
 /** One section, as many pages as its photos need (always at least one; in edit mode one more once the last page is full). */
-function sectionPages(s: WctSectionSlot, r: WctSectionResult | undefined, label: string | undefined, edit = false): string {
+function sectionPages(s: WctSectionSlot, r: WctSectionResult | undefined, label: string | undefined, edit = false, subject?: string): string {
+  if (subject) s = { ...s, subject }; // a brand's own subject (BC Air: "Air Cleaner")
   const lines = s.lines
     .map((l, i) => `<div class="${wctLineTicked(r, i) ? '' : 'off'}"${edit ? ` data-k="${esc(s.key)}" data-l="${i}" title="Tick / untick"` : ''}>${esc(l)}</div>`)
     .join('');
@@ -338,6 +365,31 @@ function sectionPages(s: WctSectionSlot, r: WctSectionResult | undefined, label:
   </div>`;
   }
   return out;
+}
+
+/** BC Air's letter (its master): no contacts block, signed Ms Yew. */
+function brandLetter(jobTypes: readonly string[], B: WctBrandProfile): string {
+  const L = B.letter;
+  const S = B.signatory;
+  const values = WCT_VALUES.map((v) => `<div><div class="t">${esc(v.title)}</div><div class="x">${esc(v.text)}</div></div>`).join('');
+  return `
+  <div class="pg letter">
+    <p class="sal">${esc(L.salutation)}</p>
+    <p>${esc(L.opening)}</p>
+    <p>${esc(L.scheduled).replace('on the date mentioned above', '<b><u>on the date mentioned above</u></b>')}</p>
+    <p>${esc(wctScopeSentence(jobTypes, B.brand))}</p>
+    <p>${esc(L.photos)}</p>
+    <p>${esc(L.insight)}</p>
+    <p>${esc(L.thanks)}</p>
+    <div class="values">${values}</div>
+    <div class="signoff">
+      <div>${esc(S.regards)}</div>
+      <div class="scr">${esc(S.name)}</div>
+      <div class="role">${esc(S.title)}</div>
+      <div class="co bc">${esc(S.company ?? '')}</div>
+      <div>${esc(S.emailLabel)} <a href="mailto:${esc(S.email)}">${esc(S.email)}</a></div>
+    </div>
+  </div>`;
 }
 
 function coverLetter(jobTypes: readonly string[], org: WctOrgProfile): string {
@@ -390,8 +442,7 @@ function advisoryPage(): string {
   </div>`;
 }
 
-function frequencyPage(): string {
-  const F = WCT_FREQUENCY;
+function frequencyPage(F = WCT_FREQUENCY, C = WCT_CLOSING): string {
   const rows = F.rows.map(([k, v]) => `<tr><td>${esc(k)}</td><td class="f">${esc(v)}</td></tr>`).join('');
   return `
   <div class="pg">
@@ -403,8 +454,8 @@ function frequencyPage(): string {
       </thead>
       <tbody>${rows}</tbody>
     </table>
-    <div class="close">${esc(WCT_CLOSING.en)}</div>
-    <div class="close zh">${esc(WCT_CLOSING.zh)}</div>
+    <div class="close">${esc(C.en)}</div>
+    <div class="close zh">${esc(C.zh)}</div>
   </div>`;
 }
 
@@ -413,37 +464,39 @@ export function buildWctServiceReportHtml(input: WctServiceReportInput): string 
   const wct: WctServiceData = sd.wct ?? { jobTypes: [], sections: {} };
   const ticked = new Set(wct.jobTypes ?? []);
   const edit = !!input.edit;
-  const sections = wctSlotsFor(wct).map((s) => sectionPages(s, wct.sections?.[s.key], wct.labels?.[s.key], edit));
+  const B = wctBrand(sd.brand);
+  const bc = B.brand !== 'WCT';
+  const sections = wctSlotsFor(wct).map((s) => sectionPages(s, wct.sections?.[s.key], wct.labels?.[s.key], edit, B.subjects[s.id]));
   const field = (f: string, value: string, ph: string) => (edit ? `<span data-f="${f}" data-ph="${ph}">${value}</span>` : value);
 
   const page1 = `
-    <div class="no">${esc(wctReportNumber(input.reportNumber))}</div>
+    <div class="no">${esc(B.number === 'do' ? wctDoNumberLabel(sd.doNumber) : wctReportNumber(input.reportNumber))}</div>
     <div class="title">SERVICE REPORT</div>
-    <div class="client">
+    <div class="client"${bc ? ` style="border-color:${B.boxColor}"` : ''}>
       <div class="k">Company</div><div class="v">${field('customerName', esc(sd.customerName), 'company')}</div>
       <div class="k">Location</div><div class="v">${field('jobLocation', esc(sd.jobLocation), 'location')}</div>
     </div>
     <div class="dos"><b>Date of Servicing :</b> ${edit ? `<span data-f="serviceDate" data-v="${esc(String(sd.serviceDate ?? '').slice(0, 10))}" data-ph="pick a date">${esc(paperDate(sd.serviceDate))}</span>` : esc(paperDate(sd.serviceDate))}</div>
     <div class="jt-head">Type of Service/Job –</div>
-    ${jobTypeTable(ticked, edit)}
+    ${bc ? jobTypeTable(ticked, edit, B.jobTypeGroups) : jobTypeTable(ticked, edit)}
     ${sd.remarks || edit ? `<div class="remarks"><div class="h">Remarks –</div><div class="box">${field('remarks', esc(sd.remarks ?? ''), 'add remarks')}</div></div>` : ''}`;
 
   return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Service Report ${esc(wctReportNumber(input.reportNumber))}</title>
-  <style>${CSS}${edit ? EDIT_CSS : ''}</style>
+  <title>Service Report ${esc(B.number === 'do' ? wctDoNumberLabel(sd.doNumber) : wctReportNumber(input.reportNumber))}</title>
+  <style>${CSS}${bc ? BCAIR_CSS : ''}${edit ? EDIT_CSS : ''}</style>
 </head>
 <body>
   <table class="sheet">
-    <thead><tr><td>${letterhead(input.org)}</td></tr></thead>
+    <thead><tr><td>${bc ? letterhead(input.org, B) : letterhead(input.org)}</td></tr></thead>
     <tbody><tr><td>
       ${page1}
-      ${coverLetter(wct.jobTypes ?? [], input.org)}
+      ${bc ? brandLetter(wct.jobTypes ?? [], B) : coverLetter(wct.jobTypes ?? [], input.org)}
       ${sections.join('')}
       ${advisoryPage()}
-      ${frequencyPage()}
+      ${bc ? frequencyPage(B.frequency, B.closing) : frequencyPage()}
     </td></tr></tbody>
   </table>
 </body>
@@ -453,10 +506,18 @@ export function buildWctServiceReportHtml(input: WctServiceReportInput): string 
 export const WCT_SERVICE_PDF_MARGIN = { top: '10mm', right: '14mm', bottom: '16mm', left: '14mm' };
 
 /** Puppeteer options: page inset + the per-page TEL / WEBSITE / EMAIL / ADDRESS line and "Page n of N". */
-export function wctServicePdfOptions(org: WctOrgProfile): {
+export function wctServicePdfOptions(
+  org: WctOrgProfile,
+  brand?: string | null,
+): {
   margin: { top: string; right: string; bottom: string; left: string };
-  pageNumbers: { label: string; format: 'of'; fontPx: number; paddingX: string };
+  pageNumbers: { label: string; format: 'of' | 'none'; fontPx: number; paddingX: string; align?: 'center'; italic?: boolean; color?: string };
 } {
+  // BC Air: one centred italic line on every page, no page numbers (its master).
+  const B = wctBrand(brand);
+  if (B.footer.kind === 'line') {
+    return { margin: WCT_SERVICE_PDF_MARGIN, pageNumbers: { label: B.footer.text, format: 'none', fontPx: 9, paddingX: WCT_SERVICE_PDF_MARGIN.left, align: 'center', italic: true, color: '#8a8a8a' } };
+  }
   const label = [
     org.phoneNumber ? `TEL: ${org.phoneNumber}` : '',
     org.website ? `WEBSITE: ${org.website.toUpperCase()}` : '',
