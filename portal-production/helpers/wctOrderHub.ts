@@ -128,10 +128,10 @@ export function hubRowActions(status: string | null | undefined, opts: { doFirst
       // DO first (manual flow, 2026-11-13): the DO is completed on its own; a job is optional.
       // Invoice first (2026-11-16): the invoice can be made before the DO.
       return opts.doFirst
-        ? ["view-order", "view-quotation", "view-do", "complete-do", "create-invoice", "add-job", "cancel-order"]
+        ? ["view-order", "view-quotation", "view-do", "complete-do", "sign-link", "create-invoice", "add-job", "cancel-order"]
         : ["view-order", "view-quotation", "view-do", "schedule-do", "add-job", "cancel-order"];
     case "DO_SCHEDULED":
-      return opts.doFirst ? ["view-order", "view-do", "complete-do", "create-invoice", "reschedule", "cancel-job"] : ["view-order", "view-do", "complete-do", "reschedule", "cancel-job"];
+      return opts.doFirst ? ["view-order", "view-do", "complete-do", "sign-link", "create-invoice", "reschedule", "cancel-job"] : ["view-order", "view-do", "complete-do", "reschedule", "cancel-job"];
     case "AWAITING_VERIFICATION":
       return opts.doFirst ? ["view-order", "view-do", "sign-link", "open-job", "create-invoice"] : ["view-order", "view-do", "open-job"];
     case "INVOICE_DRAFT_DO_PENDING":
@@ -407,7 +407,8 @@ export function hubActionTarget(key: HubActionKey, c: HubContext): HubTarget {
     case "add-job":
       return { dialog: "add-job" };
     case "sign-link":
-      return c.awaitingDoId ? { dialog: "sign-link", doId: c.awaitingDoId } : null;
+      // The DO already waiting for its signature, else the open DO (a link can be sent before Complete DO).
+      return c.awaitingDoId || c.openDoId ? { dialog: "sign-link", doId: (c.awaitingDoId || c.openDoId) as string } : null;
     case "create-invoice":
       return { dialog: "create-invoice" };
     case "send-report":

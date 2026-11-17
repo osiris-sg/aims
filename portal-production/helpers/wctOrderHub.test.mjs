@@ -122,7 +122,7 @@ test("DO first: Complete DO on a DO with no job, a job is optional", () => {
   assert.deepEqual(hubNextStep({ status: "DO_DRAFT", doFirst: true }), { primary: "create-invoice", secondary: "view-do" });
   assert.deepEqual(hubNextStep({ status: "DO_SCHEDULED", doFirst: true }), { primary: "create-invoice", secondary: "view-do" });
   assert.deepEqual(hubNextStep({ status: "AWAITING_VERIFICATION", doFirst: true, awaitingDo: true }), { primary: "create-invoice", secondary: "view-do" });
-  assert.deepEqual(hubRowActions("DO_DRAFT", { doFirst: true }), ["view-order", "view-quotation", "view-do", "complete-do", "create-invoice", "add-job", "cancel-order"]);
+  assert.deepEqual(hubRowActions("DO_DRAFT", { doFirst: true }), ["view-order", "view-quotation", "view-do", "complete-do", "sign-link", "create-invoice", "add-job", "cancel-order"]);
   const c = { orderId: "o1", manualFlow: true, openDoId: "d1", scheduledJobId: null };
   assert.deepEqual(hubActionTarget("complete-do", c), { dialog: "complete-do", doId: "d1" });
   assert.deepEqual(hubListTarget("complete-do", c), { href: "/portal/orders/o1?open=complete-do" });
@@ -182,4 +182,13 @@ test("labels and tabs", () => {
   assert.ok(tabs.some((t) => t.key === "INVOICED_DO_PENDING" && t.count === 1));
   assert.ok(tabs.some((t) => t.key === "READY_FOR_SERVICE_REPORT"));
   assert.ok(!tabs.some((t) => t.key === "INVOICED")); // legacy: shown only when used
+});
+
+test("DO first: an unsigned DO offers its sign link on the list row and order page", () => {
+  assert.ok(hubRowActions("DO_DRAFT", { doFirst: true }).includes("sign-link"));
+  assert.ok(hubRowActions("DO_SCHEDULED", { doFirst: true }).includes("sign-link"));
+  assert.ok(!hubRowActions("DO_DRAFT").includes("sign-link"));
+  assert.deepEqual(hubActionTarget("sign-link", { orderId: "o1", openDoId: "d1" }), { dialog: "sign-link", doId: "d1" });
+  assert.deepEqual(hubActionTarget("sign-link", { orderId: "o1", openDoId: "d1", awaitingDoId: "d2" }), { dialog: "sign-link", doId: "d2" });
+  assert.deepEqual(hubListTarget("sign-link", { orderId: "o1", openDoId: "d1" }), { href: "/portal/orders/o1?open=sign-link" });
 });

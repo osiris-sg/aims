@@ -176,7 +176,8 @@ export default function WctOrderDetail({ id }: { id: string }) {
       const d = ((order as any).deliveryOrders as OrderDo[] | undefined)?.find((x) => !x.completed);
       if (d) setCompleteDo(d);
     } else if (open === "sign-link") {
-      const d = ((order as any).deliveryOrders as OrderDo[] | undefined)?.find((x) => x.awaitingSignature && !x.jobs.length);
+      const all = ((order as any).deliveryOrders as OrderDo[] | undefined) ?? [];
+      const d = all.find((x) => x.awaitingSignature && !x.jobs.length) ?? all.find((x) => !x.completed);
       if (d) setSignLinkDo(d);
     }
   }, [order]);
@@ -306,7 +307,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
     else if (t.dialog === "send-report") setSendReportOpen(true);
     else if (t.dialog === "service-report") (pos ? setSrMenu({ pos, doId: null }) : openSrMenuAtButton());
     else if (t.dialog === "complete-do" && openDo) setCompleteDo(openDo);
-    else if (t.dialog === "sign-link" && awaitingDo) setSignLinkDo(awaitingDo);
+    else if (t.dialog === "sign-link" && (awaitingDo ?? openDo)) setSignLinkDo((awaitingDo ?? openDo) as OrderDo);
   };
   // The report's customer and DO, prefilled: the order's customer, the DO of its last finished job (else its first DO).
   const srPrefillFor = (doId: string | null): ServiceReportPrefill => ({
