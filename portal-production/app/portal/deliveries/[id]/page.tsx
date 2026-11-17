@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import { useParams, useRouter } from "next/navigation";
+import { useAppBack } from "@/app/portal/hooks/useAppBack";
 import Image from "next/image";
 import { useAuth } from "@clerk/nextjs";
 import {
@@ -285,6 +286,8 @@ export default function DeliveryDetailPage() {
   const w = useRunWords();
   const params = useParams();
   const router = useRouter();
+  // enableWctDocNav: Back = the previous page in the app (e.g. the DO or the calendar), else the list.
+  const { goBack, enabled: inAppBack } = useAppBack();
   const { getToken } = useAuth();
   const { organization, isOsirisAdmin } = useOrganization();
   // Service-job org (enableQuotationToDelivery — WCT 2026-10-27): runs are jobs
@@ -734,8 +737,8 @@ export default function DeliveryDetailPage() {
     return (
       <Box sx={{ p: 3 }}>
         <Alert severity="error">{error ?? `${w.Noun} not found`}</Alert>
-        <Button startIcon={<ArrowBackIcon />} sx={{ mt: 2 }} onClick={() => router.push("/portal/deliveries")}>
-          Back to {w.nouns}
+        <Button startIcon={<ArrowBackIcon />} sx={{ mt: 2 }} onClick={() => goBack("/portal/deliveries")}>
+          {inAppBack ? "Back" : `Back to ${w.nouns}`}
         </Button>
       </Box>
     );
@@ -812,8 +815,8 @@ export default function DeliveryDetailPage() {
   return (
     <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3, maxWidth: 1100 }}>
       {/* Back to the list (WCT: the Jobs page, same route). */}
-      <Button startIcon={<ArrowBackIcon />} size="small" sx={{ mb: 1.5 }} onClick={() => router.push("/portal/deliveries")}>
-        {w.Nouns}
+      <Button startIcon={<ArrowBackIcon />} size="small" sx={{ mb: 1.5 }} onClick={() => goBack("/portal/deliveries")}>
+        {inAppBack ? "Back" : w.Nouns}
       </Button>
 
       <Stack direction="row" alignItems="center" spacing={1.5} flexWrap="wrap" sx={{ mb: 0.5 }}>

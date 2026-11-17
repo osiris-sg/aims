@@ -42,6 +42,11 @@ import {
 } from "@/components/maintenance/EssReportView";
 import ReportPhotos from "@/components/maintenance/ReportPhotos";
 import CustomerSignLinkButton from "../_components/CustomerSignLinkButton";
+import SendMenuButton from "@/components/nav/SendMenuButton";
+import { toast } from "react-toastify";
+import SendServiceReportDialog from "@/components/orders/SendServiceReportDialog";
+import { reportSendControls } from "@/helpers/sendMenu";
+import { useAppBack } from "@/app/portal/hooks/useAppBack";
 import WctReportView from "../_components/WctReportView";
 import PhotosFileControls, { type PhotosFile } from "../_components/PhotosFileControls";
 import ReportEditActions, { ReportHistory } from "../_components/ReportEditActions";
@@ -133,7 +138,10 @@ const formatTimeOnly = (iso?: string | null) => {
 export default function MaintenanceReportDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { isManualOrderFlowEnabled } = useOrganizationFeatures();
+  const { isManualOrderFlowEnabled, isWctDocNavEnabled } = useOrganizationFeatures();
+  // enableWctDocNav: Back = the previous page in the app (else this list); the Send menu.
+  const { goBack } = useAppBack();
+  const [sendEmailOpen, setSendEmailOpen] = useState(false);
   const { getToken } = useAuth();
   const id = params?.id as string;
 
@@ -216,8 +224,8 @@ export default function MaintenanceReportDetailPage() {
     return (
       <Box sx={{ p: 3 }}>
         <Alert severity="error">{error ?? "Report not found"}</Alert>
-        <Button sx={{ mt: 2 }} startIcon={<ArrowBackIcon />} onClick={() => router.push("/portal/maintenance-reports")}>
-          Back to list
+        <Button sx={{ mt: 2 }} startIcon={<ArrowBackIcon />} onClick={() => goBack("/portal/maintenance-reports")}>
+          {isWctDocNavEnabled ? "Back" : "Back to list"}
         </Button>
       </Box>
     );
@@ -294,8 +302,8 @@ export default function MaintenanceReportDetailPage() {
         className="msr-toolbar"
       >
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-          <Button startIcon={<ArrowBackIcon />} onClick={() => router.push("/portal/maintenance-reports")}>
-            Back to list
+          <Button startIcon={<ArrowBackIcon />} onClick={() => goBack("/portal/maintenance-reports")}>
+            {isWctDocNavEnabled ? "Back" : "Back to list"}
           </Button>
           {/* WCT manual flow (2026-11-13): back to the order the report belongs to, as on the DO page. */}
           {isManualOrderFlowEnabled && report.order && (
@@ -349,9 +357,37 @@ export default function MaintenanceReportDetailPage() {
           )}
           {/* Unsigned: let the customer sign remotely (one-use link). The WCT
               paper carries no customer signature, so it never offers one. */}
-          {report.status !== "completed" && !isWct && !isUploaded && (
-            <CustomerSignLinkButton reportId={report.id} hasTechSignature={!!(report.serviceData as any)?.techSignatureKey} />
-          )}
+          {/* Customer sign link (old button), or with enableWctDocNav one Send menu (signature / email / WhatsApp disabled), same rules. */}
+          {(() => {
+            const send = reportSendControls(isWctDocNavEnabled, {
+              status: report.status,
+              isWctPaper: isWct,
+              isUploaded,
+              manualOrderFlow: isManualOrderFlowEnabled,
+              onOrder: !!report.order,
+              deleted: !!(sd as any).deletedAt,
+            });
+            if (send.legacySignLink) return <CustomerSignLinkButton reportId={report.id} hasTechSignature={!!(report.serviceData as any)?.techSignatureKey} />;
+            const options = send.menu;
+            if (!options?.length) return null;
+            const menu = (mintSign?: () => void, busy = false) => (
+              <SendMenuButton
+                options={options}
+                size="medium"
+                disabled={busy}
+                dataTour="service-report-send-menu"
+                onSelect={(k) => {
+                  if (k === "sign") mintSign?.();
+                  else if (k === "email") setSendEmailOpen(true);
+                }}
+              />
+            );
+            return options.some((o) => o.key === "sign") ? (
+              <CustomerSignLinkButton reportId={report.id} hasTechSignature={!!(report.serviceData as any)?.techSignatureKey} trigger={(mint, busy) => menu(mint, busy)} />
+            ) : (
+              menu()
+            );
+          })()}
           {/* Generic / ESS: the actions live here and follow the open tab. */}
           {!isWct && !isUploaded && (
             <>
@@ -378,6 +414,16 @@ export default function MaintenanceReportDetailPage() {
         </Stack>
       </Stack>
 
+      {isWctDocNavEnabled && report.order && (
+        <SendServiceReportDialog
+          open={sendEmailOpen}
+          onClose={() => setSendEmailOpen(false)}
+          orderId={report.order.id}
+          orderNumber={report.order.orderNumber}
+          defaultEmail={(report as any).customer?.email ?? sd.clientEmail ?? null}
+          onSent={(r) => toast.success(`Service report sent to ${r.sentTo.join(", ")}`)}
+        />
+      )}
       {isWct && (
         <>
           <Paper variant="outlined" sx={{ p: 2 }}>

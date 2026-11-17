@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAppBack } from "@/app/portal/hooks/useAppBack";
 import { useAuth } from "@clerk/nextjs";
 import { Alert, Box, Button, CircularProgress, Paper, Stack, TextField, Typography } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -46,6 +47,8 @@ export default function VehicleForm({ id }: { id?: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const back = id ? vehicleHref(id) : VEHICLES_PATH;
+  // enableWctDocNav: the Back button = the previous page in the app, else `back`.
+  const { goBack, enabled: inAppBack } = useAppBack();
 
   useEffect(() => {
     if (!id) return;
@@ -111,8 +114,8 @@ export default function VehicleForm({ id }: { id?: string }) {
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2, maxWidth: 760 }}>
       <Box>
-        <Button startIcon={<ArrowBackIcon />} onClick={() => router.push(back)} disabled={busy}>
-          {id ? "Back to vehicle" : "Back to vehicles"}
+        <Button startIcon={<ArrowBackIcon />} onClick={() => goBack(back)} disabled={busy}>
+          {inAppBack ? "Back" : id ? "Back to vehicle" : "Back to vehicles"}
         </Button>
       </Box>
       <Paper variant="outlined" sx={{ p: 2.5 }}>

@@ -137,6 +137,10 @@ import SendForSignatureButton from "@/app/portal/sales/quotations/id/_components
 import DoOrderToolbar from "@/components/delivery/DoOrderToolbar";
 import { doOrderIdOf } from "@/helpers/doOrder";
 import { usesCielSignFlow } from "@/helpers/signLinkWording";
+import { useAppBack } from "@/app/portal/hooks/useAppBack";
+import SendMenuButton from "@/components/nav/SendMenuButton";
+import { editorSendControls } from "@/helpers/sendMenu";
+import CustomerSignLink from "@/components/delivery/CustomerSignLink";
 import { useDocumentLock } from "@/app/portal/hooks/useDocumentLock";
 import { toast } from "react-toastify";
 import { useForm, Controller } from "react-hook-form";
@@ -414,7 +418,9 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled } = useOrganizationFeatures();
+  // In-app Back (enableWctDocNav): history back when opened inside the app, else the parent list; off = the parent list.
+  const { goBack } = useAppBack();
   // Manual order flow: after an order's invoice is emailed, offer to send its service report too.
   const [offerReportFor, setOfferReportFor] = useState<{ orderId: string; orderNumber: string | null; email: string | null } | null>(null);
   // The Project header row + the DO "project required" rule only make sense
@@ -844,6 +850,16 @@ export default function TabbedDocumentCreator({
   // DO first: a saved DO that belongs to an order in the manual order flow.
   // The document page passes the DO's config flattened (orderId at the top, no .id / .config): read both shapes.
   const doOnOrder = isDeliveryOrder && !!isManualOrderFlowEnabled && !!(documentId || (existingData as any)?.id) && !!doOrderIdOf(existingData);
+  // Send controls (helpers/sendMenu.ts): setting off = the old Send for signature / Send Email rules exactly.
+  const sendControls = editorSendControls(isWctDocNavEnabled, {
+    documentType,
+    saved: !!(existingData?.id || documentId),
+    confirmed: isDocumentConfirmedStatus,
+    templateMode: isTemplateEditMode,
+    quotationESign: isQuotationESignEnabled,
+    doOnOrder,
+    doCompleted: String(documentStatus || "").startsWith("delivered"),
+  });
   // Return Delivery Order. Documents genuinely carry the canonical
   // RETURN_DELIVERY_ORDER type (not just the "RDO" variant), so every RDO-only
   // render branch matches BOTH: the editor tracks reality rather than relying on
@@ -971,6 +987,10 @@ export default function TabbedDocumentCreator({
   // Quotations of enableQuotationESign orgs: CIEL's "Send for signature" button
   // + dialog (2026-11-13: the WCT group first, then every such org, e.g. Chong Aik).
   const cielSignFlow = usesCielSignFlow({ isQuotation, eSign: isQuotationESignEnabled });
+  // Send menu (enableWctDocNav, WCT group 2026-11-17): ONE "Send" button for
+  // signature / email / WhatsApp (disabled) replaces "Send for signature" and
+  // "Send Email"; same show rules (helpers/sendMenu.ts). Off = the old buttons.
+  const [doSignOpen, setDoSignOpen] = useState(false);
   // Component-scope invoice flag so the header project picker (appendRow) can
   // cover invoices too. (Inner callbacks keep their own local copies.)
   const isInvoiceTypeDoc = documentType === "INVOICE" || documentType === "TI" || documentType === "TI2";
@@ -4255,7 +4275,7 @@ export default function TabbedDocumentCreator({
     const documentStatus = existingData?.status || "unconfirmed";
     // Any confirmed (locked) document: nothing to save/clean up — just leave.
     if (!["draft", "unconfirmed"].includes(documentStatus)) {
-      router.push(backRoute);
+      goBack(backRoute);
       return;
     }
 
@@ -4284,13 +4304,13 @@ export default function TabbedDocumentCreator({
       } catch {
         // ignore — leaving an empty draft is acceptable if delete fails
       }
-      router.push(backRoute);
+      goBack(backRoute);
       return;
     }
 
     const pending = isDirtyRef.current || saveStatus === "saving";
     if (!pending) {
-      router.push(backRoute);
+      goBack(backRoute);
       return;
     }
     if (autosaveActive) {
@@ -4310,7 +4330,7 @@ export default function TabbedDocumentCreator({
           }
         }
         if (ok) {
-          router.push(backRoute);
+          goBack(backRoute);
           return;
         }
       } finally {
@@ -5211,7 +5231,21 @@ export default function TabbedDocumentCreator({
               Go to order {quotationOrder.orderNumber}
             </Button>
           )}
-          {cielSignFlow && (existingData?.id || documentId) && !isDocumentConfirmedStatus && !isTemplateEditMode && (
+          {sendControls.menu && (
+            <SendMenuButton
+              options={sendControls.menu}
+              dataTour="editor-send-menu"
+              onSelect={(k) => {
+                if (k === "email") void handleOpenSendEmail();
+                else if (k === "sign") {
+                  if (isQuotation) setSignLinkDialogOpen(true);
+                  else if (doOnOrder) setDoSignOpen(true);
+                  else void handleShareDoViewLink();
+                }
+              }}
+            />
+          )}
+          {sendControls.legacySign && (
             <SendForSignatureButton onClick={() => setSignLinkDialogOpen(true)} dataTour="editor-send-signature" />
           )}
           {/* Confirm button for Quotations — only when enableConfirmQuotation is on.
@@ -5262,7 +5296,7 @@ export default function TabbedDocumentCreator({
               a confirmed invoice must stay possible). Not on quotations that
               use the Send for signature dialog (guru 2026-11-13): that dialog
               emails the sign link itself. */}
-          {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || (isQuotation && !cielSignFlow)) && (
+          {sendControls.legacyEmail && (
             <Button
               data-tour="editor-send-email"
               size="small"
@@ -8294,7 +8328,7 @@ export default function TabbedDocumentCreator({
               setUnsavedExitDialogOpen(false);
               const dest = exitAfterPromptRef.current;
               exitAfterPromptRef.current = null;
-              if (dest) router.push(dest);
+              if (dest) goBack(dest);
             }}
             disabled={saveStatus === "saving"}
           >
@@ -8313,7 +8347,7 @@ export default function TabbedDocumentCreator({
               setUnsavedExitDialogOpen(false);
               const dest = exitAfterPromptRef.current;
               exitAfterPromptRef.current = null;
-              if (dest) router.push(dest);
+              if (dest) goBack(dest);
             }}
           >
             Save &amp; leave
@@ -8780,6 +8814,18 @@ export default function TabbedDocumentCreator({
             if (typeof window !== "undefined") window.location.reload();
           }}
         />
+      )}
+      {/* Send menu > Send for signature on a DO of an order (enableWctDocNav): the order DO's Customer sign link. */}
+      {doSignOpen && (
+        <Dialog open onClose={() => setDoSignOpen(false)} fullWidth maxWidth="sm">
+          <DialogTitle>Customer sign link</DialogTitle>
+          <DialogContent>
+            <CustomerSignLink documentId={(documentId || (existingData as any)?.id) as string} doName={(existingData as any)?.name ?? (existingData as any)?.documentNumber ?? null} />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => { setDoSignOpen(false); window.location.reload(); }}>Close</Button>
+          </DialogActions>
+        </Dialog>
       )}
       {signLinkDialogOpen && cielSignFlow && (
         <SignLinkDialog

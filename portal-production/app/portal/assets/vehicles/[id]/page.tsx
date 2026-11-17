@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useAppBack } from "@/app/portal/hooks/useAppBack";
 import { useAuth, useUser } from "@clerk/nextjs";
 import {
   Alert,
@@ -121,6 +122,8 @@ function MoneyColumn({ title, p }: { title: string; p: MoneyPeriod }) {
 export default function VehiclePage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  // enableWctDocNav: Back = the previous page in the app, else the vehicles list.
+  const { goBack, enabled: inAppBack } = useAppBack();
   const { getToken } = useAuth();
   const { user } = useUser();
   const { organization } = useOrganization();
@@ -204,8 +207,8 @@ export default function VehiclePage() {
     return (
       <Box sx={{ p: 3 }}>
         <Alert severity="error">{error}</Alert>
-        <Button sx={{ mt: 2 }} startIcon={<ArrowBackIcon />} onClick={() => router.push(VEHICLES_PATH)}>
-          Back to vehicles
+        <Button sx={{ mt: 2 }} startIcon={<ArrowBackIcon />} onClick={() => goBack(VEHICLES_PATH)}>
+          {inAppBack ? "Back" : "Back to vehicles"}
         </Button>
       </Box>
     );
@@ -272,8 +275,8 @@ export default function VehiclePage() {
   return (
     <Box sx={{ p: 3, display: "flex", flexDirection: "column", gap: 2 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-        <Button startIcon={<ArrowBackIcon />} onClick={() => router.push(VEHICLES_PATH)}>
-          Back to vehicles
+        <Button startIcon={<ArrowBackIcon />} onClick={() => goBack(VEHICLES_PATH)}>
+          {inAppBack ? "Back" : "Back to vehicles"}
         </Button>
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           {canEdit && !v.archived && (

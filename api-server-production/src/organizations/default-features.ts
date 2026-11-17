@@ -256,6 +256,11 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // and merges them back while all are drafts. Needs postInvoicesOnConfirm.
   // Default OFF; WCT (S), Racking, BC Air.
   enableInvoiceSplit: false,
+  // WCT doc navigation (2026-11-17): Back buttons go to the previous page in
+  // the app (else the parent list) and one "Send" menu (signature / email /
+  // WhatsApp) on quotation, invoice, DO and service report. Portal only.
+  // Default OFF; WCT group.
+  enableWctDocNav: false,
   // AIMS never emails a customer by itself (service report on completion,
   // auto-send recurring invoices); button sends unchanged. Default OFF; WCT group.
   disableAutoCustomerEmails: false,

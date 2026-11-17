@@ -35,6 +35,8 @@ interface OrganizationFeatures {
   enableManualOrderFlow?: boolean;
   /** Split payment on a draft invoice (2026-11-17; WCT (S), Racking, BC Air). Needs postInvoicesOnConfirm. */
   enableInvoiceSplit?: boolean;
+  /** In-app Back + toolbar Send menu (2026-11-17; WCT group). */
+  enableWctDocNav?: boolean;
   postInvoicesOnConfirm?: boolean;
   enableQuotationSubject?: boolean;
   enableJobFields?: boolean;
@@ -276,6 +278,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // acceptance, the office completes jobs and sends the service report. Default OFF; WCT group.
   enableManualOrderFlow: false,
   enableInvoiceSplit: false,
+  // WCT doc navigation (2026-11-17): Back buttons go to the previous page in the app (else the
+  // parent list), and one "Send" menu on quotation / invoice / DO / service report. Default OFF; WCT group.
+  enableWctDocNav: false,
   // Subject field on quotations (the WCT paper has a Subject box). Default OFF; WCT group.
   enableQuotationSubject: false,
   enableWctMyJobs: false,
@@ -378,6 +383,7 @@ export function useOrganizationFeatures() {
     isWctVehiclesEnabled: features.enableWctVehicles ?? false,
     // Needs WCT orders too, the flow it extends (same rule as the API).
     isInvoiceSplitEnabled: (features.enableInvoiceSplit ?? false) && (features.postInvoicesOnConfirm ?? false),
+    isWctDocNavEnabled: features.enableWctDocNav ?? false,
     isManualOrderFlowEnabled: (features.enableManualOrderFlow ?? false) && (features.enableWctOrders ?? false),
     isQuotationSubjectEnabled: features.enableQuotationSubject ?? false,
     isJobFieldsEnabled: features.enableJobFields ?? false,

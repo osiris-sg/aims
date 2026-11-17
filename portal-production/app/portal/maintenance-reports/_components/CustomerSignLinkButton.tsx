@@ -13,7 +13,16 @@ import { request } from "@/helpers/request";
  * The office cannot sign as the technician, so a report with no technician
  * signature is flagged: the field app's button captures it before minting.
  */
-export default function CustomerSignLinkButton({ reportId, hasTechSignature }: { reportId: string; hasTechSignature: boolean }) {
+export default function CustomerSignLinkButton({
+  reportId,
+  hasTechSignature,
+  trigger,
+}: {
+  reportId: string;
+  hasTechSignature: boolean;
+  /** Own control instead of the button (the Send menu, enableWctDocNav): gets the mint action. */
+  trigger?: (mint: () => void, busy: boolean) => React.ReactNode;
+}) {
   const { getToken } = useAuth();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,9 +73,13 @@ export default function CustomerSignLinkButton({ reportId, hasTechSignature }: {
 
   return (
     <>
-      <Button variant="outlined" startIcon={<LinkIcon />} onClick={mint} disabled={busy} data-tour="service-report-sign-link">
-        {busy && !link ? "Creating..." : "Copy sign link"}
-      </Button>
+      {trigger ? (
+        trigger(() => void mint(), busy)
+      ) : (
+        <Button variant="outlined" startIcon={<LinkIcon />} onClick={mint} disabled={busy} data-tour="service-report-sign-link">
+          {busy && !link ? "Creating..." : "Copy sign link"}
+        </Button>
+      )}
       <Dialog open={!!link || !!error} onClose={() => { setLink(null); setError(null); }} fullWidth maxWidth="sm">
         <DialogTitle sx={{ fontWeight: 700 }}>Customer sign link</DialogTitle>
         <DialogContent>
