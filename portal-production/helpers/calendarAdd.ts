@@ -114,6 +114,8 @@ export interface QuickJobForm {
   /** The DO to link to when the quotation's order has several open DOs (then required). */
   doId?: string | null;
   doRequired?: boolean;
+  /** Job category (WCT group, helpers/jobCategory.ts): sent only when the org has categories. */
+  category?: string | null;
 }
 
 /** The form → the API body, or a message saying what is missing. */
@@ -134,6 +136,7 @@ export function quickJobBody(f: QuickJobForm): { body?: Record<string, any>; err
       ptwStatus: f.ptwStatus,
       ptwRemark: f.ptwStatus === "NOT_NEEDED" ? "" : f.ptwRemark.trim(),
       ...(f.quotationId ? { quotationId: f.quotationId, ...(f.doId ? { doId: f.doId } : {}) } : {}),
+      ...(f.category ? { category: f.category } : {}),
     },
   };
 }
@@ -179,3 +182,9 @@ export const LINK_KINDS: { value: LinkKind; label: string; documentTypes?: strin
   { value: "invoice", label: "Invoice", documentTypes: ["INVOICE"] },
   { value: "do", label: "DO", documentTypes: ["DELIVERY_ORDER"] },
 ];
+
+/** The calendar's add menu (a click on an empty day / slot; calendar add orgs only, isCalendarAddEnabled). */
+export const ADD_MENU_TEXT: Record<"job" | "note", { primary: string; secondary: string }> = {
+  job: { primary: "Job", secondary: "Create a new task" },
+  note: { primary: "Note", secondary: "Others" },
+};

@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { noteBody, noteTitle, noteToCalendarInput, noteWhen, ptwLabel, quickJobBody, sgtInstant, sgtParts, slotOf } from "./calendarAdd.ts";
+import { ADD_MENU_TEXT, noteBody, noteTitle, noteToCalendarInput, noteWhen, ptwLabel, quickJobBody, sgtInstant, sgtParts, slotOf } from "./calendarAdd.ts";
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 
@@ -75,4 +75,16 @@ test("quick job body, all-day (2026-11-10): the date only, no time and no durati
   assert.equal(timed.scheduledFor, "2026-11-11T01:00:00.000Z");
   assert.equal(timed.durationMin, 90);
   assert.equal("allDay" in timed, false);
+});
+
+test("add menu (calendar add orgs): Job = Create a new task, Note = Others", () => {
+  assert.deepEqual(ADD_MENU_TEXT.job, { primary: "Job", secondary: "Create a new task" });
+  assert.deepEqual(ADD_MENU_TEXT.note, { primary: "Note", secondary: "Others" });
+});
+
+test("job category: sent only when the org has categories (else the body is as before)", () => {
+  const f = { customerId: "c1", siteAddress: "", date: "2026-12-09", time: "10:00", durationMin: 60, workers: [], remarks: "", ptwStatus: "NOT_NEEDED", ptwRemark: "" };
+  assert.equal("category" in quickJobBody(f).body, false);
+  assert.equal("category" in quickJobBody({ ...f, category: null }).body, false);
+  assert.equal(quickJobBody({ ...f, category: "Site visit" }).body.category, "Site visit");
 });

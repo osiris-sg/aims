@@ -5,6 +5,7 @@ import { isOrgFeatureEnabled } from '../common/org-features';
 import { SiteClockLinkService } from '../siteclock/siteclock-link.service';
 import { buildCalendarEvents, CalendarEvent, CalendarRun, CalendarSiteClockJob, CALENDAR_TZ, checkRange, rangeInstants } from './jobs-calendar';
 import { calendarBadge, calendarLegend, isJobFieldsEnabled, jobFieldDefs, jobFieldValues } from '../deliveries/job-fields';
+import { jobCategoryDef, jobCategoryValues } from '../deliveries/job-category';
 import { CalendarNoteView, CalendarNotesService } from './calendar-notes.service';
 
 export const JOBS_CALENDAR_FLAG = 'enableJobsCalendar';
@@ -75,6 +76,12 @@ export class JobsCalendarService {
         r.badges = defs.map((f) => calendarBadge(f, v[f.id])).filter(Boolean);
       }
       legend = calendarLegend(defs);
+      // Job category (WCT group; null elsewhere): each job's, blank = the default.
+      const catDef = await jobCategoryDef(this.prisma, organizationId);
+      if (catDef) {
+        const cats = await jobCategoryValues(this.prisma, organizationId, catDef, runs.map((r) => r.id));
+        for (const r of runs as any[]) r.category = cats.get(r.id) ?? catDef.defaultValue;
+      }
     }
     return {
       from,

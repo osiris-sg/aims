@@ -22,6 +22,13 @@ export class JobFieldsController {
     return this.service.create(org.id, body || {});
   }
 
+  // Job category (WCT group): the org's list, { options: string[] } (before ':id' so it is not taken as an id).
+  @Put('category')
+  @Permissions('organizations:update')
+  updateCategory(@UserOrganization() org: { id: string }, @Body() body: any) {
+    return this.service.updateCategory(org.id, body || {});
+  }
+
   @Put(':id')
   @Permissions('organizations:update')
   update(@UserOrganization() org: { id: string }, @Param('id') id: string, @Body() body: any) {

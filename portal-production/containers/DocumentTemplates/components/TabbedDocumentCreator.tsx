@@ -135,6 +135,7 @@ import QuotationSignLinkDialog from "./QuotationSignLinkDialog";
 import SignLinkDialog from "@/app/portal/sales/quotations/id/_components/SignLinkDialog";
 import SendForSignatureButton from "@/app/portal/sales/quotations/id/_components/SendForSignatureButton";
 import DoOrderToolbar from "@/components/delivery/DoOrderToolbar";
+import { isNarrowSnoCell, lineColumnWidth } from "@/helpers/wctDocUi";
 import { doOrderIdOf } from "@/helpers/doOrder";
 import { usesCielSignFlow } from "@/helpers/signLinkWording";
 import { useAppBack } from "@/app/portal/hooks/useAppBack";
@@ -7023,16 +7024,9 @@ export default function TabbedDocumentCreator({
                                     // fixed table layout spreads the excess over ALL
                                     // columns — which inflated the 24px drag-handle
                                     // column. One auto column absorbs it all instead.
-                                    width: columnId === "description" ? "auto" :
-                                           columnId === "item" ? "10%" :
-                                           columnId === "uom" ? "8%" :
-                                           columnId === "quantity" ? "8%" :
-                                           columnId === "unitPrice" ? "10%" :
-                                           columnId === "salePrice" ? "10%" :
-                                           columnId === "tax" ? "8%" :
-                                           columnId === "discount" ? "11%" :
-                                           columnId === "amount" ? "10%" :
-                                           columnId === "receivedQty" ? "10%" : "auto"
+                                    // WCT group (enableWctDocNav): S/No is narrow (about 4 characters) and its header wraps.
+                                    width: lineColumnWidth(columnId, isWctDocNavEnabled),
+                                    ...(isNarrowSnoCell(columnId, isWctDocNavEnabled) ? { whiteSpace: "normal", overflowWrap: "anywhere", px: "4px !important" } : {}),
                                   }}
                                 >
                                   {label}
@@ -7713,6 +7707,21 @@ export default function TabbedDocumentCreator({
                                         }}
                                         size="small"
                                         sx={{ width: 100 }}
+                                      />
+                                    </TableCell>
+                                  );
+                                } else if (isNarrowSnoCell(columnId, isWctDocNavEnabled)) {
+                                  // WCT group (enableWctDocNav): the narrow S/No box; longer text wraps to a 2nd line, never cut.
+                                  return (
+                                    <TableCell key={columnId} sx={{ px: "4px !important" }}>
+                                      <TextField
+                                        fullWidth
+                                        multiline
+                                        value={item[columnId] || ""}
+                                        onChange={(e) => updateItem(item.id, columnId, e.target.value.replace(/\n/g, " "))}
+                                        size="small"
+                                        inputProps={{ "aria-label": "S/No", style: { overflowWrap: "anywhere" } }}
+                                        sx={{ "& .MuiInputBase-root": { px: "4px", py: "4px" } }}
                                       />
                                     </TableCell>
                                   );

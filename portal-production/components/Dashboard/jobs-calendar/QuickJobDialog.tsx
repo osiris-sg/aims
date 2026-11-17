@@ -15,6 +15,7 @@ import type { PickerCustomer } from "@/app/portal/hooks/api/useCustomerPicker";
 import { PTW_OPTIONS, quickJobBody, sgtParts, type PtwStatus, type QuickJobForm } from "@/helpers/calendarAdd";
 import { useCalendarApi, useSiteClockWorkers, type WorkerOption } from "./calendarAddApi";
 import { applyQuotationPick, doOptionLabel, needsDoPick, quotationLabel, quotationRow, quotationSearchPath, type QuotationDetail, type QuotationOption } from "@/helpers/quickJobQuotation";
+import { categoryShown, type JobCategoryDef } from "@/helpers/jobCategory";
 
 const DURATIONS = [30, 60, 90, 120, 180, 240, 480];
 const durLabel = (m: number) => (m % 60 === 0 ? `${m / 60} h` : m > 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`);
@@ -31,6 +32,8 @@ export interface QuickJobEdit {
   ptwRemark: string | null;
   workers: { id: string; name: string }[];
   durationMin: number | null;
+  /** Job category (WCT group): the job's pick (blank = the default). */
+  category?: string | null;
 }
 
 export default function QuickJobDialog({
@@ -69,6 +72,22 @@ export default function QuickJobDialog({
   const quotationOn = withQuotation && !edit;
   const [quotation, setQuotation] = useState<QuotationDetail | null>(null);
   const [quotationBusy, setQuotationBusy] = useState(false);
+  // Job category (WCT group): the org's list, null for every other org (no field shown, nothing sent).
+  const [categoryDef, setCategoryDef] = useState<JobCategoryDef | null>(null);
+  const editCategory = edit?.category ?? null;
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    void api<JobCategoryDef | null>("GET", "/deliveries/job-category").then((res) => {
+      if (!live) return;
+      const def = res.ok && res.data && Array.isArray(res.data.options) && res.data.options.length ? res.data : null;
+      setCategoryDef(def);
+      if (def) setForm((f) => ({ ...f, category: f.category && def.options.includes(f.category) ? f.category : categoryShown(def, editCategory) }));
+    });
+    return () => {
+      live = false;
+    };
+  }, [open, api, editCategory]);
 
   useEffect(() => {
     if (!open) return;
@@ -87,6 +106,7 @@ export default function QuickJobDialog({
         remarks: edit.notes ?? "",
         ptwStatus: ((edit.ptwStatus as PtwStatus) || "NOT_NEEDED") as PtwStatus,
         ptwRemark: edit.ptwRemark ?? "",
+        category: edit.category ?? null,
       });
       setCustomer(edit.customer);
     } else {
@@ -153,6 +173,15 @@ export default function QuickJobDialog({
       <DialogTitle>{edit ? "Edit job" : "New job"}</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2} sx={{ mt: 1 }}>
+          {categoryDef && (
+            <TextField select required label="Job category" size="small" fullWidth value={form.category ?? categoryDef.defaultValue} onChange={(e) => set({ category: e.target.value })} data-tour="quick-job-category">
+              {categoryDef.options.map((o) => (
+                <MenuItem key={o} value={o}>
+                  {o}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
           {quotationOn && (
             <QuotationPicker value={quotation} customerId={form.customerId} busy={quotationBusy} onChange={(o) => void pickQuotation(o)} />
           )}

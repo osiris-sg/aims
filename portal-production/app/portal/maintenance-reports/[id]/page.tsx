@@ -53,6 +53,7 @@ import ReportEditActions, { ReportHistory } from "../_components/ReportEditActio
 import ReportFileView, { type ReportFileHandle } from "@/components/maintenance/ReportFileView";
 import { fetchServiceReportFile, reportFileStem, saveBlob } from "@/helpers/serviceReportFileBlob";
 import { msrStatusChip } from "@/helpers/msrStatus";
+import { showBackToOrder } from "@/helpers/wctDocUi";
 
 // Labels come from the SHARED catalogue (see the drift warning there). Which
 // template a report renders under is read from the ROW's stamped templateId,
@@ -306,7 +307,8 @@ export default function MaintenanceReportDetailPage() {
             {isWctDocNavEnabled ? "Back" : "Back to list"}
           </Button>
           {/* WCT manual flow (2026-11-13): back to the order the report belongs to, as on the DO page. */}
-          {isManualOrderFlowEnabled && report.order && (
+          {/* enableWctDocNav: no "Back to order" (Back returns to the previous page, e.g. the order). */}
+          {isManualOrderFlowEnabled && report.order && showBackToOrder(isWctDocNavEnabled) && (
             <Button startIcon={<ArrowBackIcon />} onClick={() => router.push(`/portal/orders/${report.order!.id}`)} data-tour="service-report-back-to-order">
               Back to order {report.order.orderNumber}
             </Button>

@@ -29,7 +29,8 @@ import CloseIcon from "@mui/icons-material/Close";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import WorkOutlineIcon from "@mui/icons-material/WorkOutline";
 import StickyNote2OutlinedIcon from "@mui/icons-material/StickyNote2Outlined";
-import { noteToCalendarInput, ptwColor, slotOf, type CalendarNote } from "@/helpers/calendarAdd";
+import { ADD_MENU_TEXT, noteToCalendarInput, ptwColor, slotOf, type CalendarNote } from "@/helpers/calendarAdd";
+import { categoryChipTitle } from "@/helpers/jobCategory";
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
@@ -174,6 +175,11 @@ export default function CalendarView({
               }
             : undefined
         }
+        // Job category (WCT group): the chip's tooltip names it (no tooltip for orgs without categories).
+        eventDidMount={(arg) => {
+          const t = categoryChipTitle(arg.event.extendedProps.event as CalendarEvent | undefined, arg.event.title);
+          if (t) arg.el.title = t;
+        }}
         eventDrop={onMove ? onDrop : undefined}
         eventAllow={(drop) => drop.allDay}
         // Custom job fields: the job's icons after its time + title (default rendering otherwise).
@@ -238,7 +244,7 @@ export default function CalendarView({
           <ListItemIcon>
             <WorkOutlineIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText primary="Job" secondary="Quick job, no quotation needed" />
+          <ListItemText primary={ADD_MENU_TEXT.job.primary} secondary={ADD_MENU_TEXT.job.secondary} />
         </MenuItem>
         <MenuItem
           onClick={() => {
@@ -250,7 +256,7 @@ export default function CalendarView({
           <ListItemIcon>
             <StickyNote2OutlinedIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText primary="Note" secondary="Leave, PTW, blockage or other" />
+          <ListItemText primary={ADD_MENU_TEXT.note.primary} secondary={ADD_MENU_TEXT.note.secondary} />
         </MenuItem>
       </Menu>
     </Box>
@@ -322,6 +328,8 @@ function EventCard({ event: e, jobWords, byPtw = false, linkRefs = false }: { ev
         <>
           <Row label="Worker">{e.worker || "Not on SiteClock"}</Row>
           {e.rider && <Row label="Rider">{e.rider}</Row>}
+          {/* Job category (WCT group; absent elsewhere). */}
+          {e.category && <Row label="Category">{e.category}</Row>}
         </>
       ) : (
         e.worker && <Row label="Teams">{e.worker}</Row>

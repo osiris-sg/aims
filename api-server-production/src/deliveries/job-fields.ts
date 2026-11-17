@@ -155,7 +155,8 @@ export async function isJobFieldsEnabled(prisma: any, organizationId: string) {
 export async function jobFieldDefs(prisma: any, organizationId: string): Promise<JobFieldDef[]> {
   return runAsOrg(organizationId, () =>
     prisma.customField.findMany({
-      where: { organizationId, entityType: JOB_ENTITY, isActive: true },
+      // The Job category list (deliveries/job-category.ts) has its own section, not a field here.
+      where: { organizationId, entityType: JOB_ENTITY, isActive: true, fieldName: { not: 'job_category' } },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
       select: { id: true, fieldName: true, displayLabel: true, fieldType: true, required: true, sortOrder: true, display: true },
     }),

@@ -65,6 +65,7 @@ import { assetKey, descKey, doLineWarnings, remainingAllowance, remainingQuoteLi
 import { plannedRiderView, savePlannedRider } from './planned-rider';
 import { CompletionMode, WCT_FINISH_MODES_FLAG, finishModeProblem, initialVerification, isCompletionMode } from './finish-modes';
 import { checkJobFieldValues, isJobFieldsEnabled, jobFieldDefs, jobFieldValues, saveJobFieldValues } from './job-fields';
+import { jobCategoryDef, jobCategoryValues, parseCategory, saveJobCategory as storeJobCategory } from './job-category';
 import { runNoun } from './job-wording';
 import { wctBrandStamp } from '../maintenance-reports/wct-brand';
 import { withRunLease } from './run-lease';
@@ -860,7 +861,12 @@ export class DeliveriesService {
     const siteAddress = typeof body?.siteAddress === 'string' ? body.siteAddress.trim().slice(0, 500) : '';
     const notes = typeof body?.remarks === 'string' ? body.remarks.trim().slice(0, 2000) : '';
     const workers = parseWorkers(body?.workers);
+    // Job category (WCT group; null for every other org): required, blank = the default.
+    const categoryDef = await jobCategoryDef(this.prisma, organizationId);
+    const category = categoryDef ? parseCategory(categoryDef, body?.category) : null;
     return {
+      categoryDef,
+      category,
       customerId,
       scheduledFor: when,
       scheduledAllDay: sched.scheduledAllDay,
@@ -916,6 +922,7 @@ export class DeliveriesService {
       }
     }
     if (!run) throw new BadRequestException('Could not allocate a job number, please retry');
+    if (f.categoryDef && f.category) await storeJobCategory(this.prisma, organizationId, f.categoryDef, run.id, f.category);
     let linked: { orderId: string | null; orderNumber: string | null; doId: string | null; doName: string | null } | null = null;
     if (link) {
       let { orderId, orderNumber, doId, doName } = link;
@@ -1146,6 +1153,7 @@ export class DeliveriesService {
         crewWorkers: f.crew,
       },
     });
+    if (f.categoryDef && f.category) await storeJobCategory(this.prisma, organizationId, f.categoryDef, id, f.category);
     await this.redateRunDo(id, organizationId);
     const input = { siteclockWorkerId: f.assignee?.id ?? null, siteclockWorkerName: f.assignee?.name ?? null };
     await savePlannedRider(this.prisma, organizationId, id, input);
@@ -5855,6 +5863,32 @@ export class DeliveriesService {
     } catch (e: any) {
       throw new BadRequestException(e?.message || 'Could not save the job fields');
     }
+  }
+
+  // ── Job category (WCT group, deliveries/job-category.ts) ─────────────
+
+  /** The org's category list for the forms, or null (every org without the job_category field). */
+  async jobCategoryOf(organizationId: string) {
+    return jobCategoryDef(this.prisma, organizationId);
+  }
+
+  /** The job page's category: what it shows (blank = the default) + the list; null without the field. */
+  async jobCategoryOfRun(deliveryId: string, organizationId: string) {
+    const def = await jobCategoryDef(this.prisma, organizationId);
+    if (!def) return null;
+    const value = (await jobCategoryValues(this.prisma, organizationId, def, [deliveryId])).get(deliveryId) ?? def.defaultValue;
+    return { value, options: def.options, defaultValue: def.defaultValue };
+  }
+
+  /** Set a job's category (any job of the org, the job page). */
+  async saveJobCategory(deliveryId: string, organizationId: string, raw: unknown) {
+    const def = await jobCategoryDef(this.prisma, organizationId);
+    if (!def) throw new NotFoundException('Job category is not set up for this organisation');
+    const run = await this.prisma.delivery.findFirst({ where: { id: deliveryId, organizationId }, select: { id: true } });
+    if (!run) throw new NotFoundException('Job not found');
+    const value = parseCategory(def, raw);
+    await storeJobCategory(this.prisma, organizationId, def, deliveryId, value);
+    return { id: deliveryId, category: value };
   }
 
   /** The run's job fields (definitions + values) for the delivery page; null without the flag. */

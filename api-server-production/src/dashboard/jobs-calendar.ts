@@ -59,6 +59,8 @@ export interface CalendarRun {
   untagged?: boolean;
   /** WCT calendar add: the job's quotation (its order's, else the quick job's own unsigned one). */
   quotation?: { id: string; name: string | null; type: string; templateId: string | null } | null;
+  /** Job category (WCT group, deliveries/job-category.ts): blank reads as the default; absent elsewhere. */
+  category?: string | null;
 }
 
 /** One custom job field's icon on an event (icon key, colour, "Permit approved: Yes"). */
@@ -146,6 +148,8 @@ export interface CalendarEvent {
   /** WCT calendar add: the job's quotation number and its document page (absent for every other org). */
   quotationNumber?: string | null;
   quotationHref?: string | null;
+  /** Job category (WCT group): shown in the panel and the chip tooltip (absent for every other org). */
+  category?: string | null;
 }
 
 /** The quotation row of a WCT job's panel: number + the quotation's document page (null without a template). */
@@ -307,6 +311,7 @@ export function buildCalendarEvents(runs: CalendarRun[], links: CalendarLink[], 
       ...(r.ptw && ptwShown(r.ptw.status) ? { ptw: { status: r.ptw.status, label: PTW_LABEL[r.ptw.status as PtwStatus] ?? r.ptw.status, remark: r.ptw.remark } } : {}),
       ...(r.untagged ? { untagged: true } : {}),
       ...(quotationFields(r.quotation) ?? {}),
+      ...(r.category ? { category: r.category } : {}),
     });
   }
 

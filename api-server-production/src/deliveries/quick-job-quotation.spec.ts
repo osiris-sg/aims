@@ -133,6 +133,14 @@ function makePrisma(db: Db) {
       Object.assign(r!, data);
       return r;
     },
+    upsert: async ({ where, update, create }: any) => {
+      const w = where.customFieldId_entityId ?? where;
+      const r = db[table].find((x) => match(table, x, w));
+      if (r) return Object.assign(r, update);
+      const row = { id: uid(++seq), ...create };
+      db[table].push(row);
+      return row;
+    },
     updateMany: async ({ where, data }: any) => {
       const hit = db[table].filter((x) => match(table, x, where));
       hit.forEach((x) => Object.assign(x, data));
@@ -413,5 +421,44 @@ describe('gate off: old behaviour exactly', () => {
     expect(db2.delivery).toHaveLength(1);
     expect(db2.delivery[0]).toEqual(expect.objectContaining({ isDraft: true, orderId: db2.order[0].id, sourceQuotationId: QO }));
     expect(run.id).toBe(db2.delivery[0].id);
+  });
+});
+
+// ── Job category (WCT group, deliveries/job-category.ts) ──────────────────
+describe('quick job: job category', () => {
+  const CAT = uid(90);
+  const catField = { id: CAT, organizationId: ORG, entityType: 'Delivery', fieldName: 'job_category', isActive: true, options: [{ value: 'Service order', label: 'Service order' }, { value: 'Delivery', label: 'Delivery' }, { value: 'Site visit', label: 'Site visit' }, { value: 'Others', label: 'Others' }], defaultValue: 'Service order' };
+  const withCat = (features: Record<string, boolean>) => seed(features, { customField: [catField], customFieldValue: [] } as any);
+
+  it('stores the picked category; blank stores the default; off the list is refused', async () => {
+    const db = withCat({ ...GATE, enableJobFields: true });
+    const s = svc(db);
+    const a: any = await s.createQuickJob(ORG, body({ category: 'Site visit' }));
+    expect(db.customFieldValue).toEqual([expect.objectContaining({ customFieldId: CAT, entityId: a.id, value: 'Site visit' })]);
+    const b: any = await s.createQuickJob(ORG, body());
+    expect(db.customFieldValue.find((v: any) => v.entityId === b.id)?.value).toBe('Service order');
+    await expect(s.createQuickJob(ORG, body({ category: 'Painting' }))).rejects.toThrow(/Job category must be one of/);
+  });
+  it('edit + the job page: change it; a job with nothing stored reads as the default', async () => {
+    const db = withCat({ ...GATE, enableJobFields: true });
+    const s = svc(db);
+    const a: any = await s.createQuickJob(ORG, body({ category: 'Delivery' }));
+    await s.updateQuickJob(a.id, ORG, body({ category: 'Others' }));
+    expect(db.customFieldValue.find((v: any) => v.entityId === a.id)?.value).toBe('Others');
+    db.delivery.push({ id: uid(91), organizationId: ORG, deliveryNumber: 99, status: 'scheduled', isDraft: false, orderId: uid(50) });
+    expect(await s.jobCategoryOfRun(uid(91), ORG)).toEqual({ value: 'Service order', options: ['Service order', 'Delivery', 'Site visit', 'Others'], defaultValue: 'Service order' });
+    await s.saveJobCategory(uid(91), ORG, 'delivery');
+    expect((await s.jobCategoryOfRun(uid(91), ORG))?.value).toBe('Delivery');
+  });
+  it('orgs without the field or without enableJobFields: nothing asked, stored or returned (as before)', async () => {
+    for (const db of [seed({ ...GATE, enableJobFields: true }, { customField: [], customFieldValue: [] } as any), withCat(GATE)]) {
+      const s = svc(db);
+      const r: any = await s.createQuickJob(ORG, body({ category: 'Painting' }));
+      expect(Object.keys(r).sort()).toEqual(['deliveryNumber', 'id']);
+      expect(db.customFieldValue).toHaveLength(0);
+      expect(await s.jobCategoryOf(ORG)).toBeNull();
+      expect(await s.jobCategoryOfRun(r.id, ORG)).toBeNull();
+      await expect(s.saveJobCategory(r.id, ORG, 'Delivery')).rejects.toThrow(/not set up/);
+    }
   });
 });

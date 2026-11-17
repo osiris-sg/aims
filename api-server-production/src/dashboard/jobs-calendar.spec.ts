@@ -372,3 +372,14 @@ describe('jobs calendar quotation link (calendar add gate)', () => {
     expect('quotationNumber' in plain).toBe(false);
   });
 });
+
+describe('jobs calendar: job category (WCT group)', () => {
+  it('a run with a category carries it to the event (panel + chip tooltip)', () => {
+    const [e] = buildCalendarEvents([run({ category: 'Site visit' })], [], null);
+    expect(e.category).toBe('Site visit');
+  });
+  it('orgs without categories: no category key on the event (as before)', () => {
+    const [e] = buildCalendarEvents([run()], [], null);
+    expect('category' in e).toBe(false);
+  });
+});

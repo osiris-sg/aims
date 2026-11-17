@@ -49,6 +49,8 @@ export interface CalendarEvent {
   /** WCT calendar add: the job's quotation (the order's, else a quick job's own unsigned one) and its document page. */
   quotationNumber?: string | null;
   quotationHref?: string | null;
+  /** Job category (WCT group): blank jobs read as the default; absent for every other org. */
+  category?: string | null;
 }
 
 export interface CalendarBadge {

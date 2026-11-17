@@ -34,6 +34,8 @@ import MainCard from "@/components/MainCard";
 import { request } from "@/helpers/request";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import JobFieldIcon, { JOB_FIELD_ICON_KEYS } from "@/components/jobFields/JobFieldIcon";
+import JobCategoryList from "./_components/JobCategoryList";
+import type { JobCategoryDef } from "@/helpers/jobCategory";
 import { COLOUR_CHOICES, ICON_LABEL, JOB_FIELD_TYPES, JOB_FIELD_TYPE_LABEL, JobFieldDef, JobFieldType, displayFromForm, displaySummary } from "@/helpers/jobFields";
 
 // Custom job fields (enableJobFields, 2026-11-01): the org admin defines the
@@ -107,6 +109,8 @@ export default function JobFieldsSettingsPage() {
   const { getToken } = useAuth();
   const { isJobFieldsEnabled, isLoading } = useOrganizationFeatures();
   const [fields, setFields] = useState<JobFieldDef[] | null>(null);
+  // Job category (WCT group): the org's list, null for every org without the job_category field.
+  const [category, setCategory] = useState<JobCategoryDef | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<Form | null>(null);
   const [saving, setSaving] = useState(false);
@@ -118,6 +122,7 @@ export default function JobFieldsSettingsPage() {
       const res = await request({ path: "/job-fields", method: "GET" }, {}, token ?? undefined);
       const body = res?.data ?? res;
       setFields(Array.isArray(body?.fields) ? body.fields : []);
+      setCategory(body?.category && Array.isArray(body.category.options) ? body.category : null);
     } catch (e: any) {
       setError(e?.message || "Failed to load the job fields");
       setFields([]);
@@ -190,6 +195,7 @@ export default function JobFieldsSettingsPage() {
           {error}
         </Alert>
       )}
+      {category && <JobCategoryList category={category} onSaved={() => void load()} />}
       {fields === null ? (
         <CircularProgress />
       ) : fields.length === 0 ? (

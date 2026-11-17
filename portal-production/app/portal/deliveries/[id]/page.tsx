@@ -66,6 +66,7 @@ import { uploadFile } from "@/helpers/fileUploader";
 import { runDoTag } from "@/helpers/doStatusTag";
 import JobPtwLinkPanel from "@/app/portal/deliveries/_components/JobPtwLinkPanel";
 import QuickJobDialog from "@/components/Dashboard/jobs-calendar/QuickJobDialog";
+import JobCategoryField, { type RunJobCategory } from "@/components/delivery/JobCategoryField";
 
 /**
  * Delivery run detail (office). Items + the field PROOF (photos, signature,
@@ -128,6 +129,8 @@ interface RunDetail {
   verification?: JobVerification | null;
   // Custom job fields (enableJobFields): the org's fields + this run's values.
   jobFields?: { fields: JobFieldDef[]; values: Record<string, any> } | null;
+  // Job category (WCT group): the job's pick (blank = the default) + the org's list; absent elsewhere.
+  jobCategory?: RunJobCategory | null;
   // Derived by the backend: the single distinct DO across linked items, else null.
   // saleOrderId: the pointer to the SALES_ORDER document this run is against,
   // read off the DO's config by findById. It MUST be declared and forwarded —
@@ -894,6 +897,9 @@ export default function DeliveryDetailPage() {
         {run.customer ? ` · Customer: ${run.customer.name}` : ""}
         {run.siteAddress ? ` · Site: ${run.siteAddress}` : ""}
       </Typography>
+
+      {/* Job category (WCT group): editable on any job of the org; blank jobs read as the default. */}
+      {run.jobCategory && <JobCategoryField deliveryId={run.id} category={run.jobCategory} disabled={run.status === "cancelled"} onSaved={() => void load()} />}
 
       {calendarAdd && run.direction !== "RETURN" && <JobPtwLinkPanel run={run} onChanged={() => void load()} />}
 
@@ -1709,6 +1715,7 @@ export default function DeliveryDetailPage() {
                     ...(Array.isArray(run.crewWorkers) ? run.crewWorkers : []),
                   ],
                   durationMin: run.siteclock?.durationMin ?? null,
+                  category: run.jobCategory?.value ?? null,
                 }
               : null
           }

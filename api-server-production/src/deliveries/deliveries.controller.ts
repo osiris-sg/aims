@@ -264,6 +264,13 @@ export class DeliveriesController {
     return this.service.quickJobQuotation(org.id, quotationId);
   }
 
+  // Job category (WCT group, deliveries/job-category.ts): the org's list for the New job form, or null. Before :id.
+  @Get('job-category')
+  @Permissions('documents:create-basic')
+  jobCategory(@UserOrganization() org: { id: string }) {
+    return this.service.jobCategoryOf(org.id);
+  }
+
   @Patch('quick-job/:id')
   @Permissions('documents:create-basic')
   updateQuickJob(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }) {
@@ -332,10 +339,20 @@ export class DeliveriesController {
     // Custom job fields (enableJobFields): definitions + this run's values.
     const jobFields = run?.id ? await this.service.jobFieldsOf(id, org.id) : null;
     if (jobFields) run.jobFields = jobFields;
+    // Job category (WCT group): the job's pick (blank = the default) + the org's list; absent elsewhere.
+    const jobCategory = run?.id ? await this.service.jobCategoryOfRun(id, org.id) : null;
+    if (jobCategory) run.jobCategory = jobCategory;
     // SiteClock "Can't finish today" (2026-11-10): the worker's latest reason while the job is open.
     if (run?.id && run.status !== 'completed' && run.status !== 'cancelled') run.notFinished = await this.service.lastNotFinished(run.id, org.id);
     const views = await this.siteclock.viewsFor(org.id, run?.id ? [run.id] : []);
     return views.size ? { ...run, siteclock: views.get(run.id) ?? null } : run;
+  }
+
+  // Job category (WCT group): set this job's category. Body { category }.
+  @Put(':id/category')
+  @Permissions('documents:create-basic')
+  saveJobCategory(@Param('id') id: string, @Body() body: { category?: string }, @UserOrganization() org: { id: string }) {
+    return this.service.saveJobCategory(id, org.id, body?.category);
   }
 
   // Custom job fields (enableJobFields): save this job's values ({ fieldId: value }).

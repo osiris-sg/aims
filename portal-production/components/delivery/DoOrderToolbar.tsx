@@ -18,6 +18,7 @@ import { request } from "@/helpers/request";
 import OfficeCompleteJobDialog from "./OfficeCompleteJobDialog";
 import CustomerSignLink from "./CustomerSignLink";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { showBackToOrder } from "@/helpers/wctDocUi";
 
 export default function DoOrderToolbar({ documentId, doName, status, config }: { documentId: string; doName: string | null; status: string; config: any }) {
   const router = useRouter();
@@ -50,7 +51,8 @@ export default function DoOrderToolbar({ documentId, doName, status, config }: {
 
   return (
     <>
-      {orderHref && (
+      {/* enableWctDocNav: no "Back to order" (the editor's left Back returns to the order). */}
+      {orderHref && showBackToOrder(isWctDocNavEnabled) && (
         <Button size="small" variant="text" startIcon={<ArrowBackIcon />} onClick={() => router.push(orderHref)} data-tour="do-back-to-order">
           Back to order {c.orderNo || ""}
         </Button>
