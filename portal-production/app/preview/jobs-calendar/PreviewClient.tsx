@@ -85,7 +85,7 @@ export default function PreviewClient({ mode, view, cancelled, down, add = false
         />
         {add && (
           <>
-            <QuickJobDialog open={adding?.kind === "job"} slot={adding?.slot} onClose={() => setAdding(null)} onSaved={() => setAdding(null)} />
+            <QuickJobDialog open={adding?.kind === "job"} slot={adding?.slot} withQuotation onClose={() => setAdding(null)} onSaved={() => setAdding(null)} />
             <NoteDialog open={adding?.kind === "note" || !!editNote} slot={adding?.kind === "note" ? adding.slot : null} note={editNote} onClose={() => { setAdding(null); setEditNote(null); }} onSaved={() => undefined} />
           </>
         )}

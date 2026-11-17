@@ -3,6 +3,7 @@ import { isOrgFeatureEnabled } from 'src/common/org-features';
 import { runAsOrg } from 'src/common/tenancy/tenant-context';
 import { ensureOrderNumberFormat, isWctOrdersEnabled, issueOrderNumberInTx, lockQuotation } from 'src/orders/wct-orders';
 import { isManualOrderFlow } from 'src/orders/manual-order-flow';
+import { pendingQuotationJobsWhere } from './quick-job-quotation';
 
 /**
  * Quotation → Delivery (WCT 2026-10-26): when a quotation is ACCEPTED (staff
@@ -79,8 +80,10 @@ export async function autoDraftDeliveryFromQuotation(
     // stack a second schedule next to the first. With WCT orders the order's
     // jobs all carry the quotation, so only a run WITHOUT an order (made before
     // the flag) blocks here; the one-order guard runs inside the transaction.
+    // A calendar job waiting for this quotation (quick-job-quotation.ts: no order, NO lines) is not a run
+    // made from it, so it never blocks; it is moved onto the order below.
     const existing = await prisma.delivery.findFirst({
-      where: { organizationId, sourceQuotationId: doc.id, ...(wctOrders ? { orderId: null } : {}) },
+      where: { organizationId, sourceQuotationId: doc.id, ...(wctOrders ? { orderId: null, items: { some: {} } } : {}) },
       select: { id: true },
     });
     if (existing) return null;
@@ -278,7 +281,14 @@ async function createOrderWithFirstJob(
               select: { id: true, orderNumber: true },
             });
           }
+          // Calendar jobs made with this quotation before it was signed (2026-11-17) move onto the order. With
+          // one, the order gets NO automatic first job (that job is the first one): never a duplicate job.
+          const waiting = await tx.delivery.findMany({ where: pendingQuotationJobsWhere(organizationId, doc.id), select: { id: true, deliveryNumber: true }, orderBy: { deliveryNumber: 'asc' } });
+          if (waiting.length) {
+            await tx.delivery.updateMany({ where: { ...pendingQuotationJobsWhere(organizationId, doc.id), id: { in: waiting.map((w: any) => w.id) } }, data: { orderId: order!.id } });
+          }
           if (!opts.withJob) return { id: '', deliveryNumber: 0, orderId: order!.id, orderNumber: order!.orderNumber as string };
+          if (waiting.length) return { id: waiting[0].id, deliveryNumber: waiting[0].deliveryNumber, orderId: order!.id, orderNumber: order!.orderNumber as string };
           const latest = await tx.delivery.findFirst({ where: { organizationId }, orderBy: { deliveryNumber: 'desc' }, select: { deliveryNumber: true } });
           const run = await tx.delivery.create({ data: runData((latest?.deliveryNumber ?? 0) + 1, order!.id), select: { id: true, deliveryNumber: true } });
           return { ...run, orderId: order!.id, orderNumber: order!.orderNumber as string };

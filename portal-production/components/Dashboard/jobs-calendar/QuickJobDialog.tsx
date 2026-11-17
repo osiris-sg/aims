@@ -3,13 +3,18 @@
 // WCT jobs calendar add (2026-11-04): the quick "Job" form from an empty calendar slot, and its edit from the job
 // page. No quotation: the job shows as a purple Misc job until "Link to…" puts it under an order. The first worker is the
 // SiteClock assignee; the others are listed in the SiteClock job's notes.
+// Quotation (2026-11-17, withQuotation: the calendar's New job): an optional first field, searched on the server by
+// QO number, customer or Subject. Picking one fills Customer, Site and (when empty) Remarks; on save the job goes
+// under the quotation's order (and its DO), or waits for the order until the quotation is signed.
 
-import React, { useEffect, useMemo, useState } from "react";
-import { Alert, Autocomplete, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, TextField, Typography, useMediaQuery } from "@mui/material";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, TextField, Tooltip, Typography, useMediaQuery } from "@mui/material";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import CustomerPicker from "@/components/CustomerPicker";
 import type { PickerCustomer } from "@/app/portal/hooks/api/useCustomerPicker";
 import { PTW_OPTIONS, quickJobBody, sgtParts, type PtwStatus, type QuickJobForm } from "@/helpers/calendarAdd";
 import { useCalendarApi, useSiteClockWorkers, type WorkerOption } from "./calendarAddApi";
+import { applyQuotationPick, doOptionLabel, needsDoPick, quotationLabel, quotationRow, quotationSearchPath, type QuotationDetail, type QuotationOption } from "@/helpers/quickJobQuotation";
 
 const DURATIONS = [30, 60, 90, 120, 180, 240, 480];
 const durLabel = (m: number) => (m % 60 === 0 ? `${m / 60} h` : m > 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`);
@@ -35,16 +40,20 @@ export default function QuickJobDialog({
   onDeleted,
   slot,
   edit,
+  withQuotation = false,
 }: {
   open: boolean;
   onClose: () => void;
-  onSaved: (id: string) => void;
+  /** result (new job): where it went (orderNumber / doName), for the toast. */
+  onSaved: (id: string, result?: { orderNumber?: string | null; doName?: string | null; quotationName?: string | null }) => void;
   /** Edit only: the job was deleted. */
   onDeleted?: () => void;
   /** New job: the clicked day / time. */
   slot?: { date: string; time: string } | null;
   /** Edit an existing quick job. */
   edit?: QuickJobEdit | null;
+  /** New job only: the optional Quotation field (the calendar's add). */
+  withQuotation?: boolean;
 }) {
   const api = useCalendarApi();
   const phone = useMediaQuery((t: any) => t.breakpoints.down("sm"));
@@ -54,6 +63,9 @@ export default function QuickJobDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const quotationOn = withQuotation && !edit;
+  const [quotation, setQuotation] = useState<QuotationDetail | null>(null);
+  const [quotationBusy, setQuotationBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -78,7 +90,29 @@ export default function QuickJobDialog({
       setForm(blank(slot));
       setCustomer(null);
     }
+    setQuotation(null);
   }, [open, edit, slot]);
+
+  // Quotation picked: its customer, Site and (only into empty Remarks) Subject; its order's open DOs for the DO pick.
+  const pickQuotation = async (o: QuotationOption | null) => {
+    if (!o) {
+      setQuotation(null);
+      set({ quotationId: null, doId: null, doRequired: false }); // the typed fields stay
+      return;
+    }
+    setQuotationBusy(true);
+    const res = await api<QuotationDetail>("GET", `/deliveries/quick-job/quotations/${o.id}`);
+    setQuotationBusy(false);
+    if (!res.ok || !res.data) return setError(res.message || "Couldn't load the quotation");
+    const q = res.data;
+    setError("");
+    setQuotation(q);
+    if (q.customer) setCustomer(q.customer as PickerCustomer);
+    setForm((f) => {
+      const filled = applyQuotationPick(f, q);
+      return { ...filled, quotationId: q.id, doId: q.openDos.length === 1 ? q.openDos[0].id : null, doRequired: needsDoPick(q) };
+    });
+  };
 
   const set = (patch: Partial<QuickJobForm>) => setForm((f) => ({ ...f, ...patch }));
   const chosen = useMemo<WorkerOption[]>(() => form.workers.map((w) => workers.options.find((o) => o.id === w.id) ?? { id: w.id, name: w.name, employeeNo: null, group: "Current" }), [form.workers, workers.options]);
@@ -88,10 +122,12 @@ export default function QuickJobDialog({
     if (!body) return setError(bad || "Check the form");
     setSaving(true);
     setError("");
-    const res = edit ? await api("PATCH", `/deliveries/quick-job/${edit.id}`, body) : await api<{ id: string }>("POST", "/deliveries/quick-job", body);
+    type Saved = { id: string; orderNumber?: string | null; doName?: string | null };
+    const res = edit ? await api<Saved>("PATCH", `/deliveries/quick-job/${edit.id}`, body) : await api<Saved>("POST", "/deliveries/quick-job", body);
     setSaving(false);
     if (!res.ok) return setError(res.message || "Couldn't save the job");
-    onSaved(edit?.id ?? (res.data as any)?.id);
+    const saved = res.data;
+    onSaved(edit?.id ?? saved?.id ?? "", edit ? undefined : { orderNumber: saved?.orderNumber ?? null, doName: saved?.doName ?? null, quotationName: quotation?.name ?? null });
   };
 
   const remove = async () => {
@@ -108,6 +144,18 @@ export default function QuickJobDialog({
       <DialogTitle>{edit ? "Edit job" : "New job"}</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2} sx={{ mt: 1 }}>
+          {quotationOn && (
+            <QuotationPicker value={quotation} customerId={form.customerId} busy={quotationBusy} onChange={(o) => void pickQuotation(o)} />
+          )}
+          {quotationOn && quotation && needsDoPick(quotation) && (
+            <TextField select required label="DO" size="small" fullWidth value={form.doId ?? ""} onChange={(e) => set({ doId: e.target.value || null })} data-tour="quick-job-do">
+              {quotation.openDos.map((d) => (
+                <MenuItem key={d.id} value={d.id}>
+                  {doOptionLabel(d)}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
           <CustomerPicker
             value={form.customerId}
             initialCustomer={customer}
@@ -165,9 +213,14 @@ export default function QuickJobDialog({
               )}
             />
           ) : (
-            <Typography variant="caption" color="text.secondary">
-              SiteClock is not connected, so workers can't be assigned here.
-            </Typography>
+            <Stack direction="row" spacing={0.5} alignItems="center">
+              <Typography variant="body2" color="text.secondary">
+                Assigned workers
+              </Typography>
+              <Tooltip title="SiteClock is not connected, so workers can't be assigned here." enterTouchDelay={0}>
+                <InfoOutlinedIcon fontSize="small" sx={{ color: "text.secondary", cursor: "help" }} aria-label="SiteClock is not connected, so workers can't be assigned here." />
+              </Tooltip>
+            </Stack>
           )}
           <TextField label="Remarks" size="small" fullWidth multiline minRows={2} value={form.remarks} onChange={(e) => set({ remarks: e.target.value })} />
           <Box>
@@ -212,4 +265,90 @@ export default function QuickJobDialog({
 
 function blank(slot?: { date: string; time: string } | null): QuickJobForm {
   return { customerId: null, siteAddress: "", date: slot?.date ?? "", time: slot?.time ?? "09:00", durationMin: 60, workers: [], remarks: "", ptwStatus: "NOT_NEEDED", ptwRemark: "" };
+}
+
+/** The Quotation field: server search (QO number, customer, Subject), newest first, narrowed to the picked customer. */
+function QuotationPicker({ value, customerId, busy, onChange }: { value: QuotationOption | null; customerId: string | null; busy: boolean; onChange: (o: QuotationOption | null) => void }) {
+  const api = useCalendarApi();
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState("");
+  const [options, setOptions] = useState<QuotationOption[]>([]);
+  const [loading, setLoading] = useState(false);
+  const latest = useRef("");
+  // While the box shows the picked quotation, the list is the newest ones (not a search for its number).
+  const term = value && input === quotationLabel(value) ? "" : input;
+
+  useEffect(() => {
+    if (!open) return;
+    const path = quotationSearchPath(term, customerId);
+    latest.current = path;
+    const t = setTimeout(async () => {
+      setLoading(true);
+      const res = await api<QuotationOption[]>("GET", path);
+      if (latest.current !== path) return;
+      setLoading(false);
+      setOptions(res.ok && Array.isArray(res.data) ? res.data : []);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [open, term, customerId, api]);
+
+  const shown = value && !options.some((o) => o.id === value.id) ? [value, ...options] : options;
+  return (
+    <Autocomplete<QuotationOption, false, false, false>
+      open={open}
+      onOpen={() => setOpen(true)}
+      onClose={() => setOpen(false)}
+      options={shown}
+      value={value}
+      onChange={(_e, o) => onChange(o ?? null)}
+      inputValue={input}
+      onInputChange={(_e, v) => setInput(v)}
+      filterOptions={(x) => x}
+      getOptionLabel={(o) => quotationLabel(o)}
+      isOptionEqualToValue={(a, b) => a.id === b.id}
+      loading={loading || busy}
+      size="small"
+      fullWidth
+      autoHighlight
+      clearOnEscape
+      noOptionsText={term ? "No quotations match" : "No quotations"}
+      ListboxProps={{ sx: { maxHeight: 340 } }}
+      renderOption={(props, o) => {
+        const r = quotationRow(o);
+        return (
+          <li {...props} key={o.id}>
+            <Box sx={{ minWidth: 0, width: "100%" }}>
+              <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {r.title}
+                </Typography>
+                {r.status && <Chip size="small" variant="outlined" label={r.status} color={o.orderNumber ? "primary" : "default"} />}
+              </Stack>
+              {r.detail && (
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ whiteSpace: "normal", wordBreak: "break-word" }}>
+                  {r.detail}
+                </Typography>
+              )}
+            </Box>
+          </li>
+        );
+      }}
+      renderInput={(params) => (
+        <TextField
+          {...params}
+          label="Quotation"
+          data-tour="quick-job-quotation"
+          InputProps={{
+            ...params.InputProps,
+            endAdornment: (
+              <>
+                {loading || busy ? <CircularProgress size={16} /> : null}
+                {params.InputProps.endAdornment}
+              </>
+            ),
+          }}
+        />
+      )}
+    />
+  );
 }

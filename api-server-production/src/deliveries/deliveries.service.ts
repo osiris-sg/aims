@@ -56,6 +56,7 @@ import { enqueueDeliveryGroupPost } from '../delivery-group-posts/enqueue';
 import { isOrgFeatureEnabled } from 'src/common/org-features';
 import { QUOTATION_TO_DELIVERY_FLAG, applyQuotationLinkToDoConfig, attachJobToQuotationOrder, quotationLinesForJob } from './quotation-to-delivery';
 import { isCalendarAddEnabled, parseLinkKind, parsePtwRemark, parsePtwStatus, parseWorkers } from './quick-jobs';
+import { QUOTATION_DOC_TYPES, isOpenDo, isUuid, jobRowsFromDo, likePattern, pickDoForJob, quotationCustomerIdOf, quotationCustomerNameOf, quotationSiteOf, quotationStatusLabel, quotationSubjectOf, searchLimit } from './quick-job-quotation';
 import { REAL_DO_ON_SCHEDULE_FLAG, cancelledDoConfig, isIssuedOnSchedule } from './do-number';
 import { SiteClockLinkService, SiteClockScheduleInput } from '../siteclock/siteclock-link.service';
 import { applyOrderToDoConfig, isWctOrdersEnabled, refreshOrderStatus, refreshOrderStatusForRun } from '../orders/wct-orders';
@@ -881,6 +882,9 @@ export class DeliveriesService {
   async createQuickJob(organizationId: string, body: any) {
     await this.assertCalendarAdd(organizationId);
     const f = await this.quickJobFields(organizationId, body);
+    // Quotation (2026-11-17, optional): checked before anything is written; a DO pick is required when its order
+    // has several open DOs.
+    const link = typeof body?.quotationId === 'string' && body.quotationId ? await this.quickJobLinkPlan(organizationId, body.quotationId, body?.doId) : null;
     let run: { id: string; deliveryNumber: number } | null = null;
     for (let attempt = 0; attempt < 3 && !run; attempt++) {
       const latest = await this.prisma.delivery.findFirst({ where: { organizationId }, orderBy: { deliveryNumber: 'desc' }, select: { deliveryNumber: true } });
@@ -901,6 +905,8 @@ export class DeliveriesService {
             ptwStatus: f.ptwStatus,
             ptwRemark: f.ptwRemark,
             crewWorkers: f.crew,
+            // With a quotation: its order now, or (not signed yet) the quotation alone until the order exists.
+            ...(link ? { sourceQuotationId: link.quotationId, orderId: link.orderId } : {}),
           },
           select: { id: true, deliveryNumber: true },
         });
@@ -910,10 +916,187 @@ export class DeliveriesService {
       }
     }
     if (!run) throw new BadRequestException('Could not allocate a job number, please retry');
+    let linked: { orderId: string | null; orderNumber: string | null; doId: string | null; doName: string | null } | null = null;
+    if (link) {
+      let { orderId, orderNumber, doId, doName } = link;
+      if (!orderId) {
+        // The quotation may have been signed while this form was open: its order moves the job now (the
+        // acceptance itself moves jobs it finds, so either way the job ends up on the order once).
+        const late = await this.prisma.order.findFirst({ where: { organizationId, sourceQuotationId: link.quotationId }, select: { id: true, orderNumber: true, status: true } });
+        if (late && late.status !== 'CANCELLED') {
+          const moved = await this.prisma.delivery.updateMany({ where: { id: run.id, organizationId, orderId: null }, data: { orderId: late.id } });
+          if (moved.count === 1) {
+            orderId = late.id;
+            orderNumber = late.orderNumber;
+            const open = (await this.manualFlowOpenDos(organizationId, late.id)) ?? [];
+            if (open.length === 1) {
+              doId = open[0].id;
+              doName = open[0].name;
+            }
+          }
+        }
+      }
+      if (orderId && doId) await this.linkJobToDo(organizationId, run.id, doId);
+      if (orderId) await refreshOrderStatus(this.prisma, organizationId, orderId);
+      linked = { orderId, orderNumber, doId: orderId ? doId : null, doName: orderId ? doName : null };
+    }
     const input = { siteclockWorkerId: f.assignee?.id ?? null, siteclockWorkerName: f.assignee?.name ?? null };
     await savePlannedRider(this.prisma, organizationId, run.id, input);
     await this.siteclock?.onScheduleSaved(organizationId, run.id, { workerId: input.siteclockWorkerId, workerName: input.siteclockWorkerName, durationMin: f.durationMin });
-    return run;
+    return linked ? { ...run, ...linked } : run;
+  }
+
+  // ── New job with a Quotation (2026-11-17, deliveries/quick-job-quotation.ts) ──
+
+  /**
+   * The New job form's Quotation list: this org's quotations, newest first, by
+   * QO number, customer name or Subject (ILIKE in the database: WCT has
+   * thousands), optionally only one customer's. Cancelled quotations (and those
+   * whose order is cancelled) are left out.
+   */
+  async searchQuickJobQuotations(organizationId: string, query: { q?: string; customerId?: string; limit?: string | number }) {
+    await this.assertCalendarAdd(organizationId);
+    const like = likePattern(query?.q);
+    const customerId = isUuid(query?.customerId?.trim()) ? query!.customerId!.trim() : null;
+    const limit = searchLimit(query?.limit);
+    const rows: Array<{ id: string; name: string | null; status: string; config: any; customerName: string | null; orderId: string | null; orderNumber: string | null }> = await this.prisma.$queryRaw`
+      SELECT d.id, d.name, d.status::text AS status,
+             jsonb_build_object(
+               'subject', d.config -> 'subject', 'documentInfo', jsonb_build_object('subject', d.config #> '{documentInfo,subject}', 'location', d.config #> '{documentInfo,location}', 'jobLocation', d.config #> '{documentInfo,jobLocation}'),
+               'location', d.config -> 'location', 'deliveryTo', d.config -> 'deliveryTo', 'customerId', d.config -> 'customerId', 'customer', d.config -> 'customer', 'customerName', d.config -> 'customerName'
+             ) AS config,
+             cu.name AS "customerName", o.id::text AS "orderId", o."orderNumber" AS "orderNumber"
+      FROM "Document" d
+      LEFT JOIN "Customer" cu ON cu.id::text = COALESCE(NULLIF(d.config #>> '{customer,id}', ''), NULLIF(d.config ->> 'customerId', '')) AND cu."organizationId" = d."organizationId"
+      LEFT JOIN LATERAL (
+        SELECT o.id, o."orderNumber", o.status FROM "Order" o
+        WHERE o."organizationId" = d."organizationId" AND o."sourceQuotationId" = d.id
+        ORDER BY o."createdAt" ASC LIMIT 1
+      ) o ON true
+      WHERE d."organizationId" = ${organizationId}
+        AND d.type IN ('QUOTATION', 'QO', 'QO1', 'QO2', 'QT')
+        AND COALESCE(d.config ->> 'cancelled', 'false') <> 'true'
+        AND COALESCE(d.config ->> 'voided', 'false') <> 'true'
+        AND (o.status IS NULL OR o.status <> 'CANCELLED')
+        AND (${customerId}::text IS NULL OR COALESCE(NULLIF(d.config #>> '{customer,id}', ''), NULLIF(d.config ->> 'customerId', '')) = ${customerId}::text)
+        AND (
+          ${like}::text IS NULL
+          OR d.name ILIKE ${like} ESCAPE '\\'
+          OR d.config ->> 'subject' ILIKE ${like} ESCAPE '\\'
+          OR d.config #>> '{documentInfo,subject}' ILIKE ${like} ESCAPE '\\'
+          OR d.config ->> 'customerName' ILIKE ${like} ESCAPE '\\'
+          OR d.config #>> '{customer,name}' ILIKE ${like} ESCAPE '\\'
+          OR cu.name ILIKE ${like} ESCAPE '\\'
+        )
+      ORDER BY d."createdAt" DESC, d.id DESC
+      LIMIT ${limit}`;
+    return rows.map((r) => this.quotationOptionOf(r));
+  }
+
+  private quotationOptionOf(r: { id: string; name: string | null; status: string; config: any; customerName?: string | null; orderId?: string | null; orderNumber?: string | null }) {
+    const cfg = r.config || {};
+    return {
+      id: r.id,
+      name: r.name,
+      customerId: quotationCustomerIdOf(cfg),
+      customerName: r.customerName || quotationCustomerNameOf(cfg),
+      subject: quotationSubjectOf(cfg),
+      site: quotationSiteOf(cfg),
+      status: r.status,
+      statusLabel: quotationStatusLabel(r.status, r.orderNumber),
+      orderId: r.orderId ?? null,
+      orderNumber: r.orderNumber ?? null,
+    };
+  }
+
+  /**
+   * A picked quotation, for the form: its customer (picker shape), Site (the
+   * job location, else the customer's address), Subject, its order and the
+   * order's open DOs (manual order flow), so the form knows whether to ask
+   * for a DO.
+   */
+  async quickJobQuotation(organizationId: string, quotationId: string) {
+    await this.assertCalendarAdd(organizationId);
+    if (!isUuid(quotationId)) throw new NotFoundException('Quotation not found');
+    const doc = await this.prisma.document.findFirst({ where: { id: quotationId, organizationId }, select: { id: true, name: true, type: true, status: true, config: true } });
+    if (!doc || !QUOTATION_DOC_TYPES.includes(String(doc.type).toUpperCase())) throw new NotFoundException('Quotation not found');
+    const cfg: any = doc.config || {};
+    const custId = quotationCustomerIdOf(cfg);
+    const customer = isUuid(custId)
+      ? await this.prisma.customer.findFirst({ where: { id: custId, organizationId }, select: { id: true, name: true, customerCode: true, email: true, phone: true, address: true, gstRegNo: true, uen: true } }).catch(() => null)
+      : null;
+    const order = await this.prisma.order.findFirst({ where: { organizationId, sourceQuotationId: doc.id }, select: { id: true, orderNumber: true, status: true }, orderBy: { createdAt: 'asc' } });
+    const open = order && order.status !== 'CANCELLED' ? (await this.manualFlowOpenDos(organizationId, order.id)) ?? [] : [];
+    return {
+      ...this.quotationOptionOf({ id: doc.id, name: doc.name, status: String(doc.status), config: cfg, customerName: customer?.name ?? null, orderId: order?.id ?? null, orderNumber: order?.orderNumber ?? null }),
+      cancelled: cfg.cancelled === true || cfg.voided === true || order?.status === 'CANCELLED',
+      customer,
+      siteOrAddress: quotationSiteOf(cfg) || customer?.address?.trim() || null,
+      openDos: open.map((d) => ({ id: d.id, name: d.name, date: String((d.config as any)?.date ?? '').slice(0, 10) || null })),
+    };
+  }
+
+  /** The order's open DOs (oldest first) in the manual order flow; null for an org without it (no DO linking there). */
+  private async manualFlowOpenDos(organizationId: string, orderId: string) {
+    if (!(await isManualOrderFlow(this.prisma, organizationId))) return null;
+    return (await this.orderDos(organizationId, orderId)).filter((d) => isOpenDo(d as any));
+  }
+
+  /** What saving the form with this quotation will do (validated; nothing written). */
+  private async quickJobLinkPlan(organizationId: string, quotationId: string, doPick: unknown) {
+    if (!isUuid(quotationId)) throw new NotFoundException('Quotation not found');
+    const doc = await this.prisma.document.findFirst({ where: { id: quotationId, organizationId }, select: { id: true, name: true, type: true, config: true } });
+    if (!doc || !QUOTATION_DOC_TYPES.includes(String(doc.type).toUpperCase())) throw new NotFoundException('Quotation not found');
+    const cfg: any = doc.config || {};
+    if (cfg.cancelled === true || cfg.voided === true) throw new BadRequestException(`${doc.name ?? 'This quotation'} is cancelled`);
+    const order = await this.prisma.order.findFirst({ where: { organizationId, sourceQuotationId: doc.id }, select: { id: true, orderNumber: true, status: true }, orderBy: { createdAt: 'asc' } });
+    if (order?.status === 'CANCELLED') throw new BadRequestException(`${order.orderNumber} is cancelled`);
+    if (!order) return { quotationId: doc.id, orderId: null as string | null, orderNumber: null as string | null, doId: null as string | null, doName: null as string | null };
+    const open = (await this.manualFlowOpenDos(organizationId, order.id)) ?? [];
+    const doId = pickDoForJob(open.map((d) => d.id), doPick);
+    return { quotationId: doc.id, orderId: order.id as string | null, orderNumber: order.orderNumber as string | null, doId, doName: open.find((d) => d.id === doId)?.name ?? null };
+  }
+
+  /**
+   * Put a job with no lines on ONE DO of its order: its lines mirror the DO's
+   * (as "Add job" on a DO), the DO date follows the job's day while the DO is
+   * a draft, and a service job gets its scheduled report, as when such a job
+   * is scheduled. Nothing reserved, no stock moves, no new DO.
+   */
+  private async linkJobToDo(organizationId: string, jobId: string, doId: string) {
+    const d = await this.prisma.document.findFirst({ where: { id: doId, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, config: true } });
+    if (!d) return;
+    const rows = jobRowsFromDo(d.id, d.config);
+    if (!rows.length) return;
+    await this.prisma.$transaction(async (tx) => {
+      if ((await tx.deliveryItem.count({ where: { deliveryId: jobId } })) > 0) return;
+      await tx.deliveryItem.createMany({ data: rows.map((r) => ({ ...r, deliveryId: jobId })) as any });
+    });
+    await this.redateRunDo(jobId, organizationId);
+    await this.ensureScheduledServiceReport(jobId, organizationId);
+  }
+
+  /**
+   * On a quotation's acceptance (manual flow, after its first DO): the calendar
+   * jobs that waited for this quotation and are now on its order with no lines
+   * go on the order's DO when it has exactly one open DO. Best-effort.
+   */
+  private async attachWaitingJobsToDo(organizationId: string, orderId: string) {
+    try {
+      const order = await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { sourceQuotationId: true } });
+      if (!order?.sourceQuotationId) return;
+      const jobs = await this.prisma.delivery.findMany({
+        where: { organizationId, orderId, sourceQuotationId: order.sourceQuotationId, status: 'scheduled', isDraft: false, items: { none: {} } },
+        select: { id: true },
+      });
+      if (!jobs.length) return;
+      const open = (await this.manualFlowOpenDos(organizationId, orderId)) ?? [];
+      if (open.length !== 1) return;
+      for (const j of jobs) await this.linkJobToDo(organizationId, j.id, open[0].id);
+      await refreshOrderStatus(this.prisma, organizationId, orderId);
+    } catch (err: any) {
+      this.logger.warn(`quick job: waiting jobs of order ${orderId} not put on its DO: ${err?.message}`);
+    }
   }
 
   /**
@@ -1451,7 +1634,10 @@ export class DeliveriesService {
       if (order.status === 'CANCELLED') throw new BadRequestException('This order is cancelled');
       if (!opts.force) {
         const existing = (await this.orderDos(organizationId, orderId))[0];
-        if (existing) return { doId: existing.id, doName: existing.name ?? null };
+        if (existing) {
+          await this.attachWaitingJobsToDo(organizationId, orderId);
+          return { doId: existing.id, doName: existing.name ?? null };
+        }
       }
       const quotation = order.sourceQuotationId
         ? await this.prisma.document.findFirst({ where: { id: order.sourceQuotationId, organizationId }, select: { id: true, config: true, projectId: true } })
@@ -1495,6 +1681,8 @@ export class DeliveriesService {
         { ...doConfig, issuedOnSchedule: true, issuedOnDraft: true, doFirst: true },
         quotation?.projectId ?? undefined,
       );
+      // The order's first DO (on accept): calendar jobs made with this quotation before it was signed go on it.
+      if (!opts.force) await this.attachWaitingJobsToDo(organizationId, order.id);
       await refreshOrderStatus(this.prisma, organizationId, order.id);
       return { doId: doc.id, doName: doc.name ?? null, ...(note ? { note } : {}) };
     } catch (err: any) {
@@ -1519,17 +1707,7 @@ export class DeliveriesService {
     if (!c.orderId) throw new BadRequestException(`${d.name ?? 'This DO'} is not on an order`);
     const order = await this.prisma.order.findFirst({ where: { id: c.orderId, organizationId }, select: { id: true, customerId: true, sourceQuotationId: true, status: true } });
     if (!order || order.status === 'CANCELLED') throw new BadRequestException('The order is not open');
-    const items: any[] = Array.isArray(c.items) ? c.items : [];
-    const groupIdx = new Map<string, number>();
-    const rows = items.map((it: any, i: number) => {
-      if (it.assetId) {
-        const g = String(it.deliveryGroup ?? it.assetId);
-        const n = groupIdx.get(g) ?? 0;
-        groupIdx.set(g, n + 1);
-        return { assetId: it.assetId, inventoryId: null, description: it.description ?? null, assetClass: null, quantity: 1, sortOrder: i * 100 + n, documentId: d.id };
-      }
-      return { assetId: null, inventoryId: null, description: String(it.description ?? '').trim() || 'Item', assetClass: AssetClass.SERVICE, quantity: Math.max(1, Math.round(Number(it.quantity)) || 1), sortOrder: i * 100, documentId: d.id };
-    });
+    const rows = jobRowsFromDo(d.id, c);
     const site = String(c.deliveryTo ?? c.documentInfo?.location ?? c.location ?? '').trim() || null;
     for (let attempt = 0; attempt < 3; attempt++) {
       const latest = await this.prisma.delivery.findFirst({ where: { organizationId }, orderBy: { deliveryNumber: 'desc' }, select: { deliveryNumber: true } });

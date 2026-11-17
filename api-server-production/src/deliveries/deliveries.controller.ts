@@ -250,6 +250,20 @@ export class DeliveriesController {
     return this.service.createQuickJob(org.id, body);
   }
 
+  // New job with a Quotation (2026-11-17): the form's server-side quotation search (GET, so the Activity Log
+  // reads it as a view) and the picked quotation's autofill + order / open DOs. Declared before :id.
+  @Get('quick-job/quotations')
+  @Permissions('documents:create-basic')
+  quickJobQuotations(@UserOrganization() org: { id: string }, @Query('q') q?: string, @Query('customerId') customerId?: string, @Query('limit') limit?: string) {
+    return this.service.searchQuickJobQuotations(org.id, { q, customerId, limit });
+  }
+
+  @Get('quick-job/quotations/:quotationId')
+  @Permissions('documents:create-basic')
+  quickJobQuotation(@Param('quotationId') quotationId: string, @UserOrganization() org: { id: string }) {
+    return this.service.quickJobQuotation(org.id, quotationId);
+  }
+
   @Patch('quick-job/:id')
   @Permissions('documents:create-basic')
   updateQuickJob(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }) {

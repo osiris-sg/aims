@@ -109,6 +109,11 @@ export interface QuickJobForm {
   remarks: string;
   ptwStatus: PtwStatus;
   ptwRemark: string;
+  /** New job with a Quotation (2026-11-17, helpers/quickJobQuotation.ts): sent only when one is picked. */
+  quotationId?: string | null;
+  /** The DO to link to when the quotation's order has several open DOs (then required). */
+  doId?: string | null;
+  doRequired?: boolean;
 }
 
 /** The form → the API body, or a message saying what is missing. */
@@ -117,6 +122,7 @@ export function quickJobBody(f: QuickJobForm): { body?: Record<string, any>; err
   const allDay = !!f.allDay;
   const scheduledFor = allDay ? (/^\d{4}-\d{2}-\d{2}$/.test(f.date) ? f.date : null) : sgtInstant(f.date, f.time);
   if (!scheduledFor) return { error: allDay ? "Pick a date" : "Pick a date and time" };
+  if (f.quotationId && f.doRequired && !f.doId) return { error: "Pick the DO" };
   return {
     body: {
       customerId: f.customerId,
@@ -127,6 +133,7 @@ export function quickJobBody(f: QuickJobForm): { body?: Record<string, any>; err
       remarks: f.remarks.trim(),
       ptwStatus: f.ptwStatus,
       ptwRemark: f.ptwStatus === "NOT_NEEDED" ? "" : f.ptwRemark.trim(),
+      ...(f.quotationId ? { quotationId: f.quotationId, ...(f.doId ? { doId: f.doId } : {}) } : {}),
     },
   };
 }

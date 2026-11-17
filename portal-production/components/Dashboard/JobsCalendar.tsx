@@ -20,6 +20,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
 import { type CalendarNote } from "@/helpers/calendarAdd";
 import QuickJobDialog from "./jobs-calendar/QuickJobDialog";
+import { linkedToast } from "@/helpers/quickJobQuotation";
 import NoteDialog from "./jobs-calendar/NoteDialog";
 
 const CalendarView = dynamic(() => import("./jobs-calendar/CalendarView"), {
@@ -112,10 +113,11 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
             open={adding?.kind === "job"}
             slot={adding?.kind === "job" ? adding.slot : null}
             onClose={() => setAdding(null)}
-            onSaved={(id) => {
+            withQuotation
+            onSaved={(id, result) => {
               setAdding(null);
               reload();
-              toast.success("Job added", { onClick: () => router.push(`/portal/deliveries/${id}`) });
+              toast.success(linkedToast(result, result?.quotationName), { onClick: () => router.push(`/portal/deliveries/${id}`) });
             }}
           />
           <NoteDialog
