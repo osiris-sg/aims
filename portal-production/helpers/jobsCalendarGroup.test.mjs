@@ -62,3 +62,18 @@ test("a child org's item for a non-member: view only, no links anywhere, never d
   assert.equal(isMovable(leaky), false);
   assert.deepEqual(panelLinks(ev({ source: "siteclock", siteclockUrl: "https://sc", viewOnly: true, foreign: true })), []);
 });
+
+test("calendar add gate (numbered links): the panel keeps only Open job; gate off keeps Open order / View DO / Open job", () => {
+  const e = ev();
+  assert.deepEqual(panelLinks(e, true).map((l) => [l.label, l.href]), [["Open job", "/portal/deliveries/1"]]);
+  assert.deepEqual(panelLinks(e, false).map((l) => l.label), ["Open order", "View DO", "Open job"]);
+  assert.deepEqual(panelLinks(e).map((l) => l.label), ["Open order", "View DO", "Open job"]);
+  // A misc / quick job keeps its DO row (a link) in the numbered rows.
+  const misc = ev({ orderNumber: null, orderHref: null, quotationNumber: null, quotationHref: null });
+  assert.deepEqual(panelRefs(misc, true).rows.map((r) => [r.label, r.href]), [["DO", "/portal/documents/DELIVERY_ORDER/t/d1"]]);
+  assert.deepEqual(panelLinks(misc, true).map((l) => l.label), ["Open job"]);
+  // Group view: a member's child job keeps Open job; a view-only one has none; SiteClock stays.
+  assert.deepEqual(panelLinks(ev({ orgId: "c", orgName: "WCT Racking", foreign: true }), true).map((l) => l.label), ["Open job"]);
+  assert.deepEqual(panelLinks(ev({ orgId: "c", orgName: "BC Air", foreign: true, viewOnly: true }), true), []);
+  assert.deepEqual(panelLinks(ev({ source: "siteclock", href: null, siteclockUrl: "https://sc" }), true).map((l) => l.label), ["Open in SiteClock"]);
+});

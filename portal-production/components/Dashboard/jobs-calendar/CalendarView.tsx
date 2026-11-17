@@ -397,7 +397,8 @@ function EventCard({
   const cross = crossOrgTarget(e);
   const openCross = cross && onCrossOrg ? (href: string) => onCrossOrg(cross, href) : undefined;
   const company = orgLabel(e);
-  const links = byPtw ? panelLinks(e) : null;
+  // Calendar add on: the Order / DO numbers are links, so the buttons keep only Open job.
+  const links = byPtw ? panelLinks(e, linkRefs) : null;
   // WCT calendar add: numbered Order / Quotation / DO links and the title to the order (null = as before).
   const refs = byPtw ? panelRefs(e, linkRefs) : null;
   return (

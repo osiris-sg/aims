@@ -255,14 +255,19 @@ export function eventClickTarget(e: Pick<CalendarEvent, "source" | "orderHref" |
 
 /**
  * WCT details panel: the links in order, order > DO > job; a SiteClock job
- * opens in SiteClock (read only in AIMS).
+ * opens in SiteClock (read only in AIMS). `numbered` (calendar add gate, where
+ * the panel's Order / DO numbers are links, 2026-11-17): no "Open order" /
+ * "View DO" buttons, only "Open job".
  */
-export function panelLinks(e: Pick<CalendarEvent, "source" | "orderHref" | "doHref" | "href" | "siteclockUrl" | "viewOnly">): Array<{ label: string; href: string; external: boolean }> {
+export function panelLinks(
+  e: Pick<CalendarEvent, "source" | "orderHref" | "doHref" | "href" | "siteclockUrl" | "viewOnly">,
+  numbered = false,
+): Array<{ label: string; href: string; external: boolean }> {
   if (e.viewOnly) return [];
   if (e.source === "siteclock") return e.siteclockUrl ? [{ label: "Open in SiteClock", href: e.siteclockUrl, external: true }] : [];
   return [
-    ...(e.orderHref ? [{ label: "Open order", href: e.orderHref, external: false }] : []),
-    ...(e.doHref ? [{ label: "View DO", href: e.doHref, external: false }] : []),
+    ...(e.orderHref && !numbered ? [{ label: "Open order", href: e.orderHref, external: false }] : []),
+    ...(e.doHref && !numbered ? [{ label: "View DO", href: e.doHref, external: false }] : []),
     ...(e.href ? [{ label: "Open job", href: e.href, external: false }] : []),
   ];
 }
