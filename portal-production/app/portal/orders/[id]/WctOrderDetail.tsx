@@ -108,7 +108,7 @@ const INVOICE_STATUS: Record<string, string> = { draft: "Draft", unconfirmed: "D
 // "Sent" only when the invoice was actually emailed (the API's `emailed`).
 const invoiceStatusLabel = (inv: { status: string; emailed?: boolean; extra?: boolean; cancelled?: boolean }) => {
   // Voided with the cancelled order (2026-11-17).
-  if (inv.cancelled) return "Cancelled";
+  if (inv.cancelled) return "Voided";
   const base = inv.status === "pending_payment" && inv.emailed ? "Sent, awaiting payment" : INVOICE_STATUS[inv.status] ?? inv.status;
   // An invoice for lines added to a DO on top of the quotation (2026-11-16).
   if (!inv.extra) return base;

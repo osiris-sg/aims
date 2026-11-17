@@ -1,3 +1,4 @@
+import { isVoidedWithOrder } from '../orders/order-cancel';
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { refreshOrderStatus } from '../orders/wct-orders';
 import { PrismaService } from '../common/prisma.service';
@@ -35,6 +36,8 @@ export class PaymentsService {
       if (!document) {
         throw new HttpException('Invoice not found', HttpStatus.NOT_FOUND);
       }
+      // A draft invoice voided with its cancelled order (orders/order-cancel.ts) takes no payment.
+      if (isVoidedWithOrder(document.config)) throw new HttpException(`${document.name ?? 'This invoice'} was voided with its cancelled order.`, HttpStatus.BAD_REQUEST);
 
       // No-draft model: a SAVED invoice is already in the GL/AR and can take
       // payments. Only block documents that were never posted (unsaved legacy

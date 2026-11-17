@@ -18,7 +18,7 @@ import { JournalService } from '../journal/journal.service';
 import { OrdersService } from '../orders/orders.service';
 import { DocumentTemplatesService } from '../documentTemplates/documentTemplates.service';
 import { runAsOrg } from '../common/tenancy/tenant-context';
-import { isVoidedWithOrder } from '../orders/order-cancel';
+import { isVoidedWithOrder, voidedWithOrderIds } from '../orders/order-cancel';
 import { DocumentNumberingService, splitPartNamesAmong } from '../document-numbering/document-numbering.service';
 import { SendInvoiceEmailDto } from '../email/dto/send-invoice-email.dto';
 import { S3Service } from 'src/common/services/s3.service';
@@ -4295,6 +4295,18 @@ export class DocumentsService {
       if (opts.documentTypes?.length) where.type = { in: opts.documentTypes };
       else if (opts.excludeTypes?.length) where.type = { notIn: opts.excludeTypes };
       if (opts.templateId) where.documentTemplateId = opts.templateId;
+
+      // Invoices voided with a cancelled order (orders/order-cancel.ts, manual order flow): out of the
+      // default list, and the only rows under the "Voided" status filter. No such rows = no change.
+      {
+        const asked = (Array.isArray(opts.status) ? opts.status : [opts.status]).filter(Boolean) as string[];
+        const voidedIds = await voidedWithOrderIds(this.prisma, organizationId);
+        if (asked.includes('voided')) {
+          and.push({ id: { in: voidedIds } });
+          const rest = asked.filter((x) => x !== 'voided');
+          opts = { ...opts, status: rest.length ? rest : undefined };
+        } else if (voidedIds.length) and.push({ id: { notIn: voidedIds } });
+      }
 
       if (opts.status) {
         const all = (Array.isArray(opts.status) ? opts.status : [opts.status]).filter(Boolean);

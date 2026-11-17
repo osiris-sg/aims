@@ -275,7 +275,7 @@ export function hubSteps(order: {
         label: i.name || "Invoice",
         // An invoice for lines added to a DO on top of the quotation (2026-11-16).
         // Voided with the cancelled order (2026-11-17).
-        status: i.cancelled ? "Cancelled" : i.extra ? (i.status === "draft" || i.status === "unconfirmed" ? "Extra invoice draft" : `Extra invoice, ${invoiceStatusLabel(i.status).toLowerCase()}`) : invoiceStatusLabel(i.status),
+        status: i.cancelled ? "Voided" : i.extra ? (i.status === "draft" || i.status === "unconfirmed" ? "Extra invoice draft" : `Extra invoice, ${invoiceStatusLabel(i.status).toLowerCase()}`) : invoiceStatusLabel(i.status),
         href: i.href ?? docHref(i.type || "INVOICE", i.documentTemplateId, i.id),
       })),
     },

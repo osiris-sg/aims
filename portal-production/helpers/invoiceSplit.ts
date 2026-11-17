@@ -157,6 +157,6 @@ export function splitButtons(o: { enabled: boolean; isInvoice: boolean; saved: b
   if (!o.enabled || !o.isInvoice || !o.saved || !draft) return { split: false, undo: false };
   const c = o.config || {};
   const split = !!invoiceSplitOf(c);
-  const clean = !c.erpImport && !c.xeroInvoiceId && !(Number(o.paid) > 0) && !(Number(o.settledCount) > 0);
+  const clean = !c.erpImport && !c.xeroInvoiceId && !c.voided && !(Number(o.paid) > 0) && !(Number(o.settledCount) > 0);
   return { split: !split && clean, undo: split && clean };
 }

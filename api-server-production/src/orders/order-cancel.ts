@@ -33,3 +33,18 @@ export function voidedWithOrderConfig(config: any, orderNumber: string, at: stri
 
 /** True for an invoice voided with its order (it cannot be confirmed, sent, split or paid). */
 export const isVoidedWithOrder = (config: any): boolean => config?.cancelledWithOrder === true && config?.voided === true;
+
+/**
+ * Ids of the org's invoices voided with a cancelled order. The document lists
+ * hide them by default and show only them under the "Voided" status filter.
+ * Empty for every org that never cancelled such an order (no list change).
+ */
+export async function voidedWithOrderIds(prisma: any, organizationId: string): Promise<string[]> {
+  const rows: Array<{ id: string }> = await prisma.$queryRaw`
+    SELECT d.id FROM "Document" d
+    WHERE d."organizationId" = ${organizationId}
+      AND d.config ->> 'cancelledWithOrder' = 'true'
+      AND d.config ->> 'voided' = 'true'
+    LIMIT 5000`;
+  return rows.map((r) => r.id);
+}

@@ -2,6 +2,8 @@
 
 import React, { useState, useMemo } from "react";
 import { useGetDocumentsPaginated, useDeleteDocument } from "@/app/portal/hooks/api";
+import { invoiceStatusOptions } from "@/helpers/invoiceStatusOptions";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import type { FilterField } from "@/components/FilterDrawer";
@@ -65,12 +67,6 @@ const SALES_STATUS_OPTIONS = [
 
 // Invoices (guru 2026-11-14): never "Confirmed" — an invoice is Unconfirmed,
 // Awaiting Payment, Partially Paid or Paid.
-const INVOICE_STATUS_OPTIONS = [
-  { value: "unconfirmed", label: "Unconfirmed" },
-  { value: "pending_payment", label: "Awaiting Payment" },
-  { value: "partially_paid", label: "Partially Paid" },
-  { value: "paid", label: "Paid" },
-];
 const INVOICE_TYPES = new Set(["INVOICE", "TI", "TI2"]);
 
 const prettyDocType = (t: string) =>
@@ -141,10 +137,12 @@ export default function SalesDocumentList({
     sortDir: "desc",
   });
 
+  // "Voided" status filter: manual order flow only (invoices voided with a cancelled order).
+  const { isManualOrderFlowEnabled } = useOrganizationFeatures();
   const filterConfig: FilterField[] = useMemo(() => {
     const cfg: FilterField[] = [
       { type: "dateRange", key: "createdOn", label: "Created On" },
-      { type: "select", key: "status", label: "Status", options: documentTypes?.length && documentTypes.every((t) => INVOICE_TYPES.has(String(t).toUpperCase())) ? INVOICE_STATUS_OPTIONS : SALES_STATUS_OPTIONS },
+      { type: "select", key: "status", label: "Status", options: documentTypes?.length && documentTypes.every((t) => INVOICE_TYPES.has(String(t).toUpperCase())) ? invoiceStatusOptions(!!isManualOrderFlowEnabled) : SALES_STATUS_OPTIONS },
       // Server-search customer picker (orgs have thousands of customers).
       { type: "customer", key: "customerId", label: "Customer" },
     ];
@@ -153,7 +151,7 @@ export default function SalesDocumentList({
       cfg.push({ type: "select", key: "documentType", label: "Document Type", options: documentTypes.map((t) => ({ value: t, label: prettyDocType(t) })) });
     }
     return cfg;
-  }, [documentTypes]);
+  }, [documentTypes, isManualOrderFlowEnabled]);
 
   // Rows come back already filtered and paged by the server.
   const filteredDocuments = documents;

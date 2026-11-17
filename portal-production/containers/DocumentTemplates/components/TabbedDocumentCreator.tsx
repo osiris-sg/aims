@@ -180,6 +180,7 @@ import { storedTotalsFor } from "@/helpers/erpImport";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
 import InvoiceSplitDialog from "./InvoiceSplitDialog";
 import { splitButtons } from "@/helpers/invoiceSplit";
+import { isVoidedWithOrder } from "@/helpers/docStatus";
 
 // Helper to determine the parent route based on document type
 const getParentRoute = (docType: string): string => {
@@ -4951,6 +4952,8 @@ export default function TabbedDocumentCreator({
               {orderDocLine(existingData, documentType)}
             </Typography>
           )}
+          {/* Voided with its cancelled order (manual order flow, 2026-11-17): confirm / send / pay / split are refused. */}
+          {!isTemplateEditMode && isVoidedWithOrder((existingData as any)?.config) && <Chip size="small" color="error" variant="outlined" label="Voided" sx={{ fontWeight: 600 }} />}
         </Box>
         {/* Phone: the cluster must be allowed to shrink (flexShrink 0 sized it to
     full content width, so flexWrap never engaged and buttons ran off-screen). */}

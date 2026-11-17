@@ -43,12 +43,6 @@ import type { FilterField } from "@/components/FilterDrawer";
 // path produced). Customer is appended at runtime.
 // Invoices (guru 2026-11-14): never "Confirmed" — Unconfirmed, Awaiting
 // Payment, Partially Paid or Paid, nothing else.
-const INVOICE_STATUS_OPTIONS = [
-  { value: "unconfirmed", label: "Unconfirmed" },
-  { value: "pending_payment", label: "Awaiting Payment" },
-  { value: "partially_paid", label: "Partially Paid" },
-  { value: "paid", label: "Paid" },
-];
 const INVOICE_TYPE_SET = new Set(["INVOICE", "TI", "TI2"]);
 const DOC_STATUS_OPTIONS = [
   { value: "unconfirmed", label: "Unconfirmed" },
@@ -65,6 +59,7 @@ const DOC_STATUS_OPTIONS = [
 import { useCreateDocumentFlow } from "./useCreateDocumentFlow";
 import { docGrossTotal, docPaidToDate, docAmountDue } from "@/helpers/docTotal";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { invoiceStatusOptions } from "@/helpers/invoiceStatusOptions";
 import DoStatusTag from "@/components/DoStatusTag";
 import { docDoTag } from "@/helpers/doStatusTag";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
@@ -228,7 +223,7 @@ export default function DocumentListView({
   });
 
   // Real DO numbers (enableRealDoOnSchedule): a DO shows Pending / Completed / Cancelled next to its number.
-  const { isRealDoOnScheduleEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
+  const { isRealDoOnScheduleEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled } = useOrganizationFeatures();
   // WCT orders hub (2026-11-13): a quotation's order number, linked, in the Quotations list.
   const showOrderColumn = !!isWctOrdersEnabled && documentTypes.some((t) => ["QUOTATION", "QO", "QO1", "QO2", "QT"].includes(t));
   const [ordersByQuotation, setOrdersByQuotation] = useState<Map<string, { id: string; orderNumber: string }>>(new Map());
@@ -249,11 +244,12 @@ export default function DocumentListView({
   const filterConfig: FilterField[] = useMemo(
     () => [
       { type: "dateRange", key: "createdOn", label: "Created On" },
-      { type: "select", key: "status", label: "Status", options: documentTypes.length && documentTypes.every((t) => INVOICE_TYPE_SET.has(String(t).toUpperCase())) ? INVOICE_STATUS_OPTIONS : DOC_STATUS_OPTIONS },
+      // "Voided" (manual order flow only): invoices voided with a cancelled order, hidden from the default list.
+      { type: "select", key: "status", label: "Status", options: documentTypes.length && documentTypes.every((t) => INVOICE_TYPE_SET.has(String(t).toUpperCase())) ? invoiceStatusOptions(!!isManualOrderFlowEnabled) : DOC_STATUS_OPTIONS },
       // Server-search customer picker (orgs have thousands of customers).
       { type: "customer", key: "customerId", label: "Customer" },
     ],
-    [documentTypes],
+    [documentTypes, isManualOrderFlowEnabled],
   );
 
   // Column-header sort → server sort field (name/status/createdAt only; the

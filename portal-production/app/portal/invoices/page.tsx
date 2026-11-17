@@ -20,7 +20,7 @@ import { useCustomerById } from "@/app/portal/hooks/api/useCustomerPicker";
 import { useRouter } from "next/navigation";
 import { useCreateDocumentFlow } from "@/app/portal/components/useCreateDocumentFlow";
 import moment from "moment";
-import StatusChip, { docDisplayStatus } from "@/components/StatusChip";
+import StatusChip, { docDisplayStatus, isVoidedWithOrder } from "@/components/StatusChip";
 import { toast } from "react-toastify";
 import { DOCUMENT_API } from "../documents/constants";
 import { ROUTES } from "@/routes";
@@ -483,7 +483,8 @@ export default function InvoicesPage() {
         token
       );
       if (response.success) {
-        const invoiceDocs = response.data.filter((doc: any) => doc.documentType === "INVOICE");
+        // Invoices voided with a cancelled order (manual order flow) are not in this list (none exist elsewhere).
+        const invoiceDocs = response.data.filter((doc: any) => doc.documentType === "INVOICE" && !isVoidedWithOrder(doc.config));
         setDocuments({
           docs: invoiceDocs,
           totalDocs: invoiceDocs.length,

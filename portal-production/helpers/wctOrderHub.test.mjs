@@ -265,9 +265,9 @@ test("manual flow (2026-11-17): no View DO / Confirm invoice next-step buttons; 
   assert.deepEqual(hubNextStep({ status: "DO_DRAFT" }), { primary: "schedule-do" });
 });
 
-test("an invoice voided with its cancelled order reads Cancelled", () => {
+test("an invoice voided with its cancelled order reads Voided", () => {
   const inv = hubSteps({ ...ORDER, status: "CANCELLED", invoices: [{ id: "i1", name: "INV1", status: "unconfirmed", cancelled: true, href: "/i" }] })[1];
-  assert.equal(inv.docs[0].status, "Cancelled");
+  assert.equal(inv.docs[0].status, "Voided");
 });
 
 test("links: every number goes to its own page", () => {
