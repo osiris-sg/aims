@@ -26,6 +26,14 @@ describe('quotation status', () => {
   });
 });
 
+describe('status mapping confirmed by Elroy (2026-11-18)', () => {
+  it('Confirmed with no order = Signed; emailed (not signed) = Pending', () => {
+    expect(quotationStatus({ status: 'confirmed', orderStatus: null, signed: false })).toBe('Signed');
+    expect(quotationStatus({ status: 'unconfirmed', emailed: true, signed: false })).toBe('Pending');
+    expect(quotationStatus({ status: 'draft', emailed: true })).toBe('Pending');
+  });
+});
+
 describe('amount excl. GST', () => {
   it('nett - GST, else sub-total - discount, else lines - discount', () => {
     expect(amountExclGst({ nettTotal: '3424', gstAmount: '224', subTotal: '3200' })).toBe(3200);

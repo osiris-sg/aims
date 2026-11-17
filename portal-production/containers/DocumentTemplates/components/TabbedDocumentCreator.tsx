@@ -7979,22 +7979,6 @@ export default function TabbedDocumentCreator({
                       )}
                     </Box>
 
-                    {/* Remarks (enableDocRemarks, WCT group 2026-11-18): invoice + DO, under the
-                        lines; prints below the totals, above the terms (config.remarks; empty = not printed). */}
-                    {showDocRemarks && (
-                      <Box sx={{ px: 1, pt: 1 }} data-tour="doc-remarks">
-                        <TextField
-                          fullWidth
-                          label="Remarks"
-                          value={formData.remarks || ""}
-                          onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
-                          multiline
-                          minRows={2}
-                          size="small"
-                        />
-                      </Box>
-                    )}
-
                     {/* Fixed bottom section with Totals — hidden, totals already
                         surfaced in the General fields' right column. Kept as a
                         no-op so the JSX/expression scopes below are preserved. */}
@@ -8210,6 +8194,23 @@ export default function TabbedDocumentCreator({
                     {...readOnlyShield(confirmedReadOnly)}
                     sx={{ height: "100%", ...(readOnlyShield(confirmedReadOnly).sx || {}) }}
                   >
+                    {/* Remarks (enableDocRemarks, WCT group; Elroy 2026-11-18): invoice + DO, at the TOP of the
+                        Footer tab, above Notes and the T&Cs (both editor layouts share this tab). Prints below
+                        the totals, above the terms (config.remarks; empty = not printed). */}
+                    {showDocRemarks && (
+                      <Grid item xs={12} data-tour="doc-remarks">
+                        <TextField
+                          fullWidth
+                          label="Remarks"
+                          value={formData.remarks || ""}
+                          onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                          multiline
+                          minRows={2}
+                          size="small"
+                        />
+                      </Grid>
+                    )}
+
                     {/* Notes - for all types */}
                     <Grid item xs={12} md={documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? 12 : 6} sx={{ display: "flex", flexDirection: "column" }}>
                       <Typography variant="caption" sx={{ mb: 0.5, color: "text.secondary" }}>Notes</Typography>
