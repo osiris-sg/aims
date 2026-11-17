@@ -78,7 +78,9 @@
     "commissionHelp": "Applied to new projects they run",
     "target": "Yearly Sales Target (S$)",
     "targetPh": "e.g. 500000",
-    "targetHelp": "Contract value signed per year — drives the dashboard target bar"
+    "targetHelp": "Contract value signed per year — drives the dashboard target bar",
+    "primary": "Primary",
+    "makePrimary": "Make primary"
   },
   "teams": {
     "title": "Teams",

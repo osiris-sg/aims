@@ -11,6 +11,8 @@ import { toast } from "react-toastify";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import PersonAddIcon from "@mui/icons-material/PersonAdd";
+import RoleChips from "./RoleChips";
+import { applySelect, makePrimary, rolePayload, singleRolePicker } from "@/helpers/multiRole";
 
 interface Props {
   open: boolean;
@@ -48,7 +50,9 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
   const { getToken } = useAuth();
   const [roles, setRoles] = useState<Role[]>([]);
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
-  const { isRolePresetsEnabled } = useOrganizationFeatures();
+  const { isRolePresetsEnabled, isMultiRoleEnabled } = useOrganizationFeatures();
+  // Multi-role orgs (enableMultiRole): several roles, the first chosen is Primary.
+  const single = singleRolePicker(isRolePresetsEnabled, isMultiRoleEnabled);
   const visibleRoles = isRolePresetsEnabled ? roles.filter(isPresetRole) : roles;
   const [error, setError] = useState<string>("");
   const [showPassword, setShowPassword] = useState(false);
@@ -121,7 +125,7 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
         ...(data.email?.trim() ? { email: data.email.trim() } : {}),
         ...(data.mobile?.trim() ? { phone: data.mobile.trim() } : {}),
         ...(data.password?.trim() ? { password: data.password.trim() } : {}),
-        roleIds: selectedRoles,
+        ...rolePayload(selectedRoles, isMultiRoleEnabled),
         salesmanCode: data.salesmanCode || undefined,
         salesmanMobile: data.salesmanMobile || undefined,
       });
@@ -207,9 +211,11 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
               {t("createTitle")}
             </Typography>
           </Box>
-          <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            {t("createSub")}
-          </Typography>
+          {!isMultiRoleEnabled && (
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {t("createSub")}
+            </Typography>
+          )}
         </Box>
 
         {/* Form Content */}
@@ -346,19 +352,31 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
               <Grid item xs={12}>
                   <FormControl fullWidth>
                     <InputLabel id="select-roles-label">
-                      {isRolePresetsEnabled ? t("role") : t("selectRoles")}
+                      {single ? t("role") : t("selectRoles")}
                     </InputLabel>
                     <Select
                       labelId="select-roles-label"
                       id="select-roles"
-                      label={isRolePresetsEnabled ? t("role") : t("selectRoles")}
-                      multiple={!isRolePresetsEnabled}
-                      value={isRolePresetsEnabled ? (selectedRoles[0] ?? "") : selectedRoles}
+                      label={single ? t("role") : t("selectRoles")}
+                      multiple={!single}
+                      value={single ? (selectedRoles[0] ?? "") : selectedRoles}
                       onChange={(e) => {
                         const v = e.target.value as string | string[];
-                        setSelectedRoles(Array.isArray(v) ? v : v ? [v] : []);
+                        const next = Array.isArray(v) ? v : v ? [v] : [];
+                        setSelectedRoles((prev) => (isMultiRoleEnabled ? applySelect(prev, next) : next));
                       }}
-                      renderValue={(selected) => (
+                      renderValue={(selected) => isMultiRoleEnabled ? (
+                        <RoleChips
+                          selected={Array.isArray(selected) ? selected : [selected]}
+                          labelOf={(id) => {
+                            const role = roles.find((r) => r.id === id);
+                            return role ? presetLabel(role, t) : id;
+                          }}
+                          multi
+                          onDelete={handleRoleToggle}
+                          onMakePrimary={(id) => setSelectedRoles((prev) => makePrimary(prev, id))}
+                        />
+                      ) : (
                         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
                           {(Array.isArray(selected) ? selected : [selected]).filter(Boolean).map((value) => {
                             const role = roles.find((r) => r.id === value);

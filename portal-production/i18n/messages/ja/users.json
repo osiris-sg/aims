@@ -78,7 +78,9 @@
     "commissionHelp": "担当する新規プロジェクトに適用",
     "target": "年間売上目標（S$）",
     "targetPh": "例：500000",
-    "targetHelp": "年間の契約金額 — ダッシュボードの目標バーに反映"
+    "targetHelp": "年間の契約金額 — ダッシュボードの目標バーに反映",
+    "primary": "主",
+    "makePrimary": "主にする"
   },
   "teams": {
     "title": "チーム",

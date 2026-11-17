@@ -10,6 +10,7 @@ import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { AdminActor, PLATFORM_ADMIN_ROLE_WHERE } from '../auth/admin-scope';
 import { normEmail } from '../auth/active-org';
+import { multiRoleOn, orderPrimaryFirst, planRoleSave, primaryRoleIdOf, roleChangeSummary } from '../roles/multi-role';
 
 /** Edit User: the new email already belongs to another login. */
 export const EMAIL_TAKEN = 'That email is already used by another login';
@@ -99,8 +100,22 @@ export class UsersService {
       }
     }
 
+    // Multi-role orgs: a page is N PEOPLE with all their roles (paging role rows could split a
+    // person's roles across two pages, and Edit User would then save only half of them).
+    const multi = await multiRoleOn(this.prisma, organizationId);
+    let userRoles: any[];
+    let totalDocuments: number;
+    if (multi) {
+      const people = await this.prisma.userRole.findMany({ where: whereClause, distinct: ['userId'], orderBy: { createdAt: 'desc' }, select: { userId: true } });
+      const pageIds = people.slice(skip, skip + limit).map((p) => p.userId);
+      totalDocuments = people.length;
+      const rows = pageIds.length
+        ? await this.prisma.userRole.findMany({ where: { ...whereClause, userId: { in: pageIds } }, include: { role: { include: { permissions: true } } } })
+        : [];
+      userRoles = pageIds.flatMap((id) => orderPrimaryFirst(rows.filter((r) => r.userId === id)));
+    } else {
     // Get user roles for this organization only
-    const userRoles = await this.prisma.userRole.findMany({
+    userRoles = await this.prisma.userRole.findMany({
       where: whereClause,
       skip,
       take: limit,
@@ -114,7 +129,8 @@ export class UsersService {
       },
     });
 
-    const totalDocuments = await this.prisma.userRole.count({ where: whereClause });
+    totalDocuments = await this.prisma.userRole.count({ where: whereClause });
+    }
 
     // Group user roles by userId
     const userRolesByUserId: { [key: string]: UserRoleWithDetails[] } = {};
@@ -158,6 +174,8 @@ export class UsersService {
             whatsappPrefs: profile?.whatsappPrefs ?? null,
             commissionPct: profile?.commissionPct ?? null,
             yearlySalesTarget: profile?.yearlySalesTarget ?? null,
+            // Multi-role orgs: roles come primary first, and the primary is named.
+            ...(multi ? { primaryRoleId: firstRole.roleId } : {}),
             roles: roles.map((ur) => ({
               id: ur.role.id,
               name: ur.role.name,
@@ -179,6 +197,7 @@ export class UsersService {
             whatsappPrefs: profile?.whatsappPrefs ?? null,
             commissionPct: profile?.commissionPct ?? null,
             yearlySalesTarget: profile?.yearlySalesTarget ?? null,
+            ...(multi ? { primaryRoleId: firstRole.roleId } : {}),
             roles: roles.map((ur) => ({
               id: ur.role.id,
               name: ur.role.name,
@@ -253,6 +272,15 @@ export class UsersService {
   }
 
   async getUserRoles(userId: string, organizationId: string) {
+    // Multi-role orgs: only ACTIVE roles (a switched-off role must not open its menus),
+    // primary first and marked. Other orgs: exactly as before.
+    if (await multiRoleOn(this.prisma, organizationId)) {
+      const rows = await this.prisma.userRole.findMany({
+        where: { userId, organizationId, isActive: true },
+        include: { role: { include: { permissions: true } } },
+      });
+      return orderPrimaryFirst(rows).map((ur, i) => ({ ...ur.role, isPrimary: i === 0 }));
+    }
     const userRoles = await this.prisma.userRole.findMany({
       where: {
         userId,
@@ -312,8 +340,10 @@ export class UsersService {
       throw new NotFoundException('User already has this role in this organization');
     }
     if (existingUserRole) {
-      // A removed assignment (round AW keeps the row) comes back on re-assign.
-      const back = await this.prisma.userRole.update({ where: { id: existingUserRole.id }, data: { isActive: true }, include: { role: { include: { permissions: true } } } });
+      // A removed assignment (round AW keeps the row) comes back on re-assign. Multi-role
+      // orgs: it comes back as the newest role, so it never takes over as primary.
+      const reassigned = (await multiRoleOn(this.prisma, organizationId)) ? { assignedAt: new Date() } : {};
+      const back = await this.prisma.userRole.update({ where: { id: existingUserRole.id }, data: { isActive: true, ...reassigned }, include: { role: { include: { permissions: true } } } });
       ClerkAuthGuard.invalidateUser(userId);
       return back.role;
     }
@@ -492,6 +522,17 @@ export class UsersService {
       throw new NotFoundException(`User with ID ${userId} not found`);
     }
 
+    // Multi-role orgs (features.enableMultiRole): the roles before the save, for the plan and the Activity Log.
+    const multi = await multiRoleOn(this.prisma, organizationId);
+    const rolesBefore: Array<{ roleId: string; assignedAt: Date; createdAt: Date; id: string; name: string }> = multi
+      ? (
+          await this.prisma.userRole.findMany({
+            where: { userId, organizationId, isActive: true },
+            select: { id: true, roleId: true, assignedAt: true, createdAt: true, role: { select: { name: true } } },
+          })
+        ).map((r: any) => ({ id: r.id, roleId: r.roleId, assignedAt: r.assignedAt, createdAt: r.createdAt, name: r.role?.name ?? r.roleId }))
+      : [];
+
     // If roleIds are provided, verify they exist
     if (roleIds && roleIds.length > 0) {
       const roles = await this.prisma.role.findMany({
@@ -595,6 +636,23 @@ export class UsersService {
         },
       });
 
+      if (multi) {
+        // Multi-role org: the chosen set + a primary (earliest assignedAt, see roles/multi-role.ts).
+        const plan = planRoleSave(rolesBefore, roleIds, updateUserDto.primaryRoleId, new Date());
+        if (plan.deactivate.length) {
+          await this.prisma.userRole.updateMany({
+            where: { userId, organizationId, isActive: true, roleId: { in: plan.deactivate } },
+            data: { isActive: false },
+          });
+        }
+        for (const u of plan.upserts) {
+          await this.prisma.userRole.upsert({
+            where: { userId_roleId_organizationId: { userId, roleId: u.roleId, organizationId } },
+            update: { isActive: true, assignedAt: u.assignedAt },
+            create: { userId, roleId: u.roleId, organizationId, assignedAt: u.assignedAt },
+          });
+        }
+      } else {
       // Round AW: roles dropped in this org are marked inactive (rows kept);
       // the chosen ones are created or switched back on.
       await this.prisma.userRole.updateMany({
@@ -610,6 +668,7 @@ export class UsersService {
           }),
         ),
       );
+      }
     }
 
     // Access may have changed — drop the guard's cached roles so it takes effect now.
@@ -626,6 +685,32 @@ export class UsersService {
         },
       },
     });
+
+    if (multi) {
+      const after = orderPrimaryFirst(updatedUserRoles.filter((ur) => ur.organizationId === organizationId));
+      const nameOf = (rows: Array<{ roleId: string; name?: string; role?: { name: string } }>, id: string | null) => {
+        const r = rows.find((x) => x.roleId === id);
+        return r ? (r.name ?? r.role?.name ?? id) : null;
+      };
+      const before = orderPrimaryFirst(rolesBefore);
+      const primaryAfter = primaryRoleIdOf(after);
+      return {
+        id: userId,
+        email: primaryEmailOf(clerkUser),
+        phone: prettyPhone(primaryPhoneOf(clerkUser)),
+        name: displayNameOf(clerkUser),
+        primaryRoleId: primaryAfter,
+        roles: after.map((ur) => ({ id: ur.role.id, name: ur.role.name, description: ur.role.description, permissions: ur.role.permissions })),
+        createdAt: after[0]?.createdAt || new Date(),
+        updatedAt: new Date(),
+        roleChange: roleChangeSummary(
+          before.map((r) => r.name),
+          after.map((r) => r.role.name),
+          nameOf(before, primaryRoleIdOf(before)),
+          nameOf(after as any, primaryAfter),
+        ),
+      };
+    }
 
     return {
       id: userId,

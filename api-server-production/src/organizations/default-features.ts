@@ -172,6 +172,11 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // permissions — User Management shows only Users with a single Role
   // dropdown, and the Roles / Permissions editor is hidden. Default OFF.
   enableRolePresets: false,
+  // Multi-role users (WCT group 2026-11-17): Add / Edit User pick several roles (chips, one
+  // marked Primary); permissions and modules are the roles' union; the primary role is the
+  // one anything needing a single role uses (src/roles/multi-role.ts). Also drops the Edit
+  // User subtitle and puts the WhatsApp help in an (i) tooltip. Default OFF.
+  enableMultiRole: false,
   // LME feed (round AK, 2026-10-25): daily LME aluminium cash-settlement from Westmetall (07:00 JST) fills the empty
   // months of the org's LME table and keeps its own provisional month current; typed months are never changed; a
   // month turning final raises "revise CI / invoice" tasks. Only orgs with the SHIPMENTS module. Default OFF: while

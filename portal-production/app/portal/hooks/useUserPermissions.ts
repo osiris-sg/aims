@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
+import { rolesAllowModule, rolesHavePermission } from "@/helpers/multiRole";
 
 interface Permission {
   id: string;
@@ -71,25 +72,12 @@ export function useUserPermissions() {
     return userRoles.some((role) => role.permissions.some((permission) => permission.resource === "organizations" && (permission.action === "manage" || permission.action === "*")));
   };
 
-  const hasPermission = (resource: string, action: string) => {
-    return userRoles.some((role) => role.permissions.some((permission) => (permission.resource === resource || permission.resource === "*") && (permission.action === action || permission.action === "*")));
-  };
+  // The union of the user's roles (helpers/multiRole.ts; same rule for every org).
+  const hasPermission = (resource: string, action: string) => rolesHavePermission(userRoles, resource, action);
 
-  const isModuleAllowed = (moduleCode: string) => {
-    // If user has no roles, allow all (fallback)
-    if (userRoles.length === 0) return true;
-
-    // An empty allowedModules means the role grants ALL modules — so a user
-    // holding any unrestricted role (e.g. Management) sees everything, even if
-    // another of their roles (e.g. Designer) carries a restricted list.
-    if (userRoles.some((role) => (role.allowedModules ?? []).length === 0)) return true;
-
-    // Every role is restricted → module is allowed if any role grants it
-    const allAllowed = userRoles.flatMap((role) => role.allowedModules ?? []);
-
-    // Module is allowed if any role grants it
-    return allAllowed.includes(moduleCode);
-  };
+  // No roles, or any role with an empty allowedModules (e.g. Management), opens every
+  // module; otherwise a module is allowed if any role grants it.
+  const isModuleAllowed = (moduleCode: string) => rolesAllowModule(userRoles, moduleCode);
 
   return {
     userRoles,

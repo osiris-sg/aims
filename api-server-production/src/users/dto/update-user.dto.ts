@@ -53,6 +53,14 @@ export class UpdateUserDto {
   roleIds?: string[];
 
   @ApiProperty({
+    description: 'Multi-role orgs (features.enableMultiRole): which of roleIds is the primary role. Ignored elsewhere.',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  primaryRoleId?: string;
+
+  @ApiProperty({
     description: 'Organization ID of the user',
     example: 'org-uuid-1',
     required: false,

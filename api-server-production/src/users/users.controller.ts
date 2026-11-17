@@ -40,12 +40,19 @@ export class UsersController {
   @Post('members/add-member')
   @Permissions('users:create')
   @ApiOperation({ summary: "Add a person to the caller's organisation (email and/or mobile, names, roles, optional password)" })
-  addMember(
-    @Body() body: { email?: string; phone?: string; firstName?: string; lastName?: string; password?: string; roleIds?: string[]; salesmanCode?: string; salesmanMobile?: string },
+  async addMember(
+    @Body() body: { email?: string; phone?: string; firstName?: string; lastName?: string; password?: string; roleIds?: string[]; primaryRoleId?: string; salesmanCode?: string; salesmanMobile?: string },
     @UserOrganization() organization: { id: string; name: string },
     @Req() req: any,
   ) {
-    return this.memberships.addMember(body ?? {}, actorOf(req, organization.id));
+    const res: any = await this.memberships.addMember(body ?? {}, actorOf(req, organization.id));
+    // Multi-role orgs: the Activity Log row names the roles given and the primary.
+    if (res?.roleChange) {
+      req.actionLogResult = res.roleChange;
+      const { roleChange, ...rest } = res;
+      return rest;
+    }
+    return res;
   }
 
   // /set-password: a login whose password the admin set at Add user replaces it once
@@ -139,9 +146,16 @@ export class UsersController {
   @ApiResponse({ status: 404, description: 'User not found' })
   @ApiParam({ name: 'userId', description: 'The Clerk user ID to update' })
   @ApiBody({ type: UpdateUserDto })
-  updateUser(@Param('userId') userId: string, @Body() updateUserDto: UpdateUserDto, @UserOrganization() organization: { id: string; name: string }, @Req() req: any) {
+  async updateUser(@Param('userId') userId: string, @Body() updateUserDto: UpdateUserDto, @UserOrganization() organization: { id: string; name: string }, @Req() req: any) {
     // Round AW: the service pins a non-platform caller to their own org and its members.
-    return this.usersService.updateUser(userId, updateUserDto, actorOf(req, organization.id));
+    const res: any = await this.usersService.updateUser(userId, updateUserDto, actorOf(req, organization.id));
+    // Multi-role orgs: the Activity Log row says which roles were added / removed and the primary.
+    if (res?.roleChange) {
+      req.actionLogResult = res.roleChange;
+      const { roleChange, ...rest } = res;
+      return rest;
+    }
+    return res;
   }
 
   @Post('list')

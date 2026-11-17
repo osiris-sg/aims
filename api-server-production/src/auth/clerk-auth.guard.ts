@@ -6,6 +6,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { PERMISSIONS_KEY } from './decorators/permissions.decorator';
 import { PrismaService } from '../common/prisma.service';
+import { multiRoleUnionGrants } from '../roles/multi-role';
 import { Prisma } from '@prisma/client';
 
 // Selects defined once so the cached row types below stay in sync with the queries.
@@ -355,6 +356,9 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
         return true;
       }
     }
+
+    // Multi-role orgs (features.enableMultiRole): the roles together (src/roles/multi-role.ts).
+    if (await multiRoleUnionGrants(this.prisma, effectiveOrgId, relevantUserRoles.map((ur) => ur.role), requiredPermissions)) return true;
 
     dbg(`❌ Auth failed in ${Date.now() - authStart}ms (insufficient permissions)`);
     throw new ForbiddenException('User does not have sufficient permissions');

@@ -7,6 +7,7 @@ import { DEFAULT_MEMBERSHIP_ORDER, isEmail, normEmail, NOT_A_MEMBER_MESSAGE } fr
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { EmailService } from '../email/email.service';
 import { ActionLogService } from '../action-log/action-log.service';
+import { multiRoleOn, multiRoleOrgs, orderPrimaryFirst, planRoleSave, primaryRoleIdOf, roleChangeSummary } from '../roles/multi-role';
 
 /** What the Add user form sends (owner 2026-11-03: email and/or SG mobile, names, roles, optional password). */
 export type AddMemberInput = {
@@ -16,6 +17,8 @@ export type AddMemberInput = {
   lastName?: string | null;
   password?: string | null;
   roleIds?: string[];
+  /** Multi-role orgs (features.enableMultiRole): which of roleIds is primary (default: the first chosen). */
+  primaryRoleId?: string | null;
   // This org's membership (the drawer's Salesman Code / Salesman Mobile), not the login.
   salesmanCode?: string | null;
   salesmanMobile?: string | null;
@@ -123,6 +126,18 @@ export class MembershipsService {
       ids.length ? this.prisma.userRole.findMany({ where: { userId, isActive: true, organizationId: { in: ids } }, select: { organizationId: true, role: { select: { name: true } } } }) : [],
       ids.length ? this.prisma.notification.groupBy({ by: ['organizationId'], where: { userId, readAt: null, organizationId: { in: ids } }, _count: { _all: true } }) : [],
     ]);
+    // Multi-role orgs: that org's roles primary first (the switcher's label leads with it).
+    const multi = await multiRoleOrgs(this.prisma, ids);
+    const primaryFirst = multi.size
+      ? await this.prisma.userRole.findMany({ where: { userId, isActive: true, organizationId: { in: [...multi] } }, select: { id: true, roleId: true, organizationId: true, assignedAt: true, createdAt: true, role: { select: { name: true } } } })
+      : [];
+    const rolesOf = (orgId: string) =>
+      multi.has(orgId)
+        ? orderPrimaryFirst((primaryFirst as any[]).filter((x) => x.organizationId === orgId)).map((x: any) => x.role?.name).filter(Boolean)
+        : (roles as any[])
+            .filter((x) => x.organizationId === orgId)
+            .map((x) => x.role?.name)
+            .filter(Boolean);
     const unreadBy = new Map((unread as any[]).map((u) => [u.organizationId, u._count._all]));
     return {
       isOsirisAdmin,
@@ -134,10 +149,7 @@ export class MembershipsService {
           id: r.organization.id,
           name: r.organization.name,
           logo: r.organization.logo ?? null,
-          roles: (roles as any[])
-            .filter((x) => x.organizationId === r.organizationId)
-            .map((x) => x.role?.name)
-            .filter(Boolean),
+          roles: rolesOf(r.organizationId),
           unreadNotifications: unreadBy.get(r.organizationId) ?? 0,
           lastActiveAt: r.lastActiveAt,
         })),
@@ -203,6 +215,29 @@ export class MembershipsService {
       update: { isActive: true, salesmanCode, salesmanMobile },
       create: { userId, organizationId, isActive: true, salesmanCode: salesmanCode ?? null, salesmanMobile: salesmanMobile ?? null },
     });
+    let roleChange: ReturnType<typeof roleChangeSummary> | undefined;
+    if (await multiRoleOn(this.prisma, organizationId)) {
+      // Multi-role org: the roles in the order chosen, the primary first (see roles/multi-role.ts).
+      // A person already in the org keeps their roles; the new ones are added.
+      const current = await this.prisma.userRole.findMany({
+        where: { userId, organizationId, isActive: true },
+        select: { id: true, roleId: true, assignedAt: true, createdAt: true, role: { select: { name: true } } },
+      });
+      const keep = current.map((r: any) => r.roleId).filter((id: string) => !ids.includes(id));
+      const plan = planRoleSave(current as any, [...ids, ...keep], input?.primaryRoleId ?? (current.length ? null : ids[0]), new Date());
+      for (const u of plan.upserts) {
+        await this.prisma.userRole.upsert({
+          where: { userId_roleId_organizationId: { userId, roleId: u.roleId, organizationId } },
+          update: { isActive: true, assignedAt: u.assignedAt },
+          create: { userId, roleId: u.roleId, organizationId, assignedAt: u.assignedAt },
+        });
+      }
+      const names = new Map<string, string>((await this.prisma.role.findMany({ where: { id: { in: [...ids, ...keep] }, organizationId }, select: { id: true, name: true } })).map((r: any) => [r.id, r.name]));
+      const before = orderPrimaryFirst(current as any[]);
+      const nameOf = (id: string | null) => (id ? names.get(id) ?? id : null);
+      const afterIds = [plan.primaryRoleId, ...[...ids, ...keep].filter((id) => id !== plan.primaryRoleId)];
+      roleChange = roleChangeSummary(before.map((r: any) => nameOf(r.roleId)!), afterIds.map((id) => nameOf(id)!), nameOf(primaryRoleIdOf(before as any)), nameOf(plan.primaryRoleId));
+    } else {
     for (const r of roles) {
       await this.prisma.userRole.upsert({
         where: { userId_roleId_organizationId: { userId, roleId: r.id, organizationId } },
@@ -210,9 +245,10 @@ export class MembershipsService {
         create: { userId, roleId: r.id, organizationId },
       });
     }
+    }
     ClerkAuthGuard.invalidateUser(userId);
     if (created && email) await this.sendSetPasswordEmail(email, userId, org.name, !!password);
-    return { ok: true, message: ADD_MEMBER_REPLY(memberLabel(email, phone), org.name) };
+    return { ok: true, message: ADD_MEMBER_REPLY(memberLabel(email, phone), org.name), ...(roleChange ? { roleChange } : {}) };
   }
 
   /** The old email-only call (kept for the old path). */

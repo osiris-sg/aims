@@ -7,6 +7,7 @@ import { useAuth } from "@clerk/nextjs";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import PersonIcon from "@mui/icons-material/Person";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 interface Props {
   open: boolean;
@@ -28,6 +29,8 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  // Multi-role orgs (enableMultiRole, WCT group): no subtitle under the heading.
+  const { isMultiRoleEnabled } = useOrganizationFeatures();
 
   const {
     control,
@@ -226,9 +229,11 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
               Edit User
             </Typography>
           </Box>
-          <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            Update user information, email, password, and role assignments
-          </Typography>
+          {!isMultiRoleEnabled && (
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              Update user information, email, password, and role assignments
+            </Typography>
+          )}
         </Box>
 
         {/* Form Content */}

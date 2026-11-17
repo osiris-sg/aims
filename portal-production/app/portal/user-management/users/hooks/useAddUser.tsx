@@ -9,6 +9,7 @@ interface CreateUserData {
   phone?: string;
   password?: string;
   roleIds: string[];
+  primaryRoleId?: string;
   salesmanCode?: string;
   salesmanMobile?: string;
 }

@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select, MenuItem, Chip, Alert, IconButton, InputAdornment, TextField, Switch, FormControlLabel, Divider , alpha } from "@mui/material";
+import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select, MenuItem, Chip, Alert, IconButton, InputAdornment, TextField, Switch, FormControlLabel, Divider, Tooltip, alpha } from "@mui/material";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import RoleChips from "./RoleChips";
+import { applySelect, makePrimary, rolePayload, selectionFromUser, singleRolePicker } from "@/helpers/multiRole";
 
 // WhatsApp shipments assistant (round S): per-user pushes. Mirrors the API defaults.
 type WaPrefs = { digest: boolean; needsMe: boolean; filed: boolean; events: boolean; quietFrom: string; quietTo: string; lang: "en" | "ja" };
@@ -53,7 +56,10 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
   // Commission % and the yearly sales target feed the ID-firm screens
   // (ID quotations + the ID project page's target bar), so they belong to the
   // orgs running that flow — CIEL today (guru 2026-10-28).
-  const { isRolePresetsEnabled, isIdQuotationEnabled } = useOrganizationFeatures();
+  const { isRolePresetsEnabled, isIdQuotationEnabled, isMultiRoleEnabled } = useOrganizationFeatures();
+  // Multi-role orgs (enableMultiRole): several roles, the first one Primary; preset orgs
+  // without it keep the single Role dropdown.
+  const single = singleRolePicker(isRolePresetsEnabled, isMultiRoleEnabled);
   // The WhatsApp digest block belongs to the shipments assistant (it talks about
   // ETAs, permits, free time and Japan quiet hours), so only orgs that run the
   // Shipments module see it — everyone else just gets the identity fields
@@ -132,14 +138,13 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
       setValue("password", ""); // Don't pre-fill password for security
 
       // Set selected roles
-      const roleIds = user.roles?.map((role: any) => role.id) || [];
-      setSelectedRoles(roleIds);
+      setSelectedRoles(isMultiRoleEnabled ? selectionFromUser(user) : user.roles?.map((role: any) => role.id) || []);
       setWhatsappNumber(user.whatsappNumber || "");
       setWaPrefs(waPrefsOf(user.whatsappPrefs));
       setCommissionPct(user.commissionPct != null ? String(user.commissionPct) : "");
       setYearlySalesTarget(user.yearlySalesTarget != null ? String(user.yearlySalesTarget) : "");
     }
-  }, [user, open, setValue]);
+  }, [user, open, setValue, isMultiRoleEnabled]);
 
   const updateUser = async (userData: any) => {
     setLoading(true);
@@ -179,9 +184,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
 
     setError("");
     try {
-      const updateData: any = {
-        roleIds: selectedRoles,
-      };
+      const updateData: any = rolePayload(selectedRoles, isMultiRoleEnabled);
 
       // Only include fields that have values and are not empty
       if (data.firstName && data.firstName.trim()) {
@@ -286,9 +289,11 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
               {t("editTitle")}
             </Typography>
           </Box>
-          <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            {t("editSub")}
-          </Typography>
+          {!isMultiRoleEnabled && (
+            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+              {t("editSub")}
+            </Typography>
+          )}
         </Box>
 
         {/* Form Content */}
@@ -364,8 +369,21 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                     value={whatsappNumber}
                     onChange={(e) => setWhatsappNumber(e.target.value)}
                     placeholder={t("whatsappPh")}
-                    helperText={t("whatsappHelp")}
+                    helperText={isMultiRoleEnabled ? undefined : t("whatsappHelp")}
                     inputProps={{ inputMode: "tel" }}
+                    InputProps={
+                      isMultiRoleEnabled
+                        ? {
+                            endAdornment: (
+                              <InputAdornment position="end">
+                                <Tooltip title={t("whatsappHelp")}>
+                                  <InfoOutlinedIcon fontSize="small" sx={{ color: "text.secondary", cursor: "help" }} data-testid="user-whatsapp-info" />
+                                </Tooltip>
+                              </InputAdornment>
+                            ),
+                          }
+                        : undefined
+                    }
                     data-tour="user-whatsapp-number"
                   />
                 </Grid>
@@ -468,19 +486,31 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                 <Grid item xs={12}>
                   <FormControl fullWidth>
                     <InputLabel id="edit-roles-label">
-                      {isRolePresetsEnabled ? t("role") : t("selectRoles")}
+                      {single ? t("role") : t("selectRoles")}
                     </InputLabel>
                     <Select
                       labelId="edit-roles-label"
                       id="edit-roles"
-                      label={isRolePresetsEnabled ? t("role") : t("selectRoles")}
-                      multiple={!isRolePresetsEnabled}
-                      value={isRolePresetsEnabled ? (selectedRoles[0] ?? "") : selectedRoles}
+                      label={single ? t("role") : t("selectRoles")}
+                      multiple={!single}
+                      value={single ? (selectedRoles[0] ?? "") : selectedRoles}
                       onChange={(e) => {
                         const v = e.target.value as string | string[];
-                        setSelectedRoles(Array.isArray(v) ? v : v ? [v] : []);
+                        const next = Array.isArray(v) ? v : v ? [v] : [];
+                        setSelectedRoles((prev) => (isMultiRoleEnabled ? applySelect(prev, next) : next));
                       }}
-                      renderValue={(selected) => (
+                      renderValue={(selected) => isMultiRoleEnabled ? (
+                        <RoleChips
+                          selected={Array.isArray(selected) ? selected : [selected]}
+                          labelOf={(id) => {
+                            const role = roles.find((r) => r.id === id);
+                            return role ? presetLabel(role, t) : id;
+                          }}
+                          multi
+                          onDelete={handleRoleToggle}
+                          onMakePrimary={(id) => setSelectedRoles((prev) => makePrimary(prev, id))}
+                        />
+                      ) : (
                         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
                           {(Array.isArray(selected) ? selected : [selected]).filter(Boolean).map((value) => {
                             const role = roles.find((r) => r.id === value);
