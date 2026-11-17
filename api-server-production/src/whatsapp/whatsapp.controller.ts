@@ -583,14 +583,18 @@ export class WhatsAppController {
 
   // Damage report + replay for stored deliveries (admin). Replays are
   // idempotent — WhatsAppMessage is unique on waMessageId.
+  // Gated by whatsapp:manage like the rest of this controller's admin surface.
+  // They used to ask for 'organizations:manage', which no Permission row has
+  // ever defined in any org — so both endpoints 403'd for everyone, forever
+  // (guru 2026-11-17, from the boot audit).
   @Get('webhook-events/failed')
-  @Permissions('organizations:manage')
+  @Permissions('whatsapp:manage')
   listFailedWebhookEvents(@Query('limit') limit?: string) {
     return this.service.listFailedWebhookEvents(Number(limit) || 50);
   }
 
   @Post('webhook-events/replay')
-  @Permissions('organizations:manage')
+  @Permissions('whatsapp:manage')
   replayWebhookEvents(@Body() body: { limit?: number }) {
     return this.service.replayWebhookEvents(body?.limit || 100);
   }
