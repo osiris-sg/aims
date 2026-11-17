@@ -286,6 +286,11 @@ export default function DocumentListView({
   // directions (we raise one for a customer; a supplier raises one for us).
   // A list that is already scoped to one side doesn't need to say so on every
   // row; one that shows both does.
+  // Paid / Due sit beside Amount on INVOICE lists only — a quotation or a
+  // delivery order is not owed anything, so the columns would be dead weight
+  // (guru 2026-11-17, asking for them on /portal/sales/invoices).
+  const showPaidDue = documentTypes.length > 0 && documentTypes.every((t) => INVOICE_TYPE_SET.has(String(t).toUpperCase()));
+
   const twoSidedList =
     !counterparty &&
     documentTypes.some((t) => ["CREDIT_NOTE", "CN", "DEBIT_NOTE", "DN"].includes(String(t).toUpperCase()));
@@ -433,6 +438,45 @@ export default function DocumentListView({
         ) : "—";
       },
     },
+    ...(showPaidDue
+      ? [
+          {
+            accessorKey: "paid",
+            header: "Paid",
+            enableSorting: false, // JSON-derived (config), not server-sortable
+            nowrap: true,
+            align: "right",
+            pxWidth: 120,
+            cell: ({ row }: any) => {
+              const paid = docPaidToDate(row.original.config);
+              return paid ? (
+                <Box sx={{ fontVariantNumeric: "tabular-nums" }}>
+                  {paid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Box>
+              ) : "—";
+            },
+          },
+          {
+            accessorKey: "due",
+            header: "Due",
+            enableSorting: false,
+            nowrap: true,
+            align: "right",
+            pxWidth: 120,
+            cell: ({ row }: any) => {
+              const due = docAmountDue(row.original.config);
+              // Settled reads as a dash, not 0.00 — the eye should land on
+              // what is still owed.
+              if (!due) return "—";
+              return (
+                <Box sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, color: "warning.main" }}>
+                  {due.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </Box>
+              );
+            },
+          },
+        ]
+      : []),
     {
       accessorKey: "status",
       header: "Status",

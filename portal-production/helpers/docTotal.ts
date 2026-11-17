@@ -28,3 +28,29 @@ export function docGrossTotal(config: any): number {
   }
   return 0;
 }
+
+// What has been PAID on a document, and what is still DUE — the portal-side
+// mirror of api-server/src/common/document-money.ts. Same canonical keys
+// (paidToDate / outstandingBalance) with the same legacy fallbacks
+// (xeroAmountPaid / xeroBalance), and the same rule that matters:
+//
+//   an outstanding balance that was never stamped is NOT zero — it means no
+//   payment has been recorded, so the document is owed in FULL.
+//
+// Coercing that null to 0 is the bug that once emptied the Statement of
+// Accounts of a $154k unpaid invoice; it must not be repeated in a list.
+export function docPaidToDate(config: any): number {
+  const cfg = config || {};
+  if (cfg.voided) return 0;
+  return num(cfg.paidToDate) ?? num(cfg.xeroAmountPaid) ?? 0;
+}
+
+export function docAmountDue(config: any): number {
+  const cfg = config || {};
+  if (cfg.voided) return 0;
+  const stamped = num(cfg.outstandingBalance) ?? num(cfg.xeroBalance);
+  if (stamped !== null) return Math.max(0, stamped);
+  const gross = docGrossTotal(cfg);
+  const paid = docPaidToDate(cfg);
+  return Math.max(0, Math.round((gross - paid) * 100) / 100);
+}
