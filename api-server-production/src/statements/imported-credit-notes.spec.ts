@@ -70,6 +70,31 @@ describe('statement of account: credit notes in a Xero-imported account', () => 
   });
 });
 
+// The settlement line ("Payment / credits applied") stands in for money Xero
+// had already collected at migration, which has no payment row in AIMS. Since
+// October the office keys real receipts, so it must be netted against them per
+// INVOICE — asking the account-level "did anything here come from Xero?"
+// credited 20 Biofuel customers twice (guru 2026-11-17).
+const nativeInvoice = { id: 'ninv', name: 'BI202609020', type: 'INVOICE', documentTemplateId: 't', createdAt: new Date('2026-09-01'), config: { date: '2026-09-01', customerId: 'c1', totalWithTax: 6104, outstandingBalance: 0 } };
+
+describe('statement of account: the Xero settlement line', () => {
+  it('does not credit an invoice that was settled by a receipt keyed in AIMS', async () => {
+    const receipt = [{ id: 'p9', documentId: 'ninv', amount: 6104, paymentDate: new Date('2026-10-26'), paymentMethod: 'cheque', reference: 'SCBOR2610-048' }];
+    const d = await soa([xeroInvoice, nativeInvoice], receipt);
+    expect(d.transactions.filter((t: any) => String(t.description).startsWith('Payment / credits applied'))).toHaveLength(0);
+    expect(d.statement.currentBalance).toBe(1471.5);
+  });
+
+  it('still credits what the import settled, and only the part no receipt covers', async () => {
+    const part = { ...nativeInvoice, id: 'pinv', config: { ...nativeInvoice.config, xeroImported: true, outstandingBalance: 0 } };
+    const receipt = [{ id: 'p10', documentId: 'pinv', amount: 4000, paymentDate: new Date('2026-10-26'), paymentMethod: 'cheque', reference: 'REC-1' }];
+    const d = await soa([part], receipt);
+    const line = d.transactions.find((t: any) => String(t.description).startsWith('Payment / credits applied'));
+    expect(line.credit).toBe(2104);
+    expect(d.statement.currentBalance).toBe(0);
+  });
+});
+
 describe('confirming a document posts to the GL', () => {
   it('never for an imported credit note', () => {
     expect(confirmPostsToGl(true, 'CREDIT_NOTE', cn(true).config)).toBe(false);

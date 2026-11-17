@@ -56,6 +56,17 @@ export class StatementsService {
         orderBy: { paymentDate: 'asc' },
       });
       const isXero = docs.some((d) => (d.config as any)?.xeroImported);
+      // What each invoice has in RECORDED payment rows, whatever their date.
+      // The synthetic settlement line below is only for money that has no
+      // payment row of its own (what Xero had already collected at migration),
+      // so anything recorded here is subtracted from it — otherwise the
+      // statement credits the same money twice, once at the invoice's date and
+      // again on the day the receipt was keyed (guru 2026-11-17).
+      const recordedByDoc = new Map<string, number>();
+      for (const p of payments) {
+        if (!p.documentId) continue;
+        recordedByDoc.set(p.documentId, R((recordedByDoc.get(p.documentId) || 0) + Number(p.amount || 0)));
+      }
 
       // docId/docTypeKey/templateId ride along so the statement's Reference
       // cell can be a real link to the document (guru 2026-10-21). They are
@@ -103,13 +114,24 @@ export class StatementsService {
           const ref = documentReferenceOf(c);
           add(d, { date: d, reference: docRef(doc.type, doc.name || '(no #)'), description: ref || `Invoice ${doc.name || ''}`.trim(), docReference: ref || null, transactionType: 'INVOICE', debit: gross, credit: 0, balance: 0, documentType: 'INVOICE', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId, unconfirmed: isUnconfirmedDoc((doc as any).status) }, gross);
           const paid = R(gross - R(outstandingOf(c) ?? gross));
-          if (isXero && paid > 0.005) {
-            add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: `Payment / credits applied — ${doc.name || ''}`.trim(), transactionType: 'PAYMENT', debit: 0, credit: paid, balance: 0, documentType: 'PAYMENT', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId }, -paid);
+          // Settled before AIMS had the payment as a document of its own. The
+          // supplier statement has always done this per bill ("synthesize only
+          // when that bill has no payment rows"); the customer side used to ask
+          // the ACCOUNT-level question instead, so an invoice keyed in AIMS and
+          // receipted in AIMS was credited by this line AND by its receipt.
+          const settledElsewhere = R(Math.max(0, paid - (recordedByDoc.get(doc.id) || 0)));
+          if (isXero && settledElsewhere > 0.005) {
+            add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: `Payment / credits applied — ${doc.name || ''}`.trim(), transactionType: 'PAYMENT', debit: 0, credit: settledElsewhere, balance: 0, documentType: 'PAYMENT', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId }, -settledElsewhere);
           }
           // ERP-imported invoices (common/erp-import.ts): what was paid in the previous ERP has no
           // AIMS Payment row, so credit it here (the import-time balance, so payments recorded in
           // AIMS since are not counted twice; they come from the payments loop below).
-          const erpPaid = isXero ? 0 : erpPaidAtImport(c, gross);
+          // Per DOCUMENT, like every other decision here: erpPaidAtImport()
+          // already returns 0 for anything that did not come from an ERP, so
+          // the account-level `isXero ? 0 :` guard added nothing except the
+          // same trap as the credit notes — in an account holding both kinds
+          // of import it would have dropped the ERP credit (guru 2026-11-17).
+          const erpPaid = erpPaidAtImport(c, gross);
           if (erpPaid > 0.005) {
             add(d, { date: d, reference: docRef(doc.type, doc.name || ''), description: `Paid in previous system — ${doc.name || ''}`.trim(), transactionType: 'PAYMENT', debit: 0, credit: erpPaid, balance: 0, documentType: 'PAYMENT', docId: doc.id, docTypeKey: doc.type, templateId: doc.documentTemplateId }, -erpPaid);
           }
