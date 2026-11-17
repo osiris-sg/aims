@@ -28,7 +28,9 @@ export interface ErpStoredTotals {
 
 /** An imported document's stored totals from its saved config (null for any other document). */
 export function erpStoredTotalsOf(config: any): ErpStoredTotals | null {
-  if (!config?.erpImport?.source) return null;
+  // Also a Split payment part (config.invoiceSplit): the last part keeps the original's leftover GST cent.
+  const splitPart = !!config?.invoiceSplit && typeof config.invoiceSplit === "object" && typeof config.invoiceSplit.groupId === "string";
+  if (!config?.erpImport?.source && !splitPart) return null;
   const pick = (k: string) => {
     const v = config?.[k] ?? config?.documentInfo?.[k];
     const x = Number(v);

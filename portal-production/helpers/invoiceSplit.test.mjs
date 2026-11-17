@@ -83,3 +83,31 @@ test("toolbar buttons: draft only, not imported, not paid, not already split", (
   assert.deepEqual(splitButtons({ ...on, status: "confirmed", config: { invoiceSplit: { groupId: "a", part: 2, of: 2 } } }), { split: false, undo: false });
   assert.deepEqual(splitButtons({ ...on, isInvoice: false, status: "draft", config: {} }), { split: false, undo: false });
 });
+
+test("rounding: the parts' subtotal, GST and total add up to the invoice exactly (last part takes the cents)", async () => {
+  const { totalsOf } = await import("./invoiceSplit.ts");
+  const r = (n) => Math.round(n * 100) / 100;
+  for (const absorb of ["N", "Y"]) {
+    for (const amt of [0.11, 1.07, 10.01, 99.99, 101.01, 1234.57]) {
+      const cfg = { gstPercent: 9, absorbTax: absorb, items: [{ amount: amt }] };
+      const o = totalsOf(cfg.items, cfg);
+      for (const plan of [{ mode: "rate", parts: [33.33, 33.33, 33.34] }, { mode: "deposit", deposit: { percent: 30 }, parts: [50, 50] }]) {
+        const p = previewSplit(cfg, plan, B);
+        if (p.error) continue;
+        assert.deepEqual(
+          [r(p.parts.reduce((s, x) => s + x.subTotal, 0)), r(p.parts.reduce((s, x) => s + x.gstAmount, 0)), r(p.parts.reduce((s, x) => s + x.total, 0))],
+          [o.subTotal, o.gstAmount, o.nettTotal],
+        );
+      }
+    }
+  }
+});
+
+test("a split part keeps its stored totals in the editor while its line is unchanged (erpStoredTotalsOf)", async () => {
+  const { erpStoredTotalsOf, storedTotalsFor } = await import("./erpImport.ts");
+  const items = [{ amount: 33.34, quantity: 1, unitPrice: 33.34 }];
+  const part = { invoiceSplit: { groupId: "g", part: 3, of: 3 }, items, subTotal: 33.34, gstAmount: 2.99, nettTotal: 36.33 };
+  assert.equal(storedTotalsFor(erpStoredTotalsOf(part), items).gstAmount, 2.99);
+  assert.equal(storedTotalsFor(erpStoredTotalsOf(part), [{ amount: 40, quantity: 1, unitPrice: 40 }]), null);
+  assert.equal(erpStoredTotalsOf({ items, subTotal: 33.34, gstAmount: 2.99, nettTotal: 36.33 }), null); // any other invoice: unchanged
+});

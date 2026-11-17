@@ -1,6 +1,11 @@
 import { HttpException } from '@nestjs/common';
+import { computeDocumentTotals } from '../common/document-money';
+import { DocumentsService } from './documents.service';
 import {
   fmtMoney,
+  keepSplitPartTotals,
+  originalAccountNets,
+  splitGlRevenueLines,
   invoiceSplitOf,
   mergedBackConfig,
   partConfig,
@@ -125,14 +130,147 @@ describe('part config + undo snapshot', () => {
     expect([c.subTotal, c.gstAmount, c.nettTotal, c.totalWithTax, c.outstandingBalance, c.paidToDate]).toEqual([7000, 630, 7630, 7630, 7630, 0]);
     expect(invoiceSplitOf(c)).toMatchObject({ groupId: 'inv1', part: 2, of: 2 });
   });
-  it('undo puts the lines, totals and number back; header edits made since stay', () => {
-    const split = { ...partConfig(QUOTE_CFG, p.parts[0], ctx(0)), remarks: 'edited after split' };
-    const back = mergedBackConfig(split, restoreSnapshotOf(QUOTE_CFG));
-    expect(back.items).toEqual(QUOTE_CFG.items);
-    expect([back.subTotal, back.gstAmount, back.nettTotal, back.documentNumber]).toEqual([10000, 900, 10900, 'INV202611-0014']);
-    expect(back.totalWithTax).toBeUndefined(); // the original had no stamp: none is invented
+  it('undo restores the original invoice EXACTLY (byte-equal lines, money, tax, discount, number)', () => {
+    const original = {
+      ...QUOTE_CFG,
+      discountAmount: 500,
+      discountPercent: 5,
+      taxCode: 'SR',
+      totalWithTax: 10355,
+      items: QUOTE_CFG.items.map((l, i) => ({ ...l, taxCode: 'SR', discount: i, uom: 'lot', sortOrder: i })),
+      documentInfo: { gstPercent: 9, discountAmount: 500, subTotal: 9500, gstAmount: 855, nettTotal: 10355, documentNumber: 'INV202611-0014' },
+    };
+    const snapshot = restoreSnapshotOf(original);
+    const before = JSON.stringify(original);
+    const split = { ...partConfig(original, p.parts[0], ctx(0)), remarks: 'edited after split', orderJobIds: ['j1', 'j9'] };
+    const back = mergedBackConfig(split, snapshot);
+    expect(JSON.stringify(back.items)).toBe(JSON.stringify(original.items));
+    expect(JSON.stringify(back.documentInfo)).toBe(JSON.stringify(original.documentInfo));
+    // Everything as before the split, except the order's jobs a later step moved on part 1.
+    expect(back).toEqual({ ...original, orderJobIds: ['j1', 'j9'] });
     expect(back.invoiceSplit).toBeUndefined();
-    expect(back.remarks).toBe('edited after split');
+    expect(JSON.stringify(original)).toBe(before); // the snapshot is a copy: splitting never touched the original object
+  });
+  it('a snapshot from the first release ({ items, flat, documentInfo }) still merges back', () => {
+    const old = { items: QUOTE_CFG.items, flat: { subTotal: 10000, gstAmount: 900, nettTotal: 10900, documentNumber: 'INV202611-0014' }, documentInfo: {} };
+    const back = mergedBackConfig(partConfig(QUOTE_CFG, p.parts[0], ctx(0)), old);
+    expect(back.items).toEqual(QUOTE_CFG.items);
+    expect([back.nettTotal, back.documentNumber]).toEqual([10900, 'INV202611-0014']);
+  });
+});
+
+describe('rounding: the parts always add up to the original exactly', () => {
+  const sum = (parts: any[], k: string) => Math.round(parts.reduce((s, p) => s + p.totals[k], 0) * 100) / 100;
+  const orig = (cfg: any) => computeDocumentTotals(cfg.items, { gstPercent: cfg.gstPercent ?? 9, absorbTax: cfg.absorbTax ?? 'N', taxApplicable: 'Y' }, { discountAmount: cfg.discountAmount ?? 0 });
+  const plans: any[] = [
+    { mode: 'rate', parts: [33.33, 33.33, 33.34] },
+    { mode: 'rate', parts: [30, 70] },
+    { mode: 'rate', parts: [12.5, 12.5, 25, 50] },
+    { mode: 'deposit', deposit: { percent: 33.33 }, parts: [33.33, 66.67] },
+    { mode: 'deposit', deposit: { amount: 0.07 }, parts: [50, 50] },
+  ];
+  it.each(['N', 'Y'])('subtotal, GST and total sum to the original (absorbTax %s), awkward amounts', (absorb) => {
+    let lastDiffers = 0;
+    for (const amt of [0.11, 0.99, 1.07, 10.01, 33.33, 99.99, 100, 101.01, 1234.57, 9999.99]) {
+      const cfg = { gstPercent: 9, absorbTax: absorb, items: [{ amount: amt }] };
+      for (const plan of plans) {
+        let out;
+        try {
+          out = planInvoiceSplit(cfg, plan);
+        } catch {
+          continue; // too small to split that way: refused (tested below)
+        }
+        const o = orig(cfg);
+        expect([sum(out.parts, 'subTotal'), sum(out.parts, 'gstAmount'), sum(out.parts, 'nettTotal')]).toEqual([o.subTotal, o.gstAmount, o.nettTotal]);
+        for (const part of out.parts) expect(Math.round((part.totals.subTotal + part.totals.gstAmount) * 100) / 100).toBe(part.totals.nettTotal);
+        const last = out.parts[out.parts.length - 1];
+        if (last.totals.gstAmount !== computeDocumentTotals([{ amount: last.amount }], { gstPercent: 9, absorbTax: absorb }).gstAmount) lastDiffers++;
+      }
+    }
+    expect(lastDiffers).toBeGreaterThan(0); // the leftover GST cent really lands on the last part
+  });
+  it('3 x 33.33% of $100.00 + 9% GST: 36.33 / 36.33 / 36.34, GST 3.00 / 3.00 / 3.00', () => {
+    const out = planInvoiceSplit({ gstPercent: 9, items: [{ amount: 100 }] }, { mode: 'rate', parts: [33.33, 33.33, 33.34] });
+    expect(out.parts.map((x) => [x.totals.subTotal, x.totals.gstAmount, x.totals.nettTotal])).toEqual([
+      [33.33, 3, 36.33],
+      [33.33, 3, 36.33],
+      [33.34, 3, 36.34],
+    ]);
+  });
+  it('$0.01 invoice: refused, nothing to split into', () => {
+    expect(() => planInvoiceSplit({ gstPercent: 9, items: [{ amount: 0.01 }] }, { mode: 'rate', parts: [50, 50] })).toThrow('comes to $0.00');
+    const three = planInvoiceSplit({ gstPercent: 9, items: [{ amount: 0.03 }] }, { mode: 'rate', parts: [33.33, 33.33, 33.34] });
+    expect(three.parts.map((x) => x.totals.nettTotal)).toEqual([0.01, 0.01, 0.01]);
+  });
+  it('tax inclusive $100.00 split 3 ways: totals 33.33 / 33.33 / 33.34, GST sums to 8.26', () => {
+    const out = planInvoiceSplit({ gstPercent: 9, absorbTax: 'Y', items: [{ amount: 100 }] }, { mode: 'rate', parts: [33.33, 33.33, 33.34] });
+    expect(out.parts.map((x) => x.totals.nettTotal)).toEqual([33.33, 33.33, 33.34]);
+    expect(sum(out.parts, 'gstAmount')).toBe(8.26);
+  });
+});
+
+describe('GL: each part over the original revenue accounts', () => {
+  it('2 accounts split 30 / 70 (sample for the report)', () => {
+    const out = planInvoiceSplit(QUOTE_CFG, { mode: 'rate', parts: [30, 70] });
+    expect(out.parts.map((x) => x.glAllocation)).toEqual([
+      [
+        { accountCode: '4-2000', amount: 2400 },
+        { accountCode: '4-3000', amount: 600 },
+      ],
+      [
+        { accountCode: '4-2000', amount: 5600 },
+        { accountCode: '4-3000', amount: 1400 },
+      ],
+    ]);
+  });
+  it('awkward: per account, the parts sum exactly to the original; each part sums to its net', () => {
+    const cfg = {
+      gstPercent: 9,
+      discountAmount: 10,
+      items: [
+        { amount: 333.33, accountCode: 'A' },
+        { amount: 100.01, accountCode: 'B' },
+        { amount: 66.67, accountCode: 'A' },
+        { amount: 0.99, accountCode: 'C' },
+        { amount: 12.34 },
+      ],
+    };
+    for (const plan of [{ mode: 'rate', parts: [33.33, 33.33, 33.34] }, { mode: 'deposit', deposit: { amount: 123.45 }, parts: [40, 60] }] as any[]) {
+      const out = planInvoiceSplit(cfg, plan);
+      const accounts = originalAccountNets(cfg.items, computeDocumentTotals(cfg.items, { gstPercent: 9 }, { discountAmount: 10 }).subTotal)!;
+      for (const a of accounts) {
+        const total = Math.round(out.parts.reduce((s, x) => s + x.glAllocation!.find((l) => l.accountCode === a.accountCode)!.amount, 0) * 100) / 100;
+        expect(total).toBe(a.amount);
+      }
+      for (const x of out.parts) expect(Math.round(x.glAllocation!.reduce((s, l) => s + l.amount, 0) * 100) / 100).toBe(x.totals.subTotal);
+      expect(accounts.map((a) => a.accountCode)).toEqual(['A', 'B', 'C', null]);
+    }
+  });
+  it('no line accounts on the original: no allocation (posts like any invoice)', () => {
+    expect(planInvoiceSplit({ gstPercent: 9, items: [{ amount: 100 }] }, { mode: 'rate', parts: [50, 50] }).parts[0].glAllocation).toBeNull();
+  });
+  it('splitGlRevenueLines: only for a split part whose net still matches', () => {
+    const alloc = [{ accountCode: 'A', amount: 70 }, { accountCode: 'B', amount: 30 }];
+    expect(splitGlRevenueLines({ items: [] }, 100)).toBeNull();
+    expect(splitGlRevenueLines({ invoiceSplit: { groupId: 'g', part: 1, of: 2, glAllocation: alloc } }, 100)).toEqual(alloc);
+    expect(splitGlRevenueLines({ invoiceSplit: { groupId: 'g', part: 1, of: 2, glAllocation: alloc } }, 120)).toBeNull(); // line edited after the split
+  });
+  it('the part config carries its allocation', () => {
+    const out = planInvoiceSplit(QUOTE_CFG, { mode: 'rate', parts: [30, 70] });
+    const c = partConfig(QUOTE_CFG, out.parts[1], { number: 'X-2', groupId: 'g', of: 2, baseNumber: 'X', mode: 'rate', account: {} });
+    expect(c.invoiceSplit.glAllocation).toEqual(out.parts[1].glAllocation);
+  });
+});
+
+describe('editor saves keep a part\'s stored totals while its line is unchanged', () => {
+  const part = { invoiceSplit: { groupId: 'g', part: 3, of: 3 }, items: [{ amount: 33.34, quantity: 1, unitPrice: 33.34 }], subTotal: 33.34, gstAmount: 2.99, nettTotal: 36.33, documentInfo: { gstAmount: 2.99, nettTotal: 36.33 } };
+  it('kept for a split part', () => {
+    const next = keepSplitPartTotals(part, { items: [{ amount: 33.34, quantity: 1, unitPrice: 33.34 }], gstAmount: 3, nettTotal: 36.34, documentInfo: { gstAmount: 3, nettTotal: 36.34 } });
+    expect([next.gstAmount, next.nettTotal, next.documentInfo.gstAmount]).toEqual([2.99, 36.33, 2.99]);
+  });
+  it('recalculated once its line money changes; any other invoice untouched', () => {
+    expect(keepSplitPartTotals(part, { items: [{ amount: 40, quantity: 1, unitPrice: 40 }], gstAmount: 3.6 }).gstAmount).toBe(3.6);
+    expect(keepSplitPartTotals({ ...part, invoiceSplit: undefined }, { items: part.items, gstAmount: 3 }).gstAmount).toBe(3);
   });
 });
 
@@ -276,5 +414,39 @@ describe('splitInvoice / undoInvoiceSplit', () => {
     w.prisma.journalEntry.findMany = async () => [{ sourceDocumentId: out.parts[1].id, status: 'VOID' }];
     await expect(undoInvoiceSplit(w.prisma, 'org', 'inv1', undefined, w.logFn)).rejects.toThrow('ledger entry');
     expect(w.docs.size).toBe(2);
+  });
+});
+
+describe('posting path: split parts post over the original accounts, every other invoice as before', () => {
+  function svcFor(config: any) {
+    const prisma: any = {
+      organizationUIConfig: { findUnique: jest.fn(async () => ({ features: { postInvoicesOnConfirm: true } })) },
+      document: { findFirst: jest.fn(async () => ({ id: 'd', status: 'confirmed' })) },
+      organization: { findUnique: jest.fn(async () => ({ taxRate: 9 })) },
+    };
+    const journalAutoPost: any = { alreadyPostedForDocument: jest.fn(async () => null), postFromInvoice: jest.fn(async () => ({ id: 'je', journalNumber: 'JE-1' })) };
+    const svc: any = Object.create(DocumentsService.prototype);
+    Object.assign(svc, { prisma, journalAutoPost, journalService: { void: jest.fn() }, logDocumentEvent: jest.fn(async () => undefined) });
+    return { svc: svc as DocumentsService, journalAutoPost, config };
+  }
+  it('a split part: revenueLines = its allocation', async () => {
+    const out = planInvoiceSplit(QUOTE_CFG, { mode: 'rate', parts: [30, 70] });
+    const cfg = partConfig(QUOTE_CFG, out.parts[0], { number: 'INV-1', groupId: 'g', of: 2, baseNumber: 'INV', mode: 'rate', account: { accountCode: '4-2000' } });
+    const { svc, journalAutoPost } = svcFor(cfg);
+    await svc.repostGlForDocument('org', 'd', 'INVOICE', cfg, 'INV-1');
+    const args = journalAutoPost.postFromInvoice.mock.calls[0][0];
+    expect([args.netAmount, args.taxAmount, args.grossAmount]).toEqual([3000, 270, 3270]);
+    expect(args.revenueLines).toEqual([
+      { accountCode: '4-2000', amount: 2400 },
+      { accountCode: '4-3000', amount: 600 },
+    ]);
+  });
+  it('any other invoice: revenueLines from its lines, exactly as before', async () => {
+    const { svc, journalAutoPost } = svcFor(QUOTE_CFG);
+    await svc.repostGlForDocument('org', 'd', 'INVOICE', QUOTE_CFG, 'INV');
+    expect(journalAutoPost.postFromInvoice.mock.calls[0][0].revenueLines).toEqual([
+      { accountCode: '4-2000', amount: 8000 },
+      { accountCode: '4-3000', amount: 2000 },
+    ]);
   });
 });

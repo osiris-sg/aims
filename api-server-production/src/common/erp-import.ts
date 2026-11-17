@@ -70,9 +70,15 @@ export interface ErpStoredTotals {
   outstanding?: number | null;
 }
 
-/** An imported document's stored totals (null for any other document). */
+/**
+ * An imported document's stored totals (null for any other document). Also a
+ * Split payment part (config.invoiceSplit, 2026-11-17): the last part carries
+ * the original's leftover GST cent, which the editor's formula would re-round,
+ * so its stored totals stand while its line's money is unchanged.
+ */
 export function erpStoredTotalsOf(config: any): ErpStoredTotals | null {
-  if (!isErpImported(config)) return null;
+  const splitPart = !!config?.invoiceSplit && typeof config.invoiceSplit === 'object' && typeof config.invoiceSplit.groupId === 'string';
+  if (!isErpImported(config) && !splitPart) return null;
   const pick = (k: string) => {
     const v = config?.[k] ?? config?.documentInfo?.[k];
     const x = Number(v);

@@ -30,7 +30,7 @@ import { resolveDesign } from '../common/services/document-html/design';
 import { effectiveDesign, isImportedDoc } from '../common/services/document-html/wct-brand';
 import { outstandingOf, grossStampOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
 import { splitInvoice as splitInvoiceOp, undoInvoiceSplit as undoInvoiceSplitOp } from './invoice-split-ops';
-import type { SplitPlan } from './invoice-split';
+import { keepSplitPartTotals, splitGlRevenueLines, type SplitPlan } from './invoice-split';
 import { confirmPostsToGl, erpPaidAtImport, erpStoredTotalsOf, isErpImported, moneySignature } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
 import { fillEmptyOrderCustomer, invoiceRowsWithSplitParts, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
@@ -357,7 +357,9 @@ export class DocumentsService {
             ? headerGl.accountCode
               ? [{ accountCode: headerGl.accountCode, amount: netAmount }]
               : []
-            : items.map((it: any) => ({
+            : // Split payment part: its net over the ORIGINAL invoice's revenue accounts (invoice-split.ts). Null for every other invoice.
+              splitGlRevenueLines(cfg, netAmount) ??
+              items.map((it: any) => ({
                 accountCode: it.accountCode || it.revenueAccountCode || null,
                 amount: Math.round((parseFloat(it.amount) || (parseFloat(it.quantity) * parseFloat(it.unitPrice)) || 0) * factor * 100) / 100,
               })),
@@ -1385,6 +1387,9 @@ export class DocumentsService {
         // stored totals and paid / owed amounts stay as the ERP had them while the lines' money is
         // unchanged; when the lines do change, the new totals stand and the balance follows them
         // (what was paid, in the ERP and since, is kept).
+        // Split payment part: its stored subtotal / GST / total (the last part carries the
+        // original's leftover cents) stand while its line's money is unchanged (invoice-split.ts).
+        keepSplitPartTotals(existingConfig, configAsPlainObject);
         if (isErpImported(existingConfig)) {
           const next: any = configAsPlainObject;
           next.erpImport = existingConfig.erpImport;
@@ -7617,6 +7622,9 @@ export class DocumentsService {
             // Tax-inclusive docs carry GROSS line amounts — scale them to net so the
             // revenue credits exclude GST (postFromInvoice expects line NET).
             revenueLines: (() => {
+              // Split payment part: its net over the original invoice's revenue accounts. Null for every other invoice.
+              const split = splitGlRevenueLines(config, netAmount);
+              if (split) return split;
               const inclusive = di?.absorbTax === 'Y' || di?.absorbTax === true;
               const factor = inclusive && fallbackNet > 0 ? netAmount / fallbackNet : 1;
               return itemsForTotal.map((it: any) => ({

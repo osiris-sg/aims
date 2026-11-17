@@ -26,6 +26,7 @@
  *                (the original's items / totals / number, for Undo split), at, by
  */
 import { computeDocumentTotals } from '../common/document-money';
+import { moneySignature } from '../common/erp-import';
 
 export const INVOICE_SPLIT_FLAG = 'enableInvoiceSplit';
 export const MAX_SPLIT_PARTS = 20;
@@ -167,20 +168,99 @@ export interface SplitPart {
   part: number;
   amount: number;
   description: string;
-  /** The part's totals, the editor's formula (excl. GST = subTotal, GST, total = nettTotal). */
+  /**
+   * The part's totals: the editor's formula for every part but the last; the
+   * last part takes what is left of the original's subtotal, GST and total, so
+   * the parts always add up to the original exactly (to the cent, GST too).
+   */
   totals: ReturnType<typeof computeDocumentTotals>;
+  /**
+   * GL: the part's net (excl. GST) spread over the ORIGINAL lines' revenue
+   * accounts by each account's share of the original net; the last part takes
+   * the leftover cents per account. Null when the original carries no line
+   * accounts (the part posts like any invoice then). accountCode null = the
+   * original's lines with no account (they post to Sales, as before).
+   */
+  glAllocation: Array<{ accountCode: string | null; amount: number }> | null;
 }
 
-/** Every part of a split: amount, line text and totals. Throws SplitPlanError on a bad plan. */
+/** Each revenue account's share of the original invoice's net, in the order the lines first name them; the last account takes the cents. */
+export function originalAccountNets(items: any[], net: number): Array<{ accountCode: string | null; amount: number }> | null {
+  const lines = (Array.isArray(items) ? items : []).filter((l) => !isDisplayRow(l));
+  const amountOf = (l: any) => {
+    const a = Number(l?.amount);
+    if (Number.isFinite(a) && a !== 0) return a;
+    const q = Number(l?.quantity), u = Number(l?.unitPrice);
+    return Number.isFinite(q) && Number.isFinite(u) ? q * u : 0;
+  };
+  if (!lines.some((l) => l.accountCode || l.revenueAccountCode)) return null;
+  const weights = new Map<string | null, number>();
+  for (const l of lines) {
+    const code = (l.accountCode || l.revenueAccountCode || null) as string | null;
+    weights.set(code, (weights.get(code) || 0) + amountOf(l));
+  }
+  const total = [...weights.values()].reduce((s, w) => s + w, 0);
+  if (!(total > 0)) return null;
+  const entries = [...weights.entries()];
+  const out = entries.map(([accountCode, w]) => ({ accountCode, amount: R2((net * w) / total) }));
+  out[out.length - 1].amount = R2(net - out.slice(0, -1).reduce((s, a) => s + a.amount, 0));
+  return out;
+}
+
+/** Every part of a split: amount, line text, totals and GL allocation. Throws SplitPlanError on a bad plan. */
 export function planInvoiceSplit(config: any, plan: SplitPlan): { parts: SplitPart[]; contractValue: number; quotationNo: string | null } {
   const { contractValue, tax, quotationNo } = splitBaseOf(config);
   const { amounts } = splitAmounts(contractValue, plan);
   const texts = splitLineTexts(plan, contractValue, quotationNo);
+  const c = config || {};
+  const di = c.documentInfo || {};
+  const original = computeDocumentTotals(
+    (Array.isArray(c.items) ? c.items : []).filter((l: any) => !isDisplayRow(l)),
+    tax,
+    { discountAmount: num(c.discountAmount) ?? num(di.discountAmount) ?? 0 },
+  );
+  const totals = amounts.map((amount) => computeDocumentTotals([{ amount }], tax));
+  // The last part takes the leftover subtotal / GST / total cents.
+  const last = totals[totals.length - 1];
+  const before = totals.slice(0, -1);
+  const left = (k: 'subTotal' | 'gstAmount' | 'nettTotal') => R2(original[k] - before.reduce((s, t) => s + t[k], 0));
+  totals[totals.length - 1] = { ...last, subTotal: left('subTotal'), gstAmount: left('gstAmount'), nettTotal: left('nettTotal') };
+  const lt = totals[totals.length - 1];
+  if (lt.gstAmount < 0 || lt.subTotal <= 0 || lt.nettTotal <= 0) throw new SplitPlanError(`Invoice -${totals.length} comes to too little after rounding. Use a larger rate for it.`);
+  // GL: each part's net over the original's revenue accounts; the last part takes each account's leftover.
+  const accounts = originalAccountNets(c.items, original.subTotal);
+  const alloc: Array<SplitPart['glAllocation']> = totals.map(() => null);
+  if (accounts) {
+    const used = accounts.map(() => 0);
+    totals.forEach((t, i) => {
+      let lines: Array<{ accountCode: string | null; amount: number }>;
+      if (i === totals.length - 1) lines = accounts.map((a, k) => ({ accountCode: a.accountCode, amount: R2(a.amount - used[k]) }));
+      else {
+        lines = accounts.map((a) => ({ accountCode: a.accountCode, amount: original.subTotal ? R2((t.subTotal * a.amount) / original.subTotal) : 0 }));
+        lines[lines.length - 1].amount = R2(t.subTotal - lines.slice(0, -1).reduce((s, l) => s + l.amount, 0));
+      }
+      lines.forEach((l, k) => (used[k] = R2(used[k] + l.amount)));
+      alloc[i] = lines;
+    });
+  }
   return {
     contractValue,
     quotationNo,
-    parts: amounts.map((amount, i) => ({ part: i + 1, amount, description: texts[i], totals: computeDocumentTotals([{ amount }], tax) })),
+    parts: amounts.map((amount, i) => ({ part: i + 1, amount, description: texts[i], totals: totals[i], glAllocation: alloc[i] })),
   };
+}
+
+/**
+ * The revenue lines a split part posts (postFromInvoice's revenueLines), or
+ * null for any other invoice, or for a part whose net no longer matches its
+ * allocation (its line was edited after the split: it posts from its line).
+ */
+export function splitGlRevenueLines(config: any, netAmount: number): Array<{ accountCode: string | null; amount: number }> | null {
+  const alloc = invoiceSplitOf(config) ? (config.invoiceSplit as any).glAllocation : null;
+  if (!Array.isArray(alloc) || !alloc.length) return null;
+  const sum = R2(alloc.reduce((s: number, l: any) => s + (Number(l?.amount) || 0), 0));
+  if (Math.abs(sum - R2(netAmount)) > 0.005) return null;
+  return alloc.map((l: any) => ({ accountCode: l?.accountCode ?? null, amount: R2(Number(l.amount) || 0) }));
 }
 
 /** The revenue account a part's one line posts to: the account of the invoice's largest line. */
@@ -229,24 +309,32 @@ export function partConfig(
     xeroBalance: t.nettTotal,
     paidToDate: 0,
     xeroAmountPaid: 0,
-    invoiceSplit: { groupId: ctx.groupId, part: p.part, of: ctx.of, baseNumber: ctx.baseNumber, mode: ctx.mode },
+    invoiceSplit: { groupId: ctx.groupId, part: p.part, of: ctx.of, baseNumber: ctx.baseNumber, mode: ctx.mode, ...(p.glAllocation ? { glAllocation: p.glAllocation } : {}) },
   };
 }
 
-/** What Undo split puts back on part 1: the original's lines, totals, money and number. */
-export function restoreSnapshotOf(original: any): { items: any[]; flat: Record<string, any>; documentInfo: Record<string, any> } {
-  const c = original || {};
-  const di = c.documentInfo || {};
-  const pick = (o: any, keys: readonly string[]) => Object.fromEntries(keys.filter((k) => o[k] !== undefined).map((k) => [k, o[k]]));
-  return {
-    items: c.items ?? [],
-    flat: pick(c, [...SPLIT_TOTAL_KEYS, ...SPLIT_MONEY_KEYS, 'documentNumber']),
-    documentInfo: pick(di, [...SPLIT_TOTAL_KEYS, 'documentNumber']),
-  };
+/** Server-owned invoice keys a later step may have changed on part 1 (kept on Undo split). */
+const KEEP_ON_UNDO = ['orderId', 'orderNo', 'orderJobIds', 'orderBillsQuote', 'deliveryOrderNos'] as const;
+
+/** What Undo split puts back: a full copy of the original invoice's config (lines, money, tax, discount, number). */
+export function restoreSnapshotOf(original: any): { config: any } {
+  const c = { ...(original || {}) };
+  delete c.invoiceSplit;
+  return { config: JSON.parse(JSON.stringify(c)) };
 }
 
-/** Part 1's config after Undo split: its current header, the original's lines / totals / money / number back. */
-export function mergedBackConfig(current: any, restore: { items: any[]; flat: Record<string, any>; documentInfo: Record<string, any> }): any {
+/**
+ * Part 1's config after Undo split: the original invoice exactly as it was
+ * before the split, with only the order keys a later step may have moved
+ * (KEEP_ON_UNDO) taken from part 1. A snapshot from the first release
+ * ({ items, flat, documentInfo }) is still read.
+ */
+export function mergedBackConfig(current: any, restore: any): any {
+  if (restore?.config && typeof restore.config === 'object') {
+    const out: any = JSON.parse(JSON.stringify(restore.config));
+    for (const k of KEEP_ON_UNDO) if (current?.[k] !== undefined) out[k] = current[k];
+    return out;
+  }
   const out: any = { ...(current || {}) };
   delete out.invoiceSplit;
   for (const k of [...SPLIT_TOTAL_KEYS, ...SPLIT_MONEY_KEYS, 'documentNumber']) delete out[k];
@@ -287,4 +375,21 @@ export function splitSentSummary(invoices: Array<{ status?: string | null; confi
   if (!parts.length) return null;
   const sent = invoices.filter((i) => !['draft', 'unconfirmed'].includes(String(i.status ?? '').toLowerCase())).length;
   return `${sent} of ${invoices.length} sent`;
+}
+
+/**
+ * On an editor save of a split part: keep its stored subtotal / GST / total and
+ * money stamps while its line's money is unchanged (the editor's formula would
+ * re-round the last part's leftover GST cent). Any other invoice, or a part
+ * whose line money changed: untouched. Mutates and returns `next`.
+ */
+export function keepSplitPartTotals(prev: any, next: any): any {
+  if (!next || typeof next !== 'object' || !invoiceSplitOf(prev)) return next;
+  if (Array.isArray(next.items) && moneySignature(next.items) !== moneySignature(prev?.items)) return next;
+  const T = ['grossTotal', 'subTotal', 'gstAmount', 'nettTotal'];
+  for (const k of [...T, ...SPLIT_MONEY_KEYS]) if (prev[k] !== undefined) next[k] = prev[k];
+  if (next.documentInfo && typeof next.documentInfo === 'object' && prev.documentInfo) {
+    for (const k of T) if (prev.documentInfo[k] !== undefined) next.documentInfo[k] = prev.documentInfo[k];
+  }
+  return next;
 }

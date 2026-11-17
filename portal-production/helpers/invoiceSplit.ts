@@ -53,7 +53,7 @@ export function totalsOf(lines: Array<{ amount?: unknown; quantity?: unknown; un
 }
 
 /** What a split divides (the invoice's lines after its discount) and the quotation it bills. */
-export function splitBaseOf(config: any): { contractValue: number; tax: Tax; quotationNo: string | null } {
+export function splitBaseOf(config: any): { contractValue: number; tax: Tax; quotationNo: string | null; original: ReturnType<typeof totalsOf> } {
   const c = config || {};
   const di = c.documentInfo || {};
   const items = (Array.isArray(c.items) ? c.items : []).filter((l: any) => !isDisplayRow(l));
@@ -64,7 +64,7 @@ export function splitBaseOf(config: any): { contractValue: number; tax: Tax; quo
     String((!srcType || srcType.startsWith("QUOTATION") || srcType.startsWith("QO") ? c.sourceDocumentNumber : "") ?? "").trim() ||
     String(c.quotationNo ?? di.quotationNo ?? "").trim() ||
     null;
-  return { contractValue: R2(t.grossTotal - t.discountAmount), tax, quotationNo };
+  return { contractValue: R2(t.grossTotal - t.discountAmount), tax, quotationNo, original: t };
 }
 
 export interface SplitPreviewPart {
@@ -78,7 +78,7 @@ export interface SplitPreviewPart {
 
 /** Live preview: every part, or the reason the plan can't be saved yet. */
 export function previewSplit(config: any, plan: SplitPlan, baseNumber: string): { parts: SplitPreviewPart[]; error: string | null; contractValue: number } {
-  const { contractValue, tax, quotationNo } = splitBaseOf(config);
+  const { contractValue, tax, quotationNo, original } = splitBaseOf(config);
   const base = contractValue;
   const rows = plan.parts.map(Number);
   const fail = (error: string) => ({ parts: [], error, contractValue });
@@ -126,14 +126,19 @@ export function previewSplit(config: any, plan: SplitPlan, baseNumber: string): 
   if (amounts.length > 20) return fail("At most 20 invoices.");
   const zero = amounts.findIndex((a) => !(a > 0));
   if (zero >= 0) return fail(`Invoice -${zero + 1} comes to ${fmtMoney(amounts[zero])}. Use a larger rate.`);
-  return {
-    contractValue,
-    error: null,
-    parts: amounts.map((amount, i) => {
-      const t = totalsOf([{ amount }], tax);
-      return { label: `${baseNumber}-${i + 1}`, description: texts[i], amount, subTotal: t.subTotal, gstAmount: t.gstAmount, total: t.nettTotal };
-    }),
-  };
+  const parts = amounts.map((amount, i) => {
+    const t = totalsOf([{ amount }], tax);
+    return { label: `${baseNumber}-${i + 1}`, description: texts[i], amount, subTotal: t.subTotal, gstAmount: t.gstAmount, total: t.nettTotal };
+  });
+  // The last part takes the leftover subtotal / GST / total cents: the parts add up to the invoice exactly.
+  const last = parts[parts.length - 1];
+  const before = parts.slice(0, -1);
+  const left = (o: number, k: "subTotal" | "gstAmount" | "total") => R2(o - before.reduce((s, p) => s + p[k], 0));
+  last.subTotal = left(original.subTotal, "subTotal");
+  last.gstAmount = left(original.gstAmount, "gstAmount");
+  last.total = left(original.nettTotal, "total");
+  if (last.gstAmount < 0 || last.subTotal <= 0 || last.total <= 0) return fail(`Invoice -${parts.length} comes to too little after rounding. Use a larger rate for it.`);
+  return { contractValue, error: null, parts };
 }
 
 /** The split marker on an invoice's config, or null. */
