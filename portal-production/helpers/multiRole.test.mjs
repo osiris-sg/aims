@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { applySelect, makePrimary, primaryOf, removeRole, rolePayload, rolesAllowModule, rolesHavePermission, selectionFromUser, singleRolePicker } from "./multiRole.ts";
+import { applySelect, makePrimary, primaryOf, primaryRoleName, roleHomeViewFor, removeRole, rolePayload, rolesAllowModule, rolesHavePermission, selectionFromUser, singleRolePicker } from "./multiRole.ts";
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const P = (resource, action) => ({ resource, action });
@@ -73,4 +73,22 @@ test("Edit / Add User: subtitle + WhatsApp help gated on the setting; off = toda
     const j = JSON.parse(read(`i18n/messages/${lang}/users.json`));
     assert.ok(j.form.primary && j.form.makePrimary, lang);
   }
+});
+
+test("role home: multi-role orgs open on the primary role's view; a hand-picked view still wins; other orgs unchanged", () => {
+  assert.equal(primaryRoleName([{ name: "Sales" }, { name: "Accounting", isPrimary: true }]), "Accounting");
+  assert.equal(primaryRoleName([{ name: "Operations" }, { name: "Sales" }]), "Operations");
+  assert.equal(primaryRoleName([]), null);
+  assert.equal(roleHomeViewFor("Accounting"), "hrfin");
+  assert.equal(roleHomeViewFor("Operations"), "ops");
+  assert.equal(roleHomeViewFor("field-tech"), "ops");
+  assert.equal(roleHomeViewFor("Admin"), "owner");
+  assert.equal(roleHomeViewFor("Sales"), "owner");
+  assert.equal(roleHomeViewFor(null), "owner");
+  const src = read("app/portal/components/RoleHome/useRoleView.ts");
+  // stored (hand-picked) view first, then the fallback
+  assert.match(src, /return id && ROLE_ORDER\.includes\(id\) \? id : fallback;/);
+  // other orgs: fallback stays "owner" and no /users/me/roles request is made
+  assert.match(src, /if \(!isMultiRoleEnabled\) \{\s*setView\("owner"\);\s*return;/);
+  assert.match(src, /readRoleView\(fallback: RoleId = "owner"\)/);
 });

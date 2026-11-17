@@ -286,6 +286,29 @@ describe('multi-role ON (WCT)', () => {
     expect(ben.primaryRoleId).toBe('w-ops');
   });
 
+  it('bug fix (setting on): a page never splits a person; the same data with the setting off still pages by role row', async () => {
+    // newest role rows first: ben (Accounting), ann, ben (Operations); the old paging cuts after two rows
+    const off = world({});
+    const oldPage1: any = await off.users.getUsers({ page: 1, limit: 2 } as any, WCT);
+    const oldBen = oldPage1.users.find((u: any) => u.id === 'ben');
+    expect(oldBen.roles).toHaveLength(1); // today's all-org bug: ben's second role is on page 2
+    const on = world();
+    const page1: any = await on.users.getUsers({ page: 1, limit: 2 } as any, WCT);
+    expect(page1.users.map((u: any) => u.id).sort()).toEqual(['ann', 'ben']);
+    expect(page1.users.find((u: any) => u.id === 'ben').roles.map((r: any) => r.id)).toEqual(['w-ops', 'w-acc']);
+    expect(page1.totalPagesCount).toBe(1);
+  });
+
+  it('bug fix (setting on): me/roles leaves out switched-off roles; with the setting off they are still listed', async () => {
+    const flags = { [WCT]: { [MULTI_ROLE_FLAG]: true } };
+    const on = world(flags);
+    on.db.userRole.find((r) => r.id === 'u3')!.isActive = false;
+    expect((await on.users.getUserRoles('ben', WCT)).map((r: any) => r.id)).toEqual(['w-ops']);
+    const off = world({});
+    off.db.userRole.find((r) => r.id === 'u3')!.isActive = false;
+    expect((await off.users.getUserRoles('ben', WCT)).map((r: any) => r.id)).toEqual(['w-ops', 'w-acc']);
+  });
+
   it('Add User: several roles, the first chosen is primary', async () => {
     const { db, memberships } = world();
     const res: any = await memberships.addMember({ email: 'new@x.sg', roleIds: ['w-acc', 'w-sales'] }, actor(WCT));

@@ -6,7 +6,11 @@
 // and the screen stay in step without a shared provider.
 
 import * as React from "react";
+import { useAuth } from "@clerk/nextjs";
 import { ROLES, ROLE_ORDER, type QuickActionId, type RoleId } from "./roles";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { request } from "@/helpers/request";
+import { primaryRoleName, roleHomeViewFor } from "@/helpers/multiRole";
 
 const ROLE_KEY = "aims-role-view";
 const SHORTCUT_KEY = "aims-role-shortcuts";
@@ -29,11 +33,44 @@ const write = (key: string, value: unknown) => {
   }
 };
 
-/** The stored role, for code that only needs to read it once (e.g. the nav). */
-export function readRoleView(): RoleId {
-  if (typeof window === "undefined") return "owner";
-  const id = read<RoleId>(ROLE_KEY, "owner");
-  return ROLE_ORDER.includes(id) ? id : "owner";
+/** The stored role, for code that only needs to read it once (e.g. the nav). With no stored
+ *  (hand-picked) view: `fallback` ("owner" everywhere except multi-role orgs, see below). */
+export function readRoleView(fallback: RoleId = "owner"): RoleId {
+  if (typeof window === "undefined") return fallback;
+  const id = read<RoleId | null>(ROLE_KEY, null);
+  return id && ROLE_ORDER.includes(id) ? id : fallback;
+}
+
+/**
+ * Multi-role orgs (enableMultiRole): the view that fits the person's PRIMARY role, used when
+ * they never picked one by hand. Other orgs: "owner", with no extra request (as before).
+ */
+function usePrimaryRoleView(): RoleId {
+  const { isMultiRoleEnabled } = useOrganizationFeatures();
+  const { getToken } = useAuth();
+  const [view, setView] = React.useState<RoleId>("owner");
+  React.useEffect(() => {
+    if (!isMultiRoleEnabled) {
+      setView("owner");
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const res = await request({ path: "/users/me/roles", method: "GET" }, {}, token);
+        const roles = (res?.data ?? res ?? []) as Array<{ name?: string; isPrimary?: boolean }>;
+        if (!cancelled) setView(roleHomeViewFor(primaryRoleName(Array.isArray(roles) ? roles : [])));
+      } catch {
+        /* stays on the Business Owner view */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isMultiRoleEnabled, getToken]);
+  return view;
 }
 
 export function useRoleView() {
@@ -42,13 +79,16 @@ export function useRoleView() {
   const [roleId, setRoleIdState] = React.useState<RoleId>("owner");
   const [shortcuts, setShortcutsState] = React.useState<Partial<Record<RoleId, QuickActionId[]>>>({});
 
+  // A view picked by hand (stored) wins; otherwise multi-role orgs open on the primary role's view.
+  const fallback = usePrimaryRoleView();
+
   React.useEffect(() => {
-    setRoleIdState(readRoleView());
+    setRoleIdState(readRoleView(fallback));
     setShortcutsState(read(SHORTCUT_KEY, {}));
-    const onChange = () => setRoleIdState(readRoleView());
+    const onChange = () => setRoleIdState(readRoleView(fallback));
     window.addEventListener(ROLE_VIEW_EVENT, onChange);
     return () => window.removeEventListener(ROLE_VIEW_EVENT, onChange);
-  }, []);
+  }, [fallback]);
 
   const setRoleId = React.useCallback((id: RoleId) => {
     setRoleIdState(id);

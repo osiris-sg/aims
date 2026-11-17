@@ -49,3 +49,21 @@ export function rolePayload(sel: string[], multi: boolean): { roleIds: string[];
 
 /** Preset-role orgs pick ONE role, unless the org runs multi-role. */
 export const singleRolePicker = (presets: boolean, multi: boolean): boolean => presets && !multi;
+
+// Role home "Viewing as" (enableRoleHome) on multi-role orgs: the screen opens on the view
+// that fits the PRIMARY role (2026-11-17). A view the person picked by hand still wins.
+export type RoleHomeView = "owner" | "hrfin" | "ops";
+
+/** The primary role's name from GET /users/me/roles (multi-role orgs mark it isPrimary and send it first). */
+export function primaryRoleName(roles: Array<{ name?: string; isPrimary?: boolean }> | null | undefined): string | null {
+  const list = roles || [];
+  return (list.find((r) => r.isPrimary) ?? list[0])?.name ?? null;
+}
+
+/** Which role-home view a role name opens on: finance roles → HR + Finance, operations / field roles → Ops, anything else → Business Owner. */
+export function roleHomeViewFor(roleName: string | null | undefined): RoleHomeView {
+  const n = String(roleName ?? "").toLowerCase();
+  if (/(account|financ|\bhr\b|payroll)/.test(n)) return "hrfin";
+  if (/(operation|\bops\b|field-tech|technician|logistic|warehouse|driver)/.test(n)) return "ops";
+  return "owner";
+}
