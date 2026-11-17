@@ -409,12 +409,28 @@ export default function RoleTopBar() {
                     </Box>
                   </Paper>
                 </Popper>
-                <Typography
+                {/* The module name is a button back to the module's main page (guru 2026-11-17: "allow me to click this to go back to the sales main tab"). */}
+                <ButtonBase
                   data-testid="role-nav-level"
-                  sx={{ fontSize: "0.875rem", fontWeight: 600, color: dark ? "text.primary" : INK, px: 0.75, whiteSpace: "nowrap", flexShrink: 0 }}
+                  onClick={() => {
+                    const home = homeOf(open);
+                    if (home && home !== navPath) go(home);
+                  }}
+                  sx={{
+                    fontFamily: "inherit",
+                    fontSize: "0.875rem",
+                    fontWeight: 600,
+                    color: dark ? "text.primary" : INK,
+                    px: 0.75,
+                    py: 0.5,
+                    borderRadius: 1.5,
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
+                    "&:hover": { bgcolor: dark ? alpha("#fff", 0.08) : "#EEF0F7" },
+                  }}
                 >
                   {open.label}
-                </Typography>
+                </ButtonBase>
                 <Box sx={{ width: "1px", height: 20, bgcolor: dark ? alpha("#fff", 0.16) : "#E2E6F0", mx: 0.5, flexShrink: 0 }} />
                 {open.tabs.map((tb) => (
                   <Button
