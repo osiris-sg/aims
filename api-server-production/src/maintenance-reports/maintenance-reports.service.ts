@@ -1095,8 +1095,12 @@ export class MaintenanceReportsService {
    * uploaded one as stored) plus its photos file. To the address given, else
    * the order's customer email, else the report's client email. Stamps the
    * send on each report and on the order (Order.statusDates.serviceReportSentAt).
+   * body.reportId (the report page's Send menu, enableWctDocNav 2026-11-17):
+   * ONLY that report, which must be a completed report of this order; the
+   * order is stamped sent only once all its completed reports have been sent.
+   * Without it: every completed report, as before (the order page).
    */
-  async sendOrderReportsToCustomer(orderId: string, body: { to?: string }, organizationId: string) {
+  async sendOrderReportsToCustomer(orderId: string, body: { to?: string; reportId?: string }, organizationId: string) {
     if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('This is part of the manual order flow, which is not enabled for this organisation');
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, organizationId },
@@ -1105,7 +1109,7 @@ export class MaintenanceReportsService {
     if (!order) throw new NotFoundException('Order not found');
     const jobs = await this.prisma.delivery.findMany({ where: { organizationId, orderId }, select: { id: true } });
     const linkedIds = (Array.isArray(order.attachments) ? (order.attachments as any[]) : []).filter((a) => a?.kind === 'report' && a.reportId).map((a) => a.reportId);
-    const reports = await this.prisma.maintenanceServiceReport.findMany({
+    let reports = await this.prisma.maintenanceServiceReport.findMany({
       where: {
         organizationId,
         kind: MaintenanceReportKind.SERVICE,
@@ -1121,6 +1125,13 @@ export class MaintenanceReportsService {
       select: { id: true, reportNumber: true, serviceData: true },
     }).then((rows) => rows.filter((r) => !(r.serviceData as any)?.deletedAt));
     if (!reports.length) throw new BadRequestException('There is no completed service report on this order yet');
+    const onlyId = typeof body?.reportId === 'string' && body.reportId.trim() ? body.reportId.trim() : null;
+    const orderReports = reports;
+    if (onlyId) {
+      const one = orderReports.filter((r) => r.id === onlyId);
+      if (!one.length) throw new BadRequestException('This service report is not a completed report of this order');
+      reports = one;
+    }
     const typed = typeof body?.to === 'string' ? body.to.split(/[,;\s]+/).map((e) => e.trim()).filter(Boolean) : [];
     const fallback = order.customer?.email || ((reports[0].serviceData as any)?.clientEmail as string | undefined) || '';
     const to = typed.length ? typed : fallback ? [fallback] : [];
@@ -1155,9 +1166,13 @@ export class MaintenanceReportsService {
         data: { serviceData: { ...sd, customerSentAt: sentAt, customerSentTo: to.join(', ') } as Prisma.InputJsonValue },
       });
     }
-    const dates = (order.statusDates as Record<string, string> | null) ?? {};
-    await this.prisma.order.update({ where: { id: orderId }, data: { statusDates: { ...dates, serviceReportSentAt: sentAt } } });
-    await refreshOrderStatus(this.prisma, organizationId, orderId);
+    // One report: the order reads sent only when every completed report has gone out.
+    const orderAllSent = !onlyId || orderReports.every((r) => r.id === onlyId || !!(r.serviceData as any)?.customerSentAt);
+    if (orderAllSent) {
+      const dates = (order.statusDates as Record<string, string> | null) ?? {};
+      await this.prisma.order.update({ where: { id: orderId }, data: { statusDates: { ...dates, serviceReportSentAt: sentAt } } });
+      await refreshOrderStatus(this.prisma, organizationId, orderId);
+    }
     return { sentTo: to, reports: reports.map((r) => r.reportNumber), attachments: files.length, sentAt };
   }
 

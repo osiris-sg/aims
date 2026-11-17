@@ -74,8 +74,8 @@ export function editorSendOptions(o: {
  *  - sign: the report's "Customer sign link" (not completed, not the WCT
  *    paper, not an uploaded file; the old rule).
  *  - email: "Send service report to customer" of the report's order (manual
- *    order flow, report on an order); disabled until this report is completed.
- *    That send emails every completed report of the order.
+ *    order flow, report on an order) for THIS report only (reportId);
+ *    disabled until this report is completed.
  */
 export function reportSendOptions(o: {
   status: string | null | undefined;

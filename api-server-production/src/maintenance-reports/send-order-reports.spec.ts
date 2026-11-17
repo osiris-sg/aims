@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { MaintenanceReportsService } from './maintenance-reports.service';
+import { MaintenanceReportsController } from './maintenance-reports.controller';
 
 /**
  * Manual order flow (2026-11-12): "Send service report to customer" for an
@@ -54,6 +55,36 @@ describe('send service report to customer (manual order flow)', () => {
     expect(order.statusDates.DO_DRAFT).toBe('x');
   });
 
+  it('reportId (report page Send menu): only that report; the order is stamped sent only once all its completed reports went out', async () => {
+    const { svc, reports, order, emails } = service();
+    const r = await svc.sendOrderReportsToCustomer('o1', { reportId: 'r2' }, ORG);
+    expect(emails).toHaveLength(1);
+    expect(emails[0].extraAttachments.map((a: any) => a.filename)).toEqual(['service-report-r2.pdf']);
+    expect(emails[0].reportNumber).toBe('8');
+    expect(r).toMatchObject({ reports: [8], attachments: 1 });
+    expect(reports[1].serviceData.customerSentAt).toBeTruthy();
+    expect(reports[0].serviceData.customerSentAt).toBeUndefined(); // r1 not sent
+    expect(order.statusDates.serviceReportSentAt).toBeUndefined(); // r1 still unsent
+    await svc.sendOrderReportsToCustomer('o1', { reportId: 'r1' }, ORG);
+    expect(emails[1].extraAttachments.map((a: any) => a.filename)).toEqual(['service-report-r1.pdf', 'service-report-r1-photos.jpg']);
+    expect(order.statusDates.serviceReportSentAt).toBeTruthy(); // now every completed report is sent
+  });
+
+  it('reportId of a draft or another order\'s report is refused, nothing sent', async () => {
+    for (const reportId of ['r3', 'nope']) {
+      const { svc, emails, reports } = service();
+      await expect(svc.sendOrderReportsToCustomer('o1', { reportId }, ORG)).rejects.toThrow(/not a completed report of this order/);
+      expect(emails).toHaveLength(0);
+      expect(reports.every((x) => !x.serviceData.customerSentAt)).toBe(true);
+    }
+  });
+
+  it('no reportId = every completed report (order page unchanged); an empty reportId is the same', async () => {
+    const { svc, emails } = service();
+    await svc.sendOrderReportsToCustomer('o1', { reportId: '' }, ORG);
+    expect(emails[0].extraAttachments).toHaveLength(3);
+  });
+
   it('a typed address wins; a bad one is refused before sending', async () => {
     const a = service();
     await a.svc.sendOrderReportsToCustomer('o1', { to: 'a@x.com, b@y.com' }, ORG);
@@ -88,5 +119,17 @@ describe('send service report to customer (manual order flow)', () => {
     expect((svc as any).ordersService.addOrderAttachment).toHaveBeenCalledWith('o1', ORG, { kind: 'report', reportId: 'r3' }, { id: 'u1' });
     expect(emails).toHaveLength(0);
     await expect(svc.completeDraftByUpload('r3', { fileKey: `maintenance-reports/${ORG}/uploads/sr.pdf`, mimeType: 'application/pdf' }, ORG, 'u1')).rejects.toThrow(/already completed/);
+  });
+
+  it('the Activity Log row names the one report sent (req.actionLogResult)', async () => {
+    const { svc } = service();
+    const ctl: any = Object.create(MaintenanceReportsController.prototype);
+    ctl.service = svc;
+    const req: any = {};
+    await ctl.sendOrderReports('o1', { reportId: 'r2' }, { id: ORG }, req);
+    expect(req.actionLogResult).toEqual({ serviceReports: ['#000008'], reportId: 'r2', sentTo: ['shop@example.com'] });
+    const req2: any = {};
+    await ctl.sendOrderReports('o1', {}, { id: ORG }, req2);
+    expect(req2.actionLogResult).toEqual({ serviceReports: ['#000007', '#000008'], sentTo: ['shop@example.com'] });
   });
 });

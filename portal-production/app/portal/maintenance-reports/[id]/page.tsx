@@ -422,6 +422,8 @@ export default function MaintenanceReportDetailPage() {
           onClose={() => setSendEmailOpen(false)}
           orderId={report.order.id}
           orderNumber={report.order.orderNumber}
+          reportId={report.id}
+          reportNumber={report.reportNumber ?? null}
           defaultEmail={(report as any).customer?.email ?? sd.clientEmail ?? null}
           onSent={(r) => toast.success(`Service report sent to ${r.sentTo.join(", ")}`)}
         />

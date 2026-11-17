@@ -19,6 +19,8 @@ export default function SendServiceReportDialog({
   defaultEmail,
   intro,
   onSent,
+  reportId,
+  reportNumber,
 }: {
   open: boolean;
   onClose: () => void;
@@ -28,6 +30,9 @@ export default function SendServiceReportDialog({
   /** Optional first line, e.g. after the invoice was sent. */
   intro?: string;
   onSent?: (r: { sentTo: string[]; reports: Array<number | null> }) => void;
+  /** Report page Send menu (enableWctDocNav): send ONLY this report. Absent = every completed report of the order. */
+  reportId?: string;
+  reportNumber?: number | null;
 }) {
   const { getToken } = useAuth();
   const [to, setTo] = useState("");
@@ -46,7 +51,7 @@ export default function SendServiceReportDialog({
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res: any = await request({ path: `/maintenance-reports/orders/${orderId}/send-to-customer`, method: "POST" }, { to }, token);
+      const res: any = await request({ path: `/maintenance-reports/orders/${orderId}/send-to-customer`, method: "POST" }, reportId ? { to, reportId } : { to }, token);
       if (res?.success === false) throw new Error(res.message || "Could not send the service report");
       onSent?.(res?.data ?? res);
       onClose();
@@ -63,7 +68,9 @@ export default function SendServiceReportDialog({
       <DialogContent>
         {intro && <DialogContentText sx={{ mb: 1.5 }}>{intro}</DialogContentText>}
         <DialogContentText sx={{ mb: 2 }}>
-          The service report{orderNumber ? ` of order ${orderNumber}` : ""} is emailed as a PDF, with the photos file if there is one.
+          {reportId
+            ? `Service report${reportNumber != null ? ` #${String(reportNumber).padStart(6, "0")}` : ""} is emailed as a PDF, with the photos file if there is one.`
+            : `The service report${orderNumber ? ` of order ${orderNumber}` : ""} is emailed as a PDF, with the photos file if there is one.`}
         </DialogContentText>
         <TextField size="small" label="Email to" value={to} onChange={(e) => setTo(e.target.value)} placeholder="customer@example.com" helperText="Several addresses: separate them with commas" fullWidth autoFocus />
         {error && (

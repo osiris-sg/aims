@@ -135,11 +135,21 @@ export class MaintenanceReportsController {
     return this.service.completeDraftByUpload(id, body ?? {}, org.id, userId);
   }
 
-  /** "Send service report to customer" for an order: body { to? }. The id is the ORDER id. */
+  /**
+   * "Send service report to customer" for an order: body { to?, reportId? }. The id is the ORDER id.
+   * reportId (report page Send menu): only that report; absent = every completed report (order page).
+   * The Activity Log row names the report(s) sent (details.result).
+   */
   @Post('orders/:id/send-to-customer')
   @Permissions('maintenance-reports:create')
-  sendOrderReports(@Param('id') id: string, @Body() body: { to?: string }, @UserOrganization() org: { id: string }) {
-    return this.service.sendOrderReportsToCustomer(id, body ?? {}, org.id);
+  async sendOrderReports(@Param('id') id: string, @Body() body: { to?: string; reportId?: string }, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    const r = await this.service.sendOrderReportsToCustomer(id, body ?? {}, org.id);
+    (req as any).actionLogResult = {
+      serviceReports: (r.reports ?? []).map((n: number | null) => (n != null ? `#${String(n).padStart(6, '0')}` : null)),
+      ...(body?.reportId ? { reportId: body.reportId } : {}),
+      sentTo: r.sentTo,
+    };
+    return r;
   }
 
   /**
