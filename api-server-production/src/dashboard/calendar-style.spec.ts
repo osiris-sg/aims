@@ -260,6 +260,9 @@ interface World {
   children: Record<string, string[]>;
   members: Record<string, Array<{ userId: string; salesmanCode: string | null; settings: any; roles: string[] }>>;
   styleValues: Record<string, any>;
+  /** The order's quotation Sales Person (default S002) and the org's salesperson alias map (src/sales-report). */
+  quoteSalesPerson?: string;
+  aliases?: Record<string, Array<{ text: string; userIds: string[] }>>;
 }
 
 function world(): World {
@@ -321,14 +324,14 @@ function fakePrisma(w: World) {
             { id: 'do-2', name: 'DO2', status: 'unconfirmed', documentTemplateId: 't', config: {}, createdAt: new Date() },
             { id: 'do-3', name: 'DO3', status: 'delivered_installed', documentTemplateId: 't', config: { cancelled: true }, createdAt: new Date() },
           ].filter((d) => where.id.in.includes(d.id));
-        return where.id.in.includes(Q1) ? [{ id: Q1, name: 'QO1', type: 'QUOTATION', documentTemplateId: 'tq', config: { salesPerson: 'S002' } }] : [];
+        return where.id.in.includes(Q1) ? [{ id: Q1, name: 'QO1', type: 'QUOTATION', documentTemplateId: 'tq', config: { salesPerson: w.quoteSalesPerson ?? 'S002' } }] : [];
       }),
     },
     deliverySiteClockJob: { findMany: jest.fn(async () => []) },
     calendarNote: { findMany: jest.fn(async () => []) },
     customField: {
       findMany: jest.fn(async () => []),
-      findFirst: jest.fn(async ({ where }: any) => (where.fieldName === 'job_calendar_style' && (org(where) === P || org(where) === C) ? { id: `${STYLE_FIELD}-${org(where)}` } : null)),
+      findFirst: jest.fn(async ({ where }: any) => where.fieldName === 'salesperson_aliases' ? (w.aliases?.[org(where)] ? { options: w.aliases[org(where)] } : null) : (where.fieldName === 'job_calendar_style' && (org(where) === P || org(where) === C) ? { id: `${STYLE_FIELD}-${org(where)}` } : null)),
     },
     customFieldValue: {
       findMany: jest.fn(async ({ where }: any) => where.entityId.in.filter((id: string) => w.styleValues[id]).map((id: string) => ({ entityId: id, value: w.styleValues[id] }))),
@@ -371,6 +374,19 @@ describe('jobs calendar with the style on (WCT group)', () => {
     expect(quick.style).toMatchObject({ fill: '#8e24aa', bar: '#f6bf26', greyed: true });
     expect(quick.style.icons.map((i: any) => i.icon)).toEqual(['⭕', '👍', '🟫']);
     expect(quick).toMatchObject({ postponed: true, cod: true, statusLabel: 'Postponed', ptwApplicant: { id: JOYNA, name: 'Joyna' } });
+  });
+
+  it("imported quotation's free-text salesperson: the org's alias map (first listed user for several names); unmapped text = neutral", async () => {
+    const w = world();
+    w.quoteSalesPerson = '  henry &  JOYNA ';
+    w.aliases = { [P]: [{ text: 'Henry & Joyna', userIds: [HH, AMY] }] };
+    const mapped = byId((await svc(w).get(P, '2026-11-16', '2026-11-22', { userId: HH })).events, 'r-order');
+    expect(mapped.salesperson).toEqual({ id: HH, name: 'Nat HH' });
+    expect(mapped.style.fill).toBe('#039be5');
+    w.quoteSalesPerson = 'Isadora';
+    const raw = byId((await svc(w).get(P, '2026-11-16', '2026-11-22', { userId: HH })).events, 'r-order');
+    expect(raw.salesperson).toBeNull();
+    expect(raw.style.fill).toBe(NEUTRAL_FILL);
   });
 
   it('changing the default applicant does not recolour: a job with no stored applicant shows the neutral bar', async () => {

@@ -9,6 +9,7 @@ import { calendarBadge, calendarLegend, isJobFieldsEnabled, jobFieldDefs, jobFie
 import { jobCategoryDef, jobCategoryValues } from '../deliveries/job-category';
 import { CalendarNoteView, CalendarNotesService } from './calendar-notes.service';
 import { CalendarStyleService } from './calendar-style.service';
+import { resolveSalespersonIds, salespersonAliases } from '../sales-report/salesperson-resolver';
 import { CALENDAR_STYLE_LEGEND, CalendarColours, StyleInput, mergeColours, quotationSalesmanCode, salespersonFromCode, styleOf } from './calendar-style';
 import { jobStyleValues } from '../deliveries/job-style';
 import { isCompletedDo } from './calendar-style';
@@ -206,20 +207,24 @@ export class JobsCalendarService {
   ): Promise<CalendarEvent[]> {
     const ids = runs.map((r) => r.id);
     const qIds = [...new Set([...quotationIds.values()].filter((x): x is string => !!x))];
-    const [meta, doCounts, codes, quotes] = await Promise.all([
+    const [meta, doCounts, codes, quotes, aliases] = await Promise.all([
       jobStyleValues(this.prisma, organizationId, ids),
       this.runDoCounts(organizationId, ids),
       this.style!.salesmanCodes(organizationId),
       qIds.length
         ? runAsOrg(organizationId, () => this.prisma.document.findMany({ where: { id: { in: qIds }, organizationId }, select: { id: true, config: true } }))
         : Promise.resolve([] as any[]),
+      // Imported quotations' free-text salesperson (WCT group): the org's alias map (src/sales-report).
+      salespersonAliases(this.prisma, organizationId),
     ]);
     const codeOfQuote = new Map((quotes as any[]).map((q) => [q.id as string, quotationSalesmanCode(q.config)]));
     const salesOf = new Map<string, string | null>();
     for (const id of ids) {
       const own = meta.get(id)?.salespersonId ?? null;
       const q = quotationIds.get(id);
-      salesOf.set(id, own ?? salespersonFromCode(q ? codeOfQuote.get(q) ?? null : null, codes));
+      const raw = q ? codeOfQuote.get(q) ?? null : null;
+      // Code first (as before), then the shared resolver's alias map; several names = the first listed user.
+      salesOf.set(id, own ?? salespersonFromCode(raw, codes) ?? (resolveSalespersonIds(raw, { codes, aliases })[0] ?? null));
     }
     const people = new Set<string>();
     for (const id of ids) {

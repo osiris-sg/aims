@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { amountExclGst, nameTokens, quotationStatus, reportScope, salespeopleOf, summarise, textNamesUser, type ReportRow, type Salesman } from './sales-report';
 import { categoryLabel, cleanQuotationCategories, saveQuotationCategories, quotationCategories, QUOTATION_CATEGORY_ENTITY, QUOTATION_CATEGORY_FIELD } from './quotation-category';
 import { SalesReportService } from './sales-report.service';
+import { aliasMapOf, resolveSalespersonIds } from './salesperson-resolver';
 
 describe('quotation status', () => {
   it('native: Draft until sent, Pending once a sign link or an email went out, Signed when signed / ordered / confirmed', () => {
@@ -149,7 +150,7 @@ const q = (over: any) => ({
   ...over,
 });
 
-function fakeService(opts: { features?: any; roles?: Record<string, string[]>; rows?: any[]; links?: string[]; sent?: string[]; orders?: Array<{ sourceQuotationId: string; status: string }>; categoryRow?: any } = {}) {
+function fakeService(opts: { features?: any; roles?: Record<string, string[]>; rows?: any[]; links?: string[]; sent?: string[]; orders?: Array<{ sourceQuotationId: string; status: string }>; categoryRow?: any; aliases?: any[] } = {}) {
   const features = opts.features ?? { enableSalesReport: true, enableQuotationCategory: true };
   const roles = opts.roles ?? {};
   const rawCalls: any[] = [];
@@ -171,7 +172,7 @@ function fakeService(opts: { features?: any; roles?: Record<string, string[]>; r
     documentSignLink: { findMany: jest.fn(async () => (opts.links || []).map((documentId) => ({ documentId }))) },
     auditLog: { findMany: jest.fn(async () => (opts.sent || []).map((resourceId) => ({ resourceId }))) },
     order: { findMany: jest.fn(async () => opts.orders || []) },
-    customField: { findFirst: jest.fn(async () => opts.categoryRow ?? null), upsert: jest.fn() },
+    customField: { findFirst: jest.fn(async ({ where }: any) => (where.fieldName === 'salesperson_aliases' ? (opts.aliases ? { options: opts.aliases } : null) : opts.categoryRow ?? null)), upsert: jest.fn() },
   };
   const names: Record<string, any> = { 'u-henry': { firstName: 'Henry', lastName: 'Hoo' }, 'u-joyna': { firstName: 'Joyna', lastName: 'Chua' }, 'u-admin': { firstName: 'Finance', lastName: '' } };
   const clerk: any = { toClerkUsers: jest.fn(async (ids: string[]) => new Map(ids.filter((i) => names[i]).map((i) => [i, names[i]]))) };
@@ -265,5 +266,72 @@ describe('SalesReportService categories', () => {
     expect(off.prisma.customField.findFirst).not.toHaveBeenCalled();
     await expect(off.svc.saveCategories('org', { options: ['A'] })).rejects.toBeInstanceOf(BadRequestException);
     expect(off.prisma.customField.upsert).not.toHaveBeenCalled();
+  });
+});
+
+describe('shared salesperson resolver (code / id, then the alias map, then the name rules)', () => {
+  const aliases = aliasMapOf([{ text: 'Henry & Joyna', userIds: ['u-henry', 'u-joyna'] }, { text: 'HH', userIds: ['u-hh'] }, { text: 'Hnery', userIds: ['u-henry'] }, { text: 'junk', userIds: [] }]);
+  const codes = new Map([['S001', 'u-henry']]);
+  it('code first, then the map (exact text, spaces and case ignored), then the name rule, else nothing', () => {
+    expect(resolveSalespersonIds('s001', { codes, aliases })).toEqual(['u-henry']);
+    expect(resolveSalespersonIds('u-joyna', { codes, aliases, userIds: new Set(['u-joyna']) })).toEqual(['u-joyna']);
+    expect(resolveSalespersonIds('  henry &  JOYNA ', { codes, aliases })).toEqual(['u-henry', 'u-joyna']);
+    expect(resolveSalespersonIds('hh', { codes, aliases })).toEqual(['u-hh']);
+    expect(resolveSalespersonIds('Hnery', { codes, aliases })).toEqual(['u-henry']);
+    expect(resolveSalespersonIds('Henry', { codes, aliases, nameRule: () => ['u-rule'] })).toEqual(['u-rule']);
+    expect(resolveSalespersonIds('Isadora', { codes, aliases })).toEqual([]);
+    expect(resolveSalespersonIds('junk', { codes, aliases })).toEqual([]);
+    expect(resolveSalespersonIds('', { codes, aliases })).toEqual([]);
+  });
+  it('an org without a map: exactly the old resolution', () => {
+    expect(aliasMapOf(null).size).toBe(0);
+    expect(salespeopleOf('Henry & Joyna', salesmen).map((r) => r.key)).toEqual(['u:u-henry', 'u:u-joyna']);
+    expect(salespeopleOf('HH', salesmen)).toEqual([{ key: 't:hh', label: 'HH' }]);
+  });
+});
+
+describe('Sales report with the alias map', () => {
+  const aliases = [
+    { text: 'Henry & Joyna', userIds: ['u-henry', 'u-joyna'] },
+    { text: 'HH', userIds: ['u-joyna'] },
+  ];
+  const rows = [
+    q({ id: 'm1', name: 'Q-1', salesPerson: 'Henry & Joyna', imported: true, status: 'confirmed', erpStatus: 'Accepted', nettTotal: '1090', gstAmount: '90' }),
+    q({ id: 'm2', name: 'Q-2', salesPerson: 'HH', imported: true, status: 'confirmed', erpStatus: 'Accepted', nettTotal: '545', gstAmount: '45' }),
+    q({ id: 'm3', name: 'Q-3', salesPerson: 'Isadora (Follow Up)', imported: true, status: 'confirmed', erpStatus: 'Accepted', nettTotal: '218', gstAmount: '18' }),
+    q({ id: 'm4', name: 'Q-4', salesPerson: 'Clive Tang', imported: true, status: 'confirmed', erpStatus: 'Sent', nettTotal: '109', gstAmount: '9' }),
+  ];
+
+  it('several names: each person gets the full amount; All counts the quotation once', async () => {
+    const { svc } = fakeService({ roles: { a: ['Admin'] }, rows, aliases });
+    const henry = await svc.report('org', { userId: 'a' }, { salesperson: 'u:u-henry' });
+    const joyna = await svc.report('org', { userId: 'a' }, { salesperson: 'u:u-joyna' });
+    const all = await svc.report('org', { userId: 'a' }, {});
+    expect(henry.rows.map((r) => [r.number, r.amount])).toEqual([['Q-1', 1000]]);
+    expect(henry.summary.total.signedAmount).toBe(1000);
+    expect(joyna.rows.map((r) => [r.number, r.amount])).toEqual([['Q-1', 1000], ['Q-2', 500]]);
+    expect(joyna.summary.total.signedAmount).toBe(1500);
+    expect(all.rows.map((r) => r.number)).toEqual(['Q-1', 'Q-2', 'Q-3', 'Q-4']);
+    expect(all.summary.total).toMatchObject({ signedCount: 3, signedAmount: 1700, pendingCount: 1, pendingAmount: 100 });
+  });
+
+  it('unmapped names stay raw-name entries in the filter (Admin / Accounting) and reach their quotations', async () => {
+    const { svc } = fakeService({ roles: { a: ['Accounting'] }, rows, aliases });
+    const all = await svc.report('org', { userId: 'a' }, {});
+    expect(all.salespeople).toEqual(
+      expect.arrayContaining([
+        { key: 't:isadora (follow up)', label: 'Isadora (Follow Up)' },
+        { key: 't:clive tang', label: 'Clive Tang' },
+      ]),
+    );
+    expect(all.salespeople.some((p) => p.key === 't:hh')).toBe(false);
+    expect((await svc.report('org', { userId: 'a' }, { salesperson: 't:clive tang' })).rows.map((r) => r.number)).toEqual(['Q-4']);
+  });
+
+  it('Sales-only: their own quotations via the map, no raw-name entries', async () => {
+    const { svc } = fakeService({ roles: { 'u-joyna': ['Sales'] }, rows, aliases });
+    const r = await svc.report('org', { userId: 'u-joyna' }, { salesperson: 't:clive tang' });
+    expect(r.rows.map((x) => x.number)).toEqual(['Q-1', 'Q-2']);
+    expect(r.salespeople).toEqual([{ key: 'u:u-joyna', label: 'Joyna Chua' }]);
   });
 });

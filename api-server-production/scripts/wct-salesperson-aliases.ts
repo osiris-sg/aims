@@ -22,6 +22,7 @@
  *
  *   npx ts-node --transpile-only scripts/wct-salesperson-aliases.ts --env prod             # dry run
  *   npx ts-node --transpile-only scripts/wct-salesperson-aliases.ts --env prod --apply     # writes the map
+ *   add --map "HH=hh@wct.com.sg"   # an explicit choice for one name (repeatable), fill-empty only
  */
 import 'dotenv/config';
 import * as fs from 'fs';
@@ -36,6 +37,17 @@ const TYPOS: Record<string, string> = { hnery: 'henry', heny: 'henry' };
 const AMBIGUOUS: Record<string, string[]> = { hh: ['hh@wct.com.sg', 'henry@wct.com.sg'] };
 const env = process.argv.includes('--env') ? process.argv[process.argv.indexOf('--env') + 1] : 'dev';
 const apply = process.argv.includes('--apply');
+// --map "HH=hh@wct.com.sg" (repeatable; several users: "A & B=a@x+b@x"): an explicit choice for a name, over the
+// rules and the ambiguity list. Still fill-empty only: a name already in the stored map is never changed.
+const norm = (s: string) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+const OVERRIDES = new Map<string, string[]>();
+process.argv.forEach((a, i) => {
+  if (a !== '--map') return;
+  const v = String(process.argv[i + 1] || '');
+  const at = v.lastIndexOf('=');
+  if (at <= 0) throw new Error(`--map expects NAME=email, got "${v}"`);
+  OVERRIDES.set(norm(v.slice(0, at)), v.slice(at + 1).split('+').map((e) => e.trim().toLowerCase()).filter(Boolean));
+});
 
 interface Person {
   userId: string;
@@ -45,7 +57,6 @@ interface Person {
   member: boolean;
 }
 
-const norm = (s: string) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
 export const tokensOf = (text: string): string[] =>
   String(text || '')
     .replace(/\([^)]*\)/g, ' ')
@@ -116,12 +127,17 @@ function matchToken(token: string, people: Person[]): { users: Person[]; ambiguo
     console.log('  NAME | QUOTATIONS | PROPOSED USER(S)');
     for (const r of names) {
       const toks = tokensOf(r.sp);
-      const per = toks.map((t) => ({ t, ...matchToken(t, people) }));
+      const forced = OVERRIDES.get(norm(r.sp));
+      const per = forced
+        ? [{ t: norm(r.sp), users: forced.map((e) => people.find((p) => p.email === e)).filter((u): u is Person => !!u), ambiguous: undefined as Person[] | undefined }]
+        : toks.map((t) => ({ t, ...matchToken(t, people) }));
       const users = [...new Map(per.flatMap((p) => p.users).map((u) => [u.userId, u])).values()];
       const amb = per.flatMap((p) => p.ambiguous || []);
-      const missing = per.filter((p) => !p.users.length && !p.ambiguous).map((p) => p.t);
+      const missing = forced ? forced.filter((e) => !people.some((p) => p.email === e)) : per.filter((p) => !p.users.length && !p.ambiguous).map((p) => p.t);
       const show = (u: Person) => `${u.name || '?'} <${u.email || 'no email'}>${u.member ? '' : ' (not a member of this org)'}`;
-      const proposal = amb.length
+      const proposal = forced
+        ? `--map: ${users.map(show).join(' + ') || 'nobody'}${missing.length ? `; no AIMS user with "${missing.join('", "')}"` : ''}`
+        : amb.length
         ? `AMBIGUOUS, not mapped: ${amb.map(show).join(' OR ')}`
         : users.length
         ? `${users.map(show).join(' + ')}${missing.length ? `; no match for "${missing.join('", "')}"` : ''}`

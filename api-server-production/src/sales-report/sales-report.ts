@@ -27,6 +27,8 @@
  * refused. Multi-role users: any admin-type role wins.
  */
 
+import { AliasMap, resolveSalespersonIds } from './salesperson-resolver';
+
 export type SalesStatus = 'Draft' | 'Pending' | 'Signed' | 'Cancelled';
 export const SALES_STATUSES: SalesStatus[] = ['Signed', 'Pending', 'Draft', 'Cancelled'];
 
@@ -112,16 +114,24 @@ export interface SalespersonRef {
 }
 
 /**
- * Who a quotation belongs to. A code or user id resolves to that user; free
- * text resolves to every user it names (keys), else stays its own entry.
+ * Who a quotation belongs to, through the shared resolver (salesperson-resolver.ts): code / user id, then the
+ * org's alias map, then the name rules. A value naming several people gives one ref each (each person's report
+ * shows the full amount; "All" lists the quotation once). Nobody matched: a raw-name entry ('t:<text>').
  */
-export function salespeopleOf(raw: unknown, salesmen: Salesman[]): SalespersonRef[] {
+export function salespeopleOf(raw: unknown, salesmen: Salesman[], aliases: AliasMap = new Map()): SalespersonRef[] {
   const s = typeof raw === 'string' ? raw.trim() : '';
   if (!s) return [{ key: '', label: 'No salesperson' }];
-  const byCode = salesmen.find((m) => (m.code && m.code.toLowerCase() === s.toLowerCase()) || m.userId === s);
-  if (byCode) return [{ key: `u:${byCode.userId}`, label: byCode.name }];
-  const named = salesmen.filter((m) => textNamesUser(s, m));
-  if (named.length) return named.map((m) => ({ key: `u:${m.userId}`, label: m.name }));
+  const codes = new Map(salesmen.filter((m) => m.code).map((m) => [m.code.toUpperCase(), m.userId]));
+  const ids = resolveSalespersonIds(s, {
+    codes,
+    userIds: new Set(salesmen.map((m) => m.userId)),
+    aliases,
+    nameRule: (text) => salesmen.filter((m) => textNamesUser(text, m)).map((m) => m.userId),
+  });
+  if (ids.length) {
+    const nameOf = (id: string) => salesmen.find((m) => m.userId === id)?.name || s.replace(/\s+/g, ' ');
+    return [...new Set(ids)].map((id) => ({ key: `u:${id}`, label: nameOf(id) }));
+  }
   return [{ key: `t:${norm(s)}`, label: s.replace(/\s+/g, ' ') }];
 }
 

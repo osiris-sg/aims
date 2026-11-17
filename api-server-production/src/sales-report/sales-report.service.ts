@@ -22,6 +22,7 @@ import {
   salespeopleOf,
   summarise,
 } from './sales-report';
+import { salespersonAliases } from './salesperson-resolver';
 
 const QUOTATION_TYPES = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'];
 const MAX_ROWS = 20000;
@@ -161,7 +162,7 @@ export class SalesReportService {
     const to = isoDateOrNull(query.to);
     if (from && to && from > to) throw new BadRequestException('The From date is after the To date');
 
-    const salesmen = await this.salesmen(organizationId);
+    const [salesmen, aliases] = await Promise.all([this.salesmen(organizationId), salespersonAliases(this.prisma, organizationId)]);
     const all = await this.quotations(organizationId, from, to);
     const facts = await this.nativeFacts(organizationId, all.filter((q) => !q.imported).map((q) => q.id));
 
@@ -172,7 +173,7 @@ export class SalesReportService {
     const people = new Map<string, string>();
     const rows: Array<ReportRow & { templateId: string | null; salespeople: string[] }> = [];
     for (const q of all) {
-      const refs = salespeopleOf(q.salesPerson, salesmen);
+      const refs = salespeopleOf(q.salesPerson, salesmen, aliases);
       for (const r of refs) if (r.key && !people.has(r.key)) people.set(r.key, r.label);
       const keys = refs.map((r) => r.key);
       if (wanted && !keys.includes(wanted)) continue;
