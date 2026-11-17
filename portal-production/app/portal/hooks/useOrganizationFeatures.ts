@@ -27,6 +27,7 @@ interface OrganizationFeatures {
   enableSiteClockDeliveries?: boolean;
   enableJobsCalendar?: boolean;
   enableGroupCalendar?: boolean;
+  enableCalendarStyle?: boolean;
   enableRealDoOnSchedule?: boolean;
   enableWctOrders?: boolean;
   enableWctMyJobs?: boolean;
@@ -271,6 +272,7 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Group calendar (WCT 2026-11-17): a parent org's calendar also shows its child
   // orgs' jobs and notes, read only. Default OFF.
   enableGroupCalendar: false,
+  enableCalendarStyle: false,
   // Real DO numbers on schedule (WCT 2026-10-30): a scheduled run's DO gets its
   // real number at once; a Pending / Completed / Cancelled tag shows next to it.
   enableRealDoOnSchedule: false,

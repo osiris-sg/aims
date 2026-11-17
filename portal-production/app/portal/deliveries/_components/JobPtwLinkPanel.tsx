@@ -6,13 +6,15 @@
 //    SiteClock job's notes follow.
 //  - "Link to…": a job with no order (made from the calendar) goes under the order of a quotation, an order, an
 //    invoice or a DO. A quotation with no order gets one, with this job as its first job.
+//  - Calendar style (2026-11-18, enableCalendarStyle): Salesperson, PTW applicant, COD and Postponed, saved at once.
 
 import React, { useEffect, useState } from "react";
 import { Alert, Autocomplete, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
 import LinkIcon from "@mui/icons-material/Link";
 import { toast } from "react-toastify";
-import { LINK_KINDS, PTW_OPTIONS, ptwColor, type LinkKind, type PtwStatus } from "@/helpers/calendarAdd";
-import { useCalendarApi } from "@/components/Dashboard/jobs-calendar/calendarAddApi";
+import { LINK_KINDS, ptwColor, ptwOptions, type LinkKind, type PtwStatus } from "@/helpers/calendarAdd";
+import { useCalendarApi, useCalendarStylePeople } from "@/components/Dashboard/jobs-calendar/calendarAddApi";
+import JobStyleFields, { type JobStyleValue } from "@/components/Dashboard/jobs-calendar/JobStyleFields";
 
 type Option = { id: string; label: string };
 
@@ -44,13 +46,48 @@ export default function JobPtwLinkPanel({
     onChanged();
   };
 
+  // Calendar style (enableCalendarStyle; every other org: nothing shown).
+  const people = useCalendarStylePeople(true);
+  const [style, setStyle] = useState<JobStyleValue | null>(null);
+  const [styleSaved, setStyleSaved] = useState<JobStyleValue | null>(null);
+  useEffect(() => {
+    if (!people.loaded || !people.enabled) return;
+    let live = true;
+    void api<any>("GET", `/deliveries/${run.id}/style`).then((res) => {
+      if (!live || !res.ok) return;
+      const d = res.data || {};
+      const v: JobStyleValue = {
+        salesperson: d.salespersonId ? { id: d.salespersonId, name: d.salespersonName || d.salespersonId } : null,
+        ptwApplicant: d.ptwApplicantId ? { id: d.ptwApplicantId, name: d.ptwApplicantName || d.ptwApplicantId } : null,
+        cod: !!d.cod,
+        postponed: !!d.postponed,
+      };
+      setStyle(v);
+      setStyleSaved(v);
+    });
+    return () => {
+      live = false;
+    };
+  }, [people.loaded, people.enabled, run.id, api]);
+  const styleDirty = !!style && JSON.stringify(style) !== JSON.stringify(styleSaved);
+  const saveStyle = async () => {
+    if (!style) return;
+    setSaving(true);
+    const res = await api("PATCH", `/deliveries/${run.id}/style`, { salesperson: style.salesperson, ptwApplicant: style.ptwApplicant, cod: style.cod, postponed: !!style.postponed });
+    setSaving(false);
+    if (!res.ok) return toast.error(res.message || "Couldn't save the job");
+    setStyleSaved(style);
+    toast.success("Saved");
+    onChanged();
+  };
+
   const untagged = !run.order && run.status !== "cancelled";
   return (
     <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ md: "center" }}>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }} sx={{ flex: 1 }}>
           <TextField select label="PTW" size="small" value={ptw} onChange={(e) => setPtw(e.target.value as PtwStatus)} sx={{ minWidth: 160 }} data-tour="job-ptw">
-            {PTW_OPTIONS.map((o) => (
+            {ptwOptions(people.enabled).map((o) => (
               <MenuItem key={o.value} value={o.value}>
                 <Stack direction="row" spacing={1} alignItems="center">
                   <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: o.value === "NOT_NEEDED" ? "transparent" : ptwColor(o.value), border: o.value === "NOT_NEEDED" ? 1 : 0, borderColor: "divider" }} />
@@ -75,6 +112,24 @@ export default function JobPtwLinkPanel({
           </Stack>
         )}
       </Stack>
+      {people.enabled && style && (
+        <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} alignItems={{ md: "center" }} sx={{ mt: 2 }}>
+          <JobStyleFields
+            value={style}
+            onChange={(patch) => setStyle((v) => (v ? { ...v, ...patch } : v))}
+            salespeople={people.salespeople}
+            applicants={people.applicants}
+            showApplicant={ptw !== "NOT_NEEDED"}
+            showPostponed={run.status !== "cancelled"}
+            salespersonPlaceholder={run.order ? "From the quotation" : undefined}
+          />
+          {styleDirty && (
+            <Button size="small" variant="contained" onClick={() => void saveStyle()} disabled={saving} sx={{ flexShrink: 0 }}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          )}
+        </Stack>
+      )}
       <LinkDialog open={linkOpen} jobId={run.id} onClose={() => setLinkOpen(false)} onLinked={() => { setLinkOpen(false); onChanged(); }} />
     </Paper>
   );

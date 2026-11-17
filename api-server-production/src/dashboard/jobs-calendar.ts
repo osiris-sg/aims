@@ -22,6 +22,7 @@ import { VERIFICATION_LABEL } from '../deliveries/finish-modes';
 import { deliveredLabel, runNoun } from '../deliveries/job-wording';
 import { PTW_LABEL, PtwStatus, ptwShown } from '../deliveries/quick-jobs';
 import { ymdIn } from '../deliveries/all-day';
+import type { EventStyle } from './calendar-style';
 
 export const CALENDAR_TZ = 'Asia/Singapore';
 export const CALENDAR_MAX_DAYS = 62;
@@ -157,6 +158,15 @@ export interface CalendarEvent {
   foreign?: true;
   /** Group calendar: a child org's item the viewer is not a member of; its links are stripped. */
   viewOnly?: true;
+  /** Calendar style (enableCalendarStyle, WCT group; absent for every other org): fill, PTW bar, icons, greyed. */
+  style?: EventStyle;
+  /** Calendar style: the job's salesperson (own pick, else its quotation's salesman) and PTW applicant. */
+  salesperson?: { id: string; name: string | null } | null;
+  ptwApplicant?: { id: string; name: string | null } | null;
+  /** Calendar style: COD job, postponed (on hold), live DOs on the job. */
+  cod?: boolean;
+  postponed?: boolean;
+  doCount?: number;
 }
 
 /** Group calendar: an item of another org the viewer may not open loses every link (numbers and details stay). */

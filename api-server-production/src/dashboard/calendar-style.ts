@@ -1,0 +1,211 @@
+/**
+ * Jobs calendar style (WCT group, 2026-11-18, flag enableCalendarStyle).
+ * Google Calendar-like chips: fill = the job's salesperson's colour, a slim
+ * left bar = the PTW applicant's colour (no bar when no PTW is needed), and
+ * icons for PTW status, DOs, cancelled / postponed, COD; Leave notes get 📅.
+ * Cancelled and postponed jobs stay on the calendar, greyed out.
+ *
+ * Colours are per person per org (UserOrganization.settings.calendar, edited
+ * in Settings > Job fields > Calendar colours). A bar colour must never be a
+ * fill colour (or close to one), so the two read apart at a glance.
+ *
+ * Pure helpers; calendar-style.service.ts does the reads and writes.
+ */
+
+/** Salesperson fills (Google Calendar tones). */
+export const FILL_PALETTE = ['#039be5', '#8e24aa', '#e67c73', '#3f51b5', '#7986cb', '#ad1457', '#26a69a'] as const;
+/** PTW applicant bars. */
+export const BAR_PALETTE = ['#d50000', '#f6bf26', '#0b8043', '#f4511e', '#795548', '#212121'] as const;
+/** A job with no salesperson (or one with no colour yet). */
+export const NEUTRAL_FILL = '#b0bec5';
+/** A PTW bar whose applicant has no colour yet. */
+export const NEUTRAL_BAR = '#455a64';
+/** Two colours closer than this (RGB distance) read as the same. */
+export const MIN_COLOUR_DISTANCE = 80;
+
+/** Seeds (scripts/wct-calendar-style-seed.ts): salesperson fills by login email, PTW bars by name. */
+export const SEED_FILLS: Record<string, string> = {
+  'hh@wct.com.sg': '#039be5',
+  'amy@wct.com.sg': '#8e24aa',
+  'pc@wct.com.sg': '#e67c73',
+  'joyna@wct.com.sg': '#3f51b5',
+};
+export const SEED_BARS: Record<string, string> = { Bala: '#d50000', Joyna: '#f6bf26', Kherry: '#0b8043' };
+export const SEED_DEFAULT_APPLICANT = 'Bala';
+
+export const ICON = {
+  ptwPending: '✋',
+  ptwApproved: '👍',
+  ptwRejected: '👎',
+  doDone: '✅',
+  cancelled: '❌',
+  postponed: '⭕',
+  leave: '📅',
+  cod: '🟫',
+} as const;
+
+/** The legend: icons only, no people colours. */
+export const CALENDAR_STYLE_LEGEND: Array<{ icon: string; label: string }> = [
+  { icon: ICON.ptwPending, label: 'PTW pending' },
+  { icon: ICON.ptwApproved, label: 'PTW approved' },
+  { icon: ICON.ptwRejected, label: 'PTW rejected' },
+  { icon: ICON.doDone, label: 'DO generated' },
+  { icon: ICON.cancelled, label: 'Cancelled' },
+  { icon: ICON.postponed, label: 'Postponed' },
+  { icon: ICON.leave, label: 'Leave' },
+  { icon: ICON.cod, label: 'COD' },
+];
+
+/** Category title prefixes (job category list, deliveries/job-category.ts). */
+export const CATEGORY_PREFIX: Record<string, string> = { 'site visit': '(SV)', meeting: '(M)', 'collect cheque': '(CC)' };
+export const categoryPrefix = (category: string | null | undefined): string | null => CATEGORY_PREFIX[String(category ?? '').trim().toLowerCase()] ?? null;
+
+const HEX = /^#[0-9a-f]{6}$/i;
+export const isHex = (v: unknown): v is string => typeof v === 'string' && HEX.test(v);
+export const normHex = (v: unknown): string | null => (isHex(v) ? v.toLowerCase() : null);
+
+const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+
+export function colourDistance(a: string, b: string): number {
+  const [r1, g1, b1] = rgb(a);
+  const [r2, g2, b2] = rgb(b);
+  return Math.sqrt((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2);
+}
+
+/** White or dark text on a fill (WCAG relative luminance). */
+export function textOn(fill: string): string {
+  const [r, g, b] = rgb(fill).map((c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  });
+  const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return l > 0.4 ? '#212121' : '#ffffff';
+}
+
+/**
+ * Bars vs fills: every bar colour must be at least MIN_COLOUR_DISTANCE from
+ * every fill colour and the neutral fill. Returns the first clash, or null.
+ */
+export function colourClash(fills: string[], bars: string[]): { fill: string; bar: string } | null {
+  for (const bar of bars) {
+    for (const fill of [...fills, NEUTRAL_FILL]) {
+      if (colourDistance(fill, bar) < MIN_COLOUR_DISTANCE) return { fill, bar };
+    }
+  }
+  return null;
+}
+
+export interface CalendarColours {
+  /** userId -> salesperson fill. */
+  fill: Record<string, string>;
+  /** userId -> PTW applicant bar. */
+  bar: Record<string, string>;
+  /** The org's default PTW applicant (prefilled on new jobs, and used for a PTW job with none). */
+  defaultApplicant: { id: string; name: string | null } | null;
+}
+
+export const NO_COLOURS: CalendarColours = { fill: {}, bar: {}, defaultApplicant: null };
+
+/** Group calendar: a child org's items use the parent's colours first, then the child's own. */
+export function mergeColours(child: CalendarColours, parent: CalendarColours | null | undefined): CalendarColours {
+  if (!parent) return child;
+  return {
+    fill: { ...child.fill, ...parent.fill },
+    bar: { ...child.bar, ...parent.bar },
+    defaultApplicant: child.defaultApplicant ?? parent.defaultApplicant,
+  };
+}
+
+/** A person's calendar settings as stored in UserOrganization.settings.calendar. */
+export interface PersonCalendarSettings {
+  fill: string | null;
+  bar: string | null;
+  ptwDefault: boolean;
+}
+
+export function personSettingsOf(settings: unknown): PersonCalendarSettings {
+  const c: any = settings && typeof settings === 'object' ? (settings as any).calendar : null;
+  return { fill: normHex(c?.fill), bar: normHex(c?.bar), ptwDefault: c?.ptwDefault === true };
+}
+
+/** The org's colour maps from its members' settings. */
+export function coloursOf(members: Array<{ userId: string; settings: unknown; name?: string | null }>): CalendarColours {
+  const out: CalendarColours = { fill: {}, bar: {}, defaultApplicant: null };
+  for (const m of members) {
+    const s = personSettingsOf(m.settings);
+    if (s.fill) out.fill[m.userId] = s.fill;
+    if (s.bar) out.bar[m.userId] = s.bar;
+    if (s.ptwDefault && !out.defaultApplicant) out.defaultApplicant = { id: m.userId, name: m.name ?? null };
+  }
+  return out;
+}
+
+export interface StyleInput {
+  cancelled: boolean;
+  postponed: boolean;
+  /** PTW status (null / NOT_NEEDED = no PTW). */
+  ptwStatus: string | null;
+  /** Live (not cancelled) DOs of the job. */
+  doCount: number;
+  cod: boolean;
+  category: string | null;
+  salespersonId: string | null;
+  ptwApplicantId: string | null;
+}
+
+export interface EventStyle {
+  fill: string;
+  text: string;
+  /** The PTW applicant's bar (null: no PTW needed). */
+  bar: string | null;
+  icons: Array<{ icon: string; label: string }>;
+  /** Cancelled or postponed: drawn greyed out, never hidden. */
+  greyed: boolean;
+  /** "(SV)" / "(M)" / "(CC)" before the title, or null. */
+  prefix: string | null;
+}
+
+const ptwNeeded = (s: string | null | undefined) => !!s && s !== 'NOT_NEEDED';
+
+export function ptwIcon(status: string | null | undefined): { icon: string; label: string } | null {
+  const s = String(status ?? '').toUpperCase();
+  if (s === 'REQUIRED' || s === 'SUBMITTED') return { icon: ICON.ptwPending, label: s === 'REQUIRED' ? 'PTW pending' : 'PTW applied' };
+  if (s === 'APPROVED') return { icon: ICON.ptwApproved, label: 'PTW approved' };
+  if (s === 'REJECTED') return { icon: ICON.ptwRejected, label: 'PTW rejected' };
+  return null;
+}
+
+/** "✅" for one DO, "2✅" for two. */
+export const doIcon = (n: number): string | null => (n > 0 ? (n > 1 ? `${n}${ICON.doDone}` : ICON.doDone) : null);
+
+export function styleOf(i: StyleInput, colours: CalendarColours): EventStyle {
+  const fill = (i.salespersonId && colours.fill[i.salespersonId]) || NEUTRAL_FILL;
+  const applicant = i.ptwApplicantId ?? colours.defaultApplicant?.id ?? null;
+  const bar = ptwNeeded(i.ptwStatus) ? (applicant && colours.bar[applicant]) || NEUTRAL_BAR : null;
+  const icons: EventStyle['icons'] = [];
+  if (i.cancelled) icons.push({ icon: ICON.cancelled, label: 'Cancelled' });
+  else if (i.postponed) icons.push({ icon: ICON.postponed, label: 'Postponed' });
+  const p = ptwIcon(i.ptwStatus);
+  if (p) icons.push(p);
+  const d = doIcon(i.doCount);
+  if (d) icons.push({ icon: d, label: i.doCount > 1 ? `${i.doCount} DOs generated` : 'DO generated' });
+  if (i.cod) icons.push({ icon: ICON.cod, label: 'COD' });
+  return { fill, text: textOn(fill), bar, icons, greyed: i.cancelled || i.postponed, prefix: categoryPrefix(i.category) };
+}
+
+/**
+ * Salesperson of an order / quotation from the quotation's salesman field
+ * (config.salesPerson or documentInfo.salesPerson): a salesman code (S002)
+ * of a member, matched without case. Free text (old ERP names such as
+ * "Henry") matches nobody: neutral fill.
+ */
+export function quotationSalesmanCode(config: any): string | null {
+  const v = config?.salesPerson ?? config?.documentInfo?.salesPerson ?? null;
+  const s = typeof v === 'string' ? v.trim() : '';
+  return s || null;
+}
+
+export function salespersonFromCode(code: string | null, codes: Map<string, string>): string | null {
+  if (!code) return null;
+  return codes.get(code.toUpperCase()) ?? null;
+}

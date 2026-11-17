@@ -58,6 +58,27 @@ export interface CalendarEvent {
   foreign?: boolean;
   /** Group calendar: a child org's item the viewer is not a member of (the server sent no links). */
   viewOnly?: boolean;
+  /** Calendar style (enableCalendarStyle, WCT group; absent for every other org): fill, PTW bar, icons, greyed. */
+  style?: EventStyle;
+  /** Calendar style: the job's salesperson and PTW applicant, COD, postponed, live DOs. */
+  salesperson?: { id: string; name: string | null } | null;
+  ptwApplicant?: { id: string; name: string | null } | null;
+  cod?: boolean;
+  postponed?: boolean;
+  doCount?: number;
+}
+
+/** Calendar style (server: api-server-production/src/dashboard/calendar-style.ts). */
+export interface EventStyle {
+  fill: string;
+  text: string;
+  /** The PTW applicant's bar; null = no PTW needed. */
+  bar: string | null;
+  icons: Array<{ icon: string; label: string }>;
+  /** Cancelled or postponed: greyed out, never hidden. */
+  greyed: boolean;
+  /** "(SV)" / "(M)" / "(CC)" before the title. */
+  prefix: string | null;
 }
 
 export interface CalendarBadge {
@@ -87,6 +108,8 @@ export interface CalendarPayload {
   notes?: Array<import("@/helpers/calendarAdd").CalendarNote & GroupTag>;
   /** Group calendar: the orgs shown, own org first (absent otherwise). */
   group?: { orgs: Array<{ id: string; name: string }> };
+  /** Calendar style (enableCalendarStyle): present = styled chips and the icon legend. */
+  style?: { legend: Array<{ icon: string; label: string }> };
 }
 
 /** Group calendar: which org an item belongs to (set only when the group view is on). */
@@ -207,26 +230,66 @@ export function isMovable(e: Pick<CalendarEvent, "source" | "allDay" | "status" 
 /** The run id behind an AIMS event ("aims:<deliveryId>"), or null. */
 export const runIdOf = (eventId: string): string | null => (eventId.startsWith("aims:") ? eventId.slice(5) : null);
 
-/** What FullCalendar draws for each event; cancelled ones only when asked for. `movable` = drag is on; `byPtw` = WCT colours. */
+/**
+ * What FullCalendar draws for each event; cancelled ones only when asked for. `movable` = drag is on; `byPtw` = WCT colours.
+ * Calendar style (events with `style`): fill by salesperson, every event drawn (cancelled / postponed greyed, never hidden).
+ */
 export function toCalendarInputs(events: CalendarEvent[], showCancelled: boolean, movable = false, byPtw = false) {
   return events
-    .filter((e) => showCancelled || !e.cancelled)
-    .map((e) => {
-      const color = eventColor(e, byPtw);
-      return {
-        id: e.id,
-        title: e.title,
-        start: e.start,
-        end: e.end ?? undefined,
-        allDay: e.allDay,
-        ...(movable && isMovable(e) ? { startEditable: true, durationEditable: false } : {}),
-        backgroundColor: color,
-        borderColor: color,
-        textColor: byPtw && !e.cancelled && wctStateOf(e) === "needed" ? "#3e2723" : "#ffffff",
-        classNames: ["aims-jc-event", ...(e.completed ? ["aims-jc-completed"] : []), ...(e.cancelled ? ["aims-jc-cancelled"] : [])],
-        extendedProps: { event: e },
-      };
-    });
+    .filter((e) => showCancelled || !e.cancelled || !!e.style)
+    .map((e) => (e.style ? styledInput(e, e.style, movable) : plainInput(e, movable, byPtw)));
+}
+
+function styledInput(e: CalendarEvent, st: EventStyle, movable: boolean) {
+  return {
+    id: e.id,
+    title: styledTitle(e),
+    start: e.start,
+    end: e.end ?? undefined,
+    allDay: e.allDay,
+    ...(movable && isMovable(e) && !st.greyed ? { startEditable: true, durationEditable: false } : {}),
+    backgroundColor: st.fill,
+    borderColor: st.fill,
+    textColor: st.text,
+    classNames: ["aims-jc-event", "aims-jc-styled", ...(e.completed ? ["aims-jc-completed"] : []), ...(st.greyed ? ["aims-jc-greyed"] : [])],
+    extendedProps: { event: e },
+  };
+}
+
+/** Calendar style chip, line 1: "(SV) " + the title. */
+export const styledTitle = (e: Pick<CalendarEvent, "title" | "style">): string => (e.style?.prefix ? `${e.style.prefix} ${e.title}` : e.title);
+
+/** Calendar style chip, line 2: "10:00 am – 11:00 am" (Singapore), or "All day". */
+export function chipTimeRange(e: Pick<CalendarEvent, "start" | "end" | "allDay">): string {
+  if (e.allDay) return "All day";
+  return e.end ? `${timeFmt(e.start)} – ${timeFmt(e.end)}` : timeFmt(e.start);
+}
+
+/** Calendar style: the chip's icons as one string ("✋ 2✅"). */
+export const chipIcons = (e: Pick<CalendarEvent, "style">): string => (e.style?.icons ?? []).map((i) => i.icon).join(" ");
+
+/** Calendar style: a Leave note leads with 📅 (other notes unchanged). */
+export const LEAVE_ICON = "📅";
+export const styledNoteTitle = (type: string, title: string): string => (type === "LEAVE" ? `${LEAVE_ICON} ${title}` : title);
+
+/** The panel's colour dot: the salesperson fill when styled, else the WCT / kind colour. */
+export const panelColor = (e: CalendarEvent, byPtw: boolean): string => e.style?.fill ?? eventColor(e, byPtw);
+
+function plainInput(e: CalendarEvent, movable: boolean, byPtw: boolean) {
+  const color = eventColor(e, byPtw);
+  return {
+    id: e.id,
+    title: e.title,
+    start: e.start,
+    end: e.end ?? undefined,
+    allDay: e.allDay,
+    ...(movable && isMovable(e) ? { startEditable: true, durationEditable: false } : {}),
+    backgroundColor: color,
+    borderColor: color,
+    textColor: byPtw && !e.cancelled && wctStateOf(e) === "needed" ? "#3e2723" : "#ffffff",
+    classNames: ["aims-jc-event", ...(e.completed ? ["aims-jc-completed"] : []), ...(e.cancelled ? ["aims-jc-cancelled"] : [])],
+    extendedProps: { event: e },
+  };
 }
 
 const timeFmt = (iso: string) =>

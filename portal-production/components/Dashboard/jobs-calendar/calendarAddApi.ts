@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 export interface ApiResult<T = any> {
   ok: boolean;
@@ -72,4 +73,43 @@ export function useSiteClockWorkers(open: boolean) {
     };
   }, [open, api]);
   return state;
+}
+
+export interface StylePerson {
+  id: string;
+  name: string;
+}
+
+export interface CalendarStylePeople {
+  enabled: boolean;
+  salespeople: StylePerson[];
+  applicants: StylePerson[];
+  /** The viewer when they are Sales (a "Sales" role or a salesman code). */
+  defaultSalesperson: StylePerson | null;
+  /** The org's default PTW applicant (Settings > Job fields > Calendar colours). */
+  defaultApplicant: StylePerson | null;
+}
+
+const NO_STYLE: CalendarStylePeople = { enabled: false, salespeople: [], applicants: [], defaultSalesperson: null, defaultApplicant: null };
+
+/** Calendar style (enableCalendarStyle): the Salesperson / PTW applicant pickers; enabled false for every other org. */
+export function useCalendarStylePeople(open: boolean) {
+  const api = useCalendarApi();
+  // Only orgs with the flag ask the server (every other org: no request, nothing shown).
+  const { features } = useOrganizationFeatures();
+  const on = features?.enableCalendarStyle === true;
+  const [state, setState] = useState<CalendarStylePeople & { loaded: boolean }>({ ...NO_STYLE, loaded: false });
+  useEffect(() => {
+    if (!open || !on) return;
+    let live = true;
+    void api<CalendarStylePeople>("GET", "/dashboard/calendar-style/people").then((res) => {
+      if (!live) return;
+      const d = res.ok && res.data?.enabled ? res.data : NO_STYLE;
+      setState({ ...NO_STYLE, ...d, loaded: true });
+    });
+    return () => {
+      live = false;
+    };
+  }, [open, on, api]);
+  return on ? state : { ...NO_STYLE, loaded: true };
 }

@@ -1,7 +1,8 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Put, Delete, Body, Param, Query, UseGuards, Req } from '@nestjs/common';
 import { DashboardService } from './dashboard.service';
 import { JobsCalendarService } from './jobs-calendar.service';
 import { CalendarNotesService } from './calendar-notes.service';
+import { CalendarStyleService } from './calendar-style.service';
 import { RoleHomeService } from './role-home.service';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
@@ -27,6 +28,7 @@ export class DashboardController {
     private readonly jobsCalendar: JobsCalendarService,
     private readonly calendarNotes: CalendarNotesService,
     private readonly roleHome: RoleHomeService,
+    private readonly calendarStyle: CalendarStyleService,
   ) {}
 
   @Get('overview')
@@ -205,6 +207,29 @@ export class DashboardController {
   @ApiOperation({ summary: 'Jobs calendar: delete a note' })
   async deleteCalendarNote(@Req() req: RequestWithOrganization, @Param('id') id: string) {
     return await this.calendarNotes.remove(this.orgOf(req), id);
+  }
+
+  // Calendar style (enableCalendarStyle, WCT group): people colours (Settings) and the job forms' pickers.
+
+  @Get('calendar-style')
+  @Permissions('dashboard:read')
+  @ApiOperation({ summary: 'Jobs calendar style: every member with their salesperson / PTW colours' })
+  async getCalendarStyle(@Req() req: RequestWithOrganization) {
+    return await this.calendarStyle.settings(this.orgOf(req));
+  }
+
+  @Put('calendar-style')
+  @Permissions('organizations:update')
+  @ApiOperation({ summary: 'Jobs calendar style: save people colours and the default PTW applicant' })
+  async saveCalendarStyle(@Req() req: RequestWithOrganization, @Body() body: any) {
+    return await this.calendarStyle.save(this.orgOf(req), body);
+  }
+
+  @Get('calendar-style/people')
+  @Permissions('dashboard:read')
+  @ApiOperation({ summary: 'Jobs calendar style: Salesperson and PTW applicant pickers with their defaults' })
+  async getCalendarStylePeople(@Req() req: RequestWithOrganization) {
+    return await this.calendarStyle.formPeople(this.orgOf(req), req.user?.id ?? null);
   }
 
   private userOf(req: RequestWithOrganization): string {

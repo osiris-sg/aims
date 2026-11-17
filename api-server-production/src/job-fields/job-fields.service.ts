@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { runAsOrg } from '../common/tenancy/tenant-context';
 import { JOB_ENTITY, JOB_FIELD_ICONS, JOB_FIELD_TYPES, cleanDisplay, fieldNameFor, isJobFieldType, isJobFieldsEnabled, jobFieldDefs } from '../deliveries/job-fields';
 import { JOB_CATEGORY_FIELD, cleanCategoryOptions, jobCategoryDef } from '../deliveries/job-category';
+import { JOB_STYLE_FIELD } from '../deliveries/job-style';
 
 /**
  * Custom job fields (enableJobFields, 2026-11-01): the org admin's "Job fields"
@@ -47,6 +48,8 @@ export class JobFieldsService {
     return runAsOrg(organizationId, async () => {
       const base = fieldNameFor(label);
       if (base === JOB_CATEGORY_FIELD) throw new BadRequestException('Job category has its own list on this page');
+      // The calendar style's storage-only field (deliveries/job-style.ts) is never a job field.
+      if (base === JOB_STYLE_FIELD) throw new BadRequestException(`There is already a job field called "${label}"`);
       // A deactivated field with the same name comes back instead of a second row.
       const same = await this.prisma.customField.findFirst({ where: { organizationId, entityType: JOB_ENTITY, fieldName: base }, select: { id: true, isActive: true, fieldType: true } });
       if (same && same.isActive) throw new BadRequestException(`There is already a job field called "${label}"`);

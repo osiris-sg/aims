@@ -399,6 +399,19 @@ export class DeliveriesController {
     return this.service.setPtw(id, org.id, body);
   }
 
+  // Calendar style (enableCalendarStyle, WCT group): Salesperson, PTW applicant, COD, Postponed.
+  @Get(':id/style')
+  @Permissions('maintenance-reports:read')
+  getJobStyle(@Param('id') id: string, @UserOrganization() org: { id: string }) {
+    return this.service.getJobStyle(id, org.id);
+  }
+
+  @Patch(':id/style')
+  @Permissions('documents:create-basic')
+  setJobStyle(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }) {
+    return this.service.setJobStyle(id, org.id, body);
+  }
+
   @Post(':id/link-order')
   @Permissions('documents:create-basic')
   linkJobToOrder(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }) {

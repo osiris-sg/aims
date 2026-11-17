@@ -8,6 +8,9 @@ import { GroupOrg, groupReadScope, memberOrgIds } from '../organizations/org-gro
 import { calendarBadge, calendarLegend, isJobFieldsEnabled, jobFieldDefs, jobFieldValues } from '../deliveries/job-fields';
 import { jobCategoryDef, jobCategoryValues } from '../deliveries/job-category';
 import { CalendarNoteView, CalendarNotesService } from './calendar-notes.service';
+import { CalendarStyleService } from './calendar-style.service';
+import { CALENDAR_STYLE_LEGEND, CalendarColours, StyleInput, mergeColours, quotationSalesmanCode, salespersonFromCode, styleOf } from './calendar-style';
+import { jobStyleValues } from '../deliveries/job-style';
 
 export const JOBS_CALENDAR_FLAG = 'enableJobsCalendar';
 const SITECLOCK_TTL_MS = 60_000;
@@ -26,7 +29,12 @@ export interface JobsCalendarResponse {
   notes?: CalendarNoteView[];
   /** Group calendar (enableGroupCalendar, parent org with children): the orgs shown, own org first (absent otherwise). */
   group?: { orgs: GroupOrg[] };
+  /** Calendar style (enableCalendarStyle, WCT group): events carry `style`; the legend is icons only (absent otherwise). */
+  style?: { legend: typeof CALENDAR_STYLE_LEGEND };
 }
+
+/** Calendar style for one org's part: on, plus (group calendar child) the parent's colours, which win. */
+type StyleCtx = { parent: CalendarColours | null } | null;
 
 /**
  * GET /dashboard/jobs-calendar (enableJobsCalendar orgs). AIMS runs are read
@@ -43,6 +51,7 @@ export class JobsCalendarService {
     private readonly prisma: PrismaService,
     @Optional() private readonly siteclock?: SiteClockLinkService,
     @Optional() private readonly notes?: CalendarNotesService,
+    @Optional() private readonly style?: CalendarStyleService,
   ) {}
 
   async get(organizationId: string, from: string, to: string, viewer?: { userId?: string | null }): Promise<JobsCalendarResponse> {
@@ -52,10 +61,16 @@ export class JobsCalendarService {
     const bad = checkRange(from, to);
     if (bad) throw new BadRequestException(bad);
 
-    const [own, scope] = await Promise.all([this.orgCalendar(organizationId, from, to), groupReadScope(this.prisma, organizationId, 'jobsCalendar')]);
+    // Calendar style (enableCalendarStyle): this org's flag decides for its own items and its children's.
+    const styleOn = this.style ? await this.style.enabled(organizationId) : false;
+    const ownColours = styleOn ? await this.style!.colours(organizationId) : null;
+    const [own, scope] = await Promise.all([
+      this.orgCalendar(organizationId, from, to, styleOn ? { parent: null } : null, ownColours),
+      groupReadScope(this.prisma, organizationId, 'jobsCalendar'),
+    ]);
     // Gate off (or no children): exactly the org's own calendar.
     if (!scope.group) return own;
-    return this.withGroup(organizationId, own, scope.orgs, from, to, viewer?.userId ?? null);
+    return this.withGroup(organizationId, own, scope.orgs, from, to, viewer?.userId ?? null, styleOn ? { parent: ownColours } : null);
   }
 
   /**
@@ -65,11 +80,20 @@ export class JobsCalendarService {
    * for anyone else its links are stripped. Notes join only when the parent has
    * calendar notes itself (else the parent's add buttons would appear).
    */
-  private async withGroup(organizationId: string, own: JobsCalendarResponse, orgs: GroupOrg[], from: string, to: string, userId: string | null): Promise<JobsCalendarResponse> {
+  private async withGroup(
+    organizationId: string,
+    own: JobsCalendarResponse,
+    orgs: GroupOrg[],
+    from: string,
+    to: string,
+    userId: string | null,
+    style: StyleCtx = null,
+  ): Promise<JobsCalendarResponse> {
     const children = orgs.filter((o) => o.id !== organizationId);
     const ownName = orgs.find((o) => o.id === organizationId)?.name ?? '';
     const [parts, members] = await Promise.all([
-      Promise.all(children.map((c) => runAsOrg(c.id, () => this.orgCalendar(c.id, from, to)))),
+      // Calendar style on the parent: children's items are styled too (parent's colours first).
+      Promise.all(children.map((c) => runAsOrg(c.id, () => this.orgCalendar(c.id, from, to, style)))),
       memberOrgIds(this.prisma, userId, children.map((c) => c.id)),
     ]);
     const tag = <T extends object>(x: T, org: GroupOrg): T => {
@@ -109,17 +133,20 @@ export class JobsCalendarService {
   }
 
   /** One org's calendar: its AIMS runs, its own SiteClock jobs (its own connection only) and its notes. */
-  private async orgCalendar(organizationId: string, from: string, to: string): Promise<JobsCalendarResponse> {
+  private async orgCalendar(organizationId: string, from: string, to: string, style: StyleCtx = null, ownColours: CalendarColours | null = null): Promise<JobsCalendarResponse> {
     const [runs, sc, notes] = await Promise.all([
       this.runs(organizationId, from, to),
       this.siteclockJobs(organizationId, from, to),
       this.notes ? this.notes.inRange(organizationId, from, to) : Promise.resolve(null),
     ]);
+    // Calendar style: each run's PTW status as stored (the event's ptw is dropped below when calendar add is off).
+    const ptwOf = new Map((runs as any[]).map((r) => [r.id as string, (r.ptw?.status ?? null) as string | null]));
     // Calendar add on (notes is not null): jobs show PTW and an "Untagged" mark when they have no order.
     if (notes) for (const r of runs as any[]) r.untagged = !r.order;
     else for (const r of runs as any[]) delete r.ptw;
     // Calendar add on: each job's quotation (the order's, else the quick job's own) for the panel's QO link.
     if (notes) await this.attachQuotations(organizationId, runs as any[]);
+    const quotationIds = new Map((runs as any[]).map((r) => [r.id as string, (r.quotationId ?? null) as string | null]));
     for (const r of runs as any[]) delete r.quotationId;
     const links = runs.length
       ? await this.prisma.deliverySiteClockJob.findMany({
@@ -144,15 +171,125 @@ export class JobsCalendarService {
         for (const r of runs as any[]) r.category = cats.get(r.id) ?? catDef.defaultValue;
       }
     }
+    let events = buildCalendarEvents(runs, links, sc.jobs);
+    if (style) {
+      const colours = mergeColours(ownColours ?? (await this.style!.colours(organizationId)), style.parent);
+      events = await this.styled(organizationId, events, runs as any[], ptwOf, quotationIds, colours);
+    }
     return {
       from,
       to,
       timezone: CALENDAR_TZ,
-      events: buildCalendarEvents(runs, links, sc.jobs),
+      events,
       siteclock: sc.status,
       ...(legend ? { legend } : {}),
       ...(notes ? { notes } : {}),
+      ...(style ? { style: { legend: CALENDAR_STYLE_LEGEND } } : {}),
     };
+  }
+
+  /**
+   * Calendar style (enableCalendarStyle): each event's fill (salesperson),
+   * bar (PTW applicant) and icons, plus the people for the panel. Salesperson:
+   * the job's own pick, else its quotation's salesman code (the order's
+   * quotation, else a quick job's own). Cancelled and postponed jobs come back
+   * greyed, never dropped. SiteClock jobs: neutral fill, cancelled icon only.
+   */
+  private async styled(
+    organizationId: string,
+    events: CalendarEvent[],
+    runs: Array<{ id: string; status: string }>,
+    ptwOf: Map<string, string | null>,
+    quotationIds: Map<string, string | null>,
+    colours: CalendarColours,
+  ): Promise<CalendarEvent[]> {
+    const ids = runs.map((r) => r.id);
+    const qIds = [...new Set([...quotationIds.values()].filter((x): x is string => !!x))];
+    const [meta, doCounts, codes, quotes] = await Promise.all([
+      jobStyleValues(this.prisma, organizationId, ids),
+      this.runDoCounts(organizationId, ids),
+      this.style!.salesmanCodes(organizationId),
+      qIds.length
+        ? runAsOrg(organizationId, () => this.prisma.document.findMany({ where: { id: { in: qIds }, organizationId }, select: { id: true, config: true } }))
+        : Promise.resolve([] as any[]),
+    ]);
+    const codeOfQuote = new Map((quotes as any[]).map((q) => [q.id as string, quotationSalesmanCode(q.config)]));
+    const salesOf = new Map<string, string | null>();
+    for (const id of ids) {
+      const own = meta.get(id)?.salespersonId ?? null;
+      const q = quotationIds.get(id);
+      salesOf.set(id, own ?? salespersonFromCode(q ? codeOfQuote.get(q) ?? null : null, codes));
+    }
+    const people = new Set<string>();
+    for (const id of ids) {
+      const s = salesOf.get(id);
+      if (s) people.add(s);
+      const a = meta.get(id)?.ptwApplicantId;
+      if (a) people.add(a);
+    }
+    if (colours.defaultApplicant) people.add(colours.defaultApplicant.id);
+    const names = await this.style!.names(people);
+    const nameOf = (id: string | null, stored: string | null | undefined) => (id ? names.get(id)?.name ?? stored ?? null : null);
+
+    return events.map((e) => {
+      const runId = e.source === 'aims' && e.id.startsWith('aims:') ? e.id.slice(5) : null;
+      if (!runId) {
+        const input: StyleInput = { cancelled: e.cancelled, postponed: false, ptwStatus: null, doCount: 0, cod: false, category: null, salespersonId: null, ptwApplicantId: null };
+        return { ...e, style: styleOf(input, colours) };
+      }
+      const m = meta.get(runId);
+      const ptwStatus = ptwOf.get(runId) ?? null;
+      const salespersonId = salesOf.get(runId) ?? null;
+      const ptwNeeded = !!ptwStatus && ptwStatus !== 'NOT_NEEDED';
+      const applicantId = ptwNeeded ? m?.ptwApplicantId ?? colours.defaultApplicant?.id ?? null : null;
+      const postponed = !!m?.postponed && !e.cancelled;
+      const input: StyleInput = {
+        cancelled: e.cancelled,
+        postponed,
+        ptwStatus,
+        doCount: doCounts.get(runId) ?? 0,
+        cod: !!m?.cod,
+        category: e.category ?? null,
+        salespersonId,
+        ptwApplicantId: applicantId,
+      };
+      const salesName = nameOf(salespersonId, m?.salespersonId === salespersonId ? m?.salespersonName : null);
+      const applicantName = nameOf(applicantId, m?.ptwApplicantId === applicantId ? m?.ptwApplicantName : colours.defaultApplicant?.name);
+      return {
+        ...e,
+        ...(postponed ? { statusLabel: 'Postponed' } : {}),
+        postponed,
+        cod: !!m?.cod,
+        doCount: input.doCount,
+        salesperson: salespersonId ? { id: salespersonId, name: salesName } : null,
+        ptwApplicant: applicantId ? { id: applicantId, name: applicantName } : null,
+        style: styleOf(input, colours),
+      };
+    });
+  }
+
+  /** Calendar style: each run's live (not cancelled) DOs, counted once each. */
+  private async runDoCounts(organizationId: string, runIds: string[]): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    if (!runIds.length) return out;
+    const items: any[] = await runAsOrg(organizationId, () =>
+      this.prisma.deliveryItem.findMany({ where: { deliveryId: { in: runIds }, documentId: { not: null } }, select: { deliveryId: true, documentId: true } }),
+    );
+    const docIds = [...new Set(items.map((i) => i.documentId as string))];
+    if (!docIds.length) return out;
+    const docs: any[] = await runAsOrg(organizationId, () =>
+      this.prisma.document.findMany({ where: { id: { in: docIds }, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, config: true } }),
+    );
+    const live = new Set(docs.filter((d) => (d.config as any)?.cancelled !== true && (d.config as any)?.voided !== true).map((d) => d.id as string));
+    const per = new Map<string, Set<string>>();
+    for (const i of items) {
+      if (!live.has(i.documentId)) continue;
+      const set = per.get(i.deliveryId) ?? new Set<string>();
+      set.add(i.documentId);
+      per.set(i.deliveryId, set);
+    }
+    for (const [k, v] of per) out.set(k, v.size);
+    return out;
   }
 
   private async runs(organizationId: string, from: string, to: string) {

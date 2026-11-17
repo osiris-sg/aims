@@ -6,12 +6,13 @@ import { SiteClockModule } from 'src/siteclock/siteclock.module';
 import { JobsCalendarService } from './jobs-calendar.service';
 import { CalendarNotesService } from './calendar-notes.service';
 import { RoleHomeService } from './role-home.service';
+import { CalendarStyleService } from './calendar-style.service';
 import { JournalModule } from 'src/journal/journal.module';
 
 @Module({
   imports: [PrismaModule, SiteClockModule, JournalModule],
   controllers: [DashboardController],
-  providers: [DashboardService, JobsCalendarService, CalendarNotesService, RoleHomeService],
+  providers: [DashboardService, JobsCalendarService, CalendarNotesService, CalendarStyleService, RoleHomeService],
   exports: [DashboardService],
 })
 export class DashboardModule {}

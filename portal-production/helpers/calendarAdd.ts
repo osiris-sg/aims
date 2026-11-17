@@ -2,17 +2,19 @@
 // Pure helpers, tested by helpers/calendarAdd.test.mjs. The server rules live in
 // api-server-production/src/deliveries/quick-jobs.ts.
 
-export type PtwStatus = "NOT_NEEDED" | "REQUIRED" | "SUBMITTED" | "APPROVED";
+export type PtwStatus = "NOT_NEEDED" | "REQUIRED" | "SUBMITTED" | "APPROVED" | "REJECTED";
 export const PTW_OPTIONS: { value: PtwStatus; label: string }[] = [
   { value: "NOT_NEEDED", label: "Not needed" },
   { value: "REQUIRED", label: "Required" },
   { value: "SUBMITTED", label: "Submitted" },
   { value: "APPROVED", label: "Approved" },
 ];
-export const ptwLabel = (s: string | null | undefined) => PTW_OPTIONS.find((o) => o.value === (s || "NOT_NEEDED"))?.label ?? String(s);
+/** Calendar style (enableCalendarStyle) adds "Rejected"; every other org keeps the four. */
+export const ptwOptions = (styled: boolean): { value: PtwStatus; label: string }[] => (styled ? [...PTW_OPTIONS, { value: "REJECTED", label: "Rejected" }] : PTW_OPTIONS);
+export const ptwLabel = (s: string | null | undefined) => ptwOptions(true).find((o) => o.value === (s || "NOT_NEEDED"))?.label ?? String(s);
 
-/** PTW badge colour: needs action (amber), sent (blue), done (green). */
-export const PTW_COLOR: Record<Exclude<PtwStatus, "NOT_NEEDED">, string> = { REQUIRED: "#ef6c00", SUBMITTED: "#1565c0", APPROVED: "#2e7d32" };
+/** PTW badge colour: needs action (amber), sent (blue), done (green), rejected (red). */
+export const PTW_COLOR: Record<Exclude<PtwStatus, "NOT_NEEDED">, string> = { REQUIRED: "#ef6c00", SUBMITTED: "#1565c0", APPROVED: "#2e7d32", REJECTED: "#c62828" };
 export const ptwColor = (s: string | null | undefined) => (s && s in PTW_COLOR ? PTW_COLOR[s as keyof typeof PTW_COLOR] : "#757575");
 
 export type NoteType = "LEAVE" | "PTW" | "BLOCKAGE" | "OTHER";
@@ -50,12 +52,13 @@ export function noteTitle(n: Pick<CalendarNote, "title" | "allDay" | "startTime"
  * A note as a FullCalendar event: always an all-day bar (end exclusive, so +1 day), coloured by type, ordered
  * before the jobs of each day (displayOrder 0; jobs are 1).
  */
-export function noteToCalendarInput(n: CalendarNote) {
+export function noteToCalendarInput(n: CalendarNote, styled = false) {
   // One small neutral chip for every note type (2026-11-16); the type is in its title and card.
+  // Calendar style (enableCalendarStyle): a Leave note leads with 📅.
   const color = "#cfd8dc";
   return {
     id: `note:${n.id}`,
-    title: noteTitle(n),
+    title: styled && n.type === "LEAVE" ? `📅 ${noteTitle(n)}` : noteTitle(n),
     start: n.startDate,
     end: addDay(n.endDate, 1),
     allDay: true,
@@ -116,6 +119,15 @@ export interface QuickJobForm {
   doRequired?: boolean;
   /** Job category (WCT group, helpers/jobCategory.ts): sent only when the org has categories. */
   category?: string | null;
+  /** Calendar style (enableCalendarStyle): sent only when the org has it. */
+  style?: JobStyleForm | null;
+}
+
+/** Calendar style job fields on the forms (server: deliveries/job-style.ts). */
+export interface JobStyleForm {
+  salesperson: { id: string; name: string } | null;
+  ptwApplicant: { id: string; name: string } | null;
+  cod: boolean;
 }
 
 /** The form → the API body, or a message saying what is missing. */
@@ -137,6 +149,7 @@ export function quickJobBody(f: QuickJobForm): { body?: Record<string, any>; err
       ptwRemark: f.ptwStatus === "NOT_NEEDED" ? "" : f.ptwRemark.trim(),
       ...(f.quotationId ? { quotationId: f.quotationId, ...(f.doId ? { doId: f.doId } : {}) } : {}),
       ...(f.category ? { category: f.category } : {}),
+      ...(f.style ? { salesperson: f.style.salesperson, ptwApplicant: f.style.ptwApplicant, cod: f.style.cod } : {}),
     },
   };
 }

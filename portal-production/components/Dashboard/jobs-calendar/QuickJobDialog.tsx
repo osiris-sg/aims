@@ -12,8 +12,9 @@ import { Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dia
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import CustomerPicker from "@/components/CustomerPicker";
 import type { PickerCustomer } from "@/app/portal/hooks/api/useCustomerPicker";
-import { PTW_OPTIONS, quickJobBody, sgtParts, type PtwStatus, type QuickJobForm } from "@/helpers/calendarAdd";
-import { useCalendarApi, useSiteClockWorkers, type WorkerOption } from "./calendarAddApi";
+import { ptwOptions, quickJobBody, sgtParts, type PtwStatus, type QuickJobForm } from "@/helpers/calendarAdd";
+import { useCalendarApi, useCalendarStylePeople, useSiteClockWorkers, type WorkerOption } from "./calendarAddApi";
+import JobStyleFields from "./JobStyleFields";
 import { applyQuotationPick, doOptionLabel, needsDoPick, quotationLabel, quotationRow, quotationSearchPath, type QuotationDetail, type QuotationOption } from "@/helpers/quickJobQuotation";
 import { categoryShown, type JobCategoryDef } from "@/helpers/jobCategory";
 
@@ -116,6 +117,30 @@ export default function QuickJobDialog({
     setQuotation(null);
   }, [open, edit, slot]);
 
+  // Calendar style (enableCalendarStyle; disabled for every other org: no fields shown, nothing sent).
+  const people = useCalendarStylePeople(open);
+  const editId = edit?.id ?? null;
+  useEffect(() => {
+    if (!open || !people.loaded || !people.enabled) return;
+    if (!editId) {
+      setForm((f) => ({ ...f, style: f.style ?? { salesperson: people.defaultSalesperson, ptwApplicant: people.defaultApplicant, cod: false } }));
+      return;
+    }
+    let live = true;
+    void api<any>("GET", `/deliveries/${editId}/style`).then((res) => {
+      if (!live) return;
+      const d = res.ok ? res.data : null;
+      const person = (id: string | null | undefined, name: string | null | undefined) => (id ? { id, name: name || people.applicants.find((p) => p.id === id)?.name || id } : null);
+      setForm((f) => ({
+        ...f,
+        style: { salesperson: person(d?.salespersonId, d?.salespersonName), ptwApplicant: person(d?.ptwApplicantId, d?.ptwApplicantName) ?? people.defaultApplicant, cod: !!d?.cod },
+      }));
+    });
+    return () => {
+      live = false;
+    };
+  }, [open, people.loaded, people.enabled, people.defaultSalesperson, people.defaultApplicant, people.applicants, editId, api]);
+
   // Order page Add job: the order's quotation is picked at once (its Customer, Site and open DOs).
   useEffect(() => {
     if (open && quotationOn && initialQuotationId) void pickQuotation({ id: initialQuotationId } as QuotationOption);
@@ -147,7 +172,9 @@ export default function QuickJobDialog({
   const chosen = useMemo<WorkerOption[]>(() => form.workers.map((w) => workers.options.find((o) => o.id === w.id) ?? { id: w.id, name: w.name, employeeNo: null, group: "Current" }), [form.workers, workers.options]);
 
   const save = async () => {
-    const { body, error: bad } = quickJobBody(form);
+    // PTW applicant only when a PTW is needed.
+    const styled = form.style ? { ...form, style: { ...form.style, ptwApplicant: form.ptwStatus === "NOT_NEEDED" ? null : form.style.ptwApplicant } } : form;
+    const { body, error: bad } = quickJobBody(styled);
     if (!body) return setError(bad || "Check the form");
     setSaving(true);
     setError("");
@@ -264,7 +291,7 @@ export default function QuickJobDialog({
           <Box>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
               <TextField select label="PTW" size="small" value={form.ptwStatus} onChange={(e) => set({ ptwStatus: e.target.value as PtwStatus })} sx={{ minWidth: 170 }} data-tour="quick-job-ptw">
-                {PTW_OPTIONS.map((o) => (
+                {ptwOptions(people.enabled).map((o) => (
                   <MenuItem key={o.value} value={o.value}>
                     {o.label}
                   </MenuItem>
@@ -275,6 +302,15 @@ export default function QuickJobDialog({
               )}
             </Stack>
           </Box>
+          {people.enabled && form.style && (
+            <JobStyleFields
+              value={form.style}
+              onChange={(patch) => setForm((f) => ({ ...f, style: { ...f.style!, ...patch } }))}
+              salespeople={people.salespeople}
+              applicants={people.applicants}
+              showApplicant={form.ptwStatus !== "NOT_NEEDED"}
+            />
+          )}
           {error && <Alert severity="error">{error}</Alert>}
         </Stack>
       </DialogContent>

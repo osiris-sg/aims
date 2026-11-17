@@ -66,6 +66,7 @@ import { plannedRiderView, savePlannedRider } from './planned-rider';
 import { CompletionMode, WCT_FINISH_MODES_FLAG, finishModeProblem, initialVerification, isCompletionMode } from './finish-modes';
 import { checkJobFieldValues, isJobFieldsEnabled, jobFieldDefs, jobFieldValues, saveJobFieldValues } from './job-fields';
 import { jobCategoryDef, jobCategoryValues, parseCategory, saveJobCategory as storeJobCategory } from './job-category';
+import { EMPTY_JOB_STYLE, hasJobStylePatch, isCalendarStyleEnabled, jobStyleValues, parseJobStylePatch, saveJobStyle } from './job-style';
 import { runNoun } from './job-wording';
 import { wctBrandStamp } from '../maintenance-reports/wct-brand';
 import { withRunLease } from './run-lease';
@@ -864,7 +865,13 @@ export class DeliveriesService {
     // Job category (WCT group; null for every other org): required, blank = the default.
     const categoryDef = await jobCategoryDef(this.prisma, organizationId);
     const category = categoryDef ? parseCategory(categoryDef, body?.category) : null;
+    const ptwStatus = parsePtwStatus(body?.ptwStatus);
+    // Calendar style (enableCalendarStyle): Salesperson, PTW applicant, COD (and PTW Rejected). Ignored elsewhere.
+    const styleOn = await isCalendarStyleEnabled(this.prisma, organizationId);
+    await this.assertPtwAllowed(ptwStatus, styleOn);
+    const style = styleOn ? parseJobStylePatch(body) : {};
     return {
+      style,
       categoryDef,
       category,
       customerId,
@@ -873,7 +880,7 @@ export class DeliveriesService {
       durationMin,
       siteAddress: siteAddress || null,
       notes: notes || null,
-      ptwStatus: parsePtwStatus(body?.ptwStatus),
+      ptwStatus,
       ptwRemark: parsePtwRemark(body?.ptwRemark),
       assignee: workers[0] ?? null,
       crew: workers.slice(1),
@@ -923,6 +930,7 @@ export class DeliveriesService {
     }
     if (!run) throw new BadRequestException('Could not allocate a job number, please retry');
     if (f.categoryDef && f.category) await storeJobCategory(this.prisma, organizationId, f.categoryDef, run.id, f.category);
+    if (hasJobStylePatch(f.style)) await saveJobStyle(this.prisma, organizationId, run.id, f.style);
     let linked: { orderId: string | null; orderNumber: string | null; doId: string | null; doName: string | null } | null = null;
     if (link) {
       let { orderId, orderNumber, doId, doName } = link;
@@ -1154,6 +1162,7 @@ export class DeliveriesService {
       },
     });
     if (f.categoryDef && f.category) await storeJobCategory(this.prisma, organizationId, f.categoryDef, id, f.category);
+    if (hasJobStylePatch(f.style)) await saveJobStyle(this.prisma, organizationId, id, f.style);
     await this.redateRunDo(id, organizationId);
     const input = { siteclockWorkerId: f.assignee?.id ?? null, siteclockWorkerName: f.assignee?.name ?? null };
     await savePlannedRider(this.prisma, organizationId, id, input);
@@ -1167,10 +1176,36 @@ export class DeliveriesService {
     const run = await this.prisma.delivery.findFirst({ where: { id, organizationId }, select: { id: true } });
     if (!run) throw new NotFoundException('Job not found');
     const ptwStatus = parsePtwStatus(body?.ptwStatus);
+    await this.assertPtwAllowed(ptwStatus, await isCalendarStyleEnabled(this.prisma, organizationId));
     const ptwRemark = ptwStatus ? parsePtwRemark(body?.ptwRemark) : null;
     await this.prisma.delivery.update({ where: { id }, data: { ptwStatus, ptwRemark } });
     await this.siteclock?.touch(organizationId, id);
     return { id, ptwStatus: ptwStatus ?? 'NOT_NEEDED', ptwRemark };
+  }
+
+  /** PTW "Rejected" exists only with the calendar style (enableCalendarStyle). */
+  private async assertPtwAllowed(ptwStatus: string | null, styleOn: boolean) {
+    if (ptwStatus === 'REJECTED' && !styleOn) throw new BadRequestException('PTW status must be one of NOT_NEEDED, REQUIRED, SUBMITTED, APPROVED');
+  }
+
+  // ── Calendar style job fields (enableCalendarStyle, deliveries/job-style.ts) ──
+
+  /** A job's Salesperson, PTW applicant, COD and Postponed (empty when never set). */
+  async getJobStyle(id: string, organizationId: string) {
+    if (!(await isCalendarStyleEnabled(this.prisma, organizationId))) throw new NotFoundException('Calendar style is not enabled for this organisation');
+    const run = await this.prisma.delivery.findFirst({ where: { id, organizationId }, select: { id: true } });
+    if (!run) throw new NotFoundException('Job not found');
+    return { id, ...((await jobStyleValues(this.prisma, organizationId, [id])).get(id) ?? EMPTY_JOB_STYLE) };
+  }
+
+  /** Save any of salesperson / ptwApplicant / cod / postponed on a job (keys left out are kept). */
+  async setJobStyle(id: string, organizationId: string, body: any) {
+    if (!(await isCalendarStyleEnabled(this.prisma, organizationId))) throw new NotFoundException('Calendar style is not enabled for this organisation');
+    const run = await this.prisma.delivery.findFirst({ where: { id, organizationId }, select: { id: true } });
+    if (!run) throw new NotFoundException('Job not found');
+    const patch = parseJobStylePatch(body);
+    if (!hasJobStylePatch(patch)) throw new BadRequestException('Nothing to save');
+    return { id, ...(await saveJobStyle(this.prisma, organizationId, id, patch)) };
   }
 
   /**

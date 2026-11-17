@@ -35,6 +35,7 @@ import { request } from "@/helpers/request";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import JobFieldIcon, { JOB_FIELD_ICON_KEYS } from "@/components/jobFields/JobFieldIcon";
 import JobCategoryList from "./_components/JobCategoryList";
+import CalendarColours from "./_components/CalendarColours";
 import type { JobCategoryDef } from "@/helpers/jobCategory";
 import { COLOUR_CHOICES, ICON_LABEL, JOB_FIELD_TYPES, JOB_FIELD_TYPE_LABEL, JobFieldDef, JobFieldType, displayFromForm, displaySummary } from "@/helpers/jobFields";
 
@@ -107,7 +108,7 @@ function ColourPick({ label, value, onChange, allowNone }: { label: string; valu
 
 export default function JobFieldsSettingsPage() {
   const { getToken } = useAuth();
-  const { isJobFieldsEnabled, isLoading } = useOrganizationFeatures();
+  const { isJobFieldsEnabled, isLoading, features } = useOrganizationFeatures();
   const [fields, setFields] = useState<JobFieldDef[] | null>(null);
   // Job category (WCT group): the org's list, null for every org without the job_category field.
   const [category, setCategory] = useState<JobCategoryDef | null>(null);
@@ -196,6 +197,8 @@ export default function JobFieldsSettingsPage() {
         </Alert>
       )}
       {category && <JobCategoryList category={category} onSaved={() => void load()} />}
+      {/* Calendar style (enableCalendarStyle, WCT group): renders nothing for every other org. */}
+      {features?.enableCalendarStyle === true && <CalendarColours />}
       {fields === null ? (
         <CircularProgress />
       ) : fields.length === 0 ? (

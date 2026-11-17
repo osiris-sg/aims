@@ -174,6 +174,8 @@ export function JobsCalendarPanel({
   onMove?: (event: CalendarEvent, date: string) => Promise<void>;
 }) {
   const banner = siteclockBanner(data);
+  // Calendar style (enableCalendarStyle, WCT group): an icon legend only, and cancelled / postponed always shown (greyed).
+  const styled = !!data?.style;
   return (
     <Box sx={{ mb: 4 }}>
       <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "flex-start", sm: "center" }} justifyContent="space-between" sx={{ mb: 1.5 }}>
@@ -183,6 +185,15 @@ export function JobsCalendarPanel({
           </Typography>
           {loading && <CircularProgress size={16} />}
         </Stack>
+        {styled ? (
+          <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap data-tour="jobs-calendar-legend">
+            {data!.style!.legend.map((l) => (
+              <Typography key={l.label} variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
+                {`${l.icon} ${l.label}`}
+              </Typography>
+            ))}
+          </Stack>
+        ) : (
         <Stack direction="row" spacing={jobWords ? 1.5 : 2} alignItems="center" flexWrap={jobWords ? "nowrap" : "wrap"} useFlexGap>
           {calendarLegendItems(jobWords).map((l) => (
             <Stack key={l.label} direction="row" spacing={0.75} alignItems="center">
@@ -209,6 +220,7 @@ export function JobsCalendarPanel({
             label={<Typography variant="body2">Show cancelled</Typography>}
           />
         </Stack>
+        )}
       </Stack>
       {banner && (
         <Alert severity="warning" sx={{ mb: 1.5 }}>
@@ -222,7 +234,7 @@ export function JobsCalendarPanel({
       )}
       <CalendarView
         events={data?.events ?? []}
-        showCancelled={showCancelled}
+        showCancelled={styled || showCancelled}
         onRange={onRange}
         initialDate={initialDate}
         initialView={initialView}
@@ -234,6 +246,7 @@ export function JobsCalendarPanel({
         onAdd={onAdd}
         onNoteClick={onNoteClick}
         onMove={onMove}
+        styled={styled}
       />
     </Box>
   );

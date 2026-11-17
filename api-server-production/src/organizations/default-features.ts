@@ -202,6 +202,13 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // child orgs' jobs and notes, read only (Organization.parentOrgId; the only
   // cross-org read, src/organizations/org-group.ts). Default OFF.
   enableGroupCalendar: false,
+  // Calendar style (WCT group 2026-11-18): Google Calendar-like job chips on the
+  // jobs calendar: fill = the job's salesperson's colour, a slim left bar = the
+  // PTW applicant's colour, icons for PTW / DO / cancelled / postponed / COD,
+  // Leave notes with 📅; cancelled and postponed stay on the calendar greyed.
+  // Adds Salesperson, PTW applicant, COD and Postponed to jobs and PTW
+  // "Rejected". Colours per person in Settings > Job fields. Default OFF.
+  enableCalendarStyle: false,
   // Real DO numbers on schedule (WCT 2026-10-30): a scheduled delivery's DO gets
   // its real number (e.g. DO202610007) the moment it is scheduled — no
   // DO-PENDING-NN placeholder — issued with the counter locked so concurrent

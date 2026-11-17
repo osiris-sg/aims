@@ -19,6 +19,9 @@
 // jobs and notes join read only, each named with its company. A child's link
 // opens only for a member of that org and only after "Switch and open" (the tab
 // switches org on purpose, never silently); for anyone else it is view only.
+// Calendar style (2026-11-18, enableCalendarStyle, WCT group incl. child items): Google Calendar-like chips, fill =
+// the salesperson's colour, a slim left bar = the PTW applicant's (no bar without a PTW), line 1 icons + title,
+// line 2 the time range; cancelled / postponed greyed, never hidden; Leave notes lead with 📅.
 
 import React, { useMemo, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
@@ -39,7 +42,7 @@ import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
-import { CALENDAR_TZ, badgeTitle, crewLine, crossOrgTarget, dayJobsOf, dayOfInstant, eventColor, kindLabel, orgLabel, panelLinks, panelRefs, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag } from "./calendarModel";
+import { CALENDAR_TZ, badgeTitle, chipIcons, chipTimeRange, crewLine, crossOrgTarget, dayJobsOf, dayOfInstant, kindLabel, orgLabel, panelColor, panelLinks, panelRefs, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag } from "./calendarModel";
 import DoStatusTag from "@/components/DoStatusTag";
 
 interface Props {
@@ -62,6 +65,8 @@ interface Props {
   onNoteClick?: (note: CalendarNote) => void;
   /** All-day jobs (2026-11-10): drag one to another day. Throws to snap it back. */
   onMove?: (event: CalendarEvent, date: string) => Promise<void>;
+  /** Calendar style (enableCalendarStyle): Leave notes lead with 📅 (the jobs carry their own style). */
+  styled?: boolean;
 }
 
 export default function CalendarView({
@@ -78,6 +83,7 @@ export default function CalendarView({
   onAdd,
   onNoteClick,
   onMove,
+  styled = false,
 }: Props) {
   const theme = useTheme();
   const [viewType, setViewType] = useState<string>(initialView);
@@ -91,8 +97,8 @@ export default function CalendarView({
   const [panel, setPanel] = useState<{ event: CalendarEvent | null; day: { date: string; events: CalendarEvent[] } | null } | null>(null);
   // Notes first on each day (displayOrder 0), then the jobs.
   const inputs = useMemo(
-    () => [...(notes ?? []).map(noteToCalendarInput), ...toCalendarInputs(events, showCancelled, !!onMove, openOnClick).map((i) => ({ ...i, displayOrder: 1 }))],
-    [events, showCancelled, notes, onMove, openOnClick],
+    () => [...(notes ?? []).map((n) => noteToCalendarInput(n, styled)), ...toCalendarInputs(events, showCancelled, !!onMove, openOnClick).map((i) => ({ ...i, displayOrder: 1 }))],
+    [events, showCancelled, notes, onMove, openOnClick, styled],
   );
 
   const onDateClick = (arg: DateClickArg) => {
@@ -153,6 +159,9 @@ export default function CalendarView({
         "& .aims-jc-note": { fontSize: "0.68rem", lineHeight: 1.25, borderRadius: "8px", mx: "2px", px: "2px", py: 0, fontWeight: 500 },
         "& .aims-jc-note .fc-event-main": { color: "#37474f", padding: "0 2px" },
         "& .aims-jc-cancelled .fc-event-title, & .aims-jc-cancelled .fc-event-time": { textDecoration: "line-through" },
+        // Calendar style: cancelled / postponed stay, greyed out.
+        "& .aims-jc-greyed": { opacity: 0.45, filter: "grayscale(0.9)" },
+        "& .aims-jc-styled .fc-event-main": { padding: 0 },
         "@media (max-width: 600px)": { "& .fc .fc-toolbar": { flexDirection: "column", gap: 1 } },
       }}
     >
@@ -195,6 +204,7 @@ export default function CalendarView({
         // Custom job fields: the job's icons after its time + title (default rendering otherwise).
         eventContent={(arg: EventContentArg) => {
           const e = arg.event.extendedProps.event as CalendarEvent;
+          if (e?.style) return <StyledChip event={e} />;
           if (!e?.badges?.length && !e?.ptw) return true;
           return (
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, overflow: "hidden", px: 0.25 }}>
@@ -392,7 +402,7 @@ function EventCard({
   linkRefs?: boolean;
   onCrossOrg?: (t: { orgId: string; orgName: string }, href: string) => void;
 }) {
-  const color = eventColor(e, byPtw);
+  const color = panelColor(e, byPtw);
   // Group calendar: a child org's link (member only) asks before switching org.
   const cross = crossOrgTarget(e);
   const openCross = cross && onCrossOrg ? (href: string) => onCrossOrg(cross, href) : undefined;
@@ -412,10 +422,10 @@ function EventCard({
       <Typography variant="subtitle1" sx={{ fontWeight: 600, lineHeight: 1.3, mb: 1, textDecoration: e.cancelled ? "line-through" : "none" }}>
         {refs?.titleHref ? (
           <RefTitle href={refs.titleHref} onOpen={openCross}>
-            {e.title}
+            {styledTitle(e)}
           </RefTitle>
         ) : (
-          e.title
+          styledTitle(e)
         )}
       </Typography>
       {company && <Row label="Company">{company}</Row>}
@@ -450,6 +460,17 @@ function EventCard({
           ))}
         </Row>
       )}
+      {e.style && e.style.icons.length > 0 && (
+        <Row label="Marks">
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            {e.style.icons.map((i) => (
+              <span key={i.label}>{`${i.icon} ${i.label}`}</span>
+            ))}
+          </Stack>
+        </Row>
+      )}
+      {e.style && <Row label="Salesperson">{e.salesperson?.name || "None"}</Row>}
+      {e.style && e.ptwApplicant && <Row label="PTW applicant">{e.ptwApplicant.name || "Unknown"}</Row>}
       <Row label="Status">
         <Chip
           size="small"
@@ -600,9 +621,9 @@ function JobPanel({
           <List dense disablePadding>
             {day.events.map((e) => (
               <ListItemButton key={e.id} onClick={() => onPick(e)} sx={{ borderRadius: 1, alignItems: "flex-start" }}>
-                <Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: eventColor(e, true), mt: 0.75, mr: 1.25, flexShrink: 0 }} />
+                <Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: panelColor(e, true), mt: 0.75, mr: 1.25, flexShrink: 0, opacity: e.style?.greyed ? 0.45 : 1 }} />
                 <ListItemText
-                  primary={e.title}
+                  primary={e.style ? `${chipIcons(e) ? `${chipIcons(e)} ` : ""}${styledTitle(e)}` : e.title}
                   secondary={`${chipTime(e)} · ${e.statusLabel}${e.orgName ? ` · ${e.orgName}` : ""}`}
                   primaryTypographyProps={{ sx: { fontWeight: 500, textDecoration: e.cancelled ? "line-through" : "none", wordBreak: "break-word" } }}
                 />
@@ -612,5 +633,39 @@ function JobPanel({
         ) : null}
       </Box>
     </Paper>
+  );
+}
+
+/**
+ * Calendar style chip (Google Calendar-like): the salesperson fill comes from FullCalendar's background; a slim left
+ * bar in the PTW applicant's colour (none without a PTW); line 1 the icons and title, line 2 the time range.
+ */
+function StyledChip({ event: e }: { event: CalendarEvent }) {
+  const st = e.style!;
+  const icons = chipIcons(e);
+  return (
+    <Box
+      title={[styledTitle(e), chipTimeRange(e), ...st.icons.map((i) => i.label), e.salesperson?.name ? `Salesperson: ${e.salesperson.name}` : "", e.ptwApplicant?.name && st.bar ? `PTW applicant: ${e.ptwApplicant.name}` : ""].filter(Boolean).join("\n")}
+      sx={{
+        display: "flex",
+        overflow: "hidden",
+        borderLeft: st.bar ? `4px solid ${st.bar}` : "none",
+        borderRadius: "3px 0 0 3px",
+        pl: st.bar ? 0.5 : 0.75,
+        pr: 0.5,
+        py: 0.25,
+        color: st.text,
+        lineHeight: 1.25,
+        minWidth: 0,
+      }}
+    >
+      <Box sx={{ minWidth: 0, flex: 1 }}>
+        <Box sx={{ fontWeight: 600, fontSize: "0.75rem", whiteSpace: "nowrap", overflow: "hidden", textDecoration: e.cancelled ? "line-through" : "none" }}>
+          {icons && <span style={{ marginRight: 4 }}>{icons}</span>}
+          {styledTitle(e)}
+        </Box>
+        <Box sx={{ fontSize: "0.7rem", opacity: 0.9, whiteSpace: "nowrap", overflow: "hidden" }}>{chipTimeRange(e)}</Box>
+      </Box>
+    </Box>
   );
 }

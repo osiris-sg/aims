@@ -20,7 +20,8 @@
 import { BadRequestException } from '@nestjs/common';
 import { isOrgFeatureEnabled } from '../common/org-features';
 
-export const PTW_STATUSES = ['NOT_NEEDED', 'REQUIRED', 'SUBMITTED', 'APPROVED'] as const;
+// REJECTED (2026-11-18): calendar style orgs only (enableCalendarStyle, checked by the callers).
+export const PTW_STATUSES = ['NOT_NEEDED', 'REQUIRED', 'SUBMITTED', 'APPROVED', 'REJECTED'] as const;
 export type PtwStatus = (typeof PTW_STATUSES)[number];
 
 export const PTW_LABEL: Record<PtwStatus, string> = {
@@ -28,6 +29,7 @@ export const PTW_LABEL: Record<PtwStatus, string> = {
   REQUIRED: 'Required',
   SUBMITTED: 'Submitted',
   APPROVED: 'Approved',
+  REJECTED: 'Rejected',
 };
 
 export const NOTE_TYPES = ['LEAVE', 'PTW', 'BLOCKAGE', 'OTHER'] as const;
