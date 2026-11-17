@@ -1,7 +1,7 @@
 import FormInputBox from "@/form-components/FormInputBox";
 import { Drawer, Typography, Stack, Button, useTheme, FormControl, InputLabel, Select, MenuItem, FormHelperText, Box, IconButton, Divider } from "@mui/material";
 import { Add as AddIcon, DeleteOutline as DeleteIcon } from "@mui/icons-material";
-import { useForm, Controller, useFieldArray } from "react-hook-form";
+import { useForm, Controller, useFieldArray, useWatch } from "react-hook-form";
 import * as yup from "yup";
 import { yupResolver } from "@hookform/resolvers/yup";
 import { useAuth } from "@clerk/nextjs";
@@ -10,6 +10,7 @@ import { request } from "@/helpers/request";
 import { useEffect, useState } from "react";
 import { useConfiguration } from "@/app/portal/context/ConfigurationContext";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { normalizeUen, oldCodeOf, uenLooksValid } from "@/helpers/customerIds";
 
 interface Salesman {
   id: string;
@@ -65,6 +66,9 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
   const showJp = isModuleEnabled("SHIPMENTS");
   // UEN + old (previous-system) customer code: enableCustomerUen orgs only.
   const { isCustomerUenEnabled: showIds } = useOrganizationFeatures();
+  // An import batch tag in externalRef ("erp-import:…") is not an old code:
+  // the field starts blank and the tag is kept unless a code is typed.
+  const [importTag, setImportTag] = useState<string | null>(null);
   const [salesmen, setSalesmen] = useState<Salesman[]>([]);
   const [loadingSalesmen, setLoadingSalesmen] = useState(false);
 
@@ -86,6 +90,8 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
     },
     resolver: yupResolver(customerSchema),
   });
+
+  const uenValue = useWatch({ control, name: "uen" });
 
   const { fields: contactFields, append: appendContact, remove: removeContact } = useFieldArray({
     control,
@@ -127,6 +133,7 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
 
   useEffect(() => {
     const fetchCustomer = async () => {
+      setImportTag(null);
       if (isEditMode && customerId) {
         try {
           const token = await getToken();
@@ -149,7 +156,9 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
             setValue("address", customer.address);
             setValue("gstRegNo", customer.gstRegNo);
             setValue("uen", customer.uen ?? null);
-            setValue("externalRef", customer.externalRef ?? null);
+            const ref = customer.externalRef ?? null;
+            setImportTag(ref && !oldCodeOf(ref) ? ref : null);
+            setValue("externalRef", oldCodeOf(ref));
             setValue("jpName", customer.jpName ?? null);
             setValue("jpAddress", customer.jpAddress ?? null);
             setValue("jpContact", customer.jpContact ?? null);
@@ -188,7 +197,10 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
 
       const { jpName, jpAddress, jpContact, uen, externalRef, ...rest } = data;
       const jp = showJp ? { jpName: jpName || null, jpAddress: jpAddress || null, jpContact: jpContact || null } : {};
-      const ids = showIds ? { uen: uen?.trim().toUpperCase() || null, externalRef: externalRef?.trim() || null } : {};
+      const oldCode = externalRef?.trim() || null;
+      const ids = showIds
+        ? { uen: normalizeUen(uen), ...(importTag && !oldCode ? {} : { externalRef: oldCode }) }
+        : {};
       const response = await request(
         {
           path: isEditMode ? "/customers/update" : "/customers/create",
@@ -229,11 +241,13 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
             <FormInputBox control={control} name="email" label="Email" placeHolder="Enter customer email" type="email" />
             <FormInputBox control={control} name="phone" label="Phone" placeHolder="Enter customer phone number" />
             <FormInputBox control={control} name="address" label="Address" placeHolder="Enter customer address" />
-            <FormInputBox control={control} name="gstRegNo" label="GST Reg No." placeHolder="Enter GST registration number" />
+            {/* enableCustomerUen orgs: ONE field, "UEN" (Customer.uen). GST Reg No.
+                is hidden there; a stored value still round-trips on save. */}
+            {!showIds && <FormInputBox control={control} name="gstRegNo" label="GST Reg No." placeHolder="Enter GST registration number" />}
             {showIds && (
               <>
-                <FormInputBox control={control} name="uen" label="UEN" placeHolder="e.g. 201302496E" description="Company registration number (not the GST number)" />
-                <FormInputBox control={control} name="externalRef" label="Old customer code" placeHolder="e.g. 449" description="The customer's code in your previous system" />
+                <FormInputBox control={control} name="uen" label="UEN" placeHolder="e.g. 201302496E" bottomText={uenLooksValid(uenValue) ? undefined : "Not a usual UEN format"} />
+                <FormInputBox control={control} name="externalRef" label="Old customer code" placeHolder="e.g. 449" />
               </>
             )}
             {showJp && (

@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { ROUTES } from "@/routes";
 import AddCustomer from "./components/AddCustomer";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { oldCodeOf } from "@/helpers/customerIds";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
@@ -121,7 +122,7 @@ export default function CustomersPage() {
     ...(isCustomerUenEnabled
       ? [
           { id: "uen", accessorKey: "uen", header: "UEN", cell: (info: any) => info.getValue() || "-" },
-          { id: "externalRef", accessorKey: "externalRef", header: "Old code", cell: (info: any) => info.getValue() || "-" },
+          { id: "externalRef", accessorKey: "externalRef", header: "Old code", cell: (info: any) => oldCodeOf(info.getValue()) || "-" },
         ]
       : []),
     {

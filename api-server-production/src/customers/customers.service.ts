@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { CreateSiteOfficeDto } from './dto/create-site-office.dto';
 import { UpdateSiteOfficeDto } from './dto/update-site-office-dto';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
+import { normalizeUenInput } from './customer-uen';
 
 @Injectable()
 export class CustomersService {
@@ -174,7 +175,8 @@ export class CustomersService {
     try {
       console.log('Creating customer with data:', createCustomerDto, 'and organizationId:', organizationId);
 
-      const { contacts, ...customerData } = createCustomerDto;
+      const { contacts, ...rawData } = createCustomerDto;
+      const customerData = normalizeUenInput(rawData);
       const cleanContacts = (contacts || []).filter(
         (c) => c.name && c.name.trim() !== '',
       );
@@ -256,7 +258,8 @@ export class CustomersService {
 
   async updateCustomers(updateCustomerDto: UpdateCustomerDto, organizationId: string) {
     try {
-      const { id, contacts, ...customerData } = updateCustomerDto;
+      const { id, contacts, ...rawData } = updateCustomerDto;
+      const customerData = normalizeUenInput(rawData);
 
       await this.prisma.customer.update({
         where: {

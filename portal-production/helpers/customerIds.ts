@@ -19,9 +19,43 @@ export function customerIdsMatch(c: CustomerIds, term: string): boolean {
   return (!!c.uen && c.uen.toLowerCase().includes(t)) || oldCodeMatches(c.externalRef, t);
 }
 
-/** "UEN 201302496E · Old code 449", or "" when the customer has neither. */
-export function customerIdsLine(c: CustomerIds): string {
-  return [c.uen ? `UEN ${c.uen}` : "", c.externalRef ? `Old code ${c.externalRef}` : ""].filter(Boolean).join(" · ");
+/**
+ * The old code to show, or null. The WCT ERP / books imports used
+ * Customer.externalRef as their batch marker ("erp-import:wct-erp-2026-11-05"):
+ * that is not a code the customer had, so it is never shown.
+ */
+export function oldCodeOf(externalRef: string | null | undefined): string | null {
+  const v = (externalRef ?? "").trim();
+  if (!v || v.startsWith("erp-import:")) return null;
+  return v;
+}
+
+/**
+ * "UEN 201302496E · Old code 449", or "" when the customer has neither.
+ * withUen=false leaves the UEN out (the picker shows it in its own column).
+ */
+export function customerIdsLine(c: CustomerIds, opts: { withUen?: boolean } = {}): string {
+  const withUen = opts.withUen ?? true;
+  const old = oldCodeOf(c.externalRef);
+  return [withUen && c.uen ? `UEN ${c.uen}` : "", old ? `Old code ${old}` : ""].filter(Boolean).join(" · ");
+}
+
+/** UEN as saved: trimmed, upper case; "" becomes null. */
+export function normalizeUen(raw: string | null | undefined): string | null {
+  const v = String(raw ?? "").trim().toUpperCase();
+  return v || null;
+}
+
+// Singapore UEN shapes (ACRA): business 8 digits + letter, local company
+// 9 digits + letter (201302496E), other entities T/S/R + yy + 2 letters +
+// 4 digits + letter (T08LL1234A); GST-only registrations M + 9 (M90312345A,
+// MR-8500016-3). Spaces and dashes are ignored for the check.
+const UEN_RE = /^(\d{8}[A-Z]|\d{9}[A-Z]|[TSR]\d{2}[A-Z]{2}\d{4}[A-Z]|M[0-9A-Z]\d{7}[0-9A-Z])$/;
+
+/** True for a blank UEN or one of the Singapore shapes (a warning, never a block). */
+export function uenLooksValid(raw: string | null | undefined): boolean {
+  const v = (normalizeUen(raw) ?? "").replace(/[\s-]/g, "");
+  return !v || UEN_RE.test(v);
 }
 
 type Rankable = CustomerIds & { customerCode?: string | null; name?: string | null };

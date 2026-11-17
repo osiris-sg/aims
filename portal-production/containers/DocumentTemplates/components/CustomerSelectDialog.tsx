@@ -29,7 +29,9 @@ import {
 } from "@mui/icons-material";
 import { toast } from "react-toastify";
 import { useCreateCustomer } from "@/app/portal/hooks/api";
-import { customerIdsLine, customerIdsMatch, rankCustomers } from "@/helpers/customerIds";
+import { customerIdsMatch, normalizeUen, rankCustomers, uenLooksValid } from "@/helpers/customerIds";
+import { customerPickerLayout } from "@/helpers/customerPickerLayout";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { rememberCustomers, useCustomerSearch } from "@/app/portal/hooks/api/useCustomerPicker";
 import { useOrganization } from "@hooks/useOrganization";
 import { useListKeyboardNav } from "@/helpers/useListKeyboardNav";
@@ -78,17 +80,23 @@ export default function CustomerSelectDialog({
   }, [searchTerm]);
   const remote = useCustomerSearch(debounced, { limit: 50, enabled: open && serverSearch });
   const { organization } = useOrganization();
+  // enableCustomerUen (WCT group): UEN column (customer mode; the supplier
+  // mode keeps its columns) + UEN on the quick-add form, no hint lines.
+  // Off = the old layout, unchanged.
+  const { isCustomerUenEnabled: uenOn } = useOrganizationFeatures();
+  const layout = customerPickerLayout(uenOn && serverSearch);
+  const showHints = !uenOn;
 
   // Quick-add: create a customer without leaving the picker (guru 2026-08-18).
   // The backend generates the customer code from the name; the new customer is
   // selected into the document immediately on success.
   const createCustomer = useCreateCustomer();
   const [addOpen, setAddOpen] = useState(false);
-  const [draft, setDraft] = useState({ name: "", phone: "", email: "", address: "" });
+  const [draft, setDraft] = useState({ name: "", phone: "", email: "", address: "", uen: "" });
   const openAddForm = () => {
     // Seed the name with whatever the user was searching for — the usual
     // trigger is "typed a name, no match".
-    setDraft({ name: searchTerm.trim(), phone: "", email: "", address: "" });
+    setDraft({ name: searchTerm.trim(), phone: "", email: "", address: "", uen: "" });
     setAddOpen(true);
   };
   const submitNewCustomer = async () => {
@@ -103,6 +111,7 @@ export default function CustomerSelectDialog({
         phone: draft.phone.trim() || null,
         email: draft.email.trim() || null,
         address: draft.address.trim() || null,
+        ...(uenOn ? { uen: normalizeUen(draft.uen) } : {}),
       } as any);
       toast.success(`Customer ${created?.customerCode ? `${created.customerCode} — ` : ""}${created?.name || name} created`);
       setAddOpen(false);
@@ -198,9 +207,11 @@ export default function CustomerSelectDialog({
             borderColor: "divider",
           }}
         >
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            This combo box begins searching as soon as you begin typing the first character
-          </Typography>
+          {showHints && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              This combo box begins searching as soon as you begin typing the first character
+            </Typography>
+          )}
 
           {/* Search Input + quick-add */}
           <Stack direction="row" gap={1} sx={{ mb: 1.5 }}>
@@ -244,6 +255,18 @@ export default function CustomerSelectDialog({
                   sx={{ flex: "1 1 220px" }}
                   autoFocus
                 />
+                {uenOn && (
+                  <TextField
+                    size="small"
+                    label="UEN"
+                    value={draft.uen}
+                    onChange={(e) => setDraft((d) => ({ ...d, uen: e.target.value }))}
+                    onBlur={() => setDraft((d) => ({ ...d, uen: normalizeUen(d.uen) ?? "" }))}
+                    helperText={uenLooksValid(draft.uen) ? undefined : "Not a usual UEN format"}
+                    FormHelperTextProps={{ sx: { color: "warning.main" } }}
+                    sx={{ width: 150 }}
+                  />
+                )}
                 <TextField
                   size="small"
                   label="Phone"
@@ -288,56 +311,26 @@ export default function CustomerSelectDialog({
           <Table stickyHeader size="small">
             <TableHead>
               <TableRow>
-                <TableCell
-                  sx={{
-                    fontWeight: 600,
-                    bgcolor: "surfaceTones.low",
-                    borderBottom: 2,
-                    borderColor: "divider",
-                    width: "20%",
-                  }}
-                >
-                  Customer Code
-                </TableCell>
-                <TableCell
-                  sx={{
-                    fontWeight: 600,
-                    bgcolor: "surfaceTones.low",
-                    borderBottom: 2,
-                    borderColor: "divider",
-                    width: "40%",
-                  }}
-                >
-                  Company Name
-                </TableCell>
-                <TableCell
-                  sx={{
-                    fontWeight: 600,
-                    bgcolor: "surfaceTones.low",
-                    borderBottom: 2,
-                    borderColor: "divider",
-                    width: "20%",
-                  }}
-                >
-                  Phone
-                </TableCell>
-                <TableCell
-                  sx={{
-                    fontWeight: 600,
-                    bgcolor: "surfaceTones.low",
-                    borderBottom: 2,
-                    borderColor: "divider",
-                    width: "20%",
-                  }}
-                >
-                  Email
-                </TableCell>
+                {layout.columns.map((col) => (
+                  <TableCell
+                    key={col.key}
+                    sx={{
+                      fontWeight: 600,
+                      bgcolor: "surfaceTones.low",
+                      borderBottom: 2,
+                      borderColor: "divider",
+                      width: col.width,
+                    }}
+                  >
+                    {col.label}
+                  </TableCell>
+                ))}
               </TableRow>
             </TableHead>
             <TableBody>
               {filteredCustomers.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={layout.columns.length} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">
                       {serverSearch && (remote.isLoading || debounced !== searchTerm)
                         ? "Searching…"
@@ -379,19 +372,30 @@ export default function CustomerSelectDialog({
                       },
                     }}
                   >
-                    <TableCell sx={{ fontWeight: 500, color: "text.primary" }}>
-                      {customer.customerCode || "-"}
-                    </TableCell>
-                    <TableCell>
-                      {customer.name || "-"}
-                      {customerIdsLine(customer) && (
-                        <Typography variant="caption" color="text.secondary" display="block">
-                          {customerIdsLine(customer)}
-                        </Typography>
-                      )}
-                    </TableCell>
-                    <TableCell>{customer.phone || "-"}</TableCell>
-                    <TableCell>{customer.email || "-"}</TableCell>
+                    {layout.columns.map((col) => {
+                      if (col.key === "code")
+                        return (
+                          <TableCell key={col.key} sx={{ fontWeight: 500, color: "text.primary" }}>
+                            {customer.customerCode || "-"}
+                          </TableCell>
+                        );
+                      if (col.key === "name") {
+                        const sub = layout.subline(customer);
+                        return (
+                          <TableCell key={col.key}>
+                            {customer.name || "-"}
+                            {sub && (
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                {sub}
+                              </Typography>
+                            )}
+                          </TableCell>
+                        );
+                      }
+                      if (col.key === "uen") return <TableCell key={col.key}>{customer.uen || "-"}</TableCell>;
+                      if (col.key === "phone") return <TableCell key={col.key}>{customer.phone || "-"}</TableCell>;
+                      return <TableCell key={col.key}>{customer.email || "-"}</TableCell>;
+                    })}
                   </TableRow>
                 ))
               )}
@@ -414,9 +418,11 @@ export default function CustomerSelectDialog({
           <Typography variant="body2" color="text.secondary">
             Showing {filteredCustomers.length} of {customers.length} customers
           </Typography>
-          <Typography variant="caption" color="text.secondary">
-            Click on a row to select a customer
-          </Typography>
+          {showHints && (
+            <Typography variant="caption" color="text.secondary">
+              Click on a row to select a customer
+            </Typography>
+          )}
         </Box>
       </DialogContent>
     </Dialog>

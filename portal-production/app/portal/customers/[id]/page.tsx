@@ -15,6 +15,7 @@ import WhatsAppGroupPicker from "@/components/deliveries/WhatsAppGroupPicker";
 import { useGetSiteOffices } from "./hooks/useGetSiteOffices";
 import { toast } from "react-toastify";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { oldCodeOf } from "@/helpers/customerIds";
 interface Customer {
   id: string;
   customerCode?: string | null;
@@ -168,7 +169,7 @@ export default function ViewCustomerPage({ params }: { params: { id: string } })
                 {isCustomerUenEnabled && (
                   <Typography variant="h4" color="text.secondary" textAlign="center">
                     <strong>Code:</strong> {customer?.customerCode || "-"} · <strong>UEN:</strong> {customer?.uen || "-"} · <strong>Old code:</strong>{" "}
-                    {customer?.externalRef || "-"}
+                    {oldCodeOf(customer?.externalRef) || "-"}
                   </Typography>
                 )}
                 <Typography variant="h4" color="text.secondary">
