@@ -42,6 +42,7 @@ import DoStatusTag from "@/components/DoStatusTag";
 import { runDoTag } from "@/helpers/doStatusTag";
 import { canPurge, confirmCopy, runWasStarted } from "./_lib/run-actions";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 /**
  * Office Deliveries queue (phase-1 layer 4; per-item linking 2026-08).
@@ -146,7 +147,7 @@ function DeliveriesQueue() {
   const [rows, setRows] = useState<DeliveryRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0); // 0-based for MUI; backend is 1-based
-  const [limit, setLimit] = useState(20);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);

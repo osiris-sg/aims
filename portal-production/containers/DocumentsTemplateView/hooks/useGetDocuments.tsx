@@ -7,6 +7,7 @@ import { selectDocumentTemplates, selectDocumentTemplatesLoading, selectDocument
 import { useState, useEffect, useCallback } from "react";
 import { useOrganization } from "@hooks/useOrganization";
 import { useAuth } from "@clerk/nextjs";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 export const useGetDocuments = () => {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
@@ -16,7 +17,7 @@ export const useGetDocuments = () => {
   const loading = useSelector(selectDocumentTemplatesLoading);
   const error = useSelector(selectDocumentTemplatesError);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({});
 

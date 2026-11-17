@@ -18,13 +18,14 @@ import { EmptyState } from "../_components/bits";
 import PaymentDialog from "../_components/PaymentDialog";
 import { useDebounced } from "../_components/useDebounced";
 import LegacyGate from "../_components/LegacyGate";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 const money = (v: number, c: string) => `${c} ${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 function PaymentsPage() {
   const api = useShipmentsApi();
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(20);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [direction, setDirection] = useState<"" | "IN" | "OUT">("");
   const [filters, setFilters] = useState<{ account: string; unallocated: string }>({ account: "", unallocated: "" });

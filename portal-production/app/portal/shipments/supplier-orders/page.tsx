@@ -19,6 +19,7 @@ import { fmtMoney, fmtMt, monthShort } from "../_lib/format";
 import { CurrentStepCell, EmptyState, RecordStatusChip } from "../_components/bits";
 import { useDebounced } from "../_components/useDebounced";
 import LegacyGate from "../_components/LegacyGate";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 const soHref = (id: string) => `/portal/shipments/supplier-orders/${id}`;
 
@@ -27,7 +28,7 @@ function SupplierOrdersPage() {
   const params = useSearchParams();
   const [bucket, setBucket] = useState<"pending" | "completed">(params?.get("tab") === "completed" ? "completed" : "pending");
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(20);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<{ contractId: string }>({ contractId: "" });
   const q = useDebounced(search);

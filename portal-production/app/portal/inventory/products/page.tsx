@@ -16,6 +16,7 @@ import AssetHierarchyTable from "@/app/portal/assets/components/AssetHierarchyTa
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import ViewListIcon from "@mui/icons-material/ViewList";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 function EditableSkuKeyCell({ row, onSave, onCancel }: { row: any; onSave: (id: string, skuKey: string) => void; onCancel: () => void }) {
   const [value, setValue] = useState(row.skuKey);
@@ -46,7 +47,7 @@ export default function ProductsPage() {
   const pathname = usePathname();
   const fromQ = `from=${encodeURIComponent(pathname)}`;
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({ category: [] as string[] });
   const [confirmOpen, setConfirmOpen] = useState(false);

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { sortRows } from "@/components/clientSort";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 interface InventoryItem {
   id: string;
@@ -37,7 +38,7 @@ export function useGetInventory(sorting: { id: string; desc: boolean }[] = []) {
 
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({
     status: "",

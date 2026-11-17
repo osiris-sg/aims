@@ -8,6 +8,7 @@ import {
 import { useAccountingApi } from "../_lib/api";
 import PageTable from "@/components/PageTable";
 import { useClientSort } from "@/components/clientSort";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 const fmt = (n: number) => (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -20,7 +21,7 @@ export default function PurchasesBySupplierPage() {
 
   // PageTable-driven state
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(25);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({});
 

@@ -81,6 +81,11 @@ interface Props {
    *  month must never split across pages). */
   noPagination?: boolean;
 }
+// Rows per page every list opens with (guru 2026-11-17: "make this default
+// be 50 for every org"). Pages seed their `limit` state from it; the Showing
+// dropdown still offers 10 / 20 / 50 / 100.
+export const DEFAULT_PAGE_SIZE = 50;
+
 export default function PageTable(props: Props) {
   const pt = PT[useUiLang().lang];
   const { columns, data, tableName, subTitle, loading, buttonName, buttonDisabled, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, filterConfig: incomingFilterConfig, availableFilters, assetsData, totalDocs, renderSubComponent, actionButtons, headerContent, manualSorting, sorting, onSortingChange, onRowClick, rowHref, rowSx, noSelectionColumn, hideTable, noPagination } = props;

@@ -19,6 +19,7 @@ import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import { useAccountingApi } from "./api";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 export type Kind = "receipt" | "payment-voucher" | "journal-voucher";
 
@@ -127,7 +128,7 @@ export default function VoucherListPage({ kind }: { kind: Kind }) {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(25);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({ status: "", date: { startDate: null, endDate: null } });
 

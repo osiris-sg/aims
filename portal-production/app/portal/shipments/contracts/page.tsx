@@ -20,6 +20,7 @@ import { ConfirmDialog, CurrentStepCell, EmptyState, ProgressCell, RecordStatusC
 import PiBulkDialog from "../_components/PiBulkDialog";
 import ContractFormDialog from "../_components/ContractFormDialog";
 import { useDebounced } from "../_components/useDebounced";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 const STATUS_OPTIONS = [
   { value: "OPEN", key: "statusOpen" },
@@ -33,7 +34,7 @@ export default function ContractsPage() {
   const router = useRouter();
   const t = useTranslations("contracts.list");
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(20);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<Filters>({ status: "", supplierId: "", customerId: "" });
   const q = useDebounced(search);

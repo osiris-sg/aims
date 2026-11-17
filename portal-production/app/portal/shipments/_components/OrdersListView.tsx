@@ -39,6 +39,7 @@ import { TasksButton } from "./TradeTasks";
 import MonthlyView from "./MonthlyView";
 import OrdersViewToggle, { type OrdersView } from "./OrdersViewToggle";
 import { useReopenOrder } from "./OrderReopen";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 type Row = OrderRow;
 
@@ -57,7 +58,7 @@ export default function OrdersListView({ fixedCustomerId, fixedSupplierId, toolb
   const monthly = view === "monthly";
   const [monthlyCounts, setMonthlyCounts] = useState<{ pending: number; completed: number; all: number } | null>(null);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(20);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<{ contractId: string; customerId: string; shipMonth: string }>({ contractId: params?.get("contractId") ?? "", customerId: "", shipMonth: "" });
   const q = useDebounced(search);

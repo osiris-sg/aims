@@ -15,6 +15,7 @@ import PageTable from "@/components/PageTable";
 import StatusChip from "@/components/StatusChip";
 import { useIdQuoteApi } from "../quotations/id/_lib/api";
 import { money } from "../quotations/id/_lib/math";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 export default function VariationOrdersPage() {
   const router = useRouter();
@@ -22,7 +23,7 @@ export default function VariationOrdersPage() {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(20);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
 
   useEffect(() => {

@@ -15,6 +15,7 @@ import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import type { FilterField } from "@/components/FilterDrawer";
 import { toast } from "react-toastify";
 import { STAGE_LABEL, fmtDate, money, pct, useIdProjectApi } from "./api";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 const STAGE_COLOR: Record<string, "default" | "primary" | "info" | "warning" | "success"> = {
   signed: "primary",
@@ -38,7 +39,7 @@ export default function IdProjectList() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(20);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({ stage: "", designerUserId: "" });
   // Funnel counts for the quick-filter buttons (server-computed, scope-aware).

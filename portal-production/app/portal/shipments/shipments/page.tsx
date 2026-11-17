@@ -21,6 +21,7 @@ import { useShipments } from "../_lib/hooks";
 import { blLabel, fmtDay, fmtMt, shortCustomer } from "../_lib/format";
 import { CurrentStepCell, EmptyState } from "../_components/bits";
 import { useDebounced } from "../_components/useDebounced";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 const TABS: Array<{ value: ShipmentTab }> = [{ value: "in_transit" }, { value: "arrived" }, { value: "delivered" }, { value: "completed" }];
 
@@ -32,7 +33,7 @@ export default function ShipmentsListPage() {
   const params = useSearchParams();
   const [tab, setTab] = useState<ShipmentTab>(TABS.some((x) => x.value === params?.get("tab")) ? (params!.get("tab") as ShipmentTab) : "in_transit");
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(20);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const q = useDebounced(search);
   // Round W: test orders stay hidden for everyone (the "Show test orders" switch is gone).

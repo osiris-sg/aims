@@ -15,6 +15,7 @@ import { toast } from "react-toastify";
 import { fmtJobWhen, orderMatchesSearch, orderStatusColor, orderStatusLabel } from "@/helpers/wctOrders";
 import { HUB_ACTION_LABEL, HUB_DESTRUCTIVE, hubListTarget, hubMatchesTab, hubRowActions, hubStatusInfo, hubStatusSortValue, hubTabs, type HubActionKey, type HubContext, type HubStatus } from "@/helpers/wctOrderHub";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 // WCT calendar add (2026-11-04): jobs made from the calendar with no order yet, so nothing gets forgotten.
 interface UntaggedJob {
@@ -109,7 +110,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
   const [untagged, setUntagged] = useState<UntaggedJob[]>([]);
   const [untaggedCount, setUntaggedCount] = useState<number | null>(null);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({});
 

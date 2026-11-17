@@ -20,6 +20,7 @@ import PageTable from '@/components/PageTable';
 import { useClientSort } from '@/components/clientSort';
 import { ReportPrintExportButton, ReportEmailButton } from '@/app/portal/accounting/_lib/report-export';
 import DocumentRefLink from "@/components/DocumentRefLink";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 interface Customer {
   id: string;
@@ -82,7 +83,7 @@ export default function StatementOfAccountPage() {
 
   // PageTable-driven state
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(25);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<any>({});
 

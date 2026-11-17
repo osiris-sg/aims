@@ -7,6 +7,7 @@ import PageTable from "@/components/PageTable";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import { kebabColumn } from "@/components/RowKebab";
 import AddSupplier from "./components/AddSupplier";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 interface Filters {
   createdOn?: {
@@ -18,7 +19,7 @@ interface Filters {
 
 export default function SuppliersPage() {
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<Filters>({
     createdOn: {

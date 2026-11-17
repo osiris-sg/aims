@@ -17,6 +17,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 interface Customer {
   id: string;
@@ -50,7 +51,7 @@ export default function CustomersPage() {
   // UEN + Old code columns (enableCustomerUen); the search finds both for every org.
   const { isCustomerUenEnabled } = useOrganizationFeatures();
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<Filters>({
     createdOn: {

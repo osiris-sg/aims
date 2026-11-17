@@ -36,6 +36,7 @@ import Link from "next/link";
 import { Checkbox, FormControlLabel } from "@mui/material";
 import QuotationPicker from "../../bills/_components/QuotationPicker";
 import { billQuotations, quotationsCell, type QuotationTag } from "@/helpers/sinQuotation";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 // Purchase Journal (supplier invoices) — lives under the AP path
 // /portal/accounting/payables/purchase-journal (guru 2026-08-01; the old
@@ -95,7 +96,7 @@ export default function BillsPage() {
 
   // PageTable-driven state
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(25);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({});
 

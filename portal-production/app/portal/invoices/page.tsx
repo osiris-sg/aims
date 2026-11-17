@@ -33,6 +33,7 @@ import { docGrossTotal } from "@/helpers/docTotal";
 import { useTranslations } from "next-intl";
 import { useUiLang } from "@/i18n/UiLangProvider";
 import { formatDate } from "@/i18n/lang";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 interface Document {
   id: string;
@@ -120,7 +121,7 @@ export default function InvoicesPage() {
   });
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<Filters>({
     status: "",

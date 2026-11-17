@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { request } from "@/helpers/request";
 import { useAuth } from "@clerk/nextjs";
 import { sortRows } from "@/components/clientSort";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 export function useGetUsers(sorting: { id: string; desc: boolean }[] = []) {
   const { getToken } = useAuth();
@@ -33,7 +34,7 @@ export function useGetUsers(sorting: { id: string; desc: boolean }[] = []) {
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({
     createdOn: { startDate: null, endDate: null },

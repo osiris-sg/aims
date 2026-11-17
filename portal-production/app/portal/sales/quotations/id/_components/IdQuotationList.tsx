@@ -22,6 +22,7 @@ import { useIdQuoteApi } from "../_lib/api";
 import { defaultQuote, normalizeQuote } from "../_lib/defaults";
 import { money, pct, quoteTotals } from "../_lib/math";
 import { useAimsUserId } from "@hooks/useAimsUserId";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 const QUOTATION_TYPES = ["QUOTATION", "QO", "QO1", "QO2", "QT"];
 const STATUS_OPTIONS = [
@@ -40,7 +41,7 @@ export default function IdQuotationList() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({ status: "", createdOn: { startDate: null, endDate: null } });
   const [creating, setCreating] = useState(false);

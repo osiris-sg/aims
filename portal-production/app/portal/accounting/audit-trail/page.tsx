@@ -33,6 +33,7 @@ import JournalEntryDialog from "../_lib/JournalEntryDialog";
 import PageTable from "@/components/PageTable";
 import { useClientSort } from "@/components/clientSort";
 import { kebabColumn } from "@/components/RowKebab";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 type Account = { id: string; code: string; name: string };
 
@@ -91,7 +92,7 @@ export default function AuditTrailPage() {
 
   // PageTable-driven state
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(25);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({});
 

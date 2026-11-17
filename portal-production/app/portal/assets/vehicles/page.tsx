@@ -11,6 +11,7 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { canVehicles, expiryChip, fmtDate, fmtKm, fmtMoney, vehiclesApi, type VehicleRow } from "@/helpers/wctVehicles";
 import { VEHICLE_NEW_PATH, vehicleHref } from "@/helpers/wctNav";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 /**
  * WCT Vehicles (enableWctVehicles, 2026-11-12; log book 2026-11-16): the vans
@@ -42,7 +43,7 @@ export default function VehiclesPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(25);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [filters, setFilters] = useState<any>({});
 
   const load = useCallback(async () => {

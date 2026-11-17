@@ -44,6 +44,7 @@ import PageTable from "@/components/PageTable";
 import ReconcileView from "./ReconcileView";
 import { useClientSort } from "@/components/clientSort";
 import { kebabColumn } from "@/components/RowKebab";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 // ---------------------------------------------------------------------------
 // Bank reconciliation workspace.
@@ -136,7 +137,7 @@ export default function BankReconciliationPage() {
 
   // PageTable-driven state for the statement-line table
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(25);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({});
   // Status-chip filter (null = all) — the count chips above the table filter it.

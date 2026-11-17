@@ -20,6 +20,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import { TextField } from "@mui/material";
 import { toast } from "react-toastify";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 function EditableSkuCell({ row, onSave, onCancel }: { row: any; onSave: (id: string, sku: string) => void; onCancel: () => void }) {
   const [value, setValue] = useState(row.sku);
@@ -82,7 +83,7 @@ export default function InventoryPage() {
   const { isEditInventorySkuEnabled } = useOrganizationFeatures();
   const [openDrawer, setOpenDrawer] = useState(false);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<{
     status: string;

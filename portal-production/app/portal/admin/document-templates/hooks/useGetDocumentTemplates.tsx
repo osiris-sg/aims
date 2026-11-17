@@ -3,6 +3,7 @@
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { useEffect, useState, useCallback } from "react";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 interface DocumentTemplate {
   id: string;
@@ -46,7 +47,7 @@ export function useGetDocumentTemplates() {
   });
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<Record<string, string>>({});
 

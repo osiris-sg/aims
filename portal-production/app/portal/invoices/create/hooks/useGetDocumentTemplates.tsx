@@ -7,6 +7,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import { DOCUMENT_TYPES } from "@/containers/DocumentsTemplateView/slice/constants";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 export const useGetDocumentTemplates = () => {
   const { getToken } = useAuth();
@@ -15,7 +16,7 @@ export const useGetDocumentTemplates = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({});
   const { organization } = useOrganization();

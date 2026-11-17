@@ -15,6 +15,7 @@ import { fmtJobWhen } from "@/helpers/wctOrders";
 import { rejectProblem } from "@/helpers/wctFinishModes";
 import { JOB_TABS, ORDER_JOB_STATE_LABEL, jobsTab, orderJobStateColor, verifiedText } from "@/helpers/wctNav";
 import StatusPill from "@/app/portal/orders/_components/StatusPill";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 // WCT Jobs (enableWctOrders, 2026-11-03): the Jobs menu page (/portal/deliveries).
 // A WCT job is a service visit from an order (stored as a delivery run). Title
@@ -59,7 +60,7 @@ export default function WctJobsList({ fixture }: { fixture?: JobsFixture } = {})
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(25);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({});
   const [from, setFrom] = useState("");

@@ -22,6 +22,7 @@ import { toast } from "react-toastify";
 import PageTable from "@/components/PageTable";
 import CustomerPicker from "@/components/CustomerPicker";
 import { todayIso } from "@/helpers/orgToday";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 interface PriceHistoryItem {
   id: string;
@@ -58,7 +59,7 @@ export default function PriceHistoryReportPage() {
 
   // PageTable-driven state (page is 1-based to match PageTable contract)
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(25);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({});
   const [totalCount, setTotalCount] = useState(0);

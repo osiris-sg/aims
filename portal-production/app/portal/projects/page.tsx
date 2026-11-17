@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { ROUTES } from "@/routes";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import IdProjectList from "./_id/IdProjectList";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 interface Project {
   id: string;
@@ -65,7 +66,7 @@ function LegacyProjectsPage() {
   });
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   // Debounced copy of `search`. The input updates `search` on every keystroke
   // (responsive), but the server fetch only runs ~350ms after typing stops.

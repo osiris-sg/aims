@@ -33,6 +33,7 @@ import { useIdQuoteApi } from "@/app/portal/sales/quotations/id/_lib/api";
 import type { WorkItem, WorkSection } from "@/app/portal/sales/quotations/id/_lib/types";
 import { UOM_OPTIONS } from "@/app/portal/sales/quotations/id/_lib/defaults";
 import { money } from "@/app/portal/sales/quotations/id/_lib/math";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 type Form = {
   code: string;
@@ -277,7 +278,7 @@ export default function WorkLibraryPage() {
   const [sections, setSections] = useState<WorkSection[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(20);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({});
   const [dialog, setDialog] = useState(false);

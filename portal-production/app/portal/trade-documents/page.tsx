@@ -29,6 +29,7 @@ import FileUploadDialog from "@/app/portal/shipments/_components/FileUploadDialo
 import { useFileViewer } from "@/app/portal/shipments/_components/FilePreview";
 import { useDebounced } from "@/app/portal/shipments/_components/useDebounced";
 import { visibleTabs } from "@/app/portal/shipments/_lib/hub-tabs";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 const HERE = "/portal/trade-documents";
 const placeHref = (p: NonNullable<HubRow["place"]>) => (p.orderId ? `/portal/shipments/orders/${p.orderId}${p.shipmentId ? `?shipment=${p.shipmentId}` : ""}` : p.shipmentId ? `/portal/shipments/${p.shipmentId}` : null);
@@ -57,7 +58,7 @@ export default function TradeDocumentsHubPage() {
   const api = useShipmentsApi();
   const [category, setCategory] = useState("");
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(20);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<Filters>(EMPTY);
   const q = useDebounced(search);

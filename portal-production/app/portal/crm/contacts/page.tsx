@@ -13,6 +13,7 @@ import { toast } from "react-toastify";
 import PageTable from "@/components/PageTable";
 import { useClientSort } from "@/components/clientSort";
 import { useWhatsAppApi } from "../_lib/api";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 interface Contact {
   waId: string;
@@ -27,7 +28,7 @@ export default function CrmContactsPage() {
   const [rows, setRows] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(25);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({});
   const [busy, setBusy] = useState<string | null>(null);

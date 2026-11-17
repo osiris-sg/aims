@@ -24,6 +24,7 @@ import { useClientSort } from "@/components/clientSort";
 import { kebabColumn } from "@/components/RowKebab";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import GLAccountSelect from "@/components/GLAccountSelect";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 type Service = {
   id: string;
@@ -43,7 +44,7 @@ export default function MasterFilesServices() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({});
   const [serviceToDelete, setServiceToDelete] = useState<Service | null>(null);

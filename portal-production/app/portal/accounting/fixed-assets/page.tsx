@@ -24,6 +24,7 @@ import { useAccountingApi } from "../_lib/api";
 import PageTable from "@/components/PageTable";
 import { useClientSort } from "@/components/clientSort";
 import { todayIso } from "@/helpers/orgToday";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 type FA = {
   id: string;
@@ -62,7 +63,7 @@ export default function FixedAssetsPage() {
 
   // PageTable-driven state
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(25);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({});
 

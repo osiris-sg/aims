@@ -13,6 +13,7 @@ import { request } from "@/helpers/request";
 import { ROUTES } from "@/routes";
 import { useGetCustomerInfoRequests } from "@/app/portal/hooks/api/useCustomerInfo";
 import AddCustomerInfoDialog from "./_components/AddCustomerInfoDialog";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 // Office-facing status chip. Colors mirror the accounting/document lists.
 const STATUS_CHIP: Record<string, { label: string; color: "default" | "warning" | "success" | "error" }> = {
@@ -33,7 +34,7 @@ export default function CustomerInformationPage() {
   const router = useRouter();
   const { getToken } = useAuth();
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<{ status?: string; [key: string]: any }>({ status: "" });
   const [addOpen, setAddOpen] = useState(false);

@@ -16,6 +16,7 @@ import AssignmentIcon from "@mui/icons-material/Assignment";
 import moment from "moment";
 import { toast } from "react-toastify";
 import VerifySupplierUploadPanel from "./_components/VerifySupplierUploadPanel";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 interface OrderRow {
   id: string;
@@ -49,7 +50,7 @@ export function CappitechOrdersList() {
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({ status: "", customerId: "", createdOn: { startDate: null, endDate: null } });
 

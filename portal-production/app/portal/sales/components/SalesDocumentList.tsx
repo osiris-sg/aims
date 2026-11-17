@@ -28,6 +28,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request, withActiveOrg } from "@/helpers/request";
 import StatusChip from "@/components/StatusChip";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 interface Document {
   id: string;
@@ -104,7 +105,7 @@ export default function SalesDocumentList({
   const { getToken } = useAuth();
   const { organization } = useOrganization();
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<Filters>({
     status: "",

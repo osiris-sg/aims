@@ -13,11 +13,12 @@ import AssetHierarchyTable from "./components/AssetHierarchyTable";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import ViewListIcon from "@mui/icons-material/ViewList";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 export default function AssetsPage() {
   const router = useRouter();
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<{
     category: string;

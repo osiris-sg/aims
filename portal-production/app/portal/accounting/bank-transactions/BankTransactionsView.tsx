@@ -16,6 +16,7 @@ import { useClientSort } from "@/components/clientSort";
 import { kebabColumn } from "@/components/RowKebab";
 import { useAccountingApi } from "../_lib/api";
 import BankTransactionDialog, { KIND_LABEL, type BankTransactionKind, type BankTransactionRow } from "./BankTransactionDialog";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 const fmt = (n: number) => (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -29,7 +30,7 @@ export function BankTransactionsView({ kind }: { kind: BankTransactionKind }) {
   const [editing, setEditing] = useState<BankTransactionRow | null>(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
 
   const load = useCallback(async () => {
     setLoading(true);

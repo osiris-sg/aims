@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useOrganization } from "@hooks/useOrganization";
 import { useAuth } from "@clerk/nextjs";
 import { Filters } from "../slice/types";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 export const useGetInventories = () => {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
@@ -18,7 +19,7 @@ export const useGetInventories = () => {
   const error = useSelector(selectInventoriesError);
   const filters = useSelector(selectFilters);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
 
   const serializeDate = (date: Date) => {

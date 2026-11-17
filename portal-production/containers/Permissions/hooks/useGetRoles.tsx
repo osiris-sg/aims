@@ -1,5 +1,6 @@
 // /containers/Permissions/hooks/useGetRoles.tsx
 import { useState, useEffect, useCallback } from "react";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 export function useGetRoles() {
   interface Role {
@@ -22,7 +23,7 @@ export function useGetRoles() {
   });
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({
     createdOn: { startDate: null, endDate: null },

@@ -63,10 +63,11 @@ const DOC_STATUS_OPTIONS = [
   { value: "returned", label: "Returned" },
 ];
 import { useCreateDocumentFlow } from "./useCreateDocumentFlow";
-import { docGrossTotal } from "@/helpers/docTotal";
+import { docGrossTotal, docPaidToDate, docAmountDue } from "@/helpers/docTotal";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import DoStatusTag from "@/components/DoStatusTag";
 import { docDoTag } from "@/helpers/doStatusTag";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 interface Props {
   documentTypes: string[];
@@ -217,7 +218,7 @@ export default function DocumentListView({
     documentLabel
   );
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [sorting, setSorting] = useState<any[]>(dateColumn === "issue" ? [{ id: "issueDate", desc: true }] : []);
   const [filters, setFilters] = useState<any>({

@@ -17,6 +17,7 @@ import {
   type DoStage,
   type InvoiceStage,
 } from "./stages";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 // Row shape relevant to the slim board. Post C-pre, list() enriches
 // linkedDocuments[].status and includes sourceQuotation.project.
@@ -118,7 +119,7 @@ export default function SlimOrdersList() {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("all");
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({});
 

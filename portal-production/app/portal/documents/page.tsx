@@ -10,6 +10,7 @@ import { Box, Chip, Alert, Dialog, DialogTitle, DialogContent, DialogContentText
 import { useRouter } from "next/navigation";
 import moment from "moment";
 import { toast } from "react-toastify";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
 interface Document {
   id: string;
@@ -73,7 +74,7 @@ const DOCUMENT_TYPE_ALIASES: Record<string, string> = {
 export default function DocumentsPage() {
   const router = useRouter();
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<Filters>({
     status: "",
