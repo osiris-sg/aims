@@ -20,7 +20,8 @@ import {
 import { CalendarStyleService, isSalesMember } from './calendar-style.service';
 import { JobsCalendarService } from './jobs-calendar.service';
 import { CalendarNotesService } from './calendar-notes.service';
-import { jobStyleOf, parseJobStylePatch } from '../deliveries/job-style';
+import { jobStyleOf, parseJobStylePatch, withStampedApplicant, EMPTY_JOB_STYLE } from '../deliveries/job-style';
+import { isCompletedDo } from './calendar-style';
 import { DEFAULT_ORG_FEATURES } from '../organizations/default-features';
 import { DeliveriesService } from '../deliveries/deliveries.service';
 
@@ -61,9 +62,11 @@ describe('calendar style: chips', () => {
     expect(styleOf(input({ salespersonId: 'someone_else' }), colours).fill).toBe(NEUTRAL_FILL);
   });
 
-  it('bar = the PTW applicant colour, only when a PTW is needed; the default applicant when the job names none', () => {
+  it('bar = the stored PTW applicant colour, only when a PTW is needed; never the default at render', () => {
     expect(styleOf(input({ ptwStatus: 'REQUIRED', ptwApplicantId: JOYNA }), colours).bar).toBe('#f6bf26');
-    expect(styleOf(input({ ptwStatus: 'APPROVED' }), colours).bar).toBe('#d50000');
+    expect(styleOf(input({ ptwStatus: 'APPROVED', ptwApplicantId: BALA }), colours).bar).toBe('#d50000');
+    // No applicant stored: the neutral bar, whatever the default applicant is.
+    expect(styleOf(input({ ptwStatus: 'APPROVED' }), colours).bar).toBe(NEUTRAL_BAR);
     expect(styleOf(input({ ptwStatus: null, ptwApplicantId: JOYNA }), colours).bar).toBeNull();
     expect(styleOf(input({ ptwStatus: 'NOT_NEEDED', ptwApplicantId: JOYNA }), colours).bar).toBeNull();
     expect(styleOf(input({ ptwStatus: 'SUBMITTED', ptwApplicantId: 'nobody' }), { ...colours, defaultApplicant: null }).bar).toBe(NEUTRAL_BAR);
@@ -187,6 +190,25 @@ describe('calendar style: people', () => {
     expect(jobStyleOf('junk')).toEqual({ salespersonId: null, salespersonName: null, ptwApplicantId: null, ptwApplicantName: null, cod: false, postponed: false });
   });
 
+  it('✅ counts only completed / signed DOs: not drafts, not cancelled or voided', () => {
+    expect(isCompletedDo({ status: 'delivered_installed', config: {} })).toBe(true);
+    expect(isCompletedDo({ status: 'unconfirmed', config: {} })).toBe(false);
+    expect(isCompletedDo({ status: 'confirmed', config: { awaitingSignature: true } })).toBe(false);
+    expect(isCompletedDo({ status: 'delivered_installed', config: { cancelled: true } })).toBe(false);
+    expect(isCompletedDo({ status: 'delivered_installed', config: { voided: true } })).toBe(false);
+  });
+
+  it('the PTW applicant is stamped on save: the default only when a PTW is needed and none is sent or stored', () => {
+    const stored = { ...EMPTY_JOB_STYLE, ptwApplicantId: JOYNA };
+    expect(withStampedApplicant({}, 'REQUIRED', null, BALA)).toEqual({ ptwApplicantId: BALA, ptwApplicantName: null });
+    expect(withStampedApplicant({ ptwApplicantId: null, ptwApplicantName: null }, 'SUBMITTED', stored, BALA)).toEqual({ ptwApplicantId: BALA, ptwApplicantName: null });
+    expect(withStampedApplicant({}, 'REQUIRED', stored, BALA)).toEqual({});
+    expect(withStampedApplicant({ ptwApplicantId: JOYNA, ptwApplicantName: 'Joyna' }, 'APPROVED', null, BALA)).toEqual({ ptwApplicantId: JOYNA, ptwApplicantName: 'Joyna' });
+    expect(withStampedApplicant({ cod: true }, 'NOT_NEEDED', null, BALA)).toEqual({ cod: true });
+    expect(withStampedApplicant({}, null, null, BALA)).toEqual({});
+    expect(withStampedApplicant({}, 'REQUIRED', null, null)).toEqual({});
+  });
+
   it('the flag is off by default for new orgs', () => {
     expect(DEFAULT_ORG_FEATURES.enableCalendarStyle).toBe(false);
   });
@@ -246,7 +268,9 @@ function world(): World {
     features: { [P]: { ...ON }, [C]: { enableJobsCalendar: true, enableWctOrders: true }, [X]: { enableJobsCalendar: true, enableWctOrders: true } },
     runs: {
       [P]: [
-        // Order job: its quotation's salesman code S002 = HH; PTW required, no applicant (default Bala); one DO.
+        // A PTW job saved before applicants were stored: neutral bar, never the default (Bala).
+        baseRun('r-legacy', { ptwStatus: 'SUBMITTED' }),
+        // Order job: its quotation's salesman code S002 = HH; PTW required, Bala stored; one completed DO + one draft.
         baseRun('r-order', { order: { id: 'o1', orderNumber: 'ORD-1', sourceQuotationId: Q1 }, ptwStatus: 'REQUIRED', items: [{ id: 'svc' }] }),
         // Quick job: own salesperson Amy, applicant Joyna, PTW approved, COD, postponed.
         baseRun('r-quick', { ptwStatus: 'APPROVED' }),
@@ -269,7 +293,8 @@ function world(): World {
     },
     styleValues: {
       'r-quick': { salespersonId: AMY, salespersonName: 'Amy Yap', ptwApplicantId: JOYNA, ptwApplicantName: 'Joyna', cod: true, postponed: true },
-      'r-child': { salespersonId: AMY, salespersonName: 'Amy Yap', cod: false, postponed: false },
+      'r-child': { salespersonId: AMY, salespersonName: 'Amy Yap', ptwApplicantId: BALA, ptwApplicantName: 'Bala WCT', cod: false, postponed: false },
+      'r-order': { ptwApplicantId: BALA, ptwApplicantName: 'Bala WCT', cod: false, postponed: false },
     },
   };
 }
@@ -282,11 +307,20 @@ function fakePrisma(w: World) {
     $queryRawUnsafe: jest.fn(async (_sql: string, id: string) => (w.children[id] ?? []).map((c) => ({ id: c, name: c }))),
     delivery: { findMany: jest.fn(async ({ where }: any) => (w.runs[org(where)] ?? []).map((r) => ({ ...r }))) },
     deliveryItem: {
-      findMany: jest.fn(async ({ where }: any) => (where.deliveryId.in.includes('r-order') ? [{ deliveryId: 'r-order', documentId: 'do-1' }] : [])),
+      findMany: jest.fn(async ({ where }: any) =>
+        where.deliveryId.in.includes('r-order')
+          ? [{ deliveryId: 'r-order', documentId: 'do-1' }, { deliveryId: 'r-order', documentId: 'do-2' }, { deliveryId: 'r-order', documentId: 'do-3' }]
+          : [],
+      ),
     },
     document: {
       findMany: jest.fn(async ({ where }: any) => {
-        if (where.type) return where.id.in.includes('do-1') ? [{ id: 'do-1', name: 'DO1', status: 'unconfirmed', documentTemplateId: 't', config: {}, createdAt: new Date() }] : [];
+        if (where.type)
+          return [
+            { id: 'do-1', name: 'DO1', status: 'delivered_installed', documentTemplateId: 't', config: {}, createdAt: new Date() },
+            { id: 'do-2', name: 'DO2', status: 'unconfirmed', documentTemplateId: 't', config: {}, createdAt: new Date() },
+            { id: 'do-3', name: 'DO3', status: 'delivered_installed', documentTemplateId: 't', config: { cancelled: true }, createdAt: new Date() },
+          ].filter((d) => where.id.in.includes(d.id));
         return where.id.in.includes(Q1) ? [{ id: Q1, name: 'QO1', type: 'QUOTATION', documentTemplateId: 'tq', config: { salesPerson: 'S002' } }] : [];
       }),
     },
@@ -324,11 +358,12 @@ function svc(w: World, withStyle = true) {
 const byId = (events: any[], id: string) => events.find((e) => e.id === `aims:${id}`);
 
 describe('jobs calendar with the style on (WCT group)', () => {
-  it('fill by salesperson (quotation code or own pick), bar by PTW applicant (own or the default), icons', async () => {
+  it('fill by salesperson (quotation code or own pick), bar by the stored PTW applicant, icons', async () => {
     const res = await svc(world()).get(P, '2026-11-16', '2026-11-22', { userId: HH });
     expect(res.style?.legend.map((l) => l.icon)).toEqual(['✋', '👍', '👎', '✅', '❌', '⭕', '📅', '🟫']);
     const order = byId(res.events, 'r-order');
     expect(order.style).toMatchObject({ fill: '#039be5', bar: '#d50000', greyed: false });
+    // One completed DO (the draft and the cancelled one don't count).
     expect(order.style.icons.map((i: any) => i.icon)).toEqual(['✋', '✅']);
     expect(order.salesperson).toEqual({ id: HH, name: 'Nat HH' });
     expect(order.ptwApplicant).toEqual({ id: BALA, name: 'Bala' });
@@ -336,6 +371,18 @@ describe('jobs calendar with the style on (WCT group)', () => {
     expect(quick.style).toMatchObject({ fill: '#8e24aa', bar: '#f6bf26', greyed: true });
     expect(quick.style.icons.map((i: any) => i.icon)).toEqual(['⭕', '👍', '🟫']);
     expect(quick).toMatchObject({ postponed: true, cod: true, statusLabel: 'Postponed', ptwApplicant: { id: JOYNA, name: 'Joyna' } });
+  });
+
+  it('changing the default applicant does not recolour: a job with no stored applicant shows the neutral bar', async () => {
+    const res = await svc(world()).get(P, '2026-11-16', '2026-11-22', { userId: HH });
+    const legacy = byId(res.events, 'r-legacy');
+    expect(legacy.style.bar).toBe(NEUTRAL_BAR);
+    expect(legacy.ptwApplicant).toBeNull();
+    const w = world();
+    w.members[P] = w.members[P].map((m) => (m.userId === JOYNA ? { ...m, settings: { calendar: { bar: '#f6bf26', ptwDefault: true } } } : m.userId === BALA ? { ...m, settings: { calendar: { bar: '#d50000' } } } : m));
+    const after = await svc(w).get(P, '2026-11-16', '2026-11-22', { userId: HH });
+    expect(byId(after.events, 'r-order').style.bar).toBe('#d50000');
+    expect(byId(after.events, 'r-legacy').style.bar).toBe(NEUTRAL_BAR);
   });
 
   it('cancelled jobs come back greyed with ❌ (never dropped); no salesperson = neutral fill', async () => {
@@ -350,7 +397,7 @@ describe('jobs calendar with the style on (WCT group)', () => {
     const res = await svc(world()).get(P, '2026-11-16', '2026-11-22', { userId: HH });
     const child = byId(res.events, 'r-child');
     expect(child.foreign).toBe(true);
-    // Amy's colour from the parent (#8e24aa), not the child's own (#7986cb); PTW rejected with the default applicant's bar.
+    // Amy's colour from the parent (#8e24aa), not the child's own (#7986cb); PTW rejected with Bala's (stored) bar.
     expect(child.style).toMatchObject({ fill: '#8e24aa', bar: '#d50000' });
     expect(child.style.icons.map((i: any) => i.icon)).toEqual(['👎']);
   });
@@ -376,7 +423,14 @@ describe('PTW Rejected is a calendar style status only', () => {
     const svc: any = Object.create(DeliveriesService.prototype);
     svc.prisma = {
       organizationUIConfig: { findUnique: jest.fn(async () => ({ features: { enableJobsCalendar: true, enableWctOrders: true, enableCalendarStyle: styleOn } })) },
-      delivery: { findFirst: jest.fn(async () => ({ id: 'j' })), update: jest.fn(async () => ({})) },
+      delivery: { findFirst: jest.fn(async () => ({ id: 'j', ptwStatus: null })), update: jest.fn(async () => ({})) },
+      userOrganization: { findMany: jest.fn(async () => [{ userId: BALA, settings: { calendar: { bar: '#d50000', ptwDefault: true } } }, { userId: JOYNA, settings: null }]) },
+      customField: { findFirst: jest.fn(async () => ({ id: 'cf' })), create: jest.fn() },
+      customFieldValue: {
+        findMany: jest.fn(async () => (svc.stored ? [{ entityId: 'j', value: svc.stored }] : [])),
+        findUnique: jest.fn(async () => (svc.stored ? { value: svc.stored } : null)),
+        upsert: jest.fn(async ({ create }: any) => ((svc.stored = create.value), {})),
+      },
     };
     svc.siteclock = { touch: jest.fn() };
     return svc;
@@ -388,5 +442,28 @@ describe('PTW Rejected is a calendar style status only', () => {
     await expect(off.setPtw('j', 'org', { ptwStatus: 'APPROVED' })).resolves.toMatchObject({ ptwStatus: 'APPROVED' });
     const on = ptwSvc(true);
     await expect(on.setPtw('j', 'org', { ptwStatus: 'REJECTED' })).resolves.toMatchObject({ ptwStatus: 'REJECTED' });
+  });
+
+  it('gate on: setting a PTW stamps the default applicant on the job; a stored applicant is kept; gate off writes nothing', async () => {
+    const on = ptwSvc(true);
+    await on.setPtw('j', 'org', { ptwStatus: 'REQUIRED' });
+    expect(on.stored).toMatchObject({ ptwApplicantId: BALA });
+    on.stored = { ...on.stored, ptwApplicantId: JOYNA };
+    await on.setPtw('j', 'org', { ptwStatus: 'APPROVED' });
+    expect(on.stored.ptwApplicantId).toBe(JOYNA);
+    const none = ptwSvc(true);
+    await none.setPtw('j', 'org', { ptwStatus: 'NOT_NEEDED' });
+    expect(none.prisma.customFieldValue.upsert).not.toHaveBeenCalled();
+    const off = ptwSvc(false);
+    await off.setPtw('j', 'org', { ptwStatus: 'REQUIRED' });
+    expect(off.prisma.customFieldValue.upsert).not.toHaveBeenCalled();
+    expect(off.prisma.userOrganization.findMany).not.toHaveBeenCalled();
+  });
+
+  it('job page save: clearing the applicant on a PTW job stamps the default again', async () => {
+    const on = ptwSvc(true);
+    on.prisma.delivery.findFirst = jest.fn(async () => ({ id: 'j', ptwStatus: 'SUBMITTED' }));
+    const res = await on.setJobStyle('j', 'org', { ptwApplicant: null, cod: true });
+    expect(res).toMatchObject({ ptwApplicantId: BALA, cod: true });
   });
 });

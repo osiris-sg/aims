@@ -11,6 +11,7 @@ import { CalendarNoteView, CalendarNotesService } from './calendar-notes.service
 import { CalendarStyleService } from './calendar-style.service';
 import { CALENDAR_STYLE_LEGEND, CalendarColours, StyleInput, mergeColours, quotationSalesmanCode, salespersonFromCode, styleOf } from './calendar-style';
 import { jobStyleValues } from '../deliveries/job-style';
+import { isCompletedDo } from './calendar-style';
 
 export const JOBS_CALENDAR_FLAG = 'enableJobsCalendar';
 const SITECLOCK_TTL_MS = 60_000;
@@ -227,7 +228,6 @@ export class JobsCalendarService {
       const a = meta.get(id)?.ptwApplicantId;
       if (a) people.add(a);
     }
-    if (colours.defaultApplicant) people.add(colours.defaultApplicant.id);
     const names = await this.style!.names(people);
     const nameOf = (id: string | null, stored: string | null | undefined) => (id ? names.get(id)?.name ?? stored ?? null : null);
 
@@ -241,7 +241,9 @@ export class JobsCalendarService {
       const ptwStatus = ptwOf.get(runId) ?? null;
       const salespersonId = salesOf.get(runId) ?? null;
       const ptwNeeded = !!ptwStatus && ptwStatus !== 'NOT_NEEDED';
-      const applicantId = ptwNeeded ? m?.ptwApplicantId ?? colours.defaultApplicant?.id ?? null : null;
+      // The applicant stored on the job when it was saved (2026-11-18); the default applicant is never applied at
+      // render, so changing it does not recolour old jobs. A PTW job with none stored gets the neutral bar.
+      const applicantId = ptwNeeded ? m?.ptwApplicantId ?? null : null;
       const postponed = !!m?.postponed && !e.cancelled;
       const input: StyleInput = {
         cancelled: e.cancelled,
@@ -254,7 +256,7 @@ export class JobsCalendarService {
         ptwApplicantId: applicantId,
       };
       const salesName = nameOf(salespersonId, m?.salespersonId === salespersonId ? m?.salespersonName : null);
-      const applicantName = nameOf(applicantId, m?.ptwApplicantId === applicantId ? m?.ptwApplicantName : colours.defaultApplicant?.name);
+      const applicantName = nameOf(applicantId, m?.ptwApplicantName);
       return {
         ...e,
         ...(postponed ? { statusLabel: 'Postponed' } : {}),
@@ -268,7 +270,7 @@ export class JobsCalendarService {
     });
   }
 
-  /** Calendar style: each run's live (not cancelled) DOs, counted once each. */
+  /** Calendar style: each run's completed (signed) DOs, counted once each; drafts and cancelled DOs don't count. */
   private async runDoCounts(organizationId: string, runIds: string[]): Promise<Map<string, number>> {
     const out = new Map<string, number>();
     if (!runIds.length) return out;
@@ -278,9 +280,9 @@ export class JobsCalendarService {
     const docIds = [...new Set(items.map((i) => i.documentId as string))];
     if (!docIds.length) return out;
     const docs: any[] = await runAsOrg(organizationId, () =>
-      this.prisma.document.findMany({ where: { id: { in: docIds }, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, config: true } }),
+      this.prisma.document.findMany({ where: { id: { in: docIds }, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, status: true, config: true } }),
     );
-    const live = new Set(docs.filter((d) => (d.config as any)?.cancelled !== true && (d.config as any)?.voided !== true).map((d) => d.id as string));
+    const live = new Set(docs.filter((d) => isCompletedDo(d)).map((d) => d.id as string));
     const per = new Map<string, Set<string>>();
     for (const i of items) {
       if (!live.has(i.documentId)) continue;

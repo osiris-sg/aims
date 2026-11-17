@@ -6,18 +6,25 @@
  *  - Flag: features.enableCalendarStyle -> true (orgs where it is not on yet).
  *  - Salesperson fills (by login email): hh@ #039be5, amy@ #8e24aa,
  *    pc@ #e67c73, joyna@ #3f51b5.
- *  - PTW applicant bars (by name): Bala #d50000 (red, the default applicant),
- *    Joyna #f6bf26 (yellow), Kherry #0b8043 (green).
+ *  - PTW applicant bars: Bala = submission@wct.com.sg #d50000 (red, the
+ *    default applicant), Joyna = joyna@wct.com.sg #f6bf26 (yellow), Kherry
+ *    (by name, reported if not found or ambiguous) #0b8043 (green).
  * Colours go to UserOrganization.settings.calendar of each org the person is
  * an active member of. Fill only: a colour already set is kept and reported;
  * the default applicant is set only where the org has none.
  *
- * People: user ids come from the Activity Log (actorEmail / actorName of the
- * person's own past actions) and, when CLERK_LOOKUP_KEY is set (the Clerk
- * secret of that environment; dev uses CLERK_SECRET_KEY), from Clerk by email
- * or name. A name matching two people is reported as ambiguous and skipped;
- * nobody is guessed. Anyone not found is listed: set them in Settings > Job
- * fields > Calendar colours.
+ * People: AIMS keeps no user table on prod (names and emails live in Clerk),
+ * so the members of the group orgs are matched against what AIMS itself
+ * recorded about them (round 6 fix, 2026-11-18; the first version looked only
+ * at the person's OWN actions, so anyone who had never used AIMS was missed):
+ *  - Activity Log rows the person made (actorEmail / actorName);
+ *  - Activity Log rows of an admin saving that user in User management
+ *    (successful PATCH /users/<userId>: the body's email, first and last name);
+ *  - the legacy AuditLog (userEmail / userName);
+ *  - Clerk, only when CLERK_LOOKUP_KEY is set (dev uses CLERK_SECRET_KEY).
+ * Only active members of the group orgs count. A name matching two people is
+ * reported as ambiguous and skipped; nobody is guessed. Anyone not found is
+ * listed: set them in Settings > Job fields > Calendar colours.
  *
  * No other org is read or written. Dry run by default; --apply writes, one
  * "System creation" Activity Log row per org changed + a local log file.
@@ -36,8 +43,12 @@ const EXCLUDE = new Set((process.argv.includes('--exclude') ? process.argv[proce
 const ORGS = ALL_ORGS.filter((id) => !EXCLUDE.has(id));
 const FLAG = 'enableCalendarStyle';
 const FILLS: Record<string, string> = { 'hh@wct.com.sg': '#039be5', 'amy@wct.com.sg': '#8e24aa', 'pc@wct.com.sg': '#e67c73', 'joyna@wct.com.sg': '#3f51b5' };
-const BARS: Record<string, string> = { Bala: '#d50000', Joyna: '#f6bf26', Kherry: '#0b8043' };
-const DEFAULT_APPLICANT = 'Bala';
+// PTW applicants: by login email where Elroy gave one (2026-11-18), else by name (reported, never guessed).
+const BARS: Array<{ label: string; email?: string; name?: string; bar: string; ptwDefault?: boolean }> = [
+  { label: 'Bala', email: 'submission@wct.com.sg', bar: '#d50000', ptwDefault: true },
+  { label: 'Joyna', email: 'joyna@wct.com.sg', bar: '#f6bf26' },
+  { label: 'Kherry', name: 'Kherry', bar: '#0b8043' },
+];
 const env = process.argv.includes('--env') ? process.argv[process.argv.indexOf('--env') + 1] : 'dev';
 const apply = process.argv.includes('--apply');
 
@@ -63,14 +74,33 @@ const nameOfClerk = (u: any): string => `${u.first_name || ''} ${u.last_name || 
   const c = new Client({ connectionString: url });
   await c.connect();
   const q = async (sql: string, p: any[] = []) => (await c.query(sql, p)).rows;
-  console.log(`${env.toUpperCase()} ${apply ? '*** APPLY ***' : 'DRY RUN'}: calendar style for the WCT group (Clerk lookup ${clerkKey ? 'on' : 'off: Activity Log only'})`);
+  console.log(`${env.toUpperCase()} ${apply ? '*** APPLY ***' : 'DRY RUN'}: calendar style for the WCT group (Clerk lookup ${clerkKey ? 'on' : 'off: AIMS records only'})`);
 
   const memberIds = new Set<string>((await q(`select distinct "userId" from ${P}."UserOrganization" where "organizationId"::text = any($1) and "isActive"`, [ORGS])).map((r) => r.userId));
 
+  // What AIMS recorded about each member: userId -> emails + names.
+  const dir = new Map<string, { emails: Set<string>; names: Set<string> }>();
+  const note = (id: string | null | undefined, email: unknown, name: unknown) => {
+    if (!id || !memberIds.has(id)) return;
+    const d = dir.get(id) ?? { emails: new Set<string>(), names: new Set<string>() };
+    if (typeof email === 'string' && email.includes('@')) d.emails.add(email.trim().toLowerCase());
+    if (typeof name === 'string' && name.trim() && !name.includes('@')) d.names.add(name.replace(/\s+/g, ' ').trim());
+    dir.set(id, d);
+  };
+  for (const r of await q(`select "actorId", "actorEmail", "actorName" from ${P}."ActionLog" where "actorType" = 'USER' group by 1, 2, 3`)) note(r.actorId, r.actorEmail, r.actorName);
+  for (const r of await q(
+    `select substring(path from '^/users/([A-Za-z0-9_]+)$') id, details #>> '{body,email}' email,
+            trim(coalesce(details #>> '{body,firstName}', '') || ' ' || coalesce(details #>> '{body,lastName}', '')) nm
+       from ${P}."ActionLog" where method = 'PATCH' and path ~ '^/users/user_[A-Za-z0-9]+$' and "statusCode" = 200`,
+  ))
+    note(r.id, r.email, r.nm);
+  for (const r of await q(`select "userId", "userEmail", "userName" from ${P}."AuditLog" group by 1, 2, 3`).catch(() => [] as any[])) note(r.userId, r.userEmail, r.userName);
+  const nameOf = (id: string) => [...(dir.get(id)?.names ?? [])].sort((a, b) => b.length - a.length)[0] ?? null;
+
   const byEmail = async (email: string): Promise<Found> => {
-    const rows = await q(`select distinct "actorId", "actorName" from ${P}."ActionLog" where "actorType" = 'USER' and lower("actorEmail") = lower($1)`, [email]);
-    const ids = [...new Set(rows.map((r) => r.actorId as string))].filter((id) => memberIds.has(id));
-    if (ids.length === 1) return { id: ids[0], name: rows.find((r) => r.actorId === ids[0])?.actorName ?? null, via: 'Activity Log email' };
+    const e = email.toLowerCase();
+    const ids = [...dir].filter(([, d]) => d.emails.has(e)).map(([id]) => id);
+    if (ids.length === 1) return { id: ids[0], name: nameOf(ids[0]), via: 'AIMS records' };
     if (ids.length > 1) return { ambiguous: ids };
     const cu = await clerkUsers(clerkKey, { email_address: email });
     const hits = (cu ?? []).filter((u) => memberIds.has(dbIdOf(u)));
@@ -78,16 +108,14 @@ const nameOfClerk = (u: any): string => `${u.first_name || ''} ${u.last_name || 
     if (hits.length > 1) return { ambiguous: hits.map(dbIdOf) };
     return null;
   };
+  /** A name: a recorded full name equal to it, or whose first word is it (any case). */
   const byName = async (name: string): Promise<Found> => {
-    const rows = await q(
-      `select distinct "actorId", "actorName" from ${P}."ActionLog" where "actorType" = 'USER' and ("actorName" ilike $1 or "actorName" ilike $2)`,
-      [`${name}`, `${name} %`],
-    );
-    const fromLog = [...new Set(rows.map((r) => r.actorId as string))].filter((id) => memberIds.has(id));
+    const n = name.toLowerCase();
+    const fromAims = [...dir].filter(([, d]) => [...d.names].some((x) => x.toLowerCase() === n || x.toLowerCase().split(' ')[0] === n)).map(([id]) => id);
     const cu = await clerkUsers(clerkKey, { query: name });
-    const fromClerk = (cu ?? []).filter((u) => memberIds.has(dbIdOf(u)) && String(u.first_name || '').trim().toLowerCase() === name.toLowerCase()).map(dbIdOf);
-    const ids = [...new Set([...fromLog, ...fromClerk])];
-    if (ids.length === 1) return { id: ids[0], name: rows.find((r) => r.actorId === ids[0])?.actorName ?? name, via: fromLog.length ? 'Activity Log name' : 'Clerk name' };
+    const fromClerk = (cu ?? []).filter((u) => memberIds.has(dbIdOf(u)) && String(u.first_name || '').trim().toLowerCase() === n).map(dbIdOf);
+    const ids = [...new Set([...fromAims, ...fromClerk])];
+    if (ids.length === 1) return { id: ids[0], name: nameOf(ids[0]) ?? name, via: fromAims.length ? 'AIMS records' : 'Clerk name' };
     if (ids.length > 1) return { ambiguous: ids };
     return null;
   };
@@ -101,13 +129,14 @@ const nameOfClerk = (u: any): string => `${u.first_name || ''} ${u.last_name || 
     else if ('ambiguous' in f) missing.push(`${email}: ambiguous (${f.ambiguous.join(', ')})`);
     else plan.set(f.id, { ...(plan.get(f.id) ?? { label: `${email} (${f.name ?? '?'}, via ${f.via})` }), fill });
   }
-  for (const [name, bar] of Object.entries(BARS)) {
-    const f = await byName(name);
-    if (!f) missing.push(`${name} (PTW bar ${bar}${name === DEFAULT_APPLICANT ? ', default applicant' : ''}): not found`);
-    else if ('ambiguous' in f) missing.push(`${name}: ambiguous, ${f.ambiguous.length} people (${f.ambiguous.join(', ')}), skipped`);
+  for (const b of BARS) {
+    const who = b.email ? `${b.label} = ${b.email}` : `${b.label} (by name)`;
+    const f = b.email ? await byEmail(b.email) : await byName(b.name!);
+    if (!f) missing.push(`${who} (PTW bar ${b.bar}${b.ptwDefault ? ', default applicant' : ''}): not found${b.email ? '' : ' among the group members in any AIMS record'}`);
+    else if ('ambiguous' in f) missing.push(`${who}: ambiguous, ${f.ambiguous.length} people (${f.ambiguous.join(', ')}), skipped`);
     else {
-      const cur = plan.get(f.id) ?? { label: `${name} (${f.name ?? '?'}, via ${f.via})` };
-      plan.set(f.id, { ...cur, bar, ...(name === DEFAULT_APPLICANT ? { ptwDefault: true } : {}) });
+      const cur = plan.get(f.id) ?? { label: `${b.email ?? b.label} (${f.name ?? '?'}, via ${f.via})` };
+      plan.set(f.id, { ...cur, bar: b.bar, ...(b.ptwDefault ? { ptwDefault: true } : {}) });
     }
   }
 

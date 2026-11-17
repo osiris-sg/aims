@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { runAsOrg } from '../common/tenancy/tenant-context';
 import { JOB_ENTITY } from './job-fields';
+import { coloursOf } from '../dashboard/calendar-style';
 
 /**
  * Calendar style job fields (WCT group, 2026-11-18, flag enableCalendarStyle):
@@ -146,4 +147,31 @@ export async function saveJobStyle(prisma: any, organizationId: string, delivery
     });
     return next;
   });
+}
+
+/** The org's default PTW applicant (the member marked in Settings > Job fields > Calendar colours), or null. */
+export async function defaultPtwApplicant(prisma: any, organizationId: string): Promise<string | null> {
+  const rows: any[] = await prisma.userOrganization.findMany({ where: { organizationId, isActive: true }, select: { userId: true, settings: true } });
+  return coloursOf(rows).defaultApplicant?.id ?? null;
+}
+
+const ptwNeeded = (s: string | null | undefined) => !!s && s !== 'NOT_NEEDED';
+
+/**
+ * The PTW applicant is STORED on the job when it is saved (2026-11-18), so a
+ * later change of the default applicant never recolours old jobs. A job that
+ * needs a PTW and has no applicant (none sent, none stored) gets the org's
+ * default at save time. Returns the patch to store (unchanged when nothing to add).
+ */
+export function withStampedApplicant(
+  patch: Partial<JobStyleMeta>,
+  ptwStatus: string | null | undefined,
+  stored: JobStyleMeta | null | undefined,
+  defaultId: string | null,
+): Partial<JobStyleMeta> {
+  if (!ptwNeeded(ptwStatus) || !defaultId) return patch;
+  const sent = 'ptwApplicantId' in patch;
+  const id = sent ? patch.ptwApplicantId : stored?.ptwApplicantId ?? null;
+  if (id) return patch;
+  return { ...patch, ptwApplicantId: defaultId, ptwApplicantName: null };
 }

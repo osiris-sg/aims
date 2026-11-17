@@ -35,7 +35,7 @@ test("cancelled and postponed stay on the calendar, greyed (Show cancelled no lo
 });
 
 test("chip: line 1 icons + prefixed title, line 2 the time range", () => {
-  const e = ev({ style: style({ prefix: "(SV)", icons: [{ icon: "✋", label: "PTW pending" }, { icon: "2✅", label: "2 DOs generated" }, { icon: "🟫", label: "COD" }] }) });
+  const e = ev({ style: style({ prefix: "(SV)", icons: [{ icon: "✋", label: "PTW pending" }, { icon: "2✅", label: "2 DOs completed" }, { icon: "🟫", label: "COD" }] }) });
   assert.equal(styledTitle(e), "(SV) #12 Acme");
   assert.equal(chipIcons(e), "✋ 2✅ 🟫");
   assert.equal(chipTimeRange(e), "10:00 am – 11:30 am");

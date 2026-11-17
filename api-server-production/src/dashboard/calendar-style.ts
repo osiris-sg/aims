@@ -33,6 +33,13 @@ export const SEED_FILLS: Record<string, string> = {
 export const SEED_BARS: Record<string, string> = { Bala: '#d50000', Joyna: '#f6bf26', Kherry: '#0b8043' };
 export const SEED_DEFAULT_APPLICANT = 'Bala';
 
+/** ✅ counts a DO only once it is completed / signed (the DO's "Completed" tag); drafts, cancelled and voided DOs don't. */
+export function isCompletedDo(d: { status?: string | null; config?: unknown }): boolean {
+  const c: any = d.config || {};
+  if (c.cancelled === true || c.voided === true) return false;
+  return d.status === 'delivered_installed';
+}
+
 export const ICON = {
   ptwPending: '✋',
   ptwApproved: '👍',
@@ -49,7 +56,7 @@ export const CALENDAR_STYLE_LEGEND: Array<{ icon: string; label: string }> = [
   { icon: ICON.ptwPending, label: 'PTW pending' },
   { icon: ICON.ptwApproved, label: 'PTW approved' },
   { icon: ICON.ptwRejected, label: 'PTW rejected' },
-  { icon: ICON.doDone, label: 'DO generated' },
+  { icon: ICON.doDone, label: 'DO completed' },
   { icon: ICON.cancelled, label: 'Cancelled' },
   { icon: ICON.postponed, label: 'Postponed' },
   { icon: ICON.leave, label: 'Leave' },
@@ -145,7 +152,7 @@ export interface StyleInput {
   postponed: boolean;
   /** PTW status (null / NOT_NEEDED = no PTW). */
   ptwStatus: string | null;
-  /** Live (not cancelled) DOs of the job. */
+  /** Completed (signed) DOs of the job. */
   doCount: number;
   cod: boolean;
   category: string | null;
@@ -180,7 +187,8 @@ export const doIcon = (n: number): string | null => (n > 0 ? (n > 1 ? `${n}${ICO
 
 export function styleOf(i: StyleInput, colours: CalendarColours): EventStyle {
   const fill = (i.salespersonId && colours.fill[i.salespersonId]) || NEUTRAL_FILL;
-  const applicant = i.ptwApplicantId ?? colours.defaultApplicant?.id ?? null;
+  // The applicant stored on the job only: the default applicant is stamped when a job is saved, never at render.
+  const applicant = i.ptwApplicantId;
   const bar = ptwNeeded(i.ptwStatus) ? (applicant && colours.bar[applicant]) || NEUTRAL_BAR : null;
   const icons: EventStyle['icons'] = [];
   if (i.cancelled) icons.push({ icon: ICON.cancelled, label: 'Cancelled' });
@@ -188,7 +196,7 @@ export function styleOf(i: StyleInput, colours: CalendarColours): EventStyle {
   const p = ptwIcon(i.ptwStatus);
   if (p) icons.push(p);
   const d = doIcon(i.doCount);
-  if (d) icons.push({ icon: d, label: i.doCount > 1 ? `${i.doCount} DOs generated` : 'DO generated' });
+  if (d) icons.push({ icon: d, label: i.doCount > 1 ? `${i.doCount} DOs completed` : 'DO completed' });
   if (i.cod) icons.push({ icon: ICON.cod, label: 'COD' });
   return { fill, text: textOn(fill), bar, icons, greyed: i.cancelled || i.postponed, prefix: categoryPrefix(i.category) };
 }

@@ -59,15 +59,15 @@ const st = (fill: string, bar: string | null, icons: Array<{ icon: string; label
   fill, text: "#ffffff", bar, icons, greyed: false, prefix: null, ...over,
 });
 const STYLE_EVENTS: CalendarEvent[] = [
-  aims("y1", "service", 41, "Domino's Pizza (Tampines)", 4, 10, 90, { orderNumber: "ORD202611-003", title: "ORD202611-003 · #41 Domino's Pizza (Tampines)", salesperson: { id: "u1", name: "Nat HH" }, ptwApplicant: { id: "b", name: "Bala" }, style: st("#039be5", "#d50000", [icon("✋", "PTW pending"), icon("✅", "DO generated")]) }),
-  aims("y2", "service", 42, "Yoshinoya (S)", 4, 14, 60, { salesperson: { id: "u2", name: "Amy Yap" }, ptwApplicant: { id: "j", name: "Joyna" }, cod: true, style: st("#8e24aa", "#f6bf26", [icon("👍", "PTW approved"), icon("2✅", "2 DOs generated"), icon("🟫", "COD")]) }),
+  aims("y1", "service", 41, "Domino's Pizza (Tampines)", 4, 10, 90, { orderNumber: "ORD202611-003", title: "ORD202611-003 · #41 Domino's Pizza (Tampines)", salesperson: { id: "u1", name: "Nat HH" }, ptwApplicant: { id: "b", name: "Bala" }, style: st("#039be5", "#d50000", [icon("✋", "PTW pending"), icon("✅", "DO completed")]) }),
+  aims("y2", "service", 42, "Yoshinoya (S)", 4, 14, 60, { salesperson: { id: "u2", name: "Amy Yap" }, ptwApplicant: { id: "j", name: "Joyna" }, cod: true, style: st("#8e24aa", "#f6bf26", [icon("👍", "PTW approved"), icon("2✅", "2 DOs completed"), icon("🟫", "COD")]) }),
   aims("y3", "delivery", 43, "Kulnari Adventure Golf", 5, 9, 60, { category: "Site visit", style: st("#b0bec5", null, [], { text: "#212121", prefix: "(SV)" }) }),
   aims("y4", "service", 44, "Jewel Changi", 5, 15, 60, { ptwApplicant: { id: "k", name: "Kherry" }, style: st("#e67c73", "#0b8043", [icon("👎", "PTW rejected")]) }),
   aims("y5", "delivery", 45, "Raffles City", 6, 11, 60, { status: "cancelled", statusLabel: "Cancelled", cancelled: true, style: st("#3f51b5", null, [icon("❌", "Cancelled")], { greyed: true }) }),
   aims("y6", "service", 46, "Tampines Hub", 6, 14, 60, { statusLabel: "Postponed", postponed: true, category: "Meeting", style: st("#039be5", null, [icon("⭕", "Postponed")], { greyed: true, prefix: "(M)" }) }),
   aims("y7", "service", 47, "BC Air: Paya Lebar", 10, 10, 60, { orgId: "c", orgName: "BC Air", foreign: true, category: "Collect cheque", style: st("#8e24aa", null, [], { prefix: "(CC)" }) }),
 ];
-const STYLE_LEGEND = [icon("✋", "PTW pending"), icon("👍", "PTW approved"), icon("👎", "PTW rejected"), icon("✅", "DO generated"), icon("❌", "Cancelled"), icon("⭕", "Postponed"), icon("📅", "Leave"), icon("🟫", "COD")];
+const STYLE_LEGEND = [icon("✋", "PTW pending"), icon("👍", "PTW approved"), icon("👎", "PTW rejected"), icon("✅", "DO completed"), icon("❌", "Cancelled"), icon("⭕", "Postponed"), icon("📅", "Leave"), icon("🟫", "COD")];
 
 export default function PreviewClient({ mode, view, cancelled, down, add = false, styled = false }: { mode: "light" | "dark"; view: "dayGridMonth" | "timeGridWeek" | "timeGridDay"; cancelled: boolean; down: boolean; add?: boolean; styled?: boolean }) {
   const theme = useMemo(() => createTheme({ palette: { mode } }), [mode]);
