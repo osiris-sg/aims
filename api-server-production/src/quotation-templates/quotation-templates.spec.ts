@@ -155,7 +155,9 @@ describe('QuotationTemplatesService', () => {
     expect(config.items).toHaveLength(2);
     expect(config.items[0]).toMatchObject({ description: 'Kitchen exhaust cleaning', quantity: 2, unitPrice: 350, amount: 700, isService: true });
     expect(config.items[1]).toMatchObject({ inventoryItemId: 'inv-1', amount: 182, isService: false });
-    expect(config.documentInfo).toEqual({ subject: 'Hood cleaning', category: 'Service', termsAndConditions: '50% deposit' });
+    expect(config.documentInfo).toEqual({ subject: 'Hood cleaning', quotationCategory: 'Service', termsAndConditions: '50% deposit' });
+    // The quotation's Category lives at config.quotationCategory (the editor's field and the Sales report read it there).
+    expect(config.quotationCategory).toBe('Service');
     expect(config.fromQuotationTemplate).toEqual({ id: t.id, name: 'Std' });
     // No customer is set: it is picked in the editor as normal.
     expect(config.customer).toBeUndefined();

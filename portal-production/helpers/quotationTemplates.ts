@@ -7,7 +7,7 @@ export const QUOTATION_DOC_TYPES = ["QUOTATION", "QO", "QO1", "QO2", "QT"];
 export const isQuotationDocType = (t?: string | null) => QUOTATION_DOC_TYPES.includes(String(t || "").toUpperCase());
 
 /** Where the quotation keeps its Category (a plain string, round 6). Read with a fallback to the top level. */
-export const CATEGORY_KEY = "category";
+export const CATEGORY_KEY = "quotationCategory";
 
 export type LineType = "SERVICE" | "PRODUCT";
 

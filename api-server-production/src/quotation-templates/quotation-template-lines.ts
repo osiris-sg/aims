@@ -14,7 +14,7 @@ export const QUOTATION_TYPES = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'];
  * Where a quotation keeps its Category (Agent 2, round 6: a plain string on the
  * quotation). One constant so the key is changed in one place if it differs.
  */
-export const CATEGORY_KEY = 'category';
+export const CATEGORY_KEY = 'quotationCategory';
 
 export const MAX_LINES = 200;
 export const MAX_NAME = 120;

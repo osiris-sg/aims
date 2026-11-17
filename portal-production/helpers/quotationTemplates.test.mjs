@@ -61,11 +61,11 @@ test("save as template copies the editor lines (item, description, qty, unit pri
 });
 
 test("the header fields come from documentInfo (Subject, Category, T&Cs)", () => {
-  assert.deepEqual(templateHeaderFrom({ documentInfo: { subject: " Hood ", category: "Service", termsAndConditions: "50%" } }), {
+  assert.deepEqual(templateHeaderFrom({ documentInfo: { subject: " Hood ", quotationCategory: "Service", termsAndConditions: "50%" } }), {
     subject: "Hood",
     category: "Service",
     termsAndConditions: "50%",
   });
-  assert.deepEqual(templateHeaderFrom({ category: "Top" }), { subject: "", category: "Top", termsAndConditions: "" });
+  assert.deepEqual(templateHeaderFrom({ quotationCategory: "Top" }), { subject: "", category: "Top", termsAndConditions: "" });
   assert.deepEqual(templateHeaderFrom(null), { subject: "", category: "", termsAndConditions: "" });
 });
