@@ -13,6 +13,10 @@ const GROUP = {
   '5c700000-0000-4000-8000-5c7000000003': 'YMM Kitchen',
   '5c700000-0000-4000-8000-5c7000000004': 'BC Air',
 };
+// --exclude <orgId>[,<orgId>]: leave these group orgs out (e.g. YMM).
+const EXCLUDE = new Set((process.argv.includes('--exclude') ? process.argv[process.argv.indexOf('--exclude') + 1] : '').split(',').filter(Boolean));
+for (const id of EXCLUDE) delete GROUP[id];
+
 const APPLY = process.argv.includes('--apply');
 (async () => {
   if (!process.env.PROD_DATABASE_URL) throw new Error('PROD_DATABASE_URL is not set');

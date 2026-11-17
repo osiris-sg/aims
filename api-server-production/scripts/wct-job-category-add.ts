@@ -19,7 +19,11 @@ import 'dotenv/config';
 import * as fs from 'fs';
 import { Client } from 'pg';
 
-const ORGS = ['5c700000-0000-4000-8000-5c7000000001', '5c700000-0000-4000-8000-5c7000000002', '5c700000-0000-4000-8000-5c7000000003', '5c700000-0000-4000-8000-5c7000000004'];
+const ALL_ORGS = ['5c700000-0000-4000-8000-5c7000000001', '5c700000-0000-4000-8000-5c7000000002', '5c700000-0000-4000-8000-5c7000000003', '5c700000-0000-4000-8000-5c7000000004'];
+
+// --exclude <orgId>[,<orgId>]: leave these group orgs out (e.g. YMM).
+const EXCLUDE = new Set((process.argv.includes('--exclude') ? process.argv[process.argv.indexOf('--exclude') + 1] : '').split(',').filter(Boolean));
+const ORGS = ALL_ORGS.filter((id) => !EXCLUDE.has(id));
 const ADD = ['Meeting', 'Collect cheque'];
 const FIELD = 'job_category';
 const env = process.argv.includes('--env') ? process.argv[process.argv.indexOf('--env') + 1] : 'dev';

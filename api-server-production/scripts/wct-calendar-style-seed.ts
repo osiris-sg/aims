@@ -29,7 +29,11 @@ import 'dotenv/config';
 import * as fs from 'fs';
 import { Client } from 'pg';
 
-const ORGS = ['5c700000-0000-4000-8000-5c7000000001', '5c700000-0000-4000-8000-5c7000000002', '5c700000-0000-4000-8000-5c7000000003', '5c700000-0000-4000-8000-5c7000000004'];
+const ALL_ORGS = ['5c700000-0000-4000-8000-5c7000000001', '5c700000-0000-4000-8000-5c7000000002', '5c700000-0000-4000-8000-5c7000000003', '5c700000-0000-4000-8000-5c7000000004'];
+
+// --exclude <orgId>[,<orgId>]: leave these group orgs out (e.g. YMM).
+const EXCLUDE = new Set((process.argv.includes('--exclude') ? process.argv[process.argv.indexOf('--exclude') + 1] : '').split(',').filter(Boolean));
+const ORGS = ALL_ORGS.filter((id) => !EXCLUDE.has(id));
 const FLAG = 'enableCalendarStyle';
 const FILLS: Record<string, string> = { 'hh@wct.com.sg': '#039be5', 'amy@wct.com.sg': '#8e24aa', 'pc@wct.com.sg': '#e67c73', 'joyna@wct.com.sg': '#3f51b5' };
 const BARS: Record<string, string> = { Bala: '#d50000', Joyna: '#f6bf26', Kherry: '#0b8043' };
