@@ -35,6 +35,8 @@ interface OrganizationFeatures {
   enableWctOrderInvoice?: boolean;
   enableWctVehicles?: boolean;
   enableManualOrderFlow?: boolean;
+  /** Old-ERP imported orders listed + opened read-only (2026-11-18). Default off. */
+  enableImportedOrders?: boolean;
   /** Split payment on a draft invoice (2026-11-17; WCT (S), Racking, BC Air). Needs postInvoicesOnConfirm. */
   enableInvoiceSplit?: boolean;
   /** In-app Back + toolbar Send menu (2026-11-17; WCT group). */
@@ -291,6 +293,7 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Manual (dashboard-only) order flow (2026-11-12, needs enableWctOrders): draft DO + service report on
   // acceptance, the office completes jobs and sends the service report. Default OFF; WCT group.
   enableManualOrderFlow: false,
+  enableImportedOrders: false,
   enableInvoiceSplit: false,
   // WCT doc navigation (2026-11-17): Back buttons go to the previous page in the app (else the
   // parent list), and one "Send" menu on quotation / invoice / DO / service report. Default OFF; WCT group.

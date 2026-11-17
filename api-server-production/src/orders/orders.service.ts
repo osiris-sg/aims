@@ -20,6 +20,13 @@ import { photosFileOf } from '../maintenance-reports/uploaded-report';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { taggedSinsView } from '../bills/bill-quotation';
 import { bySchedule, dueBy } from '../deliveries/all-day';
+import { IMPORTED_ORDER_READ_ONLY, IMPORTED_STATUS_LABEL, assertNotImportedOrder, importedMarkerOf, importedOrderStatus, importedTracker, isImportedOrder, isImportedOrdersEnabled } from './imported-orders';
+import { isErpImported } from '../common/erp-import';
+import { grossOf, owedOf } from '../common/document-money';
+
+/** Imported orders are numbered ORD-<quotation no.> (imported-orders.ts); no native number starts so. */
+const IMPORTED_NUMBER_PREFIX = 'ORD-Q-';
+const NOT_IMPORTED_NUMBER = { NOT: { orderNumber: { startsWith: IMPORTED_NUMBER_PREFIX } } };
 
 /**
  * Orders are auto-created when a quotation is confirmed (gated by the
@@ -60,6 +67,10 @@ export class OrdersService {
     });
     if (!quotation) {
       throw new HttpException('Source quotation not found', HttpStatus.NOT_FOUND);
+    }
+    // Imported orders on: an old-ERP quotation is history; its order (if any) comes from its ERP-linked invoices only.
+    if (isErpImported(quotation.config) && (await isImportedOrdersEnabled(this.prisma, organizationId))) {
+      throw new HttpException(IMPORTED_ORDER_READ_ONLY, HttpStatus.BAD_REQUEST);
     }
 
     const config: any = quotation.config || {};
@@ -264,7 +275,7 @@ export class OrdersService {
   async list(organizationId: string) {
     if (await isWctOrdersEnabled(this.prisma, organizationId)) return this.listWct(organizationId);
     const orders = await this.prisma.order.findMany({
-      where: { organizationId },
+      where: { organizationId, ...NOT_IMPORTED_NUMBER },
       orderBy: { createdAt: 'desc' },
       include: {
         customer: { select: { id: true, name: true, customerCode: true } },
@@ -289,6 +300,8 @@ export class OrdersService {
   }
 
   async getById(id: string, organizationId: string) {
+    const imported = await this.importedOrderView(id, organizationId);
+    if (imported) return imported;
     if (await isWctOrdersEnabled(this.prisma, organizationId)) return this.getWctById(id, organizationId);
     const order = await this.prisma.order.findFirst({
       where: { id, organizationId },
@@ -305,6 +318,7 @@ export class OrdersService {
   }
 
   async updateStatus(id: string, organizationId: string, status: string) {
+    await assertNotImportedOrder(this.prisma, organizationId, id);
     return this.prisma.order.update({
       where: { id, organizationId },
       data: { status },
@@ -317,6 +331,7 @@ export class OrdersService {
    * quotation discount across lines while keeping the total discount fixed).
    */
   async updateItems(id: string, organizationId: string, items: any[]) {
+    await assertNotImportedOrder(this.prisma, organizationId, id);
     const order = await this.prisma.order.findFirst({
       where: { id, organizationId },
       select: { id: true },
@@ -340,6 +355,7 @@ export class OrdersService {
     docKind: 'po' | 'do' | 'invoice' | 'salesOrder',
     docRef: { id: string; name: string; templateId?: string; itemIds?: number[] },
   ) {
+    await assertNotImportedOrder(this.prisma, organizationId, orderId);
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, organizationId },
       select: { linkedDocuments: true },
@@ -356,6 +372,7 @@ export class OrdersService {
   }
 
   async delete(id: string, organizationId: string) {
+    await assertNotImportedOrder(this.prisma, organizationId, id);
     // WCT orders: an order with jobs is never deleted from under them (the
     // jobs would lose their order silently). No other org's order has jobs.
     const jobs = await this.prisma.delivery.count({ where: { organizationId, orderId: id } });
@@ -379,7 +396,7 @@ export class OrdersService {
 
   private async listWct(organizationId: string) {
     const rows = await this.prisma.order.findMany({
-      where: { organizationId },
+      where: { organizationId, ...NOT_IMPORTED_NUMBER },
       orderBy: { createdAt: 'desc' },
       include: {
         customer: { select: { id: true, name: true, customerCode: true } },
@@ -394,7 +411,8 @@ export class OrdersService {
     await this.syncWctStatuses(organizationId, orders);
     const hub = await this.wctListHub(organizationId, orders);
     const now = Date.now();
-    return orders.map(({ jobs, ...o }) => {
+    const imported = await this.importedListRows(organizationId);
+    const native = orders.map(({ jobs, ...o }) => {
       const live = jobs.filter((j) => j.status !== 'cancelled');
       // An all-day job (2026-11-10) stays upcoming until the end of its day, and
       // sorts after the timed jobs of that day.
@@ -418,6 +436,157 @@ export class OrdersService {
         sourceQuotation: o.sourceQuotation ? { id: o.sourceQuotation.id, name: o.sourceQuotation.name, status: o.sourceQuotation.status, type: o.sourceQuotation.type, documentTemplateId: o.sourceQuotation.documentTemplateId } : null,
       };
     });
+    return imported.length ? [...native, ...imported] : native;
+  }
+
+  // ── Imported orders (enableImportedOrders, 2026-11-18; imported-orders.ts) ──
+  // Rows made by scripts/wct-imported-orders.ts from the old ERP's own quotation
+  // <-> invoice links. Read-only; listed and opened only while the setting is on.
+
+  /** The imported orders' list rows (setting on), after the native ones. Status re-read from the invoices' money where not yet Paid. */
+  private async importedListRows(organizationId: string): Promise<any[]> {
+    if (!(await isImportedOrdersEnabled(this.prisma, organizationId))) return [];
+    const rows: any[] = (
+      await this.prisma.order.findMany({
+        where: { organizationId, orderNumber: { startsWith: IMPORTED_NUMBER_PREFIX } },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          orderNumber: true,
+          status: true,
+          createdAt: true,
+          linkedDocuments: true,
+          customer: { select: { id: true, name: true, customerCode: true } },
+          sourceQuotation: { select: { id: true, name: true, status: true, type: true, documentTemplateId: true } },
+        },
+      })
+    ).filter((o: any) => isImportedOrder(o));
+    // Payments can still land on an open imported invoice: re-read those orders' invoices (Paid ones stay Paid).
+    const open = rows.filter((o) => o.status !== 'PAID');
+    const ids = [...new Set(open.flatMap((o) => this.importedInvoiceRefs(o).map((r) => r.id)))];
+    const docs = ids.length ? await this.prisma.document.findMany({ where: { organizationId, id: { in: ids } }, select: { id: true, status: true, config: true } }) : [];
+    const byId = new Map(docs.map((d: any) => [d.id, d]));
+    const partPaid = new Set<string>();
+    for (const o of open) {
+      const st = importedOrderStatus(this.importedInvoiceRefs(o).map((r) => byId.get(r.id)).filter(Boolean) as any[]);
+      if (st.partPaid) partPaid.add(o.id);
+      if (st.status !== o.status) {
+        await this.prisma.order.update({ where: { id: o.id }, data: { status: st.status } });
+        o.status = st.status;
+      }
+    }
+    return rows.map((o) => {
+      const m: any = importedMarkerOf(o);
+      return {
+        id: o.id,
+        orderNumber: o.orderNumber,
+        status: o.status,
+        statusLabel: IMPORTED_STATUS_LABEL({ status: o.status, partPaid: partPaid.has(o.id) }),
+        imported: true,
+        createdAt: o.createdAt,
+        customer: o.customer ?? null,
+        sourceQuotation: o.sourceQuotation ?? null,
+        subject: m?.subject ?? null,
+        site: m?.site ?? null,
+        deliveryOrders: [],
+        erpDoNumbers: Array.isArray(m?.erpDoNumbers) ? m.erpDoNumbers : [],
+        invoices: this.importedInvoiceRefs(o).map((r) => ({ id: r.id, name: r.name, type: 'INVOICE', status: '', templateId: r.templateId ?? null, total: Number(r.total) || 0 })),
+        amount: Number.isFinite(Number(m?.total)) ? Number(m.total) : null,
+        jobCounts: { total: 0, drafts: 0, completed: 0, awaitingVerification: 0, cancelled: 0 },
+        nextJobAt: null,
+        nextJobAllDay: false,
+        actionJobs: { draft: null, scheduled: null, completed: null },
+        actionDos: { draft: null, open: null, awaiting: null, completed: null },
+        serviceReportReady: false,
+      };
+    });
+  }
+
+  private importedInvoiceRefs(order: { linkedDocuments?: unknown }): Array<{ id: string; name: string | null; templateId?: string | null; total?: number }> {
+    const list = (order.linkedDocuments as any)?.invoice;
+    return Array.isArray(list) ? list.filter((x: any) => x && typeof x.id === 'string') : [];
+  }
+
+  /**
+   * The order page for an imported order, or null when the order is not imported.
+   * Setting off: the order is not shown (404), as if it were not there.
+   */
+  private async importedOrderView(id: string, organizationId: string): Promise<any | null> {
+    let row: any = null;
+    try {
+      row = await this.prisma.order.findFirst({
+        where: { id, organizationId, orderNumber: { startsWith: IMPORTED_NUMBER_PREFIX } },
+        select: {
+          id: true,
+          orderNumber: true,
+          status: true,
+          createdAt: true,
+          linkedDocuments: true,
+          customer: { select: { id: true, name: true, customerCode: true, address: true, email: true } },
+          sourceQuotation: { select: { id: true, name: true, status: true, type: true, documentTemplateId: true, config: true } },
+        },
+      });
+    } catch {
+      return null;
+    }
+    if (!row || !isImportedOrder(row)) return null;
+    if (!(await isImportedOrdersEnabled(this.prisma, organizationId))) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
+    const m: any = importedMarkerOf(row);
+    const refs = this.importedInvoiceRefs(row);
+    const cnRefs: any[] = Array.isArray((row.linkedDocuments as any)?.creditNote) ? (row.linkedDocuments as any).creditNote : [];
+    const docs = refs.length || cnRefs.length
+      ? await this.prisma.document.findMany({
+          where: { organizationId, id: { in: [...refs.map((r) => r.id), ...cnRefs.map((r: any) => r.id)] } },
+          select: { id: true, name: true, type: true, status: true, documentTemplateId: true, config: true },
+        })
+      : [];
+    const byId = new Map(docs.map((d: any) => [d.id, d]));
+    const invDocs = refs.map((r) => byId.get(r.id)).filter(Boolean) as any[];
+    const st = importedOrderStatus(invDocs);
+    if (st.status !== row.status) {
+      await this.prisma.order.update({ where: { id: row.id }, data: { status: st.status } });
+      row.status = st.status;
+    }
+    const qc: any = row.sourceQuotation?.config || {};
+    return {
+      id: row.id,
+      orderNumber: row.orderNumber,
+      status: st.status,
+      statusLabel: IMPORTED_STATUS_LABEL(st),
+      imported: true,
+      readOnly: true,
+      createdAt: row.createdAt,
+      customer: row.customer ?? null,
+      customerMismatch: Array.isArray(m?.customerMismatch) ? m.customerMismatch : [],
+      sourceQuotation: row.sourceQuotation
+        ? { id: row.sourceQuotation.id, name: row.sourceQuotation.name, status: row.sourceQuotation.status, type: row.sourceQuotation.type, documentTemplateId: row.sourceQuotation.documentTemplateId, date: qc.date ?? null, total: grossOf(qc) }
+        : null,
+      subject: m?.subject ?? (qc.subject || null),
+      site: m?.site ?? null,
+      erpDoNumbers: Array.isArray(m?.erpDoNumbers) ? m.erpDoNumbers : [],
+      tracker: importedTracker({ erpDoNumbers: m?.erpDoNumbers }, st),
+      invoices: invDocs.map((d: any) => ({
+        id: d.id,
+        name: d.name,
+        type: d.type,
+        status: d.status,
+        templateId: d.documentTemplateId,
+        date: d.config?.date ?? null,
+        total: grossOf(d.config),
+        owed: owedOf(d.config),
+        linkSource: m?.linkSources?.[d.id] ?? null,
+        erpDoNumber: d.config?.erpImport?.ourDoNo ?? d.config?.erpImport?.doNo ?? null,
+      })),
+      creditNotes: cnRefs.map((r: any) => byId.get(r.id)).filter(Boolean).map((d: any) => ({ id: d.id, name: d.name, type: d.type, status: d.status, templateId: d.documentTemplateId, total: grossOf(d.config) })),
+      total: st.total,
+      owed: st.owed,
+      // Nothing to do on an imported order: no DO, job, invoice, service report, cancel or edit.
+      jobs: [],
+      deliveryOrders: [],
+      jobReports: [],
+      attachments: [],
+      manualFlow: false,
+    };
   }
 
   /**
@@ -695,6 +864,7 @@ export class OrdersService {
   // order" (a paid order then reads Closed).
 
   private async wctOrderOrThrow(id: string, organizationId: string) {
+    await assertNotImportedOrder(this.prisma, organizationId, id);
     if (!(await isWctOrdersEnabled(this.prisma, organizationId))) throw new HttpException('Orders with jobs are not enabled for this organisation', HttpStatus.BAD_REQUEST);
     const order = await this.prisma.order.findFirst({ where: { id, organizationId }, select: { id: true, orderNumber: true, attachments: true } });
     if (!order) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
@@ -710,6 +880,7 @@ export class OrdersService {
    * keeps that status. Counters are never touched.
    */
   async cancelWctOrder(id: string, organizationId: string) {
+    await assertNotImportedOrder(this.prisma, organizationId, id);
     await this.wctOrderOrThrow(id, organizationId);
     const order = await this.prisma.order.findFirst({ where: { id, organizationId }, select: { id: true, orderNumber: true, status: true, statusDates: true, linkedDocuments: true, invoiceDocumentId: true } });
     if (!order) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);

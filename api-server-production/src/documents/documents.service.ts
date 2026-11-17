@@ -1,3 +1,4 @@
+import { IMPORTED_ORDER_READ_ONLY, isImportedOrder, isImportedOrdersEnabled } from '../orders/imported-orders';
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, forwardRef } from '@nestjs/common';
 import { tierOfRoleNames } from '../common/role-tier';
 import { DeliveriesService } from '../deliveries/deliveries.service';
@@ -799,10 +800,12 @@ export class DocumentsService {
     const orders = await this.prisma.order.findMany({
       where: { organizationId, sourceQuotationId: { in: ids } },
       orderBy: { createdAt: 'asc' },
-      select: { id: true, orderNumber: true, sourceQuotationId: true },
+      select: { id: true, orderNumber: true, sourceQuotationId: true, linkedDocuments: true },
     });
+    // Imported orders (imported-orders.ts) show on their quotation only while the setting is on.
+    const showImported = orders.some((o) => isImportedOrder(o)) && (await isImportedOrdersEnabled(this.prisma, organizationId));
     const out = new Map<string, { id: string; orderNumber: string }>();
-    for (const o of orders) if (o.sourceQuotationId && !out.has(o.sourceQuotationId)) out.set(o.sourceQuotationId, { id: o.id, orderNumber: o.orderNumber });
+    for (const o of orders.filter((x) => showImported || !isImportedOrder(x))) if (o.sourceQuotationId && !out.has(o.sourceQuotationId)) out.set(o.sourceQuotationId, { id: o.id, orderNumber: o.orderNumber });
     return out;
   }
 
@@ -6591,6 +6594,7 @@ export class DocumentsService {
       select: { id: true, orderNumber: true, sourceQuotationId: true, linkedDocuments: true },
     });
     if (!order) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
+    if (isImportedOrder(order)) throw new HttpException(IMPORTED_ORDER_READ_ONLY, HttpStatus.BAD_REQUEST);
     const jobs = await this.prisma.delivery.findMany({
       where: { organizationId, orderId },
       select: { id: true, deliveryNumber: true, status: true, verificationState: true, orderInvoiceId: true, projectId: true },
@@ -6847,6 +6851,7 @@ export class DocumentsService {
         select: { id: true, orderNumber: true, status: true, sourceQuotationId: true, linkedDocuments: true, invoiceDocumentId: true },
       });
       if (!order) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
+      if (isImportedOrder(order)) throw new HttpException(IMPORTED_ORDER_READ_ONLY, HttpStatus.BAD_REQUEST);
       if (order.status === 'CANCELLED') throw new HttpException('This order is cancelled', HttpStatus.BAD_REQUEST);
       const existingIds = orderInvoiceIdsOf(order);
       const existing = existingIds.length ? await tx.document.findFirst({ where: { organizationId, id: { in: existingIds }, type: 'INVOICE' }, select: { name: true } }) : null;
@@ -7948,7 +7953,7 @@ export class DocumentsService {
       if (!(await isManualOrderFlow(this.prisma, organizationId))) return null;
       if (!(await isOrgFeatureEnabled(this.prisma as any, organizationId, WCT_ORDER_INVOICE_FLAG))) return null;
       const order = await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, linkedDocuments: true, invoiceDocumentId: true } });
-      if (!order || order.status === 'CANCELLED' || (await this.liveOrderInvoice(organizationId, order))) return null;
+      if (!order || order.status === 'CANCELLED' || isImportedOrder(order) || (await this.liveOrderInvoice(organizationId, order))) return null;
       // The e-sign path is a public route: pin the org for the tenancy layer.
       const invoice: any = await runAsOrg(organizationId, () => this.invoiceOrderFromQuotation(orderId, organizationId));
       return invoice ? { id: invoice.id, name: invoice.name ?? null } : null;

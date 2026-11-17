@@ -11,6 +11,7 @@ import { toast } from "react-toastify";
 import MainCard from "@/components/MainCard";
 import DoStatusTag from "@/components/DoStatusTag";
 import StatusPill from "../_components/StatusPill";
+import ImportedOrderDetail from "./ImportedOrderDetail";
 import {
   Alert,
   Box,
@@ -260,6 +261,8 @@ export default function WctOrderDetail({ id }: { id: string }) {
     );
   }
 
+  // Imported from the old ERP (enableImportedOrders): read-only, no DO / job / service report.
+  if ((order as any).imported === true) return <ImportedOrderDetail order={order as any} onBack={() => goBack("/portal/orders")} />;
   const q = order.sourceQuotation;
   // Service reports: the order's job reports, and the linked / uploaded ones not already among them.
   const jobReports: Array<{ id: string; reportNumber: number | null; status: string; jobNumber: number | null; uploaded: boolean; sentAt: string | null }> = (order as any).jobReports ?? [];

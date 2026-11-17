@@ -1,3 +1,4 @@
+import { isImportedOrder } from '../orders/imported-orders';
 import { ConflictException } from '@nestjs/common';
 import { isOrgFeatureEnabled } from 'src/common/org-features';
 import { runAsOrg } from 'src/common/tenancy/tenant-context';
@@ -261,9 +262,11 @@ async function createOrderWithFirstJob(
       const out = await runAsOrg(organizationId, () =>
         prisma.$transaction(async (tx: any) => {
           await lockQuotation(tx, doc.id);
-          let order = await tx.order.findFirst({ where: { organizationId, sourceQuotationId: doc.id }, select: { id: true, orderNumber: true } });
+          let order = await tx.order.findFirst({ where: { organizationId, sourceQuotationId: doc.id }, select: { id: true, orderNumber: true, linkedDocuments: true } });
           // DO-first (manual flow): one order per quotation and no job; an existing order is left as it is.
           if (order && !opts.withJob) return null;
+          // An imported order (old ERP history, imported-orders.ts) never gets a job.
+          if (order && isImportedOrder(order)) return null;
           if (order && (await tx.delivery.count({ where: { organizationId, orderId: order.id } })) > 0) return null;
           if (!order) {
             const orderNumber = await issueOrderNumberInTx(prisma, tx, organizationId, format.id);

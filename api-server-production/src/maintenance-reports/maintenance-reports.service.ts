@@ -1,3 +1,4 @@
+import { assertNotImportedOrder } from '../orders/imported-orders';
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Prisma, MaintenanceReportKind, DeliveryStatus, DeliveryRunStatus, DeliveryDirection, InventoryStatus, ItemType } from '@prisma/client';
 import { PrismaService } from 'src/common/prisma.service';
@@ -750,6 +751,7 @@ export class MaintenanceReportsService {
       if (!(await isWctOrdersEnabled(this.prisma, organizationId))) throw new BadRequestException('Orders with jobs are not enabled for this organisation');
       const order = await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true } });
       if (!order) throw new NotFoundException('Order not found');
+      await assertNotImportedOrder(this.prisma, organizationId, orderId);
     }
     const location = typeof body?.location === 'string' ? body.location.trim().slice(0, 300) : '';
     const serviceDate = cleanIsoDate(body?.serviceDate) ?? (await orgTodayFor(this.prisma, organizationId));
@@ -1107,6 +1109,7 @@ export class MaintenanceReportsService {
       select: { id: true, orderNumber: true, attachments: true, statusDates: true, customer: { select: { name: true, email: true } } },
     });
     if (!order) throw new NotFoundException('Order not found');
+    await assertNotImportedOrder(this.prisma, organizationId, orderId);
     const jobs = await this.prisma.delivery.findMany({ where: { organizationId, orderId }, select: { id: true } });
     const linkedIds = (Array.isArray(order.attachments) ? (order.attachments as any[]) : []).filter((a) => a?.kind === 'report' && a.reportId).map((a) => a.reportId);
     let reports = await this.prisma.maintenanceServiceReport.findMany({

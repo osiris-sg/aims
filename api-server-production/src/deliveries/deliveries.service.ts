@@ -1,3 +1,4 @@
+import { assertNotImportedOrder } from '../orders/imported-orders';
 import { randomBytes, randomUUID } from 'crypto';
 import * as QRCode from 'qrcode';
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional, forwardRef } from '@nestjs/common';
@@ -836,6 +837,7 @@ export class DeliveriesService {
       select: { id: true, orderNumber: true, customerId: true, sourceQuotationId: true },
     });
     if (!order) throw new NotFoundException('Order not found in this organization');
+    await assertNotImportedOrder(this.prisma, organizationId, order.id);
     return order;
   }
 
@@ -1283,6 +1285,7 @@ export class DeliveriesService {
       }
     }
 
+    await assertNotImportedOrder(this.prisma, organizationId, order?.id);
     const targetCustomer = order?.customerId ?? quotation?.customerId ?? null;
     if (run.customerId && targetCustomer && run.customerId !== targetCustomer && body?.confirmCustomer !== true) {
       throw new ConflictException('The job and the order are for different customers. Link anyway?');
@@ -1692,6 +1695,7 @@ export class DeliveriesService {
   async prepareManualOrderDo(orderId: string, organizationId: string, opts: { force?: boolean; throwOnError?: boolean } = {}): Promise<{ doId: string; doName: string | null; note?: string } | null> {
     try {
       if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('DOs on an order need the manual order flow');
+      await assertNotImportedOrder(this.prisma, organizationId, orderId);
       const order = await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, customerId: true, sourceQuotationId: true } });
       if (!order) throw new NotFoundException('Order not found');
       if (order.status === 'CANCELLED') throw new BadRequestException('This order is cancelled');

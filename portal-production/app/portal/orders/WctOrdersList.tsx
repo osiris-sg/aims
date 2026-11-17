@@ -16,6 +16,7 @@ import { fmtJobWhen, orderMatchesSearch, orderStatusColor, orderStatusLabel } fr
 import { HUB_ACTION_LABEL, HUB_DESTRUCTIVE, hubListTarget, hubMatchesTab, hubRowActions, hubStatusInfo, hubStatusSortValue, hubTabs, type HubActionKey, type HubContext, type HubStatus } from "@/helpers/wctOrderHub";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
+import { ORDER_SOURCE_OPTIONS, importedStatusHue, matchesOrderSource, type OrderSource } from "@/helpers/importedOrders";
 
 // WCT calendar add (2026-11-04): jobs made from the calendar with no order yet, so nothing gets forgotten.
 interface UntaggedJob {
@@ -55,6 +56,10 @@ interface WctOrderRow {
   /** DO first: the DOs with no job the row actions work on. */
   actionDos?: { draft: string | null; open: string | null; completed: string | null; awaiting?: string | null };
   serviceReportReady?: boolean;
+  /** Imported from the old ERP (enableImportedOrders): read-only, no actions. */
+  imported?: boolean;
+  statusLabel?: string;
+  erpDoNumbers?: string[];
 }
 
 const docHref = (d?: { id: string; type?: string; templateId?: string | null } | null, fallbackType = "QUOTATION") => (d && d.templateId ? `/portal/documents/${d.type || fallbackType}/${d.templateId}/${d.id}` : null);
@@ -113,6 +118,10 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
   const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({});
+  // Imported orders (old ERP history) only on request: the default list is AIMS's own orders.
+  const [source, setSource] = useState<OrderSource>("aims");
+  const hasImported = useMemo(() => orders.some((o) => o.imported === true), [orders]);
+  const sourceRows = useMemo(() => (hasImported ? orders.filter((o) => matchesOrderSource(o, source)) : orders), [orders, source, hasImported]);
 
   const fetchOrders = useCallback(async () => {
     if (fixture || !organization?.id) return;
@@ -146,11 +155,11 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
   }, [calendarAdd, organization?.id, getToken]);
 
   // One tab per status, counted from the real statuses (the old "Open" tab missed DO drafts).
-  const tabs = useMemo(() => hubTabs(orders), [orders]);
+  const tabs = useMemo(() => hubTabs(sourceRows), [sourceRows]);
 
   const filtered = useMemo(
-    () => (tab === "untagged" ? [] : orders.filter((o) => hubMatchesTab(o, tab) && (orderMatchesSearch(o, search || "") || [o.subject, o.site].some((v) => (v || "").toLowerCase().includes((search || "").trim().toLowerCase()))))),
-    [orders, tab, search],
+    () => (tab === "untagged" ? [] : sourceRows.filter((o) => hubMatchesTab(o, tab) && (orderMatchesSearch(o, search || "") || [o.subject, o.site].some((v) => (v || "").toLowerCase().includes((search || "").trim().toLowerCase()))))),
+    [sourceRows, tab, search],
   );
 
   /** A row action: open its screen, or confirm a cancel first. */
@@ -201,6 +210,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
       size: 11,
       cell: ({ row }: any) => {
         const info = hubStatusInfo(row.original.status);
+        if (row.original.imported) return <StatusPill label={row.original.statusLabel || info.label} color="default" hue={importedStatusHue(row.original.status)} />;
         return (
           <Box sx={{ "& .MuiChip-label": { whiteSpace: "nowrap", overflow: "visible" }, "& .MuiChip-root": { maxWidth: "none" } }}>
             <StatusPill label={orderStatusLabel(row.original.status) || info.label} color={orderStatusColor(row.original.status)} hue={info.hue} />
@@ -237,7 +247,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
     },
     { id: "quotation", header: "Quotation", size: 9, enableSorting: false, cell: ({ row }: any) => plain(row.original.sourceQuotation?.name) },
     // "DO date" column hidden for now (Elroy 16 Nov); the API still sends doDate.
-    { id: "dos", header: "DO(s)", size: 9, enableSorting: false, cell: ({ row }: any) => <NumberList names={(row.original.deliveryOrders ?? []).map((d: any) => d.name)} /> },
+    { id: "dos", header: "DO(s)", size: 9, enableSorting: false, cell: ({ row }: any) => <NumberList names={row.original.imported ? row.original.erpDoNumbers ?? [] : (row.original.deliveryOrders ?? []).map((d: any) => d.name)} /> },
     { id: "invoice", header: "Invoice", size: 9, enableSorting: false, cell: ({ row }: any) => <NumberList names={(row.original.invoices ?? []).map((d: any) => d.name)} /> },
     {
       id: "amount",
@@ -252,7 +262,8 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
       header: "",
       size: 4,
       enableSorting: false,
-      cell: ({ row }: any) => (
+      cell: ({ row }: any) =>
+        row.original.imported ? null : (
         <IconButton
           size="small"
           aria-label="Order actions"
@@ -294,6 +305,27 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
           </MenuItem>
         )}
       </TextField>
+      {hasImported && (
+        <TextField
+          select
+          size="small"
+          label="Orders"
+          value={source}
+          onChange={(e) => {
+            setSource(e.target.value as OrderSource);
+            setTab("all");
+            setPage(1);
+          }}
+          sx={{ minWidth: 180 }}
+          data-tour="orders-source-filter"
+        >
+          {ORDER_SOURCE_OPTIONS.map((o) => (
+            <MenuItem key={o.key} value={o.key}>
+              {o.label} ({orders.filter((r) => matchesOrderSource(r, o.key)).length})
+            </MenuItem>
+          ))}
+        </TextField>
+      )}
     </Box>
   );
 
