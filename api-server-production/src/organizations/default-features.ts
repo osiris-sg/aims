@@ -198,6 +198,10 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // events alone when there is none). Existing dashboard sections move below
   // it. Default OFF; WCT only.
   enableJobsCalendar: false,
+  // Group calendar (WCT 2026-11-17): a PARENT org's jobs calendar also shows its
+  // child orgs' jobs and notes, read only (Organization.parentOrgId; the only
+  // cross-org read, src/organizations/org-group.ts). Default OFF.
+  enableGroupCalendar: false,
   // Real DO numbers on schedule (WCT 2026-10-30): a scheduled delivery's DO gets
   // its real number (e.g. DO202610007) the moment it is scheduled — no
   // DO-PENDING-NN placeholder — issued with the counter locked so concurrent

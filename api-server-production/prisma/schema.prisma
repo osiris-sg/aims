@@ -31,6 +31,11 @@ model Organization {
   // delivery's project and customer have none.
   deliveryOpsGroupId       String?
   deliveryOpsGroupName     String?
+  // Org group (2026-11-17, WCT): the parent org of a group (WCT (S) is the parent of
+  // Racking, YMM and BC Air). Data only, no relation; read through
+  // src/organizations/org-group.ts, which shares only allowlisted features (jobs
+  // calendar, read only) and only parent to children.
+  parentOrgId              String?
   createdAt                DateTime                   @default(now())
   updatedAt                DateTime                   @updatedAt
   address                  String?
@@ -121,6 +126,8 @@ model Organization {
   apiKeys                  ApiKey[]
   WhatsAppScheduledMessage WhatsAppScheduledMessage[]
   WhatsAppContact          WhatsAppContact[]
+
+  @@index([parentOrgId])
 }
 
 model Asset {

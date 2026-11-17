@@ -150,6 +150,21 @@ export interface CalendarEvent {
   quotationHref?: string | null;
   /** Job category (WCT group): shown in the panel and the chip tooltip (absent for every other org). */
   category?: string | null;
+  /** Group calendar (enableGroupCalendar, parent org only): the org the item belongs to (absent otherwise). */
+  orgId?: string;
+  orgName?: string;
+  /** Group calendar: the item is a child org's. */
+  foreign?: true;
+  /** Group calendar: a child org's item the viewer is not a member of; its links are stripped. */
+  viewOnly?: true;
+}
+
+/** Group calendar: an item of another org the viewer may not open loses every link (numbers and details stay). */
+export function stripLinks<T extends Partial<CalendarEvent>>(e: T): T {
+  const out: any = { ...e, href: null, siteclockUrl: null, doHref: null };
+  if ('orderHref' in e) out.orderHref = null;
+  if ('quotationHref' in e) out.quotationHref = null;
+  return out;
 }
 
 /** The quotation row of a WCT job's panel: number + the quotation's document page (null without a template). */

@@ -180,7 +180,7 @@ export class DashboardController {
   @Permissions('dashboard:read')
   @ApiOperation({ summary: 'Jobs calendar: AIMS runs and SiteClock jobs in a date range' })
   async getJobsCalendar(@Req() req: RequestWithOrganization, @Query('from') from: string, @Query('to') to: string) {
-    return await this.jobsCalendar.get(this.orgOf(req), from, to);
+    return await this.jobsCalendar.get(this.orgOf(req), from, to, { userId: (req as any).user?.id ?? null });
   }
 
   // Calendar notes (WCT 2026-11-04, enableWctOrders + enableJobsCalendar):

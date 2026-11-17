@@ -51,6 +51,13 @@ export interface CalendarEvent {
   quotationHref?: string | null;
   /** Job category (WCT group): blank jobs read as the default; absent for every other org. */
   category?: string | null;
+  /** Group calendar (enableGroupCalendar, parent org only): the item's org; absent for every other calendar. */
+  orgId?: string;
+  orgName?: string;
+  /** Group calendar: a child org's item (read only here). */
+  foreign?: boolean;
+  /** Group calendar: a child org's item the viewer is not a member of (the server sent no links). */
+  viewOnly?: boolean;
 }
 
 export interface CalendarBadge {
@@ -77,7 +84,16 @@ export interface CalendarPayload {
   /** Custom job fields (enableJobFields): what the event icons mean. */
   legend?: CalendarLegendEntry[];
   /** WCT calendar add (enableWctOrders + enableJobsCalendar): notes in range; absent for every other org. */
-  notes?: import("@/helpers/calendarAdd").CalendarNote[];
+  notes?: Array<import("@/helpers/calendarAdd").CalendarNote & GroupTag>;
+  /** Group calendar: the orgs shown, own org first (absent otherwise). */
+  group?: { orgs: Array<{ id: string; name: string }> };
+}
+
+/** Group calendar: which org an item belongs to (set only when the group view is on). */
+export interface GroupTag {
+  orgId?: string;
+  orgName?: string;
+  foreign?: boolean;
 }
 
 /** "Permit approved: Yes" — an event icon's tooltip. */
@@ -184,8 +200,8 @@ export function rangeOf(startStr: string, endStr: string): { from: string; to: s
  * All-day jobs (2026-11-10): an AIMS job with no specific time that is still
  * scheduled can be dragged to another day. Timed jobs are not draggable.
  */
-export function isMovable(e: Pick<CalendarEvent, "source" | "allDay" | "status" | "cancelled">): boolean {
-  return e.source === "aims" && e.allDay && e.status === "scheduled" && !e.cancelled;
+export function isMovable(e: Pick<CalendarEvent, "source" | "allDay" | "status" | "cancelled" | "foreign">): boolean {
+  return e.source === "aims" && e.allDay && e.status === "scheduled" && !e.cancelled && !e.foreign;
 }
 
 /** The run id behind an AIMS event ("aims:<deliveryId>"), or null. */
@@ -230,7 +246,8 @@ export function timeWindow(e: Pick<CalendarEvent, "start" | "end" | "allDay">): 
  * WCT: where a click on an event goes. An AIMS job opens its order (else its
  * DO, else the job); a SiteClock job opens in SiteClock (new tab). null = none.
  */
-export function eventClickTarget(e: Pick<CalendarEvent, "source" | "orderHref" | "doHref" | "href" | "siteclockUrl">): { href: string; external: boolean } | null {
+export function eventClickTarget(e: Pick<CalendarEvent, "source" | "orderHref" | "doHref" | "href" | "siteclockUrl" | "viewOnly">): { href: string; external: boolean } | null {
+  if (e.viewOnly) return null;
   if (e.source === "siteclock") return e.siteclockUrl ? { href: e.siteclockUrl, external: true } : null;
   const href = e.orderHref || e.doHref || e.href;
   return href ? { href, external: false } : null;
@@ -240,7 +257,8 @@ export function eventClickTarget(e: Pick<CalendarEvent, "source" | "orderHref" |
  * WCT details panel: the links in order, order > DO > job; a SiteClock job
  * opens in SiteClock (read only in AIMS).
  */
-export function panelLinks(e: Pick<CalendarEvent, "source" | "orderHref" | "doHref" | "href" | "siteclockUrl">): Array<{ label: string; href: string; external: boolean }> {
+export function panelLinks(e: Pick<CalendarEvent, "source" | "orderHref" | "doHref" | "href" | "siteclockUrl" | "viewOnly">): Array<{ label: string; href: string; external: boolean }> {
+  if (e.viewOnly) return [];
   if (e.source === "siteclock") return e.siteclockUrl ? [{ label: "Open in SiteClock", href: e.siteclockUrl, external: true }] : [];
   return [
     ...(e.orderHref ? [{ label: "Open order", href: e.orderHref, external: false }] : []),
@@ -298,14 +316,29 @@ export interface PanelRef {
  * stays). null = gate off: the panel stays as it was (plain Order / DO numbers).
  */
 export function panelRefs(
-  e: Pick<CalendarEvent, "source" | "orderNumber" | "orderHref" | "quotationNumber" | "quotationHref" | "doNumber" | "doHref">,
+  e: Pick<CalendarEvent, "source" | "orderNumber" | "orderHref" | "quotationNumber" | "quotationHref" | "doNumber" | "doHref" | "viewOnly">,
   enabled: boolean,
 ): { titleHref: string | null; rows: PanelRef[] } | null {
   if (!enabled) return null;
   if (e.source === "siteclock") return { titleHref: null, rows: [] };
+  // Group calendar: a child org's job the viewer is not a member of shows its numbers without links.
+  const link = (h: string | null | undefined) => (e.viewOnly ? null : h ?? null);
   const rows: PanelRef[] = [];
-  if (e.orderNumber) rows.push({ key: "order", label: "Order", number: e.orderNumber, href: e.orderHref ?? null });
-  if (e.quotationNumber) rows.push({ key: "quotation", label: "Quotation", number: e.quotationNumber, href: e.quotationHref ?? null });
-  if (e.doNumber) rows.push({ key: "do", label: "DO", number: e.doNumber, href: e.doHref ?? null });
-  return { titleHref: e.orderNumber && e.orderHref ? e.orderHref : null, rows };
+  if (e.orderNumber) rows.push({ key: "order", label: "Order", number: e.orderNumber, href: link(e.orderHref) });
+  if (e.quotationNumber) rows.push({ key: "quotation", label: "Quotation", number: e.quotationNumber, href: link(e.quotationHref) });
+  if (e.doNumber) rows.push({ key: "do", label: "DO", number: e.doNumber, href: link(e.doHref) });
+  return { titleHref: e.orderNumber && link(e.orderHref) ? link(e.orderHref) : null, rows };
 }
+
+/**
+ * Group calendar: a link of a child org's job, for a member of that org, opens
+ * only after the person agrees to switch this tab to that org (never a silent
+ * switch). Own-org items and calendars without the group view: null (plain link).
+ */
+export function crossOrgTarget(e: Pick<CalendarEvent, "foreign" | "viewOnly" | "orgId" | "orgName">): { orgId: string; orgName: string } | null {
+  if (!e.foreign || e.viewOnly || !e.orgId) return null;
+  return { orgId: e.orgId, orgName: e.orgName || "" };
+}
+
+/** Group calendar: the company line of a panel item (null when the group view is off). */
+export const orgLabel = (e: Pick<GroupTag, "orgName">): string | null => (e.orgName ? e.orgName : null);

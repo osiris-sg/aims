@@ -14,6 +14,10 @@ export interface CalendarNoteView {
   startTime: string | null;
   endTime: string | null;
   remark: string | null;
+  /** Group calendar (parent org only): the note's org; foreign = a child org's note, read only. */
+  orgId?: string;
+  orgName?: string;
+  foreign?: true;
 }
 
 const SELECT = { id: true, title: true, type: true, staffId: true, staffName: true, startDate: true, endDate: true, allDay: true, startTime: true, endTime: true, remark: true };

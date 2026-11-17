@@ -26,6 +26,7 @@ interface OrganizationFeatures {
   enableSiteClockLink?: boolean;
   enableSiteClockDeliveries?: boolean;
   enableJobsCalendar?: boolean;
+  enableGroupCalendar?: boolean;
   enableRealDoOnSchedule?: boolean;
   enableWctOrders?: boolean;
   enableWctMyJobs?: boolean;
@@ -267,6 +268,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // day calendar of scheduled deliveries, returns, service runs and the org's
   // SiteClock jobs; the usual dashboard sections sit below it. Default OFF.
   enableJobsCalendar: false,
+  // Group calendar (WCT 2026-11-17): a parent org's calendar also shows its child
+  // orgs' jobs and notes, read only. Default OFF.
+  enableGroupCalendar: false,
   // Real DO numbers on schedule (WCT 2026-10-30): a scheduled run's DO gets its
   // real number at once; a Pending / Completed / Cancelled tag shows next to it.
   enableRealDoOnSchedule: false,

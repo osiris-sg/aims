@@ -3,7 +3,8 @@ import { PrismaService } from '../common/prisma.service';
 import { runAsOrg } from '../common/tenancy/tenant-context';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { SiteClockLinkService } from '../siteclock/siteclock-link.service';
-import { buildCalendarEvents, CalendarEvent, CalendarRun, CalendarSiteClockJob, CALENDAR_TZ, checkRange, rangeInstants } from './jobs-calendar';
+import { buildCalendarEvents, CalendarEvent, CalendarRun, CalendarSiteClockJob, CALENDAR_TZ, checkRange, rangeInstants, stripLinks } from './jobs-calendar';
+import { GroupOrg, groupReadScope, memberOrgIds } from '../organizations/org-group';
 import { calendarBadge, calendarLegend, isJobFieldsEnabled, jobFieldDefs, jobFieldValues } from '../deliveries/job-fields';
 import { jobCategoryDef, jobCategoryValues } from '../deliveries/job-category';
 import { CalendarNoteView, CalendarNotesService } from './calendar-notes.service';
@@ -23,6 +24,8 @@ export interface JobsCalendarResponse {
   legend?: ReturnType<typeof calendarLegend>;
   /** WCT calendar add (enableWctOrders + enableJobsCalendar): the notes overlapping the range (absent otherwise). */
   notes?: CalendarNoteView[];
+  /** Group calendar (enableGroupCalendar, parent org with children): the orgs shown, own org first (absent otherwise). */
+  group?: { orgs: GroupOrg[] };
 }
 
 /**
@@ -42,13 +45,71 @@ export class JobsCalendarService {
     @Optional() private readonly notes?: CalendarNotesService,
   ) {}
 
-  async get(organizationId: string, from: string, to: string): Promise<JobsCalendarResponse> {
+  async get(organizationId: string, from: string, to: string, viewer?: { userId?: string | null }): Promise<JobsCalendarResponse> {
     if (!(await isOrgFeatureEnabled(this.prisma, organizationId, JOBS_CALENDAR_FLAG))) {
       throw new NotFoundException('The jobs calendar is not enabled for this organisation');
     }
     const bad = checkRange(from, to);
     if (bad) throw new BadRequestException(bad);
 
+    const [own, scope] = await Promise.all([this.orgCalendar(organizationId, from, to), groupReadScope(this.prisma, organizationId, 'jobsCalendar')]);
+    // Gate off (or no children): exactly the org's own calendar.
+    if (!scope.group) return own;
+    return this.withGroup(organizationId, own, scope.orgs, from, to, viewer?.userId ?? null);
+  }
+
+  /**
+   * Group calendar (enableGroupCalendar on a parent org): its own calendar plus
+   * each child org's jobs and notes, read only, every item named with its org.
+   * A child's item opens only for a member of that child (membership + role);
+   * for anyone else its links are stripped. Notes join only when the parent has
+   * calendar notes itself (else the parent's add buttons would appear).
+   */
+  private async withGroup(organizationId: string, own: JobsCalendarResponse, orgs: GroupOrg[], from: string, to: string, userId: string | null): Promise<JobsCalendarResponse> {
+    const children = orgs.filter((o) => o.id !== organizationId);
+    const ownName = orgs.find((o) => o.id === organizationId)?.name ?? '';
+    const [parts, members] = await Promise.all([
+      Promise.all(children.map((c) => runAsOrg(c.id, () => this.orgCalendar(c.id, from, to)))),
+      memberOrgIds(this.prisma, userId, children.map((c) => c.id)),
+    ]);
+    const tag = <T extends object>(x: T, org: GroupOrg): T => {
+      if (org.id === organizationId) return { ...x, orgId: org.id, orgName: ownName };
+      const t: any = { ...x, orgId: org.id, orgName: org.name, foreign: true };
+      return t;
+    };
+    const seen = new Set<string>();
+    const events: CalendarEvent[] = [];
+    const add = (e: CalendarEvent, org: GroupOrg) => {
+      if (seen.has(e.id)) return;
+      seen.add(e.id);
+      let t = tag(e, org);
+      if (org.id !== organizationId && !members.has(org.id)) t = { ...stripLinks(t), viewOnly: true };
+      events.push(t);
+    };
+    for (const e of own.events) add(e, { id: organizationId, name: ownName });
+    children.forEach((c, i) => parts[i].events.forEach((e) => add(e, c)));
+    events.sort((a, b) => a.start.localeCompare(b.start) || a.title.localeCompare(b.title));
+
+    let notes = own.notes;
+    if (notes) {
+      notes = [
+        ...notes.map((n) => tag(n, { id: organizationId, name: ownName })),
+        ...children.flatMap((c, i) => (parts[i].notes ?? []).map((n) => tag(n, c))),
+      ];
+    }
+    const states = [own.siteclock, ...parts.map((p) => p.siteclock)];
+    const siteclock = states.find((s) => s.state === 'unavailable') ?? own.siteclock;
+    return {
+      ...own,
+      events,
+      siteclock,
+      ...(notes ? { notes } : {}),
+      group: { orgs: orgs.map((o) => (o.id === organizationId ? { id: o.id, name: ownName } : o)) },
+    };
+  }
+
+  /** One org's calendar: its AIMS runs, its own SiteClock jobs (its own connection only) and its notes. */
+  private async orgCalendar(organizationId: string, from: string, to: string): Promise<JobsCalendarResponse> {
     const [runs, sc, notes] = await Promise.all([
       this.runs(organizationId, from, to),
       this.siteclockJobs(organizationId, from, to),

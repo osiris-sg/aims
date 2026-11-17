@@ -15,6 +15,10 @@
 // are links (in-app push, so Back returns here) and an order job's title opens
 // the order. (Replaced the hover card, whose card covered the chips below it, so a
 // click there opened the hovered job instead of the one under the pointer.)
+// Group calendar (2026-11-17, enableGroupCalendar on a parent org): child orgs'
+// jobs and notes join read only, each named with its company. A child's link
+// opens only for a member of that org and only after "Switch and open" (the tab
+// switches org on purpose, never silently); for anyone else it is view only.
 
 import React, { useMemo, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
@@ -24,17 +28,18 @@ import luxonPlugin from "@fullcalendar/luxon3";
 import interactionPlugin, { type DateClickArg } from "@fullcalendar/interaction";
 import type { DatesSetArg, EventClickArg, EventContentArg, EventDropArg } from "@fullcalendar/core";
 import JobFieldIcon from "@/components/jobFields/JobFieldIcon";
-import { Box, Button, Chip, Divider, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Popover, Stack, Typography } from "@mui/material";
+import { Box, Button, Chip, Dialog, DialogActions, DialogTitle, Divider, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Popover, Stack, Typography } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import WorkOutlineIcon from "@mui/icons-material/WorkOutline";
 import StickyNote2OutlinedIcon from "@mui/icons-material/StickyNote2Outlined";
-import { ADD_MENU_TEXT, noteToCalendarInput, ptwColor, slotOf, type CalendarNote } from "@/helpers/calendarAdd";
+import { ADD_MENU_TEXT, noteTitle, noteToCalendarInput, noteType, noteWhen, ptwColor, slotOf, type CalendarNote } from "@/helpers/calendarAdd";
 import { categoryChipTitle } from "@/helpers/jobCategory";
+import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
-import { CALENDAR_TZ, badgeTitle, crewLine, dayJobsOf, dayOfInstant, eventColor, kindLabel, panelLinks, panelRefs, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent } from "./calendarModel";
+import { CALENDAR_TZ, badgeTitle, crewLine, crossOrgTarget, dayJobsOf, dayOfInstant, eventColor, kindLabel, orgLabel, panelLinks, panelRefs, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag } from "./calendarModel";
 import DoStatusTag from "@/components/DoStatusTag";
 
 interface Props {
@@ -77,6 +82,10 @@ export default function CalendarView({
   const theme = useTheme();
   const [viewType, setViewType] = useState<string>(initialView);
   const [open, setOpen] = useState<{ pos: { left: number; top: number }; event: CalendarEvent } | null>(null);
+  // Group calendar: a child org's note (read only) and a confirmed switch into a child org.
+  const [noteView, setNoteView] = useState<{ pos: { left: number; top: number }; note: CalendarNote & GroupTag } | null>(null);
+  const [switchTo, setSwitchTo] = useState<{ orgId: string; orgName: string; href: string } | null>(null);
+  const onCrossOrg = (t: { orgId: string; orgName: string }, href: string) => setSwitchTo({ ...t, href });
   const [addMenu, setAddMenu] = useState<{ pos: { left: number; top: number }; slot: { date: string; time: string } } | null>(null);
   // WCT: the side panel: one job, or a day's jobs ("+n more"; a job picked from it keeps the way back).
   const [panel, setPanel] = useState<{ event: CalendarEvent | null; day: { date: string; events: CalendarEvent[] } | null } | null>(null);
@@ -92,7 +101,8 @@ export default function CalendarView({
 
   const onClick = (arg: EventClickArg) => {
     arg.jsEvent.preventDefault();
-    const note = arg.event.extendedProps.note as CalendarNote | undefined;
+    const note = arg.event.extendedProps.note as (CalendarNote & GroupTag) | undefined;
+    if (note?.foreign) return setNoteView({ pos: { left: arg.jsEvent.clientX, top: arg.jsEvent.clientY }, note });
     if (note) return onNoteClick?.(note);
     const e = arg.event.extendedProps.event as CalendarEvent;
     // WCT: the clicked job, in the panel (desktop and touch alike).
@@ -215,6 +225,7 @@ export default function CalendarView({
           panel={panel}
           jobWords={jobWords}
           linkRefs={canAdd}
+          onCrossOrg={onCrossOrg}
           onPick={(event) => setPanel((p) => ({ event, day: p?.day ?? null }))}
           onBack={() => setPanel((p) => (p?.day ? { event: null, day: p.day } : null))}
           onClose={() => setPanel(null)}
@@ -229,8 +240,54 @@ export default function CalendarView({
         transformOrigin={{ vertical: "top", horizontal: "left" }}
         slotProps={{ paper: { sx: { maxWidth: 360, p: 2 } } }}
       >
-        {open && <EventCard event={open.event} jobWords={jobWords} byPtw={openOnClick} />}
+        {open && <EventCard event={open.event} jobWords={jobWords} byPtw={openOnClick} onCrossOrg={onCrossOrg} />}
       </Popover>
+
+      {/* Group calendar: a child org's note, read only. */}
+      <Popover
+        open={!!noteView}
+        onClose={() => setNoteView(null)}
+        anchorReference="anchorPosition"
+        anchorPosition={noteView?.pos}
+        transformOrigin={{ vertical: "top", horizontal: "left" }}
+        slotProps={{ paper: { sx: { maxWidth: 360, p: 2 } } }}
+      >
+        {noteView && (
+          <Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600, lineHeight: 1.3, mb: 1 }}>
+              {noteTitle(noteView.note)}
+            </Typography>
+            {noteView.note.orgName && <Row label="Company">{noteView.note.orgName}</Row>}
+            <Row label="When">{noteWhen(noteView.note)}</Row>
+            <Row label="Type">{noteType(noteView.note.type).label}</Row>
+            {noteView.note.staffName && <Row label="Staff">{noteView.note.staffName}</Row>}
+            {noteView.note.remark && <Row label="Remark">{noteView.note.remark}</Row>}
+          </Box>
+        )}
+      </Popover>
+
+      {/* Group calendar: opening a child org's record switches this tab to that org, only when confirmed. */}
+      <Dialog open={!!switchTo} onClose={() => setSwitchTo(null)}>
+        <DialogTitle>{switchTo ? `Open in ${switchTo.orgName}?` : ""}</DialogTitle>
+        <DialogActions>
+          <Button onClick={() => setSwitchTo(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disableElevation
+            onClick={() => {
+              if (!switchTo) return;
+              try {
+                window.sessionStorage.setItem(ACTIVE_ORG_KEY, switchTo.orgId);
+              } catch {
+                return setSwitchTo(null);
+              }
+              window.location.assign(switchTo.href);
+            }}
+          >
+            Switch and open
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* WCT calendar add: what to add on the clicked day / slot. */}
       <Menu open={!!addMenu} onClose={() => setAddMenu(null)} anchorReference="anchorPosition" anchorPosition={addMenu?.pos} data-tour="jobs-calendar-add">
@@ -277,8 +334,22 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 /** A numbered row's link (WCT calendar add): underlined like the order page's Quotation link; an in-app push, so Back returns here. */
-function RefLink({ href, children }: { href: string | null; children: React.ReactNode }) {
+function RefLink({ href, children, onOpen }: { href: string | null; children: React.ReactNode; onOpen?: (href: string) => void }) {
   const num = <Box component="span" sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{children}</Box>;
+  if (href && onOpen) {
+    return (
+      <a
+        href={href}
+        style={{ color: "inherit" }}
+        onClick={(ev) => {
+          ev.preventDefault();
+          onOpen(href);
+        }}
+      >
+        {num}
+      </a>
+    );
+  }
   return href ? (
     <Link href={href} style={{ color: "inherit" }}>
       {num}
@@ -288,8 +359,44 @@ function RefLink({ href, children }: { href: string | null; children: React.Reac
   );
 }
 
-function EventCard({ event: e, jobWords, byPtw = false, linkRefs = false }: { event: CalendarEvent; jobWords: boolean; byPtw?: boolean; linkRefs?: boolean }) {
+/** The panel title's link: a plain in-app link, or (a child org's job) one that asks before switching org. */
+function RefTitle({ href, onOpen, children }: { href: string; onOpen?: (href: string) => void; children: React.ReactNode }) {
+  return onOpen ? (
+    <a
+      href={href}
+      style={{ color: "inherit" }}
+      onClick={(ev) => {
+        ev.preventDefault();
+        onOpen(href);
+      }}
+    >
+      {children}
+    </a>
+  ) : (
+    <Link href={href} style={{ color: "inherit" }}>
+      {children}
+    </Link>
+  );
+}
+
+function EventCard({
+  event: e,
+  jobWords,
+  byPtw = false,
+  linkRefs = false,
+  onCrossOrg,
+}: {
+  event: CalendarEvent;
+  jobWords: boolean;
+  byPtw?: boolean;
+  linkRefs?: boolean;
+  onCrossOrg?: (t: { orgId: string; orgName: string }, href: string) => void;
+}) {
   const color = eventColor(e, byPtw);
+  // Group calendar: a child org's link (member only) asks before switching org.
+  const cross = crossOrgTarget(e);
+  const openCross = cross && onCrossOrg ? (href: string) => onCrossOrg(cross, href) : undefined;
+  const company = orgLabel(e);
   const links = byPtw ? panelLinks(e) : null;
   // WCT calendar add: numbered Order / Quotation / DO links and the title to the order (null = as before).
   const refs = byPtw ? panelRefs(e, linkRefs) : null;
@@ -303,13 +410,14 @@ function EventCard({ event: e, jobWords, byPtw = false, linkRefs = false }: { ev
       </Stack>
       <Typography variant="subtitle1" sx={{ fontWeight: 600, lineHeight: 1.3, mb: 1, textDecoration: e.cancelled ? "line-through" : "none" }}>
         {refs?.titleHref ? (
-          <Link href={refs.titleHref} style={{ color: "inherit" }}>
+          <RefTitle href={refs.titleHref} onOpen={openCross}>
             {e.title}
-          </Link>
+          </RefTitle>
         ) : (
           e.title
         )}
       </Typography>
+      {company && <Row label="Company">{company}</Row>}
       <Row label="When">{timeWindow(e)}</Row>
       {(e.address || e.site) && (
         <Row label={e.source === "siteclock" ? "Site" : "Address"}>
@@ -362,11 +470,15 @@ function EventCard({ event: e, jobWords, byPtw = false, linkRefs = false }: { ev
         <Row key={r.key} label={r.label}>
           {r.key === "do" && e.doTag ? (
             <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
-              <RefLink href={r.href}>{r.number}</RefLink>
+              <RefLink href={r.href} onOpen={openCross}>
+                {r.number}
+              </RefLink>
               <DoStatusTag tag={e.doTag} />
             </Stack>
           ) : (
-            <RefLink href={r.href}>{r.number}</RefLink>
+            <RefLink href={r.href} onOpen={openCross}>
+              {r.number}
+            </RefLink>
           )}
         </Row>
       ))}
@@ -391,6 +503,10 @@ function EventCard({ event: e, jobWords, byPtw = false, linkRefs = false }: { ev
               <Button key={l.label} href={l.href} target="_blank" rel="noopener noreferrer" size="small" variant="outlined" endIcon={<OpenInNewIcon fontSize="small" />}>
                 {l.label}
               </Button>
+            ) : openCross ? (
+              <Button key={l.label} onClick={() => openCross(l.href)} size="small" variant={i === 0 ? "contained" : "outlined"} disableElevation>
+                {l.label}
+              </Button>
             ) : (
               <Button key={l.label} component={Link} href={l.href} size="small" variant={i === 0 ? "contained" : "outlined"} disableElevation>
                 {l.label}
@@ -398,7 +514,7 @@ function EventCard({ event: e, jobWords, byPtw = false, linkRefs = false }: { ev
             ),
           )}
         </Stack>
-      ) : e.href ? (
+      ) : e.href && !e.foreign ? (
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           <Button component={Link} href={e.href} size="small" variant="contained" disableElevation>
             {jobWords ? "Open job" : "Open delivery"}
@@ -414,7 +530,7 @@ function EventCard({ event: e, jobWords, byPtw = false, linkRefs = false }: { ev
             </Button>
           )}
         </Stack>
-      ) : e.siteclockUrl ? (
+      ) : e.siteclockUrl && !e.viewOnly ? (
         <Button href={e.siteclockUrl} target="_blank" rel="noopener noreferrer" size="small" variant="outlined" endIcon={<OpenInNewIcon fontSize="small" />}>
           Open in SiteClock
         </Button>
@@ -431,6 +547,7 @@ function JobPanel({
   panel,
   jobWords,
   linkRefs,
+  onCrossOrg,
   onPick,
   onBack,
   onClose,
@@ -438,6 +555,7 @@ function JobPanel({
   panel: { event: CalendarEvent | null; day: { date: string; events: CalendarEvent[] } | null };
   jobWords: boolean;
   linkRefs: boolean;
+  onCrossOrg: (t: { orgId: string; orgName: string }, href: string) => void;
   onPick: (e: CalendarEvent) => void;
   onBack: () => void;
   onClose: () => void;
@@ -476,7 +594,7 @@ function JobPanel({
       </Stack>
       <Box sx={{ p: 2, overflowY: "auto", flex: 1 }}>
         {event ? (
-          <EventCard event={event} jobWords={jobWords} byPtw linkRefs={linkRefs} />
+          <EventCard event={event} jobWords={jobWords} byPtw linkRefs={linkRefs} onCrossOrg={onCrossOrg} />
         ) : day ? (
           <List dense disablePadding>
             {day.events.map((e) => (
@@ -484,7 +602,7 @@ function JobPanel({
                 <Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: eventColor(e, true), mt: 0.75, mr: 1.25, flexShrink: 0 }} />
                 <ListItemText
                   primary={e.title}
-                  secondary={`${chipTime(e)} · ${e.statusLabel}`}
+                  secondary={`${chipTime(e)} · ${e.statusLabel}${e.orgName ? ` · ${e.orgName}` : ""}`}
                   primaryTypographyProps={{ sx: { fontWeight: 500, textDecoration: e.cancelled ? "line-through" : "none", wordBreak: "break-word" } }}
                 />
               </ListItemButton>
