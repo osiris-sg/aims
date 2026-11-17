@@ -206,6 +206,8 @@ export interface HubStep {
   docs: HubStepDoc[];
   /** Invoice and DO: either may be done first. */
   parallel?: boolean;
+  /** Split payment (2026-11-17): "2 of 3 sent" under the Invoice step when its invoices are split parts. */
+  note?: string | null;
 }
 
 /** Statuses where every DO is done / the invoice has gone out (each ticks on its own). */
@@ -228,7 +230,7 @@ export function hubSteps(order: {
   /** DO first: the order's DOs with or without a job (the DO step lists these). */
   deliveryOrders?: { id: string; name?: string | null; tag?: string | null; templateId?: string | null; completed?: boolean; awaitingSignature?: boolean; jobs?: { id: string; status: string; isDraft?: boolean }[] }[];
   jobs?: { id?: string; status: string; isDraft?: boolean; deliveryOrder?: { id: string; name?: string | null; tag?: string | null; templateId?: string | null } | null }[];
-  invoices?: { id: string; name?: string | null; status?: string | null; type?: string | null; documentTemplateId?: string | null; href?: string | null; extra?: boolean }[];
+  invoices?: { id: string; name?: string | null; status?: string | null; type?: string | null; documentTemplateId?: string | null; href?: string | null; extra?: boolean; split?: { part: number; of: number } | null }[];
   jobReports?: { id: string; reportNumber?: number | null; status: string; uploaded?: boolean; sentAt?: string | null; photosFile?: boolean }[];
 }): HubStep[] {
   const idx = hubStatusIndex(order.status);
@@ -315,6 +317,9 @@ export function hubSteps(order: {
       })),
     },
   ];
+  // Split payment: the Invoice step ticks only when every part has gone out (the status says so); it counts them.
+  const invs = order.invoices ?? [];
+  if (invs.some((i) => i.split)) steps[1].note = `${invs.filter((i) => !["draft", "unconfirmed"].includes(String(i.status ?? ""))).length} of ${invs.length} sent`;
   if (!cancelled) {
     // Quotation first; then Invoice and DO (either order: each is current until it is done); the report once both are.
     if (!steps[0].done) steps[0].current = true;
@@ -424,4 +429,64 @@ export function hubListTarget(key: HubActionKey, c: HubContext): HubTarget {
     return { href: `/portal/orders/${c.orderId}?open=${t.dialog}` };
   }
   return t;
+}
+
+/** One row of the order page's Documents list. */
+export interface HubDocRow extends HubStepDoc {
+  kind: "quotation" | "invoice" | "do" | "job" | "report";
+  type: string;
+  /** The DO's / job's id, for its row menu and to open it. */
+  id?: string;
+  /** A job row under its DO (indented). */
+  child?: boolean;
+}
+
+/**
+ * The order page's Documents list. Without `full` (orders off the manual flow):
+ * the tracker's documents, as before. With `full` (manual flow, 2026-11-17, the
+ * order page's only list): every invoice part with its PDF, every DO followed by
+ * its jobs, jobs with no DO, and the service reports.
+ */
+export function hubDocuments(
+  order: Parameters<typeof hubSteps>[0] & {
+    jobs?: Array<{ id?: string; deliveryNumber?: number; status: string; isDraft?: boolean; verificationState?: string | null; deliveryOrder?: { id: string } | null }>;
+  },
+  opts: { full?: boolean; jobLabel?: (j: any) => string } = {},
+): HubDocRow[] {
+  const steps = hubSteps(order);
+  const stepOf = (k: HubStep["key"]) => steps.find((s) => s.key === k)!;
+  const quotation = stepOf("quotation").docs.map((d) => ({ kind: "quotation" as const, type: "Quotation", ...d }));
+  const reports = stepOf("report").docs.map((d) => ({ kind: "report" as const, type: "Service report", ...d, status: `${d.status}${d.status !== "Draft" ? " · photos on the report" : ""}` }));
+  if (!opts.full) {
+    return [
+      ...quotation,
+      ...stepOf("invoice").docs.map((d) => ({ kind: "invoice" as const, type: "Invoice", ...d })),
+      ...stepOf("do").docs.map((d) => ({ kind: "do" as const, type: "Delivery order", ...d })),
+      ...reports,
+    ];
+  }
+  const invoices = (order.invoices ?? []).map((i, n) => ({
+    kind: "invoice" as const,
+    type: "Invoice",
+    ...stepOf("invoice").docs[n],
+    id: i.id,
+    file: order.id ? { label: "PDF" as const, path: `/orders/${order.id}/invoice-pdf?documentId=${i.id}` } : null,
+  }));
+  const jobs = order.jobs ?? [];
+  const jobRow = (j: (typeof jobs)[number], child: boolean): HubDocRow => ({
+    kind: "job",
+    type: "Job",
+    id: j.id,
+    child,
+    label: `#${j.deliveryNumber ?? ""}`,
+    status: opts.jobLabel ? opts.jobLabel(j) : j.status,
+    href: j.id ? `/portal/deliveries/${j.id}` : null,
+  });
+  const dos = (order.deliveryOrders ?? []).flatMap((d, n) => [
+    { kind: "do" as const, type: "Delivery order", ...stepOf("do").docs[n], id: d.id } as HubDocRow,
+    ...jobs.filter((j) => j.deliveryOrder?.id === d.id).map((j) => jobRow(j, true)),
+  ]);
+  const doIds = new Set((order.deliveryOrders ?? []).map((d) => d.id));
+  const loose = jobs.filter((j) => !j.deliveryOrder || !doIds.has(j.deliveryOrder.id)).map((j) => jobRow(j, false));
+  return [...quotation, ...invoices, ...dos, ...loose, ...reports];
 }

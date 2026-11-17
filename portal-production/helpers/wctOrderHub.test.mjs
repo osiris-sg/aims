@@ -192,3 +192,64 @@ test("DO first: an unsigned DO offers its sign link on the list row and order pa
   assert.deepEqual(hubActionTarget("sign-link", { orderId: "o1", openDoId: "d1", awaitingDoId: "d2" }), { dialog: "sign-link", doId: "d2" });
   assert.deepEqual(hubListTarget("sign-link", { orderId: "o1", openDoId: "d1" }), { href: "/portal/orders/o1?open=sign-link" });
 });
+
+// 2026-11-17: Split payment on the tracker + the order page's one Documents list (manual flow).
+import { hubDocuments } from "./wctOrderHub.ts";
+
+const ORDER = {
+  id: "o1",
+  status: "INVOICE_DRAFT",
+  sourceQuotation: { id: "q1", name: "QO202611-0030", status: "confirmed", type: "QUOTATION", documentTemplateId: "tq" },
+  deliveryOrders: [{ id: "d1", name: "DO202611030", templateId: "td", completed: true, jobs: [{ id: "j1", status: "completed", isDraft: false }] }],
+  jobs: [
+    { id: "j1", deliveryNumber: 7, status: "completed", isDraft: false, deliveryOrder: { id: "d1" } },
+    { id: "j2", deliveryNumber: 8, status: "scheduled", isDraft: true, deliveryOrder: null },
+  ],
+  jobReports: [{ id: "r1", reportNumber: 3, status: "completed" }],
+};
+
+test("tracker: split parts show '2 of 3 sent' and the step ticks only when all are sent", () => {
+  const parts = (s3) => [
+    { id: "i1", name: "INV202611-0014-1", status: "pending_payment", split: { part: 1, of: 3 } },
+    { id: "i2", name: "INV202611-0014-2", status: "paid", split: { part: 2, of: 3 } },
+    { id: "i3", name: "INV202611-0014-3", status: s3, split: { part: 3, of: 3 } },
+  ];
+  const inv = hubSteps({ ...ORDER, invoices: parts("unconfirmed") }).find((s) => s.key === "invoice");
+  assert.equal(inv.note, "2 of 3 sent");
+  assert.equal(inv.done, false);
+  const all = hubSteps({ ...ORDER, status: "READY_FOR_SERVICE_REPORT", invoices: parts("pending_payment") }).find((s) => s.key === "invoice");
+  assert.equal(all.note, "3 of 3 sent");
+  assert.equal(all.done, true);
+  // No split: no note (unchanged tracker).
+  assert.equal(hubSteps({ ...ORDER, invoices: [{ id: "i1", name: "INV1", status: "draft" }] }).find((s) => s.key === "invoice").note, undefined);
+});
+
+test("Documents, off the manual flow: exactly the tracker's documents, as before", () => {
+  const o = { ...ORDER, invoices: [{ id: "i1", name: "INV1", status: "draft", href: "/x" }] };
+  const steps = hubSteps(o);
+  const before = [
+    ...steps[0].docs.map((d) => ({ type: "Quotation", ...d })),
+    ...steps[1].docs.map((d) => ({ type: "Invoice", ...d })),
+    ...steps[2].docs.map((d) => ({ type: "Delivery order", ...d })),
+    ...steps[3].docs.map((d) => ({ type: "Service report", ...d, status: `${d.status}${d.status !== "Draft" ? " · photos on the report" : ""}` })),
+  ];
+  assert.deepEqual(hubDocuments(o).map(({ kind, ...r }) => r), before);
+});
+
+test("Documents, manual flow: every invoice part with its PDF, each DO then its jobs, loose jobs, reports", () => {
+  const o = { ...ORDER, invoices: [{ id: "i1", name: "INV202611-0014-1", status: "pending_payment", href: "/a" }, { id: "i2", name: "INV202611-0014-2", status: "draft", href: "/b" }] };
+  const rows = hubDocuments(o, { full: true, jobLabel: (j) => (j.isDraft ? "Draft" : "Done") });
+  assert.deepEqual(rows.map((r) => [r.type, r.label, r.status]), [
+    ["Quotation", "QO202611-0030", "Signed / accepted"],
+    ["Invoice", "INV202611-0014-1", "Sent, awaiting payment"],
+    ["Invoice", "INV202611-0014-2", "Draft"],
+    ["Delivery order", "DO202611030", "Completed"],
+    ["Job", "#7", "Done"],
+    ["Job", "#8", "Draft"],
+    ["Service report", "Service report #3", "Completed · photos on the report"],
+  ]);
+  assert.equal(rows[1].file.path, "/orders/o1/invoice-pdf?documentId=i1");
+  assert.equal(rows[4].child, true);
+  assert.equal(rows[4].href, "/portal/deliveries/j1");
+  assert.equal(rows[3].id, "d1");
+});

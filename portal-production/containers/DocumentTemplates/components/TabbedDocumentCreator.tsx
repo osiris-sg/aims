@@ -173,6 +173,9 @@ import { getDocumentListRoute, getListRouteFromPathname } from "@/app/portal/com
 import { useAimsUserId } from "@hooks/useAimsUserId";
 import { todayIso } from "@/helpers/orgToday";
 import { storedTotalsFor } from "@/helpers/erpImport";
+import CallSplitIcon from "@mui/icons-material/CallSplit";
+import InvoiceSplitDialog from "./InvoiceSplitDialog";
+import { splitButtons } from "@/helpers/invoiceSplit";
 
 // Helper to determine the parent route based on document type
 const getParentRoute = (docType: string): string => {
@@ -411,7 +414,7 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled } = useOrganizationFeatures();
   // Manual order flow: after an order's invoice is emailed, offer to send its service report too.
   const [offerReportFor, setOfferReportFor] = useState<{ orderId: string; orderNumber: string | null; email: string | null } | null>(null);
   // The Project header row + the DO "project required" rule only make sense
@@ -4429,6 +4432,46 @@ export default function TabbedDocumentCreator({
   // The autosave timer and the hotkey listener live in effects with stale
   // closures; they reach the latest save function through this ref.
   const performManualSaveRef = useRef(performManualSave);
+
+  // Split payment (enableInvoiceSplit, WCT group 2026-11-17).
+  const [splitOpen, setSplitOpen] = useState(false);
+  const [undoingSplit, setUndoingSplit] = useState(false);
+  const splitDocId = (documentId || existingData?.id) as string | undefined;
+  const splitUi = splitButtons({
+    enabled: isInvoiceSplitEnabled,
+    isInvoice: isInvoiceTypeDoc,
+    saved: !!splitDocId && !!existingData?.name,
+    status: documentStatus,
+    config: (existingData as any)?.config,
+    paid: Number((existingData as any)?.config?.paidToDate ?? (existingData as any)?.config?.amountPaid ?? 0),
+    settledCount: settledBy.length,
+  });
+  const openSplit = async () => {
+    // The split divides the SAVED invoice: save pending edits first.
+    if (hasUnsavedChanges && !(await performManualSave({ silent: true }))) {
+      toast.error("Save the invoice first");
+      return;
+    }
+    setSplitOpen(true);
+  };
+  const undoSplit = async () => {
+    const s: any = (existingData as any)?.config?.invoiceSplit;
+    if (!splitDocId || !window.confirm(`Merge all parts back into ${s?.baseNumber ?? "the original invoice"}? Parts -2 onwards are removed.`)) return;
+    setUndoingSplit(true);
+    try {
+      const token = await getToken();
+      const res: any = await request({ path: `/documents/${splitDocId}/undo-split`, method: "POST" }, {}, token ?? undefined);
+      if (res?.success === false) throw new Error(res?.message || "Could not undo the split");
+      const out = res?.data ?? res;
+      toast.success(`Merged back into ${out?.name ?? "the original invoice"}`);
+      if (out?.id && out.id !== splitDocId && typeof window !== "undefined") window.location.href = window.location.href.replace(splitDocId, out.id);
+      else if (typeof window !== "undefined") window.location.reload();
+    } catch (e: any) {
+      toast.error(e?.message || "Could not undo the split");
+    } finally {
+      setUndoingSplit(false);
+    }
+  };
   performManualSaveRef.current = performManualSave;
 
   // F9 (hotkey "save") with no Save button on screen: force the save now and
@@ -5201,6 +5244,17 @@ export default function TabbedDocumentCreator({
               sx={TOOLBAR_GREEN}
             >
               {isConfirming ? "Confirming..." : "Confirm Document"}
+            </Button>
+          )}
+          {/* Split payment (enableInvoiceSplit, WCT group 2026-11-17): a draft invoice into parts -1..-n; Undo split while all parts are drafts. */}
+          {splitUi.split && !isTemplateEditMode && (
+            <Button size="small" variant="outlined" startIcon={<CallSplitIcon />} onClick={() => void openSplit()} data-tour="editor-split-payment">
+              Split payment
+            </Button>
+          )}
+          {splitUi.undo && !isTemplateEditMode && (
+            <Button size="small" variant="outlined" color="warning" startIcon={<UndoIcon />} disabled={undoingSplit} onClick={() => void undoSplit()} data-tour="editor-undo-split">
+              Undo split
             </Button>
           )}
           {/* Send Email button for invoices and quotations — ANY status,
@@ -8708,6 +8762,20 @@ export default function TabbedDocumentCreator({
         </>
       )}
       {/* Client e-sign link for generic quotations (enableQuotationESign). */}
+      {splitOpen && splitDocId && (
+        <InvoiceSplitDialog
+          open
+          onClose={() => setSplitOpen(false)}
+          documentId={splitDocId}
+          baseNumber={String(existingData?.name ?? "")}
+          config={(formData as any)?.items ? formData : (existingData as any)?.config}
+          onDone={(out) => {
+            setSplitOpen(false);
+            toast.success(`Split into ${out?.parts?.map((p) => p.name).join(", ")}`);
+            if (typeof window !== "undefined") window.location.reload();
+          }}
+        />
+      )}
       {signLinkDialogOpen && cielSignFlow && (
         <SignLinkDialog
           open={signLinkDialogOpen}

@@ -51,7 +51,8 @@ export function carryServerDoKeys(prev: unknown, next: Record<string, any>) {
  * order, the jobs it bills, whether it carries the quotation, and the DOs it
  * covers (printed as "Order No" / "DO No"). Absent on every other invoice.
  */
-export const SERVER_INVOICE_KEYS = ['orderId', 'orderNo', 'orderJobIds', 'orderBillsQuote', 'deliveryOrderNos'] as const;
+// invoiceSplit: Split payment's part marker (enableInvoiceSplit), so an editor save keeps the parts linked.
+export const SERVER_INVOICE_KEYS = ['orderId', 'orderNo', 'orderJobIds', 'orderBillsQuote', 'deliveryOrderNos', 'invoiceSplit'] as const;
 
 /** carryServerDoKeys for an invoice's server keys. Mutates and returns `next`. */
 export function carryServerInvoiceKeys(prev: unknown, next: Record<string, any>) {

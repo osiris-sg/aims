@@ -94,6 +94,16 @@ type NamesDb = {
   order?: { findMany: (args: any) => Promise<Array<{ orderNumber: string | null }>> };
 };
 
+/**
+ * Of these document names, the ones that are Split payment parts
+ * (config.invoiceSplit set). Read only when a "-n" name shows up in a scan.
+ */
+export async function splitPartNamesAmong(db: { document: { findMany: (args: any) => Promise<any[]> } }, organizationId: string, names: string[]): Promise<string[]> {
+  if (!names.length) return [];
+  const rows = await db.document.findMany({ where: { organizationId, name: { in: names } }, select: { name: true, config: true } });
+  return rows.filter((r: any) => r?.config?.invoiceSplit && typeof r.config.invoiceSplit === 'object').map((r: any) => String(r.name));
+}
+
 @Injectable()
 export class DocumentNumberingService {
   constructor(private readonly prisma: PrismaService) {}
@@ -170,11 +180,22 @@ export class DocumentNumberingService {
             select: { name: true },
           });
     let max = 0;
+    const partNames: string[] = [];
     for (const d of existing) {
       const name = d.name || '';
       if (suffix && !name.endsWith(suffix)) continue;
       const mid = name.slice(prefix.length, suffix ? name.length - suffix.length : undefined);
       if (/^\d+$/.test(mid)) max = Math.max(max, parseInt(mid, 10));
+      else if (/^\d+-\d+$/.test(mid)) partNames.push(name);
+    }
+    // Split payment (2026-11-17): INV202611-0014-1 / -2 are parts of INV202611-0014,
+    // whose serial (0014) stays used. Only rows that ARE split parts count
+    // (config.invoiceSplit); any other "-n" name is ignored as before.
+    if (partNames.length && documentType !== ORDER_NUMBER_TYPE) {
+      for (const name of await splitPartNamesAmong(db, organizationId, partNames)) {
+        const mid = name.slice(prefix.length, suffix ? name.length - suffix.length : undefined);
+        max = Math.max(max, parseInt(mid.split('-')[0], 10));
+      }
     }
     return max;
   }

@@ -251,6 +251,11 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // Invoices post to the GL when they leave draft (confirm / status change /
   // emailed), not on creation or draft saves. Default OFF; WCT group only.
   postInvoicesOnConfirm: false,
+  // Split payment (2026-11-17): a draft invoice's toolbar splits it into
+  // payment parts <number>-1..-n (by rate, or deposit + rate), one line each,
+  // and merges them back while all are drafts. Needs postInvoicesOnConfirm.
+  // Default OFF; WCT (S), Racking, BC Air.
+  enableInvoiceSplit: false,
   // AIMS never emails a customer by itself (service report on completion,
   // auto-send recurring invoices); button sends unchanged. Default OFF; WCT group.
   disableAutoCustomerEmails: false,

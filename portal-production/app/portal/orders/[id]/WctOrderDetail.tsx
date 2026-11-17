@@ -41,7 +41,7 @@ import { attachmentLine, type OrderAttachment, type ReportOption } from "@/helpe
 import { OrderJobPhotos } from "@/components/delivery/JobPhotos";
 import SendServiceReportDialog from "@/components/orders/SendServiceReportDialog";
 import OrderHubPanel from "./OrderHubPanel";
-import OrderDosSection, { type OrderDo } from "./OrderDosSection";
+import { OrderDoMenu, useAddDo, type OrderDo } from "./OrderDosSection";
 import OfficeCompleteJobDialog from "@/components/delivery/OfficeCompleteJobDialog";
 import CustomerSignLink from "@/components/delivery/CustomerSignLink";
 import { serviceReportFlowHref, type ServiceReportPrefill } from "@/helpers/serviceReportFlow";
@@ -142,6 +142,8 @@ export default function WctOrderDetail({ id }: { id: string }) {
   // DO first (manual flow, 2026-11-13): complete a DO with no job; its sign link; a report for one DO.
   const [completeDo, setCompleteDo] = useState<OrderDo | null>(null);
   const [signLinkDo, setSignLinkDo] = useState<OrderDo | null>(null);
+  // Order page cleanup (manual flow, 2026-11-17): DO rows of the Documents list carry this menu; Add DO sits by its heading.
+  const [doMenu, setDoMenu] = useState<{ pos: { left: number; top: number }; d: OrderDo } | null>(null);
 
   const load = useCallback(async () => {
     if (!organization?.id) return;
@@ -229,6 +231,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
     await loadOptions();
   };
 
+  const { addDo, adding: addingDo } = useAddDo(id, () => load());
   // Memoised: the dialog re-applies its prefill whenever this object changes.
   const prefill = useMemo(() => (order ? addJobPrefill(order) : null), [order]);
 
@@ -258,7 +261,8 @@ export default function WctOrderDetail({ id }: { id: string }) {
   const liveJobs = order.jobs.filter((j) => j.status !== "cancelled");
   // DO first: the order's DOs; the first one completable on its own (no job, no product line).
   const dos: OrderDo[] = (order as any).deliveryOrders ?? [];
-  const doFirst = !!(order as any).manualFlow && dos.length > 0;
+  const manualFlow = !!(order as any).manualFlow;
+  const doFirst = manualFlow && dos.length > 0;
   // Invoice first (2026-11-16): on the manual flow, an order with no invoice and nothing completed yet is invoiced from its quotation.
   const invoiceFromQuotation =
     !!(order as any).manualFlow && order.status !== "CANCELLED" && !(order.invoices?.length ?? 0) && !order.toInvoice?.length && !(order as any).toInvoiceDos?.length;
@@ -383,17 +387,28 @@ export default function WctOrderDetail({ id }: { id: string }) {
         )}
       </Stack>
 
-      <OrderHubPanel order={order} serviceReportReady={canSendReport} onAction={runHub} doFirst={doFirst} awaitingDo={!!awaitingDo} />
-      {(order as any).manualFlow && (
-        <OrderDosSection
-          orderId={order.id}
-          dos={dos}
-          cancelled={order.status === "CANCELLED"}
-          onReload={load}
-          onCompleteDo={(d) => setCompleteDo(d)}
-          onSignLink={(d) => setSignLinkDo(d)}
-        />
-      )}
+      <OrderHubPanel
+        order={order}
+        serviceReportReady={canSendReport}
+        onAction={runHub}
+        doFirst={doFirst}
+        awaitingDo={!!awaitingDo}
+        full={manualFlow}
+        jobLabel={jobStatusLabel}
+        onAddDo={manualFlow && order.status !== "CANCELLED" ? () => void addDo() : undefined}
+        addingDo={addingDo}
+        onDoMenu={(row, pos) => {
+          const d = dos.find((x) => x.id === row.id);
+          if (d) setDoMenu({ pos, d });
+        }}
+      />
+      <OrderDoMenu
+        menu={doMenu}
+        onClose={() => setDoMenu(null)}
+        cancelled={order.status === "CANCELLED"}
+        onCompleteDo={(d) => setCompleteDo(d)}
+        onSignLink={(d) => setSignLinkDo(d)}
+      />
       {completeDo && (
         <OfficeCompleteJobDialog
           open
@@ -419,10 +434,13 @@ export default function WctOrderDetail({ id }: { id: string }) {
         </DialogActions>
       </Dialog>
 
+      {/* Manual flow (2026-11-17): jobs are rows of the Documents list above, under their DO. */}
+      {!manualFlow && (
       <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
         Jobs
       </Typography>
-      {order.jobs.length === 0 ? (
+      )}
+      {manualFlow ? null : order.jobs.length === 0 ? (
         <Alert severity="info">{doFirst ? "No jobs. A job is optional: use Add job in a DO's menu for a date or a technician." : "No jobs yet. Use Add job to schedule the first one."}</Alert>
       ) : (
         <TableContainer sx={{ border: 1, borderColor: "divider", borderRadius: 1 }}>

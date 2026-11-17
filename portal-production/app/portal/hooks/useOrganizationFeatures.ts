@@ -33,6 +33,9 @@ interface OrganizationFeatures {
   enableWctOrderInvoice?: boolean;
   enableWctVehicles?: boolean;
   enableManualOrderFlow?: boolean;
+  /** Split payment on a draft invoice (2026-11-17; WCT (S), Racking, BC Air). Needs postInvoicesOnConfirm. */
+  enableInvoiceSplit?: boolean;
+  postInvoicesOnConfirm?: boolean;
   enableQuotationSubject?: boolean;
   enableJobFields?: boolean;
   // Office-signed delivery orders (2026-11-05): a DO raised in the office, with
@@ -272,6 +275,7 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Manual (dashboard-only) order flow (2026-11-12, needs enableWctOrders): draft DO + service report on
   // acceptance, the office completes jobs and sends the service report. Default OFF; WCT group.
   enableManualOrderFlow: false,
+  enableInvoiceSplit: false,
   // Subject field on quotations (the WCT paper has a Subject box). Default OFF; WCT group.
   enableQuotationSubject: false,
   enableWctMyJobs: false,
@@ -373,6 +377,7 @@ export function useOrganizationFeatures() {
     isWctOrderInvoiceEnabled: features.enableWctOrderInvoice ?? false,
     isWctVehiclesEnabled: features.enableWctVehicles ?? false,
     // Needs WCT orders too, the flow it extends (same rule as the API).
+    isInvoiceSplitEnabled: (features.enableInvoiceSplit ?? false) && (features.postInvoicesOnConfirm ?? false),
     isManualOrderFlowEnabled: (features.enableManualOrderFlow ?? false) && (features.enableWctOrders ?? false),
     isQuotationSubjectEnabled: features.enableQuotationSubject ?? false,
     isJobFieldsEnabled: features.enableJobFields ?? false,

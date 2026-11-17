@@ -7,6 +7,7 @@ import {
   DocumentExtractionService,
   SupplierReconciliationData,
 } from '../document-extraction/document-extraction.service';
+import { invoiceSplitOf, withSplitPartIds } from '../documents/invoice-split';
 import { isWctOrdersEnabled, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
 import { MANUAL_ORDER_STATUS_LABEL, isManualOrderFlow, type ManualOrderStatus } from './manual-order-flow';
 import { isVerifiedJob } from '../deliveries/finish-modes';
@@ -448,6 +449,11 @@ export class OrdersService {
     if (doInvIds.length) {
       for (const d of await this.prisma.document.findMany({ where: { organizationId, id: { in: doInvIds } }, select: { id: true, name: true, type: true, status: true, documentTemplateId: true, config: true } })) byId.set(d.id, d);
     }
+    // Split payment (2026-11-17): the other parts of a split invoice, so the row lists and totals every part.
+    const partIds = withSplitPartIds([], [...byId.values()] as any[]).filter((id) => !byId.has(id));
+    if (partIds.length) {
+      for (const d of await this.prisma.document.findMany({ where: { organizationId, id: { in: partIds } }, select: { id: true, name: true, type: true, status: true, documentTemplateId: true, config: true } })) byId.set(d.id, d);
+    }
     const reports = allJobs.length
       ? await this.prisma.maintenanceServiceReport.findMany({
           where: { organizationId, kind: 'SERVICE', deliveryId: { in: allJobs.map((j) => j.id) } },
@@ -467,7 +473,8 @@ export class OrdersService {
       ].filter((d: any) => (d.config as any)?.cancelled !== true);
       const joblessDos = dos.filter((d: any) => !jobDoIds.has(d.id));
       const doDone = (d: any) => String(d.status).startsWith('delivered');
-      const invoices = [...new Set([...live.map((j) => j.orderInvoiceId), ...joblessDos.map((d: any) => (d.config as any)?.orderInvoiceId), ...orderInv(o)].filter((v) => v && !String(v).startsWith('claim:')))]
+      const own = [...new Set([...live.map((j) => j.orderInvoiceId), ...joblessDos.map((d: any) => (d.config as any)?.orderInvoiceId), ...orderInv(o)].filter((v) => v && !String(v).startsWith('claim:')))] as string[];
+      const invoices = withSplitPartIds(own, own.map((id) => byId.get(id)).filter(Boolean) as any[])
         .map((id) => byId.get(id))
         .filter((d: any) => !!d && d.type === 'INVOICE')
         .map((d: any) => ({ ...docView(d), total: Number(d.config?.grandTotal ?? d.config?.documentInfo?.grandTotal ?? d.config?.nettTotal ?? 0) || 0 }));
@@ -895,6 +902,17 @@ export class OrdersService {
           orderBy: { createdAt: 'asc' },
         })
       : [];
+    // Split payment (2026-11-17): every part of a split invoice, in part order after their original.
+    const more = withSplitPartIds(ids, docs).filter((id) => !ids.includes(id));
+    if (more.length) {
+      docs.push(...(await this.prisma.document.findMany({ where: { id: { in: more }, organizationId }, select: { id: true, name: true, status: true, type: true, documentTemplateId: true, config: true, createdAt: true } })));
+      const key = (d: any) => {
+        const s = invoiceSplitOf(d.config);
+        const head = s ? docs.find((x: any) => x.id === s.groupId) ?? d : d;
+        return [+new Date(head.createdAt), s ? s.part : 0] as const;
+      };
+      docs.sort((a: any, b: any) => key(a)[0] - key(b)[0] || key(a)[1] - key(b)[1]);
+    }
     // Actually emailed (a SENT history event): "Confirmed" alone is not "Sent".
     const sent = docs.length
       ? new Set(
@@ -919,6 +937,8 @@ export class OrdersService {
       extra: d.config?.orderBillsQuote === false,
       // Made from the quotation before any DO was done (invoice first, 2026-11-16).
       fromQuotation: d.config?.orderInvoicedFirst === true,
+      // Split payment: this invoice is part n of m (key absent when not split).
+      ...((x) => (x ? { split: { groupId: x.groupId, part: Number(x.part), of: Number(x.of) } } : {}))(invoiceSplitOf(d.config)),
     }));
     const toInvoice = jobs.filter((j) => isVerifiedJob(j) && !j.orderInvoiceId).map((j) => j.deliveryNumber);
     return { invoicing, invoices, toInvoice };

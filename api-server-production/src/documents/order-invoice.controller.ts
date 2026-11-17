@@ -1,4 +1,4 @@
-import { Controller, Get, HttpException, HttpStatus, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, HttpException, HttpStatus, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { DocumentsService } from './documents.service';
@@ -27,6 +27,20 @@ export class OrderInvoiceController {
     if (!orgId) throw new HttpException('User is not assigned to any organization', HttpStatus.FORBIDDEN);
     const url = await this.documents.orderQuotationPdfUrl(id, orgId);
     if (!url) throw new HttpException('The quotation PDF is not available', HttpStatus.NOT_FOUND);
+    return { url };
+  }
+
+  /**
+   * Order page Documents (2026-11-17): one of the order's invoices (every split
+   * part too) as a PDF. Only an invoice of this order; a draft is re-rendered.
+   */
+  @Get(':id/invoice-pdf')
+  @Permissions('orders:read')
+  async invoicePdf(@Param('id') id: string, @Query('documentId') documentId: string, @Req() req: any) {
+    const orgId = req.userOrganization?.id;
+    if (!orgId) throw new HttpException('User is not assigned to any organization', HttpStatus.FORBIDDEN);
+    const url = documentId ? await this.documents.orderInvoicePdfUrl(id, documentId, orgId) : null;
+    if (!url) throw new HttpException('The invoice PDF is not available', HttpStatus.NOT_FOUND);
     return { url };
   }
 

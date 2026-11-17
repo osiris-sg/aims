@@ -133,6 +133,8 @@ const VERB_ACTIONS: Record<string, string> = {
   handoff: 'HANDOFF', 'cancel-handoff': 'CANCEL_HANDOFF',
   // Service-report remote signature: minting the customer's sign link.
   'sign-link': 'SHARE',
+  // Split payment (enableInvoiceSplit, 2026-11-17): a draft invoice split into parts, and merged back.
+  'split-invoice': 'SPLIT', 'undo-split': 'UNDO_SPLIT',
   revoke: 'REVOKE', activate: 'ACTIVATE', deactivate: 'DEACTIVATE',
   'auto-match': 'MATCH', match: 'MATCH', unmatch: 'UNMATCH', ignore: 'IGNORE',
   // Designer advances (2026-10-06): approve/decline and the payout stamp.

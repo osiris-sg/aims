@@ -487,6 +487,28 @@ export class DocumentsController {
     return await this.documentsService.createRevision(id, organizationId, actorFromReq(req));
   }
 
+  /** Split payment (enableInvoiceSplit, WCT group): body { mode: 'rate' | 'deposit', parts: number[], deposit?: { percent? | amount? } }. */
+  @Post(':id/split-invoice')
+  @Permissions('documents:update')
+  async splitInvoice(@Param('id') id: string, @Body() body: any, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new HttpException('User is not assigned to any organization', HttpStatus.FORBIDDEN);
+    const plan = { mode: body?.mode, parts: Array.isArray(body?.parts) ? body.parts : [], deposit: body?.deposit ?? null };
+    const out = await this.documentsService.splitInvoice(id, organizationId, plan, actorFromReq(req));
+    (req as any).actionLogResult = { split: out.baseNumber, parts: out.parts.map((p) => `${p.name} ${p.total.toFixed(2)}`) };
+    return out;
+  }
+
+  @Post(':id/undo-split')
+  @Permissions('documents:update')
+  async undoInvoiceSplit(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new HttpException('User is not assigned to any organization', HttpStatus.FORBIDDEN);
+    const out = await this.documentsService.undoInvoiceSplit(id, organizationId, actorFromReq(req));
+    (req as any).actionLogResult = { mergedInto: out.name, removed: out.removed };
+    return out;
+  }
+
   @Post(':id/duplicate')
   @Permissions('documents:create-basic')
   async duplicateDocument(@Param('id') id: string, @Req() req: RequestWithOrganization) {

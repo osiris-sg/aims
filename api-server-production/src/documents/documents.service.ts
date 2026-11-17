@@ -17,7 +17,7 @@ import { JournalAutoPostService } from '../journal/journal-auto-post.service';
 import { JournalService } from '../journal/journal.service';
 import { OrdersService } from '../orders/orders.service';
 import { DocumentTemplatesService } from '../documentTemplates/documentTemplates.service';
-import { DocumentNumberingService } from '../document-numbering/document-numbering.service';
+import { DocumentNumberingService, splitPartNamesAmong } from '../document-numbering/document-numbering.service';
 import { SendInvoiceEmailDto } from '../email/dto/send-invoice-email.dto';
 import { S3Service } from 'src/common/services/s3.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
@@ -29,9 +29,11 @@ import { pdfOptionsFor, isNamedLayout } from '../common/services/document-html';
 import { resolveDesign } from '../common/services/document-html/design';
 import { effectiveDesign, isImportedDoc } from '../common/services/document-html/wct-brand';
 import { outstandingOf, grossStampOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
+import { splitInvoice as splitInvoiceOp, undoInvoiceSplit as undoInvoiceSplitOp } from './invoice-split-ops';
+import type { SplitPlan } from './invoice-split';
 import { confirmPostsToGl, erpPaidAtImport, erpStoredTotalsOf, isErpImported, moneySignature } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
-import { orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
+import { fillEmptyOrderCustomer, invoiceRowsWithSplitParts, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
 import { isManualOrderFlow } from '../orders/manual-order-flow';
 import { skipsDoSaveStockRule } from './do-first-save';
 import { isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
@@ -1621,6 +1623,17 @@ export class DocumentsService {
         }
       }
 
+      // WCT orders (2026-11-17, ORD202611-013): a quotation confirmed before its
+      // customer was picked made an order with no customer, and the order never
+      // followed. A later quotation save that names a customer fills the order's
+      // EMPTY customer (never overwrites). Only orgs with enableWctOrders.
+      const quoteCustomerId = configAsPlainObject?.customerId;
+      if (typeof quoteCustomerId === 'string' && quoteCustomerId && /^QUOTATION|^QO|^QT/i.test(String(existingDocument.type || ''))) {
+        await fillEmptyOrderCustomer(this.prisma as any, organizationId, existingDocument.id, quoteCustomerId).catch((e: any) =>
+          console.warn('[wct-orders] order customer fill skipped:', e?.message),
+        );
+      }
+
       // ---- Invoice confirmation gate (price history + AR transaction) ----
       // NOTE: GL auto-posting for invoices lives in confirmInvoice(); this generic
       // update() path is for non-invoice document types or backwards-compat updates.
@@ -2816,6 +2829,16 @@ export class DocumentsService {
     return updated;
   }
 
+  /** Split payment (features.enableInvoiceSplit): a draft invoice into parts <number>-1..-n. See invoice-split-ops.ts. */
+  async splitInvoice(id: string, organizationId: string, plan: SplitPlan, actor?: DocumentActor) {
+    return splitInvoiceOp(this.prisma, organizationId, id, plan, actor, (e) => this.logDocumentEvent(e));
+  }
+
+  /** Undo split: every part still a draft with no payment; parts 2..n removed, part 1 back to its number. */
+  async undoInvoiceSplit(id: string, organizationId: string, actor?: DocumentActor) {
+    return undoInvoiceSplitOp(this.prisma, organizationId, id, actor, (e) => this.logDocumentEvent(e));
+  }
+
   async deleteDocument(id: string, organizationId: string, actor?: DocumentActor) {
     try {
       // No-draft model: a saved document may already sit in the GL — void its
@@ -3114,8 +3137,12 @@ export class DocumentsService {
     // pull in names of differing serial width under one prefix, where a
     // lexicographic max picks "-0010" over "-002". Compare the parsed integers.
     let nextSerial = 1;
+    // Split payment parts (INV…-005-2, config.invoiceSplit) count as their base serial (005), not as 2.
+    const partNames = existingDocs.map((d) => d.name || '').filter((n) => /^\d+-\d+$/.test(n.slice(namePrefix.length)));
+    const parts = new Set(partNames.length ? await splitPartNamesAmong(this.prisma as any, organizationId, partNames) : []);
     for (const d of existingDocs) {
-      const match = (d.name || '').match(/-(\d+)$/);
+      const name = d.name || '';
+      const match = parts.has(name) ? name.slice(namePrefix.length).match(/^(\d+)-/) : name.match(/-(\d+)$/);
       if (match) nextSerial = Math.max(nextSerial, parseInt(match[1], 10) + 1);
     }
     let name = `${namePrefix}${String(nextSerial).padStart(3, '0')}`;
@@ -3219,8 +3246,12 @@ export class DocumentsService {
       // Numeric max — a lexicographic one mis-ranks mixed serial widths, which
       // the widened scan can now surface under a single prefix.
       let nextSerial = 1;
+      // Split payment parts (INV…-005-2, config.invoiceSplit) count as their base serial (005), not as 2.
+      const partNames = existingDocs.map((d) => d.name || '').filter((n) => /^\d+-\d+$/.test(n.slice(namePrefix.length)));
+      const parts = new Set(partNames.length ? await splitPartNamesAmong(this.prisma as any, organizationId, partNames) : []);
       for (const d of existingDocs) {
-        const match = (d.name || '').match(/-(\d+)$/);
+        const name = d.name || '';
+        const match = parts.has(name) ? name.slice(namePrefix.length).match(/^(\d+)-/) : name.match(/-(\d+)$/);
         if (match) {
           nextSerial = Math.max(nextSerial, parseInt(match[1], 10) + 1);
         }
@@ -7879,6 +7910,28 @@ export class DocumentsService {
     const order = await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { sourceQuotationId: true } });
     if (!order?.sourceQuotationId) return null;
     return (await this.getOrGeneratePdfUrl(order.sourceQuotationId, organizationId)) ?? null;
+  }
+
+  /** An invoice of this order (job / DO / order links, and every split part) as a PDF; null when it is not the order's. */
+  async orderInvoicePdfUrl(orderId: string, documentId: string, organizationId: string): Promise<string | null> {
+    const order = await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, linkedDocuments: true, invoiceDocumentId: true } });
+    if (!order) return null;
+    const [jobs, dos] = await Promise.all([
+      this.prisma.delivery.findMany({ where: { organizationId, orderId }, select: { orderInvoiceId: true } }),
+      this.prisma.document.findMany({ where: { organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] }, config: { path: ['orderId'], equals: orderId } }, select: { config: true } }),
+    ]);
+    const ids = [
+      ...new Set(
+        [...orderInvoiceIdsOf(order as any), ...jobs.map((j) => j.orderInvoiceId), ...dos.map((d: any) => d.config?.orderInvoiceId)].filter(
+          (v): v is string => typeof v === 'string' && !!v && !v.startsWith('claim:'),
+        ),
+      ),
+    ];
+    const rows = await invoiceRowsWithSplitParts(this.prisma as any, organizationId, ids, { type: { in: ['INVOICE', 'TI', 'TI2'] } });
+    const row = rows.find((r) => r.id === documentId);
+    if (!row) return null;
+    // A draft still changes: render it fresh rather than from the S3 cache.
+    return (await this.getOrGeneratePdfUrl(documentId, organizationId, undefined, ['draft', 'unconfirmed'].includes(String(row.status)))) ?? null;
   }
 
   async getOrGeneratePdfUrl(

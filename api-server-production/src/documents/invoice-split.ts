@@ -1,0 +1,290 @@
+/**
+ * SPLIT INVOICE (features.enableInvoiceSplit, 2026-11-17; WCT group, default OFF).
+ *
+ * A draft invoice is split into payment parts, BC Air I003278 style: the
+ * original keeps its row and becomes <number>-1, the other parts are new draft
+ * invoices <number>-2, -3 ... (the numbering counter is never touched). Each
+ * part carries ONE line, e.g. "First payment (30%) of contract value
+ * $10,000.00, ref QO202611-0030", its own GST, and posts to the GL on
+ * confirm / send like any draft invoice (postInvoicesOnConfirm). "Undo split"
+ * merges the parts back while every part is still a draft with no payment.
+ *
+ * Two ways to split:
+ *   rate     parts by % of the contract value, totalling 100%
+ *   deposit  part 1 a deposit (% or a fixed amount), the remainder by %, the
+ *            remainder rows totalling 100% of the remainder
+ * The last part takes the rounding cents, so the parts add up to the contract
+ * value exactly. The contract value is what the invoice's lines carry after
+ * its document discount (excl. GST, or incl. GST on a tax-inclusive invoice).
+ *
+ * Pure helpers (no Prisma) shared by the service and the specs; the portal
+ * mirrors the math in helpers/invoiceSplit.ts (same fixtures in both tests).
+ *
+ * Stored on Document.config.invoiceSplit (no schema change):
+ *   every part:  { groupId (the original's id), part, of, baseNumber, mode }
+ *   part 1 also: partIds (all parts, in order), plan, contractValue, restore
+ *                (the original's items / totals / number, for Undo split), at, by
+ */
+import { computeDocumentTotals } from '../common/document-money';
+
+export const INVOICE_SPLIT_FLAG = 'enableInvoiceSplit';
+export const MAX_SPLIT_PARTS = 20;
+
+export type SplitMode = 'rate' | 'deposit';
+export interface SplitPlan {
+  mode: SplitMode;
+  /** rate: every part's %; deposit: the remainder rows' % (of the remainder). */
+  parts: number[];
+  /** deposit mode only: a % of the contract value OR a fixed amount. */
+  deposit?: { percent?: number | null; amount?: number | null } | null;
+}
+
+export class SplitPlanError extends Error {}
+
+const R2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+const num = (v: any): number | null => {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+/** "$10,000.00" (fixed, locale-free, so server and portal print the same). */
+export function fmtMoney(n: number): string {
+  const neg = n < 0;
+  const [i, d] = Math.abs(R2(n)).toFixed(2).split('.');
+  return `${neg ? '-' : ''}$${i.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${d}`;
+}
+
+/** 30 -> "30", 33.333 -> "33.33", 12.5 -> "12.5". */
+export function fmtPct(p: number): string {
+  return String(Number(R2(p).toFixed(2)));
+}
+
+const ORDINALS = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth', 'Ninth', 'Tenth'];
+const paymentLabel = (k: number) => (k <= ORDINALS.length ? `${ORDINALS[k - 1]} payment` : `Payment ${k}`);
+
+/** The number a part carries: INV202611-0014 -> INV202611-0014-2. */
+export const splitPartNumber = (baseNumber: string, part: number) => `${baseNumber}-${part}`;
+
+const isDisplayRow = (l: any): boolean => !l || !!l.isGroupHeader || !!l.isTagGroup;
+
+/** The invoice's tax settings, flat key first then documentInfo (as the editor stores them). */
+export function taxOf(config: any): { gstPercent: any; taxApplicable: any; absorbTax: any } {
+  const c = config || {};
+  const di = c.documentInfo || {};
+  return { gstPercent: c.gstPercent ?? di.gstPercent, taxApplicable: c.taxApplicable ?? di.taxApplicable, absorbTax: c.absorbTax ?? di.absorbTax };
+}
+
+/**
+ * What a split divides: the contract value (the lines after the document
+ * discount, in the lines' own tax basis), the invoice's totals from its lines
+ * and the quotation it bills (for the ", ref QO…" on each line).
+ */
+export function splitBaseOf(config: any): { contractValue: number; nettTotal: number; tax: ReturnType<typeof taxOf>; quotationNo: string | null } {
+  const c = config || {};
+  const di = c.documentInfo || {};
+  const items = (Array.isArray(c.items) ? c.items : []).filter((l: any) => !isDisplayRow(l));
+  const tax = taxOf(c);
+  const discount = num(c.discountAmount) ?? num(di.discountAmount) ?? 0;
+  const t = computeDocumentTotals(items, tax, { discountAmount: discount });
+  const contractValue = R2(t.grossTotal - (t.discountAmount ?? 0));
+  const srcType = String(c.sourceDocumentType ?? '').toUpperCase();
+  const quotationNo =
+    String((!srcType || srcType.startsWith('QUOTATION') || srcType.startsWith('QO') ? c.sourceDocumentNumber : '') ?? '').trim() ||
+    String(c.quotationNo ?? di.quotationNo ?? '').trim() ||
+    null;
+  return { contractValue, nettTotal: t.nettTotal, tax, quotationNo };
+}
+
+/**
+ * The amount of each part (in the lines' tax basis), validated. The last part
+ * (and, in deposit mode, the last remainder row) takes the rounding cents.
+ */
+export function splitAmounts(contractValue: number, plan: SplitPlan): { amounts: number[]; deposit: number | null; remainder: number | null } {
+  const base = R2(Number(contractValue));
+  if (!(base > 0)) throw new SplitPlanError('This invoice has no amount to split.');
+  if (plan?.mode !== 'rate' && plan?.mode !== 'deposit') throw new SplitPlanError('Pick By rate or Deposit + rate.');
+  const rows = Array.isArray(plan.parts) ? plan.parts.map((p) => Number(p)) : [];
+  if (rows.some((p) => !Number.isFinite(p) || p <= 0)) throw new SplitPlanError('Every part needs a rate above 0%.');
+  const sum = rows.reduce((s, p) => s + p, 0);
+  const total = (of: number) => {
+    const out = rows.map((p) => R2((of * p) / 100));
+    out[out.length - 1] = R2(of - out.slice(0, -1).reduce((s, a) => s + a, 0));
+    return out;
+  };
+  let amounts: number[];
+  let deposit: number | null = null;
+  let remainder: number | null = null;
+  if (plan.mode === 'rate') {
+    if (rows.length < 2) throw new SplitPlanError('Add at least one more invoice to split.');
+    if (Math.abs(sum - 100) > 0.001) throw new SplitPlanError(`The rates must total 100% (now ${fmtPct(sum)}%).`);
+    amounts = total(base);
+  } else {
+    if (rows.length < 1) throw new SplitPlanError('Add at least one invoice for the remainder.');
+    if (Math.abs(sum - 100) > 0.001) throw new SplitPlanError(`The remainder rates must total 100% (now ${fmtPct(sum)}%).`);
+    const pct = num(plan.deposit?.percent);
+    const amt = num(plan.deposit?.amount);
+    if (pct !== null && amt !== null) throw new SplitPlanError('Give the deposit as a % or as an amount, not both.');
+    if (pct !== null) {
+      if (!(pct > 0 && pct < 100)) throw new SplitPlanError('The deposit % must be above 0 and below 100.');
+      deposit = R2((base * pct) / 100);
+    } else if (amt !== null) {
+      if (!(amt > 0 && R2(amt) < base)) throw new SplitPlanError(`The deposit must be above $0.00 and below the contract value ${fmtMoney(base)}.`);
+      deposit = R2(amt);
+    } else throw new SplitPlanError('Enter the deposit.');
+    remainder = R2(base - deposit);
+    amounts = [deposit, ...total(remainder)];
+  }
+  if (amounts.length > MAX_SPLIT_PARTS) throw new SplitPlanError(`At most ${MAX_SPLIT_PARTS} invoices.`);
+  const zero = amounts.findIndex((a) => !(a > 0));
+  if (zero >= 0) throw new SplitPlanError(`Invoice -${zero + 1} comes to ${fmtMoney(amounts[zero])}. Use a larger rate.`);
+  return { amounts, deposit, remainder };
+}
+
+/** Each part's one line text (BC Air I003278 style). */
+export function splitLineTexts(plan: SplitPlan, contractValue: number, quotationNo: string | null): string[] {
+  const { remainder } = splitAmounts(contractValue, plan);
+  const ref = quotationNo ? `, ref ${quotationNo}` : '';
+  const of = `of contract value ${fmtMoney(contractValue)}${ref}`;
+  const rows = plan.parts.map(Number);
+  if (plan.mode === 'rate') {
+    return rows.map((p, i) => `${i === rows.length - 1 ? 'Final payment' : paymentLabel(i + 1)} (${fmtPct(p)}%) ${of}`);
+  }
+  const pct = num(plan.deposit?.percent);
+  const dep = pct !== null ? `Deposit (${fmtPct(pct)}%) ${of}` : `Deposit (${fmtMoney(R2(Number(plan.deposit?.amount)))}) ${of}`;
+  const bal = fmtMoney(remainder as number);
+  return [
+    dep,
+    ...rows.map((q, j) => {
+      const last = j === rows.length - 1;
+      const share = rows.length === 1 && Math.abs(q - 100) < 0.001 ? `balance ${bal}` : `${fmtPct(q)}% of balance ${bal}`;
+      return `${last ? 'Final payment' : paymentLabel(j + 2)} (${share}) ${of}`;
+    }),
+  ];
+}
+
+export interface SplitPart {
+  part: number;
+  amount: number;
+  description: string;
+  /** The part's totals, the editor's formula (excl. GST = subTotal, GST, total = nettTotal). */
+  totals: ReturnType<typeof computeDocumentTotals>;
+}
+
+/** Every part of a split: amount, line text and totals. Throws SplitPlanError on a bad plan. */
+export function planInvoiceSplit(config: any, plan: SplitPlan): { parts: SplitPart[]; contractValue: number; quotationNo: string | null } {
+  const { contractValue, tax, quotationNo } = splitBaseOf(config);
+  const { amounts } = splitAmounts(contractValue, plan);
+  const texts = splitLineTexts(plan, contractValue, quotationNo);
+  return {
+    contractValue,
+    quotationNo,
+    parts: amounts.map((amount, i) => ({ part: i + 1, amount, description: texts[i], totals: computeDocumentTotals([{ amount }], tax) })),
+  };
+}
+
+/** The revenue account a part's one line posts to: the account of the invoice's largest line. */
+export function dominantLineAccount(items: any[]): { accountCode?: string; revenueAccountCode?: string; glAccountName?: string } {
+  const lines = (Array.isArray(items) ? items : []).filter((l) => !isDisplayRow(l) && (l.accountCode || l.revenueAccountCode));
+  if (!lines.length) return {};
+  const amt = (l: any) => Math.abs(Number(l.amount) || Number(l.quantity) * Number(l.unitPrice) || 0);
+  const top = lines.reduce((a, b) => (amt(b) > amt(a) ? b : a));
+  return {
+    ...(top.accountCode ? { accountCode: top.accountCode } : {}),
+    ...(top.revenueAccountCode ? { revenueAccountCode: top.revenueAccountCode } : {}),
+    ...(top.glAccountName ? { glAccountName: top.glAccountName } : {}),
+  };
+}
+
+/** Config keys a part's totals live under (flat and in documentInfo). */
+export const SPLIT_TOTAL_KEYS = ['grossTotal', 'subTotal', 'gstAmount', 'nettTotal', 'gstPercent', 'taxApplicable', 'absorbTax', 'discountAmount', 'discountPercent'] as const;
+/** Money stamps (document-money.ts writes them; Undo split restores them as they were). */
+export const SPLIT_MONEY_KEYS = ['outstandingBalance', 'xeroBalance', 'paidToDate', 'xeroAmountPaid', 'totalWithTax', 'xeroGross'] as const;
+/** Copied from the original onto a new part: never (identity, payment link, edit stamps, jobs billed). */
+export const SPLIT_NOT_COPIED = ['payToken', 'savedAt', 'savedBy', 'lastUsedAt', 'lastUsedBy', 'confirmedAt', 'orderJobIds', 'xeroInvoiceId', 'xeroSyncedAt', 'invoiceSplit', 'sentAt', 'emailedAt'] as const;
+
+/** The part's config: the original's header with the part's one line and totals. */
+export function partConfig(
+  original: any,
+  p: SplitPart,
+  ctx: { number: string; groupId: string; of: number; baseNumber: string; mode: SplitMode; account: Record<string, string> },
+): any {
+  const src: any = { ...(original || {}) };
+  for (const k of SPLIT_NOT_COPIED) delete src[k];
+  for (const k of [...SPLIT_TOTAL_KEYS, ...SPLIT_MONEY_KEYS]) delete src[k];
+  const di: any = { ...(src.documentInfo || {}) };
+  for (const k of SPLIT_TOTAL_KEYS) delete di[k];
+  const t = p.totals;
+  const totals = { grossTotal: t.grossTotal, subTotal: t.subTotal, gstAmount: t.gstAmount, nettTotal: t.nettTotal, gstPercent: t.gstPercent, taxApplicable: t.taxApplicable, absorbTax: t.absorbTax };
+  return {
+    ...src,
+    documentNumber: ctx.number,
+    items: [{ description: p.description, quantity: 1, unitPrice: p.amount, amount: p.amount, splitPart: p.part, ...ctx.account }],
+    ...totals,
+    documentInfo: { ...di, ...totals, ...(di.documentNumber !== undefined ? { documentNumber: ctx.number } : {}) },
+    // Money (document-money.ts): a new unpaid part is owed in full.
+    totalWithTax: t.nettTotal,
+    xeroGross: t.nettTotal,
+    outstandingBalance: t.nettTotal,
+    xeroBalance: t.nettTotal,
+    paidToDate: 0,
+    xeroAmountPaid: 0,
+    invoiceSplit: { groupId: ctx.groupId, part: p.part, of: ctx.of, baseNumber: ctx.baseNumber, mode: ctx.mode },
+  };
+}
+
+/** What Undo split puts back on part 1: the original's lines, totals, money and number. */
+export function restoreSnapshotOf(original: any): { items: any[]; flat: Record<string, any>; documentInfo: Record<string, any> } {
+  const c = original || {};
+  const di = c.documentInfo || {};
+  const pick = (o: any, keys: readonly string[]) => Object.fromEntries(keys.filter((k) => o[k] !== undefined).map((k) => [k, o[k]]));
+  return {
+    items: c.items ?? [],
+    flat: pick(c, [...SPLIT_TOTAL_KEYS, ...SPLIT_MONEY_KEYS, 'documentNumber']),
+    documentInfo: pick(di, [...SPLIT_TOTAL_KEYS, 'documentNumber']),
+  };
+}
+
+/** Part 1's config after Undo split: its current header, the original's lines / totals / money / number back. */
+export function mergedBackConfig(current: any, restore: { items: any[]; flat: Record<string, any>; documentInfo: Record<string, any> }): any {
+  const out: any = { ...(current || {}) };
+  delete out.invoiceSplit;
+  for (const k of [...SPLIT_TOTAL_KEYS, ...SPLIT_MONEY_KEYS, 'documentNumber']) delete out[k];
+  const di: any = { ...(out.documentInfo || {}) };
+  for (const k of [...SPLIT_TOTAL_KEYS, 'documentNumber']) delete di[k];
+  return { ...out, items: restore.items, ...restore.flat, documentInfo: { ...di, ...restore.documentInfo } };
+}
+
+/** The split marker on an invoice's config, or null. */
+export function invoiceSplitOf(config: any): { groupId: string; part: number; of: number; baseNumber: string; mode?: SplitMode; partIds?: string[] } | null {
+  const s = config?.invoiceSplit;
+  return s && typeof s === 'object' && typeof s.groupId === 'string' && Number.isFinite(Number(s.part)) ? s : null;
+}
+
+/**
+ * Every invoice id of the given ones plus the other parts of any split among
+ * them (part 1 lists them in partIds), first seen order. `docs` are the rows
+ * already read for `ids` (with config); none split = `ids` unchanged.
+ */
+export function withSplitPartIds(ids: string[], docs: Array<{ id: string; config?: any }>): string[] {
+  const out = [...ids];
+  const seen = new Set(out);
+  for (const d of docs) {
+    const s = invoiceSplitOf(d.config);
+    for (const pid of [...(s?.partIds ?? []), ...(s && s.groupId !== d.id ? [s.groupId] : [])]) {
+      if (typeof pid === 'string' && !seen.has(pid)) {
+        seen.add(pid);
+        out.push(pid);
+      }
+    }
+  }
+  return out;
+}
+
+/** "2 of 3 sent" for an order's invoices when some are split parts; null when none is. */
+export function splitSentSummary(invoices: Array<{ status?: string | null; config?: any; split?: any }>): string | null {
+  const parts = invoices.filter((i) => i.split || invoiceSplitOf(i.config));
+  if (!parts.length) return null;
+  const sent = invoices.filter((i) => !['draft', 'unconfirmed'].includes(String(i.status ?? '').toLowerCase())).length;
+  return `${sent} of ${invoices.length} sent`;
+}

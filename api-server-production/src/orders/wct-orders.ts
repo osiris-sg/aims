@@ -23,6 +23,7 @@ import {
  * Order.status so lists can filter on it; every job write that can move it
  * calls refreshOrderStatus, and the order pages refresh on read as well.
  */
+import { withSplitPartIds } from '../documents/invoice-split';
 import { deriveManualOrderStatus, isManualOrderFlow, withStatusDate, type ManualOrderStatus, deriveManualOrderStatusFromUnits, unitStateOfJobs, type OrderUnit } from './manual-order-flow';
 
 export const WCT_ORDERS_FLAG = 'enableWctOrders';
@@ -145,7 +146,7 @@ export async function refreshOrderStatus(prisma: any, organizationId: string, or
       if (order.status === 'CANCELLED') return null;
       const jobs = await prisma.delivery.findMany({ where: { organizationId, orderId }, select: { status: true, isDraft: true, verificationState: true, orderInvoiceId: true } });
       const invoiceIds = [...new Set(jobs.map((j: any) => j.orderInvoiceId).filter((v: any) => v && !String(v).startsWith('claim:')))] as string[];
-      const invoices = invoiceIds.length ? await prisma.document.findMany({ where: { id: { in: invoiceIds }, organizationId }, select: { status: true } }) : [];
+      const invoices = await invoiceRowsWithSplitParts(prisma, organizationId, invoiceIds);
       const status = deriveOrderStatus(jobs, {
         invoiceStatuses: invoices.map((d: any) => String(d.status)),
         hasServiceReport: hasServiceReportAttachment(order.attachments),
@@ -193,7 +194,8 @@ async function refreshManualOrderStatus(prisma: any, organizationId: string, ord
   }
   // Every invoice of the order: those billing a DO / job, plus one made from the quotation before any DO was done (invoice first).
   const invoiceIds = [...new Set([...units.map((u) => u.invoiceId), ...orderInvoiceIdsOf(order)].filter(Boolean))] as string[];
-  const invoices = invoiceIds.length ? await prisma.document.findMany({ where: { id: { in: invoiceIds }, organizationId, type: 'INVOICE' }, select: { status: true } }) : [];
+  // Split payment (2026-11-17): every part of a split invoice counts ("all parts" sent / paid).
+  const invoices = await invoiceRowsWithSplitParts(prisma, organizationId, invoiceIds, { type: 'INVOICE' });
   const dates = (order.statusDates as Record<string, string> | null) ?? {};
   const status = deriveManualOrderStatusFromUnits(units, { invoiceStatuses: invoices.map((d: any) => String(d.status)), serviceReportSent: !!dates.serviceReportSentAt });
   // The order exists because the quotation was signed / accepted: that first
@@ -204,6 +206,32 @@ async function refreshManualOrderStatus(prisma: any, organizationId: string, ord
     await prisma.order.update({ where: { id: orderId }, data: { status, statusDates: nextDates } });
   }
   return status;
+}
+
+/**
+ * The invoice rows for these ids plus the other parts of any Split payment
+ * among them (invoice-split.ts). No split = the same rows as before, one query.
+ */
+export async function invoiceRowsWithSplitParts(prisma: any, organizationId: string, ids: string[], where: Record<string, unknown> = {}): Promise<Array<{ id: string; status: string; config: any }>> {
+  if (!ids.length) return [];
+  const sel = { id: true, status: true, config: true };
+  const rows = await prisma.document.findMany({ where: { id: { in: ids }, organizationId, ...where }, select: sel });
+  const more = withSplitPartIds(ids, rows).filter((id) => !ids.includes(id));
+  if (!more.length) return rows;
+  return [...rows, ...(await prisma.document.findMany({ where: { id: { in: more }, organizationId, ...where }, select: sel }))];
+}
+
+/**
+ * WCT orders: fill the EMPTY customer of the quotation's order (never
+ * overwrites) with a customer of the same org. Returns the number of orders
+ * filled. No-op without enableWctOrders.
+ */
+export async function fillEmptyOrderCustomer(prisma: any, organizationId: string, quotationId: string, customerId: string): Promise<number> {
+  if (!(await isWctOrdersEnabled(prisma, organizationId))) return 0;
+  const customer = await prisma.customer.findFirst({ where: { id: customerId, organizationId }, select: { id: true } });
+  if (!customer) return 0;
+  const r = await prisma.order.updateMany({ where: { organizationId, sourceQuotationId: quotationId, customerId: null }, data: { customerId: customer.id } });
+  return r?.count ?? 0;
 }
 
 /** The order of a run, for callers that only hold the run id. Best-effort. */

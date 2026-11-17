@@ -44,3 +44,20 @@ describe('ActionLogInterceptor — permanent delivery delete', () => {
     expect(rows[0].details.result).toBeUndefined();
   });
 });
+
+describe('ActionLogInterceptor — split payment (enableInvoiceSplit)', () => {
+  const DOC = '2f1c1d7e-1111-4c3b-9b1a-0a0a0a0a0a0a';
+  it.each([
+    ['split-invoice', 'SPLIT', { split: 'INV202611-0014', parts: ['INV202611-0014-1 3270.00', 'INV202611-0014-2 7630.00'] }],
+    ['undo-split', 'UNDO_SPLIT', { mergedInto: 'INV202611-0014', removed: ['INV202611-0014-2'] }],
+  ])('POST /documents/:id/%s logs %s with what changed', async (verb, action, result) => {
+    const req: any = { ...base(), originalUrl: `/documents/${DOC}/${verb}`, url: `/documents/${DOC}/${verb}`, params: { id: DOC } };
+    const { rows, out } = run(req, () => {
+      req.actionLogResult = result;
+      return of({ ok: true });
+    });
+    await out;
+    expect(rows[0]).toMatchObject({ action, resource: 'documents', resourceId: DOC, status: 'SUCCESS' });
+    expect(rows[0].details.result).toEqual(result);
+  });
+});

@@ -11,10 +11,12 @@ import React from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
-import { Box, Button, Chip, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
+import { Box, Button, Chip, CircularProgress, IconButton, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import moment from "moment";
-import { HUB_ACTION_LABEL, hubNextStep, hubSteps, type HubActionKey, type HubStep } from "@/helpers/wctOrderHub";
+import { HUB_ACTION_LABEL, hubDocuments, hubNextStep, hubSteps, type HubActionKey, type HubDocRow, type HubStep } from "@/helpers/wctOrderHub";
 
 const fmt = (d: string | null) => (d ? moment(d).format("DD/MM/YYYY") : "");
 
@@ -48,6 +50,11 @@ function StepBox({ step, n, onOpen }: { step: HubStep; n: number; onOpen: (href:
           </Typography>
         )}
       </Stack>
+      {step.note && (
+        <Typography variant="caption" component="div" sx={{ fontWeight: 600, mb: 0.25 }}>
+          {step.note}
+        </Typography>
+      )}
       {step.docs.length ? (
         step.docs.map((d, i) => (
           <Typography key={i} variant="caption" component="div" sx={{ color: "text.secondary" }}>
@@ -78,11 +85,33 @@ function StepBox({ step, n, onOpen }: { step: HubStep; n: number; onOpen: (href:
   );
 }
 
-export default function OrderHubPanel({ order, serviceReportReady, onAction, doFirst = false, awaitingDo = false }: { order: any; serviceReportReady: boolean; onAction: (key: HubActionKey, pos?: { left: number; top: number }) => void; doFirst?: boolean; awaitingDo?: boolean }) {
+export default function OrderHubPanel({
+  order,
+  serviceReportReady,
+  onAction,
+  doFirst = false,
+  awaitingDo = false,
+  full = false,
+  jobLabel,
+  onAddDo,
+  addingDo = false,
+  onDoMenu,
+}: {
+  order: any;
+  serviceReportReady: boolean;
+  onAction: (key: HubActionKey, pos?: { left: number; top: number }) => void;
+  doFirst?: boolean;
+  awaitingDo?: boolean;
+  /** Manual flow (2026-11-17): Documents is the order page's one list (every invoice part, DO, job, report). */
+  full?: boolean;
+  jobLabel?: (j: any) => string;
+  onAddDo?: () => void;
+  addingDo?: boolean;
+  onDoMenu?: (row: HubDocRow, pos: { left: number; top: number }) => void;
+}) {
   const router = useRouter();
   const { getToken } = useAuth();
   const steps = hubSteps(order);
-  const stepOf = (k: HubStep["key"]) => steps.find((s) => s.key === k)!;
   // Open a file from the API: the signed quotation PDF (a signed URL back), the signed DO or a photos file (the bytes).
   const openFile = async (path: string) => {
     const tab = window.open("", "_blank");
@@ -113,12 +142,7 @@ export default function OrderHubPanel({ order, serviceReportReady, onAction, doF
     }
   };
   const next = hubNextStep({ status: order.status, invoices: order.invoices, serviceReportReady, doFirst, awaitingDo });
-  const docs = [
-    ...stepOf("quotation").docs.map((d) => ({ type: "Quotation", ...d })),
-    ...stepOf("invoice").docs.map((d) => ({ type: "Invoice", ...d })),
-    ...stepOf("do").docs.map((d) => ({ type: "Delivery order", ...d })),
-    ...stepOf("report").docs.map((d) => ({ type: "Service report", ...d, status: `${d.status}${d.status !== "Draft" ? " · photos on the report" : ""}` })),
-  ];
+  const docs = hubDocuments(order, { full, jobLabel });
   const finished = order.status === "SERVICE_REPORT_SENT" || order.status === "CLOSED";
 
   return (
@@ -147,9 +171,17 @@ export default function OrderHubPanel({ order, serviceReportReady, onAction, doF
         </Stack>
       </Stack>
 
-      <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
-        Documents
-      </Typography>
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+          Documents
+        </Typography>
+        <Box sx={{ flex: 1 }} />
+        {onAddDo && (
+          <Button size="small" variant="outlined" startIcon={addingDo ? <CircularProgress size={14} /> : <AddIcon />} disabled={addingDo} onClick={onAddDo} data-tour="wct-order-add-do">
+            Add DO
+          </Button>
+        )}
+      </Stack>
       {docs.length ? (
         <Table size="small">
           <TableHead>
@@ -158,12 +190,13 @@ export default function OrderHubPanel({ order, serviceReportReady, onAction, doF
               <TableCell>Number</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>File</TableCell>
+              {full && <TableCell sx={{ width: 48 }} />}
             </TableRow>
           </TableHead>
           <TableBody>
             {docs.map((d, i) => (
               <TableRow key={i} hover sx={{ cursor: d.href ? "pointer" : "default" }} onClick={() => d.href && router.push(d.href)}>
-                <TableCell>{d.type}</TableCell>
+                <TableCell sx={d.child ? { pl: 4, color: "text.secondary" } : undefined}>{d.type}</TableCell>
                 <TableCell sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{d.label}</TableCell>
                 <TableCell>{d.status}</TableCell>
                 <TableCell>
@@ -181,6 +214,22 @@ export default function OrderHubPanel({ order, serviceReportReady, onAction, doF
                     </Button>
                   )}
                 </TableCell>
+                {full && (
+                  <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+                    {d.kind === "do" && onDoMenu && (
+                      <IconButton
+                        size="small"
+                        aria-label="DO actions"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDoMenu(d, { left: e.clientX, top: e.clientY });
+                        }}
+                      >
+                        <MoreVertIcon fontSize="small" />
+                      </IconButton>
+                    )}
+                  </TableCell>
+                )}
               </TableRow>
             ))}
           </TableBody>
