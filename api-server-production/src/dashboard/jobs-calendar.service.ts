@@ -3,7 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { runAsOrg } from '../common/tenancy/tenant-context';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { SiteClockLinkService } from '../siteclock/siteclock-link.service';
-import { buildCalendarEvents, CalendarEvent, CalendarSiteClockJob, CALENDAR_TZ, checkRange, rangeInstants } from './jobs-calendar';
+import { buildCalendarEvents, CalendarEvent, CalendarRun, CalendarSiteClockJob, CALENDAR_TZ, checkRange, rangeInstants } from './jobs-calendar';
 import { calendarBadge, calendarLegend, isJobFieldsEnabled, jobFieldDefs, jobFieldValues } from '../deliveries/job-fields';
 import { CalendarNoteView, CalendarNotesService } from './calendar-notes.service';
 
@@ -56,6 +56,9 @@ export class JobsCalendarService {
     // Calendar add on (notes is not null): jobs show PTW and an "Untagged" mark when they have no order.
     if (notes) for (const r of runs as any[]) r.untagged = !r.order;
     else for (const r of runs as any[]) delete r.ptw;
+    // Calendar add on: each job's quotation (the order's, else the quick job's own) for the panel's QO link.
+    if (notes) await this.attachQuotations(organizationId, runs as any[]);
+    for (const r of runs as any[]) delete r.quotationId;
     const links = runs.length
       ? await this.prisma.deliverySiteClockJob.findMany({
           where: { organizationId, deliveryId: { in: runs.map((r) => r.id) } },
@@ -100,7 +103,8 @@ export class JobsCalendarService {
           siteAddress: true,
           customer: { select: { name: true } },
           project: { select: { name: true } },
-          order: { select: { id: true, orderNumber: true } },
+          order: { select: { id: true, orderNumber: true, sourceQuotationId: true } },
+          sourceQuotationId: true,
           verificationState: true,
           ptwStatus: true,
           ptwRemark: true,
@@ -124,10 +128,25 @@ export class JobsCalendarService {
       projectName: r.project?.name ?? null,
       service: (r.items?.length ?? 0) > 0,
       deliveryOrder: dos.get(r.id) ?? null,
-      order: r.order ?? null,
+      order: r.order ? { id: r.order.id, orderNumber: r.order.orderNumber } : null,
+      quotationId: (r.order?.sourceQuotationId ?? r.sourceQuotationId ?? null) as string | null,
       verificationState: r.verificationState ?? null,
       ptw: r.ptwStatus ? { status: r.ptwStatus, remark: r.ptwRemark ?? null } : null,
     }));
+  }
+
+  /** WCT calendar add: each run's quotation (number, type, template) from its quotationId. */
+  private async attachQuotations(organizationId: string, runs: Array<{ quotationId?: string | null; quotation?: CalendarRun['quotation'] }>) {
+    const ids = [...new Set(runs.map((r) => r.quotationId).filter((x): x is string => !!x))];
+    if (!ids.length) return;
+    const docs: any[] = await runAsOrg(organizationId, () =>
+      this.prisma.document.findMany({ where: { id: { in: ids }, organizationId }, select: { id: true, name: true, type: true, documentTemplateId: true } }),
+    );
+    const by = new Map(docs.map((d) => [d.id, d]));
+    for (const r of runs) {
+      const d = r.quotationId ? by.get(r.quotationId) : null;
+      if (d) r.quotation = { id: d.id, name: d.name ?? null, type: d.type, templateId: d.documentTemplateId ?? null };
+    }
   }
 
   /** Each run's Delivery Order (first DO its lines point at): number, status, template, cancelled mark. */

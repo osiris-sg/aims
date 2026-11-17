@@ -11,7 +11,9 @@
 // job, no order). A click or tap opens the job's details in a panel on the right
 // (links order > DO > job; a SiteClock job opens in SiteClock); it stays open
 // until closed or another job is clicked. "+n more" lists that day's jobs in the
-// panel. (Replaced the hover card, whose card covered the chips below it, so a
+// panel. Calendar add on (2026-11-17): the panel's Order / Quotation / DO numbers
+// are links (in-app push, so Back returns here) and an order job's title opens
+// the order. (Replaced the hover card, whose card covered the chips below it, so a
 // click there opened the hovered job instead of the one under the pointer.)
 
 import React, { useMemo, useState } from "react";
@@ -31,7 +33,7 @@ import { noteToCalendarInput, ptwColor, slotOf, type CalendarNote } from "@/help
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
-import { CALENDAR_TZ, badgeTitle, crewLine, dayJobsOf, dayOfInstant, eventColor, kindLabel, panelLinks, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent } from "./calendarModel";
+import { CALENDAR_TZ, badgeTitle, crewLine, dayJobsOf, dayOfInstant, eventColor, kindLabel, panelLinks, panelRefs, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent } from "./calendarModel";
 import DoStatusTag from "@/components/DoStatusTag";
 
 interface Props {
@@ -206,6 +208,7 @@ export default function CalendarView({
         <JobPanel
           panel={panel}
           jobWords={jobWords}
+          linkRefs={canAdd}
           onPick={(event) => setPanel((p) => ({ event, day: p?.day ?? null }))}
           onBack={() => setPanel((p) => (p?.day ? { event: null, day: p.day } : null))}
           onClose={() => setPanel(null)}
@@ -267,9 +270,23 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function EventCard({ event: e, jobWords, byPtw = false }: { event: CalendarEvent; jobWords: boolean; byPtw?: boolean }) {
+/** A numbered row's link (WCT calendar add): underlined like the order page's Quotation link; an in-app push, so Back returns here. */
+function RefLink({ href, children }: { href: string | null; children: React.ReactNode }) {
+  const num = <Box component="span" sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{children}</Box>;
+  return href ? (
+    <Link href={href} style={{ color: "inherit" }}>
+      {num}
+    </Link>
+  ) : (
+    num
+  );
+}
+
+function EventCard({ event: e, jobWords, byPtw = false, linkRefs = false }: { event: CalendarEvent; jobWords: boolean; byPtw?: boolean; linkRefs?: boolean }) {
   const color = eventColor(e, byPtw);
   const links = byPtw ? panelLinks(e) : null;
+  // WCT calendar add: numbered Order / Quotation / DO links and the title to the order (null = as before).
+  const refs = byPtw ? panelRefs(e, linkRefs) : null;
   return (
     <Box>
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
@@ -279,7 +296,13 @@ function EventCard({ event: e, jobWords, byPtw = false }: { event: CalendarEvent
         </Typography>
       </Stack>
       <Typography variant="subtitle1" sx={{ fontWeight: 600, lineHeight: 1.3, mb: 1, textDecoration: e.cancelled ? "line-through" : "none" }}>
-        {e.title}
+        {refs?.titleHref ? (
+          <Link href={refs.titleHref} style={{ color: "inherit" }}>
+            {e.title}
+          </Link>
+        ) : (
+          e.title
+        )}
       </Typography>
       <Row label="When">{timeWindow(e)}</Row>
       {(e.address || e.site) && (
@@ -327,12 +350,24 @@ function EventCard({ event: e, jobWords, byPtw = false }: { event: CalendarEvent
           </Stack>
         </Row>
       ))}
-      {e.orderNumber && (
+      {refs?.rows.map((r) => (
+        <Row key={r.key} label={r.label}>
+          {r.key === "do" && e.doTag ? (
+            <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+              <RefLink href={r.href}>{r.number}</RefLink>
+              <DoStatusTag tag={e.doTag} />
+            </Stack>
+          ) : (
+            <RefLink href={r.href}>{r.number}</RefLink>
+          )}
+        </Row>
+      ))}
+      {!refs && e.orderNumber && (
         <Row label="Order">
           <Box component="span" sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{e.orderNumber}</Box>
         </Row>
       )}
-      {e.doNumber && (
+      {!refs && e.doNumber && (
         <Row label="DO">
           <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
             <Box component="span" sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{e.doNumber}</Box>
@@ -387,12 +422,14 @@ const chipTime = (e: CalendarEvent) => (e.allDay ? "All day" : new Intl.DateTime
 function JobPanel({
   panel,
   jobWords,
+  linkRefs,
   onPick,
   onBack,
   onClose,
 }: {
   panel: { event: CalendarEvent | null; day: { date: string; events: CalendarEvent[] } | null };
   jobWords: boolean;
+  linkRefs: boolean;
   onPick: (e: CalendarEvent) => void;
   onBack: () => void;
   onClose: () => void;
@@ -431,7 +468,7 @@ function JobPanel({
       </Stack>
       <Box sx={{ p: 2, overflowY: "auto", flex: 1 }}>
         {event ? (
-          <EventCard event={event} jobWords={jobWords} byPtw />
+          <EventCard event={event} jobWords={jobWords} byPtw linkRefs={linkRefs} />
         ) : day ? (
           <List dense disablePadding>
             {day.events.map((e) => (

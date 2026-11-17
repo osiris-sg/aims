@@ -46,6 +46,9 @@ export interface CalendarEvent {
   /** WCT calendar add: PTW badge (only when needed) and the "Untagged" mark (no order yet). */
   ptw?: { status: string; label: string; remark: string | null };
   untagged?: boolean;
+  /** WCT calendar add: the job's quotation (the order's, else a quick job's own unsigned one) and its document page. */
+  quotationNumber?: string | null;
+  quotationHref?: string | null;
 }
 
 export interface CalendarBadge {
@@ -275,4 +278,32 @@ export function crewLine(c: CalendarCrew): string {
 export function siteclockBanner(p: Pick<CalendarPayload, "siteclock"> | null | undefined): string | null {
   if (p?.siteclock?.state !== "unavailable") return null;
   return "SiteClock unavailable: showing AIMS jobs only. SiteClock jobs will appear when it answers again.";
+}
+
+/** One numbered row of the WCT panel: "Order ORD…", "Quotation QO…" or "DO DO…", linked to its page. */
+export interface PanelRef {
+  key: "order" | "quotation" | "do";
+  label: "Order" | "Quotation" | "DO";
+  number: string;
+  href: string | null;
+}
+
+/**
+ * WCT calendar add (enableWctOrders + enableJobsCalendar): the panel's numbered
+ * links and where the job's title goes. Order job: Order + Quotation + DO, the
+ * title opens the order. Quick job on an unsigned quotation: Quotation only.
+ * Misc job: no Order / Quotation rows. SiteClock job: no rows (Open in SiteClock
+ * stays). null = gate off: the panel stays as it was (plain Order / DO numbers).
+ */
+export function panelRefs(
+  e: Pick<CalendarEvent, "source" | "orderNumber" | "orderHref" | "quotationNumber" | "quotationHref" | "doNumber" | "doHref">,
+  enabled: boolean,
+): { titleHref: string | null; rows: PanelRef[] } | null {
+  if (!enabled) return null;
+  if (e.source === "siteclock") return { titleHref: null, rows: [] };
+  const rows: PanelRef[] = [];
+  if (e.orderNumber) rows.push({ key: "order", label: "Order", number: e.orderNumber, href: e.orderHref ?? null });
+  if (e.quotationNumber) rows.push({ key: "quotation", label: "Quotation", number: e.quotationNumber, href: e.quotationHref ?? null });
+  if (e.doNumber) rows.push({ key: "do", label: "DO", number: e.doNumber, href: e.doHref ?? null });
+  return { titleHref: e.orderNumber && e.orderHref ? e.orderHref : null, rows };
 }

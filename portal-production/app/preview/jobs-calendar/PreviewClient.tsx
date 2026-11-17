@@ -38,10 +38,14 @@ const EVENTS: CalendarEvent[] = [
   sc("s5", "Duct cleaning", 17, 10, 240, { worker: "Team C" }),
 ];
 
-// WCT calendar add (?add=1): an Untagged quick job with a PTW badge, PTW on an order job, and notes.
+// WCT calendar add (?add=1): a quick job on an unsigned quotation (PTW badge), an order job (Order + QO + DO), a misc job, and notes.
 const ADD_EVENTS: CalendarEvent[] = [
-  aims("q1", "delivery", 29, "Domino's Pizza (Tampines)", 4, 15, 60, { untagged: true, ptw: { status: "REQUIRED", label: "Required", remark: "MCST form" }, worker: "Kumar Raj" }),
-  aims("q2", "service", 30, "Changi Airport T3", 10, 16, 60, { orderNumber: "ORD202611-004", title: "ORD202611-004 · #30 Changi Airport T3", ptw: { status: "APPROVED", label: "Approved", remark: null } }),
+  aims("q1", "delivery", 29, "Domino's Pizza (Tampines)", 4, 15, 60, { untagged: true, ptw: { status: "REQUIRED", label: "Required", remark: "MCST form" }, worker: "Kumar Raj", quotationNumber: "QO202611-012", quotationHref: "/portal/documents/QUOTATION/tpl-q/q-12" }),
+  aims("q2", "service", 30, "Changi Airport T3", 10, 16, 60, {
+    orderNumber: "ORD202611-004", orderHref: "/portal/orders/ord-4", title: "ORD202611-004 · #30 Changi Airport T3", ptw: { status: "APPROVED", label: "Approved", remark: null },
+    quotationNumber: "QO202611-004", quotationHref: "/portal/documents/QUOTATION/tpl-q/q-4", doNumber: "DO202611021", doTag: "Pending", doHref: "/portal/documents/DELIVERY_ORDER/tpl-do/do-21",
+  }),
+  aims("q3", "service", 31, "Kulnari Adventure Golf", 12, 14, 60),
 ];
 const NOTES: CalendarNote[] = [
   { id: "n1", title: "Ali on leave", type: "LEAVE", staffId: "w1", staffName: "Muhammad Ali", startDate: "2026-11-09", endDate: "2026-11-11", allDay: true, startTime: null, endTime: null, remark: null },

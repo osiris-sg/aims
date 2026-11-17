@@ -281,3 +281,94 @@ describe('JobsCalendarService', () => {
     expect(res.events).toHaveLength(1);
   });
 });
+
+// WCT calendar add (enableWctOrders + enableJobsCalendar): the panel's Quotation link.
+describe('jobs calendar quotation link (calendar add gate)', () => {
+  const ORD = '44444444-4444-4444-8444-444444444444';
+  const Q1 = '55555555-5555-4555-8555-555555555555';
+  const Q2 = '66666666-6666-4666-8666-666666666666';
+  const base = {
+    deliveryNumber: 12,
+    direction: 'OUTBOUND',
+    status: 'scheduled',
+    scheduledFor: new Date('2026-11-03T02:00:00Z'),
+    riderUserId: null,
+    riderName: null,
+    siteAddress: '1 Tuas Ave',
+    customer: { name: 'Acme' },
+    project: null,
+    items: [],
+  };
+  const rows = [
+    // Order job: the order's quotation wins over the run's own pointer.
+    { ...base, id: D1, order: { id: ORD, orderNumber: 'ORD202611-001', sourceQuotationId: Q1 }, sourceQuotationId: Q2 },
+    // Quick job on an unsigned quotation: no order yet.
+    { ...base, id: D2, deliveryNumber: 13, order: null, sourceQuotationId: Q2 },
+    // Misc job: no order, no quotation.
+    { ...base, id: D3, deliveryNumber: 14, order: null, sourceQuotationId: null },
+  ];
+  function setup(gateOn: boolean) {
+    const docFind = jest.fn(async (args: any) =>
+      args.where.type
+        ? [{ id: 'doc1', name: 'DO202611001', status: 'unconfirmed', documentTemplateId: 'tplDO', config: {}, createdAt: new Date() }]
+        : [
+            { id: Q1, name: 'QO202611-001', type: 'QUOTATION', documentTemplateId: 'tplQ' },
+            { id: Q2, name: 'QO202611-002', type: 'QUOTATION', documentTemplateId: 'tplQ' },
+          ].filter((d) => args.where.id.in.includes(d.id)),
+    );
+    const prisma: any = {
+      organizationUIConfig: { findUnique: jest.fn().mockResolvedValue({ features: { enableJobsCalendar: true } }) },
+      delivery: { findMany: jest.fn().mockResolvedValue(rows.map((r) => ({ ...r }))) },
+      deliverySiteClockJob: { findMany: jest.fn().mockResolvedValue([]) },
+      deliveryItem: { findMany: jest.fn().mockResolvedValue([{ deliveryId: D1, documentId: 'doc1' }]) },
+      document: { findMany: docFind },
+    };
+    const notes = { inRange: jest.fn().mockResolvedValue(gateOn ? [] : null) };
+    const svc = new JobsCalendarService(prisma, { calendarJobs: async () => [scJob()] } as any, notes as any);
+    return { svc, docFind };
+  }
+  const byId = (events: any[], id: string) => events.find((e) => e.id === id);
+
+  it('gate on: order job gets its order quotation, an unsigned quick job its own, a misc and a SiteClock job none', async () => {
+    const { svc } = setup(true);
+    const res = await svc.get(WCT, '2026-11-01', '2026-11-30');
+    expect(byId(res.events, `aims:${D1}`)).toMatchObject({
+      orderNumber: 'ORD202611-001',
+      orderHref: `/portal/orders/${ORD}`,
+      quotationNumber: 'QO202611-001',
+      quotationHref: `/portal/documents/QUOTATION/tplQ/${Q1}`,
+      doNumber: 'DO202611001',
+      doHref: '/portal/documents/DELIVERY_ORDER/tplDO/doc1',
+    });
+    const quick = byId(res.events, `aims:${D2}`);
+    expect(quick).toMatchObject({ quotationNumber: 'QO202611-002', quotationHref: `/portal/documents/QUOTATION/tplQ/${Q2}`, untagged: true });
+    expect(quick.orderNumber).toBeUndefined();
+    const misc = byId(res.events, `aims:${D3}`);
+    expect(misc.quotationNumber).toBeUndefined();
+    expect(misc.orderNumber).toBeUndefined();
+    expect(byId(res.events, 'sc:sc1').quotationNumber).toBeUndefined();
+    // No internal pointers leak into the payload.
+    expect(JSON.stringify(res.events)).not.toContain('quotationId');
+    expect(JSON.stringify(res.events)).not.toContain('sourceQuotationId');
+  });
+
+  it('gate off: no quotation fields and no quotation query; events match the plain merge', async () => {
+    const { svc, docFind } = setup(false);
+    const res = await svc.get(WCT, '2026-11-01', '2026-11-30');
+    for (const e of res.events) {
+      expect(e.quotationNumber).toBeUndefined();
+      expect(e.quotationHref).toBeUndefined();
+    }
+    expect(docFind).toHaveBeenCalledTimes(1); // the DO lookup only
+    expect(docFind.mock.calls[0][0].where.type).toBeDefined();
+    expect(JSON.stringify(res.events)).not.toContain('quotationId');
+    expect(res.notes).toBeUndefined();
+  });
+
+  it('a quotation without a template shows its number with no link', () => {
+    const [e] = buildCalendarEvents([run({ quotation: { id: Q1, name: 'QO1', type: 'QUOTATION', templateId: null } })], [], null);
+    expect(e).toMatchObject({ quotationNumber: 'QO1', quotationHref: null });
+    const [plain] = buildCalendarEvents([run()], [], null);
+    expect('quotationNumber' in plain).toBe(false);
+  });
+});

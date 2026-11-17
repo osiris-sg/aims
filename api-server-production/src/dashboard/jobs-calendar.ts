@@ -57,6 +57,8 @@ export interface CalendarRun {
   ptw?: { status: string; remark: string | null } | null;
   /** WCT calendar add: the job has no order yet. */
   untagged?: boolean;
+  /** WCT calendar add: the job's quotation (its order's, else the quick job's own unsigned one). */
+  quotation?: { id: string; name: string | null; type: string; templateId: string | null } | null;
 }
 
 /** One custom job field's icon on an event (icon key, colour, "Permit approved: Yes"). */
@@ -141,6 +143,15 @@ export interface CalendarEvent {
   /** WCT calendar add: PTW badge (only when not "Not needed") and the "Untagged" mark. */
   ptw?: { status: string; label: string; remark: string | null };
   untagged?: boolean;
+  /** WCT calendar add: the job's quotation number and its document page (absent for every other org). */
+  quotationNumber?: string | null;
+  quotationHref?: string | null;
+}
+
+/** The quotation row of a WCT job's panel: number + the quotation's document page (null without a template). */
+export function quotationFields(q: CalendarRun['quotation']): Pick<CalendarEvent, 'quotationNumber' | 'quotationHref'> | null {
+  if (!q) return null;
+  return { quotationNumber: q.name, quotationHref: q.templateId ? `/portal/documents/${q.type || 'QUOTATION'}/${q.templateId}/${q.id}` : null };
 }
 
 /** The DO block of a run's popup: number, tag (from the DO itself) and the office DO page. */
@@ -295,6 +306,7 @@ export function buildCalendarEvents(runs: CalendarRun[], links: CalendarLink[], 
       ...(r.badges?.length ? { badges: r.badges } : {}),
       ...(r.ptw && ptwShown(r.ptw.status) ? { ptw: { status: r.ptw.status, label: PTW_LABEL[r.ptw.status as PtwStatus] ?? r.ptw.status, remark: r.ptw.remark } } : {}),
       ...(r.untagged ? { untagged: true } : {}),
+      ...(quotationFields(r.quotation) ?? {}),
     });
   }
 
