@@ -1,5 +1,6 @@
 "use client";
 
+import { useAppBack } from "@/app/portal/hooks/useAppBack";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -118,6 +119,7 @@ const doHref = (d: NonNullable<Job["deliveryOrder"]>) => `/portal/documents/DELI
 
 export default function WctOrderDetail({ id }: { id: string }) {
   const router = useRouter();
+  const { goBack } = useAppBack();
   const { organization } = useOrganization();
   const { getToken } = useAuth();
   const [order, setOrder] = useState<WctOrder | null>(null);
@@ -333,7 +335,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
   return (
     <MainCard>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-        <IconButton size="small" onClick={() => router.push("/portal/orders")} aria-label="Back to orders">
+        <IconButton size="small" onClick={() => goBack("/portal/orders")} aria-label="Back to orders">
           <ArrowBackIcon fontSize="small" />
         </IconButton>
         <Typography variant="caption" color="text.secondary">

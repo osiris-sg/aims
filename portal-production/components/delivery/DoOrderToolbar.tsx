@@ -17,6 +17,7 @@ import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
 import OfficeCompleteJobDialog from "./OfficeCompleteJobDialog";
 import CustomerSignLink from "./CustomerSignLink";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 export default function DoOrderToolbar({ documentId, doName, status, config }: { documentId: string; doName: string | null; status: string; config: any }) {
   const router = useRouter();
@@ -26,6 +27,8 @@ export default function DoOrderToolbar({ documentId, doName, status, config }: {
   const [completeOpen, setCompleteOpen] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  // enableWctDocNav: the sign link lives in the toolbar Send menu instead.
+  const { isWctDocNavEnabled } = useOrganizationFeatures();
   const customer = c.customerId || c.customer?.id ? { id: c.customerId || c.customer?.id, name: c.customerName || c.customer?.name || "" } : null;
   const products = (Array.isArray(c.items) ? c.items : []).filter((it: any) => it?.assetId && !it.inventoryItemId);
   const orderHref = c.orderId ? `/portal/orders/${c.orderId}` : null;
@@ -59,9 +62,11 @@ export default function DoOrderToolbar({ documentId, doName, status, config }: {
           <Button size="small" variant="outlined" disabled={busy} onClick={() => void addJob()} data-tour="do-add-job">
             Add job
           </Button>
-          <Button size="small" variant="outlined" onClick={() => setLinkOpen(true)} data-tour="do-sign-link">
-            Customer sign link
-          </Button>
+          {!isWctDocNavEnabled && (
+            <Button size="small" variant="outlined" onClick={() => setLinkOpen(true)} data-tour="do-sign-link">
+              Customer sign link
+            </Button>
+          )}
           <Button size="small" variant="contained" disableElevation onClick={() => setCompleteOpen(true)} data-tour="do-complete">
             Complete DO
           </Button>
