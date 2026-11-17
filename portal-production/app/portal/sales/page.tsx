@@ -2,9 +2,14 @@
 
 // Sales main page (guru 2026-11-14): the module's front door — this month's
 // figures from the role-home snapshot and a tile per sales document type.
+// Jobs-calendar orgs (enableJobsCalendar — the WCT group; guru 2026-11-17:
+// "add the calendar inside the sales main page") get the same jobs calendar
+// the Dashboard shows, under the tiles.
 import * as React from "react";
 import ModuleHome, { type ModuleStat } from "@/app/portal/components/ModuleHome/ModuleHome";
 import { useRoleHomeSnapshot } from "@/app/portal/components/RoleHome/RoleHome";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import JobsCalendar from "@/components/Dashboard/JobsCalendar";
 
 const money = (n: number, currency: string) =>
   new Intl.NumberFormat("en-SG", { style: "currency", currency: currency || "SGD", currencyDisplay: "narrowSymbol", maximumFractionDigits: 0 }).format(Math.round(n));
@@ -12,6 +17,7 @@ const count = (n: number) => n.toLocaleString("en-SG");
 
 export default function SalesPage() {
   const { snapshot: s, loading } = useRoleHomeSnapshot("30");
+  const { isJobsCalendarEnabled } = useOrganizationFeatures();
   const cur = s?.currency || "SGD";
   const stats: ModuleStat[] = [
     { label: "Invoices issued", value: s ? count(s.invoicesIssued.current) : null, sub: "Last 30 days", href: "/portal/sales/invoices" },
@@ -21,5 +27,9 @@ export default function SalesPage() {
     { label: "Pending delivery", value: s ? count(s.pending.deliveryOrdersPending) : null, sub: "Confirmed delivery orders", href: "/portal/sales/delivery-orders" },
     { label: "To confirm", value: s ? count(s.pending.unconfirmedDocuments) : null, href: "/portal/accounting/posting-queue" },
   ];
-  return <ModuleHome code="SALES" title="Sales" stats={stats} loading={loading} />;
+  return (
+    <ModuleHome code="SALES" title="Sales" stats={stats} loading={loading}>
+      {isJobsCalendarEnabled ? <JobsCalendar /> : null}
+    </ModuleHome>
+  );
 }

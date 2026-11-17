@@ -58,7 +58,8 @@ export function useModuleScreens(code: string): Array<{ label: string; path: str
   }, [navModules, code, subLabel]);
 }
 
-export default function ModuleHome({ code, title, stats, loading }: { code: string; title: string; stats: ModuleStat[]; loading?: boolean }) {
+/** `children`: an optional block rendered under the tiles (Sales: the jobs calendar). */
+export default function ModuleHome({ code, title, stats, loading, children }: { code: string; title: string; stats: ModuleStat[]; loading?: boolean; children?: React.ReactNode }) {
   const theme = useTheme();
   const dark = theme.palette.mode === "dark";
   const screens = useModuleScreens(code);
@@ -115,6 +116,7 @@ export default function ModuleHome({ code, title, stats, loading }: { code: stri
       {screens.length === 0 && !loading && (
         <Stack alignItems="center" sx={{ py: 6, color: "text.secondary" }}><Typography>No pages in this module.</Typography></Stack>
       )}
+      {children && <Box sx={{ ...card, p: { xs: 2, md: 3 }, mt: 3, "& > div:last-of-type": { mb: 0 } }}>{children}</Box>}
     </Box>
   );
 }
