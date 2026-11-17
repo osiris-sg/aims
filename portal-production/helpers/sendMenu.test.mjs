@@ -106,3 +106,10 @@ test("service report, setting off: exactly the old Copy sign link rule, no menu"
           }
   assert.equal(reportSendControls(true, { status: "draft", isWctPaper: false, isUploaded: false, manualOrderFlow: false, onOrder: false, deleted: false }).legacySignLink, false);
 });
+
+test("an invoice voided with its cancelled order offers no send; anything else is untouched", async () => {
+  const { withoutSendWhenVoided } = await import("./sendMenu.ts");
+  const c = { menu: [{ key: "email" }], legacySign: true, legacyEmail: true };
+  assert.deepEqual(withoutSendWhenVoided(c, true), { menu: null, legacySign: false, legacyEmail: false });
+  assert.equal(withoutSendWhenVoided(c, false), c);
+});

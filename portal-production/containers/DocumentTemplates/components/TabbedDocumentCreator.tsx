@@ -139,7 +139,7 @@ import { doOrderIdOf } from "@/helpers/doOrder";
 import { usesCielSignFlow } from "@/helpers/signLinkWording";
 import { useAppBack } from "@/app/portal/hooks/useAppBack";
 import SendMenuButton from "@/components/nav/SendMenuButton";
-import { editorSendControls } from "@/helpers/sendMenu";
+import { editorSendControls, withoutSendWhenVoided } from "@/helpers/sendMenu";
 import CustomerSignLink from "@/components/delivery/CustomerSignLink";
 import { useDocumentLock } from "@/app/portal/hooks/useDocumentLock";
 import { toast } from "react-toastify";
@@ -495,7 +495,9 @@ export default function TabbedDocumentCreator({
   // paid, delivered_*, …) — it is locked to the read-only preview. Named
   // "confirmed" for history; it really means "not unconfirmed" so all
   // downstream lock/preview gates cover those states.
-  const isDocumentConfirmedStatus = !["draft", "unconfirmed"].includes(documentStatus);
+  // An invoice voided with its cancelled order (manual flow) is locked like a confirmed one: no Confirm, no edits.
+  const voidedWithOrder = isVoidedWithOrder((existingData as any)?.config);
+  const isDocumentConfirmedStatus = !["draft", "unconfirmed"].includes(documentStatus) || voidedWithOrder;
   // Edit-after-confirm (guru 2026-09-09): a confirmed document opens as a
   // READ-ONLY form; the toolbar "Edit" button (behind a warning dialog)
   // unlocks it. Unlocking flips this effective flag so every downstream
@@ -852,7 +854,7 @@ export default function TabbedDocumentCreator({
   // The document page passes the DO's config flattened (orderId at the top, no .id / .config): read both shapes.
   const doOnOrder = isDeliveryOrder && !!isManualOrderFlowEnabled && !!(documentId || (existingData as any)?.id) && !!doOrderIdOf(existingData);
   // Send controls (helpers/sendMenu.ts): setting off = the old Send for signature / Send Email rules exactly.
-  const sendControls = editorSendControls(isWctDocNavEnabled, {
+  const sendControls = withoutSendWhenVoided(editorSendControls(isWctDocNavEnabled, {
     documentType,
     saved: !!(existingData?.id || documentId),
     confirmed: isDocumentConfirmedStatus,
@@ -860,7 +862,7 @@ export default function TabbedDocumentCreator({
     quotationESign: isQuotationESignEnabled,
     doOnOrder,
     doCompleted: String(documentStatus || "").startsWith("delivered"),
-  });
+  }), voidedWithOrder);
   // Return Delivery Order. Documents genuinely carry the canonical
   // RETURN_DELIVERY_ORDER type (not just the "RDO" variant), so every RDO-only
   // render branch matches BOTH: the editor tracks reality rather than relying on

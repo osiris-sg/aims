@@ -122,3 +122,8 @@ export function reportSendControls(
   if (enabled) return { menu: reportSendOptions(o), legacySignLink: false };
   return { menu: null, legacySignLink: o.status !== "completed" && !o.isWctPaper && !o.isUploaded };
 }
+
+/** An invoice voided with its cancelled order (helpers/docStatus isVoidedWithOrder) offers no send at all. */
+export function withoutSendWhenVoided<T extends { menu: SendOption[] | null; legacySign: boolean; legacyEmail: boolean }>(c: T, voided: boolean): T {
+  return voided ? { ...c, menu: null, legacySign: false, legacyEmail: false } : c;
+}
