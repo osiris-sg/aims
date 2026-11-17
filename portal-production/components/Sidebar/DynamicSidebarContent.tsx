@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useUiLang } from "@/i18n/UiLangProvider";
 import { useTranslations } from "next-intl";
-import { useNavLabels } from "@/components/TopNav/useNavModules";
+import { useNavLabels, SALES_REPORT_SUBMENU } from "@/components/TopNav/useNavModules";
 import * as React from "react";
 import {
   List,
@@ -94,7 +94,7 @@ export default function DynamicSidebarContent() {
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
-  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled } = useOrganizationFeatures();
+  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled, isSalesReportEnabled, isQuotationCategoryEnabled } = useOrganizationFeatures();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
   const navLang = useUiLang().lang;
@@ -277,6 +277,10 @@ export default function DynamicSidebarContent() {
         !filtered.some((s: any) => (typeof s === 'string' ? s : s?.key) === 'monthly-payables')
       ) {
         filtered.push({ key: 'monthly-payables', label: 'Monthly Payables' });
+      }
+      // Sales -> Sales report rides on the enableSalesReport flag (same rule as the top bar).
+      if (m.moduleCode === 'SALES' && isSalesReportEnabled && !filtered.some((s: any) => (typeof s === 'string' ? s : s?.key) === 'sales-report')) {
+        filtered.push(SALES_REPORT_SUBMENU);
       }
       return { ...m, config: { ...(m.config as any), subMenus: filtered } };
     })
@@ -504,9 +508,11 @@ export default function DynamicSidebarContent() {
         { key: 'masterfiles', label: 'Master Files', path: '/portal/masterfiles' },
         // Custom job fields (enableJobFields orgs only).
         { key: 'job-fields', label: 'Job fields', path: '/portal/settings/job-fields' },
+        // Quotation categories for the sales report (enableQuotationCategory orgs only).
+        { key: 'quotation-categories', label: 'Quotation categories', path: '/portal/settings/quotation-categories' },
         // Was the Audit module (guru 2026-11-12: "audit should be called audit log").
         { key: 'audit', label: 'Audit Log', path: '/portal/audit' },
-      ].filter((s) => (s.key !== 'users' || (settingsModuleOn('USER_MANAGEMENT') && !isUserMgmtMasterfileEnabled)) && (s.key !== 'audit' || settingsModuleOn('AUDIT')) && (s.key !== 'accounting-setup' || accountingSetupShown) && (s.key !== 'business-rules' || isBusinessRulesEnabled) && (s.key !== 'hotkeys' || isHotkeysEnabled) && ((s.key !== 'shipping' && s.key !== 'customer-profiles') || showShippingSettings(isModuleEnabled)) && (s.key !== 'job-fields' || isJobFieldsEnabled))
+      ].filter((s) => (s.key !== 'users' || (settingsModuleOn('USER_MANAGEMENT') && !isUserMgmtMasterfileEnabled)) && (s.key !== 'audit' || settingsModuleOn('AUDIT')) && (s.key !== 'accounting-setup' || accountingSetupShown) && (s.key !== 'business-rules' || isBusinessRulesEnabled) && (s.key !== 'hotkeys' || isHotkeysEnabled) && ((s.key !== 'shipping' && s.key !== 'customer-profiles') || showShippingSettings(isModuleEnabled)) && (s.key !== 'job-fields' || isJobFieldsEnabled) && (s.key !== 'quotation-categories' || isQuotationCategoryEnabled))
         .map((s) => ({ ...s, label: settingLabel(s) })),
     },
   ];

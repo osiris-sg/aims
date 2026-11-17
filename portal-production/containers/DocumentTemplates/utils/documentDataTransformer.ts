@@ -158,7 +158,9 @@ export function transformFormDataForBackend(
     // /documents/:id/link-project PATCH), but the preview and the server-side
     // PDF only get the saved document — without the name they had nothing to
     // print and the Project row stayed blank (guru 2026-09-25).
-    'projectName'
+    'projectName',
+    // Quotation Category (enableQuotationCategory orgs; undefined = never written).
+    'quotationCategory'
   ];
 
   flatFields.forEach(field => {

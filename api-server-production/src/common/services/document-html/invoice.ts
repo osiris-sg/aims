@@ -276,5 +276,15 @@ export function renderInvoiceBody(data: any, organization: any, design: Document
   const footer = footerRow + notesBlock + footerMsgBlock + designFooter(design) + `</div>`;
 
   // mt:auto pins the bottom block to the page end, exactly like the portal.
-  return header + partyRow + table + additional + `<div style="margin-top:auto;">` + totals + inWords + footer + `</div>`;
+  // Remarks (features.enableDocRemarks, stamped by effectiveDesign as design.docRemarks): below the totals, above the
+  // terms. Only for those orgs and only when typed; every other invoice renders exactly as before.
+  const remarksText = data?.design?.docRemarks === true ? String(data?.remarks ?? '').trim() : '';
+  const remarksBlock = remarksText ? docRemarksBlock(remarksText) : '';
+
+  return header + partyRow + table + additional + `<div style="margin-top:auto;">` + totals + inWords + remarksBlock + footer + `</div>`;
+}
+
+/** The invoice / DO "Remarks" block of the stock layouts (enableDocRemarks orgs): bold label, the text as typed. */
+export function docRemarksBlock(text: string): string {
+  return `<div style="margin-top:12px;page-break-inside:avoid;break-inside:avoid;"><p style="font-size:13px;font-weight:600;">Remarks:</p><div style="font-size:13px;line-height:1.6;white-space:pre-wrap;">${escapeHtml(text)}</div></div>`;
 }

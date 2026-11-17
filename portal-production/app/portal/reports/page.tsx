@@ -2,13 +2,27 @@
 
 import React from "react";
 import { Box, Grid, Card, CardContent, Typography, CardActionArea } from "@mui/material";
-import { Assessment, TrendingUp } from "@mui/icons-material";
+import { Assessment, TrendingUp, RequestQuote } from "@mui/icons-material";
 import { useRouter } from "next/navigation";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 export default function ReportsPage() {
   const router = useRouter();
+  const { isSalesReportEnabled } = useOrganizationFeatures();
 
   const reports = [
+    // Sales report (enableSalesReport, WCT group 2026-11-18).
+    ...(isSalesReportEnabled
+      ? [
+          {
+            title: "Sales report",
+            description: "",
+            icon: <RequestQuote sx={{ fontSize: 48 }} />,
+            path: "/portal/reports/sales",
+            color: "#6a1b9a",
+          },
+        ]
+      : []),
     {
       title: "Price History",
       description: "View historical price data for inventory items and track price changes over time",

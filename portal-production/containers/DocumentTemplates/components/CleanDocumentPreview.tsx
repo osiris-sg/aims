@@ -2281,6 +2281,15 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           );
         })()}
 
+        {/* Remarks (enableDocRemarks orgs only: the editor passes data.docRemarks): below the
+            totals, above the terms; nothing when empty. Mirrors the server's docRemarksBlock. */}
+        {data.docRemarks === true && String(data.remarks ?? "").trim() !== "" && (
+          <Box sx={{ mt: 1.5, pageBreakInside: "avoid", breakInside: "avoid" }}>
+            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Remarks:</Typography>
+            <Typography sx={{ fontSize: "0.8125rem", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{String(data.remarks).trim()}</Typography>
+          </Box>
+        )}
+
         {/* Footer - Due Date, Bank Details, Notes & Computer Generated Notice */}
         <Box sx={{ mt: 2, borderTop: "2px solid #000", pt: 1.5 }}>
           {/* Due Date - calculated from invoice date + payment terms */}
@@ -3205,6 +3214,15 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             </TableBody>
           </Table>
         </TableContainer>
+
+        {/* Remarks (enableDocRemarks orgs only: the editor passes data.docRemarks): below the
+            totals, above the terms; nothing when empty. Mirrors the server's docRemarksBlock. */}
+        {data.docRemarks === true && String(data.remarks ?? "").trim() !== "" && (
+          <Box sx={{ mt: 1.5, pageBreakInside: "avoid", breakInside: "avoid" }}>
+            <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600 }}>Remarks:</Typography>
+            <Typography sx={{ fontSize: "0.8125rem", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{String(data.remarks).trim()}</Typography>
+          </Box>
+        )}
 
         {/* Flex spacer — fills available height inside the page-1 wrapper so
             the signature block below pins to the bottom of the printed page. */}

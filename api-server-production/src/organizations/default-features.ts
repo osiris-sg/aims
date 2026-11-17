@@ -286,6 +286,12 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // Quotation templates (2026-11-18): named sets of quotation lines; "+ Add" arrow >
   // Create from template, and Save as template in the quotation's menu. Default OFF; WCT group.
   enableQuotationTemplates: false,
+  // Invoice + DO "Remarks" field (editor + print, below the totals). Default OFF; WCT group.
+  enableDocRemarks: false,
+  // Quotation "Category" from the org's own list (Settings > Quotation categories). Default OFF; WCT group.
+  enableQuotationCategory: false,
+  // Reports > Sales report: quotations per salesperson with Signed / Pending totals by category. Default OFF; WCT group.
+  enableSalesReport: false,
   // Custom job fields (2026-11-01, Phase 6): the org's admins define their own
   // fields on jobs (Settings → Job fields: yes/no, text, date, file upload,
   // link; icon + colours) — filled on the schedule / edit job form and the

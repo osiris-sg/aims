@@ -50,6 +50,7 @@ import { ConfigurationModule } from './configuration/configuration.module';
 import { PriceHistoryModule } from './price-history/price-history.module';
 import { OrdersModule } from './orders/orders.module';
 import { JobFieldsModule } from './job-fields/job-fields.module';
+import { SalesReportModule } from './sales-report/sales-report.module';
 import { ShipmentsModule } from './shipments/shipments.module';
 import { PaymentsModule } from './payments/payments.module';
 import { RevenueItemsModule } from './revenue-items/revenue-items.module';
@@ -134,6 +135,7 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
     PriceHistoryModule,
     OrdersModule,
     JobFieldsModule,
+    SalesReportModule,
     ShipmentsModule,
     PaymentsModule,
     RevenueItemsModule,

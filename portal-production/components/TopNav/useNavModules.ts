@@ -35,6 +35,8 @@ const HIDDEN_SUBMENUS: Record<string, string[]> = {
   USER_MANAGEMENT: ["roles"],
 };
 const ORDER_OVERRIDE: Record<string, number> = { SALES: 0.5 };
+/** Sales -> Sales report (enableSalesReport orgs): the report lives under /portal/reports. */
+export const SALES_REPORT_SUBMENU = { key: "sales-report", label: "Sales report", href: "/portal/reports/sales" };
 
 // Secondary group — mirrors the sidebar's "Organization Settings" block
 // (company profile / accounting setup / Master Files hub). Accounting Setup is
@@ -54,6 +56,8 @@ export const SETTINGS_MENU = [
   { label: "Master Files", path: "/portal/masterfiles" },
   // Custom job fields (enableJobFields orgs only, filtered below).
   { label: "Job fields", path: "/portal/settings/job-fields" },
+  // Quotation categories for the sales report (enableQuotationCategory orgs only, filtered below).
+  { label: "Quotation categories", path: "/portal/settings/quotation-categories" },
   // Was the Audit module (guru 2026-11-12: "audit should be called audit log"); shown when the org has that module.
   { label: "Audit Log", path: "/portal/audit" },
 ];
@@ -120,7 +124,7 @@ export function useNavModules() {
   const { modules, isModuleEnabled } = useConfiguration();
   const { isModuleAllowed, userRoles, hasPermission } = useUserPermissions();
   // Same rule as DynamicSidebarContent's Organization Settings group.
-  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled } = useOrganizationFeatures();
+  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled, isSalesReportEnabled, isQuotationCategoryEnabled } = useOrganizationFeatures();
   const moduleOn = (code: string) => (modules || []).some((m: any) => m.moduleCode === code && m.enabled) && isModuleAllowed(code);
   const settingsMenu = SETTINGS_MENU.filter(
     (s) =>
@@ -132,7 +136,8 @@ export function useNavModules() {
       // duplicate Org Settings → Users entry (guru 2026-11-16).
       (s.path !== "/portal/user-management/users" || !isUserMgmtMasterfileEnabled) &&
       ((s.path !== "/portal/settings/shipping" && s.path !== "/portal/settings/customers") || showShippingSettings(isModuleEnabled)) &&
-      (s.path !== "/portal/settings/job-fields" || isJobFieldsEnabled),
+      (s.path !== "/portal/settings/job-fields" || isJobFieldsEnabled) &&
+      (s.path !== "/portal/settings/quotation-categories" || isQuotationCategoryEnabled),
   );
 
   const isAdminUser =
@@ -188,6 +193,10 @@ export function useNavModules() {
         !filtered.some((s: any) => (typeof s === "string" ? s : s?.key) === "monthly-payables")
       ) {
         filtered.push({ key: "monthly-payables", label: "Monthly Payables" });
+      }
+      // Sales -> Sales report rides on the enableSalesReport flag (WCT group 2026-11-18).
+      if (m.moduleCode === "SALES" && isSalesReportEnabled && !filtered.some((s: any) => (typeof s === "string" ? s : s?.key) === "sales-report")) {
+        filtered.push(SALES_REPORT_SUBMENU);
       }
       return { ...m, config: { ...(m.config as any), subMenus: filtered } };
     });

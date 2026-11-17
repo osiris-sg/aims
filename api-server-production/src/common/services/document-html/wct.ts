@@ -457,7 +457,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
       <div class="bx">Ship To:\n${escapeHtml(soldName)}${shipTo ? `\n${escapeHtml(shipTo)}` : ''}</div>
     </div>
     ${linesTable(data, items, 'do', 'SGD')}
-    ${data?.remarks || di('remarks') ? `<div class="remarks" style="margin-top:16px;"><b>Remarks:</b>${richContent(first(data?.remarks, di('remarks')), 'font-size:12.5px;line-height:1.5;')}</div>` : ''}
+    ${first(data?.remarks, di('remarks')) ? `<div class="remarks" style="margin-top:16px;"><b>Remarks:</b>${richContent(first(data?.remarks, di('remarks')), 'font-size:12.5px;line-height:1.5;')}</div>` : ''}
     ${proof.received}
     ${footerMessage ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>` : ''}
     ${proof.appendix}`;

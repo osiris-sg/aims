@@ -98,6 +98,18 @@ export const QUOTATION_TOTALS_TOGGLE_FLAG = 'enableQuotationTotalsToggle';
 // payment). Saves after that repost as before. Off = the no-draft model.
 export const POST_INVOICES_ON_CONFIRM_FLAG = 'postInvoicesOnConfirm';
 
+// WCT group round 6 (2026-11-18). Each is per org, default OFF:
+// - DOC_REMARKS: invoice + DO "Remarks" (config.remarks, multi-line) typed in the
+//   editor and printed below the totals, above the terms. Empty prints nothing.
+//   The WCT layout already prints config.remarks; the flag adds the editor
+//   field and the stock invoice / DO print (design.docRemarks, wct-brand.ts).
+// - QUOTATION_CATEGORY: an optional quotation "Category" (config.quotationCategory)
+//   from the org's own list (Settings > Quotation categories). Blank = "Uncategorised".
+// - SALES_REPORT: Reports > Sales report (quotations per salesperson, src/sales-report).
+export const DOC_REMARKS_FLAG = 'enableDocRemarks';
+export const QUOTATION_CATEGORY_FLAG = 'enableQuotationCategory';
+export const SALES_REPORT_FLAG = 'enableSalesReport';
+
 // NO AUTOMATIC CUSTOMER EMAILS (2026-11-16; WCT group). With this on, AIMS never
 // emails a customer by itself: a completed / signed service report is not
 // mailed on completion, and a recurring invoice set to auto-send is generated

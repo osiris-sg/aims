@@ -122,6 +122,7 @@ import { useAuth, useUser } from "@clerk/nextjs";
 import { useReactToPrint } from "react-to-print";
 import { installPrintFit } from "@/lib/printScale";
 import { request, withActiveOrg } from "@/helpers/request";
+import { categoryChoices } from "@/helpers/salesReport";
 import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
 import EditorRail from "./EditorRail";
 import DebtorStatementDialog from "./DebtorStatementDialog";
@@ -423,7 +424,7 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isQuotationTemplatesEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isQuotationTemplatesEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled, isDocRemarksEnabled, isQuotationCategoryEnabled } = useOrganizationFeatures();
   // In-app Back (enableWctDocNav): history back when opened inside the app, else the parent list; off = the parent list.
   const { goBack } = useAppBack();
   // Manual order flow: after an order's invoice is emailed, offer to send its service report too.
@@ -1065,6 +1066,11 @@ export default function TabbedDocumentCreator({
   // The Subject field on quotations: orgs with enableQuotationSubject keep it
   // (the WCT paper layout has a Subject box, WCT group); every other org drops it.
   const showQuotationSubject = !!isQuotationSubjectEnabled;
+  // Invoice + DO Remarks field (enableDocRemarks, WCT group): editor box under the lines + the print.
+  const showDocRemarks = !!isDocRemarksEnabled && !isTemplateEditMode && (isInvoiceTypeDoc || isDeliveryOrder);
+  // Quotation Category (enableQuotationCategory, WCT group): the org's list from Settings > Quotation categories.
+  const showQuotationCategory = !!isQuotationCategoryEnabled && isQuotation && !isTemplateEditMode;
+  const [quotationCategoryList, setQuotationCategoryList] = useState<string[]>([]);
 
   // Delivery route dialog state (DO-only). Opens with the linked DO_START
   // MaintenanceServiceReport's id; the shared DeliveryRouteDialog handles
@@ -1128,6 +1134,22 @@ export default function TabbedDocumentCreator({
   const [isLoadingFieldConfig, setIsLoadingFieldConfig] = useState(true);
 
   const { getToken } = useAuth();
+  useEffect(() => {
+    if (!showQuotationCategory) return;
+    let gone = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        const res: any = await request({ path: "/quotation-categories", method: "GET" }, {}, token ?? undefined);
+        if (!gone) setQuotationCategoryList(Array.isArray(res?.options) ? res.options : Array.isArray(res?.data?.options) ? res.data.options : []);
+      } catch {
+        /* the field still offers Uncategorised and the stored pick */
+      }
+    })();
+    return () => {
+      gone = true;
+    };
+  }, [showQuotationCategory, getToken]);
   // WCT orders hub: find the order made from this quotation (GET /orders is the org's WCT order list).
   const quotationIdForOrder = isQuotation && isWctOrdersEnabled ? ((documentId || (existingData as any)?.id) as string | undefined) : undefined;
   useEffect(() => {
@@ -1406,6 +1428,9 @@ export default function TabbedDocumentCreator({
     // top-level so it round-trips via the transformer's flatFields whitelist.
     salesMobile: existingData?.salesMobile || "",
     salesContact: existingData?.salesContact || "",
+    // Quotation Category (enableQuotationCategory, WCT group): config.quotationCategory. Absent stays absent
+    // (undefined is never saved), so documents of every other org are unchanged.
+    quotationCategory: (existingData as any)?.quotationCategory ?? undefined,
     salesEmail: existingData?.salesEmail || "",
     paymentTerms: existingData?.documentInfo?.paymentTerms || existingData?.paymentTerms || "30 days",
     dueDate: existingData?.dueDate || "",
@@ -4754,6 +4779,8 @@ export default function TabbedDocumentCreator({
                 data={{
                   ...formData,
                   items: items,
+                  // Remarks print on the stock invoice / DO sheet (enableDocRemarks orgs only).
+                  ...(showDocRemarks ? { docRemarks: true } : {}),
                   // Forward the resolved order Type so the PO/PR preview can
                   // gate the "Less Points" deduction. orderType lives on
                   // existingData (and documentInfo) — formData alone drops it,
@@ -5937,6 +5964,21 @@ export default function TabbedDocumentCreator({
                         // guard the row duplicates into Details etc.).
                         if (isBiofuel && tab.tabId === "general" && !fields.some((f: any) => f.fieldName === "salesMobile")) {
                           fields = [...fields, { fieldName: "salesMobile", displayLabel: "Salesman Mobile", fieldType: "text", required: false }];
+                        }
+                        // Category (enableQuotationCategory, WCT group): after Subject; blank = Uncategorised.
+                        if (showQuotationCategory && tab.tabId === "general" && !fields.some((f: any) => f.fieldName === "quotationCategory")) {
+                          const subjectAt = fields.find((f: any) => f.fieldName === "documentInfo.subject")?.displayOrder;
+                          fields = [
+                            ...fields,
+                            {
+                              fieldName: "quotationCategory",
+                              displayLabel: "Category",
+                              fieldType: "select",
+                              required: false,
+                              options: categoryChoices(quotationCategoryList, (formData as any)?.quotationCategory),
+                              ...(typeof subjectAt === "number" ? { displayOrder: subjectAt + 0.5 } : {}),
+                            },
+                          ];
                         }
                       }
                       // EVERY document type gets a Reference row (guru,
@@ -7936,6 +7978,22 @@ export default function TabbedDocumentCreator({
                         </Button>
                       )}
                     </Box>
+
+                    {/* Remarks (enableDocRemarks, WCT group 2026-11-18): invoice + DO, under the
+                        lines; prints below the totals, above the terms (config.remarks; empty = not printed). */}
+                    {showDocRemarks && (
+                      <Box sx={{ px: 1, pt: 1 }} data-tour="doc-remarks">
+                        <TextField
+                          fullWidth
+                          label="Remarks"
+                          value={formData.remarks || ""}
+                          onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                          multiline
+                          minRows={2}
+                          size="small"
+                        />
+                      </Box>
+                    )}
 
                     {/* Fixed bottom section with Totals — hidden, totals already
                         surfaced in the General fields' right column. Kept as a
