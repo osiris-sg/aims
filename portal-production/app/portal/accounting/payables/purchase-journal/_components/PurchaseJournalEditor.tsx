@@ -32,7 +32,6 @@ import HistoryIcon from "@mui/icons-material/History";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../../../_lib/api";
-import { sortAccountsByType, accountTypeLabel } from "@/components/glAccountGrouping";
 import EditorRail from "@/containers/DocumentTemplates/components/EditorRail";
 import { todayIso } from "@/helpers/orgToday";
 
@@ -90,11 +89,9 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
   const [date, setDate] = useState(todayIso());
   const [prepareBy, setPrepareBy] = useState("");
   const [notes, setNotes] = useState("");
-  // One LUMP-SUM purchases debit (guru 2026-11-16: don't itemise the lines).
-  // The Dr/Cr grid IS the expense input (the single "purchase amount" field it
-  // replaced is gone): one debit line per account, with the GST line and the
-  // Trade Creditor credit line drawn under it from the totals.
-  const [lines, setLines] = useState<DebitLine[]>([newLine()]);
+  // ONE lump-sum purchases debit (guru 2026-11-16: don't itemise — the whole
+  // bill is a single Purchases figure, the account auto-assigned by currency).
+  const [purchaseAmount, setPurchaseAmount] = useState("");
   const [currency, setCurrency] = useState("SGD");
   const [gstAmount, setGstAmount] = useState("0");
 
@@ -105,16 +102,6 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
   const [siblingIds, setSiblingIds] = useState<string[]>([]);
 
   const markDirty = useCallback(() => setDirty(true), []);
-  const addLine = useCallback(() => { setLines((ls) => [...ls, newLine()]); markDirty(); }, [markDirty]);
-  const setLine = useCallback((uid: string, patch: Partial<DebitLine>) => {
-    setLines((ls) => ls.map((l) => (l.uid === uid ? { ...l, ...patch } : l)));
-    markDirty();
-  }, [markDirty]);
-  // Never leave the grid with no rows — an empty grid has nothing to type into.
-  const removeLine = useCallback((uid: string) => {
-    setLines((ls) => (ls.length > 1 ? ls.filter((l) => l.uid !== uid) : [newLine()]));
-    markDirty();
-  }, [markDirty]);
 
   // Load chart + suppliers; and the bill when editing.
   useEffect(() => {
@@ -155,22 +142,11 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
           setNotes(b.description || "");
           setGstAmount(String(b.taxAmount || 0));
           setCurrency(String(b.currency || "SGD").toUpperCase());
-          // Seed the grid from the bill's own lines; a bill saved before this
-          // screen (or by the AI intake) has one lump-sum line and loads as one row.
+          // Collapse the bill to its single lump-sum purchases figure (sum of
+          // its lines, ex-GST) — guru: don't break it down by item.
           const saved = (Array.isArray(b.lines) ? b.lines : Array.isArray(b.config?.lines) ? b.config.lines : []) as any[];
-          setLines(
-            saved.length
-              ? saved.map((l: any) => ({
-                  uid: uid(),
-                  accountId: l.accountId ?? null,
-                  accountCode: l.accountCode ?? null,
-                  accountName: l.accountName ?? null,
-                  description: String(l.description ?? ""),
-                  remarks: String(l.remarks ?? ""),
-                  amount: n(l.amount) ? String(n(l.amount)) : "",
-                }))
-              : [newLine()],
-          );
+          const sub = saved.reduce((s: number, l: any) => s + n(l.amount), 0) || n(b.subtotal);
+          setPurchaseAmount(sub ? String(sub) : "");
           setDirty(false);
         }
       } catch (e: any) {
@@ -213,18 +189,18 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
     return (gst > 0 ? taxable : nonTaxable) || taxable || nonTaxable || anyPur || null;
   }, [accounts, isForeign, gst]);
 
-  const expenseTotal = lines.reduce((t, l) => t + n(l.amount), 0);
+  const expenseTotal = n(purchaseAmount);
   const debitTotal = expenseTotal + gst;
   const creditTotal = debitTotal; // auto Trade-Creditor line balances it
 
   const validate = (): string | null => {
     if (!supplierId) return "Pick a supplier (the Trade Creditor the journal credits)";
     if (!voucherNo.trim()) return "Enter the Voucher No.";
-    if (expenseTotal <= 0) return "Enter at least one line with an amount";
-    if (lines.some((l) => n(l.amount) !== 0 && !l.accountId)) return "Pick an account code on every line that has an amount";
+    if (expenseTotal <= 0) return "Enter the purchase amount";
+    if (!purchaseAccount) return "No Purchases account found in the chart of accounts";
     return null;
   };
-  const blockReason = useMemo(() => validate(), [supplierId, voucherNo, lines]); // eslint-disable-line react-hooks/exhaustive-deps
+  const blockReason = useMemo(() => validate(), [supplierId, voucherNo, purchaseAmount, purchaseAccount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const buildBody = () => {
     // The GST is keyed directly (legacy screen). Send a gstPercent consistent
@@ -243,18 +219,11 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
       taxCode: "4",
       gstPercent: pct,
       currency: currency || "SGD",
-      // One bill line per grid row (blank rows dropped). `remarks` rides along
-      // on the stored line; the GL posting reads accountId + amount.
-      lines: lines
-        .filter((l) => n(l.amount) !== 0)
-        .map((l) => ({
-          description: l.description || (isForeign ? "Purchases — Import" : "Purchases"),
-          remarks: l.remarks || undefined,
-          quantity: 1,
-          unitPrice: n(l.amount),
-          amount: n(l.amount),
-          accountId: l.accountId ?? purchaseAccount?.id ?? null,
-        })),
+      // One lump-sum purchases line to the auto-assigned account (Imports for
+      // non-SGD, local Purchases for SGD).
+      lines: purchaseAccount
+        ? [{ description: isForeign ? "Purchases — Import" : "Purchases", quantity: 1, unitPrice: expenseTotal, amount: expenseTotal, accountId: purchaseAccount.id }]
+        : [],
       inboundChannel: "MANUAL",
     };
   };
@@ -341,11 +310,6 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
     return <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: 400 }}><CircularProgress /></Box>;
   }
 
-  const accountValue = (l: DebitLine): Account | null =>
-    accounts.find((a) => a.id === l.accountId) ||
-    (l.accountCode ? accounts.find((a) => a.code === l.accountCode) || null : null) ||
-    (l.accountId ? ({ id: l.accountId, code: l.accountCode || "", name: l.accountName || "" } as Account) : null);
-
   return (
     <Box sx={{ display: "flex", flexDirection: "column", minHeight: "100%", bgcolor: "background.default" }}>
       {/* ---- Coloured legacy toolbar (framed) ---- */}
@@ -417,6 +381,19 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
                 </TableCell>
               </TableRow>
               <TableRow>
+                <TableCell sx={hdrLabelSx}>Currency</TableCell>
+                <TableCell sx={hdrCellSx}>
+                  <Stack direction="row" gap={1.5} alignItems="center" flexWrap="wrap">
+                    <Select size="small" value={currency} onChange={(e) => { setCurrency(e.target.value); markDirty(); }} disabled={confirmed} sx={{ minWidth: 110 }}>
+                      {Array.from(new Set([currency, "SGD", "USD", "EUR", "JPY", "MYR", "CNY", "GBP", "AUD", "HKD", "THB", "IDR"])).map((c) => (
+                        <MenuItem key={c} value={c}>{c}</MenuItem>
+                      ))}
+                    </Select>
+                    <Typography variant="body2" sx={{ color: "text.secondary" }}>{isForeign ? "Foreign → Purchases – Imports" : "Local → Purchases"}</Typography>
+                  </Stack>
+                </TableCell>
+              </TableRow>
+              <TableRow>
                 <TableCell sx={{ ...hdrLabelSx, borderBottom: "none" }}>Prepare By</TableCell>
                 <TableCell sx={{ ...hdrCellSx, borderBottom: "none" }}><TextField size="small" value={prepareBy} onChange={(e) => setPrepareBy(e.target.value)} disabled sx={{ minWidth: 260 }} placeholder="(current user)" /></TableCell>
               </TableRow>
@@ -428,52 +405,33 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
         <Box sx={{ display: "flex", gap: 1.5, alignItems: "stretch", flexDirection: { xs: "column", md: "row" } }}>
           <Card variant="outlined" sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
             <CardContent sx={{ p: 1, flex: 1, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>
-              {!confirmed && (
-                <Stack direction="row" sx={{ mb: 1 }}>
-                  <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={addLine}>Add line</Button>
-                </Stack>
-              )}
               <TableContainer component={Paper} variant="outlined" sx={{ flex: 1, minHeight: 0, borderRadius: 1.5 }}>
                 <Table size="small" stickyHeader sx={lineTableSx}>
                   <TableHead>
                     <TableRow>
-                      <TableCell sx={{ ...headCellSx, width: 170 }}>Account code</TableCell>
+                      <TableCell sx={{ ...headCellSx, width: 220 }}>Account code</TableCell>
                       <TableCell sx={headCellSx}>Description</TableCell>
                       <TableCell sx={headCellSx}>Remarks</TableCell>
                       <TableCell sx={{ ...headCellSx, textAlign: "right", width: 150 }}>Debit</TableCell>
                       <TableCell sx={{ ...headCellSx, textAlign: "right", width: 150 }}>Credit</TableCell>
-                      <TableCell sx={{ ...headCellSx, width: 44 }} />
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {/* Purchase / expense DEBIT lines */}
-                    {lines.map((l) => (
-                      <TableRow key={l.uid} hover>
-                        <TableCell sx={{ py: 0.25 }}>
-                          <Autocomplete
-                            size="small" fullWidth disabled={confirmed}
-                            options={sortAccountsByType(accounts as any) as any}
-                            groupBy={(o: any) => accountTypeLabel(o.accountType)}
-                            getOptionLabel={(o: any) => (o.code ? `${o.code} — ${o.name}` : o.name || "")}
-                            isOptionEqualToValue={(a: any, b: any) => a.id === b.id}
-                            value={accountValue(l) as any}
-                            onChange={(_, v: any) => setLine(l.uid, { accountId: v?.id || null, accountCode: v?.code || null, accountName: v?.name || null })}
-                            renderInput={(p) => <TextField {...p} variant="standard" placeholder="Code" />}
-                          />
-                        </TableCell>
-                        <TableCell sx={{ py: 0.25 }}><TextField variant="standard" fullWidth size="small" value={l.description} disabled={confirmed} onChange={(e) => setLine(l.uid, { description: e.target.value })} /></TableCell>
-                        <TableCell sx={{ py: 0.25 }}><TextField variant="standard" fullWidth size="small" value={l.remarks} disabled={confirmed} onChange={(e) => setLine(l.uid, { remarks: e.target.value })} /></TableCell>
-                        <TableCell sx={{ py: 0.25 }}><TextField variant="standard" size="small" value={l.amount} disabled={confirmed} onChange={(e) => setLine(l.uid, { amount: e.target.value })} inputProps={{ inputMode: "decimal", style: { textAlign: "right" } }} /></TableCell>
-                        <TableCell />
-                        <TableCell sx={{ py: 0.25 }}>{!confirmed && <IconButton size="small" onClick={() => removeLine(l.uid)}><DeleteOutlineIcon fontSize="small" /></IconButton>}</TableCell>
-                      </TableRow>
-                    ))}
+                    {/* ONE lump-sum PURCHASES debit — account auto-assigned by currency
+                        (Imports for non-SGD, local Purchases for SGD). */}
+                    <TableRow>
+                      <TableCell sx={{ fontWeight: 600 }}>{purchaseAccount ? `${purchaseAccount.code} — ${purchaseAccount.name}` : "Purchases"}</TableCell>
+                      <TableCell sx={{ color: "text.secondary" }}>{isForeign ? "Purchases — Import" : "Purchases"}</TableCell>
+                      <TableCell sx={{ color: "text.secondary" }}>{supplier?.name || ""}</TableCell>
+                      <TableCell sx={{ py: 0.25 }}><TextField variant="standard" size="small" value={purchaseAmount} disabled={confirmed} onChange={(e) => { setPurchaseAmount(e.target.value); markDirty(); }} inputProps={{ inputMode: "decimal", style: { textAlign: "right" } }} placeholder="0.00" /></TableCell>
+                      <TableCell />
+                    </TableRow>
                     {/* GST DEBIT line */}
                     <TableRow>
                       <TableCell sx={{ color: "text.secondary" }}>{gstAccount ? `${gstAccount.code} — ${gstAccount.name}` : "GST / Input Tax"}</TableCell>
                       <TableCell colSpan={2} sx={{ color: "text.secondary" }}>GST input tax</TableCell>
                       <TableCell sx={{ py: 0.25 }}><TextField variant="standard" size="small" value={gstAmount} disabled={confirmed} onChange={(e) => { setGstAmount(e.target.value); markDirty(); }} inputProps={{ inputMode: "decimal", style: { textAlign: "right" } }} /></TableCell>
-                      <TableCell /><TableCell />
+                      <TableCell />
                     </TableRow>
                     {/* Auto Trade Creditor CREDIT line */}
                     <TableRow sx={{ "& td": { bgcolor: (t) => t.palette.action.hover } }}>
@@ -482,18 +440,16 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
                       <TableCell sx={{ color: "text.secondary" }}>{supplier?.name || "—"}</TableCell>
                       <TableCell />
                       <TableCell sx={{ textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmt(creditTotal)}</TableCell>
-                      <TableCell />
                     </TableRow>
                   </TableBody>
                 </Table>
               </TableContainer>
               {/* Totals */}
-              <Stack direction="row" alignItems="center" sx={{ mt: 1, pr: 1 }} gap={2}>
+              <Stack direction="row" alignItems="center" sx={{ mt: 1 }} gap={0}>
                 <Box sx={{ flex: 1 }} />
-                <Typography sx={{ fontWeight: 700 }}>Total</Typography>
-                <Typography sx={{ minWidth: 130, textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmt(debitTotal)}</Typography>
-                <Typography sx={{ minWidth: 130, textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmt(creditTotal)}</Typography>
-                <Box sx={{ width: 40 }} />
+                <Typography sx={{ fontWeight: 700, mr: 2 }}>Total</Typography>
+                <Typography sx={{ width: 150, textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums", pr: 1 }}>{fmt(debitTotal)}</Typography>
+                <Typography sx={{ width: 150, textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums", pr: 1 }}>{fmt(creditTotal)}</Typography>
               </Stack>
             </CardContent>
           </Card>
