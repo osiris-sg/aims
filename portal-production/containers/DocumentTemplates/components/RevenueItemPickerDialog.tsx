@@ -58,6 +58,7 @@ export default function RevenueItemPickerDialog({
   onSelectMany,
   onBlank,
   typeFilter,
+  showGl = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -65,6 +66,9 @@ export default function RevenueItemPickerDialog({
   onSelectMany?: (items: RevenueItem[]) => void; // multi-select mode when given
   onBlank?: () => void; // add an ad-hoc blank line
   typeFilter?: string; // "SERVICE" to show services only
+  // GL account column + chip + footer copy. Only invoice-type documents post
+  // lines to the GL, so quotations / DOs pass false (guru 2026-11-17).
+  showGl?: boolean;
 }) {
   const { getToken } = useAuth();
   const [items, setItems] = useState<RevenueItem[]>([]);
@@ -199,7 +203,7 @@ export default function RevenueItemPickerDialog({
                   <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
                   <TableCell sx={{ fontWeight: 700 }}>Type</TableCell>
                   <TableCell sx={{ fontWeight: 700 }} align="right">Unit price</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>GL account</TableCell>
+                  {showGl && <TableCell sx={{ fontWeight: 700 }}>GL account</TableCell>}
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -227,7 +231,7 @@ export default function RevenueItemPickerDialog({
                           line shows so the two read identically (guru 2026-08-17). */}
                       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
                         {it.code && <Typography variant="caption" sx={{ color: "text.secondary" }}>{it.code}</Typography>}
-                        <Typography
+                        {showGl && <Typography
                           variant="caption"
                           sx={{
                             px: 0.5,
@@ -238,12 +242,12 @@ export default function RevenueItemPickerDialog({
                           }}
                         >
                           GL {it.accountCode}
-                        </Typography>
+                        </Typography>}
                       </Box>
                     </TableCell>
                     <TableCell><Chip size="small" variant="outlined" label={it.type === "PRODUCT" ? "Item" : "Service"} color={it.type === "PRODUCT" ? "primary" : "default"} /></TableCell>
                     <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{it.unitPrice != null ? it.unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}</TableCell>
-                    <TableCell><Typography variant="body2"><b>{it.accountCode}</b>{it.accountName ? ` — ${it.accountName}` : ""}</Typography></TableCell>
+                    {showGl && <TableCell><Typography variant="body2"><b>{it.accountCode}</b>{it.accountName ? ` — ${it.accountName}` : ""}</Typography></TableCell>}
                   </TableRow>
                 ))}
               </TableBody>
@@ -252,8 +256,8 @@ export default function RevenueItemPickerDialog({
         )}
         <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mt: 1 }}>
           {multi
-            ? "Tick the services for this job, then Add — each line posts to its mapped GL account automatically."
-            : "Click a row to add it — the line will post to its mapped GL account automatically."}
+            ? (showGl ? "Tick the services for this job, then Add — each line posts to its mapped GL account automatically." : "Tick the services for this job, then Add.")
+            : (showGl ? "Click a row to add it — the line will post to its mapped GL account automatically." : "Click a row to add it.")}
         </Typography>
       </DialogContent>
       {multi && (

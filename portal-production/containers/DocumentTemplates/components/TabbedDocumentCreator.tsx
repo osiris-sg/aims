@@ -5675,11 +5675,9 @@ export default function TabbedDocumentCreator({
               </IconButton>
             )}
 
-            {invoiceRailButtons.length > 0 && (
-              <Box sx={{ position: "absolute", left: 16, top: 16 }}>
-                <EditorRail buttons={invoiceRailButtons} />
-              </Box>
-            )}
+            {/* Legacy rail (Stock Card / Debtor Statement) is rendered down in
+                the items section so it lines up with the line-items table, not
+                the header (guru 2026-11-17). */}
             {/* Document Tracking Info - Unconfirmed User, Confirmed User & Last Used */}
             <Box
               sx={{
@@ -6818,7 +6816,14 @@ export default function TabbedDocumentCreator({
               framed={legacyLayout}
             />
           ) : (
-          <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+          <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>
+            {/* Legacy left-rail modules, aligned to the top of the items table
+                and sitting in the left page margin (guru 2026-11-17). */}
+            {invoiceRailButtons.length > 0 && (
+              <Box sx={{ position: "absolute", left: "-192px", top: 0, zIndex: 2, display: { xs: "none", md: "block" } }}>
+                <EditorRail buttons={invoiceRailButtons} />
+              </Box>
+            )}
             <Card sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
               <CardContent sx={{ p: 1, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>
                 {/* Items Sub-tabs */}
@@ -7180,7 +7185,7 @@ export default function TabbedDocumentCreator({
                                           (guru 2026-08-17) — the code alone doesn't say
                                           which account it hits, so a mis-picked item is
                                           invisible until the ledger is wrong. */}
-                                      {(item.accountCode || isInvoiceTypeDoc) && !headerGlMode && (
+                                      {isInvoiceTypeDoc && !headerGlMode && (
                                         <Tooltip
                                           title={
                                             item.accountCode
@@ -8881,6 +8886,7 @@ export default function TabbedDocumentCreator({
         onSelectMany={editingItemId == null ? addRevenueItemLines : undefined}
         onBlank={addBlankServiceLine}
         typeFilter="SERVICE"
+        showGl={isInvoiceTypeDoc && !headerGlMode}
       />
 
       {/* Locate Document Dialog */}
