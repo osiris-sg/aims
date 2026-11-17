@@ -182,6 +182,9 @@ import CallSplitIcon from "@mui/icons-material/CallSplit";
 import InvoiceSplitDialog from "./InvoiceSplitDialog";
 import { splitButtons } from "@/helpers/invoiceSplit";
 import { isVoidedWithOrder } from "@/helpers/docStatus";
+import { quotationTemplateControls } from "@/helpers/quotationTemplates";
+import QuotationAddSplitButton from "@/app/portal/components/QuotationTemplates/QuotationAddSplitButton";
+import QuotationTemplatesHost from "@/app/portal/components/QuotationTemplates/QuotationTemplatesHost";
 
 // Helper to determine the parent route based on document type
 const getParentRoute = (docType: string): string => {
@@ -420,7 +423,7 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isQuotationTemplatesEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled } = useOrganizationFeatures();
   // In-app Back (enableWctDocNav): history back when opened inside the app, else the parent list; off = the parent list.
   const { goBack } = useAppBack();
   // Manual order flow: after an order's invoice is emailed, offer to send its service report too.
@@ -1045,6 +1048,12 @@ export default function TabbedDocumentCreator({
   // toolbar. `legacyInvoice` / `legacyDo` stay for the type-specific field bits
   // (the invoice GL row, the DO hidden fields).
   const legacyLayout = isHeaderGlAccountEnabled && !isTemplateEditMode;
+  // Quotation templates (enableQuotationTemplates, WCT group): "+ Add" becomes a
+  // split button (arrow > Create from template) and the ⋮ menu gets Save as
+  // template. Setting off: all false, the toolbar is unchanged.
+  const qtCtl = quotationTemplateControls({ enabled: !!isQuotationTemplatesEnabled, documentType: actualDocumentType || documentType, legacyLayout, templateMode: isTemplateEditMode });
+  const [qtListOpen, setQtListOpen] = useState(false);
+  const [qtSaveAsOpen, setQtSaveAsOpen] = useState(false);
   const [invoiceDeleteOpen, setInvoiceDeleteOpen] = useState(false);
 
   // Biofuel org gate — drives the Biofuel-only quotation header fields
@@ -4967,7 +4976,11 @@ export default function TabbedDocumentCreator({
               stays locked), no Exit (the back arrow) and no Save (autosave). */}
           {legacyLayout && (
             <>
-              <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={handleAddNewDocument} sx={LEGACY_BTN.add} data-tour="editor-legacy-add">Add</Button>
+              {qtCtl.legacyAddSplit ? (
+                <QuotationAddSplitButton onAdd={handleAddNewDocument} onFromTemplate={() => setQtListOpen(true)} sx={LEGACY_BTN.add} tour="editor-legacy-add" />
+              ) : (
+                <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={handleAddNewDocument} sx={LEGACY_BTN.add} data-tour="editor-legacy-add">Add</Button>
+              )}
               {/* Undo / Redo sit next to Add on the legacy toolbar (guru 2026-11-14). */}
               {!isDocumentConfirmed && (
                 <>
@@ -5471,6 +5484,7 @@ export default function TabbedDocumentCreator({
               Edit
             </Button>
           )}
+          {qtCtl.standardAddSplit && <QuotationAddSplitButton onAdd={handleAddNewDocument} onFromTemplate={() => setQtListOpen(true)} />}
           {/* ⋮ overflow menu — secondary actions (Xero-style) */}
           <Tooltip title="More actions">
             <IconButton data-tour="editor-more-menu" size="small" onClick={(e) => setMoreMenuAnchor(e.currentTarget)}>
@@ -5494,6 +5508,12 @@ export default function TabbedDocumentCreator({
               <MenuItem onClick={() => { closeMoreMenu(); handleDuplicateDocument(); }}>
                 <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Duplicate</ListItemText>
+              </MenuItem>
+            )}
+            {qtCtl.saveAsTemplate && (
+              <MenuItem data-tour="quotation-save-as-template" onClick={() => { closeMoreMenu(); setQtSaveAsOpen(true); }}>
+                <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Save as template</ListItemText>
               </MenuItem>
             )}
             {isDocumentConfirmed && (
@@ -8813,6 +8833,22 @@ export default function TabbedDocumentCreator({
         <>
           <DebtorStatementDialog open={invoiceDebtorOpen} onClose={() => setInvoiceDebtorOpen(false)} customer={formData?.customer?.id ? formData.customer : null} />
         </>
+      )}
+      {(qtCtl.legacyAddSplit || qtCtl.standardAddSplit) && (
+        <QuotationTemplatesHost
+          listOpen={qtListOpen}
+          onCloseList={() => setQtListOpen(false)}
+          saveAsOpen={qtSaveAsOpen}
+          onCloseSaveAs={() => setQtSaveAsOpen(false)}
+          editorItems={items}
+          formData={formData}
+          layoutId={existingData?.documentTemplateId || pathSegments[3] || documentId}
+          docType={actualDocumentType || existingData?.type || "QUOTATION"}
+          onUsed={(doc) => {
+            onDocumentCreated?.();
+            router.push(`/portal/documents/${doc.type || actualDocumentType || "QUOTATION"}/${doc.documentTemplateId}/${doc.id}`);
+          }}
+        />
       )}
       {/* Client e-sign link for generic quotations (enableQuotationESign). */}
       {splitOpen && splitDocId && (

@@ -4987,3 +4987,27 @@ model VehicleUsage {
   @@index([organizationId, vehicleId])
   @@index([vehicleId, endDate])
 }
+
+// QUOTATION TEMPLATES (2026-11-18, WCT group; features.enableQuotationTemplates).
+// A named set of quotation lines the office starts a new quotation from ("+ Add"
+// arrow > Create from template). Not the PDF layout (DocumentTemplate). Per org;
+// delete hides (hiddenAt). Self-contained: no relation, plain index only.
+model QuotationTemplate {
+  id                 String    @id @default(uuid())
+  organizationId     String
+  name               String
+  // [{ itemCode, inventoryItemId, description, quantity, unitPrice, lineType: SERVICE | PRODUCT, uom, discount, accountCode, isGroupHeader }]
+  lines              Json
+  subject            String?
+  category           String?
+  termsAndConditions String?
+  hiddenAt           DateTime?
+  hiddenBy           String?
+  createdBy          String?
+  createdByName      String?
+  updatedBy          String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([organizationId, hiddenAt])
+}

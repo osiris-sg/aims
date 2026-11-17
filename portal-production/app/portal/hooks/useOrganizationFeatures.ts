@@ -41,6 +41,8 @@ interface OrganizationFeatures {
   enableWctDocNav?: boolean;
   postInvoicesOnConfirm?: boolean;
   enableQuotationSubject?: boolean;
+  /** Quotation templates (2026-11-18; WCT group): "+ Add" arrow > Create from template, Save as template. */
+  enableQuotationTemplates?: boolean;
   enableJobFields?: boolean;
   // Office-signed delivery orders (2026-11-05): a DO raised in the office, with
   // no field run behind it, can be shared for the customer to sign.
@@ -292,6 +294,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableWctDocNav: false,
   // Subject field on quotations (the WCT paper has a Subject box). Default OFF; WCT group.
   enableQuotationSubject: false,
+  // Quotation templates (2026-11-18): named sets of quotation lines. Default OFF; WCT group.
+  enableQuotationTemplates: false,
   enableWctMyJobs: false,
   // WCT finish modes (2026-11-01): stamped-DO photo / paper finish, verified by
   // the office (Deliveries → Awaiting verification). Default OFF.
@@ -395,6 +399,7 @@ export function useOrganizationFeatures() {
     isWctDocNavEnabled: features.enableWctDocNav ?? false,
     isManualOrderFlowEnabled: (features.enableManualOrderFlow ?? false) && (features.enableWctOrders ?? false),
     isQuotationSubjectEnabled: features.enableQuotationSubject ?? false,
+    isQuotationTemplatesEnabled: features.enableQuotationTemplates ?? false,
     isJobFieldsEnabled: features.enableJobFields ?? false,
     isOfficeDoSignEnabled: features.enableOfficeDoSign ?? false,
     isContraOffsetEnabled: features.enableContraOffset ?? false,

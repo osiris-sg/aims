@@ -68,6 +68,7 @@ import { SiteClockDeliveryModule } from './siteclock-delivery/siteclock-delivery
 import { DeliveryGroupPostsModule } from './delivery-group-posts/delivery-group-posts.module';
 import { MaintenanceSchedulesModule } from './maintenance-schedules/maintenance-schedules.module';
 import { VehiclesModule } from './vehicles/vehicles.module';
+import { QuotationTemplatesModule } from './quotation-templates/quotation-templates.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AskModule } from './ask/ask.module';
 import { AnomaliesModule } from './anomalies/anomalies.module';
@@ -151,6 +152,7 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
     DeliveryGroupPostsModule,
     MaintenanceSchedulesModule,
     VehiclesModule,
+    QuotationTemplatesModule, // quotation quick sets (enableQuotationTemplates)
     NotificationsModule,
     AskModule,
     DocumentAssistantModule,

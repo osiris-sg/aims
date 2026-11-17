@@ -283,6 +283,9 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // Show the Subject field on quotations (the WCT paper has a Subject box).
   // Default OFF; WCT group.
   enableQuotationSubject: false,
+  // Quotation templates (2026-11-18): named sets of quotation lines; "+ Add" arrow >
+  // Create from template, and Save as template in the quotation's menu. Default OFF; WCT group.
+  enableQuotationTemplates: false,
   // Custom job fields (2026-11-01, Phase 6): the org's admins define their own
   // fields on jobs (Settings → Job fields: yes/no, text, date, file upload,
   // link; icon + colours) — filled on the schedule / edit job form and the
