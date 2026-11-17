@@ -339,7 +339,9 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
         <DialogContent>
           <DialogContentText>
             {confirm?.action === "cancel-order"
-              ? "Its jobs are cancelled and their DOs are marked Cancelled. The numbers are kept. This can't be undone."
+              ? confirm?.row.invoices?.length
+                ? "Its jobs are cancelled and its DOs and draft invoices are marked Cancelled. The numbers are kept. This can't be undone."
+                : "Its jobs are cancelled and their DOs are marked Cancelled. The numbers are kept. This can't be undone."
               : "The job is cancelled and its DO is marked Cancelled. The number is kept."}
           </DialogContentText>
         </DialogContent>

@@ -135,7 +135,8 @@ export function hubRowActions(status: string | null | undefined, opts: { doFirst
     case "AWAITING_VERIFICATION":
       return opts.doFirst ? ["view-order", "view-do", "sign-link", "open-job", "create-invoice"] : ["view-order", "view-do", "open-job"];
     case "INVOICE_DRAFT_DO_PENDING":
-      return ["view-order", "view-do", "complete-do", "sign-link", "view-invoice", "confirm-invoice", "send-invoice"];
+      // 2026-11-17: an order whose invoices are all drafts can still be cancelled (they are voided with it).
+      return ["view-order", "view-do", "complete-do", "sign-link", "view-invoice", "confirm-invoice", "send-invoice", "cancel-order"];
     case "INVOICED_DO_PENDING":
       return ["view-order", "view-do", "complete-do", "sign-link", "view-invoice", "record-payment"];
     case "DO_COMPLETED":
@@ -166,20 +167,22 @@ export function hubNextStep(o: { status?: string | null; invoices?: unknown[]; s
     // DO first (2026-11-13): a DO step opens the DO itself, whose toolbar completes it (and adds a job, the sign link,
     // a service report). The order page has no Add job of its own.
     // Invoice first (2026-11-16): after the quotation, BOTH next steps (Create invoice and View DO), in either order.
+    // Manual flow (2026-11-17): no "View DO" / "Confirm invoice" next-step buttons; the DO and the invoice are links
+    // in the tracker and in Documents (and the draft invoice is made at signing).
     case "DO_DRAFT":
-      return o.doFirst ? { primary: "create-invoice", secondary: "view-do" } : { primary: "schedule-do" };
+      return o.doFirst ? { primary: "create-invoice" } : { primary: "schedule-do" };
     case "DO_SCHEDULED":
-      return o.doFirst ? { primary: "create-invoice", secondary: "view-do" } : { primary: "complete-do" };
+      return o.doFirst ? { primary: "create-invoice" } : { primary: "complete-do" };
     case "AWAITING_VERIFICATION":
-      return o.doFirst ? { primary: "create-invoice", secondary: "view-do" } : o.awaitingDo ? { primary: "sign-link" } : { primary: "open-job" };
+      return o.doFirst ? { primary: "create-invoice" } : o.awaitingDo ? { primary: "sign-link" } : { primary: "open-job" };
     case "INVOICE_DRAFT_DO_PENDING":
-      return { primary: "confirm-invoice", secondary: "view-do" };
+      return o.doFirst ? null : { primary: "confirm-invoice", secondary: "view-do" };
     case "INVOICED_DO_PENDING":
-      return { primary: "view-do" };
+      return o.doFirst ? null : { primary: "view-do" };
     case "DO_COMPLETED":
       return (o.invoices?.length ?? 0) > 0 ? { primary: "view-invoice", label: "Open draft invoice" } : { primary: "create-invoice" };
     case "INVOICE_DRAFT":
-      return { primary: "confirm-invoice", secondary: "send-invoice" };
+      return o.doFirst ? { primary: "send-invoice" } : { primary: "confirm-invoice", secondary: "send-invoice" };
     case "READY_FOR_SERVICE_REPORT":
     case "INVOICED":
     case "PAID":
@@ -230,7 +233,7 @@ export function hubSteps(order: {
   /** DO first: the order's DOs with or without a job (the DO step lists these). */
   deliveryOrders?: { id: string; name?: string | null; tag?: string | null; templateId?: string | null; completed?: boolean; awaitingSignature?: boolean; jobs?: { id: string; status: string; isDraft?: boolean }[] }[];
   jobs?: { id?: string; status: string; isDraft?: boolean; deliveryOrder?: { id: string; name?: string | null; tag?: string | null; templateId?: string | null } | null }[];
-  invoices?: { id: string; name?: string | null; status?: string | null; type?: string | null; documentTemplateId?: string | null; href?: string | null; extra?: boolean; split?: { part: number; of: number } | null }[];
+  invoices?: { id: string; name?: string | null; status?: string | null; type?: string | null; documentTemplateId?: string | null; href?: string | null; extra?: boolean; split?: { part: number; of: number } | null; cancelled?: boolean }[];
   jobReports?: { id: string; reportNumber?: number | null; status: string; uploaded?: boolean; sentAt?: string | null; photosFile?: boolean }[];
 }): HubStep[] {
   const idx = hubStatusIndex(order.status);
@@ -271,7 +274,8 @@ export function hubSteps(order: {
       docs: (order.invoices ?? []).map((i) => ({
         label: i.name || "Invoice",
         // An invoice for lines added to a DO on top of the quotation (2026-11-16).
-        status: i.extra ? (i.status === "draft" || i.status === "unconfirmed" ? "Extra invoice draft" : `Extra invoice, ${invoiceStatusLabel(i.status).toLowerCase()}`) : invoiceStatusLabel(i.status),
+        // Voided with the cancelled order (2026-11-17).
+        status: i.cancelled ? "Cancelled" : i.extra ? (i.status === "draft" || i.status === "unconfirmed" ? "Extra invoice draft" : `Extra invoice, ${invoiceStatusLabel(i.status).toLowerCase()}`) : invoiceStatusLabel(i.status),
         href: i.href ?? docHref(i.type || "INVOICE", i.documentTemplateId, i.id),
       })),
     },

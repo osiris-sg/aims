@@ -56,6 +56,8 @@ export class OrderInvoiceController {
     });
     if (!invoice) return null;
     // covered: the quotation is already billed and these jobs added nothing on top, so no new invoice was made.
+    // existing: the order already had its invoice (made at signing): the page opens it instead of a second one.
+    if (invoice.existing) return { id: invoice.id, name: invoice.name, type: invoice.type, existing: true, href: `/portal/documents/${invoice.type ?? 'INVOICE'}/${invoice.documentTemplateId}/${invoice.id}` };
     return invoice.covered
       ? { id: invoice.id, name: invoice.name, type: invoice.type, covered: true, jobNumbers: invoice.jobNumbers ?? [] }
       : { id: invoice.id, name: invoice.name, type: invoice.type };

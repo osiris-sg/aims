@@ -118,10 +118,10 @@ test("manual flow: Add service report opens the order's create / upload chooser"
 
 test("DO first: Complete DO on a DO with no job, a job is optional", () => {
   // DO steps open the DO (its toolbar completes it); no Add job beside the button.
-  // 2026-11-16: Create invoice sits beside View DO (either may come first).
-  assert.deepEqual(hubNextStep({ status: "DO_DRAFT", doFirst: true }), { primary: "create-invoice", secondary: "view-do" });
-  assert.deepEqual(hubNextStep({ status: "DO_SCHEDULED", doFirst: true }), { primary: "create-invoice", secondary: "view-do" });
-  assert.deepEqual(hubNextStep({ status: "AWAITING_VERIFICATION", doFirst: true, awaitingDo: true }), { primary: "create-invoice", secondary: "view-do" });
+  // 2026-11-17: no View DO next-step button (the DO number is a link); Create invoice for an order with no invoice yet.
+  assert.deepEqual(hubNextStep({ status: "DO_DRAFT", doFirst: true }), { primary: "create-invoice" });
+  assert.deepEqual(hubNextStep({ status: "DO_SCHEDULED", doFirst: true }), { primary: "create-invoice" });
+  assert.deepEqual(hubNextStep({ status: "AWAITING_VERIFICATION", doFirst: true, awaitingDo: true }), { primary: "create-invoice" });
   assert.deepEqual(hubRowActions("DO_DRAFT", { doFirst: true }), ["view-order", "view-quotation", "view-do", "complete-do", "sign-link", "create-invoice", "add-job", "cancel-order"]);
   const c = { orderId: "o1", manualFlow: true, openDoId: "d1", scheduledJobId: null };
   assert.deepEqual(hubActionTarget("complete-do", c), { dialog: "complete-do", doId: "d1" });
@@ -142,9 +142,9 @@ test("DO first: a DO waiting for the customer offers its sign link", () => {
 });
 
 // ── Invoice and DO in either order (2026-11-16) ─────────────────────────────
-test("signed (manual flow): BOTH next steps, Create invoice and View DO", () => {
+test("signed (manual flow): Create invoice only (no View DO button, 2026-11-17)", () => {
   for (const status of ["DO_DRAFT", "DO_SCHEDULED", "AWAITING_VERIFICATION"]) {
-    assert.deepEqual(hubNextStep({ status, doFirst: true }), { primary: "create-invoice", secondary: "view-do" });
+    assert.deepEqual(hubNextStep({ status, doFirst: true }), { primary: "create-invoice" });
     assert.ok(hubRowActions(status, { doFirst: true }).includes("create-invoice"));
   }
   // Older WCT orders (no manual flow) keep their one button.
@@ -252,4 +252,36 @@ test("Documents, manual flow: every invoice part with its PDF, each DO then its 
   assert.equal(rows[4].child, true);
   assert.equal(rows[4].href, "/portal/deliveries/j1");
   assert.equal(rows[3].id, "d1");
+});
+
+test("manual flow (2026-11-17): no View DO / Confirm invoice next-step buttons; other orders unchanged", () => {
+  assert.equal(hubNextStep({ status: "INVOICE_DRAFT_DO_PENDING", doFirst: true }), null);
+  assert.equal(hubNextStep({ status: "INVOICED_DO_PENDING", doFirst: true }), null);
+  assert.deepEqual(hubNextStep({ status: "INVOICE_DRAFT", doFirst: true }), { primary: "send-invoice" });
+  // Without the manual flow (WCT Racking and the rest): exactly as before.
+  assert.deepEqual(hubNextStep({ status: "INVOICE_DRAFT_DO_PENDING" }), { primary: "confirm-invoice", secondary: "view-do" });
+  assert.deepEqual(hubNextStep({ status: "INVOICED_DO_PENDING" }), { primary: "view-do" });
+  assert.deepEqual(hubNextStep({ status: "INVOICE_DRAFT" }), { primary: "confirm-invoice", secondary: "send-invoice" });
+  assert.deepEqual(hubNextStep({ status: "DO_DRAFT" }), { primary: "schedule-do" });
+});
+
+test("an invoice voided with its cancelled order reads Cancelled", () => {
+  const inv = hubSteps({ ...ORDER, status: "CANCELLED", invoices: [{ id: "i1", name: "INV1", status: "unconfirmed", cancelled: true, href: "/i" }] })[1];
+  assert.equal(inv.docs[0].status, "Cancelled");
+});
+
+test("links: every number goes to its own page", () => {
+  const o = { ...ORDER, invoices: [{ id: "i1", name: "INV202611-0014-1", status: "draft", type: "INVOICE", documentTemplateId: "ti" }] };
+  const rows = hubDocuments(o, { full: true });
+  assert.deepEqual(rows.map((r) => [r.label, r.href]), [
+    ["QO202611-0030", "/portal/documents/QUOTATION/tq/q1"],
+    ["INV202611-0014-1", "/portal/documents/INVOICE/ti/i1"],
+    ["DO202611030", "/portal/documents/DELIVERY_ORDER/td/d1"],
+    ["#7", "/portal/deliveries/j1"],
+    ["#8", "/portal/deliveries/j2"],
+    ["Service report #3", "/portal/maintenance-reports/r1"],
+  ]);
+  const steps = hubSteps(o);
+  assert.equal(steps[1].docs[0].href, "/portal/documents/INVOICE/ti/i1");
+  assert.equal(steps[2].docs[0].href, "/portal/documents/DELIVERY_ORDER/td/d1");
 });

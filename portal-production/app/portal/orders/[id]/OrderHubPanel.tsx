@@ -8,6 +8,7 @@
 // are unchanged.
 
 import React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
@@ -20,7 +21,16 @@ import { HUB_ACTION_LABEL, hubDocuments, hubNextStep, hubSteps, type HubActionKe
 
 const fmt = (d: string | null) => (d ? moment(d).format("DD/MM/YYYY") : "");
 
-function StepBox({ step, n, onOpen }: { step: HubStep; n: number; onOpen: (href: string) => void }) {
+/** A document number as a link (underlined, same style as the header's quotation link); its own click only. */
+function NumberLink({ href, label }: { href: string; label: string }) {
+  return (
+    <Link href={href} onClick={(e) => e.stopPropagation()} style={{ color: "inherit", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+      {label}
+    </Link>
+  );
+}
+
+function StepBox({ step, n }: { step: HubStep; n: number }) {
   return (
     <Box
       sx={{
@@ -58,16 +68,9 @@ function StepBox({ step, n, onOpen }: { step: HubStep; n: number; onOpen: (href:
       {step.docs.length ? (
         step.docs.map((d, i) => (
           <Typography key={i} variant="caption" component="div" sx={{ color: "text.secondary" }}>
-            {/* WCT manual flow (2026-11-13): a service report opens its own page. */}
-            {step.key === "report" && d.href ? (
-              <Box
-                component="span"
-                role="link"
-                onClick={() => onOpen(d.href!)}
-                sx={{ color: "primary.main", fontWeight: 600, fontVariantNumeric: "tabular-nums", cursor: "pointer", "&:hover": { textDecoration: "underline" } }}
-              >
-                {d.label}
-              </Box>
+            {/* 2026-11-17: every number is a link to its document (like the header's quotation link); the card itself is not. */}
+            {d.href ? (
+              <NumberLink href={d.href} label={d.label} />
             ) : (
               <Box component="span" sx={{ color: "text.primary", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
                 {d.label}
@@ -96,6 +99,7 @@ export default function OrderHubPanel({
   onAddDo,
   addingDo = false,
   onDoMenu,
+  onAddJob,
 }: {
   order: any;
   serviceReportReady: boolean;
@@ -108,6 +112,8 @@ export default function OrderHubPanel({
   onAddDo?: () => void;
   addingDo?: boolean;
   onDoMenu?: (row: HubDocRow, pos: { left: number; top: number }) => void;
+  /** Manual flow (2026-11-17): "Add job" by the Documents heading (the New job dialog, prefilled from the order). */
+  onAddJob?: () => void;
 }) {
   const router = useRouter();
   const { getToken } = useAuth();
@@ -150,7 +156,7 @@ export default function OrderHubPanel({
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ xs: "stretch", md: "center" }} sx={{ mb: 2 }}>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ flex: 1 }}>
           {steps.map((s, i) => (
-            <StepBox key={s.key} step={s} n={i + 1} onOpen={(href) => router.push(href)} />
+            <StepBox key={s.key} step={s} n={i + 1} />
           ))}
         </Stack>
         <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ minWidth: 200 }}>
@@ -181,6 +187,11 @@ export default function OrderHubPanel({
             Add DO
           </Button>
         )}
+        {onAddJob && (
+          <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={onAddJob} data-tour="wct-order-add-job-doc">
+            Add job
+          </Button>
+        )}
       </Stack>
       {docs.length ? (
         <Table size="small">
@@ -197,7 +208,7 @@ export default function OrderHubPanel({
             {docs.map((d, i) => (
               <TableRow key={i} hover sx={{ cursor: d.href ? "pointer" : "default" }} onClick={() => d.href && router.push(d.href)}>
                 <TableCell sx={d.child ? { pl: 4, color: "text.secondary" } : undefined}>{d.type}</TableCell>
-                <TableCell sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{d.label}</TableCell>
+                <TableCell sx={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{d.href ? <NumberLink href={d.href} label={d.label} /> : d.label}</TableCell>
                 <TableCell>{d.status}</TableCell>
                 <TableCell>
                   {d.file && (

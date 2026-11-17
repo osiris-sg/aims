@@ -212,9 +212,9 @@ async function refreshManualOrderStatus(prisma: any, organizationId: string, ord
  * The invoice rows for these ids plus the other parts of any Split payment
  * among them (invoice-split.ts). No split = the same rows as before, one query.
  */
-export async function invoiceRowsWithSplitParts(prisma: any, organizationId: string, ids: string[], where: Record<string, unknown> = {}): Promise<Array<{ id: string; status: string; config: any }>> {
+export async function invoiceRowsWithSplitParts(prisma: any, organizationId: string, ids: string[], where: Record<string, unknown> = {}): Promise<Array<{ id: string; name?: string | null; status: string; config: any }>> {
   if (!ids.length) return [];
-  const sel = { id: true, status: true, config: true };
+  const sel = { id: true, name: true, status: true, config: true };
   const rows = await prisma.document.findMany({ where: { id: { in: ids }, organizationId, ...where }, select: sel });
   const more = withSplitPartIds(ids, rows).filter((id) => !ids.includes(id));
   if (!more.length) return rows;

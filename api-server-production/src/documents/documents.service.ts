@@ -17,6 +17,8 @@ import { JournalAutoPostService } from '../journal/journal-auto-post.service';
 import { JournalService } from '../journal/journal.service';
 import { OrdersService } from '../orders/orders.service';
 import { DocumentTemplatesService } from '../documentTemplates/documentTemplates.service';
+import { runAsOrg } from '../common/tenancy/tenant-context';
+import { isVoidedWithOrder } from '../orders/order-cancel';
 import { DocumentNumberingService, splitPartNamesAmong } from '../document-numbering/document-numbering.service';
 import { SendInvoiceEmailDto } from '../email/dto/send-invoice-email.dto';
 import { S3Service } from 'src/common/services/s3.service';
@@ -1495,6 +1497,10 @@ export class DocumentsService {
       const doConfirmingNow = dto.status === 'confirmed' && existingDocument.status !== 'confirmed';
       // A DO voided by its run's cancel (enableRealDoOnSchedule) keeps its number
       // for the record and is never confirmed afterwards.
+      // A draft invoice voided with its cancelled order (orders/order-cancel.ts) never leaves draft.
+      if (isVoidedWithOrder(existingDocument.config) && dto.status && !['draft', 'unconfirmed'].includes(String(dto.status))) {
+        throw new HttpException(`${existingDocument.name ?? 'This invoice'} was voided with its cancelled order and can't be confirmed or sent.`, HttpStatus.BAD_REQUEST);
+      }
       if (doConfirmingNow && (existingDocument.config as any)?.cancelled === true && existingDocument.type === 'DELIVERY_ORDER') {
         throw new HttpException(`${existingDocument.name ?? 'This DO'} was cancelled with its delivery and can't be confirmed.`, HttpStatus.BAD_REQUEST);
       }
@@ -5185,6 +5191,8 @@ export class DocumentsService {
       if (!document) {
         throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
       }
+      // A draft invoice voided with its cancelled order (orders/order-cancel.ts) is never sent.
+      if (isVoidedWithOrder(document.config)) throw new HttpException(`${document.name ?? 'This invoice'} was voided with its cancelled order and can't be sent.`, HttpStatus.BAD_REQUEST);
 
       // 2. Validate it's an invoice or a quotation. Quotations reuse the same
       // Resend + PDF pipeline; only the guards differ (see below).
@@ -6597,7 +6605,12 @@ export class DocumentsService {
     const doCandidates = manualDo ? await this.billableJoblessDos(organizationId, orderId) : [];
     if (!billable.length && !doCandidates.length) {
       // Invoice first (manual flow, 2026-11-16): nothing completed yet, so "Create invoice" bills the quotation.
-      if (opts.trigger === 'now' && manualDo) return this.invoiceOrderFromQuotation(orderId, organizationId);
+      if (opts.trigger === 'now' && manualDo) {
+        // Already invoiced (e.g. the draft made at signing, 2026-11-17): open that one, never a second.
+        const existing = await this.liveOrderInvoice(organizationId, order);
+        if (existing) return { ...existing, existing: true } as any;
+        return this.invoiceOrderFromQuotation(orderId, organizationId);
+      }
       if (opts.trigger === 'now') throw new HttpException('Nothing to invoice: no completed DO or verified job is waiting for an invoice.', HttpStatus.BAD_REQUEST);
       return null;
     }
@@ -7900,9 +7913,46 @@ export class DocumentsService {
     return { bound: assigned.length };
   }
 
-  /** Manual order flow, DO first: the order's draft DO (see DeliveriesService.prepareManualOrderDo). */
+  /**
+   * Manual order flow, DO first: the order's draft DO (see DeliveriesService.prepareManualOrderDo),
+   * made when the quotation is signed (staff Confirm and e-sign both call this). 2026-11-17: then
+   * the order's draft invoice at once, as "Create invoice" (autoInvoiceAtSigning).
+   */
   async prepareManualOrderDo(orderId: string, organizationId: string) {
-    return this.deliveriesService.prepareManualOrderDo(orderId, organizationId);
+    const out = await this.deliveriesService.prepareManualOrderDo(orderId, organizationId);
+    await this.autoInvoiceAtSigning(orderId, organizationId);
+    return out;
+  }
+
+  /**
+   * Manual order flow (enableManualOrderFlow + enableWctOrders + enableWctOrderInvoice, 2026-11-17):
+   * a signed quotation's order gets its DRAFT invoice straight away, exactly as the order page's
+   * "Create invoice" (invoiceOrderFromQuotation: the quotation billed once, invoice first). Never
+   * sent, never posted (postInvoicesOnConfirm unchanged). Skipped when the order already has an
+   * invoice. Best-effort: never fails the signing. Every other org: no-op.
+   */
+  async autoInvoiceAtSigning(orderId: string, organizationId: string): Promise<{ id: string; name: string | null } | null> {
+    try {
+      if (!(await isManualOrderFlow(this.prisma, organizationId))) return null;
+      if (!(await isOrgFeatureEnabled(this.prisma as any, organizationId, WCT_ORDER_INVOICE_FLAG))) return null;
+      const order = await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, linkedDocuments: true, invoiceDocumentId: true } });
+      if (!order || order.status === 'CANCELLED' || (await this.liveOrderInvoice(organizationId, order))) return null;
+      // The e-sign path is a public route: pin the org for the tenancy layer.
+      const invoice: any = await runAsOrg(organizationId, () => this.invoiceOrderFromQuotation(orderId, organizationId));
+      return invoice ? { id: invoice.id, name: invoice.name ?? null } : null;
+    } catch (e: any) {
+      console.warn(`[order invoice at signing] ${orderId}: ${e?.message}`);
+      return null;
+    }
+  }
+
+  /** The order's first invoice recorded on the order (not voided with a cancel), or null. */
+  private async liveOrderInvoice(organizationId: string, order: { linkedDocuments?: unknown; invoiceDocumentId?: string | null }) {
+    const ids = orderInvoiceIdsOf(order as any);
+    if (!ids.length) return null;
+    const rows = await this.prisma.document.findMany({ where: { organizationId, id: { in: ids }, type: 'INVOICE' }, select: { id: true, name: true, type: true, documentTemplateId: true, config: true, createdAt: true }, orderBy: { createdAt: 'asc' } });
+    const live = rows.find((d: any) => (d.config as any)?.voided !== true);
+    return live ? { id: live.id, name: live.name, type: live.type, documentTemplateId: live.documentTemplateId } : null;
   }
 
   async prepareManualOrderJob(deliveryId: string, organizationId: string) {

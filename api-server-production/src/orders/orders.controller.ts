@@ -94,7 +94,10 @@ export class OrdersController {
   @Post(':id/cancel')
   @Permissions('orders:update')
   async cancelOrder(@Param('id') id: string, @Req() req: RequestWithOrganization) {
-    return this.ordersService.cancelWctOrder(id, req.userOrganization.id);
+    const out = await this.ordersService.cancelWctOrder(id, req.userOrganization.id);
+    // Activity Log (CANCEL): what went with the order, incl. draft invoices voided with it.
+    (req as any).actionLogResult = out;
+    return out;
   }
 
   @Post('from-quotation/:quotationId')

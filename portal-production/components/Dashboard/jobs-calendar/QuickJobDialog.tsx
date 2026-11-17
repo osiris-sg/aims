@@ -41,6 +41,7 @@ export default function QuickJobDialog({
   slot,
   edit,
   withQuotation = false,
+  initialQuotationId = null,
 }: {
   open: boolean;
   onClose: () => void;
@@ -54,6 +55,8 @@ export default function QuickJobDialog({
   edit?: QuickJobEdit | null;
   /** New job only: the optional Quotation field (the calendar's add). */
   withQuotation?: boolean;
+  /** New job with Quotation: picked when the dialog opens (the order page's Add job, 2026-11-17): Customer, Site and the DO follow. */
+  initialQuotationId?: string | null;
 }) {
   const api = useCalendarApi();
   const phone = useMediaQuery((t: any) => t.breakpoints.down("sm"));
@@ -92,6 +95,12 @@ export default function QuickJobDialog({
     }
     setQuotation(null);
   }, [open, edit, slot]);
+
+  // Order page Add job: the order's quotation is picked at once (its Customer, Site and open DOs).
+  useEffect(() => {
+    if (open && quotationOn && initialQuotationId) void pickQuotation({ id: initialQuotationId } as QuotationOption);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, quotationOn, initialQuotationId]);
 
   // Quotation picked: its customer, Site and (only into empty Remarks) Subject; its order's open DOs for the DO pick.
   const pickQuotation = async (o: QuotationOption | null) => {

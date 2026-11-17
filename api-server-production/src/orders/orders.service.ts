@@ -8,7 +8,9 @@ import {
   SupplierReconciliationData,
 } from '../document-extraction/document-extraction.service';
 import { invoiceSplitOf, withSplitPartIds } from '../documents/invoice-split';
-import { isWctOrdersEnabled, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
+import { AuditService } from '../common/audit.service';
+import { cancelBlockingInvoice, voidedWithOrderConfig } from './order-cancel';
+import { invoiceRowsWithSplitParts, isWctOrdersEnabled, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
 import { MANUAL_ORDER_STATUS_LABEL, isManualOrderFlow, type ManualOrderStatus } from './manual-order-flow';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { isOrgFeatureEnabled } from '../common/org-features';
@@ -36,6 +38,8 @@ export class OrdersService {
     // carries no name claims (the production tokens don't). Optional so the
     // specs' hand-built services still construct.
     @Optional() private readonly identity?: ClerkIdentityService,
+    // Document history rows for invoices voided with a cancelled order (optional for the specs).
+    @Optional() private readonly audit?: AuditService,
   ) {}
 
   /**
@@ -711,9 +715,21 @@ export class OrdersService {
     if (!order) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
     if (order.status === 'CANCELLED') return { id, status: 'CANCELLED' };
     // Invoice first (2026-11-16): an order with an invoice has started, even before its DO.
+    // Manual flow (2026-11-17, the draft invoice is made at signing): an order whose invoices are ALL
+    // drafts (incl. split parts; not sent, not in the ledger, no payment) can still be cancelled, and
+    // those drafts are voided with it (kept, number stays as a gap). Any other org: unchanged.
     const orderInvoiceIds = orderInvoiceIdsOf(order);
-    const liveInvoice = orderInvoiceIds.length ? await this.prisma.document.findFirst({ where: { organizationId, id: { in: orderInvoiceIds }, type: 'INVOICE' }, select: { name: true } }) : null;
-    if (liveInvoice) throw new HttpException(`Only an order that has not started can be cancelled (${liveInvoice.name ?? 'an invoice'} is already made on it).`, HttpStatus.BAD_REQUEST);
+    const manual = await isManualOrderFlow(this.prisma, organizationId);
+    let draftInvoices: Array<{ id: string; name: string | null; config: any }> = [];
+    if (manual && orderInvoiceIds.length) {
+      const rows = (await invoiceRowsWithSplitParts(this.prisma, organizationId, orderInvoiceIds, { type: { in: ['INVOICE', 'TI', 'TI2'] } })).filter((r: any) => r.config?.voided !== true);
+      const blocking = await cancelBlockingInvoice(this.prisma, organizationId, rows as any);
+      if (blocking) throw new HttpException(`Only an order whose invoices are all drafts can be cancelled (${blocking} is sent, paid or in the ledger).`, HttpStatus.BAD_REQUEST);
+      draftInvoices = rows as any;
+    } else {
+      const liveInvoice = orderInvoiceIds.length ? await this.prisma.document.findFirst({ where: { organizationId, id: { in: orderInvoiceIds }, type: 'INVOICE' }, select: { name: true } }) : null;
+      if (liveInvoice) throw new HttpException(`Only an order that has not started can be cancelled (${liveInvoice.name ?? 'an invoice'} is already made on it).`, HttpStatus.BAD_REQUEST);
+    }
     const jobs = await this.prisma.delivery.findMany({
       where: { organizationId, orderId: id, status: { not: 'cancelled' } },
       select: { id: true, deliveryNumber: true, status: true, isDraft: true, orderInvoiceId: true, items: { select: { documentId: true, deliveringAt: true, deliveredAt: true, completedAt: true } } },
@@ -751,9 +767,25 @@ export class OrdersService {
         });
         await tx.delivery.update({ where: { id: j.id }, data: { status: 'cancelled' } });
       }
+      // The order's draft invoices: voided, never deleted (numbers stay as gaps; no journal exists on a draft).
+      const at = new Date().toISOString();
+      for (const inv of draftInvoices) {
+        await tx.document.update({ where: { id: inv.id }, data: { config: voidedWithOrderConfig(inv.config, order.orderNumber, at) as any } });
+      }
       await tx.order.update({ where: { id }, data: { status: 'CANCELLED', statusDates: withStatusDate(order.statusDates, 'CANCELLED') as any } });
     });
-    return { id, status: 'CANCELLED', jobsCancelled: jobs.length, dosCancelled: ownDos.length };
+    for (const inv of draftInvoices) {
+      await this.audit?.logAction({
+        userId: 'system',
+        action: 'STATUS_CHANGED',
+        resource: 'document',
+        resourceId: inv.id,
+        resourceName: inv.name ?? undefined,
+        organizationId,
+        details: { detail: `${inv.name ?? 'Invoice'} voided: order ${order.orderNumber} was cancelled` },
+      } as any);
+    }
+    return { id, status: 'CANCELLED', jobsCancelled: jobs.length, dosCancelled: ownDos.length, ...(draftInvoices.length ? { invoicesVoided: draftInvoices.map((i) => i.name) } : {}) };
   }
 
   /** Add an uploaded file, or link an AIMS service report, to the order. */
@@ -937,6 +969,8 @@ export class OrdersService {
       extra: d.config?.orderBillsQuote === false,
       // Made from the quotation before any DO was done (invoice first, 2026-11-16).
       fromQuotation: d.config?.orderInvoicedFirst === true,
+      // Voided with the cancelled order (order-cancel.ts; key absent otherwise).
+      ...(d.config?.cancelledWithOrder === true && d.config?.voided === true ? { cancelled: true } : {}),
       // Split payment: this invoice is part n of m (key absent when not split).
       ...((x) => (x ? { split: { groupId: x.groupId, part: Number(x.part), of: Number(x.of) } } : {}))(invoiceSplitOf(d.config)),
     }));

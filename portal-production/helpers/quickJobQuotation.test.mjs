@@ -111,3 +111,32 @@ test("copy: no em dashes and no ellipsis in the new labels", () => {
     assert.doesNotMatch(s, /\.\.\.|…/, s);
   }
 });
+
+// 2026-11-17: the order page's "Add job" (manual flow) = this dialog with the order's quotation picked at once.
+test("order page Add job: the order's quotation prefills Customer + Site; one open DO is linked, several = pick one", () => {
+  const onOrder = detail({ status: "confirmed", orderId: "o1", orderNumber: "ORD202611-020" });
+  const one = { ...onOrder, openDos: [{ id: "d1", name: "DO202611040", date: "2026-11-20" }] };
+  const f = applyQuotationPick(form(), one);
+  assert.equal(f.customerId, "c1");
+  assert.equal(f.siteAddress, "51 Circular Road");
+  assert.equal(needsDoPick(one), false);
+  // One open DO: the dialog sets it itself (doId = the only open DO), so the save links the job to it.
+  assert.deepEqual(quickJobBody({ ...f, quotationId: "q1", doId: one.openDos[0].id, doRequired: false }).body.doId, "d1");
+  const two = { ...onOrder, openDos: [{ id: "d1", name: "DO1", date: null }, { id: "d2", name: "DO2", date: null }] };
+  assert.equal(needsDoPick(two), true);
+  assert.equal(quickJobBody({ ...f, quotationId: "q1", doId: null, doRequired: true }).error, "Pick the DO");
+  assert.equal(linkedToast({ orderNumber: "ORD202611-020", doName: "DO202611040" }, "QO1"), "Job added to ORD202611-020, DO202611040");
+});
+
+test("wiring: the order page opens the New job dialog with its quotation; the dialog picks it on open", () => {
+  const dlg = read("components/Dashboard/jobs-calendar/QuickJobDialog.tsx");
+  assert.match(dlg, /initialQuotationId = null/);
+  assert.match(dlg, /if \(open && quotationOn && initialQuotationId\) void pickQuotation/);
+  assert.match(dlg, /doId: q\.openDos\.length === 1 \? q\.openDos\[0\]\.id : null/);
+  const page = read("app/portal/orders/[id]/WctOrderDetail.tsx");
+  assert.match(page, /<QuickJobDialog[\s\S]*withQuotation[\s\S]*initialQuotationId=\{q\.id\}/);
+  // Manual flow only, with the jobs calendar (the quick-job API's gate); never on a cancelled order.
+  assert.match(page, /onAddJob=\{manualFlow && isJobsCalendarEnabled && q && order\.status !== "CANCELLED"/);
+  const panel = read("app/portal/orders/[id]/OrderHubPanel.tsx");
+  assert.ok(panel.indexOf("            Add DO") < panel.indexOf("            Add job"), "Add job sits next to Add DO by the Documents heading");
+});

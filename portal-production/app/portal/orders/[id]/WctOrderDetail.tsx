@@ -44,6 +44,9 @@ import OrderHubPanel from "./OrderHubPanel";
 import { OrderDoMenu, useAddDo, type OrderDo } from "./OrderDosSection";
 import OfficeCompleteJobDialog from "@/components/delivery/OfficeCompleteJobDialog";
 import CustomerSignLink from "@/components/delivery/CustomerSignLink";
+import QuickJobDialog from "@/components/Dashboard/jobs-calendar/QuickJobDialog";
+import { linkedToast } from "@/helpers/quickJobQuotation";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { serviceReportFlowHref, type ServiceReportPrefill } from "@/helpers/serviceReportFlow";
 import { hubActionTarget, hubStatusInfo, type HubActionKey } from "@/helpers/wctOrderHub";
 
@@ -102,7 +105,9 @@ interface WctOrder {
 
 const INVOICE_STATUS: Record<string, string> = { draft: "Draft", unconfirmed: "Draft", confirmed: "Confirmed", pending_payment: "Confirmed, awaiting payment", paid: "Paid" };
 // "Sent" only when the invoice was actually emailed (the API's `emailed`).
-const invoiceStatusLabel = (inv: { status: string; emailed?: boolean; extra?: boolean }) => {
+const invoiceStatusLabel = (inv: { status: string; emailed?: boolean; extra?: boolean; cancelled?: boolean }) => {
+  // Voided with the cancelled order (2026-11-17).
+  if (inv.cancelled) return "Cancelled";
   const base = inv.status === "pending_payment" && inv.emailed ? "Sent, awaiting payment" : INVOICE_STATUS[inv.status] ?? inv.status;
   // An invoice for lines added to a DO on top of the quotation (2026-11-16).
   if (!inv.extra) return base;
@@ -144,6 +149,9 @@ export default function WctOrderDetail({ id }: { id: string }) {
   const [signLinkDo, setSignLinkDo] = useState<OrderDo | null>(null);
   // Order page cleanup (manual flow, 2026-11-17): DO rows of the Documents list carry this menu; Add DO sits by its heading.
   const [doMenu, setDoMenu] = useState<{ pos: { left: number; top: number }; d: OrderDo } | null>(null);
+  // Manual flow (2026-11-17): "Add job" by the Documents heading = the calendar's New job, with this order's quotation.
+  const [jobOpen, setJobOpen] = useState(false);
+  const { isJobsCalendarEnabled } = useOrganizationFeatures();
 
   const load = useCallback(async () => {
     if (!organization?.id) return;
@@ -401,7 +409,21 @@ export default function WctOrderDetail({ id }: { id: string }) {
           const d = dos.find((x) => x.id === row.id);
           if (d) setDoMenu({ pos, d });
         }}
+        onAddJob={manualFlow && isJobsCalendarEnabled && q && order.status !== "CANCELLED" ? () => setJobOpen(true) : undefined}
       />
+      {jobOpen && q && (
+        <QuickJobDialog
+          open
+          withQuotation
+          initialQuotationId={q.id}
+          onClose={() => setJobOpen(false)}
+          onSaved={(_id, r) => {
+            setJobOpen(false);
+            toast.success(linkedToast(r, q.name));
+            void load();
+          }}
+        />
+      )}
       <OrderDoMenu
         menu={doMenu}
         onClose={() => setDoMenu(null)}
@@ -821,6 +843,11 @@ export default function WctOrderDetail({ id }: { id: string }) {
                 if (res?.success === false) throw new Error(res?.message || "Could not create the invoice");
                 setInvoiceAsk(false);
                 const out = res?.data ?? res;
+                // The order already has its invoice (made at signing, 2026-11-17): open it, never a second one.
+                if (out?.existing && out.href) {
+                  router.push(out.href);
+                  return;
+                }
                 // The quotation was already billed and the jobs added nothing on top: no new invoice.
                 if (out?.covered) setActionInfo(`No new invoice: nothing was added on top of the quotation, so job${(out.jobNumbers?.length ?? 0) === 1 ? "" : "s"} ${(out.jobNumbers ?? []).map((n: number) => `#${n}`).join(", ")} ${(out.jobNumbers?.length ?? 0) === 1 ? "is" : "are"} covered by ${out.name || "the order's invoice"}.`);
                 await load();

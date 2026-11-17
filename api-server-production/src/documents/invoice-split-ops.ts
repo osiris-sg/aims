@@ -59,6 +59,7 @@ async function blockers(prisma: any, organizationId: string, docs: Array<{ id: s
   for (const d of docs) {
     const label = d.name || 'This invoice';
     if (!isDraft(d.status)) return `${label} is no longer a draft.`;
+    if (d.config?.voided === true) return `${label} is voided.`;
     if (isErpImported(d.config)) return `${label} is imported.`;
     if (d.config?.xeroInvoiceId) return `${label} is synced to Xero.`;
     if ((amountPaidOf(d.config) ?? 0) > 0) return `${label} has a payment.`;
