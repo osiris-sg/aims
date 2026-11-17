@@ -5,14 +5,25 @@ import assert from "node:assert/strict";
 import { customerIdsLine, normalizeUen, oldCodeOf, uenLooksValid } from "./customerIds.ts";
 import { customerPickerLayout } from "./customerPickerLayout.ts";
 
-test("import batch tags are never shown as an old code", () => {
-  assert.equal(oldCodeOf("erp-import:wct-erp-2026-11-05"), null);
-  assert.equal(oldCodeOf("erp-import:bcair-books-2026-11-06"), null);
-  assert.equal(oldCodeOf(" 449 "), "449");
-  assert.equal(oldCodeOf("228+229"), "228+229");
+test("flag on: import batch tags are never shown as an old code", () => {
+  const on = { uen: true };
+  assert.equal(oldCodeOf("erp-import:wct-erp-2026-11-05", on), null);
+  assert.equal(oldCodeOf("erp-import:bcair-books-2026-11-06", on), null);
+  assert.equal(oldCodeOf(" 449 ", on), "449");
+  assert.equal(oldCodeOf("228+229", on), "228+229");
+  assert.equal(oldCodeOf(null, on), null);
+  assert.equal(customerIdsLine({ uen: "202414659R", externalRef: "erp-import:wct-erp-2026-11-05" }, on), "UEN 202414659R");
+  assert.equal(customerIdsLine({ externalRef: "erp-import:wct-erp-2026-11-05" }, on), "");
+});
+
+test("flag off: the stored old code shows as before, tags included", () => {
+  assert.equal(oldCodeOf("erp-import:wct-erp-2026-11-05"), "erp-import:wct-erp-2026-11-05");
+  assert.equal(oldCodeOf("449"), "449");
   assert.equal(oldCodeOf(null), null);
-  assert.equal(customerIdsLine({ uen: "202414659R", externalRef: "erp-import:wct-erp-2026-11-05" }), "UEN 202414659R");
-  assert.equal(customerIdsLine({ externalRef: "erp-import:wct-erp-2026-11-05" }), "");
+  assert.equal(
+    customerIdsLine({ uen: "202414659R", externalRef: "erp-import:wct-erp-2026-11-05" }),
+    "UEN 202414659R · Old code erp-import:wct-erp-2026-11-05",
+  );
 });
 
 test("customerIdsLine keeps its old output by default", () => {
@@ -45,6 +56,14 @@ test("flag off: the Locate Customer layout is exactly the old one", () => {
   ]);
   assert.equal(off.showHints, true);
   assert.equal(off.subline({ uen: "201302496E", externalRef: "449" }), "UEN 201302496E · Old code 449");
+  assert.equal(off.subline({ externalRef: "erp-import:x" }), "Old code erp-import:x");
+});
+
+test("flag on, supplier mode: old columns, no hints, tags hidden", () => {
+  const sup = customerPickerLayout(false, true);
+  assert.deepEqual(sup.columns.map((c) => c.label), ["Customer Code", "Company Name", "Phone", "Email"]);
+  assert.equal(sup.showHints, false);
+  assert.equal(sup.subline({ externalRef: "erp-import:x" }), "");
 });
 
 test("flag on: UEN column after Company Name, no hints, subline without UEN", () => {

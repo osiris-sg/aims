@@ -8,6 +8,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import { useCustomerSearch } from "@/app/portal/hooks/api/useCustomerPicker";
 import { useTranslations } from "next-intl";
 import { customerIdsLine, rankCustomers } from "@/helpers/customerIds";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 interface Customer {
   id: string;
@@ -35,7 +36,9 @@ export default function CustomerSelectionDrawer({ open, onClose, onSelectCustome
     return () => clearTimeout(id);
   }, [searchTerm]);
   const { customers, isLoading } = useCustomerSearch(term, { limit: 50, enabled: open });
-  const filteredCustomers = rankCustomers(customers as Customer[], term);
+  // UEN ranking + hidden import tags: enableCustomerUen orgs only.
+  const { isCustomerUenEnabled: uenOn } = useOrganizationFeatures();
+  const filteredCustomers = rankCustomers(customers as Customer[], term, { uen: uenOn });
 
   const handleSelectCustomer = (customer: Customer) => {
     onSelectCustomer(customer);
@@ -158,9 +161,9 @@ export default function CustomerSelectionDrawer({ open, onClose, onSelectCustome
                         }
                         secondary={
                           <Box>
-                            {customerIdsLine(customer) && (
+                            {customerIdsLine(customer, { uen: uenOn }) && (
                               <Typography variant="body2" color="text.secondary">
-                                {customerIdsLine(customer)}
+                                {customerIdsLine(customer, { uen: uenOn })}
                               </Typography>
                             )}
                             {customer.email && (

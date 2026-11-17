@@ -11,6 +11,7 @@ import type { SxProps, Theme } from "@mui/material";
 import { useOrganization } from "@hooks/useOrganization";
 import { PickerCustomer, rememberCustomers, useCustomerById, useCustomerSearch } from "@/app/portal/hooks/api/useCustomerPicker";
 import { customerIdsLine, customerLabel, rankCustomers } from "@/helpers/customerIds";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 export interface CustomerPickerProps {
   /** Selected customer id ("" / null = none). */
@@ -72,10 +73,12 @@ export default function CustomerPicker({
   // newest customers rather than searching for that label.
   const searching = selected && input === customerLabel(selected) ? "" : term;
   const { customers, isLoading } = useCustomerSearch(searching, { enabled: open && !disabled });
+  // UEN ranking + hidden import tags: enableCustomerUen orgs only.
+  const { isCustomerUenEnabled: uenOn } = useOrganizationFeatures();
   const options = useMemo(() => {
-    const ranked = rankCustomers(customers, searching);
+    const ranked = rankCustomers(customers, searching, { uen: uenOn });
     return selected && !ranked.some((c) => c.id === selected.id) ? [selected, ...ranked] : ranked;
-  }, [customers, searching, selected]);
+  }, [customers, searching, selected, uenOn]);
 
   return (
     <Autocomplete<PickerCustomer, false, false, false>
@@ -109,9 +112,9 @@ export default function CustomerPicker({
             <Typography variant="body2" noWrap>
               {customerLabel(c)}
             </Typography>
-            {(customerIdsLine(c) || c.email || c.phone) && (
+            {(customerIdsLine(c, { uen: uenOn }) || c.email || c.phone) && (
               <Typography variant="caption" color="text.secondary" noWrap display="block">
-                {[customerIdsLine(c), c.email, c.phone].filter(Boolean).join(" · ")}
+                {[customerIdsLine(c, { uen: uenOn }), c.email, c.phone].filter(Boolean).join(" · ")}
               </Typography>
             )}
           </Box>

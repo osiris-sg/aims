@@ -84,8 +84,8 @@ export default function CustomerSelectDialog({
   // mode keeps its columns) + UEN on the quick-add form, no hint lines.
   // Off = the old layout, unchanged.
   const { isCustomerUenEnabled: uenOn } = useOrganizationFeatures();
-  const layout = customerPickerLayout(uenOn && serverSearch);
-  const showHints = !uenOn;
+  const layout = customerPickerLayout(uenOn && serverSearch, uenOn);
+  const showHints = layout.showHints;
 
   // Quick-add: create a customer without leaving the picker (guru 2026-08-18).
   // The backend generates the customer code from the name; the new customer is
@@ -127,7 +127,7 @@ export default function CustomerSelectDialog({
   // Free-text search across ALL displayed columns (code, name, phone, email),
   // plus UEN and the old (previous-system) code when the customer has them.
   const filteredCustomers = useMemo(() => {
-    if (serverSearch) return rankCustomers(remote.customers as Customer[], debounced);
+    if (serverSearch) return rankCustomers(remote.customers as Customer[], debounced, { uen: uenOn });
     if (!searchTerm.trim()) {
       return customers;
     }
@@ -136,9 +136,9 @@ export default function CustomerSelectDialog({
 
     return customers.filter((customer) =>
       [customer.customerCode, customer.name, customer.phone, customer.email]
-        .some((v) => String(v ?? "").toLowerCase().includes(term)) || customerIdsMatch(customer, term),
+        .some((v) => String(v ?? "").toLowerCase().includes(term)) || customerIdsMatch(customer, term, { uen: uenOn }),
     );
-  }, [customers, searchTerm, serverSearch, remote.customers, debounced]);
+  }, [customers, searchTerm, serverSearch, remote.customers, debounced, uenOn]);
 
   const handleRowClick = (customer: Customer) => {
     onSelectCustomer(customer);

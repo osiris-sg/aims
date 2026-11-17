@@ -2,8 +2,11 @@
 // registration number; Customer.externalRef the customer's code in the org's
 // previous system (WCT: the DP Info debtor code, "228+229" for two merged
 // debtors). The server search uses the same rules (customers.service.ts).
+// UEN matching and hiding import tags are for enableCustomerUen orgs only:
+// callers pass the flag as `uen` (default off = no UEN match, tags shown).
 
 type CustomerIds = { uen?: string | null; externalRef?: string | null };
+type UenOpts = { uen?: boolean };
 
 /** An old code matches whole, or as one part of a merged "228+229". */
 export function oldCodeMatches(externalRef: string | null | undefined, term: string): boolean {
@@ -12,19 +15,21 @@ export function oldCodeMatches(externalRef: string | null | undefined, term: str
   return externalRef.split("+").some((part) => part.trim() === t);
 }
 
-/** True when the term finds this customer by UEN (substring) or old code (whole). */
-export function customerIdsMatch(c: CustomerIds, term: string): boolean {
+/** True when the term finds this customer by UEN (substring; flag orgs) or old code (whole). */
+export function customerIdsMatch(c: CustomerIds, term: string, opts: UenOpts = {}): boolean {
   const t = term.trim().toLowerCase();
   if (!t) return false;
-  return (!!c.uen && c.uen.toLowerCase().includes(t)) || oldCodeMatches(c.externalRef, t);
+  return (!!opts.uen && !!c.uen && c.uen.toLowerCase().includes(t)) || oldCodeMatches(c.externalRef, t);
 }
 
 /**
  * The old code to show, or null. The WCT ERP / books imports used
  * Customer.externalRef as their batch marker ("erp-import:wct-erp-2026-11-05"):
- * that is not a code the customer had, so it is never shown.
+ * not a code the customer had, so flag orgs (uen: true) never show it. Flag
+ * off returns the stored value as before.
  */
-export function oldCodeOf(externalRef: string | null | undefined): string | null {
+export function oldCodeOf(externalRef: string | null | undefined, opts: UenOpts = {}): string | null {
+  if (!opts.uen) return externalRef || null;
   const v = (externalRef ?? "").trim();
   if (!v || v.startsWith("erp-import:")) return null;
   return v;
@@ -32,11 +37,12 @@ export function oldCodeOf(externalRef: string | null | undefined): string | null
 
 /**
  * "UEN 201302496E · Old code 449", or "" when the customer has neither.
- * withUen=false leaves the UEN out (the picker shows it in its own column).
+ * withUen=false leaves the UEN out (the picker shows it in its own column);
+ * uen=true (flag orgs) hides import tags.
  */
-export function customerIdsLine(c: CustomerIds, opts: { withUen?: boolean } = {}): string {
+export function customerIdsLine(c: CustomerIds, opts: { withUen?: boolean } & UenOpts = {}): string {
   const withUen = opts.withUen ?? true;
-  const old = oldCodeOf(c.externalRef);
+  const old = oldCodeOf(c.externalRef, opts);
   return [withUen && c.uen ? `UEN ${c.uen}` : "", old ? `Old code ${old}` : ""].filter(Boolean).join(" · ");
 }
 
@@ -64,11 +70,11 @@ type Rankable = CustomerIds & { customerCode?: string | null; name?: string | nu
  * Order server search results for a picker: an exact code / old code / UEN hit
  * first, then names starting with the term, then the rest (server order kept).
  */
-export function rankCustomers<T extends Rankable>(list: T[], term: string): T[] {
+export function rankCustomers<T extends Rankable>(list: T[], term: string, opts: UenOpts = {}): T[] {
   const t = term.trim().toLowerCase();
   if (!t) return list;
   const score = (c: T) => {
-    if ((c.customerCode ?? "").toLowerCase() === t || oldCodeMatches(c.externalRef, t) || (c.uen ?? "").toLowerCase() === t) return 0;
+    if ((c.customerCode ?? "").toLowerCase() === t || oldCodeMatches(c.externalRef, t) || (!!opts.uen && (c.uen ?? "").toLowerCase() === t)) return 0;
     if ((c.name ?? "").toLowerCase().startsWith(t) || (c.customerCode ?? "").toLowerCase().startsWith(t)) return 1;
     return 2;
   };

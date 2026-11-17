@@ -169,7 +169,7 @@ export default function ViewCustomerPage({ params }: { params: { id: string } })
                 {isCustomerUenEnabled && (
                   <Typography variant="h4" color="text.secondary" textAlign="center">
                     <strong>Code:</strong> {customer?.customerCode || "-"} · <strong>UEN:</strong> {customer?.uen || "-"} · <strong>Old code:</strong>{" "}
-                    {oldCodeOf(customer?.externalRef) || "-"}
+                    {oldCodeOf(customer?.externalRef, { uen: isCustomerUenEnabled }) || "-"}
                   </Typography>
                 )}
                 <Typography variant="h4" color="text.secondary">

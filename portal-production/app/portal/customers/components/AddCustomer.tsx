@@ -157,8 +157,8 @@ export default function AddCustomer({ open, onClose, onSuccess, customerId, isEd
             setValue("gstRegNo", customer.gstRegNo);
             setValue("uen", customer.uen ?? null);
             const ref = customer.externalRef ?? null;
-            setImportTag(ref && !oldCodeOf(ref) ? ref : null);
-            setValue("externalRef", oldCodeOf(ref));
+            setImportTag(ref && !oldCodeOf(ref, { uen: showIds }) ? ref : null);
+            setValue("externalRef", oldCodeOf(ref, { uen: showIds }));
             setValue("jpName", customer.jpName ?? null);
             setValue("jpAddress", customer.jpAddress ?? null);
             setValue("jpContact", customer.jpContact ?? null);

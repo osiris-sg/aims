@@ -3,9 +3,11 @@ import { CustomersService } from './customers.service';
 // Customers list / picker search (2026-11-02): UEN by substring, the old
 // (previous-system) code whole — also as one part of a merged "228+229".
 describe('getCustomers search', () => {
-  const run = async (search: string) => {
+  const ui = (uenOn: boolean) => ({ findUnique: async () => ({ features: uenOn ? { enableCustomerUen: true } : {} }) });
+  const run = async (search: string, uenOn = true) => {
     let where: any;
     const prisma = {
+      organizationUIConfig: ui(uenOn),
       customer: {
         findMany: async (args: any) => ((where = args.where), []),
         count: async () => 0,
@@ -20,6 +22,7 @@ describe('getCustomers search', () => {
   const svcWith = (rows: any[], exact: any[]) => {
     const calls: any[] = [];
     const prisma = {
+      organizationUIConfig: ui(true),
       customer: {
         findMany: async (args: any) => (calls.push(args), args.skip === undefined ? exact : rows.slice(0, args.take)),
         count: async () => rows.length,
@@ -59,6 +62,34 @@ describe('getCustomers search', () => {
         { externalRef: { contains: '+449+' } },
       ]),
     );
+  });
+
+  it('flag off (every other org): UEN is not searched, the rest is', async () => {
+    const where = await run('201302496E', false);
+    expect(JSON.stringify(where.OR)).not.toContain('uen');
+    expect(where.OR).toEqual(expect.arrayContaining([{ name: { contains: '201302496E', mode: 'insensitive' } }, { externalRef: { equals: '201302496E' } }]));
+  });
+
+  it('flag on: UEN is searched (substring)', async () => {
+    const where = await run('201302', true);
+    expect(where.OR).toEqual(expect.arrayContaining([{ uen: { contains: '201302', mode: 'insensitive' } }]));
+  });
+
+  it('exactFirst: the UEN exact hit only for flag orgs', async () => {
+    const mk = (uenOn: boolean) => {
+      const calls: any[] = [];
+      const prisma = {
+        organizationUIConfig: ui(uenOn),
+        customer: { findMany: async (args: any) => (calls.push(args), []), count: async () => 0 },
+      };
+      return { calls, svc: new CustomersService(prisma as any, { toClerkUsers: async () => new Map() } as any) };
+    };
+    const on = mk(true);
+    await on.svc.getCustomers({ page: 1, limit: 20, search: '201302496E', exactFirst: true } as any, 'org');
+    expect(on.calls[1].where.OR).toEqual(expect.arrayContaining([{ uen: { equals: '201302496E', mode: 'insensitive' } }]));
+    const off = mk(false);
+    await off.svc.getCustomers({ page: 1, limit: 20, search: '201302496E', exactFirst: true } as any, 'org');
+    expect(JSON.stringify(off.calls.map((c) => c.where))).not.toContain('uen');
   });
 
   it('adds no OR without a search term', async () => {

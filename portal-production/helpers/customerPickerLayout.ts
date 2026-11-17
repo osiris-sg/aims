@@ -21,10 +21,11 @@ const WITH_UEN: PickerColumn[] = [
   { key: "email", label: "Email", width: "20%" },
 ];
 
-export function customerPickerLayout(uenOn: boolean) {
+/** uenColumn: flag on AND customer mode; flagOn: the org flag (hides import tags). */
+export function customerPickerLayout(uenColumn: boolean, flagOn: boolean = uenColumn) {
   return {
-    columns: uenOn ? WITH_UEN : LEGACY,
-    showHints: !uenOn,
-    subline: (c: { uen?: string | null; externalRef?: string | null }) => customerIdsLine(c, { withUen: !uenOn }),
+    columns: uenColumn ? WITH_UEN : LEGACY,
+    showHints: !flagOn,
+    subline: (c: { uen?: string | null; externalRef?: string | null }) => customerIdsLine(c, { withUen: !uenColumn, uen: flagOn }),
   };
 }

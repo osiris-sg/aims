@@ -15,11 +15,20 @@ test("old code matches whole, including one part of a merged ref", () => {
 });
 
 test("UEN matches as a case-insensitive substring", () => {
-  assert.equal(customerIdsMatch({ uen: "201302496E" }, "201302"), true);
-  assert.equal(customerIdsMatch({ uen: "T08LL1234A" }, "t08ll"), true);
+  assert.equal(customerIdsMatch({ uen: "201302496E" }, "201302", { uen: true }), true);
+  assert.equal(customerIdsMatch({ uen: "T08LL1234A" }, "t08ll", { uen: true }), true);
   assert.equal(customerIdsMatch({ uen: "201302496E", externalRef: "77" }, "77"), true);
   assert.equal(customerIdsMatch({ uen: null, externalRef: null }, "x"), false);
   assert.equal(customerIdsMatch({ uen: "201302496E" }, "  "), false);
+});
+
+test("flag off (other orgs): no UEN match or UEN ranking; old code still matches", () => {
+  assert.equal(customerIdsMatch({ uen: "201302496E" }, "201302"), false);
+  assert.equal(customerIdsMatch({ uen: "201302496E" }, "201302", { uen: false }), false);
+  assert.equal(customerIdsMatch({ uen: "201302496E", externalRef: "77" }, "77"), true);
+  const list = [{ id: "1", name: "Alpha" }, { id: "2", name: "Beta", uen: "201302496E" }];
+  assert.deepEqual(rankCustomers(list, "201302496e").map((c) => c.id), ["1", "2"]);
+  assert.deepEqual(rankCustomers(list, "201302496e", { uen: true }).map((c) => c.id), ["2", "1"]);
 });
 
 test("line under the name", () => {

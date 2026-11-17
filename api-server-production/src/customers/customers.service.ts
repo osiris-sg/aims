@@ -9,6 +9,10 @@ import { CreateSiteOfficeDto } from './dto/create-site-office.dto';
 import { UpdateSiteOfficeDto } from './dto/update-site-office-dto';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { normalizeUenInput } from './customer-uen';
+import { isOrgFeatureEnabled } from '../common/org-features';
+
+// UEN search is for enableCustomerUen orgs (the WCT group) only.
+export const CUSTOMER_UEN_FLAG = 'enableCustomerUen';
 
 @Injectable()
 export class CustomersService {
@@ -23,6 +27,9 @@ export class CustomersService {
       const { page, limit, search, filters, exactFirst } = getCustomerDto;
       const skip = (page - 1) * limit;
       const whereClause: any = { organizationId };
+      const uenOn = search?.trim()
+        ? await isOrgFeatureEnabled(this.prisma as any, organizationId, CUSTOMER_UEN_FLAG).catch(() => false)
+        : false;
 
       // Search filter
       if (search) {
@@ -32,9 +39,9 @@ export class CustomersService {
           { email: { contains: search, mode: 'insensitive' } },
           { phone: { contains: search, mode: 'insensitive' } },
           { address: { contains: search, mode: 'insensitive' } },
-          // UEN and the old (previous-system) code; null for orgs that never set them.
+          // UEN (enableCustomerUen orgs only) and the old (previous-system) code.
           // The old code matches whole ("449"), also inside a merged "228+229".
-          { uen: { contains: search, mode: 'insensitive' } },
+          ...(uenOn ? [{ uen: { contains: search, mode: 'insensitive' } }] : []),
           { externalRef: { equals: search.trim() } },
           { externalRef: { startsWith: `${search.trim()}+` } },
           { externalRef: { endsWith: `+${search.trim()}` } },
@@ -82,7 +89,7 @@ export class CustomersService {
             ...whereClause,
             OR: [
               { customerCode: { equals: term, mode: 'insensitive' } },
-              { uen: { equals: term, mode: 'insensitive' } },
+              ...(uenOn ? [{ uen: { equals: term, mode: 'insensitive' } }] : []),
               { externalRef: { equals: term } },
               { externalRef: { startsWith: `${term}+` } },
               { externalRef: { endsWith: `+${term}` } },

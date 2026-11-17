@@ -123,7 +123,7 @@ export default function CustomersPage() {
     ...(isCustomerUenEnabled
       ? [
           { id: "uen", accessorKey: "uen", header: "UEN", cell: (info: any) => info.getValue() || "-" },
-          { id: "externalRef", accessorKey: "externalRef", header: "Old code", cell: (info: any) => oldCodeOf(info.getValue()) || "-" },
+          { id: "externalRef", accessorKey: "externalRef", header: "Old code", cell: (info: any) => oldCodeOf(info.getValue(), { uen: isCustomerUenEnabled }) || "-" },
         ]
       : []),
     {
