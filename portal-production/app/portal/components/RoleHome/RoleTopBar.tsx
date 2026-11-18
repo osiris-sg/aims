@@ -66,6 +66,7 @@ import { ROLES, ROLE_ORDER } from "./roles";
 import { useRoleView } from "./useRoleView";
 import AppSwitcher from "@/components/TopNav/AppSwitcher";
 import GlobalSearch from "@/components/TopNav/GlobalSearch";
+import NavTabsScroller from "@/components/TopNav/NavTabsScroller";
 import { useTranslations } from "next-intl";
 import { isClientsPath } from "@/helpers/shipmentsNav";
 
@@ -210,6 +211,9 @@ export default function RoleTopBar() {
     "&:hover": { bgcolor: dark ? alpha("#fff", 0.08) : "#F2F4FA" },
   });
 
+  // The bar's fill; the tab arrows' fades run from it (round 12).
+  const barBg = dark ? t.palette.background.paper : "rgba(255,255,255,0.95)";
+
   const dropdown = (code: string, items: React.ReactNode) => (
     <Menu
       anchorEl={menu?.code === code ? menu.anchor : null}
@@ -236,7 +240,7 @@ export default function RoleTopBar() {
           position: "sticky",
           top: 0,
           zIndex: (th) => th.zIndex.appBar,
-          bgcolor: dark ? "background.paper" : "rgba(255,255,255,0.95)",
+          bgcolor: barBg,
           backdropFilter: "blur(8px)",
           borderBottom: "1px solid",
           borderColor: dark ? alpha("#fff", 0.08) : "#F1F5F9",
@@ -269,19 +273,9 @@ export default function RoleTopBar() {
           </Tooltip>
         )}
 
-        {/* Scrolls silently if an org has more modules than fit (as the normal
-            bar does); the right edge fades so a cut-off item reads as "more". */}
-        <Stack
-          direction="row"
-          alignItems="center"
-          gap={0.25}
-          sx={{
-            flex: 1, minWidth: 0, overflowX: "auto", scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" },
-            pr: 3,
-            maskImage: "linear-gradient(to right, black calc(100% - 28px), transparent)",
-            WebkitMaskImage: "linear-gradient(to right, black calc(100% - 28px), transparent)",
-          }}
-        >
+        {/* The modules / tabs scroll when they do not fit; NavTabsScroller shows an arrow over a soft
+            fade on each side with hidden tabs (round 12). The ⌂ and the module name stay put. */}
+        <Stack direction="row" alignItems="center" gap={0.25} sx={{ flex: 1, minWidth: 0, alignSelf: "stretch" }}>
           {(() => {
             // The SAME menu as the normal AIMS bar (guru 2026-11-06): every
             // module the org has and the user may open, in the org's order,
@@ -326,17 +320,21 @@ export default function RoleTopBar() {
 
             if (!open) {
               // Modules row.
-              return bars.map((b) => (
-                <Button
-                  key={b.code}
-                  size="small"
-                  data-testid={`role-nav-module-${b.code}`}
-                  onClick={() => pick(b)}
-                  sx={navBtnSx(b.active, false)}
-                >
-                  {b.label}
-                </Button>
-              ));
+              return (
+                <NavTabsScroller fade={barBg} arrowColor={dark ? "rgba(255,255,255,0.85)" : INK} gap={0.25} testId="role-nav-scroller">
+                  {bars.map((b) => (
+                    <Button
+                      key={b.code}
+                      size="small"
+                      data-testid={`role-nav-module-${b.code}`}
+                      onClick={() => pick(b)}
+                      sx={navBtnSx(b.active, false)}
+                    >
+                      {b.label}
+                    </Button>
+                  ))}
+                </NavTabsScroller>
+              );
             }
 
             // Module level: ⌂ · module name │ its sub-pages as tabs. The tab
@@ -432,17 +430,19 @@ export default function RoleTopBar() {
                   {open.label}
                 </ButtonBase>
                 <Box sx={{ width: "1px", height: 20, bgcolor: dark ? alpha("#fff", 0.16) : "#E2E6F0", mx: 0.5, flexShrink: 0 }} />
-                {open.tabs.map((tb) => (
-                  <Button
-                    key={tb.path}
-                    size="small"
-                    data-testid="role-nav-tab"
-                    onClick={() => go(tb.path)}
-                    sx={navBtnSx(current?.path === tb.path, false)}
-                  >
-                    {tb.label}
-                  </Button>
-                ))}
+                <NavTabsScroller fade={barBg} arrowColor={dark ? "rgba(255,255,255,0.85)" : INK} gap={0.25} testId="role-nav-scroller">
+                  {open.tabs.map((tb) => (
+                    <Button
+                      key={tb.path}
+                      size="small"
+                      data-testid="role-nav-tab"
+                      onClick={() => go(tb.path)}
+                      sx={navBtnSx(current?.path === tb.path, false)}
+                    >
+                      {tb.label}
+                    </Button>
+                  ))}
+                </NavTabsScroller>
               </>
             );
           })()}

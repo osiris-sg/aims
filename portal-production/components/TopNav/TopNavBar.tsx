@@ -19,6 +19,7 @@ import Image from "next/image";
 import { UserButton, useUser } from "@clerk/nextjs";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import GlobalSearch from "./GlobalSearch";
+import NavTabsScroller from "./NavTabsScroller";
 import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
@@ -277,16 +278,8 @@ export default function TopNavBar() {
         )}
       </Stack>
 
-      <Stack
-        direction="row"
-        alignItems="center"
-        sx={{
-          gap: 0, minWidth: 0, overflowX: "auto", flex: 1,
-          // Scroll silently if an org has more modules than fit — no scrollbar strip.
-          scrollbarWidth: "none",
-          "&::-webkit-scrollbar": { display: "none" },
-        }}
-      >
+      {/* More modules than fit: the row scrolls, with an arrow over a soft fade on each side with hidden items (round 12). */}
+      <NavTabsScroller fade="#041627" arrowColor="#FFFFFF" testId="top-nav-scroller">
         {navModules.map((m: any) => {
           const subMenus: any[] = (m.config as any)?.subMenus || [];
           const hasMenu = subMenus.length > 0;
@@ -380,7 +373,7 @@ export default function TopNavBar() {
         </Menu>
         </>
         )}
-      </Stack>
+      </NavTabsScroller>
 
       <Stack direction="row" alignItems="center" gap={1} sx={{ flexShrink: 0, ml: 1 }}>
         {isAimsChatEnabled && (
