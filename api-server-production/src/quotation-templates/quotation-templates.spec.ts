@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { QuotationTemplatesService } from './quotation-templates.service';
 import { QuotationTemplatesController } from './quotation-templates.controller';
 import { ActionLogInterceptor } from '../action-log/action-log.interceptor';
@@ -6,7 +6,7 @@ import { linesToItems, sanitizeLines, templateTotals } from './quotation-templat
 import { DEFAULT_ORG_FEATURES } from '../organizations/default-features';
 
 /**
- * Quotation templates (2026-11-18, WCT group). The service runs on a small
+ * Quotation templates (2026-11-18, WCT group; reworked 2026-11-19: made only from a quotation, lines kept exactly). The service runs on a small
  * in-memory Prisma; DocumentsService.createBasicDocument is a stub that records
  * what the normal new-quotation path would receive.
  */
@@ -87,125 +87,163 @@ describe('quotation template lines', () => {
   });
 });
 
-describe('QuotationTemplatesService', () => {
-  it('create, list (name, line count, total), get', async () => {
-    const { svc } = harness();
-    const t = await svc.create({ name: '  Exhaust   standard ', lines: LINES, subject: 'Hood cleaning', category: 'Service', termsAndConditions: '50% deposit' }, ORG_A, { id: 'u1', name: 'Ann' });
-    expect(t).toMatchObject({ name: 'Exhaust standard', lineCount: 2, total: 882, subject: 'Hood cleaning', category: 'Service', termsAndConditions: '50% deposit', createdByName: 'Ann' });
-    const list = await svc.list(ORG_A);
-    expect(list.map((x) => [x.name, x.lineCount, x.total])).toEqual([['Exhaust standard', 2, 882]]);
-    expect((await svc.get(t.id, ORG_A)).lines).toHaveLength(2);
-  });
+// A real quotation's editor lines (WCT group, as the editor stores them): a title, a service with its SV code, a
+// product with its inventory link and UOM (Racking), tax / account codes, and the editor's blank last row.
+const QUOTE_ITEMS = [
+  { id: 1763500000001, isGroupHeader: true, description: 'Kitchen hood', quantity: null, unitPrice: null, amount: null },
+  { id: 1763500000002, itemCode: 'SV001', inventoryItemId: '', description: 'Kitchen exhaust cleaning', quantity: 2, unitPrice: 350, amount: 700, uom: 'lot', isService: true, revenueTag: 'service', tax: 'SR', accountCode: '4000' },
+  { id: 1763500000003, itemCode: 'FLT-1', inventoryItemId: 'inv-1', description: 'Baffle filter', quantity: 4, unitPrice: 45.5, amount: 182, uom: 'pcs', isService: false, tax: 'SR', accountCode: '4100' },
+  { id: 1763500000004, itemCode: '', inventoryItemId: '', description: '', quantity: 1, unitPrice: 0, amount: 0 },
+];
+const withoutId = ({ id: _id, ...rest }: any) => rest;
+const QUOTE = { name: 'Hood standard', items: QUOTE_ITEMS, category: 'Service', subject: 'Hood cleaning', termsAndConditions: '50% deposit', remarks: 'Call first', customer: { id: 'c1' }, issueDate: '2026-11-19' };
 
-  it('rejects a blank name, no lines and a duplicate name (any case)', async () => {
-    const { svc } = harness();
-    await expect(svc.create({ name: ' ', lines: LINES }, ORG_A)).rejects.toBeInstanceOf(BadRequestException);
-    await expect(svc.create({ name: 'A', lines: [{ description: '' }] }, ORG_A)).rejects.toBeInstanceOf(BadRequestException);
-    await svc.create({ name: 'Monthly', lines: LINES }, ORG_A);
-    await expect(svc.create({ name: 'monthly', lines: LINES }, ORG_A)).rejects.toThrow('already exists');
-    // Another org may use the same name.
-    await expect(svc.create({ name: 'Monthly', lines: LINES }, ORG_B)).resolves.toMatchObject({ name: 'Monthly' });
-  });
-
-  it('save as template: the editor lines are copied as sent', async () => {
+describe('QuotationTemplatesService (2026-11-19: made only from a quotation)', () => {
+  it('Save as template copies the quotation lines exactly (row id dropped, blank row skipped) and the Category', async () => {
     const { svc, rows } = harness();
-    const editorItems = [
-      { id: 17, itemCode: 'SV002', description: 'Duct cleaning', quantity: 1, unitPrice: 1200, amount: 1200, isService: true, revenueTag: 'service', rateMerge: { id: 'x' } },
-    ];
-    const t = await svc.create({ name: 'From QO202611-0026', lines: editorItems, subject: 'S' }, ORG_A);
-    expect(rows[0].lines).toEqual([{ itemCode: 'SV002', inventoryItemId: '', description: 'Duct cleaning', quantity: 1, unitPrice: 1200, lineType: 'SERVICE' }]);
-    expect(t.total).toBe(1200);
+    const t = await svc.saveFromQuotation(QUOTE, ORG_A, { id: 'u1', name: 'Ann' });
+    expect(rows[0].lines).toEqual(QUOTE_ITEMS.slice(0, 3).map((it) => ({ item: withoutId(it) })));
+    expect(rows[0].category).toBe('Service');
+    expect(t).toMatchObject({ name: 'Hood standard', lineCount: 2, total: 882, unlinked: 0, category: 'Service', createdByName: 'Ann' });
+    expect(t.lines.map((l: any) => [l.itemCode, l.isGroupHeader, l.uom, l.lineType])).toEqual([
+      ['', true, '', 'SERVICE'],
+      ['SV001', false, 'lot', 'SERVICE'],
+      ['FLT-1', false, 'pcs', 'PRODUCT'],
+    ]);
   });
 
-  it('rename and edit change only the fields sent', async () => {
-    const { svc } = harness();
-    const t = await svc.create({ name: 'Old', lines: LINES, subject: 'Keep me' }, ORG_A);
-    const r = await svc.update(t.id, { name: 'New name' }, ORG_A);
-    expect(r).toMatchObject({ name: 'New name', subject: 'Keep me', lineCount: 2 });
-    const e = await svc.update(t.id, { lines: [LINES[0]], subject: '' }, ORG_A);
-    expect(e).toMatchObject({ name: 'New name', subject: null, lineCount: 1, total: 700 });
-    await svc.create({ name: 'Other', lines: LINES }, ORG_A);
-    await expect(svc.update(t.id, { name: 'OTHER' }, ORG_A)).rejects.toThrow('already exists');
-    await expect(svc.update(t.id, { name: 'new NAME' }, ORG_A)).resolves.toMatchObject({ name: 'new NAME' });
-  });
-
-  it('delete hides the row (kept), and a hidden template cannot be read, edited or used', async () => {
+  it('never saves Subject, T&Cs, customer, dates or Remarks', async () => {
     const { svc, rows } = harness();
-    const t = await svc.create({ name: 'Gone', lines: LINES }, ORG_A);
-    await svc.hide(t.id, ORG_A, { id: 'u1' });
+    await svc.saveFromQuotation(QUOTE, ORG_A);
+    expect(rows[0].subject).toBeNull();
+    expect(rows[0].termsAndConditions).toBeNull();
+    expect(JSON.stringify(rows[0])).not.toMatch(/Hood cleaning|50% deposit|Call first|"c1"|2026-11-19/);
+  });
+
+  it('Use creates a draft whose lines are identical to the quotation it came from (fresh ids), no Subject / T&Cs', async () => {
+    const { svc, documents } = harness();
+    const t = await svc.saveFromQuotation(QUOTE, ORG_A);
+    const res = await svc.use(t.id, { documentTemplateId: LAYOUT, type: 'quotation' }, ORG_A, { id: 'u1', name: 'Ann' });
+    expect(res).toEqual({ success: true, data: { id: 'doc1', type: 'QUOTATION', documentTemplateId: LAYOUT, name: 'QO202611-0001' } });
+    const [layoutId, type, org, config, projectId, actor] = documents.createBasicDocument.mock.calls[0];
+    expect([layoutId, type, org, projectId, actor]).toEqual([LAYOUT, 'QUOTATION', ORG_A, undefined, { id: 'u1', name: 'Ann' }]);
+    expect(config.items.map(withoutId)).toEqual(QUOTE_ITEMS.slice(0, 3).map(withoutId));
+    const ids = config.items.map((i: any) => i.id);
+    expect(new Set(ids).size).toBe(3);
+    expect(ids).not.toContain(QUOTE_ITEMS[1].id);
+    expect(config.documentInfo).toEqual({ quotationCategory: 'Service' });
+    expect(config.quotationCategory).toBe('Service');
+    expect(config.fromQuotationTemplate).toEqual({ id: t.id, name: 'Hood standard' });
+    expect(config.customer).toBeUndefined();
+    // Using twice gives two separate copies (no shared objects with the template).
+    config.items[1].quantity = 99;
+    await svc.use(t.id, { documentTemplateId: LAYOUT }, ORG_A);
+    expect(documents.createBasicDocument.mock.calls[1][3].items[1].quantity).toBe(2);
+  });
+
+  it('a name in use: refused until Replace (same template, new lines) or Save as new ("Name (2)")', async () => {
+    const { svc, rows } = harness();
+    const first = await svc.saveFromQuotation(QUOTE, ORG_A);
+    const changed = { ...QUOTE, name: 'hood STANDARD', category: 'Maintenance', items: [QUOTE_ITEMS[1]] };
+    await expect(svc.saveFromQuotation(changed, ORG_A)).rejects.toBeInstanceOf(ConflictException);
+    await expect(svc.saveFromQuotation(changed, ORG_A)).rejects.toMatchObject({ response: { existingId: first.id } });
     expect(rows).toHaveLength(1);
+
+    const replaced = await svc.saveFromQuotation({ ...changed, onExisting: 'replace' }, ORG_A);
+    expect(rows).toHaveLength(1);
+    expect(replaced).toMatchObject({ id: first.id, name: 'Hood standard', lineCount: 1, total: 700, category: 'Maintenance', replaced: true });
+
+    const asNew = await svc.saveFromQuotation({ ...changed, onExisting: 'new' }, ORG_A);
+    expect(rows).toHaveLength(2);
+    expect(asNew.name).toBe('hood STANDARD (2)');
+    const again = await svc.saveFromQuotation({ ...QUOTE, onExisting: 'new' }, ORG_A);
+    expect(again.name).toBe('Hood standard (3)');
+    // A free name saves straight away, whatever onExisting says.
+    await expect(svc.saveFromQuotation({ ...QUOTE, name: 'Fresh', onExisting: 'replace' }, ORG_A)).resolves.toMatchObject({ name: 'Fresh' });
+  });
+
+  it('rejects a blank name and a quotation with no lines', async () => {
+    const { svc } = harness();
+    await expect(svc.saveFromQuotation({ ...QUOTE, name: ' ' }, ORG_A)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.saveFromQuotation({ ...QUOTE, items: [QUOTE_ITEMS[3]] }, ORG_A)).rejects.toBeInstanceOf(BadRequestException);
+    // Another org may use the same name.
+    await svc.saveFromQuotation(QUOTE, ORG_A);
+    await expect(svc.saveFromQuotation(QUOTE, ORG_B)).resolves.toMatchObject({ name: 'Hood standard' });
+  });
+
+  it('rename only: the lines cannot be edited through the API any more', async () => {
+    const { svc, rows } = harness();
+    const t = await svc.saveFromQuotation(QUOTE, ORG_A);
+    const r = await svc.update(t.id, { name: 'New name', lines: [], subject: 'x' } as any, ORG_A);
+    expect(r).toMatchObject({ name: 'New name', lineCount: 2 });
+    expect(rows[0].subject).toBeNull();
+    await svc.saveFromQuotation({ ...QUOTE, name: 'Other' }, ORG_A);
+    await expect(svc.update(t.id, { name: 'OTHER' }, ORG_A)).rejects.toThrow('already exists');
+  });
+
+  it('an older typed template still lists and Uses; its lines with no product / service code are flagged', async () => {
+    const { svc, rows, documents } = harness();
+    rows.push({ id: 'old1', organizationId: ORG_A, name: 'Typed', hiddenAt: null, createdAt: new Date(), updatedAt: new Date(), subject: 'Old subject', termsAndConditions: 'Old T&Cs', category: null, lines: sanitizeLines(LINES.concat([{ description: 'Free text line', itemCode: '' } as any])) });
+    const [view] = await svc.list(ORG_A);
+    expect(view).toMatchObject({ name: 'Typed', lineCount: 3, unlinked: 1 });
+    expect(view.lines.map((l: any) => l.linked)).toEqual([true, true, false]);
+    await svc.use('old1', { documentTemplateId: LAYOUT }, ORG_A);
+    const config = documents.createBasicDocument.mock.calls[0][3];
+    expect(config.items).toHaveLength(3);
+    expect(config.items[1]).toMatchObject({ inventoryItemId: 'inv-1', amount: 182, isService: false });
+    // Subject / T&Cs stay behind even on an older template.
+    expect(config.documentInfo).toEqual({});
+  });
+
+  it('delete hides the row (kept); a hidden template cannot be read, renamed or used; its name is free', async () => {
+    const { svc, rows } = harness();
+    const t = await svc.saveFromQuotation({ ...QUOTE, name: 'Gone' }, ORG_A);
+    await svc.hide(t.id, ORG_A, { id: 'u1' });
     expect(rows[0].hiddenAt).toBeInstanceOf(Date);
     expect(rows[0].hiddenBy).toBe('u1');
     expect(await svc.list(ORG_A)).toEqual([]);
     await expect(svc.get(t.id, ORG_A)).rejects.toBeInstanceOf(NotFoundException);
     await expect(svc.update(t.id, { name: 'x' }, ORG_A)).rejects.toBeInstanceOf(NotFoundException);
     await expect(svc.use(t.id, { documentTemplateId: LAYOUT }, ORG_A)).rejects.toBeInstanceOf(NotFoundException);
-    // The name is free again.
-    await expect(svc.create({ name: 'Gone', lines: LINES }, ORG_A)).resolves.toMatchObject({ name: 'Gone' });
+    await expect(svc.saveFromQuotation({ ...QUOTE, name: 'Gone' }, ORG_A)).resolves.toMatchObject({ name: 'Gone' });
   });
 
-  it('use: a new draft quotation through createBasicDocument with the lines, Subject, Category and T&Cs', async () => {
-    const { svc, created, documents } = harness();
-    const t = await svc.create({ name: 'Std', lines: LINES, subject: 'Hood cleaning', category: 'Service', termsAndConditions: '50% deposit' }, ORG_A);
-    const res = await svc.use(t.id, { documentTemplateId: LAYOUT, type: 'quotation' }, ORG_A, { id: 'u1', name: 'Ann' });
-    expect(res).toEqual({ success: true, data: { id: 'doc1', type: 'QUOTATION', documentTemplateId: LAYOUT, name: 'QO202611-0001' } });
-    expect(documents.createBasicDocument).toHaveBeenCalledTimes(1);
-    const [layoutId, type, org, config, projectId, actor] = documents.createBasicDocument.mock.calls[0];
-    expect([layoutId, type, org, projectId, actor]).toEqual([LAYOUT, 'QUOTATION', ORG_A, undefined, { id: 'u1', name: 'Ann' }]);
-    expect(config.items).toHaveLength(2);
-    expect(config.items[0]).toMatchObject({ description: 'Kitchen exhaust cleaning', quantity: 2, unitPrice: 350, amount: 700, isService: true });
-    expect(config.items[1]).toMatchObject({ inventoryItemId: 'inv-1', amount: 182, isService: false });
-    expect(config.documentInfo).toEqual({ subject: 'Hood cleaning', quotationCategory: 'Service', termsAndConditions: '50% deposit' });
-    // The quotation's Category lives at config.quotationCategory (the editor's field and the Sales report read it there).
-    expect(config.quotationCategory).toBe('Service');
-    expect(config.fromQuotationTemplate).toEqual({ id: t.id, name: 'Std' });
-    // No customer is set: it is picked in the editor as normal.
-    expect(config.customer).toBeUndefined();
-    expect(config.customerId).toBeUndefined();
-    expect(created[0].name).toBe('QO202611-0001');
-  });
-
-  it('use: an empty Subject / T&Cs leaves the org defaults to createBasicDocument; numberFormatId passes through', async () => {
+  it('use: numberFormatId passes through; only quotation types and quotation layouts', async () => {
     const { svc, documents } = harness();
-    const t = await svc.create({ name: 'Bare', lines: LINES }, ORG_A);
+    const t = await svc.saveFromQuotation(QUOTE, ORG_A);
     await svc.use(t.id, { documentTemplateId: LAYOUT, numberFormatId: 'nf1' }, ORG_A);
-    const config = documents.createBasicDocument.mock.calls[0][3];
-    expect(config.documentInfo).toEqual({});
-    expect(config.numberFormatId).toBe('nf1');
-  });
-
-  it('use: only quotation types and quotation layouts', async () => {
-    const { svc, documents } = harness();
-    const t = await svc.create({ name: 'Std', lines: LINES }, ORG_A);
+    expect(documents.createBasicDocument.mock.calls[0][3].numberFormatId).toBe('nf1');
     await expect(svc.use(t.id, { documentTemplateId: LAYOUT, type: 'INVOICE' }, ORG_A)).rejects.toBeInstanceOf(BadRequestException);
     await expect(svc.use(t.id, { documentTemplateId: 'layout-inv' }, ORG_A)).rejects.toBeInstanceOf(BadRequestException);
-    await expect(svc.use(t.id, { documentTemplateId: 'missing' }, ORG_A)).rejects.toBeInstanceOf(BadRequestException);
     await expect(svc.use(t.id, {}, ORG_A)).rejects.toBeInstanceOf(BadRequestException);
-    expect(documents.createBasicDocument).not.toHaveBeenCalled();
+    expect(documents.createBasicDocument).toHaveBeenCalledTimes(1);
   });
 
-  it('per-org isolation: org B cannot list, read, edit, hide or use org A templates', async () => {
+  it('per-org isolation: org B cannot list, read, rename, hide, replace or use org A templates', async () => {
     const { svc, documents, rows } = harness();
-    const a = await svc.create({ name: 'A only', lines: LINES }, ORG_A);
+    const a = await svc.saveFromQuotation({ ...QUOTE, name: 'A only' }, ORG_A);
     expect(await svc.list(ORG_B)).toEqual([]);
     await expect(svc.get(a.id, ORG_B)).rejects.toBeInstanceOf(NotFoundException);
     await expect(svc.update(a.id, { name: 'stolen' }, ORG_B)).rejects.toBeInstanceOf(NotFoundException);
     await expect(svc.hide(a.id, ORG_B)).rejects.toBeInstanceOf(NotFoundException);
     await expect(svc.use(a.id, { documentTemplateId: LAYOUT }, ORG_B)).rejects.toBeInstanceOf(NotFoundException);
+    // Org B saving the same name with Replace makes its own template; org A's is untouched.
+    await svc.saveFromQuotation({ ...QUOTE, name: 'A only', items: [QUOTE_ITEMS[1]], onExisting: 'replace' }, ORG_B);
+    expect(rows.find((r) => r.id === a.id).lines).toHaveLength(3);
     expect(documents.createBasicDocument).not.toHaveBeenCalled();
-    expect(rows[0]).toMatchObject({ name: 'A only', hiddenAt: null });
   });
 
   it('setting off: every endpoint refuses and nothing is read or written (other orgs unchanged)', async () => {
     const { svc, quotationTemplate, documents } = harness({ flags: { [ORG_A]: true, [ORG_B]: false } });
-    const a = await svc.create({ name: 'A', lines: LINES }, ORG_A);
+    const a = await svc.saveFromQuotation(QUOTE, ORG_A);
     quotationTemplate.findFirst.mockClear();
     quotationTemplate.findMany.mockClear();
     quotationTemplate.create.mockClear();
+    quotationTemplate.update.mockClear();
     for (const call of [
       () => svc.list(ORG_B),
       () => svc.get(a.id, ORG_B),
-      () => svc.create({ name: 'B', lines: LINES }, ORG_B),
+      () => svc.saveFromQuotation(QUOTE, ORG_B),
       () => svc.update(a.id, { name: 'x' }, ORG_B),
       () => svc.hide(a.id, ORG_B),
       () => svc.use(a.id, { documentTemplateId: LAYOUT }, ORG_B),
@@ -215,6 +253,7 @@ describe('QuotationTemplatesService', () => {
     expect(quotationTemplate.findFirst).not.toHaveBeenCalled();
     expect(quotationTemplate.findMany).not.toHaveBeenCalled();
     expect(quotationTemplate.create).not.toHaveBeenCalled();
+    expect(quotationTemplate.update).not.toHaveBeenCalled();
     expect(documents.createBasicDocument).not.toHaveBeenCalled();
   });
 

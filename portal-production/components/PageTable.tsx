@@ -6,7 +6,8 @@ import Table from "./Table";
 import { ColumnDef } from "@tanstack/react-table";
 import { INVENTORY_STATUS } from "@/containers/Inventory/slice/constants";
 import { useGetCategories } from "@/app/portal/hooks/api";
-import { Box, Button, Typography, Pagination, Grid2, IconButton } from "@mui/material";
+import { Box, Button, ButtonGroup, Menu, MenuItem, Typography, Pagination, Grid2, IconButton } from "@mui/material";
+import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import { alpha } from "@mui/material/styles";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import { useForm } from "react-hook-form";
@@ -33,6 +34,8 @@ interface Props {
   subTitle?: string;
   buttonName?: string;
   buttonDisabled?: boolean;
+  /** Optional arrow beside the Create button (a split button): its menu items. Absent = the plain button, as before. */
+  buttonMenu?: Array<{ label: string; onClick: () => void; tour?: string }>;
   loading: boolean;
   page?: number;
   limit?: number;
@@ -94,7 +97,7 @@ export const DEFAULT_PAGE_SIZE = 50;
 
 export default function PageTable(props: Props) {
   const pt = PT[useUiLang().lang];
-  const { columns, data: allData, tableName, subTitle, loading, buttonName, buttonDisabled, page: callerPage, limit: callerLimit, search, filters, setPage: callerSetPage, setLimit: callerSetLimit, setSearch, setFilters, pageCount: callerPageCount, onAddClick, subRowAccessor, filterConfig: incomingFilterConfig, availableFilters, assetsData, totalDocs: callerTotalDocs, renderSubComponent, actionButtons, headerContent, manualSorting, sorting, onSortingChange, onRowClick, rowHref, rowSx, noSelectionColumn, hideTable, noPagination, clientPaging } = props;
+  const { columns, data: allData, tableName, subTitle, loading, buttonName, buttonDisabled, page: callerPage, limit: callerLimit, search, filters, setPage: callerSetPage, setLimit: callerSetLimit, setSearch, setFilters, pageCount: callerPageCount, onAddClick, subRowAccessor, filterConfig: incomingFilterConfig, availableFilters, assetsData, totalDocs: callerTotalDocs, renderSubComponent, actionButtons, headerContent, manualSorting, sorting, onSortingChange, onRowClick, rowHref, rowSx, noSelectionColumn, hideTable, noPagination, clientPaging, buttonMenu } = props;
   // Client paging: the caller's page / limit when it has them, else PageTable's own.
   const [ownPage, setOwnPage] = useState(1);
   const [ownLimit, setOwnLimit] = useState(DEFAULT_PAGE_SIZE);
@@ -183,11 +186,14 @@ export default function PageTable(props: Props) {
                 "& .MuiButton-root": { whiteSpace: "nowrap", flexShrink: 0 },
               }}
             >
-              {buttonName && (
+              {buttonName && !buttonMenu?.length && (
                 // data-tour: stable anchor for AIMS Guide walkthroughs
                 <Button data-tour="page-create-button" variant="contained" color="primary" startIcon={<AddCircleOutlineIcon />} onClick={onAddClick} disabled={buttonDisabled}>
                   {buttonName}
                 </Button>
+              )}
+              {buttonName && !!buttonMenu?.length && (
+                <CreateSplitButton name={buttonName} onClick={onAddClick} disabled={buttonDisabled} menu={buttonMenu} />
               )}
 
               {actionButtons && actionButtons.map((btn, idx) => <React.Fragment key={idx}>{btn}</React.Fragment>)}
@@ -280,5 +286,37 @@ export default function PageTable(props: Props) {
         )}
       </Box>
     </form>
+  );
+}
+
+/** The Create button with an arrow (buttonMenu): main part = the normal Create, the arrow opens the extra ways. */
+function CreateSplitButton({ name, onClick, disabled, menu }: { name: string; onClick?: () => void; disabled?: boolean; menu: Array<{ label: string; onClick: () => void; tour?: string }> }) {
+  const arrowRef = React.useRef<HTMLButtonElement | null>(null);
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <ButtonGroup variant="contained" color="primary" disableElevation disabled={disabled} data-tour="page-create-button">
+        <Button startIcon={<AddCircleOutlineIcon />} onClick={onClick}>
+          {name}
+        </Button>
+        <Button ref={arrowRef} aria-label={`More ways to ${name.toLowerCase()}`} aria-haspopup="menu" onClick={() => setOpen(true)} sx={{ px: 0.5, minWidth: 0 }} data-tour="page-create-arrow">
+          <ArrowDropDownIcon fontSize="small" />
+        </Button>
+      </ButtonGroup>
+      <Menu anchorEl={arrowRef.current} open={open} onClose={() => setOpen(false)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }} transformOrigin={{ vertical: "top", horizontal: "right" }}>
+        {menu.map((m) => (
+          <MenuItem
+            key={m.label}
+            data-tour={m.tour}
+            onClick={() => {
+              setOpen(false);
+              m.onClick();
+            }}
+          >
+            {m.label}
+          </MenuItem>
+        ))}
+      </Menu>
+    </>
   );
 }

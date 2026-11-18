@@ -3,7 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { runAsOrg } from '../common/tenancy/tenant-context';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { SiteClockLinkService } from '../siteclock/siteclock-link.service';
-import { buildCalendarEvents, CalendarEvent, CalendarRun, CalendarSiteClockJob, CALENDAR_TZ, checkRange, rangeInstants, stripLinks } from './jobs-calendar';
+import { buildCalendarEvents, CalendarEvent, CalendarRun, CalendarSiteClockJob, CALENDAR_TZ, checkRange, chipLabelOf, rangeInstants, stripLinks } from './jobs-calendar';
 import { GroupOrg, groupReadScope, memberOrgIds } from '../organizations/org-group';
 import { calendarBadge, calendarLegend, isJobFieldsEnabled, jobFieldDefs, jobFieldValues } from '../deliveries/job-fields';
 import { jobCategoryDef, jobCategoryValues } from '../deliveries/job-category';
@@ -262,7 +262,7 @@ export class JobsCalendarService {
   private async styled(
     organizationId: string,
     events: CalendarEvent[],
-    runs: Array<{ id: string; status: string }>,
+    runs: Array<{ id: string; status: string; customerName?: string | null; siteAddress?: string | null }>,
     ptwOf: Map<string, string | null>,
     quotationIds: Map<string, string | null>,
     colours: CalendarColours,
@@ -300,11 +300,12 @@ export class JobsCalendarService {
     const names = await this.style!.names(people);
     const nameOf = (id: string | null, stored: string | null | undefined) => (id ? names.get(id)?.name ?? stored ?? null : null);
 
+    const runOf = new Map(runs.map((r) => [r.id, r]));
     return events.map((e) => {
       const runId = e.source === 'aims' && e.id.startsWith('aims:') ? e.id.slice(5) : null;
       if (!runId) {
         const input: StyleInput = { cancelled: e.cancelled, postponed: false, ptwStatus: null, doCount: 0, cod: false, category: null, salespersonId: null, ptwApplicantId: null };
-        return { ...e, style: styleOf(input, colours), createdBy: null };
+        return { ...e, style: styleOf(input, colours), createdBy: null, chipLabel: e.title };
       }
       const m = meta.get(runId);
       const ptwStatus = ptwOf.get(runId) ?? null;
@@ -336,6 +337,7 @@ export class JobsCalendarService {
         salesperson: salespersonId ? { id: salespersonId, name: salesName } : null,
         ptwApplicant: applicantId ? { id: applicantId, name: applicantName } : null,
         ...(m?.sticker ? { sticker: true } : {}),
+        chipLabel: chipLabelOf(runOf.get(runId), e.title),
         createdBy: m?.createdById ? { id: m.createdById, name: names.get(m.createdById)?.name ?? null } : null,
         style: styleOf(input, colours),
       };

@@ -171,3 +171,24 @@ test("other orgs: no people list in the payload means no rows and nothing filter
   assert.deepEqual(peopleRows({ ...p, people: undefined }, []).filter((r) => r.kind !== "unknown"), []);
   assert.equal(filterByPeople(p.events, []), p.events);
 });
+
+// 2026-11-19 (round 14): chip line 1 = category prefix + customer only.
+import { chipTitle, styledTitle } from "../components/Dashboard/jobs-calendar/calendarModel.ts";
+
+test("chip text: prefix + customer only; no customer = site address; neither = the title (per job type)", () => {
+  const order = ev({ title: "ORD202611-003 · #41 Domino's Pizza", chipLabel: "Domino's Pizza", style: style({ prefix: "(SV)" }) });
+  assert.equal(chipTitle(order), "(SV) Domino's Pizza");
+  // The full title stays for the tooltip and the side panel.
+  assert.equal(styledTitle(order), "(SV) ORD202611-003 · #41 Domino's Pizza");
+  const quick = ev({ title: "#42 Yoshinoya", chipLabel: "Yoshinoya", style: style({ prefix: "(M)" }) });
+  assert.equal(chipTitle(quick), "(M) Yoshinoya");
+  const noCustomer = ev({ title: "#43 10 Anson Road", chipLabel: "10 Anson Road", style: style() });
+  assert.equal(chipTitle(noCustomer), "10 Anson Road");
+  const collect = ev({ title: "#44 Acme", chipLabel: "Acme", style: style({ prefix: "(CC)" }) });
+  assert.equal(chipTitle(collect), "(CC) Acme");
+  // An older API (no chipLabel) falls back to the title.
+  assert.equal(chipTitle(ev({ title: "#45 X", style: style() })), "#45 X");
+  // Schedule rows use the same short text.
+  const days = scheduleDays([order, noCustomer], [], null);
+  assert.deepEqual(days[0].rows.map((r) => r.title), ["(SV) Domino's Pizza", "10 Anson Road"]);
+});

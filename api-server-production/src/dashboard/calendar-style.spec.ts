@@ -596,3 +596,28 @@ describe('calendar people list and Generate sticker', () => {
     expect(await stampJobCreator(make(true, null).prisma, P, 'job-1', null)).toBe(false);
   });
 });
+
+describe('calendar chip text (2026-11-19): customer only', () => {
+  it('order job and quick job: the customer; no customer: the site address; neither: the title; full title kept', async () => {
+    const w = world();
+    w.runs[P].push(baseRun('r-nocust', { customer: null, siteAddress: '10 Anson Road' }), baseRun('r-bare', { customer: null, siteAddress: null, deliveryNumber: 9 }));
+    const res = await svc(w).get(P, '2026-11-16', '2026-11-22', { userId: HH });
+    const order = byId(res.events, 'r-order');
+    expect(order.chipLabel).toBe('Acme');
+    expect(order.title).toMatch(/^ORD-1 · #1 /);
+    expect(byId(res.events, 'r-quick').chipLabel).toBe('Acme');
+    expect(byId(res.events, 'r-nocust').chipLabel).toBe('10 Anson Road');
+    const bare = byId(res.events, 'r-bare');
+    expect(bare.chipLabel).toBe(bare.title);
+    // Child company items get it too.
+    expect(byId(res.events, 'r-child').chipLabel).toBe('Acme');
+  });
+
+  it('style off (and every other org): no chipLabel, titles unchanged', async () => {
+    const w = world();
+    w.features[P].enableCalendarStyle = false;
+    const res = await svc(w).get(P, '2026-11-16', '2026-11-22', { userId: HH });
+    expect(JSON.stringify(res)).not.toMatch(/chipLabel/);
+    expect(JSON.stringify(await svc(w).get(X, '2026-11-16', '2026-11-22', { userId: 'x' }))).not.toMatch(/chipLabel/);
+  });
+});

@@ -59,6 +59,8 @@ const DOC_STATUS_OPTIONS = [
 import { useCreateDocumentFlow } from "./useCreateDocumentFlow";
 import { docGrossTotal, docPaidToDate, docAmountDue } from "@/helpers/docTotal";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import QuotationTemplatesHost from "@/app/portal/components/QuotationTemplates/QuotationTemplatesHost";
+import { quotationListTemplates } from "@/helpers/quotationTemplates";
 import { documentListSubtitle } from "@/helpers/wctDocUi";
 import { invoiceStatusOptions } from "@/helpers/invoiceStatusOptions";
 import DoStatusTag from "@/components/DoStatusTag";
@@ -242,7 +244,7 @@ export default function DocumentListView({
   const { organization } = useOrganization();
   // Shared creation flow (number format → template → create → editor) — same
   // hook backs the AR tab's Create Invoice, so the behaviour stays identical.
-  const { create: handleCreate, creating, dialogs: createFlowDialogs } = useCreateDocumentFlow(
+  const { create: handleCreate, creating, dialogs: createFlowDialogs, resolveTarget } = useCreateDocumentFlow(
     createDocumentType,
     documentLabel
   );
@@ -259,7 +261,11 @@ export default function DocumentListView({
   const dateHeader = useMemo(() => dateHeaderFor(documentTypes), [documentTypes]);
 
   // Real DO numbers (enableRealDoOnSchedule): a DO shows Pending / Completed / Cancelled next to its number.
-  const { isRealDoOnScheduleEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled, isWctDocNavEnabled } = useOrganizationFeatures();
+  const { isRealDoOnScheduleEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled, isWctDocNavEnabled, isQuotationTemplatesEnabled } = useOrganizationFeatures();
+  // Quotation templates (enableQuotationTemplates, WCT group, 2026-11-19): "Create Quotation" gets an arrow ->
+  // Create from template. Every other org / list: the plain Create button, as before.
+  const templatesOn = quotationListTemplates(!!isQuotationTemplatesEnabled, createDocumentType);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   // WCT group (enableWctDocNav, 2026-11-18): no "All … for this organization" line under the title.
   // WCT orders hub (2026-11-13): a quotation's order number, linked, in the Quotations list.
   const showOrderColumn = !!isWctOrdersEnabled && documentTypes.some((t) => ["QUOTATION", "QO", "QO1", "QO2", "QT"].includes(t));
@@ -637,6 +643,7 @@ export default function DocumentListView({
         buttonName={createDocumentType ? `Create ${documentLabel}` : undefined}
         onAddClick={createDocumentType ? handleCreate : undefined}
         buttonDisabled={creating}
+        buttonMenu={templatesOn ? [{ label: "Create from template", onClick: () => setTemplatesOpen(true), tour: "quotation-list-from-template" }] : undefined}
         actionButtons={uploadButton ? [uploadButton] : undefined}
         loading={isFetching || creating}
         page={page}
@@ -696,6 +703,19 @@ export default function DocumentListView({
           onCreated={() => {
             refetch();
             refetchStats();
+          }}
+        />
+      )}
+
+      {templatesOn && (
+        <QuotationTemplatesHost
+          listOpen={templatesOpen}
+          onCloseList={() => setTemplatesOpen(false)}
+          docType={createDocumentType}
+          resolveLayout={resolveTarget}
+          onUsed={(doc) => {
+            const from = typeof window !== "undefined" ? encodeURIComponent(window.location.pathname + window.location.search) : "";
+            router.push(`/portal/documents/${doc.type || createDocumentType}/${doc.documentTemplateId}/${doc.id}${from ? `?from=${from}` : ""}`);
           }}
         />
       )}

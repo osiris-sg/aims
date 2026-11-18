@@ -2,8 +2,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  editorItemsToTemplateLines,
   isQuotationDocType,
+  nameTaken,
+  quotationListTemplates,
+  saveAsBody,
+  saveAsSummary,
+  savableItems,
   money,
   quotationTemplateControls,
   templateHeaderFrom,
@@ -44,20 +48,45 @@ test("setting on: only quotations, never in layout-template edit mode", () => {
   assert.equal(isQuotationDocType("qt"), true);
 });
 
-test("save as template copies the editor lines (item, description, qty, unit price, line type)", () => {
-  const lines = editorItemsToTemplateLines([
-    { id: 1, itemCode: "SV001", description: "Exhaust cleaning", quantity: 2, unitPrice: 350, amount: 700, isService: true, revenueTag: "service" },
-    { id: 2, itemCode: "FLT-1", inventoryItemId: "inv-1", description: "Baffle filter", quantity: "4", unitPrice: "45.5", uom: "pcs", rateMerge: { id: "m" } },
-    { id: 3, isGroupHeader: true, description: "Hood" },
-    { id: 4, description: "", itemCode: "" },
-  ]);
-  assert.deepEqual(lines, [
-    { itemCode: "SV001", description: "Exhaust cleaning", quantity: 2, unitPrice: 350, lineType: "SERVICE" },
-    { itemCode: "FLT-1", description: "Baffle filter", quantity: 4, unitPrice: 45.5, lineType: "PRODUCT", inventoryItemId: "inv-1", uom: "pcs" },
-    { itemCode: "", description: "Hood", quantity: 0, unitPrice: 0, lineType: "SERVICE", isGroupHeader: true },
-  ]);
-  assert.deepEqual(templateTotals(lines), { lineCount: 2, total: 882 });
+const ITEMS = [
+  { id: 1, isGroupHeader: true, description: "Hood", quantity: null, unitPrice: null, amount: null },
+  { id: 2, itemCode: "SV001", inventoryItemId: "", description: "Exhaust cleaning", quantity: 2, unitPrice: 350, amount: 700, uom: "lot", isService: true, revenueTag: "service", tax: "SR", accountCode: "4000" },
+  { id: 3, itemCode: "FLT-1", inventoryItemId: "inv-1", description: "Baffle filter", quantity: 4, unitPrice: 45.5, amount: 182, uom: "pcs", isService: false, tax: "SR" },
+  { id: 4, itemCode: "", inventoryItemId: "", description: "", quantity: 1, unitPrice: 0, amount: 0 },
+  { id: 5, isGroupHeader: true, description: "  " },
+];
+const FORM = { documentInfo: { subject: "Hood cleaning", quotationCategory: "Service", termsAndConditions: "50% deposit", remarks: "Call first" }, customer: { id: "c1" } };
+
+test("save as template sends the quotation lines exactly as in the editor (blank rows left out), and the Category", () => {
+  assert.deepEqual(savableItems(ITEMS), ITEMS.slice(0, 3));
+  // The very same row objects: nothing is reshaped on the way (the API drops only the row id).
+  assert.equal(savableItems(ITEMS)[1], ITEMS[1]);
+  const body = saveAsBody("  Hood standard ", ITEMS, FORM);
+  assert.deepEqual(body, { name: "Hood standard", items: ITEMS.slice(0, 3), category: "Service" });
+  assert.deepEqual(saveAsSummary(ITEMS), { lineCount: 2, total: 882 });
   assert.equal(money(882), "882.00");
+});
+
+test("save as template never sends Subject, T&Cs, customer, dates or Remarks", () => {
+  const json = JSON.stringify(saveAsBody("X", ITEMS, FORM));
+  for (const s of ["Hood cleaning", "50% deposit", "Call first", "c1", "subject", "termsAndConditions"]) assert.equal(json.includes(s), false, s);
+});
+
+test("a name in use is found (any case); the choice goes as onExisting replace / new", () => {
+  const list = [{ id: "t1", name: "Hood standard" }];
+  assert.deepEqual(nameTaken(" hood STANDARD ", list), { id: "t1", name: "Hood standard" });
+  assert.equal(nameTaken("Other", list), null);
+  assert.equal(nameTaken("", list), null);
+  assert.equal(saveAsBody("Hood standard", ITEMS, FORM, "replace").onExisting, "replace");
+  assert.equal(saveAsBody("Hood standard", ITEMS, FORM, "new").onExisting, "new");
+  assert.equal("onExisting" in saveAsBody("Hood standard", ITEMS, FORM), false);
+});
+
+test("quotations list: Create Quotation gets the arrow only with the setting on and on a quotation list", () => {
+  assert.equal(quotationListTemplates(true, "QUOTATION"), true);
+  assert.equal(quotationListTemplates(true, "INVOICE"), false);
+  assert.equal(quotationListTemplates(false, "QUOTATION"), false);
+  assert.equal(quotationListTemplates(true, undefined), false);
 });
 
 test("the header fields come from documentInfo (Subject, Category, T&Cs)", () => {

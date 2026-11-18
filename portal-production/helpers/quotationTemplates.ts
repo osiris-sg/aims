@@ -24,15 +24,28 @@ export interface TemplateLine {
   isGroupHeader?: boolean;
 }
 
+/** A template line as the API lists it (either stored format). `linked` = has a product / service code. */
+export interface TemplateLineView {
+  itemCode: string;
+  description: string;
+  quantity: number;
+  uom: string;
+  unitPrice: number;
+  amount: number;
+  lineType: LineType;
+  isGroupHeader: boolean;
+  linked: boolean;
+}
+
 export interface QuotationTemplate {
   id: string;
   name: string;
-  lines: TemplateLine[];
-  subject: string | null;
+  lines: TemplateLineView[];
   category: string | null;
-  termsAndConditions: string | null;
   lineCount: number;
   total: number;
+  /** Lines with no product / service code (older typed templates only). */
+  unlinked: number;
 }
 
 export interface ToolbarInput {
@@ -70,29 +83,6 @@ export function isServiceLine(item: any): boolean {
   return /^SV\d+$/i.test(String(item?.itemCode || "").trim());
 }
 
-/** "Save as template": the editor's current lines, trimmed to what a template keeps. */
-export function editorItemsToTemplateLines(items: any[] | null | undefined): TemplateLine[] {
-  const out: TemplateLine[] = [];
-  for (const it of Array.isArray(items) ? items : []) {
-    if (!it || typeof it !== "object") continue;
-    const description = String(it.description ?? "").trim();
-    const itemCode = String(it.itemCode ?? "").trim();
-    if (it.isGroupHeader) {
-      if (description) out.push({ itemCode: "", description, quantity: 0, unitPrice: 0, lineType: "SERVICE", isGroupHeader: true });
-      continue;
-    }
-    if (!description && !itemCode) continue;
-    const lineType: LineType = isServiceLine(it) ? "SERVICE" : "PRODUCT";
-    const line: TemplateLine = { itemCode, description, quantity: n(it.quantity, 1), unitPrice: n(it.unitPrice, 0), lineType };
-    if (lineType === "PRODUCT" && it.inventoryItemId) line.inventoryItemId = String(it.inventoryItemId);
-    if (typeof it.uom === "string" && it.uom.trim()) line.uom = it.uom.trim();
-    if (n(it.discount, 0)) line.discount = n(it.discount, 0);
-    if (typeof it.accountCode === "string" && it.accountCode.trim()) line.accountCode = it.accountCode.trim();
-    out.push(line);
-  }
-  return out;
-}
-
 export function lineAmount(l: Partial<TemplateLine>): number {
   if (l.isGroupHeader) return 0;
   return round2(n(l.quantity, 0) * n(l.unitPrice, 0) - n(l.discount, 0));
@@ -119,3 +109,42 @@ export function templateHeaderFrom(formData: any) {
     termsAndConditions: pick(di.termsAndConditions, formData?.termsAndConditions),
   };
 }
+
+// ── 2026-11-19 rework: templates are made only from a real quotation ────────────────────────────────────────────
+
+/** The editor rows a template keeps: every row but the blank ones (a title needs text). */
+export function savableItems(items: any[] | null | undefined): any[] {
+  return (Array.isArray(items) ? items : []).filter((it) => {
+    if (!it || typeof it !== "object") return false;
+    if (it.isGroupHeader) return !!String(it.description ?? "").trim();
+    return !!(String(it.description ?? "").trim() || String(it.itemCode ?? "").trim() || String(it.inventoryItemId ?? "").trim());
+  });
+}
+
+/** "12 lines, total 1,234.00" for the Save as template dialog (titles not counted). */
+export function saveAsSummary(items: any[] | null | undefined) {
+  return templateTotals(savableItems(items).map((it) => ({ ...it, isGroupHeader: !!it.isGroupHeader })));
+}
+
+/**
+ * The Save as template request: the quotation's lines as they are in the editor, and its Category. Never the
+ * Subject, T&Cs, customer, dates or Remarks. onExisting: what to do when the name is taken.
+ */
+export function saveAsBody(name: string, items: any[] | null | undefined, formData: any, onExisting?: "replace" | "new") {
+  return {
+    name: name.trim(),
+    items: savableItems(items),
+    category: templateHeaderFrom(formData).category || null,
+    ...(onExisting ? { onExisting } : {}),
+  };
+}
+
+/** The template already using this name (case-insensitive), or null. */
+export function nameTaken(name: string, templates: Array<Pick<QuotationTemplate, "id" | "name">> | null | undefined) {
+  const n = name.trim().toLowerCase();
+  if (!n) return null;
+  return (templates ?? []).find((t) => t.name.trim().toLowerCase() === n) ?? null;
+}
+
+/** The quotations list's "Create Quotation" arrow (Create from template): setting on and a quotation list only. */
+export const quotationListTemplates = (enabled: boolean, createDocumentType?: string | null): boolean => !!enabled && isQuotationDocType(createDocumentType);

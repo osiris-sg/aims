@@ -40,12 +40,14 @@ export class QuotationTemplatesController {
     return this.service.get(id, req.userOrganization?.id as string);
   }
 
+  /** Save as template (from a quotation): body { name, items, category, onExisting?: 'replace' | 'new' }. */
   @Post()
   @Permissions('documents:update')
   create(@Body() body: any, @Req() req: Req2) {
-    return this.service.create(body ?? {}, req.userOrganization?.id as string, actorOf(req));
+    return this.service.saveFromQuotation(body ?? {}, req.userOrganization?.id as string, actorOf(req));
   }
 
+  /** Rename only. */
   @Patch(':id')
   @Permissions('documents:update')
   update(@Param('id') id: string, @Body() body: any, @Req() req: Req2) {

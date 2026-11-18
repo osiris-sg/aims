@@ -84,5 +84,18 @@ export function useCreateDocumentFlow(createDocumentType?: string, documentLabel
     </>
   );
 
-  return { create, creating, dialogs };
+  /**
+   * The same number format + layout steps as create, without creating anything (quotation templates' "Use" on the
+   * quotations list). null = cancelled or no layout.
+   */
+  const resolveTarget = async (): Promise<{ templateId: string; numberFormatId?: string } | null> => {
+    if (!createDocumentType) return null;
+    const nf = await resolveNumberFormat(createDocumentType);
+    if (nf === null) return null;
+    const templateId = await resolveTemplate(createDocumentType);
+    if (!templateId) return null;
+    return { templateId, ...(nf ? { numberFormatId: nf } : {}) };
+  };
+
+  return { create, creating, dialogs, resolveTarget };
 }

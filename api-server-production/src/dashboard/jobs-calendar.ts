@@ -169,6 +169,11 @@ export interface CalendarEvent {
   doCount?: number;
   /** Calendar style: "Generate sticker" ticked (📌). */
   sticker?: boolean;
+  /**
+   * Calendar style (2026-11-19): the chip's short text, the customer name only (no order or job number); no
+   * customer = the site address; neither = the title. The tooltip and side panel keep the full title.
+   */
+  chipLabel?: string;
   /** Calendar style: who made the job (null = not recorded: made before 19 Nov 2026, or by the system). */
   createdBy?: { id: string; name: string | null } | null;
 }
@@ -355,4 +360,12 @@ export function buildCalendarEvents(
   }
 
   return events.sort((a, b) => a.start.localeCompare(b.start) || a.title.localeCompare(b.title));
+}
+
+/** Calendar style chip text (2026-11-19): customer, else site address, else the title. */
+export function chipLabelOf(run: { customerName?: string | null; siteAddress?: string | null } | null | undefined, title: string): string {
+  const c = String(run?.customerName ?? '').trim();
+  if (c) return c;
+  const a = String(run?.siteAddress ?? '').trim();
+  return a || title;
 }

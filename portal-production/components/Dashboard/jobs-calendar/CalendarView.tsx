@@ -21,7 +21,8 @@
 // switches org on purpose, never silently); for anyone else it is view only.
 // Calendar style (2026-11-18, enableCalendarStyle, WCT group incl. child items): Google Calendar-like chips, fill =
 // the salesperson's colour, a slim left bar = the PTW applicant's (no bar without a PTW), line 1 icons + title,
-// line 2 the time range; cancelled / postponed greyed, never hidden; Leave notes lead with 📅.
+// line 2 the time range; cancelled / postponed greyed, never hidden; Leave notes lead with 📅. Line 1 since
+// 2026-11-19: prefix + customer only (chipTitle); the hover text and the side panel keep the full title.
 // Schedule view (2026-11-19, calendar style orgs): "Schedule" next to Month / Week / Day, a month at a time as a list
 // grouped by date (date badge on the left; each row time, dot, icons, title, site). It shows the same (filtered)
 // items, opens on today and a click opens the same side panel. FullCalendar keeps the toolbar and paging; the list is
@@ -47,7 +48,7 @@ import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
-import { CALENDAR_TZ, badgeTitle, chipIcons, chipTimeRange, crewLine, crossOrgTarget, dayOfInstant, kindLabel, orgLabel, panelColor, panelLinks, panelMoreLink, panelRefs, rangeOf, scheduleBadge, scheduleDays, scheduleScrollDay, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag, type ScheduleDay, type ScheduleRow } from "./calendarModel";
+import { CALENDAR_TZ, badgeTitle, chipIcons, chipTimeRange, crewLine, crossOrgTarget, chipTitle, dayOfInstant, kindLabel, orgLabel, panelColor, panelLinks, panelMoreLink, panelRefs, rangeOf, scheduleBadge, scheduleDays, scheduleScrollDay, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag, type ScheduleDay, type ScheduleRow } from "./calendarModel";
 import DoStatusTag from "@/components/DoStatusTag";
 
 interface Props {
@@ -702,7 +703,7 @@ function StyledChip({ event: e }: { event: CalendarEvent }) {
   const icons = chipIcons(e);
   return (
     <Box
-      title={[styledTitle(e), chipTimeRange(e), ...st.icons.map((i) => i.label), e.salesperson?.name ? `Salesperson: ${e.salesperson.name}` : "", e.ptwApplicant?.name && st.bar ? `PTW applicant: ${e.ptwApplicant.name}` : ""].filter(Boolean).join("\n")}
+      title={[styledTitle(e), chipTimeRange(e), e.doNumber ? `DO ${e.doNumber}` : "", e.quotationNumber ? `Quotation ${e.quotationNumber}` : "", ...st.icons.map((i) => i.label), e.salesperson?.name ? `Salesperson: ${e.salesperson.name}` : "", e.ptwApplicant?.name && st.bar ? `PTW applicant: ${e.ptwApplicant.name}` : ""].filter(Boolean).join("\n")}
       sx={{
         display: "flex",
         overflow: "hidden",
@@ -719,7 +720,7 @@ function StyledChip({ event: e }: { event: CalendarEvent }) {
       <Box sx={{ minWidth: 0, flex: 1 }}>
         <Box sx={{ fontWeight: 600, fontSize: "0.75rem", whiteSpace: "nowrap", overflow: "hidden", textDecoration: e.cancelled ? "line-through" : "none" }}>
           {icons && <span style={{ marginRight: 4 }}>{icons}</span>}
-          {styledTitle(e)}
+          {chipTitle(e)}
         </Box>
         <Box sx={{ fontSize: "0.7rem", opacity: 0.9, whiteSpace: "nowrap", overflow: "hidden" }}>{chipTimeRange(e)}</Box>
       </Box>

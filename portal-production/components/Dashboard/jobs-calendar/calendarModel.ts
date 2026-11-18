@@ -68,6 +68,8 @@ export interface CalendarEvent {
   doCount?: number;
   /** Calendar style: "Generate sticker" ticked (📌 is in style.icons). */
   sticker?: boolean;
+  /** Calendar style (2026-11-19): the chip text, customer only (else site address, else the title). */
+  chipLabel?: string;
   /** Calendar style: who made the job; null = not recorded (the people list's "Unknown"). */
   createdBy?: { id: string; name: string | null } | null;
 }
@@ -320,8 +322,18 @@ function styledInput(e: CalendarEvent, st: EventStyle, movable: boolean) {
   };
 }
 
-/** Calendar style chip, line 1: "(SV) " + the title. */
+/** The full title with the category prefix: "(SV) ORD… · #12 Acme" (side panel, tooltip, day list). */
 export const styledTitle = (e: Pick<CalendarEvent, "title" | "style">): string => (e.style?.prefix ? `${e.style.prefix} ${e.title}` : e.title);
+
+/**
+ * Calendar style chip, line 1 (2026-11-19): the category prefix + the customer only, no order or job number ("(SV)
+ * Acme"); a job with no customer shows its site address, with neither its title. Month, Week, Day and the Schedule
+ * rows all use it; the tooltip and the side panel keep the full title.
+ */
+export const chipTitle = (e: Pick<CalendarEvent, "title" | "style" | "chipLabel">): string => {
+  const label = e.chipLabel || e.title;
+  return e.style?.prefix ? `${e.style.prefix} ${label}` : label;
+};
 
 /** Calendar style chip, line 2: "10:00 am – 11:00 am" (Singapore), or "All day". */
 export function chipTimeRange(e: Pick<CalendarEvent, "start" | "end" | "allDay">): string {
@@ -651,12 +663,12 @@ export function scheduleDays(
       time: e.allDay ? "All day" : chipTimeRange(e),
       colour: panelColor(e, !!opts.byPtw),
       icons: chipIcons(e),
-      title: styledTitle(e),
+      title: chipTitle(e),
       site,
       greyed: !!e.style?.greyed,
       cancelled: e.cancelled,
       event: e,
-      sort: e.allDay ? `1||${styledTitle(e)}` : `2|${sgtHhmm(e.start)}|${styledTitle(e)}`,
+      sort: e.allDay ? `1||${chipTitle(e)}` : `2|${sgtHhmm(e.start)}|${chipTitle(e)}`,
     });
   }
   return [...by.keys()]

@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/common/prisma.service';
 import { isOrgFeatureEnabled } from 'src/common/org-features';
 import { DocumentActor, DocumentsService } from 'src/documents/documents.service';
@@ -8,18 +8,28 @@ import {
   QUOTATION_TYPES,
   cleanName,
   cleanText,
-  linesToItems,
-  sanitizeLines,
-  templateTotals,
+  itemLinesFromEditor,
+  lineView,
+  nextFreeName,
+  storedToItems,
+  templateSummary,
 } from './quotation-template-lines';
 
 export type TemplateActor = { id?: string | null; name?: string | null; email?: string | null };
 
 /**
  * QUOTATION TEMPLATES (2026-11-18, WCT group; features.enableQuotationTemplates,
- * default off). A per-org, named set of quotation lines (+ optional Subject,
- * Category, T&Cs) that starts a new draft quotation: "+ Add" arrow > Create
- * from template > Use. Separate from the PDF layout templates (DocumentTemplate).
+ * default off). A per-org, named set of quotation lines (+ Category) that starts
+ * a new draft quotation: "Create Quotation" arrow (quotations list) or the
+ * editor's "+ Add" arrow > Create from template > Use. Separate from the PDF
+ * layout templates (DocumentTemplate).
+ *
+ * 2026-11-19 rework: made ONLY from a real quotation (⋮ Save as template), the
+ * lines kept exactly (quotation-template-lines.ts, format 2). No Subject, T&Cs,
+ * customer, dates or Remarks. A name that exists: 409 until the person picks
+ * Replace (same template, new lines) or Save as new ("Name (2)"). Editing a
+ * template = Use it, change the quotation, Save as template > Replace. Older
+ * typed templates still list and Use; their lines with no code are flagged.
  *
  * Every read and write is scoped by organizationId: another org's template id
  * is "not found". Delete hides the row (hiddenAt), it is never removed. "Use"
@@ -48,16 +58,17 @@ export class QuotationTemplatesService {
   }
 
   private view(row: any) {
-    const { lineCount, total } = templateTotals(row.lines);
+    const { lineCount, total, unlinked } = templateSummary(row.lines);
     return {
       id: row.id,
       name: row.name,
-      lines: Array.isArray(row.lines) ? row.lines : [],
-      subject: row.subject ?? null,
+      // The lines as the list / preview shows them (either stored format).
+      lines: (Array.isArray(row.lines) ? row.lines : []).map(lineView),
       category: row.category ?? null,
-      termsAndConditions: row.termsAndConditions ?? null,
       lineCount,
       total,
+      // Lines with no product / service code (older typed templates only).
+      unlinked,
       createdByName: row.createdByName ?? null,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
@@ -89,22 +100,40 @@ export class QuotationTemplatesService {
     return this.view(await this.findVisible(id, organizationId));
   }
 
-  /** New template, or "Save as template" (the editor sends its current lines). */
-  async create(body: any, organizationId: string, actor: TemplateActor = {}) {
+  /**
+   * "Save as template" from a quotation: body { name, items (the editor's lines), category, onExisting? }.
+   * Subject / T&Cs / customer / dates / Remarks are never read. A name in use: 409 { existingId } unless
+   * onExisting is 'replace' (that template's lines and Category are replaced) or 'new' (saved as "Name (2)").
+   */
+  async saveFromQuotation(body: any, organizationId: string, actor: TemplateActor = {}) {
     await this.assertEnabled(organizationId);
     const name = cleanName(body?.name);
     if (!name) throw new BadRequestException('Name is required');
-    const lines = sanitizeLines(body?.lines);
-    if (!lines.length) throw new BadRequestException('Add at least one line');
-    await this.assertNameFree(organizationId, name);
+    const lines = itemLinesFromEditor(body?.items);
+    if (!lines.length) throw new BadRequestException('The quotation has no lines to save');
+    const category = cleanText(body?.category, 200);
+    const visible: any[] = await this.repo.findMany({ where: { organizationId, hiddenAt: null }, select: { id: true, name: true } });
+    const clash = visible.find((r) => String(r.name).toLowerCase() === name.toLowerCase());
+    const mode = body?.onExisting;
+    if (clash && mode === 'replace') {
+      const updated = await this.repo.update({
+        where: { id: clash.id },
+        data: { lines, category, subject: null, termsAndConditions: null, updatedBy: actor.id ?? null },
+      });
+      return { ...this.view(updated), replaced: true };
+    }
+    if (clash && mode !== 'new') {
+      throw new ConflictException({ message: `A template named ${clash.name} already exists`, existingId: clash.id, existingName: clash.name });
+    }
+    const finalName = clash ? nextFreeName(name, visible.map((r) => String(r.name))) : name;
     const row = await this.repo.create({
       data: {
         organizationId,
-        name,
+        name: finalName,
         lines,
-        subject: cleanText(body?.subject, 1000),
-        category: cleanText(body?.category, 200),
-        termsAndConditions: cleanText(body?.termsAndConditions),
+        category,
+        subject: null,
+        termsAndConditions: null,
         createdBy: actor.id ?? null,
         createdByName: actor.name || actor.email || null,
         updatedBy: actor.id ?? null,
@@ -113,26 +142,14 @@ export class QuotationTemplatesService {
     return this.view(row);
   }
 
-  /** Edit or rename: only the fields sent change. */
+  /** Rename only (the lines change through Save as template > Replace). */
   async update(id: string, body: any, organizationId: string, actor: TemplateActor = {}) {
     await this.assertEnabled(organizationId);
     const row = await this.findVisible(id, organizationId);
-    const data: any = { updatedBy: actor.id ?? null };
-    if (body && 'name' in body) {
-      const name = cleanName(body.name);
-      if (!name) throw new BadRequestException('Name is required');
-      if (name.toLowerCase() !== String(row.name).toLowerCase()) await this.assertNameFree(organizationId, name, row.id);
-      data.name = name;
-    }
-    if (body && 'lines' in body) {
-      const lines = sanitizeLines(body.lines);
-      if (!lines.length) throw new BadRequestException('Add at least one line');
-      data.lines = lines;
-    }
-    if (body && 'subject' in body) data.subject = cleanText(body.subject, 1000);
-    if (body && 'category' in body) data.category = cleanText(body.category, 200);
-    if (body && 'termsAndConditions' in body) data.termsAndConditions = cleanText(body.termsAndConditions);
-    const updated = await this.repo.update({ where: { id: row.id }, data });
+    const name = cleanName(body?.name);
+    if (!name) throw new BadRequestException('Name is required');
+    if (name.toLowerCase() !== String(row.name).toLowerCase()) await this.assertNameFree(organizationId, name, row.id);
+    const updated = await this.repo.update({ where: { id: row.id }, data: { name, updatedBy: actor.id ?? null } });
     return this.view(updated);
   }
 
@@ -145,9 +162,10 @@ export class QuotationTemplatesService {
   }
 
   /**
-   * "Use": a new draft quotation with the template's lines (and Subject,
-   * Category, T&Cs when set), through the normal new-quotation path. Customer
-   * and the rest are picked in the editor as usual.
+   * "Use": a new draft quotation with the template's lines exactly (fresh row
+   * ids) and its Category, through the normal new-quotation path. Never a
+   * Subject or T&Cs (an older template's are left behind too). Customer and the
+   * rest are picked in the editor as usual.
    */
   async use(id: string, body: any, organizationId: string, actor: DocumentActor = {}) {
     await this.assertEnabled(organizationId);
@@ -161,11 +179,9 @@ export class QuotationTemplatesService {
       throw new BadRequestException('Not a quotation layout');
     }
     const documentInfo: any = {};
-    if (row.subject) documentInfo.subject = row.subject;
     if (row.category) documentInfo[CATEGORY_KEY] = row.category;
-    if (row.termsAndConditions) documentInfo.termsAndConditions = row.termsAndConditions;
     const config: any = {
-      items: linesToItems(row.lines),
+      items: storedToItems(row.lines),
       documentInfo,
       fromQuotationTemplate: { id: row.id, name: row.name },
     };
