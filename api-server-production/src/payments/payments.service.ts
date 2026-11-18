@@ -613,10 +613,16 @@ export class PaymentsService {
         return; // Not an invoice, skip status update
       }
 
-      // Don't update if already paid
-      if (document.status === DocumentStatus.paid) {
-        return;
-      }
+      // NOTE: this used to return early for a document already marked `paid`,
+      // which made the refresh a one-way door — once an invoice read paid,
+      // nothing could put it back. Removing a receipt's allocation, or deleting
+      // the receipt outright, both call this for the de-allocated invoice and
+      // both silently did nothing. BI202609090 (MSK Star, 13,080.00) sat
+      // "Paid" for two days that way: receipt UOBOR2610-015 was saved with it
+      // allocated at 02:11:39 on 2026-11-16 and re-saved without it 13 seconds
+      // later (guru 2026-11-18). The recompute below is derived entirely from
+      // payment rows + import coverage, so it is safe to run on a paid document:
+      // an invoice that really is covered comes back out of it still paid.
 
       // Invoice total = GROSS incl. GST. Items sum alone is the NET on
       // tax-exclusive invoices — using it flipped invoices to "paid" while the
@@ -673,6 +679,11 @@ export class PaymentsService {
       let newStatus: DocumentStatus = document.status as DocumentStatus;
       if (totalPaid >= invoiceAmount - 0.005) newStatus = DocumentStatus.paid;
       else if (totalPaid > 0) newStatus = DocumentStatus.pending_payment;
+      // Nothing covers it any more (the last allocation was removed, or the
+      // receipt was deleted): a document still claiming `paid` goes back to
+      // awaiting payment. Only `paid` is reverted — a draft or unconfirmed
+      // invoice with no payments is simply a draft, not an unpaid one.
+      else if (document.status === DocumentStatus.paid) newStatus = DocumentStatus.pending_payment;
 
       // Refresh the outstanding balance ON THE DOCUMENT — this is the single
       // LIVE source AR / the SOA / aging / AI tools all read (readers must NOT
