@@ -100,7 +100,7 @@ export default function useOrganizationTableHeader() {
       header: t("created"),
       cell: (info) => (
         <Typography variant="body2" sx={{ fontSize: "0.8rem" }}>
-          {lang === "ja" ? formatDate(info.getValue(), "ja") : new Date(info.getValue()).toLocaleDateString()}
+          {lang === "ja" ? formatDate(info.getValue(), "ja") : new Date(info.getValue()).toLocaleDateString("en-GB")}
         </Typography>
       ),
     }),

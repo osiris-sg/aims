@@ -123,7 +123,7 @@ export default function AccountingHubPage() {
             Finance Hub
           </Typography>
           <Typography variant="body2" sx={{ color: "text.secondary" }}>
-            Snapshot as of {new Date(hub.asOf).toLocaleString()}
+            Snapshot as of {new Date(hub.asOf).toLocaleString("en-GB")}
           </Typography>
         </Box>
         <Stack direction="row" gap={1}>

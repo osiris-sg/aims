@@ -152,7 +152,7 @@ export default function useUserTableHeader() {
     columnHelper.accessor("createdAt", {
       header: t("created"),
       cell: (info) => {
-        return <Typography variant="body2">{lang === "ja" ? formatDate(info.getValue(), "ja") : new Date(info.getValue()).toLocaleDateString()}</Typography>;
+        return <Typography variant="body2">{lang === "ja" ? formatDate(info.getValue(), "ja") : new Date(info.getValue()).toLocaleDateString("en-GB")}</Typography>;
       },
     }),
     kebabColumn((row: any) => [

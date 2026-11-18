@@ -16,6 +16,7 @@ import { rejectProblem } from "@/helpers/wctFinishModes";
 import { JOB_TABS, ORDER_JOB_STATE_LABEL, jobsTab, orderJobStateColor, verifiedText } from "@/helpers/wctNav";
 import StatusPill from "@/app/portal/orders/_components/StatusPill";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
+import DateInput from "@/components/DateInput";
 
 // WCT Jobs (enableWctOrders, 2026-11-03): the Jobs menu page (/portal/deliveries).
 // A WCT job is a service visit from an order (stored as a delivery run). Title
@@ -206,8 +207,8 @@ export default function WctJobsList({ fixture }: { fixture?: JobsFixture } = {})
         </Typography>
       )}
       <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mb: 2 }}>
-        <TextField label="From" type="date" size="small" value={from} onChange={(e) => setFrom(e.target.value)} InputLabelProps={{ shrink: true }} />
-        <TextField label="To" type="date" size="small" value={to} onChange={(e) => setTo(e.target.value)} InputLabelProps={{ shrink: true }} />
+        <DateInput label="From" size="small" value={from} onChange={(e) => setFrom(e.target.value)} InputLabelProps={{ shrink: true }} />
+        <DateInput label="To" size="small" value={to} onChange={(e) => setTo(e.target.value)} InputLabelProps={{ shrink: true }} />
         <FormControl size="small" sx={{ minWidth: 180 }}>
           <InputLabel id="jobs-worker">Worker</InputLabel>
           <Select labelId="jobs-worker" label="Worker" value={worker} onChange={(e) => setWorker(String(e.target.value))}>

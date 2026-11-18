@@ -23,6 +23,7 @@ import PageTable from "@/components/PageTable";
 import CustomerPicker from "@/components/CustomerPicker";
 import { todayIso } from "@/helpers/orgToday";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
+import DateInput from "@/components/DateInput";
 
 interface PriceHistoryItem {
   id: string;
@@ -290,9 +291,8 @@ export default function PriceHistoryReportPage() {
             />
           </Grid2>
           <Grid2 size={{ xs: 12, md: 3 }}>
-            <TextField
+            <DateInput
               label="Start Date"
-              type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
               fullWidth
@@ -300,9 +300,8 @@ export default function PriceHistoryReportPage() {
             />
           </Grid2>
           <Grid2 size={{ xs: 12, md: 3 }}>
-            <TextField
+            <DateInput
               label="End Date"
-              type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
               fullWidth

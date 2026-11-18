@@ -96,26 +96,25 @@ export default function ReportShell({
             {/* Filters share the report card's centred column EXACTLY — same
                 padding + same 1140 cap on the padded box (guru 2026-11-11:
                 "left section aligned with the report"). */}
-            <Box sx={{ px: { xs: 1.5, md: 3 }, py: 2, maxWidth: 1140, mx: "auto", width: "100%" }}>
-              <Stack direction="row" flexWrap="wrap" alignItems="flex-end" sx={{ gap: { xs: 1.5, md: 2 } }}>
+            {/* Full width (guru 2026-11-18: "increase the width of the reports … a lot of them are being cut off") — was capped at 1140px. */}
+            <Box sx={{ px: { xs: 1.5, md: 3 }, py: 2, width: "100%", display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: { xs: 1.5, md: 2 } }}>
+              <Stack direction="row" flexWrap="wrap" alignItems="flex-end" sx={{ gap: { xs: 1.5, md: 2 }, flex: 1, minWidth: 0 }}>
                 {filters}
               </Stack>
-            </Box>
-            {/* Top-right of the page, outside the column; drops under the
-                filters on narrow screens instead of overlapping them. */}
+            {/* Print / Export · Send Email · View other reports sit at the END
+                of the filter row (the card below is full width now, so the old
+                floating right rail would overlap it); they wrap under the
+                filters on narrow screens. */}
             <Box
               sx={{
-                position: { xs: "static", lg: "absolute" },
-                right: { lg: 24 },
-                top: { lg: 16 },
-                px: { xs: 1.5, md: 3, lg: 0 },
-                pb: { xs: 1.5, lg: 0 },
                 display: "flex",
-                flexDirection: { xs: "row", lg: "column" },
+                flexDirection: "row",
+                flexWrap: "wrap",
                 alignItems: "stretch",
                 justifyContent: "flex-end",
                 gap: 1,
-                "& .MuiButton-root": { height: 40, justifyContent: "flex-start" },
+                ml: "auto",
+                "& .MuiButton-root": { height: 40, whiteSpace: "nowrap" },
               }}
             >
               <ReportPrintExportButton getModel={captureModel} onExportCsv={onExportCsv} size="medium" />
@@ -157,10 +156,11 @@ export default function ReportShell({
                 </>
               )}
             </Box>
+            </Box>
           </Box>
 
           {/* Report card */}
-          <Box sx={{ px: { xs: 1.5, md: 3 }, pb: 3, flex: 1, maxWidth: 1140, mx: "auto", width: "100%" }}>
+          <Box sx={{ px: { xs: 1.5, md: 3 }, pb: 3, flex: 1, width: "100%" }}>
             <Box sx={{
               bgcolor: "background.paper",
               border: (t) => `1px solid ${t.palette.divider}`,
@@ -213,7 +213,7 @@ export default function ReportShell({
           <Box sx={{
             borderTop: (t) => `1px solid ${t.palette.divider}`,
             px: { xs: 1.5, md: 3 }, py: 1,
-            maxWidth: 1140, mx: "auto", width: "100%",
+            width: "100%",
             display: "flex", alignItems: "center", justifyContent: "space-between",
             flexWrap: { xs: "wrap", md: "nowrap" }, gap: 1,
             position: "sticky", bottom: 0,

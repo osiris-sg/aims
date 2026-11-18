@@ -10,6 +10,7 @@ import AddIcon from "@mui/icons-material/Add";
 import PhotoIcon from "@mui/icons-material/PhotoCameraOutlined";
 import { useTranslations } from "next-intl";
 import { PRODUCT_FORMS, type ClientProductInput, type ClientProductView, type ProductForm, type ProfileFileView } from "../../_lib/api";
+import DateInput from "@/components/DateInput";
 
 export type ProductDraft = Record<"grade" | "form" | "diameterMm" | "lengthMm" | "sizeText" | "piecesPerBundle" | "bundleWeightKg" | "monthlyQtyMt" | "priceBasis" | "notes", string>;
 export const EMPTY_PRODUCT: ProductDraft = { grade: "", form: "", diameterMm: "", lengthMm: "", sizeText: "", piecesPerBundle: "", bundleWeightKg: "", monthlyQtyMt: "", priceBasis: "", notes: "" };
@@ -87,7 +88,7 @@ export function AddFlowPackingStep({ notes, setNotes, notesDirty, photo, setPhot
             <TextField size="small" fullWidth label={t("caption")} placeholder={t("captionHint")} value={photo.caption} onChange={(e) => setPhoto({ ...photo, caption: e.target.value })} />
           </Grid2>
           <Grid2 size={{ xs: 12, sm: 4 }}>
-            <TextField size="small" fullWidth type="date" label={t("takenOn")} InputLabelProps={{ shrink: true }} value={photo.takenOn} onChange={(e) => setPhoto({ ...photo, takenOn: e.target.value })} />
+            <DateInput size="small" fullWidth label={t("takenOn")} InputLabelProps={{ shrink: true }} value={photo.takenOn} onChange={(e) => setPhoto({ ...photo, takenOn: e.target.value })} />
           </Grid2>
         </Grid2>
         <Button size="small" variant="outlined" sx={{ mt: 1.25 }} disabled={busy || !photo.file} onClick={onUpload}>{t("upload")}</Button>

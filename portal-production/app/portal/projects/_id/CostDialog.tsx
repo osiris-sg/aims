@@ -12,6 +12,7 @@ import ClearIcon from "@mui/icons-material/Close";
 import { toast } from "react-toastify";
 import { useIdProjectApi, type Cost } from "./api";
 import { todayIso } from "@/helpers/orgToday";
+import DateInput from "@/components/DateInput";
 
 interface Props {
   open: boolean;
@@ -210,7 +211,7 @@ export default function CostDialog({ open, projectId, sections, editing, onClose
           </Box>
           <Grid container spacing={1.5}>
             <Grid item xs={6}>
-              <TextField label="Date" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }} value={form.date} onChange={(e) => set({ date: e.target.value })} />
+              <DateInput label="Date" size="small" fullWidth InputLabelProps={{ shrink: true }} value={form.date} onChange={(e) => set({ date: e.target.value })} />
             </Grid>
             <Grid item xs={6}>
               <TextField label="Amount (S$)" size="small" fullWidth value={form.amount} onChange={(e) => set({ amount: e.target.value })} inputProps={{ inputMode: "decimal" }} />

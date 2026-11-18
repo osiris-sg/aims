@@ -51,6 +51,7 @@ import CleanDocumentPreview from "@/containers/DocumentTemplates/components/Clea
 import DeliveryRouteDialog from "@/components/DeliveryRouteDialog";
 import { todayIso } from "@/helpers/orgToday";
 import { msrStatusChip } from "@/helpers/msrStatus";
+import DateInput from "@/components/DateInput";
 
 // Leaflet hits `window` at import time; load the map client-side only.
 const DeliveryRouteMap = dynamic(() => import("@/components/DeliveryRouteMap"), {
@@ -227,7 +228,7 @@ const formatCoordsForDisplay = (lat: number, lng: number) => {
 const fmtMoney = (n: number, ccy = "SGD") =>
   `${ccy} ${(n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const fmtDate = (d: string | null) => (d ? new Date(d).toLocaleDateString() : "—");
+const fmtDate = (d: string | null) => (d ? new Date(d).toLocaleDateString("en-GB") : "—");
 
 // Boil verbose Biofuel-style rental descriptions
 //   "Rental of one unit ... Brand: BIOFUEL Model: LION375 Year: 2025 S/No.: MG20250090"
@@ -1885,9 +1886,8 @@ function NewDeploymentDialog({
             onChange={(e) => setMonthlyRate(e.target.value)}
             fullWidth
           />
-          <TextField
+          <DateInput
             label="Deployed Date"
-            type="date"
             value={deployedDate}
             onChange={(e) => setDeployedDate(e.target.value)}
             fullWidth

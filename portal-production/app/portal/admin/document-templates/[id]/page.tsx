@@ -135,10 +135,10 @@ export default function DocumentTemplateDetailPage() {
                 {template.organization?.name || template.organizationId}
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                Created: {new Date(template.createdAt).toLocaleString()}
+                Created: {new Date(template.createdAt).toLocaleString("en-GB")}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Updated: {new Date(template.updatedAt).toLocaleString()}
+                Updated: {new Date(template.updatedAt).toLocaleString("en-GB")}
               </Typography>
             </CardContent>
           </Card>

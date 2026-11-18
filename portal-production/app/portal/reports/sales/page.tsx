@@ -32,6 +32,7 @@ import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { ReportPrintExportButton } from "@/app/portal/accounting/_lib/report-export";
 import { SUMMARY_HEADERS, paperDate, salesReportModel, summaryRows, type SalesReportData, type SalesReportRow, type SalesStatus } from "@/helpers/salesReport";
+import DateInput from "@/components/DateInput";
 
 const STATUS_COLOR: Record<SalesStatus, "success" | "warning" | "default" | "error"> = {
   Signed: "success",
@@ -173,8 +174,8 @@ export default function SalesReportPage() {
             ))}
             {!own && salesperson && !(data?.salespeople || []).some((p) => p.key === salesperson) && <MenuItem value={salesperson}>{salespersonLabel}</MenuItem>}
           </TextField>
-          <TextField size="small" type="date" label="From" InputLabelProps={{ shrink: true }} value={from} onChange={(e) => setFrom(e.target.value)} data-tour="sales-report-dates" />
-          <TextField size="small" type="date" label="To" InputLabelProps={{ shrink: true }} value={to} onChange={(e) => setTo(e.target.value)} />
+          <DateInput size="small" label="From" InputLabelProps={{ shrink: true }} value={from} onChange={(e) => setFrom(e.target.value)} data-tour="sales-report-dates" />
+          <DateInput size="small" label="To" InputLabelProps={{ shrink: true }} value={to} onChange={(e) => setTo(e.target.value)} />
           {loading && <CircularProgress size={22} sx={{ alignSelf: "center" }} />}
         </Stack>
       </Paper>

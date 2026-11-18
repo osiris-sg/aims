@@ -24,6 +24,7 @@ import { request } from "@/helpers/request";
 import { toast } from "react-toastify";
 import moment from "moment";
 import AttachmentUploader, { Attachment } from "@/components/AttachmentUploader";
+import DateInput from "@/components/DateInput";
 
 type ChartAccount = { id: string; code: string; name: string };
 
@@ -208,11 +209,10 @@ export default function RecordBillPaymentDialog({ open, onClose, onSuccess, bill
               error={overOutstanding}
               helperText={overOutstanding ? `Exceeds outstanding $${outstanding.toFixed(2)}` : " "}
             />
-            <TextField
+            <DateInput
               fullWidth
               size="small"
               label="Payment date"
-              type="date"
               value={paymentDate}
               onChange={(e) => setPaymentDate(e.target.value)}
               InputLabelProps={{ shrink: true }}

@@ -357,12 +357,12 @@ export default function BillsPage() {
     {
       accessorKey: "billDate",
       header: "Invoice date",
-      cell: ({ row }: any) => new Date(row.original.billDate).toLocaleDateString(),
+      cell: ({ row }: any) => new Date(row.original.billDate).toLocaleDateString("en-GB"),
     },
     {
       accessorKey: "dueDate",
       header: "Due",
-      cell: ({ row }: any) => row.original.dueDate ? new Date(row.original.dueDate).toLocaleDateString() : "—",
+      cell: ({ row }: any) => row.original.dueDate ? new Date(row.original.dueDate).toLocaleDateString("en-GB") : "—",
     },
     {
       accessorKey: "totalAmount",
@@ -407,7 +407,7 @@ export default function BillsPage() {
       cell: ({ row }: any) => {
         const b: any = row.original;
         return b.xeroBillId ? (
-          <Tooltip title={b.xeroSyncedAt ? `Synced ${new Date(b.xeroSyncedAt).toLocaleString()}` : "Linked to Xero"}>
+          <Tooltip title={b.xeroSyncedAt ? `Synced ${new Date(b.xeroSyncedAt).toLocaleString("en-GB")}` : "Linked to Xero"}>
             <Chip size="small" variant="outlined" color="success" label={`Xero · ${b.xeroSyncStatus || "SYNCED"}`} sx={{ fontSize: "0.65rem", height: "auto", minHeight: 24, py: 0.25, "& .MuiChip-label": { whiteSpace: "normal", display: "block", textAlign: "center", lineHeight: 1.3 } }} />
           </Tooltip>
         ) : (

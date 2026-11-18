@@ -8,6 +8,7 @@
 // back to `fallback` (1 = at par; "" for a rate table row).
 import * as React from "react";
 import { TextField, type SxProps, type Theme } from "@mui/material";
+import { sanitizeMoneyDraft } from "./MoneyInput";
 
 type Props = {
   value: any;
@@ -41,10 +42,14 @@ export default function RateInput({ value, onCommit, fallback = 1, disabled, lab
       disabled={disabled}
       value={draft ?? formatRate(value, fallback)}
       onFocus={() => setDraft(formatRate(value, fallback))}
-      onChange={(e) => setDraft(e.target.value)}
+      // Numbers only, like MoneyInput (guru 2026-11-18): digits and one point.
+      onChange={(e) => setDraft(sanitizeMoneyDraft(e.target.value))}
       onBlur={commit}
-      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-      inputProps={{ inputMode: "decimal", style: { textAlign: align } }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") { (e.target as HTMLInputElement).blur(); return; }
+        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && !/[0-9.]/.test(e.key)) e.preventDefault();
+      }}
+      inputProps={{ inputMode: "decimal", autoComplete: "off", style: { textAlign: align } }}
       sx={sx}
     />
   );

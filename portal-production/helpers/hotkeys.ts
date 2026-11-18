@@ -12,7 +12,9 @@
 // with that id — inside the topmost open dialog if one is open, else on the
 // page. "lookup" is special: it looks for the magnifier INSIDE the field the
 // cursor is in (the code box's search adornment), so F2 opens the right
-// Locate dialog for the box being keyed. When no control carries the id,
+// Locate dialog for the box being keyed — and does NOTHING when the cursor is
+// not in a code box (guru 2026-11-18). For the other actions, when no control
+// carries the id,
 // a `aims:hotkey` window event is dispatched so a component can react
 // (the editor opens its Locate dialog that way — the item lives in a menu).
 
@@ -189,7 +191,10 @@ function lookupTarget(): HTMLElement | null {
   const root = active?.closest(".MuiInputBase-root, .MuiFormControl-root, [data-hotkey-group]");
   const inField = root?.querySelector('[data-hotkey="lookup"]');
   if (inField && visibleEnabled(inField)) return inField;
-  return hotkeyTarget("lookup");
+  // Off-field: do nothing. Look up only fires for the code box the cursor is
+  // actually in — pressing F2 while focused on nothing must NOT jump into some
+  // arbitrary magnifier elsewhere on the page (guru 2026-11-18).
+  return null;
 }
 
 export function runHotkeyAction(actionId: string): boolean {
@@ -198,6 +203,9 @@ export function runHotkeyAction(actionId: string): boolean {
     target.click();
     return true;
   }
+  // "lookup" is strictly field-scoped: with no field target there is nothing to
+  // open, so don't fan out a window event either (guru 2026-11-18).
+  if (actionId === "lookup") return false;
   window.dispatchEvent(new CustomEvent(HOTKEY_EVENT, { detail: { action: actionId } }));
   return false;
 }

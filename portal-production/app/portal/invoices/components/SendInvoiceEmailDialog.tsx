@@ -162,8 +162,8 @@ export default function SendInvoiceEmailDialog({
       if (isInvoice) {
         // Invoice body unchanged: due date + payment-details language.
         const dueDate = invoice.config?.dueDate
-          ? moment(invoice.config.dueDate).format("DD MMM YYYY")
-          : moment().add(30, "days").format("DD MMM YYYY");
+          ? moment(invoice.config.dueDate).format("DD/MM/YYYY")
+          : moment().add(30, "days").format("DD/MM/YYYY");
         messageTemplate = `Hi ${greetName},
 
 Please find attached the invoice ${docNumber} amounting to SGD ${totalAmount.toFixed(2)} due on ${dueDate}.

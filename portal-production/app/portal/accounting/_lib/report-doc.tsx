@@ -29,8 +29,10 @@ export const fmt = (n: number) => {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
+// Paper headers used to read "18 November 2026"; every report date is
+// dd/mm/yyyy now (guru 2026-11-18).
 export const formatHumanDate = (d: Date | string) =>
-  new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
 
 export const formatShortDate = (d: Date | string) =>
   new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
@@ -43,7 +45,7 @@ export const formatShortDate = (d: Date | string) =>
 // in the sheet's bottom margin, so pagination budgets are untouched.
 export const COMPUTER_GENERATED_NOTE = "This is a computer generated Statement. No signature is required.";
 
-export function PaperSheet({ children, breakAfter }: { children: React.ReactNode; breakAfter?: boolean }) {
+export function PaperSheet({ children, breakAfter, landscape }: { children: React.ReactNode; breakAfter?: boolean; landscape?: boolean }) {
   return (
     // BaseTheme: the sheet keeps the standard paper typography under any
     // org app-theme overlay. Phone: the A4 sheet scrolls inside this
@@ -53,12 +55,14 @@ export function PaperSheet({ children, breakAfter }: { children: React.ReactNode
       <Paper
         data-print-paper
         {...(breakAfter ? { "data-print-break": "1" } : {})}
+        {...(landscape ? { "data-print-landscape": "1" } : {})}
         elevation={2}
         sx={{
           position: "relative",
-          width: "210mm",
+          // Landscape (the Expenses Listing's month columns): 297 × 210.
+          width: landscape ? "297mm" : "210mm",
           flexShrink: 0,
-          minHeight: "297mm",
+          minHeight: landscape ? "210mm" : "297mm",
           p: "20mm",
           backgroundColor: "white",
           color: "#000",
@@ -214,12 +218,12 @@ export function ReportHeader({
 // Guide-assistant bubble, toasts — anything, marked .no-print or not), and the
 // ancestor chain collapses to zero-chrome wrappers so no stray padding spills
 // the sheet onto a phantom extra page. Render once per report page.
-export function ReportPrintCss() {
+export function ReportPrintCss({ landscape }: { landscape?: boolean } = {}) {
   return (
     <style jsx global>{`
       @media print {
         @page {
-          size: A4;
+          size: A4${landscape ? " landscape" : ""};
           margin: 0;
         }
         body {
@@ -247,6 +251,9 @@ export function ReportPrintCss() {
           margin: 0 !important;
           padding: 20mm !important;
           width: 210mm !important;
+        }
+        [data-print-paper][data-print-landscape="1"] {
+          width: 297mm !important;
           /* content defines the height — a fixed 297mm min-height rounds past
              one physical page and prints a blank trailing sheet */
           min-height: auto !important;

@@ -181,8 +181,8 @@ export default function CustomerInfoDetailPage() {
         {detail.customerName}
       </Typography>
       <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-        Created {new Date(detail.createdAt).toLocaleString()}
-        {detail.submittedAt ? ` | Last submitted ${new Date(detail.submittedAt).toLocaleString()}` : " | Awaiting response"}
+        Created {new Date(detail.createdAt).toLocaleString("en-GB")}
+        {detail.submittedAt ? ` | Last submitted ${new Date(detail.submittedAt).toLocaleString("en-GB")}` : " | Awaiting response"}
         {detail.submissionCount > 1 ? ` (${detail.submissionCount} submissions)` : ""}
       </Typography>
 

@@ -16,6 +16,7 @@ import { useShipmentsApi, type ClientKind, type ProfileFileView } from "../../_l
 import { CLIENT_KEYS } from "../../_lib/hooks";
 import { toast } from "../../_lib/toast";
 import { fmtDay } from "../../_lib/format";
+import DateInput from "@/components/DateInput";
 
 /** Refresh every Clients query after a change. */
 export function useRefreshClients() {
@@ -191,7 +192,7 @@ export function PhotoUploader({ kind, id, productId, dataTour }: { kind: ClientK
   return (
     <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }} data-tour={dataTour}>
       <TextField size="small" label={t("photos.caption")} placeholder={t("photos.captionPlaceholder")} value={caption} onChange={(e) => setCaption(e.target.value)} sx={{ flex: 1, minWidth: 180 }} />
-      <TextField size="small" type="date" label={t("photos.takenOn")} value={takenOn} onChange={(e) => setTakenOn(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 170 }} />
+      <DateInput size="small" label={t("photos.takenOn")} value={takenOn} onChange={(e) => setTakenOn(e.target.value)} InputLabelProps={{ shrink: true }} sx={{ width: 170 }} />
       <input ref={input} type="file" accept="image/*" hidden onChange={(e) => void upload(e.target.files?.[0])} />
       <Button variant="outlined" startIcon={busy ? <CircularProgress size={16} /> : <AddPhotoAlternateIcon />} onClick={() => input.current?.click()} disabled={busy}>
         {t("photos.add")}

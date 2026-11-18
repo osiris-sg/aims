@@ -16,30 +16,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useListKeyboardNav } from "@/helpers/useListKeyboardNav";
 import { useRouter } from "next/navigation";
-import {
-  Box,
-  Button,
-  CircularProgress,
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  IconButton,
-  Paper,
-  Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-} from "@mui/material";
+import { Box, Button, CircularProgress, Dialog, DialogContent, DialogTitle, IconButton, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import PrintIcon from "@mui/icons-material/Print";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
 import { todayIso } from "@/helpers/orgToday";
+import DateInput from "@/components/DateInput";
 
 const fmt = (n: number) =>
   (Number(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -268,9 +251,8 @@ export default function DebtorStatementDialog({
           <Box>
             <Stack direction="row" gap={1.5} alignItems="center" justifyContent="flex-end">
               <Typography sx={fieldLabelSx}>Cut-Off Date</Typography>
-              <TextField
+              <DateInput
                 size="small"
-                type="date"
                 value={cutOff}
                 onChange={(e) => e.target.value && setCutOff(e.target.value)}
                 sx={{ width: 170 }}

@@ -178,7 +178,7 @@ export default function CrmScheduledPage() {
         accessorKey: "scheduledAt",
         header: "Next send",
         cell: ({ row }: any) => (
-          <Box sx={{ whiteSpace: "nowrap" }}>{new Date(row.original.scheduledAt).toLocaleString()}</Box>
+          <Box sx={{ whiteSpace: "nowrap" }}>{new Date(row.original.scheduledAt).toLocaleString("en-GB")}</Box>
         ),
       },
       {

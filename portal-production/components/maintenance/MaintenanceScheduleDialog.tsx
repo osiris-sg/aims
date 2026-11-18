@@ -352,6 +352,7 @@ export default function MaintenanceScheduleDialog({ open, onClose, onSaved, edit
           </Typography>
           <LocalizationProvider dateAdapter={AdapterDayjs}>
             <DatePicker
+              format="DD/MM/YYYY"
               label="Maintenance date"
               value={dueDate ? dayjs(dueDate) : null}
               minDate={dayjs(today)}

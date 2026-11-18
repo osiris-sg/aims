@@ -98,7 +98,7 @@ export default function useCustomersTableHeader() {
       header: "Created",
       cell: (info) => (
         <Typography variant="body2" sx={{ fontSize: "0.8rem" }}>
-          {new Date(info.getValue()).toLocaleDateString()}
+          {new Date(info.getValue()).toLocaleDateString("en-GB")}
         </Typography>
       ),
     }),

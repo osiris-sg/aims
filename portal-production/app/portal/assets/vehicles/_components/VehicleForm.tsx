@@ -11,6 +11,7 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { canVehicles, vehiclesApi, type VehicleRow } from "@/helpers/wctVehicles";
 import { VEHICLES_PATH, vehicleHref } from "@/helpers/wctNav";
+import DateInput from "@/components/DateInput";
 
 /**
  * Add / edit a vehicle as a full page (2026-11-16; was the Edit details pop-up).
@@ -32,7 +33,7 @@ export const fieldsOf = (v: Partial<VehicleRow> | null | undefined): Fields => (
 });
 
 const dateField = (label: string, value: string, onChange: (v: string) => void) => (
-  <TextField size="small" type="date" label={label} value={value} onChange={(e) => onChange(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth />
+  <DateInput size="small" label={label} value={value} onChange={(e) => onChange(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth />
 );
 
 export default function VehicleForm({ id }: { id?: string }) {

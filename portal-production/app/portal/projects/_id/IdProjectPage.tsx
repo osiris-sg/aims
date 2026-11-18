@@ -59,6 +59,7 @@ import VoDialog from "./VoDialog";
 import { useOrganization } from "@hooks/useOrganization";
 import { useIdQuoteApi } from "@/app/portal/sales/quotations/id/_lib/api";
 import { defaultQuote } from "@/app/portal/sales/quotations/id/_lib/defaults";
+import DateInput from "@/components/DateInput";
 
 const KPI = ({ label, value, hint, color }: { label: string; value: string; hint?: string; color?: string }) => (
   // width comes from the equal Grid cells; height 100% so a card without a
@@ -1063,7 +1064,7 @@ export default function IdProjectPage({ id }: { id: string }) {
                           <MoneyCellField value={Number(paid) || 0} disabled={!isManagement} onCommit={(n) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, paidAmount: n } }))} />
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
-                          <TextField size="small" type="date" disabled={!isManagement} value={(e.paidAt ?? m.paidAt ?? "").toString().slice(0, 10)} onChange={(ev) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, paidAt: ev.target.value || null } }))} inputProps={{ style: { padding: "4px 8px" } }} />
+                          <DateInput size="small" disabled={!isManagement} value={(e.paidAt ?? m.paidAt ?? "").toString().slice(0, 10)} onChange={(ev) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, paidAt: ev.target.value || null } }))} inputProps={{ style: { padding: "4px 8px" } }} />
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
                           <TextField select size="small" disabled={!isManagement} value={e.paymentMethod ?? m.paymentMethod ?? ""} onChange={(ev) => setEditingMs((s) => ({ ...s, [m.id]: { ...e, paymentMethod: ev.target.value } }))} sx={{ minWidth: 130 }} inputProps={{ style: { padding: "4px 8px" } }}>

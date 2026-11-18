@@ -43,6 +43,7 @@ import {
 } from "@/lib/msr-templates";
 import { useRunWords } from "@/app/portal/hooks/useRunWords";
 import { runTitle } from "@/helpers/jobWording";
+import DateInput from "@/components/DateInput";
 
 /**
  * WCT service job — the SERVICE itself, walked step by step (guru 2026-10-27:
@@ -642,7 +643,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
           </Alert>
           <TextField label="Company" value={customerName} onChange={(e) => setCustomerName(e.target.value)} fullWidth size="small" />
           <TextField label="Location" value={jobLocation} onChange={(e) => setJobLocation(e.target.value)} fullWidth size="small" multiline minRows={2} />
-          <TextField label="Date of Servicing" type="date" value={serviceDate} onChange={(e) => setServiceDate(e.target.value)} fullWidth size="small" InputLabelProps={{ shrink: true }} />
+          <DateInput label="Date of Servicing" value={serviceDate} onChange={(e) => setServiceDate(e.target.value)} fullWidth size="small" InputLabelProps={{ shrink: true }} />
           <Divider />
           <Typography variant="subtitle2">Report template</Typography>
           <ToggleButtonGroup

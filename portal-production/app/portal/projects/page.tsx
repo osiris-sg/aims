@@ -27,7 +27,7 @@ interface Project {
 }
 
 const fmtDate = (d: string | null | undefined) =>
-  d ? new Date(d).toLocaleDateString() : "—";
+  d ? new Date(d).toLocaleDateString("en-GB") : "—";
 
 interface PaginatedResponse {
   docs: Project[];

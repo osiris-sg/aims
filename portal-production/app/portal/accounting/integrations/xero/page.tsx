@@ -245,7 +245,7 @@ export default function XeroIntegrationPage() {
             <Stat label="Mappings" value={`${status.mappingStats?.mapped ?? 0} / ${status.mappingStats?.total ?? 0}`} />
             <Stat
               label="Last sync"
-              value={status.lastSync ? new Date(status.lastSync.startedAt).toLocaleString() : "Never"}
+              value={status.lastSync ? new Date(status.lastSync.startedAt).toLocaleString("en-GB") : "Never"}
               accent={status.lastSync?.status === "SUCCESS" ? "success" : status.lastSync?.status === "FAILED" ? "error" : status.lastSync?.status === "PARTIAL" ? "warning" : undefined}
             />
             <Button startIcon={<RefreshIcon />} variant="outlined" size="small" onClick={load}>
@@ -444,7 +444,7 @@ export default function XeroIntegrationPage() {
                 <TableBody>
                   {runs.map((r) => (
                     <TableRow key={r.id}>
-                      <TableCell sx={{ fontSize: "0.8125rem" }}>{new Date(r.startedAt).toLocaleString()}</TableCell>
+                      <TableCell sx={{ fontSize: "0.8125rem" }}>{new Date(r.startedAt).toLocaleString("en-GB")}</TableCell>
                       <TableCell>
                         <Chip
                           size="small"

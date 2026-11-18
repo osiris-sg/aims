@@ -21,6 +21,7 @@ import {
   Search as SearchIcon,
 } from "@mui/icons-material";
 import { todayIso } from "@/helpers/orgToday";
+import DateInput from "@/components/DateInput";
 
 interface AccountEntry {
   label: string;
@@ -198,8 +199,7 @@ export default function ConfirmPODialog({
             <Typography sx={{ width: 160, fontWeight: 500 }}>
               Supplier D/O Date
             </Typography>
-            <TextField
-              type="date"
+            <DateInput
               value={supplierDODate}
               onChange={(e) => setSupplierDODate(e.target.value)}
               size="small"

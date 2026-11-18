@@ -10,6 +10,8 @@ import PageTable from "@/components/PageTable";
 import { useClientSort } from "@/components/clientSort";
 import DocumentRefLink from "@/components/DocumentRefLink";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
+import DateInput from "@/components/DateInput";
+import { FiscalYearButton } from "../_lib/report-shell/DateRangeSelect";
 
 type Supplier = { id: string; name: string };
 type Tx = { date: string; type: "BILL" | "PAYMENT"; reference: string; description: string; debit: number; credit: number; balance: number };
@@ -86,7 +88,7 @@ export default function SupplierStatementPage() {
     {
       accessorKey: "date",
       header: "Date",
-      cell: ({ row }: any) => <Box sx={{ fontSize: "0.8rem" }}>{new Date(row.original.date).toLocaleDateString()}</Box>,
+      cell: ({ row }: any) => <Box sx={{ fontSize: "0.8rem" }}>{new Date(row.original.date).toLocaleDateString("en-GB")}</Box>,
     },
     {
       accessorKey: "type",
@@ -166,8 +168,9 @@ export default function SupplierStatementPage() {
             renderInput={(params) => <TextField {...params} label="Supplier" placeholder="Search supplier..." />}
             autoHighlight
           />
-          <TextField size="small" type="date" label="From" InputLabelProps={{ shrink: true }} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          <TextField size="small" type="date" label="To" InputLabelProps={{ shrink: true }} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          <DateInput size="small" label="From" InputLabelProps={{ shrink: true }} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          <DateInput size="small" label="To" InputLabelProps={{ shrink: true }} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          <FiscalYearButton from={startDate} to={endDate} onPick={(f, t) => { setStartDate(f); setEndDate(t); }} />
           <Button variant="contained" onClick={run} disabled={!supplierId || loading}>
             {loading ? <CircularProgress size={18} /> : "Generate"}
           </Button>

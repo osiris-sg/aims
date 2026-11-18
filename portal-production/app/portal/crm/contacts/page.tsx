@@ -113,7 +113,7 @@ export default function CrmContactsPage() {
         header: "Last message",
         cell: ({ row }: any) =>
           row.original.lastMessageAt ? (
-            <Box sx={{ whiteSpace: "nowrap" }}>{new Date(row.original.lastMessageAt).toLocaleString()}</Box>
+            <Box sx={{ whiteSpace: "nowrap" }}>{new Date(row.original.lastMessageAt).toLocaleString("en-GB")}</Box>
           ) : (
             <Typography variant="caption" color="text.secondary">
               —

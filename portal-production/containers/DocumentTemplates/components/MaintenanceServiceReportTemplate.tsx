@@ -688,7 +688,7 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
                                       </Box>
                                     )}
                                     <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                                      {new Date(photo.timestamp).toLocaleString()}
+                                      {new Date(photo.timestamp).toLocaleString("en-GB")}
                                     </Typography>
                                   </CardContent>
                                 </Card>

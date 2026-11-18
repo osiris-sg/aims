@@ -10,6 +10,7 @@ import { todayIso } from "@/helpers/orgToday";
 import { uploadFile } from "@/helpers/fileUploader";
 import { useOrganization } from "@hooks/useOrganization";
 import { LOG_TYPES, LOG_TYPE_LABEL, RENEWAL_KINDS, fmtDate, fmtKm, fmtMoney, vehiclesApi, type LogAttachment, type LogType, type VehicleLogEntry, type VehicleRow } from "@/helpers/wctVehicles";
+import DateInput from "@/components/DateInput";
 
 /**
  * The log book pop-ups (2026-11-12; log book 2026-11-16; add / edit vehicle is a
@@ -71,7 +72,7 @@ function Shell({ open, title, onClose, busy, error, onSubmit, submitLabel, submi
 }
 
 const dateField = (label: string, value: string, onChange: (v: string) => void, required = false) => (
-  <TextField size="small" type="date" label={label} value={value} onChange={(e) => onChange(e.target.value)} InputLabelProps={{ shrink: true }} required={required} fullWidth />
+  <DateInput size="small" label={label} value={value} onChange={(e) => onChange(e.target.value)} InputLabelProps={{ shrink: true }} required={required} fullWidth />
 );
 const kmField = (label: string, value: string, onChange: (v: string) => void, helperText?: string, required = false) => (
   <TextField size="small" label={label} value={value} onChange={(e) => onChange(e.target.value.replace(/[^\d,]/g, ""))} inputProps={{ inputMode: "numeric" }} InputProps={{ endAdornment: <Typography variant="body2" color="text.secondary">km</Typography> }} helperText={helperText} required={required} fullWidth />
@@ -298,9 +299,8 @@ export function LogEntryDialog({
               </MenuItem>
             ))}
           </TextField>
-          <TextField
+          <DateInput
             size="small"
-            type="date"
             label="New expiry date (optional)"
             value={f.renewalExpiry}
             onChange={(e) => set("renewalExpiry")(e.target.value)}

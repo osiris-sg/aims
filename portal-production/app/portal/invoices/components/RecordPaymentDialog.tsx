@@ -31,6 +31,7 @@ import CustomerPicker from "@/components/CustomerPicker";
 import { useCustomerById } from "@/app/portal/hooks/api/useCustomerPicker";
 import moment from "moment";
 import { useTranslations } from "next-intl";
+import DateInput from "@/components/DateInput";
 
 interface RecordPaymentDialogProps {
   open: boolean;
@@ -405,9 +406,8 @@ export default function RecordPaymentDialog({
         />
 
         {/* Payment Date */}
-        <TextField
+        <DateInput
           label={t("date")}
-          type="date"
           value={paymentDate}
           onChange={(e) => setPaymentDate(e.target.value)}
           fullWidth

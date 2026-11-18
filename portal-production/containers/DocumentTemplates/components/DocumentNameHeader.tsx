@@ -559,7 +559,7 @@ function DocumentNameHeaderComponent(props: Props) {
                       </Stack>
                     }
                   >
-                    <ListItemText primary={rev.name ?? rev.id} secondary={new Date(rev.createdAt).toLocaleString()} />
+                    <ListItemText primary={rev.name ?? rev.id} secondary={new Date(rev.createdAt).toLocaleString("en-GB")} />
                   </ListItem>
                   <Divider component="li" />
                 </React.Fragment>

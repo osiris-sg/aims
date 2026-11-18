@@ -629,7 +629,7 @@ export default function EmailIngestionTab({ organizationId }: { organizationId: 
               const docIds = Array.isArray(log.createdDocumentIds) ? log.createdDocumentIds : [];
               return (
                 <TableRow key={log.id} hover>
-                  <TableCell sx={{ whiteSpace: "nowrap" }}>{new Date(log.createdAt).toLocaleString()}</TableCell>
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>{new Date(log.createdAt).toLocaleString("en-GB")}</TableCell>
                   <TableCell>{log.fromAddress || "—"}</TableCell>
                   <TableCell sx={{ maxWidth: 240, whiteSpace: "normal", wordBreak: "break-word" }}>
                     {log.subject || "—"}

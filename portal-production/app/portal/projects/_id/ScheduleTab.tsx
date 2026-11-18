@@ -55,6 +55,7 @@ import MicNoneIcon from "@mui/icons-material/MicNone";
 import { toast } from "react-toastify";
 import { useIdProjectApi, type Schedule, type ScheduleItem } from "./api";
 import { todayIso } from "@/helpers/orgToday";
+import DateInput from "@/components/DateInput";
 
 const DAY = 86400000;
 const isoToday = () => todayIso();
@@ -842,8 +843,8 @@ function AddOnDateDialog({ range, sequence, busy, onClose, onAdd }: { range: { s
               <MenuItem value="work">Work</MenuItem>
               <MenuItem value="note">Reminder (red)</MenuItem>
             </TextField>
-            <TextField label="From" type="date" size="small" InputLabelProps={{ shrink: true }} value={start} onChange={(e) => setStart(e.target.value)} />
-            <TextField label="To" type="date" size="small" InputLabelProps={{ shrink: true }} value={end} onChange={(e) => setEnd(e.target.value)} />
+            <DateInput label="From" size="small" InputLabelProps={{ shrink: true }} value={start} onChange={(e) => setStart(e.target.value)} />
+            <DateInput label="To" size="small" InputLabelProps={{ shrink: true }} value={end} onChange={(e) => setEnd(e.target.value)} />
           </Stack>
           <Typography variant="caption" sx={{ color: "text.disabled" }}>
             The activity covers every day in the range. A range spanning a Sunday shows no work that day. To put something on a Sunday itself, such as a meeting with the owner, set From and To to that Sunday.
@@ -913,10 +914,10 @@ function ListView({ data, onChange }: { data: Schedule; onChange: () => void }) 
                   </TextField>
                 </TableCell>
                 <TableCell>
-                  <TextField size="small" type="date" value={start} onChange={(e) => setDrafts((s) => ({ ...s, [it.id]: { ...d, startDate: e.target.value } }))} inputProps={{ style: { padding: "4px 8px" } }} />
+                  <DateInput size="small" value={start} onChange={(e) => setDrafts((s) => ({ ...s, [it.id]: { ...d, startDate: e.target.value } }))} inputProps={{ style: { padding: "4px 8px" } }} />
                 </TableCell>
                 <TableCell>
-                  <TextField size="small" type="date" value={end} onChange={(e) => setDrafts((s) => ({ ...s, [it.id]: { ...d, endDate: e.target.value } }))} inputProps={{ style: { padding: "4px 8px" } }} />
+                  <DateInput size="small" value={end} onChange={(e) => setDrafts((s) => ({ ...s, [it.id]: { ...d, endDate: e.target.value } }))} inputProps={{ style: { padding: "4px 8px" } }} />
                 </TableCell>
                 <TableCell sx={{ color: "text.secondary" }}>{days}</TableCell>
                 <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
@@ -1042,8 +1043,8 @@ function AddActivitiesDialog({ open, sequence, projectId, onClose, onAdded }: { 
             Dates
           </Typography>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1, flexWrap: { xs: "wrap", sm: "nowrap" }, rowGap: 1 }}>
-            <TextField label="From" type="date" size="small" InputLabelProps={{ shrink: true }} value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} />
-            <TextField label="To" type="date" size="small" InputLabelProps={{ shrink: true }} value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} />
+            <DateInput label="From" size="small" InputLabelProps={{ shrink: true }} value={rangeStart} onChange={(e) => setRangeStart(e.target.value)} />
+            <DateInput label="To" size="small" InputLabelProps={{ shrink: true }} value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)} />
             <Button size="small" variant="outlined" onClick={applyRange} disabled={!labels.length} sx={{ textTransform: "none", whiteSpace: "nowrap" }}>
               Apply to ticked
             </Button>
@@ -1066,8 +1067,8 @@ function AddActivitiesDialog({ open, sequence, projectId, onClose, onAdded }: { 
                   <Typography variant="body2" sx={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {l}
                   </Typography>
-                  <TextField type="date" size="small" value={picked[l].start} onChange={(e) => setPicked((p) => ({ ...p, [l]: { ...p[l], start: e.target.value } }))} inputProps={{ style: { padding: "4px 6px", fontSize: 12 } }} />
-                  <TextField type="date" size="small" value={picked[l].end} onChange={(e) => setPicked((p) => ({ ...p, [l]: { ...p[l], end: e.target.value } }))} inputProps={{ style: { padding: "4px 6px", fontSize: 12 } }} />
+                  <DateInput size="small" value={picked[l].start} onChange={(e) => setPicked((p) => ({ ...p, [l]: { ...p[l], start: e.target.value } }))} inputProps={{ style: { padding: "4px 6px", fontSize: 12 } }} />
+                  <DateInput size="small" value={picked[l].end} onChange={(e) => setPicked((p) => ({ ...p, [l]: { ...p[l], end: e.target.value } }))} inputProps={{ style: { padding: "4px 6px", fontSize: 12 } }} />
                   <Typography variant="caption" sx={{ color: "text.disabled", width: 36, textAlign: "right" }}>
                     {Math.max(1, Math.round((new Date(picked[l].end).getTime() - new Date(picked[l].start).getTime()) / DAY) + 1)}d
                   </Typography>

@@ -170,7 +170,7 @@ export default function DeliveryRouteMap({ pings, isActive }: Props) {
           <Popup>
             <strong>Started</strong>
             <br />
-            {new Date(startPing.timestamp).toLocaleString()}
+            {new Date(startPing.timestamp).toLocaleString("en-GB")}
           </Popup>
         </Marker>
 
@@ -182,7 +182,7 @@ export default function DeliveryRouteMap({ pings, isActive }: Props) {
             <Popup>
               <strong>{isActive ? "Current position" : "Delivered"}</strong>
               <br />
-              {new Date(lastPing.timestamp).toLocaleString()}
+              {new Date(lastPing.timestamp).toLocaleString("en-GB")}
             </Popup>
           </Marker>
         )}

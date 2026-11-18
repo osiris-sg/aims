@@ -127,7 +127,7 @@ export const REPORTS: ReportEntry[] = [
   // Expense Listing / Bank Rec all under one tab).
   { key: "pl", label: "Profit and Loss", description: "Income, cost of sales and expenses with period comparison", category: "Ledger", Component: ProfitLoss },
   { key: "bs", label: "Balance Sheet", description: "Assets, liabilities and equity as at a date, with year comparison", category: "Ledger", Component: BalanceSheet },
-  { key: "expense-listing", label: "Expense Listing", description: "Every expense and purchase transaction for a period, by account", category: "Ledger", Component: ExpenseListing },
+  { key: "expense-listing", label: "Expenses Listing", description: "Expense accounts by fiscal-year month up to a cut-off period, with the year-to-date balance", category: "Ledger", Component: ExpenseListing },
   { key: "gst", label: "GST", description: "GST details by tax code + F5 summary for the period", category: "Ledger", Component: GSTReturn },
 
   // Cash flow statement, budgets and the fixed-asset register are General

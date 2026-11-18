@@ -15,6 +15,7 @@ import {
 } from "@mui/material";
 import { useForm, Controller } from "react-hook-form";
 import DocumentNumberFormatsManager from "./DocumentNumberFormatsManager";
+import DateInput from "@/components/DateInput";
 
 type SettingsForm = {
   baseCurrency: string;
@@ -174,7 +175,7 @@ export default function DefaultSettingsTab({ settings, loading, onSave }: Props)
               control={control}
               name="yearOpeningDate"
               render={({ field }) => (
-                <TextField {...field} type="date" label="Year Opening Date" size="small" fullWidth InputLabelProps={{ shrink: true }} />
+                <DateInput {...field} label="Year Opening Date" size="small" fullWidth InputLabelProps={{ shrink: true }} />
               )}
             />
           </Grid2>
@@ -193,7 +194,7 @@ export default function DefaultSettingsTab({ settings, loading, onSave }: Props)
               control={control}
               name="monthOpeningDate"
               render={({ field }) => (
-                <TextField {...field} type="date" label="Month Opening Date" size="small" fullWidth InputLabelProps={{ shrink: true }} />
+                <DateInput {...field} label="Month Opening Date" size="small" fullWidth InputLabelProps={{ shrink: true }} />
               )}
             />
           </Grid2>

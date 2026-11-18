@@ -28,6 +28,7 @@ const toExisting = (v: any) => ({
   documentInfo: { documentNumber: v.voucherNumber, date: v.date },
   savedBy: v.savedBy,
   savedAt: v.savedAt,
+  incompleteReason: v.incompleteReason ?? null,
   lastUsedBy: v.savedBy,
   lastUsedAt: v.savedAt,
   updatedAt: v.updatedAt,
@@ -126,11 +127,20 @@ export default function JournalVoucherPage() {
       throw new Error(response?.message || "Failed to save journal voucher");
     }
     const saved = unwrap(response);
-    if (saved?.voucherNumber && saved.voucherNumber !== existingData?.name) {
+    // Re-mount the editor ONLY when the SERVER issued the number (placeholder →
+    // real number on the first complete save). A number the user is typing
+    // comes back unchanged and must not re-mount — the field lost focus after
+    // every autosaved keystroke (guru 2026-11-18: "after the first letter, it
+    // saved and pushed me out of the field").
+    const typedNumber = String(data?.documentInfo?.documentNumber || data?.name || "").trim();
+    if (saved?.voucherNumber && saved.voucherNumber !== existingData?.name && saved.voucherNumber !== typedNumber) {
       toast.info(`Voucher numbered ${saved.voucherNumber}`);
       setExistingData(toExisting(saved));
-      setVouchers((prev) => prev.map((x: any) => (x.id === saved.id ? { ...x, ...saved } : x)));
     }
+    if (saved?.id) setVouchers((prev) => prev.map((x: any) => (x.id === saved.id ? { ...x, ...saved } : x)));
+    // Posted = confirmed on a complete autosave (2026-11-18): refresh the status
+    // pill in place (no re-mount — only the status key changes).
+    if (saved?.status && saved.status !== existingData?.status) setExistingData((prev: any) => (prev ? { ...prev, status: saved.status } : prev));
     return saved;
   };
 

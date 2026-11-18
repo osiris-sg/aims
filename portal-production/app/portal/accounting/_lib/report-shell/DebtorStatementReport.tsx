@@ -51,6 +51,7 @@ import { withActiveOrg } from "@/helpers/request";
 import { COMPUTER_GENERATED_NOTE, type ReportExportModel } from "../report-export";
 import { todayIso } from "@/helpers/orgToday";
 import { onReportDate } from "./reportDate";
+import DateInput from "@/components/DateInput";
 
 /** Document-number cell as a real link (⌘-click / "Open Link in New Tab"). */
 const docCell = (d: any) => {
@@ -490,9 +491,8 @@ export default function DebtorStatementReport({ side = "receivable" }: { side?: 
             <Typography variant="caption" sx={{ fontWeight: 700 }}>
               Period ending
             </Typography>
-            <TextField
+            <DateInput
               size="small"
-              type="date"
               value={asOf}
               onChange={onReportDate(setAsOf)}
               sx={{ width: 170, mt: 0.25, display: "block" }}

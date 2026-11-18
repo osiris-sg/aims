@@ -21,6 +21,7 @@ import { useSideContacts, type ReportSide } from "./side";
 import { withActiveOrg } from "@/helpers/request";
 import { todayIso } from "@/helpers/orgToday";
 import { onReportDate } from "./reportDate";
+import DateInput from "@/components/DateInput";
 
 /** Document-number cell as a real link (⌘-click / "Open Link in New Tab"). */
 const docCell = (d: any) => {
@@ -220,9 +221,8 @@ export default function DetailedAgeingReport({ side = "receivable" }: { side?: R
             <Typography variant="caption" sx={{ fontWeight: 700 }}>
               Period ending
             </Typography>
-            <TextField
+            <DateInput
               size="small"
-              type="date"
               value={asOf}
               onChange={onReportDate(setAsOf)}
               sx={{ width: 170, mt: 0.25, display: "block" }}

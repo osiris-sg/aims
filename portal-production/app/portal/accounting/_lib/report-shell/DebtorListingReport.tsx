@@ -18,6 +18,7 @@ import ReportTable, { ReportRow, fmtDate } from "./ReportTable";
 import { useSideContacts, type ReportSide } from "./side";
 import { todayIso } from "@/helpers/orgToday";
 import { onReportDate } from "./reportDate";
+import DateInput from "@/components/DateInput";
 
 const R = (n: number) => Math.round(n * 100) / 100;
 const fmtAbs = (n: number) =>
@@ -168,9 +169,8 @@ export default function DebtorListingReport({ side = "receivable" }: { side?: Re
             <Typography variant="caption" sx={{ fontWeight: 700 }}>
               Cut-Off-Date
             </Typography>
-            <TextField
+            <DateInput
               size="small"
-              type="date"
               value={cutOff}
               onChange={onReportDate(setCutOff)}
               sx={{ width: 170, mt: 0.25, display: "block" }}

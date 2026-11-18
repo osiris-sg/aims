@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -20,6 +21,7 @@ import {
   Alert,
 } from '@mui/material';
 import { Add, Delete, Save, Cancel } from '@mui/icons-material';
+import DateInput from '@/components/DateInput';
 
 interface ExtractedItem {
   description: string;
@@ -349,18 +351,16 @@ export default function DocumentExtractionForm({
                   fullWidth
                   required
                 />
-                <TextField
+                <DateInput
                   label="Document Date"
-                  type="date"
                   value={formData.document?.date || ''}
                   onChange={(e) => handleDocumentChange('date', e.target.value)}
                   fullWidth
                   InputLabelProps={{ shrink: true }}
                   required
                 />
-                <TextField
+                <DateInput
                   label="Due Date"
-                  type="date"
                   value={formData.document?.dueDate || ''}
                   onChange={(e) => handleDocumentChange('dueDate', e.target.value)}
                   fullWidth
@@ -393,9 +393,8 @@ export default function DocumentExtractionForm({
                   onChange={(e) => handleReferenceChange('doNumber', e.target.value)}
                   fullWidth
                 />
-                <TextField
+                <DateInput
                   label="DO Date"
-                  type="date"
                   value={formData.references?.doDate || ''}
                   onChange={(e) => handleReferenceChange('doDate', e.target.value)}
                   fullWidth

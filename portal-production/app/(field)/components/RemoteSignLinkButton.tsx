@@ -107,7 +107,7 @@ export default function RemoteSignLinkButton({ reportIds, disabled }: { reportId
             <Stack spacing={1.5} sx={{ pt: 0.5 }}>
               <TextField inputRef={linkRef} value={link.url} fullWidth size="small" InputProps={{ readOnly: true }} onFocus={(e) => e.target.select()} />
               <Typography variant="caption" color="text.secondary">
-                One use only.{link.expiresAt ? ` Expires ${new Date(link.expiresAt).toLocaleString()}.` : ""} The report stays in Pending Sign until the customer signs.
+                One use only.{link.expiresAt ? ` Expires ${new Date(link.expiresAt).toLocaleString("en-GB")}.` : ""} The report stays in Pending Sign until the customer signs.
               </Typography>
               <Stack direction="row" spacing={1}>
                 <Button variant="contained" onClick={copy}>{copied ? "Copied" : "Copy link"}</Button>

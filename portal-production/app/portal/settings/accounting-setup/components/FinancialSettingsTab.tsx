@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import RateInput from "@/components/RateInput";
+import DateInput from "@/components/DateInput";
 import {
   Box,
   Button,
@@ -305,9 +306,8 @@ export default function FinancialSettingsTab({
         title="Lock Date"
         hint="Lock dates stop data from being changed on or before a date. Journal entries dated on/before this are read-only."
       >
-        <TextField
+        <DateInput
           size="small"
-          type="date"
           label="Locked through"
           InputLabelProps={{ shrink: true }}
           value={form.lockedThroughDate || ""}

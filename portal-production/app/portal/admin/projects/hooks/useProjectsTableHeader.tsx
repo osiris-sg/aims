@@ -23,7 +23,7 @@ export default function useProjectsTableHeader() {
     }),
     columnHelper.accessor("createdAt", {
       header: "Created",
-      cell: (info) => <Typography variant="body2">{new Date(info.getValue()).toLocaleDateString()}</Typography>,
+      cell: (info) => <Typography variant="body2">{new Date(info.getValue()).toLocaleDateString("en-GB")}</Typography>,
     }),
   ];
 

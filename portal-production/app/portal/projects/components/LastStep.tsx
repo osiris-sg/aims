@@ -32,13 +32,13 @@ export default function LastStep() {
         <Typography variant="body2" fontWeight={500}>
           Start Date
         </Typography>
-        <Typography variant="body1">{getValues("startDate") ? new Date(getValues("startDate")).toLocaleDateString() : "-"}</Typography>
+        <Typography variant="body1">{getValues("startDate") ? new Date(getValues("startDate")).toLocaleDateString("en-GB") : "-"}</Typography>
       </Box>
       <Box>
         <Typography variant="body2" fontWeight={500}>
           End Date
         </Typography>
-        <Typography variant="body1">{getValues("endDate") ? new Date(getValues("endDate")).toLocaleDateString() : "-"}</Typography>
+        <Typography variant="body1">{getValues("endDate") ? new Date(getValues("endDate")).toLocaleDateString("en-GB") : "-"}</Typography>
       </Box>
       <Box>
         <Typography variant="body2" fontWeight={500}>
@@ -64,8 +64,8 @@ export default function LastStep() {
             {assignments.map((item: any, index: number) => (
               <TableRow key={index}>
                 <TableCell>{item.skuKey}</TableCell>
-                <TableCell>{item.startDate ? new Date(item.startDate).toLocaleDateString() : "-"}</TableCell>
-                <TableCell>{item.endDate ? new Date(item.endDate).toLocaleDateString() : "-"}</TableCell>
+                <TableCell>{item.startDate ? new Date(item.startDate).toLocaleDateString("en-GB") : "-"}</TableCell>
+                <TableCell>{item.endDate ? new Date(item.endDate).toLocaleDateString("en-GB") : "-"}</TableCell>
                 <TableCell>{item.status}</TableCell>
               </TableRow>
             ))}

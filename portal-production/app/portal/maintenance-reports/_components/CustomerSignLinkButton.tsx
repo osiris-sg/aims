@@ -89,7 +89,7 @@ export default function CustomerSignLinkButton({
               <>
                 <TextField value={link.url} fullWidth size="small" InputProps={{ readOnly: true }} onFocus={(e) => e.target.select()} />
                 <Typography variant="caption" color="text.secondary">
-                  {copied ? "Copied to the clipboard. " : ""}One use only.{link.expiresAt ? ` Expires ${new Date(link.expiresAt).toLocaleString()}.` : ""} Signing completes the report like an on-site signature.
+                  {copied ? "Copied to the clipboard. " : ""}One use only.{link.expiresAt ? ` Expires ${new Date(link.expiresAt).toLocaleString("en-GB")}.` : ""} Signing completes the report like an on-site signature.
                 </Typography>
                 {!hasTechSignature && (
                   <Alert severity="warning">

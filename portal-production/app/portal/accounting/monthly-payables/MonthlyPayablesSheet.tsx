@@ -23,6 +23,7 @@ import { toast } from "react-toastify";
 import PageTable from "@/components/PageTable";
 import BulkActionBar from "@/components/BulkActionBar";
 import { useAccountingApi } from "../_lib/api";
+import DateInput from "@/components/DateInput";
 
 type Row = {
   id: string;
@@ -864,7 +865,7 @@ function PaymentUploadDialog({ request, onClose, onSettled }: { request: <T = an
                   </Alert>
                 )}
                 <Stack direction="row" spacing={1.5} alignItems="center">
-                  <TextField type="date" label="Payment date" size="small" value={payDate} onChange={(e) => e.target.value && setPayDate(e.target.value)} InputLabelProps={{ shrink: true }} />
+                  <DateInput label="Payment date" size="small" value={payDate} onChange={(e) => e.target.value && setPayDate(e.target.value)} InputLabelProps={{ shrink: true }} />
                 </Stack>
               </>
             )}
@@ -962,7 +963,7 @@ function PayableDialog({
           <Stack spacing={1.5}>
             <Stack direction="row" spacing={1.5}>
               <TextField label="Invoice no." size="small" value={f.invoiceNo} onChange={set("invoiceNo")} sx={{ flex: 1 }} />
-              <TextField type="date" label="Invoice date" size="small" value={f.invoiceDate} onChange={set("invoiceDate")} InputLabelProps={{ shrink: true }} sx={{ width: 170 }} />
+              <DateInput label="Invoice date" size="small" value={f.invoiceDate} onChange={set("invoiceDate")} InputLabelProps={{ shrink: true }} sx={{ width: 170 }} />
             </Stack>
             <TextField label="Contractor company" size="small" value={f.supplierName} onChange={set("supplierName")} />
             <TextField label="Site address" size="small" value={f.siteAddress} onChange={set("siteAddress")} multiline maxRows={2} />
@@ -1017,7 +1018,7 @@ function PayableDialog({
               <>
                 <Divider />
                 <Stack direction="row" spacing={1.5} alignItems="center">
-                  <TextField type="date" label="Payment date" size="small" value={payDate} onChange={(e) => setPayDate(e.target.value)} InputLabelProps={{ shrink: true }} />
+                  <DateInput label="Payment date" size="small" value={payDate} onChange={(e) => setPayDate(e.target.value)} InputLabelProps={{ shrink: true }} />
                   <Button variant="contained" color="success" startIcon={<CheckCircleIcon />} disabled={busy} onClick={() => onPaid(payDate)} sx={{ textTransform: "none" }}>
                     Mark paid
                   </Button>

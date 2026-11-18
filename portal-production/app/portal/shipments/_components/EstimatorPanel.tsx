@@ -23,6 +23,7 @@ import { useTradeMutation } from "../_lib/hooks";
 import { fmtYen } from "../_lib/format";
 import { toast } from "../_lib/toast";
 import { useTranslations } from "next-intl";
+import DateInput from "@/components/DateInput";
 
 type Mode = "estimate" | "tax" | "actuals";
 export const ESTIMATOR_STEPS: Record<string, Mode> = { CUSTOMS_TAX_ESTIMATE: "estimate", TAX_FUNDS: "tax", LOGISTICS_PAYMENT: "actuals" };
@@ -288,10 +289,9 @@ function DateField({ label, value, onSave, disabled, helper, placeholder }: { la
   const [v, setV] = useState(value);
   useEffect(() => setV(value), [value]);
   return (
-    <TextField
+    <DateInput
       fullWidth
       size="small"
-      type="date"
       label={label}
       value={v || ""}
       disabled={disabled}

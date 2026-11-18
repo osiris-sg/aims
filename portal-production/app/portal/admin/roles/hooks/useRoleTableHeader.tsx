@@ -91,7 +91,7 @@ export default function useRoleTableHeader() {
     }),
     columnHelper.accessor("createdAt", {
       header: "Created",
-      cell: (info) => new Date(info.getValue()).toLocaleDateString(),
+      cell: (info) => new Date(info.getValue()).toLocaleDateString("en-GB"),
     }),
     kebabColumn((row: any) => [
       { label: "Edit", onClick: () => handleEditRole(row) },

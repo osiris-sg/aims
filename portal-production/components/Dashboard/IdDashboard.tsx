@@ -22,6 +22,7 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import MainCard from "@/components/MainCard";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useAimsUserId } from "@hooks/useAimsUserId";
+import DateInput from "@/components/DateInput";
 
 const apiBase = process.env.NEXT_PUBLIC_BACKEND_API_URL;
 
@@ -274,7 +275,7 @@ function ScheduleOverview({ schedule, holidays, holidaysMy, self, onChanged }: {
               ))}
             </TextField>
             <TextField label="Activity" size="small" placeholder="e.g. Tiling Works" value={addForm.label} onChange={(e) => setAddForm({ ...addForm, label: e.target.value })} fullWidth />
-            <TextField label="Until (optional)" size="small" type="date" InputLabelProps={{ shrink: true }} value={addForm.endDate} onChange={(e) => setAddForm({ ...addForm, endDate: e.target.value })} inputProps={{ min: addFor || undefined }} fullWidth />
+            <DateInput label="Until (optional)" size="small" InputLabelProps={{ shrink: true }} value={addForm.endDate} onChange={(e) => setAddForm({ ...addForm, endDate: e.target.value })} inputProps={{ min: addFor || undefined }} fullWidth />
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -641,8 +642,8 @@ function AdvancesCard({ self }: { self: boolean }) {
         <DialogTitle>Edit advance dates</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 0.5 }}>
-            <TextField label="Requested on" type="date" size="small" InputLabelProps={{ shrink: true }} value={dateForm.requestedAt} onChange={(e) => setDateForm({ ...dateForm, requestedAt: e.target.value })} fullWidth />
-            <TextField label="Approved / declined on" type="date" size="small" InputLabelProps={{ shrink: true }} value={dateForm.decidedAt} onChange={(e) => setDateForm({ ...dateForm, decidedAt: e.target.value })} fullWidth />
+            <DateInput label="Requested on" size="small" InputLabelProps={{ shrink: true }} value={dateForm.requestedAt} onChange={(e) => setDateForm({ ...dateForm, requestedAt: e.target.value })} fullWidth />
+            <DateInput label="Approved / declined on" size="small" InputLabelProps={{ shrink: true }} value={dateForm.decidedAt} onChange={(e) => setDateForm({ ...dateForm, decidedAt: e.target.value })} fullWidth />
             <Typography variant="caption" sx={{ color: "text.secondary" }}>
               Directors only — use for back-dating a request that was made on paper first.
             </Typography>
@@ -887,7 +888,7 @@ function AppointmentsCard({ self }: { self: boolean }) {
           <Stack spacing={2} sx={{ mt: 0.5 }}>
             <TextField label="Client / purpose" size="small" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} autoFocus fullWidth />
             <Stack direction="row" spacing={1}>
-              <TextField label="Date" type="date" size="small" InputLabelProps={{ shrink: true }} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} fullWidth />
+              <DateInput label="Date" size="small" InputLabelProps={{ shrink: true }} value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} fullWidth />
               <TextField label="Time" type="time" size="small" InputLabelProps={{ shrink: true }} value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} fullWidth />
             </Stack>
             <TextField label="Phone (optional)" size="small" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} fullWidth />

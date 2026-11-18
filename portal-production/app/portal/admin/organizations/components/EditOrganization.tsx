@@ -177,7 +177,7 @@ export default function EditOrganization({ open, onClose, onOrganizationUpdated,
             {organization?.createdAt && (
               <Grid item xs={12}>
                 <Typography variant="body2" color="text.secondary">
-                  <strong>Created:</strong> {new Date(organization.createdAt).toLocaleString()}
+                  <strong>Created:</strong> {new Date(organization.createdAt).toLocaleString("en-GB")}
                 </Typography>
               </Grid>
             )}

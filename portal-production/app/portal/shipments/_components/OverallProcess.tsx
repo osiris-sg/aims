@@ -6,7 +6,7 @@
 // when ETD / ETA change) unless someone set it by hand on the step; click a date to change it or put it back.
 
 import React, { useMemo, useState } from "react";
-import { Box, Button, Chip, CircularProgress, Collapse, IconButton, Paper, Popover, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Tooltip, Typography } from "@mui/material";
+import { Box, Button, Chip, CircularProgress, Collapse, IconButton, Paper, Popover, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import EditCalendarIcon from "@mui/icons-material/EditCalendar";
@@ -19,6 +19,7 @@ import { useTranslations } from "next-intl";
 import { useUiLang } from "@/i18n/UiLangProvider";
 import { useStepName } from "@/i18n/hooks";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
+import DateInput from "@/components/DateInput";
 
 export const processKey = (orderId: string) => [...SHIPMENT_KEYS.orders, "process", orderId] as const;
 
@@ -142,7 +143,7 @@ export default function OverallProcess({ orderId, lang: langProp }: { orderId: s
           <Box sx={{ p: 2, width: 280 }} data-tour="process-due-editor">
             <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{edit.cell.ref} · {edit.cell.no} {stepName(edit.cell.code, lang === "ja" && edit.cell.titleJa ? edit.cell.titleJa : edit.cell.title)}</Typography>
             {whyOf(edit.cell) && <Typography variant="caption" color="text.secondary" component="div">{t("ruleIs")}: {whyOf(edit.cell)}</Typography>}
-            <TextField type="date" size="small" fullWidth label={t("set")} value={edit.value} onChange={(e) => setEdit({ ...edit, value: e.target.value })} InputLabelProps={{ shrink: true }} sx={{ mt: 1.5 }} />
+            <DateInput size="small" fullWidth label={t("set")} value={edit.value} onChange={(e) => setEdit({ ...edit, value: e.target.value })} InputLabelProps={{ shrink: true }} sx={{ mt: 1.5 }} />
             <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
               <Button variant="contained" size="small" disabled={busy || !/^\d{4}-\d{2}-\d{2}$/.test(edit.value)} onClick={() => save(edit.value)}>{t("save")}</Button>
               {edit.cell.dueSource === "manual" && <Button size="small" disabled={busy} onClick={() => save(null)}>{t("rule")}</Button>}

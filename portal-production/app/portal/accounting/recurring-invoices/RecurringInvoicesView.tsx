@@ -22,6 +22,7 @@ import { useCustomersByIds } from "@/app/portal/hooks/api/useCustomerPicker";
 import { useOrganization } from "@hooks/useOrganization";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import SendInvoiceEmailDialog from "@/app/portal/invoices/components/SendInvoiceEmailDialog";
+import DateInput from "@/components/DateInput";
 
 const FREQS = ["DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY"] as const;
 const TOKENS = ["{MONTH}", "{MONTH YEAR}", "{PERIOD}", "{YEAR}", "{DATE}", "{NEXT MONTH}", "{PREV MONTH}"];
@@ -577,7 +578,7 @@ export default function RecurringInvoicesView() {
                 {FREQS.map((fr) => (<MenuItem key={fr} value={fr}>{fr.toLowerCase()}</MenuItem>))}
               </TextField>
               <TextField label="First run" size="small" type="datetime-local" InputLabelProps={{ shrink: true }} value={form.nextRunDate} onChange={(e) => setForm((f: any) => ({ ...f, nextRunDate: e.target.value }))} sx={{ minWidth: 210 }} />
-              <TextField label="End date (optional)" size="small" type="date" InputLabelProps={{ shrink: true }} value={form.endDate} onChange={(e) => setForm((f: any) => ({ ...f, endDate: e.target.value }))} />
+              <DateInput label="End date (optional)" size="small" InputLabelProps={{ shrink: true }} value={form.endDate} onChange={(e) => setForm((f: any) => ({ ...f, endDate: e.target.value }))} />
               <Tooltip title={'Rental month counter for the {NTH} token — e.g. 17 renders "17th" on the next run, then 18th, 19th…'}>
                 <TextField label="Period no." size="small" type="number" sx={{ width: 100 }} inputProps={{ min: 1 }} value={form.nextRunNo} onChange={(e) => setForm((f: any) => ({ ...f, nextRunNo: Number(e.target.value) || 1 }))} />
               </Tooltip>
@@ -644,7 +645,7 @@ export default function RecurringInvoicesView() {
 
             {/* Live preview */}
             <Box sx={{ p: 1.5, borderRadius: 1, bgcolor: (t) => alpha(t.palette.info.main, 0.06) }}>
-              <Typography variant="caption" color="text.secondary">Preview for {previewDate.toLocaleDateString()}:</Typography>
+              <Typography variant="caption" color="text.secondary">Preview for {previewDate.toLocaleDateString("en-GB")}:</Typography>
               {form.items.filter((r: Row) => r.description.trim()).map((r: Row, i: number) => (
                 <Typography key={i} variant="body2" sx={{ fontWeight: 600, whiteSpace: "pre-line" }}>• {resolveText(r.description, previewDate, Number(form.nextRunNo) || 1)}</Typography>
               ))}

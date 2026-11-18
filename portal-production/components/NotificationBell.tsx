@@ -44,7 +44,7 @@ function timeAgo(iso: string, t: (key: string, values?: Record<string, number>) 
   if (hrs < 24) return t("hAgo", { n: hrs });
   const days = Math.floor(hrs / 24);
   if (days < 7) return t("dAgo", { n: days });
-  return lang === "ja" ? formatDate(iso, "ja") : new Date(iso).toLocaleDateString();
+  return lang === "ja" ? formatDate(iso, "ja") : new Date(iso).toLocaleDateString("en-GB");
 }
 
 /**

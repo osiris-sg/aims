@@ -1170,7 +1170,7 @@ function VerifiedCell({ stamp }: { stamp?: VerifiedStamp | null }) {
           )}
         </>
       )}
-      {stamp.at && <div style={{ opacity: 0.7, fontSize: "0.7rem", marginTop: 2 }}>verified {new Date(stamp.at).toLocaleString()}</div>}
+      {stamp.at && <div style={{ opacity: 0.7, fontSize: "0.7rem", marginTop: 2 }}>verified {new Date(stamp.at).toLocaleString("en-GB")}</div>}
     </>
   );
 

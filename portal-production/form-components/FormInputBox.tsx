@@ -2,6 +2,7 @@
 import { Box, CircularProgress, InputAdornment, InputLabel, TextField, Typography } from "@mui/material";
 import React from "react";
 import { Control, Controller, FieldValues } from "react-hook-form";
+import DateInput from "@/components/DateInput";
 
 interface Props {
   control: Control<FieldValues, object> | undefined | any;
@@ -57,7 +58,22 @@ export default function FormInputBox(props: Props) {
             </InputLabel>
           )}
           {description && <Typography variant="caption">{description}</Typography>}
-          {!viewMode ? (
+          {!viewMode && type === "date" ? (
+            // Every date is dd/mm/yyyy (guru 2026-11-18) — see components/DateInput.
+            <DateInput
+              disabled={disabled}
+              size={size}
+              fullWidth={fullWidth}
+              value={value}
+              onChange={(e) => {
+                onChange(e);
+                externalOnChange?.(e);
+              }}
+              inputRef={ref}
+              error={!!error}
+              helperText={error ? error.message : bottomText}
+            />
+          ) : !viewMode ? (
             <TextField
               disabled={disabled}
               size={size}

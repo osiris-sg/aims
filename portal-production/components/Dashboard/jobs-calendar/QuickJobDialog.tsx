@@ -17,6 +17,7 @@ import { useCalendarApi, useCalendarStylePeople, useSiteClockWorkers, type Worke
 import JobStyleFields from "./JobStyleFields";
 import { applyQuotationPick, doOptionLabel, needsDoPick, quotationLabel, quotationRow, quotationSearchPath, type QuotationDetail, type QuotationOption } from "@/helpers/quickJobQuotation";
 import { categoryShown, type JobCategoryDef } from "@/helpers/jobCategory";
+import DateInput from "@/components/DateInput";
 
 const DURATIONS = [30, 60, 90, 120, 180, 240, 480];
 const durLabel = (m: number) => (m % 60 === 0 ? `${m / 60} h` : m > 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`);
@@ -236,7 +237,7 @@ export default function QuickJobDialog({
           />
           <TextField label="Site / address" size="small" fullWidth value={form.siteAddress} onChange={(e) => set({ siteAddress: e.target.value })} />
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-            <TextField label="Date" type="date" size="small" value={form.date} onChange={(e) => set({ date: e.target.value })} InputLabelProps={{ shrink: true }} sx={{ flex: 1 }} />
+            <DateInput label="Date" size="small" value={form.date} onChange={(e) => set({ date: e.target.value })} InputLabelProps={{ shrink: true }} sx={{ flex: 1 }} />
             {!form.allDay && <TextField label="Time" type="time" size="small" value={form.time} onChange={(e) => set({ time: e.target.value })} InputLabelProps={{ shrink: true }} sx={{ flex: 1 }} />}
             {!form.allDay && <TextField select label="Duration" size="small" value={String(form.durationMin)} onChange={(e) => set({ durationMin: Number(e.target.value) })} sx={{ flex: 1 }}>
               {[...new Set([...DURATIONS, form.durationMin])].sort((a, b) => a - b).map((m) => (

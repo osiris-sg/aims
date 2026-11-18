@@ -67,6 +67,7 @@ import ManualOffsetDialog from "./ManualOffsetDialog";
 import PvOffsetSupplierDialog, { type PvLine, type PvOffset } from "./PvOffsetSupplierDialog";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { AccountSelectDialog, numberIsPending, peekDocumentNumber, useOrAccounts, type OrAccount } from "./OfficialReceiptSection";
+import { focusNextEmptyInRow } from "@/helpers/focusNextEmptyInRow";
 import type { TemplateFieldConfig } from "../types/templateFieldTypes";
 import { todayIso } from "@/helpers/orgToday";
 import EditorRail from "./EditorRail";
@@ -387,6 +388,11 @@ function AccountCodeCell({
   const [input, setInput] = useState(value);
   const [open, setOpen] = useState(false);
   useEffect(() => setInput(value), [value]);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Once the code lands, the cursor moves on to the row's next empty box
+  // (Remarks, then the money) instead of staying on the code (guru 2026-11-18).
+  const jump = () => setTimeout(() => focusNextEmptyInRow(inputRef.current), 0);
+  const findExact = (v: string) => accounts.find((a) => String(a.code).toLowerCase() === v.trim().toLowerCase());
   return (
     <>
       <TextField
@@ -394,11 +400,27 @@ function AccountCodeCell({
         value={input}
         placeholder="Code"
         disabled={disabled}
+        inputRef={inputRef}
         onChange={(e) => {
           const v = e.target.value;
           setInput(v);
-          const match = accounts.find((a) => String(a.code).toLowerCase() === v.trim().toLowerCase());
-          if (match && match.code !== value) onCommit(match);
+          const match = findExact(v);
+          if (match && match.code !== value) {
+            onCommit(match);
+            // Jump only when no longer code starts with what was typed, so
+            // "100" still lets the user go on to key "1001"; Enter jumps anyway.
+            const longer = accounts.some((a) => a.code !== match.code && String(a.code).toLowerCase().startsWith(v.trim().toLowerCase()));
+            if (!longer) jump();
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter") return;
+          const match = findExact(input);
+          if (!match) return;
+          e.preventDefault();
+          e.stopPropagation();
+          if (match.code !== value) onCommit(match);
+          jump();
         }}
         onBlur={() => setInput(value)}
         sx={{ width: 150 }}
@@ -412,8 +434,43 @@ function AccountCodeCell({
           ),
         }}
       />
-      <AccountSelectDialog open={open} onClose={() => setOpen(false)} accounts={accounts} onSelect={onCommit} />
+      <AccountSelectDialog
+        open={open}
+        onClose={() => setOpen(false)}
+        accounts={accounts}
+        onSelect={(a) => {
+          onCommit(a);
+          jump();
+        }}
+      />
     </>
+  );
+}
+
+// The Remarks memo — the legacy right-hand column, now spanning the header
+// fields AND the lines grid (guru 2026-11-18: "increase the length of it to
+// move it on top"). Mounted by TabbedDocumentCreator as the right column.
+export function PvRemarksMemo({ formData, setFormData, disabled }: { formData: any; setFormData: (next: any) => void; disabled?: boolean }) {
+  const pd = formData?.pvData || {};
+  return (
+    // The legacy right-hand column, now as tall as header + grid together.
+    // my/mr 0.5 line it up with the header card (TabPanel p 0.5) and the
+    // grid (mx 0.5).
+    <Card sx={{ width: 260, flexShrink: 0, my: 0.5, mr: 0.5, display: "flex", flexDirection: "column" }}>
+      <CardContent sx={{ p: 1, flex: 1, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>
+        <Typography sx={{ fontWeight: 700, fontSize: "0.8125rem", mb: 0.5 }}>To-Do List</Typography>
+        <TextField
+          multiline
+          minRows={10}
+          fullWidth
+          value={pd.notes || ""}
+          disabled={disabled}
+          placeholder="Longer notes for this voucher"
+          onChange={(e) => setPvData(formData, setFormData, { notes: e.target.value })}
+          sx={{ flex: 1, "& .MuiInputBase-root": { alignItems: "flex-start", height: "100%" } }}
+        />
+      </CardContent>
+    </Card>
   );
 }
 
@@ -507,7 +564,9 @@ export function PaymentVoucherLinesSection({
       openOffsetFor(party);
       return;
     }
-    patchLine(l.id, { accountCode: a.code, accountName: a.name, description: l.description || a.name.toUpperCase() });
+    // The Description IS the account name once a code is keyed (read-only
+    // in the grid, guru 2026-11-18), so it follows the account.
+    patchLine(l.id, { accountCode: a.code, accountName: a.name, description: a.name.toUpperCase() });
   };
   useEffect(() => {
     const onOpen = () => {
@@ -666,6 +725,9 @@ export function PaymentVoucherLinesSection({
                               value={l.description || ""}
                               placeholder={acc ? acc.name.toUpperCase() : "Description"}
                               disabled={disabled}
+                              InputProps={{ readOnly: !!l.accountCode }}
+                              inputProps={l.accountCode ? { tabIndex: -1 } : undefined}
+                              sx={l.accountCode ? { "& .MuiInputBase-root": { bgcolor: "action.hover" }, "& .MuiInputBase-input": { cursor: "default" } } : undefined}
                               onChange={(e) => patchLine(l.id, { description: e.target.value })}
                             />
                           )}
@@ -750,23 +812,6 @@ export function PaymentVoucherLinesSection({
               </Typography>
             )}
           </Box>
-        </CardContent>
-      </Card>
-
-      {/* Legacy right-hand Remarks memo */}
-      <Card sx={{ width: 260, flexShrink: 0, display: "flex", flexDirection: "column" }}>
-        <CardContent sx={{ p: 1, flex: 1, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>
-          <Typography sx={{ fontWeight: 700, fontSize: "0.8125rem", mb: 0.5 }}>Remarks</Typography>
-          <TextField
-            multiline
-            minRows={10}
-            fullWidth
-            value={pd.notes || ""}
-            disabled={disabled}
-            placeholder="Longer notes for this voucher"
-            onChange={(e) => setPvData(formData, setFormData, { notes: e.target.value })}
-            sx={{ flex: 1, "& .MuiInputBase-root": { alignItems: "flex-start", height: "100%" } }}
-          />
         </CardContent>
       </Card>
 

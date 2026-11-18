@@ -33,6 +33,7 @@ import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
+import DateInput from "@/components/DateInput";
 
 type Category =
   | "OUTPUT_STANDARD"
@@ -211,17 +212,15 @@ export default function GstPage() {
       {/* Toolbar */}
       <Paper variant="outlined" sx={{ p: 1.5 }}>
         <Stack direction="row" gap={2} flexWrap="wrap" alignItems="center">
-          <TextField
+          <DateInput
             size="small"
-            type="date"
             label="From Date"
             InputLabelProps={{ shrink: true }}
             value={period.from}
             onChange={(e) => setPeriod((p) => ({ ...p, from: e.target.value }))}
           />
-          <TextField
+          <DateInput
             size="small"
-            type="date"
             label="To Date"
             InputLabelProps={{ shrink: true }}
             value={period.to}
@@ -292,7 +291,7 @@ export default function GstPage() {
               label="Period"
               value={
                 period.from && period.to
-                  ? `${new Date(period.from).toLocaleDateString()} → ${new Date(period.to).toLocaleDateString()}`
+                  ? `${new Date(period.from).toLocaleDateString("en-GB")} → ${new Date(period.to).toLocaleDateString("en-GB")}`
                   : "—"
               }
             />
@@ -347,7 +346,7 @@ export default function GstPage() {
                 return (
                   <TableRow key={r.journalEntryId} hover>
                     <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{r.journalNumber}</TableCell>
-                    <TableCell>{new Date(r.date).toLocaleDateString()}</TableCell>
+                    <TableCell>{new Date(r.date).toLocaleDateString("en-GB")}</TableCell>
                     <TableCell>
                       <Chip
                         size="small"

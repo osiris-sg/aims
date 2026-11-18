@@ -25,6 +25,7 @@ import PageTable from "@/components/PageTable";
 import { useClientSort } from "@/components/clientSort";
 import { todayIso } from "@/helpers/orgToday";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
+import DateInput from "@/components/DateInput";
 
 type FA = {
   id: string;
@@ -185,7 +186,7 @@ export default function FixedAssetsPage() {
       accessorKey: "inServiceDate",
       header: "In service",
       cell: ({ row }: any) => (
-        <Box sx={{ fontSize: "0.8125rem" }}>{new Date(row.original.inServiceDate).toLocaleDateString()}</Box>
+        <Box sx={{ fontSize: "0.8125rem" }}>{new Date(row.original.inServiceDate).toLocaleDateString("en-GB")}</Box>
       ),
     },
     {
@@ -376,7 +377,7 @@ function FAEditor({
           <TextField size="small" label="Description" multiline minRows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} disabled={saving} sx={{ gridColumn: { md: "1 / -1" } }} />
           <TextField size="small" type="number" label="Cost" value={form.cost} onChange={(e) => setForm({ ...form, cost: parseFloat(e.target.value) || 0 })} disabled={saving} inputProps={{ step: "0.01", min: 0 }} />
           <TextField size="small" type="number" label="Salvage Value" value={form.salvageValue} onChange={(e) => setForm({ ...form, salvageValue: parseFloat(e.target.value) || 0 })} disabled={saving} inputProps={{ step: "0.01", min: 0 }} />
-          <TextField size="small" type="date" label="In Service Date" InputLabelProps={{ shrink: true }} value={form.inServiceDate} onChange={(e) => setForm({ ...form, inServiceDate: e.target.value })} disabled={saving} />
+          <DateInput size="small" label="In Service Date" InputLabelProps={{ shrink: true }} value={form.inServiceDate} onChange={(e) => setForm({ ...form, inServiceDate: e.target.value })} disabled={saving} />
           <TextField select size="small" label="Method" value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })} disabled={saving}>
             <MenuItem value="STRAIGHT_LINE">Straight-line</MenuItem>
             <MenuItem value="DECLINING_BALANCE">Declining balance</MenuItem>

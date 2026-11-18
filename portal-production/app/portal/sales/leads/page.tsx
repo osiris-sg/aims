@@ -50,6 +50,7 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useIdQuoteApi } from "@/app/portal/sales/quotations/id/_lib/api";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
+import DateInput from "@/components/DateInput";
 
 type Lead = {
   id: string;
@@ -828,7 +829,7 @@ export default function LeadsPage() {
             </Stack>
             <Typography variant="caption" sx={{ color: "text.secondary" }}>
               {detail.source.toUpperCase()}
-              {detail.ref ? ` · ${detail.ref}` : ""} · received {moment(detail.receivedAt).format("DD MMM YYYY HH:mm")}
+              {detail.ref ? ` · ${detail.ref}` : ""} · received {moment(detail.receivedAt).format("DD/MM/YYYY HH:mm")}
               {detail.replacementDeadline ? ` · replacement window until ${moment(detail.replacementDeadline).format("DD MMM")}` : ""}
             </Typography>
             <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 1.5 }}>
@@ -1092,7 +1093,7 @@ export default function LeadsPage() {
             </Grid>
             {keyModeOf(manual.keyCollection) === "date" && (
               <Grid item xs={12} sm={6}>
-                <TextField label="Est. key collection date" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }} value={manual.keyCollection} onChange={(e) => setManual({ ...manual, keyCollection: e.target.value })} />
+                <DateInput label="Est. key collection date" size="small" fullWidth InputLabelProps={{ shrink: true }} value={manual.keyCollection} onChange={(e) => setManual({ ...manual, keyCollection: e.target.value })} />
               </Grid>
             )}
             <Grid item xs={12} sm={6}>
@@ -1304,7 +1305,7 @@ export default function LeadsPage() {
                     ))}
                   </TextField>
                   {keyModeOf(edit.keyCollection) === "date" && (
-                    <TextField label="Date" type="date" size="small" fullWidth InputLabelProps={{ shrink: true }} value={edit.keyCollection} onChange={(e) => setEdit({ ...edit, keyCollection: e.target.value })} />
+                    <DateInput label="Date" size="small" fullWidth InputLabelProps={{ shrink: true }} value={edit.keyCollection} onChange={(e) => setEdit({ ...edit, keyCollection: e.target.value })} />
                   )}
                 </Stack>
               </Grid>

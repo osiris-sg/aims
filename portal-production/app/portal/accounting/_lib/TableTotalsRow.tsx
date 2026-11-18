@@ -35,7 +35,10 @@ export default function TableTotalsRow({
     // same soft tint the old strip had, in both themes
     backgroundImage: `linear-gradient(${alpha(t.palette.text.primary, 0.04)}, ${alpha(t.palette.text.primary, 0.04)})`,
     borderTop: `1px solid ${t.palette.text.primary}`,
-    borderBottom: `3px double ${t.palette.text.primary}`,
+    // No rule under the strip (guru 2026-11-18: the double line at the bottom
+    // of the GL / AR / AP homes looked like a glitch on screen; the printed
+    // reports keep their own double-ruled TOTAL).
+    borderBottom: "none",
   });
   return (
     <TableFooter>

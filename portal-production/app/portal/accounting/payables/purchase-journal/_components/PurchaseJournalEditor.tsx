@@ -34,6 +34,7 @@ import { toast } from "react-toastify";
 import { useAccountingApi } from "../../../_lib/api";
 import EditorRail from "@/containers/DocumentTemplates/components/EditorRail";
 import { todayIso } from "@/helpers/orgToday";
+import DateInput from "@/components/DateInput";
 
 type Kind = "SIN" | "SPR";
 type Account = { id: string; code: string; name: string; category?: string; accountType?: string; isActive?: boolean };
@@ -75,7 +76,10 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
   // the list view off). Both start without a loaded bill.
   const isNew = billId === "new" || billId === "latest";
   const listPath = "/portal/accounting/payables/purchase-journal";
-  const gotoEntry = (id: string) => router.push(`${listPath}/entry/${id}`);
+  // Keep the URL query (?from= = where Back goes, 2026-11-18) when "latest" /
+  // "new" resolve to a real entry, or when moving between entries.
+  const keepQuery = () => (typeof window !== "undefined" ? window.location.search : "");
+  const gotoEntry = (id: string) => router.push(`${listPath}/entry/${id}${keepQuery()}`);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -127,7 +131,7 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
         setSiblingIds(ids);
         // "latest" → jump to the newest entry (or stay blank when there are none).
         if (billId === "latest") {
-          if (ids.length) { router.replace(`${listPath}/entry/${ids[0]}`); return; }
+          if (ids.length) { router.replace(`${listPath}/entry/${ids[0]}${keepQuery()}`); return; }
           setLoading(false);
           return;
         }
@@ -262,7 +266,7 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
       await request(`/bills/${id}/submit`, { method: "POST" });
       toast.success(`${kind === "SPR" ? "Purchase return" : "Purchase journal"} confirmed and posted`);
       // Stay in the journal editor on the just-posted entry (no list).
-      router.push(`${listPath}/entry/${id}`);
+      router.push(`${listPath}/entry/${id}${keepQuery()}`);
     } catch (e: any) {
       toast.error(e?.message || "Saved, but confirm failed");
     } finally {
@@ -273,7 +277,11 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
   const [exitPromptOpen, setExitPromptOpen] = useState(false);
   // Back goes up to the AP home (the list is bypassed for this org); Locate is
   // the explicit way into the list.
-  const leave = () => router.push("/portal/accounting/payables");
+  // Back = where they came from (?from=, guru 2026-11-18), else the AP home.
+  const leave = () => {
+    const from = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("from") : null;
+    router.push(from && from.startsWith("/portal") ? from : "/portal/accounting/payables");
+  };
   const onExit = () => { if (dirty && !validate()) setExitPromptOpen(true); else leave(); };
 
   const [delOpen, setDelOpen] = useState(false);
@@ -285,7 +293,8 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
 
   const addNew = () => {
     if (dirty && !validate()) { setExitPromptOpen(true); return; }
-    router.push(`/portal/accounting/payables/purchase-journal/entry/new?kind=${kind}`);
+    const from = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("from") : null;
+    router.push(`/portal/accounting/payables/purchase-journal/entry/new?kind=${kind}${from ? `&from=${encodeURIComponent(from)}` : ""}`);
   };
 
   // Previous / Next page through the org's entries (newest first), like OR/PV.
@@ -365,7 +374,7 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
               </TableRow>
               <TableRow>
                 <TableCell sx={hdrLabelSx}>Date</TableCell>
-                <TableCell sx={hdrCellSx}><TextField size="small" type="date" value={date} onChange={(e) => { setDate(e.target.value); markDirty(); }} disabled={confirmed} sx={{ minWidth: 200 }} InputLabelProps={{ shrink: true }} /></TableCell>
+                <TableCell sx={hdrCellSx}><DateInput size="small" value={date} onChange={(e) => { setDate(e.target.value); markDirty(); }} disabled={confirmed} sx={{ minWidth: 200 }} InputLabelProps={{ shrink: true }} /></TableCell>
               </TableRow>
               <TableRow>
                 <TableCell sx={hdrLabelSx}>Supplier</TableCell>

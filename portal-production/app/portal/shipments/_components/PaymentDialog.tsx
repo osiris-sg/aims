@@ -18,6 +18,7 @@ import { ACCOUNT_LABEL, TARGET_LABEL, useShipmentsApi, type AllocationTarget, ty
 import { SHIPMENT_KEYS } from "../_lib/hooks";
 import { toast } from "../_lib/toast";
 import { todayIso } from "@/helpers/orgToday";
+import DateInput from "@/components/DateInput";
 
 /** Where the proof goes: the step it pays (its record), as the step's proof document. */
 export type PaymentContext = {
@@ -139,7 +140,7 @@ export default function PaymentDialog({ open, onClose, context, payment }: { ope
             </TextField>
           </Grid>
           <Grid item xs={6} sm={3}>
-            <TextField fullWidth size="small" type="date" label={t("date")} InputLabelProps={{ shrink: true }} value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
+            <DateInput fullWidth size="small" label={t("date")} InputLabelProps={{ shrink: true }} value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
           </Grid>
           <Grid item xs={6} sm={3}>
             <TextField fullWidth size="small" type="number" label={t("amount")} value={amount} onChange={(e) => setAmount(e.target.value)} />

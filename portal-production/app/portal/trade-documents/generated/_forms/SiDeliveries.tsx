@@ -19,6 +19,7 @@ import { useTranslations } from "next-intl";
 import { useShipmentsApi } from "@/app/portal/shipments/_lib/api";
 import { bundleTotals, daysBetween, groupSchedule, isEmptyRow, nextRow, parseSchedule, rowsFor, shipDateFor, sortRows, withDelivery, withWeights, type SiLot, type SiRow } from "@/app/portal/shipments/_lib/si-days";
 import { tradeTodayYmd } from "@/app/portal/shipments/_lib/tasks";
+import DateInput from "@/components/DateInput";
 
 const md = (d?: string | null) => (d && /^\d{4}-\d{2}-\d{2}/.test(d) ? `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}` : (d ?? ""));
 const WD = { en: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], ja: ["日", "月", "火", "水", "木", "金", "土"] };
@@ -113,13 +114,13 @@ export default function SiDeliveries({
             {rows.map((r, i) => (
               <TableRow key={i} sx={{ opacity: isEmptyRow(r) ? 0.6 : 1 }}>
                 <TableCell sx={{ p: 0.5 }}>
-                  <TextField size="small" variant="standard" type="date" fullWidth value={r.deliveryDate ?? ""} disabled={disabled} inputProps={{ min: "2000-01-01", max: "2100-12-31", "aria-label": `${te("deliveryDate")} row ${i + 1}` }}
+                  <DateInput size="small" variant="standard" fullWidth value={r.deliveryDate ?? ""} disabled={disabled} inputProps={{ min: "2000-01-01", max: "2100-12-31", "aria-label": `${te("deliveryDate")} row ${i + 1}` }}
                     onChange={(e) => setRow(i, withDelivery(r, e.target.value, holidays))} onBlur={() => setRows((rs) => sortRows(rs))}
                     helperText={dayLabel(r.deliveryDate)} FormHelperTextProps={{ sx: { m: 0, color: offDay(r.deliveryDate) ? "warning.main" : undefined } }} />
                 </TableCell>
                 <TableCell sx={{ p: 0.5 }}>
                   <Stack direction="row" spacing={0.5} alignItems="flex-start">
-                    <TextField size="small" variant="standard" type="date" fullWidth value={r.shipDate ?? ""} disabled={disabled} inputProps={{ min: "2000-01-01", max: "2100-12-31", "aria-label": `${te("shipDate")} row ${i + 1}` }}
+                    <DateInput size="small" variant="standard" fullWidth value={r.shipDate ?? ""} disabled={disabled} inputProps={{ min: "2000-01-01", max: "2100-12-31", "aria-label": `${te("shipDate")} row ${i + 1}` }}
                       onChange={(e) => setRow(i, { shipDate: e.target.value, shipDateEdited: e.target.value !== shipDateFor(r.deliveryDate, holidays) })}
                       helperText={dayLabel(r.shipDate)} FormHelperTextProps={{ sx: { m: 0, color: offDay(r.shipDate) ? "warning.main" : undefined } }} />
                     {r.shipDateEdited && (
@@ -231,8 +232,8 @@ export default function SiDeliveries({
           <DialogContent dividers>
             <Stack spacing={1.5}>
               <Stack direction="row" spacing={1}>
-                <TextField size="small" type="date" label={t("from")} value={fill.from} onChange={(e) => setFill({ ...fill, from: e.target.value })} InputLabelProps={{ shrink: true }} fullWidth />
-                <TextField size="small" type="date" label={t("to")} value={fill.to} onChange={(e) => setFill({ ...fill, to: e.target.value })} InputLabelProps={{ shrink: true }} fullWidth />
+                <DateInput size="small" label={t("from")} value={fill.from} onChange={(e) => setFill({ ...fill, from: e.target.value })} InputLabelProps={{ shrink: true }} fullWidth />
+                <DateInput size="small" label={t("to")} value={fill.to} onChange={(e) => setFill({ ...fill, to: e.target.value })} InputLabelProps={{ shrink: true }} fullWidth />
               </Stack>
               <Stack direction="row" spacing={1}>
                 <TextField size="small" type="number" label={t("bundlesPerDay")} value={fill.bundles} onChange={(e) => setFill({ ...fill, bundles: e.target.value })} fullWidth />

@@ -49,6 +49,7 @@ import ManageSearchIcon from "@mui/icons-material/ManageSearch";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import DebtorStatementDialog from "./DebtorStatementDialog";
+import { useListKeyboardNav } from "@/helpers/useListKeyboardNav";
 import ManualOffsetDialog from "./ManualOffsetDialog";
 import ContraOffsetDialog from "./ContraOffsetDialog";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
@@ -307,6 +308,13 @@ export function AccountSelectDialog({
     setSearchTerm("");
     onClose();
   };
+  const pick = (a: OrAccount) => {
+    onSelect(a);
+    handleClose();
+  };
+  // No mouse needed (guru 2026-11-14/18): ↑↓ move the highlight, Enter picks,
+  // Esc closes — the same hook as Locate Customer.
+  const { activeIndex, setActiveIndex, handleKeyDown, setRowRef } = useListKeyboardNav(filtered, pick, { onClose: handleClose });
   const headSx = { fontWeight: 600, bgcolor: "surfaceTones.low", borderBottom: 2, borderColor: "divider" };
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth PaperProps={{ sx: { minHeight: "60vh", maxHeight: "80vh" } }}>
@@ -330,6 +338,7 @@ export function AccountSelectDialog({
             placeholder="Search accounts..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyDown={handleKeyDown}
             size="small"
             autoFocus
             InputProps={{
@@ -352,15 +361,21 @@ export function AccountSelectDialog({
               </TableRow>
             </TableHead>
             <TableBody>
-              {filtered.map((a) => (
+              {filtered.map((a, index) => (
                 <TableRow
                   key={a.code}
+                  ref={setRowRef(index)}
                   hover
-                  sx={{ cursor: "pointer" }}
-                  onClick={() => {
-                    onSelect(a);
-                    handleClose();
+                  selected={index === activeIndex}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  sx={{
+                    cursor: "pointer",
+                    "&.Mui-selected, &.Mui-selected:hover": {
+                      bgcolor: "primary.main",
+                      "& .MuiTableCell-root": { color: "primary.contrastText" },
+                    },
                   }}
+                  onClick={() => pick(a)}
                 >
                   <TableCell sx={{ fontVariantNumeric: "tabular-nums" }}>{a.code}</TableCell>
                   <TableCell>{a.name}</TableCell>

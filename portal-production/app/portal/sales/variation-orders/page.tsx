@@ -50,7 +50,7 @@ export default function VariationOrdersPage() {
       { id: "rems", header: "Removals", cell: ({ row }: any) => <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>(S$ {money(row.original.removals)})</Typography> },
       { id: "net", header: "Net (S$)", cell: ({ row }: any) => <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", textAlign: "right", fontWeight: 700 }}>{money(row.original.net)}</Typography> },
       { id: "status", header: "Status", cell: ({ row }: any) => <StatusChip status={row.original.status} /> },
-      { id: "created", header: "Created", cell: ({ row }: any) => <Typography variant="body2">{moment(row.original.createdAt).format("DD MMM YYYY")}</Typography> },
+      { id: "created", header: "Created", cell: ({ row }: any) => <Typography variant="body2">{moment(row.original.createdAt).format("DD/MM/YYYY")}</Typography> },
     ],
     [],
   );

@@ -48,6 +48,7 @@ import { normalizeProjectName } from "@/helpers/normalizeProjectName";
 import { useTranslations } from "next-intl";
 import { useUiLang } from "@/i18n/UiLangProvider";
 import { formatDate } from "@/i18n/lang";
+import DateInput from "@/components/DateInput";
 
 // ─── Editable line item form state ───
 interface EditableLineItem {
@@ -690,11 +691,10 @@ export default function ImportInvoices() {
 
                 {/* Start Date */}
                 <Grid item xs={6} md={4}>
-                  <TextField
+                  <DateInput
                     size="small"
                     fullWidth
                     label={t("startDate")}
-                    type="date"
                     value={formState.startDate}
                     onChange={(e) => setFormState({ ...formState, startDate: e.target.value })}
                     InputLabelProps={{ shrink: true }}
@@ -704,11 +704,10 @@ export default function ImportInvoices() {
 
                 {/* End Date */}
                 <Grid item xs={6} md={4}>
-                  <TextField
+                  <DateInput
                     size="small"
                     fullWidth
                     label={t("endDate")}
-                    type="date"
                     value={formState.endDate}
                     onChange={(e) => setFormState({ ...formState, endDate: e.target.value })}
                     InputLabelProps={{ shrink: true }}
@@ -1066,17 +1065,15 @@ export default function ImportInvoices() {
               noOptionsText={newProject.customerId ? t("noSiteOfficesCustomer") : t("selectCustomerFirst")}
             />
             <Box sx={{ display: "flex", gap: 2 }}>
-              <TextField
+              <DateInput
                 label={t("startDate")}
-                type="date"
                 value={newProject.startDate}
                 onChange={(e) => setNewProject({ ...newProject, startDate: e.target.value })}
                 InputLabelProps={{ shrink: true }}
                 fullWidth
               />
-              <TextField
+              <DateInput
                 label={t("endDate")}
-                type="date"
                 value={newProject.endDate}
                 onChange={(e) => setNewProject({ ...newProject, endDate: e.target.value })}
                 InputLabelProps={{ shrink: true }}

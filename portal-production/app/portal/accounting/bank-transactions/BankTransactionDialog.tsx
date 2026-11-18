@@ -38,6 +38,7 @@ import AttachmentUploader, { Attachment } from "@/components/AttachmentUploader"
 import { useAccountingApi } from "../_lib/api";
 import { todayIso } from "@/helpers/orgToday";
 import { enterScopeProps } from "@/helpers/enterAdvance";
+import DateInput from "@/components/DateInput";
 
 export type BankTransactionKind = "SPEND" | "RECEIVE";
 export const KIND_LABEL: Record<BankTransactionKind, string> = { SPEND: "Spend Money", RECEIVE: "Receive Money" };
@@ -287,7 +288,7 @@ export default function BankTransactionDialog({
               </MenuItem>
             ))}
           </TextField>
-          <TextField size="small" type="date" label="Date" required InputLabelProps={{ shrink: true }} value={date} onChange={(e) => setDate(e.target.value)} disabled={readOnly} />
+          <DateInput size="small" label="Date" required InputLabelProps={{ shrink: true }} value={date} onChange={(e) => setDate(e.target.value)} disabled={readOnly} />
           <TextField
             size="small"
             label="Number"

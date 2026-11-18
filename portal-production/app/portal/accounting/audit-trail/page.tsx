@@ -34,6 +34,8 @@ import PageTable from "@/components/PageTable";
 import { useClientSort } from "@/components/clientSort";
 import { kebabColumn } from "@/components/RowKebab";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
+import DateInput from "@/components/DateInput";
+import { FiscalYearButton } from "../_lib/report-shell/DateRangeSelect";
 
 type Account = { id: string; code: string; name: string };
 
@@ -213,7 +215,7 @@ export default function AuditTrailPage() {
     {
       accessorKey: "entryDate",
       header: "Date",
-      cell: ({ row }: any) => new Date(row.original.entryDate).toLocaleDateString(),
+      cell: ({ row }: any) => new Date(row.original.entryDate).toLocaleDateString("en-GB"),
     },
     { accessorKey: "type", header: "Type", cell: ({ row }: any) => row.original.type },
     { accessorKey: "reference", header: "Reference", cell: ({ row }: any) => row.original.reference || "" },
@@ -300,22 +302,21 @@ export default function AuditTrailPage() {
               </MenuItem>
             ))}
           </TextField>
-          <TextField
+          <DateInput
             size="small"
-            type="date"
             label="From"
             InputLabelProps={{ shrink: true }}
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
           />
-          <TextField
+          <DateInput
             size="small"
-            type="date"
             label="To"
             InputLabelProps={{ shrink: true }}
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
           />
+          <FiscalYearButton from={startDate} to={endDate} onPick={(f, t) => { setStartDate(f); setEndDate(t); }} />
           <Box sx={{ flex: 1 }} />
           <Button startIcon={<PrintIcon />} variant="outlined" size="small" onClick={() => window.print()}>
             Print
@@ -374,7 +375,7 @@ function EntryDialog({ entry, onClose }: { entry: JournalEntry | null; onClose: 
           </DialogTitle>
           <DialogContent dividers>
             <Stack gap={1} sx={{ mb: 2 }}>
-              <Typography variant="body2"><strong>Date:</strong> {new Date(entry.entryDate).toLocaleDateString()}</Typography>
+              <Typography variant="body2"><strong>Date:</strong> {new Date(entry.entryDate).toLocaleDateString("en-GB")}</Typography>
               <Typography variant="body2"><strong>Type:</strong> {entry.type}</Typography>
               {entry.reference && <Typography variant="body2"><strong>Reference:</strong> {entry.reference}</Typography>}
               {entry.description && <Typography variant="body2"><strong>Description:</strong> {entry.description}</Typography>}

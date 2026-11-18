@@ -9,7 +9,7 @@ import { Box, Typography } from "@mui/material";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../api";
 import ReportShell, { downloadCsv } from "./ReportShell";
-import ReportTable from "./ReportTable";
+import ReportTable, { fmtDate } from "./ReportTable";
 import { DateRangeSelect, FilterSelect } from "./DateRangeSelect";
 import { GroupingSelect, GroupingValue, GroupField, FlatColumn, buildGroupedRows } from "./Grouping";
 import { withActiveOrg } from "@/helpers/request";
@@ -184,7 +184,7 @@ export default function InvoiceReport({
           <GroupingSelect value={grouping} onChange={setGrouping} fields={groupFields} />
         </>
       }
-      headerLines={[`For the period ${new Date(from).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })} to ${new Date(to).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}`]}
+      headerLines={[`For the period ${fmtDate(from)} to ${fmtDate(to)}`]}
       footerInfo={data
         ? level === "detail"
           ? `Showing ${flat.length} lines`

@@ -482,6 +482,7 @@ export default function ScheduleReturnDialog({
               clickable even though this field sits at the bottom of the form. */}
           <LocalizationProvider dateAdapter={AdapterDayjs}>
             <DatePicker
+              format="DD/MM/YYYY"
               label="Date"
               value={scheduleDate ? dayjs(scheduleDate) : null}
               onChange={(d) => setScheduleDate(d && d.isValid() ? d.format("YYYY-MM-DD") : "")}

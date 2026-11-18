@@ -50,6 +50,9 @@ import { PaperSheet, ReportHeader, ReportPrintCss, fmt as docFmt, formatShortDat
 import { ReportPrintExportButton, type ReportExportModel, type ReportExportTable } from "./report-export";
 import { todayIso } from "@/helpers/orgToday";
 import { onReportDate } from "./report-shell/reportDate";
+import { FiscalYearButton } from "./report-shell/DateRangeSelect";
+import DateInput from "@/components/DateInput";
+import { useListKeyboardNav } from "@/helpers/useListKeyboardNav";
 
 // Width of the action-button rail beside the AR / AP / GL home table.
 const RAIL_WIDTH = 220;
@@ -70,11 +73,12 @@ const yearStartISO = (iso: string) => `${iso.slice(0, 4)}-01-01`;
 // modern extras. Trial Balance and Profit/(Loss) & BS open their printable
 // paper-document pages; the rest resolve as ?tab= keys in the REPORTS registry.
 const GL_REPORTS: { key: string; label: string; description: string; tab?: string; href?: string }[] = [
-  { key: "trial-balance", label: "Trial Balance", description: "Printable trial balance document — net balance per account, as at a date", href: "/portal/accounting/trial-balance" },
+  { key: "trial-balance", label: "Trial Balance", description: "Net balance per account as at a date, with year comparison", tab: "tb" },
   { key: "audit-trail", label: "Audit Trail", description: "Every posted journal line for a period, filterable by document prefix", tab: "audit-trail" },
   { key: "gst", label: "Goods & Services Tax", description: "GST details by tax code + F5 summary for the period", tab: "gst" },
-  { key: "pnl-bs", label: "Profit/(Loss) & Balance Sheet", description: "Printable income statement and balance sheet documents", href: "/portal/accounting/profit-loss" },
-  { key: "expense-listing", label: "Expense Listing", description: "Every expense and purchase transaction for a period, by account", tab: "expense-listing" },
+  { key: "pl", label: "Profit and Loss", description: "Income, cost of sales and expenses with period comparison", tab: "pl" },
+  { key: "bs", label: "Balance Sheet", description: "Assets, liabilities and equity as at a date, with year comparison", tab: "bs" },
+  { key: "expense-listing", label: "Expenses Listing", description: "Expense accounts by fiscal-year month up to a cut-off period, with the year-to-date balance", tab: "expense-listing" },
   { key: "bank-rec", label: "Bank Reconciliation", description: "Match bank statement lines to ledger entries", href: "/portal/accounting/bank-reconciliation" },
   { key: "foreign-banks", label: "Foreign Bank Listing", description: "Foreign-currency bank accounts — foreign and local balances", tab: "foreign-banks" },
   { key: "jv-listing", label: "Journal Voucher Listing", description: "Every journal line for a period — Unconfirmed and Confirmed vouchers", tab: "jv-listing" },
@@ -380,6 +384,46 @@ export default function GLWorkspace() {
   // =====================================================================
   // Drill-in dialog: per-account ledger with running balance
   // =====================================================================
+  // The balances table walks without the mouse too (guru 2026-11-18): keys
+  // in the Locate box — or anywhere on the page while no dialog is open —
+  // move the highlight; Enter opens the highlighted row's ledger.
+  const openMainRow = (r: (typeof visibleRows)[number]) => {
+    setFromPeriod(monthStartISO(cutOff));
+    setToPeriod(cutOff);
+    setSelected({ id: r.accountId, code: r.code, name: r.name });
+  };
+  const mainNav = useListKeyboardNav(visibleRows, openMainRow);
+  const mainNavKey = mainNav.handleKeyDown;
+  useEffect(() => {
+    if (selected) return;
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (document.querySelector('[role="dialog"]')) return;
+      mainNavKey(e as unknown as React.KeyboardEvent);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [selected, mainNavKey]);
+
+  // The ledger rows walk without the mouse (guru 2026-11-18): ↑↓ move the
+  // highlight, Enter opens the line's document — keys typed into the period
+  // boxes are left alone.
+  const ledgerNavRows = ledger?.rows || [];
+  const ledgerNav = useListKeyboardNav(ledgerNavRows, (t) => openLedgerRow(t));
+  // Nothing in the dialog holds focus (no search box), so the keys are read
+  // at document level while it is open.
+  const ledgerNavKey = ledgerNav.handleKeyDown;
+  useEffect(() => {
+    if (!selected) return;
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      ledgerNavKey(e as unknown as React.KeyboardEvent);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [selected, ledgerNavKey]);
   const accountDialog = (
     <Dialog open={!!selected} onClose={() => setSelected(null)} fullWidth maxWidth="lg" fullScreen={phoneDialog}>
       <DialogContent sx={{ p: { xs: 1.5, md: 3 } }}>
@@ -394,22 +438,21 @@ export default function GLWorkspace() {
                   {selected.code}
                 </Typography>
               </Box>
-              <TextField
+              <DateInput
                 size="small"
-                type="date"
                 label="From period"
                 InputLabelProps={{ shrink: true }}
                 value={fromPeriod}
                 onChange={onReportDate(setFromPeriod, true)}
               />
-              <TextField
+              <DateInput
                 size="small"
-                type="date"
                 label="To period"
                 InputLabelProps={{ shrink: true }}
                 value={toPeriod}
                 onChange={onReportDate(setToPeriod, true)}
               />
+              <FiscalYearButton from={fromPeriod} to={toPeriod} onPick={(f, t) => { setFromPeriod(f); setToPeriod(t); }} />
               <Box sx={{ flex: 1 }} />
               <Paper variant="outlined" sx={{ px: 1.5, py: 0.75, borderRadius: 2 }}>
                 <Typography variant="caption" sx={{ color: "text.secondary", mr: 1 }}>
@@ -455,7 +498,7 @@ export default function GLWorkspace() {
                   </TableHead>
                   <TableBody>
                     {(ledger?.rows || []).map((t, i) => (
-                      <TableRow key={i} hover sx={clickableRowSx} onClick={() => openLedgerRow(t)} title="Open the document behind this line (a manual J/V opens the journal)">
+                      <TableRow key={i} ref={ledgerNav.setRowRef(i)} hover selected={i === ledgerNav.activeIndex} onMouseEnter={() => ledgerNav.setActiveIndex(i)} sx={{ ...clickableRowSx, "&.Mui-selected, &.Mui-selected:hover": { bgcolor: "primary.main", "& .MuiTableCell-root": { color: "primary.contrastText" } } }} onClick={() => openLedgerRow(t)} title="Open the document behind this line (a manual J/V opens the journal)">
                         <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>
                           {t.ref || t.journalNumber || "—"}
                         </TableCell>
@@ -570,9 +613,8 @@ export default function GLWorkspace() {
       {/* Filters row, indented by the rail's width so it starts at the table's
           left edge (guru 2026-11-16); the action buttons live in the rail. */}
       <Stack direction="row" gap={1.5} alignItems="center" sx={{ mb: 1.5, flexWrap: "wrap", pl: { xs: 0, md: `${RAIL_WIDTH + 16}px` } }}>
-        <TextField
+        <DateInput
           size="small"
-          type="date"
           label="Cut-off date"
           InputLabelProps={{ shrink: true }}
           value={cutOff}
@@ -583,6 +625,7 @@ export default function GLWorkspace() {
           placeholder="Locate by code or description…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={mainNav.handleKeyDown}
           sx={{ minWidth: { xs: "100%", sm: 280 } }}
           InputProps={{
             startAdornment: (
@@ -649,16 +692,15 @@ export default function GLWorkspace() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {visibleRows.map((r) => (
+              {visibleRows.map((r, i) => (
                 <TableRow
                   key={r.accountId}
+                  ref={mainNav.setRowRef(i)}
                   hover
-                  onClick={() => {
-                    setFromPeriod(monthStartISO(cutOff));
-                    setToPeriod(cutOff);
-                    setSelected({ id: r.accountId, code: r.code, name: r.name });
-                  }}
-                  sx={{ cursor: "pointer" }}
+                  selected={i === mainNav.activeIndex}
+                  onMouseEnter={() => mainNav.setActiveIndex(i)}
+                  onClick={() => openMainRow(r)}
+                  sx={{ cursor: "pointer", "&.Mui-selected, &.Mui-selected:hover": { bgcolor: "primary.main", "& .MuiTableCell-root": { color: "primary.contrastText" } }, }}
                 >
                   <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{r.code}</TableCell>
                   <TableCell>{r.name}</TableCell>
@@ -699,17 +741,15 @@ export default function GLWorkspace() {
         <DialogTitle sx={{ fontWeight: 700 }}>General Ledger</DialogTitle>
         <DialogContent dividers>
           <Stack gap={2} sx={{ mt: 0.5 }}>
-            <TextField
+            <DateInput
               size="small"
-              type="date"
               label="From Date"
               InputLabelProps={{ shrink: true }}
               value={printFrom}
               onChange={onReportDate(setPrintFrom, true)}
             />
-            <TextField
+            <DateInput
               size="small"
-              type="date"
               label="To Date"
               InputLabelProps={{ shrink: true }}
               value={printTo}

@@ -24,6 +24,7 @@ import { request } from "@/helpers/request";
 import { uploadFile } from "@/helpers/fileUploader";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import CustomerDoPicker from "./CustomerDoPicker";
+import DateInput from "@/components/DateInput";
 
 const ACCEPT = "application/pdf,image/*";
 
@@ -147,7 +148,7 @@ export default function ReportEditActions({ report, isUploaded }: { report: { id
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <CustomerDoPicker customer={customer} doId={doId} onCustomer={setCustomer} onDo={(d) => setDoId(d?.id ?? null)} disabled={!!busy} />
-            <TextField size="small" type="date" label="Service date" value={serviceDate} onChange={(e) => setServiceDate(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth />
+            <DateInput size="small" label="Service date" value={serviceDate} onChange={(e) => setServiceDate(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth />
             <TextField size="small" label="Location" value={location} onChange={(e) => setLocation(e.target.value)} fullWidth />
             {error && <Alert severity="error">{error}</Alert>}
           </Stack>

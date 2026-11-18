@@ -69,7 +69,7 @@ export default function SendReportEmailDialog({
     setBcc([]);
     setNewCcEmail("");
     setNewBccEmail("");
-    const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+    const today = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
     setSubject(`${title}${orgName ? ` from ${orgName}` : ""} — ${today}`);
     const meta = (model.metaLines || []).filter(Boolean).join("; ");
     setMessage(`Hi,

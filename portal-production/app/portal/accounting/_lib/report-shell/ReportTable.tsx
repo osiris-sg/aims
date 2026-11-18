@@ -19,10 +19,12 @@ export const fmtAmount = (v: number | null | undefined, dashZero = true): string
   return v < 0 ? `(${abs})` : abs;
 };
 
+// Every report date is dd/mm/yyyy (guru 2026-11-18: "the date for all the
+// report do dd/mm/yyyy") — was "18 Nov 2026".
 export const fmtDate = (v: string | Date | null | undefined): string => {
   if (!v) return "";
   const d = typeof v === "string" ? new Date(v) : v;
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
 };
 
 export interface ReportColumn {
@@ -134,7 +136,7 @@ export default function ReportTable({
           // off the right edge of the card (Uncle Ben 2026-11-15: "Credit
           // amount didn't show" — it was there, beyond a horizontal scroll).
           // Hover shows the full text; exports read the DOM text, not the clip.
-          ...(col.width || typeof c === "number" ? {} : { maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis" }),
+          ...(col.width || typeof c === "number" ? {} : { maxWidth: 520, overflow: "hidden", textOverflow: "ellipsis" }),
         }}
         title={!col.width && typeof content === "string" && content.length > 40 ? content : undefined}
       >

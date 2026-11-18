@@ -58,6 +58,7 @@ import {
 import MoneyColumn from "../_components/MoneyColumn";
 import { ApproveRepairDialog, AssignDriverDialog, DeleteEntryDialog, LogEntryDialog, UnlockRepairDialog } from "../_components/VehicleDialogs";
 import { VEHICLES_PATH, vehicleEditHref } from "@/helpers/wctNav";
+import DateInput from "@/components/DateInput";
 
 type DialogKind = "driver" | "entry" | "edit" | "delete" | "approve" | "unlock";
 
@@ -346,8 +347,8 @@ export default function VehiclePage() {
               </MenuItem>
             ))}
           </TextField>
-          <TextField size="small" type="date" label="From" value={filter.from} onChange={(e) => setFilter((f) => ({ ...f, from: e.target.value }))} InputLabelProps={{ shrink: true }} />
-          <TextField size="small" type="date" label="To" value={filter.to} onChange={(e) => setFilter((f) => ({ ...f, to: e.target.value }))} InputLabelProps={{ shrink: true }} />
+          <DateInput size="small" label="From" value={filter.from} onChange={(e) => setFilter((f) => ({ ...f, from: e.target.value }))} InputLabelProps={{ shrink: true }} />
+          <DateInput size="small" label="To" value={filter.to} onChange={(e) => setFilter((f) => ({ ...f, to: e.target.value }))} InputLabelProps={{ shrink: true }} />
           {filtered && <Button onClick={() => setFilter({ type: "", from: "", to: "" })}>Clear</Button>}
         </Stack>
       </Stack>

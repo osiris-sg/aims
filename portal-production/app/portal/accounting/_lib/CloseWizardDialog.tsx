@@ -1,27 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import {
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControlLabel,
-  IconButton,
-  Radio,
-  RadioGroup,
-  Stack,
-  Step,
-  StepLabel,
-  Stepper,
-  TextField,
-  Typography,
-  alpha,
-} from "@mui/material";
+import { Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, Radio, RadioGroup, Stack, Step, StepLabel, Stepper, Typography, alpha } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
@@ -32,6 +12,7 @@ import Link from "next/link";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "./api";
 import { todayIso } from "@/helpers/orgToday";
+import DateInput from "@/components/DateInput";
 
 type CloseType = "MONTH_END" | "YEAR_END";
 
@@ -124,7 +105,7 @@ export default function CloseWizardDialog({
       });
       setResult(res);
       setStep(3);
-      toast.success(`${type === "YEAR_END" ? "Year" : "Period"} closed through ${new Date(res.lockedThrough).toLocaleDateString()}`);
+      toast.success(`${type === "YEAR_END" ? "Year" : "Period"} closed through ${new Date(res.lockedThrough).toLocaleDateString("en-GB")}`);
       onCompleted?.(res);
     } catch (e: any) {
       toast.error(e?.message || "Close failed");
@@ -208,9 +189,8 @@ export default function CloseWizardDialog({
               </RadioGroup>
             </Box>
 
-            <TextField
+            <DateInput
               size="small"
-              type="date"
               label="Cut-Off Date"
               InputLabelProps={{ shrink: true }}
               value={cutOffDate}
@@ -343,7 +323,7 @@ export default function CloseWizardDialog({
               </Typography>
               <Stack gap={0.5}>
                 <Typography variant="body2">
-                  <strong>Cut-off date:</strong> {new Date(cutOffDate).toLocaleDateString()}
+                  <strong>Cut-off date:</strong> {new Date(cutOffDate).toLocaleDateString("en-GB")}
                 </Typography>
                 <Typography variant="body2">
                   <strong>Type:</strong>{" "}
@@ -387,7 +367,7 @@ export default function CloseWizardDialog({
               {result.type === "YEAR_END" ? "Year" : "Period"} closed
             </Typography>
             <Typography variant="body2" sx={{ color: "text.secondary", textAlign: "center" }}>
-              Locked through <strong>{new Date(result.lockedThrough).toLocaleDateString()}</strong>.
+              Locked through <strong>{new Date(result.lockedThrough).toLocaleDateString("en-GB")}</strong>.
               {result.yearEndJournalEntryId && (
                 <>
                   <br />

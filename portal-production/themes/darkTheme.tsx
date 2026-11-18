@@ -203,8 +203,10 @@ const theme = createTheme({
         secondary: { fontSize: "0.75rem", color: tokens.onSurfaceVariant },
       },
     },
+    // autoComplete off: Chrome's own history popup hijacked ↑↓ on the forms
+    // (guru 2026-11-18); the fields walk with the arrows instead.
     MuiTextField: {
-      defaultProps: { size: "small", variant: "outlined" },
+      defaultProps: { autoComplete: "off", size: "small", variant: "outlined" },
       styleOverrides: {
         root: {
           "& .MuiOutlinedInput-root": {

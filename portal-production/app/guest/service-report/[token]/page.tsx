@@ -200,7 +200,7 @@ export default function ServiceReportSignPage() {
             {signed ? (
               <Alert severity="success" icon={<CheckCircleIcon />}>
                 Already signed{view.signerName ? ` by ${view.signerName}` : ""}
-                {view.signedAt ? ` on ${new Date(view.signedAt).toLocaleString()}` : ""}. Thank you. The signed report
+                {view.signedAt ? ` on ${new Date(view.signedAt).toLocaleString("en-GB")}` : ""}. Thank you. The signed report
                 {n === 1 ? " is" : "s are"} available above.
               </Alert>
             ) : (

@@ -454,7 +454,7 @@ function StartDeliveryPage() {
     if (!iso) return null;
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return null;
-    return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+    return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
   };
 
   // ── ASSIGN phase (standalone, after DO_START) ───────────────────────────────

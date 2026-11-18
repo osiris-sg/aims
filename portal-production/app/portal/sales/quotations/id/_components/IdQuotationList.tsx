@@ -180,7 +180,7 @@ export default function IdQuotationList() {
       {
         accessorKey: "createdAt",
         header: "Created",
-        cell: ({ row }: any) => <Typography variant="body2">{moment(row.original.createdAt).format("DD MMM YYYY")}</Typography>,
+        cell: ({ row }: any) => <Typography variant="body2">{moment(row.original.createdAt).format("DD/MM/YYYY")}</Typography>,
       },
       kebabColumn((d: any) => [
         { label: "Open", onClick: () => router.push(quotationUrl(d)) },

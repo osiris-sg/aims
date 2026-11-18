@@ -162,7 +162,7 @@ export default function RecurringPage() {
       header: "Next run",
       cell: ({ row }: any) => (
         <Box sx={{ fontVariantNumeric: "tabular-nums", fontSize: "0.8125rem" }}>
-          {new Date(row.original.nextRunDate).toLocaleDateString()}
+          {new Date(row.original.nextRunDate).toLocaleDateString("en-GB")}
         </Box>
       ),
     },
@@ -171,7 +171,7 @@ export default function RecurringPage() {
       header: "Last run",
       cell: ({ row }: any) => (
         <Box sx={{ fontVariantNumeric: "tabular-nums", fontSize: "0.8125rem", color: "text.secondary" }}>
-          {row.original.lastRunAt ? new Date(row.original.lastRunAt).toLocaleDateString() : "—"}
+          {row.original.lastRunAt ? new Date(row.original.lastRunAt).toLocaleDateString("en-GB") : "—"}
         </Box>
       ),
     },

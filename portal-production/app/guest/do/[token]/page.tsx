@@ -40,6 +40,7 @@ import { installPrintFit } from "@/lib/printScale";
 import { request } from "@/helpers/request";
 import CleanDocumentPreview from "@/containers/DocumentTemplates/components/CleanDocumentPreview";
 import SignaturePadField, { type SignaturePadHandle } from "@/components/delivery/SignaturePadField";
+import DateInput from "@/components/DateInput";
 
 // CleanDocumentPreview renders the DO at a fixed A4 Paper width
 // (`width: "210mm"` ≈ 794px @96dpi). On a phone that overflows, so the customer
@@ -524,9 +525,8 @@ export default function PublicDocumentViewPage() {
                 Clear
               </Button>
             </Box>
-            <TextField
+            <DateInput
               label="Date"
-              type="date"
               size="small"
               fullWidth
               value={signDate}

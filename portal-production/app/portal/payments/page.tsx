@@ -34,6 +34,7 @@ import { useGetPayments, useCreatePayment, useDeletePayment, PAYMENT_METHODS } f
 import CustomerPicker from '@/components/CustomerPicker';
 import DocumentRefLink from "@/components/DocumentRefLink";
 import { todayIso } from "@/helpers/orgToday";
+import DateInput from "@/components/DateInput";
 
 interface Document {
   id: string;
@@ -222,7 +223,7 @@ export default function PaymentsPage() {
                 payments.map((payment: any) => (
                   <TableRow key={payment.id}>
                     <TableCell>
-                      {new Date(payment.paymentDate).toLocaleDateString()}
+                      {new Date(payment.paymentDate).toLocaleDateString("en-GB")}
                     </TableCell>
                     <TableCell>{payment.customer?.name || '-'}</TableCell>
                     <TableCell>
@@ -350,10 +351,9 @@ export default function PaymentsPage() {
             </Grid>
 
             <Grid item xs={12} sm={6}>
-              <TextField
+              <DateInput
                 fullWidth
                 required
-                type="date"
                 label="Payment Date"
                 value={formData.paymentDate}
                 onChange={(e) =>

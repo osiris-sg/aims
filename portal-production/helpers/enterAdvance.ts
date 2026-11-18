@@ -43,11 +43,59 @@ function isEnterable(el: HTMLElement): boolean {
 }
 
 /** The field that comes after `current` in document order inside `scope`. */
+/** The first field a fresh form should land the cursor in (guru 2026-11-18:
+ *  "when you add a new PV the cursor is at the first field — any document"). */
+export function firstEnterField(scope: ParentNode): HTMLElement | null {
+  return Array.from(scope.querySelectorAll<HTMLElement>("input, textarea")).find(isEnterable) || null;
+}
+
 export function nextEnterField(scope: ParentNode, current: Element): HTMLElement | null {
   const all = Array.from(scope.querySelectorAll<HTMLElement>("input, textarea")).filter(isEnterable);
   const idx = all.indexOf(current as HTMLElement);
   if (idx < 0) return null;
   return all[idx + 1] ?? null;
+}
+
+/** The field before `current` (↑ walks back up the form, guru 2026-11-18). */
+export function prevEnterField(scope: ParentNode, current: Element): HTMLElement | null {
+  const all = Array.from(scope.querySelectorAll<HTMLElement>("input, textarea")).filter(isEnterable);
+  const idx = all.indexOf(current as HTMLElement);
+  if (idx <= 0) return null;
+  return all[idx - 1];
+}
+
+/** Land in a field: focus, select its text (where that is safe), scroll it in. */
+function landIn(next: HTMLElement): void {
+  next.focus();
+  if (next instanceof HTMLInputElement) {
+    const t = (next.type || "text").toLowerCase();
+    // select() throws on date/number boxes in some browsers; those don't need it.
+    if (!["date", "month", "time", "datetime-local", "week", "number"].includes(t)) {
+      try {
+        next.select();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  // A box hidden behind a sticky header: bring it into view.
+  try {
+    next.scrollIntoView({ block: "nearest" });
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Walk one field up (-1) or down (+1) from `el` inside its form / dialog /
+ *  editor scope. Returns false when there is no scope or no such field, so the
+ *  caller can let the key keep its native meaning. */
+export function walkField(el: HTMLElement, dir: 1 | -1): boolean {
+  const scope = el.closest(`[${ENTER_SCOPE_ATTR}], [role="dialog"], form`) as HTMLElement | null;
+  if (!scope) return false;
+  const next = dir < 0 ? prevEnterField(scope, el) : nextEnterField(scope, el);
+  if (!next) return false;
+  landIn(next);
+  return true;
 }
 
 /** True when Enter should be left alone: a dropdown is open under the box. */
@@ -60,36 +108,35 @@ function dropdownOpen(el: HTMLElement): boolean {
   return false;
 }
 
+// Scoped layer: Enter / ↓ = next field, ↑ = previous field (guru 2026-11-18:
+// "allow them to use arrow key up to go up the field"). The arrows step aside
+// wherever they already mean something: an open dropdown, a multi-line box,
+// a number spinner, or a grid / list that consumed the key first (row
+// highlight in the Locate dialogs). Date boxes walk too — DateInput hands the
+// arrows to walkField() before the picker can step the day.
 export function enterAdvancesFocus(e: ReactKeyboardEvent<HTMLElement>): void {
-  if (e.key !== "Enter" || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+  const isEnter = e.key === "Enter";
+  const dir = e.key === "ArrowUp" ? -1 : e.key === "ArrowDown" ? 1 : 0;
+  if (!isEnter && !dir) return;
   if (e.nativeEvent && (e.nativeEvent as KeyboardEvent).isComposing) return; // IME commit (Japanese UI)
   const el = e.target as HTMLElement | null;
   if (!el || !isTypingBox(el)) return;
   if (dropdownOpen(el)) return;
+  if (dir) {
+    if (e.isDefaultPrevented?.() || e.nativeEvent?.defaultPrevented) return;
+    if (el instanceof HTMLTextAreaElement) return;
+    if ((el as HTMLInputElement).type?.toLowerCase?.() === "number") return;
+    if (el.closest("[data-arrows-ignore]")) return;
+  }
   const scope = (el.closest(`[${ENTER_SCOPE_ATTR}]`) as HTMLElement | null) ?? (e.currentTarget as HTMLElement);
-  const next = nextEnterField(scope, el);
+  const next = dir < 0 ? prevEnterField(scope, el) : nextEnterField(scope, el);
   // Stop the newline / implicit form submit even on the last field, so Enter
   // never does anything surprising on these forms.
-  e.preventDefault();
+  if (isEnter) e.preventDefault();
   if (!next) return;
-  next.focus();
-  if (typeof (next as HTMLInputElement).select === "function") {
-    const t = (next as HTMLInputElement).type?.toLowerCase?.() || "text";
-    // select() throws on date/number boxes in some browsers; those don't need it.
-    if (!["date", "month", "time", "datetime-local", "week", "number"].includes(t)) {
-      try {
-        (next as HTMLInputElement).select();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-  // A box hidden behind a sticky header: bring it into view.
-  try {
-    next.scrollIntoView({ block: "nearest" });
-  } catch {
-    /* ignore */
-  }
+  e.preventDefault();
+  landIn(next);
 }
 
 /** Spread onto the wrapper: `<Box {...enterScopeProps}>`. */
@@ -127,22 +174,7 @@ function globalKeydown(e: KeyboardEvent): void {
   const next = nextEnterField(scope, el);
   if (!next) return; // last field: inside a <form> Enter still submits, elsewhere it does nothing
   e.preventDefault();
-  next.focus();
-  if (next instanceof HTMLInputElement) {
-    const t = (next.type || "text").toLowerCase();
-    if (!["date", "month", "time", "datetime-local", "week", "number"].includes(t)) {
-      try {
-        next.select();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-  try {
-    next.scrollIntoView({ block: "nearest" });
-  } catch {
-    /* ignore */
-  }
+  landIn(next);
 }
 
 /** Mount once (portal layout). Returns the uninstaller. */

@@ -26,6 +26,7 @@ import CustomerDoPicker, { type DoOption } from "./CustomerDoPicker";
 import { useOrganization } from "@hooks/useOrganization";
 import { REPORT_FILE_ACCEPT } from "./PhotosFileControls";
 import { acceptLabel } from "@/helpers/serviceReportFlow";
+import DateInput from "@/components/DateInput";
 
 type OrderOption = { id: string; orderNumber?: string | null; customerId?: string | null; customer?: { id: string; name: string } | null };
 
@@ -188,9 +189,8 @@ export default function UploadServiceReportDialog({
             <CustomerPicker value={customerId} onChange={(c) => { setCustomerId(c?.id ?? null); setOrder(null); }} label="Customer (optional)" />
           )}
           <TextField size="small" label="Location (optional)" value={location} onChange={(e) => setLocation(e.target.value)} fullWidth />
-          <TextField
+          <DateInput
             size="small"
-            type="date"
             label="Service date"
             value={serviceDate}
             onChange={(e) => setServiceDate(e.target.value)}

@@ -7,7 +7,6 @@ import {
   Paper,
   Typography,
   Button,
-  TextField,
   Grid,
   Card,
   CardContent,
@@ -21,6 +20,7 @@ import { useClientSort } from '@/components/clientSort';
 import { ReportPrintExportButton, ReportEmailButton } from '@/app/portal/accounting/_lib/report-export';
 import DocumentRefLink from "@/components/DocumentRefLink";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
+import DateInput from "@/components/DateInput";
 
 interface Customer {
   id: string;
@@ -267,10 +267,9 @@ export default function StatementOfAccountPage() {
           </Grid>
 
           <Grid item xs={12} md={3}>
-            <TextField
+            <DateInput
               fullWidth
               label="Start Date"
-              type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
               InputLabelProps={{ shrink: true }}
@@ -278,10 +277,9 @@ export default function StatementOfAccountPage() {
           </Grid>
 
           <Grid item xs={12} md={3}>
-            <TextField
+            <DateInput
               fullWidth
               label="End Date"
-              type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
               InputLabelProps={{ shrink: true }}

@@ -45,6 +45,7 @@ export default function FormDatePicker(props: Props) {
           <Stack direction="column" width="100%">
             <LocalizationProvider dateAdapter={AdapterDayjs}>
               <DatePicker
+                format="DD/MM/YYYY"
                 value={value}
                 onChange={onChange}
                 disabled={disabled}

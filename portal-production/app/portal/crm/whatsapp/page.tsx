@@ -546,7 +546,7 @@ export default function WhatsAppPage() {
               <TableBody>
                 {messages.map((m) => (
                   <TableRow key={m.id} hover>
-                    <TableCell sx={{ whiteSpace: "nowrap" }}>{new Date(m.createdAt).toLocaleString()}</TableCell>
+                    <TableCell sx={{ whiteSpace: "nowrap" }}>{new Date(m.createdAt).toLocaleString("en-GB")}</TableCell>
                     <TableCell>
                       <Chip
                         size="small"

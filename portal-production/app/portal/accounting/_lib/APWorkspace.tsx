@@ -52,6 +52,9 @@ import { ReportPrintExportButton, type ReportExportModel } from "./report-export
 import { formatShortDate } from "./report-doc";
 import { useOpenVoucher } from "./VoucherListPage";
 import { onReportDate } from "./report-shell/reportDate";
+import { FiscalYearButton } from "./report-shell/DateRangeSelect";
+import DateInput from "@/components/DateInput";
+import { useListKeyboardNav } from "@/helpers/useListKeyboardNav";
 
 // Width of the action-button rail beside the AR / AP / GL home table.
 const RAIL_WIDTH = 220;
@@ -108,7 +111,7 @@ export default function APWorkspace() {
   const { request } = useAccountingApi();
   const openVoucher = useOpenVoucher();
   const { organization } = useOrganization();
-  const { isPurchaseJournalGridEnabled } = useOrganizationFeatures();
+  const { isPurchaseJournalGridEnabled, isDocumentListViewEnabled } = useOrganizationFeatures();
   // Phone: the creditor-ledger dialog goes full-screen below sm
   const phoneDialog = useMediaQuery((t: any) => t.breakpoints.down("sm"));
 
@@ -314,6 +317,46 @@ export default function APWorkspace() {
   // =====================================================================
   // Drill-in: creditor transaction history (large dialog, like AR)
   // =====================================================================
+  // The balances table walks without the mouse too (guru 2026-11-18): keys
+  // in the Locate box — or anywhere on the page while no dialog is open —
+  // move the highlight; Enter opens the highlighted row's ledger.
+  const openMainRow = (r: (typeof visibleRows)[number]) => {
+    setFromPeriod(monthStartISO(cutOff));
+    setToPeriod(cutOff);
+    setSelected({ id: r.contactId, name: r.contactName, code: r.contactCode || codeById.get(r.contactId) || "" });
+  };
+  const mainNav = useListKeyboardNav(visibleRows, openMainRow);
+  const mainNavKey = mainNav.handleKeyDown;
+  useEffect(() => {
+    if (selected) return;
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (document.querySelector('[role="dialog"]')) return;
+      mainNavKey(e as unknown as React.KeyboardEvent);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [selected, mainNavKey]);
+
+  // The ledger rows walk without the mouse (guru 2026-11-18): ↑↓ move the
+  // highlight, Enter opens the line's document — keys typed into the period
+  // boxes are left alone.
+  const ledgerNavRows = ledger?.txs || [];
+  const ledgerNav = useListKeyboardNav(ledgerNavRows, (t) => openLedgerRow(t));
+  // Nothing in the dialog holds focus (no search box), so the keys are read
+  // at document level while it is open.
+  const ledgerNavKey = ledgerNav.handleKeyDown;
+  useEffect(() => {
+    if (!selected) return;
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      ledgerNavKey(e as unknown as React.KeyboardEvent);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [selected, ledgerNavKey]);
   const creditorDialog = (
     <Dialog open={!!selected} onClose={() => setSelected(null)} fullWidth maxWidth="lg" fullScreen={phoneDialog}>
       <DialogContent sx={{ p: { xs: 1.5, md: 3 } }}>
@@ -328,22 +371,21 @@ export default function APWorkspace() {
                   {selected.code || "—"}
                 </Typography>
               </Box>
-              <TextField
+              <DateInput
                 size="small"
-                type="date"
                 label="From period"
                 InputLabelProps={{ shrink: true }}
                 value={fromPeriod}
                 onChange={onReportDate(setFromPeriod, true)}
               />
-              <TextField
+              <DateInput
                 size="small"
-                type="date"
                 label="To period"
                 InputLabelProps={{ shrink: true }}
                 value={toPeriod}
                 onChange={onReportDate(setToPeriod, true)}
               />
+              <FiscalYearButton from={fromPeriod} to={toPeriod} onPick={(f, t) => { setFromPeriod(f); setToPeriod(t); }} />
               <Box sx={{ flex: 1 }} />
               <Paper variant="outlined" sx={{ px: 1.5, py: 0.75, borderRadius: 2 }}>
                 <Typography variant="caption" sx={{ color: "text.secondary", mr: 1 }}>
@@ -394,7 +436,7 @@ export default function APWorkspace() {
                   </TableHead>
                   <TableBody>
                     {(ledger?.txs || []).map((t, i) => (
-                      <TableRow key={i} hover sx={clickableRowSx} onClick={() => openLedgerRow(t)} title="Open the document behind this line">
+                      <TableRow key={i} ref={ledgerNav.setRowRef(i)} hover selected={i === ledgerNav.activeIndex} onMouseEnter={() => ledgerNav.setActiveIndex(i)} sx={{ ...clickableRowSx, "&.Mui-selected, &.Mui-selected:hover": { bgcolor: "primary.main", "& .MuiTableCell-root": { color: "primary.contrastText" } } }} onClick={() => openLedgerRow(t)} title="Open the document behind this line">
                         <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{(t as any).reference || (t as any).billNumber || "—"}</TableCell>
                         <TableCell sx={{ whiteSpace: "nowrap" }}>{dmy(t.date)}</TableCell>
                         <TableCell>{t.description || ""}</TableCell>
@@ -447,9 +489,8 @@ export default function APWorkspace() {
       {/* Filters row, indented by the rail's width so it starts at the table's
           left edge (guru 2026-11-16); the action buttons live in the rail. */}
       <Stack direction="row" gap={1.5} alignItems="center" sx={{ mb: 1.5, flexWrap: "wrap", pl: { xs: 0, md: `${RAIL_WIDTH + 16}px` } }}>
-        <TextField
+        <DateInput
           size="small"
-          type="date"
           label="Cut-off date"
           InputLabelProps={{ shrink: true }}
           value={cutOff}
@@ -460,6 +501,7 @@ export default function APWorkspace() {
           placeholder="Locate by name or code…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={mainNav.handleKeyDown}
           sx={{ minWidth: { xs: "100%", sm: 280 } }}
           InputProps={{
             startAdornment: (
@@ -504,16 +546,24 @@ export default function APWorkspace() {
         <Button variant="contained" startIcon={<PostAddOutlinedIcon />} onClick={() => void openVoucher("journal-voucher")}>
           Journal Voucher
         </Button>
-        {/* Opens the Purchase Journal LIST, like the PV and J/V buttons; the
-            list's own New Purchase Entry starts a supplier invoice (guru
-            2026-11-12: don't open the supplier invoice straight away).
-            enablePurchaseJournalGrid (Chong Aik): open the full-page Dr/Cr
-            journal editor directly on the latest entry — no list — like OR/PV
-            with the list view off (guru 2026-11-16). */}
+        {/* Same rule as the PV and J/V buttons (guru 2026-11-18: "docs is
+            document list view false → go to the document creating"):
+            enableDocumentListView ON → the Purchase Journal LIST; OFF → straight
+            into creating: the full-page Dr/Cr journal editor on the latest entry
+            when enablePurchaseJournalGrid is on (Chong Aik, 2026-11-16), else
+            the list with the New Supplier Invoice dialog already open (?new=1). */}
         <Button
           variant="contained"
           startIcon={<MenuBookOutlinedIcon />}
-          onClick={() => router.push(isPurchaseJournalGridEnabled ? "/portal/accounting/payables/purchase-journal/entry/latest" : "/portal/accounting/payables/purchase-journal")}
+          onClick={() =>
+            router.push(
+              isDocumentListViewEnabled
+                ? "/portal/accounting/payables/purchase-journal"
+                : isPurchaseJournalGridEnabled
+                ? `/portal/accounting/payables/purchase-journal/entry/latest?from=${encodeURIComponent("/portal/accounting/payables")}`
+                : `/portal/accounting/payables/purchase-journal?new=1&from=${encodeURIComponent("/portal/accounting/payables")}`,
+            )
+          }
         >
           Purchase Journal
         </Button>
@@ -540,18 +590,18 @@ export default function APWorkspace() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {visibleRows.map((r) => (
+              {visibleRows.map((r, i) => (
                 <TableRow
                   key={r.contactId}
+                  ref={mainNav.setRowRef(i)}
                   hover
-                  onClick={() => {
-                    setFromPeriod(monthStartISO(cutOff));
-                    setToPeriod(cutOff);
-                    setSelected({ id: r.contactId, name: r.contactName, code: r.contactCode || codeById.get(r.contactId) || "" });
-                  }}
+                  selected={i === mainNav.activeIndex}
+                  onMouseEnter={() => mainNav.setActiveIndex(i)}
+                  onClick={() => openMainRow(r)}
                   title={openCredits[r.contactId] ? `Credit notes to offset: ${fmt(openCredits[r.contactId])} — open the ledger and press Manual Offset` : undefined}
                   sx={(theme) => ({
                     cursor: "pointer",
+                    "&.Mui-selected, &.Mui-selected:hover": { bgcolor: "primary.main", "& .MuiTableCell-root": { color: "primary.contrastText" } },
                     ...(openCredits[r.contactId]
                       ? {
                           bgcolor: alpha(theme.palette.warning.main, theme.palette.mode === "dark" ? 0.16 : 0.12),

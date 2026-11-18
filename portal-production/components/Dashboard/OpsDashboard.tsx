@@ -42,6 +42,7 @@ import WidgetFrame from "./ops/WidgetFrame";
 import type { GridEntry } from "./ops/GridBoard";
 import { DEFAULT_LAYOUT, WIDGETS, WIDGET_BY_ID, type WidgetCtx } from "./ops/widgets";
 import { STOCK_STATUSES } from "./ops/vizTokens";
+import DateInput from "@/components/DateInput";
 
 // The grid measures its own container, so it can only run in the browser.
 const GridBoard = dynamic(() => import("./ops/GridBoard"), {
@@ -273,8 +274,8 @@ export default function OpsDashboard() {
                 </MenuItem>
               ))}
             </TextField>
-            <TextField size="small" type="date" label="From" value={from} onChange={(e) => setFrom(e.target.value)} InputLabelProps={{ shrink: true }} />
-            <TextField size="small" type="date" label="To" value={to} onChange={(e) => setTo(e.target.value)} InputLabelProps={{ shrink: true }} />
+            <DateInput size="small" label="From" value={from} onChange={(e) => setFrom(e.target.value)} InputLabelProps={{ shrink: true }} />
+            <DateInput size="small" label="To" value={to} onChange={(e) => setTo(e.target.value)} InputLabelProps={{ shrink: true }} />
             <Button
               size="small"
               variant={editing ? "contained" : "outlined"}

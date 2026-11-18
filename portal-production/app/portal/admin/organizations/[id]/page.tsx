@@ -321,7 +321,7 @@ export default function OrganizationDetailPage() {
       enableAnalytics: true,
       enableXeroIntegration: false,
     },
-    dateFormat: "MM/dd/yyyy",
+    dateFormat: "dd/MM/yyyy",
     timeFormat: "12h",
     currency: "USD",
     language: "en",
@@ -1491,7 +1491,7 @@ export default function OrganizationDetailPage() {
                   <FormControl fullWidth sx={{ mb: 2 }}>
                     <InputLabel>Date Format</InputLabel>
                     <Select
-                      value={uiConfigForm.dateFormat || "MM/dd/yyyy"}
+                      value={uiConfigForm.dateFormat || "dd/MM/yyyy"}
                       onChange={(e) =>
                         setUIConfigForm({ ...uiConfigForm, dateFormat: e.target.value })
                       }
@@ -1605,7 +1605,7 @@ export default function OrganizationDetailPage() {
                       Created At
                     </Typography>
                     <Typography>
-                      {new Date(organization.createdAt).toLocaleDateString()}
+                      {new Date(organization.createdAt).toLocaleDateString("en-GB")}
                     </Typography>
                   </Box>
                 </Box>
@@ -2217,7 +2217,7 @@ export default function OrganizationDetailPage() {
 
                           <Box sx={{ mt: 1 }}>
                             <Typography variant="caption" color="text.secondary">
-                              Last updated: {new Date(template.updatedAt).toLocaleDateString()}
+                              Last updated: {new Date(template.updatedAt).toLocaleDateString("en-GB")}
                             </Typography>
                           </Box>
                         </CardContent>

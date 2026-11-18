@@ -30,6 +30,7 @@ import { useOrganization } from '@hooks/useOrganization';
 import { rememberCustomers } from '@/app/portal/hooks/api/useCustomerPicker';
 import { toast } from 'react-toastify';
 import { FieldDefinition } from '../types/templateFieldTypes';
+import DateInput from '@/components/DateInput';
 
 // Salesman interface
 interface Salesman {
@@ -1278,27 +1279,14 @@ export default function DynamicFormFields({
 
       case 'date':
         return (
-          <TextField
-            type="date"
+          // dd/mm/yyyy for every org (guru 2026-11-18); the calendar button
+          // sits on the LEFT, matching the search adornments.
+          <DateInput
             value={value ? new Date(value).toISOString().split('T')[0] : ''}
             onChange={(e) => setFormData(setNestedValue(formData, field.fieldName, e.target.value))}
             size="small"
-            sx={{
-              ...inputSx,
-              flex: 1,
-              minWidth: 130,
-              // Calendar icon on the LEFT (matching the search adornments):
-              // absolute-position the native webkit picker indicator and pad
-              // the date text past it. (Separate selector from inputSx's
-              // .MuiInputBase-root key so we don't clobber its styles.)
-              '& .MuiOutlinedInput-root': { position: 'relative' },
-              '& input[type=date]': { paddingLeft: '30px' },
-              '& input[type=date]::-webkit-calendar-picker-indicator': {
-                position: 'absolute',
-                left: '6px',
-                padding: 0,
-              },
-            }}
+            iconPosition="start"
+            sx={{ ...inputSx, flex: 1, minWidth: 150 }}
           />
         );
 

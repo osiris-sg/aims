@@ -182,7 +182,7 @@ export default function EditOrganization({ open, onClose, onOrganizationUpdated,
             {organization?.createdAt && (
               <Grid item xs={12}>
                 <Typography variant="body2" color="text.secondary">
-                  <strong>{t("createdLabel")}</strong> {lang === "ja" ? formatDateTime(organization.createdAt, "ja") : new Date(organization.createdAt).toLocaleString()}
+                  <strong>{t("createdLabel")}</strong> {lang === "ja" ? formatDateTime(organization.createdAt, "ja") : new Date(organization.createdAt).toLocaleString("en-GB")}
                 </Typography>
               </Grid>
             )}

@@ -366,7 +366,7 @@ export default function MaintenanceReportsListPage() {
                   <TableCell>{row.asset?.name ?? "—"}</TableCell>
                   <TableCell>{row.inventory?.sku ?? "—"}</TableCell>
                   <TableCell>{row.serviceData?.serviceDate ?? "—"}</TableCell>
-                  <TableCell>{new Date(row.createdAt).toLocaleString()}</TableCell>
+                  <TableCell>{new Date(row.createdAt).toLocaleString("en-GB")}</TableCell>
                   <TableCell>
                     <Stack direction="row" spacing={0.5} alignItems="center">
                       {(() => {

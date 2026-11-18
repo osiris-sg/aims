@@ -7,6 +7,7 @@ import React, { useEffect, useState } from "react";
 import { Alert, Autocomplete, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, Switch, TextField, useMediaQuery } from "@mui/material";
 import { NOTE_TYPES, noteBody, type CalendarNote, type NoteForm, type NoteType } from "@/helpers/calendarAdd";
 import { useCalendarApi, useSiteClockWorkers } from "./calendarAddApi";
+import DateInput from "@/components/DateInput";
 
 export default function NoteDialog({
   open,
@@ -114,8 +115,8 @@ export default function NoteDialog({
             )}
           </Stack>
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-            <TextField label="Start date" type="date" size="small" value={form.startDate} onChange={(e) => set({ startDate: e.target.value, ...(form.endDate && form.endDate < e.target.value ? { endDate: e.target.value } : {}) })} InputLabelProps={{ shrink: true }} sx={{ flex: 1 }} />
-            <TextField label="End date" type="date" size="small" value={form.endDate} onChange={(e) => set({ endDate: e.target.value })} InputLabelProps={{ shrink: true }} sx={{ flex: 1 }} />
+            <DateInput label="Start date" size="small" value={form.startDate} onChange={(e) => set({ startDate: e.target.value, ...(form.endDate && form.endDate < e.target.value ? { endDate: e.target.value } : {}) })} InputLabelProps={{ shrink: true }} sx={{ flex: 1 }} />
+            <DateInput label="End date" size="small" value={form.endDate} onChange={(e) => set({ endDate: e.target.value })} InputLabelProps={{ shrink: true }} sx={{ flex: 1 }} />
           </Stack>
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }}>
             <FormControlLabel control={<Switch checked={form.allDay} onChange={(e) => set({ allDay: e.target.checked })} />} label="All day" />

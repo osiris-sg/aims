@@ -132,7 +132,7 @@ export default function SuggestionsTab({ onPendingCount }: { onPendingCount?: (n
               <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                 <Chip size="small" label={row.counterparty} variant="outlined" />
                 <Typography variant="caption" color="text.secondary">
-                  {new Date(row.createdAt).toLocaleString()}
+                  {new Date(row.createdAt).toLocaleString("en-GB")}
                 </Typography>
                 {typeof row.confidence === "number" && (
                   <Chip size="small" variant="outlined" label={`confidence ${(row.confidence * 100).toFixed(0)}%`} />
@@ -192,7 +192,7 @@ export default function SuggestionsTab({ onPendingCount }: { onPendingCount?: (n
                   <Chip size="small" label={row.status.replace("_", " ")} color={statusColor(row.status)} />
                   <Chip size="small" label={row.counterparty} variant="outlined" />
                   <Typography variant="caption" color="text.secondary">
-                    {new Date(row.createdAt).toLocaleString()}
+                    {new Date(row.createdAt).toLocaleString("en-GB")}
                   </Typography>
                 </Stack>
                 <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "pre-wrap" }}>

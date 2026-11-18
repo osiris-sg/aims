@@ -11,7 +11,7 @@ export default function useAuditTableHeader() {
         accessorKey: "createdAt",
         cell: ({ row }: { row: { original: AuditLog } }) => (
           <Typography variant="body2" sx={{ fontSize: "0.85rem" }}>
-            {format(new Date(row.original.createdAt), "MMM dd, yyyy HH:mm:ss")}
+            {format(new Date(row.original.createdAt), "dd/MM/yyyy HH:mm:ss")}
           </Typography>
         ),
         size: 160,

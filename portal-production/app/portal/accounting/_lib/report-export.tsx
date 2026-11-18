@@ -51,6 +51,8 @@ export type ReportExportModel = {
   note?: string;
   /** Email… prefill — e.g. the statement customer's address */
   emailTo?: string[];
+  /** Wide tables (a month per column) go out as A4 landscape. */
+  landscape?: boolean;
 };
 
 const notesOf = (m: ReportExportModel) => [m.note, COMPUTER_GENERATED_NOTE].filter((n): n is string => !!n);
@@ -104,13 +106,13 @@ export function domToExportModel(
 async function buildReportPdf(model: ReportExportModel) {
   const { jsPDF } = await import("jspdf");
   const autoTable = (await import("jspdf-autotable")).default;
-  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const doc = new jsPDF({ unit: "mm", format: "a4", orientation: model.landscape ? "landscape" : "portrait" });
   const pageW = doc.internal.pageSize.getWidth();
 
   doc.setFont("helvetica", "bold").setFontSize(13);
   doc.text(model.orgName || "", pageW / 2, 16, { align: "center" });
   doc.setFont("helvetica", "normal").setFontSize(9);
-  doc.text(new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }), pageW / 2, 21, { align: "center" });
+  doc.text(new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }), pageW / 2, 21, { align: "center" });
   doc.setFont("helvetica", "bold").setFontSize(12);
   doc.text(model.title.toUpperCase(), pageW / 2, 29, { align: "center" });
   doc.setFont("helvetica", "normal").setFontSize(9);

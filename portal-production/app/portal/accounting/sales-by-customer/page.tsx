@@ -1,14 +1,13 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import {
-  Box, Paper, Typography, Stack, TextField, Button,
-  CircularProgress, Alert,
-} from "@mui/material";
+import { Box, Paper, Typography, Stack, Button, CircularProgress, Alert } from "@mui/material";
 import { useAccountingApi } from "../_lib/api";
 import PageTable from "@/components/PageTable";
 import { useClientSort } from "@/components/clientSort";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
+import DateInput from "@/components/DateInput";
+import { FiscalYearButton } from "../_lib/report-shell/DateRangeSelect";
 
 const fmt = (n: number) => (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -102,8 +101,9 @@ export default function SalesByCustomerPage() {
 
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Stack direction="row" gap={2} alignItems="flex-end" flexWrap="wrap">
-          <TextField size="small" type="date" label="From" InputLabelProps={{ shrink: true }} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          <TextField size="small" type="date" label="To" InputLabelProps={{ shrink: true }} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          <DateInput size="small" label="From" InputLabelProps={{ shrink: true }} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          <DateInput size="small" label="To" InputLabelProps={{ shrink: true }} value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          <FiscalYearButton from={startDate} to={endDate} onPick={(f, t) => { setStartDate(f); setEndDate(t); }} />
           <Button variant="contained" onClick={run} disabled={loading}>
             {loading ? <CircularProgress size={18} /> : "Generate"}
           </Button>

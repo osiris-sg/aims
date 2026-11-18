@@ -32,6 +32,7 @@ import { toast } from "react-toastify";
 import { useAccountingApi } from "./api";
 import { todayIso } from "@/helpers/orgToday";
 import { enterScopeProps } from "@/helpers/enterAdvance";
+import DateInput from "@/components/DateInput";
 
 type Account = {
   id: string;
@@ -220,9 +221,8 @@ export default function JournalEntryDialog({
             mb: 2,
           }}
         >
-          <TextField
+          <DateInput
             size="small"
-            type="date"
             label="Date"
             InputLabelProps={{ shrink: true }}
             value={date}

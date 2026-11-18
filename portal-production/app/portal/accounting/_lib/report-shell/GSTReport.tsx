@@ -38,7 +38,7 @@ const quarterRange = () => {
 };
 
 const longDate = (v: string) =>
-  new Date(v).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  new Date(v).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }); // dd/mm/yyyy (guru 2026-11-18)
 
 export default function GSTReport({ basePath }: { basePath: string }) {
   const { request } = useAccountingApi();
@@ -182,7 +182,7 @@ export default function GSTReport({ basePath }: { basePath: string }) {
       <Box className="gst-f5-print" sx={{ display: "none" }}>
         <Typography sx={{ textAlign: "center", fontWeight: 700, fontSize: "1.1rem" }}>{organization?.name || ""}</Typography>
         <Typography sx={{ textAlign: "center", fontWeight: 600, fontSize: "0.85rem", mb: 3 }}>
-          {new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+          {new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" })}
         </Typography>
         <Typography sx={{ textAlign: "center", fontWeight: 700, fontSize: "1rem", mb: 4 }}>GOODS AND SERVICES TAX (Form 5)</Typography>
 

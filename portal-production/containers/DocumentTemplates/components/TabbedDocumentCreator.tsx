@@ -129,7 +129,7 @@ import EditorRail from "./EditorRail";
 import DebtorStatementDialog from "./DebtorStatementDialog";
 import ViewListOutlinedIcon from "@mui/icons-material/ViewListOutlined";
 import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
-import { enterScopeProps } from "@/helpers/enterAdvance";
+import { enterScopeProps, firstEnterField } from "@/helpers/enterAdvance";
 import { uploadImage } from "@/helpers/imageUploader";
 import AddAPhotoIcon from "@mui/icons-material/AddAPhoto";
 import BorderColorIcon from "@mui/icons-material/BorderColor";
@@ -167,15 +167,15 @@ import {
 } from "./OfficialReceiptSection";
 import {
   PaymentVoucherLinesSection,
+  PvRemarksMemo,
   PvVoucherNoInput,
   PvBankInput,
   PvPayeeInput,
   PvChequeRow,
-  pvValidationError,
   pvTotal,
   voucherSupplierPatch,
 } from "./PaymentVoucherSection";
-import { JournalVoucherLinesSection, JvVoucherNoInput, JvPrepareByInput, jvValidationError, jvTotals } from "./JournalVoucherSection";
+import { JournalVoucherLinesSection, JvRemarksMemo, JvVoucherNoInput, JvPrepareByInput, jvTotals } from "./JournalVoucherSection";
 import { getDocumentListRoute, getListRouteFromPathname } from "@/app/portal/components/documentRoutes"; // co-pkg: depends on fa8351c
 import { useAimsUserId } from "@hooks/useAimsUserId";
 import { todayIso } from "@/helpers/orgToday";
@@ -188,6 +188,7 @@ import StatusChip from "@/components/StatusChip";
 import { quotationTemplateControls } from "@/helpers/quotationTemplates";
 import QuotationAddSplitButton from "@/app/portal/components/QuotationTemplates/QuotationAddSplitButton";
 import QuotationTemplatesHost from "@/app/portal/components/QuotationTemplates/QuotationTemplatesHost";
+import DateInput from "@/components/DateInput";
 
 // Helper to determine the parent route based on document type
 const getParentRoute = (docType: string): string => {
@@ -559,7 +560,8 @@ export default function TabbedDocumentCreator({
     if (!r.documentId) return;
     const t = String(r.docType || "").toUpperCase();
     if (t === "OFFICIAL_RECEIPT" || t === "RECEIPT") {
-      router.push(withActiveOrg(`/portal/accounting/receipts/${r.documentId}`));
+      // ?from= this document, so the receipt's Back comes back here (guru 2026-11-18).
+      router.push(withActiveOrg(`/portal/accounting/receipts/${r.documentId}?from=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`));
       setOffsetDialogOpen(false);
       return;
     }
@@ -569,8 +571,13 @@ export default function TabbedDocumentCreator({
     }
   };
   const [confirmedEditWarningOpen, setConfirmedEditWarningOpen] = useState(false);
-  const isDocumentConfirmed = isDocumentConfirmedStatus && !confirmedEditUnlocked;
-  const confirmedReadOnly = isDocumentConfirmedStatus && !confirmedEditUnlocked;
+  // Receipts / vouchers: "confirmed" just means POSTED — the complete autosave
+  // posts and confirms in one go (guru 2026-11-18: "when I allocate this it
+  // should already be in the GL, so no need to Confirm"). They never lock:
+  // every later save voids and reposts, so the form stays editable.
+  const isSettlementType = ["OFFICIAL_RECEIPT", "OR", "PAYMENT_VOUCHER", "PV", "JOURNAL_VOUCHER", "JV"].includes(String(documentType || ""));
+  const isDocumentConfirmed = isDocumentConfirmedStatus && !confirmedEditUnlocked && !isSettlementType;
+  const confirmedReadOnly = isDocumentConfirmedStatus && !confirmedEditUnlocked && !isSettlementType;
   const isDocumentEditable = !isDocumentConfirmed && !isTemplateEditMode;
 
   // Confirmed documents now open on the (read-only) edit screen, not preview.
@@ -801,38 +808,6 @@ export default function TabbedDocumentCreator({
 
   // Locate document dialog state
   const [locateDialogOpen, setLocateDialogOpen] = useState(false);
-  // Confirm (receipts / vouchers): one-document Posting Queue confirm.
-  const [settlementConfirmOpen, setSettlementConfirmOpen] = useState(false);
-  const [settlementConfirming, setSettlementConfirming] = useState(false);
-  const confirmSettlementDoc = async () => {
-    const id = (existingData?.id || documentId) as string | undefined;
-    if (!id) return;
-    if (hasUnsavedChanges) {
-      toast.error("Save the document first, then confirm it");
-      return;
-    }
-    setSettlementConfirming(true);
-    try {
-      const token = await getToken();
-      // getToken() is string | null; request takes string | undefined.
-      const res: any = await request({ path: "/posting-queue/post-batch", method: "POST" }, { documentIds: [id] }, token ?? undefined);
-      const results: any[] = res?.data?.results || res?.results || res?.data || [];
-      const mine = Array.isArray(results) ? results.find((r: any) => r.documentId === id) || results[0] : null;
-      if (mine && mine.ok === false) {
-        toast.error(mine.error || "Could not confirm");
-        return;
-      }
-      toast.success(`${formData.documentInfo?.documentNumber || formData.name || "Document"} confirmed`);
-      setSettlementConfirmOpen(false);
-      // The page fetches on mount; reload so the editor opens read-only on the confirmed state.
-      if (typeof window !== "undefined") window.location.reload();
-    } catch (e: any) {
-      toast.error(e?.response?.data?.message || e?.message || "Could not confirm");
-    } finally {
-      setSettlementConfirming(false);
-    }
-  };
-
   // Hotkey "Locate" (F3 by default): the menu item lives inside ⋮, so the
   // dispatcher reaches it through the aims:hotkey event instead of a click.
   useEffect(() => {
@@ -1142,6 +1117,30 @@ export default function TabbedDocumentCreator({
   const previewTemplateId: string | undefined = templateId || existingData?.documentTemplateId || existingData?.templateId || undefined;
   const [isLoadingFieldConfig, setIsLoadingFieldConfig] = useState(true);
 
+  // The cursor lands in the FIRST header field whenever a document opens —
+  // a new one from "+ Add" or an existing one (guru 2026-11-18, every type).
+  // Runs once per document id, after the field config has rendered, and
+  // never steals focus from a box the user is already typing in.
+  const editorScopeRef = useRef<HTMLDivElement | null>(null);
+  const focusedDocRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (isLoadingFieldConfig || isTemplateEditMode) return;
+    const key = String(documentId || existingData?.id || "new");
+    if (focusedDocRef.current === key) return;
+    focusedDocRef.current = key;
+    const t = setTimeout(() => {
+      const scope = editorScopeRef.current;
+      if (!scope) return;
+      const active = document.activeElement as HTMLElement | null;
+      if (active && active !== document.body && scope.contains(active)) return;
+      const first = firstEnterField(scope);
+      if (!first) return;
+      first.focus();
+      if (first instanceof HTMLInputElement && first.type !== "number") first.select();
+    }, 250);
+    return () => clearTimeout(t);
+  }, [isLoadingFieldConfig, isTemplateEditMode, documentId, existingData?.id]);
+
   const { getToken } = useAuth();
   useEffect(() => {
     if (!showQuotationCategory) return;
@@ -1260,10 +1259,11 @@ export default function TabbedDocumentCreator({
   // the document saves itself — no Save button. A save still posts the
   // document to the GL server-side (void old journal + repost), exactly as the
   // manual Save did. Receipts / vouchers that fail their completeness rules
-  // (balance 0.00, a bank, a line…) stay unsaved (shown as "Unsaved changes")
-  // until they pass; F9 forces a save with the usual error message. Leaving
-  // flushes the pending save; only a save that cannot pass still prompts
-  // Save / Discard. Template editing keeps its explicit Save Template button.
+  // (balance 0.00, a bank, a line…) save too, out of the books, and the pill
+  // reads "Saved, not posted — <what is missing>" (guru 2026-11-18). Leaving
+  // flushes the pending save; only a save that fails (a lost lock) still
+  // prompts Save / Discard. Template editing keeps its explicit Save Template
+  // button.
   const autosaveActive = !isTemplateEditMode;
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const saveStatusRef = useRef(saveStatus);
@@ -1725,32 +1725,13 @@ export default function TabbedDocumentCreator({
   // document dirty. The back button uses this to decide whether to prompt
   // Save / Cancel / Delete — no prompt is shown if nothing was touched.
   const isDirtyRef = useRef(false);
-  // Settlement docs (OR / PV / JV) post ONE journal on save, so autosave is
-  // BLOCKED until the document is complete (legacy completeness rules). The
-  // autosave timer is silent about that, which made a receipt look like it just
-  // wasn't saving (guru 2026-11-16: "how come this doesnt autosave"). Compute
-  // the same reason here so the "Unsaved changes" indicator can show WHY.
-  const settlementSaveBlockReason = useMemo<string | null>(() => {
-    if (isJournalVoucher) return jvValidationError(formData);
-    if (isPaymentVoucher) return pvValidationError(formData);
-    if (isOfficialReceipt) {
-      const od: any = (formData as any).orData || {};
-      const received = Math.round((parseFloat(od.receiptAmount) || 0) * 100) / 100;
-      const offset = Math.round(
-        ((Array.isArray(od.allocations) ? od.allocations : []) as any[]).reduce((s, a) => s + (Number(a.amount) || 0), 0) * 100,
-      ) / 100;
-      return !formData.customer?.id
-        ? "Select a customer first"
-        : !od.debitAccountCode
-        ? "Select the account to DEBIT (deposit to)"
-        : received <= 0
-        ? "Enter the receipt amount"
-        : Math.abs(received - offset) > 0.005
-        ? "Balance must be 0.00 — allocate the full receipt amount to invoices"
-        : null;
-    }
-    return null;
-  }, [isJournalVoucher, isPaymentVoucher, isOfficialReceipt, formData]);
+  // Settlement docs (OR / PV / JV) post ONE journal on save — but an
+  // incomplete one still SAVES, as typed and out of the books, like a
+  // half-filled invoice (guru 2026-11-18: "still allow them to save, same as
+  // an invoice"). It used to stay "Can't autosave" until complete (2026-11-16).
+  // The server answers each save with `incompleteReason` (what the complete
+  // save still needs, null once posted). The pill just says "Saved" either way
+  // (guru 2026-11-18); Confirm reports the reason when it refuses.
   // Set on the FIRST real edit of this session and never cleared — unlike
   // isDirtyRef, which autosave clears on every save. The exit-time empty-draft
   // auto-delete reads this so a header-only invoice the user actually typed
@@ -4452,52 +4433,13 @@ export default function TabbedDocumentCreator({
     else if (!saveErrorReportedRef.current) toast.error("Save failed — please try again");
   };
 
-  // silent = the autosave timer / exit flush: a document that fails its
-  // completeness rules (or is locked by someone else) is left unsaved with no
-  // toast — F9 / the exit prompt say why.
+  // silent = the autosave timer / exit flush: a document locked by someone
+  // else is left unsaved with no toast — F9 / the exit prompt say why.
+  // Receipts / vouchers no longer gate here: the server saves an incomplete
+  // one out of the books (config.incompleteReason) and posts once complete.
   const performManualSave = async (opts?: { silent?: boolean }): Promise<boolean> => {
     const silent = !!opts?.silent;
     if (silent && lockReadOnly) return false;
-    // Official Receipt: server posts ONE journal on save, so the receipt must
-    // be complete and fully allocated (legacy rule: Balance 0.00, no
-    // on-account credit) before it can leave the editor.
-    if (isJournalVoucher) {
-      const jvError = jvValidationError(formData);
-      if (jvError) {
-        if (!silent) toast.error(jvError);
-        return false;
-      }
-    }
-    if (isPaymentVoucher) {
-      // Legacy P/V rules (2026-11-09): a bank, at least one line, total > 0
-      // (0 only when a supplier credit note settles the invoices outright).
-      const pvError = pvValidationError(formData);
-      if (pvError) {
-        if (!silent) toast.error(pvError);
-        return false;
-      }
-    }
-    if (isOfficialReceipt) {
-      const od: any = (formData as any).orData || {};
-      const orReceived = Math.round((parseFloat(od.receiptAmount) || 0) * 100) / 100;
-      const orOffset = Math.round(
-        ((Array.isArray(od.allocations) ? od.allocations : []) as any[]).reduce(
-          (s, a) => s + (Number(a.amount) || 0), 0) * 100,
-      ) / 100;
-      const orError = !formData.customer?.id
-        ? "Select a customer first"
-        : !od.debitAccountCode
-        ? "Select the account to DEBIT (deposit to)"
-        : orReceived <= 0
-        ? "Enter the receipt amount"
-        : Math.abs(orReceived - orOffset) > 0.005
-        ? "Balance must be 0.00 — allocate the full receipt amount to invoices"
-        : null;
-      if (orError) {
-        if (!silent) toast.error(orError);
-        return false;
-      }
-    }
     setSaveStatus("saving");
     saveErrorReportedRef.current = false;
     try {
@@ -5050,9 +4992,38 @@ export default function TabbedDocumentCreator({
               {isRealDoOnScheduleEnabled && String(actualDocumentType || "").toUpperCase() === "DELIVERY_ORDER" ? (
                 <DoStatusTag tag={docDoTag({ status: existingData?.status, config: existingData })} />
               ) : (
-                <StatusChip status={documentStatus} doc={existingData as any} />
+                <StatusChip status={documentStatus} doc={{ ...(existingData as any), type: (existingData as any)?.type || documentType }} />
               )}
             </Box>
+          )}
+          {/* Autosave status, right of the document status (guru 2026-11-18).
+              Replaces the manual Save button while we hold the lock on a
+              persisted draft (Confirm stays explicit). */}
+          {!isTemplateEditMode && !isDocumentConfirmed && autosaveActive && (
+            <Typography
+              variant="body2"
+              noWrap
+              sx={{ display: "flex", alignItems: "center", gap: 0.5, flexShrink: 0, color: saveStatus === "error" ? "error.main" : "text.secondary", fontWeight: 500, pl: 0.5 }}
+            >
+              {saveStatus === "saving" ? (
+                <>
+                  <CircularProgress size={14} thickness={5} />
+                  Saving…
+                </>
+              ) : saveStatus === "error" ? (
+                "Couldn't save"
+              ) : hasUnsavedChanges ? (
+                <Box component="span" sx={{ color: "warning.main", fontWeight: 600 }}>Unsaved changes</Box>
+              ) : (
+                // An incomplete receipt / voucher is saved as typed and just
+                // reads "Saved" (guru 2026-11-18: "dont need to tell them saved
+                // not posted") — Confirm says what is still missing.
+                <>
+                  <CheckCircleIcon fontSize="small" color="success" />
+                  Saved
+                </>
+              )}
+            </Typography>
           )}
         </Box>
         {/* Phone: the cluster must be allowed to shrink (flexShrink 0 sized it to
@@ -5444,57 +5415,11 @@ export default function TabbedDocumentCreator({
           {/* "Mark as Paid" was removed from the invoice editor (guru 2026-11-14,
               every org): invoices are paid only through the Official Receipt
               page, so there is one way to receive money. */}
-          {/* Autosave status indicator — replaces the manual Save button while
-              we hold the lock on a persisted draft (Confirm stays explicit). */}
-          {!isDocumentConfirmed && autosaveActive && (
-            <Typography
-              variant="body2"
-              sx={{ display: "flex", alignItems: "center", gap: 0.5, color: saveStatus === "error" ? "error.main" : "text.secondary", fontWeight: 500, px: 1 }}
-            >
-              {saveStatus === "saving" ? (
-                <>
-                  <CircularProgress size={14} thickness={5} />
-                  Saving…
-                </>
-              ) : saveStatus === "error" ? (
-                "Couldn't save"
-              ) : hasUnsavedChanges ? (
-                settlementSaveBlockReason ? (
-                  // Autosave can't post this settlement doc yet — say why, so it
-                  // doesn't look stuck (full text on hover).
-                  <Tooltip title={settlementSaveBlockReason} arrow>
-                    <Box component="span" sx={{ color: "warning.main", fontWeight: 600, maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "help" }}>
-                      Can&apos;t autosave — {settlementSaveBlockReason}
-                    </Box>
-                  </Tooltip>
-                ) : (
-                  <Box component="span" sx={{ color: "warning.main", fontWeight: 600 }}>Unsaved changes</Box>
-                )
-              ) : (
-                <>
-                  <CheckCircleIcon fontSize="small" color="success" />
-                  Saved
-                </>
-              )}
-            </Typography>
-          )}
-          {/* Confirm for receipts / vouchers (guru 2026-11-10 "do we have a
-              confirm feature for the PV and OR"): the legacy toolbar's
-              Confirm, here = the Posting Queue's confirm for this one
-              document — flips it to confirmed and tags its journal. */}
-          {!isDocumentConfirmed && isSettlementDoc && !isDocumentConfirmedStatus && (existingData?.id || documentId) && ((formData as any)?.savedAt || liveTracking.savedAt) && (
-            <Button
-              data-hotkey="confirm"
-              size="small"
-              variant={legacyLayout ? "contained" : "outlined"}
-              startIcon={<CheckCircleIcon />}
-              disabled={saveStatus === "saving" || settlementConfirming}
-              onClick={() => setSettlementConfirmOpen(true)}
-              sx={legacyLayout ? TOOLBAR_GREEN : undefined}
-            >
-              Confirm
-            </Button>
-          )}
+          {/* The autosave status sits beside the document status in the title
+              row (guru 2026-11-18: "move the save status to the right of the
+              status of the document"), not here among the toolbar buttons. */}
+          {/* No Confirm for receipts / vouchers: a complete autosave posts AND
+              confirms (guru 2026-11-18). */}
           {!isDocumentConfirmed && !autosaveActive && (
             <>
               {hasUnsavedChanges && saveStatus !== "saving" && (
@@ -5559,7 +5484,7 @@ export default function TabbedDocumentCreator({
               color="success"
               icon={<ReceiptLongOutlinedIcon />}
               label={`${p.reference} · ${p.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-              onClick={p.receiptId ? () => router.push(withActiveOrg(`/portal/accounting/receipts/${p.receiptId}`)) : undefined}
+              onClick={p.receiptId ? () => router.push(withActiveOrg(`/portal/accounting/receipts/${p.receiptId}?from=${encodeURIComponent(`${window.location.pathname}${window.location.search}`)}`)) : undefined}
               data-testid="invoice-settled-by"
               sx={{ fontWeight: 600 }}
             />
@@ -5802,6 +5727,7 @@ export default function TabbedDocumentCreator({
           // flex default (min-width:auto) the items grid's 720px min-content
           // blew the whole editor out to ~754px wide.
           <Box
+            ref={editorScopeRef}
             // Enter walks the form like the legacy software: next field, not
             // Tab (guru 2026-11-08). Covers the header rows and the body grid.
             {...enterScopeProps}
@@ -5930,6 +5856,11 @@ export default function TabbedDocumentCreator({
             </Box>
 
 
+          {/* Vouchers (guru 2026-11-18): header fields and the lines grid stack
+              in a LEFT column; the Remarks memo is a RIGHT column running the
+              full height of both — the legacy memo, just taller. */}
+          <Box sx={{ flex: 1, minHeight: 0, display: "flex", alignItems: "stretch", gap: 1 }}>
+          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
           {/* Dynamic Tabs based on template config */}
           {editorTabs.map((tab, index) => (
             <TabPanel key={tab.tabId} value={mainTabValue} index={index}>
@@ -6401,10 +6332,9 @@ export default function TabbedDocumentCreator({
                     <Divider sx={{ mb: 0.5 }} />
                     <Grid container spacing={0.5}>
                       <Grid item xs={12} md={6}>
-                        <TextField
+                        <DateInput
                           fullWidth
                           label="Date"
-                          type="date"
                           value={formData.documentInfo.date}
                           onChange={(e) =>
                             setFormData({
@@ -6702,10 +6632,9 @@ export default function TabbedDocumentCreator({
                       {/* Due Date - for TI only */}
                       {documentType === "TI" && (
                         <Grid item xs={12} md={6}>
-                          <TextField
+                          <DateInput
                             fullWidth
                             label="Due Date"
-                            type="date"
                             value={formData.dueDate}
                             onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
                             size="small"
@@ -6757,10 +6686,9 @@ export default function TabbedDocumentCreator({
                             </FormControl>
                           </Grid>
                           <Grid item xs={12} md={6}>
-                            <TextField
+                            <DateInput
                               fullWidth
                               label="Service Date"
-                              type="date"
                               value={formData.serviceDate}
                               onChange={(e) =>
                                 setFormData({ ...formData, serviceDate: e.target.value })
@@ -8349,6 +8277,10 @@ export default function TabbedDocumentCreator({
           </Box>
           )}
           </Box>
+          {!isTemplateEditMode && isPaymentVoucher && <PvRemarksMemo formData={formData} setFormData={setFormData} disabled={lockReadOnly} />}
+          {!isTemplateEditMode && isJournalVoucher && <JvRemarksMemo formData={formData} setFormData={setFormData} disabled={lockReadOnly} />}
+          </Box>
+          </Box>
         ) : (
           // PREVIEW MODE - Show clean document layout
           // Phone: the A4 paper (~794px) is zoomed down to fit the screen
@@ -8575,7 +8507,7 @@ export default function TabbedDocumentCreator({
           />
           {shareLinkExpires && (
             <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-              Expires {new Date(shareLinkExpires).toLocaleString()}
+              Expires {new Date(shareLinkExpires).toLocaleString("en-GB")}
             </Typography>
           )}
         </DialogContent>
@@ -9187,23 +9119,6 @@ export default function TabbedDocumentCreator({
       )}
 
       {/* Official Receipt delete confirmation (⋮ menu → Delete) */}
-      {isSettlementDoc && (
-        <Dialog open={settlementConfirmOpen} onClose={() => !settlementConfirming && setSettlementConfirmOpen(false)} maxWidth="xs" fullWidth>
-          <DialogTitle>Confirm {isJournalVoucher ? "journal voucher" : isPaymentVoucher ? "payment voucher" : "receipt"}</DialogTitle>
-          <DialogContent>
-            <Typography variant="body2">
-              Confirm {formData.documentInfo?.documentNumber || formData.name || "this document"}? Its journal becomes a confirmed posting and the document
-              locks (the toolbar&apos;s Edit can unlock it later).
-            </Typography>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setSettlementConfirmOpen(false)} disabled={settlementConfirming}>Cancel</Button>
-            <Button variant="contained" onClick={() => void confirmSettlementDoc()} disabled={settlementConfirming} startIcon={settlementConfirming ? <CircularProgress size={14} color="inherit" /> : <CheckCircleIcon />}>
-              Confirm
-            </Button>
-          </DialogActions>
-        </Dialog>
-      )}
       {isSettlementDoc && (
         <Dialog open={orDeleteConfirmOpen} onClose={() => setOrDeleteConfirmOpen(false)} maxWidth="xs" fullWidth>
           <DialogTitle>{isJournalVoucher ? "Delete journal voucher" : isPaymentVoucher ? "Delete payment voucher" : "Delete receipt"}</DialogTitle>

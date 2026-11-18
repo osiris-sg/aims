@@ -215,7 +215,7 @@ export default function ConfigurationAdminPage() {
     },
     terminology: {},
     features: {},
-    dateFormat: "MM/dd/yyyy",
+    dateFormat: "dd/MM/yyyy",
     timeFormat: "12h",
     currency: "USD",
     language: "en",
@@ -675,7 +675,7 @@ export default function ConfigurationAdminPage() {
                   <FormControl fullWidth sx={{ mb: 2 }}>
                     <InputLabel>Date Format</InputLabel>
                     <Select
-                      value={uiConfigForm.dateFormat || "MM/dd/yyyy"}
+                      value={uiConfigForm.dateFormat || "dd/MM/yyyy"}
                       onChange={(e) =>
                         setUIConfigForm({ ...uiConfigForm, dateFormat: e.target.value })
                       }

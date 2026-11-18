@@ -126,7 +126,7 @@ export default function QuantityHistoryTable({ assetId }: QuantityHistoryTablePr
                   <TableRow key={adjustment.id} hover>
                     <TableCell>
                       <Typography variant="body2">
-                        {format(new Date(adjustment.adjustedAt), "MMM d, yyyy")}
+                        {format(new Date(adjustment.adjustedAt), "dd/MM/yyyy")}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
                         {format(new Date(adjustment.adjustedAt), "h:mm a")}

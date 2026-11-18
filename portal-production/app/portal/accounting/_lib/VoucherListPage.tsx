@@ -130,7 +130,11 @@ export function useOpenVoucher() {
       try {
         const v = unwrap(await request(spec.apiPath, { method: "POST", body: JSON.stringify({}) }));
         if (!v?.id) throw new Error(`Couldn't create the ${spec.label.toLowerCase()}`);
-        router.push(`${spec.editorBase}/${v.id}?from=${encodeURIComponent(spec.listPath)}`);
+        // Back returns to WHERE THE USER CAME FROM (guru 2026-11-18) — the AR /
+        // AP / GL home that owns the button, not the voucher list they never
+        // saw. ?from= is the editor's back route.
+        const origin = typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : spec.listPath;
+        router.push(`${spec.editorBase}/${v.id}?from=${encodeURIComponent(origin)}`);
       } catch (e: any) {
         toast.error(e?.message || `Couldn't create the ${spec.label.toLowerCase()}`);
       }
@@ -248,8 +252,11 @@ export default function VoucherListPage({ kind }: { kind: Kind }) {
     {
       id: "amount",
       header: "Amount",
+      // Table right-aligns the header AND the cell from `align`, so the
+      // figures sit under the heading instead of a whole column away from it.
+      align: "right",
       cell: ({ row }: any) => (
-        <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(spec.amount(row.original))}</Box>
+        <Box sx={{ fontVariantNumeric: "tabular-nums" }}>{fmt(spec.amount(row.original))}</Box>
       ),
     },
     {

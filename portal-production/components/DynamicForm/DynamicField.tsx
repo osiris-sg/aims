@@ -159,6 +159,7 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({ field, control, erro
         return (
           <LocalizationProvider dateAdapter={AdapterDayjs}>
             <DatePicker
+              format="DD/MM/YYYY"
               label={field.displayLabel}
               value={fieldValue ? dayjs(fieldValue) : null}
               onChange={(newValue) => onChange(newValue?.toISOString())}
@@ -322,7 +323,7 @@ export const DynamicFieldDisplay: React.FC<{
         return value ? "Yes" : "No";
 
       case "date":
-        return value ? dayjs(value).format("MM/DD/YYYY") : "-";
+        return value ? dayjs(value).format("DD/MM/YYYY") : "-";
 
       case "select":
       case "radio":

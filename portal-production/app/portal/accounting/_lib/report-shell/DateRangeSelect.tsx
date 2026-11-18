@@ -9,11 +9,12 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  Box, Divider, IconButton, Menu, MenuItem, ListItemText, Stack, TextField, Typography,
+  Box, Button, Divider, IconButton, Menu, MenuItem, ListItemText, Stack, TextField, Typography,
 } from "@mui/material";
 import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import { useAccountingApi } from "../api";
 import { onReportDate } from "./reportDate";
+import DateInput from "@/components/DateInput";
 
 /**
  * The default period for a listing report: THIS MONTH, first to last day.
@@ -60,7 +61,7 @@ const iso = (d: Date) => {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
-const fmt = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+const fmt = (d: Date) => d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }); // dd/mm/yyyy (guru 2026-11-18)
 
 function fyStart(now: Date, fyEndMonth: number, fyEndDay: number): Date {
   // FY ends on (fyEndDay, fyEndMonth); the FY containing `now` starts the day after the previous end.
@@ -105,6 +106,37 @@ export function buildRangePresets(fyEndMonth = 12, fyEndDay = 31): RangePreset[]
   ];
 }
 
+/**
+ * "This financial year" as a visible button (guru 2026-11-18: "a button to see
+ * this year financial period, then the date range will change accordingly") —
+ * on every report with a From / To: the DateRangeSelect renders it itself, the
+ * drill-down dialogs and the older From/To pages place it after their To box.
+ * The year comes from Accounting Setup → Financial Year End.
+ */
+export function FiscalYearButton({ from, to, onPick, sx }: { from?: string; to?: string; onPick: (from: string, to: string) => void; sx?: any }) {
+  const fy = useFiscalYearEnd();
+  const range = useMemo(() => {
+    const fs = fyStart(new Date(), fy.month, fy.day);
+    const fe = new Date(fs.getFullYear() + 1, fs.getMonth(), fs.getDate() - 1);
+    return { from: iso(fs), to: iso(fe) };
+  }, [fy]);
+  // A toggle (guru 2026-11-18): once the range IS the financial year the
+  // button reads "This month" and takes the report back to the current month.
+  const onFy = from === range.from && to === range.to;
+  const month = monthRange();
+  return (
+    <Button
+      variant="outlined"
+      size="small"
+      onClick={() => (onFy ? onPick(month.from, month.to) : onPick(range.from, range.to))}
+      title={onFy ? `${fmt(new Date(month.from))} - ${fmt(new Date(month.to))}` : `${fmt(new Date(range.from))} - ${fmt(new Date(range.to))}`}
+      sx={{ height: 40, whiteSpace: "nowrap", textTransform: "none", ...sx }}
+    >
+      {onFy ? "This month" : "This financial year"}
+    </Button>
+  );
+}
+
 export function DateRangeSelect({
   label = "Date range", from, to, onChange, fyEndMonth, fyEndDay,
 }: {
@@ -125,11 +157,12 @@ export function DateRangeSelect({
     <Box>
       <Typography variant="caption" sx={{ fontWeight: 700, color: "text.primary" }}>{label}</Typography>
       <Stack direction="row" alignItems="center" sx={{ mt: 0.25 }}>
-        <TextField size="small" type="date" value={from} onChange={onReportDate((v) => onChange(v, to), true)} sx={{ width: 150, "& fieldset": { borderTopRightRadius: 0, borderBottomRightRadius: 0 } }} />
-        <TextField size="small" type="date" value={to} onChange={onReportDate((v) => onChange(from, v), true)} sx={{ width: 150, "& fieldset": { borderRadius: 0, borderLeft: "none" } }} />
+        <DateInput size="small" value={from} onChange={onReportDate((v) => onChange(v, to), true)} sx={{ width: 150, "& fieldset": { borderTopRightRadius: 0, borderBottomRightRadius: 0 } }} />
+        <DateInput size="small" value={to} onChange={onReportDate((v) => onChange(from, v), true)} sx={{ width: 150, "& fieldset": { borderRadius: 0, borderLeft: "none" } }} />
         <IconButton size="small" onClick={(e) => setAnchor(e.currentTarget)} sx={{ border: (t) => `1px solid ${t.palette.divider}`, borderLeft: "none", borderRadius: "0 4px 4px 0", height: 40, width: 34 }}>
           <ArrowDropDownIcon />
         </IconButton>
+        <FiscalYearButton from={from} to={to} onPick={onChange} sx={{ ml: 1 }} />
       </Stack>
       <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={() => setAnchor(null)}>
         {groups.map((g, gi) => [
@@ -172,7 +205,7 @@ export function AsAtDateSelect({
     <Box>
       <Typography variant="caption" sx={{ fontWeight: 700, color: "text.primary" }}>{label}</Typography>
       <Stack direction="row" alignItems="center" sx={{ mt: 0.25 }}>
-        <TextField size="small" type="date" value={value} onChange={onReportDate(onChange, true)} sx={{ width: 165, "& fieldset": { borderTopRightRadius: 0, borderBottomRightRadius: 0 } }} />
+        <DateInput size="small" value={value} onChange={onReportDate(onChange, true)} sx={{ width: 165, "& fieldset": { borderTopRightRadius: 0, borderBottomRightRadius: 0 } }} />
         <IconButton size="small" onClick={(e) => setAnchor(e.currentTarget)} sx={{ border: (t) => `1px solid ${t.palette.divider}`, borderLeft: "none", borderRadius: "0 4px 4px 0", height: 40, width: 34 }}>
           <ArrowDropDownIcon />
         </IconButton>

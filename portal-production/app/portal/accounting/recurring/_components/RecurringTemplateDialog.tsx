@@ -31,6 +31,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../../_lib/api";
 import { todayIso } from "@/helpers/orgToday";
+import DateInput from "@/components/DateInput";
 
 type Account = {
   id: string;
@@ -226,18 +227,16 @@ export default function RecurringTemplateDialog({
               </MenuItem>
             ))}
           </TextField>
-          <TextField
+          <DateInput
             size="small"
-            type="date"
             label="Next Run"
             InputLabelProps={{ shrink: true }}
             value={nextRunDate}
             onChange={(e) => setNextRunDate(e.target.value)}
             disabled={saving}
           />
-          <TextField
+          <DateInput
             size="small"
-            type="date"
             label="End Date (optional)"
             InputLabelProps={{ shrink: true }}
             value={endDate}

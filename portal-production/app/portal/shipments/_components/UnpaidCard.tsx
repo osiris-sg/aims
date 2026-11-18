@@ -21,6 +21,7 @@ import { fmtDay } from "../_lib/format";
 import { toast } from "../_lib/toast";
 import { unpaidText } from "../_lib/unpaidText";
 import { useUiLang } from "@/i18n/UiLangProvider";
+import DateInput from "@/components/DateInput";
 
 const KEY = ["trade", "unpaid"];
 const todayJst = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
@@ -235,7 +236,7 @@ function MarkPaidDialog({ row, onClose }: { row: UnpaidRow; onClose: () => void 
               {t("sharedBill", { refs: row.ref })}
             </Typography>
           )}
-          <TextField size="small" type="date" label={t("paidOn")} value={paidAt} onChange={(e) => setPaidAt(e.target.value)} InputLabelProps={{ shrink: true }} />
+          <DateInput size="small" label={t("paidOn")} value={paidAt} onChange={(e) => setPaidAt(e.target.value)} InputLabelProps={{ shrink: true }} />
           <TextField size="small" type="number" label={`${t("amountPaid")} (${row.currency})`} value={amount} onChange={(e) => setAmount(e.target.value)} inputProps={{ step: "any" }} />
           <TextField select size="small" label={t("account")} value={account} onChange={(e) => setAccount(e.target.value as PaymentAccount)}>
             {ACCOUNTS.map((a) => (

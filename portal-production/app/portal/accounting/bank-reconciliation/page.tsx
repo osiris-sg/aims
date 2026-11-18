@@ -438,7 +438,7 @@ export default function BankReconciliationPage() {
       accessorKey: "date",
       header: "Date",
       cell: ({ row }: any) => (
-        <Box sx={{ fontSize: "0.8125rem" }}>{new Date(row.original.date).toLocaleDateString()}</Box>
+        <Box sx={{ fontSize: "0.8125rem" }}>{new Date(row.original.date).toLocaleDateString("en-GB")}</Box>
       ),
     },
     {
@@ -742,8 +742,8 @@ export default function BankReconciliationPage() {
                     ? `${i.source} · ${i.filename || "statement"} — extracting…`
                     : i.status === "FAILED"
                     ? `${i.source} · ${i.filename || "statement"} — FAILED`
-                    : `${i.source} · ${i.periodStart ? new Date(i.periodStart).toLocaleDateString() : "—"} → ${
-                        i.periodEnd ? new Date(i.periodEnd).toLocaleDateString() : "—"
+                    : `${i.source} · ${i.periodStart ? new Date(i.periodStart).toLocaleDateString("en-GB") : "—"} → ${
+                        i.periodEnd ? new Date(i.periodEnd).toLocaleDateString("en-GB") : "—"
                       } · ${i._count?.lines ?? "?"} lines`
                 }
                 onClick={() => {
@@ -1754,7 +1754,7 @@ function PostAsNewDialog({
         <Stack gap={2}>
           <Alert severity={line.amount > 0 ? "success" : "warning"} sx={{ fontSize: "0.8125rem" }}>
             <strong>{dir}:</strong> {fmt(Math.abs(line.amount))} on{" "}
-            {new Date(line.date).toLocaleDateString()} — {line.description}
+            {new Date(line.date).toLocaleDateString("en-GB")} — {line.description}
           </Alert>
 
           <Stack direction="row" gap={1} alignItems="center">

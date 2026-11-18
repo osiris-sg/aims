@@ -56,6 +56,7 @@ import {
 } from "@/lib/msr-templates";
 import { FIELD_BUTTON_SX } from "@/app/(field)/components/fieldUi";
 import { useFieldAppBar } from "@/app/(field)/components/FieldAppBar";
+import DateInput from "@/components/DateInput";
 
 /**
  * Maintenance & Inspection Service Report — the field capture flow.
@@ -832,17 +833,15 @@ export default function NewServiceReportPage() {
       <TextField label="Model" value={model} fullWidth InputProps={{ readOnly: true }} disabled />
       <TextField label="Serial No" value={serial} fullWidth InputProps={{ readOnly: true }} disabled />
 
-      <TextField
+      <DateInput
         label="Service Date"
-        type="date"
         value={serviceDate}
         onChange={(e) => setServiceDate(e.target.value)}
         InputLabelProps={{ shrink: true }}
         fullWidth
       />
-      <TextField
+      <DateInput
         label="Next Service Date"
-        type="date"
         value={nextServiceDate}
         onChange={(e) => setNextServiceDate(e.target.value)}
         InputLabelProps={{ shrink: true }}
@@ -944,9 +943,8 @@ export default function NewServiceReportPage() {
       <Divider />
 
       <TextField label="Site" value={essSite} onChange={(e) => setEssSite(e.target.value)} fullWidth />
-      <TextField
+      <DateInput
         label="Inspection Date"
-        type="date"
         value={essInspectionDate}
         onChange={(e) => setEssInspectionDate(e.target.value)}
         InputLabelProps={{ shrink: true }}

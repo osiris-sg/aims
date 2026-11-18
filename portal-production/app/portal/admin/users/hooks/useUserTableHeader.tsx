@@ -167,7 +167,7 @@ export default function useUserTableHeader() {
               {organization?.name || userRecord.organizationId || "No Organization"}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              Joined: {userRecord.joinedAt ? new Date(userRecord.joinedAt).toLocaleDateString() : "Unknown"}
+              Joined: {userRecord.joinedAt ? new Date(userRecord.joinedAt).toLocaleDateString("en-GB") : "Unknown"}
             </Typography>
           </Box>
         );

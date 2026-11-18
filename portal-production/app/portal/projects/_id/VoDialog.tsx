@@ -23,6 +23,7 @@ import { toast } from "react-toastify";
 import { money, useIdProjectApi, type Summary } from "./api";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import SignLinkDialog from "@/app/portal/sales/quotations/id/_components/SignLinkDialog";
+import DateInput from "@/components/DateInput";
 
 // kind "area" = a general-area header row like the main quote's sections
 // (LIVING ROOM, KITCHEN…): no number, no amount, prints as a bold band.
@@ -393,8 +394,7 @@ export default function VoDialog({ docId, summary, onClose, onChanged }: { docId
         {doc?.name || "Variation order"}
         {readOnly && <Chip size="small" color="primary" variant="outlined" label="Confirmed" />}
         {doc && (
-          <TextField
-            type="date"
+          <DateInput
             size="small"
             label="VO date"
             value={voDate}

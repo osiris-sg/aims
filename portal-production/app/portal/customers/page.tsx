@@ -166,7 +166,7 @@ export default function CustomersPage() {
       header: "Created At",
       cell: (info: any) => {
         const value = info.getValue();
-        return value ? new Date(value).toLocaleDateString() : "";
+        return value ? new Date(value).toLocaleDateString("en-GB") : "";
       },
     },
     kebabColumn((customer: any) => [

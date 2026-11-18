@@ -35,6 +35,7 @@ const toExisting = (r: any) => ({
     documentInfo: { documentNumber: r.receiptNumber, date: r.date },
     savedBy: r.savedBy,
     savedAt: r.savedAt,
+    incompleteReason: r.incompleteReason ?? null,
     lastUsedBy: r.savedBy,
     lastUsedAt: r.savedAt,
     updatedAt: r.updatedAt,
@@ -133,11 +134,20 @@ export default function OfficialReceiptPage() {
     const saved = unwrap(response);
     // OR-PENDING → real number on the first save (custom {BANK} numbering):
     // re-mount the editor on the saved receipt so the toolbar shows it.
-    if (saved?.receiptNumber && saved.receiptNumber !== existingData?.name) {
+    // Re-mount the editor ONLY when the SERVER issued the number (placeholder →
+    // real number on the first complete save). A number the user is typing
+    // comes back unchanged and must not re-mount — the field lost focus after
+    // every autosaved keystroke (guru 2026-11-18: "after the first letter, it
+    // saved and pushed me out of the field").
+    const typedNumber = String(data?.documentInfo?.documentNumber || data?.name || "").trim();
+    if (saved?.receiptNumber && saved.receiptNumber !== existingData?.name && saved.receiptNumber !== typedNumber) {
       toast.info(`Receipt numbered ${saved.receiptNumber}`);
       setExistingData(toExisting(saved));
-      setReceipts((prev) => prev.map((x: any) => (x.id === saved.id ? { ...x, ...saved } : x)));
     }
+    if (saved?.id) setReceipts((prev) => prev.map((x: any) => (x.id === saved.id ? { ...x, ...saved } : x)));
+    // Posted = confirmed on a complete autosave (2026-11-18): refresh the status
+    // pill in place (no re-mount — only the status key changes).
+    if (saved?.status && saved.status !== existingData?.status) setExistingData((prev: any) => (prev ? { ...prev, status: saved.status } : prev));
     return saved;
   };
 

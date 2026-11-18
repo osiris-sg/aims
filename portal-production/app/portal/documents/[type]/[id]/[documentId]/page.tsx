@@ -231,6 +231,25 @@ export default function page() {
       // config — without this the picker renders empty after every reload even
       // though the link is persisted.
       documentData.projectId = response.data.projectId || null;
+      // The editor is handed the FLATTENED form data, so `existingData.config`
+      // never existed — the title-row StatusChip could not derive "Partially
+      // Paid" (guru 2026-11-18: a 112.00 receipt on a 112.82 invoice still read
+      // Awaiting Payment), the split button saw paid = 0 and the voided-with-
+      // order lock never fired. Carry the money stamps + flags the editor reads
+      // (document-money keys, never edited here; transformFormDataForBackend
+      // only copies template fields, so this never round-trips into a save).
+      documentData.config = {
+        paidToDate: config.paidToDate,
+        outstandingBalance: config.outstandingBalance,
+        totalWithTax: config.totalWithTax,
+        xeroAmountPaid: config.xeroAmountPaid,
+        xeroBalance: config.xeroBalance,
+        amountPaid: config.amountPaid,
+        invoiceSplit: config.invoiceSplit,
+        voided: config.voided,
+        cancelledWithOrder: config.cancelledWithOrder,
+      };
+      documentData.type = response.data.type;
       // Forward linked field-tech delivery reports so the DO preview/print can
       // render the Proof of Delivery section (see CleanDocumentPreview DO block).
       documentData.maintenanceReports = response.data.maintenanceReports;

@@ -49,6 +49,7 @@ import { lineTagOf, type QuotationTag } from "@/helpers/sinQuotation";
 import PostingPreviewDialog, { PreviewResult } from "@/components/PostingPreviewDialog";
 import { todayIso } from "@/helpers/orgToday";
 import { enterScopeProps } from "@/helpers/enterAdvance";
+import DateInput from "@/components/DateInput";
 
 // ---------------------------------------------------------------------------
 // Create / view bill. Three entry paths:
@@ -1171,18 +1172,16 @@ export default function BillEditorDialog({
             onChange={(e) => setBillNumber(e.target.value)}
             disabled={isReadOnly}
           />
-          <TextField
+          <DateInput
             size="small"
-            type="date"
             label="Invoice date"
             InputLabelProps={{ shrink: true }}
             value={billDate}
             onChange={(e) => setBillDate(e.target.value)}
             disabled={isReadOnly}
           />
-          <TextField
+          <DateInput
             size="small"
-            type="date"
             label="Due date (optional)"
             InputLabelProps={{ shrink: true }}
             value={dueDate}

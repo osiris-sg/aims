@@ -97,7 +97,7 @@ export default function CustomerInformationPage() {
       header: "Submitted",
       cell: (info: any) => {
         const v = info.getValue();
-        return v ? new Date(v).toLocaleDateString() : "-";
+        return v ? new Date(v).toLocaleDateString("en-GB") : "-";
       },
     },
     {
@@ -106,7 +106,7 @@ export default function CustomerInformationPage() {
       header: "Created",
       cell: (info: any) => {
         const v = info.getValue();
-        return v ? new Date(v).toLocaleDateString() : "-";
+        return v ? new Date(v).toLocaleDateString("en-GB") : "-";
       },
     },
     kebabColumn((row: any) => [
