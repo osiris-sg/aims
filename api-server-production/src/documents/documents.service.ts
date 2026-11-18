@@ -1,5 +1,7 @@
 import { IMPORTED_ORDER_READ_ONLY, isImportedOrder, isImportedOrdersEnabled } from '../orders/imported-orders';
-import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, NotFoundException, Optional, forwardRef } from '@nestjs/common';
+import { ClerkIdentityService } from '../clerk/clerk-identity.service';
+import { SALES_USER_ID_RE } from '../common/services/document-html/shared';
 import { tierOfRoleNames } from '../common/role-tier';
 import { DeliveriesService } from '../deliveries/deliveries.service';
 import { randomUUID } from 'crypto';
@@ -77,7 +79,30 @@ export class DocumentsService {
     // Used ONLY for the ad-hoc project hand-off in updateDocument.
     @Inject(forwardRef(() => DeliveriesService))
     private deliveriesService: DeliveriesService,
+    // Salesperson names for stored documents (withSalesPersonName). Global module; optional so bare test modules still build.
+    @Optional() private clerkIdentity?: ClerkIdentityService,
   ) {}
+
+  /**
+   * A stored document whose salesperson is a bare user id (a salesman with no code) and no saved name:
+   * the user's name, looked up (cached) so server PDFs, sign links and emailed PDFs print it instead of the
+   * id (2026-11-18, all orgs). A code, or a document that already has the name, is returned unchanged.
+   * Never throws.
+   */
+  async withSalesPersonName<T extends Record<string, any>>(config: T): Promise<T> {
+    const cfg: any = config || {};
+    const di = cfg.documentInfo && typeof cfg.documentInfo === 'object' ? cfg.documentInfo : null;
+    const raw = typeof cfg.salesPerson === 'string' ? cfg.salesPerson : typeof di?.salesPerson === 'string' ? di.salesPerson : '';
+    if (!SALES_USER_ID_RE.test(raw.trim()) || String(cfg.salesPersonName || di?.salesPersonName || '').trim() || !this.clerkIdentity) return config;
+    try {
+      const u: any = (await this.clerkIdentity.toClerkUsers([raw.trim()])).get(raw.trim());
+      const name = u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.username || u.emailAddresses?.[0]?.emailAddress || '' : '';
+      if (!name) return config;
+      return { ...cfg, salesPersonName: name, ...(di ? { documentInfo: { ...di, salesPersonName: name } } : {}) };
+    } catch {
+      return config;
+    }
+  }
 
   /**
    * Line coding for extracted documents (guru 2026-07-26): stamp each line
@@ -7923,7 +7948,7 @@ export class DocumentsService {
     const region = process.env.AWS_REGION || 'ap-southeast-1';
     const renderData = {
       documentType: doc.type,
-      ...(data || {}),
+      ...(await this.withSalesPersonName(data || {})),
       name: doc.name ?? data?.name,
       revisionNumber: doc.revisionNumber ?? null,
       design: styled.design,
@@ -8114,7 +8139,7 @@ export class DocumentsService {
           // Selects the ported portal layout for this type (falls back to the
           // legacy generic layout for types not ported yet).
           documentType: p.document.type,
-          ...(p.config || {}),
+          ...(await this.withSalesPersonName(p.config || {})),
           design: styled.design,
           logoUrl: styled.logoUrl,
           // The number lives on Document.name, not in config — the renderer
@@ -8480,7 +8505,7 @@ export class DocumentsService {
     const html = this.pdfGeneratorService.generateInvoiceHtml({
       documentType: document.type,
       lang: lang === 'zh' ? 'zh' : 'en',
-      ...config,
+      ...(await this.withSalesPersonName(config)),
       ...(renderFlags || {}),
       design: styled.design,
       logoUrl: styled.logoUrl,

@@ -366,3 +366,16 @@ export function clientSignatureBlock(cfg: any): string {
     <div style="border-top:1px solid #000;margin-top:4px;padding-top:4px;font-size:11px;color:#444;">${sig.who || 'Client'}</div>
   </div>`;
 }
+
+/**
+ * The salesperson as printed (2026-11-18, all orgs). The editor stores a salesman's CODE, or their user id
+ * when they have no code; a user id ("user_…") never prints: the stored / resolved name does, else nothing.
+ * A code prints as before.
+ */
+export const SALES_USER_ID_RE = /^user_/;
+export function printableSalesman(raw: any, name?: any): string {
+  const v = typeof raw === 'string' ? raw.trim() : '';
+  const n = typeof name === 'string' ? name.trim() : '';
+  if (SALES_USER_ID_RE.test(v)) return n;
+  return v;
+}

@@ -16,6 +16,7 @@ import {
   designFooter,
   billToText,
   money2,
+  printableSalesman,
 } from './shared';
 import { DEFAULT_DESIGN, DocumentDesign, fillerRowPx } from './design';
 import { BIOFUEL_LOGO_DATA_URI } from './biofuel-assets';
@@ -102,7 +103,7 @@ export function renderInvoiceBody(data: any, organization: any, design: Document
     infoRow('DATE', formatDate(di('date')), '85px') +
     infoRow('DO NO', di('doNo'), '85px') +
     infoRow('P/O NO', di('poNo'), '85px') +
-    infoRow('SALESMAN', di('salesPerson') || di('salesman'), '85px') +
+    infoRow('SALESMAN', printableSalesman(di('salesPerson') || di('salesman'), di('salesPersonName')), '85px') +
     infoRow('PAGE', di('page', '1'), '85px') +
     infoRow('TERMS', di('paymentTerms', '0 DAYS'), '85px') +
     infoRow('CURRENCY', di('currency', 'USD'), '85px');

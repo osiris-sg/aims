@@ -100,7 +100,7 @@ const check = (label: string, ok: boolean, got?: unknown) => {
     check('A S/No: section titles take none, items 1..4', JSON.stringify(sNos) === '["1","2","3","4"]', sNos);
     check('A UOM column between Qty and Unit Price', /Qty<\/th><th[^>]*>UOM<\/th><th[^>]*>Unit Price/.test(qh), qh.match(/<thead><tr>.*?<\/tr><\/thead>/)?.[0]);
     check('A UOM blank prints blank', qh.includes('<td class="qty"></td>'));
-    check('A totals: Total Amount 3,760 / Goodwill Discount (188) / Final Amount 3,572', qh.includes('Total Amount:</td><td class="v">$3,760.00') && qh.includes('Goodwill Discount:</td><td class="v">($188.00)') && qh.includes('Final Amount:</td><td class="v">$3,572.00'));
+    check('A totals: Total Amount 3,760 / Goodwill Discount (188) / Final Amount 3,572', qh.includes('Total Amount:</td><td class="v">$3,760.00') && qh.includes('Goodwill Discount:</td><td class="v">$188.00') && qh.includes('Final Amount:</td><td class="v">$3,572.00'));
     check('A no GST line, no GST Reg No, no Remarks heading, no computer-generated line', !/GST \d/.test(qh) && !qh.includes('GST Reg No') && !qh.includes('Remarks:') && !qh.includes('computer generated'));
     check('A sign-off: Yours Sincerely, / signer / Manager of / company', qh.includes('Yours Sincerely,') && qh.includes('<div class="scr">Nee Meng Tan</div>') && qh.includes('Manager of') && !qh.includes('Director of'));
 
@@ -136,7 +136,7 @@ const check = (label: string, ok: boolean, got?: unknown) => {
     // D: the invoice prints its discount; the Racking invoice letterhead drops GST Reg No.
     const invDesign = effectiveDesign({ layout: 'wct', logoPosition: 'left', titleText: 'TAX INVOICE' }, 'INVOICE', RACKING);
     const ih = renderDocumentHtml('INVOICE', { documentType: 'INVOICE', ...ic, name: invDoc.name, design: invDesign, organization: org }, org)!;
-    check('D invoice prints the Discount line and no GST Reg No', ih.includes('Discount:') && ih.includes('($188.00)') && !ih.includes('GST Reg No'), null);
+    check('D invoice prints the Discount line and no GST Reg No', ih.includes('Discount:</td><td class="v">$188.00') && !ih.includes('GST Reg No'), null);
 
     const featuresAfter = JSON.stringify((await prisma.organizationUIConfig.findUnique({ where: { organizationId: WCT } }))?.features);
     check('dev WCT flags unchanged by the run', featuresBefore === featuresAfter);

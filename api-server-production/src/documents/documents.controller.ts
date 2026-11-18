@@ -575,7 +575,7 @@ export class DocumentsController {
     const renderFlags = await this.documentsService.quotationRenderFlags(organizationId);
     const html = this.pdfGeneratorService.generateInvoiceHtml({
       documentType: body.documentType,
-      ...(body.data || {}),
+      ...(await this.documentsService.withSalesPersonName(body.data || {})),
       ...(erpStoredTotals ? { erpStoredTotals } : {}),
       ...renderFlags,
       revisionNumber,
@@ -611,7 +611,7 @@ export class DocumentsController {
       const erpStoredTotals = docId ? await this.documentsService.erpStoredTotalsForDocument(docId, organizationId) : null;
       const renderData = {
         documentType: body.documentType,
-        ...body.data,
+        ...(await this.documentsService.withSalesPersonName(body.data || {})),
         ...(erpStoredTotals ? { erpStoredTotals } : {}),
         design: styled.design,
         logoUrl: styled.logoUrl,

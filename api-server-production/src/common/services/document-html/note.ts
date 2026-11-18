@@ -8,7 +8,7 @@
  * Literal strings, labels, column widths and the totals maths mirror the
  * portal so the side panel, the emailed PDF and the printed page agree.
  */
-import { billToText, descriptionText, designFooter, escapeHtml, formatDate, infoRow, logoBlock, makeDi, numberToWords, richContent, money2 } from './shared';
+import { billToText, descriptionText, designFooter, escapeHtml, formatDate, infoRow, logoBlock, makeDi, numberToWords, richContent, money2, printableSalesman } from './shared';
 import { DEFAULT_DESIGN, DocumentDesign, fillerRowPx } from './design';
 
 export type NoteKind = 'credit' | 'debit';
@@ -70,7 +70,7 @@ export function renderNoteBody(data: any, organization: any, kind: NoteKind, des
     infoRow(`${noun} No.`, di('documentNumber', data?.name), '110px') +
     infoRow('Date', formatDate(di('date')), '110px') +
     infoRow('Customer code', customer.customerCode || data?.customerCode, '110px') +
-    infoRow('Salesman code', di('salesPerson') || di('salesman'), '110px') +
+    infoRow('Salesman code', printableSalesman(di('salesPerson') || di('salesman'), di('salesPersonName')), '110px') +
     infoRow('Invoice No.', di('invoiceNo'), '110px') +
     infoRow('Delivery Order No.', di('doNo'), '110px') +
     infoRow('Contact Name', attnName, '110px') +

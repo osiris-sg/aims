@@ -19,7 +19,7 @@
  * paper is Calibri).
  */
 import { DocumentDesign } from './design';
-import { billToText, descriptionText, escapeHtml, logoBlock, makeDi } from './shared';
+import { billToText, descriptionText, escapeHtml, logoBlock, makeDi, printableSalesman } from './shared';
 
 const CSS = `
 <style>
@@ -92,7 +92,8 @@ const qtyText = (q: any): string => {
 function salesmanOf(data: any, di: (k: string, d?: any) => any): string {
   const sp = di('salesPerson');
   if (sp && typeof sp === 'object') return first(sp.name, sp.code);
-  return first(data?.salesPersonName, data?.salesmanName, sp, di('salesman'));
+  // A user id (code-less salesman) prints its name, never the id; a code prints as before.
+  return first(data?.salesPersonName, data?.salesmanName, printableSalesman(sp, di('salesPersonName')), di('salesman'));
 }
 
 export function renderLegacyDoBody(data: any, organization: any, design: DocumentDesign): string {

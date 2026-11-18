@@ -32,7 +32,7 @@
 import { resolveTimeZone } from '../../org-today';
 import { DocumentDesign } from './design';
 import { amountPaidOf, outstandingOf } from '../../document-money';
-import { billToText, decodeHtmlEntities as decodeEntities, descriptionText, escapeHtml, makeDi, money, richContent } from './shared';
+import { billToText, decodeHtmlEntities as decodeEntities, descriptionText, escapeHtml, makeDi, money, printableSalesman, richContent } from './shared';
 import { erpStoredTotalsOf, moneySignature, type ErpStoredTotals } from '../../erp-import';
 import { BCAIR_DOC } from './wct-brand';
 
@@ -405,11 +405,11 @@ function jobBoxes(di: (k: string, d?: any) => any): string {
 
 /** The salesperson's printed name (the editor stores the name beside the code / user id). */
 const salesNameOf = (di: (k: string, d?: any) => any): string =>
-  first(di('salesPersonName'), typeof di('salesPerson') === 'string' ? di('salesPerson') : di('salesPerson')?.name);
+  first(di('salesPersonName'), typeof di('salesPerson') === 'string' ? printableSalesman(di('salesPerson')) : di('salesPerson')?.name);
 
 function signBlock(di: (k: string, d?: any) => any, racking = false): string {
-  // Racking: a salesperson saved as a bare user id (no salesman code, name not stored) prints blank, never the id.
-  const sales = racking && /^user_/.test(salesNameOf(di)) ? '' : salesNameOf(di);
+  // A salesperson saved as a bare user id prints its name, else blank, never the id (salesNameOf).
+  const sales = salesNameOf(di);
   const contact = first(di('salesContact'), di('salesPersonContact'));
   // Racking: "Yours Sincerely," opens its own closing block (rackingClosing).
   if (racking) {
@@ -603,7 +603,8 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   ${jobBoxes(di)}`;
 
   const gstRow = t.gstPercent > 0 ? `<tr><td class="l">GST ${escapeHtml(String(t.gstPercent))}%:</td><td class="v">${cash(t.gstAmount, t.currency)}</td></tr>` : '';
-  const discountRow = t.discountAmount > 0 ? `<tr><td class="l">Discount:</td><td class="v">(${cash(t.discountAmount, t.currency)})</td></tr>` : '';
+  // Racking prints its discount as "$150.00", like its old quotation; everyone else keeps the brackets.
+  const discountRow = t.discountAmount > 0 ? `<tr><td class="l">Discount:</td><td class="v">${racking ? cash(t.discountAmount, t.currency) : `(${cash(t.discountAmount, t.currency)})`}</td></tr>` : '';
   const L = BCAIR_DOC.totals;
   // Racking quotation: Total Amount, then (only when there is one) Goodwill Discount and the Final Amount.
   const rkFinal = t.discountAmount > 0 || t.gstPercent > 0;
@@ -612,7 +613,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
     : rkQuote
     ? `<div class="totals"><table>
     <tr><td class="l">Total Amount:</td><td class="v">${cash(t.displayNet + t.discountAmount, t.currency)}</td></tr>
-    ${t.discountAmount > 0 ? `<tr><td class="l">Goodwill Discount:</td><td class="v">(${cash(t.discountAmount, t.currency)})</td></tr>` : ''}${gstRow}
+    ${t.discountAmount > 0 ? `<tr><td class="l">Goodwill Discount:</td><td class="v">${cash(t.discountAmount, t.currency)}</td></tr>` : ''}${gstRow}
     ${rkFinal ? `<tr><td class="l">Final Amount:</td><td class="v">${cash(t.total, t.currency)}</td></tr>` : ''}
   </table></div>`
     : bc
@@ -657,7 +658,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
     ? `<div class="stamp"><img class="sigimg" src="${signature.image}" alt="" />Company Stamp &amp; Authorized Signature${signature.who ? `<div class="who">${signature.who}</div>` : ''}</div>`
     : '<div class="stamp">Company Stamp &amp; Authorized Signature</div>';
   // Signed by: the quotation's own field, else its salesperson (never a raw user id); title default Manager.
-  const rkSigner = first(di('signedBy'), /^user_/.test(salesNameOf(di)) ? '' : salesNameOf(di));
+  const rkSigner = first(di('signedBy'), salesNameOf(di));
   const rkClosing = `<div class="closing${signature ? ' signed' : ''}">
         <div class="rksig"><div>Yours Sincerely,</div><div class="scr">${escapeHtml(rkSigner) || '&nbsp;'}</div><div>${escapeHtml(first(di('signedByTitle'), 'Manager'))} of</div><div class="co">${escapeHtml(first(org?.name, data?.company?.name))}</div></div>
         ${stampHtml}

@@ -1,3 +1,4 @@
+import { salesPersonNameToSave } from '@/helpers/salesPersonName';
 /**
  * Document Data Transformer
  *
@@ -191,6 +192,10 @@ export function transformFormDataForBackend(
   if (result.salesPerson === undefined && formData.salesPerson !== undefined) {
     result.salesPerson = formData.salesPerson;
   }
+  // A salesman with no code is stored as their user id ("user_…"): save the name the picker resolved
+  // beside it, so server PDFs, sign links and emails print the name, not the id (2026-11-18, all orgs).
+  // A salesman CODE is left exactly as before (no name key added).
+  Object.assign(result, salesPersonNameToSave(result.salesPerson, formData?.documentInfo?.salesPersonName));
 
   // Persist the editable contact / "Attn To" fields (formData.attention) so they
   // survive REGARDLESS of template field-defs. QT (quotation) has NO

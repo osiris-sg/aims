@@ -54,7 +54,7 @@ describe('Racking quotation', () => {
   it('Goodwill Discount: Total Amount / Goodwill Discount / Final Amount', () => {
     const h = quote({ discountAmount: 200 });
     expect(h).toContain('Total Amount:</td><td class="v">$3,200.00');
-    expect(h).toContain('Goodwill Discount:</td><td class="v">($200.00)');
+    expect(h).toContain('Goodwill Discount:</td><td class="v">$200.00');
     expect(h).toContain('Final Amount:</td><td class="v">$3,000.00');
     expect(h).not.toMatch(/>Total:<|>Discount:</);
   });
@@ -115,7 +115,7 @@ describe('Racking invoice and DO', () => {
     expect(h).not.toContain('GST Reg No');
     expect(h).toContain('>INVOICE</div>');
     expect(h).not.toContain('TAX INVOICE');
-    expect(h).toContain('Discount:');
+    expect(h).toContain('Discount:</td><td class="v">$200.00</td>');
     expect(h).toContain('<div class="hd">PAYMENT METHOD:</div>');
     expect(h).toContain('<div class="hd">TERMS &amp; CONDITIONS:</div>');
     expect(h).not.toContain('Terms and Conditions:');

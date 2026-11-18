@@ -53,6 +53,12 @@ const variants: Record<string, any> = {
   noTax: { documentInfo: { ...base().documentInfo, taxApplicable: 'N' } },
   signed: { config: { clientSignature: { image: SIG, name: 'Tan', signedAt: '2026-11-18T09:00:00+08:00' } } },
   remarks: { remarks: 'Remark line' },
+  // Salesperson shapes (2026-11-18): a code (with / without the editor's name) must print as before; a user id
+  // (with / without a name) is the only shape allowed to change.
+  salesCode: { documentInfo: { ...base().documentInfo, salesPersonName: undefined, salesPerson: 'S004' } },
+  salesCodeNamed: { documentInfo: { ...base().documentInfo, salesPerson: 'S004' } },
+  salesId: { documentInfo: { ...base().documentInfo, salesPersonName: undefined, salesPerson: 'user_3Ld8L6i0KO2BXMybjx5mYkWUdoh' } },
+  salesIdNamed: { documentInfo: { ...base().documentInfo, salesPerson: 'user_3Ld8L6i0KO2BXMybjx5mYkWUdoh' } },
 };
 const types = ['QUOTATION', 'INVOICE', 'DELIVERY_ORDER', 'CREDIT_NOTE'];
 
