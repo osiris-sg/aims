@@ -37,6 +37,16 @@ export class DeliveriesController {
     private readonly orderJobs: OrderJobsService,
   ) {}
 
+  /**
+   * Calendar people list (calendar style orgs, 2026-11-19): the office user who made a job is stored as its creator.
+   * Every other org: only the flag is read. Returns the created job as the service gave it.
+   */
+  private async withCreator<T>(organizationId: string, req: ClerkRequest, out: T): Promise<T> {
+    const id = (out as any)?.id;
+    if (typeof id === 'string') await this.service.stampCreator(organizationId, id, req.user?.id ?? null);
+    return out;
+  }
+
   @Post()
   @UseInterceptors(IdempotencyInterceptor) // Idempotency-Key: a resent request runs once
   @Permissions('maintenance-reports:create')
@@ -54,8 +64,8 @@ export class DeliveriesController {
   // reserved). Same office persona as link/create-do.
   @Post('scheduled')
   @Permissions('documents:create-basic')
-  createScheduled(@Body() dto: ScheduleDeliveryDto, @UserOrganization() org: { id: string }) {
-    return this.service.createScheduled(dto, org.id);
+  async createScheduled(@Body() dto: ScheduleDeliveryDto, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    return this.withCreator(org.id, req, await this.service.createScheduled(dto, org.id));
   }
 
   // Office: edit a still-scheduled delivery run (same form, prefilled). Rejected
@@ -66,16 +76,17 @@ export class DeliveriesController {
     @Param('id') id: string,
     @Body() dto: ScheduleDeliveryDto,
     @UserOrganization() org: { id: string },
+    @Req() req: ClerkRequest,
   ) {
-    return this.service.updateScheduled(id, dto, org.id);
+    return this.service.updateScheduled(id, dto, org.id, req.user?.id ?? null);
   }
 
   // Office: pre-create a scheduled RETURN run for specific units. No document is
   // created (RDO minted at completion only) and nothing is reserved.
   @Post('scheduled-return')
   @Permissions('documents:create-basic')
-  createScheduledReturn(@Body() dto: ScheduleReturnDto, @UserOrganization() org: { id: string }) {
-    return this.service.createScheduledReturn(dto, org.id);
+  async createScheduledReturn(@Body() dto: ScheduleReturnDto, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    return this.withCreator(org.id, req, await this.service.createScheduledReturn(dto, org.id));
   }
 
   // Field: a rider claims a scheduled run by scanning a matching unit — binds +
@@ -217,8 +228,8 @@ export class DeliveriesController {
   // "Add job" on a DO: a draft job for the calendar / a technician, linked to that DO.
   @Post('order-dos/:doId/job')
   @Permissions('documents:create-basic')
-  addJobForDo(@Param('doId') doId: string, @UserOrganization() org: { id: string }) {
-    return this.service.createJobForDo(org.id, doId);
+  async addJobForDo(@Param('doId') doId: string, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    return this.withCreator(org.id, req, await this.service.createJobForDo(org.id, doId));
   }
 
   // "Complete DO" on a DO with no job. Body { mode: signature | stamped_do | sign_link, signature?, recipientName?, files? }.
@@ -246,8 +257,8 @@ export class DeliveriesController {
 
   @Post('quick-job')
   @Permissions('documents:create-basic')
-  createQuickJob(@Body() body: any, @UserOrganization() org: { id: string }) {
-    return this.service.createQuickJob(org.id, body);
+  async createQuickJob(@Body() body: any, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    return this.withCreator(org.id, req, await this.service.createQuickJob(org.id, body));
   }
 
   // New job with a Quotation (2026-11-17): the form's server-side quotation search (GET, so the Activity Log

@@ -2,7 +2,7 @@
  * Jobs calendar style (WCT group, 2026-11-18, flag enableCalendarStyle).
  * Google Calendar-like chips: fill = the job's salesperson's colour, a slim
  * left bar = the PTW applicant's colour (no bar when no PTW is needed), and
- * icons for PTW status, DOs, cancelled / postponed, COD; Leave notes get 📅.
+ * icons for PTW status, DOs, cancelled / postponed, COD, 📌 Generate sticker; Leave notes get 📅.
  * Cancelled and postponed jobs stay on the calendar, greyed out.
  *
  * Colours are per person per org (UserOrganization.settings.calendar, edited
@@ -49,6 +49,7 @@ export const ICON = {
   postponed: '⭕',
   leave: '📅',
   cod: '🟫',
+  sticker: '📌',
 } as const;
 
 /** The legend: icons only, no people colours. */
@@ -61,6 +62,7 @@ export const CALENDAR_STYLE_LEGEND: Array<{ icon: string; label: string }> = [
   { icon: ICON.postponed, label: 'Postponed' },
   { icon: ICON.leave, label: 'Leave' },
   { icon: ICON.cod, label: 'COD' },
+  { icon: ICON.sticker, label: 'Generate sticker' },
 ];
 
 /** Category title prefixes (job category list, deliveries/job-category.ts). */
@@ -158,6 +160,8 @@ export interface StyleInput {
   category: string | null;
   salespersonId: string | null;
   ptwApplicantId: string | null;
+  /** "Generate sticker" ticked on the job (2026-11-19): 📌. */
+  sticker?: boolean;
 }
 
 export interface EventStyle {
@@ -198,6 +202,7 @@ export function styleOf(i: StyleInput, colours: CalendarColours): EventStyle {
   const d = doIcon(i.doCount);
   if (d) icons.push({ icon: d, label: i.doCount > 1 ? `${i.doCount} DOs completed` : 'DO completed' });
   if (i.cod) icons.push({ icon: ICON.cod, label: 'COD' });
+  if (i.sticker) icons.push({ icon: ICON.sticker, label: 'Generate sticker' });
   return { fill, text: textOn(fill), bar, icons, greyed: i.cancelled || i.postponed, prefix: categoryPrefix(i.category) };
 }
 
@@ -216,4 +221,32 @@ export function quotationSalesmanCode(config: any): string | null {
 export function salespersonFromCode(code: string | null, codes: Map<string, string>): string | null {
   if (!code) return null;
   return codes.get(code.toUpperCase()) ?? null;
+}
+
+/**
+ * The calendar's people list (2026-11-19, WCT group): people with no salesperson colour yet get an automatic one,
+ * distinct from every colour in use, in name order (stable from load to load). A colour picked in Settings > Job
+ * fields > Calendar colours replaces it.
+ */
+export const AUTO_PALETTE = ['#33b679', '#f09300', '#9e69af', '#c0ca33', '#4285f4', '#e4c441', '#616161', '#a79b8e', '#00897b', '#d81b60', '#5d4037', '#7cb342'] as const;
+
+export interface PanelPerson {
+  id: string;
+  name: string;
+  colour: string;
+  /** true = an automatic colour (none picked in Settings yet). */
+  auto: boolean;
+}
+
+export function panelPeople(people: Array<{ id: string; name: string }>, fills: Record<string, string>): PanelPerson[] {
+  const sorted = [...people].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  const used = new Set(Object.values(fills).map((c) => c.toLowerCase()));
+  const free = AUTO_PALETTE.filter((c) => !used.has(c));
+  let n = 0;
+  return sorted.map((p) => {
+    const fill = fills[p.id];
+    if (fill) return { id: p.id, name: p.name, colour: fill, auto: false };
+    const pool = free.length ? free : AUTO_PALETTE;
+    return { id: p.id, name: p.name, colour: pool[n++ % pool.length], auto: true };
+  });
 }

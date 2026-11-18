@@ -66,10 +66,24 @@ const STYLE_EVENTS: CalendarEvent[] = [
   aims("y5", "delivery", 45, "Raffles City", 6, 11, 60, { status: "cancelled", statusLabel: "Cancelled", cancelled: true, style: st("#3f51b5", null, [icon("❌", "Cancelled")], { greyed: true }) }),
   aims("y6", "service", 46, "Tampines Hub", 6, 14, 60, { statusLabel: "Postponed", postponed: true, category: "Meeting", style: st("#039be5", null, [icon("⭕", "Postponed")], { greyed: true, prefix: "(M)" }) }),
   aims("y7", "service", 47, "BC Air: Paya Lebar", 10, 10, 60, { orgId: "c", orgName: "BC Air", foreign: true, category: "Collect cheque", style: st("#8e24aa", null, [], { prefix: "(CC)" }) }),
+  aims("y8", "service", 48, "Sheng Siong (Bedok)", 19, 9, 120, { salesperson: { id: "u2", name: "Amy Yap" }, sticker: true, style: st("#8e24aa", null, [icon("📌", "Generate sticker")]) }),
+  aims("y9", "delivery", 49, "Changi City Point", 19, 0, 0, { allDay: true, start: "2026-11-19", end: null, salesperson: { id: "u1", name: "Nat HH" }, style: st("#039be5", null, []) }),
+  aims("y10", "service", 50, "Woodlands Civic Centre", 20, 14, 60, { salesperson: { id: "u1", name: "Nat HH" }, ptwApplicant: { id: "b", name: "Bala" }, sticker: true, style: st("#039be5", "#d50000", [icon("✋", "PTW pending"), icon("📌", "Generate sticker")]) }),
+].map((e, i) => (e.foreign ? e : { ...e, createdBy: i % 3 === 0 ? { id: "u1", name: "Nat HH" } : i % 3 === 1 ? { id: "u2", name: "Amy Yap" } : null }));
+// People list (2026-11-19): creators + the Sales people, with their colours (Joyna: automatic colour).
+const STYLE_PEOPLE = [
+  { id: "u2", name: "Amy Yap", colour: "#8e24aa", auto: false },
+  { id: "j", name: "Joyna Chua", colour: "#33b679", auto: true },
+  { id: "u1", name: "Nat HH", colour: "#039be5", auto: false },
+  { id: "u3", name: "Rave Ng", colour: "#e67c73", auto: false },
 ];
-const STYLE_LEGEND = [icon("✋", "PTW pending"), icon("👍", "PTW approved"), icon("👎", "PTW rejected"), icon("✅", "DO completed"), icon("❌", "Cancelled"), icon("⭕", "Postponed"), icon("📅", "Leave"), icon("🟫", "COD")];
+const STYLE_NOTES = [
+  { ...NOTES[0], startDate: "2026-11-18", endDate: "2026-11-20", createdBy: { id: "j", name: "Joyna Chua" } },
+  { ...NOTES[1], startDate: "2026-11-19", endDate: "2026-11-19", createdBy: null },
+];
+const STYLE_LEGEND = [icon("✋", "PTW pending"), icon("👍", "PTW approved"), icon("👎", "PTW rejected"), icon("✅", "DO completed"), icon("❌", "Cancelled"), icon("⭕", "Postponed"), icon("📅", "Leave"), icon("🟫", "COD"), icon("📌", "Generate sticker")];
 
-export default function PreviewClient({ mode, view, cancelled, down, add = false, styled = false, hq = false }: { mode: "light" | "dark"; view: "dayGridMonth" | "timeGridWeek" | "timeGridDay"; cancelled: boolean; down: boolean; add?: boolean; styled?: boolean; hq?: boolean }) {
+export default function PreviewClient({ mode, view, cancelled, down, add = false, styled = false, hq = false }: { mode: "light" | "dark"; view: "dayGridMonth" | "timeGridWeek" | "timeGridDay" | "schedule"; cancelled: boolean; down: boolean; add?: boolean; styled?: boolean; hq?: boolean }) {
   const theme = useMemo(() => createTheme({ palette: { mode } }), [mode]);
   const [showCancelled, setShowCancelled] = useState(cancelled);
   const [adding, setAdding] = useState<{ kind: "job" | "note"; slot: { date: string; time: string } } | null>(null);
@@ -81,8 +95,8 @@ export default function PreviewClient({ mode, view, cancelled, down, add = false
       timezone: "Asia/Singapore",
       events: styled ? STYLE_EVENTS : [...(down ? EVENTS.filter((e) => e.source === "aims") : EVENTS), ...(add ? ADD_EVENTS : [])],
       siteclock: { state: down ? "unavailable" : "ok" },
-      ...(add ? { notes: NOTES } : {}),
-      ...(styled ? { style: { legend: STYLE_LEGEND } } : {}),
+      ...(add ? { notes: styled ? STYLE_NOTES : NOTES } : {}),
+      ...(styled ? { style: { legend: STYLE_LEGEND }, people: STYLE_PEOPLE, group: { orgs: [{ id: "p", name: "WCT (S)" }, { id: "c", name: "BC Air" }, { id: "r", name: "Racking" }] } } : {}),
       ...(hq ? { hqView: true } : {}),
     }),
     [down, add, styled, hq],

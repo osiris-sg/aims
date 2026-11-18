@@ -3,7 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { displayNameOf, primaryEmailOf } from '../users/users.service';
 import { isCalendarStyleEnabled } from '../deliveries/job-style';
-import { BAR_PALETTE, CalendarColours, FILL_PALETTE, NEUTRAL_FILL, colourClash, coloursOf, normHex, personSettingsOf } from './calendar-style';
+import { BAR_PALETTE, CalendarColours, FILL_PALETTE, NEUTRAL_FILL, PanelPerson, colourClash, coloursOf, normHex, panelPeople, personSettingsOf } from './calendar-style';
 
 export interface CalendarPerson {
   id: string;
@@ -131,6 +131,19 @@ export class CalendarStyleService {
       });
     }
     return this.settings(organizationId);
+  }
+
+  /**
+   * The calendar's people list (2026-11-19): everyone who made a job or a note in the org, plus every Sales member
+   * (even with none yet), each with their salesperson colour or an automatic one. Names from Clerk; a person Clerk
+   * no longer knows shows as "Former user".
+   */
+  async panel(organizationId: string, creatorIds: Iterable<string>): Promise<PanelPerson[]> {
+    const members = await this.members(organizationId);
+    const ids = new Set<string>([...creatorIds].filter(Boolean));
+    for (const m of members) if (isSalesMember(m)) ids.add(m.userId);
+    const names = await this.names(ids);
+    return panelPeople([...ids].map((id) => ({ id, name: names.get(id)?.name ?? 'Former user' })), coloursOf(members).fill);
   }
 
   /**

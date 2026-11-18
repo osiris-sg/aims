@@ -18,6 +18,8 @@ export interface CalendarNoteView {
   orgId?: string;
   orgName?: string;
   foreign?: true;
+  /** Calendar style (WCT group): who added the note (null = not recorded). Absent for every other org. */
+  createdBy?: { id: string; name: string | null } | null;
 }
 
 const SELECT = { id: true, title: true, type: true, staffId: true, staffName: true, startDate: true, endDate: true, allDay: true, startTime: true, endTime: true, remark: true };
@@ -44,6 +46,19 @@ export class CalendarNotesService {
       select: SELECT,
       orderBy: [{ startDate: 'asc' }, { title: 'asc' }],
     });
+  }
+
+  /** Calendar people list: who added each note (noteId -> userId; notes with none are left out). */
+  async creators(organizationId: string, ids: string[]): Promise<Map<string, string>> {
+    if (!ids.length) return new Map();
+    const rows = await this.prisma.calendarNote.findMany({ where: { organizationId, id: { in: ids }, createdById: { not: null } }, select: { id: true, createdById: true } });
+    return new Map(rows.map((r) => [r.id, r.createdById as string]));
+  }
+
+  /** Calendar people list: everyone who has added a note in the org. */
+  async creatorIds(organizationId: string): Promise<string[]> {
+    const rows = await this.prisma.calendarNote.findMany({ where: { organizationId, createdById: { not: null } }, select: { createdById: true }, distinct: ['createdById'] });
+    return rows.map((r) => r.createdById as string);
   }
 
   async create(organizationId: string, userId: string | null, body: any): Promise<CalendarNoteView> {

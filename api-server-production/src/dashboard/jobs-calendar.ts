@@ -167,6 +167,10 @@ export interface CalendarEvent {
   cod?: boolean;
   postponed?: boolean;
   doCount?: number;
+  /** Calendar style: "Generate sticker" ticked (📌). */
+  sticker?: boolean;
+  /** Calendar style: who made the job (null = not recorded: made before 19 Nov 2026, or by the system). */
+  createdBy?: { id: string; name: string | null } | null;
 }
 
 /** Group calendar: an item of another org the viewer may not open loses every link (numbers and details stay). */

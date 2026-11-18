@@ -67,7 +67,7 @@ import { plannedRiderView, savePlannedRider } from './planned-rider';
 import { CompletionMode, WCT_FINISH_MODES_FLAG, finishModeProblem, initialVerification, isCompletionMode } from './finish-modes';
 import { checkJobFieldValues, isJobFieldsEnabled, jobFieldDefs, jobFieldValues, saveJobFieldValues } from './job-fields';
 import { jobCategoryDef, jobCategoryValues, parseCategory, saveJobCategory as storeJobCategory } from './job-category';
-import { EMPTY_JOB_STYLE, defaultPtwApplicant, hasJobStylePatch, isCalendarStyleEnabled, jobStyleValues, parseJobStylePatch, saveJobStyle, withStampedApplicant } from './job-style';
+import { EMPTY_JOB_STYLE, defaultPtwApplicant, hasJobStylePatch, isCalendarStyleEnabled, jobStyleValues, parseJobStylePatch, saveJobStyle, stampJobCreator, withStampedApplicant } from './job-style';
 import { runNoun } from './job-wording';
 import { wctBrandStamp } from '../maintenance-reports/wct-brand';
 import { withRunLease } from './run-lease';
@@ -1215,6 +1215,18 @@ export class DeliveriesService {
   }
 
   /**
+   * Calendar people list (calendar style orgs, deliveries/job-style.ts): record who made a job. Never fails the
+   * save that called it; every other org: nothing is read or written past the flag check.
+   */
+  async stampCreator(organizationId: string, deliveryId: string | null | undefined, actorId: string | null | undefined): Promise<void> {
+    try {
+      await stampJobCreator(this.prisma, organizationId, deliveryId, actorId);
+    } catch (err: any) {
+      this.logger.warn(`stampCreator ${deliveryId}: ${err?.message}`);
+    }
+  }
+
+  /**
    * Store a job's calendar style fields, stamping the org's default PTW
    * applicant when the job needs a PTW and has none (stored on the job, so a
    * later change of the default never recolours it). Writes nothing when
@@ -2197,7 +2209,8 @@ export class DeliveriesService {
    * because bound units + in-flight proof can't be safely swapped. Replaces the
    * item set and REGENERATES the born-linked draft DO from the new form.
    */
-  async updateScheduled(id: string, dto: ScheduleDeliveryDto, organizationId: string) {
+  /** actorId: the office user saving (a draft they first put on the calendar records them as its creator). */
+  async updateScheduled(id: string, dto: ScheduleDeliveryDto, organizationId: string, actorId?: string | null) {
     const sched = await this.scheduleOf(dto.scheduledFor, dto.scheduledAllDay, organizationId);
     const run = await this.prisma.delivery.findFirst({
       where: { id, organizationId },
@@ -2427,6 +2440,9 @@ export class DeliveriesService {
     await this.siteclock?.onScheduleSaved(organizationId, id, siteclockInput(dto));
     // WCT orders: promoting a draft job (or saving one back to draft) moves the order.
     if (run.orderId) await refreshOrderStatus(this.prisma, organizationId, run.orderId);
+    // Calendar people list (calendar style orgs): a draft put on the calendar by a person, e.g. one the system made
+    // when a quotation was accepted, records that person as its creator (a job with a creator keeps it).
+    if (run.isDraft && !willBeDraft) await this.stampCreator(organizationId, id, actorId);
 
     return this.prisma.delivery.findUniqueOrThrow({ where: { id }, include: { items: true } });
   }

@@ -128,6 +128,8 @@ export interface JobStyleForm {
   salesperson: { id: string; name: string } | null;
   ptwApplicant: { id: string; name: string } | null;
   cod: boolean;
+  /** "Generate sticker" (2026-11-19): 📌 on the calendar. */
+  sticker?: boolean;
 }
 
 /** The form → the API body, or a message saying what is missing. */
@@ -149,7 +151,7 @@ export function quickJobBody(f: QuickJobForm): { body?: Record<string, any>; err
       ptwRemark: f.ptwStatus === "NOT_NEEDED" ? "" : f.ptwRemark.trim(),
       ...(f.quotationId ? { quotationId: f.quotationId, ...(f.doId ? { doId: f.doId } : {}) } : {}),
       ...(f.category ? { category: f.category } : {}),
-      ...(f.style ? { salesperson: f.style.salesperson, ptwApplicant: f.style.ptwApplicant, cod: f.style.cod } : {}),
+      ...(f.style ? { salesperson: f.style.salesperson, ptwApplicant: f.style.ptwApplicant, cod: f.style.cod, sticker: !!f.style.sticker } : {}),
     },
   };
 }

@@ -11,7 +11,8 @@ import { CalendarNoteView, CalendarNotesService } from './calendar-notes.service
 import { CalendarStyleService } from './calendar-style.service';
 import { resolveSalespersonIds, salespersonAliases } from '../sales-report/salesperson-resolver';
 import { CALENDAR_STYLE_LEGEND, CalendarColours, StyleInput, mergeColours, quotationSalesmanCode, salespersonFromCode, styleOf } from './calendar-style';
-import { jobStyleValues } from '../deliveries/job-style';
+import { jobCreatorIds, jobStyleValues } from '../deliveries/job-style';
+import type { PanelPerson } from './calendar-style';
 import { isCompletedDo } from './calendar-style';
 
 export const JOBS_CALENDAR_FLAG = 'enableJobsCalendar';
@@ -53,6 +54,12 @@ export interface JobsCalendarResponse {
   siteclockJobsHidden?: true;
   /** calendarHqView on: the portal offers the Salesperson filter (absent otherwise). */
   hqView?: true;
+  /**
+   * Calendar style (WCT group, 2026-11-19): the people list beside the calendar. Everyone who made a job or note in
+   * this org plus every Sales member, with their colour. Each own-org event / note carries `createdBy`; unticking a
+   * person hides what they created. Absent for every other org.
+   */
+  people?: PanelPerson[];
 }
 
 /** Calendar style for one org's part: on, plus (group calendar child) the parent's colours, which win. */
@@ -92,10 +99,20 @@ export class JobsCalendarService {
       groupReadScope(this.prisma, organizationId, 'jobsCalendar'),
     ]);
     const hq = await isOrgFeatureEnabled(this.prisma, organizationId, CALENDAR_HQ_VIEW_FLAG);
-    const withHq = (r: JobsCalendarResponse): JobsCalendarResponse => (hq ? { ...r, hqView: true } : r);
+    const people = styleOn ? await this.people(organizationId) : null;
+    const withHq = (r: JobsCalendarResponse): JobsCalendarResponse => {
+      const out = hq ? { ...r, hqView: true as const } : r;
+      return people ? { ...out, people } : out;
+    };
     // Gate off (or no children): exactly the org's own calendar.
     if (!scope.group) return withHq(own);
     return withHq(await this.withGroup(organizationId, own, scope.orgs, from, to, viewer?.userId ?? null, styleOn ? { parent: ownColours } : null, hideSc));
+  }
+
+  /** Calendar style: the people list (job and note creators of this org, plus its Sales members). */
+  private async people(organizationId: string): Promise<PanelPerson[]> {
+    const [jobs, notes] = await Promise.all([jobCreatorIds(this.prisma, organizationId), this.notes ? this.notes.creatorIds(organizationId) : Promise.resolve([] as string[])]);
+    return this.style!.panel(organizationId, new Set([...jobs, ...notes]));
   }
 
   /**
@@ -208,9 +225,19 @@ export class JobsCalendarService {
       }
     }
     let events = buildCalendarEvents(runs, links, sc.jobs, { aimsOnly: hideSc });
+    let shownNotes = notes;
     if (style) {
       const colours = mergeColours(ownColours ?? (await this.style!.colours(organizationId)), style.parent);
       events = await this.styled(organizationId, events, runs as any[], ptwOf, quotationIds, colours);
+      // Calendar people list: who added each note.
+      if (notes?.length && this.notes) {
+        const by = await this.notes.creators(organizationId, notes.map((n) => n.id));
+        const names = await this.style!.names(new Set(by.values()));
+        shownNotes = notes.map((n) => {
+          const id = by.get(n.id) ?? null;
+          return { ...n, createdBy: id ? { id, name: names.get(id)?.name ?? null } : null };
+        });
+      }
     }
     return {
       from,
@@ -219,7 +246,7 @@ export class JobsCalendarService {
       events,
       siteclock: sc.status,
       ...(legend ? { legend } : {}),
-      ...(notes ? { notes } : {}),
+      ...(shownNotes ? { notes: shownNotes } : {}),
       ...(style ? { style: { legend: CALENDAR_STYLE_LEGEND } } : {}),
       ...(hideSc ? { siteclockJobsHidden: true as const } : {}),
     };
@@ -267,6 +294,8 @@ export class JobsCalendarService {
       if (s) people.add(s);
       const a = meta.get(id)?.ptwApplicantId;
       if (a) people.add(a);
+      const c = meta.get(id)?.createdById;
+      if (c) people.add(c);
     }
     const names = await this.style!.names(people);
     const nameOf = (id: string | null, stored: string | null | undefined) => (id ? names.get(id)?.name ?? stored ?? null : null);
@@ -275,7 +304,7 @@ export class JobsCalendarService {
       const runId = e.source === 'aims' && e.id.startsWith('aims:') ? e.id.slice(5) : null;
       if (!runId) {
         const input: StyleInput = { cancelled: e.cancelled, postponed: false, ptwStatus: null, doCount: 0, cod: false, category: null, salespersonId: null, ptwApplicantId: null };
-        return { ...e, style: styleOf(input, colours) };
+        return { ...e, style: styleOf(input, colours), createdBy: null };
       }
       const m = meta.get(runId);
       const ptwStatus = ptwOf.get(runId) ?? null;
@@ -294,6 +323,7 @@ export class JobsCalendarService {
         category: e.category ?? null,
         salespersonId,
         ptwApplicantId: applicantId,
+        sticker: !!m?.sticker,
       };
       const salesName = nameOf(salespersonId, m?.salespersonId === salespersonId ? m?.salespersonName : null);
       const applicantName = nameOf(applicantId, m?.ptwApplicantName);
@@ -305,6 +335,8 @@ export class JobsCalendarService {
         doCount: input.doCount,
         salesperson: salespersonId ? { id: salespersonId, name: salesName } : null,
         ptwApplicant: applicantId ? { id: applicantId, name: applicantName } : null,
+        ...(m?.sticker ? { sticker: true } : {}),
+        createdBy: m?.createdById ? { id: m.createdById, name: names.get(m.createdById)?.name ?? null } : null,
         style: styleOf(input, colours),
       };
     });

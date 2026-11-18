@@ -22,8 +22,13 @@
 // Calendar style (2026-11-18, enableCalendarStyle, WCT group incl. child items): Google Calendar-like chips, fill =
 // the salesperson's colour, a slim left bar = the PTW applicant's (no bar without a PTW), line 1 icons + title,
 // line 2 the time range; cancelled / postponed greyed, never hidden; Leave notes lead with 📅.
+// Schedule view (2026-11-19, calendar style orgs): "Schedule" next to Month / Week / Day, a month at a time as a list
+// grouped by date (date badge on the left; each row time, dot, icons, title, site). It shows the same (filtered)
+// items, opens on today and a click opens the same side panel. FullCalendar keeps the toolbar and paging; the list is
+// our own, rendered into the custom view's element (a stable host node, through a React portal).
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import timeGridPlugin from "@fullcalendar/timegrid";
@@ -31,7 +36,7 @@ import luxonPlugin from "@fullcalendar/luxon3";
 import interactionPlugin, { type DateClickArg } from "@fullcalendar/interaction";
 import type { DatesSetArg, EventClickArg, EventContentArg, EventDropArg } from "@fullcalendar/core";
 import JobFieldIcon from "@/components/jobFields/JobFieldIcon";
-import { Box, Button, Chip, Dialog, DialogActions, DialogTitle, Divider, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Popover, Stack, Typography } from "@mui/material";
+import { Box, Button, ButtonBase, Chip, Dialog, DialogActions, DialogTitle, Divider, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Popover, Stack, Typography } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import WorkOutlineIcon from "@mui/icons-material/WorkOutline";
@@ -42,7 +47,7 @@ import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
-import { CALENDAR_TZ, badgeTitle, chipIcons, chipTimeRange, crewLine, crossOrgTarget, kindLabel, orgLabel, panelColor, panelLinks, panelMoreLink, panelRefs, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag } from "./calendarModel";
+import { CALENDAR_TZ, badgeTitle, chipIcons, chipTimeRange, crewLine, crossOrgTarget, dayOfInstant, kindLabel, orgLabel, panelColor, panelLinks, panelMoreLink, panelRefs, rangeOf, scheduleBadge, scheduleDays, scheduleScrollDay, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag, type ScheduleDay, type ScheduleRow } from "./calendarModel";
 import DoStatusTag from "@/components/DoStatusTag";
 
 interface Props {
@@ -51,7 +56,7 @@ interface Props {
   onRange: (startStr: string, endStr: string) => void;
   /** Fixture previews only: open on this day / view instead of today / month. */
   initialDate?: string;
-  initialView?: "dayGridMonth" | "timeGridWeek" | "timeGridDay";
+  initialView?: "dayGridMonth" | "timeGridWeek" | "timeGridDay" | "schedule";
   /** WCT (enableWctOrders): "Job" wording. */
   jobWords?: boolean;
   /** WCT: a click opens the job in the side panel; "+n more" lists the day there. */
@@ -67,7 +72,11 @@ interface Props {
   onMove?: (event: CalendarEvent, date: string) => Promise<void>;
   /** Calendar style (enableCalendarStyle): Leave notes lead with 📅 (the jobs carry their own style). */
   styled?: boolean;
+  /** Calendar style orgs (2026-11-19): the "Schedule" view next to Month / Week / Day. */
+  schedule?: boolean;
 }
+
+export const SCHEDULE_VIEW = "schedule";
 
 export default function CalendarView({
   events,
@@ -84,9 +93,50 @@ export default function CalendarView({
   onNoteClick,
   onMove,
   styled = false,
+  schedule = false,
 }: Props) {
   const theme = useTheme();
   const [viewType, setViewType] = useState<string>(initialView);
+  // Schedule view: FullCalendar's range on screen and the host node the list renders into.
+  const [visible, setVisible] = useState<{ from: string; to: string } | null>(null);
+  const [scheduleHost] = useState<HTMLDivElement | null>(() => {
+    if (typeof document === "undefined") return null;
+    const el = document.createElement("div");
+    el.style.height = "100%";
+    return el;
+  });
+  const scheduleViews = useMemo(
+    () =>
+      schedule && scheduleHost
+        ? { [SCHEDULE_VIEW]: { content: () => ({ domNodes: [scheduleHost] }), duration: { months: 1 }, buttonText: "Schedule" } }
+        : undefined,
+    [schedule, scheduleHost],
+  );
+  // The people list opening / closing beside the calendar changes its width, not the window's: FullCalendar only
+  // re-measures on window resize, so watch the box itself.
+  const calRef = useRef<FullCalendar | null>(null);
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let last = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === last) return;
+      last = el.clientWidth;
+      calRef.current?.getApi().updateSize();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const onScheduleRow = (row: ScheduleRow, pos: { left: number; top: number }) => {
+    if (row.note) {
+      if (row.note.foreign) return setNoteView({ pos, note: row.note });
+      return onNoteClick?.(row.note);
+    }
+    if (!row.event) return;
+    if (openOnClick) return setPanel({ event: row.event, day: null });
+    setOpen({ pos, event: row.event });
+  };
   const [open, setOpen] = useState<{ pos: { left: number; top: number }; event: CalendarEvent } | null>(null);
   // Group calendar: a child org's note (read only) and a confirmed switch into a child org.
   const [noteView, setNoteView] = useState<{ pos: { left: number; top: number }; note: CalendarNote & GroupTag } | null>(null);
@@ -130,6 +180,7 @@ export default function CalendarView({
   const border = theme.palette.divider;
   return (
     <Box
+      ref={boxRef}
       data-tour="jobs-calendar"
       sx={{
         // FullCalendar reads its colours from these variables; tie them to the MUI theme so both modes work.
@@ -160,25 +211,28 @@ export default function CalendarView({
         // Calendar style: cancelled / postponed stay, greyed out.
         "& .aims-jc-greyed": { opacity: 0.45, filter: "grayscale(0.9)" },
         "& .aims-jc-styled .fc-event-main": { padding: 0 },
+        "& .fc-schedule-view": { height: "100%" },
         "@media (max-width: 600px)": { "& .fc .fc-toolbar": { flexDirection: "column", gap: 1 } },
       }}
     >
       <FullCalendar
+        ref={calRef}
         plugins={[dayGridPlugin, timeGridPlugin, luxonPlugin, interactionPlugin]}
         dateClick={canAdd ? onDateClick : undefined}
         eventOrder="displayOrder,start,-duration,allDay,title"
         timeZone={CALENDAR_TZ}
         initialView={initialView}
         initialDate={initialDate}
-        headerToolbar={{ left: "prev,next today", center: "title", right: "dayGridMonth,timeGridWeek,timeGridDay" }}
-        buttonText={{ today: "Today", month: "Month", week: "Week", day: "Day" }}
+        headerToolbar={{ left: "prev,next today", center: "title", right: `dayGridMonth,timeGridWeek,timeGridDay${scheduleViews ? `,${SCHEDULE_VIEW}` : ""}` }}
+        views={scheduleViews}
+        buttonText={{ today: "Today", month: "Month", week: "Week", day: "Day", ...(scheduleViews ? { [SCHEDULE_VIEW]: "Schedule" } : {}) }}
         firstDay={1}
         dayMaxEvents={4}
         // Month: filled blocks so the source colours read at a glance, page-high.
         // Week / Day: a fixed-height grid that opens at 07:00 and scrolls for night jobs.
         eventDisplay="block"
         // WCT's dashboard is the calendar alone: it fills the screen in every view.
-        height={fullHeight ? "calc(100vh - 210px)" : viewType === "dayGridMonth" ? "auto" : 760}
+        height={fullHeight ? "calc(100vh - 210px)" : viewType === "dayGridMonth" ? "auto" : viewType === SCHEDULE_VIEW ? 640 : 760}
         nowIndicator
         scrollTime="07:00:00"
         eventTimeFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
@@ -217,9 +271,18 @@ export default function CalendarView({
         }}
         datesSet={(arg: DatesSetArg) => {
           setViewType(arg.view.type);
+          setVisible(rangeOf(arg.startStr, arg.endStr));
           onRange(arg.startStr, arg.endStr);
         }}
       />
+
+      {/* Schedule view: the list, rendered into the custom view's host node. */}
+      {scheduleHost &&
+        viewType === SCHEDULE_VIEW &&
+        createPortal(
+          <ScheduleList events={events} notes={notes} range={visible} showCancelled={showCancelled} byPtw={openOnClick} onRow={onScheduleRow} />,
+          scheduleHost,
+        )}
 
       {/* WCT: the details panel on the right (stays until closed or another job is clicked). */}
       {openOnClick && panel && (
@@ -463,6 +526,8 @@ function EventCard({
       )}
       {e.style && <Row label="Salesperson">{e.salesperson?.name || "None"}</Row>}
       {e.style && e.ptwApplicant && <Row label="PTW applicant">{e.ptwApplicant.name || "Unknown"}</Row>}
+      {/* People list (2026-11-19): who made the job (own company's jobs; "Unknown" when not recorded). */}
+      {e.style && e.createdBy !== undefined && !e.foreign && <Row label="Created by">{e.createdBy?.name || "Unknown"}</Row>}
       <Row label="Status">
         <Chip
           size="small"
@@ -658,6 +723,139 @@ function StyledChip({ event: e }: { event: CalendarEvent }) {
         </Box>
         <Box sx={{ fontSize: "0.7rem", opacity: 0.9, whiteSpace: "nowrap", overflow: "hidden" }}>{chipTimeRange(e)}</Box>
       </Box>
+    </Box>
+  );
+}
+
+
+/**
+ * Schedule view (2026-11-19): the month as a list grouped by date. Date badge on the left (today circled), rows on the
+ * right: time (or All day), coloured dot, icons, title, site. Opens scrolled to today (or the next day with items)
+ * when the month on screen holds today; another month opens at its top.
+ */
+function ScheduleList({
+  events,
+  notes,
+  range,
+  showCancelled,
+  byPtw,
+  onRow,
+}: {
+  events: CalendarEvent[];
+  notes?: Array<CalendarNote & GroupTag>;
+  range: { from: string; to: string } | null;
+  showCancelled: boolean;
+  byPtw: boolean;
+  onRow: (row: ScheduleRow, pos: { left: number; top: number }) => void;
+}) {
+  const days: ScheduleDay[] = useMemo(() => scheduleDays(events, notes, range, { showCancelled, byPtw }), [events, notes, range, showCancelled, byPtw]);
+  const today = dayOfInstant(new Date());
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const scrolledFor = useRef("");
+  const rangeKey = range ? `${range.from}|${range.to}` : "";
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box || !range || !days.length || scrolledFor.current === rangeKey) return;
+    scrolledFor.current = rangeKey;
+    const target = range.from <= today && today <= range.to ? scheduleScrollDay(days, today) : null;
+    const el = target ? (box.querySelector(`[data-day="${target}"]`) as HTMLElement | null) : null;
+    box.scrollTop = el ? el.offsetTop - box.offsetTop : 0;
+  }, [days, range, rangeKey, today]);
+  // FullCalendar may rebuild its view element when the page re-renders (e.g. the side panel opening), which moves
+  // this list and resets its scroll: put the reader back where they were.
+  const savedTop = useRef(0);
+  useLayoutEffect(() => {
+    const restore = () => {
+      const box = boxRef.current;
+      if (box && savedTop.current > 0 && Math.abs(box.scrollTop - savedTop.current) > 1) box.scrollTop = savedTop.current;
+    };
+    restore();
+    const id = requestAnimationFrame(restore);
+    return () => cancelAnimationFrame(id);
+  });
+  return (
+    <Box
+      ref={boxRef}
+      data-tour="jobs-calendar-schedule"
+      onScroll={(ev) => {
+        savedTop.current = (ev.currentTarget as HTMLDivElement).scrollTop;
+      }}
+      sx={{ height: "100%", overflowY: "auto", position: "relative" }}
+    >
+      {!days.length ? (
+        <Typography color="text.secondary" sx={{ p: 3 }}>
+          Nothing scheduled
+        </Typography>
+      ) : (
+        days.map((d) => {
+          const b = scheduleBadge(d.date);
+          const isToday = d.date === today;
+          return (
+            <Box key={d.date} data-day={d.date} sx={{ display: "flex", borderBottom: 1, borderColor: "divider", py: 1 }}>
+              <Box sx={{ width: { xs: 56, sm: 76 }, flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", pt: 0.25 }}>
+                <Typography variant="caption" sx={{ fontWeight: 600, color: isToday ? "primary.main" : "text.secondary", lineHeight: 1.2 }}>
+                  {b.weekday}
+                </Typography>
+                <Box
+                  sx={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: "50%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "1.15rem",
+                    fontWeight: 600,
+                    bgcolor: isToday ? "primary.main" : "transparent",
+                    color: isToday ? "primary.contrastText" : "text.primary",
+                  }}
+                >
+                  {b.day}
+                </Box>
+                <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.2 }}>
+                  {b.month}
+                </Typography>
+              </Box>
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                {d.rows.map((r) => (
+                  <ButtonBase
+                    key={r.key}
+                    onClick={(ev) => onRow(r, { left: ev.clientX, top: ev.clientY })}
+                    sx={{
+                      width: "100%",
+                      justifyContent: "flex-start",
+                      textAlign: "left",
+                      borderRadius: 1,
+                      px: 1,
+                      py: 0.75,
+                      gap: 1.25,
+                      flexWrap: { xs: "wrap", sm: "nowrap" },
+                      opacity: r.greyed ? 0.5 : 1,
+                      "&:hover": { bgcolor: "action.hover" },
+                    }}
+                  >
+                    <Typography variant="body2" color="text.secondary" sx={{ width: { xs: "auto", sm: 150 }, flexShrink: 0, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                      {r.time}
+                    </Typography>
+                    <Box sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: r.colour, flexShrink: 0 }} />
+                    <Box sx={{ minWidth: 0, flex: 1, display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: 1 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: "break-word", textDecoration: r.cancelled ? "line-through" : "none" }}>
+                        {r.icons && <span style={{ marginRight: 6 }}>{r.icons}</span>}
+                        {r.title}
+                      </Typography>
+                      {r.site && (
+                        <Typography variant="body2" color="text.secondary" sx={{ wordBreak: "break-word" }}>
+                          {r.site}
+                        </Typography>
+                      )}
+                    </Box>
+                  </ButtonBase>
+                ))}
+              </Box>
+            </Box>
+          );
+        })
+      )}
     </Box>
   );
 }

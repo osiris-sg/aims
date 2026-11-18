@@ -20,7 +20,8 @@ import {
 import { CalendarStyleService, isSalesMember } from './calendar-style.service';
 import { JobsCalendarService } from './jobs-calendar.service';
 import { CalendarNotesService } from './calendar-notes.service';
-import { jobStyleOf, parseJobStylePatch, withStampedApplicant, EMPTY_JOB_STYLE } from '../deliveries/job-style';
+import { jobStyleOf, parseJobStylePatch, stampJobCreator, withStampedApplicant, EMPTY_JOB_STYLE } from '../deliveries/job-style';
+import { AUTO_PALETTE, panelPeople } from './calendar-style';
 import { isCompletedDo } from './calendar-style';
 import { DEFAULT_ORG_FEATURES } from '../organizations/default-features';
 import { DeliveriesService } from '../deliveries/deliveries.service';
@@ -104,7 +105,7 @@ describe('calendar style: chips', () => {
   });
 
   it('the legend is icons only (no people)', () => {
-    expect(CALENDAR_STYLE_LEGEND.map((l) => l.icon)).toEqual(['✋', '👍', '👎', '✅', '❌', '⭕', '📅', '🟫']);
+    expect(CALENDAR_STYLE_LEGEND.map((l) => l.icon)).toEqual(['✋', '👍', '👎', '✅', '❌', '⭕', '📅', '🟫', '📌']);
     expect(JSON.stringify(CALENDAR_STYLE_LEGEND)).not.toMatch(/#[0-9a-f]{6}/i);
   });
 
@@ -187,7 +188,7 @@ describe('calendar style: people', () => {
     expect(parseJobStylePatch({})).toEqual({});
     expect(() => parseJobStylePatch({ cod: 'yes' })).toThrow(BadRequestException);
     expect(() => parseJobStylePatch({ salesperson: { name: 'x' } })).toThrow(BadRequestException);
-    expect(jobStyleOf('junk')).toEqual({ salespersonId: null, salespersonName: null, ptwApplicantId: null, ptwApplicantName: null, cod: false, postponed: false });
+    expect(jobStyleOf('junk')).toEqual({ salespersonId: null, salespersonName: null, ptwApplicantId: null, ptwApplicantName: null, cod: false, postponed: false, sticker: false, createdById: null });
   });
 
   it('✅ counts only completed / signed DOs: not drafts, not cancelled or voided', () => {
@@ -263,6 +264,8 @@ interface World {
   /** The order's quotation Sales Person (default S002) and the org's salesperson alias map (src/sales-report). */
   quoteSalesPerson?: string;
   aliases?: Record<string, Array<{ text: string; userIds: string[] }>>;
+  /** Calendar notes per org (people list tests). */
+  notes?: Record<string, any[]>;
 }
 
 function world(): World {
@@ -328,13 +331,23 @@ function fakePrisma(w: World) {
       }),
     },
     deliverySiteClockJob: { findMany: jest.fn(async () => []) },
-    calendarNote: { findMany: jest.fn(async () => []) },
+    calendarNote: {
+      findMany: jest.fn(async ({ where, distinct }: any) => {
+        const list = (w.notes?.[org(where)] ?? []).filter((n: any) => (where.id?.in ? where.id.in.includes(n.id) : true)).filter((n: any) => (where.createdById ? !!n.createdById : true));
+        if (distinct) return [...new Set(list.map((n: any) => n.createdById))].map((createdById) => ({ createdById }));
+        return list.map((n: any) => ({ ...n }));
+      }),
+    },
     customField: {
       findMany: jest.fn(async () => []),
       findFirst: jest.fn(async ({ where }: any) => where.fieldName === 'salesperson_aliases' ? (w.aliases?.[org(where)] ? { options: w.aliases[org(where)] } : null) : (where.fieldName === 'job_calendar_style' && (org(where) === P || org(where) === C) ? { id: `${STYLE_FIELD}-${org(where)}` } : null)),
     },
     customFieldValue: {
-      findMany: jest.fn(async ({ where }: any) => where.entityId.in.filter((id: string) => w.styleValues[id]).map((id: string) => ({ entityId: id, value: w.styleValues[id] }))),
+      findMany: jest.fn(async ({ where }: any) => {
+        // The people list reads every value of the org's style field (no entityId filter).
+        const ids: string[] = where.entityId?.in ?? (w.runs[String(where.customFieldId).replace(`${STYLE_FIELD}-`, '')] ?? []).map((r: any) => r.id);
+        return ids.filter((id: string) => w.styleValues[id]).map((id: string) => ({ entityId: id, value: w.styleValues[id] }));
+      }),
     },
     userOrganization: {
       findMany: jest.fn(async ({ where }: any) => {
@@ -363,7 +376,7 @@ const byId = (events: any[], id: string) => events.find((e) => e.id === `aims:${
 describe('jobs calendar with the style on (WCT group)', () => {
   it('fill by salesperson (quotation code or own pick), bar by the stored PTW applicant, icons', async () => {
     const res = await svc(world()).get(P, '2026-11-16', '2026-11-22', { userId: HH });
-    expect(res.style?.legend.map((l) => l.icon)).toEqual(['✋', '👍', '👎', '✅', '❌', '⭕', '📅', '🟫']);
+    expect(res.style?.legend.map((l) => l.icon)).toEqual(['✋', '👍', '👎', '✅', '❌', '⭕', '📅', '🟫', '📌']);
     const order = byId(res.events, 'r-order');
     expect(order.style).toMatchObject({ fill: '#039be5', bar: '#d50000', greyed: false });
     // One completed DO (the draft and the cancelled one don't count).
@@ -424,13 +437,13 @@ describe('jobs calendar with the style on (WCT group)', () => {
     const off = await svc(w).get(P, '2026-11-16', '2026-11-22', { userId: HH });
     const without = await svc(w, false).get(P, '2026-11-16', '2026-11-22', { userId: HH });
     expect(off).toEqual(without);
-    expect(JSON.stringify(off)).not.toMatch(/"style"|salesperson|ptwApplicant|"cod"|postponed|doCount/);
+    expect(JSON.stringify(off)).not.toMatch(/"style"|salesperson|ptwApplicant|"cod"|postponed|doCount|createdBy|"people"|sticker/);
     // Another org (flag never set): identical with or without the style service.
     const other = await svc(w).get(X, '2026-11-16', '2026-11-22', { userId: 'x' });
     const otherWithout = await svc(w, false).get(X, '2026-11-16', '2026-11-22', { userId: 'x' });
     expect(other).toEqual(otherWithout);
     expect(other.events.map((e) => e.id).sort()).toEqual(['aims:r-x', 'aims:r-x2']);
-    expect(JSON.stringify(other)).not.toMatch(/"style"/);
+    expect(JSON.stringify(other)).not.toMatch(/"style"|createdBy|"people"|sticker/);
   });
 });
 
@@ -481,5 +494,105 @@ describe('PTW Rejected is a calendar style status only', () => {
     on.prisma.delivery.findFirst = jest.fn(async () => ({ id: 'j', ptwStatus: 'SUBMITTED' }));
     const res = await on.setJobStyle('j', 'org', { ptwApplicant: null, cod: true });
     expect(res).toMatchObject({ ptwApplicantId: BALA, cod: true });
+  });
+});
+
+/**
+ * Calendar people list + Generate sticker (WCT group, 2026-11-19, same gate as the style): who made each job / note,
+ * the people rows (creators + Sales members, colour or an automatic one), 📌 on the chip and in the legend.
+ */
+describe('calendar people list and Generate sticker', () => {
+  it('📌 shows on a job with Generate sticker ticked, after the other icons, and nowhere else', () => {
+    expect(icons({ sticker: true, cod: true, ptwStatus: 'APPROVED' })).toEqual(['👍', '🟫', '📌']);
+    expect(icons({})).toEqual([]);
+    expect(styleOf(input({ sticker: true }), colours).icons).toContainEqual({ icon: '📌', label: 'Generate sticker' });
+  });
+
+  it('the job form sends Generate sticker; the creator can never be sent by a form', () => {
+    expect(parseJobStylePatch({ sticker: true })).toEqual({ sticker: true });
+    expect(parseJobStylePatch({ sticker: false, createdById: 'someone' })).toEqual({ sticker: false });
+    expect(() => parseJobStylePatch({ sticker: 'yes' })).toThrow(BadRequestException);
+    expect(jobStyleOf({ sticker: true, createdById: AMY })).toMatchObject({ sticker: true, createdById: AMY });
+  });
+
+  it('people colours: a picked colour wins; others get distinct automatic colours, in name order, stable', () => {
+    const rows = panelPeople(
+      [
+        { id: 'z', name: 'Zed' },
+        { id: HH, name: 'Nat HH' },
+        { id: 'a', name: 'Alan' },
+      ],
+      { [HH]: '#039be5' },
+    );
+    expect(rows.map((r) => r.name)).toEqual(['Alan', 'Nat HH', 'Zed']);
+    expect(rows[1]).toEqual({ id: HH, name: 'Nat HH', colour: '#039be5', auto: false });
+    expect(rows[0].auto && rows[2].auto).toBe(true);
+    expect(rows[0].colour).not.toBe(rows[2].colour);
+    expect(AUTO_PALETTE as readonly string[]).toContain(rows[0].colour);
+    // An automatic colour never repeats a picked one.
+    expect(panelPeople([{ id: 'a', name: 'A' }], { x: AUTO_PALETTE[0] })[0].colour).not.toBe(AUTO_PALETTE[0]);
+    expect(panelPeople([{ id: 'z', name: 'Zed' }, { id: 'a', name: 'Alan' }], {})).toEqual(panelPeople([{ id: 'a', name: 'Alan' }, { id: 'z', name: 'Zed' }], {}));
+  });
+
+  it('the calendar names who made each job and note, and lists creators plus every Sales member', async () => {
+    const w = world();
+    w.styleValues['r-quick'] = { ...w.styleValues['r-quick'], createdById: JOYNA, sticker: true };
+    w.notes = { [P]: [{ id: 'n1', title: 'Leave', type: 'LEAVE', staffId: null, staffName: null, startDate: '2026-11-17', endDate: '2026-11-17', allDay: true, startTime: null, endTime: null, remark: null, createdById: BALA }, { id: 'n2', title: 'Old', type: 'OTHER', staffId: null, staffName: null, startDate: '2026-11-18', endDate: '2026-11-18', allDay: true, startTime: null, endTime: null, remark: null, createdById: null }] };
+    const res = await svc(w).get(P, '2026-11-16', '2026-11-22', { userId: HH });
+    const quick = byId(res.events, 'r-quick');
+    expect(quick.createdBy).toEqual({ id: JOYNA, name: 'Joyna' });
+    expect(quick.sticker).toBe(true);
+    expect(quick.style.icons.map((i: any) => i.icon)).toContain('📌');
+    // Jobs made before the creator was recorded: null (the portal lists them under Unknown).
+    expect(byId(res.events, 'r-order').createdBy).toBeNull();
+    expect(byId(res.events, 'r-order').sticker).toBeUndefined();
+    expect(res.notes!.find((n) => n.id === 'n1')!.createdBy).toEqual({ id: BALA, name: 'Bala' });
+    expect(res.notes!.find((n) => n.id === 'n2')!.createdBy).toBeNull();
+    // Creators (Joyna: a job, Bala: a note) + Sales members (HH, Amy) even with nothing made yet.
+    const people = res.people!;
+    expect(people.map((p) => p.id).sort()).toEqual([AMY, BALA, HH, JOYNA].sort());
+    expect(people.find((p) => p.id === HH)).toMatchObject({ colour: '#039be5', auto: false });
+    expect(people.find((p) => p.id === JOYNA)!.auto).toBe(true);
+    // Child org items keep their company (the portal's company rows); the people list is the viewing org's.
+    expect(byId(res.events, 'r-child').orgId).toBe(C);
+  });
+
+  it('style off: no people list, no creators, no sticker (the calendar as before)', async () => {
+    const w = world();
+    w.styleValues['r-quick'] = { ...w.styleValues['r-quick'], createdById: JOYNA, sticker: true };
+    w.features[P].enableCalendarStyle = false;
+    const res = await svc(w).get(P, '2026-11-16', '2026-11-22', { userId: HH });
+    expect(res.people).toBeUndefined();
+    expect(JSON.stringify(res)).not.toMatch(/createdBy|sticker|📌/);
+  });
+
+  it('a new job records its creator once, only with the style on', async () => {
+    const make = (styleOn: boolean, stored: any) => {
+      const upsert = jest.fn(async () => ({}));
+      const prisma: any = {
+        organizationUIConfig: { findUnique: jest.fn(async () => ({ features: { enableCalendarStyle: styleOn } })) },
+        customField: { findFirst: jest.fn(async () => ({ id: 'f1' })), create: jest.fn() },
+        customFieldValue: {
+          findMany: jest.fn(async () => (stored ? [{ entityId: 'job-1', value: stored }] : [])),
+          findUnique: jest.fn(async () => (stored ? { value: stored } : null)),
+          upsert,
+        },
+      };
+      return { prisma, upsert };
+    };
+    const off = make(false, null);
+    expect(await stampJobCreator(off.prisma, P, 'job-1', AMY)).toBe(false);
+    expect(off.upsert).not.toHaveBeenCalled();
+    expect(off.prisma.customFieldValue.findMany).not.toHaveBeenCalled();
+
+    const fresh = make(true, { cod: true });
+    expect(await stampJobCreator(fresh.prisma, P, 'job-1', AMY)).toBe(true);
+    expect((fresh.upsert.mock.calls[0] as any[])[0].create.value).toMatchObject({ createdById: AMY, cod: true });
+
+    const kept = make(true, { createdById: HH });
+    expect(await stampJobCreator(kept.prisma, P, 'job-1', AMY)).toBe(false);
+    expect(kept.upsert).not.toHaveBeenCalled();
+
+    expect(await stampJobCreator(make(true, null).prisma, P, 'job-1', null)).toBe(false);
   });
 });

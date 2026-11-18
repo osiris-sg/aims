@@ -66,6 +66,10 @@ export interface CalendarEvent {
   cod?: boolean;
   postponed?: boolean;
   doCount?: number;
+  /** Calendar style: "Generate sticker" ticked (📌 is in style.icons). */
+  sticker?: boolean;
+  /** Calendar style: who made the job; null = not recorded (the people list's "Unknown"). */
+  createdBy?: { id: string; name: string | null } | null;
 }
 
 /** Calendar style (server: api-server-production/src/dashboard/calendar-style.ts). */
@@ -105,7 +109,7 @@ export interface CalendarPayload {
   /** Custom job fields (enableJobFields): what the event icons mean. */
   legend?: CalendarLegendEntry[];
   /** WCT calendar add (enableWctOrders + enableJobsCalendar): notes in range; absent for every other org. */
-  notes?: Array<import("@/helpers/calendarAdd").CalendarNote & GroupTag>;
+  notes?: Array<import("@/helpers/calendarAdd").CalendarNote & GroupTag & { createdBy?: { id: string; name: string | null } | null }>;
   /** Group calendar: the orgs shown, own org first (absent otherwise). */
   group?: { orgs: Array<{ id: string; name: string }> };
   /** Calendar style (enableCalendarStyle): present = styled chips and the icon legend. */
@@ -114,6 +118,16 @@ export interface CalendarPayload {
   siteclockJobsHidden?: boolean;
   /** calendarHqView (WCT group): the Salesperson filter is offered (absent otherwise). */
   hqView?: boolean;
+  /** Calendar style (WCT group, 2026-11-19): the people list beside the calendar (absent otherwise). */
+  people?: PanelPerson[];
+}
+
+/** One person of the people list: their salesperson colour, or an automatic one (auto) until they pick one. */
+export interface PanelPerson {
+  id: string;
+  name: string;
+  colour: string;
+  auto: boolean;
 }
 
 /**
@@ -478,3 +492,187 @@ export function crossOrgTarget(e: Pick<CalendarEvent, "foreign" | "viewOnly" | "
 
 /** Group calendar: the company line of a panel item (null when the group view is off). */
 export const orgLabel = (e: Pick<GroupTag, "orgName">): string | null => (e.orgName ? e.orgName : null);
+
+
+// ── People list (WCT group, 2026-11-19, calendar style orgs) ───────────────────────────────────────────────────
+// Like Google Calendar's "Other calendars": one row per person who made jobs / notes in the org (plus the Sales
+// people), a row per sister company on the group calendar, and "Unknown" for items with no creator recorded.
+// Everyone is ticked by default; unticking hides what that person made (or that company's items). The choice is a
+// list of HIDDEN rows, so a person who appears later starts ticked. Remembered per user in this browser.
+
+export const UNKNOWN_PERSON = "__unknown__";
+export const UNKNOWN_COLOUR = "#9e9e9e";
+export const orgRowId = (orgId: string) => `org:${orgId}`;
+export const peopleStorageKey = (userId: string | null | undefined) => `aims-jc-people-hidden:${userId || "anon"}`;
+
+/** A stored choice back to a hidden list (anything malformed = nobody hidden). */
+export function parseHidden(raw: string | null | undefined): string[] {
+  try {
+    const v = JSON.parse(raw || "[]");
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export interface PeopleRow {
+  id: string;
+  label: string;
+  colour: string;
+  checked: boolean;
+  kind: "person" | "unknown" | "company";
+}
+
+type Made = { createdBy?: { id: string } | null; foreign?: boolean; orgId?: string };
+
+/** The row an item belongs to: a sister company's row, else its creator, else Unknown. */
+export function rowOf(item: Made): string {
+  if (item.foreign && item.orgId) return orgRowId(item.orgId);
+  return item.createdBy?.id || UNKNOWN_PERSON;
+}
+
+/**
+ * The panel's rows: the people (server order), "Unknown" when anything on screen has no creator (or it is
+ * unticked, so it can be ticked again), then one row per sister company on the group calendar.
+ */
+export function peopleRows(p: Pick<CalendarPayload, "people" | "events" | "notes" | "group">, hidden: string[]): PeopleRow[] {
+  const off = new Set(hidden);
+  const rows: PeopleRow[] = (p.people ?? []).map((x) => ({ id: x.id, label: x.name, colour: x.colour, checked: !off.has(x.id), kind: "person" }));
+  const known = new Set(rows.map((r) => r.id));
+  const items: Made[] = [...(p.events ?? []), ...(p.notes ?? [])];
+  // A creator not in the list (e.g. removed from the org since): still a row, so their items can be hidden.
+  for (const it of items) {
+    const id = it.createdBy?.id;
+    if (!it.foreign && id && !known.has(id)) {
+      known.add(id);
+      rows.push({ id, label: (it as any).createdBy?.name || "Former user", colour: UNKNOWN_COLOUR, checked: !off.has(id), kind: "person" });
+    }
+  }
+  if (off.has(UNKNOWN_PERSON) || items.some((it) => !it.foreign && !it.createdBy?.id)) {
+    rows.push({ id: UNKNOWN_PERSON, label: "Unknown", colour: UNKNOWN_COLOUR, checked: !off.has(UNKNOWN_PERSON), kind: "unknown" });
+  }
+  const own = p.group?.orgs?.[0]?.id;
+  for (const o of p.group?.orgs ?? []) {
+    if (o.id === own) continue;
+    rows.push({ id: orgRowId(o.id), label: o.name, colour: UNKNOWN_COLOUR, checked: !off.has(orgRowId(o.id)), kind: "company" });
+  }
+  return rows;
+}
+
+/** Items whose row is ticked (an empty hidden list keeps the same array). */
+export function filterByPeople<T extends Made>(items: T[], hidden: string[]): T[] {
+  if (!hidden.length) return items;
+  const off = new Set(hidden);
+  return items.filter((it) => !off.has(rowOf(it)));
+}
+
+/** Tick / untick one row. */
+export function toggleRow(hidden: string[], id: string): string[] {
+  return hidden.includes(id) ? hidden.filter((h) => h !== id) : [...hidden, id];
+}
+
+/** "Select all" = nobody hidden; "None" = every row hidden. */
+export const selectAllRows = (): string[] => [];
+export const selectNoRows = (rows: PeopleRow[]): string[] => rows.map((r) => r.id);
+
+// ── Schedule view (WCT group, 2026-11-19) ─────────────────────────────────────────────────────────────────────
+// A list grouped by date (date badge on the left): each row the time (or All day), a coloured dot, the icons, the
+// title and the site. All-day items first (notes, then jobs), then jobs and notes together by clock time. A note spanning days shows on each of them.
+
+export interface ScheduleRow {
+  key: string;
+  time: string;
+  colour: string;
+  icons: string;
+  title: string;
+  site: string | null;
+  greyed: boolean;
+  cancelled: boolean;
+  event?: CalendarEvent;
+  note?: import("@/helpers/calendarAdd").CalendarNote & GroupTag;
+}
+
+export interface ScheduleDay {
+  date: string;
+  rows: ScheduleRow[];
+}
+
+/** "09:00" → "9:00 am" (the jobs' time style). */
+const hhmmText = (t: string): string => {
+  const [h, m] = t.split(":").map(Number);
+  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "am" : "pm"}`;
+};
+
+/** An instant's Singapore clock time, "09:05" (sorts timed jobs and notes together). */
+const sgtHhmm = (iso: string): string => new Intl.DateTimeFormat("en-GB", { timeZone: CALENDAR_TZ, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
+
+const dayOfEvent = (e: Pick<CalendarEvent, "start" | "allDay">): string => (e.allDay ? ymd(e.start) : dayOfInstant(new Date(e.start)));
+
+/** The Schedule view's days, from..to inclusive (only days with something on them), in order. */
+export function scheduleDays(
+  events: CalendarEvent[],
+  notes: Array<import("@/helpers/calendarAdd").CalendarNote & GroupTag> | undefined,
+  range: { from: string; to: string } | null,
+  opts: { showCancelled?: boolean; byPtw?: boolean } = {},
+): ScheduleDay[] {
+  const by = new Map<string, Array<ScheduleRow & { sort: string }>>();
+  const inRange = (d: string) => !range || (d >= range.from && d <= range.to);
+  const push = (d: string, r: ScheduleRow & { sort: string }) => {
+    if (!inRange(d)) return;
+    const list = by.get(d) ?? [];
+    list.push(r);
+    by.set(d, list);
+  };
+  for (const n of notes ?? []) {
+    const timed = !n.allDay && !!n.startTime && !!n.endTime;
+    for (let d = n.startDate; d <= n.endDate; d = addDays(d, 1)) {
+      if (range && d > range.to) break;
+      push(d, {
+        key: `note:${n.id}:${d}`,
+        time: timed ? `${hhmmText(n.startTime!)} – ${hhmmText(n.endTime!)}` : "All day",
+        colour: NOTE_CHIP_COLOR,
+        icons: n.type === "LEAVE" ? LEAVE_ICON : "",
+        title: [n.title, n.staffName].filter(Boolean).join(" · "),
+        site: n.orgName ?? null,
+        greyed: false,
+        cancelled: false,
+        note: n,
+        sort: timed ? `2|${n.startTime}|${n.title}` : `0||${n.title}`,
+      });
+    }
+  }
+  for (const e of events) {
+    if (e.cancelled && !e.style && !opts.showCancelled) continue;
+    // The site: the job's address (its customer is already in the title); the site name only when the title lacks it.
+    const place = e.address || (e.site && !e.title.includes(e.site) ? e.site : null);
+    const site = [place, e.orgName ?? null].filter(Boolean).join(" · ") || null;
+    push(dayOfEvent(e), {
+      key: e.id,
+      time: e.allDay ? "All day" : chipTimeRange(e),
+      colour: panelColor(e, !!opts.byPtw),
+      icons: chipIcons(e),
+      title: styledTitle(e),
+      site,
+      greyed: !!e.style?.greyed,
+      cancelled: e.cancelled,
+      event: e,
+      sort: e.allDay ? `1||${styledTitle(e)}` : `2|${sgtHhmm(e.start)}|${styledTitle(e)}`,
+    });
+  }
+  return [...by.keys()]
+    .sort()
+    .map((date) => ({ date, rows: by.get(date)!.sort((a, b) => a.sort.localeCompare(b.sort)).map(({ sort: _s, ...r }) => r) }));
+}
+
+/** Where the Schedule view opens: today, else the next day with items, else the last one (null = empty). */
+export function scheduleScrollDay(days: ScheduleDay[], today: string): string | null {
+  if (!days.length) return null;
+  return (days.find((d) => d.date >= today) ?? days[days.length - 1]).date;
+}
+
+/** The date badge: "19" + "THU" (+ "Nov" under it). */
+export function scheduleBadge(date: string): { day: string; weekday: string; month: string } {
+  const d = new Date(`${date}T12:00:00+08:00`);
+  const f = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-SG", { timeZone: CALENDAR_TZ, ...o }).format(d);
+  return { day: f({ day: "numeric" }), weekday: f({ weekday: "short" }).toUpperCase(), month: f({ month: "short" }) };
+}

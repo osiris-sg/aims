@@ -1,7 +1,7 @@
 "use client";
 
 // Calendar style job fields (WCT group, 2026-11-18, enableCalendarStyle): Salesperson (the chip's fill), PTW
-// applicant (the chip's left bar), COD, and on the job page Postponed. Used by the New / Edit job form and the job
+// applicant (the chip's left bar), COD, Generate sticker (📌, 2026-11-19), and on the job page Postponed. Used by the New / Edit job form and the job
 // page. Rendered only when the org has the calendar style.
 
 import React from "react";
@@ -13,6 +13,8 @@ export interface JobStyleValue {
   ptwApplicant: StylePerson | null;
   cod: boolean;
   postponed?: boolean;
+  /** "Generate sticker" (2026-11-19): the job shows 📌 on the calendar. */
+  sticker?: boolean;
 }
 
 /** Options with the current pick kept (a person no longer listed still shows by name). */
@@ -62,6 +64,12 @@ export default function JobStyleFields({
         />
       )}
       <FormControlLabel control={<Checkbox size="small" checked={value.cod} onChange={(e) => onChange({ cod: e.target.checked })} />} label="COD" sx={{ mr: 0, flexShrink: 0 }} />
+      <FormControlLabel
+        control={<Checkbox size="small" checked={!!value.sticker} onChange={(e) => onChange({ sticker: e.target.checked })} />}
+        label="Generate sticker"
+        sx={{ mr: 0, flexShrink: 0 }}
+        data-tour="job-sticker"
+      />
       {showPostponed && (
         <FormControlLabel
           control={<Checkbox size="small" checked={!!value.postponed} onChange={(e) => onChange({ postponed: e.target.checked })} />}

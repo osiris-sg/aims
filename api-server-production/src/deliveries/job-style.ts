@@ -30,9 +30,22 @@ export interface JobStyleMeta {
   ptwApplicantName: string | null;
   cod: boolean;
   postponed: boolean;
+  /** "Generate sticker" (2026-11-19): the job shows 📌 on the calendar. */
+  sticker: boolean;
+  /** Who made the job (2026-11-19, the calendar's people list). Stamped by the server, never sent by a form. */
+  createdById: string | null;
 }
 
-export const EMPTY_JOB_STYLE: JobStyleMeta = { salespersonId: null, salespersonName: null, ptwApplicantId: null, ptwApplicantName: null, cod: false, postponed: false };
+export const EMPTY_JOB_STYLE: JobStyleMeta = {
+  salespersonId: null,
+  salespersonName: null,
+  ptwApplicantId: null,
+  ptwApplicantName: null,
+  cod: false,
+  postponed: false,
+  sticker: false,
+  createdById: null,
+};
 
 export async function isCalendarStyleEnabled(prisma: any, organizationId: string): Promise<boolean> {
   return isOrgFeatureEnabled(prisma, organizationId, CALENDAR_STYLE_FLAG);
@@ -51,12 +64,15 @@ export function jobStyleOf(raw: unknown): JobStyleMeta {
     ptwApplicantName: idOf(v.ptwApplicantId) ? nameOf(v.ptwApplicantName) : null,
     cod: v.cod === true,
     postponed: v.postponed === true,
+    sticker: v.sticker === true,
+    createdById: idOf(v.createdById),
   };
 }
 
 /**
  * The fields a form sent, as a partial update (keys left out are kept).
- * salesperson / ptwApplicant: { id, name } or null (cleared); cod / postponed: booleans.
+ * salesperson / ptwApplicant: { id, name } or null (cleared); cod / postponed / sticker: booleans.
+ * The creator is never taken from a form (stampJobCreator).
  */
 export function parseJobStylePatch(body: any): Partial<JobStyleMeta> {
   const out: Partial<JobStyleMeta> = {};
@@ -83,6 +99,10 @@ export function parseJobStylePatch(body: any): Partial<JobStyleMeta> {
   if (body && 'postponed' in body) {
     if (typeof body.postponed !== 'boolean') throw new BadRequestException('Postponed must be true or false');
     out.postponed = body.postponed;
+  }
+  if (body && 'sticker' in body) {
+    if (typeof body.sticker !== 'boolean') throw new BadRequestException('Generate sticker must be true or false');
+    out.sticker = body.sticker;
   }
   return out;
 }
@@ -174,4 +194,33 @@ export function withStampedApplicant(
   const id = sent ? patch.ptwApplicantId : stored?.ptwApplicantId ?? null;
   if (id) return patch;
   return { ...patch, ptwApplicantId: defaultId, ptwApplicantName: null };
+}
+
+/**
+ * The calendar's people list (2026-11-19, calendar style orgs only): stamp who made a job, once. Called when an
+ * office user creates a job (New job, schedule form, a DO's job, a scheduled return) and when a draft job made by
+ * the system (quotation acceptance) is first put on the calendar by a person. A job that already has a creator
+ * keeps it; jobs made before this have none and read as "Unknown". Returns true when it stamped.
+ */
+export async function stampJobCreator(prisma: any, organizationId: string, deliveryId: string | null | undefined, userId: string | null | undefined): Promise<boolean> {
+  const id = idOf(userId);
+  if (!deliveryId || !id) return false;
+  if (!(await isCalendarStyleEnabled(prisma, organizationId))) return false;
+  const stored = (await jobStyleValues(prisma, organizationId, [deliveryId])).get(deliveryId);
+  if (stored?.createdById) return false;
+  await saveJobStyle(prisma, organizationId, deliveryId, { createdById: id });
+  return true;
+}
+
+/** Every job creator stamped in the org (the calendar's people list). */
+export async function jobCreatorIds(prisma: any, organizationId: string): Promise<Set<string>> {
+  const out = new Set<string>();
+  const fieldId = await jobStyleFieldId(prisma, organizationId);
+  if (!fieldId) return out;
+  const rows: any[] = await runAsOrg(organizationId, () => prisma.customFieldValue.findMany({ where: { customFieldId: fieldId }, select: { value: true } }));
+  for (const r of rows) {
+    const c = jobStyleOf(r.value).createdById;
+    if (c) out.add(c);
+  }
+  return out;
 }

@@ -6,7 +6,8 @@
 //    SiteClock job's notes follow.
 //  - "Link to…": a job with no order (made from the calendar) goes under the order of a quotation, an order, an
 //    invoice or a DO. A quotation with no order gets one, with this job as its first job.
-//  - Calendar style (2026-11-18, enableCalendarStyle): Salesperson, PTW applicant, COD and Postponed, saved at once.
+//  - Calendar style (2026-11-18, enableCalendarStyle): Salesperson, PTW applicant, COD, Generate sticker (2026-11-19)
+//    and Postponed, saved at once.
 
 import React, { useEffect, useState } from "react";
 import { Alert, Autocomplete, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
@@ -61,6 +62,7 @@ export default function JobPtwLinkPanel({
         ptwApplicant: d.ptwApplicantId ? { id: d.ptwApplicantId, name: d.ptwApplicantName || d.ptwApplicantId } : null,
         cod: !!d.cod,
         postponed: !!d.postponed,
+        sticker: !!d.sticker,
       };
       setStyle(v);
       setStyleSaved(v);
@@ -73,7 +75,7 @@ export default function JobPtwLinkPanel({
   const saveStyle = async () => {
     if (!style) return;
     setSaving(true);
-    const res = await api("PATCH", `/deliveries/${run.id}/style`, { salesperson: style.salesperson, ptwApplicant: style.ptwApplicant, cod: style.cod, postponed: !!style.postponed });
+    const res = await api("PATCH", `/deliveries/${run.id}/style`, { salesperson: style.salesperson, ptwApplicant: style.ptwApplicant, cod: style.cod, postponed: !!style.postponed, sticker: !!style.sticker });
     setSaving(false);
     if (!res.ok) return toast.error(res.message || "Couldn't save the job");
     setStyleSaved(style);

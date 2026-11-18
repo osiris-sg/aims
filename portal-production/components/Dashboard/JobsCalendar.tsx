@@ -8,12 +8,15 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Alert, Box, Checkbox, CircularProgress, FormControl, FormControlLabel, InputLabel, ListItemText, MenuItem, OutlinedInput, Select, Skeleton, Stack, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Checkbox, CircularProgress, FormControl, FormControlLabel, IconButton, InputLabel, ListItemText, MenuItem, OutlinedInput, Select, Skeleton, Stack, Tooltip, Typography, useMediaQuery } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
+import PeopleOutlineIcon from "@mui/icons-material/PeopleOutline";
+import PeoplePanel from "./jobs-calendar/PeoplePanel";
 import JobFieldIcon from "@/components/jobFields/JobFieldIcon";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { unwrap } from "@/app/portal/admin/organizations/_lib/siteclock-connection";
-import { calendarLegendItems, filterBySalesperson, legendTitle, rangeOf, runIdOf, salespersonFilterLabel, salespersonOptions, siteclockBanner, withoutSiteClockJobs, type CalendarEvent, type CalendarPayload } from "./jobs-calendar/calendarModel";
+import { calendarLegendItems, filterByPeople, filterBySalesperson, legendTitle, parseHidden, peopleRows, peopleStorageKey, rangeOf, runIdOf, salespersonFilterLabel, salespersonOptions, selectAllRows, selectNoRows, siteclockBanner, toggleRow, withoutSiteClockJobs, type CalendarEvent, type CalendarPayload } from "./jobs-calendar/calendarModel";
 import { useCalendarApi } from "./jobs-calendar/calendarAddApi";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useRouter } from "next/navigation";
@@ -33,7 +36,7 @@ const CalendarView = dynamic(() => import("./jobs-calendar/CalendarView"), {
 export default function JobsCalendar({ fullHeight = false }: { fullHeight?: boolean }) {
   // WCT (enableWctOrders): "Job" wording, and a click opens the job.
   const { isWctOrdersEnabled, isHideSiteClockJobs, isCalendarHqView } = useOrganizationFeatures();
-  const { getToken } = useAuth();
+  const { getToken, userId } = useAuth();
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
   const [data, setData] = useState<CalendarPayload | null>(null);
   const [loading, setLoading] = useState(false);
@@ -107,6 +110,7 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
         onNoteClick={setEditNote}
         onMove={onMove}
         salesFilter={!!isCalendarHqView || !!data?.hqView}
+        peopleKey={peopleStorageKey(userId)}
       />
       {canAdd && (
         <>
@@ -158,6 +162,7 @@ export function JobsCalendarPanel({
   onNoteClick,
   onMove,
   salesFilter = false,
+  peopleKey = null,
 }: {
   data: CalendarPayload | null;
   loading: boolean;
@@ -166,7 +171,7 @@ export function JobsCalendarPanel({
   onShowCancelled: (v: boolean) => void;
   onRange: (startStr: string, endStr: string) => void;
   initialDate?: string;
-  initialView?: "dayGridMonth" | "timeGridWeek" | "timeGridDay";
+  initialView?: "dayGridMonth" | "timeGridWeek" | "timeGridDay" | "schedule";
   jobWords?: boolean;
   fullHeight?: boolean;
   canAdd?: boolean;
@@ -176,6 +181,8 @@ export function JobsCalendarPanel({
   onMove?: (event: CalendarEvent, date: string) => Promise<void>;
   /** Calendar HQ view (calendarHqView): the Salesperson filter (shown with the calendar style, which carries the salesperson). */
   salesFilter?: boolean;
+  /** People list (calendar style orgs): where this user's ticks are remembered in this browser (null = not kept). */
+  peopleKey?: string | null;
 }) {
   const banner = siteclockBanner(data);
   // Calendar style (enableCalendarStyle, WCT group): an icon legend only, and cancelled / postponed always shown (greyed).
@@ -187,11 +194,46 @@ export function JobsCalendarPanel({
   const allEvents = data?.events ?? [];
   for (const e of allEvents) if (e.salesperson?.id && e.salesperson.name) knownNames.current.set(e.salesperson.id, e.salesperson.name);
   const salesOpts = useMemo(() => (showSalesFilter ? salespersonOptions(allEvents, salesSel, knownNames.current) : []), [showSalesFilter, allEvents, salesSel]);
-  const shownEvents = useMemo(() => (showSalesFilter ? filterBySalesperson(allEvents, salesSel) : allEvents), [showSalesFilter, allEvents, salesSel]);
+  // People list (calendar style orgs, 2026-11-19): unticking a person hides the jobs and notes they made; a company
+  // row hides that sister company's items. Everyone ticked by default; the hidden rows are remembered per user here.
+  const withPeople = styled && Array.isArray(data?.people);
+  const [hidden, setHidden] = useState<string[]>([]);
+  useEffect(() => {
+    if (!peopleKey) return;
+    try {
+      setHidden(parseHidden(window.localStorage.getItem(peopleKey)));
+    } catch {
+      setHidden([]);
+    }
+  }, [peopleKey]);
+  const saveHidden = (next: string[]) => {
+    setHidden(next);
+    if (!peopleKey) return;
+    try {
+      window.localStorage.setItem(peopleKey, JSON.stringify(next));
+    } catch {
+      // Not remembered (private window or storage blocked); the ticks still apply on this page.
+    }
+  };
+  const rows = useMemo(() => (withPeople && data ? peopleRows(data, hidden) : []), [withPeople, data, hidden]);
+  const bySales = useMemo(() => (showSalesFilter ? filterBySalesperson(allEvents, salesSel) : allEvents), [showSalesFilter, allEvents, salesSel]);
+  const shownEvents = useMemo(() => (withPeople ? filterByPeople(bySales, hidden) : bySales), [withPeople, bySales, hidden]);
+  const shownNotes = useMemo(() => (withPeople && data?.notes ? filterByPeople(data.notes, hidden) : data?.notes), [withPeople, data, hidden]);
+  const theme = useTheme();
+  const wide = useMediaQuery(theme.breakpoints.up("md"));
+  const [panelOpen, setPanelOpen] = useState<boolean | null>(null);
+  const showPanel = withPeople && (panelOpen ?? wide);
   return (
-    <Box sx={{ mb: 4 }}>
+    <Box sx={{ mb: 4, width: "100%" }}>
       <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "flex-start", sm: "center" }} justifyContent="space-between" sx={{ mb: 1.5 }}>
         <Stack direction="row" spacing={1} alignItems="center">
+          {withPeople && (
+            <Tooltip title={showPanel ? "Hide people" : "Show people"}>
+              <IconButton size="small" aria-label={showPanel ? "Hide people" : "Show people"} onClick={() => setPanelOpen(!showPanel)} color={showPanel ? "primary" : "default"}>
+                <PeopleOutlineIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
           <Typography variant="h5" sx={{ fontWeight: 600 }}>
             Jobs calendar
           </Typography>
@@ -277,6 +319,9 @@ export function JobsCalendarPanel({
           {error}
         </Alert>
       )}
+      <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start">
+      {showPanel && <PeoplePanel rows={rows} onToggle={(id) => saveHidden(toggleRow(hidden, id))} onAll={() => saveHidden(selectAllRows())} onNone={() => saveHidden(selectNoRows(rows))} />}
+      <Box sx={{ flex: 1, minWidth: 0, width: "100%" }}>
       <CalendarView
         events={shownEvents}
         showCancelled={styled || showCancelled}
@@ -286,13 +331,16 @@ export function JobsCalendarPanel({
         jobWords={jobWords}
         openOnClick={jobWords}
         fullHeight={fullHeight}
-        notes={data?.notes}
+        notes={shownNotes}
         canAdd={canAdd}
         onAdd={onAdd}
         onNoteClick={onNoteClick}
         onMove={onMove}
         styled={styled}
+        schedule={styled}
       />
+      </Box>
+      </Stack>
     </Box>
   );
 }
