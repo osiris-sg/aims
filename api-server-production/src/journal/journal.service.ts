@@ -280,6 +280,12 @@ export class JournalService {
       endDate?: Date;
       sourceDocumentId?: string;
       sourcePaymentId?: string;
+      /** Free text over the journal's own fields AND its lines' accounts
+       *  (guru 2026-11-18). The Audit Trail screen used to pull the newest 200
+       *  entries and search those in the browser — with 32,597 journals on
+       *  Biofuel that is a fortnight's worth, so looking up JV-000743 or an
+       *  account code simply found nothing. */
+      search?: string;
       page?: number;
       limit?: number;
     },
@@ -287,6 +293,18 @@ export class JournalService {
     const page = opts?.page ?? 1;
     const limit = opts?.limit ?? 50;
     const where: any = { organizationId };
+    const term = (opts?.search || '').trim();
+    if (term) {
+      where.OR = [
+        { journalNumber: { contains: term, mode: 'insensitive' } },
+        { reference: { contains: term, mode: 'insensitive' } },
+        { description: { contains: term, mode: 'insensitive' } },
+        { type: { contains: term, mode: 'insensitive' } },
+        { lines: { some: { description: { contains: term, mode: 'insensitive' } } } },
+        { lines: { some: { account: { code: { contains: term, mode: 'insensitive' } } } } },
+        { lines: { some: { account: { name: { contains: term, mode: 'insensitive' } } } } },
+      ];
+    }
     if (opts?.status) where.status = opts.status;
     if (opts?.type) where.type = opts.type;
     if (opts?.sourceDocumentId) where.sourceDocumentId = opts.sourceDocumentId;

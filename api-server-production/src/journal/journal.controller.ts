@@ -50,6 +50,7 @@ export class JournalController {
   @ApiQuery({ name: 'endDate', required: false })
   @ApiQuery({ name: 'sourceDocumentId', required: false })
   @ApiQuery({ name: 'sourcePaymentId', required: false })
+  @ApiQuery({ name: 'search', required: false, description: 'number / reference / description / account code or name' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   list(@Req() req: RequestWithOrganization, @Query() q: any) {
@@ -58,6 +59,7 @@ export class JournalController {
       type: q.type,
       sourceDocumentId: q.sourceDocumentId,
       sourcePaymentId: q.sourcePaymentId,
+      search: q.search,
       startDate: q.startDate ? startOfDay(q.startDate) : undefined,
       endDate: q.endDate ? endOfDay(q.endDate) : undefined,
       page: q.page ? parseInt(q.page) : undefined,

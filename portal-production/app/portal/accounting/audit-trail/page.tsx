@@ -107,15 +107,26 @@ export default function AuditTrailPage() {
 
   const clearPinned = () => router.push("/portal/accounting/audit-trail");
 
+  // What is typed goes to the SERVER (guru 2026-11-18). This screen asked for
+  // the newest 200 entries and searched those in the browser: Biofuel holds
+  // 32,597 journals, so an entry older than a fortnight could not be found by
+  // number, reference or account at all.
+  const [searchDebounced, setSearchDebounced] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setSearchDebounced(search.trim()), 250);
+    return () => clearTimeout(t);
+  }, [search]);
+
   const queryString = useMemo(() => {
     const p = new URLSearchParams();
     if (typeFilter) p.set("type", typeFilter);
     if (statusFilter) p.set("status", statusFilter);
     if (startDate) p.set("startDate", startDate);
     if (endDate) p.set("endDate", endDate);
+    if (searchDebounced) p.set("search", searchDebounced);
     p.set("limit", "200");
     return p.toString();
-  }, [typeFilter, statusFilter, startDate, endDate]);
+  }, [typeFilter, statusFilter, startDate, endDate, searchDebounced]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -159,7 +170,10 @@ export default function AuditTrailPage() {
     if (pinnedJournalNumbers) {
       base = base.filter((e) => pinnedJournalNumbers.has(e.journalNumber));
     }
-    const q = search.trim().toLowerCase();
+    // The server already matched these rows (search is sent with the query),
+    // and it looks at fields this table does not show — filtering again here
+    // would quietly drop those hits.
+    const q = searchDebounced ? "" : search.trim().toLowerCase();
     if (!q) return base;
     return base.filter(
       (e) =>
@@ -174,7 +188,7 @@ export default function AuditTrailPage() {
             ((l as any).description || "").toLowerCase().includes(q),
         ),
     );
-  }, [entries, search, pinnedJournalNumbers]);
+  }, [entries, search, searchDebounced, pinnedJournalNumbers]);
 
   useEffect(() => { setPage(1); }, [search, typeFilter, statusFilter, startDate, endDate]);
 
