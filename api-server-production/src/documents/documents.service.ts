@@ -1,5 +1,5 @@
 import { IMPORTED_ORDER_READ_ONLY, isImportedOrder, isImportedOrdersEnabled } from '../orders/imported-orders';
-import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, forwardRef } from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
 import { tierOfRoleNames } from '../common/role-tier';
 import { DeliveriesService } from '../deliveries/deliveries.service';
 import { randomUUID } from 'crypto';
@@ -2853,8 +2853,46 @@ export class DocumentsService {
     return undoInvoiceSplitOp(this.prisma, organizationId, id, actor, (e) => this.logDocumentEvent(e));
   }
 
-  async deleteDocument(id: string, organizationId: string, actor?: DocumentActor) {
+  /**
+   * DELETE A DOCUMENT — draft / unconfirmed work only (guru 2026-11-18).
+   *
+   * This used to delete anything it was handed, whatever its status, voiding
+   * the journal on the way out. Heimen duplicated a confirmed September
+   * invoice and then deleted the original: BIPL-JPSG-20260909-0001, Keller,
+   * 30,101.80, issued to the customer and posted — gone from AIMS with one
+   * audit row left behind, recoverable only from Xero. The LIST pages have
+   * always said "drafts only" and the editor only offers delete on unsaved
+   * work, but nothing enforced it where it matters, so one stray call took a
+   * live receivable with it.
+   *
+   * A document that has been confirmed, has money recorded against it, or
+   * holds a live journal is VOIDED or credited, never deleted. An internal
+   * caller that genuinely must remove a posted document passes force.
+   */
+  async deleteDocument(id: string, organizationId: string, actor?: DocumentActor, opts?: { force?: boolean }) {
     try {
+      if (!opts?.force) {
+        const doc = await this.prisma.document.findFirst({
+          where: { id, organizationId },
+          select: { id: true, name: true, type: true, status: true },
+        });
+        if (!doc) throw new NotFoundException('Document not found');
+        const status = String(doc.status || '').toLowerCase();
+        const isDraft = status === '' || status === 'draft' || status === 'unconfirmed' || status === 'rejected';
+        const what = doc.name || 'This document';
+        if (!isDraft) {
+          throw new BadRequestException(
+            `${what} is ${status.replace(/_/g, ' ')} — a confirmed document is voided or credited, never deleted.`,
+          );
+        }
+        const [paid, jes] = await Promise.all([
+          this.prisma.payment.count({ where: { organizationId, documentId: id } }),
+          this.prisma.journalEntry.count({ where: { organizationId, sourceDocumentId: id, status: { not: 'VOID' } } }),
+        ]);
+        if (paid > 0) throw new BadRequestException(`${what} has payments recorded against it — remove those first.`);
+        if (jes > 0) throw new BadRequestException(`${what} is posted to the ledger — void its journal first.`);
+      }
+
       // No-draft model: a saved document may already sit in the GL — void its
       // journal (reversing entry preserved) before the document row goes away.
       try {
