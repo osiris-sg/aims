@@ -35,6 +35,7 @@ import { useAccountingApi } from "../../../_lib/api";
 import EditorRail from "@/containers/DocumentTemplates/components/EditorRail";
 import { todayIso } from "@/helpers/orgToday";
 import DateInput from "@/components/DateInput";
+import { enterScopeProps } from "@/helpers/enterAdvance";
 
 type Kind = "SIN" | "SPR";
 type Account = { id: string; code: string; name: string; category?: string; accountType?: string; isActive?: boolean };
@@ -327,21 +328,28 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
         <Typography variant="h6" fontWeight={600} noWrap sx={{ minWidth: 0, flexShrink: 1 }}>{voucherNo || (isNew ? "New Purchase Journal" : "Purchase Journal")}</Typography>
         <Box sx={{ flex: 1 }} />
         <Stack direction="row" gap={0.5} alignItems="center" sx={{ flexWrap: { xs: "wrap", md: "nowrap" }, justifyContent: "flex-end" }}>
-          <Button size="small" variant="contained" startIcon={<AddIcon />} onClick={addNew} sx={BTN.add}>Add</Button>
+          <Button size="small" variant="contained" data-hotkey="new" startIcon={<AddIcon />} onClick={addNew} sx={BTN.add}>Add</Button>
           <Button size="small" variant="contained" startIcon={<DeleteIcon />} onClick={() => setDelOpen(true)} disabled={!savedId} sx={BTN.del}>Delete</Button>
           <Button size="small" variant="contained" startIcon={<NavigateBeforeIcon />} onClick={() => goSibling(sibIdx + 1)} disabled={!hasPrev} sx={BTN.nav}>Previous</Button>
           <Button size="small" variant="contained" endIcon={<NavigateNextIcon />} onClick={() => goSibling(sibIdx - 1)} disabled={!hasNext} sx={BTN.nav}>Next</Button>
           <Button size="small" variant="contained" startIcon={<PrintIcon />} onClick={() => window.print()} sx={BTN.print}>Print</Button>
-          <Button size="small" variant="contained" startIcon={<SearchIcon />} onClick={() => router.push(listPath)} sx={BTN.locate}>Locate</Button>
+          <Button size="small" variant="contained" data-hotkey="locate" startIcon={<SearchIcon />} onClick={() => router.push(listPath)} sx={BTN.locate}>Locate</Button>
           {!confirmed && (
-            <Button size="small" variant="contained" startIcon={saving ? <CircularProgress size={14} color="inherit" /> : <CheckCircleIcon />} onClick={confirm} disabled={saving || !!blockReason} sx={BTN.confirm}>Confirm</Button>
+            // The block reason rides on Confirm only — the status area just reads
+            // Saving… / Unsaved changes / Saved, same as OR/JV/PV (guru 2026-11-18:
+            // "dont need to tell them saved not posted").
+            <Tooltip title={blockReason || ""} arrow>
+              <span>
+                <Button size="small" variant="contained" data-hotkey="confirm" startIcon={saving ? <CircularProgress size={14} color="inherit" /> : <CheckCircleIcon />} onClick={confirm} disabled={saving || !!blockReason} sx={BTN.confirm}>Confirm</Button>
+              </span>
+            </Tooltip>
           )}
-          {confirmed ? (
+          {saving ? (
+            <Typography variant="body2" sx={{ display: "flex", alignItems: "center", gap: 0.5, color: "text.secondary", fontWeight: 500 }}><CircularProgress size={14} thickness={5} />Saving…</Typography>
+          ) : confirmed ? (
             <Typography variant="body2" sx={{ color: "text.secondary", fontWeight: 600 }}>{status === "PAID" ? "Paid" : "Confirmed"}</Typography>
-          ) : blockReason ? (
-            <Tooltip title={blockReason} arrow><Box component="span" sx={{ color: "warning.main", fontWeight: 600, fontSize: "0.8rem", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "help" }}>Can&apos;t save — {blockReason}</Box></Tooltip>
           ) : dirty ? (
-            <Typography variant="body2" sx={{ color: "warning.main", fontWeight: 600 }}>Unsaved</Typography>
+            <Typography variant="body2" sx={{ color: "warning.main", fontWeight: 600 }}>Unsaved changes</Typography>
           ) : savedId ? (
             <Stack direction="row" gap={0.5} alignItems="center" sx={{ color: "text.secondary" }}><CheckCircleIcon fontSize="small" color="success" /><Typography variant="body2">Saved</Typography></Stack>
           ) : null}
@@ -349,7 +357,10 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
       </Box>
 
       {/* ---- Framed body ---- */}
-      <Box sx={{ position: "relative", flex: 1, px: { xs: 1, md: "204px" }, py: 2, display: "flex", flexDirection: "column", gap: 1.5 }}>
+      {/* data-enter-scope: Enter / ↓ = next field, ↑ = previous, exactly like
+          the OR / JV / PV editors (guru 2026-11-19). Without it this screen
+          only had the weaker global Enter layer and no arrow walking. */}
+      <Box {...enterScopeProps} sx={{ position: "relative", flex: 1, px: { xs: 1, md: "204px" }, py: 2, display: "flex", flexDirection: "column", gap: 1.5 }}>
         {/* Rail in the left margin, like PV/JV */}
         <Box sx={{ position: { xs: "static", md: "absolute" }, left: 16, top: 16, mb: { xs: 1, md: 0 } }}>
           <EditorRail buttons={railButtons} />
