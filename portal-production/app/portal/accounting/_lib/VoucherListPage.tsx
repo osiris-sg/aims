@@ -141,13 +141,15 @@ export default function VoucherListPage({ kind }: { kind: Kind }) {
   // September, "This month 0", and the search box could not find an October
   // receipt it had never downloaded. Now the search, the Filter, the pager and
   // the four cards are all answered by SQL, ordered by the voucher's own date.
-  const dateFilter = useMemo(
-    () => ({
-      from: filters?.date?.startDate ? String(filters.date.startDate).slice(0, 10) : "",
-      to: filters?.date?.endDate ? String(filters.date.endDate).slice(0, 10) : "",
-    }),
-    [filters?.date?.startDate, filters?.date?.endDate],
-  );
+  // The Filter drawer hands back real Date objects, so String(d).slice(0, 10)
+  // produced "Fri May 0" and the server matched nothing — the Date filter
+  // silently emptied the list (caught testing the J/V list, 2026-11-18). Format
+  // it from the date's OWN day, never toISOString(), which in Singapore shifts
+  // midnight back to the previous date.
+  const dateFilter = useMemo(() => ({ from: ymd(filters?.date?.startDate), to: ymd(filters?.date?.endDate) }), [
+    filters?.date?.startDate,
+    filters?.date?.endDate,
+  ]);
 
   const load = useCallback(async () => {
     setLoading(true);

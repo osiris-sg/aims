@@ -83,13 +83,16 @@ export async function listVouchersPaged<T>(
   else if (status === 'Void') where.push(VOIDED);
   else if (status === 'Confirmed') where.push(`NOT (${UNCONFIRMED}) AND NOT (${VOIDED})`);
 
+  // Compare the DAY only: a voucher whose date was stored as an ISO instant
+  // ('2026-05-31T00:00:00.000Z') is longer than '2026-05-31' and a raw string
+  // compare would drop it from a range ending that day.
   if (q.from) {
     params.push(String(q.from).slice(0, 10));
-    where.push(`d.config->>'date' >= $${params.length}`);
+    where.push(`LEFT(COALESCE(d.config->>'date', ''), 10) >= $${params.length}`);
   }
   if (q.to) {
     params.push(String(q.to).slice(0, 10));
-    where.push(`d.config->>'date' <= $${params.length}`);
+    where.push(`LEFT(COALESCE(d.config->>'date', ''), 10) <= $${params.length}`);
   }
 
   const whereSql = where.join(' AND ');
