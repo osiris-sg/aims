@@ -49,6 +49,7 @@ import { useOrganization } from "@/app/portal/hooks/useOrganization";
 import { PaperSheet, ReportHeader, ReportPrintCss, fmt as docFmt, formatShortDate } from "./report-doc";
 import { ReportPrintExportButton, type ReportExportModel, type ReportExportTable } from "./report-export";
 import { todayIso } from "@/helpers/orgToday";
+import { onReportDate } from "./report-shell/reportDate";
 
 // Width of the action-button rail beside the AR / AP / GL home table.
 const RAIL_WIDTH = 220;
@@ -399,7 +400,7 @@ export default function GLWorkspace() {
                 label="From period"
                 InputLabelProps={{ shrink: true }}
                 value={fromPeriod}
-                onChange={(e) => setFromPeriod(e.target.value)}
+                onChange={onReportDate(setFromPeriod, true)}
               />
               <TextField
                 size="small"
@@ -407,7 +408,7 @@ export default function GLWorkspace() {
                 label="To period"
                 InputLabelProps={{ shrink: true }}
                 value={toPeriod}
-                onChange={(e) => setToPeriod(e.target.value)}
+                onChange={onReportDate(setToPeriod, true)}
               />
               <Box sx={{ flex: 1 }} />
               <Paper variant="outlined" sx={{ px: 1.5, py: 0.75, borderRadius: 2 }}>
@@ -575,7 +576,7 @@ export default function GLWorkspace() {
           label="Cut-off date"
           InputLabelProps={{ shrink: true }}
           value={cutOff}
-          onChange={(e) => e.target.value && setCutOff(e.target.value)}
+          onChange={onReportDate(setCutOff)}
         />
         <TextField
           size="small"
@@ -704,7 +705,7 @@ export default function GLWorkspace() {
               label="From Date"
               InputLabelProps={{ shrink: true }}
               value={printFrom}
-              onChange={(e) => setPrintFrom(e.target.value)}
+              onChange={onReportDate(setPrintFrom, true)}
             />
             <TextField
               size="small"
@@ -712,7 +713,7 @@ export default function GLWorkspace() {
               label="To Date"
               InputLabelProps={{ shrink: true }}
               value={printTo}
-              onChange={(e) => setPrintTo(e.target.value)}
+              onChange={onReportDate(setPrintTo, true)}
             />
             <Autocomplete
               size="small"

@@ -51,6 +51,7 @@ import { todayIso } from "@/helpers/orgToday";
 import { ReportPrintExportButton, type ReportExportModel } from "./report-export";
 import { formatShortDate } from "./report-doc";
 import { useOpenVoucher } from "./VoucherListPage";
+import { onReportDate } from "./report-shell/reportDate";
 
 // Width of the action-button rail beside the AR / AP / GL home table.
 const RAIL_WIDTH = 220;
@@ -333,7 +334,7 @@ export default function APWorkspace() {
                 label="From period"
                 InputLabelProps={{ shrink: true }}
                 value={fromPeriod}
-                onChange={(e) => setFromPeriod(e.target.value)}
+                onChange={onReportDate(setFromPeriod, true)}
               />
               <TextField
                 size="small"
@@ -341,7 +342,7 @@ export default function APWorkspace() {
                 label="To period"
                 InputLabelProps={{ shrink: true }}
                 value={toPeriod}
-                onChange={(e) => setToPeriod(e.target.value)}
+                onChange={onReportDate(setToPeriod, true)}
               />
               <Box sx={{ flex: 1 }} />
               <Paper variant="outlined" sx={{ px: 1.5, py: 0.75, borderRadius: 2 }}>
@@ -452,7 +453,7 @@ export default function APWorkspace() {
           label="Cut-off date"
           InputLabelProps={{ shrink: true }}
           value={cutOff}
-          onChange={(e) => e.target.value && setCutOff(e.target.value)}
+          onChange={onReportDate(setCutOff)}
         />
         <TextField
           size="small"
