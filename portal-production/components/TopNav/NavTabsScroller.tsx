@@ -9,7 +9,7 @@
 // outside it so they never scroll away.
 
 import * as React from "react";
-import { Box, IconButton } from "@mui/material";
+import { Box, IconButton, alpha } from "@mui/material";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { overflowSides, scrollStep } from "@/helpers/navOverflow";
@@ -35,6 +35,11 @@ export default function NavTabsScroller({
     if (!el) return;
     const next = overflowSides(el.scrollLeft, el.clientWidth, el.scrollWidth);
     setSides((s) => (s.left === next.left && s.right === next.right ? s : next));
+    // An arrow that just hid itself (the end was reached) must not keep focus: its focus
+    // highlight stayed on screen as a stray circle (round 12 review).
+    const active = typeof document !== "undefined" ? (document.activeElement as HTMLElement | null) : null;
+    const side = active?.dataset?.testid === "nav-scroll-left" ? "left" : active?.dataset?.testid === "nav-scroll-right" ? "right" : null;
+    if (side && !next[side] && el.parentElement?.contains(active)) active?.blur();
   }, []);
 
   React.useEffect(() => {
@@ -69,14 +74,16 @@ export default function NavTabsScroller({
           top: 0,
           bottom: 0,
           [side]: 0,
-          width: 48,
+          width: 56,
           display: "flex",
           alignItems: "center",
           justifyContent: side === "left" ? "flex-start" : "flex-end",
           background: `linear-gradient(to ${side === "left" ? "right" : "left"}, ${fade} 45%, transparent)`,
           opacity: show ? 1 : 0,
+          // Hidden at once (no fade-out), so nothing of the arrow lingers once the end is reached.
+          visibility: show ? "visible" : "hidden",
           pointerEvents: show ? "auto" : "none",
-          transition: "opacity .15s",
+          transition: show ? "opacity .15s" : "none",
           zIndex: 1,
         }}
       >
@@ -87,9 +94,17 @@ export default function NavTabsScroller({
           data-testid={`nav-scroll-${side}`}
           onClick={() => nudge(side === "left" ? -1 : 1)}
           disableFocusRipple
-          sx={{ color: arrowColor, p: 0.25 }}
+          sx={{
+            color: arrowColor,
+            width: 30,
+            height: 30,
+            p: 0,
+            bgcolor: alpha(arrowColor, 0.14),
+            "&:hover": { bgcolor: alpha(arrowColor, 0.24) },
+            "&.Mui-focusVisible": { outline: `2px solid ${alpha(arrowColor, 0.5)}`, outlineOffset: 1 },
+          }}
         >
-          {side === "left" ? <ChevronLeftIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
+          {side === "left" ? <ChevronLeftIcon sx={{ fontSize: 22 }} /> : <ChevronRightIcon sx={{ fontSize: 22 }} />}
         </IconButton>
       </Box>
     );
