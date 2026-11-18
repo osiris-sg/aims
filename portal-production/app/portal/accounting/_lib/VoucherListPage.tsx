@@ -125,6 +125,8 @@ export default function VoucherListPage({ kind }: { kind: Kind }) {
   const router = useRouter();
   const { request } = useAccountingApi();
   const [rows, setRows] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [stats, setStats] = useState({ total: 0, thisMonth: 0, unconfirmed: 0, amount: 0 });
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [page, setPage] = useState(1);
@@ -132,25 +134,50 @@ export default function VoucherListPage({ kind }: { kind: Kind }) {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({ status: "", date: { startDate: null, endDate: null } });
 
+  // SERVER-SIDE list (guru 2026-11-18). It used to fetch the endpoint's newest
+  // 500 by created date and search, filter, total and page them in the browser.
+  // Once 2,950 receipts and vouchers arrived from Xero in one import, those
+  // 2,950 WERE the newest 500: the page showed only ORX-/PVX- rows ending in
+  // September, "This month 0", and the search box could not find an October
+  // receipt it had never downloaded. Now the search, the Filter, the pager and
+  // the four cards are all answered by SQL, ordered by the voucher's own date.
+  const dateFilter = useMemo(
+    () => ({
+      from: filters?.date?.startDate ? String(filters.date.startDate).slice(0, 10) : "",
+      to: filters?.date?.endDate ? String(filters.date.endDate).slice(0, 10) : "",
+    }),
+    [filters?.date?.startDate, filters?.date?.endDate],
+  );
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const list = unwrap(await request(spec.apiPath));
-      setRows(Array.isArray(list) ? list : []);
+      const qs = new URLSearchParams({ page: String(page), limit: String(limit) });
+      if (search.trim()) qs.set("search", search.trim());
+      if (filters?.status) qs.set("status", String(filters.status));
+      if (dateFilter.from) qs.set("from", dateFilter.from);
+      if (dateFilter.to) qs.set("to", dateFilter.to);
+      const res = unwrap(await request(`${spec.apiPath}/paged?${qs.toString()}`));
+      setRows(Array.isArray(res?.rows) ? res.rows : []);
+      setTotal(Number(res?.total) || 0);
+      setStats(res?.stats || { total: 0, thisMonth: 0, unconfirmed: 0, amount: 0 });
     } catch (e: any) {
       toast.error(e?.message || `Couldn't load ${spec.plural.toLowerCase()}`);
     } finally {
       setLoading(false);
     }
-  }, [request, spec.apiPath, spec.plural]);
+  }, [request, spec.apiPath, spec.plural, page, limit, search, filters?.status, dateFilter]);
+
+  // A new search or filter starts at page 1 — asking for page 7 of a narrower
+  // result set shows an empty table. Declared BEFORE the fetch below so the
+  // reset lands in the same pass, instead of fetching the old page first.
+  useEffect(() => {
+    setPage(1);
+  }, [search, filters?.status, dateFilter, limit]);
 
   useEffect(() => {
     void load();
   }, [load]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [search, filters, limit]);
 
   const editorUrl = (r: any) => `${spec.editorBase}/${r.id}?from=${encodeURIComponent(spec.listPath)}`;
 
@@ -166,39 +193,8 @@ export default function VoucherListPage({ kind }: { kind: Kind }) {
     }
   };
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const st = filters?.status || "";
-    const from = filters?.date?.startDate ? new Date(filters.date.startDate) : null;
-    const to = filters?.date?.endDate ? new Date(filters.date.endDate) : null;
-    if (to) to.setHours(23, 59, 59, 999);
-    return rows.filter((r) => {
-      if (st && statusOf(r.status) !== st) return false;
-      if (from || to) {
-        const d = r.date ? new Date(r.date) : null;
-        if (!d) return false;
-        if (from && d < from) return false;
-        if (to && d > to) return false;
-      }
-      if (!q) return true;
-      return [spec.number(r), spec.party.of(r), r.remarks, r.notes, r.journalNumber, r.chequeNo]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q));
-    });
-  }, [rows, search, filters, spec]);
-
-  const stats = useMemo(() => {
-    const now = new Date();
-    const m = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    return {
-      total: rows.length,
-      thisMonth: rows.filter((r) => String(r.date || "").slice(0, 7) === m).length,
-      unconfirmed: rows.filter((r) => statusOf(r.status) === "Unconfirmed").length,
-      amount: filtered.reduce((s, r) => (statusOf(r.status) === "Void" ? s : s + spec.amount(r)), 0),
-    };
-  }, [rows, filtered, spec]);
-
-  const pageRows = useMemo(() => filtered.slice((page - 1) * limit, page * limit), [filtered, page, limit]);
+  // The server already returned exactly this page, in order.
+  const pageRows = rows;
 
   const columns = [
     {
@@ -274,14 +270,14 @@ export default function VoucherListPage({ kind }: { kind: Kind }) {
           },
           { type: "dateRange", key: "date", label: "Date" },
         ]}
-        pageCount={Math.max(1, Math.ceil(filtered.length / limit))}
-        totalDocs={filtered.length}
+        pageCount={Math.max(1, Math.ceil(total / limit))}
+        totalDocs={total}
         headerContent={
           <Box sx={{ mb: 3 }}>
             <Grid container spacing={2}>
               <Grid item xs={12} sm={3}>
-                {/* The list endpoints return the latest 500; past that the count reads "500+". */}
-                <StatCard title={`Total ${spec.plural}`} value={rows.length >= 500 ? `${stats.total}+` : stats.total} />
+                {/* Counted in SQL over the filtered set — a real number, however many there are. */}
+                <StatCard title={`Total ${spec.plural}`} value={stats.total} />
               </Grid>
               <Grid item xs={12} sm={3}>
                 <StatCard title="This month" value={stats.thisMonth} />

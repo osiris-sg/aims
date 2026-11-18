@@ -9,6 +9,7 @@ import { AP_CREDIT_OFFSET_FLAG, isOrgFeatureEnabled } from '../common/org-featur
 import { documentReferenceOf } from '../common/doc-ref';
 import { assertLedgerNotElsewhere } from '../common/imported-ledger';
 import { DocumentNumberingService, bankCodeOf, patternNeedsBank } from '../document-numbering/document-numbering.service';
+import { listVouchersPaged, VoucherListQuery } from '../common/voucher-list';
 import { orgToday } from '../common/org-today';
 import { ReceiptsService } from '../receipts/receipts.service';
 import { PaymentsService } from '../payments/payments.service';
@@ -294,6 +295,11 @@ export class PaymentVouchersService {
       take: 500,
     });
     return docs.map((d) => this.toVoucher(d));
+  }
+
+  /** The Payment Vouchers LIST page: filtered, ordered, counted and paged in SQL. */
+  async listPaged(organizationId: string, q: VoucherListQuery) {
+    return listVouchersPaged(this.prisma as any, organizationId, 'PAYMENT_VOUCHER', q, (d) => this.toVoucher(d));
   }
 
   async getById(organizationId: string, id: string) {

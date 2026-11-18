@@ -8,6 +8,7 @@ import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-mo
 import { documentReferenceOf } from '../common/doc-ref';
 import { assertLedgerNotElsewhere } from '../common/imported-ledger';
 import { DocumentNumberingService, bankCodeOf, patternNeedsBank } from '../document-numbering/document-numbering.service';
+import { listVouchersPaged, VoucherListQuery } from '../common/voucher-list';
 import { orgToday } from '../common/org-today';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
@@ -256,6 +257,11 @@ export class ReceiptsService {
     const order = new Map(ids.map((r, i) => [r.id, i]));
     docs.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
     return docs.map((d) => this.toReceipt(d));
+  }
+
+  /** The Official Receipts LIST page: filtered, ordered, counted and paged in SQL. */
+  async listPaged(organizationId: string, q: VoucherListQuery) {
+    return listVouchersPaged(this.prisma as any, organizationId, 'OFFICIAL_RECEIPT', q, (d) => this.toReceipt(d));
   }
 
   async getById(organizationId: string, id: string) {

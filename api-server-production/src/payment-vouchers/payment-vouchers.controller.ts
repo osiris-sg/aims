@@ -46,6 +46,25 @@ export class PaymentVouchersController {
     return this.service.list(requireOrgId(req));
   }
 
+  // The LIST PAGE (search box, Filter, pager, stat cards). Everything is done
+  // in SQL: 'GET /payment-vouchers' still answers the plain newest-first array the
+  // editor and the reports use, but it cannot be the list page's source once
+  // an org holds thousands of imported vouchers (guru 2026-11-18).
+  @Get('paged')
+  @Permissions('payments:read')
+  @ApiOperation({ summary: 'List page: Payment Vouchers filtered, paged and totalled server-side' })
+  listPaged(
+    @Req() req: RequestWithOrganization,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.listPaged(requireOrgId(req), { search, status, from, to, page: Number(page) || 1, limit: Number(limit) || 50 });
+  }
+
   @Get('open-bills/:supplierId')
   @Permissions('payments:read')
   @ApiOperation({ summary: "Supplier's unpaid bills for the allocation grid" })

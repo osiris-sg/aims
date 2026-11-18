@@ -9,6 +9,7 @@ import { PaymentsService } from '../payments/payments.service';
 import { AuditService } from 'src/common/audit.service';
 import { AP_CREDIT_OFFSET_FLAG, isOrgFeatureEnabled } from '../common/org-features';
 import { orgToday } from '../common/org-today';
+import { listVouchersPaged, VoucherListQuery } from '../common/voucher-list';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 
@@ -199,6 +200,11 @@ export class JournalVouchersService {
   async list(organizationId: string) {
     const docs = await this.prisma.document.findMany({ where: { organizationId, type: 'JOURNAL_VOUCHER' }, orderBy: { createdAt: 'desc' }, take: 500 });
     return docs.map((d) => this.toVoucher(d));
+  }
+
+  /** The Journal Vouchers LIST page: filtered, ordered, counted and paged in SQL. */
+  async listPaged(organizationId: string, q: VoucherListQuery) {
+    return listVouchersPaged(this.prisma as any, organizationId, 'JOURNAL_VOUCHER', q, (d) => this.toVoucher(d));
   }
 
   async getById(organizationId: string, id: string) {

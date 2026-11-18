@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
@@ -44,6 +44,25 @@ export class JournalVouchersController {
   @ApiOperation({ summary: 'List Journal Vouchers (newest first)' })
   list(@Req() req: RequestWithOrganization) {
     return this.service.list(requireOrgId(req));
+  }
+
+  // The LIST PAGE (search box, Filter, pager, stat cards). Everything is done
+  // in SQL: 'GET /journal-vouchers' still answers the plain newest-first array
+  // the editor uses, but it cannot be the list page's source once an org holds
+  // thousands of imported vouchers (guru 2026-11-18).
+  @Get('paged')
+  @Permissions('journal:read')
+  @ApiOperation({ summary: 'List page: Journal Vouchers filtered, paged and totalled server-side' })
+  listPaged(
+    @Req() req: RequestWithOrganization,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.listPaged(requireOrgId(req), { search, status, from, to, page: Number(page) || 1, limit: Number(limit) || 50 });
   }
 
   @Get(':id')
