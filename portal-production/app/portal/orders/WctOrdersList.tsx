@@ -16,7 +16,7 @@ import { fmtJobWhen, orderMatchesSearch, orderStatusColor, orderStatusLabel } fr
 import { HUB_ACTION_LABEL, HUB_DESTRUCTIVE, hubListTarget, hubMatchesTab, hubRowActions, hubStatusInfo, hubStatusSortValue, hubTabs, type HubActionKey, type HubContext, type HubStatus } from "@/helpers/wctOrderHub";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
-import { ORDER_SOURCE_OPTIONS, importedStatusHue, matchesOrderSource, type OrderSource } from "@/helpers/importedOrders";
+import { ORDER_SOURCE_OPTIONS, importedMatchesTab, importedStatusHue, importedTabs, isImportedTab, matchesOrderSource, type OrderSource } from "@/helpers/importedOrders";
 
 // WCT calendar add (2026-11-04): jobs made from the calendar with no order yet, so nothing gets forgotten.
 interface UntaggedJob {
@@ -155,10 +155,19 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
   }, [calendarAdd, organization?.id, getToken]);
 
   // One tab per status, counted from the real statuses (the old "Open" tab missed DO drafts).
-  const tabs = useMemo(() => hubTabs(sourceRows), [sourceRows]);
+  // Imported rows have their own statuses (Part billed / Invoiced / Paid), listed after the AIMS ones.
+  const tabs = useMemo(() => {
+    const native = sourceRows.filter((o) => o.imported !== true);
+    const own = native.length || source !== "imported" ? hubTabs(native).map((t) => (t.key === "all" ? { ...t, count: sourceRows.length } : t)) : [{ key: "all" as const, label: "All", count: sourceRows.length }];
+    return [...own, ...importedTabs(sourceRows)] as Array<{ key: any; label: string; count: number }>;
+  }, [sourceRows, source]);
 
   const filtered = useMemo(
-    () => (tab === "untagged" ? [] : sourceRows.filter((o) => hubMatchesTab(o, tab) && (orderMatchesSearch(o, search || "") || [o.subject, o.site].some((v) => (v || "").toLowerCase().includes((search || "").trim().toLowerCase()))))),
+    () => (tab === "untagged" ? [] : sourceRows.filter(
+            (o) =>
+              (o.imported ? importedMatchesTab(o, tab as string) : !isImportedTab(tab as string) && hubMatchesTab(o, tab)) &&
+              (orderMatchesSearch(o, search || "") || [o.subject, o.site].some((v) => (v || "").toLowerCase().includes((search || "").trim().toLowerCase()))),
+          )),
     [sourceRows, tab, search],
   );
 

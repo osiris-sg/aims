@@ -20,9 +20,9 @@ import { photosFileOf } from '../maintenance-reports/uploaded-report';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { taggedSinsView } from '../bills/bill-quotation';
 import { bySchedule, dueBy } from '../deliveries/all-day';
-import { IMPORTED_ORDER_READ_ONLY, IMPORTED_STATUS_LABEL, assertNotImportedOrder, importedMarkerOf, importedOrderStatus, importedTracker, isImportedOrder, isImportedOrdersEnabled } from './imported-orders';
+import { IMPORTED_INVOICE_STATE_LABEL, IMPORTED_ORDER_READ_ONLY, assertNotImportedOrder, creditOfImportedInvoice, importedInvoiceMoney, importedMarkerOf, importedOrderStatus, importedTracker, isImportedOrder, isImportedOrdersEnabled } from './imported-orders';
 import { isErpImported } from '../common/erp-import';
-import { grossOf, owedOf } from '../common/document-money';
+import { grossOf } from '../common/document-money';
 
 /** Imported orders are numbered ORD-<quotation no.> (imported-orders.ts); no native number starts so. */
 const IMPORTED_NUMBER_PREFIX = 'ORD-Q-';
@@ -466,10 +466,14 @@ export class OrdersService {
     const ids = [...new Set(open.flatMap((o) => this.importedInvoiceRefs(o).map((r) => r.id)))];
     const docs = ids.length ? await this.prisma.document.findMany({ where: { organizationId, id: { in: ids } }, select: { id: true, status: true, config: true } }) : [];
     const byId = new Map(docs.map((d: any) => [d.id, d]));
-    const partPaid = new Set<string>();
+    // Orders made without the quotation total on the marker: read those quotations' totals.
+    const needQuote = open.filter((o) => (importedMarkerOf(o) as any)?.quoteTotal == null && o.sourceQuotation?.id).map((o) => o.sourceQuotation.id);
+    const quotes = needQuote.length ? await this.prisma.document.findMany({ where: { organizationId, id: { in: needQuote } }, select: { id: true, config: true } }) : [];
+    const quoteCfg = new Map(quotes.map((d: any) => [d.id, d.config]));
+    const labels = new Map<string, string>();
     for (const o of open) {
-      const st = importedOrderStatus(this.importedInvoiceRefs(o).map((r) => byId.get(r.id)).filter(Boolean) as any[]);
-      if (st.partPaid) partPaid.add(o.id);
+      const st = this.importedStatusOf(o, byId, o.sourceQuotation?.id ? quoteCfg.get(o.sourceQuotation.id) : undefined);
+      labels.set(o.id, st.label);
       if (st.status !== o.status) {
         await this.prisma.order.update({ where: { id: o.id }, data: { status: st.status } });
         o.status = st.status;
@@ -481,7 +485,7 @@ export class OrdersService {
         id: o.id,
         orderNumber: o.orderNumber,
         status: o.status,
-        statusLabel: IMPORTED_STATUS_LABEL({ status: o.status, partPaid: partPaid.has(o.id) }),
+        statusLabel: labels.get(o.id) ?? (o.status === 'PAID' ? 'Paid' : o.status === 'INVOICED' ? 'Invoiced' : 'Part billed'),
         imported: true,
         createdAt: o.createdAt,
         customer: o.customer ?? null,
@@ -500,6 +504,17 @@ export class OrdersService {
         serviceReportReady: false,
       };
     });
+  }
+
+  /** Status from the invoices' money against the quotation total (imported-orders.ts rules); credits + quotation total from the order's marker. */
+  private importedStatusOf(order: { linkedDocuments?: unknown }, docsById: Map<string, any>, quoteConfig?: any) {
+    const m: any = importedMarkerOf(order) || {};
+    const invs = this.importedInvoiceRefs(order)
+      .map((r) => docsById.get(r.id))
+      .filter(Boolean)
+      .map((d: any) => ({ ...d, credit: Number(m.credits?.[d.id]) || creditOfImportedInvoice(d.config) }));
+    const quoteTotal = m.quoteTotal != null && Number.isFinite(Number(m.quoteTotal)) ? Number(m.quoteTotal) : quoteConfig ? grossOf(quoteConfig) : null;
+    return importedOrderStatus(invs, quoteTotal);
   }
 
   private importedInvoiceRefs(order: { linkedDocuments?: unknown }): Array<{ id: string; name: string | null; templateId?: string | null; total?: number }> {
@@ -542,7 +557,7 @@ export class OrdersService {
       : [];
     const byId = new Map(docs.map((d: any) => [d.id, d]));
     const invDocs = refs.map((r) => byId.get(r.id)).filter(Boolean) as any[];
-    const st = importedOrderStatus(invDocs);
+    const st = this.importedStatusOf(row, byId, row.sourceQuotation?.config);
     if (st.status !== row.status) {
       await this.prisma.order.update({ where: { id: row.id }, data: { status: st.status } });
       row.status = st.status;
@@ -552,9 +567,12 @@ export class OrdersService {
       id: row.id,
       orderNumber: row.orderNumber,
       status: st.status,
-      statusLabel: IMPORTED_STATUS_LABEL(st),
+      statusLabel: st.label,
       imported: true,
       readOnly: true,
+      billed: st.billed,
+      quoteTotal: st.quoteTotal,
+      credited: st.credited,
       createdAt: row.createdAt,
       customer: row.customer ?? null,
       customerMismatch: Array.isArray(m?.customerMismatch) ? m.customerMismatch : [],
@@ -565,18 +583,24 @@ export class OrdersService {
       site: m?.site ?? null,
       erpDoNumbers: Array.isArray(m?.erpDoNumbers) ? m.erpDoNumbers : [],
       tracker: importedTracker({ erpDoNumbers: m?.erpDoNumbers }, st),
-      invoices: invDocs.map((d: any) => ({
+      invoices: invDocs.map((d: any) => {
+        const money = importedInvoiceMoney(d, Number(m?.credits?.[d.id]) || creditOfImportedInvoice(d.config));
+        return {
         id: d.id,
         name: d.name,
         type: d.type,
         status: d.status,
         templateId: d.documentTemplateId,
         date: d.config?.date ?? null,
-        total: grossOf(d.config),
-        owed: owedOf(d.config),
+        total: money.gross,
+        owed: money.owed,
+        credit: money.credit,
+        state: money.state,
+        stateLabel: IMPORTED_INVOICE_STATE_LABEL[money.state],
         linkSource: m?.linkSources?.[d.id] ?? null,
         erpDoNumber: d.config?.erpImport?.ourDoNo ?? d.config?.erpImport?.doNo ?? null,
-      })),
+        };
+      }),
       creditNotes: cnRefs.map((r: any) => byId.get(r.id)).filter(Boolean).map((d: any) => ({ id: d.id, name: d.name, type: d.type, status: d.status, templateId: d.documentTemplateId, total: grossOf(d.config) })),
       total: st.total,
       owed: st.owed,

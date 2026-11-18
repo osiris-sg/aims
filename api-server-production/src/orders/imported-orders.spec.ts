@@ -7,6 +7,8 @@ import {
   importedOrderNumber,
   importedOrderStatus,
   importedTracker,
+  importedInvoiceMoney,
+  creditOfImportedInvoice,
   invoiceQuoteRef,
   isImportedOrderNumber,
   planImportedOrders,
@@ -130,23 +132,80 @@ describe('imported orders: plan', () => {
     const cn: PlanDoc = { id: 'cn1', organizationId: BCAIR, type: 'CREDIT_NOTE', name: 'CN0009', status: 'confirmed', config: { sourceDocumentId: 'ib', totalWithTax: 200, erpImport: { source: 'bcair-cn-tracker' } } };
     const plan = planImportedOrders([quote('qb', 'Q-000700', BCAIR), invoice('ib', 'I000315', { source: 'wctc-tracker', quotationNo: '-700' }, { totalWithTax: 500, outstandingBalance: 0, paidToDate: 300 }, BCAIR), cn]);
     expect(plan.orders[0].creditNotes.map((d) => d.name)).toEqual(['CN0009']);
-    expect(plan.orders[0].status).toMatchObject({ status: 'PAID', total: 500, owed: 0 });
+    // Credit 200 lowers what the invoice bills (300) against the quotation's 1,000: part billed, paid.
+    expect(plan.orders[0].credits).toEqual({ ib: 200 });
+    expect(plan.orders[0].status).toMatchObject({ status: 'PART_BILLED', label: 'Part billed, paid', total: 500, billed: 300, owed: 0, credited: 200, quoteTotal: 1000 });
+  });
+
+  it('lists invoices whose ERP links disagree and keeps the ERP quotation link', () => {
+    const plan = planImportedOrders(
+      [quote('q1', 'Q-000100'), quote('q2', 'Q-000200'), invoice('i1', 'I-1', { source: 'wct-erp', contractNo: '-000200 - x' }, { items: [{ description: 'Refer to Quotation (-000200)' }] })],
+      { erpLinks: new Map([[`${WCT}|I-1`, '-000100']]) },
+    );
+    expect(plan.orders.map((o) => o.orderNumber)).toEqual(['ORD-Q-000100']);
+    expect(plan.disagreements).toEqual([
+      { invoice: 'I-1', organizationId: WCT, used: { key: 100, source: 'erp_quotation_link' }, others: [{ key: 200, source: 'contract_no' }, { key: 200, source: 'line_text' }] },
+    ]);
+  });
+
+  it('reads the WCT ERP credit-note export amount by org + invoice no. (WCT invoices carry no amount)', () => {
+    const plan = planImportedOrders([quote('q1', 'Q-000100', WCT, { totalWithTax: 500 }), invoice('i1', 'I-1', { source: 'wct-erp', contractNo: '-000100 - x' })], {
+      creditsByInvoiceNo: new Map([[`${WCT}|I-1`, 500]]),
+    });
+    expect(plan.orders[0].status).toMatchObject({ status: 'PART_BILLED', label: 'Part billed', billed: 0, credited: 500 });
   });
 });
 
-describe('imported orders: status from document money', () => {
-  const inv = (cfg: any, status = 'pending_payment') => ({ status, config: { totalWithTax: 100, ...cfg } });
-  it('Paid when every invoice owes nothing (payments or credit notes), else Invoiced', () => {
-    expect(importedOrderStatus([inv({ outstandingBalance: 0, paidToDate: 100 }, 'paid'), inv({ outstandingBalance: 0, paidToDate: 60 }, 'paid')]).status).toBe('PAID');
-    expect(importedOrderStatus([inv({ outstandingBalance: 0, paidToDate: 100 }, 'paid'), inv({ outstandingBalance: 100, paidToDate: 0 })])).toMatchObject({ status: 'INVOICED', partPaid: false, total: 200, owed: 100 });
-    expect(importedOrderStatus([inv({ outstandingBalance: 40, paidToDate: 60 })])).toMatchObject({ status: 'INVOICED', partPaid: true });
+describe('imported orders: status rules (tax inclusive on both sides)', () => {
+  const inv = (gross: number, owed: number | null, paid = 0, extra: any = {}) => ({ status: owed === 0 ? 'paid' : 'pending_payment', config: { totalWithTax: gross, ...(owed == null ? {} : { outstandingBalance: owed }), paidToDate: paid, ...extra } });
+  it('fully billed and all paid = Paid; exactly equal and over-billed count as fully billed', () => {
+    expect(importedOrderStatus([inv(1090, 0, 1090)], 1090)).toMatchObject({ status: 'PAID', label: 'Paid', billed: 1090 });
+    expect(importedOrderStatus([inv(600, 0, 600), inv(600, 0, 600)], 1090)).toMatchObject({ status: 'PAID', billed: 1200 });
+    // one cent short is still billed in full (rounding)
+    expect(importedOrderStatus([inv(1089.99, 0, 1089.99)], 1090).status).toBe('PAID');
   });
-  it('a balance never stamped is owed in full (never read as zero); a voided invoice is left out', () => {
-    expect(importedOrderStatus([inv({})]).status).toBe('INVOICED');
-    expect(importedOrderStatus([inv({ outstandingBalance: 0 }, 'paid'), inv({ voided: true, outstandingBalance: 100 })]).status).toBe('PAID');
+  it('fully billed, not all paid = Invoiced / Invoiced, part paid', () => {
+    expect(importedOrderStatus([inv(500, 0, 500), inv(590, 590)], 1090)).toMatchObject({ status: 'INVOICED', label: 'Invoiced, part paid', owed: 590 });
+    expect(importedOrderStatus([inv(1090, 1090)], 1090)).toMatchObject({ status: 'INVOICED', label: 'Invoiced', partPaid: false });
+    expect(importedOrderStatus([inv(1090, 400, 690)], 1090)).toMatchObject({ status: 'INVOICED', label: 'Invoiced, part paid' });
   });
-  it('reads legacy xero* twins through document-money', () => {
-    expect(importedOrderStatus([{ status: 'paid', config: { xeroGross: 50, xeroBalance: 0 } }]).status).toBe('PAID');
+  it('billed less than the quotation = Part billed, with paid / part paid / unpaid', () => {
+    expect(importedOrderStatus([inv(545, 0, 545)], 1090)).toMatchObject({ status: 'PART_BILLED', label: 'Part billed, paid' });
+    expect(importedOrderStatus([inv(545, 545)], 1090)).toMatchObject({ status: 'PART_BILLED', label: 'Part billed, unpaid' });
+    expect(importedOrderStatus([inv(545, 0, 545), inv(300, 300)], 1090)).toMatchObject({ status: 'PART_BILLED', label: 'Part billed, part paid' });
+  });
+  it('$0 invoices never count as billing; only $0 invoices = Part billed', () => {
+    expect(importedOrderStatus([inv(0, 0), inv(0, 0)], 1090)).toMatchObject({ status: 'PART_BILLED', label: 'Part billed', billed: 0 });
+    expect(importedOrderStatus([inv(0, 0), inv(1090, 0, 1090)], 1090).status).toBe('PAID');
+  });
+  it('a quotation with no total or 0: billed in full once anything is billed', () => {
+    expect(importedOrderStatus([inv(200, 0, 200)], null).status).toBe('PAID');
+    expect(importedOrderStatus([inv(200, 200)], 0).status).toBe('INVOICED');
+    expect(importedOrderStatus([inv(0, 0)], null).status).toBe('PART_BILLED');
+  });
+  it('credited: a fully credited invoice bills nothing and is marked Credited; the rest decides', () => {
+    // Paid 1,090 + a 300 invoice fully credited: still fully billed and paid.
+    expect(importedOrderStatus([inv(1090, 0, 1090), { ...inv(300, 0, 300), credit: 300 }], 1090)).toMatchObject({ status: 'PAID', billed: 1090, credited: 300 });
+    // Only a credited invoice: nothing billed.
+    expect(importedOrderStatus([{ ...inv(1090, 0, 1090), credit: 1090 }], 1090)).toMatchObject({ status: 'PART_BILLED', label: 'Part billed' });
+    // Partly credited (9,400 - 5,400 = 4,000 billed) against a 4,000 quotation: Paid.
+    expect(importedOrderStatus([{ ...inv(9400, 0, 9400), credit: 5400 }], 4000)).toMatchObject({ status: 'PAID', billed: 4000 });
+    expect(importedInvoiceMoney(inv(300, 0, 300), 300).state).toBe('CREDITED');
+    expect(importedInvoiceMoney(inv(9400, 0, 9400), 5400)).toMatchObject({ state: 'PAID', net: 4000, credit: 5400 });
+    expect(importedInvoiceMoney(inv(0, 0), 0).state).toBe('NO_CHARGE');
+    expect(importedInvoiceMoney(inv(100, 40, 60), 0).state).toBe('PART_PAID');
+    expect(importedInvoiceMoney(inv(100, null), 0)).toMatchObject({ state: 'UNPAID', owed: 100 });
+  });
+  it('credit sources: tracker credit notes first, then CN documents, then the ERP export amount', () => {
+    expect(creditOfImportedInvoice({ erpImport: { source: 't', creditNotes: [{ amount: 650 }] } }, [{ config: { totalWithTax: 999 } }], 1)).toBe(650);
+    expect(creditOfImportedInvoice({ erpImport: { source: 't' } }, [{ config: { totalWithTax: 200 } }], 1)).toBe(200);
+    expect(creditOfImportedInvoice({ erpImport: { source: 't' } }, [], 75)).toBe(75);
+    expect(creditOfImportedInvoice({ erpImport: { source: 't' } })).toBe(0);
+  });
+  it('voided invoices are left out; a balance never stamped is owed in full; legacy xero* twins read', () => {
+    expect(importedOrderStatus([inv(100, 0, 100), inv(100, 100, 0, { voided: true })], 100).status).toBe('PAID');
+    expect(importedOrderStatus([inv(100, null)], 100).status).toBe('INVOICED');
+    expect(importedOrderStatus([{ status: 'paid', config: { xeroGross: 50, xeroBalance: 0 } }], 50).status).toBe('PAID');
   });
 });
 
@@ -164,19 +223,19 @@ describe('imported orders: numbering + tracker', () => {
     }
   });
   it('tracker: Quotation + Invoice done, DO and Service report not applicable, the ERP DO no. as text', () => {
-    const t = importedTracker({ erpDoNumbers: ['DO010975'] }, { status: 'INVOICED', partPaid: true });
+    const t = importedTracker({ erpDoNumbers: ['DO010975'] }, { label: 'Invoiced, part paid' });
     expect(t.map((s) => [s.key, s.state, s.note])).toEqual([
       ['quotation', 'done', undefined],
       ['invoice', 'done', 'Invoiced, part paid'],
       ['do', 'na', 'ERP DO DO010975'],
       ['serviceReport', 'na', null],
     ]);
-    expect(importedTracker({}, { status: 'PAID', partPaid: false })[2].note).toBeNull();
+    expect(importedTracker({}, { label: 'Paid' })[2].note).toBeNull();
   });
 });
 
 // ── OrdersService with a mocked Prisma ──────────────────────────────────────
-const marker = { source: IMPORTED_ORDER_SOURCE, batch: 'b', quotationNo: 'Q-000100', linkSources: { i1: 'contract_no' }, erpDoNumbers: ['DO1'], subject: 'Degreasing', site: 'Site', total: 500, at: 'x' };
+const marker = { source: IMPORTED_ORDER_SOURCE, batch: 'b', quotationNo: 'Q-000100', linkSources: { i1: 'contract_no' }, erpDoNumbers: ['DO1'], subject: 'Degreasing', site: 'Site', total: 500, quoteTotal: 500, credits: {}, at: 'x' };
 const importedRow = {
   id: 'imp1',
   orderNumber: 'ORD-Q-000100',
@@ -207,7 +266,10 @@ function svcWith(features: Record<string, unknown>, orders: any[]) {
     },
     delivery: { findMany: jest.fn(async () => []), count: jest.fn(async () => 0) },
     document: {
-      findMany: jest.fn(async () => [{ id: 'i1', name: 'I-1', type: 'INVOICE', status: 'pending_payment', documentTemplateId: 't', config: { totalWithTax: 500, outstandingBalance: 200, paidToDate: 300, erpImport: { ourDoNo: 'DO1' } } }]),
+      findMany: jest.fn(async ({ where }: any) => [
+        { id: 'i1', name: 'I-1', type: 'INVOICE', status: 'pending_payment', documentTemplateId: 't', config: { totalWithTax: 500, outstandingBalance: 200, paidToDate: 300, erpImport: { ourDoNo: 'DO1' } } },
+        { id: 'q1', name: 'Q-000100', type: 'QUOTATION', status: 'confirmed', documentTemplateId: 't', config: { totalWithTax: 1000 } },
+      ].filter((d) => !where?.id?.in || where.id.in.includes(d.id))),
       update: jest.fn(async (a: any) => writes.push(['document.update', a])),
     },
     maintenanceServiceReport: { findMany: jest.fn(async () => []) },
@@ -241,9 +303,20 @@ describe('imported orders: OrdersService', () => {
     const page: any = await on.svc.getById('imp1', 'org');
     expect(page).toMatchObject({ imported: true, readOnly: true, status: 'INVOICED', jobs: [], deliveryOrders: [], erpDoNumbers: ['DO1'], owed: 200 });
     expect(page.tracker.map((s: any) => s.state)).toEqual(['done', 'done', 'na', 'na']);
-    expect(page.invoices[0]).toMatchObject({ name: 'I-1', linkSource: 'contract_no', erpDoNumber: 'DO1', owed: 200 });
+    expect(page.invoices[0]).toMatchObject({ name: 'I-1', linkSource: 'contract_no', erpDoNumber: 'DO1', owed: 200, state: 'PART_PAID', stateLabel: 'Part paid' });
+    expect(page).toMatchObject({ billed: 500, quoteTotal: 500, statusLabel: 'Invoiced, part paid' });
     const off = svcWith({ enableWctOrders: true }, [importedRow]);
     await expect(off.svc.getById('imp1', 'org')).rejects.toThrow(/not found/i);
+  });
+
+  it('part billed: invoiced less than the quotation (marker without quoteTotal falls back to the quotation); credited invoice row', async () => {
+    const row = { ...importedRow, linkedDocuments: { ...importedRow.linkedDocuments, imported: { ...marker, quoteTotal: undefined, credits: { i1: 100 } } } };
+    const { svc } = svcWith({ enableWctOrders: true, enableImportedOrders: true }, [row]);
+    const page: any = await svc.getById('imp1', 'org');
+    expect(page).toMatchObject({ status: 'PART_BILLED', statusLabel: 'Part billed, part paid', quoteTotal: 1000, billed: 400, credited: 100 });
+    expect(page.invoices[0]).toMatchObject({ state: 'PART_PAID', credit: 100 });
+    const list: any[] = (await svc.list('org')) as any[];
+    expect(list[0]).toMatchObject({ status: 'PART_BILLED', statusLabel: 'Part billed, part paid' });
   });
 
   it('a paid order flips to Paid on read when the money says so (order row only, documents never written)', async () => {

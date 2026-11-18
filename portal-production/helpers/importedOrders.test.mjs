@@ -1,7 +1,7 @@
 // Run: npm test. Imported orders (2026-11-18): list source filter, no row actions, links.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { importedDocHref, importedLinkSourceLabel, importedRowActions, matchesOrderSource } from "./importedOrders.ts";
+import { importedDocHref, importedLinkSourceLabel, importedMatchesTab, importedRowActions, importedTabs, isImportedTab, matchesOrderSource } from "./importedOrders.ts";
 
 const native = { id: "n1" };
 const imported = { id: "i1", imported: true };
@@ -21,4 +21,17 @@ test("document links and link-source labels", () => {
   assert.equal(importedDocHref({ id: "d", name: "x" }, "INVOICE"), null);
   assert.equal(importedLinkSourceLabel("contract_no"), "ERP contract no.");
   assert.equal(importedLinkSourceLabel(null), "");
+});
+test("imported status filter: own entries (Part billed / Invoiced / Paid), never mixed with AIMS statuses", () => {
+  const rows = [{ id: "n", status: "PAID" }, { id: "a", imported: true, status: "PART_BILLED" }, { id: "b", imported: true, status: "PAID" }, { id: "c", imported: true, status: "PART_BILLED" }];
+  assert.deepEqual(importedTabs(rows), [
+    { key: "imported:PART_BILLED", label: "Part billed (imported)", count: 2 },
+    { key: "imported:PAID", label: "Paid (imported)", count: 1 },
+  ]);
+  assert.equal(isImportedTab("imported:PAID"), true);
+  assert.equal(isImportedTab("PAID"), false);
+  assert.deepEqual(rows.filter((r) => importedMatchesTab(r, "imported:PART_BILLED")).map((r) => r.id), ["a", "c"]);
+  assert.deepEqual(rows.filter((r) => importedMatchesTab(r, "all")).map((r) => r.id), ["a", "b", "c"]);
+  assert.equal(importedMatchesTab(rows[2], "PAID"), false);
+  assert.equal(importedLinkSourceLabel("erp_quotation_link"), "ERP quotation link");
 });

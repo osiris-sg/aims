@@ -46,7 +46,9 @@ export default function ImportedOrderDetail({ order, onBack }: { order: Imported
         <Field label="Customer" value={order.customer?.name || ""} />
         <Field label="Order date" value={q?.date ? moment(q.date).format("DD/MM/YYYY") : moment(order.createdAt).format("DD/MM/YYYY")} />
         <Field label="Subject" value={order.subject || ""} />
-        <Field label="Invoiced" value={importedMoney(order.total)} />
+        <Field label="Quotation total" value={importedMoney(order.quoteTotal ?? q?.total ?? null)} />
+        <Field label="Billed" value={importedMoney(order.billed ?? order.total)} />
+        {!!order.credited && <Field label="Credited" value={importedMoney(order.credited)} />}
         <Field label="Owed" value={importedMoney(order.owed)} />
       </Stack>
 
@@ -75,6 +77,7 @@ export default function ImportedOrderDetail({ order, onBack }: { order: Imported
             <TableRow>
               <TableCell>Document</TableCell>
               <TableCell>Date</TableCell>
+              <TableCell>Status</TableCell>
               <TableCell>Linked by</TableCell>
               <TableCell>ERP DO</TableCell>
               <TableCell align="right">Amount</TableCell>
@@ -83,13 +86,13 @@ export default function ImportedOrderDetail({ order, onBack }: { order: Imported
           </TableHead>
           <TableBody>
             {q && (
-              <DocRow href={qHref} name={`Quotation ${q.name ?? ""}`} date={q.date} by="" doNo="" amount={q.total} owed={null} />
+              <DocRow href={qHref} name={`Quotation ${q.name ?? ""}`} date={q.date} state="" by="" doNo="" amount={q.total} owed={null} />
             )}
             {order.invoices.map((i) => (
-              <DocRow key={i.id} href={importedDocHref(i, "INVOICE")} name={`Invoice ${i.name ?? ""}`} date={i.date} by={importedLinkSourceLabel(i.linkSource)} doNo={i.erpDoNumber || ""} amount={i.total} owed={i.owed} />
+              <DocRow key={i.id} href={importedDocHref(i, "INVOICE")} name={`Invoice ${i.name ?? ""}`} date={i.date} state={i.credit && i.state !== "CREDITED" ? `${i.stateLabel ?? ""}, credited ${importedMoney(i.credit)}` : i.stateLabel ?? ""} by={importedLinkSourceLabel(i.linkSource)} doNo={i.erpDoNumber || ""} amount={i.total} owed={i.owed} />
             ))}
             {order.creditNotes.map((c) => (
-              <DocRow key={c.id} href={importedDocHref(c, "CREDIT_NOTE")} name={`Credit note ${c.name ?? ""}`} date={null} by="" doNo="" amount={c.total} owed={null} />
+              <DocRow key={c.id} href={importedDocHref(c, "CREDIT_NOTE")} name={`Credit note ${c.name ?? ""}`} date={null} state="" by="" doNo="" amount={c.total} owed={null} />
             ))}
           </TableBody>
         </Table>
@@ -109,12 +112,13 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-function DocRow({ href, name, date, by, doNo, amount, owed }: { href: string | null; name: string; date?: string | null; by: string; doNo: string; amount?: number | null; owed: number | null }) {
+function DocRow({ href, name, date, state, by, doNo, amount, owed }: { href: string | null; name: string; date?: string | null; state: string; by: string; doNo: string; amount?: number | null; owed: number | null }) {
   const router = useRouter();
   return (
     <TableRow hover sx={href ? { cursor: "pointer" } : undefined} onClick={() => href && router.push(href)}>
       <TableCell>{name}</TableCell>
       <TableCell sx={{ whiteSpace: "nowrap" }}>{date ? moment(date).format("DD/MM/YYYY") : ""}</TableCell>
+      <TableCell>{state}</TableCell>
       <TableCell>{by}</TableCell>
       <TableCell>{doNo}</TableCell>
       <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>

@@ -22,10 +22,13 @@ export interface ImportedOrder {
   subject?: string | null;
   sourceQuotation?: (ImportedDocRef & { date?: string | null; total?: number | null }) | null;
   tracker: Array<{ key: string; label: string; state: "done" | "na"; note?: string | null }>;
-  invoices: Array<ImportedDocRef & { date?: string | null; total?: number | null; owed: number; linkSource?: string | null; erpDoNumber?: string | null }>;
+  invoices: Array<ImportedDocRef & { date?: string | null; total?: number | null; owed: number; credit?: number; state?: string; stateLabel?: string; linkSource?: string | null; erpDoNumber?: string | null }>;
   creditNotes: Array<ImportedDocRef & { total?: number | null }>;
   total: number;
   owed: number;
+  billed?: number;
+  quoteTotal?: number | null;
+  credited?: number;
 }
 
 /** The orders list's source filter. Default "aims": imported history does not crowd the working list. */
@@ -58,4 +61,21 @@ export function importedDocHref(d: ImportedDocRef | null | undefined, fallbackTy
 
 export const importedMoney = (n?: number | null) => (n == null ? "" : `S$ ${Number(n).toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 
-export const importedStatusHue = (status: string) => (status === "PAID" ? "#22c55e" : "#6d28d9");
+export const importedStatusHue = (status: string) => (status === "PAID" ? "#22c55e" : status === "PART_BILLED" ? "#f59e0b" : "#6d28d9");
+
+/** Imported order statuses (api imported-orders.ts): Part billed, Invoiced, Paid. */
+export const IMPORTED_STATUS_TABS: Array<{ key: string; label: string }> = [
+  { key: "PART_BILLED", label: "Part billed" },
+  { key: "INVOICED", label: "Invoiced" },
+  { key: "PAID", label: "Paid" },
+];
+const IMP = "imported:";
+/** Status filter entries for imported rows (keys prefixed so they never mix with the AIMS order statuses). */
+export function importedTabs(rows: Array<{ imported?: boolean; status?: string | null }>) {
+  const imp = rows.filter((r) => r.imported === true);
+  return IMPORTED_STATUS_TABS.filter((t) => imp.some((r) => r.status === t.key)).map((t) => ({ key: IMP + t.key, label: `${t.label} (imported)`, count: imp.filter((r) => r.status === t.key).length }));
+}
+export const isImportedTab = (tab: string) => tab.startsWith(IMP);
+/** An imported row matches All or its own imported status entry; never an AIMS status entry. */
+export const importedMatchesTab = (row: { imported?: boolean; status?: string | null }, tab: string) =>
+  row.imported === true && (tab === "all" || tab === IMP + row.status);

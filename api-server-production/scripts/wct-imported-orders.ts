@@ -57,6 +57,29 @@ const OUT = one('--out', path.join(__dirname, `wct-imported-orders.${env}`))!;
 const BATCH = 'imported-orders-2026-11-18';
 const JOB = 'system:wct-imported-orders';
 
+/** RFC-4180 CSV (quoted fields with commas / newlines) into objects keyed by the header row. */
+function readCsv(file: string): Array<Record<string, string>> {
+  const text = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
+  const rows: string[][] = [];
+  let row: string[] = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) {
+      if (ch === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (ch === '"') q = false;
+      else cell += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ',') { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else cell += ch;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  const [head, ...body] = rows.filter((r) => r.some((c) => c.trim()));
+  return body.map((r) => Object.fromEntries(head.map((h, k) => [h.trim(), r[k] ?? ''])));
+}
+
 const orgName = (id: string) => GROUP[id] ?? id;
 const T = (t: string) => `"${SCHEMA}"."${t}"`;
 const money = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -95,20 +118,31 @@ const money = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 
   const flags = await q(`select "organizationId", features->'${IMPORTED_ORDERS_FLAG}' f from ${T('OrganizationUIConfig')} where "organizationId" = any($1)`, [orgs]);
 
   // Links are read from ALL group orgs (so a cross-org reference is recognised), orders only for --org minus --exclude.
+  // ERP "Quotation No." links pulled read-only from the old ERP (WCT (S) invoices): the FIRST link source.
+  const WCT_ORG = '5c700000-0000-4000-8000-5c7000000001';
   const erpLinks = new Map<string, string>();
   const linksFile = one('--erp-links');
   if (linksFile) {
-    const [head, ...body] = fs.readFileSync(linksFile, 'utf8').split(/\r?\n/).filter(Boolean);
-    const cols = head.split(',');
-    const iNo = cols.indexOf('invoice_no'), iQ = cols.indexOf('erp_quotation_no');
-    if (iNo < 0 || iQ < 0) throw new Error('--erp-links needs columns invoice_no, erp_quotation_no');
-    for (const l of body) {
-      const c = l.split(',');
-      if (c[iNo] && c[iQ]) erpLinks.set(`5c700000-0000-4000-8000-5c7000000001|${c[iNo].trim()}`, c[iQ].trim());
-    }
-    console.log(`ERP links read: ${erpLinks.size}`);
+    const rows = readCsv(linksFile);
+    const head = Object.keys(rows[0] ?? {});
+    const invCol = head.find((h) => h === 'invoice_no') ?? head.find((h) => /invoice/i.test(h));
+    const qCol = head.find((h) => h === 'erp_quotation_no') ?? head.find((h) => /quotation_no|quotation/i.test(h) && !/id$/i.test(h));
+    if (!invCol || !qCol) throw new Error('--erp-links needs an invoice no. column and a quotation no. column');
+    for (const r of rows) if (r[invCol] && r[qCol]) erpLinks.set(`${WCT_ORG}|${r[invCol].trim()}`, r[qCol].trim());
+    console.log(`ERP links read: ${erpLinks.size} (${invCol} -> ${qCol})`);
   }
-  const plan = planImportedOrders(docs, { quotationIdsWithOrder: withOrder, exclude: EXCLUDE, erpLinks });
+  // WCT ERP credit notes (amounts by invoice no.; WCT invoices carry only the CN number). Applied ones only.
+  const creditsByInvoiceNo = new Map<string, number>();
+  const cnFile = one('--wct-credit-notes', path.join(process.env.HOME || '', 'Desktop/aims/_imports/wct/erp/wct-credit-notes.csv'))!;
+  if (fs.existsSync(cnFile)) {
+    for (const r of readCsv(cnFile)) {
+      if (r.status !== 'Applied' || !r.invoice_no) continue;
+      const k = `${WCT_ORG}|${r.invoice_no.trim()}`;
+      creditsByInvoiceNo.set(k, Math.round(((creditsByInvoiceNo.get(k) ?? 0) + (Number(r.total) || 0)) * 100) / 100);
+    }
+    console.log(`WCT ERP credit notes read: ${creditsByInvoiceNo.size} invoice(s)`);
+  }
+  const plan = planImportedOrders(docs, { quotationIdsWithOrder: withOrder, exclude: EXCLUDE, erpLinks, creditsByInvoiceNo });
   const clash = plan.orders.filter((o) => numbers.has(`${o.organizationId}|${o.orderNumber}`));
   const todo = plan.orders.filter((o) => !numbers.has(`${o.organizationId}|${o.orderNumber}`));
 
@@ -136,7 +170,10 @@ const money = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 
     say(`${orgName(org)} (${org}) setting ${IMPORTED_ORDERS_FLAG}=${f === true ? 'on' : 'off'}`);
     say(`  imported quotations ${quotes.length}, imported invoices ${invoices.length}`);
     say(`  orders to create ${mine.length}: one invoice ${mine.filter((o) => o.invoices.length === 1).length}, several invoices ${mine.filter((o) => o.invoices.length > 1).length}`);
-    say(`  status: Paid ${mine.filter((o) => o.status.status === 'PAID').length}, Invoiced ${mine.filter((o) => o.status.status === 'INVOICED').length} (part paid ${mine.filter((o) => o.status.partPaid).length})`);
+    const byLabel: Record<string, number> = {};
+    for (const o of mine) byLabel[o.status.label] = (byLabel[o.status.label] ?? 0) + 1;
+    say(`  status: ${Object.entries(byLabel).sort().map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}`);
+    say(`  ERP links that disagree with another source (ERP quotation link kept) ${plan.disagreements.filter((d) => d.organizationId === org).length}`);
     say(`  invoices linked ${linked.length}: ${Object.entries(bySource).map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}`);
     say(`  invoices not linked ${invoices.length - linked.length}${Object.keys(skipped).length ? `: ${Object.entries(skipped).map(([k, v]) => `${k} ${v}`).join(', ')}` : ''}`);
     say(`  credit notes on orders ${mine.reduce((t, o) => t + o.creditNotes.length, 0)}, customer differs from the quotation on ${mine.filter((o) => o.customerMismatch.length).length} order(s), quotation customer not in the org ${mine.filter((o) => o.customerId && !customers.has(`${org}|${o.customerId}`)).length}`);
@@ -149,7 +186,7 @@ const money = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 
   const sample = todo.filter((_, i) => i % step === 0).slice(0, 20);
   for (const o of sample) {
     say(
-      `  ${orgName(o.organizationId)} | ${o.orderNumber} | ${o.quotation.name} | ${o.invoices.map((i) => `${i.doc.name} [${IMPORTED_LINK_SOURCE_LABEL[i.source]}]`).join(', ')} | ${String(o.quotation.config?.customerName ?? '')} | ${money(Number(o.quotation.config?.totalWithTax ?? 0))} | ${money(o.total)} | ${o.status.status}${o.status.partPaid ? ' part paid' : ''}${o.customerMismatch.length ? ' | CUSTOMER DIFFERS' : ''}`,
+      `  ${orgName(o.organizationId)} | ${o.orderNumber} | ${o.quotation.name} | ${o.invoices.map((i) => `${i.doc.name} [${IMPORTED_LINK_SOURCE_LABEL[i.source]}]`).join(', ')} | ${String(o.quotation.config?.customerName ?? '')} | ${money(Number(o.quotation.config?.totalWithTax ?? 0))} | ${money(o.status.billed)} | ${o.status.label}${o.customerMismatch.length ? ' | CUSTOMER DIFFERS' : ''}`,
     );
   }
   fs.mkdirSync(OUT, { recursive: true });
@@ -157,9 +194,13 @@ const money = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 
   const csv = (r: any[]) => r.map((x) => x.map((v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n') + '\n';
   fs.writeFileSync(
     path.join(OUT, 'orders.csv'),
-    csv([['org', 'order', 'quotation', 'quotation date', 'invoices', 'sources', 'status', 'invoiced', 'customer differs on'], ...todo.map((o) => [orgName(o.organizationId), o.orderNumber, o.quotation.name, o.date, o.invoices.map((i) => i.doc.name).join(' '), o.invoices.map((i) => i.source).join(' '), o.status.status + (o.status.partPaid ? ' part paid' : ''), o.total, o.customerMismatch.join(' ')])]),
+    csv([['org', 'order', 'quotation', 'quotation date', 'invoices', 'sources', 'status', 'quotation total', 'invoiced', 'billed', 'credited', 'customer differs on'], ...todo.map((o) => [orgName(o.organizationId), o.orderNumber, o.quotation.name, o.date, o.invoices.map((i) => i.doc.name).join(' '), o.invoices.map((i) => i.source).join(' '), o.status.label, o.quoteTotal ?? '', o.total, o.status.billed, o.status.credited, o.customerMismatch.join(' ')])]),
   );
   fs.writeFileSync(path.join(OUT, 'not-linked.csv'), csv([['org', 'invoice', 'why', 'quotation key', 'other org'], ...plan.skipped.map((s) => [orgName(s.organizationId), s.invoice, s.why, s.key ?? '', s.otherOrg ? orgName(s.otherOrg) : ''])]));
+  fs.writeFileSync(
+    path.join(OUT, 'link-disagreements.csv'),
+    csv([['org', 'invoice', 'used (source)', 'other links (source)'], ...plan.disagreements.map((d) => [orgName(d.organizationId), d.invoice, `${d.used.key} (${d.used.source})`, d.others.map((x) => `${x.key} (${x.source})`).join(' ')])]),
+  );
   console.log(`\nFiles: ${OUT}`);
 
   if (!APPLY) {
@@ -209,6 +250,8 @@ const money = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 
       subject: String(qc.subject ?? '').trim() || null,
       site: String(qc.erpImport?.clientSite ?? qc.location ?? '').trim() || null,
       total: o.total,
+      quoteTotal: o.quoteTotal,
+      credits: o.credits,
       at: now,
     };
     const linked = {

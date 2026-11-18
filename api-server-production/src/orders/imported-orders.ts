@@ -135,6 +135,21 @@ export function invoiceQuoteRef(config: any, erpLink?: string | null): InvoiceQu
   return null;
 }
 
+/** Every ERP link an imported invoice carries (for listing disagreements between sources). */
+export function allInvoiceQuoteRefs(config: any, erpLink?: string | null): InvoiceQuoteRef[] {
+  const e: any = erpImportOf(config);
+  if (!e) return [];
+  const out: InvoiceQuoteRef[] = [];
+  const push = (k: number | null, source: ImportedLinkSource) => k != null && out.push({ key: k, source });
+  if (erpLink) push(erpQuoteKey(erpLink), 'erp_quotation_link');
+  if (e.source === 'wct-erp' && e.contractNo) push(erpQuoteKey(e.contractNo), 'contract_no');
+  if (e.quotationNo) push(erpQuoteKey(e.quotationNo), 'tracker_quotation_no');
+  const items: any[] = Array.isArray(config?.items) ? config.items : [];
+  const refs = quotationRefsInText(items.map((it) => (it && typeof it.description === 'string' ? it.description : '')).join('\n'));
+  if (refs.length === 1) push(refs[0], 'line_text');
+  return out;
+}
+
 /** The old ERP's DO number on an imported invoice (WCT ERP our_do_no; BC Air tracker doNo), or null. */
 export function erpDoNumberOf(config: any): string | null {
   const e: any = erpImportOf(config);
@@ -166,6 +181,10 @@ export interface PlannedOrder {
   status: ImportedOrderStatus;
   total: number;
   erpDoNumbers: string[];
+  /** Quotation total, tax inclusive (grossOf), the billing yardstick. */
+  quoteTotal: number | null;
+  /** Credit applied per invoice id (only invoices with a credit). */
+  credits: Record<string, number>;
 }
 
 export interface ImportedPlan {
@@ -173,6 +192,8 @@ export interface ImportedPlan {
   skipped: Array<{ invoice: string; organizationId: string; why: string; key?: number; otherOrg?: string }>;
   quotesWithoutInvoice: number;
   alreadyOrdered: number;
+  /** Invoices whose ERP links name different quotations (the first source in order wins). */
+  disagreements: Array<{ invoice: string; organizationId: string; used: InvoiceQuoteRef; others: InvoiceQuoteRef[] }>;
 }
 
 /**
@@ -181,7 +202,10 @@ export interface ImportedPlan {
  * quotation has; to a number two quotations share; an invoice the ERP marked Cancelled. A quotation
  * that already has an order (native or imported) is never given another one (idempotent).
  */
-export function planImportedOrders(docs: PlanDoc[], opts: { quotationIdsWithOrder?: Set<string>; exclude?: Set<string>; erpLinks?: Map<string, string> } = {}): ImportedPlan {
+export function planImportedOrders(
+  docs: PlanDoc[],
+  opts: { quotationIdsWithOrder?: Set<string>; exclude?: Set<string>; erpLinks?: Map<string, string>; creditsByInvoiceNo?: Map<string, number> } = {},
+): ImportedPlan {
   const exclude = opts.exclude ?? new Set<string>();
   const live = docs.filter((d) => !exclude.has(d.organizationId) && erpImportOf(d.config) && d.config?.voided !== true);
   const quotes = live.filter((d) => d.type === 'QUOTATION' && d.name);
@@ -191,11 +215,15 @@ export function planImportedOrders(docs: PlanDoc[], opts: { quotationIdsWithOrde
     if (k != null) byKey.set(k, [...(byKey.get(k) ?? []), q]);
   }
   const skipped: ImportedPlan['skipped'] = [];
+  const disagreements: ImportedPlan['disagreements'] = [];
   const perQuote = new Map<string, Array<{ doc: PlanDoc; source: ImportedLinkSource }>>();
   for (const inv of live.filter((d) => d.type === 'INVOICE')) {
     // ERP-pulled links are keyed "<orgId>|<invoice no.>" (WCT ERP invoice numbers).
-    const ref = invoiceQuoteRef(inv.config, opts.erpLinks?.get(`${inv.organizationId}|${inv.name}`) ?? null);
+    const erpLink = opts.erpLinks?.get(`${inv.organizationId}|${inv.name}`) ?? null;
+    const ref = invoiceQuoteRef(inv.config, erpLink);
     if (!ref) continue;
+    const others = allInvoiceQuoteRefs(inv.config, erpLink).filter((r) => r.key !== ref.key);
+    if (others.length) disagreements.push({ invoice: String(inv.name), organizationId: inv.organizationId, used: ref, others });
     const base = { invoice: String(inv.name), organizationId: inv.organizationId, key: ref.key };
     if (String(erpImportOf(inv.config)?.status || '') === 'Cancelled') {
       skipped.push({ ...base, why: 'invoice cancelled in the ERP' });
@@ -230,7 +258,13 @@ export function planImportedOrders(docs: PlanDoc[], opts: { quotationIdsWithOrde
     }
     invoices.sort((a, b) => String(a.doc.config?.date ?? '').localeCompare(String(b.doc.config?.date ?? '')) || String(a.doc.name).localeCompare(String(b.doc.name)));
     const customerId = (q.config?.customerId as string) || null;
-    const st = importedOrderStatus(invoices.map((i) => i.doc));
+    const credits: Record<string, number> = {};
+    for (const i of invoices) {
+      const c = creditOfImportedInvoice(i.doc.config, cnByInvoice.get(i.doc.id) ?? [], opts.creditsByInvoiceNo?.get(`${i.doc.organizationId}|${i.doc.name}`));
+      if (c > 0) credits[i.doc.id] = c;
+    }
+    const quoteTotal = grossOf(q.config);
+    const st = importedOrderStatus(invoices.map((i) => ({ ...i.doc, credit: credits[i.doc.id] ?? 0 })), quoteTotal);
     orders.push({
       organizationId: q.organizationId,
       orderNumber: importedOrderNumber(String(q.name)),
@@ -243,47 +277,128 @@ export function planImportedOrders(docs: PlanDoc[], opts: { quotationIdsWithOrde
       status: st,
       total: st.total,
       erpDoNumbers: [...new Set(invoices.map((i) => erpDoNumberOf(i.doc.config)).filter(Boolean) as string[])],
+      quoteTotal,
+      credits,
     });
   }
-  return { orders, skipped, quotesWithoutInvoice: quotes.length - perQuote.size, alreadyOrdered };
+  return { orders, skipped, quotesWithoutInvoice: quotes.length - perQuote.size, alreadyOrdered, disagreements };
 }
 
 // ── Status ──────────────────────────────────────────────────────────────────
+//
+// Money basis: TAX INCLUSIVE on both sides (grossOf: totalWithTax, then nettTotal / xeroGross),
+// for the quotation and for every invoice, so GST never makes a fully billed job look short.
+// Cent tolerance: 0.01.
+//
+// Per invoice (voided ones are left out):
+//   gross 0                                  NO_CHARGE  ("No charge"; never counts as billing)
+//   credit >= gross                          CREDITED   (fully credited; bills nothing)
+//   owes nothing (document-money owedOf)     PAID       (a partial credit is shown beside it)
+//   owes part of it                          PART_PAID
+//   owes all of it                           UNPAID
+// An invoice BILLS gross minus its credit ("net"); NO_CHARGE and CREDITED invoices bill 0.
+//
+// Per order, billed = sum of net, compared with the quotation total:
+//   billed >= quotation total (or the quotation has no total / 0 and something is billed)
+//     every billing invoice settled          PAID       "Paid"
+//     otherwise                              INVOICED   "Invoiced" / "Invoiced, part paid"
+//   billed < quotation total (incl. nothing billed: only $0 or credited invoices)
+//                                            PART_BILLED "Part billed" (nothing billed),
+//                                            "Part billed, paid" / ", part paid" / ", unpaid"
+// Credit notes: a credit is never subtracted from the balance again (the imported balance already
+// has it); it only lowers what the invoice bills. Sources, first found: the invoice's own tracker
+// credit notes (erpImport.creditNotes), its imported CREDIT_NOTE documents, the WCT ERP credit-note
+// export by invoice no. (stored on the order by the script, since WCT invoices carry no amount).
 
-export interface ImportedOrderStatus {
-  status: 'INVOICED' | 'PAID';
-  /** Invoiced and some money already received on an invoice not settled. */
-  partPaid: boolean;
-  total: number;
+export type ImportedInvoiceState = 'NO_CHARGE' | 'CREDITED' | 'PAID' | 'PART_PAID' | 'UNPAID';
+export const IMPORTED_INVOICE_STATE_LABEL: Record<ImportedInvoiceState, string> = {
+  NO_CHARGE: 'No charge',
+  CREDITED: 'Credited',
+  PAID: 'Paid',
+  PART_PAID: 'Part paid',
+  UNPAID: 'Unpaid',
+};
+export type ImportedOrderStatusCode = 'PART_BILLED' | 'INVOICED' | 'PAID';
+
+const EPS = 0.005;
+const R2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Credit applied to an imported invoice: tracker credit notes, else its CN documents, else the ERP export amount. */
+export function creditOfImportedInvoice(config: any, creditNoteDocs: Array<{ config: any }> = [], exportAmount?: number | null): number {
+  const list: any[] = Array.isArray(erpImportOf(config)?.creditNotes) ? (erpImportOf(config) as any).creditNotes : [];
+  const fromTracker = list.reduce((t, c) => t + (Number(c?.amount) || 0), 0);
+  if (fromTracker > 0) return R2(fromTracker);
+  const fromDocs = creditNoteDocs.reduce((t, d) => t + (grossOf(d.config) ?? 0), 0);
+  if (fromDocs > 0) return R2(fromDocs);
+  return exportAmount && exportAmount > 0 ? R2(exportAmount) : 0;
+}
+
+export interface ImportedInvoiceMoney {
+  state: ImportedInvoiceState;
+  gross: number;
+  credit: number;
+  net: number;
   owed: number;
 }
 
-/**
- * From the order's invoices' money (document-money.ts, the one read path):
- * every invoice owes nothing → PAID, else INVOICED (partPaid when an unsettled one has a payment).
- * Credit notes count through the invoice: the imported balance already has the credit applied
- * (BC Air: each imported CN's invoice is stamped outstanding 0), so a CN is never subtracted again.
- * Voided invoices are left out.
- */
-export function importedOrderStatus(invoices: Array<{ status?: string; config: any }>): ImportedOrderStatus {
-  const live = invoices.filter((d) => d?.config?.voided !== true && d?.status !== 'void');
-  const R = (n: number) => Math.round(n * 100) / 100;
-  const total = R(live.reduce((t, d) => t + (grossOf(d.config) ?? 0), 0));
-  const owedEach = live.map((d) => owedOf(d.config));
-  const owed = R(owedEach.reduce((t, n) => t + n, 0));
-  const open = live.filter((_, i) => owedEach[i] >= 0.005);
-  if (!live.length || !open.length) return { status: 'PAID', partPaid: false, total, owed };
-  const partPaid = open.some((d) => (amountPaidOf(d.config) ?? 0) > 0 || (owedOf(d.config) < (grossOf(d.config) ?? 0) - 0.005));
-  return { status: 'INVOICED', partPaid, total, owed };
+export function importedInvoiceMoney(doc: { config: any }, credit = 0): ImportedInvoiceMoney {
+  const gross = R2(grossOf(doc.config) ?? 0);
+  const c = R2(Math.min(Math.max(0, credit || 0), gross));
+  const net = R2(Math.max(0, gross - c));
+  const owed = R2(owedOf(doc.config));
+  let state: ImportedInvoiceState;
+  if (gross < EPS) state = 'NO_CHARGE';
+  else if (c >= gross - EPS) state = 'CREDITED';
+  else if (owed < EPS) state = 'PAID';
+  else if (owed < net - EPS || (amountPaidOf(doc.config) ?? 0) > EPS) state = 'PART_PAID';
+  else state = 'UNPAID';
+  return { state, gross, credit: c, net, owed: state === 'CREDITED' || state === 'NO_CHARGE' ? 0 : owed };
 }
 
-export const IMPORTED_STATUS_LABEL = (s: Pick<ImportedOrderStatus, 'status' | 'partPaid'>): string => (s.status === 'PAID' ? 'Paid' : s.partPaid ? 'Invoiced, part paid' : 'Invoiced');
+export interface ImportedOrderStatus {
+  status: ImportedOrderStatusCode;
+  label: string;
+  /** Some money received on a billing invoice not settled yet. */
+  partPaid: boolean;
+  /** Invoiced (gross, tax inclusive) across the live invoices. */
+  total: number;
+  /** Billed: gross minus credits, $0 / credited invoices bill nothing. */
+  billed: number;
+  quoteTotal: number | null;
+  owed: number;
+  credited: number;
+}
+
+export function importedOrderStatus(invoices: Array<{ status?: string; config: any; credit?: number }>, quoteTotal: number | null | undefined): ImportedOrderStatus {
+  const live = invoices.filter((d) => d?.config?.voided !== true && d?.status !== 'void');
+  const money = live.map((d) => importedInvoiceMoney(d, d.credit ?? 0));
+  const billing = money.filter((m) => m.net >= EPS);
+  const billed = R2(billing.reduce((t, m) => t + m.net, 0));
+  const qt = quoteTotal == null || !Number.isFinite(Number(quoteTotal)) ? null : R2(Number(quoteTotal));
+  const fullyBilled = billing.length > 0 && (qt == null || qt < EPS || billed >= qt - 0.01);
+  const settled = billing.every((m) => m.owed < EPS);
+  const someMoney = billing.some((m) => m.owed < m.net - EPS);
+  const partPaid = !settled && someMoney;
+  const base = {
+    partPaid,
+    total: R2(money.reduce((t, m) => t + m.gross, 0)),
+    billed,
+    quoteTotal: qt,
+    owed: R2(billing.reduce((t, m) => t + m.owed, 0)),
+    credited: R2(money.reduce((t, m) => t + m.credit, 0)),
+  };
+  if (fullyBilled) return settled ? { status: 'PAID', label: 'Paid', ...base } : { status: 'INVOICED', label: partPaid ? 'Invoiced, part paid' : 'Invoiced', ...base };
+  const label = !billing.length ? 'Part billed' : settled ? 'Part billed, paid' : partPaid ? 'Part billed, part paid' : 'Part billed, unpaid';
+  return { status: 'PART_BILLED', label, ...base };
+}
+
+export const IMPORTED_STATUS_LABEL = (s: Pick<ImportedOrderStatus, 'label'>): string => s.label;
 
 /**
  * The order page's tracker for an imported order: Quotation and Invoice done,
  * DO and Service report not applicable (the old ERP's DO numbers shown as text).
  */
-export function importedTracker(order: { erpDoNumbers?: string[] }, st: Pick<ImportedOrderStatus, 'status' | 'partPaid'>) {
+export function importedTracker(order: { erpDoNumbers?: string[] }, st: Pick<ImportedOrderStatus, 'label'>) {
   return [
     { key: 'quotation', label: 'Quotation', state: 'done' as const },
     { key: 'invoice', label: 'Invoice', state: 'done' as const, note: IMPORTED_STATUS_LABEL(st) },
