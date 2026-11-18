@@ -206,6 +206,11 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // left out and the SiteClock feed is not fetched unless an AIMS job in range was
   // pushed there (its crew still merges in). Nothing is deleted. Default OFF.
   hideSiteClockJobs: false,
+  // Calendar HQ view (WCT group 2026-11-18, src/dashboard/jobs-calendar.service.ts):
+  // every calendar user already sees every job and note (no per-user hiding); this
+  // adds a Salesperson multi-select filter to the jobs calendar (default All).
+  // Needs enableCalendarStyle (the salesperson comes from it). Default OFF.
+  calendarHqView: false,
   // Calendar style (WCT group 2026-11-18): Google Calendar-like job chips on the
   // jobs calendar: fill = the job's salesperson's colour, a slim left bar = the
   // PTW applicant's colour, icons for PTW / DO / cancelled / postponed / COD,

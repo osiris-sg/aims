@@ -320,3 +320,51 @@ describe('group jobs calendar: hide SiteClock jobs', () => {
     expect(r).not.toHaveProperty('siteclockJobsHidden');
   });
 });
+
+// Calendar HQ view (calendarHqView, WCT group 2026-11-18): every calendar user sees every job and note of the
+// parent and its children; the flag only adds the hqView marker (the portal's Salesperson filter). Opening rules stay.
+describe('group jobs calendar: HQ view', () => {
+  // Compare without the marker and SiteClock's fetch time (a clock value).
+  const strip = (r: any) => {
+    const { hqView, siteclock, ...rest } = r;
+    return { ...rest, siteclock: { ...siteclock, fetchedAt: undefined } };
+  };
+
+  it('flag on: the same jobs and notes for every viewer (no per-person hiding), plus hqView', async () => {
+    const w = world();
+    w.features[P].calendarHqView = true;
+    const { svc } = svcFor(w);
+    const a = await svc.get(P, FROM, TO, { userId: 'sales-1' });
+    const b = await svc.get(P, FROM, TO, { userId: 'ops-1' });
+    const anon = await svc.get(P, FROM, TO);
+    expect(a.hqView).toBe(true);
+    for (const r of [a, b, anon]) {
+      expect(r.events.map((e) => e.id).sort()).toEqual(['aims:c1', 'aims:c2', 'aims:p1', 'sc:scc2', 'sc:scp']);
+      expect((r.notes ?? []).map((n) => n.id).sort()).toEqual(['nc1', 'np']); // C2 has no calendar notes (no WCT orders)
+    }
+    expect(b.events).toEqual(a.events);
+    // Everything else is exactly the flag-off calendar.
+    expect(strip(a)).toEqual(strip(await svcFor(world()).svc.get(P, FROM, TO, { userId: 'sales-1' })));
+  });
+
+  it('flag on: opening rules unchanged (child items view only for a non-member, open for a member)', async () => {
+    const w = world({ members: [{ userId: 'm', orgId: C1, role: true }] });
+    w.features[P].calendarHqView = true;
+    const { svc } = svcFor(w);
+    const non = await svc.get(P, FROM, TO, { userId: 'u' });
+    expect(non.events.filter((e) => e.foreign).every((e) => e.viewOnly === true && e.href === null)).toBe(true);
+    const mem = await svc.get(P, FROM, TO, { userId: 'm' });
+    expect(mem.events.find((e) => e.id === 'aims:c1')!.viewOnly).toBeUndefined();
+    expect(mem.events.find((e) => e.id === 'aims:c2')!.viewOnly).toBe(true);
+  });
+
+  it('flag off (and on another org only): no hqView, calendars unchanged', async () => {
+    const w = world();
+    w.features[X].calendarHqView = true;
+    const r = await svcFor(w).svc.get(P, FROM, TO, { userId: 'u' });
+    expect(r).not.toHaveProperty('hqView');
+    expect(strip(r)).toEqual(strip(await svcFor(world()).svc.get(P, FROM, TO, { userId: 'u' })));
+    const child = await svcFor(w).svc.get(C1, FROM, TO, { userId: 'u' });
+    expect(child).not.toHaveProperty('hqView');
+  });
+});

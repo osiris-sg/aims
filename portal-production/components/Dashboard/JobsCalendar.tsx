@@ -6,14 +6,14 @@
 // company, for the range on screen (GET /dashboard/jobs-calendar). A SiteClock
 // outage shows the AIMS jobs with a banner instead of failing.
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Alert, Box, Checkbox, CircularProgress, FormControlLabel, Skeleton, Stack, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Checkbox, CircularProgress, FormControl, FormControlLabel, InputLabel, ListItemText, MenuItem, Select, Skeleton, Stack, Tooltip, Typography } from "@mui/material";
 import JobFieldIcon from "@/components/jobFields/JobFieldIcon";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { unwrap } from "@/app/portal/admin/organizations/_lib/siteclock-connection";
-import { calendarLegendItems, legendTitle, rangeOf, runIdOf, siteclockBanner, withoutSiteClockJobs, type CalendarEvent, type CalendarPayload } from "./jobs-calendar/calendarModel";
+import { calendarLegendItems, filterBySalesperson, legendTitle, rangeOf, runIdOf, salespersonFilterLabel, salespersonOptions, siteclockBanner, withoutSiteClockJobs, type CalendarEvent, type CalendarPayload } from "./jobs-calendar/calendarModel";
 import { useCalendarApi } from "./jobs-calendar/calendarAddApi";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useRouter } from "next/navigation";
@@ -32,7 +32,7 @@ const CalendarView = dynamic(() => import("./jobs-calendar/CalendarView"), {
 /** fullHeight: WCT's dashboard is this calendar alone. */
 export default function JobsCalendar({ fullHeight = false }: { fullHeight?: boolean }) {
   // WCT (enableWctOrders): "Job" wording, and a click opens the job.
-  const { isWctOrdersEnabled, isHideSiteClockJobs } = useOrganizationFeatures();
+  const { isWctOrdersEnabled, isHideSiteClockJobs, isCalendarHqView } = useOrganizationFeatures();
   const { getToken } = useAuth();
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
   const [data, setData] = useState<CalendarPayload | null>(null);
@@ -106,6 +106,7 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
         onAdd={(kind, slot) => setAdding({ kind, slot })}
         onNoteClick={setEditNote}
         onMove={onMove}
+        salesFilter={!!isCalendarHqView || !!data?.hqView}
       />
       {canAdd && (
         <>
@@ -156,6 +157,7 @@ export function JobsCalendarPanel({
   onAdd,
   onNoteClick,
   onMove,
+  salesFilter = false,
 }: {
   data: CalendarPayload | null;
   loading: boolean;
@@ -172,10 +174,20 @@ export function JobsCalendarPanel({
   onNoteClick?: (note: CalendarNote) => void;
   /** All-day jobs (2026-11-10): drag to another day. */
   onMove?: (event: CalendarEvent, date: string) => Promise<void>;
+  /** Calendar HQ view (calendarHqView): the Salesperson filter (shown with the calendar style, which carries the salesperson). */
+  salesFilter?: boolean;
 }) {
   const banner = siteclockBanner(data);
   // Calendar style (enableCalendarStyle, WCT group): an icon legend only, and cancelled / postponed always shown (greyed).
   const styled = !!data?.style;
+  // Calendar HQ view: narrow the jobs by salesperson (default All; notes always shown). Client side over the loaded range.
+  const showSalesFilter = salesFilter && styled;
+  const [salesSel, setSalesSel] = useState<string[]>([]);
+  const knownNames = useRef(new Map<string, string>());
+  const allEvents = data?.events ?? [];
+  for (const e of allEvents) if (e.salesperson?.id && e.salesperson.name) knownNames.current.set(e.salesperson.id, e.salesperson.name);
+  const salesOpts = useMemo(() => (showSalesFilter ? salespersonOptions(allEvents, salesSel, knownNames.current) : []), [showSalesFilter, allEvents, salesSel]);
+  const shownEvents = useMemo(() => (showSalesFilter ? filterBySalesperson(allEvents, salesSel) : allEvents), [showSalesFilter, allEvents, salesSel]);
   return (
     <Box sx={{ mb: 4 }}>
       <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "flex-start", sm: "center" }} justifyContent="space-between" sx={{ mb: 1.5 }}>
@@ -183,6 +195,35 @@ export function JobsCalendarPanel({
           <Typography variant="h5" sx={{ fontWeight: 600 }}>
             Jobs calendar
           </Typography>
+          {showSalesFilter && (
+            <FormControl size="small" sx={{ minWidth: 180 }} data-tour="jobs-calendar-salesperson-filter">
+              <InputLabel id="jc-salesperson-label">Salesperson</InputLabel>
+              <Select
+                labelId="jc-salesperson-label"
+                label="Salesperson"
+                multiple
+                displayEmpty
+                value={salesSel}
+                onChange={(e) => {
+                  const v = typeof e.target.value === "string" ? e.target.value.split(",") : e.target.value;
+                  setSalesSel(v.includes("__all__") ? [] : v);
+                }}
+                renderValue={(sel) => salespersonFilterLabel(sel as string[], salesOpts)}
+                MenuProps={{ PaperProps: { sx: { maxHeight: 420 } } }}
+              >
+                <MenuItem value="__all__">
+                  <Checkbox size="small" checked={!salesSel.length} />
+                  <ListItemText primary="All" />
+                </MenuItem>
+                {salesOpts.map((o) => (
+                  <MenuItem key={o.id} value={o.id}>
+                    <Checkbox size="small" checked={salesSel.includes(o.id)} />
+                    <ListItemText primary={o.name} />
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
           {loading && <CircularProgress size={16} />}
         </Stack>
         {styled ? (
@@ -233,7 +274,7 @@ export function JobsCalendarPanel({
         </Alert>
       )}
       <CalendarView
-        events={data?.events ?? []}
+        events={shownEvents}
         showCancelled={styled || showCancelled}
         onRange={onRange}
         initialDate={initialDate}

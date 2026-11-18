@@ -23,6 +23,14 @@ export const JOBS_CALENDAR_FLAG = 'enableJobsCalendar';
  * The viewing org's flag decides for its whole calendar, group children too.
  */
 export const HIDE_SITECLOCK_JOBS_FLAG = 'hideSiteClockJobs';
+/**
+ * HQ view (WCT group 2026-11-18, default off): the calendar is an HQ view. Every
+ * user with the calendar (dashboard:read) already sees every job and note of the
+ * org (and of its children with the group calendar); nothing is filtered per user
+ * or role. The flag adds `hqView: true` to the response, which turns on the
+ * portal's Salesperson filter (client side, over `event.salesperson`).
+ */
+export const CALENDAR_HQ_VIEW_FLAG = 'calendarHqView';
 const SITECLOCK_TTL_MS = 60_000;
 const CACHE_MAX = 200;
 
@@ -43,6 +51,8 @@ export interface JobsCalendarResponse {
   style?: { legend: typeof CALENDAR_STYLE_LEGEND };
   /** hideSiteClockJobs on: SiteClock-created jobs are left out (absent otherwise). */
   siteclockJobsHidden?: true;
+  /** calendarHqView on: the portal offers the Salesperson filter (absent otherwise). */
+  hqView?: true;
 }
 
 /** Calendar style for one org's part: on, plus (group calendar child) the parent's colours, which win. */
@@ -81,9 +91,11 @@ export class JobsCalendarService {
       this.orgCalendar(organizationId, from, to, styleOn ? { parent: null } : null, ownColours, hideSc),
       groupReadScope(this.prisma, organizationId, 'jobsCalendar'),
     ]);
+    const hq = await isOrgFeatureEnabled(this.prisma, organizationId, CALENDAR_HQ_VIEW_FLAG);
+    const withHq = (r: JobsCalendarResponse): JobsCalendarResponse => (hq ? { ...r, hqView: true } : r);
     // Gate off (or no children): exactly the org's own calendar.
-    if (!scope.group) return own;
-    return this.withGroup(organizationId, own, scope.orgs, from, to, viewer?.userId ?? null, styleOn ? { parent: ownColours } : null, hideSc);
+    if (!scope.group) return withHq(own);
+    return withHq(await this.withGroup(organizationId, own, scope.orgs, from, to, viewer?.userId ?? null, styleOn ? { parent: ownColours } : null, hideSc));
   }
 
   /**

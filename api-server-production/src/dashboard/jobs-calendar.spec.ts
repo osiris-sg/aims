@@ -1,6 +1,7 @@
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 import { buildCalendarEvents, CalendarRun, CalendarSiteClockJob, checkRange, deliveryIdOfRef, rangeInstants } from './jobs-calendar';
 import { JobsCalendarService } from './jobs-calendar.service';
+import { DEFAULT_ORG_FEATURES } from '../organizations/default-features';
 
 const WCT = '5c700000-0000-4000-8000-5c7000000001';
 const D1 = '11111111-1111-4111-8111-111111111111';
@@ -458,5 +459,46 @@ describe('jobs calendar: hide SiteClock jobs', () => {
     const res = await svc.get(WCT, '2026-11-01', '2026-11-30');
     expect(res.events.map((e) => e.id)).toEqual([`aims:${D1}`]);
     expect(res.events[0].worker).toBe('Ravi');
+  });
+});
+
+// Calendar HQ view (calendarHqView, WCT group 2026-11-18): only the hqView marker; no event is filtered.
+describe('jobs calendar: HQ view flag', () => {
+  const OTHER = '99999999-9999-4999-8999-999999999999';
+  const row = (id: string, n: number) => ({
+    id, deliveryNumber: n, direction: 'OUTBOUND', status: 'scheduled', scheduledFor: new Date('2026-11-03T02:00:00Z'),
+    riderUserId: null, riderName: null, siteAddress: '1 Tuas Ave', customer: { name: 'Acme' }, project: null, items: [],
+  });
+  function svcWith(features: Record<string, Record<string, boolean>>) {
+    const prisma: any = {
+      organizationUIConfig: { findUnique: jest.fn(async ({ where }: any) => ({ features: features[where.organizationId] ?? {} })) },
+      delivery: { findMany: jest.fn().mockResolvedValue([row(D1, 12)]) },
+      deliverySiteClockJob: { findMany: jest.fn().mockResolvedValue([]) },
+      deliveryItem: { findMany: jest.fn().mockResolvedValue([]) },
+      document: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    return new JobsCalendarService(prisma, { calendarJobs: jest.fn(async () => [scJob()]) } as any);
+  }
+
+  it('flag on: hqView true, the same events for every viewer', async () => {
+    const svc = svcWith({ [WCT]: { enableJobsCalendar: true, calendarHqView: true } });
+    const a = await svc.get(WCT, '2026-11-01', '2026-11-30', { userId: 'a' });
+    const b = await svc.get(WCT, '2026-11-01', '2026-11-30', { userId: 'b' });
+    expect(a.hqView).toBe(true);
+    expect(a.events.map((e) => e.id).sort()).toEqual([`aims:${D1}`, 'sc:sc1']);
+    expect(b.events).toEqual(a.events);
+  });
+
+  it('flag off, and another org without the key: no hqView, response unchanged', async () => {
+    const svc = svcWith({ [WCT]: { enableJobsCalendar: true, calendarHqView: false }, [OTHER]: { enableJobsCalendar: true } });
+    for (const org of [WCT, OTHER]) {
+      const r = await svc.get(org, '2026-11-01', '2026-11-30');
+      expect(r).not.toHaveProperty('hqView');
+      expect(r.events.map((e) => e.id).sort()).toEqual([`aims:${D1}`, 'sc:sc1']);
+    }
+  });
+
+  it('defaults: calendarHqView is off for new orgs', () => {
+    expect(DEFAULT_ORG_FEATURES.calendarHqView).toBe(false);
   });
 });

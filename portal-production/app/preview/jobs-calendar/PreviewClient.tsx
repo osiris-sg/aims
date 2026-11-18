@@ -69,7 +69,7 @@ const STYLE_EVENTS: CalendarEvent[] = [
 ];
 const STYLE_LEGEND = [icon("✋", "PTW pending"), icon("👍", "PTW approved"), icon("👎", "PTW rejected"), icon("✅", "DO completed"), icon("❌", "Cancelled"), icon("⭕", "Postponed"), icon("📅", "Leave"), icon("🟫", "COD")];
 
-export default function PreviewClient({ mode, view, cancelled, down, add = false, styled = false }: { mode: "light" | "dark"; view: "dayGridMonth" | "timeGridWeek" | "timeGridDay"; cancelled: boolean; down: boolean; add?: boolean; styled?: boolean }) {
+export default function PreviewClient({ mode, view, cancelled, down, add = false, styled = false, hq = false }: { mode: "light" | "dark"; view: "dayGridMonth" | "timeGridWeek" | "timeGridDay"; cancelled: boolean; down: boolean; add?: boolean; styled?: boolean; hq?: boolean }) {
   const theme = useMemo(() => createTheme({ palette: { mode } }), [mode]);
   const [showCancelled, setShowCancelled] = useState(cancelled);
   const [adding, setAdding] = useState<{ kind: "job" | "note"; slot: { date: string; time: string } } | null>(null);
@@ -83,8 +83,9 @@ export default function PreviewClient({ mode, view, cancelled, down, add = false
       siteclock: { state: down ? "unavailable" : "ok" },
       ...(add ? { notes: NOTES } : {}),
       ...(styled ? { style: { legend: STYLE_LEGEND } } : {}),
+      ...(hq ? { hqView: true } : {}),
     }),
-    [down, add, styled],
+    [down, add, styled, hq],
   );
   return (
     <ThemeProvider theme={theme}>
@@ -103,6 +104,7 @@ export default function PreviewClient({ mode, view, cancelled, down, add = false
           canAdd={add}
           onAdd={(kind, slot) => setAdding({ kind, slot })}
           onNoteClick={setEditNote}
+          salesFilter={hq}
         />
         {add && (
           <>

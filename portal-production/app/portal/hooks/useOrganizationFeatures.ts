@@ -28,6 +28,7 @@ interface OrganizationFeatures {
   enableJobsCalendar?: boolean;
   enableGroupCalendar?: boolean;
   hideSiteClockJobs?: boolean;
+  calendarHqView?: boolean;
   enableCalendarStyle?: boolean;
   enableRealDoOnSchedule?: boolean;
   enableWctOrders?: boolean;
@@ -285,6 +286,7 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableGroupCalendar: false,
   // Hide SiteClock jobs (WCT group 2026-11-18): the jobs calendar shows only jobs made in AIMS. Default OFF.
   hideSiteClockJobs: false,
+  calendarHqView: false,
   enableCalendarStyle: false,
   // Real DO numbers on schedule (WCT 2026-10-30): a scheduled run's DO gets its
   // real number at once; a Pending / Completed / Cancelled tag shows next to it.
@@ -403,6 +405,8 @@ export function useOrganizationFeatures() {
     isSiteClockDeliveriesEnabled: features.enableSiteClockDeliveries ?? false,
     isJobsCalendarEnabled: features.enableJobsCalendar ?? false,
     isHideSiteClockJobs: features.hideSiteClockJobs ?? false,
+    // Calendar HQ view (WCT group 2026-11-18): the jobs calendar's Salesperson filter.
+    isCalendarHqView: features.calendarHqView ?? false,
     isRealDoOnScheduleEnabled: features.enableRealDoOnSchedule ?? false,
     isWctOrdersEnabled: features.enableWctOrders ?? false,
     isWctMyJobsEnabled: features.enableWctMyJobs ?? false,

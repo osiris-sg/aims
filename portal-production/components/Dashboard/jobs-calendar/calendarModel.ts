@@ -112,6 +112,44 @@ export interface CalendarPayload {
   style?: { legend: Array<{ icon: string; label: string }> };
   /** hideSiteClockJobs (WCT group): the server left SiteClock-created jobs out (absent otherwise). */
   siteclockJobsHidden?: boolean;
+  /** calendarHqView (WCT group): the Salesperson filter is offered (absent otherwise). */
+  hqView?: boolean;
+}
+
+/**
+ * Calendar HQ view (calendarHqView, WCT group 2026-11-18): the Salesperson filter. Client side over each event's
+ * `salesperson` (calendar style; group child items carry theirs too). No selection = All. An event with no salesperson
+ * (none picked and no salesman code on its quotation, or a SiteClock job) shows only under "No salesperson".
+ * Notes are not jobs and are never filtered.
+ */
+export const NO_SALESPERSON = "__none__";
+
+export interface SalespersonOption {
+  id: string;
+  name: string;
+}
+
+/** The filter's options: every salesperson on screen by name, plus the ones still selected, then "No salesperson". */
+export function salespersonOptions(events: Pick<CalendarEvent, "salesperson">[], selected: string[] = [], known: Map<string, string> = new Map()): SalespersonOption[] {
+  const byId = new Map<string, string>();
+  for (const e of events) if (e.salesperson?.id) byId.set(e.salesperson.id, e.salesperson.name || known.get(e.salesperson.id) || "Unnamed");
+  for (const id of selected) if (id !== NO_SALESPERSON && !byId.has(id)) byId.set(id, known.get(id) || "Unnamed");
+  const people = [...byId].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  return [...people, { id: NO_SALESPERSON, name: "No salesperson" }];
+}
+
+/** Events for the selected salespeople; an empty selection keeps every event (the same array). */
+export function filterBySalesperson<T extends Pick<CalendarEvent, "salesperson">>(events: T[], selected: string[]): T[] {
+  if (!selected.length) return events;
+  const want = new Set(selected);
+  return events.filter((e) => (e.salesperson?.id ? want.has(e.salesperson.id) : want.has(NO_SALESPERSON)));
+}
+
+/** The closed filter's text: All, the one name, or "3 salespeople". */
+export function salespersonFilterLabel(selected: string[], options: SalespersonOption[]): string {
+  if (!selected.length) return "All";
+  if (selected.length === 1) return options.find((o) => o.id === selected[0])?.name ?? "1 salesperson";
+  return `${selected.length} salespeople`;
 }
 
 /**
