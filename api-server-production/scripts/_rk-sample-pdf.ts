@@ -7,7 +7,7 @@ const out = process.argv[2];
 const footer = fs.readFileSync(process.argv[3], 'utf8');
 const org = { id: 'r', name: 'WCT Racking Pte Ltd', address: '19 Kaki Bukit Industrial Terrace, Level 3, Singapore 416099', registrationNumber: '202100255Z', phoneNumber: '6741 1697', email: 'info@wct.com.sg', website: 'www.wct.com.sg' };
 const OFF = process.argv.includes('--off');
-const design = effectiveDesign({ layout: 'wct', titleText: 'QUOTATION', headerAlign: 'left', showDueDate: false, logoPosition: 'left', showBankDetails: false, showAmountInWords: false, showGeneratedNote: true }, 'QUOTATION', OFF ? {} : { enableRackingLayout: true });
+const design = effectiveDesign({ layout: 'wct', titleText: 'QUOTATION', headerAlign: 'left', showDueDate: false, logoPosition: 'left', showBankDetails: false, showAmountInWords: false, showGeneratedNote: true }, 'QUOTATION', OFF ? {} : { enableRackingLayout: true, enableRackingWatermark: true });
 const items = [
   { description: 'Heavy Duty Racking Works', isGroupHeader: true },
   { description: 'Supply heavy duty end frame\n- H3000xD900mm', quantity: 8, uom: 'pcs', unitPrice: 200, amount: 1600 },
@@ -17,7 +17,7 @@ const items = [
   { description: 'Delivery and installation', quantity: 1, uom: 'lot', unitPrice: 800, amount: 800 },
 ];
 const data: any = {
-  documentType: 'QUOTATION', name: 'WR-QO202611-TEST', design, organization: org, company: org, logoUrl: process.env.LOGO || '',
+  documentType: 'QUOTATION', name: 'WR-QO202611-TEST', design, organization: org, company: org, logoUrl: process.env.LOGO_FILE ? `data:image/png;base64,${fs.readFileSync(process.env.LOGO_FILE).toString('base64')}` : process.env.LOGO || '',
   customer: { name: 'TEST Client', address: '1 Raffles Place, Singapore 048616' }, items,
   documentInfo: { documentNumber: 'WR-QO202611-TEST', date: '2026-11-18', currency: 'SGD', subject: 'Heavy duty racking works', location: 'TEST site', contactName: 'Elroy Test', contactEmail: 'test@example.com',
     salesPerson: 'S004', salesPersonName: 'Nee Meng Tan', salesContact: '9181 9107', taxApplicable: 'N', gstPercent: 9, discountPercent: 5, discountAmount: 188, signedByTitle: 'Manager' },

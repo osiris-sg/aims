@@ -7841,7 +7841,11 @@ export class DocumentsService {
    * shared pool, so the lookup is by id alone (the document already points at
    * it). Never throws: a missing template means the stock look.
    */
-  async designForTemplate(documentTemplateId: string | null | undefined, organization: any, doc?: { imported?: boolean }): Promise<{ design: any; logoUrl: string | null }> {
+  async designForTemplate(
+    documentTemplateId: string | null | undefined,
+    organization: any,
+    doc?: { imported?: boolean; createdAt?: Date | string | null; isNew?: boolean; id?: string },
+  ): Promise<{ design: any; logoUrl: string | null }> {
     let raw: any = null;
     let templateType: string | null = null;
     if (documentTemplateId) {
@@ -7855,7 +7859,13 @@ export class DocumentsService {
     const features = orgId
       ? ((await this.prisma.organizationUIConfig.findUnique({ where: { organizationId: orgId }, select: { features: true } }).catch(() => null))?.features as any)
       : null;
-    const design = effectiveDesign(raw, templateType, features, doc);
+    // Section-title numbering (features.snoSkipTitlesSince) depends on when the document was created.
+    let docAge = doc;
+    if (doc && !doc.isNew && !doc.createdAt && doc.id && features?.snoSkipTitlesSince) {
+      const row = await this.prisma.document.findUnique({ where: { id: doc.id }, select: { createdAt: true } }).catch(() => null);
+      docAge = { ...doc, createdAt: row?.createdAt ?? null };
+    }
+    const design = effectiveDesign(raw, templateType, features, docAge);
     let logoUrl: string | null = null;
     const key = organization?.logo;
     if (design.logoPosition !== 'none' && key) {
@@ -7871,13 +7881,14 @@ export class DocumentsService {
   async designForDocument(documentId: string | undefined, organizationId: string, templateId?: string | null): Promise<{ design: any; logoUrl: string | null }> {
     const doc = documentId
       ? await this.prisma.document
-          .findFirst({ where: { id: documentId, organizationId }, select: { documentTemplateId: true, config: true, organization: { select: { id: true, logo: true } } } })
+          .findFirst({ where: { id: documentId, organizationId }, select: { documentTemplateId: true, config: true, createdAt: true, organization: { select: { id: true, logo: true } } } })
           .catch(() => null)
       : null;
     const org = doc?.organization ?? (await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { id: true, logo: true } }).catch(() => null));
     const effectiveTemplateId = doc?.documentTemplateId || templateId || null;
     if (!effectiveTemplateId) return { design: resolveDesign(null), logoUrl: null };
-    return this.designForTemplate(effectiveTemplateId, org, { imported: isImportedDoc(doc?.config) });
+    // No document id = not saved yet (the editor's first preview / print): a new document.
+    return this.designForTemplate(effectiveTemplateId, org, { imported: isImportedDoc(doc?.config), createdAt: doc?.createdAt ?? null, isNew: !documentId });
   }
 
   /**
@@ -8098,7 +8109,7 @@ export class DocumentsService {
             dueDate,
           };
         }
-        const styled = await this.designForTemplate(p.document.documentTemplateId, p.document.organization, { imported: isImportedDoc(p.document.config ?? p.config) });
+        const styled = await this.designForTemplate(p.document.documentTemplateId, p.document.organization, { imported: isImportedDoc(p.document.config ?? p.config), createdAt: (p.document as any).createdAt ?? null, id: p.document.id });
         const renderData = {
           // Selects the ported portal layout for this type (falls back to the
           // legacy generic layout for types not ported yet).
@@ -8464,7 +8475,7 @@ export class DocumentsService {
     const documentInfo = config.documentInfo || { documentNumber: document.name };
     const items: any[] = Array.isArray(config.items) ? config.items : [];
     const isQuotation = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(String(document.type).toUpperCase());
-    const styled = await this.designForTemplate(document.documentTemplateId, document.organization, { imported: isImportedDoc(document.config) });
+    const styled = await this.designForTemplate(document.documentTemplateId, document.organization, { imported: isImportedDoc(document.config), createdAt: (document as any).createdAt ?? null, id: document.id });
     const renderFlags = isQuotation ? await this.quotationRenderFlags(organizationId) : null;
     const html = this.pdfGeneratorService.generateInvoiceHtml({
       documentType: document.type,

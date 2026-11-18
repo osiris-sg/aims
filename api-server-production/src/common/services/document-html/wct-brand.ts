@@ -18,6 +18,24 @@ export const WCT_DOC_BRAND_SETTING = 'wctDocumentBrand';
 const DOC_REMARKS_SETTING = 'enableDocRemarks';
 /** Same key as RACKING_LAYOUT_FLAG in common/org-features.ts (WCT Racking, 2026-11-18). */
 const RACKING_LAYOUT_SETTING = 'enableRackingLayout';
+/** Same key as RACKING_WATERMARK_FLAG in common/org-features.ts. */
+const RACKING_WATERMARK_SETTING = 'enableRackingWatermark';
+/** Same key as SNO_SKIP_TITLES_SINCE_SETTING in common/org-features.ts (an ISO date-time). */
+const SNO_SKIP_TITLES_SINCE_SETTING = 'snoSkipTitlesSince';
+
+/**
+ * Section titles take no S/No on WCT-layout documents CREATED at or after the org's
+ * features.snoSkipTitlesSince (2026-11-18: WCT (S), BC Air, WCT Racking). A document made before it, or one
+ * whose age is unknown, prints exactly as before. `isNew` = not saved yet (the editor's first preview).
+ */
+export function skipsTitleNumbers(features: any, doc?: { createdAt?: Date | string | null; isNew?: boolean }): boolean {
+  const raw = features && features[SNO_SKIP_TITLES_SINCE_SETTING];
+  const since = typeof raw === 'string' ? new Date(raw).getTime() : NaN;
+  if (!isFinite(since)) return false;
+  if (doc?.isNew) return true;
+  const at = doc?.createdAt ? new Date(doc.createdAt).getTime() : NaN;
+  return isFinite(at) && at >= since;
+}
 export type WctDocBrand = 'BCAIR';
 
 const INVOICE_TYPES = ['INVOICE', 'TI', 'TI2'];
@@ -30,8 +48,8 @@ export function effectiveDesign(
   rawStyle: any,
   templateType: string | null | undefined,
   features: any,
-  doc?: { imported?: boolean },
-): DocumentDesign & { brand?: WctDocBrand; docRemarks?: true; racking?: true } {
+  doc?: { imported?: boolean; createdAt?: Date | string | null; isNew?: boolean },
+): DocumentDesign & { brand?: WctDocBrand; docRemarks?: true; racking?: true; watermark?: true; snoSkipTitles?: true } {
   const design = resolveDesign(rawStyle);
   const brand = wctDocBrandOf(features);
   const t = String(templateType || '').toUpperCase();
@@ -41,8 +59,13 @@ export function effectiveDesign(
   const remarks = features && features[DOC_REMARKS_SETTING] === true && (INVOICE_TYPES.includes(t) || DELIVERY_ORDER_TYPES.includes(t)) ? { docRemarks: true as const } : {};
   // WCT Racking (features.enableRackingLayout): its look on the WCT layout (wct.ts). Orgs without it: no key.
   const racking = features && features[RACKING_LAYOUT_SETTING] === true && design.layout === 'wct' ? { racking: true as const } : {};
-  if (!brand || design.layout !== 'standard' || !(INVOICE_TYPES.includes(t) || DELIVERY_ORDER_TYPES.includes(t))) return { ...design, ...remarks, ...racking };
-  return { ...design, layout: 'wct', logoPosition: design.logoPosition === 'none' ? 'left' : design.logoPosition, brand, ...remarks };
+  // Racking quotation watermark (features.enableRackingWatermark): the org logo, pale, behind the content (wct.ts).
+  const watermark = racking.racking && features[RACKING_WATERMARK_SETTING] === true ? { watermark: true as const } : {};
+  const branded = !(!brand || design.layout !== 'standard' || !(INVOICE_TYPES.includes(t) || DELIVERY_ORDER_TYPES.includes(t)));
+  // Section titles without an S/No (features.snoSkipTitlesSince): WCT layout, documents created from that date on.
+  const sno = (branded || design.layout === 'wct') && skipsTitleNumbers(features, doc) ? { snoSkipTitles: true as const } : {};
+  if (!branded) return { ...design, ...remarks, ...racking, ...watermark, ...sno };
+  return { ...design, layout: 'wct', logoPosition: design.logoPosition === 'none' ? 'left' : design.logoPosition, brand, ...remarks, ...sno };
 }
 
 /** BC Air's paper (I003278). */

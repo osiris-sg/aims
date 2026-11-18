@@ -194,6 +194,12 @@ const RK_CSS = `
   .wct.rk .rkfoot .bl > span:first-child { flex: 0 0 10px; }
   .wct.rk .rkfoot .bl > span:last-child { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; }
   .wct.rk .rksig { line-height: 1.5; }
+  /* The round Racking mark: taller than the wide WCT one so it reads at the same weight. */
+  .wct.rk .lh img { max-height: 86px; max-width: 120px; }
+  /* Watermark: fixed, so Chromium prints it centred on every page, behind the content (z-index -1, the
+     body's white is the canvas). */
+  .rkwm { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 150mm; z-index: -1; pointer-events: none; }
+  .rkwm img { width: 100%; display: block; opacity: 0.11; }
   .wct.rk .rksig .scr { font-family: 'Great Vibes', 'Brush Script MT', 'Segoe Script', cursive; font-size: 30px; line-height: 1.2; margin: 4px 0 2px; }
   .wct.rk .rksig .co { color: ${'#E8731A'}; font-weight: 700; }
 </style>`;
@@ -308,7 +314,7 @@ function totalsOf(di: (k: string, d?: any) => any, items: any[]) {
   return { currency, gstPercent, gstAmount, discountAmount, displayNet, total };
 }
 
-function linesTable(data: any, items: any[], kind: WctDocKind, currency: string, racking = false): string {
+function linesTable(data: any, items: any[], kind: WctDocKind, currency: string, racking = false, skipTitles = false): string {
   const defaults = kind === 'do' ? ['no', 'description', 'quantity', 'remarks'] : ['no', 'description', 'quantity', 'unitPrice', 'amount'];
   const labelsDefault: Record<string, string> =
     kind === 'do'
@@ -331,7 +337,9 @@ function linesTable(data: any, items: any[], kind: WctDocKind, currency: string,
   // S/No: Racking quotation section titles take none (the first item is 1); everyone else counts every row.
   const serial: number[] = [];
   let n = 0;
-  for (const it of items) serial.push(rkQuote ? (it.isGroupHeader ? 0 : ++n) : ++n);
+  // …and so do the section titles of any WCT-layout document made after the org's snoSkipTitlesSince (design.snoSkipTitles).
+  const noTitleNumbers = rkQuote || skipTitles;
+  for (const it of items) serial.push(noTitleNumbers ? (it.isGroupHeader ? 0 : ++n) : ++n);
   const value = (c: string, it: any, i: number): string => {
     switch (c) {
       case 'no':
@@ -509,6 +517,9 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   // WCT Racking (design.racking): no GST Reg No on any document; the quotation's own look below.
   const racking = (design as any)?.racking === true || data?.design?.racking === true;
   const rkQuote = racking && kind === 'quotation';
+  const skipTitles = (design as any)?.snoSkipTitles === true || data?.design?.snoSkipTitles === true;
+  // Racking quotation watermark (design.watermark): the org logo, large and pale, behind the content.
+  const wmUrl = rkQuote && ((design as any)?.watermark === true || data?.design?.watermark === true) ? String(data?.logoUrl || '') : '';
 
   // ── delivery order ──────────────────────────────────────────────────────
   if (kind === 'do') {
@@ -542,12 +553,12 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
       <div class="bx">Sold To:\n${escapeHtml(soldName)}${soldAddr ? `\n${escapeHtml(soldAddr)}` : ''}${attention || mobile ? '\n' : ''}${attention ? `\nAttention: ${escapeHtml(attention)}` : ''}${mobile ? `\nMobile: ${escapeHtml(mobile)}` : ''}</div>
       <div class="bx">Ship To:\n${escapeHtml(soldName)}${shipTo ? `\n${escapeHtml(shipTo)}` : ''}</div>
     </div>
-    ${linesTable(data, items, 'do', 'SGD')}
+    ${linesTable(data, items, 'do', 'SGD', false, skipTitles)}
     ${first(data?.remarks, di('remarks')) ? `<div class="remarks" style="margin-top:16px;"><b>Remarks:</b>${richContent(first(data?.remarks, di('remarks')), 'font-size:12.5px;line-height:1.5;')}</div>` : ''}
     ${proof.received}
     ${footerMessage ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>` : ''}
     ${proof.appendix}`;
-    return bc ? sheet(bcLetterhead(data, BCAIR_DOC.numberLabel.do, docNumber), body, true) : sheet(letterhead(org, data, 'Delivery Order No', docNumber, racking), body);
+    return bc ? sheet(bcLetterhead(data, BCAIR_DOC.numberLabel.do, docNumber), body, true) : sheet(letterhead(org, data, 'Delivery Order No', docNumber, racking), body, false, racking);
   }
 
   // ── quotation / tax invoice ─────────────────────────────────────────────
@@ -668,19 +679,25 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
       </div>`;
 
   if (bc) {
-    const bcBody = `${header}${linesTable(data, items, kind, t.currency)}${totals}${remarksBlock}${bcTnc}${bcSign}${footerMessage ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>` : ''}`;
+    const bcBody = `${header}${linesTable(data, items, kind, t.currency, false, skipTitles)}${totals}${remarksBlock}${bcTnc}${bcSign}${footerMessage ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>` : ''}`;
     return sheet(bcLetterhead(data, BCAIR_DOC.numberLabel.invoice, docNumber), bcBody, true);
   }
   if (rkQuote) {
     const rkBody = `${header}${linesTable(data, items, kind, t.currency, true)}${totals}${rkFooter}${signBlock(di, true)}${rkClosing}`;
-    return sheet(letterhead(org, data, 'Quotation No', docNumber, true), rkBody, false, true);
+    const wm = wmUrl ? `<div class="rkwm"><img src="${escapeHtml(wmUrl)}" alt="" /></div>` : '';
+    return sheet(letterhead(org, data, 'Quotation No', docNumber, true), rkBody, false, true, wm);
   }
-  const body = `${header}${linesTable(data, items, kind, t.currency)}${totals}${remarksBlock}${tncBlock}${signBlock(di)}${closing}`;
-  return sheet(letterhead(org, data, isInvoice ? 'Invoice No' : 'Quotation No', docNumber, racking), body);
+  // Racking invoice: its terms print like the quotation footer (headings in capitals, a TERMS & CONDITIONS
+  // heading only when the text has none), not under a separate "Terms and Conditions:" title.
+  const rkInvTnc = racking && isInvoice && tnc
+    ? `<div class="rkfoot">${hasTermsHeading(tnc) ? '' : `<div class="hd">TERMS &amp; CONDITIONS:</div>`}${rackingFooterText(tnc)}</div>`
+    : null;
+  const body = `${header}${linesTable(data, items, kind, t.currency, false, skipTitles)}${totals}${remarksBlock}${rkInvTnc ?? tncBlock}${signBlock(di)}${closing}`;
+  return sheet(letterhead(org, data, isInvoice ? 'Invoice No' : 'Quotation No', docNumber, racking), body, false, racking);
 }
 
-function sheet(head: string, body: string, bc = false, rk = false): string {
-  if (rk) return `${CSS}${RK_CSS}<div class="wct rk"><table class="wct-sheet"><thead><tr><td>${head}</td></tr></thead><tbody><tr><td>${body}</td></tr></tbody></table></div>`;
+function sheet(head: string, body: string, bc = false, rk = false, watermark = ''): string {
+  if (rk) return `${CSS}${RK_CSS}${watermark}<div class="wct rk"><table class="wct-sheet"><thead><tr><td>${head}</td></tr></thead><tbody><tr><td>${body}</td></tr></tbody></table></div>`;
   if (bc) return `${CSS}${BC_CSS}<div class="wct bc"><table class="wct-sheet"><thead><tr><td>${head}</td></tr></thead><tbody><tr><td>${body}</td></tr></tbody></table></div>`;
   return `${CSS}<div class="wct"><table class="wct-sheet"><thead><tr><td>${head}</td></tr></thead><tbody><tr><td>${body}</td></tr></tbody></table></div>`;
 }

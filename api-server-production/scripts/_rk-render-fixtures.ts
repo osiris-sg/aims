@@ -37,11 +37,15 @@ const base = (extra: any = {}) => ({
   logoUrl: 'https://x/logo.png',
   ...extra,
 });
-const orgs: Record<string, { org: any; features: any; tpl: any }> = {
+const orgs: Record<string, { org: any; features: any; tpl: any; doc?: any }> = {
   wct: { org: { id: 'w', name: 'WCT (S) Systems Pte Ltd', address: 'Addr', registrationNumber: '201724603K', phoneNumber: '1', email: 'e@x', website: 'w' }, features: { enableWctOrders: true, enableDocRemarks: true }, tpl: { layout: 'wct', logoPosition: 'left', titleText: 'QUOTATION' } },
   bcair: { org: { id: 'b', name: 'BC AIR PTE. LTD.', address: 'Addr', registrationNumber: '202205130K' }, features: { wctDocumentBrand: 'BCAIR', enableDocRemarks: true }, tpl: { layout: 'wct', logoPosition: 'left' } },
   racking: { org: { id: 'r', name: 'WCT Racking Pte Ltd', address: 'Addr', registrationNumber: '202100255Z', phoneNumber: '6741 1697' }, features: { enableWctOrders: true, enableDocRemarks: true }, tpl: { layout: 'wct', logoPosition: 'left', titleText: 'QUOTATION' } },
   stock: { org: { id: 's', name: 'Other Org', address: 'Addr', registrationNumber: 'X1' }, features: {}, tpl: null },
+  // Section-title numbering cutoff set, documents created BEFORE it: must print exactly as before.
+  wctOld: { org: { id: 'w', name: 'WCT (S) Systems Pte Ltd', address: 'Addr', registrationNumber: '201724603K' }, features: { enableWctOrders: true, snoSkipTitlesSince: '2026-11-18T12:00:00.000Z' }, tpl: { layout: 'wct', logoPosition: 'left', titleText: 'QUOTATION' }, doc: { createdAt: '2026-11-01T00:00:00.000Z' } },
+  bcairOld: { org: { id: 'b', name: 'BC AIR PTE. LTD.', address: 'Addr', registrationNumber: '202205130K' }, features: { wctDocumentBrand: 'BCAIR', snoSkipTitlesSince: '2026-11-18T12:00:00.000Z' }, tpl: { layout: 'wct', logoPosition: 'left' }, doc: { createdAt: '2026-11-18T11:59:59.000Z' } },
+  rackingOldInvoice: { org: { id: 'r', name: 'WCT Racking Pte Ltd', address: 'Addr', registrationNumber: '202100255Z' }, features: { snoSkipTitlesSince: '2026-11-18T12:00:00.000Z' }, tpl: { layout: 'wct', logoPosition: 'left', titleText: 'TAX INVOICE' }, doc: { createdAt: '2026-11-02T00:00:00.000Z' } },
 };
 const variants: Record<string, any> = {
   plain: {},
@@ -61,7 +65,7 @@ const types = ['QUOTATION', 'INVOICE', 'DELIVERY_ORDER', 'CREDIT_NOTE'];
     if (only && !only.includes(orgKey)) continue;
     for (const t of types) {
       for (const [vKey, v] of Object.entries(variants)) {
-        const design = effectiveDesign(o.tpl, t, o.features);
+        const design = effectiveDesign(o.tpl, t, o.features, o.doc);
         const data = { documentType: t, ...base(v), design, organization: o.org, company: o.org };
         const html = renderDocumentHtml(t, data, o.org);
         const file = `${orgKey}-${t}-${vKey}`;

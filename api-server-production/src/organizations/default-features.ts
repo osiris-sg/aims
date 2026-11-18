@@ -295,6 +295,8 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   enableSalesReport: false,
   // WCT Racking quotation look (no GST Reg No, UOM, Goodwill Discount, Racking sign-off). Default OFF; WCT Racking only.
   enableRackingLayout: false,
+  // Racking quotation watermark (the org logo, pale, behind the content). Default OFF; WCT Racking only.
+  enableRackingWatermark: false,
   // Custom job fields (2026-11-01, Phase 6): the org's admins define their own
   // fields on jobs (Settings → Job fields: yes/no, text, date, file upload,
   // link; icon + colours) — filled on the schedule / edit job form and the

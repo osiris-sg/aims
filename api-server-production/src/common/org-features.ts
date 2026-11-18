@@ -118,6 +118,13 @@ export const SALES_REPORT_FLAG = 'enableSalesReport';
 // + "<title> of" + the company (no "computer generated" line). Read through
 // design.racking (wct-brand.ts effectiveDesign). Default OFF.
 export const RACKING_LAYOUT_FLAG = 'enableRackingLayout';
+// Racking quotation watermark (2026-11-18): the org logo large, centred, pale behind the
+// content of a Racking-layout quotation. Default OFF.
+export const RACKING_WATERMARK_FLAG = 'enableRackingWatermark';
+// Section titles without an S/No (2026-11-18): an ISO date-time; WCT-layout documents
+// created at or after it number only their items (the first item is 1). Older documents
+// print as before. Absent = never (every org but the WCT group).
+export const SNO_SKIP_TITLES_SINCE_SETTING = 'snoSkipTitlesSince';
 
 // NO AUTOMATIC CUSTOMER EMAILS (2026-11-16; WCT group). With this on, AIMS never
 // emails a customer by itself: a completed / signed service report is not
