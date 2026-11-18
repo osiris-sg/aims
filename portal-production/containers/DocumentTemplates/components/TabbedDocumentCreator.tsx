@@ -1278,10 +1278,23 @@ export default function TabbedDocumentCreator({
   // Documents for the Locate dialog: the latest 200 on this template, fetched
   // server-side and only while the dialog is open. It used to pull EVERY
   // document in the org on editor mount (12s for Chong Aik — guru 2026-10-23).
+  //
+  // What is TYPED goes to the server too (guru 2026-11-18). Searching only the
+  // 200 rows already downloaded meant an older document simply could not be
+  // located: Biofuel has 3,270 invoices and Chong Aik 25.8k, so "the latest
+  // 200" is a few weeks of work, and the box answered "No invoices found
+  // matching your search" for an invoice that plainly exists.
   const locateTemplateId = existingData?.documentTemplateId || pathSegments[3];
-  const { docs: allDocuments } = useGetDocumentsPaginated({
+  const [locateSearch, setLocateSearch] = useState("");
+  const [locateSearchDebounced, setLocateSearchDebounced] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setLocateSearchDebounced(locateSearch.trim()), 250);
+    return () => clearTimeout(t);
+  }, [locateSearch]);
+  const { docs: allDocuments, isFetching: locateFetching } = useGetDocumentsPaginated({
     templateId: locateTemplateId,
     limit: 200,
+    search: locateSearchDebounced || undefined,
     sortBy: "createdAt",
     sortDir: "desc",
     enabled: locateDialogOpen && !!locateTemplateId,
@@ -9050,6 +9063,8 @@ export default function TabbedDocumentCreator({
         onClose={() => setLocateDialogOpen(false)}
         documents={documentsForLocate}
         documentLabel={getDocumentTitle()}
+        onSearchChange={setLocateSearch}
+        searching={locateFetching || locateSearch.trim() !== locateSearchDebounced}
         onSelectDocument={(doc) => {
           // Receipts live on their own route (saves go to PUT /receipts).
           if (isJournalVoucher) {

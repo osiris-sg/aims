@@ -146,12 +146,19 @@ export function pvValidationError(formData: any): string | null {
 
 // Kept for the editor's shared Locate (supplier) dialog branch: picking a
 // supplier there stores it as the payee the offset dialog starts from.
+//
+// A SUPPLIER THE USER JUST PICKED WINS over whatever is sitting in the Payee
+// box (guru 2026-11-18). It used to be the other way round — `payee || name` —
+// so the half-typed search text stayed: SCBPV2610-002 went out as payee
+// "unu a" while its line, its offset invoices and the journal all said
+// UNU Automation Engineering. The voucher is the paperwork for a payment; its
+// payee cannot be a typo of the party being paid.
 export function voucherSupplierPatch(formData: any, s: any) {
   return {
     supplier: s
       ? { id: s.id, name: s.name || "", supplierCode: s.supplierCode || s.customerCode || "", address: s.address || "", email: s.email || "", currency: s.currency || "SGD" }
       : { id: "", name: "", supplierCode: "", address: "", email: "" },
-    pvData: { ...(formData.pvData || {}), payee: formData?.pvData?.payee || s?.name || "" },
+    pvData: { ...(formData.pvData || {}), payee: s?.name || formData?.pvData?.payee || "" },
   };
 }
 
@@ -534,7 +541,8 @@ export function PaymentVoucherLinesSection({
               ? { id: supplier.id, name: supplier.name || "", supplierCode: supplier.supplierCode || "", address: supplier.address || "", email: supplier.email || "", currency: supplier.currency || "SGD" }
               : formData.supplier,
           }),
-      pvData: { ...pd, lines: next, payee: pd.payee || supplier?.name || "" },
+      // The picked supplier names the payee — see voucherSupplierPatch.
+      pvData: { ...pd, lines: next, payee: supplier?.name || pd.payee || "" },
     });
   };
   const clearOffset = () => {

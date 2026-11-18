@@ -74,7 +74,10 @@ interface Props {
   fromPath?: string;
   /** Hide the "All … for this organization" line under the title (stand-alone Invoices module). */
   hideSubtitle?: boolean;
-  /** "issue": show and sort by the document's issue date instead of its created date (newest first). */
+  /** "issue": SORT by the document's own date (newest first) out of the box. The
+   *  date column always SHOWS that date either way — this only sets the default
+   *  ordering, which stays on the created date elsewhere because an issue-date
+   *  sort is a JSON sort for any org without the document list keys. */
   dateColumn?: "created" | "issue";
   /** Trade invoices (Shipments orgs): a "Covers" column — the orders / shipments the invoice bills ("#9-1, #9-2"). */
   showCovers?: boolean;
@@ -100,6 +103,36 @@ interface DocumentRow {
   counterpartyKind?: "CUSTOMER" | "SUPPLIER" | null;
   config?: any;
 }
+
+// What this list's date column is CALLED. The value is always the document's
+// own date (documentInfo.date / date / issueDate, server-side documentIssueDate),
+// but a delivery order's date is a DELIVERY date and an invoice's is an INVOICE
+// date, so the heading says which (guru 2026-11-18). A list mixing types falls
+// back to the plain word.
+const DATE_HEADERS: Array<[string[], string]> = [
+  [["INVOICE", "TI", "TI2", "INV"], "Invoice date"],
+  [["DELIVERY_ORDER", "DO"], "Delivery date"],
+  [["RETURN_DELIVERY_ORDER", "RDO"], "Return date"],
+  [["QUOTATION", "QO", "QO1", "QO2", "QT"], "Quotation date"],
+  [["SALES_ORDER", "SO"], "Order date"],
+  [["PURCHASE_ORDER", "PO"], "Order date"],
+  [["PURCHASE_RETURN", "PR"], "Return date"],
+  [["VARIATION_ORDER", "VO"], "Order date"],
+  [["CREDIT_NOTE", "CN"], "Credit note date"],
+  [["DEBIT_NOTE", "DN"], "Debit note date"],
+  [["BILL"], "Bill date"],
+  [["OFFICIAL_RECEIPT"], "Receipt date"],
+  [["PAYMENT_VOUCHER", "JOURNAL_VOUCHER"], "Voucher date"],
+  [["STOCK_ADJUSTMENT_IN", "SAI", "STOCK_ADJUSTMENT_OUT", "SAO"], "Adjustment date"],
+  [["GRN", "GOODS_RECEIPT"], "Received date"],
+];
+
+export const dateHeaderFor = (documentTypes: string[]): string => {
+  const codes = (documentTypes || []).map((t) => String(t).toUpperCase());
+  if (!codes.length) return "Date";
+  const match = DATE_HEADERS.find(([set]) => codes.every((c) => set.includes(c)));
+  return match ? match[1] : "Date";
+};
 
 const formatStatus = (status: string) => {
   if (!status) return "Unconfirmed";
@@ -221,6 +254,8 @@ export default function DocumentListView({
     customerId: "",
     createdOn: { startDate: null, endDate: null },
   });
+
+  const dateHeader = useMemo(() => dateHeaderFor(documentTypes), [documentTypes]);
 
   // Real DO numbers (enableRealDoOnSchedule): a DO shows Pending / Completed / Cancelled next to its number.
   const { isRealDoOnScheduleEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled } = useOrganizationFeatures();
@@ -495,21 +530,21 @@ export default function DocumentListView({
         );
       },
     },
-    dateColumn === "issue"
-      ? {
-          accessorKey: "issueDate",
-          header: "Issue date",
-          nowrap: true,
-          pxWidth: 120,
-          cell: ({ row }: any) => moment(row.original.issueDate || row.original.createdAt).format("DD/MM/YYYY"),
-        }
-      : {
-          accessorKey: "createdAt",
-          header: "Created",
-          nowrap: true,
-          pxWidth: 120,
-          cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
-        },
+    {
+      // The DOCUMENT'S OWN date, named after what that date means to the person
+      // reading the list — Delivery date on a DO, Invoice date on an invoice
+      // (guru 2026-11-18). It used to be the row's CREATED timestamp, which is
+      // when somebody happened to type it in: a December-keyed November invoice
+      // read as December, and a DO's delivery date — the only date a storeman
+      // cares about — was nowhere on the list.
+      accessorKey: "issueDate",
+      header: dateHeader,
+      nowrap: true,
+      // 140, not the old 120: "Delivery date" / "Credit note date" wrap onto
+      // two lines in the narrower column and the header row grows.
+      pxWidth: 140,
+      cell: ({ row }: any) => moment(row.original.issueDate || row.original.createdAt).format("DD/MM/YYYY"),
+    },
     {
       // Row-click opens the document; the kebab holds secondary actions
       // (CLAUDE.md table pattern — inline action-icon columns retired).

@@ -50,6 +50,16 @@ interface LocateDocumentDialogProps {
   onSelectDocument: (doc: Document) => void;
   documents: Document[];
   documentLabel: string; // e.g., "Invoice", "Quotation"
+  /** Report what is being typed so the OWNER can ask the server for matches
+   *  (guru 2026-11-18). Without it the dialog only ever searched the page of
+   *  documents it was handed — the newest 200 — so an older invoice could not
+   *  be located at all. When set, the rows are taken as already matched and
+   *  the browser does not filter them again: the server matches fields this
+   *  table does not even show (reference, customer), and filtering here would
+   *  throw those hits away. */
+  onSearchChange?: (term: string) => void;
+  /** The server is still fetching matches for what was typed. */
+  searching?: boolean;
 }
 
 export default function LocateDocumentDialog({
@@ -58,12 +68,15 @@ export default function LocateDocumentDialog({
   onSelectDocument,
   documents,
   documentLabel,
+  onSearchChange,
+  searching,
 }: LocateDocumentDialogProps) {
   const [searchTerm, setSearchTerm] = useState("");
 
   // Free-text search across ALL columns (number, customer, P/O, D/O).
+  // Server-side when the owner passes onSearchChange — see the prop.
   const filteredDocuments = useMemo(() => {
-    if (!searchTerm.trim()) {
+    if (onSearchChange || !searchTerm.trim()) {
       return documents;
     }
 
@@ -73,11 +86,12 @@ export default function LocateDocumentDialog({
       [doc.name, doc.config?.customerName, doc.config?.poNo, doc.config?.doNo]
         .some((v) => String(v ?? "").toLowerCase().includes(term)),
     );
-  }, [documents, searchTerm]);
+  }, [documents, searchTerm, onSearchChange]);
 
   const handleRowClick = (doc: Document) => {
     onSelectDocument(doc);
     setSearchTerm("");
+    onSearchChange?.("");
     onClose();
   };
 
@@ -154,7 +168,10 @@ export default function LocateDocumentDialog({
             fullWidth
             placeholder={`Search ${documentLabel.toLowerCase()}s...`}
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              onSearchChange?.(e.target.value);
+            }}
             onKeyDown={handleKeyDown}
             size="small"
             autoFocus
@@ -264,9 +281,11 @@ export default function LocateDocumentDialog({
                 <TableRow>
                   <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">
-                      {searchTerm
-                        ? `No ${documentLabel.toLowerCase()}s found matching your search`
-                        : `No ${documentLabel.toLowerCase()}s available`}
+                      {searching
+                        ? "Searching…"
+                        : searchTerm
+                          ? `No ${documentLabel.toLowerCase()}s found matching your search`
+                          : `No ${documentLabel.toLowerCase()}s available`}
                     </Typography>
                   </TableCell>
                 </TableRow>
