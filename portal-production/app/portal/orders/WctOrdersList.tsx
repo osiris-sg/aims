@@ -16,7 +16,7 @@ import { fmtJobWhen, orderMatchesSearch, orderStatusColor, orderStatusLabel } fr
 import { HUB_ACTION_LABEL, HUB_DESTRUCTIVE, hubListTarget, hubMatchesTab, hubRowActions, hubStatusInfo, hubStatusSortValue, hubTabs, type HubActionKey, type HubContext, type HubStatus } from "@/helpers/wctOrderHub";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
-import { ORDER_SOURCE_OPTIONS, importedBilledPct, showBilledPctColumn, importedMatchesTab, importedStatusHue, importedTabs, isImportedTab, matchesOrderSource, type OrderSource } from "@/helpers/importedOrders";
+import { ORDER_SOURCE_OPTIONS, defaultOrderSource, newestFirst, importedBilledPct, showBilledPctColumn, importedMatchesTab, importedStatusHue, importedTabs, isImportedTab, matchesOrderSource, type OrderSource } from "@/helpers/importedOrders";
 
 // WCT calendar add (2026-11-04): jobs made from the calendar with no order yet, so nothing gets forgotten.
 interface UntaggedJob {
@@ -119,10 +119,11 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
   const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({});
-  // Imported orders (old ERP history) only on request: the default list is AIMS's own orders.
-  const [source, setSource] = useState<OrderSource>("aims");
+  // Orgs with imported orders (enableImportedOrders) open on "All orders", newest first; others on AIMS's own orders.
+  const [pickedSource, setSource] = useState<OrderSource | null>(null);
+  const source: OrderSource = pickedSource ?? defaultOrderSource(features);
   const hasImported = useMemo(() => orders.some((o) => o.imported === true), [orders]);
-  const sourceRows = useMemo(() => (hasImported ? orders.filter((o) => matchesOrderSource(o, source)) : orders), [orders, source, hasImported]);
+  const sourceRows = useMemo(() => newestFirst(hasImported ? orders.filter((o) => matchesOrderSource(o, source)) : orders), [orders, source, hasImported]);
 
   const fetchOrders = useCallback(async () => {
     if (fixture || !organization?.id) return;

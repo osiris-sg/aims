@@ -1,7 +1,7 @@
 // Run: npm test. Imported orders (2026-11-18): list source filter, no row actions, links.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { importedBilledPct, showBilledPctColumn, importedDocHref, importedLinkSourceLabel, importedMatchesTab, importedRowActions, importedTabs, isImportedTab, matchesOrderSource } from "./importedOrders.ts";
+import { importedBilledPct, showBilledPctColumn, importedDocHref, importedLinkSourceLabel, importedMatchesTab, importedRowActions, importedTabs, isImportedTab, matchesOrderSource, defaultOrderSource, newestFirst } from "./importedOrders.ts";
 
 const native = { id: "n1" };
 const imported = { id: "i1", imported: true };
@@ -47,4 +47,22 @@ test("Billed %: one decimal, blank without a quotation total; column only with i
   assert.equal(showBilledPctColumn(true, "all"), true);
   assert.equal(showBilledPctColumn(true, "aims"), false);
   assert.equal(showBilledPctColumn(false, "all"), false);
+});
+
+test("orgs with imported orders open on All orders; every other org keeps AIMS orders", () => {
+  assert.equal(defaultOrderSource({ enableImportedOrders: true }), "all");
+  assert.equal(defaultOrderSource({ enableImportedOrders: false }), "aims");
+  assert.equal(defaultOrderSource({}), "aims");
+  assert.equal(defaultOrderSource(null), "aims");
+  assert.equal(defaultOrderSource(undefined), "aims");
+});
+test("newest first: a live order sits above imported history", () => {
+  const rows = [
+    { id: "imp-old", imported: true, createdAt: "2019-02-13T01:00:00.000Z" },
+    { id: "live", createdAt: "2026-11-17T06:35:42.677Z" },
+    { id: "imp-new", imported: true, createdAt: "2026-11-04T01:00:00.000Z" },
+    { id: "nodate" },
+  ];
+  assert.deepEqual(newestFirst(rows).map((r) => r.id), ["live", "imp-new", "imp-old", "nodate"]);
+  assert.equal(rows[0].id, "imp-old");
 });

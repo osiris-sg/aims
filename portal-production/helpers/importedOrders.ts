@@ -38,6 +38,17 @@ export function matchesOrderSource(row: { imported?: boolean }, source: OrderSou
   return source === "imported" ? row.imported === true : row.imported !== true;
 }
 
+/** WCT group with imported orders (enableImportedOrders): the list opens on "All orders"; other orgs keep "AIMS orders". */
+export function defaultOrderSource(features?: { enableImportedOrders?: boolean } | null): OrderSource {
+  return features?.enableImportedOrders === true ? "all" : "aims";
+}
+
+/** Newest first by created date (imported orders carry their quotation date), so live orders stay on top. */
+export function newestFirst<T extends { createdAt?: string | null }>(rows: T[]): T[] {
+  const t = (r: T) => (r.createdAt ? new Date(r.createdAt).getTime() || 0 : 0);
+  return [...rows].sort((a, b) => t(b) - t(a));
+}
+
 export const ORDER_SOURCE_OPTIONS: Array<{ key: OrderSource; label: string }> = [
   { key: "aims", label: "AIMS orders" },
   { key: "imported", label: "Imported" },
