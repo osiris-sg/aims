@@ -22,16 +22,17 @@ import { useTranslations } from "next-intl";
 import { toast } from "../../_lib/toast";
 import { useContract, useContractGeneratedDocs, useGeneratedDocs, useShipment, useTradeMutation } from "../../_lib/hooks";
 import { recordFileCount, useShipmentsApi, type AnExtraction, type BlExtraction, type Contract, type Shipment, type TradeFile, type TradeStep } from "../../_lib/api";
-import { blLabel, fmtDmy, fmtMoney, fmtMt, stepLabel } from "../../_lib/format";
+import { blLabel, fmtDay, fmtDmy, fmtMoney, fmtMt, stepLabel } from "../../_lib/format";
 import RecordHeader from "../../_components/RecordHeader";
 import ContractTerms from "../../_components/ContractTerms";
 import ContractOverview from "../../_components/ContractOverview";
 import ShipmentOverview from "../../_components/ShipmentOverview";
 import StepCards, { type StepContext } from "../../_components/StepCards";
+import ShipmentStickyBar from "../../_components/ShipmentStickyBar";
 import ShipmentFormDialog from "../../_components/ShipmentFormDialog";
 import FilesTable from "../../_components/FilesTable";
 import LinkedDocuments from "../../_components/LinkedDocuments";
-import { ConfirmDialog, CurrentStepCell, ProgressCell, RecordStatusChip } from "../../_components/bits";
+import { ConfirmDialog, RecordStatusChip } from "../../_components/bits";
 import ExtractApplyDialog, { type ApplyRow } from "../../_components/ExtractApplyDialog";
 
 const TABS = ["journey", "details", "files"] as const;
@@ -336,27 +337,26 @@ export default function DealPage() {
               </Box>
             ) : (
               <>
-                <Paper variant="outlined" sx={{ px: 2, py: 1.25, mb: 1.5 }}>
-                  <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
-                      {shipments.length > 1 ? `#${shipIndex + 1} · ` : ""}{t("bl", { bl: s.blNumber || t("pending") })}
-                    </Typography>
-                    <RecordStatusChip status={s.status} />
-                    <ProgressCell progress={s.progress} width={90} />
-                    <Box sx={{ display: { xs: "none", md: "block" } }}>
-                      <CurrentStepCell step={s.currentStep} progress={s.progress} maxWidth={300} />
-                    </Box>
-                    <Box sx={{ flex: 1 }} />
-                    {s.vessel && (
-                      <Typography variant="body2" color="text.secondary">
-                        {[s.vessel, s.voyageNo].filter(Boolean).join(" / ")}
-                      </Typography>
-                    )}
+                {/* Round BW (Sayaka): this bar sticks under the top nav while the shipment's steps scroll. */}
+                <ShipmentStickyBar
+                  title={`${shipments.length > 1 ? `#${shipIndex + 1} · ` : ""}${t("bl", { bl: s.blNumber || t("pending") })}`}
+                  status={<RecordStatusChip status={s.status} />}
+                  facts={[
+                    shortName(c.customer?.name),
+                    Array.from(new Set((c.lines ?? []).map((l) => l.grade).filter(Boolean))).join("/") || null,
+                    s.netWeightMt != null ? `${fmtMt(s.netWeightMt)} t` : null,
+                    [s.vessel, s.voyageNo].filter(Boolean).join(" / ") || null,
+                    s.eta ? `ETA ${fmtDay(s.eta)}` : null,
+                  ]}
+                  current={s.currentStep}
+                  total={s.progress?.total ?? 0}
+                  stepOverride={s.status !== "OPEN" ? (s.status === "COMPLETED" ? t("completed") : t("cancelled")) : null}
+                  actions={
                     <IconButton size="small" aria-label={t("shipActions")} onClick={(e) => setShipMenu({ left: e.clientX, top: e.clientY })}>
                       <MoreVertIcon fontSize="small" />
                     </IconButton>
-                  </Stack>
-                </Paper>
+                  }
+                />
                 <StepCards
                   steps={s.steps}
                   owner={shipOwner!}

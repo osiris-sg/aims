@@ -41,8 +41,19 @@
     "noRate": "{month} のレートがありません",
     "noMonth": "納入月がありません",
     "addRate": "レートを追加",
-    "pattern": { "SUS": "SUS · ADH Japan 経由 2段階", "KATO": "加藤 · ADH Japan 経由 1段階", "HOEI": "Hoei · 直接", "none": "パターン未設定" },
-    "status": { "ready": "計上可", "waiting": "待機中", "rule needed": "ルール未定", "missing data": "データ不足", "rate needed": "レート未入力" },
+    "pattern": {
+      "SUS": "SUS · ADH Japan 経由 2段階",
+      "KATO": "加藤 · ADH Japan 経由 1段階",
+      "HOEI": "Hoei · 直接",
+      "none": "パターン未設定"
+    },
+    "status": {
+      "ready": "計上可",
+      "waiting": "待機中",
+      "rule needed": "ルール未定",
+      "missing data": "データ不足",
+      "rate needed": "レート未入力"
+    },
     "trigger": "計上タイミング",
     "date": "日付",
     "contact": "取引先",
@@ -61,6 +72,25 @@
     "fail": "不一致",
     "notYet": "未確認",
     "waitingOn": "待ち：{list}",
-    "error": "会計プレビューを読み込めませんでした"
+    "error": "会計プレビューを読み込めませんでした",
+    "inv1": {
+      "notInAims": "請求書 #1 が AIMS にありません",
+      "type": "請求書 #1 の金額を入力",
+      "edit": "編集",
+      "clear": "削除",
+      "fromAims": "請求書 #1 {number}（AIMS）",
+      "typedBy": "請求書 #1（入力者 {by}）",
+      "title": "請求書 #1（USD）",
+      "info": "SUS 請求書 #1 に印字された金額を入力します。この注文の確定済み請求書 #1 が AIMS にない間だけ使われます。",
+      "principal": "本体（USD・税抜）",
+      "tax": "消費税（USD）",
+      "number": "請求書番号",
+      "total": "合計 {total}",
+      "save": "保存",
+      "cancel": "キャンセル",
+      "saved": "請求書 #1 の金額を保存しました",
+      "cleared": "請求書 #1 の金額を削除しました",
+      "clearTitle": "入力した請求書 #1 の金額を削除しますか？"
+    }
   }
 }

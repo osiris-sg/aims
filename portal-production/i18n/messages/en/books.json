@@ -41,8 +41,19 @@
     "noRate": "No rate for {month}",
     "noMonth": "No delivery month",
     "addRate": "Add rate",
-    "pattern": { "SUS": "SUS · 2-phase via ADH Japan", "KATO": "Kato · 1-phase via ADH Japan", "HOEI": "Hoei · direct", "none": "Pattern not set" },
-    "status": { "ready": "Ready", "waiting": "Waiting", "rule needed": "Rule needed", "missing data": "Missing data", "rate needed": "Rate needed" },
+    "pattern": {
+      "SUS": "SUS · 2-phase via ADH Japan",
+      "KATO": "Kato · 1-phase via ADH Japan",
+      "HOEI": "Hoei · direct",
+      "none": "Pattern not set"
+    },
+    "status": {
+      "ready": "Ready",
+      "waiting": "Waiting",
+      "rule needed": "Rule needed",
+      "missing data": "Missing data",
+      "rate needed": "Rate needed"
+    },
     "trigger": "Posts on",
     "date": "Date",
     "contact": "Contact",
@@ -61,6 +72,25 @@
     "fail": "Off",
     "notYet": "Not yet",
     "waitingOn": "Waiting on: {list}",
-    "error": "Could not load the accounting preview"
+    "error": "Could not load the accounting preview",
+    "inv1": {
+      "notInAims": "Invoice #1 not in AIMS",
+      "type": "Type Invoice #1 amounts",
+      "edit": "Edit",
+      "clear": "Clear",
+      "fromAims": "Invoice #1 {number} (AIMS)",
+      "typedBy": "Invoice #1 typed by {by}",
+      "title": "Invoice #1 (USD)",
+      "info": "Type the amounts printed on SUS Invoice #1. Used only while AIMS has no final Invoice #1 for this order.",
+      "principal": "Principal (USD, before tax)",
+      "tax": "Consumption tax (USD)",
+      "number": "Invoice no.",
+      "total": "Total {total}",
+      "save": "Save",
+      "cancel": "Cancel",
+      "saved": "Invoice #1 amounts saved",
+      "cleared": "Invoice #1 amounts cleared",
+      "clearTitle": "Clear the typed Invoice #1 amounts?"
+    }
   }
 }

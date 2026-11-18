@@ -41,6 +41,14 @@ export class LotAccountingController {
     return this.books.updateAccount(orgIdOf(req), id, body ?? {});
   }
 
+  /** SUS Invoice #1 amounts (USD) when AIMS has none — ADH Admin only (ADH Manager + organizations:update). */
+  @Patch('orders/:id/invoice-1')
+  @Permissions('shipments:money', 'organizations:update')
+  saveInvoice1(@Param('id', ParseUUIDPipe) id: string, @Body() body: { principal?: unknown; tax?: unknown; number?: string | null }, @Req() req: TradeRequest) {
+    const a = actorOf(req);
+    return this.books.saveInvoice1(orgIdOf(req), id, body ?? {}, { id: a.id, name: a.name });
+  }
+
   @Get('orders/:id/preview')
   @Permissions('shipments:money')
   preview(@Param('id', ParseUUIDPipe) id: string, @Req() req: TradeRequest) {

@@ -1449,6 +1449,8 @@ model TradeOrder {
   notes           String?
   /// Step 13 inputs that aren't documents (PI / CI paid, import tax actual, Mitsui Soko actuals …).
   reconciliation  Json?
+  /// Round BW: books inputs ADH Admin typed for the lot ({ invoice1: { principal, tax, number, byId, byName, at } } — USD).
+  booksInput      Json?
   /// The customer's own purchase order (Kato's 発注書) — the file is linked as CUSTOMER_PO.
   customerPoNo    String?
   customerPoDate  DateTime?

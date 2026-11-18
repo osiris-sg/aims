@@ -6,6 +6,7 @@ import { aimsDepositOf, ciBalanceOf, ciVersionsByShipment } from './trade-ci';
 import { importTaxEstimate } from './trade-estimator';
 import { generatedInvoiceTotal } from './trade-payments.service';
 import { shipmentRef } from './shipments.rules';
+import { invoiceTotals, toInvoiceLines } from './trade-invoice';
 import { LOT_ACCOUNTS, LotInput, LotPreview, lotPreview, patternFor } from './lot-accounting';
 
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -76,7 +77,30 @@ export class LotAccountingService {
   }
 
   // ── Preview ──
-  async preview(organizationId: string, orderId: string): Promise<LotPreview & { accounts: Record<string, string>; customer: string | null; rateEnteredBy: string | null }> {
+  /**
+   * SUS Invoice #1 amounts typed by ADH Admin (USD) when AIMS has no FINAL Invoice #1 for the order. Never guessed:
+   * both principal and tax must be typed. { principal: null } clears them.
+   */
+  async saveInvoice1(organizationId: string, orderId: string, dto: { principal?: unknown; tax?: unknown; number?: string | null }, actor: { id?: string | null; name?: string | null }) {
+    const order = await this.prisma.tradeOrder.findFirst({ where: { id: orderId, organizationId }, select: { id: true, booksInput: true } });
+    if (!order) throw new NotFoundException('Order not found');
+    const prev = ((order.booksInput as Record<string, unknown> | null) ?? {}) as Record<string, unknown>;
+    if (dto.principal === null) {
+      const { invoice1: _drop, ...rest } = prev;
+      await this.prisma.tradeOrder.update({ where: { id: order.id }, data: { booksInput: rest as any } });
+      return { invoice1: null };
+    }
+    const principal = num(dto.principal);
+    const tax = num(dto.tax);
+    if (principal === null || principal <= 0 || principal > 1e10) throw new BadRequestException('Principal (USD) must be a positive number');
+    if (tax === null || tax < 0 || tax > 1e10) throw new BadRequestException('Tax (USD) must be 0 or more');
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    const invoice1 = { principal: r2(principal), tax: r2(tax), number: dto.number ? String(dto.number).trim().slice(0, 60) || null : null, byId: actor.id ?? null, byName: actor.name ?? null, at: new Date().toISOString() };
+    await this.prisma.tradeOrder.update({ where: { id: order.id }, data: { booksInput: { ...prev, invoice1 } as any } });
+    return { invoice1 };
+  }
+
+  async preview(organizationId: string, orderId: string): Promise<LotPreview & { accounts: Record<string, string>; customer: string | null; rateEnteredBy: string | null; invoice1InAims: boolean }> {
     const order = await this.prisma.tradeOrder.findFirst({
       where: { id: orderId, organizationId },
       include: {
@@ -127,7 +151,15 @@ export class LotAccountingService {
       };
     });
     const dep = aimsDepositOf(order as any, order.supplierOrder as any);
-    const inv1 = docs.find((d) => d.docType === 'INVOICE_1');
+    // Invoice #1 (SUS advance invoice): AIMS's FINAL one in USD wins; else what ADH Admin typed; else none.
+    const inv1 = docs.find((d) => d.docType === 'INVOICE_1' && ((d.header as any)?.currency ?? 'USD') === 'USD');
+    const inv1Totals = inv1 ? invoiceTotals(toInvoiceLines(inv1.rows), Number((inv1.header as any)?.taxRate ?? 10), null) : null;
+    const typed = ((order.booksInput as any)?.invoice1 ?? null) as { principal: number; tax: number; number: string | null; byName: string | null; at: string } | null;
+    const invoice1: LotInput['invoice1'] = inv1Totals
+      ? { principal: inv1Totals.subtotal, tax: inv1Totals.tax, number: inv1!.number ?? null, source: 'aims' }
+      : typed && Number.isFinite(Number(typed.principal)) && Number.isFinite(Number(typed.tax))
+        ? { principal: Number(typed.principal), tax: Number(typed.tax), number: typed.number ?? null, source: 'typed', by: [typed.byName, typed.at?.slice(0, 10)].filter(Boolean).join(' · ') || null }
+        : null;
     const single = docs.filter((d) => d.docType === 'INVOICE_SINGLE');
     const singleUsd = single.filter((d) => ((d.header as any)?.currency ?? 'USD') === 'USD');
     const input: LotInput = {
@@ -139,7 +171,7 @@ export class LotAccountingService {
       shipments,
       aimsDeposit: dep?.amount ?? null,
       directInvoiceTotal: singleUsd.length ? Math.round(singleUsd.reduce((t, d) => t + generatedInvoiceTotal(d), 0) * 100) / 100 : null,
-      invoice1Hint: inv1 ? { total: generatedInvoiceTotal(inv1), currency: (inv1.header as any)?.currency ?? 'USD', number: inv1.number } : null,
+      invoice1,
       done: {
         piPayment: done('PI_PAYMENT'),
         ciPayment: shipIds.length > 0 && shipIds.every((id) => done('CI_PAYMENT', id)),
@@ -152,6 +184,7 @@ export class LotAccountingService {
       accounts: Object.fromEntries(chart.map((a) => [a.code, a.name])),
       customer: order.customer?.name ?? null,
       rateEnteredBy: fx ? `${fx.enteredByName ?? '—'} · ${fx.enteredAt.toISOString().slice(0, 10)}` : null,
+      invoice1InAims: !!inv1Totals,
     };
   }
 }

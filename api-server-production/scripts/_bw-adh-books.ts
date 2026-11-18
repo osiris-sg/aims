@@ -80,6 +80,8 @@ async function main() {
     const have = await org.$queryRawUnsafe(`select table_name::text as table_name from information_schema.tables where table_schema='org_adhjapan' and table_name in ('FxRate','LotPosting')`);
     const names = (have as any[]).map((r) => r.table_name);
     for (const t of ['FxRate', 'LotPosting'].filter((t) => !names.includes(t))) writes.push(`dev table org_adhjapan."${t}"`);
+    const col = await org.$queryRawUnsafe(`select 1 from information_schema.columns where table_schema='org_adhjapan' and table_name='TradeOrder' and column_name='booksInput'`);
+    if (!(col as any[]).length) writes.push('dev column org_adhjapan."TradeOrder"."booksInput"');
     if (APPLY) {
       await org.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "org_adhjapan"."FxRate" ("id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "organizationId" text NOT NULL, "month" text NOT NULL, "currency" text NOT NULL, "baseCurrency" text NOT NULL DEFAULT 'SGD', "rate" numeric(18,8) NOT NULL, "note" text, "enteredById" text, "enteredByName" text, "enteredAt" timestamp(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" timestamp(3) NOT NULL)`);
       await org.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "FxRate_organizationId_month_currency_key" ON "org_adhjapan"."FxRate"("organizationId","month","currency")`);
@@ -87,6 +89,7 @@ async function main() {
       await org.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "org_adhjapan"."LotPosting" ("id" uuid PRIMARY KEY DEFAULT gen_random_uuid(), "organizationId" text NOT NULL, "orderId" uuid NOT NULL, "shipmentId" uuid, "postingKey" text NOT NULL, "frsRef" text, "contactName" text, "contactType" text, "contactId" uuid, "currency" text NOT NULL DEFAULT 'USD', "amount" numeric(16,2), "rateMonth" text, "rate" numeric(18,8), "status" text NOT NULL DEFAULT 'POSTED', "journalEntryId" uuid, "lines" jsonb, "createdById" text, "createdByName" text, "createdAt" timestamp(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" timestamp(3) NOT NULL)`);
       await org.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "LotPosting_organizationId_orderId_postingKey_key" ON "org_adhjapan"."LotPosting"("organizationId","orderId","postingKey")`);
       await org.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "LotPosting_organizationId_orderId_idx" ON "org_adhjapan"."LotPosting"("organizationId","orderId")`);
+      await org.$executeRawUnsafe(`ALTER TABLE "org_adhjapan"."TradeOrder" ADD COLUMN IF NOT EXISTS "booksInput" jsonb`);
     }
   }
 

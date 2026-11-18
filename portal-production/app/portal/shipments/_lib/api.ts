@@ -1744,7 +1744,9 @@ export type LotPostingStatus = "ready" | "waiting" | "rule needed" | "missing da
 export interface LotPreviewLine { account: string; side: "Dr" | "Cr"; usd: number | null; sgd: number | null; label: string; note?: string; problem?: "rule needed" | "missing" }
 export interface LotPreviewPosting { key: string; frs: string; title: string; kind: "Bill" | "Sales invoice" | "Manual journal"; contact: string | null; trigger: string; triggerState: "done" | "not yet" | "rule needed"; date: string | null; status: LotPostingStatus; lines: LotPreviewLine[]; notes: string[] }
 export interface LotPreviewCheck { key: "cogs" | "prepayments" | "advance" | "pnl"; label: string; ok: boolean | null; detail: string; waitingOn: string[] }
-export interface LotPreview { orderRef: string; pattern: "SUS" | "KATO" | "HOEI" | null; deliveryMonth: string | null; rateMonth: string | null; usdRate: number | null; postings: LotPreviewPosting[]; checks: LotPreviewCheck[]; missing: string[]; rulesNeeded: string[]; accounts: Record<string, string>; customer: string | null; rateEnteredBy: string | null }
+export interface LotPreview { orderRef: string; pattern: "SUS" | "KATO" | "HOEI" | null; deliveryMonth: string | null; rateMonth: string | null; usdRate: number | null; postings: LotPreviewPosting[]; checks: LotPreviewCheck[]; missing: string[]; rulesNeeded: string[]; accounts: Record<string, string>; customer: string | null; rateEnteredBy: string | null; invoice1: LotInvoice1 | null; invoice1InAims: boolean }
+/** Round BW: the SUS advance invoice = Invoice #1 (USD) — from AIMS, or typed by ADH Admin. */
+export interface LotInvoice1 { principal: number; tax: number; number: string | null; source: "aims" | "typed"; by?: string | null }
 
 export function useShipmentsApi() {
   const { getToken } = useAuth();
@@ -1993,6 +1995,7 @@ export function useShipmentsApi() {
       booksChart: () => call<BooksAccount[]>(`/trade-books/chart`),
       updateBooksAccount: (id: string, body: { code?: string; name?: string }) => call<BooksAccount>(`/trade-books/chart/${id}`, "PATCH", body),
       lotPreview: (orderId: string) => call<LotPreview>(`/trade-books/orders/${orderId}/preview`),
+      saveInvoice1: (orderId: string, body: { principal: number | null; tax?: number; number?: string | null }) => call<{ invoice1: unknown }>(`/trade-books/orders/${orderId}/invoice-1`, "PATCH", body),
       markPaid: (body: { key: string; paidAt: string; amount?: number | null; account?: PaymentAccount; proofFileId?: string | null }) => call<{ key: string; recorded: string }>(`/trade-unpaid/mark-paid`, "POST", body),
       setStepPayment: (id: string, payment: Omit<StepPayment, "currency"> & { currency?: string } | null) => call<TradeStep>(`/trade-steps/${id}/payment`, "POST", { payment }),
       reopenStep: (id: string) => call<TradeStep>(`/trade-steps/${id}/reopen`, "POST"),

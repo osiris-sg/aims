@@ -20,10 +20,10 @@ const base: LotInput = {
   ],
   aimsDeposit: null,
   directInvoiceTotal: null,
-  invoice1Hint: null,
+  invoice1: { principal: 1134294.0, tax: 113429.4, number: 'INV-0586', source: 'aims' },
   done: { piPayment: true, ciPayment: true, invoice1: true, taxFunds: true },
 };
-const frsRules = { advancePrincipal: 1134294.0, productSales: 1185439.17, gstActualUsd: 121430.25, logisticsUsd: 16830.08, deliveryCompleted: true };
+const frsRules = { gstActualUsd: 121430.25, logisticsUsd: 16830.08, deliveryCompleted: true };
 
 const usd = (p: ReturnType<typeof lotPreview>, key: string) => p.postings.find((x) => x.key === key)!.lines.map((l) => [l.account, l.side, l.usd]);
 const check = (p: ReturnType<typeof lotPreview>, key: string) => p.checks.find((c) => c.key === key)!;
@@ -67,13 +67,15 @@ describe('lot accounting preview — FRS #15-1', () => {
 });
 
 describe('lot accounting preview — as AIMS has #15-1 today (no answered rules)', () => {
-  const p = lotPreview({ ...base, usdRate: null });
+  const p = lotPreview({ ...base, usdRate: null, invoice1: null });
 
-  it('computes the purchase side and leaves the rest as "rule needed"', () => {
+  it('computes the purchase side; Invoice #1 missing; the rest "rule needed"', () => {
     expect(usd(p, 'PI_DEPOSIT_BILL')[0][2]).toBe(112186.8);
     expect(usd(p, 'GST_ADVANCE_BILL')[0][2]).toBe(118559.75);
     expect(usd(p, 'SETTLEMENT_C')[1][2]).toBe(10402.27);
-    expect(p.postings.find((x) => x.key === 'SUS_ADVANCE_INVOICE')!.status).toBe('rule needed');
+    expect(p.postings.find((x) => x.key === 'SUS_ADVANCE_INVOICE')!.status).toBe('missing data');
+    expect(p.missing).toContain('#15: Invoice #1 not in AIMS');
+    expect(p.invoice1).toBeNull();
     expect(p.postings.find((x) => x.key === 'COGS_RECLASS')!.status).toBe('rule needed');
     expect(p.postings.find((x) => x.key === 'CI_BALANCE_BILL')!.status).toBe('rate needed');
     expect(check(p, 'cogs').ok).toBe(true);
@@ -81,13 +83,26 @@ describe('lot accounting preview — as AIMS has #15-1 today (no answered rules)
     expect(check(p, 'prepayments').detail).toContain('USD 0.00');
     expect(check(p, 'advance').ok).toBeNull();
     expect(p.missing).toContain('FX rate for 2026-10 (1 SGD = ? USD)');
-    expect(p.rulesNeeded.length).toBeGreaterThanOrEqual(5);
+    // Answered 18 Nov: product sales (= SG→JP total) and the advance invoice (= Invoice #1) are no longer rules.
+    expect(p.rulesNeeded).toHaveLength(3);
+    expect(p.rulesNeeded.join(' ')).not.toMatch(/Product sales|Advance invoice/);
   });
 
-  it('never fills an unanswered rule from AIMS data', () => {
-    const q = lotPreview({ ...base, invoice1Hint: { total: 1134294, currency: 'USD', number: 'X' } });
-    expect(usd(q, 'SUS_ADVANCE_INVOICE')[2][2]).toBeNull();
-    expect(q.postings.find((x) => x.key === 'SUS_ADVANCE_INVOICE')!.lines[2].note).toContain('1,134,294.00');
+  it('never invents Invoice #1: no amounts, no 10% guess', () => {
+    expect(usd(p, 'SUS_ADVANCE_INVOICE').map((l) => l[2])).toEqual([null, null, null]);
+    expect(usd(p, 'SUS_REVENUE_RECOGNITION').map((l) => l[2])).toEqual([null, null]);
+    expect(p.postings.find((x) => x.key === 'SETTLEMENT_A')!.lines[1].problem).toBe('missing');
+  });
+  it('typed Invoice #1 amounts are used as typed (tax not recomputed)', () => {
+    const q = lotPreview({ ...base, rules: frsRules, invoice1: { principal: 1000, tax: 99.99, number: null, source: 'typed', by: 'Take' } });
+    expect(usd(q, 'SUS_ADVANCE_INVOICE')).toEqual([['610', 'Dr', 1099.99], ['810', 'Cr', 99.99], ['810', 'Cr', 1000]]);
+    expect(q.postings.find((x) => x.key === 'SUS_ADVANCE_INVOICE')!.lines[0].note).toBe('Invoice #1 typed by Take');
+    expect(q.invoice1?.source).toBe('typed');
+  });
+  it('product sales = the SG→JP invoice total; missing when a shipment has none', () => {
+    const q = lotPreview({ ...base, rules: frsRules, shipments: [{ ...base.shipments[0], sgjpTotal: null }] });
+    expect(q.missing).toContain('#15: SG→JP invoice total (permit CIF) of every shipment');
+    expect(q.postings.find((x) => x.key === 'SETTLEMENT_A')!.status).toBe('missing data');
   });
 });
 

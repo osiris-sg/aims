@@ -34,6 +34,7 @@ import { setAimeeContext } from "../../_components/aimee/bridge";
 import OverallProcess from "../../_components/OverallProcess";
 import ShipmentOverview from "../../_components/ShipmentOverview";
 import StepCards, { type StepContext } from "../../_components/StepCards";
+import ShipmentStickyBar from "../../_components/ShipmentStickyBar";
 import ShipmentFormDialog from "../../_components/ShipmentFormDialog";
 import FilesTable from "../../_components/FilesTable";
 import LinkedDocuments from "../../_components/LinkedDocuments";
@@ -550,8 +551,21 @@ export default function OrderPage() {
               </Box>
             ) : s ? (
               <>
-                {/* Round R: no bar repeating the selected card — its ⋮ menu sits on the card. */}
                 <Box id="shipment-steps" />
+                {/* Round BW (Sayaka): the shipment stays named while its steps scroll — sticky under the top nav. */}
+                <ShipmentStickyBar
+                  title={s.ref ?? ""}
+                  facts={[
+                    shortCustomer(o.customer?.name),
+                    o.grade || o.product,
+                    s.netWeightMt != null ? `${fmtMt(s.netWeightMt)} t` : null,
+                    s.blNumber ? `B/L ${s.blNumber}` : t("blPending"),
+                    [s.vessel, s.voyageNo].filter(Boolean).join(" / ") || t("vesselNone"),
+                    s.eta ? `ETA ${fmtDay(s.eta)}` : null,
+                  ]}
+                  current={s.currentStep}
+                  total={s.progress?.total ?? 0}
+                />
                 {/* Round BA: how this customer wants it packed (nothing when there's no packing info). */}
                 <Box sx={{ mb: 1.5, "&:empty": { display: "none" } }}>
                   <CustomerPackingPanel customerId={o.customerId} />

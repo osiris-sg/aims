@@ -57,19 +57,21 @@ export interface LotInput {
   aimsDeposit: number | null;
   /** Hoei: the USD total of ADH's invoice to Hoei (AIMS-made, FINAL). */
   directInvoiceTotal: number | null;
-  /** SUS: Invoice #1's total as AIMS has it — shown next to the advance invoice, never used for it (rule needed). */
-  invoice1Hint: { total: number; currency: string; number: string | null } | null;
+  /**
+   * SUS: the advance invoice = SUS Invoice #1, USD (Elroy 18 Nov): principal (the product line, before tax) + its tax.
+   * From AIMS's FINAL Invoice #1, else the amounts ADH Admin typed; null = "Invoice #1 not in AIMS".
+   */
+  invoice1: { principal: number; tax: number; number: string | null; source: 'aims' | 'typed'; by?: string | null } | null;
   /** Step state, for when each posting would happen. */
   done: { piPayment: boolean; ciPayment: boolean; invoice1: boolean; taxFunds: boolean };
   /**
    * Rules ADH hasn't answered yet (null = "rule needed"). Only tests / an answered rule fill these.
-   *   advancePrincipal  the advance invoice's product line (FRS 1,134,294.00)
-   *   productSales      the lot's total product sales to ADH Japan (FRS 1,185,439.17)
    *   gstActualUsd      the import GST actually paid, USD (FRS 121,430.25)
    *   logisticsUsd      the Japan logistics reimbursement (FRS 16,830.08)
    *   deliveryCompleted whether the "Delivery Completed" event has happened
+   * Answered 18 Nov: product sales to ADH Japan = the SG→JP invoice total (sgjpTotal); advance invoice = Invoice #1.
    */
-  rules?: { advancePrincipal?: number | null; productSales?: number | null; gstActualUsd?: number | null; logisticsUsd?: number | null; deliveryCompleted?: boolean | null };
+  rules?: { gstActualUsd?: number | null; logisticsUsd?: number | null; deliveryCompleted?: boolean | null };
 }
 
 export interface PreviewLine {
@@ -117,6 +119,8 @@ export interface LotPreview {
   checks: PreviewCheck[];
   missing: string[];
   rulesNeeded: string[];
+  /** SUS: where the advance invoice's amounts come from (null = Invoice #1 not in AIMS). */
+  invoice1: LotInput['invoice1'];
 }
 
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -238,21 +242,24 @@ export function lotPreview(input: LotInput): LotPreview {
   const gstEstimate = sum(input.shipments.map((s) => (s.importTaxJpy !== null && s.customsRate ? r2(s.importTaxJpy / s.customsRate) : null)));
   const gstActual = rules.gstActualUsd ?? null;
   const logistics = rules.logisticsUsd ?? null;
-  const advancePrincipal = rules.advancePrincipal ?? null;
-  const productSales = rules.productSales ?? null;
+  const inv1 = input.invoice1;
+  const advancePrincipal = inv1 ? inv1.principal : null;
+  const advanceTax = inv1 ? inv1.tax : null;
+  const noInv1 = { problem: 'missing' as const, note: 'Invoice #1 not in AIMS' };
+  // Answered 18 Nov: ADH SG's product sales to ADH Japan for the lot = the SG→JP invoice total.
+  const productSales = sgjp;
 
   if (input.pattern === 'SUS' || input.pattern === 'KATO') {
     if (qty === null) miss(`${input.orderRef}: net weight of every shipment (for the 40 USD/MT fee)`);
     if (gstEstimate === null) miss(`${input.orderRef}: import tax (¥) and customs rate of every shipment`);
+    if (sgjp === null) miss(`${input.orderRef}: SG→JP invoice total (permit CIF) of every shipment`);
     if (gstActual === null) need('Import GST actually paid (USD) — FRS 121,430.25 ≈ ¥18,423,000 ÷ 151.72: which rate?');
     if (logistics === null) need('Japan logistics reimbursement (USD) — FRS 16,830.08: from which AIMS figures?');
-    if (productSales === null) need(`Product sales to ADH Japan for the lot — FRS = the SG→JP invoice total (${fmt(sgjp)} here)?`);
   }
 
   if (input.pattern === 'SUS') {
-    if (advancePrincipal === null) need('Advance invoice amount (product line) — is it SUS Invoice #1 in USD?');
-    const tax = advancePrincipal === null ? null : r2(advancePrincipal * 0.1);
-    const hint = input.invoice1Hint ? `AIMS has Invoice #1 ${input.invoice1Hint.number ?? ''} ${input.invoice1Hint.currency} ${fmt(input.invoice1Hint.total)}`.replace(/\s+/g, ' ') : 'AIMS has no Invoice #1 for this order';
+    if (!inv1) miss(`${input.orderRef}: Invoice #1 not in AIMS`);
+    const src = inv1 ? (inv1.source === 'aims' ? `Invoice #1${inv1.number ? ` ${inv1.number}` : ''} (AIMS)` : `Invoice #1 typed${inv1.by ? ` by ${inv1.by}` : ''}`) : undefined;
     push({
       key: 'SUS_ADVANCE_INVOICE',
       frs: 'FRS 4 · SUS 1 (INV-0586)',
@@ -263,9 +270,9 @@ export function lotPreview(input: LotInput): LotPreview {
       triggerState: input.done.invoice1 ? 'done' : 'not yet',
       date: null,
       lines: [
-        line(LOT_ACCOUNTS.receivable, 'Dr', sum([advancePrincipal, tax]), 'ADH Japan', advancePrincipal === null ? { problem: 'rule needed' } : {}),
-        line(LOT_ACCOUNTS.advance, 'Cr', tax, '10% consumption tax', advancePrincipal === null ? { problem: 'rule needed' } : { note: '10% of the product line' }),
-        line(LOT_ACCOUNTS.advance, 'Cr', advancePrincipal, 'Product principal', advancePrincipal === null ? { problem: 'rule needed', note: hint } : {}),
+        line(LOT_ACCOUNTS.receivable, 'Dr', sum([advancePrincipal, advanceTax]), 'ADH Japan', inv1 ? { note: src } : noInv1),
+        line(LOT_ACCOUNTS.advance, 'Cr', advanceTax, 'Consumption tax', inv1 ? { note: src } : noInv1),
+        line(LOT_ACCOUNTS.advance, 'Cr', advancePrincipal, 'Product principal', inv1 ? { note: src } : noInv1),
       ],
       notes: [],
     });
@@ -298,8 +305,8 @@ export function lotPreview(input: LotInput): LotPreview {
       triggerState: deliveryTrigger,
       date: firstOfMonth,
       lines: [
-        line(LOT_ACCOUNTS.advance, 'Dr', advancePrincipal, 'Advance principal', advancePrincipal === null ? { problem: 'rule needed' } : {}),
-        line(LOT_ACCOUNTS.sales, 'Cr', advancePrincipal, 'Product sales', advancePrincipal === null ? { problem: 'rule needed' } : {}),
+        line(LOT_ACCOUNTS.advance, 'Dr', advancePrincipal, 'Advance principal', inv1 ? {} : noInv1),
+        line(LOT_ACCOUNTS.sales, 'Cr', advancePrincipal, 'Product sales', inv1 ? {} : noInv1),
       ],
       notes: [],
     });
@@ -307,13 +314,13 @@ export function lotPreview(input: LotInput): LotPreview {
   if (input.pattern === 'SUS' || input.pattern === 'KATO') {
     const sus = input.pattern === 'SUS';
     const salesLine = sus ? (productSales === null || advancePrincipal === null ? null : r2(productSales - advancePrincipal)) : productSales;
-    const advTax = sus ? (advancePrincipal === null ? null : r2(advancePrincipal * 0.1)) : 0;
+    const advTax = sus ? advanceTax : 0;
     const gapA = gstActual === null || advTax === null ? null : r2(gstActual - advTax);
     const gapB = gstActual === null || gstEstimate === null ? null : r2(gstActual - gstEstimate);
     const docA = [
-      line(LOT_ACCOUNTS.sales, 'Cr', salesLine, sus ? 'Final variance (product sales − advance principal)' : 'Full product revenue', salesLine === null ? { problem: 'rule needed' } : {}),
+      line(LOT_ACCOUNTS.sales, 'Cr', salesLine, sus ? 'Final variance (product sales − advance principal)' : 'Full product revenue', salesLine === null ? { problem: 'missing' } : { note: sus ? `SG→JP invoice total ${fmt(sgjp)} − Invoice #1 principal ${fmt(advancePrincipal)}` : 'The SG→JP invoice total' }),
       line(LOT_ACCOUNTS.advance, 'Cr', logistics, 'Japan logistics reimbursement', logistics === null ? { problem: 'rule needed' } : {}),
-      line(LOT_ACCOUNTS.advance, 'Cr', gapA, sus ? 'GST gap (actual − advance invoice tax)' : 'Import GST (actual)', gapA === null ? { problem: 'rule needed' } : {}),
+      line(LOT_ACCOUNTS.advance, 'Cr', gapA, sus ? 'GST gap (actual − advance invoice tax)' : 'Import GST (actual)', gapA === null ? { problem: gstActual === null ? 'rule needed' : 'missing' } : {}),
       line(LOT_ACCOUNTS.advance, 'Cr', share15, '15% transaction profit share', share15 === null ? { problem: 'missing' } : { note: `${fmt(qty, 3)} MT × ${FEE_PER_MT} USD × 15%` }),
     ];
     push({
@@ -454,6 +461,7 @@ export function lotPreview(input: LotInput): LotPreview {
     checks,
     missing,
     rulesNeeded,
+    invoice1: input.pattern === 'SUS' ? (inv1 ?? null) : null,
   };
 }
 
