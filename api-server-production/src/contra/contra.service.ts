@@ -155,9 +155,9 @@ export class ContraService {
       supplier: { id: supplier.id, name: supplier.name, code: supplier.supplierCode },
       // What they owe us.
       debtorItems,
-      // What we owe them. openBills may include supplier credit notes when
-      // enableApCreditOffset is on — those are not contra material (they are
-      // already a reduction of the same ledger), so drop them here.
+      // What we owe them. openBills includes supplier credit notes — those
+      // are not contra material (they are already a reduction of the same
+      // ledger), so drop them here.
       creditorItems: (creditorItems as any[]).filter((r) => r.kind !== 'credit'),
     };
   }

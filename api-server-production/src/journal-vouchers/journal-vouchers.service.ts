@@ -7,7 +7,6 @@ import { PaymentVouchersService } from '../payment-vouchers/payment-vouchers.ser
 import { ReceiptsService } from '../receipts/receipts.service';
 import { PaymentsService } from '../payments/payments.service';
 import { AuditService } from 'src/common/audit.service';
-import { AP_CREDIT_OFFSET_FLAG, isOrgFeatureEnabled } from '../common/org-features';
 import { orgToday } from '../common/org-today';
 import { listVouchersPaged, VoucherListQuery } from '../common/voucher-list';
 
@@ -309,7 +308,6 @@ export class JournalVouchersService {
     for (const p of previousPays) ownByBill.set(p.billId, ROUND((ownByBill.get(p.billId) || 0) + (Number(p.amount) || 0)));
 
     // Supplier offset line: supplier, caps, balance in supplier currency.
-    const creditWithFlag = await isOrgFeatureEnabled(this.prisma, organizationId, AP_CREDIT_OFFSET_FLAG);
     // Own prior customer rows (Payment.receiptId = this voucher) added back on re-save.
     const prevCustPays = await this.prisma.payment.findMany({ where: { organizationId, receiptId: id }, select: { id: true, documentId: true, amount: true } });
     const ownByInvoice = new Map<string, number>();
@@ -357,7 +355,6 @@ export class JournalVouchersService {
       o.supplierName = String(supplier.name || '');
       o.currency = String(supplier.currency || base).toUpperCase();
       if (!o.allocations.length) throw new BadRequestException(`Tick at least one supplier invoice for ${o.supplierName}`);
-      if (o.allocations.some((a) => a.amount < 0) && !creditWithFlag) throw new BadRequestException('Supplier credit notes are not enabled for this organisation');
       if (!o.allocations.some((a) => a.amount > 0)) throw new BadRequestException('Allocate at least one supplier invoice');
       const offsetSum = ROUND(o.allocations.reduce((s, a) => s + a.amount, 0));
       if (Math.abs(offsetSum - o.supplierAmount) > 0.005)

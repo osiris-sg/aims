@@ -53,9 +53,8 @@ export const OFFICE_DO_SIGN_FLAG = 'enableOfficeDoSign';
 // never be applied — the AP side has no equivalent of the AR Manual Offset.
 // With this on, credit notes join the grid and allocate NEGATIVE: they reduce
 // the cash paid, and on their own they settle bills with no cash at all.
-// Flag-gated because it changes what a voucher may post (a credit line on the
-// creditor control, and a voucher with no bank line).
-export const AP_CREDIT_OFFSET_FLAG = 'enableApCreditOffset';
+// NO LONGER FLAGGED (2026-11-18): supplier credit notes are listed for every
+// org, the way customer credit notes always were on the AR side.
 
 // CONTRA SET-OFF (2026-11-06, guru) — the same company is a customer AND a
 // supplier ("we bill them and they bill us"), and the two ledgers are netted.

@@ -63,9 +63,6 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // (same brain as the WhatsApp operator) with a Dashboard toggle. Default OFF.
   enableAimsChat: false,
   // Supplier credit notes on a Payment Voucher (2026-11-06): the voucher's
-  // offset grid also lists the supplier's credit notes, allocated negative.
-  // Default OFF.
-  enableApCreditOffset: false,
   // Contra set-off (2026-11-06): when the same company is both a customer and
   // a supplier, net their invoices against our bills with no cash. Default OFF.
   enableContraOffset: false,

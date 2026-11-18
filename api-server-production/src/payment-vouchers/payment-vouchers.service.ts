@@ -5,7 +5,6 @@ import { JournalService } from '../journal/journal.service';
 import { BillsService } from '../bills/bills.service';
 import { AuditService } from 'src/common/audit.service';
 import { outstandingOf, grossStampOf } from '../common/document-money';
-import { AP_CREDIT_OFFSET_FLAG, isOrgFeatureEnabled } from '../common/org-features';
 import { documentReferenceOf } from '../common/doc-ref';
 import { assertLedgerNotElsewhere } from '../common/imported-ledger';
 import { DocumentNumberingService, bankCodeOf, patternNeedsBank } from '../document-numbering/document-numbering.service';
@@ -326,12 +325,18 @@ export class PaymentVouchersService {
   // back, so it reduces the cash paid: its row carries kind 'credit' and a
   // POSITIVE `outstanding` meaning "credit left to use", and the voucher
   // stores its allocation NEGATIVE. Bills + credits still sum to the cash.
-  async openBills(organizationId: string, supplierId: string, opts?: { excludeVoucherId?: string; includeCredits?: boolean }) {
-    const withCredits = opts?.includeCredits || (await isOrgFeatureEnabled(this.prisma, organizationId, AP_CREDIT_OFFSET_FLAG));
+  async openBills(organizationId: string, supplierId: string, opts?: { excludeVoucherId?: string }) {
+    // Supplier credit notes are ALWAYS listed (guru 2026-11-18: "why is that
+    // flag even there"). They were gated behind enableApCreditOffset when the
+    // feature was built on 2026-11-06 — the house rule is that a new feature
+    // ships behind a per-org flag — and the flag was then never turned on for
+    // Biofuel, the org that asked for it. A supplier credit note sitting
+    // invisible on the one screen that can apply it is not a preference; the
+    // AR side has always listed customer credit notes in Manual Offset.
     const docs = await this.prisma.document.findMany({
       where: {
         organizationId,
-        type: { in: withCredits ? ['BILL', 'CREDIT_NOTE'] : ['BILL'] },
+        type: { in: ['BILL', 'CREDIT_NOTE'] },
         OR: [
           { config: { path: ['supplierId'], equals: supplierId } },
           { config: { path: ['supplier', 'id'], equals: supplierId } },
@@ -526,7 +531,6 @@ export class PaymentVouchersService {
     }
 
     // Creditor line: supplier, allocation caps, balance = 0 in supplier currency.
-    const creditWithFlag = await isOrgFeatureEnabled(this.prisma, organizationId, AP_CREDIT_OFFSET_FLAG);
     // Customer refund line (AR control): the cash paid out refunds the
     // customer's CREDIT NOTES / overpayments — allocations are negative (credit
     // consumed) and must add up to the line amount.
@@ -568,7 +572,6 @@ export class PaymentVouchersService {
       o.supplierName = String(supplier.name || '');
       o.currency = String(supplier.currency || currency).toUpperCase();
       if (!o.allocations.length) throw new BadRequestException(`Tick at least one supplier invoice for ${supplier.name}`);
-      if (o.allocations.some((a) => a.amount < 0) && !creditWithFlag) throw new BadRequestException('Supplier credit notes are not enabled for this organisation');
       if (!o.allocations.some((a) => a.amount > 0)) throw new BadRequestException('Allocate at least one supplier invoice — an offset cannot be credit notes alone');
       const offsetSum = ROUND(o.allocations.reduce((s, a) => s + a.amount, 0));
       if (Math.abs(offsetSum - o.supplierAmount) > 0.005)
@@ -751,7 +754,7 @@ export class PaymentVouchersService {
   // only for a realised FX difference (control account nets out otherwise).
   // ---------------------------------------------------------------------------
   async offsetItems(organizationId: string, supplierId: string) {
-    const rows = await this.openBills(organizationId, supplierId, { includeCredits: true });
+    const rows = await this.openBills(organizationId, supplierId);
     return { debits: rows.filter((r) => r.kind === 'bill'), credits: rows.filter((r) => r.kind === 'credit') };
   }
 

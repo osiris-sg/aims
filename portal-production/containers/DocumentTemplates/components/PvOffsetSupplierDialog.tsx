@@ -570,6 +570,7 @@ export default function PvOffsetSupplierDialog({
         onClose={() => setPickerOpen(false)}
         customers={partyList}
         serverSearch={isCustomer}
+        party={isCustomer ? "customer" : "supplier"}
         onSelectCustomer={(c: any) => pickParty(c)}
       />
       <AccountSelectDialog open={fxOpen} onClose={() => setFxOpen(false)} accounts={accounts.filter((a: OrAccount) => a.isActive !== false)} onSelect={(a) => setFxCode(a.code)} />
