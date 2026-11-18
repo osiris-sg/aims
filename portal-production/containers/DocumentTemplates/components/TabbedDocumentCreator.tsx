@@ -184,6 +184,7 @@ import CallSplitIcon from "@mui/icons-material/CallSplit";
 import InvoiceSplitDialog from "./InvoiceSplitDialog";
 import { splitButtons } from "@/helpers/invoiceSplit";
 import { isVoidedWithOrder } from "@/helpers/docStatus";
+import StatusChip from "@/components/StatusChip";
 import { quotationTemplateControls } from "@/helpers/quotationTemplates";
 import QuotationAddSplitButton from "@/app/portal/components/QuotationTemplates/QuotationAddSplitButton";
 import QuotationTemplatesHost from "@/app/portal/components/QuotationTemplates/QuotationTemplatesHost";
@@ -5019,6 +5020,9 @@ export default function TabbedDocumentCreator({
           >
             <ArrowBackIcon />
           </IconButton>
+          {/* The number never truncates (2026-11-18: a wide toolbar squeezed it
+              to "IN…" once the status pill sat beside it); the order caption
+              shrinks first and the toolbar wraps when the row is too narrow. */}
           <Typography
             variant="h6"
             fontWeight="500"
@@ -5034,8 +5038,22 @@ export default function TabbedDocumentCreator({
               {orderDocLine(existingData, documentType)}
             </Typography>
           )}
-          {/* Voided with its cancelled order (manual order flow, 2026-11-17): confirm / send / pay / split are refused. */}
-          {!isTemplateEditMode && isVoidedWithOrder((existingData as any)?.config) && <Chip size="small" color="error" variant="outlined" label="Voided" sx={{ fontWeight: 600 }} />}
+          {/* DOCUMENT STATUS right after the number (guru 2026-11-18: "move the
+              document status to right next to the document number at the top
+              left"): the same pill the lists show (Unconfirmed / Awaiting
+              Payment / Paid / Voided…), so a voided-with-order invoice reads
+              Voided here too. Real-DO orgs (enableRealDoOnSchedule) show the
+              DO's Pending / Completed / Cancelled tag instead — it used to sit
+              in the tracking strip below. */}
+          {!isTemplateEditMode && (documentId || existingData?.id) && (
+            <Box data-tour="editor-status" sx={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+              {isRealDoOnScheduleEnabled && String(actualDocumentType || "").toUpperCase() === "DELIVERY_ORDER" ? (
+                <DoStatusTag tag={docDoTag({ status: existingData?.status, config: existingData })} />
+              ) : (
+                <StatusChip status={documentStatus} doc={existingData as any} />
+              )}
+            </Box>
+          )}
         </Box>
         {/* Phone: the cluster must be allowed to shrink (flexShrink 0 sized it to
     full content width, so flexWrap never engaged and buttons ran off-screen). */}
@@ -5503,23 +5521,16 @@ export default function TabbedDocumentCreator({
               </Button>
             </>
           )}
-          {isDocumentConfirmedStatus && (
+          {/* The right-hand "Document Confirmed" / "Paid" badge is gone (guru
+              2026-11-18: the status pill beside the number says it). Only the
+              unlocked-edit warning remains, because that is a mode, not a status. */}
+          {isDocumentConfirmedStatus && confirmedEditUnlocked && (
             <Typography
               variant="body2"
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 0.5,
-                color: confirmedEditUnlocked ? 'warning.main' : 'success.main',
-                fontWeight: 500,
-                bgcolor: confirmedEditUnlocked ? 'warning.lighter' : 'success.lighter',
-                px: 2,
-                py: 0.5,
-                borderRadius: 1
-              }}
+              sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: 'warning.main', fontWeight: 500, bgcolor: 'warning.lighter', px: 2, py: 0.5, borderRadius: 1 }}
             >
               <CheckCircleIcon fontSize="small" />
-              {confirmedEditUnlocked ? 'Editing confirmed document' : isPaidInvoice ? 'Paid' : 'Document Confirmed'}
+              Editing confirmed document
             </Typography>
           )}
           {/* "View Offsetted Entries" (legacy AR): on a settled invoice, a popup
@@ -5835,14 +5846,8 @@ export default function TabbedDocumentCreator({
                 borderColor: "divider",
               }}
             >
-              {/* Real DO numbers (enableRealDoOnSchedule): the DO's number is final from
-                  the day it is scheduled, so whether the job is done shows as a tag. */}
-              {isRealDoOnScheduleEnabled && String(actualDocumentType || "").toUpperCase() === "DELIVERY_ORDER" && existingData?.name && (
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mr: "auto" }}>
-                  <Typography variant="body2" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{existingData.name}</Typography>
-                  <DoStatusTag tag={docDoTag({ status: existingData?.status, config: existingData })} />
-                </Box>
-              )}
+              {/* The real-DO number + Pending/Completed tag moved up beside the
+                  title (2026-11-18); nothing sits at this strip's left now. */}
               {/* The legacy invoice/DO screen shows only Confirmed User + Last Used
                   (guru 2026-11-14: "remove the unconfirmed user"). */}
               {!legacyLayout && (

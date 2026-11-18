@@ -4,14 +4,13 @@
 // an order, like the quotation's. Complete DO (the same 3-way dialog, with the
 // unit picker for product lines; a DO with a scheduled job is completed the
 // job's way by the server), Customer sign link, Add job (optional, for the
-// calendar / a technician). Once completed it reads Completed, with the way
-// back to the order. Service reports are added from the order page only (2026-11-13).
+// calendar / a technician). Once completed the buttons go (the title row's
+// tag reads Completed), leaving the way back to the order. Service reports are added from the order page only (2026-11-13).
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
-import { Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import { Button, Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
@@ -57,9 +56,10 @@ export default function DoOrderToolbar({ documentId, doName, status, config }: {
           Back to order {c.orderNo || ""}
         </Button>
       )}
-      {completed ? (
-        <Chip color="success" icon={<CheckCircleIcon />} label="Completed" data-tour="do-completed" />
-      ) : (
+      {/* A completed DO shows nothing here: its Completed tag sits beside the
+          DO number in the title row (guru 2026-11-18, "remove the status on the
+          right cos we added the left one"). */}
+      {!completed && (
         <>
           <Button size="small" variant="outlined" disabled={busy} onClick={() => void addJob()} data-tour="do-add-job">
             Add job
