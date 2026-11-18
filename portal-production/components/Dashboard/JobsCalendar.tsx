@@ -8,7 +8,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Alert, Box, Checkbox, CircularProgress, FormControl, FormControlLabel, InputLabel, ListItemText, MenuItem, Select, Skeleton, Stack, Tooltip, Typography } from "@mui/material";
+import { Alert, Box, Checkbox, CircularProgress, FormControl, FormControlLabel, InputLabel, ListItemText, MenuItem, OutlinedInput, Select, Skeleton, Stack, Tooltip, Typography } from "@mui/material";
 import JobFieldIcon from "@/components/jobFields/JobFieldIcon";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
@@ -197,10 +197,14 @@ export function JobsCalendarPanel({
           </Typography>
           {showSalesFilter && (
             <FormControl size="small" sx={{ minWidth: 180 }} data-tour="jobs-calendar-salesperson-filter">
-              <InputLabel id="jc-salesperson-label">Salesperson</InputLabel>
+              {/* "All" shows when nothing is picked (displayEmpty), so the label always sits on the outline (shrink + notched), never over the value. */}
+              <InputLabel id="jc-salesperson-label" shrink>
+                Salesperson
+              </InputLabel>
               <Select
                 labelId="jc-salesperson-label"
                 label="Salesperson"
+                input={<OutlinedInput notched label="Salesperson" />}
                 multiple
                 displayEmpty
                 value={salesSel}

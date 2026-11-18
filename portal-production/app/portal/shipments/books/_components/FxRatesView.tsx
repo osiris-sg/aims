@@ -77,6 +77,7 @@ export default function FxRatesView() {
         noSelectionColumn
         onRowClick={(r: MonthRow) => open(r)}
         actionButtons={[<InfoTip key="info" text={t("info")} />]}
+        clientPaging
         hideTable={!list.isLoading && !list.isError && !rows.length}
         headerContent={
           list.isError ? (

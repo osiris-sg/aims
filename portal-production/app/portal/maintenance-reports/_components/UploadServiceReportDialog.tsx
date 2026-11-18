@@ -14,6 +14,7 @@ import {
   DialogTitle,
   Stack,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
@@ -24,6 +25,7 @@ import CustomerPicker from "@/components/CustomerPicker";
 import CustomerDoPicker, { type DoOption } from "./CustomerDoPicker";
 import { useOrganization } from "@hooks/useOrganization";
 import { REPORT_FILE_ACCEPT } from "./PhotosFileControls";
+import { acceptLabel } from "@/helpers/serviceReportFlow";
 
 type OrderOption = { id: string; orderNumber?: string | null; customerId?: string | null; customer?: { id: string; name: string } | null };
 
@@ -146,6 +148,8 @@ export default function UploadServiceReportDialog({
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           <input ref={input} type="file" hidden accept={REPORT_FILE_ACCEPT} onChange={(e) => choose(e.target.files?.[0])} />
+          {/* WCT orders orgs (round 12): the file types it takes, on hover. An empty title shows no tooltip (other orgs). */}
+          <Tooltip title={wctOrders ? acceptLabel(REPORT_FILE_ACCEPT) : ""} placement="top">
           <Box
             onClick={() => input.current?.click()}
             onDragOver={(e) => e.preventDefault()}
@@ -168,6 +172,7 @@ export default function UploadServiceReportDialog({
               {file ? file.name : "Choose the report file (PDF or image), or drop it here"}
             </Typography>
           </Box>
+          </Tooltip>
           {manualFlow ? (
             <CustomerDoPicker
               customer={mfCustomer}

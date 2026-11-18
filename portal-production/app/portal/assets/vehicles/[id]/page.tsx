@@ -43,7 +43,6 @@ import {
   LOG_TYPES,
   LOG_TYPE_COLOR,
   LOG_TYPE_LABEL,
-  LOG_TYPE_SHORT,
   canVehicles,
   expiryChip,
   fetchVehicleLogPdf,
@@ -53,10 +52,10 @@ import {
   fmtKm,
   fmtMoney,
   vehiclesApi,
-  type MoneyPeriod,
   type VehicleDetail,
   type VehicleLogEntry,
 } from "@/helpers/wctVehicles";
+import MoneyColumn from "../_components/MoneyColumn";
 import { ApproveRepairDialog, AssignDriverDialog, DeleteEntryDialog, LogEntryDialog, UnlockRepairDialog } from "../_components/VehicleDialogs";
 import { VEHICLES_PATH, vehicleEditHref } from "@/helpers/wctNav";
 
@@ -80,33 +79,6 @@ function Expiry({ date, days }: { date: string | null | undefined; days: number 
       <span>{fmtDate(date)}</span>
       {chip && <Chip size="small" label={chip.label} color={chip.color} variant="outlined" />}
     </Stack>
-  );
-}
-
-/** One period of the money card: the total and the types that have spending. */
-function MoneyColumn({ title, p }: { title: string; p: MoneyPeriod }) {
-  const parts = LOG_TYPES.filter((t) => p.byType[t] > 0);
-  return (
-    <Box sx={{ flex: 1, minWidth: 180 }}>
-      <Typography variant="caption" color="text.secondary">
-        {title}
-      </Typography>
-      <Typography variant="h6" fontWeight={700} sx={{ fontVariantNumeric: "tabular-nums" }}>
-        {fmtMoney(p.total)}
-      </Typography>
-      {parts.length ? (
-        parts.map((t) => (
-          <Stack key={t} direction="row" justifyContent="space-between" sx={{ typography: "caption", color: "text.secondary" }}>
-            <span>{LOG_TYPE_SHORT[t]}</span>
-            <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtMoney(p.byType[t])}</span>
-          </Stack>
-        ))
-      ) : (
-        <Typography variant="caption" color="text.disabled">
-          Nothing spent
-        </Typography>
-      )}
-    </Box>
   );
 }
 

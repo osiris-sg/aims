@@ -372,6 +372,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
         setSearch={setSearch}
         setFilters={setFilters}
         filterConfig={[]}
+        clientPaging
         pageCount={1}
         totalDocs={tab === "untagged" ? untaggedRows.length : filtered.length}
         noSelectionColumn

@@ -8,11 +8,13 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { request } from "@/helpers/request";
 import { uploadFile } from "@/helpers/fileUploader";
 import { useOrganization } from "@hooks/useOrganization";
+import { REPORT_FILE_ACCEPT } from "@/helpers/serviceReportFlow";
 
 /** serviceData.photosFile as the API stores it. */
 export type PhotosFile = { key: string; fileName: string; mimeType: string; addedAt?: string } | null;
 
-export const REPORT_FILE_ACCEPT = "application/pdf,image/jpeg,image/png,image/webp,image/gif";
+// One list for the picker and the API check (helpers/serviceReportFlow.ts).
+export { REPORT_FILE_ACCEPT };
 
 /**
  * "Attach photos" on a service report (2026-11-12): ONE file, a PDF or an

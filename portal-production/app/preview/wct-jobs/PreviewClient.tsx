@@ -35,14 +35,17 @@ const JOBS: JobRow[] = [
 ];
 const COUNTS = { all: 5, draft: 1, scheduled: 1, to_verify: 1, rejected: 1, completed: 1 };
 
-export default function PreviewClient({ mode, page }: { mode: "light" | "dark"; page: "orders" | "jobs" }) {
+// ?many=1: 64 orders, so the Showing page size (10 / 20 / 50 / 100) has something to cut.
+const MANY_ORDERS: any[] = Array.from({ length: 64 }, (_, i) => ({ ...ORDERS[i % ORDERS.length], id: `m${i}`, orderNumber: `ORD202611-${String(100 - i).padStart(4, "0")}` }));
+
+export default function PreviewClient({ mode, page, many = false }: { mode: "light" | "dark"; page: "orders" | "jobs"; many?: boolean }) {
   // The app's own themes (the table reads custom palette tokens).
   const theme = useMemo(() => (mode === "dark" ? darkTheme : lightTheme), [mode]);
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <Box sx={{ p: 3, maxWidth: 1280, mx: "auto", bgcolor: "background.default", minHeight: "100vh" }}>
-        {page === "orders" ? <WctOrdersList fixture={ORDERS} /> : <WctJobsList fixture={{ docs: JOBS, counts: COUNTS, workers: ["Kumar Raj", "Lim Ah Kow", "Muhammad Ali", "Tan Wei Ming"] }} />}
+        {page === "orders" ? <WctOrdersList fixture={many ? MANY_ORDERS : ORDERS} /> : <WctJobsList fixture={{ docs: JOBS, counts: COUNTS, workers: ["Kumar Raj", "Lim Ah Kow", "Muhammad Ali", "Tan Wei Ming"] }} />}
       </Box>
     </ThemeProvider>
   );

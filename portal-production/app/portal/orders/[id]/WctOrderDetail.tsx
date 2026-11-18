@@ -32,6 +32,7 @@ import {
   Typography,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
+import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import moment from "moment";
@@ -49,7 +50,7 @@ import CustomerSignLink from "@/components/delivery/CustomerSignLink";
 import QuickJobDialog from "@/components/Dashboard/jobs-calendar/QuickJobDialog";
 import { linkedToast } from "@/helpers/quickJobQuotation";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
-import { serviceReportFlowHref, type ServiceReportPrefill } from "@/helpers/serviceReportFlow";
+import { ORDER_FILE_ACCEPT, orderUploadTip, serviceReportFlowHref, serviceReportMenuItems, type ServiceReportPrefill } from "@/helpers/serviceReportFlow";
 import { hubActionTarget, hubStatusInfo, type HubActionKey } from "@/helpers/wctOrderHub";
 
 // WCT order page (enableWctOrders, 2026-11-01): the order header, its jobs
@@ -85,7 +86,7 @@ interface OrderInvoice {
   /** Made from the quotation before any DO was done. */
   fromQuotation?: boolean;
 }
-interface WctOrder {
+export interface WctOrder {
   id: string;
   orderNumber: string;
   status: string;
@@ -118,13 +119,14 @@ const invoiceStatusLabel = (inv: { status: string; emailed?: boolean; extra?: bo
 
 const doHref = (d: NonNullable<Job["deliveryOrder"]>) => `/portal/documents/DELIVERY_ORDER/${d.templateId}/${d.id}`;
 
-export default function WctOrderDetail({ id }: { id: string }) {
+/** fixture: /preview/wct-order only (screenshots without sign-in); the page itself always fetches. */
+export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: WctOrder }) {
   const router = useRouter();
   const { goBack } = useAppBack();
   const { organization } = useOrganization();
   const { getToken } = useAuth();
-  const [order, setOrder] = useState<WctOrder | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [order, setOrder] = useState<WctOrder | null>(fixture ?? null);
+  const [loading, setLoading] = useState(!fixture);
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [menu, setMenu] = useState<{ pos: { left: number; top: number }; job: Job } | null>(null);
@@ -141,6 +143,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
   const [sendReportOpen, setSendReportOpen] = useState(false);
   // Manual order flow (2026-11-13): "Add service report" = a small Create new / Upload file menu at the click,
   // each going to the Service Reports page's own flow with the customer + DO prefilled (no dialog here).
+  // Round 12 (2026-11-19): one "Service report" button for every order; its menu also holds Link existing.
   const [srMenu, setSrMenu] = useState<{ pos: { left: number; top: number }; doId: string | null } | null>(null);
   const addReportBtn = React.useRef<HTMLButtonElement>(null);
   const openSrMenuAtButton = (doId: string | null = null) => {
@@ -157,7 +160,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
   const { isJobsCalendarEnabled } = useOrganizationFeatures();
 
   const load = useCallback(async () => {
-    if (!organization?.id) return;
+    if (fixture || !organization?.id) return;
     try {
       const token = await getToken();
       const res = await request({ path: `/orders/${id}`, method: "GET" }, {}, token ?? undefined);
@@ -169,7 +172,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
     } finally {
       setLoading(false);
     }
-  }, [organization?.id, getToken, id]);
+  }, [organization?.id, getToken, id, fixture]);
 
   useEffect(() => {
     load();
@@ -600,17 +603,20 @@ export default function WctOrderDetail({ id }: { id: string }) {
             Service report
           </Typography>
           <Box sx={{ flex: 1 }} />
-          {(order as any).manualFlow && (
-            <Button ref={addReportBtn} size="small" variant="contained" disableElevation onClick={(e) => setSrMenu({ pos: { left: e.clientX, top: e.clientY }, doId: null })} data-tour="wct-order-add-report">
-              Add service report
-            </Button>
-          )}
-          <input ref={fileRef} type="file" accept="application/pdf,image/*" hidden onChange={(e) => void uploadAttachment(e.target.files?.[0])} />
-          <Button size="small" variant="outlined" disabled={uploading} onClick={() => fileRef.current?.click()} data-tour="wct-order-upload-report">
-            {uploading ? <CircularProgress size={16} /> : "Upload file"}
-          </Button>
-          <Button size="small" variant="outlined" onClick={() => void openLink()} data-tour="wct-order-link-report">
-            Link a service report
+          {/* WCT round 12: ONE "Service report" button; its menu has New / Upload file (manual flow) or Upload file
+              (a file stored on the order), and Link existing. */}
+          <input ref={fileRef} type="file" accept={ORDER_FILE_ACCEPT} hidden onChange={(e) => void uploadAttachment(e.target.files?.[0])} />
+          <Button
+            ref={addReportBtn}
+            size="small"
+            variant="contained"
+            disableElevation
+            disabled={uploading}
+            endIcon={uploading ? <CircularProgress size={14} color="inherit" /> : <ArrowDropDownIcon />}
+            onClick={(e) => setSrMenu({ pos: { left: e.clientX, top: e.clientY }, doId: null })}
+            data-tour="wct-order-add-report"
+          >
+            Service report
           </Button>
           {/* Manual order flow: email the order's service report(s) to the customer. */}
           {(order as any).manualFlow && (
@@ -802,24 +808,32 @@ export default function WctOrderDetail({ id }: { id: string }) {
       </Dialog>
 
       <Menu anchorReference="anchorPosition" anchorPosition={srMenu?.pos} open={!!srMenu} onClose={() => setSrMenu(null)}>
-        <MenuItem
-          onClick={() => {
-            const doId = srMenu?.doId ?? null;
-            setSrMenu(null);
-            router.push(serviceReportFlowHref("new", srPrefillFor(doId)));
-          }}
-        >
-          Create new
-        </MenuItem>
-        <MenuItem
-          onClick={() => {
-            const doId = srMenu?.doId ?? null;
-            setSrMenu(null);
-            router.push(serviceReportFlowHref("upload", srPrefillFor(doId)));
-          }}
-        >
-          Upload file
-        </MenuItem>
+        {serviceReportMenuItems(manualFlow).map((it) => {
+          const item = (
+            <MenuItem
+              key={it.key}
+              data-tour={it.tour}
+              onClick={() => {
+                const doId = srMenu?.doId ?? null;
+                setSrMenu(null);
+                // Manual flow: the Service Reports page's own New / Upload flow, customer + DO prefilled.
+                if (it.key === "new" || (it.key === "upload" && manualFlow)) router.push(serviceReportFlowHref(it.key, srPrefillFor(doId)));
+                // Otherwise Upload file stores the file on the order.
+                else if (it.key === "upload") fileRef.current?.click();
+                else void openLink();
+              }}
+            >
+              {it.label}
+            </MenuItem>
+          );
+          return it.key === "upload" ? (
+            <Tooltip key={it.key} title={orderUploadTip(manualFlow)} placement="right">
+              {item}
+            </Tooltip>
+          ) : (
+            item
+          );
+        })}
       </Menu>
 
       <Dialog open={invoiceAsk} onClose={() => setInvoiceAsk(false)} fullWidth maxWidth="xs">

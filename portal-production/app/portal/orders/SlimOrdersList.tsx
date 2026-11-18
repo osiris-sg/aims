@@ -265,6 +265,7 @@ export default function SlimOrdersList() {
         setSearch={setSearch}
         setFilters={setFilters}
         filterConfig={[]}
+        clientPaging
         pageCount={1}
         totalDocs={filtered.length}
       />

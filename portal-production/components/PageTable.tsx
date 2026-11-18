@@ -18,6 +18,7 @@ import NotificationsNoneIcon from "@mui/icons-material/NotificationsNone";
 import FilterDrawer, { FilterField } from "./FilterDrawer";
 import { IconX } from "@tabler/icons-react";
 import { useUiLang } from "@/i18n/UiLangProvider";
+import { clientPage } from "@/helpers/clientPaging";
 
 // Round AZ: the table chrome in the portal language (useUiLang is English outside the provider, e.g. legacy layouts).
 const PT = {
@@ -80,6 +81,11 @@ interface Props {
    *  for tables that read as one document (e.g. Monthly Payables, where a
    *  month must never split across pages). */
   noPagination?: boolean;
+  /** The caller hands over EVERY row (no server paging): PageTable slices the
+   *  current page itself from `page` / `limit` (its own state when the caller
+   *  passes none), so the Showing picker and the pager work. pageCount is then
+   *  computed here and the `pageCount` prop is ignored. */
+  clientPaging?: boolean;
 }
 // Rows per page every list opens with (guru 2026-11-17: "make this default
 // be 50 for every org"). Pages seed their `limit` state from it; the Showing
@@ -88,7 +94,23 @@ export const DEFAULT_PAGE_SIZE = 50;
 
 export default function PageTable(props: Props) {
   const pt = PT[useUiLang().lang];
-  const { columns, data, tableName, subTitle, loading, buttonName, buttonDisabled, page, limit, search, filters, setPage, setLimit, setSearch, setFilters, pageCount, onAddClick, subRowAccessor, filterConfig: incomingFilterConfig, availableFilters, assetsData, totalDocs, renderSubComponent, actionButtons, headerContent, manualSorting, sorting, onSortingChange, onRowClick, rowHref, rowSx, noSelectionColumn, hideTable, noPagination } = props;
+  const { columns, data: allData, tableName, subTitle, loading, buttonName, buttonDisabled, page: callerPage, limit: callerLimit, search, filters, setPage: callerSetPage, setLimit: callerSetLimit, setSearch, setFilters, pageCount: callerPageCount, onAddClick, subRowAccessor, filterConfig: incomingFilterConfig, availableFilters, assetsData, totalDocs: callerTotalDocs, renderSubComponent, actionButtons, headerContent, manualSorting, sorting, onSortingChange, onRowClick, rowHref, rowSx, noSelectionColumn, hideTable, noPagination, clientPaging } = props;
+  // Client paging: the caller's page / limit when it has them, else PageTable's own.
+  const [ownPage, setOwnPage] = useState(1);
+  const [ownLimit, setOwnLimit] = useState(DEFAULT_PAGE_SIZE);
+  const page = clientPaging ? (callerPage ?? ownPage) : callerPage;
+  const limit = clientPaging ? (callerLimit ?? ownLimit) : callerLimit;
+  const setPage = clientPaging ? (callerSetPage ?? setOwnPage) : callerSetPage;
+  const setLimit = clientPaging ? (callerSetLimit ?? setOwnLimit) : callerSetLimit;
+  // The table gets every row and the page to show, so a header sort orders the whole list, not one page.
+  const sliced = clientPaging && !noPagination ? clientPage(allData, page, limit) : null;
+  const data = allData;
+  const pageCount = sliced ? sliced.pageCount : callerPageCount;
+  const totalDocs = sliced ? sliced.total : callerTotalDocs;
+  // A smaller list (filter, tab, bigger page size) can leave the page past the end: step back to the last page.
+  useEffect(() => {
+    if (sliced && page !== undefined && sliced.page !== page && setPage) setPage(sliced.page);
+  }, [sliced?.page, page]);
   const { control, handleSubmit, watch } = useForm({ defaultValues: { limit, search } });
   const _limit = watch("limit");
   const _search = watch("search");
@@ -227,7 +249,7 @@ export default function PageTable(props: Props) {
                 flex: 1,
               })}
             >
-              <Table columns={columns} data={data} onRowClick={onRowClick} rowHref={rowHref} rowSx={rowSx} onRowSelect={() => {}} loading={loading} subRowAccessor={subRowAccessor} manualSorting={manualSorting} sorting={sorting} onSortingChange={onSortingChange} isNoSelectionColumn={noSelectionColumn} />
+              <Table columns={columns} data={data} onRowClick={onRowClick} rowHref={rowHref} rowSx={rowSx} onRowSelect={() => {}} loading={loading} subRowAccessor={subRowAccessor} manualSorting={manualSorting} sorting={sorting} onSortingChange={onSortingChange} isNoSelectionColumn={noSelectionColumn} showAllRows={!sliced} clientPage={sliced ? { index: sliced.page - 1, size: limit ?? DEFAULT_PAGE_SIZE } : undefined} />
             </Box>
             {!noPagination && (
               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", overflowX: "hidden" }}>
@@ -239,10 +261,10 @@ export default function PageTable(props: Props) {
                 </Box>
                 {totalDocs !== undefined && limit !== undefined && page !== undefined && (
                   <Typography variant="body2" sx={{ color: "text.secondary" }}>
-                    {pt.range((page - 1) * limit + 1, Math.min(page * limit, totalDocs), totalDocs)}
+                    {sliced ? pt.range(sliced.from, sliced.to, sliced.total) : pt.range((page - 1) * limit + 1, Math.min(page * limit, totalDocs), totalDocs)}
                   </Typography>
                 )}
-                <Pagination page={page ?? 1} count={pageCount ?? 1} siblingCount={0} boundaryCount={0} onChange={(event, value) => setPage && setPage(value)} />
+                <Pagination page={sliced ? sliced.page : (page ?? 1)} count={pageCount ?? 1} siblingCount={0} boundaryCount={0} onChange={(event, value) => setPage && setPage(value)} />
               </Box>
             )}
           </>

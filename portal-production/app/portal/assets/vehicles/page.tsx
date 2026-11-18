@@ -166,6 +166,7 @@ export default function VehiclesPage() {
         setSearch={setSearch}
         setFilters={setFilters}
         filterConfig={[]}
+        clientPaging
         pageCount={1}
         totalDocs={filtered.length}
         noSelectionColumn

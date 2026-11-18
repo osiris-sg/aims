@@ -39,6 +39,14 @@ interface Props {
   manualSorting?: boolean;
   sorting?: SortingState;
   onSortingChange?: (updater: any) => void;
+  /** Render every row passed (no internal 30-row page). PageTable sets it: it
+   *  is the pager (server page, its own slice, or the caller's slice), so the
+   *  rows it hands over are exactly one page. Without it, rows past 30 were
+   *  silently dropped (a page of 50 / 100 showed 30). */
+  showAllRows?: boolean;
+  /** Client paging (PageTable clientPaging): the caller passes EVERY row and
+   *  the page to show; the table sorts the whole list, then shows that page. */
+  clientPage?: { index: number; size: number };
 }
 
 // Columns that hold identifiers (supplier/customer codes, document numbers,
@@ -49,7 +57,7 @@ const CODE_COLUMN_RE = /(code|number|num|no|sku|serial|ref|reference)$/i;
 export const isCodeColumn = (id: string | undefined) => !!id && CODE_COLUMN_RE.test(id);
 
 export default function Table(props: Props) {
-  const { data = [], columns = [], subRowAccessor, loading = false, loadingTableRowId = null, onRowSelect, isNoSelectionColumn = false, manualSorting = false, sorting: controlledSorting, onSortingChange: controlledOnSortingChange, onRowClick, rowHref, rowSx } = props;
+  const { data = [], columns = [], subRowAccessor, loading = false, loadingTableRowId = null, onRowSelect, isNoSelectionColumn = false, manualSorting = false, sorting: controlledSorting, onSortingChange: controlledOnSortingChange, onRowClick, rowHref, rowSx, showAllRows = false, clientPage } = props;
   const _data = useMemo(() => data, [data]);
 
   // Mobile responsiveness
@@ -99,16 +107,17 @@ export default function Table(props: Props) {
   const _columns = useMemo(() => (isNoSelectionColumn ? [...columns] : [selectionColumn, ...columns]), [columns, isNoSelectionColumn, selectionColumn]);
 
   // Control pagination locally to avoid infinite resets from react-table
-  const [pagination, setPagination] = React.useState({ pageIndex: 0, pageSize: 30 });
+  const [pagination, setPagination] = React.useState(() => ({ pageIndex: 0, pageSize: manualSorting || showAllRows ? Math.max(data.length, 1) : 30 }));
 
   // When the parent drives sorting/pagination server-side (manualSorting), it
   // passes exactly one page of rows — render all of them instead of re-paginating
   // at 30 (which would re-cap a limit of 50/100). Client-side mode keeps pageSize 30.
+  // showAllRows (PageTable): same, whatever the sorting mode.
   React.useEffect(() => {
-    if (manualSorting) {
+    if (manualSorting || showAllRows) {
       setPagination((p) => ({ ...p, pageIndex: 0, pageSize: Math.max(_data.length, 1) }));
     }
-  }, [manualSorting, _data.length]);
+  }, [manualSorting, showAllRows, _data.length]);
 
   const table = useReactTable({
     columns: _columns,
@@ -117,7 +126,7 @@ export default function Table(props: Props) {
       expanded,
       sorting: controlledSorting ?? sorting,
       rowSelection,
-      pagination,
+      pagination: clientPage ? { pageIndex: clientPage.index, pageSize: Math.max(clientPage.size, 1) } : pagination,
     },
     manualSorting,
     onRowSelectionChange: setRowSelection,

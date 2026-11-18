@@ -48,6 +48,7 @@ export default function ChartView() {
         noSelectionColumn
         onRowClick={(r: BooksAccount) => setEdit({ id: r.id, code: r.code, name: r.name, was: r.code })}
         actionButtons={[<InfoTip key="info" text={t("info")} />]}
+        clientPaging
         hideTable={!list.isLoading && !list.isError && !rows.length}
         headerContent={list.isError ? <Alert severity="error">{(list.error as Error)?.message}</Alert> : !list.isLoading && !rows.length ? <EmptyState title={t("empty")} /> : undefined}
       />

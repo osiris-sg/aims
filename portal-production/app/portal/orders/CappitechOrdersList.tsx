@@ -269,6 +269,7 @@ export function CappitechOrdersList() {
         setSearch={setSearch}
         setFilters={setFilters}
         filterConfig={filterConfig}
+        clientPaging
         pageCount={1}
         totalDocs={filteredOrders.length}
       />
