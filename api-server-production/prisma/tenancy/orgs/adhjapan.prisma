@@ -2062,3 +2062,57 @@ model ShipmentTracking {
 
   @@index([organizationId, shipmentId, createdAt])
 }
+
+/// Round BW — a monthly FX rate typed by the org (ADH: no Xero yet). The rate of the 1st of the month: "1 SGD = rate USD"
+/// (Xero's CurrencyRate convention). Lot postings use the rate of their delivery month.
+model FxRate {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String
+  /// "YYYY-MM" — the rate of the 1st of that month.
+  month          String
+  /// The foreign currency: "USD" | "JPY".
+  currency       String
+  /// The books' base currency the rate is quoted against (ADH: SGD).
+  baseCurrency   String   @default("SGD")
+  /// 1 base = rate × currency (e.g. 1 SGD = 0.780622 USD).
+  rate           Decimal  @db.Decimal(18, 8)
+  note           String?
+  enteredById    String?
+  enteredByName  String?
+  enteredAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, month, currency])
+  @@index([organizationId, month])
+}
+
+/// Round BW — a lot (order #n) posting of ADH's books, per ADH's FRS posting key (PI_DEPOSIT_BILL, SETTLEMENT_A …).
+/// One per order + key (never twice); its journal, contact and the rate month it used. Written by the Post step (later);
+/// round BW only previews.
+model LotPosting {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String
+  orderId        String   @db.Uuid
+  shipmentId     String?  @db.Uuid
+  postingKey     String
+  frsRef         String?
+  contactName    String?
+  contactType    String?
+  contactId      String?  @db.Uuid
+  currency       String   @default("USD")
+  amount         Decimal? @db.Decimal(16, 2)
+  rateMonth      String?
+  rate           Decimal? @db.Decimal(18, 8)
+  /// POSTED | VOID
+  status         String   @default("POSTED")
+  journalEntryId String?  @db.Uuid
+  /// The lines as posted (account, side, USD, SGD, label).
+  lines          Json?
+  createdById    String?
+  createdByName  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, orderId, postingKey])
+  @@index([organizationId, orderId])
+}

@@ -6,6 +6,7 @@ import { BillsService } from '../bills/bills.service';
 import { JournalAutoPostService } from '../journal/journal-auto-post.service';
 import { PostingPreviewService } from '../posting-preview/posting-preview.service';
 import { isErpImported } from '../common/erp-import';
+import { documentGlPostingOn } from '../common/org-features';
 
 // ---------------------------------------------------------------------------
 // Posting-Review Queue (Feature B) + Batch Post (Feature C).
@@ -207,6 +208,10 @@ export class PostingQueueService {
       const c = (doc.config || {}) as any;
       invoiceNumber = doc.name ?? c.documentNumber ?? documentId;
 
+      // "Post journals from documents" OFF (ADH, lot-based books): nothing in the queue posts.
+      if (!(await documentGlPostingOn(this.prisma as any, organizationId))) {
+        return { documentId, invoiceNumber, ok: false, error: 'This organization does not post journals from documents' };
+      }
       // ERP-imported history never posts (common/erp-import.ts).
       if (isErpImported(c)) {
         return { documentId, invoiceNumber, ok: false, error: 'Imported from the previous ERP; it does not post to the GL' };

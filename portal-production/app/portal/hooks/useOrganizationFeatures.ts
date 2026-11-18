@@ -252,6 +252,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // (api scripts/document-list-keys.js turns it on; --rollback turns it off).
   useDocumentListKeys: false,
   enableBankRecXeroCheckpoint: false,
+  // Documents post GL journals (default ON; ADH keeps lot-based books with it OFF).
+  enableDocumentGlPosting: true,
   // NOTE: the "AIMS Guide" assistant (bottom-right bubble) is deliberately
   // NOT flagged — it's global for every org (guru, 2026-08-03).
   // Trade legacy pages (Declaration / Payments / Stock / Supplier orders) — hidden since round H.

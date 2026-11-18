@@ -8,7 +8,7 @@ import { ChartOfAccountsService } from '../accounting/chart-of-accounts.service'
 import { AccountMemoryService } from '../account-memory/account-memory.service';
 import { outstandingOf, grossStampOf, amountPaidOf, stampDocumentMoney } from '../common/document-money';
 import { lineQuotationsOf, pickQuotation, QUOTATION_REFS_PROMPT, QUOTATION_TYPES, quotationCandidates, quotationSummary, WCT_ORDERS_FLAG } from './bill-quotation';
-import { isOrgFeatureEnabled } from '../common/org-features';
+import { documentGlPostingOn, isOrgFeatureEnabled } from '../common/org-features';
 import { orgTodayFor } from '../common/org-today';
 
 // ---------------------------------------------------------------------------
@@ -812,6 +812,10 @@ export class BillsService {
     userId: string | undefined,
     opts: { confirmed: boolean },
   ) {
+    // "Post journals from documents" OFF (ADH, lot-based books): a bill never posts. Saves catch this and skip.
+    if (!(await documentGlPostingOn(this.prisma as any, organizationId))) {
+      throw new BadRequestException('This organization does not post journals from documents');
+    }
     const bill = await this.findOne(organizationId, id);
 
     const settings = await this.prisma.accountingSetting.findUnique({ where: { organizationId } });

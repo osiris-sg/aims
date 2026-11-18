@@ -160,6 +160,31 @@ export async function orgFeatureText(
   return typeof v === 'string' && v.trim() ? v.trim() : null;
 }
 
+// POST JOURNALS FROM DOCUMENTS (2026-11-18, Elroy). ON by default: a missing key
+// keeps today's behaviour for every org (invoices / CNs / DNs / POs / bills /
+// receipts / payment vouchers post to the GL when the org's control accounts exist).
+// OFF (an explicit false) = documents never post: ADH keeps its own lot-based books
+// (shipments lot accounting) and its finalized 請求書 must never auto-post — a posted
+// journal would also lock "Edit again". Manual journals are not affected.
+export const DOCUMENT_GL_POSTING_FLAG = 'enableDocumentGlPosting';
+
+/** True unless the org's features hold an explicit `false` for the key (flags that default ON). */
+export async function isOrgFeatureOn(
+  prisma: { organizationUIConfig: { findUnique: (args: any) => Promise<any> } },
+  organizationId: string,
+  key: string,
+): Promise<boolean> {
+  const ui = await prisma.organizationUIConfig.findUnique({
+    where: { organizationId },
+    select: { features: true },
+  });
+  return ((ui?.features as any) || {})[key] !== false;
+}
+
+/** Documents of this org may post GL journals (DOCUMENT_GL_POSTING_FLAG, default on). */
+export const documentGlPostingOn = (prisma: { organizationUIConfig: { findUnique: (args: any) => Promise<any> } }, organizationId: string) =>
+  isOrgFeatureOn(prisma, organizationId, DOCUMENT_GL_POSTING_FLAG);
+
 export async function isOrgFeatureEnabled(
   prisma: { organizationUIConfig: { findUnique: (args: any) => Promise<any> } },
   organizationId: string,

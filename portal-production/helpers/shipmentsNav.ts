@@ -47,8 +47,28 @@ export function clientsNavModule(lang: "en" | "ja", salesSortOrder: number) {
     config: { route: CLIENTS_ROUTE, subMenus: [{ key: "customers", label: L.customers }, { key: "suppliers", label: L.suppliers }, { key: "logistics", label: L.logistics }] },
   };
 }
-/** Sales (route /portal/shipments) is not the active item on a Clients page. */
-export const isClientsPath = (path: string | null | undefined) => !!path && (path === CLIENTS_ROUTE || path.startsWith(`${CLIENTS_ROUTE}/`));
+/**
+ * Round BW: "Books" — ADH's books (FX rates, chart of accounts), its own top-level item after Clients, for SHIPMENTS
+ * orgs and only for users with shipments:money (ADH Admin / Manager; never ADH Sales). Under /portal/shipments so the
+ * SHIPMENTS route guard covers it.
+ */
+export const BOOKS_ROUTE = "/portal/shipments/books";
+export const BOOKS_LABELS = { en: { top: "Books", fx: "FX rates", chart: "Chart of accounts" }, ja: { top: "帳簿", fx: "為替レート", chart: "勘定科目" } } as const;
+export function booksNavModule(lang: "en" | "ja", salesSortOrder: number) {
+  const L = BOOKS_LABELS[lang];
+  return {
+    moduleCode: "BOOKS",
+    displayName: L.top,
+    enabled: true,
+    icon: "AccountBalance",
+    sortOrder: salesSortOrder + 0.6,
+    config: { route: BOOKS_ROUTE, subMenus: [{ key: "fx-rates", label: L.fx }, { key: "chart", label: L.chart }] },
+  };
+}
+export const isBooksPath = (path: string | null | undefined) => !!path && (path === BOOKS_ROUTE || path.startsWith(`${BOOKS_ROUTE}/`));
+
+/** Sales (route /portal/shipments) is not the active item on a Clients (or, round BW, Books) page. */
+export const isClientsPath = (path: string | null | undefined) => !!path && ((path === CLIENTS_ROUTE || path.startsWith(`${CLIENTS_ROUTE}/`)) || isBooksPath(path));
 /** The browser's UI language for nav labels (Japanese or English). */
 export const navLangOf = (navigatorLanguage: string | null | undefined): "en" | "ja" => (/^ja\b/i.test(navigatorLanguage ?? "") ? "ja" : "en");
 

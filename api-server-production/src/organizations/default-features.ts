@@ -49,6 +49,8 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // AIMS GL so the accountant can see which months are settled on both sides
   // and where to resume (guru 2026-09-28). Read-only.
   enableBankRecXeroCheckpoint: false,
+  // Documents post GL journals (default ON; ADH keeps lot-based books with it OFF).
+  enableDocumentGlPosting: true,
   // Interior-design quotation editor (CIEL INTERIOR, 2026-08): lettered trade
   // sections → room areas → work items with "* Includes" bullets, internal
   // cost / margin columns with guardrails, and the "Letter of Intent" print

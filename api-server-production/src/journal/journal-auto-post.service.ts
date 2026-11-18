@@ -3,7 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { JournalService } from './journal.service';
 import { refWith } from '../common/doc-ref';
 import { isErpImported } from '../common/erp-import';
-import { isOrgFeatureEnabled } from '../common/org-features';
+import { documentGlPostingOn, isOrgFeatureEnabled } from '../common/org-features';
 
 /** Hold the GL journal of payments / receipts on ERP-imported invoices until the opening AR is booked. */
 export const HOLD_ERP_PAYMENT_GL_FLAG = 'holdErpImportPaymentGl';
@@ -40,6 +40,13 @@ export class JournalAutoPostService {
   }
 
   async getControlAccounts(organizationId: string) {
+    // Every document post (invoice, payment, receipt, CN/DN, PO/PR, vouchers, offsets, bank lines) resolves its
+    // control accounts here first and skips when there are none — so an org with "post journals from documents"
+    // OFF (ADH) never gets a document journal.
+    if (!(await documentGlPostingOn(this.prisma as any, organizationId))) {
+      this.logger.log(`[auto-post] org=${organizationId} has document GL posting OFF; skipping`);
+      return null;
+    }
     const setting = await this.prisma.accountingSetting.findUnique({ where: { organizationId } });
     return (setting?.controlAccounts as Record<string, string> | null) ?? null;
   }

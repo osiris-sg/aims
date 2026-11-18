@@ -25,6 +25,7 @@ import { SHIPMENT_KEYS, useGeneratedDocs, useOrder, useOrderGeneratedDocs, useSh
 import { useQueryClient } from "@tanstack/react-query";
 import { defaultShipmentId, focusStepId, headerLine2 } from "../../_lib/order-focus";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
+import AccountingPreview from "../../_components/AccountingPreview";
 import { recordFileCount, STEP_PAYMENT, useShipmentsApi, type AnExtraction, type BlExtraction, type Order, type PermitCheck, type PermitExtraction, type Shipment, type TradeFile, type TradeStep } from "../../_lib/api";
 import { blLabel, depositTermLabel, fmtDay, fmtDmy, fmtMoney, fmtMt, fmtYen, shortParty, stepLabel, shortCustomer } from "../../_lib/format";
 import RecordHeader from "../../_components/RecordHeader";
@@ -53,7 +54,7 @@ import { useStepName } from "@/i18n/hooks";
 /** A message lookup passed to the helpers below (shipments.orderPage). */
 type Tr = (key: string, values?: Record<string, string | number>) => string;
 
-const TABS = ["journey", "details", "files"] as const;
+const TABS = ["journey", "details", "files", "accounting"] as const;
 /** Order steps from here on (11 Invoice #2, 13 reconciliation) show after the shipments. */
 const LATE_FROM = 100;
 const byOrder = (a: TradeStep, b: TradeStep) => a.sortOrder - b.sortOrder;
@@ -66,7 +67,7 @@ export default function OrderPage() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const tab = Math.max(0, TABS.indexOf((params?.get("tab") ?? "journey") as (typeof TABS)[number]));
+  const tabParam = Math.max(0, TABS.indexOf((params?.get("tab") ?? "journey") as (typeof TABS)[number]));
   const q = useOrder(id);
   const o = q.data;
   const shipments = useMemo(() => o?.shipments ?? [], [o?.shipments]);
@@ -83,6 +84,9 @@ export default function OrderPage() {
   // Round N: "Mark as test" — ADH Managers (shipments:money).
   const { hasPermission } = useUserPermissions();
   const canMarkTest = hasPermission("shipments", "money");
+  // Round BW: the Accounting tab (index 3) is money-only; anyone else lands on the journey.
+  const tab = tabParam === 3 && !canMarkTest ? 0 : tabParam;
+  const tBooks = useTranslations("books.preview");
 
   const fieldName = (k: string) => (FIELD_NAMES.includes(k) ? t(`fieldNames.${k}`) : k);
   const setParam = (k: string, v: string | null) => {
@@ -463,6 +467,8 @@ export default function OrderPage() {
         <Tab label={t("tabJourney")} />
         <Tab label={t("tabDetails")} />
         <Tab label={`${t("tabFiles")}${fileCount ? ` (${fileCount})` : ""}`} />
+        {/* Round BW: ADH books preview — ADH Admin / Manager (shipments:money) only. */}
+        {canMarkTest && <Tab label={tBooks("tab")} data-tour="order-tab-accounting" />}
       </Tabs>
 
       {tab === 0 && (
@@ -631,6 +637,8 @@ export default function OrderPage() {
           )}
         </Stack>
       )}
+
+      {tab === 3 && canMarkTest && <AccountingPreview orderId={o.id} />}
 
       {tab === 2 && (
         <Stack spacing={3}>

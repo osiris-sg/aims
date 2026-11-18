@@ -15,7 +15,7 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 import { menuOrderOverride, assetsNavModule, wctMenuModule } from "@/helpers/wctNav";
 import { canVehicles } from "@/helpers/wctVehicles";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
-import { clientsNavModule, visibleSalesSubmenus, withoutSalesMonthly } from "@/helpers/shipmentsNav";
+import { booksNavModule, clientsNavModule, visibleSalesSubmenus, withoutSalesMonthly } from "@/helpers/shipmentsNav";
 
 // Mirrors DynamicSidebarContent — keep the two in sync.
 // User Management and Audit left the menu for every org (guru 2026-11-12):
@@ -204,7 +204,9 @@ export function useNavModules() {
   const sales = built.find((m: any) => m.moduleCode === "SHIPMENTS");
   // WCT: Assets (Vehicles) after Service reports (helpers/wctNav.ts), for vehicles:read holders.
   const vehicles = isWctVehiclesEnabled && canVehicles(userRoles, hasPermission, "read") ? [assetsNavModule()] : [];
-  const navModules = [...built, ...(sales ? [clientsNavModule(lang, orderKey(sales))] : []), ...vehicles].sort((a: any, b: any) => orderKey(a) - orderKey(b));
+  // Round BW: "Books" after Clients — SHIPMENTS orgs, money holders only (ADH Admin / Manager).
+  const books = sales && hasPermission("shipments", "money") ? [booksNavModule(lang, orderKey(sales))] : [];
+  const navModules = [...built, ...(sales ? [clientsNavModule(lang, orderKey(sales))] : []), ...books, ...vehicles].sort((a: any, b: any) => orderKey(a) - orderKey(b));
 
   // Flat list of every screen the user can reach: module roots + submenus +
   // the settings group. This is what the chat assistant is allowed to open.

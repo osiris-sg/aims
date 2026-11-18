@@ -85,3 +85,17 @@ test("round AM: Clients sits right after Sales (EN / JA), under the SHIPMENTS-gu
   assert.equal(navLangOf("ja-JP"), "ja");
   assert.equal(navLangOf("en-SG"), "en");
 });
+
+// Round BW: "Books" — its own item after Clients; Sales isn't the active item on a Books page.
+import { BOOKS_ROUTE, booksNavModule, isBooksPath } from "./shipmentsNav.ts";
+test("Books nav item sits after Clients and owns /portal/shipments/books", () => {
+  const b = booksNavModule("en", 10);
+  assert.equal(b.moduleCode, "BOOKS");
+  assert.equal(b.sortOrder, 10.6);
+  assert.equal(b.config.route, BOOKS_ROUTE);
+  assert.deepEqual(b.config.subMenus.map((s) => s.key), ["fx-rates", "chart"]);
+  assert.equal(booksNavModule("ja", 10).displayName, "帳簿");
+  assert.equal(isBooksPath("/portal/shipments/books/fx-rates"), true);
+  assert.equal(isBooksPath("/portal/shipments/orders"), false);
+  assert.equal(isClientsPath("/portal/shipments/books/chart"), true);
+});

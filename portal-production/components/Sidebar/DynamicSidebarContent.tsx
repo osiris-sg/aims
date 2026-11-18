@@ -52,7 +52,7 @@ import { canVehicles } from "@/helpers/wctVehicles";
 import { getListRouteFromPathname } from "@/app/portal/components/documentRoutes";
 import { useSidebar } from "./SidebarContext";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
-import { clientsNavModule, isClientsPath, visibleSalesSubmenus, withoutSalesMonthly } from "@/helpers/shipmentsNav";
+import { booksNavModule, clientsNavModule, isClientsPath, visibleSalesSubmenus, withoutSalesMonthly } from "@/helpers/shipmentsNav";
 
 // Material UI icon mapping
 const iconMap: Record<string, React.ComponentType> = {
@@ -289,7 +289,9 @@ export default function DynamicSidebarContent() {
   const salesModule = builtModules.find((m: any) => m.moduleCode === 'SHIPMENTS');
   // WCT: Assets (Vehicles) after Service reports (helpers/wctNav.ts), for vehicles:read holders.
   const vehiclesModule = isWctVehiclesEnabled && canVehicles(userRoles, hasPermission, 'read') ? [assetsNavModule() as any] : [];
-  const enabledModules = [...builtModules, ...(salesModule ? [clientsNavModule(navLang, orderKey(salesModule)) as any] : []), ...vehiclesModule]
+  // Round BW: "Books" after Clients — SHIPMENTS orgs, money holders only (ADH Admin / Manager).
+  const booksModule = salesModule && hasPermission('shipments', 'money') ? [booksNavModule(navLang, orderKey(salesModule)) as any] : [];
+  const enabledModules = [...builtModules, ...(salesModule ? [clientsNavModule(navLang, orderKey(salesModule)) as any] : []), ...booksModule, ...vehiclesModule]
     .sort((a, b) => orderKey(a) - orderKey(b));
 
   // Resolve the URL for a single submenu key — same rules used when rendering

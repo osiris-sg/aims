@@ -36,6 +36,12 @@ function answer(d: any, key: readonly unknown[]): unknown {
     if (key[2] === "supplier") return d.sdetail?.[key[3] as string];
     if (key[2] === "logistics") return d.logistics ?? d.shippingLines;
   }
+  // Round BW: ADH books — FX rates, chart, an order's accounting preview.
+  if (k0 === "trade-books") {
+    if (key[1] === "fx-rates") return d.fxRates ?? [];
+    if (key[1] === "chart") return d.chart ?? [];
+    if (key[1] === "preview") return d.lotPreview?.[key[2] as string];
+  }
   if (k0 === "trade-monthly-list") {
     const q: any = key[1] ?? {};
     if (!q.customerId && d.monthlyQ?.[norm(q)]) return d.monthlyQ[norm(q)];

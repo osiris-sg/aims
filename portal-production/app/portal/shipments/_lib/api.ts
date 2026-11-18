@@ -1737,6 +1737,15 @@ export const setPreviewExtract = (f: ((kind: string) => unknown) | null) => {
   previewExtract = f;
 };
 
+// ── Round BW: ADH books (shipments:money) ──
+export interface FxRateRow { id: string; month: string; currency: "USD" | "JPY"; baseCurrency: string; rate: number; note: string | null; enteredByName: string | null; enteredAt: string }
+export interface BooksAccount { id: string; code: string; name: string; accountType: string; description: string | null; isActive: boolean; provisional: boolean }
+export type LotPostingStatus = "ready" | "waiting" | "rule needed" | "missing data" | "rate needed";
+export interface LotPreviewLine { account: string; side: "Dr" | "Cr"; usd: number | null; sgd: number | null; label: string; note?: string; problem?: "rule needed" | "missing" }
+export interface LotPreviewPosting { key: string; frs: string; title: string; kind: "Bill" | "Sales invoice" | "Manual journal"; contact: string | null; trigger: string; triggerState: "done" | "not yet" | "rule needed"; date: string | null; status: LotPostingStatus; lines: LotPreviewLine[]; notes: string[] }
+export interface LotPreviewCheck { key: "cogs" | "prepayments" | "advance" | "pnl"; label: string; ok: boolean | null; detail: string; waitingOn: string[] }
+export interface LotPreview { orderRef: string; pattern: "SUS" | "KATO" | "HOEI" | null; deliveryMonth: string | null; rateMonth: string | null; usdRate: number | null; postings: LotPreviewPosting[]; checks: LotPreviewCheck[]; missing: string[]; rulesNeeded: string[]; accounts: Record<string, string>; customer: string | null; rateEnteredBy: string | null }
+
 export function useShipmentsApi() {
   const { getToken } = useAuth();
 
@@ -1978,6 +1987,12 @@ export function useShipmentsApi() {
       completeStep: (id: string) => call<TradeStep>(`/trade-steps/${id}/complete`, "POST"),
       // Round BP: Dashboard "Unpaid / 未払い・未入金".
       unpaid: () => call<UnpaidList>(`/trade-unpaid`),
+      // Round BW: ADH books
+      fxRates: () => call<FxRateRow[]>(`/trade-books/fx-rates`),
+      saveFxRate: (body: { month: string; currency: string; rate: number; note?: string | null }) => call<FxRateRow>(`/trade-books/fx-rates`, "POST", body),
+      booksChart: () => call<BooksAccount[]>(`/trade-books/chart`),
+      updateBooksAccount: (id: string, body: { code?: string; name?: string }) => call<BooksAccount>(`/trade-books/chart/${id}`, "PATCH", body),
+      lotPreview: (orderId: string) => call<LotPreview>(`/trade-books/orders/${orderId}/preview`),
       markPaid: (body: { key: string; paidAt: string; amount?: number | null; account?: PaymentAccount; proofFileId?: string | null }) => call<{ key: string; recorded: string }>(`/trade-unpaid/mark-paid`, "POST", body),
       setStepPayment: (id: string, payment: Omit<StepPayment, "currency"> & { currency?: string } | null) => call<TradeStep>(`/trade-steps/${id}/payment`, "POST", { payment }),
       reopenStep: (id: string) => call<TradeStep>(`/trade-steps/${id}/reopen`, "POST"),

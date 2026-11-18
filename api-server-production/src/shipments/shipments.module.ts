@@ -4,6 +4,8 @@ import { ClientsController } from './clients.controller';
 import { TradeInvoiceLayoutService } from './trade-invoice-layout.service';
 import { TradeUnpaidService } from './trade-unpaid.service';
 import { TradeUnpaidController } from './trade-unpaid.controller';
+import { LotAccountingService } from './lot-accounting.service';
+import { LotAccountingController } from './lot-accounting.controller';
 import { ClientsService } from './clients.service';
 import { MonthlyListController } from './monthly-list.controller';
 import { MonthlyListService } from './monthly-list.service';
@@ -65,7 +67,7 @@ import { TradeStepsService } from './trade-steps.service';
  */
 @Module({
   imports: [CommonModule, DocumentExtractionModule, DocumentsModule, DocumentTemplatesModule, EmailModule, NotificationsModule],
-  controllers: [TradeUnpaidController, 
+  controllers: [TradeUnpaidController, LotAccountingController, 
     TradeIssuesController,
     CarrierTrackingController,
     ClientsController,
@@ -92,6 +94,7 @@ import { TradeStepsService } from './trade-steps.service';
     ClientsService,
     TradeInvoiceLayoutService,
     TradeUnpaidService, // round BP: Dashboard Unpaid
+    LotAccountingService, // round BW: ADH books — FX rates, chart, Accounting preview
     MonthlyListService,
     ShipmentsNotifyService, // round S: WhatsApp staff notification queue
     OrdersService,
