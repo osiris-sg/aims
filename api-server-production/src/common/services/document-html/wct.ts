@@ -408,7 +408,8 @@ const salesNameOf = (di: (k: string, d?: any) => any): string =>
   first(di('salesPersonName'), typeof di('salesPerson') === 'string' ? di('salesPerson') : di('salesPerson')?.name);
 
 function signBlock(di: (k: string, d?: any) => any, racking = false): string {
-  const sales = salesNameOf(di);
+  // Racking: a salesperson saved as a bare user id (no salesman code, name not stored) prints blank, never the id.
+  const sales = racking && /^user_/.test(salesNameOf(di)) ? '' : salesNameOf(di);
   const contact = first(di('salesContact'), di('salesPersonContact'));
   // Racking: "Yours Sincerely," opens its own closing block (rackingClosing).
   if (racking) {

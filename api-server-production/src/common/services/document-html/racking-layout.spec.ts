@@ -92,7 +92,10 @@ describe('Racking quotation', () => {
   });
   it('Signed by defaults to the salesperson, title to Manager; a raw user id never prints', () => {
     expect(quote()).toContain('<div class="scr">Nee Meng Tan</div><div>Manager of</div>');
-    expect(quote({ salesPersonName: '', salesPerson: 'user_3Ld8L6i0KO2BXMybjx5mYkWUdoh' })).toContain('<div class="scr">&nbsp;</div>');
+    const noName = quote({ salesPersonName: '', salesPerson: 'user_3Ld8L6i0KO2BXMybjx5mYkWUdoh' });
+    expect(noName).toContain('<div class="scr">&nbsp;</div>');
+    expect(noName).toContain('<p>Sales Person: </p>');
+    expect(noName).not.toContain('user_3Ld8');
   });
   it('the customer e-signature still lands on the stamp line', () => {
     const SIG = 'data:image/png;base64,iVBORw0KGgo=';
