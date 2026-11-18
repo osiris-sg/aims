@@ -168,8 +168,16 @@ describe('imported orders: status rules (Paid = every invoice settled; no full-b
     expect(importedOrderStatus([inv(1090, 1090)], 1090)).toMatchObject({ status: 'INVOICED', label: 'Invoiced', partPaid: false });
     expect(importedOrderStatus([inv(545, 245, 300)], 1090)).toMatchObject({ status: 'INVOICED', label: 'Invoiced, part paid', billedPct: 50 });
   });
+  it('nothing invoiced ($0) against a real quotation total = Invoiced, Billed 0%', () => {
+    expect(importedOrderStatus([inv(0, 0)], 16692)).toMatchObject({ status: 'INVOICED', label: 'Invoiced', billed: 0, billedPct: 0, owed: 0 });
+    expect(importedOrderStatus([inv(0, 0), inv(0, 0)], 1090)).toMatchObject({ status: 'INVOICED', label: 'Invoiced', billedPct: 0 });
+  });
+  it('a fully credited invoice against a quotation total stays Paid', () => {
+    expect(importedOrderStatus([{ ...inv(500, 0, 500), credit: 500 }], 500)).toMatchObject({ status: 'PAID', billed: 0, credited: 500 });
+  });
   it('$0 invoices never count as billing and never make the order unpaid', () => {
-    expect(importedOrderStatus([inv(0, 0), inv(0, 0)], 1090)).toMatchObject({ status: 'PAID', billed: 0, billedPct: 0 });
+    expect(importedOrderStatus([inv(0, 0), inv(0, 0)], 0)).toMatchObject({ status: 'PAID', billed: 0, billedPct: null });
+    expect(importedOrderStatus([inv(0, 0)], null)).toMatchObject({ status: 'PAID', billed: 0 });
     expect(importedOrderStatus([inv(0, 0), inv(1090, 0, 1090)], 1090)).toMatchObject({ status: 'PAID', billedPct: 100 });
     expect(importedOrderStatus([inv(0, 0), inv(500, 500)], 1000)).toMatchObject({ status: 'INVOICED', billedPct: 50 });
   });

@@ -383,6 +383,7 @@ const sortKeys = (o: Record<string, number>) => Object.fromEntries(Object.entrie
 //
 // Per order (Elroy 2026-11-18): no full-billing check.
 //   every linked invoice owes nothing (paid, credited or $0)   PAID      "Paid"
+//   ...except nothing invoiced ($0) against a quotation total  INVOICED  "Invoiced" (Billed 0%)
 //   otherwise                                                  INVOICED  "Invoiced" / "Invoiced, part paid"
 // Billed % = billed (sum of net) / quotation total x 100, 1 decimal; blank when the quotation has
 // no total (or 0). Shown beside the status, it never changes it.
@@ -475,7 +476,9 @@ export function importedOrderStatus(invoices: Array<{ status?: string; config: a
     owed: R2(money.reduce((t, m) => t + m.owed, 0)),
     credited: R2(money.reduce((t, m) => t + m.credit, 0)),
   };
-  return settled ? { status: 'PAID', label: 'Paid', ...base } : { status: 'INVOICED', label: partPaid ? 'Invoiced, part paid' : 'Invoiced', ...base };
+  // Elroy 2026-11-18: $0 invoiced against a real quotation total is not Paid (a $0 quotation with $0 invoiced stays Paid).
+  const nothingInvoiced = base.total < EPS && qt != null && qt >= EPS;
+  return settled && !nothingInvoiced ? { status: 'PAID', label: 'Paid', ...base } : { status: 'INVOICED', label: partPaid ? 'Invoiced, part paid' : 'Invoiced', ...base };
 }
 
 export const IMPORTED_STATUS_LABEL = (s: Pick<ImportedOrderStatus, 'label'>): string => s.label;
