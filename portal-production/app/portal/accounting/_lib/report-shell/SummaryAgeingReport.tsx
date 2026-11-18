@@ -19,6 +19,7 @@ import { useSideContacts, type ReportSide } from "./side";
 
 import { withActiveOrg } from "@/helpers/request";
 import { todayIso } from "@/helpers/orgToday";
+import { onReportDate } from "./reportDate";
 
 /** Document cell as a real link (⌘-click / "Open Link in New Tab"). */
 const docCell = (d: any, text: string) => {
@@ -225,7 +226,7 @@ export default function SummaryAgeingReport({ side = "receivable" }: { side?: Re
               size="small"
               type="date"
               value={asOf}
-              onChange={(e) => e.target.value && setAsOf(e.target.value)}
+              onChange={onReportDate(setAsOf)}
               sx={{ width: 170, mt: 0.25, display: "block" }}
             />
           </Box>

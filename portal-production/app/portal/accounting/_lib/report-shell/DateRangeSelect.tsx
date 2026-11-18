@@ -13,6 +13,7 @@ import {
 } from "@mui/material";
 import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import { useAccountingApi } from "../api";
+import { onReportDate } from "./reportDate";
 
 // The org's Financial Year End (Accounting Setup → Financial Settings) drives
 // the "This financial year" / "Year to date" presets. Fetched once per page
@@ -108,8 +109,8 @@ export function DateRangeSelect({
     <Box>
       <Typography variant="caption" sx={{ fontWeight: 700, color: "text.primary" }}>{label}</Typography>
       <Stack direction="row" alignItems="center" sx={{ mt: 0.25 }}>
-        <TextField size="small" type="date" value={from} onChange={(e) => onChange(e.target.value, to)} sx={{ width: 150, "& fieldset": { borderTopRightRadius: 0, borderBottomRightRadius: 0 } }} />
-        <TextField size="small" type="date" value={to} onChange={(e) => onChange(from, e.target.value)} sx={{ width: 150, "& fieldset": { borderRadius: 0, borderLeft: "none" } }} />
+        <TextField size="small" type="date" value={from} onChange={onReportDate((v) => onChange(v, to), true)} sx={{ width: 150, "& fieldset": { borderTopRightRadius: 0, borderBottomRightRadius: 0 } }} />
+        <TextField size="small" type="date" value={to} onChange={onReportDate((v) => onChange(from, v), true)} sx={{ width: 150, "& fieldset": { borderRadius: 0, borderLeft: "none" } }} />
         <IconButton size="small" onClick={(e) => setAnchor(e.currentTarget)} sx={{ border: (t) => `1px solid ${t.palette.divider}`, borderLeft: "none", borderRadius: "0 4px 4px 0", height: 40, width: 34 }}>
           <ArrowDropDownIcon />
         </IconButton>
@@ -155,7 +156,7 @@ export function AsAtDateSelect({
     <Box>
       <Typography variant="caption" sx={{ fontWeight: 700, color: "text.primary" }}>{label}</Typography>
       <Stack direction="row" alignItems="center" sx={{ mt: 0.25 }}>
-        <TextField size="small" type="date" value={value} onChange={(e) => onChange(e.target.value)} sx={{ width: 165, "& fieldset": { borderTopRightRadius: 0, borderBottomRightRadius: 0 } }} />
+        <TextField size="small" type="date" value={value} onChange={onReportDate(onChange, true)} sx={{ width: 165, "& fieldset": { borderTopRightRadius: 0, borderBottomRightRadius: 0 } }} />
         <IconButton size="small" onClick={(e) => setAnchor(e.currentTarget)} sx={{ border: (t) => `1px solid ${t.palette.divider}`, borderLeft: "none", borderRadius: "0 4px 4px 0", height: 40, width: 34 }}>
           <ArrowDropDownIcon />
         </IconButton>
