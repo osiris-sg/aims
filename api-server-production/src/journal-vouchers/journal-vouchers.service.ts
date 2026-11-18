@@ -8,7 +8,7 @@ import { ReceiptsService } from '../receipts/receipts.service';
 import { PaymentsService } from '../payments/payments.service';
 import { AuditService } from 'src/common/audit.service';
 import { orgToday } from '../common/org-today';
-import { listVouchersPaged, VoucherListQuery } from '../common/voucher-list';
+import { listJournalVouchersPaged, VoucherListQuery } from '../common/voucher-list';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 
@@ -202,8 +202,15 @@ export class JournalVouchersService {
   }
 
   /** The Journal Vouchers LIST page: filtered, ordered, counted and paged in SQL. */
+  /**
+   * The J/V list is the union of the vouchers typed on this screen and the
+   * hand-keyed journals that never had a voucher document — Biofuel's 1,842
+   * J/Vs came in from Xero as journals, so a Documents-only list showed her
+   * nothing (guru 2026-11-18). Imported rows come back `source: 'journal'`
+   * and open the read-only journal view.
+   */
   async listPaged(organizationId: string, q: VoucherListQuery) {
-    return listVouchersPaged(this.prisma as any, organizationId, 'JOURNAL_VOUCHER', q, (d) => this.toVoucher(d));
+    return listJournalVouchersPaged(this.prisma as any, organizationId, q, (d) => this.toVoucher(d));
   }
 
   async getById(organizationId: string, id: string) {

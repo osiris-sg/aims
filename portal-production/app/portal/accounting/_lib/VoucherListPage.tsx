@@ -33,6 +33,8 @@ type Spec = {
   number: (r: any) => string;
   party: { header: string; of: (r: any) => string };
   amount: (r: any) => number;
+  /** A row that isn't a voucher document opens somewhere else (JV: the journal view). */
+  rowPath?: (r: any) => string | null;
 };
 
 const SPECS: Record<Kind, Spec> = {
@@ -68,10 +70,27 @@ const SPECS: Record<Kind, Spec> = {
     number: (r) => r.voucherNumber || "",
     party: { header: "Prepared by", of: (r) => r.preparedBy || "" },
     amount: (r) => Number(r.totalDebit) || 0,
+    // A hand-keyed journal with no voucher document behind it (Biofuel's Xero
+    // J/Vs) is read-only — it opens the journal view, never the editor, since
+    // saving it through the J/V screen would post it a second time.
+    rowPath: (r) =>
+      r.source === "journal"
+        ? `/portal/accounting/journal/${r.id}?from=${encodeURIComponent("/portal/accounting/journal-vouchers")}`
+        : null,
   },
 };
 
 const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** A filter date as YYYY-MM-DD, from a Date, a moment or a string alike. */
+const ymd = (v: any): string => {
+  if (!v) return "";
+  if (typeof v === "string") return v.slice(0, 10);
+  const d = typeof v?.toDate === "function" ? v.toDate() : v;
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return "";
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
 const unwrap = (r: any) => (r && typeof r === "object" && r.success !== undefined && r.data !== undefined ? r.data : r);
 
 // Document.status → one of three words. A voucher is 'unconfirmed' until its
@@ -181,7 +200,8 @@ export default function VoucherListPage({ kind }: { kind: Kind }) {
     void load();
   }, [load]);
 
-  const editorUrl = (r: any) => `${spec.editorBase}/${r.id}?from=${encodeURIComponent(spec.listPath)}`;
+  const editorUrl = (r: any) =>
+    spec.rowPath?.(r) || `${spec.editorBase}/${r.id}?from=${encodeURIComponent(spec.listPath)}`;
 
   const create = async () => {
     setCreating(true);
@@ -202,7 +222,18 @@ export default function VoucherListPage({ kind }: { kind: Kind }) {
     {
       accessorKey: "number",
       header: `${spec.label} #`,
-      cell: ({ row }: any) => <Box sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{spec.number(row.original) || "—"}</Box>,
+      cell: ({ row }: any) => (
+        <Box>
+          <Box sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{spec.number(row.original) || "—"}</Box>
+          {/* A J/V's own narration, where it has one — "Petty cash for Sep'26"
+              tells the user more than the number does. */}
+          {row.original.description ? (
+            <Typography variant="caption" sx={{ color: "text.secondary", display: "block", maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {row.original.description}
+            </Typography>
+          ) : null}
+        </Box>
+      ),
     },
     {
       accessorKey: "date",
