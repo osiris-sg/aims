@@ -46,6 +46,14 @@ export const DOC_CODE: Record<string, string> = {
  * Bank" → SCB.
  */
 const KNOWN_BANKS: Array<[RegExp, string]> = [
+  // Customer-deposit accounts FIRST (guru 2026-11-18). A receipt may be
+  // deposited to a customer-deposit account instead of a bank (see the
+  // Official Receipt "deposit to" picker), and those accounts are named after
+  // the customer — "Customer Deposit-Joon Thiam Industrial Services" would
+  // otherwise derive CDJT, and one named after a customer with a bank's word
+  // in it would steal that bank's code. Every such receipt numbers DEP…, so
+  // the series stays apart from the UOB/SCB bank series.
+  [/customer\s*deposits?/i, 'DEP'],
   [/standard\s*chartered|\bscb\b/i, 'SCB'],
   [/united\s*overseas|\buob\b/i, 'UOB'],
   [/\bdbs\b|posb/i, 'DBS'],

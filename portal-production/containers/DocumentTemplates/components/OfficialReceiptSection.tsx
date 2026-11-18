@@ -157,11 +157,28 @@ export function useOrAccounts(): OrAccount[] {
   return accounts;
 }
 
+// A CUSTOMER DEPOSIT is money already held from that customer, so applying it
+// to their invoice settles it for real — no cash moves, the deposit account is
+// debited instead of a bank. Xero does exactly this (Biofuel's Joon Thiam
+// invoice BIPL-JPSG-INV-20260720-0168 was paid from "Customer Deposit-Joon
+// Thiam"), and until now the receipt screen could not express it: the picker
+// offered bank and cash only, so the receipt had to be keyed against a bank
+// that never received the money (guru 2026-11-18).
+//
+// The test is "customer deposit", NOT "deposit". Supplier-side deposits —
+// "Deposits Paid", "Deposit / Overpayment to Supplier", "FIXED DEPOSIT",
+// "DEPOSIT (TRADE CREDITOR)" — are money WE paid out and can never settle a
+// customer's invoice; a bare /deposit/ test would have offered 9 of those
+// across the orgs on prod.
+const isCustomerDeposit = (a: OrAccount) =>
+  a.accountType === "CURRENT_ASSET" && /customer\s*deposit/i.test(String(a.name || ""));
+
 const isBankish = (a: OrAccount) => {
   if (a.isActive === false) return false;
   if (a.accountType === "FOREIGN_BANK") return true;
   const n = String(a.name || "").toLowerCase();
-  return a.accountType === "CURRENT_ASSET" && (/\bbank\b/.test(n) || /\bcash\b/.test(n));
+  if (a.accountType === "CURRENT_ASSET" && (/\bbank\b/.test(n) || /\bcash\b/.test(n))) return true;
+  return isCustomerDeposit(a);
 };
 
 type RowProps = { formData: any; setFormData: (next: any) => void; customers?: any[] };
