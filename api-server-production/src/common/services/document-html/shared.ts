@@ -16,6 +16,22 @@ import { resolveTimeZone } from '../../org-today';
 export const FONT_STACK = `'Helvetica Neue', Helvetica, Arial, sans-serif`;
 
 /**
+ * Every money figure a document PRINTS goes through this, and a printed total
+ * is the sum of the printed parts (guru 2026-11-18, Keller CN202611005/6:
+ * "adds up wrongly" — Sub-Total 41,106.50 plus GST 3,699.59 printed a Total of
+ * 44,806.08). Two faults met: each figure was toFixed(2)'d from its own
+ * unrounded value, so the rounded GST never belonged to the printed total; and
+ * 41106.50 * 1.09 is 44806.084999999999 in binary, so even the raw product
+ * rounded DOWN a cent. Mirrors money2() in CleanDocumentPreview.tsx — the PDF
+ * and the screen must agree to the cent.
+ */
+export const money2 = (n: number): number => {
+  const v = Number(n) || 0;
+  return Math.round((v + Math.sign(v) * Number.EPSILON * Math.abs(v) * 8) * 100) / 100;
+};
+
+
+/**
  * Letterhead logo per the design knob. `logoUrl` is resolved by the caller
  * (a signed S3 URL for the org logo); nothing prints when it is missing.
  */

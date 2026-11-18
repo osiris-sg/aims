@@ -8,7 +8,7 @@
  * Literal strings, labels, column widths and the totals maths mirror the
  * portal so the side panel, the emailed PDF and the printed page agree.
  */
-import { billToText, descriptionText, designFooter, escapeHtml, formatDate, infoRow, logoBlock, makeDi, numberToWords, richContent } from './shared';
+import { billToText, descriptionText, designFooter, escapeHtml, formatDate, infoRow, logoBlock, makeDi, numberToWords, richContent, money2 } from './shared';
 import { DEFAULT_DESIGN, DocumentDesign, fillerRowPx } from './design';
 
 export type NoteKind = 'credit' | 'debit';
@@ -22,7 +22,8 @@ export function renderNoteBody(data: any, organization: any, kind: NoteKind, des
   const title = isCredit ? 'CREDIT NOTE' : 'DEBIT NOTE';
   const noun = isCredit ? 'Credit Note' : 'Debit Note';
 
-  const subtotal = items.reduce((s: number, it: any) => s + (Number(it.amount) || 0), 0);
+  // Lines print to the cent, so the Sub-Total is the sum of those printed cents.
+  const subtotal = items.reduce((s: number, it: any) => money2(s + money2(Number(it.amount) || 0)), 0);
 
   // ── Totals maths, identical to the portal block ─────────────────────────
   const rate = Number(di('rate')) || 1;
@@ -38,7 +39,7 @@ export function renderNoteBody(data: any, organization: any, kind: NoteKind, des
   const subtotalAfterDiscount = grossTotal - discountAmount;
   const gstAmount =
     isAbsorbTax && gstPercent > 0 ? (subtotalAfterDiscount * gstPercent) / (100 + gstPercent) : subtotalAfterDiscount * (gstPercent / 100);
-  const finalTotal = isAbsorbTax ? subtotalAfterDiscount : subtotalAfterDiscount + gstAmount;
+  const finalTotal = isAbsorbTax ? money2(subtotalAfterDiscount) : money2(money2(subtotalAfterDiscount) + money2(gstAmount));
   const displayGross = isAbsorbTax ? grossTotal - gstAmount : grossTotal;
   const displayNet = isAbsorbTax ? subtotalAfterDiscount - gstAmount : subtotalAfterDiscount;
 
@@ -95,7 +96,8 @@ export function renderNoteBody(data: any, organization: any, kind: NoteKind, des
   </div>`;
 
   // ── items table ─────────────────────────────────────────────────────────
-  const num2 = (v: any): string => (v == null || v === '' || !Number.isFinite(Number(v)) ? '' : Number(v).toFixed(2));
+  // money2 so a line and the Sub-Total built from it print the same cents.
+  const num2 = (v: any): string => (v == null || v === '' || !Number.isFinite(Number(v)) ? '' : money2(Number(v)).toFixed(2));
   const rows = items
     .map(
       (item: any) =>
@@ -141,22 +143,22 @@ export function renderNoteBody(data: any, organization: any, kind: NoteKind, des
   const totalsLeft = `
     <div style="display:flex;align-items:center;gap:24px;">
       <div style="display:flex;align-items:center;"><span style="font-size:13px;">(Rate :</span><span style="font-size:13px;margin-left:8px;min-width:60px;">${rate.toFixed(7)}</span></div>
-      <div style="display:flex;align-items:center;"><span style="font-size:13px;">Sub-total:</span><span style="font-size:13px;margin-left:8px;min-width:50px;text-align:right;">${displayNet.toFixed(2)}</span></div>
-      <div style="display:flex;align-items:center;"><span style="font-size:13px;">GST</span><span style="font-size:13px;margin-left:8px;">:</span><span style="font-size:13px;margin-left:8px;min-width:40px;text-align:right;">${gstAmount.toFixed(2)})</span></div>
+      <div style="display:flex;align-items:center;"><span style="font-size:13px;">Sub-total:</span><span style="font-size:13px;margin-left:8px;min-width:50px;text-align:right;">${money2(displayNet).toFixed(2)}</span></div>
+      <div style="display:flex;align-items:center;"><span style="font-size:13px;">GST</span><span style="font-size:13px;margin-left:8px;">:</span><span style="font-size:13px;margin-left:8px;min-width:40px;text-align:right;">${money2(gstAmount).toFixed(2)})</span></div>
     </div>`;
 
   const discountRows =
     discountPercent > 0
-      ? `<div style="display:flex;justify-content:space-between;padding:2.4px 0;font-size:13px;"><span>Discount</span><span style="display:flex;gap:16px;"><span>${discountPercent.toFixed(2)}</span><span style="min-width:50px;text-align:right;">${discountAmount.toFixed(2)}</span></span></div>` +
-        `<div style="display:flex;justify-content:space-between;padding:2.4px 0;font-size:13px;"><span>Sub-Total</span><span>${displayNet.toFixed(2)}</span></div>`
+      ? `<div style="display:flex;justify-content:space-between;padding:2.4px 0;font-size:13px;"><span>Discount</span><span style="display:flex;gap:16px;"><span>${discountPercent.toFixed(2)}</span><span style="min-width:50px;text-align:right;">${money2(discountAmount).toFixed(2)}</span></span></div>` +
+        `<div style="display:flex;justify-content:space-between;padding:2.4px 0;font-size:13px;"><span>Sub-Total</span><span>${money2(displayNet).toFixed(2)}</span></div>`
       : '';
 
   const totalsRight = `
     <div style="min-width:200px;">
-      <div style="display:flex;justify-content:space-between;padding:2.4px 0;font-size:13px;"><span>Sub-Total</span><span>${displayGross.toFixed(2)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:2.4px 0;font-size:13px;"><span>Sub-Total</span><span>${money2(displayGross).toFixed(2)}</span></div>
       ${discountRows}
-      <div style="display:flex;justify-content:space-between;padding:2.4px 0;font-size:13px;"><span>GST</span><span style="display:flex;gap:16px;"><span>${gstPercent.toFixed(2)} %</span><span style="min-width:50px;text-align:right;">${gstAmount.toFixed(2)}</span></span></div>
-      <div style="display:flex;justify-content:space-between;padding:4px 0 2.4px;border-top:1px solid #000;margin-top:4px;font-size:13px;"><span>Total</span><span style="display:flex;gap:16px;"><span>${escapeHtml(currency)}</span><span style="font-weight:600;min-width:50px;text-align:right;">${finalTotal.toFixed(2)}</span></span></div>
+      <div style="display:flex;justify-content:space-between;padding:2.4px 0;font-size:13px;"><span>GST</span><span style="display:flex;gap:16px;"><span>${gstPercent.toFixed(2)} %</span><span style="min-width:50px;text-align:right;">${money2(gstAmount).toFixed(2)}</span></span></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0 2.4px;border-top:1px solid #000;margin-top:4px;font-size:13px;"><span>Total</span><span style="display:flex;gap:16px;"><span>${escapeHtml(currency)}</span><span style="font-weight:600;min-width:50px;text-align:right;">${money2(finalTotal).toFixed(2)}</span></span></div>
       ${isAbsorbTax && gstPercent > 0 ? `<p style="font-size:11px;font-style:italic;text-align:right;margin-top:2.4px;">Amounts shown are tax inclusive</p>` : ''}
     </div>`;
 

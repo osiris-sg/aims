@@ -46,6 +46,19 @@ function legacyAmountWords(num: number, currency = "SGD"): string {
 // Helper to convert S3 key to full URL
 import { accentTint, DESIGN_FONTS, fillerRowPx, resolveDesign, type DocumentDesign, type LogoPosition } from "@/app/portal/documents/design";
 
+// EVERY printed money figure goes through this, and a printed TOTAL is the sum
+// of the printed parts (guru 2026-11-18, Keller CN202611005/6: "adds up
+// wrongly" — Sub-Total 41,106.50 + GST 3,699.59 printed a Total of 44,806.08).
+// Two separate faults met: each figure was .toFixed(2)'d from its own
+// unrounded value, so the rounded GST never belonged to the printed total; and
+// 41106.50 * 1.09 is 44806.084999999999 in binary, so even the raw product
+// rounded DOWN a cent. money2() lifts the value by one ulp before rounding, and
+// the totals below add the already-rounded components.
+export const money2 = (n: number): number => {
+  const v = Number(n) || 0;
+  return Math.round((v + Math.sign(v) * Number.EPSILON * Math.abs(v) * 8) * 100) / 100;
+};
+
 // ── Design-knob helpers (shared by the TI2 / CN-DN / QO branches) ─────────
 /** Letterhead logo per the logo-position knob; nothing when off or missing. */
 function DocLogo({ src, position }: { src?: string; position: LogoPosition }) {
@@ -624,7 +637,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
   // unchanged). A return reads "Return of…" (see groupDeliveryLines).
   const isReturnDoc = documentType === "RDO" || documentType === "RETURN_DELIVERY_ORDER";
   const items = groupDeliveryLines(data.items || [], isReturnDoc);
-  const subtotal = items.reduce((acc: number, item: any) => acc + (item.amount || 0), 0);
+  // Each line is PRINTED to the cent, so the Sub-Total is the sum of those
+  // printed cents — not of raw values. A line keyed as 41,106.505 (Keller
+  // CN202611006, a net worked back from a gross) printed 41,106.50 while the
+  // totals below still carried the half cent (guru 2026-11-18).
+  const subtotal = items.reduce((acc: number, item: any) => money2(acc + money2(item.amount || 0)), 0);
   const totalTax = items.reduce(
     (acc: number, item: any) => acc + (item.amount || 0) * ((item.tax || 0) / 100),
     0
@@ -1143,7 +1160,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity === "" || item.quantity == null || !Number.isFinite(Number(item.quantity)) ? "" : Number(item.quantity).toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "right" }}>{item.unitPrice === "" || item.unitPrice == null || !Number.isFinite(Number(item.unitPrice)) ? "" : Number(item.unitPrice).toFixed(2)}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null || item.amount === "" ? "" : Number(item.amount).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null || item.amount === "" ? "" : money2(Number(item.amount)).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
 
@@ -1453,7 +1470,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity === "" || item.quantity == null || !Number.isFinite(Number(item.quantity)) ? "" : Number(item.quantity).toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "right" }}>{item.unitPrice === "" || item.unitPrice == null || !Number.isFinite(Number(item.unitPrice)) ? "" : Number(item.unitPrice).toFixed(2)}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null || item.amount === "" ? "" : Number(item.amount).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null || item.amount === "" ? "" : money2(Number(item.amount)).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
 
@@ -2081,7 +2098,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity === "" || item.quantity == null || !Number.isFinite(Number(item.quantity)) ? "" : Number(item.quantity).toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "right" }}>{item.unitPrice === "" || item.unitPrice == null || !Number.isFinite(Number(item.unitPrice)) ? "" : Number(item.unitPrice).toFixed(2)}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null || item.amount === "" ? "" : Number(item.amount).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null || item.amount === "" ? "" : money2(Number(item.amount)).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
 
@@ -2148,7 +2165,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           const gstAmount = isAbsorbTax && gstPercent > 0
             ? subtotalAfterDiscount * gstPercent / (100 + gstPercent)
             : subtotalAfterDiscount * (gstPercent / 100);
-          const finalTotal = isAbsorbTax ? subtotalAfterDiscount : subtotalAfterDiscount + gstAmount;
+          const finalTotal = isAbsorbTax ? money2(subtotalAfterDiscount) : money2(money2(subtotalAfterDiscount) + money2(gstAmount));
           // Tax-inclusive: line amounts are gross, so the printed Sub-Total is net of GST.
           const displayGross = isAbsorbTax ? grossTotal - gstAmount : grossTotal;
           const displayNet = isAbsorbTax ? subtotalAfterDiscount - gstAmount : subtotalAfterDiscount;
@@ -2163,12 +2180,12 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 </Box>
                 <Box sx={{ display: "flex", alignItems: "center" }}>
                   <Typography sx={{ fontSize: "0.8125rem" }}>Sub-total:</Typography>
-                  <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 50, textAlign: "right" }}>{displayNet.toFixed(2)}</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 50, textAlign: "right" }}>{money2(displayNet).toFixed(2)}</Typography>
                 </Box>
                 <Box sx={{ display: "flex", alignItems: "center" }}>
                   <Typography sx={{ fontSize: "0.8125rem" }}>GST</Typography>
                   <Typography sx={{ fontSize: "0.8125rem", ml: 1 }}>:</Typography>
-                  <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 40, textAlign: "right" }}>{gstAmount.toFixed(2)})</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 40, textAlign: "right" }}>{money2(gstAmount).toFixed(2)})</Typography>
                 </Box>
               </Box>
 
@@ -2176,35 +2193,35 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
               <Box sx={{ minWidth: 200 }}>
                 <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                   <Typography sx={{ fontSize: "0.8125rem" }}>Sub-Total</Typography>
-                  <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{displayGross.toFixed(2)}</Typography>
+                  <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{money2(displayGross).toFixed(2)}</Typography>
                 </Box>
                 {discountPercent > 0 && (
                   <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                     <Typography sx={{ fontSize: "0.8125rem" }}>Discount</Typography>
                     <Box sx={{ display: "flex", gap: 2 }}>
                       <Typography sx={{ fontSize: "0.8125rem" }}>{discountPercent.toFixed(2)}</Typography>
-                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 50 }}>{discountAmount.toFixed(2)}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 50 }}>{money2(discountAmount).toFixed(2)}</Typography>
                     </Box>
                   </Box>
                 )}
                 {discountPercent > 0 && (
                   <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                     <Typography sx={{ fontSize: "0.8125rem" }}>Sub-Total</Typography>
-                    <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{displayNet.toFixed(2)}</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{money2(displayNet).toFixed(2)}</Typography>
                   </Box>
                 )}
                 <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                   <Typography sx={{ fontSize: "0.8125rem" }}>GST</Typography>
                   <Box sx={{ display: "flex", gap: 2 }}>
                     <Typography sx={{ fontSize: "0.8125rem" }}>{gstPercent.toFixed(2)} %</Typography>
-                    <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 50 }}>{gstAmount.toFixed(2)}</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 50 }}>{money2(gstAmount).toFixed(2)}</Typography>
                   </Box>
                 </Box>
                 <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3, borderTop: "1px solid #000", mt: 0.5, pt: 0.5 }}>
                   <Typography sx={{ fontSize: "0.8125rem" }}>Total</Typography>
                   <Box sx={{ display: "flex", gap: 2 }}>
                     <Typography sx={{ fontSize: "0.8125rem" }}>{currency}</Typography>
-                    <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right", minWidth: 50 }}>{finalTotal.toFixed(2)}</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right", minWidth: 50 }}>{money2(finalTotal).toFixed(2)}</Typography>
                   </Box>
                 </Box>
                 {isAbsorbTax && gstPercent > 0 && (
@@ -2230,7 +2247,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
           const gstAmount = isAbsorbTax && gstPercent > 0
             ? subtotalAfterDiscount * gstPercent / (100 + gstPercent)
             : subtotalAfterDiscount * (gstPercent / 100);
-          const finalTotal = isAbsorbTax ? subtotalAfterDiscount : subtotalAfterDiscount + gstAmount;
+          const finalTotal = isAbsorbTax ? money2(subtotalAfterDiscount) : money2(money2(subtotalAfterDiscount) + money2(gstAmount));
 
           // Convert number to words
           const numberToWords = (num: number): string => {
@@ -3737,7 +3754,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   </TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity === "" || item.quantity == null || !Number.isFinite(Number(item.quantity)) ? "" : Number(item.quantity).toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "right" }}>{item.unitPrice === "" || item.unitPrice == null || !Number.isFinite(Number(item.unitPrice)) ? "" : Number(item.unitPrice).toFixed(2)}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null || item.amount === "" ? "" : Number(item.amount).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null || item.amount === "" ? "" : money2(Number(item.amount)).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
 
@@ -3779,7 +3796,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             const gstAmount = isAbsorbTax && gstPercent > 0
               ? subtotalAfterDiscount * gstPercent / (100 + gstPercent)
               : subtotalAfterDiscount * (gstPercent / 100);
-            const finalTotal = isAbsorbTax ? subtotalAfterDiscount : subtotalAfterDiscount + gstAmount;
+            const finalTotal = isAbsorbTax ? money2(subtotalAfterDiscount) : money2(money2(subtotalAfterDiscount) + money2(gstAmount));
             // Tax-inclusive: line amounts are gross, so the printed Sub-Total is net of GST.
             const displayGross = isAbsorbTax ? grossTotal - gstAmount : grossTotal;
             const displayNet = isAbsorbTax ? subtotalAfterDiscount - gstAmount : subtotalAfterDiscount;
@@ -3794,12 +3811,12 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   </Box>
                   <Box sx={{ display: "flex", alignItems: "center" }}>
                     <Typography sx={{ fontSize: "0.8125rem" }}>Sub-total:</Typography>
-                    <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 50, textAlign: "right" }}>{displayNet.toFixed(2)}</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 50, textAlign: "right" }}>{money2(displayNet).toFixed(2)}</Typography>
                   </Box>
                   <Box sx={{ display: "flex", alignItems: "center" }}>
                     <Typography sx={{ fontSize: "0.8125rem" }}>GST</Typography>
                     <Typography sx={{ fontSize: "0.8125rem", ml: 1 }}>:</Typography>
-                    <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 40, textAlign: "right" }}>{gstAmount.toFixed(2)})</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", ml: 1, minWidth: 40, textAlign: "right" }}>{money2(gstAmount).toFixed(2)})</Typography>
                   </Box>
                 </Box>
 
@@ -3807,35 +3824,35 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 <Box sx={{ minWidth: 200 }}>
                   <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                     <Typography sx={{ fontSize: "0.8125rem" }}>Sub-Total</Typography>
-                    <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{displayGross.toFixed(2)}</Typography>
+                    <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{money2(displayGross).toFixed(2)}</Typography>
                   </Box>
                   {discountPercent > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                       <Typography sx={{ fontSize: "0.8125rem" }}>Discount</Typography>
                       <Box sx={{ display: "flex", gap: 2 }}>
                         <Typography sx={{ fontSize: "0.8125rem" }}>{discountPercent.toFixed(2)}</Typography>
-                        <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 50 }}>{discountAmount.toFixed(2)}</Typography>
+                        <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 50 }}>{money2(discountAmount).toFixed(2)}</Typography>
                       </Box>
                     </Box>
                   )}
                   {discountPercent > 0 && (
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                       <Typography sx={{ fontSize: "0.8125rem" }}>Sub-Total</Typography>
-                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{displayNet.toFixed(2)}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{money2(displayNet).toFixed(2)}</Typography>
                     </Box>
                   )}
                   <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                     <Typography sx={{ fontSize: "0.8125rem" }}>GST</Typography>
                     <Box sx={{ display: "flex", gap: 2 }}>
                       <Typography sx={{ fontSize: "0.8125rem" }}>{gstPercent.toFixed(2)} %</Typography>
-                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 50 }}>{gstAmount.toFixed(2)}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 50 }}>{money2(gstAmount).toFixed(2)}</Typography>
                     </Box>
                   </Box>
                   <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3, borderTop: "1px solid #000", mt: 0.5, pt: 0.5 }}>
                     <Typography sx={{ fontSize: "0.8125rem" }}>Total</Typography>
                     <Box sx={{ display: "flex", gap: 2 }}>
                       <Typography sx={{ fontSize: "0.8125rem" }}>{currency}</Typography>
-                      <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right", minWidth: 50 }}>{finalTotal.toFixed(2)}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right", minWidth: 50 }}>{money2(finalTotal).toFixed(2)}</Typography>
                     </Box>
                   </Box>
                   {isAbsorbTax && gstPercent > 0 && (
@@ -3860,7 +3877,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             const gstAmount = isAbsorbTax && gstPercent > 0
               ? subtotalAfterDiscount * gstPercent / (100 + gstPercent)
               : subtotalAfterDiscount * (gstPercent / 100);
-            const finalTotal = isAbsorbTax ? subtotalAfterDiscount : subtotalAfterDiscount + gstAmount;
+            const finalTotal = isAbsorbTax ? money2(subtotalAfterDiscount) : money2(money2(subtotalAfterDiscount) + money2(gstAmount));
 
             const numberToWords = (num: number): string => {
               const ones = ['', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE',
@@ -4074,7 +4091,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity === "" || item.quantity == null || !Number.isFinite(Number(item.quantity)) ? "" : Number(item.quantity).toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.uom || ""}</TableCell>
                   <TableCell sx={{ textAlign: "right" }}>{item.unitPrice?.toFixed(4)}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null || item.amount === "" ? "" : Number(item.amount).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null || item.amount === "" ? "" : money2(Number(item.amount)).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
 
@@ -4121,7 +4138,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             const gstAmount = isAbsorbTax && gstPercent > 0
               ? grossTotal * gstPercent / (100 + gstPercent)
               : grossTotal * (gstPercent / 100);
-            const finalTotal = (isAbsorbTax ? grossTotal : grossTotal + gstAmount) - poTotalPoints;
+            const finalTotal = money2((isAbsorbTax ? money2(grossTotal) : money2(money2(grossTotal) + money2(gstAmount))) - money2(poTotalPoints));
             // Tax-inclusive: line amounts are gross, so the printed SUB-TOTAL is net of GST.
             const displayGross = isAbsorbTax ? grossTotal - gstAmount : grossTotal;
 
@@ -4131,13 +4148,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <Box sx={{ minWidth: 250 }}>
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                       <Typography sx={{ fontSize: "0.8125rem" }}>SUB-TOTAL</Typography>
-                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{displayGross.toFixed(2)}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{money2(displayGross).toFixed(2)}</Typography>
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                       <Typography sx={{ fontSize: "0.8125rem" }}>GST</Typography>
                       <Box sx={{ display: "flex", gap: 2 }}>
                         <Typography sx={{ fontSize: "0.8125rem" }}>{gstPercent.toFixed(2)} %</Typography>
-                        <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 60 }}>{gstAmount.toFixed(2)}</Typography>
+                        <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 60 }}>{money2(gstAmount).toFixed(2)}</Typography>
                       </Box>
                     </Box>
                     {poTotalPoints > 0 && (
@@ -4150,7 +4167,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                       <Typography sx={{ fontSize: "0.8125rem" }}>TOTAL</Typography>
                       <Box sx={{ display: "flex", gap: 2 }}>
                         <Typography sx={{ fontSize: "0.8125rem" }}>{currency}</Typography>
-                        <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right", minWidth: 60 }}>{finalTotal.toFixed(2)}</Typography>
+                        <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right", minWidth: 60 }}>{money2(finalTotal).toFixed(2)}</Typography>
                       </Box>
                     </Box>
                     {isAbsorbTax && gstPercent > 0 && (
@@ -4349,7 +4366,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <TableCell sx={{ textAlign: "center" }}>{item.quantity === "" || item.quantity == null || !Number.isFinite(Number(item.quantity)) ? "" : Number(item.quantity).toFixed(2)}</TableCell>
                   <TableCell sx={{ textAlign: "center" }}>{item.uom || ""}</TableCell>
                   <TableCell sx={{ textAlign: "right" }}>{item.unitPrice?.toFixed(4)}</TableCell>
-                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null || item.amount === "" ? "" : Number(item.amount).toFixed(2)}</TableCell>
+                  <TableCell sx={{ textAlign: "right" }}>{item.amount == null || item.amount === "" ? "" : money2(Number(item.amount)).toFixed(2)}</TableCell>
                 </TableRow>
               ))}
 
@@ -4395,7 +4412,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
             const gstAmount = isAbsorbTax && gstPercent > 0
               ? grossTotal * gstPercent / (100 + gstPercent)
               : grossTotal * (gstPercent / 100);
-            const finalTotal = (isAbsorbTax ? grossTotal : grossTotal + gstAmount) - poTotalPoints;
+            const finalTotal = money2((isAbsorbTax ? money2(grossTotal) : money2(money2(grossTotal) + money2(gstAmount))) - money2(poTotalPoints));
             // Tax-inclusive: line amounts are gross, so the printed SUB-TOTAL is net of GST.
             const displayGross = isAbsorbTax ? grossTotal - gstAmount : grossTotal;
 
@@ -4405,13 +4422,13 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                   <Box sx={{ minWidth: 250 }}>
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                       <Typography sx={{ fontSize: "0.8125rem" }}>SUB-TOTAL</Typography>
-                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{displayGross.toFixed(2)}</Typography>
+                      <Typography sx={{ fontSize: "0.8125rem", textAlign: "right" }}>{money2(displayGross).toFixed(2)}</Typography>
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "space-between", py: 0.3 }}>
                       <Typography sx={{ fontSize: "0.8125rem" }}>GST</Typography>
                       <Box sx={{ display: "flex", gap: 2 }}>
                         <Typography sx={{ fontSize: "0.8125rem" }}>{gstPercent.toFixed(2)} %</Typography>
-                        <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 60 }}>{gstAmount.toFixed(2)}</Typography>
+                        <Typography sx={{ fontSize: "0.8125rem", textAlign: "right", minWidth: 60 }}>{money2(gstAmount).toFixed(2)}</Typography>
                       </Box>
                     </Box>
                     {poTotalPoints > 0 && (
@@ -4424,7 +4441,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                       <Typography sx={{ fontSize: "0.8125rem" }}>TOTAL</Typography>
                       <Box sx={{ display: "flex", gap: 2 }}>
                         <Typography sx={{ fontSize: "0.8125rem" }}>{currency}</Typography>
-                        <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right", minWidth: 60 }}>{finalTotal.toFixed(2)}</Typography>
+                        <Typography sx={{ fontSize: "0.8125rem", fontWeight: 600, textAlign: "right", minWidth: 60 }}>{money2(finalTotal).toFixed(2)}</Typography>
                       </Box>
                     </Box>
                     {isAbsorbTax && gstPercent > 0 && (
@@ -5666,7 +5683,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 <TableCell><DescriptionText text={item.description || ""} /></TableCell>
                 <TableCell align="center">{item.quantity}</TableCell>
                 <TableCell align="right">{item.unitPrice === "" || item.unitPrice == null || !Number.isFinite(Number(item.unitPrice)) ? "" : Number(item.unitPrice).toFixed(2)}</TableCell>
-                <TableCell align="right">{item.amount == null || item.amount === "" ? "" : Number(item.amount).toFixed(2)}</TableCell>
+                <TableCell align="right">{item.amount == null || item.amount === "" ? "" : money2(Number(item.amount)).toFixed(2)}</TableCell>
               </TableRow>
             ))}
 
