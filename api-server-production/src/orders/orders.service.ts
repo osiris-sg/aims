@@ -20,7 +20,7 @@ import { photosFileOf } from '../maintenance-reports/uploaded-report';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { taggedSinsView } from '../bills/bill-quotation';
 import { bySchedule, dueBy } from '../deliveries/all-day';
-import { IMPORTED_INVOICE_STATE_LABEL, IMPORTED_ORDER_READ_ONLY, assertNotImportedOrder, creditOfImportedInvoice, importedInvoiceMoney, importedMarkerOf, importedOrderStatus, importedTracker, isImportedOrder, isImportedOrdersEnabled } from './imported-orders';
+import { IMPORTED_INVOICE_STATE_LABEL, IMPORTED_ORDER_READ_ONLY, assertNotImportedOrder, billedPercent, creditOfImportedInvoice, importedInvoiceMoney, importedMarkerOf, importedOrderStatus, importedTracker, isImportedOrder, isImportedOrdersEnabled } from './imported-orders';
 import { isErpImported } from '../common/erp-import';
 import { grossOf } from '../common/document-money';
 
@@ -471,9 +471,11 @@ export class OrdersService {
     const quotes = needQuote.length ? await this.prisma.document.findMany({ where: { organizationId, id: { in: needQuote } }, select: { id: true, config: true } }) : [];
     const quoteCfg = new Map(quotes.map((d: any) => [d.id, d.config]));
     const labels = new Map<string, string>();
+    const pcts = new Map<string, number | null>();
     for (const o of open) {
       const st = this.importedStatusOf(o, byId, o.sourceQuotation?.id ? quoteCfg.get(o.sourceQuotation.id) : undefined);
       labels.set(o.id, st.label);
+      pcts.set(o.id, st.billedPct);
       if (st.status !== o.status) {
         await this.prisma.order.update({ where: { id: o.id }, data: { status: st.status } });
         o.status = st.status;
@@ -485,7 +487,9 @@ export class OrdersService {
         id: o.id,
         orderNumber: o.orderNumber,
         status: o.status,
-        statusLabel: labels.get(o.id) ?? (o.status === 'PAID' ? 'Paid' : o.status === 'INVOICED' ? 'Invoiced' : 'Part billed'),
+        statusLabel: labels.get(o.id) ?? (o.status === 'PAID' ? 'Paid' : 'Invoiced'),
+        // Billed % (imported only): billed / quotation total, from the order's own links when not re-read above.
+        billedPct: pcts.has(o.id) ? pcts.get(o.id) : this.importedBilledPctFromLinks(o),
         imported: true,
         createdAt: o.createdAt,
         customer: o.customer ?? null,
@@ -515,6 +519,14 @@ export class OrdersService {
       .map((d: any) => ({ ...d, credit: Number(m.credits?.[d.id]) || creditOfImportedInvoice(d.config) }));
     const quoteTotal = m.quoteTotal != null && Number.isFinite(Number(m.quoteTotal)) ? Number(m.quoteTotal) : quoteConfig ? grossOf(quoteConfig) : null;
     return importedOrderStatus(invs, quoteTotal);
+  }
+
+  /** Billed % from the order's stored links (invoice totals, credits, quotation total), no document read. */
+  private importedBilledPctFromLinks(order: { linkedDocuments?: unknown }): number | null {
+    const m: any = importedMarkerOf(order) || {};
+    if (typeof m.billedPct === 'number') return m.billedPct;
+    const billed = this.importedInvoiceRefs(order).reduce((t, r) => t + Math.max(0, (Number(r.total) || 0) - (Number(m.credits?.[r.id]) || 0)), 0);
+    return billedPercent(Math.round(billed * 100) / 100, m.quoteTotal ?? null);
   }
 
   private importedInvoiceRefs(order: { linkedDocuments?: unknown }): Array<{ id: string; name: string | null; templateId?: string | null; total?: number }> {
@@ -571,6 +583,7 @@ export class OrdersService {
       imported: true,
       readOnly: true,
       billed: st.billed,
+      billedPct: st.billedPct,
       quoteTotal: st.quoteTotal,
       credited: st.credited,
       createdAt: row.createdAt,

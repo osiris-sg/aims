@@ -34,7 +34,7 @@ import 'dotenv/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Client, types } from 'pg';
-import { IMPORTED_LINK_SOURCE_LABEL, IMPORTED_ORDER_SOURCE, IMPORTED_ORDERS_FLAG, planImportedOrders, type PlanDoc, type PlannedOrder } from '../src/orders/imported-orders';
+import { IMPORTED_LINK_SOURCE_LABEL, IMPORTED_ORDER_SOURCE, IMPORTED_ORDERS_FLAG, isImportedOrder, planImportedOrders, type ExistingImportedOrder, type PlanDoc, type PlannedOrder, type PlannedUpdate } from '../src/orders/imported-orders';
 
 types.setTypeParser(1114, (s: string) => s);
 
@@ -54,7 +54,7 @@ const ORGS = many('--org').length ? many('--org') : Object.keys(GROUP);
 const EXCLUDE = new Set(many('--exclude'));
 const BATCH_SIZE = Number(one('--batch-size', '200'));
 const OUT = one('--out', path.join(__dirname, `wct-imported-orders.${env}`))!;
-const BATCH = 'imported-orders-2026-11-18';
+const BATCH = one('--batch', 'imported-orders-2026-11-18')!;
 const JOB = 'system:wct-imported-orders';
 
 /** RFC-4180 CSV (quoted fields with commas / newlines) into objects keyed by the header row. */
@@ -109,7 +109,11 @@ const money = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 
   );
   const docs: PlanDoc[] = rows.map((r: any) => ({ ...r, config: { ...(r.config || {}), items: r.ref_text ? [{ description: r.ref_text }] : [] } }));
   const templateOf = new Map(rows.map((r: any) => [r.id, r.templateId]));
-  const existing = await q(`select id::text id, "organizationId", "orderNumber", "sourceQuotationId"::text "sourceQuotationId" from ${T('Order')} where "organizationId" = any($1)`, [orgs]);
+  const existing = await q(`select id::text id, "organizationId", "orderNumber", status, "sourceQuotationId"::text "sourceQuotationId", "linkedDocuments" from ${T('Order')} where "organizationId" = any($1)`, [orgs]);
+  // Top-up: imported orders already made (never a native order: number ORD-Q- AND the erp-import marker).
+  const existingImported = new Map<string, ExistingImportedOrder>(
+    existing.filter((o: any) => String(o.orderNumber).startsWith('ORD-Q-') && isImportedOrder(o) && o.sourceQuotationId).map((o: any) => [o.sourceQuotationId, o]),
+  );
   const withOrder = new Set<string>(existing.map((o: any) => o.sourceQuotationId).filter(Boolean));
   const numbers = new Set<string>(existing.map((o: any) => `${o.organizationId}|${o.orderNumber}`));
   const customers = new Set<string>(
@@ -142,7 +146,7 @@ const money = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 
     }
     console.log(`WCT ERP credit notes read: ${creditsByInvoiceNo.size} invoice(s)`);
   }
-  const plan = planImportedOrders(docs, { quotationIdsWithOrder: withOrder, exclude: EXCLUDE, erpLinks, creditsByInvoiceNo });
+  const plan = planImportedOrders(docs, { quotationIdsWithOrder: withOrder, exclude: EXCLUDE, erpLinks, creditsByInvoiceNo, existingImported });
   const clash = plan.orders.filter((o) => numbers.has(`${o.organizationId}|${o.orderNumber}`));
   const todo = plan.orders.filter((o) => !numbers.has(`${o.organizationId}|${o.orderNumber}`));
 
@@ -172,10 +176,40 @@ const money = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 
     say(`  orders to create ${mine.length}: one invoice ${mine.filter((o) => o.invoices.length === 1).length}, several invoices ${mine.filter((o) => o.invoices.length > 1).length}`);
     const byLabel: Record<string, number> = {};
     for (const o of mine) byLabel[o.status.label] = (byLabel[o.status.label] ?? 0) + 1;
-    say(`  status: ${Object.entries(byLabel).sort().map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}`);
+    say(`  status of new orders: ${Object.entries(byLabel).sort().map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}`);
+    const ups = plan.updates.filter((u) => u.order.organizationId === org);
+    const exist = [...existingImported.values()].filter((o) => o.organizationId === org);
+    say(`  existing imported orders ${exist.length}: to update ${ups.length} (invoices added to ${ups.filter((u) => u.changes.includes('invoices')).length} order(s), ${ups.reduce((t, u) => t + u.addInvoices.length, 0)} invoice(s); status changes ${ups.filter((u) => u.changes.includes('status')).length}; Billed % / totals ${ups.filter((u) => u.changes.includes('billed')).length}; credits ${ups.filter((u) => u.changes.includes('credits')).length})`);
+    const moves: Record<string, number> = {};
+    for (const u of ups.filter((x) => x.changes.includes('status'))) moves[`${u.oldStatus} -> ${u.status.status}`] = (moves[`${u.oldStatus} -> ${u.status.status}`] ?? 0) + 1;
+    if (Object.keys(moves).length) say(`  status changes: ${Object.entries(moves).sort().map(([k, v]) => `${k} ${v}`).join(', ')}`);
+    const before: Record<string, number> = {}, after: Record<string, number> = {};
+    for (const o of exist) {
+      const u = ups.find((x) => x.order.id === o.id);
+      before[o.status] = (before[o.status] ?? 0) + 1;
+      const n = u ? u.status.status : o.status;
+      after[n] = (after[n] ?? 0) + 1;
+    }
+    if (exist.length) say(`  existing orders by status: before ${JSON.stringify(before)} -> after ${JSON.stringify(after)}`);
+    const addSrc: Record<string, number> = {};
+    for (const a of ups.flatMap((u) => u.addInvoices)) addSrc[IMPORTED_LINK_SOURCE_LABEL[a.source]] = (addSrc[IMPORTED_LINK_SOURCE_LABEL[a.source]] ?? 0) + 1;
+    if (Object.keys(addSrc).length) say(`  invoices added by source: ${Object.entries(addSrc).map(([k, v]) => `${k} ${v}`).join(', ')}`);
     say(`  ERP links that disagree with another source (ERP quotation link kept) ${plan.disagreements.filter((d) => d.organizationId === org).length}`);
-    say(`  invoices linked ${linked.length}: ${Object.entries(bySource).map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}`);
-    say(`  invoices not linked ${invoices.length - linked.length}${Object.keys(skipped).length ? `: ${Object.entries(skipped).map(([k, v]) => `${k} ${v}`).join(', ')}` : ''}`);
+    say(`  invoices linked on new orders ${linked.length}: ${Object.entries(bySource).map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}`);
+    // On orders after this run: existing imported orders' invoices + additions + new orders.
+    const onOrders = new Set<string>([
+      ...[...existingImported.values()].filter((o) => o.organizationId === org).flatMap((o: any) => (Array.isArray(o.linkedDocuments?.invoice) ? o.linkedDocuments.invoice.map((x: any) => x?.id) : [])),
+      ...plan.updates.filter((u) => u.order.organizationId === org).flatMap((u) => u.addInvoices.map((a) => a.doc.id)),
+      ...linked.map((l) => l.doc.id),
+    ].filter(Boolean));
+    say(`  invoices on imported orders after this run ${onOrders.size} (already on orders ${onOrders.size - linked.length - plan.updates.filter((u) => u.order.organizationId === org).reduce((t, u) => t + u.addInvoices.length, 0)})`);
+    const allSrc: Record<string, number> = {};
+    const addSrcOf = (src: string) => (allSrc[IMPORTED_LINK_SOURCE_LABEL[src as keyof typeof IMPORTED_LINK_SOURCE_LABEL] ?? src] = (allSrc[IMPORTED_LINK_SOURCE_LABEL[src as keyof typeof IMPORTED_LINK_SOURCE_LABEL] ?? src] ?? 0) + 1);
+    for (const o of [...existingImported.values()].filter((x) => x.organizationId === org)) for (const v of Object.values((o.linkedDocuments as any)?.imported?.linkSources ?? {})) addSrcOf(String(v));
+    for (const u of plan.updates.filter((x) => x.order.organizationId === org)) for (const a2 of u.addInvoices) addSrcOf(a2.source);
+    for (const l of linked) addSrcOf(l.source);
+    say(`  invoices on imported orders by link source: ${Object.entries(allSrc).map(([k, v]) => `${k} ${v}`).join(', ') || 'none'}`);
+    say(`  invoices not linked ${invoices.length - onOrders.size}${Object.keys(skipped).length ? `: ${Object.entries(skipped).map(([k, v]) => `${k} ${v}`).join(', ')}` : ''}`);
     say(`  credit notes on orders ${mine.reduce((t, o) => t + o.creditNotes.length, 0)}, customer differs from the quotation on ${mine.filter((o) => o.customerMismatch.length).length} order(s), quotation customer not in the org ${mine.filter((o) => o.customerId && !customers.has(`${org}|${o.customerId}`)).length}`);
     say(`  quotations that already have an order (skipped) ${quotes.filter((x) => withOrder.has(x.id)).length}, quotations with no linked invoice (no order) ${quotes.filter((x) => !plan.orders.some((o) => o.quotation.id === x.id) && !withOrder.has(x.id)).length}`);
     say(`  number already taken (skipped) ${clash.filter((o) => o.organizationId === org).length}`);
@@ -201,10 +235,14 @@ const money = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 
     path.join(OUT, 'link-disagreements.csv'),
     csv([['org', 'invoice', 'used (source)', 'other links (source)'], ...plan.disagreements.map((d) => [orgName(d.organizationId), d.invoice, `${d.used.key} (${d.used.source})`, d.others.map((x) => `${x.key} (${x.source})`).join(' ')])]),
   );
+  fs.writeFileSync(
+    path.join(OUT, 'updates.csv'),
+    csv([['org', 'order', 'changes', 'old status', 'new status', 'billed %', 'invoices added'], ...plan.updates.map((u) => [orgName(u.order.organizationId), u.order.orderNumber, u.changes.join(' '), u.oldStatus, u.status.label, u.status.billedPct ?? '', u.addInvoices.map((a) => `${a.doc.name} (${a.source})`).join(' ')])]),
+  );
   console.log(`\nFiles: ${OUT}`);
 
   if (!APPLY) {
-    console.log(`DRY RUN: ${todo.length} order(s) would be created, nothing written.`);
+    console.log(`DRY RUN: ${todo.length} order(s) would be created, ${plan.updates.length} existing imported order(s) updated; nothing written.`);
     await c.end();
     return;
   }
@@ -234,9 +272,68 @@ const money = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 
     }
     console.log(`  batch ${i / BATCH_SIZE + 1}: ${Math.min(i + BATCH_SIZE, todo.length)}/${todo.length}`);
   }
-  fs.writeFileSync(path.join(__dirname, `wct-imported-orders.${env}.log.json`), JSON.stringify({ at, batch: BATCH, created: log }, null, 2));
-  console.log(`APPLIED: ${log.length} order(s) created.`);
+  // Top-up of existing imported orders: add newly linked invoices, recompute status / Billed % / credits.
+  const updated: any[] = [];
+  for (let i = 0; i < plan.updates.length; i += BATCH_SIZE) {
+    const chunk = plan.updates.slice(i, i + BATCH_SIZE);
+    await c.query('begin');
+    try {
+      for (const u of chunk) {
+        const r = await updateOrder(c, u, at);
+        if (r) {
+          await c.query(
+            `insert into ${T('ActionLog')}(id, "actorType", "actorId", "actorName", "organizationId", channel, action, resource, "resourceId", details, status)
+             values (gen_random_uuid(), 'SYSTEM', $1, 'System creation', $2, 'operator', 'UPDATE', 'order', $3, $4, 'SUCCESS')`,
+            [JOB, u.order.organizationId, u.order.id, JSON.stringify({ note: `Imported order ${u.order.orderNumber}: ${u.changes.join(', ')}${u.addInvoices.length ? `; invoices added ${u.addInvoices.map((a) => a.doc.name).join(', ')}` : ''}${u.oldStatus !== u.status.status ? `; status ${u.oldStatus} -> ${u.status.status}` : ''}`, batch: BATCH })],
+          );
+          updated.push({ id: u.order.id, orderNumber: u.order.orderNumber, changes: u.changes, oldStatus: u.oldStatus, status: u.status.status, billedPct: u.status.billedPct, added: u.addInvoices.map((a) => a.doc.id) });
+        }
+      }
+      await c.query('commit');
+    } catch (e) {
+      await c.query('rollback');
+      throw e;
+    }
+  }
+  const logFile = path.join(__dirname, `wct-imported-orders.${env}.${at.replace(/[:.]/g, '-')}.log.json`);
+  fs.writeFileSync(logFile, JSON.stringify({ at, batch: BATCH, created: log, updated }, null, 2));
+  console.log(`APPLIED: ${log.length} order(s) created, ${updated.length} updated. Log: ${logFile}`);
   await c.end();
+
+  /** Merge a top-up into an existing imported order (order row only; guarded to imported orders). */
+  async function updateOrder(cl: Client, u: PlannedUpdate, now: string): Promise<boolean> {
+    const ld: any = u.order.linkedDocuments || {};
+    const m: any = ld.imported || {};
+    const invoice = [
+      ...(Array.isArray(ld.invoice) ? ld.invoice : []),
+      ...u.addInvoices.map((i) => ({ id: i.doc.id, name: i.doc.name, templateId: templateOf.get(i.doc.id) ?? null, total: Number(i.doc.config?.totalWithTax ?? 0) || 0 })),
+    ];
+    const creditNote = [...(Array.isArray(ld.creditNote) ? ld.creditNote : []), ...u.addCreditNotes.map((d) => ({ id: d.id, name: d.name, templateId: templateOf.get(d.id) ?? null }))];
+    const next = {
+      ...ld,
+      invoice,
+      creditNote,
+      imported: {
+        ...m,
+        linkSources: { ...(m.linkSources || {}), ...Object.fromEntries(u.addInvoices.map((i) => [i.doc.id, i.source])) },
+        erpDoNumbers: u.erpDoNumbers,
+        customerMismatch: u.customerMismatch,
+        total: u.status.total,
+        quoteTotal: u.quoteTotal,
+        billed: u.status.billed,
+        billedPct: u.status.billedPct,
+        credits: u.credits,
+        toppedUpAt: now,
+        topUpBatches: [...new Set([...(Array.isArray(m.topUpBatches) ? m.topUpBatches : []), BATCH])],
+      },
+    };
+    const res = await cl.query(
+      `update ${T('Order')} set status = $3, "linkedDocuments" = $4::jsonb, "updatedAt" = now()
+        where id = $1::uuid and "organizationId" = $2 and "orderNumber" like 'ORD-Q-%' and "linkedDocuments"->'imported'->>'source' = '${IMPORTED_ORDER_SOURCE}'`,
+      [u.order.id, u.order.organizationId, u.status.status, JSON.stringify(next)],
+    );
+    return (res.rowCount ?? 0) === 1;
+  }
 
   async function insertOrder(cl: Client, o: PlannedOrder, custs: Set<string>, now: string): Promise<string | null> {
     const qc: any = o.quotation.config || {};
@@ -251,6 +348,8 @@ const money = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 
       site: String(qc.erpImport?.clientSite ?? qc.location ?? '').trim() || null,
       total: o.total,
       quoteTotal: o.quoteTotal,
+      billed: o.status.billed,
+      billedPct: o.status.billedPct,
       credits: o.credits,
       at: now,
     };

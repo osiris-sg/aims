@@ -16,7 +16,7 @@ import { fmtJobWhen, orderMatchesSearch, orderStatusColor, orderStatusLabel } fr
 import { HUB_ACTION_LABEL, HUB_DESTRUCTIVE, hubListTarget, hubMatchesTab, hubRowActions, hubStatusInfo, hubStatusSortValue, hubTabs, type HubActionKey, type HubContext, type HubStatus } from "@/helpers/wctOrderHub";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
-import { ORDER_SOURCE_OPTIONS, importedMatchesTab, importedStatusHue, importedTabs, isImportedTab, matchesOrderSource, type OrderSource } from "@/helpers/importedOrders";
+import { ORDER_SOURCE_OPTIONS, importedBilledPct, showBilledPctColumn, importedMatchesTab, importedStatusHue, importedTabs, isImportedTab, matchesOrderSource, type OrderSource } from "@/helpers/importedOrders";
 
 // WCT calendar add (2026-11-04): jobs made from the calendar with no order yet, so nothing gets forgotten.
 interface UntaggedJob {
@@ -60,6 +60,7 @@ interface WctOrderRow {
   imported?: boolean;
   statusLabel?: string;
   erpDoNumbers?: string[];
+  billedPct?: number | null;
 }
 
 const docHref = (d?: { id: string; type?: string; templateId?: string | null } | null, fallbackType = "QUOTATION") => (d && d.templateId ? `/portal/documents/${d.type || fallbackType}/${d.templateId}/${d.id}` : null);
@@ -155,7 +156,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
   }, [calendarAdd, organization?.id, getToken]);
 
   // One tab per status, counted from the real statuses (the old "Open" tab missed DO drafts).
-  // Imported rows have their own statuses (Part billed / Invoiced / Paid), listed after the AIMS ones.
+  // Imported rows have their own statuses (Invoiced / Paid), listed after the AIMS ones.
   const tabs = useMemo(() => {
     const native = sourceRows.filter((o) => o.imported !== true);
     const own = native.length || source !== "imported" ? hubTabs(native).map((t) => (t.key === "all" ? { ...t, count: sourceRows.length } : t)) : [{ key: "all" as const, label: "All", count: sourceRows.length }];
@@ -265,6 +266,18 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
       size: 9,
       cell: ({ row }: any) => <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{money(row.original.amount)}</Box>,
     },
+    // Billed % (imported orders only): the column shows only with Imported or All orders selected; AIMS rows stay blank.
+    ...(showBilledPctColumn(hasImported, source)
+      ? [
+          {
+            id: "billedPct",
+            accessorFn: (o: WctOrderRow) => (o.imported && o.billedPct != null ? o.billedPct : -1),
+            header: "Billed %",
+            size: 7,
+            cell: ({ row }: any) => <Box sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{row.original.imported ? importedBilledPct(row.original.billedPct) : ""}</Box>,
+          },
+        ]
+      : []),
     { id: "createdAt", accessorFn: (o: WctOrderRow) => new Date(o.createdAt).getTime(), header: "Created", size: 8, cell: ({ row }: any) => <Box sx={{ whiteSpace: "nowrap" }}>{moment(row.original.createdAt).format("DD/MM/YYYY")}</Box> },
     {
       id: "menu",

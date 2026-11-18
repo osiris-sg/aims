@@ -27,6 +27,7 @@ export interface ImportedOrder {
   total: number;
   owed: number;
   billed?: number;
+  billedPct?: number | null;
   quoteTotal?: number | null;
   credited?: number;
 }
@@ -61,11 +62,16 @@ export function importedDocHref(d: ImportedDocRef | null | undefined, fallbackTy
 
 export const importedMoney = (n?: number | null) => (n == null ? "" : `S$ ${Number(n).toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 
-export const importedStatusHue = (status: string) => (status === "PAID" ? "#22c55e" : status === "PART_BILLED" ? "#f59e0b" : "#6d28d9");
+export const importedStatusHue = (status: string) => (status === "PAID" ? "#22c55e" : "#6d28d9");
 
-/** Imported order statuses (api imported-orders.ts): Part billed, Invoiced, Paid. */
+/** Billed % (billed / quotation total), one decimal; blank without a quotation total. */
+export const importedBilledPct = (pct?: number | null) => (pct == null || !Number.isFinite(Number(pct)) ? "" : `${Number(pct).toLocaleString("en-SG", { maximumFractionDigits: 1 })}%`);
+
+/** The Orders list shows the Billed % column only when imported orders are in view (Imported or All). */
+export const showBilledPctColumn = (hasImported: boolean, source: OrderSource) => hasImported && source !== "aims";
+
+/** Imported order statuses (api imported-orders.ts): Invoiced, Paid. */
 export const IMPORTED_STATUS_TABS: Array<{ key: string; label: string }> = [
-  { key: "PART_BILLED", label: "Part billed" },
   { key: "INVOICED", label: "Invoiced" },
   { key: "PAID", label: "Paid" },
 ];

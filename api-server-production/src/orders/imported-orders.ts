@@ -194,6 +194,34 @@ export interface ImportedPlan {
   alreadyOrdered: number;
   /** Invoices whose ERP links name different quotations (the first source in order wins). */
   disagreements: Array<{ invoice: string; organizationId: string; used: InvoiceQuoteRef; others: InvoiceQuoteRef[] }>;
+  /** Top-up: existing imported orders that gain invoices or whose status / Billed % / credits change. */
+  updates: PlannedUpdate[];
+}
+
+/** An imported order already on the database (top-up runs). */
+export interface ExistingImportedOrder {
+  id: string;
+  orderNumber: string;
+  organizationId: string;
+  status: string;
+  sourceQuotationId: string | null;
+  linkedDocuments: any;
+}
+
+export interface PlannedUpdate {
+  order: ExistingImportedOrder;
+  quotation: PlanDoc | null;
+  /** Invoices newly linked to this order (never removed: an invoice already on the order stays). */
+  addInvoices: Array<{ doc: PlanDoc; source: ImportedLinkSource }>;
+  addCreditNotes: PlanDoc[];
+  oldStatus: string;
+  status: ImportedOrderStatus;
+  credits: Record<string, number>;
+  quoteTotal: number | null;
+  erpDoNumbers: string[];
+  customerMismatch: string[];
+  /** What changed, for the log: 'invoices' | 'status' | 'billed' | 'credits'. */
+  changes: string[];
 }
 
 /**
@@ -204,7 +232,14 @@ export interface ImportedPlan {
  */
 export function planImportedOrders(
   docs: PlanDoc[],
-  opts: { quotationIdsWithOrder?: Set<string>; exclude?: Set<string>; erpLinks?: Map<string, string>; creditsByInvoiceNo?: Map<string, number> } = {},
+  opts: {
+    quotationIdsWithOrder?: Set<string>;
+    exclude?: Set<string>;
+    erpLinks?: Map<string, string>;
+    creditsByInvoiceNo?: Map<string, number>;
+    /** Imported orders already made (by quotation id): top-up instead of a new order. */
+    existingImported?: Map<string, ExistingImportedOrder>;
+  } = {},
 ): ImportedPlan {
   const exclude = opts.exclude ?? new Set<string>();
   const live = docs.filter((d) => !exclude.has(d.organizationId) && erpImportOf(d.config) && d.config?.voided !== true);
@@ -247,22 +282,69 @@ export function planImportedOrders(
     const to = cn.config?.sourceDocumentId;
     if (typeof to === 'string' && to) cnByInvoice.set(to, [...(cnByInvoice.get(to) ?? []), cn]);
   }
-  const orders: PlannedOrder[] = [];
-  let alreadyOrdered = 0;
-  for (const q of quotes) {
-    const invoices = perQuote.get(q.id);
-    if (!invoices?.length) continue;
-    if (opts.quotationIdsWithOrder?.has(q.id)) {
-      alreadyOrdered++;
-      continue;
-    }
-    invoices.sort((a, b) => String(a.doc.config?.date ?? '').localeCompare(String(b.doc.config?.date ?? '')) || String(a.doc.name).localeCompare(String(b.doc.name)));
-    const customerId = (q.config?.customerId as string) || null;
+  const creditsFor = (invoices: Array<{ doc: PlanDoc }>) => {
     const credits: Record<string, number> = {};
     for (const i of invoices) {
       const c = creditOfImportedInvoice(i.doc.config, cnByInvoice.get(i.doc.id) ?? [], opts.creditsByInvoiceNo?.get(`${i.doc.organizationId}|${i.doc.name}`));
       if (c > 0) credits[i.doc.id] = c;
     }
+    return credits;
+  };
+  const byDate = (a: { doc: PlanDoc }, b: { doc: PlanDoc }) => String(a.doc.config?.date ?? '').localeCompare(String(b.doc.config?.date ?? '')) || String(a.doc.name).localeCompare(String(b.doc.name));
+
+  // Top-up: existing imported orders gain newly linked invoices; status, Billed % and credits are recomputed.
+  const updates: PlannedUpdate[] = [];
+  const docById = new Map(docs.map((d) => [d.id, d]));
+  const quoteById = new Map(quotes.map((q) => [q.id, q]));
+  for (const ex of opts.existingImported?.values() ?? []) {
+    if (exclude.has(ex.organizationId)) continue;
+    const m: any = importedMarkerOf(ex) || {};
+    const ld: any = ex.linkedDocuments || {};
+    const curIds: string[] = Array.isArray(ld.invoice) ? ld.invoice.map((x: any) => x?.id).filter(Boolean) : [];
+    const cur = curIds.map((id) => docById.get(id)).filter(Boolean).map((doc) => ({ doc: doc as PlanDoc, source: (m.linkSources?.[(doc as PlanDoc).id] ?? 'contract_no') as ImportedLinkSource }));
+    const addInvoices = (ex.sourceQuotationId ? perQuote.get(ex.sourceQuotationId) ?? [] : []).filter((i) => !curIds.includes(i.doc.id)).sort(byDate);
+    const all = [...cur, ...addInvoices];
+    const q = ex.sourceQuotationId ? quoteById.get(ex.sourceQuotationId) ?? null : null;
+    const credits = creditsFor(all);
+    const quoteTotal = q ? grossOf(q.config) : m.quoteTotal ?? null;
+    const st = importedOrderStatus(all.map((i) => ({ ...i.doc, credit: credits[i.doc.id] ?? 0 })), quoteTotal);
+    const curCn: string[] = Array.isArray(ld.creditNote) ? ld.creditNote.map((x: any) => x?.id) : [];
+    const addCreditNotes = all.flatMap((i) => cnByInvoice.get(i.doc.id) ?? []).filter((c) => !curCn.includes(c.id));
+    const changes: string[] = [];
+    if (addInvoices.length) changes.push('invoices');
+    if (st.status !== ex.status) changes.push('status');
+    if ((m.billedPct ?? null) !== st.billedPct || (m.billed ?? null) !== st.billed || (m.quoteTotal ?? null) !== quoteTotal) changes.push('billed');
+    if (JSON.stringify(sortKeys(m.credits ?? {})) !== JSON.stringify(sortKeys(credits)) || addCreditNotes.length) changes.push('credits');
+    if (!changes.length) continue;
+    const customerId = (q?.config?.customerId as string) || null;
+    updates.push({
+      order: ex,
+      quotation: q,
+      addInvoices,
+      addCreditNotes,
+      oldStatus: ex.status,
+      status: st,
+      credits,
+      quoteTotal,
+      erpDoNumbers: [...new Set([...(Array.isArray(m.erpDoNumbers) ? m.erpDoNumbers : []), ...(all.map((i) => erpDoNumberOf(i.doc.config)).filter(Boolean) as string[])])],
+      customerMismatch: q ? all.filter((i) => (i.doc.config?.customerId || null) !== customerId).map((i) => String(i.doc.name)) : Array.isArray(m.customerMismatch) ? m.customerMismatch : [],
+      changes,
+    });
+  }
+
+  const orders: PlannedOrder[] = [];
+  let alreadyOrdered = 0;
+  for (const q of quotes) {
+    const invoices = perQuote.get(q.id);
+    if (!invoices?.length) continue;
+    if (opts.existingImported?.has(q.id)) continue;
+    if (opts.quotationIdsWithOrder?.has(q.id)) {
+      alreadyOrdered++;
+      continue;
+    }
+    invoices.sort(byDate);
+    const customerId = (q.config?.customerId as string) || null;
+    const credits = creditsFor(invoices);
     const quoteTotal = grossOf(q.config);
     const st = importedOrderStatus(invoices.map((i) => ({ ...i.doc, credit: credits[i.doc.id] ?? 0 })), quoteTotal);
     orders.push({
@@ -281,34 +363,33 @@ export function planImportedOrders(
       credits,
     });
   }
-  return { orders, skipped, quotesWithoutInvoice: quotes.length - perQuote.size, alreadyOrdered, disagreements };
+  return { orders, skipped, quotesWithoutInvoice: quotes.length - perQuote.size, alreadyOrdered, disagreements, updates };
 }
+
+const sortKeys = (o: Record<string, number>) => Object.fromEntries(Object.entries(o).sort(([a], [b]) => a.localeCompare(b)));
 
 // ── Status ──────────────────────────────────────────────────────────────────
 //
-// Money basis: TAX INCLUSIVE on both sides (grossOf: totalWithTax, then nettTotal / xeroGross),
-// for the quotation and for every invoice, so GST never makes a fully billed job look short.
-// Cent tolerance: 0.01.
+// Money basis: TAX INCLUSIVE (grossOf: totalWithTax, then nettTotal / xeroGross) for the
+// quotation and every invoice. Cent tolerance: 0.005.
 //
 // Per invoice (voided ones are left out):
 //   gross 0                                  NO_CHARGE  ("No charge"; never counts as billing)
-//   credit >= gross                          CREDITED   (fully credited; bills nothing)
+//   credit >= gross                          CREDITED   (fully credited; bills nothing, owes nothing)
 //   owes nothing (document-money owedOf)     PAID       (a partial credit is shown beside it)
 //   owes part of it                          PART_PAID
 //   owes all of it                           UNPAID
 // An invoice BILLS gross minus its credit ("net"); NO_CHARGE and CREDITED invoices bill 0.
 //
-// Per order, billed = sum of net, compared with the quotation total:
-//   billed >= quotation total (or the quotation has no total / 0 and something is billed)
-//     every billing invoice settled          PAID       "Paid"
-//     otherwise                              INVOICED   "Invoiced" / "Invoiced, part paid"
-//   billed < quotation total (incl. nothing billed: only $0 or credited invoices)
-//                                            PART_BILLED "Part billed" (nothing billed),
-//                                            "Part billed, paid" / ", part paid" / ", unpaid"
-// Credit notes: a credit is never subtracted from the balance again (the imported balance already
-// has it); it only lowers what the invoice bills. Sources, first found: the invoice's own tracker
-// credit notes (erpImport.creditNotes), its imported CREDIT_NOTE documents, the WCT ERP credit-note
-// export by invoice no. (stored on the order by the script, since WCT invoices carry no amount).
+// Per order (Elroy 2026-11-18): no full-billing check.
+//   every linked invoice owes nothing (paid, credited or $0)   PAID      "Paid"
+//   otherwise                                                  INVOICED  "Invoiced" / "Invoiced, part paid"
+// Billed % = billed (sum of net) / quotation total x 100, 1 decimal; blank when the quotation has
+// no total (or 0). Shown beside the status, it never changes it.
+// Credit notes: never subtracted from the balance again (the imported balance already has it);
+// a credit only lowers what the invoice bills. Sources, first found: the invoice's tracker credit
+// notes (erpImport.creditNotes), its imported CREDIT_NOTE documents, the WCT ERP credit-note export
+// by invoice no. (stored on the order by the script, since WCT invoices carry no amount).
 
 export type ImportedInvoiceState = 'NO_CHARGE' | 'CREDITED' | 'PAID' | 'PART_PAID' | 'UNPAID';
 export const IMPORTED_INVOICE_STATE_LABEL: Record<ImportedInvoiceState, string> = {
@@ -318,7 +399,7 @@ export const IMPORTED_INVOICE_STATE_LABEL: Record<ImportedInvoiceState, string> 
   PART_PAID: 'Part paid',
   UNPAID: 'Unpaid',
 };
-export type ImportedOrderStatusCode = 'PART_BILLED' | 'INVOICED' | 'PAID';
+export type ImportedOrderStatusCode = 'INVOICED' | 'PAID';
 
 const EPS = 0.005;
 const R2 = (n: number) => Math.round(n * 100) / 100;
@@ -358,15 +439,23 @@ export function importedInvoiceMoney(doc: { config: any }, credit = 0): Imported
 export interface ImportedOrderStatus {
   status: ImportedOrderStatusCode;
   label: string;
-  /** Some money received on a billing invoice not settled yet. */
+  /** Some money received on an invoice not settled yet. */
   partPaid: boolean;
   /** Invoiced (gross, tax inclusive) across the live invoices. */
   total: number;
-  /** Billed: gross minus credits, $0 / credited invoices bill nothing. */
+  /** Billed: gross minus credits; $0 / fully credited invoices bill nothing. */
   billed: number;
   quoteTotal: number | null;
+  /** billed / quotation total x 100 (1 decimal), null without a quotation total. */
+  billedPct: number | null;
   owed: number;
   credited: number;
+}
+
+export function billedPercent(billed: number, quoteTotal: number | null | undefined): number | null {
+  const qt = quoteTotal == null ? NaN : Number(quoteTotal);
+  if (!Number.isFinite(qt) || qt < EPS) return null;
+  return Math.round((billed / qt) * 1000) / 10;
 }
 
 export function importedOrderStatus(invoices: Array<{ status?: string; config: any; credit?: number }>, quoteTotal: number | null | undefined): ImportedOrderStatus {
@@ -375,21 +464,18 @@ export function importedOrderStatus(invoices: Array<{ status?: string; config: a
   const billing = money.filter((m) => m.net >= EPS);
   const billed = R2(billing.reduce((t, m) => t + m.net, 0));
   const qt = quoteTotal == null || !Number.isFinite(Number(quoteTotal)) ? null : R2(Number(quoteTotal));
-  const fullyBilled = billing.length > 0 && (qt == null || qt < EPS || billed >= qt - 0.01);
-  const settled = billing.every((m) => m.owed < EPS);
-  const someMoney = billing.some((m) => m.owed < m.net - EPS);
-  const partPaid = !settled && someMoney;
+  const settled = money.every((m) => m.owed < EPS);
+  const partPaid = !settled && billing.some((m) => m.owed < m.net - EPS);
   const base = {
     partPaid,
     total: R2(money.reduce((t, m) => t + m.gross, 0)),
     billed,
     quoteTotal: qt,
-    owed: R2(billing.reduce((t, m) => t + m.owed, 0)),
+    billedPct: billedPercent(billed, qt),
+    owed: R2(money.reduce((t, m) => t + m.owed, 0)),
     credited: R2(money.reduce((t, m) => t + m.credit, 0)),
   };
-  if (fullyBilled) return settled ? { status: 'PAID', label: 'Paid', ...base } : { status: 'INVOICED', label: partPaid ? 'Invoiced, part paid' : 'Invoiced', ...base };
-  const label = !billing.length ? 'Part billed' : settled ? 'Part billed, paid' : partPaid ? 'Part billed, part paid' : 'Part billed, unpaid';
-  return { status: 'PART_BILLED', label, ...base };
+  return settled ? { status: 'PAID', label: 'Paid', ...base } : { status: 'INVOICED', label: partPaid ? 'Invoiced, part paid' : 'Invoiced', ...base };
 }
 
 export const IMPORTED_STATUS_LABEL = (s: Pick<ImportedOrderStatus, 'label'>): string => s.label;

@@ -10,7 +10,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import MainCard from "@/components/MainCard";
 import StatusPill from "../_components/StatusPill";
-import { importedDocHref, importedLinkSourceLabel, importedMoney, importedStatusHue, type ImportedOrder } from "@/helpers/importedOrders";
+import { importedBilledPct, importedDocHref, importedLinkSourceLabel, importedMoney, importedStatusHue, type ImportedOrder } from "@/helpers/importedOrders";
 
 /**
  * An order imported from the old ERP (enableImportedOrders): read-only. Tracker
@@ -48,6 +48,7 @@ export default function ImportedOrderDetail({ order, onBack }: { order: Imported
         <Field label="Subject" value={order.subject || ""} />
         <Field label="Quotation total" value={importedMoney(order.quoteTotal ?? q?.total ?? null)} />
         <Field label="Billed" value={importedMoney(order.billed ?? order.total)} />
+        <Field label="Billed %" value={importedBilledPct(order.billedPct)} />
         {!!order.credited && <Field label="Credited" value={importedMoney(order.credited)} />}
         <Field label="Owed" value={importedMoney(order.owed)} />
       </Stack>
