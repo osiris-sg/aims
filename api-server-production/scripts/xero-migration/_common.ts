@@ -236,7 +236,11 @@ export async function xeroGet<T = any>(
   const qs = Object.entries(query)
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
     .join("&");
-  const url = `${XERO_API}${path}${qs ? `?${qs}` : ""}`;
+  // Tolerate a path with or without its leading slash. Without this, a
+  // caller passing "Invoices/<id>" silently requests ".../2.0Invoices/<id>"
+  // and Xero answers 404 — which reads exactly like a revoked connection
+  // and cost an unnecessary reconnect (2026-11-18).
+  const url = `${XERO_API}${path.startsWith("/") ? "" : "/"}${path}${qs ? `?${qs}` : ""}`;
 
   // Proactive mid-run refresh — access tokens only live 30 min, and long
   // stages (2k+ paced requests) outlive them. <2 min left → refresh now.
