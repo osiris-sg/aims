@@ -6,7 +6,7 @@ import { JournalService } from '../journal/journal.service';
 import { refWith, documentReferenceOf } from '../common/doc-ref';
 import { ChartOfAccountsService } from '../accounting/chart-of-accounts.service';
 import { AccountMemoryService } from '../account-memory/account-memory.service';
-import { outstandingOf, grossStampOf, amountPaidOf } from '../common/document-money';
+import { outstandingOf, grossStampOf, amountPaidOf, stampDocumentMoney } from '../common/document-money';
 import { lineQuotationsOf, pickQuotation, QUOTATION_REFS_PROMPT, QUOTATION_TYPES, quotationCandidates, quotationSummary, WCT_ORDERS_FLAG } from './bill-quotation';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { orgTodayFor } from '../common/org-today';
@@ -1129,6 +1129,17 @@ export class BillsService {
       data: { status: toDocStatus(billStatus) as any, config: config as Prisma.InputJsonValue },
     });
   }
+  /** paidToDate / outstandingBalance for a bill, through the one writer. */
+  private async stampBillMoney(billId: string, paid: number, grossHint?: number) {
+    const doc = await this.prisma.document.findUnique({ where: { id: billId }, select: { config: true } });
+    if (!doc) return;
+    const c: any = doc.config || {};
+    const gross = ROUND(Number(grossHint ?? c.totalAmount ?? grossStampOf(c) ?? 0) || 0);
+    if (gross <= 0) return;
+    const config = stampDocumentMoney(c, { paid: ROUND(paid), outstanding: ROUND(Math.max(0, gross - paid)) });
+    await this.prisma.document.update({ where: { id: billId }, data: { config: config as Prisma.InputJsonValue } });
+  }
+
   private async patchConfig(id: string, patch: Record<string, any>) {
     const doc = await this.prisma.document.findUniqueOrThrow({ where: { id }, select: { config: true } });
     const config = { ...((doc.config as any) || {}), ...patch };
@@ -1626,8 +1637,16 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
       }),
     ]);
 
-    // Update the Bill (Document) record's config with new amountPaid + status
+    // Update the Bill (Document) record's config with new amountPaid + status,
+    // and RE-STAMP the canonical money (guru 2026-11-18 — Heimen: "there are
+    // still paid bills in the list of bills to tick"). Paying a bill used to
+    // write only config.amountPaid, so an imported bill kept the stamped
+    // balance it arrived with: outstandingOf() still read the full amount, and
+    // every screen built on it — the Payment Voucher's offset grid first —
+    // offered a bill that was paid months ago. 57 of Biofuel's bills, 522k,
+    // were sitting like that. src/common/document-money.ts is the ONE writer.
     await this.patchConfig(billId, { amountPaid: newPaid });
+    await this.stampBillMoney(billId, newPaid);
     if (fullyPaid) await this.patchStatus(billId, 'PAID');
     return payment;
   }
@@ -1646,6 +1665,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     const agg = await this.prisma.billPayment.aggregate({ where: { organizationId, billId }, _sum: { amount: true } });
     const paid = ROUND(Number(agg._sum.amount) || 0);
     await this.patchConfig(billId, { amountPaid: paid });
+    await this.stampBillMoney(billId, paid, totalAmount);
     const current = (c.billStatus as BillStatus) || (c.xeroStatus === 'Paid' ? 'PAID' : 'POSTED');
     if (current === 'VOID' || current === 'DRAFT' || current === 'PENDING_APPROVAL') return;
     const fullyPaid = totalAmount > 0 && paid >= totalAmount - 0.01;

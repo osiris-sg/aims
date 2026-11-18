@@ -335,15 +335,18 @@ export class ReceiptsService {
       gross = ROUND(gross);
       const recorded = paidByDoc.get(d.id) || 0;
       const own = ownByDoc.get(d.id) || 0;
-      let outstanding: number;
-      if (outstandingOf(c) !== undefined && outstandingOf(c) !== null) {
-        // xeroBalance is LIVE (net of all payments incl. this receipt's own
-        // rows) — add this receipt's own allocations back so the edit grid
-        // shows what's allocatable by THIS receipt.
-        outstanding = ROUND(Math.max(0, Number(outstandingOf(c)) + own));
-      } else {
-        outstanding = ROUND(Math.max(0, gross - recorded));
-      }
+      // The stamp is authoritative for what AIMS cannot see (a Xero credit
+      // note folded into the balance), but it can NEVER claim more is owing
+      // than gross minus the payments actually recorded here — a stale stamp
+      // on a settled invoice is what kept paid invoices in this grid, the AR
+      // twin of the Payment Voucher bug (guru 2026-11-18, "our accounting
+      // features are confused with the amounts like stamped"). Take whichever
+      // is smaller, then add this receipt's own rows back so editing it can
+      // re-allocate them.
+      const stamped = outstandingOf(c);
+      const computed = ROUND(gross - recorded);
+      const base = stamped !== undefined && stamped !== null ? Math.min(Number(stamped), computed) : computed;
+      const outstanding = ROUND(Math.max(0, base + own));
       if (outstanding <= 0.005) continue;
       rows.push({
         documentId: d.id,
@@ -654,12 +657,12 @@ export class ReceiptsService {
       }
       gross = ROUND(Math.abs(gross));
       const applied = appliedByDoc.get(d.id) || 0;
-      let outstanding: number;
-      if (outstandingOf(c) !== undefined && outstandingOf(c) !== null) {
-        outstanding = ROUND(Math.max(0, Math.abs(Number(outstandingOf(c)))));
-      } else {
-        outstanding = ROUND(Math.max(0, gross - applied));
-      }
+      // Same cap as openInvoices(): a stamp never claims more than gross minus
+      // what AIMS has recorded against the document (guru 2026-11-18).
+      const stamped = outstandingOf(c);
+      const computed = ROUND(gross - applied);
+      const base = stamped !== undefined && stamped !== null ? Math.min(Math.abs(Number(stamped)), computed) : computed;
+      const outstanding = ROUND(Math.max(0, base));
       if (outstanding <= 0.005) continue;
       rows.push({
         documentId: d.id,

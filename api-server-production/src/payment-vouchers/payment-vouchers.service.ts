@@ -377,11 +377,17 @@ export class PaymentVouchersService {
       // opposite sign.
       const recorded = isCredit ? -(paidByBill.get(d.id) || 0) : paidByBill.get(d.id) || 0;
       const own = isCredit ? -(ownByBill.get(d.id) || 0) : ownByBill.get(d.id) || 0;
+      // The stamp is authoritative for what AIMS cannot see (a Xero credit
+      // note folded into the balance), but it can NEVER claim more is owing
+      // than gross minus the payments actually recorded here — a stale stamp
+      // on a paid bill is what put settled bills back in this grid
+      // (guru 2026-11-18). Take whichever is smaller, then add back this
+      // voucher's own rows so editing it can re-allocate them.
       const stamped = outstandingOf(c);
-      const outstanding =
-        stamped !== null && stamped !== undefined
-          ? ROUND(Math.max(0, Number(stamped) + own))
-          : ROUND(Math.max(0, gross - recorded));
+      const computed = ROUND(gross - recorded);
+      const base =
+        stamped !== null && stamped !== undefined ? Math.min(Number(stamped), computed) : computed;
+      const outstanding = ROUND(Math.max(0, base + own));
       if (outstanding <= 0.005) continue;
       rows.push({
         documentId: d.id,
