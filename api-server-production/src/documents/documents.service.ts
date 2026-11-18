@@ -4472,6 +4472,7 @@ export class DocumentsService {
         // Once the org's list keys are filled (aims_doc_list_keys trigger), search the small
         // listSearch / listCustomerId columns instead of unpacking every config (WCT's 24k
         // documents took 2-4 s per search). Same fields, same customer-name match.
+        const customerIdsLike = Prisma.sql`SELECT c.id::text FROM "Customer" c WHERE c."organizationId" = ${organizationId} AND c.name ILIKE ${like} ESCAPE '\\'`;
         const hits: Array<{ id: string }> = (await this.listKeysReady(organizationId))
           ? await this.prisma.$queryRaw`
           SELECT d.id FROM "Document" d
@@ -4500,12 +4501,11 @@ export class DocumentsService {
               -- The list resolves the CUSTOMER column from the id in config
               -- against the Customer table, so a document that stores only an
               -- id showed a name the search could not find (guru 2026-10-20).
-              OR EXISTS (
-                SELECT 1 FROM "Customer" c
-                WHERE c."organizationId" = ${organizationId}
-                  AND c.name ILIKE ${like} ESCAPE '\\'
-                  AND c.id::text IN (d.config #>> '{customer,id}', d.config ->> 'customerId')
-              )
+              -- Uncorrelated IN (hashed once per search), not a per-document EXISTS: the
+              -- EXISTS re-ran the customer match for every document (Biofuel: 18 s avg,
+              -- 281 s max on short terms; 2026-11-19). Same rows.
+              OR d.config #>> '{customer,id}' IN (${customerIdsLike})
+              OR d.config ->> 'customerId' IN (${customerIdsLike})
             )
           LIMIT 5000`;
         const or: any[] = [
