@@ -15,6 +15,22 @@ import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import { useAccountingApi } from "../api";
 import { onReportDate } from "./reportDate";
 
+/**
+ * The default period for a listing report: THIS MONTH, first to last day.
+ * Every listing opens on the current month (guru 2026-11-18: "we alr added
+ * this for all date range to default to start of current month why this one
+ * nvr") — the Journal Voucher Listing was still opening on the legacy
+ * dialog's 01/01/2018 → today, so it dragged every journal the org has ever
+ * posted into the browser before anyone had asked for anything.
+ */
+export const monthRange = () => {
+  const now = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  const iso = (d: Date) => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  return { from: iso(new Date(now.getFullYear(), now.getMonth(), 1)), to: iso(new Date(now.getFullYear(), now.getMonth() + 1, 0)) };
+};
+
+
 // The org's Financial Year End (Accounting Setup → Financial Settings) drives
 // the "This financial year" / "Year to date" presets. Fetched once per page
 // load and shared by every picker on it.

@@ -5,8 +5,9 @@
 // the red "Unconfirmed Journal Voucher(s)" section (DRAFT) and "Confirmed
 // Journal Voucher(s)" (POSTED). Columns: J/V No. | Date. | Accn |
 // Description (with the "Rate: x.xxxxxx SGD n" note on foreign lines) |
-// Foreign Amount | Curr | Amount. From/To Period defaults 01/01/2018 → today
-// like the legacy dialog. Print/CSV from the shell footer.
+// Foreign Amount | Curr | Amount. The period opens on the CURRENT MONTH like
+// every other listing (2026-11-18); the legacy dialog's 01/01/2018 → today is
+// a preset in the range picker. Print/CSV from the shell footer.
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Stack, Typography } from "@mui/material";
@@ -14,7 +15,7 @@ import { toast } from "react-toastify";
 import { useAccountingApi } from "../api";
 import ReportShell, { downloadCsv } from "./ReportShell";
 import ReportTable, { ReportRow, fmtDate } from "./ReportTable";
-import { DateRangeSelect } from "./DateRangeSelect";
+import { DateRangeSelect, monthRange } from "./DateRangeSelect";
 
 const R = (n: number) => Math.round(n * 100) / 100;
 // Debit side = positive signed amounts; credit side = negatives (shown as
@@ -30,12 +31,6 @@ function sideTotals(lines: Array<{ amount: number; foreignAmount: number | null 
   }
   return { dr, cr, fDr: hasF ? fDr : null, fCr: hasF ? fCr : null };
 }
-const todayISO = () => {
-  const d = new Date();
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-};
-
 type JvLine = {
   jvNo: string;
   date: string;
@@ -49,9 +44,12 @@ type JvLine = {
 export default function JvListingReport() {
   const { request } = useAccountingApi();
 
-  // Legacy dialog defaults: From Period 01/01/2018, To Period today.
-  const [from, setFrom] = useState("2018-01-01");
-  const [to, setTo] = useState(todayISO());
+  // THIS MONTH, like every other listing (guru 2026-11-18). The legacy
+  // dialog's 01/01/2018 → today is still one click away in the range picker's
+  // presets, but opening the report no longer pulls every journal ever posted.
+  const init = monthRange();
+  const [from, setFrom] = useState(init.from);
+  const [to, setTo] = useState(init.to);
   // J/V = the journals keyed in by hand on the Journal Voucher screen, and
   // ONLY those (guru 2026-11-06: "JV is only for the manual double entries").
   // Journals AIMS posts from documents already list under their own prefixes
