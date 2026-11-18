@@ -494,6 +494,8 @@ export default function TabbedDocumentCreator({
   // Items section tabs
   const [itemsTabValue, setItemsTabValue] = useState(0);
   const documentStatus = existingData?.status || "unconfirmed";
+  // Only unfinished work may be deleted — see the Delete button below.
+  const isDraftDoc = ["", "draft", "unconfirmed", "rejected"].includes(String(documentStatus).toLowerCase());
   // A document is editable ONLY while it is UNCONFIRMED (guru 2026-07-24
   // status model; "draft" stays readable for pre-backfill data). Once it moves
   // past that — "confirmed" and every post-confirm status (pending_payment,
@@ -3840,7 +3842,9 @@ export default function TabbedDocumentCreator({
         toast.success("Document duplicated");
         onDocumentCreated?.();
         const newDocType = response.data.type || documentType;
-        const templateId = response.data.documentTemplateId || documentId;
+        // The TEMPLATE id — falling back to the source DOCUMENT id put the
+        // original's id in the template slot of the duplicate's URL.
+        const templateId = response.data.documentTemplateId || existingData?.documentTemplateId || pathSegments[3];
         router.push(`/portal/documents/${newDocType}/${templateId}/${response.data.id}`);
       } else {
         toast.error(response?.message || "Failed to duplicate document");
@@ -4336,8 +4340,17 @@ export default function TabbedDocumentCreator({
     // customer selected — never a template, a read-only view, or anything with
     // content. Best-effort; navigation is never blocked.
     const exitDocId = existingData?.id || documentId;
+    // STATUS FIRST (guru 2026-11-18): "empty and untouched" is a heuristic over
+    // editor state, and a document whose items have not hydrated yet looks
+    // exactly like a blank draft. Only a draft/unconfirmed document may be
+    // auto-removed; a confirmed invoice is never deleted by walking away from
+    // it. The server now refuses this outright — this keeps the request from
+    // being made at all.
+    const exitStatus = String(existingData?.status || "unconfirmed").toLowerCase();
+    const exitIsDraft = ["", "draft", "unconfirmed"].includes(exitStatus);
     const isUntouchedEmptyDraft =
       !!exitDocId &&
+      exitIsDraft &&
       !isTemplateEditMode &&
       !initialPreviewMode &&
       !isDirtyRef.current &&
@@ -5040,7 +5053,17 @@ export default function TabbedDocumentCreator({
                   </Tooltip>
                 </>
               )}
-              <Button size="small" variant="contained" startIcon={<DeleteIcon />} onClick={() => setInvoiceDeleteOpen(true)} disabled={!(existingData?.id || documentId) || isPaidInvoice} sx={LEGACY_BTN.delete} data-tour="editor-legacy-delete">Delete</Button>
+              {/* Delete is for UNFINISHED work only (guru 2026-11-18). It used to be
+                  live on any unpaid document, so a confirmed, posted, customer-facing
+                  invoice was one click and one dialog from gone — that is how Keller's
+                  BIPL-JPSG-20260909-0001 (30,101.80, September) was lost. A confirmed
+                  document is voided or credited; the server refuses the delete outright
+                  now, and the button no longer offers it. */}
+              <Tooltip title={isDraftDoc ? "" : "Confirmed documents are voided or credited, not deleted"}>
+                <span>
+                  <Button size="small" variant="contained" startIcon={<DeleteIcon />} onClick={() => setInvoiceDeleteOpen(true)} disabled={!(existingData?.id || documentId) || isPaidInvoice || !isDraftDoc} sx={LEGACY_BTN.delete} data-tour="editor-legacy-delete">Delete</Button>
+                </span>
+              </Tooltip>
               <Button size="small" variant="contained" startIcon={<NavigateBeforeIcon />} onClick={onPrevious} disabled={!onPrevious || !hasPrevious} sx={LEGACY_BTN.nav}>Previous</Button>
               <Button size="small" variant="contained" endIcon={<NavigateNextIcon />} onClick={onNext} disabled={!onNext || !hasNext} sx={LEGACY_BTN.nav}>Next</Button>
               {/* Preview sits in the left group here (guru 2026-11-14); it is

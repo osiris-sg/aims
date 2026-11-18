@@ -63,6 +63,12 @@ interface CustomerSelectDialogProps {
    * local filter.
    */
   serverSearch?: boolean;
+  /**
+   * Who the list holds. The Payment Voucher / J/V offset dialogs reuse this
+   * picker for SUPPLIERS; the title, the quick-add button and the hints must
+   * say so (guru 2026-11-18: the P/V offset opened a "Locate Customer").
+   */
+  party?: "customer" | "supplier";
 }
 
 export default function CustomerSelectDialog({
@@ -71,7 +77,10 @@ export default function CustomerSelectDialog({
   onSelectCustomer,
   customers,
   serverSearch = false,
+  party = "customer",
 }: CustomerSelectDialogProps) {
+  const partyLabel = party === "supplier" ? "Supplier" : "Customer";
+  const partyWord = party === "supplier" ? "supplier" : "customer";
   const [searchTerm, setSearchTerm] = useState("");
   const [debounced, setDebounced] = useState("");
   useEffect(() => {
@@ -190,7 +199,7 @@ export default function CustomerSelectDialog({
         }}
       >
         <Typography variant="h6" fontWeight={500}>
-          Locate Customer
+          Locate {partyLabel}
         </Typography>
         <IconButton onClick={handleClose} size="small" sx={{ color: "#fafafa" }}>
           <CloseIcon />
@@ -217,7 +226,7 @@ export default function CustomerSelectDialog({
           <Stack direction="row" gap={1} sx={{ mb: 1.5 }}>
             <TextField
               fullWidth
-              placeholder="Search customers..."
+              placeholder={`Search ${partyWord}s...`}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -232,15 +241,17 @@ export default function CustomerSelectDialog({
               }}
               sx={{ bgcolor: "background.paper" }}
             />
-            <Button
-              variant="outlined"
-              size="small"
-              startIcon={<AddIcon />}
-              onClick={() => (addOpen ? setAddOpen(false) : openAddForm())}
-              sx={{ whiteSpace: "nowrap", flexShrink: 0 }}
-            >
-              New Customer
-            </Button>
+            {party === "customer" && (
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={() => (addOpen ? setAddOpen(false) : openAddForm())}
+                sx={{ whiteSpace: "nowrap", flexShrink: 0 }}
+              >
+                New {partyLabel}
+              </Button>
+            )}
           </Stack>
 
           {/* Inline create form — code is auto-generated from the name. */}
@@ -338,15 +349,17 @@ export default function CustomerSelectDialog({
                           ? "No customers found matching your search"
                           : "No customers available"}
                     </Typography>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      startIcon={<AddIcon />}
-                      onClick={openAddForm}
-                      sx={{ mt: 1.5 }}
-                    >
-                      {searchTerm.trim() ? `Create “${searchTerm.trim()}” as a new customer` : "Create a new customer"}
-                    </Button>
+                    {party === "customer" && (
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<AddIcon />}
+                        onClick={openAddForm}
+                        sx={{ mt: 1.5 }}
+                      >
+                        {searchTerm.trim() ? `Create “${searchTerm.trim()}” as a new ${partyWord}` : `Create a new ${partyWord}`}
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -416,11 +429,11 @@ export default function CustomerSelectDialog({
           }}
         >
           <Typography variant="body2" color="text.secondary">
-            Showing {filteredCustomers.length} of {customers.length} customers
+            Showing {filteredCustomers.length} of {customers.length} {partyWord}s
           </Typography>
           {showHints && (
             <Typography variant="caption" color="text.secondary">
-              Click on a row to select a customer
+              Click on a row to select a {partyWord}
             </Typography>
           )}
         </Box>
