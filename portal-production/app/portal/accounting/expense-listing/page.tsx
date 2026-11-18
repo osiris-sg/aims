@@ -1,11 +1,15 @@
 "use client";
 
-// Standalone route for the Expense Listing report — the same report that lives
-// as a tab in the General Ledger workspace (every expense + purchase
-// transaction, year to date, grouped by account). Was a ComingSoon stub long
-// after the report shipped (fixed 2026-11-08, Summer's expenses-by-category ask).
-import { ExpenseListing } from "../_lib/report-shell/entries";
+// The Expenses Listing lives in the General Ledger report shell like every other report
+// (guru 2026-11-18: one report UI, no paper-document pages). This route stays
+// for old links and sends them there.
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
-export default function ExpenseListingPage() {
-  return <ExpenseListing />;
+export default function RedirectPage() {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace("/portal/accounting/ledger?tab=expense-listing");
+  }, [router]);
+  return null;
 }
