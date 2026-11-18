@@ -136,7 +136,7 @@ import QuotationSignLinkDialog from "./QuotationSignLinkDialog";
 import SignLinkDialog from "@/app/portal/sales/quotations/id/_components/SignLinkDialog";
 import SendForSignatureButton from "@/app/portal/sales/quotations/id/_components/SendForSignatureButton";
 import DoOrderToolbar from "@/components/delivery/DoOrderToolbar";
-import { isNarrowSnoCell, lineColumnWidth } from "@/helpers/wctDocUi";
+import { editorTitleBar, isNarrowSnoCell, lineColumnWidth } from "@/helpers/wctDocUi";
 import { doOrderIdOf } from "@/helpers/doOrder";
 import { usesCielSignFlow } from "@/helpers/signLinkWording";
 import { useAppBack } from "@/app/portal/hooks/useAppBack";
@@ -1051,6 +1051,8 @@ export default function TabbedDocumentCreator({
   // toolbar. `legacyInvoice` / `legacyDo` stay for the type-specific field bits
   // (the invoice GL row, the DO hidden fields).
   const legacyLayout = isHeaderGlAccountEnabled && !isTemplateEditMode;
+  // The title bar: WCT group (enableWctDocNav) never cuts the title or squeezes the back arrow.
+  const titleBar = editorTitleBar(!!isWctDocNavEnabled);
   // Quotation templates (enableQuotationTemplates, WCT group): "+ Add" becomes a
   // split button (arrow > Create from template) and the ⋮ menu gets Save as
   // template. Setting off: all false, the toolbar is unchanged.
@@ -4980,7 +4982,8 @@ export default function TabbedDocumentCreator({
           alignItems: "center",
           gap: { xs: 0.75, md: 2 },
           // Phone: actions wrap onto a second row instead of clipping off-screen.
-          flexWrap: { xs: "wrap", md: "nowrap" },
+          // WCT group (enableWctDocNav): on every screen, so the title is never squeezed.
+          flexWrap: titleBar.barWrap,
           bgcolor: "background.paper",
           // Uniform-height action row — every button & icon-button matches.
           "& .MuiButton-root": {
@@ -4995,25 +4998,26 @@ export default function TabbedDocumentCreator({
           "& .MuiIconButton-sizeSmall": { height: 30, width: 30 },
         }}
       >
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0, flex: "1 1 auto" }}>
+        <Box sx={titleBar.left}>
           <IconButton
             onClick={handleBackClick}
             size="small"
+            sx={titleBar.back}
           >
             <ArrowBackIcon />
           </IconButton>
           <Typography
             variant="h6"
             fontWeight="500"
-            noWrap
-            sx={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}
+            noWrap={titleBar.noWrap}
+            sx={titleBar.title}
           >
             {isTemplateEditMode
               ? existingData?.name || `${getDocumentTitle()} Template`
               : formData.documentInfo?.documentNumber || formData.name || `${getDocumentTitle()} - New`}
           </Typography>
           {!isTemplateEditMode && orderDocLine(existingData, documentType) && (
-            <Typography variant="caption" color="text.secondary" noWrap sx={{ minWidth: 0, flexShrink: 1, fontVariantNumeric: "tabular-nums" }} data-tour="editor-order-no">
+            <Typography variant="caption" color="text.secondary" noWrap={titleBar.noWrap} sx={{ minWidth: 0, flexShrink: 1, fontVariantNumeric: "tabular-nums" }} data-tour="editor-order-no">
               {orderDocLine(existingData, documentType)}
             </Typography>
           )}
@@ -5022,7 +5026,7 @@ export default function TabbedDocumentCreator({
         </Box>
         {/* Phone: the cluster must be allowed to shrink (flexShrink 0 sized it to
     full content width, so flexWrap never engaged and buttons ran off-screen). */}
-<Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexShrink: { xs: 1, md: 0 }, minWidth: 0, flexWrap: { xs: "wrap", md: "nowrap" }, justifyContent: { xs: "flex-end", md: "initial" } }}>
+<Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexShrink: { xs: 1, md: 0 }, minWidth: 0, flexWrap: { xs: "wrap", md: "nowrap" }, justifyContent: { xs: "flex-end", md: "initial" }, ...titleBar.actions }}>
           {/* LEGACY INVOICE TOOLBAR (guru 2026-11-14): the previous software's
               button order — Add · Delete · Previous · Next · Preview · Print ·
               Locate · Extract — then Confirm · Duplicate. No Edit (a confirmed invoice

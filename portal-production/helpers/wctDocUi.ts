@@ -48,3 +48,34 @@ export function lineColumnWidth(columnId: string, narrowSno = false): string {
 
 /** Whether the editor draws the S/No cell as the narrow wrapping box (else the generic text field). */
 export const isNarrowSnoCell = (columnId: string, narrowSno: boolean): boolean => narrowSno && columnId === SNO_COLUMN;
+
+/**
+ * The editor's title bar (back arrow, title, order line) beside the action buttons. Off: as before (one row on
+ * desktop; a long title is cut with "…" and the arrow can be squeezed when the legacy toolbar is full).
+ * roomy (enableWctDocNav, WCT group 2026-11-18): the arrow never shrinks, the title is never cut (it wraps), and
+ * the action buttons move onto the next row (right-aligned) when the row is too narrow for both.
+ */
+export function editorTitleBar(roomy: boolean) {
+  if (!roomy) {
+    return {
+      barWrap: { xs: "wrap", md: "nowrap" } as Record<string, string>,
+      left: { display: "flex", alignItems: "center", gap: 1, minWidth: 0, flex: "1 1 auto" } as Record<string, unknown>,
+      back: {} as Record<string, unknown>,
+      noWrap: true,
+      title: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" } as Record<string, unknown>,
+      actions: {} as Record<string, unknown>,
+    };
+  }
+  return {
+    barWrap: { xs: "wrap", md: "wrap" } as Record<string, string>,
+    left: { display: "flex", alignItems: "center", flexWrap: "wrap", columnGap: 1, rowGap: 0.25, minWidth: 0, maxWidth: "100%", flex: "1 0 auto" } as Record<string, unknown>,
+    back: { flexShrink: 0 } as Record<string, unknown>,
+    noWrap: false,
+    title: { minWidth: 0, whiteSpace: "normal", overflowWrap: "anywhere" } as Record<string, unknown>,
+    actions: { ml: "auto", flexShrink: 1, flexWrap: "wrap", justifyContent: "flex-end" } as Record<string, unknown>,
+  };
+}
+
+/** The "All … for this organization" line under a document list's title: none for the WCT group (enableWctDocNav). */
+export const documentListSubtitle = (plural: string, hide: boolean, wctDocNav: boolean): string | undefined =>
+  hide || wctDocNav ? undefined : `All ${plural} for this organization`;

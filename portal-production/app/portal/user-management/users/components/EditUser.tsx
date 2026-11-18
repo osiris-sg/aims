@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select, MenuItem, Chip, Alert, IconButton, InputAdornment, TextField, Switch, FormControlLabel, Divider, Tooltip, alpha } from "@mui/material";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import RoleChips from "./RoleChips";
-import { applySelect, makePrimary, rolePayload, selectionFromUser, singleRolePicker } from "@/helpers/multiRole";
+import { applySelect, rolePayload, selectionFromUser, singleRolePicker } from "@/helpers/multiRole";
 
 // WhatsApp shipments assistant (round S): per-user pushes. Mirrors the API defaults.
 type WaPrefs = { digest: boolean; needsMe: boolean; filed: boolean; events: boolean; quietFrom: string; quietTo: string; lang: "en" | "ja" };
@@ -508,7 +508,6 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                           }}
                           multi
                           onDelete={handleRoleToggle}
-                          onMakePrimary={(id) => setSelectedRoles((prev) => makePrimary(prev, id))}
                         />
                       ) : (
                         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>

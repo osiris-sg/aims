@@ -2,7 +2,7 @@
 // 2026-10-30: Dashboard jobs calendar (WCT, enableJobsCalendar): range, colours, cancelled toggle, popup text, banner.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { rangeOf, toCalendarInputs, timeWindow, crewLine, siteclockBanner, KIND_COLOR, CANCELLED_COLOR, badgeTitle, legendTitle, PTW_STATE_COLOR, ptwStateOf, calendarLegendItems, eventClickTarget, wctStateOf, isMiscJob, panelLinks, dayJobsOf, dayOfInstant, wctKindLabel, eventColor } from "../components/Dashboard/jobs-calendar/calendarModel.ts";
+import { rangeOf, toCalendarInputs, timeWindow, crewLine, siteclockBanner, KIND_COLOR, CANCELLED_COLOR, badgeTitle, legendTitle, PTW_STATE_COLOR, ptwStateOf, calendarLegendItems, eventClickTarget, wctStateOf, isMiscJob, panelLinks, dayJobsOf, dayOfInstant, wctKindLabel, eventColor, MORE_LINK_HANDLED, panelMoreLink } from "../components/Dashboard/jobs-calendar/calendarModel.ts";
 
 const ev = (over = {}) => ({
   id: "aims:1", source: "aims", kind: "delivery", title: "#12 Acme", start: "2026-11-03T02:00:00.000Z", end: "2026-11-03T03:30:00.000Z",
@@ -144,4 +144,23 @@ test("a busy day: every chip carries its own job (a click opens that one), and +
   assert.deepEqual(dayJobsOf(segs).map((e) => e.id), ["a", "b", "c", "d", "e", "f"]);
   assert.equal(dayOfInstant(new Date("2026-11-16T16:00:00.000Z")), "2026-11-17");
   assert.equal(dayOfInstant(new Date("2026-11-17T00:00:00.000Z")), "2026-11-17");
+});
+
+// FullCalendar 6.1.21 MoreLinkContainer.handleClick, verbatim branch order: no result or "popover" opens its
+// pop-over, a string zooms to that view, anything else does nothing more.
+const fcMoreLinkOutcome = (r) => (!r || r === "popover" ? "popover" : typeof r === "string" ? "zoom" : "none");
+
+test('"+n more" (WCT, 2026-11-18 crash): the day goes to the panel and FullCalendar opens no pop-over', () => {
+  // The old handler returned undefined: FullCalendar still mounted its (hidden) pop-over, which crashed the page.
+  assert.equal(fcMoreLinkOutcome(undefined), "popover");
+  assert.equal(fcMoreLinkOutcome(MORE_LINK_HANDLED), "none");
+  let shown = null;
+  const handler = panelMoreLink((day) => (shown = day));
+  const a = ev({ id: "aims:1" });
+  const b = ev({ id: "aims:2", title: "#13 Beta" });
+  const segs = [a, b, a].map((e) => ({ event: { extendedProps: { event: e } } })).concat([{ event: { extendedProps: { note: { id: "n1" } } } }]);
+  const out = handler({ date: new Date("2026-11-12T16:30:00.000Z"), allSegs: segs });
+  assert.equal(fcMoreLinkOutcome(out), "none");
+  assert.equal(shown.date, "2026-11-13");
+  assert.deepEqual(shown.events.map((e) => e.id), ["aims:1", "aims:2"]);
 });

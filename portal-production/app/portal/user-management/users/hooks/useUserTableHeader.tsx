@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { createColumnHelper } from "@tanstack/react-table";
 import { Box, Chip, Typography, Avatar } from "@mui/material";
 import PersonIcon from "@mui/icons-material/Person";
-import StarIcon from "@mui/icons-material/Star";
 import { kebabColumn } from "@/components/RowKebab";
 import { request } from "@/helpers/request";
 import { useAuth } from "@clerk/nextjs";
@@ -19,7 +18,6 @@ export default function useUserTableHeader() {
   const [isDeleteInProgress, setIsDeleteInProgress] = useState(false);
   const { getToken } = useAuth();
   const t = useTranslations("users.list");
-  const tf = useTranslations("users.form");
   const { lang } = useUiLang();
 
   const handleEditUser = (user: any) => {
@@ -99,20 +97,18 @@ export default function useUserTableHeader() {
       header: t("roles"),
       cell: (info) => {
         const roles = info.getValue();
-        // Multi-role orgs: the API sends primaryRoleId (roles come primary first); that chip is marked.
-        const primaryId = (info.row.original as any)?.primaryRoleId as string | undefined;
+        // Multi-role orgs (WCT group): roles come primary first, with no Primary mark (2026-11-18); the API's
+        // primaryRoleId is only used by Edit User to keep the order. Other orgs: plain chips as before.
         return (
           <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
             {roles && roles.length > 0 ? (
-              roles.map((role: any, index: number) => (
+              roles.map((role: any) => (
                 <Chip
                   key={role.id}
-                  label={primaryId && role.id === primaryId ? `${role.name} · ${tf("primary")}` : role.name}
-                  icon={primaryId && role.id === primaryId ? <StarIcon fontSize="small" /> : undefined}
-                  data-testid={primaryId && role.id === primaryId ? "users-role-primary" : undefined}
+                  label={role.name}
                   size="small"
                   color="primary"
-                  variant={primaryId && role.id === primaryId ? "filled" : "outlined"}
+                  variant="outlined"
                   sx={{
                     borderRadius: "4px",
                     fontSize: "0.75rem",

@@ -8,6 +8,7 @@
 // Sales = /portal/sales, Inventory = /portal/inventory/overview; Accounting
 // opens the Trial Balance instead (an existing page).
 
+import { moduleHomeBoxSx } from "@/helpers/moduleHome";
 import * as React from "react";
 import Link from "next/link";
 import { Box, ButtonBase, Stack, Typography, alpha, useTheme } from "@mui/material";
@@ -70,7 +71,8 @@ export default function ModuleHome({ code, title, stats, loading, children }: { 
     borderColor: dark ? alpha("#fff", 0.08) : "#E6E8F0",
   } as const;
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, maxWidth: 1440, mx: "auto" }} data-testid={`module-home-${code}`}>
+    // A block under the tiles (Sales: the jobs calendar) makes the page full width (helpers/moduleHome).
+    <Box sx={moduleHomeBoxSx(!!children)} data-testid={`module-home-${code}`}>
       <Typography sx={{ fontSize: 22, fontWeight: 700, mb: 2 }}>{title}</Typography>
 
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(2, 1fr)", sm: "repeat(3, 1fr)", lg: `repeat(${Math.min(stats.length, 6)}, 1fr)` }, gap: 1.5, mb: 3 }}>

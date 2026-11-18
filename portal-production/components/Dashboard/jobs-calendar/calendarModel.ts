@@ -354,6 +354,24 @@ export function dayJobsOf(segs: Array<{ event: { extendedProps?: Record<string, 
   return out;
 }
 
+/**
+ * What a "+n more" handler returns once it has listed the day in the side panel (WCT, 2026-11-18 crash fix).
+ * FullCalendar 6 (MoreLinkContainer.handleClick) opens its own pop-over when the handler returns nothing or
+ * "popover", and zooms to a view when it returns any other string. The old handler returned nothing, so the
+ * pop-over still mounted under a `display: none` rule; a hidden element has no offsetParent, and the pop-over's
+ * first sizing pass (Popover.updateSize: rootEl.offsetParent.getBoundingClientRect()) threw, which took the
+ * whole page down ("Application error"). A truthy non-string is neither branch: nothing else happens.
+ */
+export const MORE_LINK_HANDLED = Object.freeze({ handled: true }) as unknown as string;
+
+/** The WCT "+n more" handler: the day's jobs go to the panel, and FullCalendar opens nothing of its own. */
+export function panelMoreLink(show: (day: { date: string; events: CalendarEvent[] }) => void) {
+  return (arg: { date: Date; allSegs: Array<{ event: { extendedProps?: Record<string, any> } }> }): string => {
+    show({ date: dayOfInstant(arg.date), events: dayJobsOf(arg.allSegs) });
+    return MORE_LINK_HANDLED;
+  };
+}
+
 /** "Ali · arrived 10:05 am · left 11:20 am" for the popup. */
 export function crewLine(c: CalendarCrew): string {
   const parts = [c.name];

@@ -558,7 +558,7 @@ export default function WctOrderDetail({ id }: { id: string }) {
             <Typography variant="body2" color="text.secondary">
               {order.toInvoice?.length
                 ? `${order.toInvoice.length} verified job${order.toInvoice.length === 1 ? "" : "s"} not invoiced yet. The order is invoiced automatically once every job is done and verified, or use Invoice now.`
-                : (order as any).toInvoiceDos?.length ? `${(order as any).toInvoiceDos.join(", ")} completed, not invoiced yet. The order is invoiced automatically once every DO is completed, or use Invoice now.` : doFirst ? "The order is invoiced once every DO is completed." : "The order is invoiced once every job is done and verified."}
+                : (order as any).toInvoiceDos?.length ? `${(order as any).toInvoiceDos.join(", ")} completed, not invoiced yet. The order is invoiced automatically once every DO is completed, or use Invoice now.` : null}
             </Typography>
           ) : (
             <TableContainer sx={{ border: 1, borderColor: "divider", borderRadius: 1 }}>

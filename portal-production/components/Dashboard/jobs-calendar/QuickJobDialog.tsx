@@ -200,15 +200,6 @@ export default function QuickJobDialog({
       <DialogTitle>{edit ? "Edit job" : "New job"}</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2} sx={{ mt: 1 }}>
-          {categoryDef && (
-            <TextField select required label="Job category" size="small" fullWidth value={form.category ?? categoryDef.defaultValue} onChange={(e) => set({ category: e.target.value })} data-tour="quick-job-category">
-              {categoryDef.options.map((o) => (
-                <MenuItem key={o} value={o}>
-                  {o}
-                </MenuItem>
-              ))}
-            </TextField>
-          )}
           {quotationOn && (
             <QuotationPicker value={quotation} customerId={form.customerId} busy={quotationBusy} onChange={(o) => void pickQuotation(o)} />
           )}
@@ -217,6 +208,16 @@ export default function QuickJobDialog({
               {quotation.openDos.map((d) => (
                 <MenuItem key={d.id} value={d.id}>
                   {doOptionLabel(d)}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
+          {/* Job category (WCT group) after the Quotation (2026-11-18). */}
+          {categoryDef && (
+            <TextField select required label="Job category" size="small" fullWidth value={form.category ?? categoryDef.defaultValue} onChange={(e) => set({ category: e.target.value })} data-tour="quick-job-category">
+              {categoryDef.options.map((o) => (
+                <MenuItem key={o} value={o}>
+                  {o}
                 </MenuItem>
               ))}
             </TextField>

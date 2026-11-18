@@ -12,7 +12,7 @@ import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import PersonAddIcon from "@mui/icons-material/PersonAdd";
 import RoleChips from "./RoleChips";
-import { applySelect, makePrimary, rolePayload, singleRolePicker } from "@/helpers/multiRole";
+import { applySelect, rolePayload, singleRolePicker } from "@/helpers/multiRole";
 
 interface Props {
   open: boolean;
@@ -374,7 +374,6 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                           }}
                           multi
                           onDelete={handleRoleToggle}
-                          onMakePrimary={(id) => setSelectedRoles((prev) => makePrimary(prev, id))}
                         />
                       ) : (
                         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>

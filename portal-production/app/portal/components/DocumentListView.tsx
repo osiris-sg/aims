@@ -59,6 +59,7 @@ const DOC_STATUS_OPTIONS = [
 import { useCreateDocumentFlow } from "./useCreateDocumentFlow";
 import { docGrossTotal, docPaidToDate, docAmountDue } from "@/helpers/docTotal";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { documentListSubtitle } from "@/helpers/wctDocUi";
 import { invoiceStatusOptions } from "@/helpers/invoiceStatusOptions";
 import DoStatusTag from "@/components/DoStatusTag";
 import { docDoTag } from "@/helpers/doStatusTag";
@@ -258,7 +259,8 @@ export default function DocumentListView({
   const dateHeader = useMemo(() => dateHeaderFor(documentTypes), [documentTypes]);
 
   // Real DO numbers (enableRealDoOnSchedule): a DO shows Pending / Completed / Cancelled next to its number.
-  const { isRealDoOnScheduleEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled } = useOrganizationFeatures();
+  const { isRealDoOnScheduleEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled, isWctDocNavEnabled } = useOrganizationFeatures();
+  // WCT group (enableWctDocNav, 2026-11-18): no "All … for this organization" line under the title.
   // WCT orders hub (2026-11-13): a quotation's order number, linked, in the Quotations list.
   const showOrderColumn = !!isWctOrdersEnabled && documentTypes.some((t) => ["QUOTATION", "QO", "QO1", "QO2", "QT"].includes(t));
   const [ordersByQuotation, setOrdersByQuotation] = useState<Map<string, { id: string; orderNumber: string }>>(new Map());
@@ -631,7 +633,7 @@ export default function DocumentListView({
         sorting={sorting}
         onSortingChange={setSorting}
         tableName={`${pluralLabel || documentLabel + "s"} List`}
-        subTitle={hideSubtitle ? undefined : `All ${pluralLabel || documentLabel + "s"} for this organization`}
+        subTitle={documentListSubtitle(pluralLabel || documentLabel + "s", !!hideSubtitle, !!isWctDocNavEnabled)}
         buttonName={createDocumentType ? `Create ${documentLabel}` : undefined}
         onAddClick={createDocumentType ? handleCreate : undefined}
         buttonDisabled={creating}

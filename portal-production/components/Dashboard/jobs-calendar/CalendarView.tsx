@@ -42,7 +42,7 @@ import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
-import { CALENDAR_TZ, badgeTitle, chipIcons, chipTimeRange, crewLine, crossOrgTarget, dayJobsOf, dayOfInstant, kindLabel, orgLabel, panelColor, panelLinks, panelRefs, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag } from "./calendarModel";
+import { CALENDAR_TZ, badgeTitle, chipIcons, chipTimeRange, crewLine, crossOrgTarget, kindLabel, orgLabel, panelColor, panelLinks, panelMoreLink, panelRefs, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag } from "./calendarModel";
 import DoStatusTag from "@/components/DoStatusTag";
 
 interface Props {
@@ -151,8 +151,6 @@ export default function CalendarView({
         "& .fc .fc-col-header-cell-cushion, & .fc .fc-daygrid-day-number": { color: "text.primary", textDecoration: "none" },
         "& .fc a": { color: "inherit" },
         "& .aims-jc-event": { cursor: "pointer" },
-        // WCT: "+n more" lists the day in the side panel, not FullCalendar's own pop-over.
-        ...(openOnClick ? { "& .fc-more-popover": { display: "none" } } : {}),
         ...(canAdd ? { "& .fc-daygrid-day, & .fc-timegrid-slot-lane": { cursor: "copy" } } : {}),
         "& .aims-jc-completed": { opacity: 0.5 },
         // Notes: one slim neutral chip, not a full bar.
@@ -186,14 +184,8 @@ export default function CalendarView({
         eventTimeFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
         events={inputs}
         eventClick={onClick}
-        moreLinkClick={
-          openOnClick
-            ? (arg) => {
-                setPanel({ event: null, day: { date: dayOfInstant(arg.date), events: dayJobsOf(arg.allSegs as any) } });
-                return undefined;
-              }
-            : undefined
-        }
+        // WCT: the day goes to the panel and FullCalendar opens no pop-over (see MORE_LINK_HANDLED).
+        moreLinkClick={openOnClick ? (panelMoreLink((day) => setPanel({ event: null, day })) as any) : undefined}
         // Job category (WCT group): the chip's tooltip names it (no tooltip for orgs without categories).
         eventDidMount={(arg) => {
           const t = categoryChipTitle(arg.event.extendedProps.event as CalendarEvent | undefined, arg.event.title);
