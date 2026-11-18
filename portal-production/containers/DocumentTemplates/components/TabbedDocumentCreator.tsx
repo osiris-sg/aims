@@ -92,6 +92,7 @@ import { AutoAwesome as AutoAwesomeIcon } from "@mui/icons-material";
 import CleanDocumentPreview from "./CleanDocumentPreview";
 import ServerDocumentPreview, { type ServerDocumentPreviewHandle } from "./ServerDocumentPreview";
 import { orderDocLine } from "@/helpers/wctOrders";
+import { signedByDefault, withRackingUom } from "@/helpers/rackingQuote";
 import { resolveDesign as resolveTemplateDesign } from "@/app/portal/documents/design";
 import RouteOrderPointsEditor from "./RouteOrderPointsEditor";
 // Shared dialog — same component used by the Field Reports tab on the
@@ -424,7 +425,7 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isQuotationTemplatesEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled, isDocRemarksEnabled, isQuotationCategoryEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isQuotationTemplatesEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled, isDocRemarksEnabled, isQuotationCategoryEnabled, isRackingLayoutEnabled } = useOrganizationFeatures();
   // In-app Back (enableWctDocNav): history back when opened inside the app, else the parent list; off = the parent list.
   const { goBack } = useAppBack();
   // Manual order flow: after an order's invoice is emailed, offer to send its service report too.
@@ -997,6 +998,9 @@ export default function TabbedDocumentCreator({
   // Quotations of enableQuotationESign orgs: CIEL's "Send for signature" button
   // + dialog (2026-11-13: the WCT group first, then every such org, e.g. Chong Aik).
   const cielSignFlow = usesCielSignFlow({ isQuotation, eSign: isQuotationESignEnabled });
+  // WCT Racking quotation (enableRackingLayout, 2026-11-18): UOM after Qty, "Goodwill Discount", the Notes box
+  // only when a quotation still has notes (the footer lives in the T&Cs), "Signed by" defaults to the salesperson.
+  const isRackingQuote = !!isRackingLayoutEnabled && isQuotation;
   // Send menu (enableWctDocNav, WCT group 2026-11-17): ONE "Send" button for
   // signature / email / WhatsApp (disabled) replaces "Send for signature" and
   // "Send Email"; same show rules (helpers/sendMenu.ts). Off = the old buttons.
@@ -1822,6 +1826,15 @@ export default function TabbedDocumentCreator({
     markEdited(); // real edit → bump the lock's idle clock on next heartbeat
     setFormDataState(update);
   }, [markEdited, pushHistory]);
+  // WCT Racking quotation: "Signed by" shows the salesperson until it is set (display fill: not an edit, so it
+  // never autosaves on its own; the PDF falls back to the same name when the key is absent).
+  const rkSalesName = (formData?.documentInfo as any)?.salesPersonName;
+  useEffect(() => {
+    if (!isRackingQuote || isTemplateEditMode) return;
+    const name = signedByDefault(formData?.documentInfo as any);
+    if (name) setFormDataState((prev: any) => ({ ...prev, documentInfo: { ...(prev?.documentInfo || {}), signedBy: name } }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRackingQuote, isTemplateEditMode, rkSalesName]);
   const setItems = useCallback((update: any) => {
     pushHistory();
     isDirtyRef.current = true;
@@ -6079,6 +6092,7 @@ export default function TabbedDocumentCreator({
                     formData={formData}
                     setFormData={setFormData}
                     hideDiscount={isRouteOrderPO}
+                    discountLabel={isRackingQuote ? "Goodwill Discount" : undefined}
                     hiddenFields={
                       // Legacy invoice arrangement drops Bill to (auto-filled
                       // from the customer master, printed as-is) and Currency
@@ -7080,6 +7094,7 @@ export default function TabbedDocumentCreator({
                               if (isQuotation && !isFcuCuVariant && !defaultColumns.includes("item")) {
                                 defaultColumns.unshift("item");
                               }
+                              if (isRackingQuote) withRackingUom(defaultColumns);
                               return (isTemplateEditMode ? templateWatch("tableColumnOrder") : defaultColumns).map((columnId: string) => {
                                 // Skip tax column for invoices
                                 if (isInvoiceType && columnId === "tax") return null;
@@ -7254,6 +7269,7 @@ export default function TabbedDocumentCreator({
                                 if (isQuotation && !isFcuCuVariant && !defaultColumns.includes("item")) {
                                   defaultColumns.unshift("item");
                                 }
+                                if (isRackingQuote) withRackingUom(defaultColumns);
                                 const renderColumns: string[] = (isTemplateEditMode ? templateWatch("tableColumnOrder") : defaultColumns) || [];
                                 if (item.isGroupHeader) {
                                   // colSpan must equal the REAL rendered data-column
@@ -8251,7 +8267,8 @@ export default function TabbedDocumentCreator({
                       </Grid>
                     )}
 
-                    {/* Notes - for all types */}
+                    {/* Notes - for all types (WCT Racking quotation: only while it still has notes; its footer is the T&Cs) */}
+                    {!(isRackingQuote && !String(formData.note || "").replace(/<[^>]*>/g, "").trim()) && (
                     <Grid item xs={12} md={documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" ? 12 : 6} sx={{ display: "flex", flexDirection: "column" }}>
                       <Typography variant="caption" sx={{ mb: 0.5, color: "text.secondary" }}>Notes</Typography>
                       <RichTextDescription
@@ -8260,6 +8277,7 @@ export default function TabbedDocumentCreator({
                         placeholder="Enter notes"
                       />
                     </Grid>
+                    )}
 
                     {/* Terms & Conditions - for TI and QO1 */}
                     {(documentType === "TI" || documentType === "TI2" || documentType === "INVOICE" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (

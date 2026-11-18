@@ -32,7 +32,7 @@
 import { resolveTimeZone } from '../../org-today';
 import { DocumentDesign } from './design';
 import { amountPaidOf, outstandingOf } from '../../document-money';
-import { billToText, descriptionText, escapeHtml, makeDi, money, richContent } from './shared';
+import { billToText, decodeHtmlEntities as decodeEntities, descriptionText, escapeHtml, makeDi, money, richContent } from './shared';
 import { erpStoredTotalsOf, moneySignature, type ErpStoredTotals } from '../../erp-import';
 import { BCAIR_DOC } from './wct-brand';
 
@@ -174,6 +174,64 @@ const BC_CSS = `
   .wct.bc .bcsign .r { display: flex; flex-direction: column; justify-content: space-between; text-align: right; }
 </style>`;
 
+/**
+ * WCT Racking (features.enableRackingLayout -> design.racking, 2026-11-18). Its quotation on the WCT
+ * layout: a UOM column, section titles without an S/No, Total Amount / Goodwill Discount / Final Amount,
+ * the footer text with its headings in capitals (no "Remarks" heading), and the closing "Yours Sincerely,"
+ * + the signer in a script font + "<title> of" + the company in orange. The letterhead of every Racking
+ * document drops "GST Reg No" (Racking is not GST registered). Other orgs never get design.racking.
+ */
+const RK_CSS = `
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap');
+  .wct.rk .rkfoot { margin: 6px 0 18px; font-size: 12px; line-height: 1.6; }
+  .wct.rk .rkfoot .hd { font-weight: 700; margin-top: 10px; page-break-after: avoid; break-after: avoid; }
+  .wct.rk .rkfoot .hd:first-child { margin-top: 0; }
+  .wct.rk .rkfoot .ln { white-space: pre-wrap; word-break: break-word; }
+  .wct.rk .rkfoot .gap { height: 6px; }
+  .wct.rk .rkfoot .gap + .hd { margin-top: 4px; }
+  .wct.rk .rkfoot .bl { display: flex; gap: 6px; }
+  .wct.rk .rkfoot .bl > span:first-child { flex: 0 0 10px; }
+  .wct.rk .rkfoot .bl > span:last-child { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; }
+  .wct.rk .rksig { line-height: 1.5; }
+  .wct.rk .rksig .scr { font-family: 'Great Vibes', 'Brush Script MT', 'Segoe Script', cursive; font-size: 30px; line-height: 1.2; margin: 4px 0 2px; }
+  .wct.rk .rksig .co { color: ${'#E8731A'}; font-weight: 700; }
+</style>`;
+
+/** A footer heading as the Racking paper prints it (capitals, colon), or null when the line is not one. */
+const RK_HEADING = /^\s*(payment\s+terms|payment\s+method|terms\s*(?:&|and)\s*conditions)\s*:?\s*$/i;
+const rkHeadingOf = (line: string): string | null => {
+  const m = RK_HEADING.exec(line);
+  if (!m) return null;
+  return `${m[1].replace(/\s+/g, ' ').toUpperCase().replace(/\s*(?:&|\bAND\b)\s*/, ' & ')}:`;
+};
+
+/**
+ * The Racking footer text: plain text line by line (headings bold in capitals, "•" / "-" bullets with a
+ * hanging indent); HTML from the rich editor keeps its markup with the heading words in capitals.
+ */
+function rackingFooterText(text: string): string {
+  const raw = String(text ?? '');
+  if (!raw.trim()) return '';
+  if (/<[a-z][\s\S]*>/i.test(raw)) {
+    return `<div class="ln">${raw.replace(/(payment\s+terms|payment\s+method|terms\s*(?:&amp;|&|and)\s*conditions)\s*:/gi, (_m, w) => `${String(w).replace(/\s+/g, ' ').toUpperCase().replace(/\s*(?:&AMP;|&|\bAND\b)\s*/, ' &amp; ')}:`)}</div>`;
+  }
+  const lines = decodeEntities(raw).split(/\r?\n/);
+  return lines
+    .map((l) => {
+      const h = rkHeadingOf(l);
+      if (h) return `<div class="hd">${escapeHtml(h)}</div>`;
+      const b = /^\s*(•|-)\s?(.*)$/.exec(l);
+      if (b) return `<div class="bl"><span>${b[1] === '•' ? '•' : '-'}</span><span>${escapeHtml(b[2])}</span></div>`;
+      return l.trim() ? `<div class="ln">${escapeHtml(l)}</div>` : '<div class="gap"></div>';
+    })
+    .join('');
+}
+
+/** True when the footer text already carries a TERMS & CONDITIONS heading line. */
+const hasTermsHeading = (text: string): boolean =>
+  /(^|\n|>)\s*(?:<b>\s*)?terms\s*(?:&amp;|&|and)\s*conditions\s*:?/i.test(String(text ?? ''));
+
 function bcLetterhead(data: any, numberLabel: string, docNumber: string): string {
   const logoUrl = data?.logoUrl;
   const line = (parts: Array<{ label?: string; text: string; mail?: boolean }>) =>
@@ -187,7 +245,7 @@ function bcLetterhead(data: any, numberLabel: string, docNumber: string): string
   <div class="docno">${escapeHtml(numberLabel)} : ${escapeHtml(docNumber)}</div>`;
 }
 
-function letterhead(org: any, data: any, numberLabel: string, docNumber: string): string {
+function letterhead(org: any, data: any, numberLabel: string, docNumber: string, racking = false): string {
   const company = data?.company || {};
   const name = first(org?.name, company.name);
   const address = first(org?.address, company.address);
@@ -200,7 +258,7 @@ function letterhead(org: any, data: any, numberLabel: string, docNumber: string)
   const logoUrl = data?.logoUrl;
   const lines = [
     address ? escapeHtml(address) : '',
-    reg ? `<span class="sp">Company Reg: ${escapeHtml(reg)}</span><span class="sp">GST Reg No: ${escapeHtml(reg)}</span>` : '',
+    reg ? `<span class="sp">Company Reg: ${escapeHtml(reg)}</span>${racking ? '' : `<span class="sp">GST Reg No: ${escapeHtml(reg)}</span>`}` : '',
     tel ? `Tel: ${escapeHtml(tel)}` : '',
     paynow ? `PayNow UEN: ${escapeHtml(paynow)}` : '',
     email ? `Email: ${escapeHtml(email)}` : '',
@@ -250,7 +308,7 @@ function totalsOf(di: (k: string, d?: any) => any, items: any[]) {
   return { currency, gstPercent, gstAmount, discountAmount, displayNet, total };
 }
 
-function linesTable(data: any, items: any[], kind: WctDocKind, currency: string): string {
+function linesTable(data: any, items: any[], kind: WctDocKind, currency: string, racking = false): string {
   const defaults = kind === 'do' ? ['no', 'description', 'quantity', 'remarks'] : ['no', 'description', 'quantity', 'unitPrice', 'amount'];
   const labelsDefault: Record<string, string> =
     kind === 'do'
@@ -258,16 +316,26 @@ function linesTable(data: any, items: any[], kind: WctDocKind, currency: string)
       : { no: 'S/No', description: 'Description', quantity: 'Qty', unitPrice: 'Unit Price', amount: 'Amount' };
   const internal: string[] = Array.isArray(data?.internalColumns) ? data.internalColumns : ['discountPrice', 'costPrice'];
   const order: string[] = Array.isArray(data?.tableColumnOrder) && data.tableColumnOrder.length ? data.tableColumnOrder : defaults;
-  const columns = order.filter((c) => !internal.includes(c));
-  const labels: Record<string, string> = { ...labelsDefault, ...(data?.columnLabels || {}) };
-  const cls = (c: string) => (c === 'no' ? 'no' : c === 'quantity' ? 'qty' : ['unitPrice', 'amount', 'salePrice', 'listPrice'].includes(c) ? 'num' : c === 'description' ? 'desc' : '');
+  let columns = order.filter((c) => !internal.includes(c));
+  // Racking quotation: a UOM column right after Qty (free text, blank prints blank).
+  const rkQuote = racking && kind === 'quotation';
+  if (rkQuote && !columns.includes('uom')) {
+    const q = columns.indexOf('quantity');
+    columns = q >= 0 ? [...columns.slice(0, q + 1), 'uom', ...columns.slice(q + 1)] : columns;
+  }
+  const labels: Record<string, string> = { ...labelsDefault, ...(rkQuote ? { uom: 'UOM' } : {}), ...(data?.columnLabels || {}) };
+  const cls = (c: string) => (c === 'no' ? 'no' : c === 'quantity' || (rkQuote && c === 'uom') ? 'qty' : ['unitPrice', 'amount', 'salePrice', 'listPrice'].includes(c) ? 'num' : c === 'description' ? 'desc' : '');
   const headStyle = (c: string) =>
-    c === 'quantity' ? 'text-align:center;' : ['unitPrice', 'amount', 'salePrice', 'listPrice'].includes(c) ? 'text-align:center;' : c === 'remarks' ? 'text-align:center;' : '';
-  const widths: Record<string, string> = { no: '42px', quantity: kind === 'do' ? '110px' : '64px', unitPrice: '96px', amount: '110px', remarks: '170px' };
+    c === 'quantity' || (rkQuote && c === 'uom') ? 'text-align:center;' : ['unitPrice', 'amount', 'salePrice', 'listPrice'].includes(c) ? 'text-align:center;' : c === 'remarks' ? 'text-align:center;' : '';
+  const widths: Record<string, string> = { no: '42px', quantity: kind === 'do' ? '110px' : '64px', unitPrice: '96px', amount: '110px', remarks: '170px', ...(rkQuote ? { uom: '64px' } : {}) };
+  // S/No: Racking quotation section titles take none (the first item is 1); everyone else counts every row.
+  const serial: number[] = [];
+  let n = 0;
+  for (const it of items) serial.push(rkQuote ? (it.isGroupHeader ? 0 : ++n) : ++n);
   const value = (c: string, it: any, i: number): string => {
     switch (c) {
       case 'no':
-        return String(i + 1);
+        return String(serial[i]);
       case 'description':
         return descriptionText(it.description || it.name || '');
       case 'quantity':
@@ -327,9 +395,24 @@ function jobBoxes(di: (k: string, d?: any) => any): string {
   }</div>`;
 }
 
-function signBlock(di: (k: string, d?: any) => any): string {
-  const sales = first(di('salesPersonName'), typeof di('salesPerson') === 'string' ? di('salesPerson') : di('salesPerson')?.name);
+/** The salesperson's printed name (the editor stores the name beside the code / user id). */
+const salesNameOf = (di: (k: string, d?: any) => any): string =>
+  first(di('salesPersonName'), typeof di('salesPerson') === 'string' ? di('salesPerson') : di('salesPerson')?.name);
+
+function signBlock(di: (k: string, d?: any) => any, racking = false): string {
+  const sales = salesNameOf(di);
   const contact = first(di('salesContact'), di('salesPersonContact'));
+  // Racking: "Yours Sincerely," opens its own closing block (rackingClosing).
+  if (racking) {
+    return `
+  <div class="sign">
+    <div class="l">
+      <p>Sales Person: ${escapeHtml(sales)}</p>
+      <p style="margin-bottom:0;">Contact: ${escapeHtml(contact)}</p>
+    </div>
+    <div class="r">Confirmation of Order</div>
+  </div>`;
+  }
   // The e-signature (public /sign link) prints in the closing block, see clientSignatureOf / closing.
   return `
   <div class="sign">
@@ -423,6 +506,9 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   const footerMessage = first(di('footerMessage'), data?.footerMessage);
   // BC Air (wct-brand.ts): its letterhead, totals, terms and sign-off on the invoice and DO.
   const bc = data?.design?.brand === 'BCAIR' && kind !== 'quotation';
+  // WCT Racking (design.racking): no GST Reg No on any document; the quotation's own look below.
+  const racking = (design as any)?.racking === true || data?.design?.racking === true;
+  const rkQuote = racking && kind === 'quotation';
 
   // ── delivery order ──────────────────────────────────────────────────────
   if (kind === 'do') {
@@ -461,7 +547,7 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
     ${proof.received}
     ${footerMessage ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>` : ''}
     ${proof.appendix}`;
-    return bc ? sheet(bcLetterhead(data, BCAIR_DOC.numberLabel.do, docNumber), body, true) : sheet(letterhead(org, data, 'Delivery Order No', docNumber), body);
+    return bc ? sheet(bcLetterhead(data, BCAIR_DOC.numberLabel.do, docNumber), body, true) : sheet(letterhead(org, data, 'Delivery Order No', docNumber, racking), body);
   }
 
   // ── quotation / tax invoice ─────────────────────────────────────────────
@@ -507,8 +593,16 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   const gstRow = t.gstPercent > 0 ? `<tr><td class="l">GST ${escapeHtml(String(t.gstPercent))}%:</td><td class="v">${cash(t.gstAmount, t.currency)}</td></tr>` : '';
   const discountRow = t.discountAmount > 0 ? `<tr><td class="l">Discount:</td><td class="v">(${cash(t.discountAmount, t.currency)})</td></tr>` : '';
   const L = BCAIR_DOC.totals;
+  // Racking quotation: Total Amount, then (only when there is one) Goodwill Discount and the Final Amount.
+  const rkFinal = t.discountAmount > 0 || t.gstPercent > 0;
   const totals = !showTotals
     ? ''
+    : rkQuote
+    ? `<div class="totals"><table>
+    <tr><td class="l">Total Amount:</td><td class="v">${cash(t.displayNet + t.discountAmount, t.currency)}</td></tr>
+    ${t.discountAmount > 0 ? `<tr><td class="l">Goodwill Discount:</td><td class="v">(${cash(t.discountAmount, t.currency)})</td></tr>` : ''}${gstRow}
+    ${rkFinal ? `<tr><td class="l">Final Amount:</td><td class="v">${cash(t.total, t.currency)}</td></tr>` : ''}
+  </table></div>`
     : bc
     ? `<div class="totals"><table>
     <tr><td class="l">${L.total}</td><td class="v">${cash(t.displayNet + t.discountAmount, t.currency)}</td></tr>
@@ -539,6 +633,23 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   const bcSign = `<div class="bcsign"><div class="l"><div>${escapeHtml(S.closing)}</div><div class="scr">${escapeHtml(S.name)}</div><div>${escapeHtml(S.title)}</div><div>${escapeHtml(S.company)}</div></div><div class="r"><div>${escapeHtml(S.confirm)}</div><div>${escapeHtml(S.stamp)}</div></div></div>`;
 
   const signature = isInvoice ? null : clientSignatureOf(cfg);
+  // Racking quotation: the Notes and the terms as one footer, no "Remarks" heading; a TERMS & CONDITIONS
+  // heading is added when the terms do not carry one.
+  const rkNote = first(data?.note, di('note'), data?.remarks, di('remarks'));
+  const rkFooter = rkQuote && (rkNote || tnc)
+    ? `<div class="rkfoot">${rkNote ? rackingFooterText(rkNote) : ''}${
+        tnc ? `${hasTermsHeading(tnc) ? '' : `<div class="hd">TERMS &amp; CONDITIONS:</div>`}${rackingFooterText(tnc)}` : ''
+      }</div>`
+    : '';
+  const stampHtml = signature
+    ? `<div class="stamp"><img class="sigimg" src="${signature.image}" alt="" />Company Stamp &amp; Authorized Signature${signature.who ? `<div class="who">${signature.who}</div>` : ''}</div>`
+    : '<div class="stamp">Company Stamp &amp; Authorized Signature</div>';
+  // Signed by: the quotation's own field, else its salesperson (never a raw user id); title default Manager.
+  const rkSigner = first(di('signedBy'), /^user_/.test(salesNameOf(di)) ? '' : salesNameOf(di));
+  const rkClosing = `<div class="closing${signature ? ' signed' : ''}">
+        <div class="rksig"><div>Yours Sincerely,</div><div class="scr">${escapeHtml(rkSigner) || '&nbsp;'}</div><div>${escapeHtml(first(di('signedByTitle'), 'Manager'))} of</div><div class="co">${escapeHtml(first(org?.name, data?.company?.name))}</div></div>
+        ${stampHtml}
+      </div>`;
   const closing = isInvoice
     ? footerMessage
       ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>`
@@ -560,17 +671,25 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
     const bcBody = `${header}${linesTable(data, items, kind, t.currency)}${totals}${remarksBlock}${bcTnc}${bcSign}${footerMessage ? `<div class="footnote screen-only">${escapeHtml(footerMessage)}</div>` : ''}`;
     return sheet(bcLetterhead(data, BCAIR_DOC.numberLabel.invoice, docNumber), bcBody, true);
   }
+  if (rkQuote) {
+    const rkBody = `${header}${linesTable(data, items, kind, t.currency, true)}${totals}${rkFooter}${signBlock(di, true)}${rkClosing}`;
+    return sheet(letterhead(org, data, 'Quotation No', docNumber, true), rkBody, false, true);
+  }
   const body = `${header}${linesTable(data, items, kind, t.currency)}${totals}${remarksBlock}${tncBlock}${signBlock(di)}${closing}`;
-  return sheet(letterhead(org, data, isInvoice ? 'Invoice No' : 'Quotation No', docNumber), body);
+  return sheet(letterhead(org, data, isInvoice ? 'Invoice No' : 'Quotation No', docNumber, racking), body);
 }
 
-function sheet(head: string, body: string, bc = false): string {
+function sheet(head: string, body: string, bc = false, rk = false): string {
+  if (rk) return `${CSS}${RK_CSS}<div class="wct rk"><table class="wct-sheet"><thead><tr><td>${head}</td></tr></thead><tbody><tr><td>${body}</td></tr></tbody></table></div>`;
   if (bc) return `${CSS}${BC_CSS}<div class="wct bc"><table class="wct-sheet"><thead><tr><td>${head}</td></tr></thead><tbody><tr><td>${body}</td></tr></tbody></table></div>`;
   return `${CSS}<div class="wct"><table class="wct-sheet"><thead><tr><td>${head}</td></tr></thead><tbody><tr><td>${body}</td></tr></tbody></table></div>`;
 }
 
 /** Footer line for the PDF's per-page footer (left of "Page n/N"). */
-export function wctFooterLine(data: any): string {
+export function wctFooterLine(data: any, type?: string): string {
   const di = makeDi(data);
+  // Racking quotation: no "computer generated" line (it is signed by the manager).
+  const t = String(type || data?.documentType || data?.type || '').toUpperCase();
+  if (data?.design?.racking === true && ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(t)) return '';
   return first(di('footerMessage'), data?.footerMessage);
 }

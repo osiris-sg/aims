@@ -16,6 +16,8 @@ import { DocumentDesign, resolveDesign } from './design';
 export const WCT_DOC_BRAND_SETTING = 'wctDocumentBrand';
 /** Same key as DOC_REMARKS_FLAG in common/org-features.ts. */
 const DOC_REMARKS_SETTING = 'enableDocRemarks';
+/** Same key as RACKING_LAYOUT_FLAG in common/org-features.ts (WCT Racking, 2026-11-18). */
+const RACKING_LAYOUT_SETTING = 'enableRackingLayout';
 export type WctDocBrand = 'BCAIR';
 
 const INVOICE_TYPES = ['INVOICE', 'TI', 'TI2'];
@@ -29,7 +31,7 @@ export function effectiveDesign(
   templateType: string | null | undefined,
   features: any,
   doc?: { imported?: boolean },
-): DocumentDesign & { brand?: WctDocBrand; docRemarks?: true } {
+): DocumentDesign & { brand?: WctDocBrand; docRemarks?: true; racking?: true } {
   const design = resolveDesign(rawStyle);
   const brand = wctDocBrandOf(features);
   const t = String(templateType || '').toUpperCase();
@@ -37,7 +39,9 @@ export function effectiveDesign(
   if (doc?.imported) return design;
   // Remarks on the stock invoice / DO print (features.enableDocRemarks, WCT group 2026-11-18). Orgs without it: no key.
   const remarks = features && features[DOC_REMARKS_SETTING] === true && (INVOICE_TYPES.includes(t) || DELIVERY_ORDER_TYPES.includes(t)) ? { docRemarks: true as const } : {};
-  if (!brand || design.layout !== 'standard' || !(INVOICE_TYPES.includes(t) || DELIVERY_ORDER_TYPES.includes(t))) return { ...design, ...remarks };
+  // WCT Racking (features.enableRackingLayout): its look on the WCT layout (wct.ts). Orgs without it: no key.
+  const racking = features && features[RACKING_LAYOUT_SETTING] === true && design.layout === 'wct' ? { racking: true as const } : {};
+  if (!brand || design.layout !== 'standard' || !(INVOICE_TYPES.includes(t) || DELIVERY_ORDER_TYPES.includes(t))) return { ...design, ...remarks, ...racking };
   return { ...design, layout: 'wct', logoPosition: design.logoPosition === 'none' ? 'left' : design.logoPosition, brand, ...remarks };
 }
 

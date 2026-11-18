@@ -109,6 +109,16 @@ export const DOC_REMARKS_FLAG = 'enableDocRemarks';
 export const QUOTATION_CATEGORY_FLAG = 'enableQuotationCategory';
 export const SALES_REPORT_FLAG = 'enableSalesReport';
 
+// WCT RACKING LAYOUT (2026-11-18; WCT Racking only). On the WCT page layout:
+// no GST Reg No in the letterhead (Racking is not GST registered); on the
+// quotation, section titles take no S/No, a UOM column after Qty, totals read
+// Total Amount / Goodwill Discount / Final Amount, the Notes print without a
+// "Remarks" heading, PAYMENT TERMS / PAYMENT METHOD / TERMS & CONDITIONS in
+// capitals, and the closing is "Yours Sincerely," + the signer in a script font
+// + "<title> of" + the company (no "computer generated" line). Read through
+// design.racking (wct-brand.ts effectiveDesign). Default OFF.
+export const RACKING_LAYOUT_FLAG = 'enableRackingLayout';
+
 // NO AUTOMATIC CUSTOMER EMAILS (2026-11-16; WCT group). With this on, AIMS never
 // emails a customer by itself: a completed / signed service report is not
 // mailed on completion, and a recurring invoice set to auto-send is generated

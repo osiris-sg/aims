@@ -913,6 +913,8 @@ interface DynamicFormFieldsProps {
   formData: any;
   setFormData: (data: any) => void;
   hideDiscount?: boolean; // Route Order PO: hide the document-level Disc field
+  /** The document-level discount row's label (WCT Racking quotation: "Goodwill Discount"). Default "Disc". */
+  discountLabel?: string;
   hiddenFields?: string[]; // fieldNames to omit entirely (e.g. billTo/deliveryTo on invoices)
   // Extra row rendered LAST inside the left field column, styled like the
   // other rows (label cell + content) — e.g. the quotation Project picker.
@@ -1074,6 +1076,7 @@ export default function DynamicFormFields({
   formData,
   setFormData,
   hideDiscount = false,
+  discountLabel,
   hiddenFields = [],
   appendRow,
   customInputs,
@@ -1468,7 +1471,7 @@ export default function DynamicFormFields({
       const discType = getNestedValue(formData, 'documentInfo.discountType') || 'percent';
       return (
         <Box key={field.fieldName} sx={rightRowSx}>
-          <Typography sx={rightLabelSx}>Disc</Typography>
+          <Typography sx={discountLabel ? { ...rightLabelSx, width: 'auto', minWidth: 110 } : rightLabelSx}>{discountLabel || 'Disc'}</Typography>
           <FormControl size="small" sx={{ width: 56 }}>
             <Select
               value={discType}
@@ -1496,6 +1499,8 @@ export default function DynamicFormFields({
 
     // Skip discountAmount as it's rendered with discountPercent
     if (field.fieldName === 'documentInfo.discountAmount') return null;
+    // discountType is the %/$ select on the Disc row; a template lists it only so the choice is saved.
+    if (field.fieldName === 'documentInfo.discountType') return null;
 
     // GST row with percentage and amount
     if (field.fieldName === 'documentInfo.gstPercent') {

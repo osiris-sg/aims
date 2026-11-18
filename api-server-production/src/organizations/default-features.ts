@@ -293,6 +293,8 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   enableQuotationCategory: false,
   // Reports > Sales report: quotations per salesperson with Signed / Pending totals by category. Default OFF; WCT group.
   enableSalesReport: false,
+  // WCT Racking quotation look (no GST Reg No, UOM, Goodwill Discount, Racking sign-off). Default OFF; WCT Racking only.
+  enableRackingLayout: false,
   // Custom job fields (2026-11-01, Phase 6): the org's admins define their own
   // fields on jobs (Settings → Job fields: yes/no, text, date, file upload,
   // link; icon + colours) — filled on the schedule / edit job form and the

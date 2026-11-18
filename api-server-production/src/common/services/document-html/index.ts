@@ -74,7 +74,7 @@ export function pdfOptionsFor(
     if (data?.design?.brand === 'BCAIR' && (INVOICE_TYPES.includes(String(type || '').toUpperCase()) || DELIVERY_ORDER_TYPES.includes(String(type || '').toUpperCase()))) {
       return { margin: WCT_PDF_MARGIN, pageNumbers: { label: BCAIR_DOC.footer, format: 'stacked', fontPx: 10, paddingX: WCT_PDF_MARGIN.left, italic: true } };
     }
-    return { margin: WCT_PDF_MARGIN, pageNumbers: { label: wctFooterLine(data), format: 'slash', fontPx: 10, paddingX: WCT_PDF_MARGIN.left } };
+    return { margin: WCT_PDF_MARGIN, pageNumbers: { label: wctFooterLine(data, type), format: 'slash', fontPx: 10, paddingX: WCT_PDF_MARGIN.left } };
   }
   if (isLegacyDoLayout(type, data?.design)) return { margin: PORTED_PDF_MARGIN };
   return isPortedType(type) ? { margin: PORTED_PDF_MARGIN } : undefined;

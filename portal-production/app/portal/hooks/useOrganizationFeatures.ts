@@ -48,6 +48,8 @@ interface OrganizationFeatures {
   enableDocRemarks?: boolean;
   enableQuotationCategory?: boolean;
   enableSalesReport?: boolean;
+  /** WCT Racking quotation look (2026-11-18; WCT Racking only): UOM column, Goodwill Discount, Racking sign-off, no GST Reg No. */
+  enableRackingLayout?: boolean;
   enableJobFields?: boolean;
   // Office-signed delivery orders (2026-11-05): a DO raised in the office, with
   // no field run behind it, can be shared for the customer to sign.
@@ -304,6 +306,7 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableDocRemarks: false,
   enableQuotationCategory: false,
   enableSalesReport: false,
+  enableRackingLayout: false,
   enableWctMyJobs: false,
   // WCT finish modes (2026-11-01): stamped-DO photo / paper finish, verified by
   // the office (Deliveries → Awaiting verification). Default OFF.
@@ -409,6 +412,7 @@ export function useOrganizationFeatures() {
     isDocRemarksEnabled: features.enableDocRemarks ?? false,
     isQuotationCategoryEnabled: features.enableQuotationCategory ?? false,
     isSalesReportEnabled: features.enableSalesReport ?? false,
+    isRackingLayoutEnabled: features.enableRackingLayout ?? false,
     isJobFieldsEnabled: features.enableJobFields ?? false,
     isOfficeDoSignEnabled: features.enableOfficeDoSign ?? false,
     isContraOffsetEnabled: features.enableContraOffset ?? false,
