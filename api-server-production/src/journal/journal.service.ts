@@ -1763,4 +1763,84 @@ export class JournalService {
       details,
     };
   }
+
+  // ---------------------------------------------------------------------------
+  // EXPENSES LISTING (legacy report, guru 2026-11-18): one row per expense /
+  // purchase account, a column for each of the TWELVE months ending with the
+  // Cut-Of-Period month ("it supposed to show one year" — DEC 2025 … NOV 2026
+  // for 30/11/2026), and BALANCE = the fiscal year to date at the cut-off.
+  // Months are the org's (Singapore) calendar months of posted journal lines.
+  // ---------------------------------------------------------------------------
+  async expenseListing(organizationId: string, cutOff: Date) {
+    const setting = await this.prisma.accountingSetting.findUnique({
+      where: { organizationId },
+      select: { fiscalYearEndDay: true, fiscalYearEndMonth: true },
+    });
+    const fyStart = fiscalYearStart(cutOff, setting?.fiscalYearEndMonth ?? 12, setting?.fiscalYearEndDay ?? 31);
+
+    // Month keys from the fiscal-year start to the cut-off month, inclusive.
+    const sgt = (d: Date) => new Date(d.getTime() + 8 * 3600 * 1000); // wall-clock in +08:00
+    const keyOf = (d: Date) => {
+      const w = sgt(d);
+      return `${w.getUTCFullYear()}-${String(w.getUTCMonth() + 1).padStart(2, '0')}`;
+    };
+    const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    const months: Array<{ key: string; label: string }> = [];
+    const last = sgt(cutOff);
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(Date.UTC(last.getUTCFullYear(), last.getUTCMonth() - i, 1));
+      months.push({ key: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`, label: `${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}` });
+    }
+    const monthIndex = new Map(months.map((mo, i) => [mo.key, i]));
+    // First instant of the window's first month, in +08:00.
+    const windowStart = new Date(Date.UTC(last.getUTCFullYear(), last.getUTCMonth() - 11, 1) - 8 * 3600 * 1000);
+    const from = windowStart < fyStart ? windowStart : fyStart;
+
+    const [accounts, lines] = await Promise.all([
+      this.prisma.chartOfAccount.findMany({
+        where: { organizationId, accountType: { in: ['EXPENSE', 'PURCHASE'] } },
+        select: { id: true, code: true, name: true },
+        orderBy: { code: 'asc' },
+      }),
+      this.prisma.journalEntryLine.findMany({
+        where: {
+          journalEntry: { organizationId, status: 'POSTED', entryDate: { gte: from, lte: cutOff } },
+          account: { accountType: { in: ['EXPENSE', 'PURCHASE'] } },
+        },
+        select: { accountId: true, debit: true, credit: true, journalEntry: { select: { entryDate: true } } },
+      }),
+    ]);
+
+    const byAccount = new Map<string, number[]>();
+    const ytd = new Map<string, number>();
+    for (const l of lines) {
+      const amt = (Number(l.debit) || 0) - (Number(l.credit) || 0);
+      const when = l.journalEntry.entryDate;
+      if (when >= fyStart) ytd.set(l.accountId, (ytd.get(l.accountId) || 0) + amt);
+      const idx = monthIndex.get(keyOf(when));
+      if (idx === undefined) continue;
+      let arr = byAccount.get(l.accountId);
+      if (!arr) { arr = months.map(() => 0); byAccount.set(l.accountId, arr); }
+      arr[idx] += amt;
+    }
+
+    const totals = months.map(() => 0);
+    const rows = accounts
+      .map((a) => {
+        const amounts = (byAccount.get(a.id) || months.map(() => 0)).map(ROUND);
+        const balance = ROUND(ytd.get(a.id) || 0);
+        return { accountId: a.id, code: a.code, name: a.name, amounts, balance };
+      })
+      .filter((r) => r.balance !== 0 || r.amounts.some((n) => n !== 0));
+    for (const r of rows) r.amounts.forEach((n, i) => (totals[i] += n));
+
+    return {
+      cutOff: cutOff.toISOString(),
+      fiscalYearStart: fyStart.toISOString(),
+      months,
+      rows,
+      totals: totals.map(ROUND),
+      grandTotal: ROUND(rows.reduce((s, r) => s + r.balance, 0)),
+    };
+  }
 }

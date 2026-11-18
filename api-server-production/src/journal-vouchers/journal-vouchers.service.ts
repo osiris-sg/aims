@@ -161,6 +161,8 @@ export class JournalVouchersService {
       totalCredit: ROUND(lines.reduce((s, l) => s + (Number(l.credit) || 0), 0)),
       journalNumber: c.journalNumber || null,
       journalEntryId: c.journalEntryId || null,
+      // Saved but not in the books yet — what the complete save still needs.
+      incompleteReason: c.incompleteReason || null,
       documentTemplateId: doc.documentTemplateId || null,
       savedBy: c.savedBy || null,
       savedAt: c.savedAt || null,
@@ -225,10 +227,25 @@ export class JournalVouchersService {
     return jes.map((j) => j.id);
   }
 
+  // A voucher that is NOT complete yet (one line, a line without an amount,
+  // Dr ≠ Cr…) still SAVES — as typed, OUT of the books — the way an invoice
+  // autosaves half-filled (guru 2026-11-18: "still allow them to save, same as
+  // an invoice"). Any journal it had is voided and its payment rows dropped;
+  // `incompleteReason` carries what is missing and the editor shows it next
+  // to Saved. The next complete save posts.
   async save(organizationId: string, id: string, dto: SaveJournalVoucherDto, actor?: Actor) {
     const doc = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'JOURNAL_VOUCHER' } });
     if (!doc) throw new NotFoundException('Journal voucher not found');
     const cfg: any = doc.config || {};
+    try {
+      return await this.saveComplete(organizationId, id, doc, cfg, dto, actor);
+    } catch (e) {
+      if (!(e instanceof BadRequestException)) throw e;
+      return this.saveIncomplete(organizationId, id, cfg, dto, e.message, actor);
+    }
+  }
+
+  private async saveComplete(organizationId: string, id: string, doc: { name: string | null }, cfg: any, dto: SaveJournalVoucherDto, actor?: Actor) {
     if (!dto.date) throw new BadRequestException('Date is required');
 
     const setting = await this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { controlAccounts: true, baseCurrency: true } });
@@ -472,7 +489,9 @@ export class JournalVouchersService {
       entry = { id: existing.id, journalNumber: voucherNumber };
     } else {
       if (existing) await this.journalService.void(organizationId, existing.id, actor?.id);
-      const revision = existing ? previousJournalIds.length : 0;
+      // Every earlier journal of this voucher (voided on a confirmed edit, or
+      // by an incomplete save) keeps the base number, so the repost takes -Rn.
+      const revision = previousJournalIds.length;
       const created = await this.journalService.create(
         organizationId,
         {
@@ -548,26 +567,18 @@ export class JournalVouchersService {
             totalCredit,
             journalNumber: entry.journalNumber,
             journalEntryId: entry.id,
+            incompleteReason: null,
             savedBy: actor?.name || actor?.email || actor?.id || 'system',
             savedAt: new Date().toISOString(),
           } as any,
         },
       });
     });
-    for (const billId of touched) {
-      try {
-        await this.bills.refreshBillAfterPayments(organizationId, billId);
-      } catch (e) {
-        console.error('J/V save: bill refresh failed for', billId, e);
-      }
-    }
-    for (const invId of touchedInvoices) {
-      try {
-        await this.payments.updateInvoiceStatusAfterPayment(invId, organizationId);
-      } catch (e) {
-        console.error('J/V save: invoice refresh failed for', invId, e);
-      }
-    }
+    await this.refreshTouched(organizationId, { bills: touched, invoices: touchedInvoices }, 'J/V save');
+    // Posted = CONFIRMED (guru 2026-11-18): the complete autosave is the
+    // confirmation; no separate Confirm step.
+    await this.prisma.document.update({ where: { id }, data: { status: 'confirmed' as any } });
+    await this.journalService.markConfirmedForDocument(organizationId, id);
 
     void this.logEvent({
       documentId: id,
@@ -580,9 +591,88 @@ export class JournalVouchersService {
     return this.getById(organizationId, id);
   }
 
-  async remove(organizationId: string, id: string, actor?: Actor) {
-    const doc = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'JOURNAL_VOUCHER' } });
-    if (!doc) return { ok: true };
+  /** The incomplete-save path (see save()): keep what was typed, take the voucher out of the books. */
+  private async saveIncomplete(organizationId: string, id: string, cfg: any, dto: SaveJournalVoucherDto, reason: string, actor?: Actor) {
+    const touched = await this.unpost(organizationId, id, actor);
+    const lines = await Promise.all(
+      (dto.lines || []).map(async (raw, i) => {
+        const debit = ROUND(Math.max(0, Number(raw?.debit) || 0));
+        const credit = ROUND(Math.max(0, Number(raw?.credit) || 0));
+        const o = raw?.offset;
+        let offset: any = null;
+        if (o?.customerId || o?.supplierId) {
+          const party: 'supplier' | 'customer' = o.customerId ? 'customer' : 'supplier';
+          const row: any =
+            party === 'customer'
+              ? await this.prisma.customer.findFirst({ where: { id: String(o.customerId), organizationId }, select: { name: true, customerCode: true, currency: true } })
+              : await this.prisma.supplier.findFirst({ where: { id: String(o.supplierId), organizationId }, select: { name: true, supplierCode: true, currency: true } });
+          const rate = Number(o.rate) || 1;
+          offset = {
+            party,
+            supplierId: party === 'supplier' ? String(o.supplierId) : null,
+            customerId: party === 'customer' ? String(o.customerId) : null,
+            supplierCode: party === 'supplier' ? row?.supplierCode || null : null,
+            supplierName: party === 'supplier' ? String(row?.name || '') : '',
+            customerCode: party === 'customer' ? row?.customerCode || null : null,
+            customerName: party === 'customer' ? String(row?.name || '') : '',
+            currency: String(row?.currency || 'SGD').toUpperCase(),
+            rate,
+            allocations: (o.allocations || []).map((a) => ({ documentId: a.documentId, amount: ROUND(Number(a.amount) || 0) })).filter((a) => a.documentId && a.amount !== 0),
+            updateFx: o.updateFx !== false,
+            fxAccountCode: o.fxAccountCode ? String(o.fxAccountCode).trim() : null,
+            supplierAmount: ROUND((party === 'customer' ? credit || debit : debit) * rate),
+          };
+        }
+        return {
+          id: String(raw?.id || `l${i + 1}`),
+          accountCode: String(raw?.accountCode || '').trim(),
+          description: String(raw?.description || '').trim(),
+          remarks: String(raw?.remarks || '').trim(),
+          debit,
+          credit,
+          offset,
+        };
+      }),
+    );
+    const typed = String(dto.voucherNumber || '').trim();
+    if (typed && !JournalVouchersService.isPending(typed)) {
+      const clash = await this.prisma.journalEntry.findFirst({ where: { organizationId, journalNumber: typed }, select: { sourceDocumentId: true } });
+      if (!clash || clash.sourceDocumentId === id) await this.prisma.document.update({ where: { id }, data: { name: typed } });
+    }
+    await this.prisma.document.update({
+      where: { id },
+      data: {
+        status: 'unconfirmed' as any, // out of the books again
+        config: {
+          ...cfg,
+          date: dto.date || cfg.date,
+          preparedBy: dto.preparedBy || cfg.preparedBy || '',
+          notes: dto.notes || '',
+          lines,
+          totalDebit: ROUND(lines.reduce((s, l) => s + l.debit, 0)),
+          totalCredit: ROUND(lines.reduce((s, l) => s + l.credit, 0)),
+          journalNumber: null,
+          journalEntryId: null,
+          incompleteReason: reason,
+          savedBy: actor?.name || actor?.email || actor?.id || 'system',
+          savedAt: new Date().toISOString(),
+        } as any,
+      },
+    });
+    await this.refreshTouched(organizationId, touched, 'J/V save');
+    void this.logEvent({
+      documentId: id,
+      organizationId,
+      action: 'EDITED',
+      detail: `Journal voucher saved, not posted — ${reason}${touched.hadJournal ? ' (its journal voided)' : ''}`,
+      documentName: dto.voucherNumber || undefined,
+      actor,
+    });
+    return this.getById(organizationId, id);
+  }
+
+  /** Take the voucher OUT of the books: void its live journal, drop the BillPayment / Payment rows it created. The document row stays. */
+  private async unpost(organizationId: string, id: string, actor?: Actor) {
     const journalIds = await this.voucherJournalIds(organizationId, id);
     const previous = journalIds.length
       ? await this.prisma.billPayment.findMany({ where: { organizationId, journalEntryId: { in: journalIds } }, select: { id: true, billId: true } })
@@ -592,21 +682,32 @@ export class JournalVouchersService {
     if (previous.length) await this.prisma.billPayment.deleteMany({ where: { organizationId, id: { in: previous.map((p) => p.id) } } });
     const custPays = await this.prisma.payment.findMany({ where: { organizationId, receiptId: id }, select: { id: true, documentId: true } });
     if (custPays.length) await this.prisma.payment.deleteMany({ where: { organizationId, id: { in: custPays.map((p) => p.id) } } });
-    await this.prisma.document.deleteMany({ where: { id, organizationId } });
-    for (const invId of new Set(custPays.map((p) => p.documentId))) {
-      try {
-        await this.payments.updateInvoiceStatusAfterPayment(invId, organizationId);
-      } catch (e) {
-        console.error('J/V delete: invoice refresh failed for', invId, e);
-      }
-    }
-    for (const billId of new Set(previous.map((p) => p.billId))) {
+    return { bills: new Set(previous.map((p) => p.billId)), invoices: new Set(custPays.map((p) => p.documentId)), hadJournal: !!live };
+  }
+
+  private async refreshTouched(organizationId: string, t: { bills: Set<string>; invoices: Set<string> }, what: string) {
+    for (const billId of t.bills) {
       try {
         await this.bills.refreshBillAfterPayments(organizationId, billId);
       } catch (e) {
-        console.error('J/V delete: bill refresh failed for', billId, e);
+        console.error(`${what}: bill refresh failed for`, billId, e);
       }
     }
+    for (const invId of t.invoices) {
+      try {
+        await this.payments.updateInvoiceStatusAfterPayment(invId, organizationId);
+      } catch (e) {
+        console.error(`${what}: invoice refresh failed for`, invId, e);
+      }
+    }
+  }
+
+  async remove(organizationId: string, id: string, actor?: Actor) {
+    const doc = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'JOURNAL_VOUCHER' } });
+    if (!doc) return { ok: true };
+    const touched = await this.unpost(organizationId, id, actor);
+    await this.prisma.document.deleteMany({ where: { id, organizationId } });
+    await this.refreshTouched(organizationId, touched, 'J/V delete');
     return { ok: true };
   }
 }

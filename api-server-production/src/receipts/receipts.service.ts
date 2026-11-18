@@ -164,6 +164,8 @@ export class ReceiptsService {
       paymentMethod: c.paymentMethod || 'transfer',
       allocations: Array.isArray(c.allocations) ? c.allocations : [],
       journalNumber: c.journalNumber || null,
+      // Saved but not in the books yet — what the complete save still needs.
+      incompleteReason: c.incompleteReason || null,
       // The document-editor page needs the template id (Locate filters by it)
       // and the save-tracking stamps for the Unconfirmed User / Last Used strip.
       documentTemplateId: doc.documentTemplateId || null,
@@ -368,11 +370,25 @@ export class ReceiptsService {
 
   // Save = validate, replace allocation Payment rows, repost the single
   // journal, refresh each touched invoice's status. Balance must be zero.
+  // A receipt that is NOT complete yet (no customer, no deposit account, no
+  // amount, Balance ≠ 0.00…) still SAVES — as typed, OUT of the books — the
+  // way an invoice autosaves half-filled (guru 2026-11-18: "still allow them
+  // to save, same as an invoice"). Any journal it had is voided and its
+  // Payment rows dropped; `incompleteReason` carries what is missing and the
+  // editor shows it next to Saved. The next complete save posts.
   async save(organizationId: string, id: string, dto: SaveReceiptDto, actor?: Actor) {
     const doc = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'OFFICIAL_RECEIPT' } });
     if (!doc) throw new NotFoundException('Receipt not found');
     assertLedgerNotElsewhere(doc.config, 'receipt');
+    try {
+      return await this.saveComplete(organizationId, id, doc, dto, actor);
+    } catch (e) {
+      if (!(e instanceof BadRequestException)) throw e;
+      return this.saveIncomplete(organizationId, id, dto, e.message, actor);
+    }
+  }
 
+  private async saveComplete(organizationId: string, id: string, doc: { name: string | null; config: any }, dto: SaveReceiptDto, actor?: Actor) {
     if (!dto.customerId) throw new BadRequestException('Customer is required');
     if (!dto.debitAccountCode) throw new BadRequestException('Deposit-to (debit) account is required');
     const receiptAmount = ROUND(Number(dto.receiptAmount) || 0);
@@ -485,6 +501,7 @@ export class ReceiptsService {
               const inv = openById.get(a.documentId);
               return { ...a, reference: inv?.reference ?? null, date: inv?.date ?? null, description: inv?.remarks ?? 'INVOICE' };
             }),
+            incompleteReason: null,
             savedBy: actor?.name || actor?.email || actor?.id || 'system',
             savedAt: new Date().toISOString(),
           } as any,
@@ -512,10 +529,14 @@ export class ReceiptsService {
       userId: actor?.id,
     });
     if (entry) {
+      // Posted = CONFIRMED (guru 2026-11-18: "when I allocate this it should
+      // already be in the GL, so no need to Confirm"): the complete autosave is
+      // the confirmation; the journal stops being "unconfirmed".
       await this.prisma.document.update({
         where: { id },
-        data: { config: { ...((await this.prisma.document.findUnique({ where: { id }, select: { config: true } }))?.config as any), journalNumber: entry.journalNumber, glHeld: null } as any },
+        data: { status: 'confirmed' as any, config: { ...((await this.prisma.document.findUnique({ where: { id }, select: { config: true } }))?.config as any), journalNumber: entry.journalNumber, glHeld: null } as any },
       });
+      await this.journalService.markConfirmedForDocument(organizationId, id);
     }
 
     // Refresh invoice statuses / outstanding for every touched invoice.
@@ -539,33 +560,97 @@ export class ReceiptsService {
     return this.getById(organizationId, id);
   }
 
+  /** The incomplete-save path (see save()): keep what was typed, take the receipt out of the books. */
+  private async saveIncomplete(organizationId: string, id: string, dto: SaveReceiptDto, reason: string, actor?: Actor) {
+    const touched = await this.unpost(organizationId, id, actor);
+    const cfg: any = (await this.prisma.document.findUnique({ where: { id }, select: { config: true } }))?.config || {};
+    const customer = dto.customerId
+      ? await this.prisma.customer.findFirst({ where: { id: dto.customerId, organizationId }, select: { id: true, name: true } })
+      : null;
+    const allocations = (dto.allocations || [])
+      .map((a) => ({ documentId: a.documentId, amount: ROUND(Number(a.amount) || 0) }))
+      .filter((a) => a.documentId && a.amount > 0);
+    // Reference / date on each ticked invoice, so the grid re-renders as left.
+    const open = customer ? await this.openInvoices(organizationId, customer.id, { excludeReceiptId: id }) : [];
+    const openById = new Map(open.map((o) => [o.documentId, o]));
+    const typed = String(dto.receiptNumber || '').trim();
+    if (typed && !ReceiptsService.isPending(typed)) {
+      const clash = await this.prisma.document.findFirst({ where: { organizationId, type: 'OFFICIAL_RECEIPT', name: typed, NOT: { id } }, select: { id: true } });
+      if (!clash) await this.prisma.document.update({ where: { id }, data: { name: typed } });
+    }
+    const { journalNumber: _drop, ...rest } = cfg;
+    await this.prisma.document.update({
+      where: { id },
+      data: {
+        status: 'unconfirmed' as any, // out of the books again
+        config: {
+          ...rest,
+          date: dto.date || cfg.date,
+          chequeNo: dto.chequeNo || null,
+          remarks: dto.remarks || null,
+          customerId: customer?.id || null,
+          customerName: customer?.name || null,
+          debitAccountCode: dto.debitAccountCode || null,
+          creditAccountCode: (dto as any).creditAccountCode || undefined,
+          currency: (dto.currency || 'SGD').toUpperCase(),
+          rate: Number(dto.rate) || 1,
+          receiptAmount: ROUND(Number(dto.receiptAmount) || 0),
+          paymentMethod: dto.paymentMethod || 'transfer',
+          allocations: allocations.map((a) => {
+            const inv = openById.get(a.documentId);
+            return { ...a, reference: inv?.reference ?? null, date: inv?.date ?? null, description: inv?.remarks ?? 'INVOICE' };
+          }),
+          glHeld: null,
+          incompleteReason: reason,
+          savedBy: actor?.name || actor?.email || actor?.id || 'system',
+          savedAt: new Date().toISOString(),
+        } as any,
+      },
+    });
+    await this.refreshTouched(organizationId, touched.invoices, 'Receipt save');
+    void this.logEvent({
+      documentId: id,
+      organizationId,
+      action: 'EDITED',
+      detail: `Receipt saved, not posted — ${reason}${touched.hadJournal ? ' (its journal voided)' : ''}`,
+      documentName: dto.receiptNumber || undefined,
+      actor,
+    });
+    return this.getById(organizationId, id);
+  }
+
+  /** Take the receipt OUT of the books: void its live journal, drop its Payment rows. The document row stays. */
+  private async unpost(organizationId: string, id: string, actor?: Actor) {
+    const existingJe = await this.prisma.journalEntry.findFirst({
+      where: { organizationId, sourceDocumentId: id, type: 'PAYMENT', status: { not: 'VOID' } },
+      select: { id: true },
+    });
+    if (existingJe) await this.journalService.void(organizationId, existingJe.id, actor?.id);
+    const previous = await this.prisma.payment.findMany({ where: { organizationId, receiptId: id }, select: { documentId: true } });
+    await this.prisma.payment.deleteMany({ where: { organizationId, receiptId: id } });
+    return { invoices: new Set(previous.map((p) => p.documentId)), hadJournal: !!existingJe };
+  }
+
+  private async refreshTouched(organizationId: string, invoices: Set<string>, what: string) {
+    for (const documentId of invoices) {
+      try {
+        await this.paymentsService.updateInvoiceStatusAfterPayment(documentId, organizationId);
+      } catch (e) {
+        console.error(`${what}: status refresh failed for`, documentId, e);
+      }
+    }
+  }
+
   async remove(organizationId: string, id: string, actor?: Actor) {
     const doc = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'OFFICIAL_RECEIPT' } });
     // Idempotent: closing the editor can race a backdrop-close double-DELETE —
     // an already-deleted receipt is a success, not an error.
     if (!doc) return { ok: true };
 
-    const existingJe = await this.prisma.journalEntry.findFirst({
-      where: { organizationId, sourceDocumentId: id, type: 'PAYMENT', status: { not: 'VOID' } },
-      select: { id: true },
-    });
-    if (existingJe) await this.journalService.void(organizationId, existingJe.id, actor?.id);
-
-    const previous = await this.prisma.payment.findMany({
-      where: { organizationId, receiptId: id },
-      select: { documentId: true },
-    });
-    await this.prisma.payment.deleteMany({ where: { organizationId, receiptId: id } });
+    const touched = await this.unpost(organizationId, id, actor);
     // deleteMany: no P2025 when a concurrent close already removed the row.
     await this.prisma.document.deleteMany({ where: { id, organizationId } });
-
-    for (const p of previous) {
-      try {
-        await this.paymentsService.updateInvoiceStatusAfterPayment(p.documentId, organizationId);
-      } catch (e) {
-        console.error('Receipt delete: status refresh failed for', p.documentId, e);
-      }
-    }
+    await this.refreshTouched(organizationId, touched.invoices, 'Receipt delete');
     return { ok: true };
   }
 

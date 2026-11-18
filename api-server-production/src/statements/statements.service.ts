@@ -310,7 +310,7 @@ export class StatementsService {
     // Transaction rows
     for (const transaction of transactions) {
       rows.push([
-        new Date(transaction.date).toLocaleDateString(),
+        new Date(transaction.date).toLocaleDateString("en-GB"),
         transaction.reference || 'N/A',
         transaction.description,
         transaction.debit ? transaction.debit.toFixed(2) : '0.00',

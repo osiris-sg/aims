@@ -119,6 +119,15 @@ export class JournalController {
     return this.service.trialBalance(requireOrgId(req), asOfDate ? endOfDay(asOfDate) : undefined);
   }
 
+  // Legacy EXPENSES LISTING: expense / purchase accounts × fiscal-year months
+  // up to the Cut-Of-Period, with the year-to-date balance (2026-11-18).
+  @Get('reports/expense-listing')
+  @Permissions('journal:read')
+  @ApiQuery({ name: 'cutOff', required: false, description: 'Cut-Of-Period (YYYY-MM-DD); default today' })
+  expenseListing(@Req() req: RequestWithOrganization, @Query('cutOff') cutOff?: string) {
+    return this.service.expenseListing(requireOrgId(req), cutOff ? endOfDay(cutOff) : new Date());
+  }
+
   // Per-account debit/credit/net movement for a date range — powers the
   // Xero-style General Ledger summary (all accounts in one scroll).
   @Get('reports/account-activity')

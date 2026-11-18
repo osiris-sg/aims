@@ -239,16 +239,13 @@ export class PostingQueueService {
         const bill = await this.bills.post(organizationId, documentId, userId);
         return { documentId, invoiceNumber, ok: true, journalEntryId: (bill as any).journalEntryId ?? undefined };
       }
-      // Receipts are save-posted at creation — if the journal is missing,
-      // the receipt needs a re-save, not a queue post.
-      if (doc.type === 'OFFICIAL_RECEIPT') {
-        return { documentId, invoiceNumber, ok: false, error: 'Receipt has no journal — open it and Save, then post from the queue' };
-      }
-      if (doc.type === 'PAYMENT_VOUCHER') {
-        return { documentId, invoiceNumber, ok: false, error: 'Payment voucher has no journal — open it and Save, then post from the queue' };
-      }
-      if (doc.type === 'JOURNAL_VOUCHER') {
-        return { documentId, invoiceNumber, ok: false, error: 'Journal voucher has no journal — open it and Save, then confirm' };
+      // Receipts / vouchers are save-posted — a missing journal means the
+      // document is saved but not complete (config.incompleteReason says what
+      // is missing, 2026-11-18) or needs a re-save; never a queue post.
+      if (doc.type === 'OFFICIAL_RECEIPT' || doc.type === 'PAYMENT_VOUCHER' || doc.type === 'JOURNAL_VOUCHER') {
+        const what = doc.type === 'OFFICIAL_RECEIPT' ? 'Receipt' : doc.type === 'PAYMENT_VOUCHER' ? 'Payment voucher' : 'Journal voucher';
+        const error = c.incompleteReason ? `${what} is not complete — ${c.incompleteReason}` : `${what} has no journal — open it and Save, then confirm`;
+        return { documentId, invoiceNumber, ok: false, error };
       }
 
       const entryDate = c.date ? new Date(c.date) : new Date();
