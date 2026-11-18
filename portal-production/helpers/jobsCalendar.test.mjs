@@ -164,3 +164,18 @@ test('"+n more" (WCT, 2026-11-18 crash): the day goes to the panel and FullCalen
   assert.equal(shown.date, "2026-11-13");
   assert.deepEqual(shown.events.map((e) => e.id), ["aims:1", "aims:2"]);
 });
+
+// Hide SiteClock jobs (hideSiteClockJobs, WCT group 2026-11-18): only jobs made in AIMS.
+test("hide SiteClock jobs: SiteClock-created events dropped, AIMS jobs (pushed or not) kept; off = unchanged", async () => {
+  const { withoutSiteClockJobs } = await import("../components/Dashboard/jobs-calendar/calendarModel.ts");
+  const events = [ev(), ev({ id: "aims:2", crew: [{ name: "Ravi", arrivedAt: null, leftAt: null }] }), ev({ id: "sc:1", source: "siteclock", kind: "siteclock" })];
+  const p = { events, siteclock: { state: "ok" } };
+  assert.equal(withoutSiteClockJobs(p, false), p);
+  const on = withoutSiteClockJobs(p, true);
+  assert.deepEqual(on.events.map((e) => e.id), ["aims:1", "aims:2"]);
+  assert.equal(on.siteclockJobsHidden, true);
+  assert.deepEqual(withoutSiteClockJobs({ ...p, siteclockJobsHidden: true }, false).events.map((e) => e.id), ["aims:1", "aims:2"]);
+  assert.deepEqual(calendarLegendItems(false, true).map((l) => l.label), ["Delivery / return", "Service run", "Cancelled"]);
+  assert.deepEqual(calendarLegendItems(true, true).map((l) => l.label), ["Job", "Misc job", "PTW needed", "PTW approved", "Note"]);
+  assert.equal(siteclockBanner({ siteclock: { state: "unavailable" }, siteclockJobsHidden: true }), null);
+});

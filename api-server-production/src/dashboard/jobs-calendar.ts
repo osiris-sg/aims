@@ -251,7 +251,16 @@ function pickAimsJob(jobs: CalendarSiteClockJob[], link: CalendarLink | undefine
   return jobs.find((j) => !j.cancelledAt && j.externalStatus !== 'CANCELLED') ?? null;
 }
 
-export function buildCalendarEvents(runs: CalendarRun[], links: CalendarLink[], siteclockJobs: CalendarSiteClockJob[] | null): CalendarEvent[] {
+/**
+ * opts.aimsOnly (hideSiteClockJobs): SiteClock-created jobs (no "aims-delivery:" ref) are left out;
+ * jobs AIMS pushed to SiteClock still merge their crew onto the AIMS event.
+ */
+export function buildCalendarEvents(
+  runs: CalendarRun[],
+  links: CalendarLink[],
+  siteclockJobs: CalendarSiteClockJob[] | null,
+  opts: { aimsOnly?: boolean } = {},
+): CalendarEvent[] {
   const linkBy = new Map(links.map((l) => [l.deliveryId, l]));
   const aimsJobs = new Map<string, CalendarSiteClockJob[]>();
   const events: CalendarEvent[] = [];
@@ -269,6 +278,7 @@ export function buildCalendarEvents(runs: CalendarRun[], links: CalendarLink[], 
       aimsJobs.set(deliveryId, list);
       continue;
     }
+    if (opts.aimsOnly) continue;
     const done = j.progress === 'DONE';
     const cancelled = !!j.cancelledAt || j.externalStatus === 'CANCELLED';
     events.push({

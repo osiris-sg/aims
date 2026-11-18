@@ -199,6 +199,11 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // child orgs' jobs and notes, read only (Organization.parentOrgId; the only
   // cross-org read, src/organizations/org-group.ts). Default OFF.
   enableGroupCalendar: false,
+  // Hide SiteClock jobs (WCT group 2026-11-18, src/dashboard/jobs-calendar.service.ts):
+  // the jobs calendar shows only jobs made in AIMS; jobs created in SiteClock are
+  // left out and the SiteClock feed is not fetched unless an AIMS job in range was
+  // pushed there (its crew still merges in). Nothing is deleted. Default OFF.
+  hideSiteClockJobs: false,
   // Calendar style (WCT group 2026-11-18): Google Calendar-like job chips on the
   // jobs calendar: fill = the job's salesperson's colour, a slim left bar = the
   // PTW applicant's colour, icons for PTW / DO / cancelled / postponed / COD,

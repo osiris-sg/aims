@@ -13,7 +13,7 @@ import JobFieldIcon from "@/components/jobFields/JobFieldIcon";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { unwrap } from "@/app/portal/admin/organizations/_lib/siteclock-connection";
-import { calendarLegendItems, legendTitle, rangeOf, runIdOf, siteclockBanner, type CalendarEvent, type CalendarPayload } from "./jobs-calendar/calendarModel";
+import { calendarLegendItems, legendTitle, rangeOf, runIdOf, siteclockBanner, withoutSiteClockJobs, type CalendarEvent, type CalendarPayload } from "./jobs-calendar/calendarModel";
 import { useCalendarApi } from "./jobs-calendar/calendarAddApi";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useRouter } from "next/navigation";
@@ -32,7 +32,7 @@ const CalendarView = dynamic(() => import("./jobs-calendar/CalendarView"), {
 /** fullHeight: WCT's dashboard is this calendar alone. */
 export default function JobsCalendar({ fullHeight = false }: { fullHeight?: boolean }) {
   // WCT (enableWctOrders): "Job" wording, and a click opens the job.
-  const { isWctOrdersEnabled } = useOrganizationFeatures();
+  const { isWctOrdersEnabled, isHideSiteClockJobs } = useOrganizationFeatures();
   const { getToken } = useAuth();
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
   const [data, setData] = useState<CalendarPayload | null>(null);
@@ -64,7 +64,7 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
         const res = await request({ path: `/dashboard/jobs-calendar?from=${range.from}&to=${range.to}`, method: "GET" }, undefined, token);
         const payload = unwrap<CalendarPayload>(res, "Couldn't load the calendar");
         if (latest.current !== key) return; // a newer range is on screen
-        setData(payload);
+        setData(payload ? withoutSiteClockJobs(payload, !!isHideSiteClockJobs) : payload);
         setError("");
       } catch (e: any) {
         if (latest.current === key) setError(e?.message || "Couldn't load the calendar");
@@ -72,7 +72,7 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
         if (latest.current === key) setLoading(false);
       }
     })();
-  }, [range, getToken, reloadKey]);
+  }, [range, getToken, reloadKey, isHideSiteClockJobs]);
 
   const reload = () => setReloadKey((k) => k + 1);
   const api = useCalendarApi();
@@ -195,7 +195,7 @@ export function JobsCalendarPanel({
           </Stack>
         ) : (
         <Stack direction="row" spacing={jobWords ? 1.5 : 2} alignItems="center" flexWrap={jobWords ? "nowrap" : "wrap"} useFlexGap>
-          {calendarLegendItems(jobWords).map((l) => (
+          {calendarLegendItems(jobWords, !!data?.siteclockJobsHidden).map((l) => (
             <Stack key={l.label} direction="row" spacing={0.75} alignItems="center">
               <Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: l.color }} />
               <Typography variant="caption" color="text.secondary">

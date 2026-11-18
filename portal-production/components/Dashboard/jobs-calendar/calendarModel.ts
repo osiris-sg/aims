@@ -110,6 +110,18 @@ export interface CalendarPayload {
   group?: { orgs: Array<{ id: string; name: string }> };
   /** Calendar style (enableCalendarStyle): present = styled chips and the icon legend. */
   style?: { legend: Array<{ icon: string; label: string }> };
+  /** hideSiteClockJobs (WCT group): the server left SiteClock-created jobs out (absent otherwise). */
+  siteclockJobsHidden?: boolean;
+}
+
+/**
+ * hideSiteClockJobs (WCT group 2026-11-18): only jobs made in AIMS. Drops every SiteClock-created
+ * event (AIMS jobs pushed to SiteClock are AIMS events, so they stay) and marks the payload hidden.
+ * The server already leaves them out; this keeps the screen right if an old API answers.
+ */
+export function withoutSiteClockJobs<T extends Pick<CalendarPayload, "events" | "siteclockJobsHidden">>(p: T, hide: boolean): T {
+  if (!hide && !p.siteclockJobsHidden) return p;
+  return { ...p, events: p.events.filter((e) => e.source !== "siteclock"), siteclockJobsHidden: true };
 }
 
 /** Group calendar: which org an item belongs to (set only when the group view is on). */
@@ -188,7 +200,7 @@ export function wctKindLabel(e: Pick<CalendarEvent, "kind" | "source" | "orderNu
 }
 
 /** The calendar's colour legend. WCT (jobWords): Job · Misc job · PTW needed · PTW approved · Note (Show cancelled is the checkbox). */
-export function calendarLegendItems(jobWords: boolean): Array<{ label: string; color: string }> {
+export function calendarLegendItems(jobWords: boolean, hideSiteClock = false): Array<{ label: string; color: string }> {
   if (jobWords) {
     return [
       { label: "Job", color: PTW_STATE_COLOR.job },
@@ -201,7 +213,7 @@ export function calendarLegendItems(jobWords: boolean): Array<{ label: string; c
   return [
     { label: jobWords ? "Job" : "Delivery / return", color: KIND_COLOR.delivery },
     { label: "Service run", color: KIND_COLOR.service },
-    { label: "SiteClock job", color: KIND_COLOR.siteclock },
+    ...(hideSiteClock ? [] : [{ label: "SiteClock job", color: KIND_COLOR.siteclock }]),
     { label: "Cancelled", color: CANCELLED_COLOR },
   ];
 }
@@ -381,8 +393,8 @@ export function crewLine(c: CalendarCrew): string {
 }
 
 /** The banner above the calendar, or null. */
-export function siteclockBanner(p: Pick<CalendarPayload, "siteclock"> | null | undefined): string | null {
-  if (p?.siteclock?.state !== "unavailable") return null;
+export function siteclockBanner(p: Pick<CalendarPayload, "siteclock" | "siteclockJobsHidden"> | null | undefined): string | null {
+  if (p?.siteclock?.state !== "unavailable" || p.siteclockJobsHidden) return null;
   return "SiteClock unavailable: showing AIMS jobs only. SiteClock jobs will appear when it answers again.";
 }
 

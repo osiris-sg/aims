@@ -27,6 +27,7 @@ interface OrganizationFeatures {
   enableSiteClockDeliveries?: boolean;
   enableJobsCalendar?: boolean;
   enableGroupCalendar?: boolean;
+  hideSiteClockJobs?: boolean;
   enableCalendarStyle?: boolean;
   enableRealDoOnSchedule?: boolean;
   enableWctOrders?: boolean;
@@ -280,6 +281,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Group calendar (WCT 2026-11-17): a parent org's calendar also shows its child
   // orgs' jobs and notes, read only. Default OFF.
   enableGroupCalendar: false,
+  // Hide SiteClock jobs (WCT group 2026-11-18): the jobs calendar shows only jobs made in AIMS. Default OFF.
+  hideSiteClockJobs: false,
   enableCalendarStyle: false,
   // Real DO numbers on schedule (WCT 2026-10-30): a scheduled run's DO gets its
   // real number at once; a Pending / Completed / Cancelled tag shows next to it.
@@ -397,6 +400,7 @@ export function useOrganizationFeatures() {
     isSiteClockLinkEnabled: features.enableSiteClockLink ?? false,
     isSiteClockDeliveriesEnabled: features.enableSiteClockDeliveries ?? false,
     isJobsCalendarEnabled: features.enableJobsCalendar ?? false,
+    isHideSiteClockJobs: features.hideSiteClockJobs ?? false,
     isRealDoOnScheduleEnabled: features.enableRealDoOnSchedule ?? false,
     isWctOrdersEnabled: features.enableWctOrders ?? false,
     isWctMyJobsEnabled: features.enableWctMyJobs ?? false,

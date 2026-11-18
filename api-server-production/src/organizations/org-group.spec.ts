@@ -297,3 +297,26 @@ describe('writes stay in the request org (cross-org ids are refused)', () => {
     expect(prisma.delivery.update).not.toHaveBeenCalled();
   });
 });
+
+// Hide SiteClock jobs (hideSiteClockJobs, 2026-11-18): the viewing org's flag decides for its whole calendar.
+describe('group jobs calendar: hide SiteClock jobs', () => {
+  it('parent flag on: no SiteClock job from any org and no SiteClock fetch; group jobs and notes stay', async () => {
+    const w = world();
+    w.features[P].hideSiteClockJobs = true;
+    const { svc, siteclock } = svcFor(w);
+    const r = await svc.get(P, FROM, TO, { userId: 'u' });
+    expect(siteclock.calendarJobs).not.toHaveBeenCalled();
+    expect(r.events.some((e) => e.source === 'siteclock')).toBe(false);
+    expect(r.events.map((e) => e.id).sort()).toEqual(['aims:c1', 'aims:c2', 'aims:p1']);
+    const plain = await svcFor(world()).svc.get(P, FROM, TO, { userId: 'u' });
+    expect(r.notes).toEqual(plain.notes);
+    expect(r.events).toEqual(plain.events.filter((e) => e.source !== 'siteclock'));
+    expect(r.siteclockJobsHidden).toBe(true);
+  });
+
+  it('flag off: SiteClock jobs of the parent and children show as before', async () => {
+    const r = await svcFor(world()).svc.get(P, FROM, TO, { userId: 'u' });
+    expect(r.events.filter((e) => e.source === 'siteclock').map((e) => e.id).sort()).toEqual(['sc:scc2', 'sc:scp']);
+    expect(r).not.toHaveProperty('siteclockJobsHidden');
+  });
+});

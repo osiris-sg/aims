@@ -383,3 +383,80 @@ describe('jobs calendar: job category (WCT group)', () => {
     expect('category' in e).toBe(false);
   });
 });
+
+// Hide SiteClock jobs (hideSiteClockJobs, WCT group 2026-11-18): only jobs made in AIMS.
+describe('jobs calendar: hide SiteClock jobs', () => {
+  const OTHER = '99999999-9999-4999-8999-999999999999';
+  const pushed = (over: Partial<CalendarSiteClockJob> = {}) =>
+    scJob({ id: 'scA', source: 'external', externalRef: `aims-delivery:${D1}`, crew: [{ name: 'Ravi', arrivedAt: '2026-11-03T02:05:00.000Z', leftAt: null }], ...over });
+
+  it('merge, aimsOnly: SiteClock-created jobs are left out; an AIMS-pushed job still merges its crew', () => {
+    const jobs = [scJob(), scJob({ id: 'sc2', title: 'Other' }), pushed()];
+    const off = buildCalendarEvents([run()], [], jobs);
+    expect(off.map((e) => e.id).sort()).toEqual([`aims:${D1}`, 'sc:sc1', 'sc:sc2']);
+    const on = buildCalendarEvents([run()], [], jobs, { aimsOnly: true });
+    expect(on.map((e) => e.id)).toEqual([`aims:${D1}`]);
+    expect(on[0].crew).toEqual([{ name: 'Ravi', arrivedAt: '2026-11-03T02:05:00.000Z', leftAt: null }]);
+    expect(on.some((e) => e.source === 'siteclock')).toBe(false);
+  });
+
+  const row = (id: string, n: number) => ({
+    id, deliveryNumber: n, direction: 'OUTBOUND', status: 'scheduled', scheduledFor: new Date('2026-11-03T02:00:00Z'),
+    riderUserId: null, riderName: null, siteAddress: '1 Tuas Ave', customer: { name: 'Acme' }, project: null, items: [],
+  });
+  function setup(opts: { features: Record<string, Record<string, boolean>>; links?: any[]; sc?: () => Promise<any> }) {
+    const prisma: any = {
+      organizationUIConfig: { findUnique: jest.fn(async ({ where }: any) => ({ features: opts.features[where.organizationId] ?? {} })) },
+      delivery: { findMany: jest.fn().mockResolvedValue([row(D1, 12)]) },
+      deliverySiteClockJob: { findMany: jest.fn().mockResolvedValue(opts.links ?? []) },
+      deliveryItem: { findMany: jest.fn().mockResolvedValue([]) },
+      document: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const calendarJobs = jest.fn(opts.sc ?? (async () => [scJob(), pushed()]));
+    return { svc: new JobsCalendarService(prisma, { calendarJobs } as any), calendarJobs };
+  }
+  const ON = { enableJobsCalendar: true, hideSiteClockJobs: true };
+
+  it('flag on, no AIMS job pushed in range: the SiteClock feed is never fetched; AIMS jobs only', async () => {
+    const { svc, calendarJobs } = setup({ features: { [WCT]: ON } });
+    const res = await svc.get(WCT, '2026-11-01', '2026-11-30');
+    expect(calendarJobs).not.toHaveBeenCalled();
+    expect(res.events.map((e) => e.id)).toEqual([`aims:${D1}`]);
+    expect(res.siteclock.state).toBe('off');
+    expect(res.siteclockJobsHidden).toBe(true);
+  });
+
+  it('flag on, an AIMS job pushed to SiteClock: it is shown with its SiteClock crew; SiteClock-created jobs are hidden', async () => {
+    const links = [{ deliveryId: D1, workerName: 'Ravi', durationMin: 90, externalRef: `aims-delivery:${D1}` }];
+    const { svc, calendarJobs } = setup({ features: { [WCT]: ON }, links });
+    const res = await svc.get(WCT, '2026-11-01', '2026-11-30');
+    expect(calendarJobs).toHaveBeenCalledTimes(1);
+    expect(res.events.map((e) => e.id)).toEqual([`aims:${D1}`]);
+    expect(res.events[0].crew.map((c) => c.name)).toEqual(['Ravi']);
+    expect(res.events.some((e) => e.source === 'siteclock')).toBe(false);
+  });
+
+  it('flag off: SiteClock jobs show as before and the feed is fetched', async () => {
+    const { svc, calendarJobs } = setup({ features: { [WCT]: { enableJobsCalendar: true, hideSiteClockJobs: false } } });
+    const res = await svc.get(WCT, '2026-11-01', '2026-11-30');
+    expect(calendarJobs).toHaveBeenCalledTimes(1);
+    expect(res.events.map((e) => e.id).sort()).toEqual([`aims:${D1}`, 'sc:sc1']);
+    expect(res).not.toHaveProperty('siteclockJobsHidden');
+  });
+
+  it('another org without the key: unchanged (SiteClock jobs shown, feed fetched, no new field)', async () => {
+    const { svc, calendarJobs } = setup({ features: { [WCT]: ON, [OTHER]: { enableJobsCalendar: true } } });
+    const res = await svc.get(OTHER, '2026-11-01', '2026-11-30');
+    expect(calendarJobs).toHaveBeenCalledWith(OTHER, '2026-11-01', '2026-11-30');
+    expect(res.events.map((e) => e.id).sort()).toEqual([`aims:${D1}`, 'sc:sc1']);
+    expect(res).not.toHaveProperty('siteclockJobsHidden');
+  });
+
+  it('flag on, SiteClock down while an AIMS job is pushed: AIMS jobs still come back', async () => {
+    const links = [{ deliveryId: D1, workerName: 'Ravi', durationMin: 60, externalRef: `aims-delivery:${D1}` }];
+    const { svc } = setup({ features: { [WCT]: ON }, links, sc: async () => { throw new Error('down'); } });
+    const res = await svc.get(WCT, '2026-11-01', '2026-11-30');
+    expect(res.events.map((e) => e.id)).toEqual([`aims:${D1}`]);
+    expect(res.events[0].worker).toBe('Ravi');
+  });
+});

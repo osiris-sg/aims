@@ -15,6 +15,14 @@ import { jobStyleValues } from '../deliveries/job-style';
 import { isCompletedDo } from './calendar-style';
 
 export const JOBS_CALENDAR_FLAG = 'enableJobsCalendar';
+/**
+ * Hide SiteClock jobs (WCT group 2026-11-18, default off): the calendar shows
+ * only jobs made in AIMS. Every SiteClock-created job (no "aims-delivery:" ref)
+ * is dropped; an AIMS job pushed to SiteClock stays, with its crew merged in.
+ * The SiteClock feed is only fetched when a job in range was pushed there.
+ * The viewing org's flag decides for its whole calendar, group children too.
+ */
+export const HIDE_SITECLOCK_JOBS_FLAG = 'hideSiteClockJobs';
 const SITECLOCK_TTL_MS = 60_000;
 const CACHE_MAX = 200;
 
@@ -33,6 +41,8 @@ export interface JobsCalendarResponse {
   group?: { orgs: GroupOrg[] };
   /** Calendar style (enableCalendarStyle, WCT group): events carry `style`; the legend is icons only (absent otherwise). */
   style?: { legend: typeof CALENDAR_STYLE_LEGEND };
+  /** hideSiteClockJobs on: SiteClock-created jobs are left out (absent otherwise). */
+  siteclockJobsHidden?: true;
 }
 
 /** Calendar style for one org's part: on, plus (group calendar child) the parent's colours, which win. */
@@ -66,13 +76,14 @@ export class JobsCalendarService {
     // Calendar style (enableCalendarStyle): this org's flag decides for its own items and its children's.
     const styleOn = this.style ? await this.style.enabled(organizationId) : false;
     const ownColours = styleOn ? await this.style!.colours(organizationId) : null;
+    const hideSc = await isOrgFeatureEnabled(this.prisma, organizationId, HIDE_SITECLOCK_JOBS_FLAG);
     const [own, scope] = await Promise.all([
-      this.orgCalendar(organizationId, from, to, styleOn ? { parent: null } : null, ownColours),
+      this.orgCalendar(organizationId, from, to, styleOn ? { parent: null } : null, ownColours, hideSc),
       groupReadScope(this.prisma, organizationId, 'jobsCalendar'),
     ]);
     // Gate off (or no children): exactly the org's own calendar.
     if (!scope.group) return own;
-    return this.withGroup(organizationId, own, scope.orgs, from, to, viewer?.userId ?? null, styleOn ? { parent: ownColours } : null);
+    return this.withGroup(organizationId, own, scope.orgs, from, to, viewer?.userId ?? null, styleOn ? { parent: ownColours } : null, hideSc);
   }
 
   /**
@@ -90,12 +101,13 @@ export class JobsCalendarService {
     to: string,
     userId: string | null,
     style: StyleCtx = null,
+    hideSc = false,
   ): Promise<JobsCalendarResponse> {
     const children = orgs.filter((o) => o.id !== organizationId);
     const ownName = orgs.find((o) => o.id === organizationId)?.name ?? '';
     const [parts, members] = await Promise.all([
       // Calendar style on the parent: children's items are styled too (parent's colours first).
-      Promise.all(children.map((c) => runAsOrg(c.id, () => this.orgCalendar(c.id, from, to, style)))),
+      Promise.all(children.map((c) => runAsOrg(c.id, () => this.orgCalendar(c.id, from, to, style, null, hideSc)))),
       memberOrgIds(this.prisma, userId, children.map((c) => c.id)),
     ]);
     const tag = <T extends object>(x: T, org: GroupOrg): T => {
@@ -135,10 +147,18 @@ export class JobsCalendarService {
   }
 
   /** One org's calendar: its AIMS runs, its own SiteClock jobs (its own connection only) and its notes. */
-  private async orgCalendar(organizationId: string, from: string, to: string, style: StyleCtx = null, ownColours: CalendarColours | null = null): Promise<JobsCalendarResponse> {
-    const [runs, sc, notes] = await Promise.all([
+  private async orgCalendar(
+    organizationId: string,
+    from: string,
+    to: string,
+    style: StyleCtx = null,
+    ownColours: CalendarColours | null = null,
+    hideSc = false,
+  ): Promise<JobsCalendarResponse> {
+    // hideSiteClockJobs: the SiteClock feed waits for the links below and is skipped when no job in range was pushed there.
+    const [runs, scLoaded, notes] = await Promise.all([
       this.runs(organizationId, from, to),
-      this.siteclockJobs(organizationId, from, to),
+      hideSc ? Promise.resolve(null) : this.siteclockJobs(organizationId, from, to),
       this.notes ? this.notes.inRange(organizationId, from, to) : Promise.resolve(null),
     ]);
     // Calendar style: each run's PTW status as stored (the event's ptw is dropped below when calendar add is off).
@@ -156,6 +176,8 @@ export class JobsCalendarService {
           select: { deliveryId: true, workerName: true, durationMin: true, externalRef: true },
         })
       : [];
+    let sc = scLoaded;
+    if (!sc) sc = links.length ? await this.siteclockJobs(organizationId, from, to) : { jobs: null, status: { state: 'off' as const } };
     // Custom job fields: each run's icons + the legend.
     let legend: ReturnType<typeof calendarLegend> | undefined;
     if (runs.length && (await isJobFieldsEnabled(this.prisma, organizationId))) {
@@ -173,7 +195,7 @@ export class JobsCalendarService {
         for (const r of runs as any[]) r.category = cats.get(r.id) ?? catDef.defaultValue;
       }
     }
-    let events = buildCalendarEvents(runs, links, sc.jobs);
+    let events = buildCalendarEvents(runs, links, sc.jobs, { aimsOnly: hideSc });
     if (style) {
       const colours = mergeColours(ownColours ?? (await this.style!.colours(organizationId)), style.parent);
       events = await this.styled(organizationId, events, runs as any[], ptwOf, quotationIds, colours);
@@ -187,6 +209,7 @@ export class JobsCalendarService {
       ...(legend ? { legend } : {}),
       ...(notes ? { notes } : {}),
       ...(style ? { style: { legend: CALENDAR_STYLE_LEGEND } } : {}),
+      ...(hideSc ? { siteclockJobsHidden: true as const } : {}),
     };
   }
 
