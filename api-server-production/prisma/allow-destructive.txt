@@ -1,0 +1,36 @@
+# prisma/allow-destructive.txt — destructive schema changes the deploy is ALLOWED to make.
+#
+# Every build (scripts/db-push.js) and every hand push (db:push:prod / db:push:staging) diffs
+# the live database against the schema and REFUSES to push if the SQL would drop or rewrite
+# anything (table, column, index, enum/type, column type, NOT NULL tightening, required column
+# without default, unique/primary-key constraint, or any statement it does not recognise).
+# The failing build log prints one KEY per blocked statement, e.g.
+#
+#     DROP_COLUMN Document.legacyField
+#
+# To let an intended change through: copy that key line here, commit, deploy. One key per line:
+#
+#     KIND Target [@schema]
+#
+#   DROP_TABLE          Table
+#   DROP_COLUMN         Table.column
+#   ALTER_COLUMN_TYPE   Table.column
+#   SET_NOT_NULL        Table.column
+#   ADD_REQUIRED_COLUMN Table.column
+#   DROP_INDEX          IndexName
+#   DROP_CONSTRAINT     Table.ConstraintName
+#   DROP_TYPE           TypeName
+#   DROP_OTHER          OBJECT Name                (e.g. DROP_OTHER SEQUENCE Item_id_seq)
+#   STATEMENT           <the exact SQL statement, as printed after "↳", without the trailing ;>
+#
+# Names are case-sensitive and unquoted, exactly as the log prints them. The optional
+# "@org_wct" / "@platform" suffix restricts an entry to one per-org schema (TENANCY_MODE=per-org);
+# without it the entry applies to every schema. "#" starts a comment.
+#
+# A column RENAME is drop + add to Prisma: allowing DROP_COLUMN loses that column's data.
+# Copy the data yourself (or use @map to keep the old column name) instead.
+#
+# Remove entries once they have been deployed — the build log lists entries it did not use.
+# A pre-deploy Neon branch is taken before any non-empty push when NEON_API_KEY is set.
+#
+# (no entries)

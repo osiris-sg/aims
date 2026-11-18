@@ -7,6 +7,8 @@ description: "How schema changes flow through dev, staging, and prod"
 
 `prisma/migrations/` is abandoned. Schema changes go out with `prisma db push` — additive changes apply cleanly; destructive ones abort (no `--accept-data-loss` anywhere in the pipeline, by design).
 
+The build's push (`scripts/db-push.js`) first runs `prisma migrate diff` against the target DB, prints the SQL, and fails the deploy on anything destructive (drop table/column/index/enum, column type change, `SET NOT NULL`, required column without a default) unless `prisma/allow-destructive.txt` names it — the failed build log prints the exact line to add. Prisma treats a rename as drop + add, so prefer `@map`. With `NEON_API_KEY` + `NEON_PROJECT_ID` set it snapshots the DB as a `predeploy-*` Neon branch (last 5 kept) before any non-empty push. `db:push:staging` / `db:push:prod` run the same check and then require typing the project name (`aims-staging` / `aims-prod`) in a terminal.
+
 ## Checklist
 
 1. Edit `api-server-production/prisma/schema.prisma`.

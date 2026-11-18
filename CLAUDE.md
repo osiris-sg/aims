@@ -133,8 +133,8 @@ npm run start:staging      # Dev server against .env.staging
 
 # Database — 3 separate Neon DBs: dev (.env), staging (.env.staging), prod (.env.production)
 npm run db:push            # Push schema changes to DEV database
-npm run db:push:staging    # Push schema to STAGING
-npm run db:push:prod       # Push schema to PROD
+npm run db:push:staging    # Push schema to STAGING  } guarded: prints the diff, refuses destructive
+npm run db:push:prod       # Push schema to PROD     } changes, needs a TTY + typing "aims-staging"/"aims-prod"
 npm run db:studio          # Prisma Studio (also :staging / :prod variants)
 npm run seed               # Seed the database
 
@@ -143,10 +143,12 @@ npm run test               # Run unit tests (also test:watch, test:cov)
 npm run test:e2e           # Run end-to-end tests
 npm run lint               # ESLint with auto-fix
 npm run format             # Prettier formatting
+npm run test:pushguard     # node --test of the schema-push guard (scripts/__tests__)
 
 # Production
-npm run build              # ⚠ NOT a plain compile: runs `nest build && npx prisma db push`
-                           #   — it MUTATES whatever DB DATABASE_URL points at.
+npm run build              # ⚠ NOT a plain compile: runs `nest build && node scripts/db-push.js`
+                           #   — it MUTATES whatever DB DATABASE_URL points at (after a
+                           #   `prisma migrate diff` pre-check + Neon branch snapshot).
                            #   Use `npx nest build` for a compile-only check.
 npm run start:prod         # Start production server
 
@@ -253,6 +255,7 @@ The root package.json only contains Xero integration dependencies (`xero-node`).
 1. Modify `api-server-production/prisma/schema.prisma`
 2. Run `npm run db:push` (dev) — staging/prod need the `:staging`/`:prod` variants and hit **separate Neon DBs**; pushing schema to the wrong env 500s the app
 3. Update DTOs and services accordingly
+   - **Push guard (2026-11):** the build (`scripts/db-push.js`) prints the schema diff and REFUSES destructive changes (drop table/column/index/enum, type change, SET NOT NULL, required column without default) unless `prisma/allow-destructive.txt` names them (the failed log prints the exact line to add). Renames are drop+add — use `@map`. `db:push:prod`/`:staging` need typed confirmation; `--accept-data-loss` also needs `ALLOW_DATA_LOSS_PUSH=1`.
 4. New `Organization` columns must ALSO be added to `ClerkAuthGuard`'s two hand-rolled selects, or non-admin users silently miss them
 
 ### Adding New Features
