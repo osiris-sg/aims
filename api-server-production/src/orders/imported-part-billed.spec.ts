@@ -112,10 +112,12 @@ describe('imported orders: Mark complete / Reopen', () => {
     expect(w.order.status).toBe('PART_BILLED');
     await expect(s.reopenImported('o1', ORG)).rejects.toThrow(/not marked complete/);
   });
-  it('only imported orders', async () => {
+  it('another org (no WCT orders): only imported orders, as before (round 29 gives WCT AIMS orders their own mark)', async () => {
     const w = world();
     w.order.linkedDocuments = { invoice: [] };
+    w.db.organizationUIConfig.findUnique = jest.fn(async () => ({ features: { enableImportedOrders: true } }));
     await expect(orders(w).markImportedComplete('o1', ORG, { reason: 'x' }, {})).rejects.toThrow(/imported from the old ERP/);
+    expect(w.db.order.update).not.toHaveBeenCalled();
   });
 });
 

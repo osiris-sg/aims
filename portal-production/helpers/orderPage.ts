@@ -166,6 +166,7 @@ export interface OrderPageContext {
   doFirst?: boolean;
 }
 
+const linkedBy = (l?: { byName?: string | null } | null) => (l ? ["Linked", l.byName ? `by ${l.byName}` : ""].filter(Boolean).join(" ") : "");
 const fmtMoney = (n: number | null | undefined) => (n == null || !Number.isFinite(Number(n)) ? "-" : importedMoney(n));
 const orDash = (s: string | null | undefined) => (s && String(s).trim() ? String(s) : "-");
 const docHref = (type: string, tpl: string | null | undefined, id: string | null | undefined) => (tpl && id ? `/portal/documents/${type}/${tpl}/${id}` : null);
@@ -243,15 +244,16 @@ function workRows(o: any): OrderDocRow[] {
       number: d.name || "DO",
       date: d.date ?? null,
       status: doStatusOf(d),
-      by: "",
+      by: d.linkedOnly ? linkedBy(d.linked) || "Linked" : "",
       amount: null,
       owed: null,
       href,
       // The signed DO once its job is finished (the existing "Download signed DO").
       file: d.completed && doneJob ? { label: "PDF", path: `/delivery-group-posts/delivery/${doneJob.id}/signed-do?documentId=${d.id}` } : null,
-      doId: d.id,
-      unlink: null,
-      unlinkBlocked: UNLINK_BLOCKED.madeOnOrder,
+      // Round 29: a DO linked to an AIMS order (Link existing document): Open + Unlink, not the order's DO menu.
+      ...(d.linkedOnly
+        ? { unlink: { type: "DELIVERY_ORDER" as const, id: d.id, name: d.name ?? "the DO" }, unlinkBlocked: null }
+        : { doId: d.id, unlink: null, unlinkBlocked: UNLINK_BLOCKED.madeOnOrder }),
       deletePath: !d.completed && deletableDraft({ status: d.status, imported: d.imported === true }) ? docDelete(d.id) : null,
     });
     for (const j of jobs.filter((x) => x.deliveryOrder?.id === d.id)) rows.push(jobRow(j, true, href));
@@ -396,8 +398,12 @@ export function nativeInvoiceAsk(o: any): string {
   return "Create an invoice now for what the completed DOs carry on top of the quotation? When there is nothing new to bill, the order's invoice opens instead.";
 }
 
-export function nativeOrderPage(o: any, ctx: OrderPageContext = {}): OrderPageModel {
-  const cancelled = o.status === "CANCELLED";
+export function nativeOrderPage(order: any, ctx: OrderPageContext = {}): OrderPageModel {
+  // Round 29: an order marked complete reads Complete; its steps, Create invoice and the next steps read the status
+  // its documents give underneath (completed.underlying).
+  const marked = !!order.completed;
+  const o = marked && order.completed?.underlying ? { ...order, status: order.completed.underlying } : order;
+  const cancelled = order.status === "CANCELLED";
   const manualFlow = !!o.manualFlow;
   const doFirst = !!ctx.doFirst;
   const dos: any[] = o.deliveryOrders ?? [];
@@ -405,7 +411,7 @@ export function nativeOrderPage(o: any, ctx: OrderPageContext = {}): OrderPageMo
   const ready = serviceReportReady(o);
   const awaitingDo = dos.some((d) => d.awaitingSignature && !(d.jobs ?? []).length);
   const ci = nativeCreateInvoice(o);
-  const jobMode = addJobMode(o, ctx);
+  const jobMode = addJobMode(order, ctx);
 
   const steps = hubSteps(o);
   const byKey = (k: string) => steps.find((s) => s.key === k)!;
@@ -419,9 +425,11 @@ export function nativeOrderPage(o: any, ctx: OrderPageContext = {}): OrderPageMo
     ORDER_CARD_KEYS.map((k) => {
       const s = byKey(k);
       const docs = s.docs.map((d) => ({ label: d.label, status: d.status ?? null, href: d.href ?? null }));
+      // Linked quotations (round 29) sit with the order's own on the Quotation card.
+      if (k === "quotation") for (const x of o.quotations ?? []) docs.push({ label: x.name || "Quotation", status: null, href: docHref(x.type || "QUOTATION", x.templateId ?? x.documentTemplateId, x.id) });
       return { key: k, title: s.title, done: s.done, current: false, date: s.date, note: s.note ?? null, subNote: null, docs, empty: "", click: cardClick(docs, add[k]) };
     }),
-    cancelled,
+    cancelled || marked,
   );
 
   const s = o.summary ?? null;
@@ -435,14 +443,14 @@ export function nativeOrderPage(o: any, ctx: OrderPageContext = {}): OrderPageMo
   ];
 
   // The next step (as before): highlighted in the row, or its own button when it is not a row action.
-  const next = cancelled ? null : hubNextStep({ status: o.status, invoices, serviceReportReady: ready, doFirst, awaitingDo, manualFlow });
+  const next = cancelled || marked ? null : hubNextStep({ status: o.status, invoices, serviceReportReady: ready, doFirst, awaitingDo, manualFlow });
   const primaryKey = next ? rowKeyOf(next.primary, ci.mode) : null;
   const nextSteps = next
     ? [next.primary, next.secondary]
         .filter((k): k is HubActionKey => !!k && !rowKeyOf(k, ci.mode))
         .map((k) => ({ key: k, label: k === next.primary && next.label ? next.label : HUB_ACTION_LABEL[k] }))
     : [];
-  const canCancel = !cancelled && hubRowActions(o.status, { doFirst }).includes("cancel-order");
+  const canCancel = !cancelled && !marked && hubRowActions(o.status, { doFirst }).includes("cancel-order");
 
   const actions: OrderAction[] = [
     { key: "create-invoice", label: ci.mode === "open-draft" ? "Open draft invoice" : "Create invoice", show: ci.show, disabled: ci.disabled, primary: false, tip: null, tour: "wct-order-create-invoice", mode: ci.mode, href: ci.href },
@@ -451,8 +459,8 @@ export function nativeOrderPage(o: any, ctx: OrderPageContext = {}): OrderPageMo
     { key: "service-report", label: "Service report", show: true, disabled: false, primary: false, tip: null, tour: "wct-order-add-report" },
     { key: "send-report", label: "Send service report", show: manualFlow, disabled: !ready, primary: false, tip: ready ? null : "Complete or upload a service report first", tour: "wct-order-send-report" },
     { key: "link-document", label: "Link existing document", show: true, disabled: false, primary: false, tip: null, tour: "wct-order-link-document" },
-    // Round 24: the Complete mark is stored for imported orders only; an AIMS order completes through its steps.
-    { key: "mark-complete", label: "Mark complete", show: true, disabled: true, primary: false, tip: "Only imported orders can be marked complete for now", tour: "wct-order-mark-complete", mode: "complete" },
+    // Round 29: an AIMS order takes the Complete mark too (a reason; Reopen removes it); never on a cancelled order.
+    { key: "mark-complete", label: marked ? "Reopen" : "Mark complete", show: !cancelled, disabled: false, primary: false, tip: null, tour: "wct-order-mark-complete", mode: marked ? "reopen" : "complete" },
     { key: "cancel-order", label: "Cancel order", show: canCancel, disabled: false, primary: false, tip: null, tour: "wct-order-cancel" },
   ];
   if (primaryKey) actions.forEach((a) => (a.primary = a.key === primaryKey && a.show && !a.disabled));
@@ -480,6 +488,22 @@ export function nativeOrderPage(o: any, ctx: OrderPageContext = {}): OrderPageMo
           },
         ]
       : []),
+    // Round 29: quotations linked to the order (Link existing document).
+    ...(o.quotations ?? []).map((x: any) => ({
+      key: `lq:${x.id}`,
+      kind: "quotation" as const,
+      type: "Quotation",
+      number: x.name || "Quotation",
+      date: x.date ?? null,
+      status: x.status === "confirmed" ? "Confirmed" : x.status === "draft" || x.status === "unconfirmed" ? "Draft" : x.status ?? "",
+      by: linkedBy(x.linked) || "Linked",
+      amount: x.total ?? null,
+      owed: null,
+      href: docHref(x.type || "QUOTATION", x.templateId ?? x.documentTemplateId, x.id),
+      unlink: { type: "QUOTATION" as const, id: x.id, name: x.name ?? "the quotation" },
+      unlinkBlocked: null,
+      deletePath: deletableDraft({ status: x.status }) ? docDelete(x.id) : null,
+    })),
     ...invoices.map((i, n) => ({
       key: `i:${i.id}`,
       kind: "invoice" as const,
@@ -504,28 +528,28 @@ export function nativeOrderPage(o: any, ctx: OrderPageContext = {}): OrderPageMo
     kind: "native",
     id: o.id,
     number: o.orderNumber,
-    statusLabel: orderStatusLabel(o.status),
-    statusHue: hubStatusInfo(o.status).hue,
+    statusLabel: orderStatusLabel(order.status),
+    statusHue: hubStatusInfo(order.status).hue,
     imported: false,
     cancelled,
     manualFlow,
     info: infoFields(o, o.createdAt ?? null),
     summary,
-    extras: [],
+    extras: marked
+      ? [{ key: "completed", label: "Marked complete", value: [order.completed.reason, order.completed.byName, order.completed.at ? fmtDate(order.completed.at) : ""].filter(Boolean).join(", ") }]
+      : [],
     cards,
     actions,
     nextSteps,
     documents,
     leftToBill: cancelled ? [] : leftLines(s?.remaining),
     supplierInvoices: o.supplierInvoices ?? null,
-    // Link existing document on an AIMS order: service reports, and on the manual flow invoices (round 24).
-    linkTypes: manualFlow ? ["INVOICE", "SERVICE_REPORT"] : ["SERVICE_REPORT"],
+    // Link existing document on an AIMS order (round 29): quotations, DOs, service reports; invoices on the manual flow.
+    linkTypes: manualFlow ? ["QUOTATION", "INVOICE", "DELIVERY_ORDER", "SERVICE_REPORT"] : ["QUOTATION", "DELIVERY_ORDER", "SERVICE_REPORT"],
   };
 }
 
 // ── Imported orders ────────────────────────────────────────────────────────
-
-const linkedBy = (l?: { byName?: string | null } | null) => (l ? ["Linked", l.byName ? `by ${l.byName}` : ""].filter(Boolean).join(" ") : "");
 
 export function importedOrderPage(o: any, ctx: OrderPageContext = {}): OrderPageModel {
   const q = o.sourceQuotation;

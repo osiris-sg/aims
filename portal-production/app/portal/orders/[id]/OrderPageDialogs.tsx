@@ -116,7 +116,7 @@ export function LinkDocumentDialog({
                 {t.label}
               </ToggleButton>
             ) : (
-              <Tooltip key={t.key} title="Imported orders only for now">
+              <Tooltip key={t.key} title="Manual order flow only">
                 <span>
                   <ToggleButton value={t.key} disabled sx={{ textTransform: "none" }}>
                     {t.label}

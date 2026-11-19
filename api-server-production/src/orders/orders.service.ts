@@ -10,7 +10,7 @@ import {
 import { invoiceSplitOf, withSplitPartIds } from '../documents/invoice-split';
 import { AuditService } from '../common/audit.service';
 import { cancelBlockingInvoice, voidedWithOrderConfig } from './order-cancel';
-import { invoiceRowsWithSplitParts, isWctOrdersEnabled, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
+import { MARKED_COMPLETE, invoiceRowsWithSplitParts, isWctOrdersEnabled, linkedDoIdsOf, nativeCompletionOf, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
 import { MANUAL_ORDER_STATUS_LABEL, isManualOrderFlow, type ManualOrderStatus } from './manual-order-flow';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { SOFT_DELETED_TYPE, isOrgFeatureEnabled } from '../common/org-features';
@@ -69,8 +69,8 @@ import { nativeInvoiceMoney, nativeOrderSummary } from './order-page-summary';
 const IMPORTED_NUMBER_PREFIX = 'ORD-Q-';
 const NOT_IMPORTED_NUMBER = { NOT: { orderNumber: { startsWith: IMPORTED_NUMBER_PREFIX } } };
 /** Round 24: what an AIMS (native) order answers to Link existing document for a quotation / invoice / DO. */
-export const NATIVE_LINK_SERVICE_REPORT_ONLY =
-  'Only a service report (and, on the manual order flow, an invoice) can be linked to an order made in AIMS. Quotations and DOs are linked on orders imported from the old ERP.';
+export const NATIVE_LINK_INVOICE_MANUAL_ONLY =
+  'An invoice can be linked to an order made in AIMS on the manual order flow only.';
 /** Imported order status codes as words (imported-orders.ts ImportedOrderStatusCode). */
 const IMPORTED_STATUS_TEXT: Record<string, string> = { PAID: 'Paid', INVOICED: 'Invoiced', PART_BILLED: 'Part billed', COMPLETED: 'Complete', DO_DRAFT: 'DO draft', DO_COMPLETED: 'DO completed, invoice pending' };
 
@@ -468,7 +468,7 @@ export class OrdersService {
       const upcoming = next ? new Date(next.scheduledFor).toISOString() : undefined;
       return {
         ...o,
-        statusLabel: WCT_ORDER_STATUS_LABEL[o.status as WctOrderStatus] ?? MANUAL_ORDER_STATUS_LABEL[o.status as ManualOrderStatus] ?? o.status,
+        statusLabel: o.status === MARKED_COMPLETE ? 'Complete' : WCT_ORDER_STATUS_LABEL[o.status as WctOrderStatus] ?? MANUAL_ORDER_STATUS_LABEL[o.status as ManualOrderStatus] ?? o.status,
         jobCounts: {
           total: live.length,
           drafts: live.filter((j) => j.isDraft).length,
@@ -574,6 +574,16 @@ export class OrdersService {
   async markImportedComplete(id: string, organizationId: string, body: any, actor: { id?: string | null; name?: string | null }) {
     const reason = String(body?.reason ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
     if (!reason) throw new HttpException('Give a reason for marking this order complete', HttpStatus.BAD_REQUEST);
+    // Round 29: an AIMS order of a WCT org takes the same mark (linkedDocuments.completed, wct-orders.ts).
+    const native = await this.nativeOrderForMark(id, organizationId);
+    if (native) {
+      if (native.status === 'CANCELLED') throw new HttpException('This order is cancelled', HttpStatus.BAD_REQUEST);
+      const ld: any = native.linkedDocuments && typeof native.linkedDocuments === 'object' ? native.linkedDocuments : {};
+      const completed = { at: new Date().toISOString(), by: actor.id ?? null, byName: actor.name ?? null, reason, underlying: native.status };
+      await this.prisma.order.update({ where: { id: native.id }, data: { linkedDocuments: { ...ld, completed } } });
+      const status = await refreshOrderStatus(this.prisma, organizationId, native.id);
+      return { id: native.id, orderNumber: native.orderNumber, status: status ?? MARKED_COMPLETE, reason };
+    }
     const row = await this.importedOrderRow(id, organizationId);
     const ld: any = row.linkedDocuments || {};
     const completed = { at: new Date().toISOString(), by: actor.id ?? null, byName: actor.name ?? null, reason, auto: false };
@@ -583,6 +593,15 @@ export class OrdersService {
   }
 
   async reopenImported(id: string, organizationId: string) {
+    const native = await this.nativeOrderForMark(id, organizationId);
+    if (native) {
+      if (!nativeCompletionOf(native)) throw new HttpException('This order is not marked complete', HttpStatus.BAD_REQUEST);
+      const { completed: _c, ...ld } = (native.linkedDocuments as any) || {};
+      await this.prisma.order.update({ where: { id: native.id }, data: { linkedDocuments: ld } });
+      // The status is worked out from the order's documents again.
+      const status = await refreshOrderStatus(this.prisma, organizationId, native.id);
+      return { id: native.id, orderNumber: native.orderNumber, status };
+    }
     const row = await this.importedOrderRow(id, organizationId);
     const ld: any = row.linkedDocuments || {};
     if (!importedCompletionOf(row)) throw new HttpException('This order is not marked complete', HttpStatus.BAD_REQUEST);
@@ -590,6 +609,13 @@ export class OrdersService {
     await this.prisma.order.update({ where: { id: row.id }, data: { linkedDocuments: { ...ld, imported } } });
     await refreshImportedOrderStatus(this.prisma, organizationId, row.id);
     return this.importedOrderView(row.id, organizationId);
+  }
+
+  /** An AIMS order of a WCT org, for Mark complete / Reopen (round 29); null for an imported order or another org (unchanged path). */
+  private async nativeOrderForMark(id: string, organizationId: string) {
+    const row: any = await this.prisma.order.findFirst({ where: { id, organizationId }, select: { id: true, orderNumber: true, status: true, linkedDocuments: true } });
+    if (!row || isImportedOrder(row) || !(await isWctOrdersEnabled(this.prisma, organizationId))) return null;
+    return row as { id: string; orderNumber: string; status: string; linkedDocuments: any };
   }
 
   private async importedOrderRow(id: string, organizationId: string) {
@@ -610,7 +636,9 @@ export class OrdersService {
    * report, and on the manual order flow an INVOICE (Elroy 2026-11-19, ORD202611-011: an invoice made from the
    * quotation in the editor that never went on the order): it goes on linkedDocuments.invoice (+ invoiceDocumentId
    * when empty) and the status is read again, exactly as the order's own invoices; the invoice itself is never
-   * written. Quotations and DOs stay imported-order only (an AIMS order reads its DOs from the DO / job side).
+   * written. Round 29: an AIMS order also links a QUOTATION (adds to its quotation total / summary; it gets no order
+   * of its own when accepted) and a DO (linkedDocuments.do: one of the order's DOs in its status and on its page,
+   * the DO itself never written).
    * UNLINK takes any linked document of either kind by the same rules (never the order's own quotation, never a
    * document made on the order, never an invoice a job / DO of the order is billed on).
    */
@@ -622,11 +650,9 @@ export class OrdersService {
     if (!row) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
     const native = !isImportedOrder(row);
     if (native) {
-      if (!(await isWctOrdersEnabled(this.prisma, organizationId))) throw new HttpException(NATIVE_LINK_SERVICE_REPORT_ONLY, HttpStatus.BAD_REQUEST);
-      if (mode === 'link' && type !== 'SERVICE_REPORT') {
-        const invoiceOk = type === 'INVOICE' && (await isManualOrderFlow(this.prisma, organizationId));
-        if (!invoiceOk) throw new HttpException(NATIVE_LINK_SERVICE_REPORT_ONLY, HttpStatus.BAD_REQUEST);
-      }
+      if (!(await isWctOrdersEnabled(this.prisma, organizationId))) throw new HttpException('Link existing document is for orders imported from the old ERP', HttpStatus.BAD_REQUEST);
+      // Round 29: quotations, DOs and service reports on every WCT AIMS order; an invoice on the manual flow (its page reads them).
+      if (mode === 'link' && type === 'INVOICE' && !(await isManualOrderFlow(this.prisma, organizationId))) throw new HttpException(NATIVE_LINK_INVOICE_MANUAL_ONLY, HttpStatus.BAD_REQUEST);
     } else if (!(await isImportedOrdersEnabled(this.prisma, organizationId))) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
     let customerId: string | null = row.customerId ?? null;
     if (!customerId && row.sourceQuotationId) {
@@ -894,7 +920,7 @@ export class OrdersService {
     const stampOf = (e: any) => (e?.linked ? { at: e.linked.at ?? null, byName: e.linked.byName ?? null } : null);
     const invEntry = new Map<string, any>(this.importedInvoiceRefs(row).map((r: any) => [r.id, r]));
     // The order's own AIMS DOs (Add DO; not the imported ERP DOs, listed from the order's links below).
-    const ownDos: any[] = (native?.deliveryOrders ?? []).filter((d: any) => d.imported !== true);
+    const ownDos: any[] = (native?.deliveryOrders ?? []).filter((d: any) => d.imported !== true && !d.linkedOnly);
     const ownDoIds = new Set(ownDos.map((d: any) => d.id));
     const linkedDoRefs: any[] = (Array.isArray(ld.do) ? ld.do : []).filter((x: any) => x && typeof x.id === 'string');
     const linkedNativeDoIds = linkedDoRefs.filter((x: any) => x.imported !== true && !ownDoIds.has(x.id)).map((x: any) => x.id);
@@ -1210,11 +1236,21 @@ export class OrdersService {
 
     // DO first (2026-11-13): the order's DOs, with or without a job, each with its state and its jobs.
     const jobDocIds = new Set(docs.map((d: any) => d.id));
+    // Round 29: DOs linked to the order (Link existing document) are its DOs too; marked so the page can unlink them.
+    const linkedDoIds = isImportedOrder(order) ? [] : linkedDoIdsOf(order);
     const ownDos = await this.prisma.document.findMany({
-      where: { organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] }, config: { path: ['orderId'], equals: order.id } },
+      where: {
+        organizationId,
+        type: { in: ['DELIVERY_ORDER', 'DO'] },
+        OR: [{ config: { path: ['orderId'], equals: order.id } }, ...(linkedDoIds.length ? [{ id: { in: linkedDoIds } }] : [])],
+      },
       select: { id: true, name: true, status: true, documentTemplateId: true, config: true, createdAt: true },
       orderBy: { createdAt: 'asc' },
     });
+    const linkStamp = (id: string) => {
+      const e = ((order.linkedDocuments as any)?.do ?? []).find((x: any) => x?.id === id);
+      return e?.linked ? { at: e.linked.at ?? null, byName: e.linked.byName ?? null } : null;
+    };
     const allDos = [...docs, ...ownDos.filter((d: any) => !jobDocIds.has(d.id))].sort((a: any, b: any) => +new Date(a.createdAt) - +new Date(b.createdAt));
     const deliveryOrders = allDos
       .filter((d: any) => d.config?.cancelled !== true)
@@ -1238,13 +1274,16 @@ export class OrdersService {
             .filter((it: any) => it?.assetId && !it.inventoryItemId)
             .map((it: any) => ({ assetId: it.assetId as string, name: String(it.description || it.itemCode || 'Product') })),
           jobs: onJobs.map((j) => ({ id: j.id, deliveryNumber: j.deliveryNumber, status: j.status, isDraft: j.isDraft, scheduledFor: j.scheduledFor, verificationState: j.verificationState })),
+          // Round 29: on the order only through Link existing document (not made on it, no job): Unlink takes it off.
+          ...(linkedDoIds.includes(d.id) && c.orderId !== order.id && !onJobs.length ? { linkedOnly: true, linked: linkStamp(d.id) } : {}),
           // An imported ERP DO (only ever on an imported order; key absent otherwise): its page lists it from the order's links.
           ...(isErpImported(c) ? { imported: true } : {}),
         };
       });
     const joblessInvoiceIds = deliveryOrders.filter((d) => !d.jobs.length && d.invoiceId).map((d) => d.invoiceId as string);
     // Completed DOs with no job and no invoice yet (Invoice now bills them too).
-    const toInvoiceDos = deliveryOrders.filter((d) => !d.jobs.length && d.completed && !d.invoiceId).map((d) => d.name);
+    // A linked DO is not billed by Create invoice (it was not made on the order): not listed as waiting for it.
+    const toInvoiceDos = deliveryOrders.filter((d: any) => !d.jobs.length && d.completed && !d.invoiceId && !d.linkedOnly).map((d) => d.name);
 
     // "Add job" prefill: the quotation's billable lines and where the work is.
     const qcfg: any = sourceQuotation?.config || {};
@@ -1262,9 +1301,33 @@ export class OrdersService {
     const lastSite = [...jobsRaw].reverse().find((j) => j.siteAddress)?.siteAddress;
     const siteAddress = String(lastSite || di.location || di.jobLocation || qcfg.location || qcfg.deliveryTo || order.customer?.address || '').trim() || null;
 
+    // Round 29: quotations linked to the order (Link existing document): on its page, its quotation total and summary.
+    const linkedQuoteRefs: any[] = isImportedOrder(order) ? [] : (Array.isArray((order.linkedDocuments as any)?.quotation) ? (order.linkedDocuments as any).quotation : []).filter((x: any) => x && typeof x.id === 'string');
+    const linkedQuoteDocs: any[] = linkedQuoteRefs.length
+      ? (await this.prisma.document.findMany({ where: { organizationId, id: { in: linkedQuoteRefs.map((x: any) => x.id) } }, select: { id: true, name: true, type: true, status: true, documentTemplateId: true, config: true } })).filter(
+          (d: any) => d.config?.voided !== true && d.config?.cancelled !== true,
+        )
+      : [];
+    const completedMark = nativeCompletionOf(order);
     return {
       ...order,
-      statusLabel: WCT_ORDER_STATUS_LABEL[order.status as WctOrderStatus] ?? MANUAL_ORDER_STATUS_LABEL[order.status as ManualOrderStatus] ?? order.status,
+      statusLabel: order.status === MARKED_COMPLETE ? 'Complete' : WCT_ORDER_STATUS_LABEL[order.status as WctOrderStatus] ?? MANUAL_ORDER_STATUS_LABEL[order.status as ManualOrderStatus] ?? order.status,
+      // Round 29: marked complete (reason, who, when) and the status its documents give underneath.
+      completed: completedMark ? { reason: completedMark.reason, at: completedMark.at, byName: completedMark.byName ?? null, auto: false, underlying: completedMark.underlying ?? null } : null,
+      quotations: linkedQuoteDocs.map((d: any) => {
+        const ref = linkedQuoteRefs.find((x: any) => x.id === d.id);
+        return {
+          id: d.id,
+          name: d.name,
+          type: d.type,
+          status: d.status,
+          templateId: d.documentTemplateId,
+          date: d.config?.date ?? null,
+          total: grossOf(d.config),
+          unlinkable: true,
+          linked: ref?.linked ? { at: ref.linked.at ?? null, byName: ref.linked.byName ?? null } : null,
+        };
+      }),
       // Manual order flow: the page offers "Send service report" and "Complete job".
       manualFlow: await isManualOrderFlow(this.prisma, organizationId),
       // The service reports on the order's jobs (drafts too), for the page's Service report section.
@@ -1285,7 +1348,7 @@ export class OrdersService {
       jobs,
       deliveryOrders,
       prefill: { siteAddress, lines: quotationLines, note: prefillNote },
-      ...(await this.wctBilling(organizationId, jobsRaw, [...joblessInvoiceIds, ...((await isManualOrderFlow(this.prisma, organizationId)) ? orderInvoiceIdsOf(order as any) : [])], sourceQuotation, order as any)),
+      ...(await this.wctBilling(organizationId, jobsRaw, [...joblessInvoiceIds, ...((await isManualOrderFlow(this.prisma, organizationId)) ? orderInvoiceIdsOf(order as any) : [])], sourceQuotation, order as any, linkedQuoteDocs)),
       toInvoiceDos,
       attachments: await this.orderAttachmentsView(organizationId, Array.isArray(order.attachments) ? (order.attachments as any[]) : []),
       // The supplier invoices tagged to this order's quotation (job costs, read-only).
@@ -1551,7 +1614,14 @@ export class OrdersService {
    * "Invoice now" has anything to bill (completed + verified jobs not on an
    * invoice yet). invoicing = enableWctOrderInvoice.
    */
-  private async wctBilling(organizationId: string, jobs: any[], extraInvoiceIds: string[] = [], quotation: { name?: string | null; config?: any } | null = null, order: { id: string; linkedDocuments?: unknown } | null = null) {
+  private async wctBilling(
+    organizationId: string,
+    jobs: any[],
+    extraInvoiceIds: string[] = [],
+    quotation: { name?: string | null; config?: any } | null = null,
+    order: { id: string; linkedDocuments?: unknown } | null = null,
+    linkedQuotations: Array<{ name?: string | null; config?: any }> = [],
+  ) {
     const invoicing = await isOrgFeatureEnabled(this.prisma, organizationId, WCT_ORDER_INVOICE_FLAG);
     const ids = [...new Set([...jobs.map((j) => j.orderInvoiceId), ...extraInvoiceIds].filter((v) => v && !String(v).startsWith('claim:')))] as string[];
     const docs = ids.length
@@ -1609,7 +1679,7 @@ export class OrdersService {
     }));
     const toInvoice = jobs.filter((j) => isVerifiedJob(j) && !j.orderInvoiceId).map((j) => j.deliveryNumber);
     // Round 24: Quotation total, Billed, Billed %, Billed qty, Left to bill, Owed (display only, never the status).
-    const summary = nativeOrderSummary({ quotation, invoices: docs as any[] });
+    const summary = nativeOrderSummary({ quotation, invoices: docs as any[], linkedQuotations });
     return { invoicing, invoices, toInvoice, summary };
   }
 

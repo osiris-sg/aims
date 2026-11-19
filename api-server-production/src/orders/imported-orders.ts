@@ -762,7 +762,8 @@ export function importedOrderDraftInvoice<T extends { status?: string; config?: 
  * imported orders are on; such a quotation never gets an order of its own when it is accepted (one order per document).
  */
 export async function importedOrderLinkingQuotation(prisma: any, organizationId: string, quotationId: string): Promise<{ id: string; orderNumber: string } | null> {
-  if (!(await isImportedOrdersEnabled(prisma, organizationId))) return null;
+  // Round 29: an AIMS order of a WCT org links quotations too (Link existing document), so read where either is on.
+  if (!(await isImportedOrdersEnabled(prisma, organizationId)) && !(await isOrgFeatureEnabled(prisma, organizationId, 'enableWctOrders'))) return null;
   try {
     return await prisma.order.findFirst({ where: { organizationId, linkedDocuments: { path: ['quotation'], array_contains: [{ id: quotationId }] } }, select: { id: true, orderNumber: true } });
   } catch {

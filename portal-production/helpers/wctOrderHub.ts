@@ -20,6 +20,7 @@ export type HubStatus =
   | "INVOICED"
   | "PAID"
   | "SERVICE_REPORT_SENT"
+  | "MARKED_COMPLETE"
   | "CANCELLED";
 
 /** Every status in step order, with its label and its own colour. */
@@ -37,6 +38,8 @@ export const HUB_STATUSES: { key: HubStatus; label: string; hue: string }[] = [
   { key: "INVOICED", label: "Invoiced", hue: "#6d28d9" },
   { key: "PAID", label: "Paid", hue: "#22c55e" },
   { key: "SERVICE_REPORT_SENT", label: "Service report sent", hue: "#15803d" },
+  // Marked complete by the office with a reason (round 29); Reopen on the order page derives the status again.
+  { key: "MARKED_COMPLETE", label: "Complete", hue: "#64748b" },
   { key: "CANCELLED", label: "Cancelled", hue: "#ef4444" },
 ];
 
@@ -151,6 +154,7 @@ export function hubRowActions(status: string | null | undefined, opts: { doFirst
       return ["view-invoice", "upload-report", "send-report"];
     case "SERVICE_REPORT_SENT":
       return ["view-order", "resend-report"];
+    case "MARKED_COMPLETE":
     case "CANCELLED":
       return ["view-order"];
   }
@@ -193,6 +197,7 @@ export function hubNextStep(o: { status?: string | null; invoices?: unknown[]; s
     case "PAID":
       return o.serviceReportReady ? { primary: "send-report" } : { primary: "upload-report" };
     case "SERVICE_REPORT_SENT":
+    case "MARKED_COMPLETE":
     case "CANCELLED":
       return null;
   }

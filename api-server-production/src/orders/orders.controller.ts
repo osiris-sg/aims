@@ -106,18 +106,24 @@ export class OrdersController {
     return out;
   }
 
-  /** Imported orders (2026-11-19): Mark complete (reason required) / Reopen. */
+  /** Imported orders (2026-11-19) and, round 29, WCT AIMS orders: Mark complete (reason required) / Reopen. */
   @Post(':id/mark-complete')
   @Permissions('orders:update')
   async markComplete(@Param('id') id: string, @Body() body: any, @Req() req: any) {
     const u: any = req.user || {};
-    return this.ordersService.markImportedComplete(id, this.orgId(req), body, { id: u.id ?? null, name: [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email || null });
+    const out: any = await this.ordersService.markImportedComplete(id, this.orgId(req), body, { id: u.id ?? null, name: [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email || null });
+    // Activity Log (COMPLETE): which order and why.
+    req.actionLogResult = { order: out?.orderNumber ?? null, status: out?.status ?? null, reason: String(body?.reason ?? '').trim().slice(0, 300) };
+    return out;
   }
 
   @Post(':id/reopen')
   @Permissions('orders:update')
   async reopen(@Param('id') id: string, @Req() req: any) {
-    return this.ordersService.reopenImported(id, this.orgId(req));
+    const out: any = await this.ordersService.reopenImported(id, this.orgId(req));
+    // Activity Log (REOPEN): which order and the status it reads again.
+    req.actionLogResult = { order: out?.orderNumber ?? null, status: out?.status ?? null };
+    return out;
   }
 
   /**

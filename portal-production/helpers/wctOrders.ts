@@ -42,6 +42,8 @@ export const MANUAL_ORDER_STATUS: Record<string, { label: string; color: "defaul
   INVOICE_DRAFT: { label: "Invoice draft", color: "warning" },
   READY_FOR_SERVICE_REPORT: { label: "Ready for service report", color: "info" },
   SERVICE_REPORT_SENT: { label: "Service report sent", color: "success" },
+  // Marked complete by the office (round 29; imported orders read "Complete" from their own status).
+  MARKED_COMPLETE: { label: "Complete", color: "default" },
   CANCELLED: { label: "Cancelled", color: "default" },
 };
 
