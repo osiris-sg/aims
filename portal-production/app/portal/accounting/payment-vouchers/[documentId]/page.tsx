@@ -16,6 +16,8 @@ import { PV_FIELD_DEFINITIONS } from "@/containers/DocumentTemplates/components/
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
+import { failureLine, listFrom, requestFailed } from "@/helpers/requestOutcome";
+import LoadErrorAlert from "@/components/LoadErrorAlert";
 import { toast } from "react-toastify";
 import { useGetSuppliers } from "@/app/portal/hooks/api/useSuppliers";
 import { todayIso } from "@/helpers/orgToday";
@@ -66,26 +68,34 @@ export default function PaymentVoucherPage() {
   const [existingData, setExistingData] = useState<any>(null);
   const [vouchers, setVouchers] = useState<any[]>([]); // newest first, for ‹ › nav
   const [loading, setLoading] = useState(true);
+  // A failed load shows its error with a Retry; a failed ‹ › list never crashes the editor (round 16).
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setLoadError(null);
       try {
         const token = await getToken();
         if (!token) return;
         const [voucherRes, listRes] = await Promise.all([
           request({ path: `/payment-vouchers/${documentId}`, method: "GET", ownError: true }, {}, token),
-          request({ path: `/payment-vouchers`, method: "GET" }, {}, token),
+          request({ path: `/payment-vouchers`, method: "GET", ownError: true }, {}, token),
         ]);
+        if (requestFailed(voucherRes)) throw new Error(failureLine(voucherRes, "Could not load the payment voucher"));
         const v = unwrap(voucherRes);
         if (!v?.id) throw new Error("Payment voucher not found");
         if (cancelled) return;
-        setVouchers(unwrap(listRes) || []);
+        const navList = listFrom<any>(listRes, "Could not load the payment voucher list");
+        setVouchers(navList.rows);
+        setListError(navList.error);
         setExistingData(toExisting(v));
       } catch (e: any) {
         console.error("Error loading payment voucher:", e);
-        toast.error(e?.message || "Failed to load payment voucher");
+        if (!cancelled) setLoadError(e?.message || "Could not load the payment voucher");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -93,7 +103,15 @@ export default function PaymentVoucherPage() {
     return () => {
       cancelled = true;
     };
-  }, [documentId, getToken]);
+  }, [documentId, getToken, attempt]);
+
+  const reloadList = async () => {
+    const token = await getToken();
+    if (!token) return;
+    const navList = listFrom<any>(await request({ path: `/payment-vouchers`, method: "GET", ownError: true }, {}, token), "Could not load the payment voucher list");
+    setVouchers(navList.rows);
+    setListError(navList.error);
+  };
 
   const handleSave = async (data: any) => {
     const token = await getToken();
@@ -184,6 +202,14 @@ export default function PaymentVoucherPage() {
     [suppliers],
   );
 
+  if (loadError) {
+    return (
+      <Box sx={{ p: 3, width: "100%" }}>
+        <LoadErrorAlert message={loadError} onRetry={() => setAttempt((n) => n + 1)} />
+      </Box>
+    );
+  }
+
   if (loading || !existingData) {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", width: "100%", flex: 1, minHeight: "60vh" }}>
@@ -193,22 +219,25 @@ export default function PaymentVoucherPage() {
   }
 
   return (
-    <TabbedDocumentCreator
-      key={existingData.name || documentId}
-      documentType="PAYMENT_VOUCHER"
-      actualDocumentType="PAYMENT_VOUCHER"
-      documentId={documentId}
-      templateId={existingData.documentTemplateId}
-      fieldDefinitions={PV_FIELD_DEFINITIONS}
-      existingData={existingData}
-      onSave={handleSave}
-      customers={[]}
-      suppliers={suppliersList}
-      organization={organization}
-      onPrevious={() => goTo(savedVouchers[currentIndex + 1])}
-      onNext={() => goTo(savedVouchers[currentIndex - 1])}
-      hasPrevious={currentIndex >= 0 && currentIndex < savedVouchers.length - 1}
-      hasNext={currentIndex > 0}
-    />
+    <>
+      {listError && <LoadErrorAlert message={listError} onRetry={reloadList} sx={{ mx: 2, mt: 2 }} />}
+      <TabbedDocumentCreator
+        key={existingData.name || documentId}
+        documentType="PAYMENT_VOUCHER"
+        actualDocumentType="PAYMENT_VOUCHER"
+        documentId={documentId}
+        templateId={existingData.documentTemplateId}
+        fieldDefinitions={PV_FIELD_DEFINITIONS}
+        existingData={existingData}
+        onSave={handleSave}
+        customers={[]}
+        suppliers={suppliersList}
+        organization={organization}
+        onPrevious={() => goTo(savedVouchers[currentIndex + 1])}
+        onNext={() => goTo(savedVouchers[currentIndex - 1])}
+        hasPrevious={currentIndex >= 0 && currentIndex < savedVouchers.length - 1}
+        hasNext={currentIndex > 0}
+      />
+    </>
   );
 }

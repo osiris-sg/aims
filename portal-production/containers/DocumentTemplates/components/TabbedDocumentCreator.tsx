@@ -123,6 +123,7 @@ import { useAuth, useUser } from "@clerk/nextjs";
 import { useReactToPrint } from "react-to-print";
 import { installPrintFit } from "@/lib/printScale";
 import { request, withActiveOrg } from "@/helpers/request";
+import { requestFailed } from "@/helpers/requestOutcome";
 import { categoryChoices } from "@/helpers/salesReport";
 import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
 import EditorRail from "./EditorRail";
@@ -3908,7 +3909,9 @@ export default function TabbedDocumentCreator({
         toast.error("Authentication required");
         return;
       }
-      await request({ path: isJournalVoucher ? `/journal-vouchers/${docId}` : isPaymentVoucher ? `/payment-vouchers/${docId}` : `/receipts/${docId}`, method: "DELETE" }, {}, token);
+      const deleted = await request({ path: isJournalVoucher ? `/journal-vouchers/${docId}` : isPaymentVoucher ? `/payment-vouchers/${docId}` : `/receipts/${docId}`, method: "DELETE" }, {}, token);
+      // A failure already shows the global error toast: no "deleted", stay on the voucher.
+      if (requestFailed(deleted)) return;
       toast.success(isJournalVoucher ? "Journal voucher deleted — journal voided" : isPaymentVoucher ? "Payment voucher deleted — journal voided" : "Receipt deleted — journal voided");
       isDirtyRef.current = false;
       setHasUnsavedChanges(false);
@@ -4130,7 +4133,8 @@ export default function TabbedDocumentCreator({
     if (!authToken) { toast.error("Authentication required"); return; }
     const id = existingData?.id || documentId;
     try {
-      await request({ path: `/documents/${id}/delivery-share-link/revoke`, method: "POST" }, {}, authToken);
+      const res = await request({ path: `/documents/${id}/delivery-share-link/revoke`, method: "POST" }, {}, authToken);
+      if (requestFailed(res)) return;
       setShareLinkUrl(null);
       setShareLinkExpires(null);
       toast.success("Delivery link revoked");
@@ -4176,7 +4180,8 @@ export default function TabbedDocumentCreator({
     if (!authToken) { toast.error("Authentication required"); return; }
     const id = existingData?.id || documentId;
     try {
-      await request({ path: `/documents/${id}/share-link/revoke`, method: "POST" }, {}, authToken);
+      const res = await request({ path: `/documents/${id}/share-link/revoke`, method: "POST" }, {}, authToken);
+      if (requestFailed(res)) return;
       setDoViewLinkUrl(null);
       toast.success("DO link revoked");
     } catch (e: any) {
@@ -4190,7 +4195,8 @@ export default function TabbedDocumentCreator({
       const token = await getToken();
       if (!token) { toast.error("Authentication required"); return; }
       const id = existingData?.id || documentId;
-      await request({ path: `/documents/${id}/bulk-complete-do`, method: "POST" }, {}, token);
+      const res = await request({ path: `/documents/${id}/bulk-complete-do`, method: "POST" }, {}, token);
+      if (requestFailed(res)) return;
       toast.success("Delivery order completed");
     } catch {
       toast.error("Failed to complete delivery order");

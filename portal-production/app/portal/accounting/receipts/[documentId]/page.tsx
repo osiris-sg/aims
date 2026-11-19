@@ -15,6 +15,8 @@ import { OR_FIELD_DEFINITIONS } from "@/containers/DocumentTemplates/components/
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
+import { failureLine, listFrom, requestFailed } from "@/helpers/requestOutcome";
+import LoadErrorAlert from "@/components/LoadErrorAlert";
 import { toast } from "react-toastify";
 import { useCustomerPool } from "@/app/portal/hooks/api/useCustomerPicker";
 import { todayIso } from "@/helpers/orgToday";
@@ -68,28 +70,36 @@ export default function OfficialReceiptPage() {
   // (WCT ~4,000), and a capped list lost the selected customer.
   const customers = useCustomerPool([existingData?.customer?.id, existingData?.customerId, ...receipts.map((r: any) => r.customerId)]);
   const [loading, setLoading] = useState(true);
+  // A failed load shows its error with a Retry; a failed ‹ › list never crashes the editor (round 16).
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
+      setLoadError(null);
       try {
         const token = await getToken();
         if (!token) return;
         const [receiptRes, listRes] = await Promise.all([
           request({ path: `/receipts/${documentId}`, method: "GET", ownError: true }, {}, token),
-          request({ path: `/receipts`, method: "GET" }, {}, token),
+          request({ path: `/receipts`, method: "GET", ownError: true }, {}, token),
         ]);
+        if (requestFailed(receiptRes)) throw new Error(failureLine(receiptRes, "Could not load the receipt"));
         const r = unwrap(receiptRes);
         if (!r?.id) throw new Error("Receipt not found");
         if (cancelled) return;
-        setReceipts(unwrap(listRes) || []);
+        const navList = listFrom<any>(listRes, "Could not load the receipt list");
+        setReceipts(navList.rows);
+        setListError(navList.error);
         // Shape the receipt into the editor's existingData contract. Receipt
         // state rides in orData (see OfficialReceiptSection).
         setExistingData(toExisting(r));
       } catch (e: any) {
         console.error("Error loading receipt:", e);
-        toast.error(e?.message || "Failed to load receipt");
+        if (!cancelled) setLoadError(e?.message || "Could not load the receipt");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -97,7 +107,15 @@ export default function OfficialReceiptPage() {
     return () => {
       cancelled = true;
     };
-  }, [documentId, getToken]);
+  }, [documentId, getToken, attempt]);
+
+  const reloadList = async () => {
+    const token = await getToken();
+    if (!token) return;
+    const navList = listFrom<any>(await request({ path: `/receipts`, method: "GET", ownError: true }, {}, token), "Could not load the receipt list");
+    setReceipts(navList.rows);
+    setListError(navList.error);
+  };
 
   const handleSave = async (data: any) => {
     const token = await getToken();
@@ -173,6 +191,14 @@ export default function OfficialReceiptPage() {
     [customers],
   );
 
+  if (loadError) {
+    return (
+      <Box sx={{ p: 3, width: "100%" }}>
+        <LoadErrorAlert message={loadError} onRetry={() => setAttempt((n) => n + 1)} />
+      </Box>
+    );
+  }
+
   if (loading || !existingData) {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", width: "100%", flex: 1, minHeight: "60vh" }}>
@@ -182,21 +208,24 @@ export default function OfficialReceiptPage() {
   }
 
   return (
-    <TabbedDocumentCreator
-      key={existingData.name || documentId}
-      documentType="OFFICIAL_RECEIPT"
-      actualDocumentType="OFFICIAL_RECEIPT"
-      documentId={documentId}
-      templateId={existingData.documentTemplateId}
-      fieldDefinitions={OR_FIELD_DEFINITIONS}
-      existingData={existingData}
-      onSave={handleSave}
-      customers={customersList}
-      organization={organization}
-      onPrevious={() => goTo(savedReceipts[currentIndex + 1])}
-      onNext={() => goTo(savedReceipts[currentIndex - 1])}
-      hasPrevious={currentIndex >= 0 && currentIndex < savedReceipts.length - 1}
-      hasNext={currentIndex > 0}
-    />
+    <>
+      {listError && <LoadErrorAlert message={listError} onRetry={reloadList} sx={{ mx: 2, mt: 2 }} />}
+      <TabbedDocumentCreator
+        key={existingData.name || documentId}
+        documentType="OFFICIAL_RECEIPT"
+        actualDocumentType="OFFICIAL_RECEIPT"
+        documentId={documentId}
+        templateId={existingData.documentTemplateId}
+        fieldDefinitions={OR_FIELD_DEFINITIONS}
+        existingData={existingData}
+        onSave={handleSave}
+        customers={customersList}
+        organization={organization}
+        onPrevious={() => goTo(savedReceipts[currentIndex + 1])}
+        onNext={() => goTo(savedReceipts[currentIndex - 1])}
+        hasPrevious={currentIndex >= 0 && currentIndex < savedReceipts.length - 1}
+        hasNext={currentIndex > 0}
+      />
+    </>
   );
 }

@@ -12,6 +12,7 @@ const waPrefsOf = (v: any): WaPrefs => ({ ...WA_DEFAULTS, ...(v && typeof v === 
 import { useForm } from "react-hook-form";
 import FormInputBox from "@/form-components/FormInputBox";
 import { request } from "@/helpers/request";
+import { failureText, requestFailed } from "@/helpers/requestOutcome";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useAuth } from "@clerk/nextjs";
 import { useTranslations } from "next-intl";
@@ -208,17 +209,15 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
       await updateUser(updateData);
 
       // Org member profile (WhatsApp number + default commission) — separate
-      // endpoint because these live per-org, not in Clerk.
-      try {
-        const token = await getToken();
-        await request(
-          { method: "PATCH", path: `/users/${user.id}/profile` },
-          { whatsappNumber: whatsappNumber.trim() || null, whatsappPrefs: waPrefs, commissionPct: commissionPct.trim() === "" ? null : Number(commissionPct), yearlySalesTarget: yearlySalesTarget.trim() === "" ? null : Number(yearlySalesTarget) },
-          token ?? undefined
-        );
-      } catch (profileErr) {
-        console.error("Profile update failed:", profileErr);
-      }
+      // endpoint because these live per-org, not in Clerk. A failure keeps the
+      // drawer open with the drawer's own error (never "closed as if saved").
+      const profileToken = await getToken();
+      const profileRes = await request(
+        { method: "PATCH", path: `/users/${user.id}/profile`, ownError: true },
+        { whatsappNumber: whatsappNumber.trim() || null, whatsappPrefs: waPrefs, commissionPct: commissionPct.trim() === "" ? null : Number(commissionPct), yearlySalesTarget: yearlySalesTarget.trim() === "" ? null : Number(yearlySalesTarget) },
+        profileToken ?? undefined
+      );
+      if (requestFailed(profileRes)) throw new Error(failureText(profileRes, t("updateFailed")));
 
       // Reset form and close drawer after successful update
       reset();

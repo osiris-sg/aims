@@ -89,11 +89,12 @@ interface IngestLogRow {
 }
 
 // Bills have no per-document route (they open via a dialog on the bills list);
-// invoices deep-link into the document editor.
+// invoices deep-link into the document editor through /portal/documents/open/<id>, which looks up the type and
+// template. (It used to send a document id to the template editor route, which could never open it.)
 const docHref = (entry: string | { id: string; type: string }) => {
   const id = typeof entry === "string" ? entry : entry.id;
   const type = typeof entry === "string" ? "INVOICE" : entry.type;
-  return type === "BILL" ? "/portal/accounting/bills" : `/portal/documents/edit/${type}/${id}`;
+  return type === "BILL" ? "/portal/accounting/bills" : `/portal/documents/open/${id}`;
 };
 
 const docLabel = (entry: string | { id: string; type: string }, index: number) => {

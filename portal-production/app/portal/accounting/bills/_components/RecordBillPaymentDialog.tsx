@@ -21,6 +21,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import PaymentIcon from "@mui/icons-material/Payment";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
+import { requestFailed } from "@/helpers/requestOutcome";
 import { toast } from "react-toastify";
 import moment from "moment";
 import AttachmentUploader, { Attachment } from "@/components/AttachmentUploader";
@@ -115,7 +116,7 @@ export default function RecordBillPaymentDialog({ open, onClose, onSuccess, bill
     setSubmitting(true);
     try {
       const token = await getToken();
-      await request(
+      const res = await request(
         { path: `/bills/${bill.id}/payments`, method: "POST" },
         {
           amount: numericAmount,
@@ -128,6 +129,8 @@ export default function RecordBillPaymentDialog({ open, onClose, onSuccess, bill
         },
         token!,
       );
+      // A failure already shows the global error toast: the dialog stays open, nothing is refreshed.
+      if (requestFailed(res)) return;
       toast.success("Payment recorded");
       onSuccess();
       onClose();

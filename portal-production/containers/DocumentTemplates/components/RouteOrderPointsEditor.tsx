@@ -21,6 +21,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import RestoreIcon from "@mui/icons-material/Restore";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
+import { requestFailed } from "@/helpers/requestOutcome";
 import { toast } from "react-toastify";
 
 interface Props {
@@ -76,6 +77,8 @@ export default function RouteOrderPointsEditor({
         { balance: next },
         token ?? undefined,
       );
+      // A failure already shows the global error toast: stay in edit mode.
+      if (requestFailed(res)) return;
       const v = Number(res?.data?.balance ?? res?.balance);
       if (Number.isFinite(v)) setBalance(v);
       setEditing(false);

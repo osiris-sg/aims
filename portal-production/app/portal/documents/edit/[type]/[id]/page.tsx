@@ -1,13 +1,14 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import React, { useState, useEffect, useRef } from "react";
+import { useParams } from "next/navigation";
 import { Box, CircularProgress } from "@mui/material";
 import TabbedDocumentCreator from "@/containers/DocumentTemplates/components/TabbedDocumentCreator";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
-import { toast } from "react-toastify";
+import { failureLine, failureText, requestFailed } from "@/helpers/requestOutcome";
+import LoadErrorAlert from "@/components/LoadErrorAlert";
 import { useGetSuppliers } from "@/app/portal/hooks/api";
 import { useCustomerPool } from "@/app/portal/hooks/api/useCustomerPicker";
 import { useGetProjects } from "@/containers/DocumentTemplates/hooks/useGetProjects";
@@ -17,7 +18,6 @@ import { useGetSalesmen } from "@/containers/DocumentTemplates/hooks/useGetSales
 
 export default function EditDocumentPage() {
   const params = useParams();
-  const router = useRouter();
   const { type, id } = params;
   const { getToken } = useAuth();
   const { organization } = useOrganization();
@@ -27,42 +27,40 @@ export default function EditDocumentPage() {
   const [templateData, setTemplateData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Fetch existing template data
+  // Fetch existing template data. (Round 16: this used to pass a URL string as request()'s first argument, so
+  // every load and save failed and the page spun forever. Linked from the Document Templates list row and the
+  // legacy QO1 "Save as new template".)
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  // The template's config as last loaded / saved (a ref: re-rendering the editor with new data could reset it).
+  const savedConfigRef = useRef<Record<string, unknown>>({});
   useEffect(() => {
-    const fetchTemplate = async () => {
+    if (!id) return;
+    let cancelled = false;
+    (async () => {
+      setIsLoading(true);
+      setLoadError(null);
       try {
         const token = await getToken();
         if (!token) return;
-
-        console.log("Fetching template from:", `/documentTemplates/${id}`);
-        const response = await request(`/documentTemplates/${id}`, {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        console.log("Template API Response:", response);
-        console.log("Template Data:", response.data);
-        console.log("Template name:", response.data?.name);
-
-        if (response.success) {
-          setTemplateData(response.data);
-        } else {
-          console.error("Failed to fetch template:", response);
+        const response = await request({ path: `/documentTemplates/${id}`, method: "GET", ownError: true }, {}, token);
+        if (cancelled) return;
+        if (requestFailed(response) || !response?.data?.id) {
+          setLoadError(failureLine(response, "Could not load the template"));
+          return;
         }
-      } catch (error) {
-        console.error("Error fetching template:", error);
-        toast.error("Failed to load template");
+        savedConfigRef.current = response.data.config ?? {};
+        setTemplateData(response.data);
+      } catch (error: any) {
+        if (!cancelled) setLoadError(error?.message || "Could not load the template");
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
+    })();
+    return () => {
+      cancelled = true;
     };
-
-    if (id) {
-      fetchTemplate();
-    }
-  }, [id, getToken]);
+  }, [id, getToken, attempt]);
 
   // Fetch data
   // Customers: the document's own customer (by id) plus every customer the
@@ -75,26 +73,22 @@ export default function EditDocumentPage() {
   const { siteOffices, fetchSiteOffices } = useGetSiteOffices();
   const { salesmen } = useGetSalesmen();
 
+  // The template editor (TabbedDocumentCreator in template mode) saves { ...formData, config }. The API's
+  // POST /documentTemplates/update REPLACES the template config with everything but id/name/type, so the saved
+  // config is merged over the loaded one: settings this editor does not show are kept.
+  // The editor's "Save Template" button says "Template saved" itself.
   const handleSave = async (data: any) => {
-    try {
-      const token = await getToken();
-      // Update document logic here
-      const response = await request(`/documentTemplates/${id}`, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(data),
-      });
-
-      if (response.success) {
-        toast.success("Document updated successfully!");
-        router.push("/portal/documents/templates");
-      }
-    } catch (error) {
-      toast.error("Failed to update document");
-      console.error("Error updating document:", error);
-    }
+    const token = await getToken();
+    const config = { ...savedConfigRef.current, ...(data?.config ?? {}) };
+    const response = await request(
+      { path: "/documentTemplates/update", method: "POST" },
+      { ...config, id, name: templateData?.name, type: templateData?.type },
+      token ?? undefined,
+    );
+    // A failure already shows the global error toast; `reported` stops the editor stacking its own on it.
+    if (requestFailed(response)) throw Object.assign(new Error(failureText(response, "Could not save the template")), { reported: true });
+    savedConfigRef.current = config;
+    return response?.data ?? response;
   };
 
   const handlePrint = () => {
@@ -138,6 +132,14 @@ export default function EditDocumentPage() {
       fetchSiteOffices(customerId);
     }
   };
+
+  if (loadError) {
+    return (
+      <Box sx={{ p: 3, width: "100%" }}>
+        <LoadErrorAlert message={loadError} onRetry={() => setAttempt((n) => n + 1)} />
+      </Box>
+    );
+  }
 
   if (isLoading) {
     return (

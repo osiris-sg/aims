@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
+import { failureLine, requestFailed } from "@/helpers/requestOutcome";
 import { DOCUMENT_TYPES } from "@/containers/DocumentsTemplateView/slice/constants";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 
@@ -27,12 +28,14 @@ export const useGetDocumentTemplates = () => {
       return;
     }
     setLoading(true);
+    setError(null);
     try {
       const token = await getToken();
       const response = await request(
         {
           path: "/documentTemplates",
           method: "POST",
+          ownError: true,
         },
         {
           page,
@@ -43,7 +46,12 @@ export const useGetDocumentTemplates = () => {
         },
         token ?? undefined
       );
-      setDocumentTemplates(response.data);
+      // A failed load used to store undefined here and crash the page on `.docs`: keep the list, show the error.
+      if (requestFailed(response)) {
+        setError(failureLine(response, "Could not load the document types"));
+        return;
+      }
+      setDocumentTemplates(Array.isArray(response?.data?.docs) ? response.data : { docs: [] });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Error fetching document templates";
       setError(errorMessage);
@@ -78,6 +86,7 @@ export const useGetDocumentTemplates = () => {
     documentTemplates,
     loading,
     error,
+    retry: getDocumentTemplates,
     page,
     limit,
     search,

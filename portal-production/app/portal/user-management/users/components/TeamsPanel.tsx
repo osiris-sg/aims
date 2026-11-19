@@ -16,6 +16,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import GroupsIcon from "@mui/icons-material/GroupsOutlined";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
+import { requestFailed } from "@/helpers/requestOutcome";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import { useTranslations } from "next-intl";
 
@@ -99,17 +100,26 @@ export default function TeamsPanel() {
         leaderUserId: leaderUserId || null,
         yearlyTarget: target.trim() === "" ? null : Number(target),
       };
+      // A failed call already shows the global error toast: the dialog stays open with what was typed.
       let teamId = editing?.id;
       if (editing) {
-        await request({ method: "PATCH", path: "/teams/:id" }, { id: editing.id, ...payload }, token);
+        const updated = await request({ method: "PATCH", path: "/teams/:id" }, { id: editing.id, ...payload }, token);
+        if (requestFailed(updated)) return;
       } else {
         const created = await request({ method: "POST", path: "/teams" }, payload, token);
+        if (requestFailed(created)) return;
         teamId = created?.id || created?.data?.id;
       }
       // Leader is always a member — include them so their own numbers count in the team bubble.
       const finalMembers = Array.from(new Set([...memberIds, ...(leaderUserId ? [leaderUserId] : [])]));
       if (teamId) {
-        await request({ method: "POST", path: "/teams/:id/members" }, { id: teamId, userIds: finalMembers }, token);
+        const members = await request({ method: "POST", path: "/teams/:id/members" }, { id: teamId, userIds: finalMembers }, token);
+        if (requestFailed(members)) {
+          // The team itself saved: a retry must update it, not create a second one.
+          if (!editing) setEditing({ id: teamId, ...payload, memberUserIds: [] });
+          await load();
+          return;
+        }
       }
       setDialogOpen(false);
       await load();
@@ -126,7 +136,8 @@ export default function TeamsPanel() {
     try {
       const token = await getToken();
       if (!token) return;
-      await request({ method: "DELETE", path: "/teams/:id" }, { id: deleting.id }, token);
+      const res = await request({ method: "DELETE", path: "/teams/:id" }, { id: deleting.id }, token);
+      if (requestFailed(res)) return;
       setDeleting(null);
       await load();
     } catch (e) {

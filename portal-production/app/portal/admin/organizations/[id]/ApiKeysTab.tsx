@@ -34,6 +34,8 @@ import {
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
+import { listFrom, requestFailed } from "@/helpers/requestOutcome";
+import LoadErrorAlert from "@/components/LoadErrorAlert";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // API Keys tab (admin org detail page).
@@ -64,6 +66,7 @@ export default function ApiKeysTab({ organizationId }: { organizationId: string 
   const [rows, setRows] = useState<ApiKeyRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Create dialog
   const [createOpen, setCreateOpen] = useState(false);
@@ -79,10 +82,13 @@ export default function ApiKeysTab({ organizationId }: { organizationId: string 
     try {
       const token = await getToken();
       if (!token) return;
-      const res: any = await request({ path: base, method: "GET" }, {}, token);
-      setRows(res?.data ?? res ?? []);
+      const res: any = await request({ path: base, method: "GET", ownError: true }, {}, token);
+      // A failed load used to land the failure object in rows and crash the table: show it with a Retry instead.
+      const list = listFrom<ApiKeyRow>(res, "Could not load the API keys");
+      setRows(list.rows);
+      setLoadError(list.error);
     } catch (e: any) {
-      toast.error(e?.message || "Failed to load API keys");
+      setLoadError(e?.message || "Could not load the API keys");
     } finally {
       setLoading(false);
     }
@@ -103,6 +109,8 @@ export default function ApiKeysTab({ organizationId }: { organizationId: string 
         { name: newName.trim(), autoPost: newAutoPost },
         token,
       );
+      // A failure already shows the global error toast: keep the form, mint nothing.
+      if (requestFailed(res)) return;
       const data = res?.data ?? res;
       setMintedKey(data?.key || null);
       setNewName("");
@@ -119,7 +127,8 @@ export default function ApiKeysTab({ organizationId }: { organizationId: string 
     try {
       const token = await getToken();
       if (!token) return;
-      await request({ path: `${base}/${row.id}`, method: "PATCH" }, { autoPost: !row.autoPost }, token);
+      const res = await request({ path: `${base}/${row.id}`, method: "PATCH" }, { autoPost: !row.autoPost }, token);
+      if (requestFailed(res)) return;
       setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, autoPost: !r.autoPost } : r)));
       toast.success(!row.autoPost ? "Documents from this key now auto-post to the GL" : "Documents from this key now queue for review");
     } catch (e: any) {
@@ -132,7 +141,8 @@ export default function ApiKeysTab({ organizationId }: { organizationId: string 
     try {
       const token = await getToken();
       if (!token) return;
-      await request({ path: `${base}/${row.id}/revoke`, method: "POST" }, {}, token);
+      const res = await request({ path: `${base}/${row.id}/revoke`, method: "POST" }, {}, token);
+      if (requestFailed(res)) return;
       toast.success("Key revoked");
       load();
     } catch (e: any) {
@@ -170,6 +180,8 @@ export default function ApiKeysTab({ organizationId }: { organizationId: string 
         <Box sx={{ display: "flex", justifyContent: "center", p: 6 }}>
           <CircularProgress />
         </Box>
+      ) : loadError ? (
+        <LoadErrorAlert message={loadError} onRetry={load} />
       ) : rows.length === 0 ? (
         <Alert severity="info">No API keys yet — generate one to let an external app create documents.</Alert>
       ) : (

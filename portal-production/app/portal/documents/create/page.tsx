@@ -13,10 +13,11 @@ import { yupResolver } from "@hookform/resolvers/yup";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
+import LoadErrorAlert from "@/components/LoadErrorAlert";
 import { useTemplatePicker } from "@/app/portal/components/useTemplatePicker";
 
 export default function CreateDocument() {
-  const { availableDocumentTypes } = useGetDocumentTemplates();
+  const { availableDocumentTypes, error: typesError, retry: retryTypes } = useGetDocumentTemplates();
   const router = useRouter();
   const { organization } = useOrganization();
   const organizationId = organization?.id;
@@ -76,6 +77,7 @@ export default function CreateDocument() {
             <Typography variant="body1" color="text.secondary" marginBottom="var(--default-gap)" textAlign="center">
               Select a document type you wish to create
             </Typography>
+            {typesError && <LoadErrorAlert message={typesError} onRetry={retryTypes} sx={{ mb: 2 }} />}
             <FormSelect control={control} menuItems={availableDocumentTypes.map((doc) => ({ label: doc.label, value: doc.value }))} label="Document" name="documentType" menuTitle="Choose a document" />
           </Stack>
 

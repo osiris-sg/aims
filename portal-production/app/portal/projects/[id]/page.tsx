@@ -6,6 +6,7 @@ import Image from "next/image";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
+import { requestFailed } from "@/helpers/requestOutcome";
 import MainCard from "@/components/MainCard";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import WhatsAppGroupPicker from "@/components/deliveries/WhatsAppGroupPicker";
@@ -644,6 +645,8 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
         { offHiredDate: new Date().toISOString() },
         token,
       );
+      // A failure already shows the global error toast: no success, no refetch.
+      if (requestFailed(res)) return;
       toast.success("Deployment off-hired");
       const paused = res?.deactivatedRecurringTemplates;
       if (Array.isArray(paused) && paused.length > 0) {
@@ -681,6 +684,7 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
         {},
         token,
       );
+      if (requestFailed(res)) return;
       toast.success("Converted to sale — unit marked sold");
       const paused = res?.deactivatedRecurringTemplates;
       if (Array.isArray(paused) && paused.length > 0) {

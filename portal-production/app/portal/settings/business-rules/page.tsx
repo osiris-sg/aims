@@ -16,6 +16,7 @@ import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
+import { requestFailed } from "@/helpers/requestOutcome";
 
 type Milestone = { label: string; pct: number | string; dueTrigger?: string | null };
 type Rules = {
@@ -114,7 +115,9 @@ export default function BusinessRulesPage() {
           daysAhead: Number(rules.booking.daysAhead) || 14,
         },
       };
-      await request({ path: "/org-rules", method: "PATCH" }, body, token ?? undefined);
+      const res = await request({ path: "/org-rules", method: "PATCH" }, body, token ?? undefined);
+      // A failure already shows the global error toast: the rules stay unsaved (dirty).
+      if (requestFailed(res)) return;
       setDirty(false);
       toast.success("Business rules saved — they apply to newly created projects and quotations");
     } catch (e: any) {

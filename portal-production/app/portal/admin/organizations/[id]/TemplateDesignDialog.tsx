@@ -27,6 +27,7 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
+import { requestFailed } from "@/helpers/requestOutcome";
 import { DEFAULT_DESIGN, DESIGN_FONT_LABELS, DESIGN_FONTS, DOCUMENT_LAYOUT_LABELS, DOCUMENT_LAYOUTS, isDefaultDesign, resolveDesign, type DocumentDesign } from "@/app/portal/documents/design";
 
 interface Props {
@@ -116,6 +117,8 @@ export default function TemplateDesignDialog({ open, templateId, templateName, s
     try {
       const token = await getToken();
       const res = await request({ path: `/documentTemplates/variants/${templateId}/design`, method: "POST" }, { design }, token!, headers);
+      // A failure already shows the global error toast: the dialog stays open with the edits.
+      if (requestFailed(res)) return;
       const d = resolveDesign(res?.data?.design ?? res?.design ?? design);
       setSaved(d);
       setDesign(d);
