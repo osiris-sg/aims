@@ -13,7 +13,7 @@ import { cancelBlockingInvoice, voidedWithOrderConfig } from './order-cancel';
 import { invoiceRowsWithSplitParts, isWctOrdersEnabled, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
 import { MANUAL_ORDER_STATUS_LABEL, isManualOrderFlow, type ManualOrderStatus } from './manual-order-flow';
 import { isVerifiedJob } from '../deliveries/finish-modes';
-import { isOrgFeatureEnabled } from '../common/org-features';
+import { SOFT_DELETED_TYPE, isOrgFeatureEnabled } from '../common/org-features';
 import { doStatusTag } from '../deliveries/do-number';
 import { assetKey, descKey, remainingAllowance, remainingQuoteLines } from './order-billing';
 import { photosFileOf } from '../maintenance-reports/uploaded-report';
@@ -1556,7 +1556,8 @@ export class OrdersService {
     const ids = [...new Set([...jobs.map((j) => j.orderInvoiceId), ...extraInvoiceIds].filter((v) => v && !String(v).startsWith('claim:')))] as string[];
     const docs = ids.length
       ? await this.prisma.document.findMany({
-          where: { id: { in: ids }, organizationId },
+          // A soft-deleted draft (enableSoftDeleteDrafts) is gone from the order page even while a job / the order still names it.
+          where: { id: { in: ids }, organizationId, type: { not: SOFT_DELETED_TYPE } },
           select: { id: true, name: true, status: true, type: true, documentTemplateId: true, config: true, createdAt: true },
           orderBy: { createdAt: 'asc' },
         })
@@ -1564,7 +1565,7 @@ export class OrdersService {
     // Split payment (2026-11-17): every part of a split invoice, in part order after their original.
     const more = withSplitPartIds(ids, docs).filter((id) => !ids.includes(id));
     if (more.length) {
-      docs.push(...(await this.prisma.document.findMany({ where: { id: { in: more }, organizationId }, select: { id: true, name: true, status: true, type: true, documentTemplateId: true, config: true, createdAt: true } })));
+      docs.push(...(await this.prisma.document.findMany({ where: { id: { in: more }, organizationId, type: { not: SOFT_DELETED_TYPE } }, select: { id: true, name: true, status: true, type: true, documentTemplateId: true, config: true, createdAt: true } })));
       const key = (d: any) => {
         const s = invoiceSplitOf(d.config);
         const head = s ? docs.find((x: any) => x.id === s.groupId) ?? d : d;

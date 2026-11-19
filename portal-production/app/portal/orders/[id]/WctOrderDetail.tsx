@@ -121,9 +121,8 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
   const [invOpen, setInvOpen] = useState(false);
   const [invNumber, setInvNumber] = useState("");
   const [invLines, setInvLines] = useState<InvoiceLineDraft[]>([]);
-  const { isJobsCalendarEnabled, features } = useOrganizationFeatures();
-  // WCT group soft delete of drafts (enableSoftDeleteDrafts): the number stays as a gap.
-  const softDelete = (features as any)?.enableSoftDeleteDrafts === true;
+  // WCT group soft delete of drafts (enableSoftDeleteDrafts): Delete hides the draft, its number stays as a gap.
+  const { isJobsCalendarEnabled, isSoftDeleteDraftsEnabled: softDelete } = useOrganizationFeatures();
 
   const load = useCallback(async () => {
     if (fixture || !organization?.id) return;
