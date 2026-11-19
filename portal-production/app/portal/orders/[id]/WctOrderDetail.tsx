@@ -25,7 +25,7 @@ import { hubActionTarget, type HubActionKey } from "@/helpers/wctOrderHub";
 import { invoiceDialogLines, type ImportedLinkType } from "@/helpers/importedOrders";
 import { canUnlinkRow, docRowMenu, nativeInvoiceAsk, orderPageModel, type OrderAction, type OrderCard, type OrderDocRow } from "@/helpers/orderPage";
 import OrderPageLayout from "./OrderPageLayout";
-import { CancelOrderDialog, ConfirmRowDialog, ImportedInvoiceDialog, LinkDocumentDialog, MarkCompleteDialog, type InvoiceLineDraft } from "./OrderPageDialogs";
+import { CancelOrderDialog, ConfirmRowDialog, InvoiceLinesDialog, LinkDocumentDialog, MarkCompleteDialog, type InvoiceLineDraft } from "./OrderPageDialogs";
 
 // WCT order page (enableWctOrders). Round 24 (2026-11-19): ONE layout for AIMS (native) and imported orders
 // (OrderPageLayout, fed by helpers/orderPage.ts): the numbered tracker cards, the summary row, one actions row
@@ -119,7 +119,6 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
   const [reason, setReason] = useState("");
   const [cancelAsk, setCancelAsk] = useState(false);
   const [invOpen, setInvOpen] = useState(false);
-  const [invNumber, setInvNumber] = useState("");
   const [invLines, setInvLines] = useState<InvoiceLineDraft[]>([]);
   // WCT group soft delete of drafts (enableSoftDeleteDrafts): Delete hides the draft, its number stays as a gap.
   const { isJobsCalendarEnabled, isSoftDeleteDraftsEnabled: softDelete } = useOrganizationFeatures();
@@ -243,15 +242,15 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
     }
   };
 
-  // ── Create invoice: AIMS orders = Invoice now / from the quotation; imported orders = number + lines dialog ──
+  // ── Create invoice: AIMS orders = Invoice now / from the quotation, or (round 36) the lines dialog for what is left
+  // while the order is billed below its quotation total; imported orders = the lines dialog. The number is always the
+  // org's next INV number, given by the server. ──
   const openInvoiceDialog = () => {
-    setInvNumber(o.suggestedInvoiceNumber ?? "");
     setInvLines(invoiceDialogLines(o));
     setInvOpen(true);
   };
   const createInvoice = async () => {
     const res: any = await post(`/orders/${order.id}/invoice-remaining`, {
-      number: invNumber.trim() || null,
       lines: invLines.map((l) => ({ description: l.description.trim(), quantity: Number(l.quantity), unitPrice: Number(l.unitPrice) })),
     }, "create-invoice");
     if (!res || requestFailed(res)) return;
@@ -360,7 +359,7 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
     switch (a.key) {
       case "create-invoice":
         if (a.mode === "open-draft" && a.href) router.push(a.href);
-        else if (imported) openInvoiceDialog();
+        else if (imported || a.mode === "remaining") openInvoiceDialog();
         else setInvoiceAsk(true);
         return;
       case "add-do":
@@ -423,7 +422,11 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
     else if (t.dialog === "add-job") {
       if (doFirst) void addJobForDo(dos.find((d) => !d.completed) ?? dos[0]);
       else setAddOpen(true);
-    } else if (t.dialog === "create-invoice") setInvoiceAsk(true);
+    } else if (t.dialog === "create-invoice") {
+      const a = model.actions.find((x) => x.key === "create-invoice" && x.show && !x.disabled);
+      if (a) runAction(a);
+      else setInvoiceAsk(true);
+    }
     else if (t.dialog === "send-report") setSendReportOpen(true);
     else if (t.dialog === "service-report") (pos ? setSrMenu({ pos, doId: null }) : openSrMenuAtButton());
     else if (t.dialog === "complete-do" && openDo) setCompleteDo(openDo);
@@ -651,7 +654,7 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
           </Button>
         </DialogActions>
       </Dialog>
-      <ImportedInvoiceDialog open={invOpen} busy={!!busy} number={invNumber} lines={invLines} onNumber={setInvNumber} onLines={setInvLines} onClose={() => setInvOpen(false)} onCreate={() => void createInvoice()} />
+      <InvoiceLinesDialog open={invOpen} busy={!!busy} lines={invLines} onLines={setInvLines} onClose={() => setInvOpen(false)} onCreate={() => void createInvoice()} />
       <MarkCompleteDialog open={completeOpen} busy={!!busy} reason={reason} onReason={setReason} onClose={() => setCompleteOpen(false)} onConfirm={() => void markComplete()} />
       <CancelOrderDialog open={cancelAsk} busy={!!busy} orderNumber={order.orderNumber} hasInvoices={(order.invoices ?? []).length > 0} onClose={() => setCancelAsk(false)} onConfirm={() => void cancelOrder()} />
     </OrderPageLayout>

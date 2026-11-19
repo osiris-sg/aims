@@ -10,7 +10,7 @@ import {
 import { invoiceSplitOf, withSplitPartIds } from '../documents/invoice-split';
 import { AuditService } from '../common/audit.service';
 import { cancelBlockingInvoice, voidedWithOrderConfig } from './order-cancel';
-import { MARKED_COMPLETE, invoiceRowsWithSplitParts, isWctOrdersEnabled, linkedDoEntriesOf, linkedDoIdsOf, liveInvoiceIds, nativeCompletionOf, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
+import { MARKED_COMPLETE, invoiceRowsWithSplitParts, isWctOrdersEnabled, linkedDoEntriesOf, linkedDoIdsOf, liveInvoiceIds, nativeCompletionOf, orderInvoiceIdsOf, refreshOrderStatus, remainderInvoiceIdsOf, WCT_ORDER_INVOICE_FLAG, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
 import { MANUAL_ORDER_STATUS_LABEL, isManualOrderFlow, type ManualOrderStatus } from './manual-order-flow';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { SOFT_DELETED_TYPE, isOrgFeatureEnabled } from '../common/org-features';
@@ -61,9 +61,9 @@ import {
   type LinkStamp,
 } from './imported-order-links';
 import { isErpImported } from '../common/erp-import';
-import { billingSteps, importedInvoicePrefill, remainingForOrder, suggestedInvoiceNumber } from './imported-remaining';
+import { billingSteps, importedInvoicePrefill, remainingForOrder } from './imported-remaining';
 import { amountPaidOf, grossOf } from '../common/document-money';
-import { nativeInvoiceMoney, nativeOrderSummary } from './order-page-summary';
+import { nativeInvoiceMoney, nativeOrderSummary, nativeRemainderOf } from './order-page-summary';
 
 /** Imported orders are numbered ORD-<quotation no.> (imported-orders.ts); no native number starts so. */
 const IMPORTED_NUMBER_PREFIX = 'ORD-Q-';
@@ -909,17 +909,7 @@ export class OrdersService {
     const stateOf = (d: any) => (!isErpImported(d.config) && !isCountedInvoice(d) ? 'Draft' : IMPORTED_INVOICE_STATE_LABEL[importedInvoiceMoney(d, Number(m?.credits?.[d.id]) || creditOfImportedInvoice(d.config)).state]);
     const ordered = [...invDocs].sort((a: any, b: any) => (isCountedInvoice(a) ? 0 : 1) - (isCountedInvoice(b) ? 0 : 1) || String(a.config?.date ?? '').localeCompare(String(b.config?.date ?? '')));
     const steps = billingSteps(allQuoteItems, ordered.map((d: any) => ({ items: Array.isArray(d.config?.items) ? d.config.items : [], state: stateOf(d) })));
-    // The suggested number for Create invoice: the first imported invoice's number + "-02" (never one in use).
-    const firstImported: any = invDocs.find((d: any) => isErpImported(d.config));
-    let suggestedNumber: string | null = null;
-    if (firstImported?.name) {
-      const base = String(firstImported.name).replace(/-\d{2}$/, '');
-      const taken = new Set(
-        (await this.prisma.document.findMany({ where: { organizationId, type: 'INVOICE', name: { startsWith: base } }, select: { name: true } })).map((d: any) => String(d.name).toLowerCase()),
-      );
-      // Counted (confirmed) invoices only: a draft still being made does not move the suffix.
-      suggestedNumber = suggestedInvoiceNumber(base, invDocs.filter((d: any) => isCountedInvoice(d)).length, taken);
-    }
+    // Round 36: Create invoice takes the org's next INV number (no suggested -02 number any more).
     // A new AIMS invoice made on the order that is still a draft: open it instead of making a second one.
     const draft = importedOrderDraftInvoice(invDocs, row.id);
     const completed = importedCompletionOf(row);
@@ -963,7 +953,6 @@ export class OrdersService {
       remaining: st.status === 'PART_BILLED' || (completed && remaining.remainingGross > 0) ? remaining : null,
       progress: remaining.progress,
       billingSteps: steps,
-      suggestedInvoiceNumber: suggestedNumber,
       // Create invoice's lines: what is left; on an order billed in full the quotations' lines; else one empty line.
       invoiceLines: importedInvoicePrefill(remaining, allQuoteItems),
       dos: erpDos,
@@ -1072,7 +1061,8 @@ export class OrdersService {
     const doIds = [...new Set(allJobs.flatMap((j) => (j.items ?? []).map((i: any) => i.documentId)).filter(Boolean))] as string[];
     // Manual flow: an invoice made first (from the quotation) is on the order before any DO / job points at it.
     const manual = await isManualOrderFlow(this.prisma, organizationId);
-    const orderInv = (o: any): string[] => (manual ? orderInvoiceIdsOf(o) : []);
+    // Round 36: any WCT order lists the invoices made with Create invoice for what is left (remainder: true).
+    const orderInv = (o: any): string[] => (manual ? orderInvoiceIdsOf(o) : remainderInvoiceIdsOf(o));
     const invIds = [...new Set([...allJobs.map((j) => j.orderInvoiceId), ...orders.flatMap((o) => orderInv(o))].filter((v) => v && !String(v).startsWith('claim:')))] as string[];
     // DO first (2026-11-13): an order's DOs also include those with no job (config.orderId).
     const docs = doIds.length || invIds.length || orders.length
@@ -1364,7 +1354,7 @@ export class OrdersService {
       jobs,
       deliveryOrders,
       prefill: { siteAddress, lines: quotationLines, note: prefillNote },
-      ...(await this.wctBilling(organizationId, jobsRaw, [...joblessInvoiceIds, ...((await isManualOrderFlow(this.prisma, organizationId)) ? orderInvoiceIdsOf(order as any) : [])], sourceQuotation, order as any, linkedQuoteDocs)),
+      ...(await this.wctBilling(organizationId, jobsRaw, [...joblessInvoiceIds, ...((await isManualOrderFlow(this.prisma, organizationId)) ? orderInvoiceIdsOf(order as any) : remainderInvoiceIdsOf(order as any))], sourceQuotation, order as any, linkedQuoteDocs)),
       toInvoiceDos,
       toInvoiceLinkedDos,
       attachments: await this.orderAttachmentsView(organizationId, Array.isArray(order.attachments) ? (order.attachments as any[]) : []),
@@ -1636,7 +1626,7 @@ export class OrdersService {
     jobs: any[],
     extraInvoiceIds: string[] = [],
     quotation: { name?: string | null; config?: any } | null = null,
-    order: { id: string; linkedDocuments?: unknown } | null = null,
+    order: { id: string; linkedDocuments?: unknown; status?: string } | null = null,
     linkedQuotations: Array<{ name?: string | null; config?: any }> = [],
   ) {
     const invoicing = await isOrgFeatureEnabled(this.prisma, organizationId, WCT_ORDER_INVOICE_FLAG);
@@ -1696,8 +1686,46 @@ export class OrdersService {
     }));
     const toInvoice = jobs.filter((j) => isVerifiedJob(j) && !j.orderInvoiceId).map((j) => j.deliveryNumber);
     // Round 24: Quotation total, Billed, Billed %, Billed qty, Left to bill, Owed (display only, never the status).
-    const summary = nativeOrderSummary({ quotation, invoices: docs as any[], linkedQuotations });
-    return { invoicing, invoices, toInvoice, summary };
+    // Round 36: credit notes on the order's invoices count against what they billed (a fully credited one bills nothing).
+    const credits = await this.invoiceCredits(organizationId, docs.map((d: any) => d.id));
+    const summary = nativeOrderSummary({ quotation, invoices: docs as any[], linkedQuotations, credits });
+    // Round 36: Create invoice stays available while the order is billed below its quotation total (what is left, prefilled).
+    const quoteItems = [quotation, ...linkedQuotations].flatMap((q: any) => (Array.isArray(q?.config?.items) ? q.config.items : []));
+    const { canInvoiceRemaining, invoiceLines } = nativeRemainderOf({ invoicing, cancelled: order?.status === 'CANCELLED', hasQuotation: !!quotation, invoices: docs as any[], summary, quoteItems });
+    return { invoicing, invoices, toInvoice, summary, canInvoiceRemaining, invoiceLines };
+  }
+
+  /** Credit notes per invoice (gross; confirmed, not voided; config.sourceDocumentId = the invoice), as the WCT statuses read them. */
+  private async invoiceCredits(organizationId: string, invoiceIds: string[]): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    if (!invoiceIds.length) return out;
+    const rows: any[] = await this.prisma.document.findMany({
+      where: { organizationId, type: { in: ['CREDIT_NOTE', 'CN'] }, status: { notIn: ['draft', 'unconfirmed'] }, OR: invoiceIds.map((id) => ({ config: { path: ['sourceDocumentId'], equals: id } })) } as any,
+      select: { config: true },
+    });
+    for (const r of rows) {
+      const to = r.config?.sourceDocumentId;
+      if (typeof to !== 'string' || r.config?.voided === true) continue;
+      out.set(to, Math.round(((out.get(to) ?? 0) + (grossOf(r.config) ?? 0)) * 100) / 100);
+    }
+    return out;
+  }
+
+  /**
+   * Round 36: what "Create invoice" bills on an AIMS order of a WCT org, read the way the order page reads it
+   * (getWctById), for DocumentsService.invoiceNativeOrderRemainder: whether it is offered, the prefilled lines, and
+   * the order's draft invoice (one at a time).
+   */
+  async nativeInvoiceRemainder(id: string, organizationId: string) {
+    const page: any = await this.getWctById(id, organizationId, { skipStatusSync: true });
+    const draft = (page.invoices ?? []).find((i: any) => ['draft', 'unconfirmed'].includes(String(i.status)) && !i.cancelled) ?? null;
+    return {
+      canInvoiceRemaining: page.canInvoiceRemaining === true,
+      invoiceLines: (page.invoiceLines ?? []) as Array<{ description: string; quantity: number; unitPrice: number; amount: number; priced: boolean }>,
+      draft: draft ? { id: draft.id as string, name: (draft.name ?? null) as string | null } : null,
+      summary: page.summary ?? null,
+      deliveryOrders: (page.deliveryOrders ?? []) as Array<{ id: string; name: string | null }>,
+    };
   }
 
   /**

@@ -121,44 +121,56 @@ describe('imported orders: Mark complete / Reopen', () => {
   });
 });
 
-describe('Create invoice: typed number, edited lines (2026-11-19)', () => {
-  it('I-014521-02 typed: the document is named so (nameOverride, the INV counter is not used); edited lines kept', async () => {
+describe('Create invoice: the org\'s next INV number, edited lines (round 36, 2026-11-19)', () => {
+  it('a number sent by an older page is ignored: the counter number (lockedNumber, no override, no documentNumber); edited lines kept', async () => {
     const { svc } = world();
     await svc.invoiceImportedOrderRemainder('o1', ORG, { number: ' I-014521-02 ', lines: [{ description: 'Maintenance agreement, 2nd service', quantity: 1, unitPrice: 1200 }, { description: 'S- Area cleaning', quantity: 1, unitPrice: 0 }] });
     const call = svc.createBasicDocument.mock.calls[0];
-    expect(call[6]).toBe('I-014521-02');
-    expect(call[3]).toMatchObject({ documentNumber: 'I-014521-02', nettTotal: 1308 });
+    expect(call[6]).toBeUndefined();
+    expect(call[7]).toEqual({ lockedNumber: true });
+    expect(call[3].documentNumber).toBeUndefined();
+    expect(call[3]).toMatchObject({ nettTotal: 1308 });
     expect(call[3].items.map((l: any) => [l.description, l.quantity, l.amount])).toEqual([['Maintenance agreement, 2nd service', 1, 1200], ['S- Area cleaning', 1, 0]]);
   });
-  it('no number: the normal numbering (no override)', async () => {
+  it('no number: the normal numbering, claimed with the insert', async () => {
     const { svc } = world();
     await svc.invoiceImportedOrderRemainder('o1', ORG, {});
     expect(svc.createBasicDocument.mock.calls[0][6]).toBeUndefined();
+    expect(svc.createBasicDocument.mock.calls[0][7]).toEqual({ lockedNumber: true });
   });
-  it('refused: a number already used, a bad number, $0-only lines', async () => {
-    const used = world();
-    used.db.document.findFirst = jest.fn(async ({ where }: any) => (where.id === 'q1' ? QUOTE : where.type === 'INVOICE' ? { name: 'I-014521-02' } : null));
-    await expect(used.svc.invoiceImportedOrderRemainder('o1', ORG, { number: 'i-014521-02' })).rejects.toThrow(/I-014521-02 is already used/);
-    await expect(world().svc.invoiceImportedOrderRemainder('o1', ORG, { number: 'I 014521/02 !' })).rejects.toThrow(/letters, digits/);
+  it('refused: $0-only lines; one Create invoice at a time per order (a claim held by another run)', async () => {
     await expect(world().svc.invoiceImportedOrderRemainder('o1', ORG, { lines: [{ description: 'x', quantity: 1, unitPrice: 0 }] })).rejects.toThrow(/every line is \$0/);
-    expect(used.svc.createBasicDocument).not.toHaveBeenCalled();
+    const busy = world();
+    busy.order.linkedDocuments.invoiceClaim = { id: 'other-run', at: new Date().toISOString() };
+    await expect(busy.svc.invoiceImportedOrderRemainder('o1', ORG)).rejects.toThrow(/being created/);
+    expect(busy.svc.createBasicDocument).not.toHaveBeenCalled();
+  });
+  it('the claim is dropped when the invoice is made, and when making it fails', async () => {
+    const ok = world();
+    await ok.svc.invoiceImportedOrderRemainder('o1', ORG);
+    expect(ok.order.linkedDocuments.invoiceClaim).toBeUndefined();
+    const failed = world();
+    failed.svc.createBasicDocument = jest.fn(async () => {
+      throw new Error('boom');
+    });
+    await expect(failed.svc.invoiceImportedOrderRemainder('o1', ORG)).rejects.toThrow(/boom/);
+    expect(failed.order.linkedDocuments.invoiceClaim).toBeUndefined();
+    expect(failed.order.linkedDocuments.invoice).toEqual([{ id: 'i1', name: 'I-014521', total: 1308 }]);
   });
 });
 
-describe('order page helpers: steps, suggested number, DO-only orders', () => {
-  const { billingSteps, suggestedInvoiceNumber, validInvoiceNumber } = require('./imported-remaining');
+describe('order page helpers: steps, DO-only orders', () => {
+  const { billingSteps } = require('./imported-remaining');
   const { importedOrderStatus, importedTracker } = require('./imported-orders');
   it('"1 of 2 Paid · 2 of 2 Draft"', () => {
     const q = [zero('G- Provide tools'), { description: MA, quantity: 2, unitPrice: 1200, amount: 2400 }];
     expect(billingSteps(q, [{ items: I014521.config.items, state: 'Paid' }, { items: [{ description: MA, quantity: 1, unitPrice: 1200, amount: 1200 }], state: 'Draft' }])).toEqual([{ label: '1 of 2', state: 'Paid' }, { label: '2 of 2', state: 'Draft' }]);
     expect(billingSteps([...q, { description: 'Other', quantity: 1, unitPrice: 5, amount: 5 }], [])).toEqual([]);
   });
-  it('suggested number: base + -02 (next free); valid numbers', () => {
-    expect(suggestedInvoiceNumber('I-014521', 1, new Set())).toBe('I-014521-02');
-    expect(suggestedInvoiceNumber('I-014521', 1, new Set(['i-014521-02']))).toBe('I-014521-03');
-    expect(suggestedInvoiceNumber('I-014521-01', 2, new Set())).toBe('I-014521-03');
-    expect(validInvoiceNumber(' I-014521-02 ')).toBe('I-014521-02');
-    expect(validInvoiceNumber('-x')).toBeNull();
+  it('round 36: no suggested -02 number any more (Create invoice takes the org\'s next INV number)', () => {
+    const mod = require('./imported-remaining');
+    expect(mod.suggestedInvoiceNumber).toBeUndefined();
+    expect(mod.validInvoiceNumber).toBeUndefined();
   });
   it('an order made from an ERP DO (no invoice yet): DO draft / DO completed, invoice pending; Billed 0%', () => {
     expect(importedOrderStatus([], 2616, { dos: [{ erpStatus: 'Completed' }] })).toMatchObject({ status: 'DO_COMPLETED', label: 'DO completed, invoice pending', billedPct: 0 });

@@ -1,9 +1,10 @@
 "use client";
 
 // The order page's own dialogs (round 24, 2026-11-19, one page for AIMS and imported orders): Link existing
-// document (both kinds; an AIMS order links service reports only), Create invoice with editable number and lines
-// (imported orders), Mark complete (imported orders) and Cancel order (AIMS orders). Failures show the portal's
-// error toast; nothing closes or says "done" unless the call succeeded.
+// document (both kinds; an AIMS order links service reports only), Create invoice with editable lines (imported
+// orders; round 36 also AIMS orders billed below the quotation total; the number is always the org's next INV
+// number, given by the server), Mark complete (imported orders) and Cancel order (AIMS orders). Failures show the
+// portal's error toast; nothing closes or says "done" unless the call succeeded.
 
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
@@ -171,22 +172,18 @@ export function LinkDocumentDialog({
 
 export type InvoiceLineDraft = { description: string; quantity: string; unitPrice: string; priced: boolean };
 
-/** Imported orders' Create invoice: the number (prefilled, editable) and the lines (editable, add / remove). */
-export function ImportedInvoiceDialog({
+/** Create invoice for what is left (imported orders; AIMS orders, round 36): the lines (editable, add / remove). */
+export function InvoiceLinesDialog({
   open,
   busy,
-  number,
   lines,
-  onNumber,
   onLines,
   onClose,
   onCreate,
 }: {
   open: boolean;
   busy: boolean;
-  number: string;
   lines: InvoiceLineDraft[];
-  onNumber: (v: string) => void;
   onLines: (fn: (xs: InvoiceLineDraft[]) => InvoiceLineDraft[]) => void;
   onClose: () => void;
   onCreate: () => void;
@@ -197,8 +194,7 @@ export function ImportedInvoiceDialog({
     <Dialog open={open} onClose={() => !busy && onClose()} fullWidth maxWidth="md">
       <DialogTitle>Create invoice</DialogTitle>
       <DialogContent>
-        <TextField label="Invoice number" value={number} onChange={(e) => onNumber(e.target.value)} inputProps={{ maxLength: 40 }} sx={{ mt: 1, mb: 2, minWidth: 260 }} />
-        <TableContainer>
+        <TableContainer sx={{ mt: 1 }}>
           <Table size="small">
             <TableHead>
               <TableRow>

@@ -52,8 +52,6 @@ export interface ImportedOrder {
   draftInvoice?: { id: string; name: string | null; templateId: string | null } | null;
   /** "1 of 2 Paid · 2 of 2 Draft" (one priced quotation line). */
   billingSteps?: Array<{ label: string; state: string }>;
-  /** Create invoice's prefilled number (the first imported invoice's number + "-02"…). */
-  suggestedInvoiceNumber?: string | null;
   canInvoice?: boolean;
   canComplete?: boolean;
   canReopen?: boolean;
@@ -108,7 +106,7 @@ export function linkOptionState(o: Pick<LinkOption, "onOrder" | "onThisOrder">):
   return { disabled: false, note: "" };
 }
 
-/** Create invoice's lines as the dialog edits them (strings), from the order's prefill. */
+/** Create invoice's lines as the dialog edits them (strings), from the order's prefill (imported orders; AIMS orders' invoiceLines, round 36). */
 export function invoiceDialogLines(order: Pick<ImportedOrder, "invoiceLines" | "remaining">): Array<{ description: string; quantity: string; unitPrice: string; priced: boolean }> {
   const src = order.invoiceLines?.length ? order.invoiceLines : order.remaining?.lines ?? [];
   const lines = src.map((l) => ({ description: l.description, quantity: String(l.quantity), unitPrice: String(l.unitPrice), priced: l.priced }));
