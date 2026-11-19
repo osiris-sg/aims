@@ -86,7 +86,8 @@ export const ACCESS_TABS: AccessTab[] = [
     view: ['maintenance-reports:read', 'documents:read', 'documents:read-*', 'documents:generate-pdf', ...CUSTOMER_READ, ...STOCK_READ, 'projects:read', 'projects:read-one'],
     // Job cancel / delete / assign use maintenance-reports:create on the API; the path check keeps
     // a Jobs-only user out of the service report screens' own routes.
-    edit: ['maintenance-reports:create', 'documents:create-basic', 'documents:update', 'timeline-items:create', 'customers:create-by-name', 'projects:create-by-name', 'projects:add-assignments', 'uploads:upload-image'],
+    // Round 30: update on jobs and DOs only (deliveries:update, see @AltPermissions), not documents:update.
+    edit: ['maintenance-reports:create', 'documents:create-basic', 'deliveries:update', 'timeline-items:create', 'customers:create-by-name', 'projects:create-by-name', 'projects:add-assignments', 'uploads:upload-image'],
   },
   {
     key: 'serviceReports',

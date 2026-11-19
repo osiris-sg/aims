@@ -2,6 +2,7 @@ import { Body, Controller, Get, Post, Param, Req, HttpException, HttpStatus } fr
 import type { Request } from 'express';
 import { Public } from '../decorators/public.decorator';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
+import { AltPermissions, DO_UPDATE_ALT } from '../auth/decorators/alt-permissions.decorator';
 import { PublicDocumentService } from './public-document.service';
 
 interface RequestWithOrganization extends Request {
@@ -33,6 +34,7 @@ export class PublicDocumentController {
   /** AUTHENTICATED (office) — mint/reuse a view-only link for a DO. */
   @Post('documents/:id/share-link')
   @Permissions('documents:update')
+  @AltPermissions(DO_UPDATE_ALT())
   async generate(@Param('id') documentId: string, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -44,6 +46,7 @@ export class PublicDocumentController {
   /** AUTHENTICATED (office) — revoke every active view-only link on the document. */
   @Post('documents/:id/share-link/revoke')
   @Permissions('documents:update')
+  @AltPermissions(DO_UPDATE_ALT())
   async revoke(@Param('id') documentId: string, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {

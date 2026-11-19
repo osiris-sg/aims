@@ -5,6 +5,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
+import { AltPermissions, JOB_UPDATE_ALT } from '../auth/decorators/alt-permissions.decorator';
 import { UserOrganization } from 'src/auth/decorators/user-organization.decorator';
 import { DeliveriesService } from './deliveries.service';
 import { SiteClockLinkService } from '../siteclock/siteclock-link.service';
@@ -236,6 +237,7 @@ export class DeliveriesController {
   @Post('order-dos/:doId/complete')
   @UseInterceptors(IdempotencyInterceptor)
   @Permissions('documents:update')
+  @AltPermissions(JOB_UPDATE_ALT) // round 30: deliveries:update (Operations) also completes / verifies jobs
   completeOrderDo(@Param('doId') doId: string, @Body() body: any, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
     return this.service.officeCompleteDo(org.id, doId, body ?? {}, actorOf(req));
   }
@@ -379,6 +381,7 @@ export class DeliveriesController {
   @Post(':id/office-complete')
   @UseInterceptors(IdempotencyInterceptor)
   @Permissions('documents:update')
+  @AltPermissions(JOB_UPDATE_ALT)
   officeComplete(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
     return this.service.officeCompleteJob(id, org.id, actorOf(req), body ?? {});
   }
@@ -386,6 +389,7 @@ export class DeliveriesController {
   // WCT finish modes: the admin accepts a stamped-DO / paper finish.
   @Post(':id/verify')
   @Permissions('documents:update')
+  @AltPermissions(JOB_UPDATE_ALT)
   verify(@Param('id') id: string, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
     return this.service.verifyJob(id, org.id, actorOf(req));
   }
@@ -393,6 +397,7 @@ export class DeliveriesController {
   // WCT finish modes: the admin rejects it, with the reason.
   @Post(':id/reject')
   @Permissions('documents:update')
+  @AltPermissions(JOB_UPDATE_ALT)
   reject(@Param('id') id: string, @Body() dto: RejectJobDto, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
     return this.service.rejectJob(id, org.id, actorOf(req), dto.reason);
   }
@@ -531,6 +536,7 @@ export class DeliveriesController {
   // the rider chooses again). documents:update = office users, not field techs.
   @Post(':id/cancel-handoff')
   @Permissions('documents:update')
+  @AltPermissions(JOB_UPDATE_ALT)
   cancelHandoff(@Param('id') id: string, @UserOrganization() org: { id: string }) {
     return this.service.cancelHandoff(id, org.id);
   }

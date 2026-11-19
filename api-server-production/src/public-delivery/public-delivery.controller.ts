@@ -14,6 +14,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
 import { Public } from '../decorators/public.decorator';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
+import { AltPermissions, DO_UPDATE_ALT } from '../auth/decorators/alt-permissions.decorator';
 import { PublicDeliveryService } from './public-delivery.service';
 
 interface RequestWithOrganization extends Request {
@@ -44,6 +45,7 @@ export class PublicDeliveryController {
   /** AUTHENTICATED (office) — mint/reuse a run-scoped guest link for a DO. */
   @Post('documents/:id/delivery-share-link')
   @Permissions('documents:update')
+  @AltPermissions(DO_UPDATE_ALT())
   async generate(@Param('id') documentId: string, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
@@ -55,6 +57,7 @@ export class PublicDeliveryController {
   /** AUTHENTICATED (office) — revoke every active guest link on the DO's run. */
   @Post('documents/:id/delivery-share-link/revoke')
   @Permissions('documents:update')
+  @AltPermissions(DO_UPDATE_ALT())
   async revoke(@Param('id') documentId: string, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {

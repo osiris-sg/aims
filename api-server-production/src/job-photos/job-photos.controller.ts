@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Req, UseGuard
 import { ApiTags } from '@nestjs/swagger';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
+import { AltPermissions, JOB_UPDATE_ALT } from '../auth/decorators/alt-permissions.decorator';
 import { UserOrganization } from 'src/auth/decorators/user-organization.decorator';
 import { JobPhotosService } from './job-photos.service';
 
@@ -27,6 +28,7 @@ export class JobPhotosController {
   // Admins hide a photo in AIMS (kept, logged); same permission as Verify / Reject.
   @Post('job-photos/:id/hide')
   @Permissions('documents:update')
+  @AltPermissions(JOB_UPDATE_ALT)
   hide(@Param('id', ParseUUIDPipe) id: string, @UserOrganization() org: { id: string }, @Req() req: any) {
     const u: any = req?.user || {};
     const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.username || undefined;
@@ -36,6 +38,7 @@ export class JobPhotosController {
   // The office sorts a photo SiteClock sent unsorted (or corrects its type); same permission as Hide.
   @Patch('job-photos/:id/tag')
   @Permissions('documents:update')
+  @AltPermissions(JOB_UPDATE_ALT)
   setTag(@Param('id', ParseUUIDPipe) id: string, @Body() body: { tag?: string }, @UserOrganization() org: { id: string }, @Req() req: any) {
     const u: any = req?.user || {};
     const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.username || undefined;

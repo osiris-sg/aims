@@ -105,6 +105,18 @@ export function jobsSubmenus(map: TabAccessMap | null): Array<{ key: string; lab
   return [...(atLeast(map.jobs, "view") ? [JOBS_LIST_TAB] : []), ...(atLeast(map.calendar, "view") ? [JOBS_CALENDAR_TAB] : [])];
 }
 
+/**
+ * Jobs > Calendar for a person on ordinary roles (no custom map), round 30: only when one of their
+ * roles grants the CALENDAR module BY NAME (the Operations preset after the round 30 fix) and they
+ * have no Sales tab (people with Sales keep the calendar on the Sales main page). So turning
+ * enableCustomAccess on changes nothing for anyone until a role carries CALENDAR. An empty
+ * allowedModules ("every module", Admin) does not count: Admin has Sales.
+ */
+export function rolesGrantCalendarTab(roles: Array<{ allowedModules?: string[] | null }> | null | undefined, hasSalesTab: boolean): boolean {
+  if (hasSalesTab) return false;
+  return (roles || []).some((r) => (r.allowedModules ?? []).includes("CALENDAR"));
+}
+
 /** Can the person open the jobs calendar? (No custom map: as before.) */
 export const calendarAllowed = (map: TabAccessMap | null) => !map || atLeast(map.calendar, "view");
 

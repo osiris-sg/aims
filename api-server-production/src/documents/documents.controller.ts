@@ -7,6 +7,7 @@ import { GetDocumentDto } from './dto/get-documents';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Request } from 'express';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
+import { AltPermissions, DO_UPDATE_ALT } from '../auth/decorators/alt-permissions.decorator';
 import { S3Service } from 'src/common/services/s3.service';
 import { PdfGeneratorService } from 'src/common/services/pdf-generator.service';
 import { EmailService } from 'src/email/email.service';
@@ -307,6 +308,7 @@ export class DocumentsController {
   // "Take over" (only when the current holder has been idle > 5 min).
   @Patch(':id/lock')
   @Permissions('documents:update')
+  @AltPermissions(DO_UPDATE_ALT())
   async acquireLock(
     @Param('id') id: string,
     @Body() body: { userName?: string; takeover?: boolean },
@@ -323,6 +325,7 @@ export class DocumentsController {
   // changed content (bumps the idle clock); edited=false is a presence ping.
   @Patch(':id/lock/heartbeat')
   @Permissions('documents:update')
+  @AltPermissions(DO_UPDATE_ALT())
   async heartbeatLock(
     @Param('id') id: string,
     @Body() body: { edited?: boolean; userName?: string },
@@ -338,6 +341,7 @@ export class DocumentsController {
   // Release the lock on close/save. No-op if the caller isn't the holder.
   @Delete(':id/lock')
   @Permissions('documents:update')
+  @AltPermissions(DO_UPDATE_ALT())
   async releaseLock(@Param('id') id: string, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) throw new Error('User is not assigned to any organization');
@@ -348,6 +352,8 @@ export class DocumentsController {
 
   @Post('update')
   @Permissions('documents:update')
+  // Round 30: deliveries:update (Operations) saves delivery orders only (the body's id must be a DO).
+  @AltPermissions(DO_UPDATE_ALT('body'))
   async updateDocument(@Body() updateDto: UpdateDocumentDto, @Req() req: RequestWithOrganization) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {

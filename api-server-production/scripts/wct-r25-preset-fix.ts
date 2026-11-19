@@ -2,7 +2,8 @@
  * WCT round 25 (Elroy 19 Nov 2026): fix the preset roles of the 4 WCT group orgs.
  *   Sales      = Orders edit, Jobs edit, Service Reports view, Calendar
  *   Accounting = Orders view, Accounting edit
- *   Operations = Orders view, Jobs + Service Reports + Calendar edit
+ *   Operations = Orders view, Jobs + Service Reports + Calendar edit (round 30: jobs / DO update via
+ *                deliveries:update, NOT documents:update; CALENDAR = the Jobs > Calendar tab)
  *   Viewer     = view all (no edit anywhere)
  * Each role keeps its other access (PRESET_FIXES in src/roles/role-presets.ts lists what is
  * added; only the Viewer loses anything, and only a non-read permission). Modules an org has
@@ -12,13 +13,15 @@
  * DRY RUN by default (prints every permission / module added or removed per role per org).
  *   npx ts-node --transpile-only scripts/wct-r25-preset-fix.ts --env prod            dry run on prod
  *   npx ts-node --transpile-only scripts/wct-r25-preset-fix.ts --env prod --apply    writes (after Elroy's go)
+ * New permission rows (NEW_PERMISSIONS: deliveries:update) are created in the catalogue when missing
+ * (they grant nothing by themselves; only the roles below get them).
  * --apply: one transaction per org (role permission links + allowedModules), an ActionLog row
  * per changed role ("System creation", resource role), and scripts/wct-r25-preset-fix.<env>.log.json.
  * dev = DATABASE_URL (each org's tenancy schema), prod = PROD_DATABASE_URL (public). URLs never printed.
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { PRESET_FIXES, PRESET_PREFIX, planPresetFix } from '../src/roles/role-presets';
+import { NEW_PERMISSIONS, PRESET_FIXES, PRESET_PREFIX, PSEUDO_MODULES, planPresetFix } from '../src/roles/role-presets';
 
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const { Client } = require('pg');
@@ -42,6 +45,7 @@ if (!['prod', 'dev'].includes(ENV)) throw new Error('--env must be prod or dev')
   await c.connect();
   const q = async (sql: string, p: any[] = []) => (await c.query(sql, p)).rows as any[];
   const log: any[] = [];
+  const announced = new Set<string>();
   let total = 0;
   console.log(`${ENV}: WCT group preset fix${APPLY ? '  *** APPLY ***' : '  (dry run)'}`);
   try {
@@ -61,6 +65,13 @@ if (!['prod', 'dev'].includes(ENV)) throw new Error('--env must be prod or dev')
       }
       const modsOn = (await q(`select "moduleCode" m from ${S}."OrganizationModule" where "organizationId" = $1 and enabled`, [org]).catch(() => [] as any[])).map((r) => r.m);
       const catalogue = (await q(`select id, name from ${S}."Permission" order by name`)).map((r) => ({ id: r.id, name: r.name }));
+      // Round 30: permissions the fix needs that this catalogue lacks are created (on --apply) before the links.
+      const missing = NEW_PERMISSIONS.filter((p) => !catalogue.some((x) => x.name === p.name));
+      for (const p of missing) {
+        if (!announced.has(`${S}|${p.name}`)) console.log(`  + new permission in the catalogue${S === '"public"' ? ' (prod: one global row)' : ` (${S})`}: ${p.name}`);
+        announced.add(`${S}|${p.name}`);
+        catalogue.push({ id: `new:${p.name}`, name: p.name });
+      }
       const idOf = new Map(catalogue.map((p) => [p.name, p.id]));
       const roles = await q(
         `select r.id, r.name, r.description, r."allowedModules",
@@ -85,13 +96,21 @@ if (!['prod', 'dev'].includes(ENV)) throw new Error('--env must be prod or dev')
         if (plan.addPerms.length) console.log(`      + permissions: ${plan.addPerms.join(', ')}`);
         if (plan.removePerms.length) console.log(`      - permissions: ${plan.removePerms.join(', ')}`);
         if (plan.addModules.length) console.log(`      + modules:     ${plan.addModules.join(', ')}`);
-        const skipped = fix.modules.filter((m) => !modsOn.includes(m) && !(r.allowedModules ?? []).includes(m) && (r.allowedModules ?? []).length);
+        const skipped = fix.modules.filter((m) => !modsOn.includes(m) && !PSEUDO_MODULES.has(m) && !(r.allowedModules ?? []).includes(m) && (r.allowedModules ?? []).length);
         if (skipped.length) console.log(`      (module off in this org, not added: ${skipped.join(', ')})`);
         if (n) changes.push({ role: r, plan });
       }
       if (!APPLY || !changes.length) continue;
       await c.query('begin');
       try {
+        for (const p of missing) {
+          const [row] = await q(
+            `insert into ${S}."Permission"(id, name, description, resource, action, "createdAt", "updatedAt") values (gen_random_uuid()::text, $1, $2, $3, $4, now(), now())
+             on conflict (name) do update set name = excluded.name returning id`,
+            [p.name, p.description, p.resource, p.action],
+          );
+          idOf.set(p.name, row.id);
+        }
         for (const { role, plan } of changes) {
           for (const name of plan.addPerms) await c.query(`insert into ${S}."_PermissionToRole"("A","B") values ($1,$2) on conflict do nothing`, [idOf.get(name), role.id]);
           for (const name of plan.removePerms) await c.query(`delete from ${S}."_PermissionToRole" where "A" = $1 and "B" = $2`, [idOf.get(name), role.id]);
