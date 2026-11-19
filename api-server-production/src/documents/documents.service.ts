@@ -5016,7 +5016,7 @@ export class DocumentsService {
       WHERE d."organizationId" = ${organizationId}
         AND upper(d.type::text) IN ('QUOTATION', 'QO', 'QT', 'QO1')
         AND d.config #>> '{erpImport,source}' = 'wct-erp'
-        AND (lower(d.config #>> '{erpImport,status}') IN ('draft', 'sent')
+        AND ((lower(d.config #>> '{erpImport,status}') IN ('draft', 'sent') AND d.config #> '{erpImport,ownerConfirmed}' IS NULL)
              OR (lower(d.config #>> '{erpImport,status}') = ANY(${ERP_QUOTE_CANCELLED_STATUSES}) AND lower(d.config #>> '{erpImport,statusAtFirstImport}') IN ('draft', 'sent')))`;
     const out = { unconfirmed: [] as string[], cancelled: [] as string[] };
     for (const r of rows) out[r.status === 'draft' || r.status === 'sent' ? 'unconfirmed' : 'cancelled'].push(r.id);

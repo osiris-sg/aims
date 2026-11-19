@@ -14,6 +14,13 @@ describe('erpQuotationDisplayStatus', () => {
     expect(erpQuotationDisplayStatus('QUOTATION', q('Accepted', { statusAtFirstImport: 'Draft' }))).toBeNull();
     expect(erpQuotationDisplayStatus('QUOTATION', q('Cancelled', { statusAtFirstImport: 'Sent' }))).toBe('cancelled');
   });
+  it('owner-confirmed in AIMS while the ERP has it open: stored Confirmed, no tag; a later ERP cancel still reads Cancelled', () => {
+    const oc = { ownerConfirmed: { at: '2026-11-19', by: 'Elroy' } };
+    expect(erpQuotationDisplayStatus('QUOTATION', q('Draft', oc))).toBeNull();
+    expect(erpQuotationTag('QUOTATION', q('Draft', oc))).toBeNull();
+    expect(erpQuotationDisplayStatus('QUOTATION', q('Sent', oc))).toBeNull();
+    expect(erpQuotationDisplayStatus('QUOTATION', q('Cancelled', { ...oc, statusAtFirstImport: 'Draft' }))).toBe('cancelled');
+  });
   it('unchanged: imported as Declined, other sources, other types, native', () => {
     expect(erpQuotationDisplayStatus('QUOTATION', q('Declined'))).toBeNull();
     expect(erpQuotationDisplayStatus('QUOTATION', { erpImport: { source: 'xero', status: 'Draft' } })).toBeNull();

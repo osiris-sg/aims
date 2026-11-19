@@ -117,7 +117,9 @@ export class SalesReportService {
            (COALESCE(d.config->>'cancelled', '') = 'true' OR COALESCE(d.config->>'voided', '') = 'true') AS cancelled,
            (d.config ? 'clientSignature' AND jsonb_typeof(d.config->'clientSignature') = 'object') AS signed,
            (d.config ? 'erpImport') AS imported,
-           d.config->'erpImport'->>'status' AS "erpStatus"
+           -- Confirmed by the owner in AIMS while the ERP still has it open: Signed, no ERP tag (erp-import.ts).
+           CASE WHEN d.config->'erpImport' ? 'ownerConfirmed' AND lower(d.config->'erpImport'->>'status') IN ('draft', 'sent') THEN 'Accepted'
+                ELSE d.config->'erpImport'->>'status' END AS "erpStatus"
          FROM "Document" d
          WHERE d."organizationId" = $1 AND d.type = ANY($2::text[])
        ) q

@@ -157,7 +157,9 @@ export function erpQuotationDisplayStatus(type: unknown, config: any): 'unconfir
   const m = erpImportOf(config);
   if (!m || m.source !== 'wct-erp' || !isQuotationDocType(type)) return null;
   const st = String(m.status ?? '').trim().toLowerCase();
-  if (ERP_QUOTE_OPEN.has(st)) return 'unconfirmed';
+  // Confirmed by the owner in AIMS while the ERP still has it open (Q-013548 / Q-013557, Elroy 19 Nov): reads as
+  // the stored Confirmed. A later ERP cancel still reads Cancelled.
+  if (ERP_QUOTE_OPEN.has(st)) return (m as any).ownerConfirmed ? null : 'unconfirmed';
   const first = String((m as any).statusAtFirstImport ?? '').trim().toLowerCase();
   if (ERP_QUOTE_CANCELLED.includes(st) && ERP_QUOTE_OPEN.has(first)) return 'cancelled';
   return null;
