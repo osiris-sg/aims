@@ -370,7 +370,7 @@ export function useOrganizationFeatures() {
       if (!token || !organization?.id) return {};
 
       const response = await request(
-        { path: "/configuration/ui", method: "GET" },
+        { path: "/configuration/ui", method: "GET", quiet: true },
         {},
         token
       );

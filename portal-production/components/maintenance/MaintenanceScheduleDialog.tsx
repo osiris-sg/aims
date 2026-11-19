@@ -114,7 +114,7 @@ export default function MaintenanceScheduleDialog({ open, onClose, onSaved, edit
       try {
         const token = await getToken();
         if (!token) return;
-        const res = await request({ path: "/maintenance-schedules", method: "GET" }, {}, token);
+        const res = await request({ path: "/maintenance-schedules", method: "GET", quiet: true }, {}, token);
         const docs: Array<{ assetId: string; schedule: { dueDate: string } | null }> = (res?.data ?? res)?.docs ?? [];
         if (!cancelled) setUpcoming(new Map(docs.filter((d) => d.schedule).map((d) => [d.assetId, d.schedule!.dueDate])));
       } catch {
@@ -194,7 +194,7 @@ export default function MaintenanceScheduleDialog({ open, onClose, onSaved, edit
       if (!token) throw new Error("Not signed in");
       if (editing) {
         const res = await request(
-          { path: `/maintenance-schedules/${editing.id}`, method: "PATCH" },
+          { path: `/maintenance-schedules/${editing.id}`, method: "PATCH", ownError: true },
           { dueDate, notes: notes.trim() || null, ...(repeatChanged ? { repeat: repeatPayload } : {}) },
           token,
         );
@@ -204,7 +204,7 @@ export default function MaintenanceScheduleDialog({ open, onClose, onSaved, edit
         return;
       }
       const res = await request(
-        { path: "/maintenance-schedules/batch", method: "POST" },
+        { path: "/maintenance-schedules/batch", method: "POST", ownError: true },
         {
           assetIds: Array.from(selected.keys()),
           dueDate,

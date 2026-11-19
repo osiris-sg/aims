@@ -76,7 +76,7 @@ export function useGenerateSOA() {
       }
 
       const response = await request(
-        { path: '/statements/soa', method: 'POST' },
+        { path: '/statements/soa', method: 'POST', ownError: true },
         params,
         token
       );

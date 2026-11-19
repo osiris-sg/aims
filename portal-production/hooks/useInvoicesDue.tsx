@@ -21,6 +21,7 @@ const API = {
   GET_INVOICES_DUE: {
     path: "/dashboard/invoices-due",
     method: "GET",
+    ownError: true,
   },
 };
 

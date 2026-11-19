@@ -83,7 +83,7 @@ export default function InvoiceSplitDialog({
     setError(null);
     try {
       const token = await getToken();
-      const res: any = await request({ path: `/documents/${documentId}/split-invoice`, method: "POST" }, plan, token ?? undefined);
+      const res: any = await request({ path: `/documents/${documentId}/split-invoice`, method: "POST", ownError: true }, plan, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || "Could not split the invoice");
       onDone(res?.data ?? res);
     } catch (e: any) {

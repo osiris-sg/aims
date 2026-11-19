@@ -118,7 +118,7 @@ function useCustomerContacts(selectedCustomer: any, formData: any, setFormData: 
     try {
       const token = await getToken();
       const res = await request(
-        { path: `/customers/${selectedCustomer.id}/contacts`, method: 'POST' },
+        { path: `/customers/${selectedCustomer.id}/contacts`, method: 'POST', ownError: true },
         { name: draft.name.trim(), phone: draft.phone.trim() || null, email: draft.email.trim() || null, designation: draft.designation.trim() || null },
         token || undefined,
       );
@@ -291,7 +291,7 @@ function useCustomerSites(selectedCustomer: any, formData: any, setFormData: (d:
     try {
       const token = await getToken();
       const res = await request(
-        { path: `/customers/${customerId}/site-offices`, method: 'POST' },
+        { path: `/customers/${customerId}/site-offices`, method: 'POST', ownError: true },
         { name: draft.name.trim() || draft.address.trim(), address: draft.address.trim(), contactDetails: [] },
         token || undefined,
       );
@@ -520,7 +520,7 @@ function CustomerCodeField({
     try {
       const token = await getToken();
       const res = await request(
-        { path: `/customers/${selectedCustomer.id}/contacts`, method: 'POST' },
+        { path: `/customers/${selectedCustomer.id}/contacts`, method: 'POST', ownError: true },
         {
           name: newContact.name.trim(),
           phone: newContact.phone.trim() || null,

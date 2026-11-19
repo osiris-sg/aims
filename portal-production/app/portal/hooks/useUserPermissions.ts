@@ -47,6 +47,7 @@ export function useUserPermissions() {
           {
             path: `/users/me/roles`,
             method: "GET",
+            quiet: true,
           },
           {},
           token

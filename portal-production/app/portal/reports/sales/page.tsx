@@ -73,7 +73,7 @@ export default function SalesReportPage() {
         if (salesperson) qs.set("salesperson", salesperson);
         if (from) qs.set("from", from);
         if (to) qs.set("to", to);
-        const res: any = await request({ path: `/sales-report?${qs.toString()}`, method: "GET" }, {}, token ?? undefined);
+        const res: any = await request({ path: `/sales-report?${qs.toString()}`, method: "GET", ownError: true }, {}, token ?? undefined);
         const body = res?.data && Array.isArray(res.data.rows) ? res.data : res;
         if (res?.success === false || !Array.isArray(body?.rows)) throw new Error(res?.message || "Could not load the report");
         if (!gone) {

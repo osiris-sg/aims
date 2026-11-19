@@ -95,7 +95,7 @@ export default function MaintenanceAssetPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path: `/maintenance-schedules/assets/${assetId}`, method: "GET" }, {}, token);
+      const res = await request({ path: `/maintenance-schedules/assets/${assetId}`, method: "GET", ownError: true }, {}, token);
       if (res?.success === false) throw new Error(res.message ?? "Failed to load the asset");
       setData((res?.data ?? res) as Detail);
     } catch (e: any) {

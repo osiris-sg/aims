@@ -330,7 +330,7 @@ export function useUpdateInventory() {
       const token = await getToken();
       if (!token) throw new Error("No authentication token available");
 
-      const response = await request({ path: "/inventories/update", method: "PUT" }, inventoryData, token);
+      const response = await request({ path: "/inventories/update", method: "PUT", ownError: true }, inventoryData, token);
 
       if (!response.success) {
         throw new Error(response.message || "Failed to update inventory");
@@ -400,7 +400,7 @@ export function useGetQrCode() {
       const token = await getToken();
       if (!token || !sku) return null;
 
-      const response = await request({ path: `/inventories/qrcode/${sku}`, method: "GET" }, {}, token);
+      const response = await request({ path: `/inventories/qrcode/${sku}`, method: "GET", ownError: true }, {}, token);
 
       if (!response.success) {
         console.error("Failed to fetch QR code:", response.message);

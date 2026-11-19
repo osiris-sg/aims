@@ -187,7 +187,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
     try {
       const token = await getToken();
       const path = confirm.action === "cancel-order" ? `/orders/${confirm.row.id}/cancel` : `/deliveries/${confirm.jobId}/cancel`;
-      const res: any = await request({ path, method: "POST" }, {}, token ?? undefined);
+      const res: any = await request({ path, method: "POST", ownError: true }, {}, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || "Could not cancel");
       toast.success(confirm.action === "cancel-order" ? `Order ${confirm.row.orderNumber} cancelled` : "Job cancelled");
       setConfirm(null);

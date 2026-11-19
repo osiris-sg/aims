@@ -93,7 +93,7 @@ const ServerDocumentPreview = forwardRef<ServerDocumentPreviewHandle, Props>(fun
         const token = await getToken();
         if (!token) throw new Error("Not authenticated");
         const body = JSON.parse(payload);
-        const res: any = await request({ path: "/documents/preview-html", method: "POST" }, body, token);
+        const res: any = await request({ path: "/documents/preview-html", method: "POST", ownError: true }, body, token);
         if (mine !== seq.current) return;
         const out = res?.data ?? res;
         if (res?.success === false || !out?.html) throw new Error(res?.message || "Preview failed");

@@ -20,7 +20,7 @@ export function usePastDescriptions() {
         if (!token) return;
 
         const response = await request(
-          { path: "/documents/past-descriptions", method: "GET" },
+          { path: "/documents/past-descriptions", method: "GET", quiet: true },
           {},
           token
         );

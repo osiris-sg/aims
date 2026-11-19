@@ -46,7 +46,7 @@ export default function PhotosFileControls({
       if (!token) throw new Error("Not signed in");
       const up = await uploadFile({ file, folder: `maintenance-reports/${organization.id}/photos`, token });
       const res: any = await request(
-        { path: `/maintenance-reports/${reportId}/photos-file`, method: "PUT" },
+        { path: `/maintenance-reports/${reportId}/photos-file`, method: "PUT", ownError: true },
         { fileKey: up.fileKey, fileName: up.fileName, mimeType: up.mimeType },
         token,
       );
@@ -67,7 +67,7 @@ export default function PhotosFileControls({
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res: any = await request({ path: `/maintenance-reports/${reportId}/photos-file`, method: "DELETE" }, {}, token);
+      const res: any = await request({ path: `/maintenance-reports/${reportId}/photos-file`, method: "DELETE", ownError: true }, {}, token);
       if (res?.success === false) throw new Error(res.message || "Could not remove the photos");
       onChange(null);
     } catch (e: any) {

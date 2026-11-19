@@ -163,7 +163,7 @@ export default function MaintenanceReportDetailPage() {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const res = await request(
-        { path: `/maintenance-reports/${report.id}/create-invoice`, method: "POST" },
+        { path: `/maintenance-reports/${report.id}/create-invoice`, method: "POST", ownError: true },
         {},
         token,
       );

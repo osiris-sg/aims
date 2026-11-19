@@ -146,7 +146,7 @@ export default function ViewInventoryPage({ params }: { params: { sku: string } 
       const token = await getToken();
       if (!token) return;
       const response = await request(
-        { path: "/inventories/update", method: "PUT" },
+        { path: "/inventories/update", method: "PUT", ownError: true },
         { id: inventory.id, simCardId: simCardId.trim() },
         token
       );
@@ -272,7 +272,7 @@ export default function ViewInventoryPage({ params }: { params: { sku: string } 
       try {
         const token = await getToken();
         if (!token) return;
-        const res = await request({ path: "/inventories/water-sg-links", method: "GET" }, {}, token);
+        const res = await request({ path: "/inventories/water-sg-links", method: "GET", quiet: true }, {}, token);
         const links = (res?.data?.links ?? res?.links) ?? {};
         const canonical = canonicalizeSid(decodedSku);
         if (!cancelled) setWaterSgSite(canonical ? (links[canonical] ?? null) : null);

@@ -81,7 +81,7 @@ export default function UiLangProvider({ children }: { children: React.ReactNode
     staleTime: 5 * 60_000,
     queryFn: async (): Promise<UiLang> => {
       const token = await getToken();
-      const res: any = await request({ path: "/users/me/profile", method: "GET" }, {}, token ?? undefined);
+      const res: any = await request({ path: "/users/me/profile", method: "GET", quiet: true }, {}, token ?? undefined);
       const v = (res?.data ?? res)?.uiLang;
       return isUiLang(v) ? v : "en";
     },
@@ -102,7 +102,7 @@ export default function UiLangProvider({ children }: { children: React.ReactNode
       setSaving(true);
       try {
         const token = await getToken();
-        const res: any = await request({ path: "/users/me/ui-lang", method: "PATCH" }, { uiLang: l }, token ?? undefined);
+        const res: any = await request({ path: "/users/me/ui-lang", method: "PATCH", ownError: true }, { uiLang: l }, token ?? undefined);
         if (res && res.success === false) throw new Error(res.message || "Could not save the language");
         writeMemo(orgId, l);
         setMemo(l);

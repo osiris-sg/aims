@@ -59,7 +59,7 @@ function usePrimaryRoleView(): RoleId {
       try {
         const token = await getToken();
         if (!token) return;
-        const res = await request({ path: "/users/me/roles", method: "GET" }, {}, token);
+        const res = await request({ path: "/users/me/roles", method: "GET", quiet: true }, {}, token);
         const roles = (res?.data ?? res ?? []) as Array<{ name?: string; isPrimary?: boolean }>;
         if (!cancelled) setView(roleHomeViewFor(primaryRoleName(Array.isArray(roles) ? roles : [])));
       } catch {

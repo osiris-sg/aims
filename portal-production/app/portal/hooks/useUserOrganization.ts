@@ -40,6 +40,7 @@ export function useUserOrganization() {
           {
             path: "/organizations/user",
             method: "GET",
+            quiet: true,
           },
           {},
           token

@@ -35,6 +35,7 @@ export default function useGetXeroAccounts() {
         {
           path: `/xero/accounts`,
           method: "GET",
+          ownError: true,
         },
         {},
         token

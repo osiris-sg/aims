@@ -663,6 +663,7 @@ export default function ProductDetailDialog({
         {
           path: `/inventories/${item.id}/stock-movements`,
           method: "GET",
+          ownError: true,
         },
         {},
         token

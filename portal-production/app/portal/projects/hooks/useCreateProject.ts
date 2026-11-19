@@ -56,6 +56,7 @@ export const useCreateProject = () => {
         {
           path: "/projects/create",
           method: "POST",
+          ownError: true,
         },
         requestBody,
         token

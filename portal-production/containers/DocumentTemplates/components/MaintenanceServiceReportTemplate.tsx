@@ -182,6 +182,7 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
         {
           path: "/documentTemplates/type/TI",
           method: "GET",
+          ownError: true,
         },
         {},
         token
@@ -233,6 +234,7 @@ export default function MaintenanceServiceReportTemplate(props: Props) {
         {
           path: "/documents/basic",
           method: "POST",
+          ownError: true,
         },
         {
           type: "TI",

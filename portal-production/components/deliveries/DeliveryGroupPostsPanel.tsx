@@ -64,7 +64,7 @@ export default function DeliveryGroupPostsPanel({
   const load = useCallback(async () => {
     try {
       const token = (await getToken()) ?? undefined;
-      const res = await request({ path: `/delivery-group-posts/delivery/${deliveryId}`, method: "GET" }, {}, token);
+      const res = await request({ path: `/delivery-group-posts/delivery/${deliveryId}`, method: "GET", quiet: true }, {}, token);
       if (Array.isArray(res?.data ?? res)) setPosts(res?.data ?? res);
     } catch {
       /* the post line is informational */
@@ -146,7 +146,7 @@ export default function DeliveryGroupPostsPanel({
     setError(null);
     try {
       const token = (await getToken()) ?? undefined;
-      const res = await request({ path: `/delivery-group-posts/${id}/retry`, method: "POST" }, {}, token);
+      const res = await request({ path: `/delivery-group-posts/${id}/retry`, method: "POST", ownError: true }, {}, token);
       if (res?.success === false) throw new Error(res.message ?? "Could not retry");
       await load();
     } catch (e: any) {

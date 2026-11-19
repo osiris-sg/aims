@@ -123,7 +123,7 @@ export default function RecordPaymentDialog({
       try {
         const token = await getToken();
         if (!token) return;
-        const res: any = await request({ path: "/accounting/accounts", method: "GET" }, {}, token);
+        const res: any = await request({ path: "/accounting/accounts", method: "GET", quiet: true }, {}, token);
         const list: any[] = res?.data ?? res ?? [];
         const banks = list.filter((a) => {
           if (!a?.isActive) return false;

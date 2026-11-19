@@ -54,7 +54,7 @@ export default function ReportEditActions({ report, isUploaded }: { report: { id
     setError(null);
     try {
       const token = await getToken();
-      const res: any = await request({ path, method }, body, token ?? undefined);
+      const res: any = await request({ path, method, ownError: true }, body, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || "Could not save");
       return res?.data ?? res ?? true;
     } catch (e: any) {

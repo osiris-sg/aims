@@ -25,6 +25,7 @@ export default function useDeleteInventory() {
         {
           path: "/inventories/delete",
           method: "DELETE",
+          ownError: true,
         },
         {
           id,

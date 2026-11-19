@@ -51,7 +51,7 @@ export default function SendServiceReportDialog({
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res: any = await request({ path: `/maintenance-reports/orders/${orderId}/send-to-customer`, method: "POST" }, reportId ? { to, reportId } : { to }, token);
+      const res: any = await request({ path: `/maintenance-reports/orders/${orderId}/send-to-customer`, method: "POST", ownError: true }, reportId ? { to, reportId } : { to }, token);
       if (res?.success === false) throw new Error(res.message || "Could not send the service report");
       onSent?.(res?.data ?? res);
       onClose();

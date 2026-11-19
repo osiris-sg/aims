@@ -84,7 +84,7 @@ export function useDocumentLock(documentId?: string | null, enabled: boolean = t
       const token = await getToken();
       if (!token) return null;
       const res = await request(
-        { path: `/documents/${documentId}/lock`, method: "PATCH" },
+        { path: `/documents/${documentId}/lock`, method: "PATCH", quiet: !takeover },
         { userName: userNameRef.current, takeover },
         token,
       );
@@ -102,7 +102,7 @@ export function useDocumentLock(documentId?: string | null, enabled: boolean = t
       const token = await getToken();
       if (!token) return;
       const res = await request(
-        { path: `/documents/${documentId}/lock/heartbeat`, method: "PATCH" },
+        { path: `/documents/${documentId}/lock/heartbeat`, method: "PATCH", quiet: true },
         { edited, userName: userNameRef.current },
         token,
       );
@@ -168,7 +168,7 @@ export function useDocumentLock(documentId?: string | null, enabled: boolean = t
     isHolderRef.current = false;
     getToken().then((token) => {
       if (!token) return;
-      request({ path: `/documents/${documentId}/lock`, method: "DELETE" }, {}, token).catch(() => {});
+      request({ path: `/documents/${documentId}/lock`, method: "DELETE", quiet: true }, {}, token).catch(() => {});
     });
   }, [documentId, getToken]);
 

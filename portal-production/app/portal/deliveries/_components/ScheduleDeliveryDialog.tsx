@@ -518,7 +518,7 @@ export default function ScheduleDeliveryDialog({
       const token = await getToken();
       if (!token) return;
       await request(
-        { path: `/projects/${project.id}/contacts`, method: "PUT" },
+        { path: `/projects/${project.id}/contacts`, method: "PUT", quiet: true },
         { contacts: next },
         token,
       );
@@ -555,7 +555,7 @@ export default function ScheduleDeliveryDialog({
       if (!token) return;
       const guestUrl = (t: string) => `${window.location.origin}/guest/customer-info/${t}`;
 
-      const view = await request({ path: `/customer-info/project/${projectId}`, method: "GET" }, {}, token);
+      const view = await request({ path: `/customer-info/project/${projectId}`, method: "GET", quiet: true }, {}, token);
       const vdata = view?.data ?? view;
       const live = vdata?.liveUnsubmitted;
       if (live?.token) {
@@ -564,7 +564,7 @@ export default function ScheduleDeliveryDialog({
       }
 
       const res = await request(
-        { path: "/customer-info", method: "POST" },
+        { path: "/customer-info", method: "POST", quiet: true },
         { customerId: customer.id, projectId },
         token,
       );
@@ -806,7 +806,7 @@ export default function ScheduleDeliveryDialog({
       const assetById = async (id: string): Promise<AssetOption | null> => {
         if (!id || !token) return null;
         try {
-          const r = await request({ path: `/assets/${encodeURIComponent(id)}`, method: "GET" }, {}, token);
+          const r = await request({ path: `/assets/${encodeURIComponent(id)}`, method: "GET", quiet: true }, {}, token);
           const a: any = r?.data ?? r;
           return a && a.id ? { id: a.id, name: a.name, skuKey: a.skuKey } : null;
         } catch {
@@ -874,7 +874,7 @@ export default function ScheduleDeliveryDialog({
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path: "/customers/create-by-name", method: "POST" }, { name: trimmed }, token);
+      const res = await request({ path: "/customers/create-by-name", method: "POST", ownError: true }, { name: trimmed }, token);
       const created = res?.data;
       if (res?.success && created?.id) {
         const option: CustomerOption = { id: created.id, name: created.name ?? trimmed, customerCode: created.customerCode ?? null, address: created.address ?? null };
@@ -899,7 +899,7 @@ export default function ScheduleDeliveryDialog({
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const res = await request(
-        { path: "/projects/create-by-name", method: "POST" },
+        { path: "/projects/create-by-name", method: "POST", ownError: true },
         { name: trimmed, customerId: customer.id },
         token,
       );
@@ -944,8 +944,8 @@ export default function ScheduleDeliveryDialog({
         : undefined;
       const res = await request(
         editRun
-          ? { path: `/deliveries/scheduled/${editRun.id}`, method: "PATCH" }
-          : { path: "/deliveries/scheduled", method: "POST" },
+          ? { path: `/deliveries/scheduled/${editRun.id}`, method: "PATCH", ownError: true }
+          : { path: "/deliveries/scheduled", method: "POST", ownError: true },
         {
           ...(asDraft ? { isDraft: true } : {}),
           ...(scheduledFor ? { scheduledFor } : {}),

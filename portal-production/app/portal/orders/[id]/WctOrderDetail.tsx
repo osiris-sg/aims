@@ -163,7 +163,7 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
     if (fixture || !organization?.id) return;
     try {
       const token = await getToken();
-      const res = await request({ path: `/orders/${id}`, method: "GET" }, {}, token ?? undefined);
+      const res = await request({ path: `/orders/${id}`, method: "GET", ownError: true }, {}, token ?? undefined);
       if (res?.success === false || !res?.data) throw new Error(res?.message || "Order not found");
       setOrder(res.data);
       setError(null);
@@ -202,7 +202,7 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
   const post = async (path: string, body: any) => {
     try {
       const token = await getToken();
-      const res = await request({ path, method: "POST" }, body, token ?? undefined);
+      const res = await request({ path, method: "POST", ownError: true }, body, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || "Could not save");
       await load();
       return true;
@@ -288,7 +288,7 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
   const addJobForDo = async (d: OrderDo) => {
     try {
       const token = await getToken();
-      const res: any = await request({ path: `/deliveries/order-dos/${d.id}/job`, method: "POST" }, {}, token ?? undefined);
+      const res: any = await request({ path: `/deliveries/order-dos/${d.id}/job`, method: "POST", ownError: true }, {}, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || "Could not add the job");
       const r = res?.data ?? res;
       if (r?.id) router.push(`/portal/deliveries/${r.id}?open=schedule`);
@@ -858,7 +858,7 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
               setInvoicing(true);
               try {
                 const token = await getToken();
-                const res = await request({ path: `/orders/${order.id}/invoice-now`, method: "POST" }, {}, token ?? undefined);
+                const res = await request({ path: `/orders/${order.id}/invoice-now`, method: "POST", ownError: true }, {}, token ?? undefined);
                 if (res?.success === false) throw new Error(res?.message || "Could not create the invoice");
                 setInvoiceAsk(false);
                 const out = res?.data ?? res;

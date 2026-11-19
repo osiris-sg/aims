@@ -109,7 +109,7 @@ export default function CustomerInfoDetailPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path: `/customer-info/${detail.id}/revoke`, method: "POST" }, {}, token);
+      const res = await request({ path: `/customer-info/${detail.id}/revoke`, method: "POST", ownError: true }, {}, token);
       if (res?.success === false) throw new Error(res?.message ?? "Failed to revoke");
       toast.success("Link revoked");
       refetch();
@@ -127,7 +127,7 @@ export default function CustomerInfoDetailPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path: `/customer-info/${detail.id}/regenerate`, method: "POST" }, {}, token);
+      const res = await request({ path: `/customer-info/${detail.id}/regenerate`, method: "POST", ownError: true }, {}, token);
       const data = res?.data ?? res;
       if (res?.success === false || !data?.id) throw new Error(res?.message ?? "Failed to regenerate");
       toast.success("New link generated");

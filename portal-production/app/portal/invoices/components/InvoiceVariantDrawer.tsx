@@ -81,6 +81,7 @@ export default function InvoiceVariantDrawer({
           {
             path: "/documentTemplates",
             method: "POST",
+            ownError: true,
           },
           {
             organizationId,

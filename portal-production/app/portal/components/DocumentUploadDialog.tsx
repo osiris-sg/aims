@@ -124,7 +124,7 @@ export default function DocumentUploadDialog({ open, onClose, documentType, docu
 
       // 2) Save (unconfirmed) + match PO/customer/codes.
       const saveRes = await request(
-        { path: "/documents/from-extraction", method: "POST" },
+        { path: "/documents/from-extraction", method: "POST", ownError: true },
         { type: documentType, extracted, sourceFileUrl },
         token
       );

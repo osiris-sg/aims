@@ -165,7 +165,7 @@ export default function PriceHistoryReportPage() {
       if (search) params.append("search", search);
 
       const response = await request(
-        { path: `/price-history/export?${params.toString()}`, method: "GET" },
+        { path: `/price-history/export?${params.toString()}`, method: "GET", ownError: true },
         {},
         token,
       );

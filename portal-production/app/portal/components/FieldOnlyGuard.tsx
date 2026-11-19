@@ -46,7 +46,7 @@ export default function FieldOnlyGuard({ children }: { children: React.ReactNode
           }
           return;
         }
-        const res = await request({ path: "/users/me/roles", method: "GET" }, {}, token);
+        const res = await request({ path: "/users/me/roles", method: "GET", quiet: true }, {}, token);
         const roles = (res.data ?? res ?? []) as Array<{ name: string }>;
         const names = roles.map((r) => (r?.name ?? "").toLowerCase());
         const onlyFieldTech = names.length > 0 && names.every((n) => n === "field-tech");

@@ -39,6 +39,7 @@ export default function useAddUserStates() {
         {
           method: "POST",
           path: "/admin/users",
+          ownError: true,
         },
         userData,
         token

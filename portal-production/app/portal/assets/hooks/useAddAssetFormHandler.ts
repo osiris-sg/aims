@@ -219,6 +219,7 @@ export const useAddAssetFormHandler = () => {
           {
             path: `/assets/check-skuKey/${skuKey.trim()}`,
             method: "GET",
+            ownError: true,
           },
           { organizationId: organization.id },
           token

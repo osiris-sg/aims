@@ -118,7 +118,7 @@ export function useCreateCustomer() {
       if (!token) throw new Error('No authentication token available');
 
       const response = await request(
-        { path: '/customers/create', method: 'POST' },
+        { path: '/customers/create', method: 'POST', ownError: true },
         customerData,
         token
       );

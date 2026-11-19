@@ -99,7 +99,7 @@ export default function MaintenanceDatesPage() {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const qs = search ? `?search=${encodeURIComponent(search)}` : "";
-      const res = await request({ path: `/maintenance-schedules${qs}`, method: "GET" }, {}, token);
+      const res = await request({ path: `/maintenance-schedules${qs}`, method: "GET", ownError: true }, {}, token);
       if (res?.success === false) throw new Error(res.message ?? "Failed to load maintenance dates");
       const data = res?.data ?? res;
       setRows(data?.docs ?? []);
@@ -124,7 +124,7 @@ export default function MaintenanceDatesPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path: `/maintenance-schedules/${row.schedule.id}/cancel`, method: "POST" }, { mode }, token);
+      const res = await request({ path: `/maintenance-schedules/${row.schedule.id}/cancel`, method: "POST", ownError: true }, { mode }, token);
       if (res?.success === false) throw new Error(res.message ?? "Could not cancel the date");
       const next = (res?.data ?? res)?.next;
       setActionMsg({

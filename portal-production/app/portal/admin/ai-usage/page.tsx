@@ -44,7 +44,7 @@ export default function AiUsagePage() {
     setError(null);
     (async () => {
       const token = await getToken();
-      const res = await request({ path: `/admin/ai-usage?days=${days}`, method: "GET" }, {}, token ?? undefined);
+      const res = await request({ path: `/admin/ai-usage?days=${days}`, method: "GET", ownError: true }, {}, token ?? undefined);
       if (!alive) return;
       const d = res?.data ?? res;
       if (res?.success === false || !d?.orgs) setError(res?.message || "Could not load the usage.");

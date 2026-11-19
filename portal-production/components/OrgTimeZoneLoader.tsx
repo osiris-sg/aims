@@ -20,7 +20,7 @@ export default function OrgTimeZoneLoader() {
     (async () => {
       try {
         const token = await getToken();
-        const res = await request({ path: "/accounting/settings", method: "GET" }, {}, token || undefined);
+        const res = await request({ path: "/accounting/settings", method: "GET", quiet: true }, {}, token || undefined);
         const s = res?.data ?? res;
         if (!cancelled) setOrgTimeZone(s?.timeZone);
       } catch {

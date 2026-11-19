@@ -334,6 +334,7 @@ export default function SalesDocumentList({
         {
           path: `/documentTemplates/type/${createDocumentType}`,
           method: "GET",
+          ownError: true,
         },
         {},
         token ?? undefined
@@ -353,6 +354,7 @@ export default function SalesDocumentList({
         {
           path: "/documents/basic",
           method: "POST",
+          ownError: true,
         },
         {
           type: createDocumentType,

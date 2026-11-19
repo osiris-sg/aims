@@ -62,7 +62,7 @@ export default function JournalVoucherPage() {
         const token = await getToken();
         if (!token) return;
         const [one, list] = await Promise.all([
-          request({ path: `/journal-vouchers/${documentId}`, method: "GET" }, {}, token),
+          request({ path: `/journal-vouchers/${documentId}`, method: "GET", ownError: true }, {}, token),
           request({ path: `/journal-vouchers`, method: "GET" }, {}, token),
         ]);
         const v = unwrap(one);
@@ -112,7 +112,7 @@ export default function JournalVoucherPage() {
           : null,
       }));
     const response = await request(
-      { path: `/journal-vouchers/${documentId}`, method: "PUT" },
+      { path: `/journal-vouchers/${documentId}`, method: "PUT", ownError: true },
       {
         voucherNumber: data?.documentInfo?.documentNumber || data?.name || null,
         date: jd.date,

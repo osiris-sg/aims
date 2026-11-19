@@ -42,7 +42,7 @@ export default function TaxRatesTab() {
   const call = useCallback(async (path: string, method: string, body?: any) => {
     const token = await getToken();
     if (!token || !organization?.id) throw new Error("Not authenticated");
-    const res = await request({ path, method: method as any }, body ?? {}, token);
+    const res = await request({ path, method: method as any, ownError: true }, body ?? {}, token);
     if (res?.success === false) throw new Error(res?.message || "Request failed");
     return res?.data ?? res;
   }, [getToken, organization?.id]);

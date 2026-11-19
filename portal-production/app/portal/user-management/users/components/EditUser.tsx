@@ -158,6 +158,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
         {
           method: "PATCH",
           path: `/users/${user.id}`,
+          ownError: true,
         },
         userData,
         token

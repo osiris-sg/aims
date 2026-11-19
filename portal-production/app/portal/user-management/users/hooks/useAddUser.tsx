@@ -41,6 +41,7 @@ export default function useAddUserStates() {
         {
           method: "POST",
           path: "/users/members/add-member",
+          ownError: true,
         },
         userData,
         token

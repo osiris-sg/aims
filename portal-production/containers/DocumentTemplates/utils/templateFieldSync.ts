@@ -95,13 +95,15 @@ export async function syncAllTemplates(organizationId: string, token: string) {
  */
 export async function fetchDefaultFieldDefinitions(
   templateVariant: string,
-  token: string
+  token: string,
+  flags: { ownError?: boolean } = {}
 ): Promise<TemplateFieldConfig | null> {
   try {
     const response = await request(
       {
         path: `/documentTemplates/defaults/${templateVariant}`,
         method: 'GET',
+        ...flags,
       },
       {},
       token
@@ -211,5 +213,5 @@ export async function getDefaultFieldDefinitions(
   templateVariant: string,
   token: string
 ): Promise<TemplateFieldConfig | null> {
-  return fetchDefaultFieldDefinitions(templateVariant, token);
+  return fetchDefaultFieldDefinitions(templateVariant, token, { ownError: true });
 }

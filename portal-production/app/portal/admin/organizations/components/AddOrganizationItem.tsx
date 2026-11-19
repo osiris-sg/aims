@@ -57,6 +57,7 @@ export default function AddOrganizationItem({ open, onClose, onOrganizationCreat
         {
           path: "/organizations",
           method: "POST",
+          ownError: true,
         },
         organizationData,
         token

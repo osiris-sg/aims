@@ -89,7 +89,7 @@ export default function WctJobsList({ fixture }: { fixture?: JobsFixture } = {})
       if (to) qs.set("to", to);
       if (state) qs.set("state", state);
       if (worker) qs.set("worker", worker);
-      const res: any = await request({ path: `/deliveries/order-jobs?${qs}`, method: "GET" }, {}, token ?? undefined);
+      const res: any = await request({ path: `/deliveries/order-jobs?${qs}`, method: "GET", ownError: true }, {}, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || "Failed to load jobs");
       const d = res?.data ?? res;
       setRows(d?.docs ?? []);
@@ -119,7 +119,7 @@ export default function WctJobsList({ fixture }: { fixture?: JobsFixture } = {})
     setWorking(true);
     try {
       const token = await getToken();
-      const res: any = await request({ path: `/deliveries/${row.id}/${kind}`, method: "POST" }, body, token ?? undefined);
+      const res: any = await request({ path: `/deliveries/${row.id}/${kind}`, method: "POST", ownError: true }, body, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || "Could not save");
       toast.success(kind === "verify" ? `Job #${row.deliveryNumber} verified.` : `Job #${row.deliveryNumber} sent back.`);
       await load();

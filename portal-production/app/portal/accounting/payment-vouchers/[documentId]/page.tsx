@@ -75,7 +75,7 @@ export default function PaymentVoucherPage() {
         const token = await getToken();
         if (!token) return;
         const [voucherRes, listRes] = await Promise.all([
-          request({ path: `/payment-vouchers/${documentId}`, method: "GET" }, {}, token),
+          request({ path: `/payment-vouchers/${documentId}`, method: "GET", ownError: true }, {}, token),
           request({ path: `/payment-vouchers`, method: "GET" }, {}, token),
         ]);
         const v = unwrap(voucherRes);
@@ -124,7 +124,7 @@ export default function PaymentVoucherPage() {
           : null,
       }));
     const response = await request(
-      { path: `/payment-vouchers/${documentId}`, method: "PUT" },
+      { path: `/payment-vouchers/${documentId}`, method: "PUT", ownError: true },
       {
         voucherNumber: data?.documentInfo?.documentNumber || data?.name || null,
         date: pd.date,

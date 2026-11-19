@@ -24,6 +24,7 @@ const API = {
   GET_PROJECTS_ENDING: {
     path: "/dashboard/projects-ending",
     method: "GET",
+    ownError: true,
   },
 };
 

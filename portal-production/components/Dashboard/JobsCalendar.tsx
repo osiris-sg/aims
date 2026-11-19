@@ -64,7 +64,7 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
       try {
         const token = await getToken();
         if (!token) return;
-        const res = await request({ path: `/dashboard/jobs-calendar?from=${range.from}&to=${range.to}`, method: "GET" }, undefined, token);
+        const res = await request({ path: `/dashboard/jobs-calendar?from=${range.from}&to=${range.to}`, method: "GET", ownError: true }, undefined, token);
         const payload = unwrap<CalendarPayload>(res, "Couldn't load the calendar");
         if (latest.current !== key) return; // a newer range is on screen
         setData(payload ? withoutSiteClockJobs(payload, !!isHideSiteClockJobs) : payload);

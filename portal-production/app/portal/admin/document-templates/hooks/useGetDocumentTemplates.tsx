@@ -217,6 +217,7 @@ export function useUpdateTemplateFieldDefinitions() {
         {
           path: `/documentTemplates/${templateId}/fields`,
           method: "PUT",
+          ownError: true,
         },
         { formFields },
         token
@@ -257,6 +258,7 @@ export function usePopulateTemplateFields() {
         {
           path: `/documentTemplates/populate-fields`,
           method: "POST",
+          ownError: true,
         },
         {},
         token

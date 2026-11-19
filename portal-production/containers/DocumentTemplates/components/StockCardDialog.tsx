@@ -211,7 +211,7 @@ export default function StockCardDialog({
       try {
         const token = await getToken();
         if (!token) return;
-        const res: any = await request({ path: "/categories", method: "GET" }, undefined, token);
+        const res: any = await request({ path: "/categories", method: "GET", quiet: true }, undefined, token);
         const rows = res?.data?.docs ?? res?.data ?? res ?? [];
         if (!cancelled && Array.isArray(rows)) {
           setCategories(rows.map((c: any) => ({ id: c.id, name: c.name })).filter((c: any) => c.id && c.name));
@@ -244,7 +244,7 @@ export default function StockCardDialog({
       const priceNum = form.price.trim() ? Number(form.price) : undefined;
       if (priceNum != null && !Number.isFinite(priceNum)) throw new Error("That unit price is not a number.");
       const res: any = await request(
-        { path: "/assets/create", method: "POST" },
+        { path: "/assets/create", method: "POST", ownError: true },
         {
           name,
           description: name,

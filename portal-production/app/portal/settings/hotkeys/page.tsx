@@ -126,7 +126,7 @@ export default function HotkeysSettingsPage() {
       // instead of throwing, so the catch below never sees a 403. Without this
       // check a user without configuration:write was told "Hotkeys saved" and
       // then watched the keys revert when the configuration refreshed.
-      const res = await request({ path: "/configuration/hotkeys", method: "PATCH" }, { hotkeys: body }, token ?? undefined);
+      const res = await request({ path: "/configuration/hotkeys", method: "PATCH", ownError: true }, { hotkeys: body }, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || "Save failed");
       await refreshConfiguration();
       toast.success("Hotkeys saved for everyone in the organisation");

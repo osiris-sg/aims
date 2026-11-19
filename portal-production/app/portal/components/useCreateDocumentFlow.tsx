@@ -49,7 +49,7 @@ export function useCreateDocumentFlow(createDocumentType?: string, documentLabel
         return;
       }
       const created = await request(
-        { path: "/documents/basic", method: "POST" },
+        { path: "/documents/basic", method: "POST", ownError: true },
         {
           type: createDocumentType,
           config: { ...(numberFormatId ? { numberFormatId } : {}) },

@@ -79,14 +79,14 @@ export default function DeliveryRouteDialog({ reportId, open, onClose, publicTok
         if (publicToken) {
           // Guest page: token-scoped public endpoint, no Clerk auth.
           res = await request(
-            { path: `/public/document/${publicToken}/route/${reportId}`, method: "GET" },
+            { path: `/public/document/${publicToken}/route/${reportId}`, method: "GET", ownError: true },
             {},
           );
         } else {
           const token = await getToken();
           if (!token) return;
           res = await request(
-            { path: `/maintenance-reports/${reportId}/location-track`, method: "GET" },
+            { path: `/maintenance-reports/${reportId}/location-track`, method: "GET", ownError: true },
             {},
             token,
           );

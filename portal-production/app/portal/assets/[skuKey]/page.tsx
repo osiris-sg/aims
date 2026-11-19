@@ -82,6 +82,7 @@ export default function ViewAssetPage({ params }: { params: { skuKey: string } }
         {
           path: `/assets/skuKey/${params.skuKey}`,
           method: "GET",
+          ownError: true,
         },
         {},
         token

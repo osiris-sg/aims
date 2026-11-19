@@ -55,7 +55,7 @@ export default function VerificationPanel({
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path, method: "POST" }, body, token);
+      const res = await request({ path, method: "POST", ownError: true }, body, token);
       if (res?.success === false) throw new Error(res?.message || "Could not save");
       onChanged((res?.data ?? res) as JobVerification);
       return true;

@@ -60,7 +60,7 @@ export default function QuotationCategoriesPage() {
     setError(null);
     try {
       const token = await getToken();
-      const res: any = await request({ path: "/quotation-categories", method: "PUT" }, { options: clean }, token ?? undefined);
+      const res: any = await request({ path: "/quotation-categories", method: "PUT", ownError: true }, { options: clean }, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || "Could not save");
       await load();
     } catch (e: any) {

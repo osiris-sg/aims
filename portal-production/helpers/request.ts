@@ -2,8 +2,11 @@
 // import moment from "moment";
 import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
 
+import { toast } from "react-toastify";
+
 import { notificationsActions } from "@/containers/Notifications/slice";
 import store from "@/store";
+import { createApiErrorToaster, failureFromAxiosError } from "@/helpers/apiErrorToast";
 
 // import { portalActions } from 'layout/MainLayout/sliice';
 
@@ -74,6 +77,16 @@ const DEFAULT_TIMEOUT_MS = 30000;
 // a generous ceiling so a real upload isn't killed at the JSON default.
 const UPLOAD_TIMEOUT_MS = 120000;
 
+// Portal-wide error toast (helpers/apiErrorToast.ts): a failed call on a /portal page shows one short toast
+// unless the call passes `ownError: true` (its screen shows its own error) or `quiet: true` (background work).
+const showApiErrorToast = createApiErrorToaster({
+  show: (message) => {
+    toast.error(message, { toastId: `api-error:${message}`, position: "bottom-right" });
+  },
+});
+
+const currentPath = (): string | null => (typeof window !== "undefined" ? window.location.pathname : null);
+
 export class RequestService {
   private instance: AxiosInstance;
   constructor() {
@@ -92,7 +105,19 @@ export class RequestService {
         ? UPLOAD_TIMEOUT_MS
         : DEFAULT_TIMEOUT_MS;
     const abortController = new AbortController();
-    const abortTimer = setTimeout(() => abortController.abort(), effectiveTimeout);
+    let timerFired = false;
+    const abortTimer = setTimeout(() => {
+      timerFired = true;
+      abortController.abort();
+    }, effectiveTimeout);
+    // Optional caller cancel (_metadata.signal, e.g. React Query's): aborting it aborts this request.
+    const callerSignal: AbortSignal | undefined = _metadata?.signal;
+    const onCallerAbort = () => abortController.abort();
+    if (callerSignal) {
+      if (callerSignal.aborted) abortController.abort();
+      else callerSignal.addEventListener("abort", onCallerAbort, { once: true });
+    }
+    const startPath = currentPath();
     try {
       const metadata = { ..._metadata };
       const pathTokens = metadata.path.split("/:");
@@ -167,6 +192,11 @@ export class RequestService {
       store.dispatch(
         notificationsActions.setNotification({ type: "error", message })
       );
+      try {
+        showApiErrorToast(failureFromAxiosError(error, { meta: _metadata, timerFired, startPath, currentPath: currentPath() }));
+      } catch {
+        /* the toast never changes what request() returns */
+      }
       // Surface the backend's structured error body so callers can branch on a
       // code (e.g. create-and-bind's ALREADY_TAGGED / AMBIGUOUS_SERIAL). Purely
       // additive — existing callers still read `success` / `message`.
@@ -183,6 +213,7 @@ export class RequestService {
       // Always clear the abort timer — on success, error, AND timeout — so we
       // never leak a pending timer or abort an already-settled request.
       clearTimeout(abortTimer);
+      callerSignal?.removeEventListener("abort", onCallerAbort);
     }
   };
 

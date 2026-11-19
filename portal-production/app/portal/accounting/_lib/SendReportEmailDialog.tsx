@@ -104,7 +104,7 @@ ${orgName}`);
       if (!token) throw new Error(t("authFailed"));
       const pdf = await reportPdfBase64(model);
       const response: any = await request(
-        { path: "/statements/report/send-email", method: "POST" },
+        { path: "/statements/report/send-email", method: "POST", ownError: true },
         {
           to,
           cc: cc.length ? cc : undefined,

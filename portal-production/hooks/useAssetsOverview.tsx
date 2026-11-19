@@ -30,6 +30,7 @@ const API = {
   GET_ASSETS_OVERVIEW: {
     path: "/dashboard/assets-overview",
     method: "GET",
+    ownError: true,
   },
 };
 

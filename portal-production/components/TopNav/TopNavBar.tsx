@@ -67,7 +67,7 @@ export function TopNavOrgSwitcher({ light = false }: { light?: boolean } = {}) {
       try {
         const token = await getToken();
         if (!token) return;
-        const res = await request({ path: "/organizations", method: "GET" }, {}, token);
+        const res = await request({ path: "/organizations", method: "GET", quiet: true }, {}, token);
         if (cancelled) return;
         const list: { id: string; name: string }[] =
           (res?.success && Array.isArray(res?.data?.data) && res.data.data) ||

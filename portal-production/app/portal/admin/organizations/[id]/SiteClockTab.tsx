@@ -55,7 +55,7 @@ export default function SiteClockTab({ organizationId }: { organizationId: strin
     try {
       const token = await getToken();
       if (!token) return;
-      const res: any = await request({ path: base, method: "GET" }, {}, token);
+      const res: any = await request({ path: base, method: "GET", ownError: true }, {}, token);
       fill(unwrap<Conn>(res, "Failed to load the SiteClock connection"));
     } catch (e: any) {
       toast.error(e?.message || "Failed to load the SiteClock connection");
@@ -77,7 +77,7 @@ export default function SiteClockTab({ organizationId }: { organizationId: strin
       const token = await getToken();
       if (!token) return;
       const res: any = await request(
-        { path: base, method: "PUT" },
+        { path: base, method: "PUT", ownError: true },
         {
           baseUrl: baseUrl.trim(),
           siteclockCompanyId: companyId.trim(),
@@ -103,10 +103,10 @@ export default function SiteClockTab({ organizationId }: { organizationId: strin
     try {
       const token = await getToken();
       if (!token) return;
-      const res: any = await request({ path: `${base}/test`, method: "GET" }, {}, token);
+      const res: any = await request({ path: `${base}/test`, method: "GET", ownError: true }, {}, token);
       setTestResult(testResultText(unwrap(res, "Test failed")));
       // Refresh the "last successful call" / last error without touching what is typed.
-      const again: any = await request({ path: base, method: "GET" }, {}, token);
+      const again: any = await request({ path: base, method: "GET", quiet: true }, {}, token);
       const c = again?.success === false ? null : unwrap<Conn>(again);
       if (isConn(c)) setConn(c);
     } catch (e: any) {
@@ -123,7 +123,7 @@ export default function SiteClockTab({ organizationId }: { organizationId: strin
     try {
       const token = await getToken();
       if (!token) return;
-      const res: any = await request({ path: `${base}/inbound-key`, method: "POST" }, {}, token);
+      const res: any = await request({ path: `${base}/inbound-key`, method: "POST", ownError: true }, {}, token);
       const { key, ...c } = unwrap<Conn & { key: string }>(res, "Could not generate the key");
       if (isConn(c)) setConn(c);
       setNewKey(key);
@@ -140,7 +140,7 @@ export default function SiteClockTab({ organizationId }: { organizationId: strin
     try {
       const token = await getToken();
       if (!token) return;
-      const res: any = await request({ path: `${base}/inbound-key`, method: "DELETE" }, {}, token);
+      const res: any = await request({ path: `${base}/inbound-key`, method: "DELETE", ownError: true }, {}, token);
       const c = unwrap<Conn>(res, "Could not revoke the key");
       if (isConn(c)) setConn(c);
       toast.success("SiteClock key revoked");

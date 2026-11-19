@@ -34,7 +34,7 @@ export default function DeleteLoginDialog({ userId, onClose, onDeleted }: { user
     if (!userId) return;
     (async () => {
       const token = await getToken();
-      const res: any = await request({ method: "GET", path: `/users/${encodeURIComponent(userId)}/login-delete-check` }, {}, token ?? undefined);
+      const res: any = await request({ method: "GET", path: `/users/${encodeURIComponent(userId)}/login-delete-check`, ownError: true }, {}, token ?? undefined);
       if (res?.success === false) setError(res?.message || "Could not check this login.");
       else setCheck(res?.data ?? res);
     })();
@@ -48,7 +48,7 @@ export default function DeleteLoginDialog({ userId, onClose, onDeleted }: { user
     setError(null);
     try {
       const token = await getToken();
-      const res: any = await request({ method: "POST", path: `/users/${encodeURIComponent(check.userId)}/delete-login` }, { confirm: typed, acknowledgeWarnings: ack }, token ?? undefined);
+      const res: any = await request({ method: "POST", path: `/users/${encodeURIComponent(check.userId)}/delete-login`, ownError: true }, { confirm: typed, acknowledgeWarnings: ack }, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || "The login could not be deleted.");
       toast.success(`The login of ${check.name} was deleted.`);
       onDeleted();

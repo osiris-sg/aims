@@ -58,7 +58,7 @@ export default function CustomerInformationPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path: `/customer-info/${id}/revoke`, method: "POST" }, {}, token);
+      const res = await request({ path: `/customer-info/${id}/revoke`, method: "POST", ownError: true }, {}, token);
       if (res?.success === false) throw new Error(res?.message ?? "Failed to revoke");
       toast.success("Link revoked");
       refetch();

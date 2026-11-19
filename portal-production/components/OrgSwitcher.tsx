@@ -36,7 +36,7 @@ export default function OrgSwitcher() {
       try {
         const token = await getToken();
         if (!token) return;
-        const res = await request({ path: "/organizations", method: "GET" }, {}, token);
+        const res = await request({ path: "/organizations", method: "GET", quiet: true }, {}, token);
         if (cancelled) return;
         const list: OrgOption[] =
           (res?.success && Array.isArray(res?.data?.data) && res.data.data) ||

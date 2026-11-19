@@ -415,7 +415,7 @@ export default function DeliveryDetailPage() {
         if (!token) throw new Error("Not signed in");
         const rows: any[] = [];
         for (const status of ["rental", "sold"]) {
-          const res = await request({ path: "/inventories/by-status", method: "POST" }, { status }, token);
+          const res = await request({ path: "/inventories/by-status", method: "POST", ownError: true }, { status }, token);
           if (res?.success === false) throw new Error(res?.message ?? "Could not load units");
           const body = res?.data ?? res;
           if (Array.isArray(body)) rows.push(...body);
@@ -438,7 +438,7 @@ export default function DeliveryDetailPage() {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const res = await request(
-        { path: `/deliveries/${run?.id}/attach-project`, method: "POST" },
+        { path: `/deliveries/${run?.id}/attach-project`, method: "POST", ownError: true },
         { projectId: attachProjectId },
         token,
       );
@@ -462,7 +462,7 @@ export default function DeliveryDetailPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path: `/deliveries/${deliveryId}`, method: "GET" }, {}, token);
+      const res = await request({ path: `/deliveries/${deliveryId}`, method: "GET", ownError: true }, {}, token);
       if (res.success === false) throw new Error(res.message ?? `${w.Noun} not found`);
       const data: RunDetail = res.data ?? res;
       setRun(data);
@@ -488,7 +488,7 @@ export default function DeliveryDetailPage() {
     try {
       const token = await getToken();
       if (!token || !organization?.id) throw new Error("Not signed in");
-      const res = await request({ path: "/documents", method: "POST" }, { organizationId: organization.id }, token);
+      const res = await request({ path: "/documents", method: "POST", ownError: true }, { organizationId: organization.id }, token);
       if (res.success === false || !res.data) throw new Error(res.message ?? "Failed to load documents");
       setDocs(res.data as DocRow[]);
     } catch (e: any) {
@@ -517,7 +517,7 @@ export default function DeliveryDetailPage() {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const res = await request(
-        { path: `/deliveries/${deliveryId}/link`, method: "POST" },
+        { path: `/deliveries/${deliveryId}/link`, method: "POST", ownError: true },
         { documentId, itemIds: Array.from(selected) },
         token,
       );
@@ -543,7 +543,7 @@ export default function DeliveryDetailPage() {
       try {
         const token = await getToken();
         if (!token) return;
-        const res = await request({ path: `/documents/${docId}`, method: "GET" }, {}, token);
+        const res = await request({ path: `/documents/${docId}`, method: "GET", quiet: true }, {}, token);
         const doc = res?.data ?? res;
         const templateId = doc?.documentTemplateId;
         const type = doc?.type ?? "DELIVERY_ORDER";
@@ -568,7 +568,7 @@ export default function DeliveryDetailPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path: `/deliveries/${deliveryId}/cancel-handoff`, method: "POST" }, {}, token);
+      const res = await request({ path: `/deliveries/${deliveryId}/cancel-handoff`, method: "POST", ownError: true }, {}, token);
       if (res?.success === false) throw new Error(res.message ?? "Could not cancel the hand-off");
       setCancelHandoffOpen(false);
       await load();
@@ -586,7 +586,7 @@ export default function DeliveryDetailPage() {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const res = await request(
-        { path: `/deliveries/${deliveryId}/create-do`, method: "POST" },
+        { path: `/deliveries/${deliveryId}/create-do`, method: "POST", ownError: true },
         { itemIds: Array.from(selected) },
         token,
       );
@@ -624,7 +624,7 @@ export default function DeliveryDetailPage() {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const res = await request(
-        { path: `/deliveries/${run.id}/attach-customer-project`, method: "POST" },
+        { path: `/deliveries/${run.id}/attach-customer-project`, method: "POST", ownError: true },
         { ...(returnProjectId ? { projectId: returnProjectId } : {}), ...(returnCustomerId ? { customerId: returnCustomerId } : {}) },
         token,
       );
@@ -651,7 +651,7 @@ export default function DeliveryDetailPage() {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const res = await request(
-        { path: `/deliveries/${run.id}/items/${linkItem.id}/link-unit`, method: "POST" },
+        { path: `/deliveries/${run.id}/items/${linkItem.id}/link-unit`, method: "POST", ownError: true },
         { inventoryId: unitId },
         token,
       );
@@ -674,7 +674,7 @@ export default function DeliveryDetailPage() {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const res = await request(
-        { path: `/deliveries/${deliveryId}/items/deployment-type`, method: "POST" },
+        { path: `/deliveries/${deliveryId}/items/deployment-type`, method: "POST", ownError: true },
         { inventoryId, type },
         token,
       );
@@ -707,7 +707,7 @@ export default function DeliveryDetailPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path: `/deliveries/${deliveryId}/items/asset-class`, method: "POST" }, { itemId, assetClass }, token);
+      const res = await request({ path: `/deliveries/${deliveryId}/items/asset-class`, method: "POST", ownError: true }, { itemId, assetClass }, token);
       if (res.success === false) throw new Error(res.message ?? "Couldn't update the line type");
       setRun((prev) => (prev ? { ...prev, items: prev.items.map((it) => (it.id === itemId ? { ...it, assetClass } : it)) } : prev));
     } catch (e: any) {
@@ -777,7 +777,7 @@ export default function DeliveryDetailPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path: `/deliveries/${deliveryId}/cancel`, method: "POST" }, {}, token);
+      const res = await request({ path: `/deliveries/${deliveryId}/cancel`, method: "POST", ownError: true }, {}, token);
       if (res.success === false) throw new Error(res.message ?? "Cancel failed");
       setConfirmAction(null);
       await load();
@@ -796,7 +796,7 @@ export default function DeliveryDetailPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path: `/deliveries/${deliveryId}/purge`, method: "POST" }, {}, token);
+      const res = await request({ path: `/deliveries/${deliveryId}/purge`, method: "POST", ownError: true }, {}, token);
       if (res?.success === false) throw new Error(res.message ?? "Delete failed");
       router.push("/portal/deliveries");
     } catch (e: any) {
@@ -1334,7 +1334,7 @@ export default function DeliveryDetailPage() {
                       const token = await getToken();
                       if (!token) throw new Error("Not signed in");
                       const up = await uploadFile({ file: f, folder: `maintenance-reports/${organization.id}/uploads`, token });
-                      const res: any = await request({ path: `/maintenance-reports/${sr.id}/upload-file`, method: "POST" }, { fileKey: up.fileKey, fileName: up.fileName, mimeType: up.mimeType }, token);
+                      const res: any = await request({ path: `/maintenance-reports/${sr.id}/upload-file`, method: "POST", ownError: true }, { fileKey: up.fileKey, fileName: up.fileName, mimeType: up.mimeType }, token);
                       if (res?.success === false) throw new Error(res.message || "Upload failed");
                       await load();
                     } catch (err: any) {

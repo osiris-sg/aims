@@ -183,7 +183,7 @@ export function useCreatePayment() {
       if (!token) throw new Error('No authentication token available');
 
       const response = await request(
-        { path: '/payments', method: 'POST' },
+        { path: '/payments', method: 'POST', ownError: true },
         paymentData,
         token
       );
@@ -244,7 +244,7 @@ export function useDeletePayment() {
       if (!token) throw new Error('No authentication token available');
 
       const response = await request(
-        { path: `/payments/${paymentId}`, method: 'DELETE' },
+        { path: `/payments/${paymentId}`, method: 'DELETE', ownError: true },
         {},
         token
       );

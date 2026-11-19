@@ -104,7 +104,7 @@ export default function SlimOrderDetail({ params }: { params: { id: string } }) 
     setLoading(true);
     try {
       const token = await getToken();
-      const res = await request({ path: `/orders/${params.id}`, method: "GET" }, {}, token ?? undefined);
+      const res = await request({ path: `/orders/${params.id}`, method: "GET", ownError: true }, {}, token ?? undefined);
       if (res?.success && res?.data) setOrder(res.data);
       else setOrder(res?.data ?? null);
     } catch (err) {
@@ -121,7 +121,7 @@ export default function SlimOrderDetail({ params }: { params: { id: string } }) 
     try {
       const token = await getToken();
       const res = await request(
-        { path: "/inventories", method: "POST" },
+        { path: "/inventories", method: "POST", quiet: true },
         { status: "all", page: 1, limit: 200 },
         token ?? undefined,
       );
@@ -212,7 +212,7 @@ export default function SlimOrderDetail({ params }: { params: { id: string } }) 
       for (const t of candidateTypes) {
         try {
           const r = await request(
-            { path: `/documentTemplates/type/${t}`, method: "GET" },
+            { path: `/documentTemplates/type/${t}`, method: "GET", quiet: true },
             {},
             token,
           );
@@ -282,7 +282,7 @@ export default function SlimOrderDetail({ params }: { params: { id: string } }) 
 
       // Create the doc
       const created = await request(
-        { path: "/documents/basic", method: "POST" },
+        { path: "/documents/basic", method: "POST", ownError: true },
         {
           type: resolvedType,
           documentTemplateId: templateId,

@@ -59,6 +59,7 @@ export default function EditOrganization({ open, onClose, onOrganizationUpdated,
         {
           path: `/organizations/${organization.id}`,
           method: "PATCH",
+          ownError: true,
         },
         organizationData,
         token

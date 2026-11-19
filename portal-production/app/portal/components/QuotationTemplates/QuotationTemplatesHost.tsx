@@ -80,7 +80,7 @@ export default function QuotationTemplatesHost(p: QuotationTemplatesHostProps) {
   const qc = useQueryClient();
   const call = async (path: string, method: string, body: any = {}) => {
     const token = await getToken();
-    return request({ path, method }, body, token || undefined);
+    return request({ path, method, ownError: true }, body, token || undefined);
   };
 
   const { data: templates, isLoading, isError, refetch } = useQuery<QuotationTemplate[]>({

@@ -21,6 +21,7 @@ const API = {
   GET_DELIVERY_ORDERS_PENDING: {
     path: "/dashboard/delivery-orders-pending",
     method: "GET",
+    ownError: true,
   },
 };
 

@@ -95,6 +95,7 @@ export const useCreateAsset = () => {
         {
           path: "/assets/create",
           method: "POST",
+          ownError: true,
         },
         requestBody,
         token

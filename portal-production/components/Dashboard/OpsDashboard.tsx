@@ -107,7 +107,8 @@ export default function OpsDashboard() {
     async (path: string, body?: any) => {
       const token = await getToken();
       if (!token) return null;
-      const res = await request({ path, method: body ? "POST" : "GET" }, body, token);
+      // The only POST is the debounced layout autosave: background work, never a toast.
+      const res = await request({ path, method: body ? "POST" : "GET", quiet: !!body }, body, token);
       return (res as any)?.data ?? res;
     },
     [getToken],

@@ -21,7 +21,7 @@ import { JobPhoto, OrderJobGroup, PHOTO_TAG_OPTIONS, TAG_COLOR, jobHeading, phot
 async function fetchJson(getToken: () => Promise<string | null>, path: string, method: "GET" | "POST" | "PATCH" = "GET", body: any = {}) {
   const token = await getToken();
   if (!token) throw new Error("Not signed in");
-  const res: any = await request({ path, method }, body, token);
+  const res: any = await request({ path, method, ownError: true }, body, token);
   if (res?.success === false) {
     const m = res?.details?.message ?? res?.message;
     throw new Error((Array.isArray(m) ? m.join(". ") : m) || "Request failed");

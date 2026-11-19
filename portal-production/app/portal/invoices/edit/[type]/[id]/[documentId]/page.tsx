@@ -154,6 +154,7 @@ export default function page() {
         {
           path: `/documents/update`,
           method: "POST",
+          ownError: true,
         },
         updatePayload,
         token

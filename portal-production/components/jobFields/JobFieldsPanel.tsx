@@ -25,7 +25,7 @@ export default function JobFieldsPanel({ deliveryId, jobFields, onSaved }: { del
     setError(null);
     try {
       const token = await getToken();
-      const res = await request({ path: `/deliveries/${deliveryId}/job-fields`, method: "PUT" }, { values: diff }, token ?? undefined);
+      const res = await request({ path: `/deliveries/${deliveryId}/job-fields`, method: "PUT", ownError: true }, { values: diff }, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || "Could not save");
       setSaved(true);
       onSaved();

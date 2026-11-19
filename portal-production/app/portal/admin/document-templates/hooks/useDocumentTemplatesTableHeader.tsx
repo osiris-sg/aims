@@ -31,6 +31,7 @@ export default function useDocumentTemplatesTableHeader(onRefetch?: () => void) 
         {
           path: `/documentTemplates/variants/${activateDialog.templateId}/activate`,
           method: "POST",
+          ownError: true,
         },
         {},
         token

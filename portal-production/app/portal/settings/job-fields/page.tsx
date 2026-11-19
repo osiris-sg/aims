@@ -144,8 +144,8 @@ export default function JobFieldsSettingsPage() {
       const token = await getToken();
       const display = displayFromForm(form.fieldType, form);
       const res = form.id
-        ? await request({ path: `/job-fields/${form.id}`, method: "PUT" }, { displayLabel: form.displayLabel.trim(), required: form.required, display }, token ?? undefined)
-        : await request({ path: "/job-fields", method: "POST" }, { displayLabel: form.displayLabel.trim(), fieldType: form.fieldType, required: form.required, display }, token ?? undefined);
+        ? await request({ path: `/job-fields/${form.id}`, method: "PUT", ownError: true }, { displayLabel: form.displayLabel.trim(), required: form.required, display }, token ?? undefined)
+        : await request({ path: "/job-fields", method: "POST", ownError: true }, { displayLabel: form.displayLabel.trim(), fieldType: form.fieldType, required: form.required, display }, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || "Could not save");
       setForm(null);
       await load();
@@ -161,7 +161,7 @@ export default function JobFieldsSettingsPage() {
     if (!window.confirm(`Remove the job field "${f.displayLabel}"? Jobs keep the values they already have; the field is no longer asked or shown.`)) return;
     try {
       const token = await getToken();
-      const res = await request({ path: `/job-fields/${f.id}`, method: "DELETE" }, {}, token ?? undefined);
+      const res = await request({ path: `/job-fields/${f.id}`, method: "DELETE", ownError: true }, {}, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || "Could not remove");
       await load();
     } catch (e: any) {

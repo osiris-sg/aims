@@ -311,7 +311,7 @@ export default function ScheduleReturnDialog({
       const typedLines = typedBasket.map((b) => ({ description: b.description }));
       const typedProjectId = typedBasket.length ? typedBasket[0].projectId : null;
       const res = await request(
-        { path: "/deliveries/scheduled-return", method: "POST" },
+        { path: "/deliveries/scheduled-return", method: "POST", ownError: true },
         {
           scheduledFor,
           ...(allDay ? { scheduledAllDay: true } : {}),

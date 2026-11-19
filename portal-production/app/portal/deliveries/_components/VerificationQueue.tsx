@@ -80,7 +80,7 @@ export default function VerificationQueue({ embedded = false }: { embedded?: boo
     try {
       const token = await getToken();
       if (!token) return;
-      const res = await request({ path: `/deliveries/verification?state=${tab}`, method: "GET" }, {}, token);
+      const res = await request({ path: `/deliveries/verification?state=${tab}`, method: "GET", ownError: true }, {}, token);
       if (res?.success === false) throw new Error(res?.message || "Failed to load");
       setRows(Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : []);
       setError(null);
@@ -99,7 +99,7 @@ export default function VerificationQueue({ embedded = false }: { embedded?: boo
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path: `/deliveries/${row.id}/${kind}`, method: "POST" }, body, token);
+      const res = await request({ path: `/deliveries/${row.id}/${kind}`, method: "POST", ownError: true }, body, token);
       if (res?.success === false) throw new Error(res?.message || "Could not save");
       await load();
       return true;

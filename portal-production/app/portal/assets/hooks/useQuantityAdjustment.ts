@@ -25,7 +25,7 @@ export function useAdjustQuantity() {
       if (!token) throw new Error('No authentication token available');
 
       const response = await request(
-        { path: '/assets/adjust-quantity', method: 'POST' },
+        { path: '/assets/adjust-quantity', method: 'POST', ownError: true },
         params,
         token
       );

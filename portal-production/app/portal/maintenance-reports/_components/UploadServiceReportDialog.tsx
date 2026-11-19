@@ -121,7 +121,7 @@ export default function UploadServiceReportDialog({
       if (!token) throw new Error("Not signed in");
       const up = await uploadFile({ file, folder: `maintenance-reports/${organization.id}/uploads`, token });
       const res: any = await request(
-        { path: "/maintenance-reports/upload", method: "POST" },
+        { path: "/maintenance-reports/upload", method: "POST", ownError: true },
         {
           fileKey: up.fileKey,
           fileName: up.fileName,

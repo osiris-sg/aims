@@ -160,10 +160,11 @@ export default function page() {
   const hasNext = currentIndex > 0;
 
   // Function to fetch and process a single document (used for both main load and prefetch)
-  const fetchDocumentData = useCallback(async (docId: string, token: string, urlType: string | string[]): Promise<CachedDocument | null> => {
+  // flags: the main load shows its own error (ownError); the neighbour prefetch is background work (quiet).
+  const fetchDocumentData = useCallback(async (docId: string, token: string, urlType: string | string[], flags: { ownError?: boolean; quiet?: boolean } = {}): Promise<CachedDocument | null> => {
     try {
       const response = await request(
-        { path: `/documents/${docId}`, method: "GET" },
+        { path: `/documents/${docId}`, method: "GET", ...flags },
         {},
         token
       );
@@ -189,7 +190,7 @@ export default function page() {
         } else {
           try {
             const templateResponse = await request(
-              { path: `/documentTemplates/${templateId}`, method: "GET" },
+              { path: `/documentTemplates/${templateId}`, method: "GET", quiet: !!flags.quiet },
               {},
               token
             );
@@ -310,7 +311,7 @@ export default function page() {
       activeFetches++;
 
       // Fetch in background (don't await, let it run silently)
-      fetchDocumentData(docId, token, urlType)
+      fetchDocumentData(docId, token, urlType, { quiet: true })
         .then((result) => {
           if (result) {
             documentCache.set(docId, result);
@@ -478,7 +479,7 @@ export default function page() {
         }
 
         console.log("Fetching document (not in cache):", docIdStr);
-        const result = await fetchDocumentData(docIdStr, token, type as string);
+        const result = await fetchDocumentData(docIdStr, token, type as string, { ownError: true });
 
         if (result) {
           // Store in cache
@@ -597,6 +598,7 @@ export default function page() {
         {
           path: `/documents/update`,
           method: "POST",
+          ownError: true,
         },
         updatePayload,
         token

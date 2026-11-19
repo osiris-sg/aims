@@ -145,7 +145,7 @@ export default function AddCustomerInfoDialog({ open, onClose, onCreated }: Prop
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const res = await request(
-        { path: "/customer-info", method: "POST" },
+        { path: "/customer-info", method: "POST", ownError: true },
         {
           customerId: selectedCustomer.id,
           projectId: selectedProject.id,

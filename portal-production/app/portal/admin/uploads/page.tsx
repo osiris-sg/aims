@@ -73,7 +73,7 @@ export default function AdminUploadsPage() {
         return;
       }
       const q = status ? `?status=${status}` : "";
-      const res = await request({ path: `/submit/jobs${q}`, method: "GET" }, {}, token);
+      const res = await request({ path: `/submit/jobs${q}`, method: "GET", ownError: true }, {}, token);
       if (res?.success === false) throw new Error(res.message ?? "Failed to load");
       setJobs(((res.data ?? res) as Job[]) ?? []);
       setError(null);
@@ -93,7 +93,7 @@ export default function AdminUploadsPage() {
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path: `/submit/jobs/${id}/retry`, method: "POST" }, {}, token);
+      const res = await request({ path: `/submit/jobs/${id}/retry`, method: "POST", ownError: true }, {}, token);
       if (res?.success === false) throw new Error(res.message ?? "Retry failed");
       await load();
     } catch (e: any) {

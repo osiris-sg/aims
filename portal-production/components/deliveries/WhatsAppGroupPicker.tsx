@@ -60,7 +60,7 @@ export default function WhatsAppGroupPicker({
       const token = (await getToken()) ?? undefined;
       const q = target.kind === "project" ? `?projectId=${target.id}` : target.kind === "customer" ? `?customerId=${target.id}` : "";
       const [g, cur] = await Promise.all([
-        request({ path: "/delivery-group-posts/groups", method: "GET" }, {}, token, orgHeaders),
+        request({ path: "/delivery-group-posts/groups", method: "GET", ownError: true }, {}, token, orgHeaders),
         request({ path: `/delivery-group-posts/current${q}`, method: "GET" }, {}, token, orgHeaders),
       ]);
       const list: Group[] = (g?.data ?? g ?? []).map((x: any) => ({ groupId: x.groupId, name: x.name }));
@@ -93,7 +93,7 @@ export default function WhatsAppGroupPicker({
           : target.kind === "customer"
             ? `/delivery-group-posts/customer/${target.id}/group`
             : "/delivery-group-posts/ops-group";
-      const res = await request({ path, method: "PUT" }, { groupId: next?.groupId ?? null }, token, orgHeaders);
+      const res = await request({ path, method: "PUT", ownError: true }, { groupId: next?.groupId ?? null }, token, orgHeaders);
       if (res?.success === false) throw new Error(res.message ?? "Could not save");
       setSaved(next ? `Saved: ${next.name}` : "Cleared");
     } catch (e: any) {

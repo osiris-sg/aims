@@ -40,7 +40,7 @@ export default function NewServiceReportDialog({
     setError(null);
     try {
       const token = await getToken();
-      const res: any = await request({ path: "/maintenance-reports/office", method: "POST" }, { customerId: customer.id, doDocumentId: doId }, token ?? undefined);
+      const res: any = await request({ path: "/maintenance-reports/office", method: "POST", ownError: true }, { customerId: customer.id, doDocumentId: doId }, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || "Could not start the report");
       const r = res?.data ?? res;
       router.push(`/portal/maintenance-reports/${r.id}/form`);

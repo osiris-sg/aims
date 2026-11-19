@@ -31,7 +31,7 @@ export function useNotifications() {
       try {
         const token = await getToken();
         if (!token || !organizationId) return EMPTY;
-        const res = await request({ path: "/notifications", method: "GET" }, {}, token);
+        const res = await request({ path: "/notifications", method: "GET", quiet: true }, {}, token);
         const payload = res?.data ?? res;
         return {
           items: (payload?.items ?? []) as NotificationItem[],

@@ -919,7 +919,7 @@ export default function TabbedDocumentCreator({
       ).filter(Boolean);
       if (!keys.length) throw new Error("Upload failed");
       const res = await request(
-        { path: `/documents/${docId}/item-photos`, method: "POST" },
+        { path: `/documents/${docId}/item-photos`, method: "POST", ownError: true },
         {
           // Send EVERY identifier this row has. The server tries them in turn,
           // so a stale or empty one cannot strand the call (it used to commit
@@ -1969,7 +1969,7 @@ export default function TabbedDocumentCreator({
       const token = await getToken();
       if (!token) return;
       const res = await request(
-        { path: "/projects/create-by-name", method: "POST" },
+        { path: "/projects/create-by-name", method: "POST", ownError: true },
         { name: trimmed, customerId },
         token,
       );
@@ -2023,7 +2023,7 @@ export default function TabbedDocumentCreator({
       const token = await getToken();
       if (!token) return;
       const res = await request(
-        { path: `/documents/${docId}/link-project`, method: "PATCH" },
+        { path: `/documents/${docId}/link-project`, method: "PATCH", ownError: true },
         { projectId: desired },
         token,
       );
@@ -3131,6 +3131,7 @@ export default function TabbedDocumentCreator({
         {
           path: "/documents/generate-pdf",
           method: "POST",
+          ownError: true,
         },
         {
           documentType,
@@ -3219,6 +3220,7 @@ export default function TabbedDocumentCreator({
         {
           path: `/price-history/asset/${assetId}?${queryParams.toString()}`,
           method: 'GET',
+          quiet: true,
         },
         {},
         token
@@ -3375,7 +3377,7 @@ export default function TabbedDocumentCreator({
         const quotationId = documentId || (existingData as any)?.id;
         if (quotationId) {
           const token = await getToken();
-          const res = await request({ path: "/orders", method: "GET" }, {}, token ?? undefined);
+          const res = await request({ path: "/orders", method: "GET", quiet: true }, {}, token ?? undefined);
           const list: any[] = res?.data ?? [];
           const found = list.find((o) => o?.sourceQuotationId === quotationId);
           setLinkedOrderId(found?.id ?? null);
@@ -3528,6 +3530,7 @@ export default function TabbedDocumentCreator({
         {
           path: `/documents/${docId}/confirm-do`,
           method: "POST",
+          ownError: true,
         },
         {
           fromDONo: doData.fromDONo,
@@ -3594,6 +3597,7 @@ export default function TabbedDocumentCreator({
         {
           path: `/documents/${docId}/confirm-pr`,
           method: "POST",
+          ownError: true,
         },
         {
           purchaseReturnNo: prData.purchaseReturnNo,
@@ -3676,6 +3680,7 @@ export default function TabbedDocumentCreator({
         {
           path: `/documents/${docId}/confirm-invoice`,
           method: "POST",
+          ownError: true,
         },
         {
           fromInvoiceNo: invoiceData.fromInvoiceNo,
@@ -3730,7 +3735,7 @@ export default function TabbedDocumentCreator({
       if (!token) return;
       // Load the chart of accounts for the picker (once).
       if (invoiceAccounts.length === 0) {
-        const accRes: any = await request({ path: "/accounting/accounts", method: "GET" }, {}, token);
+        const accRes: any = await request({ path: "/accounting/accounts", method: "GET", ownError: true }, {}, token);
         const list: PreviewAccount[] = (accRes?.data || accRes || [])
           .filter((a: any) => a.isActive)
           .map((a: any) => ({ id: a.id, code: a.code, name: a.name }));
@@ -3744,7 +3749,7 @@ export default function TabbedDocumentCreator({
             0,
         ) || 0;
       const res: any = await request(
-        { path: "/posting-preview", method: "POST" },
+        { path: "/posting-preview", method: "POST", ownError: true },
         {
           type: documentType,
           documentNumber: (formData as any)?.name || (formData as any)?.documentInfo?.documentNumber,
@@ -3794,7 +3799,7 @@ export default function TabbedDocumentCreator({
     try {
       const token = await getToken();
       if (!token) return;
-      await request({ path: "/posting-preview/learn", method: "POST" }, { side: "SALES", corrections }, token);
+      await request({ path: "/posting-preview/learn", method: "POST", quiet: true }, { side: "SALES", corrections }, token);
     } catch {
       /* non-blocking */
     }
@@ -3815,7 +3820,7 @@ export default function TabbedDocumentCreator({
       }
 
       const response = await request(
-        { path: `/documents/${docId}/duplicate`, method: "POST" },
+        { path: `/documents/${docId}/duplicate`, method: "POST", ownError: true },
         {},
         token
       );
@@ -3924,7 +3929,7 @@ export default function TabbedDocumentCreator({
       // Receipts have their own create endpoint (OR-###### numbering, control
       // accounts prefilled) and their own edit route.
       if (isJournalVoucher) {
-        const response = await request({ path: "/journal-vouchers", method: "POST" }, {}, token);
+        const response = await request({ path: "/journal-vouchers", method: "POST", ownError: true }, {}, token);
         const newId = response?.data?.id || response?.id;
         if (newId) {
           toast.success("New Journal Voucher created");
@@ -3936,7 +3941,7 @@ export default function TabbedDocumentCreator({
         return;
       }
       if (isPaymentVoucher) {
-        const response = await request({ path: "/payment-vouchers", method: "POST" }, {}, token);
+        const response = await request({ path: "/payment-vouchers", method: "POST", ownError: true }, {}, token);
         const newId = response?.data?.id || response?.id;
         if (newId) {
           toast.success("New Payment Voucher created");
@@ -3948,7 +3953,7 @@ export default function TabbedDocumentCreator({
         return;
       }
       if (isOfficialReceipt) {
-        const response = await request({ path: "/receipts", method: "POST" }, {}, token);
+        const response = await request({ path: "/receipts", method: "POST", ownError: true }, {}, token);
         const newId = response?.data?.id || response?.id;
         if (newId) {
           toast.success("New Official Receipt created");
@@ -3968,7 +3973,7 @@ export default function TabbedDocumentCreator({
         return;
       }
       const response = await request(
-        { path: "/documents/basic", method: "POST" },
+        { path: "/documents/basic", method: "POST", ownError: true },
         {
           type: docTypeForCreate,
           config: {},
@@ -4006,7 +4011,7 @@ export default function TabbedDocumentCreator({
     // (there, nothing ever reaches confirmed).
     const quotationTypes = ["QUOTATION", "QT", "QO", "QO1"];
     const response = await request(
-      { path: "/documents/paginated", method: "POST" },
+      { path: "/documents/paginated", method: "POST", ownError: true },
       {
         documentTypes: quotationTypes,
         ...(isConfirmQuotationEnabled ? { status: "confirmed" } : {}),
@@ -4059,7 +4064,7 @@ export default function TabbedDocumentCreator({
       // Newest 200 delivery orders, filtered on the server.
       const doTypes = ["DELIVERY_ORDER", "DO"];
       const response = await request(
-        { path: "/documents/paginated", method: "POST" },
+        { path: "/documents/paginated", method: "POST", ownError: true },
         { documentTypes: doTypes, limit: 200, sortBy: "createdAt", sortDir: "desc" },
         token
       );
@@ -4083,7 +4088,7 @@ export default function TabbedDocumentCreator({
     let full = "";
     let expiresAt: string | null = null;
     try {
-      const res = await request({ path: `/documents/${id}/delivery-share-link`, method: "POST" }, {}, token);
+      const res = await request({ path: `/documents/${id}/delivery-share-link`, method: "POST", ownError: true }, {}, token);
       const body = res?.data ?? res;
       expiresAt = body?.expiresAt ?? null;
       // Build an ABSOLUTE guest URL so the copied link is complete for
@@ -4142,7 +4147,7 @@ export default function TabbedDocumentCreator({
     const id = existingData?.id || documentId;
     let full = "";
     try {
-      const res = await request({ path: `/documents/${id}/share-link`, method: "POST" }, {}, token);
+      const res = await request({ path: `/documents/${id}/share-link`, method: "POST", ownError: true }, {}, token);
       const body = res?.data ?? res;
       // Same absolute-URL build as the delivery link: window.location.origin is
       // unreliable in a WebView/preview host, so base off NEXT_PUBLIC_APP_URL.
@@ -4212,6 +4217,7 @@ export default function TabbedDocumentCreator({
         {
           path: `/documents/${docId}/revisions`,
           method: "POST",
+          ownError: true,
         },
         {},
         token
@@ -4345,7 +4351,7 @@ export default function TabbedDocumentCreator({
       try {
         const token = await getToken();
         if (token) {
-          await request({ path: `/documents/delete/${exitDocId}`, method: "DELETE" }, {}, token);
+          await request({ path: `/documents/delete/${exitDocId}`, method: "DELETE", quiet: true }, {}, token);
         }
       } catch {
         // ignore — leaving an empty draft is acceptable if delete fails
@@ -4397,7 +4403,7 @@ export default function TabbedDocumentCreator({
     try {
       const token = await getToken();
       const res: any = await request(
-        { path: `/deliveries/order-dos/${(documentId || (existingData as any)?.id) as string}/lines-check`, method: "POST" },
+        { path: `/deliveries/order-dos/${(documentId || (existingData as any)?.id) as string}/lines-check`, method: "POST", quiet: true },
         { items: (formData as any)?.items ?? [] },
         token ?? undefined,
       );
@@ -4487,7 +4493,7 @@ export default function TabbedDocumentCreator({
     setUndoingSplit(true);
     try {
       const token = await getToken();
-      const res: any = await request({ path: `/documents/${splitDocId}/undo-split`, method: "POST" }, {}, token ?? undefined);
+      const res: any = await request({ path: `/documents/${splitDocId}/undo-split`, method: "POST", ownError: true }, {}, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || "Could not undo the split");
       const out = res?.data ?? res;
       toast.success(`Merged back into ${out?.name ?? "the original invoice"}`);
@@ -4532,7 +4538,7 @@ export default function TabbedDocumentCreator({
     try {
       const token = await getToken();
       if (!token) { toast.error("Authentication required"); return; }
-      const res = await request({ path: `/documents/${docId}/sync-to-xero`, method: "POST" }, {}, token);
+      const res = await request({ path: `/documents/${docId}/sync-to-xero`, method: "POST", ownError: true }, {}, token);
       if (res?.success) {
         toast.success(
           `${res.action === "updated" ? "Updated in Xero" : "Created in Xero"}: ${res.xeroInvoiceNumber || "(auto number)"} — ${res.xeroStatus || "DRAFT"}`,
@@ -4650,6 +4656,7 @@ export default function TabbedDocumentCreator({
           {
             path: `/documents/delete/${docId}`,
             method: "DELETE",
+            ownError: true,
           },
           {},
           token
@@ -9195,7 +9202,7 @@ export default function TabbedDocumentCreator({
               const unlockDocId = existingData?.id || documentId;
               if (unlockDocId) {
                 getToken()
-                  .then((token) => token && request({ path: `/documents/${unlockDocId}/log-edit-unlock`, method: "POST" }, {}, token))
+                  .then((token) => token && request({ path: `/documents/${unlockDocId}/log-edit-unlock`, method: "POST", quiet: true }, {}, token))
                   .catch(() => {});
               }
             }}

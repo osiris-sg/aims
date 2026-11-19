@@ -78,6 +78,7 @@ export default function useAddSiteOfficeFormHandler({ onSuccess }: useAddSiteOff
         {
           path: `/customers/${customerId}/site-offices`,
           method: "POST",
+          ownError: true,
         },
         {
           ...data,

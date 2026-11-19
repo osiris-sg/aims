@@ -37,7 +37,7 @@ export default function DoOrderToolbar({ documentId, doName, status, config }: {
     setBusy(true);
     try {
       const token = await getToken();
-      const res: any = await request({ path: `/deliveries/order-dos/${documentId}/job`, method: "POST" }, {}, token ?? undefined);
+      const res: any = await request({ path: `/deliveries/order-dos/${documentId}/job`, method: "POST", ownError: true }, {}, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || "Could not add the job");
       const r = res?.data ?? res;
       if (r?.id) router.push(`/portal/deliveries/${r.id}?open=schedule`);

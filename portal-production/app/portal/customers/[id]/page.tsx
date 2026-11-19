@@ -105,6 +105,7 @@ export default function ViewCustomerPage({ params }: { params: { id: string } })
               {
                 path: `/customers/site-offices/${siteOffice.id}`,
                 method: "DELETE",
+                ownError: true,
               },
               {},
               token

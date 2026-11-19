@@ -1748,14 +1748,22 @@ export interface LotPreview { orderRef: string; pattern: "SUS" | "KATO" | "HOEI"
 /** Round BW: the SUS advance invoice = Invoice #1 (USD) — from AIMS, or typed by ADH Admin. */
 export interface LotInvoice1 { principal: number; tax: number; number: string | null; source: "aims" | "typed"; by?: string | null }
 
+/** call() flags (portal-wide error toast): the default, the global toast for silent consumers, and polls. */
+const OWN_ERROR = { ownError: true };
+const TOAST = {};
+const QUIET = { quiet: true };
+
 export function useShipmentsApi() {
   const { getToken } = useAuth();
 
   return useMemo(() => {
-    const call = async <T>(path: string, method: "GET" | "POST" | "PATCH" | "DELETE" = "GET", body: unknown = {}, timeout?: number): Promise<T> => {
+    // Portal-wide error toast (helpers/apiErrorToast.ts): call() hands a failure to its caller as a thrown Error, and
+    // nearly every caller shows it (toast / Alert), so by default the global toast stays out (ownError). Methods whose
+    // every consumer is silent pass TOAST; polls pass QUIET.
+    const call = async <T>(path: string, method: "GET" | "POST" | "PATCH" | "DELETE" = "GET", body: unknown = {}, timeout?: number, flags: { ownError?: boolean; quiet?: boolean } = OWN_ERROR): Promise<T> => {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path, method, ...(timeout ? { timeout } : {}) }, body, token);
+      const res = await request({ path, method, ...(timeout ? { timeout } : {}), ...flags }, body, token);
       // Round BF: a structured refusal keeps its code and body (e.g. ORDER_NO_TAKEN → [Open] [Reopen] in the form).
       if (!res || res.success === false) throw Object.assign(new Error(errorText(res?.message, "Request failed")), { code: res?.code, details: res?.details });
       return (res.data ?? res) as T;
@@ -1831,7 +1839,7 @@ export function useShipmentsApi() {
       addShippingLine: (body: Partial<ShippingLine>) => call<ShippingLines & { code: string }>(`/trade-clients/logistics`, "POST", body),
       updateShippingLine: (code: string, body: Partial<ShippingLine>) => call<ShippingLines & { code: string }>(`/trade-clients/logistics/${code}`, "PATCH", body),
       clientSupplier: (id: string) => call<ClientSupplierDetail>(`/trade-clients/suppliers/${id}`),
-      orderProcess: (id: string) => call<OrderProcess>(`/trade-orders/${id}/process`),
+      orderProcess: (id: string) => call<OrderProcess>(`/trade-orders/${id}/process`, "GET", {}, undefined, TOAST),
       setStepDue: (stepId: string, dueAt: string | null) => call<{ stepId: string; from: string | null; to: string | null }>(`/trade-steps/${stepId}/due`, "PATCH", { dueAt }),
       clientProcessPreview: (id: string, skipSteps: string[]) => call<ProcessImpact>(`/trade-clients/customers/${id}/process/preview`, "POST", { skipSteps }),
       clientDueRulesPreview: (id: string, dueRules: Record<string, CustomerDueRule>) => call<DueRulesPreview>(`/trade-clients/customers/${id}/due-rules/preview`, "POST", { dueRules }),
@@ -1840,10 +1848,10 @@ export function useShipmentsApi() {
       clientUpdateFormat: (id: string, docType: string, body: { generator?: string | null; language?: string | null; addressee?: string | null; notes?: string | null; si?: SiFormat | null; combineShipments?: boolean }) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}/formats/${docType}`, "PATCH", body),
       clientHideSample: (id: string, docType: string, sampleId: string) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}/formats/${docType}/samples/${sampleId}/hide`, "PATCH", {}),
       clientSampleUrl: (id: string, docType: string, sampleId: string) => call<{ url: string; fileName: string; mimeType: string }>(`/trade-clients/customers/${id}/formats/${docType}/samples/${sampleId}/url`),
-      clientPreviewShipments: (id: string) => call<Array<{ id: string; ref: string; blNumber: string | null; hasCoa: boolean; hasPl: boolean }>>(`/trade-clients/customers/${id}/preview-shipments`),
+      clientPreviewShipments: (id: string) => call<Array<{ id: string; ref: string; blNumber: string | null; hasCoa: boolean; hasPl: boolean }>>(`/trade-clients/customers/${id}/preview-shipments`, "GET", {}, undefined, TOAST),
       clientPreview: (id: string, docType: string, body: { shipmentId: string; generator?: string | null }) => call<FormatPreview>(`/trade-clients/customers/${id}/formats/${docType}/preview`, "POST", body, 120_000),
       // Round BN: 請求書 layout (seal / From block) — org default + this customer's override, live preview on a real invoice.
-      clientInvoiceLayout: (id: string) => call<InvoiceLayoutView>(`/trade-clients/customers/${id}/formats/INVOICE/layout`),
+      clientInvoiceLayout: (id: string) => call<InvoiceLayoutView>(`/trade-clients/customers/${id}/formats/INVOICE/layout`, "GET", {}, undefined, TOAST),
       clientSaveInvoiceLayout: (id: string, layout: Partial<InvoiceLayout> | null) => call<InvoiceLayoutView>(`/trade-clients/customers/${id}/formats/INVOICE/layout`, "PATCH", { layout }),
       orgSaveInvoiceLayout: (layout: Partial<InvoiceLayout> | null, customerId: string) => call<InvoiceLayoutView>(`/trade-clients/invoice-layout`, "PATCH", { layout, customerId }),
       clientInvoiceLayoutPreview: (id: string, docId: string, layout: InvoiceLayout) => call<{ html: string }>(`/trade-clients/customers/${id}/formats/INVOICE/layout-preview`, "POST", { docId, layout }),
@@ -1882,7 +1890,7 @@ export function useShipmentsApi() {
       },
       clientHideSiTemplate: (id: string) => call<ClientCustomerDetail>(`/trade-clients/customers/${id}/formats/SHIPPING_INSTRUCTIONS/xlsx-template/hide`, "PATCH", {}),
       clientSiTemplateMapping: (id: string) =>
-        call<{ template: { id: string; fileName: string; uploadedAt: string; uploadedByName: string | null } | null; mapping: SiMappingEntry[] }>(`/trade-clients/customers/${id}/formats/SHIPPING_INSTRUCTIONS/xlsx-template/mapping`),
+        call<{ template: { id: string; fileName: string; uploadedAt: string; uploadedByName: string | null } | null; mapping: SiMappingEntry[] }>(`/trade-clients/customers/${id}/formats/SHIPPING_INSTRUCTIONS/xlsx-template/mapping`, "GET", {}, undefined, TOAST),
       // Round BA — Products / Packing (customers and suppliers).
       clientSaveProduct: (kind: ClientKind, id: string, productId: string | null, body: ClientProductInput) =>
         call<ClientCatalog>(productId ? `/trade-clients/${kind}/${id}/products/${productId}` : `/trade-clients/${kind}/${id}/products`, productId ? "PATCH" : "POST", body),
@@ -1890,8 +1898,8 @@ export function useShipmentsApi() {
       clientSavePacking: (kind: ClientKind, id: string, body: { notes?: string | null; issueIds?: string[] }) => call<ClientCatalog>(`/trade-clients/${kind}/${id}/packing`, "PATCH", body),
       clientHideProfileFile: (kind: ClientKind, id: string, fileId: string) => call<ClientCatalog>(`/trade-clients/${kind}/${id}/files/${fileId}/hide`, "PATCH", {}),
       clientProfileFileUrl: (kind: ClientKind, id: string, fileId: string) => call<{ url: string; fileName: string; mimeType: string }>(`/trade-clients/${kind}/${id}/files/${fileId}/url`),
-      productCatalog: () => call<ProductCatalog>(`/trade-clients/products`),
-      customerPacking: (customerId: string) => call<CustomerPacking>(`/trade-clients/customers/${customerId}/packing`),
+      productCatalog: () => call<ProductCatalog>(`/trade-clients/products`, "GET", {}, undefined, TOAST),
+      customerPacking: (customerId: string) => call<CustomerPacking>(`/trade-clients/customers/${customerId}/packing`, "GET", {}, undefined, TOAST),
       /** Multipart: a spec sheet (slot "spec") / packing photo (slot "packing") on a product, or (productId null) a photo in the Packing gallery. */
       clientUploadProfileFile: async (kind: ClientKind, id: string, productId: string | null, slot: "spec" | "packing", file: File, meta: { caption?: string; takenOn?: string } = {}): Promise<ClientCatalog> => {
         const token = await getToken();
@@ -1943,9 +1951,9 @@ export function useShipmentsApi() {
       reopenSupplierOrder: (id: string) => call<SupplierOrder>(`/supplier-orders/${id}/reopen`, "POST"),
       declare: (body: { month: string; qpBasis?: string | null; rows: DeclarationRow[] }) => call<DeclarationResult>(`/supplier-orders/declaration`, "POST", body),
       priceCheck: (kind: "order" | "supplier-order" | "shipment" | "generated", id: string) => call<PriceCheck>(`/trade-price-check/${kind}/${id}`),
-      credits: (f: { customerId?: string; status?: string; forDocId?: string } = {}) => call<TradeCredit[]>(`/trade-generated/credits${qs(f)}`),
+      credits: (f: { customerId?: string; status?: string; forDocId?: string } = {}) => call<TradeCredit[]>(`/trade-generated/credits${qs(f)}`, "GET", {}, undefined, TOAST),
       alerts: (f: { status?: string; shipmentId?: string; orderId?: string } = {}) => call<TradeAlert[]>(`/trade-alerts${qs(f)}`),
-      myTasks: () => call<TradeAlert[]>(`/trade-alerts/my-tasks`),
+      myTasks: () => call<TradeAlert[]>(`/trade-alerts/my-tasks`, "GET", {}, undefined, QUIET),
       refreshAlerts: () => call<{ planned: number; created: number; updated: number; notified: number }>(`/trade-alerts/refresh`, "POST"),
       alertDone: (id: string) => call<TradeAlert>(`/trade-alerts/${id}/done`, "POST"),
       alertDismiss: (id: string) => call<TradeAlert>(`/trade-alerts/${id}/dismiss`, "POST"),
@@ -1955,13 +1963,13 @@ export function useShipmentsApi() {
       adminDashboard: () => call<AdminDashboard>(`/trade-dashboard/admin`),
       stock: () => call<Stock>(`/trade-dashboard/stock`),
       applyCredit: (id: string, creditId: string) => call<GeneratedDoc>(`/trade-generated/${id}/apply-credit`, "POST", { creditId }),
-      costVariance: (id: string) => call<CostVariance>(`/trade-generated/${id}/cost-variance`),
+      costVariance: (id: string) => call<CostVariance>(`/trade-generated/${id}/cost-variance`, "GET", {}, undefined, TOAST),
       issueAdjustment: (id: string) => call<GeneratedDoc>(`/trade-generated/${id}/adjustment`, "POST"),
-      siContext: (id: string) => call<SiContext>(`/trade-generated/${id}/si-context`),
+      siContext: (id: string) => call<SiContext>(`/trade-generated/${id}/si-context`, "GET", {}, undefined, TOAST),
       setDelivered: (id: string, rowIndex: number, delivered: boolean) => call<GeneratedDoc>(`/trade-generated/${id}/delivered`, "POST", { rowIndex, delivered }),
-      listPayments: (f: PaymentFilters = {}) => call<Paged<TradePayment>>(`/trade-payments${qs(f)}`),
-      paymentTargets: (direction?: "IN" | "OUT", q?: string) => call<PaymentTarget[]>(`/trade-payments/targets${qs({ direction, q })}`),
-      orderCash: (orderId: string) => call<OrderCash>(`/trade-payments/order/${orderId}`),
+      listPayments: (f: PaymentFilters = {}) => call<Paged<TradePayment>>(`/trade-payments${qs(f)}`, "GET", {}, undefined, TOAST),
+      paymentTargets: (direction?: "IN" | "OUT", q?: string) => call<PaymentTarget[]>(`/trade-payments/targets${qs({ direction, q })}`, "GET", {}, undefined, TOAST),
+      orderCash: (orderId: string) => call<OrderCash>(`/trade-payments/order/${orderId}`, "GET", {}, undefined, TOAST),
       createPayment: (body: PaymentInput) => call<TradePayment>(`/trade-payments`, "POST", body),
       updatePayment: (id: string, body: Partial<PaymentInput>) => call<TradePayment>(`/trade-payments/${id}`, "PATCH", body),
       deletePayment: (id: string) => call<{ id: string; deleted: boolean }>(`/trade-payments/${id}`, "DELETE"),
@@ -2096,9 +2104,9 @@ export function useShipmentsApi() {
       searchInvoices: (q: string) => call<DocSummary[]>(`/trade-documents/invoices${qs({ q })}`),
 
       // ── In-app generated documents (Customer PL / COA) ────────────────────
-      generatedFor: (shipmentId: string) => call<GeneratedDoc[]>(`/trade-generated${qs({ shipmentId })}`),
-      generatedForContract: (contractId: string) => call<GeneratedDoc[]>(`/trade-generated${qs({ contractId })}`),
-      generatedForOrder: (orderId: string) => call<GeneratedDoc[]>(`/trade-generated${qs({ orderId })}`),
+      generatedFor: (shipmentId: string) => call<GeneratedDoc[]>(`/trade-generated${qs({ shipmentId })}`, "GET", {}, undefined, TOAST),
+      generatedForContract: (contractId: string) => call<GeneratedDoc[]>(`/trade-generated${qs({ contractId })}`, "GET", {}, undefined, TOAST),
+      generatedForOrder: (orderId: string) => call<GeneratedDoc[]>(`/trade-generated${qs({ orderId })}`, "GET", {}, undefined, TOAST),
       /** A blank document of any template, prefilled from its shipment (or order for Invoice #1); Invoice #2 / single invoice may cover several shipments. */
       createBlankGenerated: (body: { docType: string; shipmentId?: string; contractId?: string; orderId?: string; coversShipmentIds?: string[] }) => call<GeneratedDoc>(`/trade-generated/blank`, "POST", body),
       /** Invoice #2 / single invoice: the estimator's cost lines (JPY + USD at the FX) — only fills lines the user hasn't typed. */
@@ -2172,7 +2180,7 @@ export function useShipmentsApi() {
       generatedPdf,
       /** The in-app 請求書 behind a Sales invoice, with the contracts / shipments it bills. */
       generatedByDocument: (documentId: string) => call<GeneratedForDocument>(`/trade-generated/by-document/${documentId}`),
-      generatedSources: (shipmentId: string, docType: string) => call<GenSource[]>(`/trade-generated/sources${qs({ shipmentId, docType })}`),
+      generatedSources: (shipmentId: string, docType: string) => call<GenSource[]>(`/trade-generated/sources${qs({ shipmentId, docType })}`, "GET", {}, undefined, TOAST),
       createGenerated: (body: { shipmentId: string; docType: string; sourceFileId: string }) => call<GeneratedDoc>(`/trade-generated`, "POST", body),
       getGenerated: (id: string) => call<GeneratedDoc>(`/trade-generated/${id}`),
       updateGenerated: (id: string, body: { header?: GenHeader; columns?: GenColumn[]; rows?: GenRow[]; issuingEntity?: IssuingEntity }) => call<GeneratedDoc>(`/trade-generated/${id}`, "PATCH", body),
@@ -2214,10 +2222,10 @@ export function useShipmentsApi() {
       docTypes: () => call<DocType[]>(`/trade-config/doc-types`),
       stepTemplates: (scope?: "CONTRACT" | "SHIPMENT" | "ORDER") => call<StepTemplate[]>(`/trade-config/step-templates${qs({ scope })}`),
       settings: () => call<TradeSettings>(`/trade-config/settings`),
-      emailIntake: () => call<EmailIntake>(`/email-intake`),
+      emailIntake: () => call<EmailIntake>(`/email-intake`, "GET", {}, undefined, QUIET),
       // ── Email inbox (triage → process) ─────────────────────────────────
       inbox: (tab: InboxTab) => call<{ items: InboxRow[]; counts: Record<InboxTab, number> }>(`/email-inbox${qs({ tab })}`),
-      inboxThreads: (tab: InboxThreadsTab, lang?: InboxLang) => call<InboxThreads>(`/email-inbox/threads${qs({ tab, lang })}`),
+      inboxThreads: (tab: InboxThreadsTab, lang?: InboxLang) => call<InboxThreads>(`/email-inbox/threads${qs({ tab, lang })}`, "GET", {}, undefined, QUIET),
       /** Round W: one-tap answer of a question card (for every email it covers) and its Undo. */
       inboxAnswer: (ids: string[], answer: InboxAnswer, lang?: InboxLang) => call<InboxAnswerResult>(`/email-inbox/answer${qs({ lang })}`, "POST", { ids, answer }),
       inboxAnswerUndo: (ids: string[], kind: InboxAnswer["kind"]) => call<{ undone: number }>(`/email-inbox/answer/undo`, "POST", { ids, kind }),
@@ -2229,10 +2237,10 @@ export function useShipmentsApi() {
       inboxIssueDraft: (ids: string[]) => call<IssueDraft>(`/email-inbox/issue-draft`, "POST", { ids }, 90_000),
       recordEmails: (q: { shipmentId?: string; orderId?: string }) => call<RecordEmail[]>(`/email-inbox/record${qs(q)}`),
       issues: (q: { customerId?: string; supplierId?: string; orderId?: string; shipmentId?: string; status?: "OPEN" | "RESOLVED" }) => call<TradeIssue[]>(`/trade-issues${qs(q)}`),
-      issuesForShipment: (shipmentId: string, docType?: string) => call<TradeIssue[]>(`/trade-issues/shipment/${shipmentId}${qs({ docType })}`),
+      issuesForShipment: (shipmentId: string, docType?: string) => call<TradeIssue[]>(`/trade-issues/shipment/${shipmentId}${qs({ docType })}`, "GET", {}, undefined, TOAST),
       createIssue: (body: IssueBody) => call<TradeIssue>(`/trade-issues`, "POST", body),
       updateIssue: (id: string, body: IssueBody) => call<TradeIssue>(`/trade-issues/${id}`, "PATCH", body),
-      castSearch: (q: string) => call<Array<{ shipmentId: string; orderId: string | null; key: string }>>(`/trade-issues/casts${qs({ q })}`, "GET", {}, 120_000),
+      castSearch: (q: string) => call<Array<{ shipmentId: string; orderId: string | null; key: string }>>(`/trade-issues/casts${qs({ q })}`, "GET", {}, 120_000, TOAST),
       /** Round T: the whole email (headers, text, defused HTML, attachments) and its thread. */
       inboxMessage: (id: string) => call<EmailMessage>(`/email-inbox/${id}/message`),
       inboxThread: (id: string) => call<InboxThreadDetail>(`/email-inbox/${id}/thread`),
@@ -2240,7 +2248,7 @@ export function useShipmentsApi() {
       newerVersions: (shipmentId: string) => call<{ items: NewerVersion[] }>(`/email-inbox/newer-versions${qs({ shipmentId })}`),
       replaceWithNewer: (body: { linkId: string; emailId: string; index: number }) => call<{ replaced: { linkId: string; fileId: string; fileName: string }; by: { fileId: string; fileName: string; emailId: string; received: string } }>(`/email-inbox/newer-versions/replace`, "POST", body),
       inboxAttachmentUrl: (id: string, index: number) => call<{ name: string; contentType: string; size: number; url: string }>(`/email-inbox/${id}/attachments/${index}/url`),
-      inboxDashboard: (lang?: InboxLang) => call<InboxDashboard>(`/email-inbox/dashboard${qs({ lang })}`),
+      inboxDashboard: (lang?: InboxLang) => call<InboxDashboard>(`/email-inbox/dashboard${qs({ lang })}`, "GET", {}, undefined, QUIET),
       inboxHidden: () => call<HiddenEmail[]>(`/email-inbox/hidden`),
       inboxUnhide: (id: string) => call<InboxRow>(`/email-inbox/${id}/unhide`, "POST"),
       inboxPiPrefill: (id: string) => call<PiExtraction>(`/email-inbox/${id}/pi-prefill`, "POST", {}, 180000),
@@ -2248,14 +2256,14 @@ export function useShipmentsApi() {
       inboxAssign: (id: string, body: { orderId?: string | null; shipmentId?: string | null; targets?: InboxTarget[]; accept?: boolean }) => call<InboxRow>(`/email-inbox/${id}/assign`, "POST", body),
       inboxPreview: (id: string, targets: InboxTarget[]) => call<{ planned: IntakeAction[] }>(`/email-inbox/${id}/preview`, "POST", { targets }),
       inboxIgnore: (id: string) => call<InboxRow>(`/email-inbox/${id}/ignore`, "POST"),
-      inboxStats: (days = 30) => call<InboxStats>(`/email-inbox/stats${qs({ days })}`),
+      inboxStats: (days = 30) => call<InboxStats>(`/email-inbox/stats${qs({ days })}`, "GET", {}, undefined, TOAST),
       inboxFilterPreview: (days = 30) => call<FilterPreview>(`/email-inbox/filter-preview${qs({ days })}`),
       getEmailFilter: () => call<EmailFilter>(`/email-intake/filter`),
       updateEmailFilter: (body: Partial<EmailFilter>) => call<EmailFilter>(`/email-intake/filter`, "PATCH", body),
       inboxUndo: (id: string) => call<InboxRow>(`/email-inbox/${id}/undo`, "POST"),
       inboxDismiss: (id: string) => call<{ id: string; purged: boolean }>(`/email-inbox/${id}/dismiss`, "POST"),
       inboxRetriage: (id: string) => call<InboxRow>(`/email-inbox/${id}/retriage`, "POST"),
-      inboxPiTable: (id: string) => call<PiTablePlan>(`/email-inbox/${id}/pi-table-plan`),
+      inboxPiTable: (id: string) => call<PiTablePlan>(`/email-inbox/${id}/pi-table-plan`, "GET", {}, undefined, TOAST),
       inboxApplyPiTable: (id: string) => call<{ results: NonNullable<InboxRow["supplierOrderResults"]>; row: InboxRow }>(`/email-inbox/${id}/pi-table`, "POST"),
       /** Short-lived link to a stored email's .eml, or attachment n. */
       emailIntakeFile: (id: string, attachment?: number) => call<{ url: string }>(`/email-intake/${id}/file${qs({ attachment })}`),
@@ -2269,14 +2277,14 @@ export function useShipmentsApi() {
         alertRules?: Partial<AlertRules>;
       }) => call<TradeSettings>(`/trade-config/settings`, "PATCH", body),
       /** Round AK: the Westmetall LME feed — status, and "Fetch now" (a preview while the org flag is off). */
-      lmeStatus: (month?: string) => call<LmeStatus>(`/trade-config/lme${qs({ month })}`),
+      lmeStatus: (month?: string) => call<LmeStatus>(`/trade-config/lme${qs({ month })}`, "GET", {}, undefined, TOAST),
       lmeFetch: () => call<LmeFetchResult>(`/trade-config/lme/fetch`, "POST", {}, 90_000),
       suppliers: async () => {
-        const r = await call<{ docs?: Party[] }>(`/suppliers`, "POST", { page: 1, limit: 500, search: "" });
+        const r = await call<{ docs?: Party[] }>(`/suppliers`, "POST", { page: 1, limit: 500, search: "" }, undefined, TOAST);
         return r.docs ?? [];
       },
       customers: async () => {
-        const r = await call<{ docs?: Party[] }>(`/customers`, "POST", { page: 1, limit: 500, search: "", filters: {} });
+        const r = await call<{ docs?: Party[] }>(`/customers`, "POST", { page: 1, limit: 500, search: "", filters: {} }, undefined, TOAST);
         return r.docs ?? [];
       },
     };

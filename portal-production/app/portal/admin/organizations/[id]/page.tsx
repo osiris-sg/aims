@@ -453,7 +453,7 @@ export default function OrganizationDetailPage() {
 
       // Fetch organization details with modules
       const response = await request(
-        { path: `/admin/organizations/${organizationId}`, method: "GET" },
+        { path: `/admin/organizations/${organizationId}`, method: "GET", ownError: true },
         {},
         token
       );
@@ -484,7 +484,7 @@ export default function OrganizationDetailPage() {
             const token = await getToken();
             if (!token) return;
             await request(
-              { path: `/admin/organizations/${organizationId}/document-types`, method: "PUT" },
+              { path: `/admin/organizations/${organizationId}/document-types`, method: "PUT", quiet: true },
               { customDocumentTypes: allTypes },
               token
             );
@@ -691,7 +691,7 @@ export default function OrganizationDetailPage() {
         : `/configuration/custom-fields`;
 
       const response = await request(
-        { path: url, method: editingField ? "PUT" : "POST" },
+        { path: url, method: editingField ? "PUT" : "POST", ownError: true },
         fieldForm,
         token,
         { "x-organization-id": organizationId }
@@ -718,7 +718,7 @@ export default function OrganizationDetailPage() {
       if (!token) return;
 
       const response = await request(
-        { path: `/configuration/custom-fields/${fieldId}`, method: "DELETE" },
+        { path: `/configuration/custom-fields/${fieldId}`, method: "DELETE", ownError: true },
         {},
         token,
         { "x-organization-id": organizationId }
@@ -753,7 +753,7 @@ export default function OrganizationDetailPage() {
       if (!token) return;
 
       const response = await request(
-        { path: `/admin/organizations/${organizationId}/document-types`, method: "PUT" },
+        { path: `/admin/organizations/${organizationId}/document-types`, method: "PUT", ownError: true },
         { customDocumentTypes: enabledDocumentTypes },
         token
       );
@@ -777,7 +777,7 @@ export default function OrganizationDetailPage() {
       if (!token) return;
 
       const response = await request(
-        { path: `/admin/organizations/${organizationId}/ui-config`, method: "PUT" },
+        { path: `/admin/organizations/${organizationId}/ui-config`, method: "PUT", ownError: true },
         uiConfigForm,
         token
       );
@@ -954,7 +954,7 @@ export default function OrganizationDetailPage() {
       const token = await getToken();
       if (!token) return;
       const response = await request(
-        { path: `/documentTemplates/variants/${templateId}/rename`, method: "POST" },
+        { path: `/documentTemplates/variants/${templateId}/rename`, method: "POST", ownError: true },
         { name },
         token,
         { "x-organization-id": organizationId }

@@ -20,7 +20,7 @@ export default function OpenDocumentById() {
   useEffect(() => {
     (async () => {
       const token = await getToken();
-      const res: any = await request({ method: "GET", path: `/documents/${documentId}` }, {}, token ?? undefined);
+      const res: any = await request({ method: "GET", path: `/documents/${documentId}`, ownError: true }, {}, token ?? undefined);
       const d = res?.data ?? res;
       if (res?.success === false || !d?.id || !d?.type || !d?.documentTemplateId) {
         setError(res?.message || "That document could not be found.");

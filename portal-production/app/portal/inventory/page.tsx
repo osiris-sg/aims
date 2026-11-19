@@ -114,7 +114,7 @@ export default function InventoryPage() {
       try {
         const token = await getToken();
         if (!token) return;
-        const res = await request({ path: "/inventories/water-sg-links", method: "GET" }, {}, token);
+        const res = await request({ path: "/inventories/water-sg-links", method: "GET", quiet: true }, {}, token);
         if (!cancelled) setWaterSgLinks((res?.data?.links ?? res?.links) ?? {});
       } catch {
         // Non-fatal — leave the map empty; the column just stays blank.

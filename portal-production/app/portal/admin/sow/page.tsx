@@ -86,7 +86,7 @@ export default function SowBuilderPage() {
   useEffect(() => {
     (async () => {
       const token = await getToken();
-      const res = await request({ path: "/sow/modules", method: "GET" }, {}, token || undefined);
+      const res = await request({ path: "/sow/modules", method: "GET", ownError: true }, {}, token || undefined);
       if (res?.success && Array.isArray(res.data)) {
         setModules(res.data);
         setAllowed(true);
@@ -112,7 +112,7 @@ export default function SowBuilderPage() {
     try {
       const token = await getToken();
       const res = await request(
-        { path: "/sow/generate", method: "POST", timeout: 120000 },
+        { path: "/sow/generate", method: "POST", timeout: 120000, ownError: true },
         {
           customerName, customerUen, effectiveDate: effectiveDate || undefined,
           modules: Array.from(picked), context, fees, paymentSchedule, termNote,
@@ -134,7 +134,7 @@ export default function SowBuilderPage() {
     setDownloading(true);
     try {
       const token = await getToken();
-      const res = await request({ path: "/sow/pdf", method: "POST", timeout: 120000 }, sow, token || undefined);
+      const res = await request({ path: "/sow/pdf", method: "POST", timeout: 120000, ownError: true }, sow, token || undefined);
       const payload = res?.data;
       if (!res?.success || !payload?.base64) throw new Error(res?.message || "PDF failed");
       const bytes = Uint8Array.from(atob(payload.base64), (c) => c.charCodeAt(0));
@@ -159,7 +159,7 @@ export default function SowBuilderPage() {
     try {
       const token = await getToken();
       const res = await request(
-        { path: "/sow/create-document", method: "POST", timeout: 60000 },
+        { path: "/sow/create-document", method: "POST", timeout: 60000, ownError: true },
         { type, customerName: sow.customerName, customerUen: sow.customerUen, fees: sow.fees },
         token || undefined
       );

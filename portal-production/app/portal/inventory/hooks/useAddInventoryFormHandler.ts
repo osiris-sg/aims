@@ -95,6 +95,7 @@ export default function useAddInventoryFormHandler({ onSuccess }: UseAddInventor
         {
           path: "/inventories/create",
           method: "POST",
+          ownError: true,
         },
         {
           ...data,

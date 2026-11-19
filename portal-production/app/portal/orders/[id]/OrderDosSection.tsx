@@ -38,7 +38,7 @@ function usePost() {
     setBusy(what);
     try {
       const token = await getToken();
-      const res: any = await request({ path, method: "POST" }, {}, token ?? undefined);
+      const res: any = await request({ path, method: "POST", ownError: true }, {}, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || `Could not ${what}`);
       return res?.data ?? res;
     } catch (e: any) {

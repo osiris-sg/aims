@@ -102,7 +102,7 @@ export default function SendInvoiceEmailDialog({
     if (!previewTemplate) {
       try {
         const token = await getToken();
-        const res: any = await request({ path: `/documentTemplates/${templateId}`, method: "GET" }, {}, token as any);
+        const res: any = await request({ path: `/documentTemplates/${templateId}`, method: "GET", quiet: true }, {}, token as any);
         setPreviewTemplate(res?.data ?? res ?? null);
       } catch {
         /* renders with config-only layout */
@@ -271,6 +271,7 @@ ${orgName}`;
         {
           path: `/documents/${invoice.id}/send-email`,
           method: "POST",
+          ownError: true,
         },
         {
           to,

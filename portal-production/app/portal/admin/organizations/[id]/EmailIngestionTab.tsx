@@ -235,7 +235,7 @@ export default function EmailIngestionTab({ organizationId }: { organizationId: 
       const token = await getToken();
       if (!token) return;
       const res = await request(
-        { path: `/email-ingest/config/${organizationId}`, method: "PUT" },
+        { path: `/email-ingest/config/${organizationId}`, method: "PUT", ownError: true },
         {
           enabled: config.enabled,
           watchedSenders: config.watchedSenders,

@@ -138,7 +138,7 @@ function useOrganizationFetcher(enabled: boolean): OrganizationContextType {
       // override in sessionStorage. X-Use-Real-Org tells the backend guard
       // to skip the X-Active-Org-Id override for this single call.
       const realResponse = await request(
-        { path: "/organizations/user", method: "GET" },
+        { path: "/organizations/user", method: "GET", ownError: true },
         {},
         token,
         { "X-Use-Real-Org": "1" },
@@ -170,7 +170,7 @@ function useOrganizationFetcher(enabled: boolean): OrganizationContextType {
 
       // My organisations + the server's admin verdict (multi-org users). The
       // bootstrap header skips any stale stored org, which could be a 403 now.
-      const mineRes = await request({ path: "/users/me/organizations", method: "GET" }, {}, token, { "X-Use-Real-Org": "1" });
+      const mineRes = await request({ path: "/users/me/organizations", method: "GET", quiet: true }, {}, token, { "X-Use-Real-Org": "1" });
       const mine = dataOf(mineRes);
       const list: Membership[] = Array.isArray(mine?.organizations) ? mine.organizations : [];
       setMemberships(list);
@@ -182,7 +182,7 @@ function useOrganizationFetcher(enabled: boolean): OrganizationContextType {
         // A member: the stored org counts only if it is one of THEIR orgs.
         const pick = memberOverride(storedId, realOrg.id, list.map((m) => m.id));
         if (pick) {
-          const sw = await request({ path: "/organizations/user", method: "GET" }, {}, token, { "X-Active-Org-Id": pick });
+          const sw = await request({ path: "/organizations/user", method: "GET", quiet: true }, {}, token, { "X-Active-Org-Id": pick });
           const swOrg = dataOf(sw);
           if (swOrg?.id === pick) setActiveOrganization(swOrg);
           else {
@@ -199,7 +199,7 @@ function useOrganizationFetcher(enabled: boolean): OrganizationContextType {
         // organizations:read; osiris-admins bypass permission checks at the
         // guard so this always works for them.
         const listResponse = await request(
-          { path: "/organizations", method: "GET" },
+          { path: "/organizations", method: "GET", quiet: true },
           {},
           token,
         );
@@ -267,7 +267,7 @@ function useOrganizationFetcher(enabled: boolean): OrganizationContextType {
     if (target && memberships.some((m) => m.id === target)) {
       try {
         const token = await getToken();
-        if (token) await request({ path: "/users/me/active-org", method: "POST" }, { organizationId: target }, token, { "X-Use-Real-Org": "1" });
+        if (token) await request({ path: "/users/me/active-org", method: "POST", quiet: true }, { organizationId: target }, token, { "X-Use-Real-Org": "1" });
       } catch {
         // ignore: the tab still switches
       }

@@ -77,7 +77,7 @@ export default function OfficialReceiptPage() {
         const token = await getToken();
         if (!token) return;
         const [receiptRes, listRes] = await Promise.all([
-          request({ path: `/receipts/${documentId}`, method: "GET" }, {}, token),
+          request({ path: `/receipts/${documentId}`, method: "GET", ownError: true }, {}, token),
           request({ path: `/receipts`, method: "GET" }, {}, token),
         ]);
         const r = unwrap(receiptRes);
@@ -107,7 +107,7 @@ export default function OfficialReceiptPage() {
     }
     const od = data?.orData || {};
     const response = await request(
-      { path: `/receipts/${documentId}`, method: "PUT" },
+      { path: `/receipts/${documentId}`, method: "PUT", ownError: true },
       {
         receiptNumber: data?.documentInfo?.documentNumber || data?.name || null,
         date: od.date,

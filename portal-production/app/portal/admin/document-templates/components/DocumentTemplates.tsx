@@ -66,7 +66,7 @@ export default function DocumentTemplates() {
       if (!token) throw new Error("No token");
 
       const response = await request(
-        { path: "/documentTemplates/create", method: "POST" },
+        { path: "/documentTemplates/create", method: "POST", ownError: true },
         { name: newTemplateName.trim(), type: newTemplateType },
         token
       );

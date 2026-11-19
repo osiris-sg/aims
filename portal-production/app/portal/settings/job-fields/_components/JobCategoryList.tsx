@@ -38,7 +38,7 @@ export default function JobCategoryList({ category, onSaved }: { category: JobCa
     setError(null);
     try {
       const token = await getToken();
-      const res: any = await request({ path: "/job-fields/category", method: "PUT" }, { options: clean }, token ?? undefined);
+      const res: any = await request({ path: "/job-fields/category", method: "PUT", ownError: true }, { options: clean }, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || "Could not save");
       onSaved();
     } catch (e: any) {

@@ -29,7 +29,7 @@ export default function JobCategoryField({ deliveryId, category, disabled, onSav
     setSaving(true);
     try {
       const token = await getToken();
-      const res: any = await request({ path: `/deliveries/${deliveryId}/category`, method: "PUT" }, { category: next }, token ?? undefined);
+      const res: any = await request({ path: `/deliveries/${deliveryId}/category`, method: "PUT", ownError: true }, { category: next }, token ?? undefined);
       if (res?.success === false) throw new Error(res?.message || "Could not save the job category");
       onSaved?.();
     } catch (e: any) {

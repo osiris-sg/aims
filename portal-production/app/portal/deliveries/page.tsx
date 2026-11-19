@@ -173,7 +173,7 @@ function DeliveriesQueue() {
       if (!token) throw new Error("Not signed in");
       // Office view opts IN to drafts; every rider-facing read leaves them out.
       const qs = `?page=${page + 1}&limit=${limit}&includeDrafts=true`;
-      const res = await request({ path: `/deliveries${qs}`, method: "GET" }, {}, token);
+      const res = await request({ path: `/deliveries${qs}`, method: "GET", ownError: true }, {}, token);
       if (res.success === false) throw new Error(res.message ?? "Failed to load deliveries");
       const data = res.data ?? res;
       setRows(data.docs ?? []);
@@ -197,7 +197,7 @@ function DeliveriesQueue() {
       try {
         const token = await getToken();
         if (!token) return;
-        const res = await request({ path: `/documents/${docId}`, method: "GET" }, {}, token);
+        const res = await request({ path: `/documents/${docId}`, method: "GET", quiet: true }, {}, token);
         const doc = res?.data ?? res;
         const templateId = doc?.documentTemplateId;
         // Fall back to the plain document route rather than doing nothing. The
@@ -230,10 +230,10 @@ function DeliveriesQueue() {
       if (!token) throw new Error("Not signed in");
       const res =
         action === "cancel"
-          ? await request({ path: `/deliveries/${row.id}/cancel`, method: "POST" }, {}, token)
+          ? await request({ path: `/deliveries/${row.id}/cancel`, method: "POST", ownError: true }, {}, token)
           : action === "purge"
-            ? await request({ path: `/deliveries/${row.id}/purge`, method: "POST" }, {}, token)
-            : await request({ path: `/deliveries/${row.id}`, method: "DELETE" }, {}, token);
+            ? await request({ path: `/deliveries/${row.id}/purge`, method: "POST", ownError: true }, {}, token)
+            : await request({ path: `/deliveries/${row.id}`, method: "DELETE", ownError: true }, {}, token);
       if (res?.success === false) throw new Error(res?.message ?? "Action failed");
       const note = (res?.data ?? res)?.note as string | undefined;
       setActionMsg({

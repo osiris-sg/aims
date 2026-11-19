@@ -94,7 +94,7 @@ export default function WctReportView({
     async (path: string, method: "GET" | "PATCH", body: any = {}) => {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res: any = await request({ path, method }, body, token);
+      const res: any = await request({ path, method, ownError: true }, body, token);
       if (res?.success === false) throw new Error(res?.message || "Something went wrong");
       return res?.data ?? res;
     },

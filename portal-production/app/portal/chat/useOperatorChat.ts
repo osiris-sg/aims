@@ -133,7 +133,7 @@ export function useOperatorChat(
       if (!p && opts.remember !== false && threadRef.current) {
         const id = threadRef.current;
         getToken()
-          .then((token) => token && request({ path: `/operator/web/threads/${encodeURIComponent(id)}`, method: "PATCH" }, { closePanel: true }, token))
+          .then((token) => token && request({ path: `/operator/web/threads/${encodeURIComponent(id)}`, method: "PATCH", quiet: true }, { closePanel: true }, token))
           .catch(() => null);
       }
     },
@@ -152,7 +152,7 @@ export function useOperatorChat(
     try {
       const token = await getToken();
       if (!token) return;
-      const res = await request({ path: "/operator/web/threads", method: "GET" }, {}, token);
+      const res = await request({ path: "/operator/web/threads", method: "GET", ownError: true }, {}, token);
       if (res && res.success === false) throw new Error(res.message || "Could not load conversations");
       const list: ThreadSummary[] = res?.data?.threads || res?.threads || [];
       setThreads(list);
@@ -172,7 +172,7 @@ export function useOperatorChat(
       try {
         const token = await getToken();
         if (!token) return;
-        const res = await request({ path: `/operator/web/threads/${encodeURIComponent(id)}`, method: "GET" }, {}, token);
+        const res = await request({ path: `/operator/web/threads/${encodeURIComponent(id)}`, method: "GET", quiet }, {}, token);
         const t = res?.data ?? res;
         if (t?.error) throw new Error(t.error);
         // Never clobber a reply that is streaming in right now.

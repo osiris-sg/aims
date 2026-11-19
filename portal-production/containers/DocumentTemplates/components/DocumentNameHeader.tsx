@@ -357,7 +357,7 @@ function DocumentNameHeaderComponent(props: Props) {
       const ids = Array.from(new Set([...collectIds(revCfg?.items || []), ...collectIds(currentCfg?.items || [])]));
       if (ids.length > 0) {
         try {
-          const skuRes = await request({ path: `/inventories/by-ids`, method: "POST" }, { inventoryIds: ids }, token ?? undefined);
+          const skuRes = await request({ path: `/inventories/by-ids`, method: "POST", quiet: true }, { inventoryIds: ids }, token ?? undefined);
           const list = Array.isArray(skuRes?.data) ? skuRes.data : [];
           const map: Record<string, string> = {};
           list.forEach((inv: any) => {

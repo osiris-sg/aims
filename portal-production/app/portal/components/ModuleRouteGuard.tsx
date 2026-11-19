@@ -58,7 +58,7 @@ export default function ModuleRouteGuard({ children }: { children: React.ReactNo
       try {
         const token = await getToken();
         if (!token) return goHome();
-        const res = await request({ path: `/configuration/modules/${code}/organizations`, method: "GET" }, {}, token);
+        const res = await request({ path: `/configuration/modules/${code}/organizations`, method: "GET", quiet: true }, {}, token);
         if (cancelled) return;
         const raw = res?.success ? (res.data?.data ?? res.data) : null;
         const orgs: ModuleOrg[] = Array.isArray(raw) ? raw.filter((o: ModuleOrg) => o && typeof o.id === "string") : [];

@@ -21,7 +21,7 @@ export default function CustomerSignLink({ documentId, doName }: { documentId: s
     setMsg(null);
     try {
       const token = await getToken();
-      const res: any = await request({ path: `/documents/${documentId}/share-link`, method: "POST" }, {}, token ?? undefined);
+      const res: any = await request({ path: `/documents/${documentId}/share-link`, method: "POST", ownError: true }, {}, token ?? undefined);
       const body = res?.data ?? res;
       // Absolute link for the customer (the API's url is a bare path when PORTAL_URL is unset).
       const base = (process.env.NEXT_PUBLIC_APP_URL || "https://app.ai-ms.io").replace(/\/$/, "");

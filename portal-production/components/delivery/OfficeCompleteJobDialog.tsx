@@ -131,7 +131,7 @@ export default function OfficeCompleteJobDialog({
         for (const f of files) keys.push((await uploadFile({ file: f, folder: isDo ? `documents/${doId}/signed-do` : `deliveries/${deliveryId}/signed-do`, token })).fileKey);
         body.files = keys;
       }
-      const res: any = await request({ path: isDo ? `/deliveries/order-dos/${doId}/complete` : `/deliveries/${deliveryId}/office-complete`, method: "POST" }, body, token);
+      const res: any = await request({ path: isDo ? `/deliveries/order-dos/${doId}/complete` : `/deliveries/${deliveryId}/office-complete`, method: "POST", ownError: true }, body, token);
       if (res?.success === false) throw new Error(res.message || (isDo ? "Could not complete the DO" : "Could not complete the job"));
       onDone(mode);
     } catch (e: any) {

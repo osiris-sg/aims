@@ -37,7 +37,7 @@ export default function CustomerSignLinkButton({
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res: any = await request({ path: "/maintenance-reports/sign-link", method: "POST" }, { reportIds: [reportId] }, token);
+      const res: any = await request({ path: "/maintenance-reports/sign-link", method: "POST", ownError: true }, { reportIds: [reportId] }, token);
       const body = res?.data ?? res;
       if (body?.success === false || !body?.path) throw new Error(body?.message || "Could not create the sign link");
       const url = `${base}${body.path}`;
@@ -61,7 +61,7 @@ export default function CustomerSignLinkButton({
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res: any = await request({ path: `/maintenance-reports/${reportId}/sign-link/revoke`, method: "POST" }, {}, token);
+      const res: any = await request({ path: `/maintenance-reports/${reportId}/sign-link/revoke`, method: "POST", ownError: true }, {}, token);
       if (res?.success === false) throw new Error(res?.message || "Could not revoke the link");
       setLink(null);
     } catch (e: any) {

@@ -400,7 +400,7 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
     try {
       const token = await getToken();
       if (!token) return;
-      const res = await request({ path: `/projects/${params.id}`, method: "GET" }, {}, token);
+      const res = await request({ path: `/projects/${params.id}`, method: "GET", ownError: true }, {}, token);
       if (res.success) setProject(res.data);
       else toast.error("Failed to load project");
     } catch (err) {
@@ -428,7 +428,7 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
         const token = await getToken();
         if (!token) return;
         const res = await request(
-          { path: `/maintenance-reports/project/${params.id}`, method: "GET" },
+          { path: `/maintenance-reports/project/${params.id}`, method: "GET", ownError: true },
           {},
           token,
         );
@@ -465,7 +465,7 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
       const token = await getToken();
       if (!token) return;
       const res = await request(
-        { path: `/customer-info/project/${params.id}`, method: "GET" },
+        { path: `/customer-info/project/${params.id}`, method: "GET", quiet: true },
         {},
         token,
       );
@@ -506,7 +506,7 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
       const res = await request(
-        { path: "/customer-info", method: "POST" },
+        { path: "/customer-info", method: "POST", ownError: true },
         { customerId, projectId: params.id },
         token,
       );
@@ -611,7 +611,7 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
       const token = await getToken();
       if (!token) return;
       const res = await request(
-        { path: "/documents/basic", method: "POST" },
+        { path: "/documents/basic", method: "POST", ownError: true },
         {
           documentTemplateId: quotationTemplateId,
           type: "QUOTATION",
@@ -1835,7 +1835,7 @@ function NewDeploymentDialog({
       const token = await getToken();
       if (!token) return;
       const res = await request(
-        { path: `/projects/${projectId}/deployments`, method: "POST" },
+        { path: `/projects/${projectId}/deployments`, method: "POST", ownError: true },
         {
           type,
           description: description.trim() || undefined,
@@ -1933,7 +1933,7 @@ function DocumentPreviewDialog({
       try {
         const token = await getToken();
         if (!token) return;
-        const res = await request({ path: `/documents/${documentId}`, method: "GET" }, {}, token);
+        const res = await request({ path: `/documents/${documentId}`, method: "GET", ownError: true }, {}, token);
         if (cancelled) return;
         if (res.success) setDoc(res.data);
         else setError(res.message ?? "Failed to load document");
@@ -2019,7 +2019,7 @@ function AttachDocumentDialog({
       const token = await getToken();
       if (!token) return;
       const res = await request(
-        { path: `/projects/deployments/${deploymentId}/attach-document`, method: "POST" },
+        { path: `/projects/deployments/${deploymentId}/attach-document`, method: "POST", ownError: true },
         { documentId: selected },
         token,
       );

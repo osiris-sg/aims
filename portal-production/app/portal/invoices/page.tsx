@@ -478,6 +478,7 @@ export default function InvoicesPage() {
         {
           path: DOCUMENT_API.GET_ALL.path,
           method: "POST",
+          ownError: true,
         },
         { organizationId },
         token
@@ -651,7 +652,7 @@ export default function InvoicesPage() {
       const res = await request(
         // Generating many fresh PDFs (Puppeteer) can exceed the 30s default —
         // give the batch a longer per-call timeout.
-        { path: "/documents/bulk-download", method: "POST", timeout: 180000 },
+        { path: "/documents/bulk-download", method: "POST", timeout: 180000, ownError: true },
         { ids },
         token
       );
@@ -863,6 +864,7 @@ export default function InvoicesPage() {
         {
           path: "/documents/basic",
           method: "POST",
+          ownError: true,
         },
         requestPayload,
         freshToken ?? token ?? undefined

@@ -37,7 +37,7 @@ export function useRoleGate(): RoleGate {
           if (!cancelled) setLoading(false);
           return;
         }
-        const res = await request({ path: "/users/me/roles", method: "GET" }, {}, token);
+        const res = await request({ path: "/users/me/roles", method: "GET", quiet: true }, {}, token);
         const roles = (res?.data ?? res ?? []) as Array<{ name?: string }>;
         if (cancelled) return;
         setNames(roles.map((r) => (r?.name ?? "").toLowerCase()));

@@ -237,7 +237,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
         const token = await getToken();
         if (!token) throw new Error("Not signed in");
         if (office) {
-          const rr = await request({ path: `/maintenance-reports/${reportId}`, method: "GET" }, {}, token);
+          const rr = await request({ path: `/maintenance-reports/${reportId}`, method: "GET", ownError: true }, {}, token);
           if (cancelled) return;
           if (rr?.success === false) throw new Error(rr?.message ?? "Could not load the service report");
           const rep: any = rr?.data ?? rr;
@@ -252,7 +252,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
           applyDraft(sd.draft);
           return;
         }
-        const res = await request({ path: `/deliveries/${deliveryId}`, method: "GET" }, {}, token);
+        const res = await request({ path: `/deliveries/${deliveryId}`, method: "GET", ownError: true }, {}, token);
         if (cancelled) return;
         if (res?.success === false) throw new Error(res?.message ?? `Could not load the ${w.noun}`);
         const r = (res?.data ?? res) as Run;
@@ -328,7 +328,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
         setSaveState("saving");
         const token = await getToken();
         if (!token) throw new Error("Not signed in");
-        const res = await request({ path: `/maintenance-reports/${scheduledDraft.id}/draft`, method: "PATCH" }, { draft: payload }, token);
+        const res = await request({ path: `/maintenance-reports/${scheduledDraft.id}/draft`, method: "PATCH", ownError: true }, { draft: payload }, token);
         if (res?.success === false) throw new Error(res?.message ?? "save failed");
         lastSaved.current = json;
         setSaveState("saved");
@@ -467,7 +467,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
       // were scheduled with it (or an ad-hoc job) creates one now.
       const res = scheduledDraft
         ? await request(
-            { path: `/maintenance-reports/${scheduledDraft.id}/complete`, method: "POST" },
+            { path: `/maintenance-reports/${scheduledDraft.id}/complete`, method: "POST", ownError: true },
             {
               serviceData,
               description,
@@ -477,7 +477,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
             token,
           )
         : await request(
-            { path: "/maintenance-reports", method: "POST" },
+            { path: "/maintenance-reports", method: "POST", ownError: true },
             {
               kind: "SERVICE",
               deliveryId,
@@ -496,7 +496,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
       // Delivery" the DO flow does) and go straight to the customer signature.
       // (Office reports have no job step here: they end on the done screen.)
       if (!office && run?.status !== "completed") {
-        const ack = await request({ path: `/deliveries/${deliveryId}/ack-all`, method: "POST" }, {}, token);
+        const ack = await request({ path: `/deliveries/${deliveryId}/ack-all`, method: "POST", ownError: true }, {}, token);
         if (ack?.success === false) throw new Error(ack?.message ?? "Could not end the service lines");
         router.replace(`/scan/delivery/${deliveryId}/finalize`);
         return;
@@ -516,7 +516,7 @@ export default function WctServiceReportForm({ deliveryId: deliveryIdProp, repor
     try {
       const token = await getToken();
       if (!token) throw new Error("Not signed in");
-      const res = await request({ path: `/deliveries/${deliveryId}/ack-all`, method: "POST" }, {}, token);
+      const res = await request({ path: `/deliveries/${deliveryId}/ack-all`, method: "POST", ownError: true }, {}, token);
       if (res?.success === false) throw new Error(res?.message ?? "Could not end the service lines");
       router.replace(`/scan/delivery/${deliveryId}/finalize`);
     } catch (e: any) {
