@@ -149,8 +149,13 @@ function mergeParts() {
     const ranges = (ids, from) => { const xs = [...new Set(ids.filter((n) => n >= from))].sort((a, b) => a - b); const out = []; for (const n of xs) { const l = out[out.length - 1]; if (l && n === l[1] + 1) l[1] = n; else out.push([n, n]); } return out.map(([a, b]) => (a === b ? `${a}` : `${a}-${b}`)).join(','); };
     const idsOf = (type) => wctErp.filter((d) => d.type === type && /^\d+$/.test(d.erp.erpId)).map((d) => Number(d.erp.erpId));
     const importedQuoteRanges = ranges(idsOf('QUOTATION'), lastQuoteId - 1500), importedInvoiceRanges = ranges(idsOf('INVOICE'), lastInvoiceId - 1500);
+    // Open imported invoices that carry a credit note: their Amount Due is read every run.
+    const extraInvoiceIds = wctErp.filter((d) => d.type === 'INVOICE' && OPEN_INVOICE.has(d.erp.status) && String(d.erp.creditNote || '').trim() && /^\d+$/.test(d.erp.erpId)).map((d) => Number(d.erp.erpId));
     const openQuoteNos = wctErp.filter((d) => d.type === 'QUOTATION' && !['Accepted', 'Declined'].includes(d.erp.status)).map((d) => d.erp.originalNumber).filter(Boolean);
-    console.log(`__erpCatchup({ lastQuoteId: ${lastQuoteId}, lastInvoiceId: ${lastInvoiceId}, openQuoteNos: ${JSON.stringify(openQuoteNos)}, importedQuoteRanges: '${importedQuoteRanges}', importedInvoiceRanges: '${importedInvoiceRanges}' })`);
+    // Credit notes dated on or after the last pull: their invoices' balances are read (the last pull folder's date).
+    const pulls = fs.existsSync(path.join(IMPORTS, 'erp-catchup')) ? fs.readdirSync(path.join(IMPORTS, 'erp-catchup')).filter((f) => /^\d{4}-\d{2}-\d{2}$/.test(f)).sort() : [];
+    const cnSince = pulls.length ? pulls[pulls.length - 1] : '2026-11-04';
+    console.log(`__erpCatchup({ lastQuoteId: ${lastQuoteId}, lastInvoiceId: ${lastInvoiceId}, cnSince: '${cnSince}', extraInvoiceIds: ${JSON.stringify(extraInvoiceIds)}, openQuoteNos: ${JSON.stringify(openQuoteNos)}, importedQuoteRanges: '${importedQuoteRanges}', importedInvoiceRanges: '${importedInvoiceRanges}' })`);
     await c.end();
     return;
   }
@@ -328,17 +333,23 @@ function mergeParts() {
     const atImport = Number(d.erp.balanceAtImport ?? d.erp.erpBalanceDue ?? total);
     const aimsOwed = d.outstanding == null ? total : Number(d.outstanding);
     const aimsPaidSinceImport = R2(atImport - aimsOwed); // payments recorded in AIMS after the import
-    const cns = newCns.filter((x) => x.invoice_no === d.name);
+    const known = new Set(String(d.erp.creditNote || '').split(/\s+/).filter(Boolean));
+    const cns = newCns.filter((x) => x.invoice_no === d.name && !known.has(x.credit_note_no));
     let kind, newBal = null;
-    if (!e) kind = 'not in ERP list';
+    const det = iDetById.get(d.erp.erpId);
+    if (!e.erp_id && !listedInvoiceStatus.has(d.erp.erpId) && e.status !== 'Paid') kind = 'not in ERP list';
     else if (e.status === 'Cancelled') kind = 'cancelled in ERP';
-    else if (e.status === 'Paid') { newBal = 0; kind = cns.length ? 'credited (now Paid)' : 'newly paid'; }
-    else if (e.status === 'Partial') {
-      const det = iDetById.get(d.erp.erpId);
-      newBal = det ? num(det.balance_due) : null;
-      kind = newBal == null ? 'part paid (balance not read)' : Math.abs(newBal - atImport) < 0.005 ? 'unchanged' : newBal < atImport ? (cns.length ? 'credited (part)' : 'part paid') : 'balance went up';
-    } else if (e.status !== d.erp.status) kind = `status ${d.erp.status} -> ${e.status} (no payment)`;
-    else kind = cns.length ? 'credit note added' : 'unchanged';
+    else if (e.status === 'Paid') { newBal = 0; kind = cns.length || known.size ? 'credited / paid (now Paid)' : 'newly paid'; }
+    else if (det) {
+      // Balance read from the invoice page (Partial, or carrying a credit note): compare with the last ERP balance.
+      newBal = num(det.balance_due);
+      const credited = cns.length || known.size;
+      kind = Math.abs(newBal - atImport) < 0.005 ? (e.status !== d.erp.status ? `status ${d.erp.status} -> ${e.status} (no payment)` : cns.length ? 'credit note added, balance unchanged' : 'unchanged')
+        : newBal < atImport ? (credited ? 'credited / part paid' : 'part paid') : 'balance went up';
+    } else if (e.status === 'Partial') kind = 'part paid (balance not read)';
+    else if (e.status !== d.erp.status) kind = `status ${d.erp.status} -> ${e.status} (no payment)`;
+    else if (cns.length) kind = 'credit note added (balance not read yet)';
+    else kind = 'unchanged';
     kinds[kind] = (kinds[kind] || 0) + 1;
     if (kind === 'unchanged') continue;
     const conflict = Math.abs(aimsPaidSinceImport) > 0.005;

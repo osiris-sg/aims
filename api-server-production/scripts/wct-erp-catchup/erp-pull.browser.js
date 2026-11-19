@@ -13,7 +13,7 @@
  *   (node scripts/wct-erp-catchup.js --env prod --print-pull prints the exact call)
  * Progress: window.__erpCatchupState. Then: node scripts/wct-erp-catchup.js --env prod
  */
-window.__erpCatchup = async ({ lastQuoteId, lastInvoiceId, extraQuoteIds = [], extraInvoiceIds = [], openQuoteNos = [], importedQuoteRanges = '', importedInvoiceRanges = '', listsOnly = false, delayMs = 400, detailsPerPart = 40 }) => {
+window.__erpCatchup = async ({ lastQuoteId, lastInvoiceId, extraQuoteIds = [], extraInvoiceIds = [], openQuoteNos = [], cnSince = '', importedQuoteRanges = '', importedInvoiceRanges = '', listsOnly = false, delayMs = 400, detailsPerPart = 40 }) => {
   const S = (window.__erpCatchupState = { phase: 'lists', parts: 0, details: 0, detailTotal: 0, errors: [], done: false, t0: Date.now() });
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const q = (v) => { v = v == null ? '' : String(v); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
@@ -95,9 +95,11 @@ window.__erpCatchup = async ({ lastQuoteId, lastInvoiceId, extraQuoteIds = [], e
   const inRanges = (spec) => { const rs = String(spec || '').split(',').filter(Boolean).map((x) => x.split('-').map(Number)); return (id) => rs.some(([a, b]) => id >= a && id <= (b ?? a)); };
   const qHave = inRanges(importedQuoteRanges), iHave = inRanges(importedInvoiceRanges);
   const Q_SCOPE = ['Accepted', 'Declined', 'Sent'], I_SCOPE = ['Paid', 'Overdue', 'Receivable', 'Partial'];
+  // Open invoices that got a credit note on or after cnSince: their Amount Due is read too.
+  const cnInvoices = new Set(cns.filter((r) => cnSince && dmy(strip(r[3])) >= cnSince).map((r) => strip(r[4])));
   const want = [
     ...[...new Map(quotes.filter((x) => (Q_SCOPE.includes(x.status) && !qHave(Number(x.erp_id)) && (Number(x.erp_id) > lastQuoteId || (importedQuoteRanges && x.list === 'quotation:new'))) || extraQuoteIds.includes(Number(x.erp_id))).map((x) => [x.erp_id, x])).values()].map((x) => ({ kind: 'quotation', ...x })),
-    ...[...new Map(invoices.filter((x) => (I_SCOPE.includes(x.status) && !iHave(Number(x.erp_id)) && (Number(x.erp_id) > lastInvoiceId || (importedInvoiceRanges && x.list === 'invoice:new'))) || x.status === 'Partial' || extraInvoiceIds.includes(Number(x.erp_id))).map((x) => [x.erp_id, x])).values()].map((x) => ({ kind: 'invoice', ...x })),
+    ...[...new Map(invoices.filter((x) => (I_SCOPE.includes(x.status) && !iHave(Number(x.erp_id)) && (Number(x.erp_id) > lastInvoiceId || (importedInvoiceRanges && x.list === 'invoice:new'))) || x.status === 'Partial' || (cnInvoices.has(x.no) && x.list !== 'invoice:new') || extraInvoiceIds.includes(Number(x.erp_id))).map((x) => [x.erp_id, x])).values()].map((x) => ({ kind: 'invoice', ...x })),
   ];
   S.phase = 'details'; S.detailTotal = want.length;
   const QH = ['kind', 'erp_id', 'erp_revision_id', 'quotation_no', 'revision', 'date', 'status', 'department', 'reference_no', 'customer', 'client_site', 'billing_address', 'job_location', 'attention', 'attention_title', 'attention_mobile', 'attention_email', 'attention_tel', 'contract_no', 'service_order', 'sales_person', 'sales_email', 'sales_phone', 'coordinator', 'subject', 'sub_heading', 'subtotal', 'discount', 'gst_rate', 'gst_amount', 'total', 'list_total', 'line_count', 'notes', 'terms', 'erp_quotation_no', 'erp_quotation_id', 'amount_paid', 'balance_due'];
