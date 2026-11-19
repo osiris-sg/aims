@@ -5,8 +5,9 @@ import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { PERMISSIONS_KEY } from './decorators/permissions.decorator';
+import { ALT_PERMISSIONS_KEY, type AltPermissionsRule } from './decorators/alt-permissions.decorator';
 import { PrismaService } from '../common/prisma.service';
-import { multiRoleUnionGrants } from '../roles/multi-role';
+import { multiRoleUnionGrants, rolesGrant } from '../roles/multi-role';
 import { NO_TAB_ACCESS_MESSAGE, invalidateCustomAccess, resolveCustomAccess } from '../access/custom-access';
 import { tabAccessAllowsRequest, tabAccessGrants } from '../access/tab-access';
 import { Prisma } from '@prisma/client';
@@ -200,6 +201,28 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
     }
   }
 
+  /**
+   * @AltPermissions (src/auth/decorators/alt-permissions.decorator.ts): asked ONLY after the route's
+   * own @Permissions check failed. Admits the caller when they hold one of the rule's permissions
+   * and, for a docTypes rule, the request's document (param / body id) is one of those types in
+   * their org. Routes without the decorator: false, nothing read.
+   */
+  private async altAdmits(context: ExecutionContext, request: any, orgId: string | null | undefined, holds: (perm: string) => boolean): Promise<boolean> {
+    const rule = this.reflector.get<AltPermissionsRule | undefined>(ALT_PERMISSIONS_KEY, context.getHandler());
+    if (!rule?.permissions?.length || !orgId) return false;
+    if (!rule.permissions.some((p) => holds(p))) return false;
+    if (!rule.docTypes?.length) return true;
+    const raw = rule.docIdFrom === 'body' ? request.body?.id : request.params?.id;
+    const id = typeof raw === 'string' ? raw : null;
+    if (!id) return false;
+    try {
+      const doc = await this.prisma.document.findFirst({ where: { id, organizationId: orgId }, select: { type: true } });
+      return !!doc && rule.docTypes.includes(String(doc.type || '').toUpperCase());
+    } catch {
+      return false;
+    }
+  }
+
   async canActivate(context: ExecutionContext) {
     // Check if the route is marked as public
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [context.getHandler(), context.getClass()]);
@@ -340,6 +363,7 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
         // Presets (enforcePresetTabs) keep their own permissions below; the path check only narrows.
         if (access.source !== 'presets') {
           if (!requiredPermissions?.length || tabAccessGrants(access.map, requiredPermissions)) return true;
+          if (await this.altAdmits(context, request, orgId, (p) => tabAccessGrants(access.map, [p]))) return true;
           throw new ForbiddenException('User does not have sufficient permissions');
         }
       }
@@ -383,6 +407,10 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
 
     // Multi-role orgs (features.enableMultiRole): the roles together (src/roles/multi-role.ts).
     if (await multiRoleUnionGrants(this.prisma, effectiveOrgId, relevantUserRoles.map((ur) => ur.role), requiredPermissions)) return true;
+
+    // @AltPermissions routes (round 30): only reached when the check above failed.
+    const roles = relevantUserRoles.map((ur) => ur.role);
+    if (await this.altAdmits(context, request, effectiveOrgId, (p) => rolesGrant(roles, [p], true))) return true;
 
     dbg(`❌ Auth failed in ${Date.now() - authStart}ms (insufficient permissions)`);
     throw new ForbiddenException('User does not have sufficient permissions');

@@ -121,12 +121,15 @@ export const ROLE_PRESETS: RolePreset[] = [
     name: 'Operations',
     label: 'Operations',
     summary: 'Schedules deliveries and service jobs, sees stock and service reports.',
-    allowedModules: ['DASHBOARD', 'ORDERS', 'DELIVERIES', 'MAINTENANCE', 'INVENTORY', 'CUSTOMERS', 'MASTERFILES'],
+    // CALENDAR (round 30): the Jobs > Calendar tab for a role without Sales (enableCustomAccess orgs).
+    allowedModules: ['DASHBOARD', 'ORDERS', 'DELIVERIES', 'MAINTENANCE', 'INVENTORY', 'CUSTOMERS', 'MASTERFILES', 'CALENDAR'],
     permissions: [
       'dashboard:read',
-      // Round 25: Orders view; Jobs edit (complete / verify / reject a job, complete a DO need documents:update).
+      // Round 25: Orders view. Round 30 (Elroy 20 Nov): Jobs edit = update on jobs and DOs only
+      // (deliveries:update: complete / verify / reject a job, complete / save a DO, its sign link;
+      // the routes take it through @AltPermissions), never documents:update for every document type.
       'orders:read',
-      'documents:update',
+      'deliveries:update',
       'field-scan:access',
       'maintenance-reports:*',
       'assets:create-basic',
@@ -212,7 +215,7 @@ export interface PresetFix {
 export const PRESET_FIXES: Record<string, PresetFix> = {
   Sales: { add: ['orders:read', 'orders:create', 'orders:update', 'maintenance-reports:create'], modules: ['ORDERS'] },
   Accounting: { add: ['orders:read', 'maintenance-reports:read'], modules: ['ORDERS'] },
-  Operations: { add: ['orders:read', 'documents:update'], modules: ['ORDERS'] },
+  Operations: { add: ['orders:read', 'deliveries:update'], modules: ['ORDERS', 'CALENDAR'] },
   Viewer: { add: READ_ALL, modules: ['DASHBOARD', 'SALES', 'ORDERS', 'INVENTORY', 'DELIVERIES', 'MAINTENANCE', 'ACCOUNTING', 'CUSTOMERS', 'SUPPLIERS', 'MASTERFILES', 'ASSETS', 'REPORTS'], onlyReads: true },
 };
 
@@ -231,9 +234,17 @@ export function planPresetFix(
   const removePerms = fix.onlyReads ? role.permissions.filter((n) => !isReadPermission(n)).sort() : [];
   // [] = every module already: nothing to add.
   const mods = role.allowedModules ?? [];
-  const addModules = mods.length === 0 ? [] : fix.modules.filter((m) => !mods.includes(m) && orgModulesOn.includes(m));
+  const addModules = mods.length === 0 ? [] : fix.modules.filter((m) => !mods.includes(m) && (orgModulesOn.includes(m) || PSEUDO_MODULES.has(m)));
   return { addPerms, removePerms, addModules };
 }
+
+/** Module codes that are no org module row, only a grant on the role (CALENDAR: Jobs > Calendar). */
+export const PSEUDO_MODULES = new Set(['CALENDAR']);
+
+/** Permissions a fix needs that may not be in an org's catalogue yet (created by the fix script). */
+export const NEW_PERMISSIONS: Array<{ name: string; resource: string; action: string; description: string }> = [
+  { name: 'deliveries:update', resource: 'deliveries', action: 'update', description: 'Update jobs and delivery orders only (complete, verify, reject, save a DO, its sign link)' },
+];
 
 /** Does `pattern` ("res:act", with * on either side) match a permission name? */
 export function matchesPattern(pattern: string, name: string): boolean {

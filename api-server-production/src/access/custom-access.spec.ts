@@ -9,9 +9,13 @@ import { lastValueFrom, of } from 'rxjs';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { PERMISSIONS_KEY } from '../auth/decorators/permissions.decorator';
+import { ALT_PERMISSIONS_KEY, DO_UPDATE_ALT, JOB_UPDATE_ALT, type AltPermissionsRule } from '../auth/decorators/alt-permissions.decorator';
+import { UsersService } from '../users/users.service';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { ActionLogInterceptor } from '../action-log/action-log.interceptor';
 import { reportScope } from '../sales-report/sales-report';
-import { PRESET_FIXES, ROLE_PRESETS, isReadPermission, planPresetFix, resolvePresetPermissions } from '../roles/role-presets';
+import { NEW_PERMISSIONS, PRESET_FIXES, ROLE_PRESETS, isReadPermission, planPresetFix, resolvePresetPermissions } from '../roles/role-presets';
 import { AccessService } from './access.service';
 import { CUSTOM_ACCESS_ROLE_ID, NO_TAB_ACCESS_MESSAGE, customAccessUserIds, invalidateCustomAccess, resolveCustomAccess, withCustomAccess } from './custom-access';
 import {
@@ -59,6 +63,8 @@ const CATALOGUE: string[] = [
   'uploads:upload-image', 'users:assign-role', 'users:create', 'users:delete', 'users:read', 'users:read-roles',
   'users:remove-role', 'users:update', 'vehicles:approve', 'vehicles:read', 'vehicles:update', 'whatsapp:manage',
   'whatsapp:read', 'whatsapp:send', 'xerosync:create', 'xerosync:read',
+  // Round 30: created by scripts/wct-r25-preset-fix.ts --apply (not in prod's catalogue before).
+  'deliveries:update',
 ];
 
 const P = (name: string) => ({ name, resource: name.split(':')[0], action: name.split(':')[1] });
@@ -93,6 +99,8 @@ function world(flags: Record<string, Record<string, unknown>> = { [WCT]: { enabl
       role('r-sales', RACK, 'Sales', presetPerms('Sales'), { description: 'Preset · Sales — x' }),
       role('c-sales', CIEL, 'Sales', ['documents:read', 'documents:create-basic']),
       role('c-admin', CIEL, 'Admin', ['*:*']),
+      // A hand-made role (no preset, no custom map).
+      role('w-store', WCT, 'Storekeeper', ['inventories:read', 'inventories:update']),
     ],
     userRole: [] as Row[],
     userOrganization: [] as Row[],
@@ -119,6 +127,7 @@ function world(flags: Record<string, Record<string, unknown>> = { [WCT]: { enabl
   member('rex', RACK, 'r-sales');
   member('cia', CIEL, 'c-sales');
   member('cadmin', CIEL, 'c-admin');
+  member('stan', WCT, 'w-store');
   db.customAccess.push({ id: 'ca4', organizationId: WCT, kind: 'USER', subjectId: 'ivy', tabs: { ...noAccess(), sales: 'view' } });
 
   const match = (row: Row, where: Row = {}): boolean =>
@@ -135,8 +144,20 @@ function world(flags: Record<string, Record<string, unknown>> = { [WCT]: { enabl
       return x === v;
     });
   const roleById = (id: string) => db.role.find((r) => r.id === id)!;
-  const calls = { customAccess: 0 };
+  const calls = { customAccess: 0, document: 0 };
+  const documents = [
+    { id: 'do1', organizationId: WCT, type: 'DELIVERY_ORDER' },
+    { id: 'qo1', organizationId: WCT, type: 'QUOTATION' },
+    { id: 'inv1', organizationId: WCT, type: 'INVOICE' },
+    { id: 'do-ciel', organizationId: CIEL, type: 'DELIVERY_ORDER' },
+  ];
   const prisma: any = {
+    document: {
+      findFirst: async ({ where }: any) => {
+        calls.document++;
+        return documents.find((d) => d.id === where.id && d.organizationId === where.organizationId) ?? null;
+      },
+    },
     organizationUIConfig: { findUnique: async ({ where }: any) => (flags[where.organizationId] ? { features: flags[where.organizationId] } : null) },
     organization: { findUnique: async ({ where }: any) => ({ id: where.id, name: where.id }) },
     permission: { findMany: async () => db.permission },
@@ -204,10 +225,21 @@ function world(flags: Record<string, Record<string, unknown>> = { [WCT]: { enabl
 }
 
 /** One request through ClerkAuthGuard. */
-async function guard(w: ReturnType<typeof world>, userId: string, method: string, path: string, perms: string[] = [], headers: Record<string, string> = {}) {
-  const reflector: any = { getAllAndOverride: (key: string) => (key === IS_PUBLIC_KEY ? false : undefined), get: (key: string) => (key === PERMISSIONS_KEY ? perms : undefined) };
+async function guard(
+  w: ReturnType<typeof world>,
+  userId: string,
+  method: string,
+  path: string,
+  perms: string[] = [],
+  headers: Record<string, string> = {},
+  route: { alt?: AltPermissionsRule; params?: Record<string, string>; body?: any } = {},
+) {
+  const reflector: any = {
+    getAllAndOverride: (key: string) => (key === IS_PUBLIC_KEY ? false : undefined),
+    get: (key: string) => (key === PERMISSIONS_KEY ? perms : key === ALT_PERMISSIONS_KEY ? route.alt : undefined),
+  };
   const g = new ClerkAuthGuard(reflector, w.prisma);
-  const req: any = { headers, method, originalUrl: path, url: path, user: { id: userId } };
+  const req: any = { headers, method, originalUrl: path, url: path, user: { id: userId }, params: route.params ?? {}, body: route.body ?? {} };
   const ctx: any = { switchToHttp: () => ({ getRequest: () => req }), getHandler: () => null, getClass: () => null };
   try {
     return { ok: await g.canActivate(ctx), err: null as any };
@@ -247,7 +279,9 @@ describe('the preset table (final role x tab)', () => {
     expect(acc).toContain('orders:read');
     expect(acc).not.toContain('orders:update');
     const ops = presetPerms('Operations');
-    expect(ops).toEqual(expect.arrayContaining(['orders:read', 'documents:update', 'maintenance-reports:create', 'dashboard:read']));
+    // Round 30: jobs / DO update via deliveries:update, not documents:update.
+    expect(ops).toEqual(expect.arrayContaining(['orders:read', 'deliveries:update', 'maintenance-reports:create', 'dashboard:read']));
+    expect(ops).not.toContain('documents:update');
     expect(ops).not.toContain('orders:update');
     const viewer = presetPerms('Viewer');
     expect(viewer.every((p) => isReadPermission(p))).toBe(true);
@@ -486,3 +520,161 @@ describe('what the portal and the reports read', () => {
 function fullAccessMap(): TabAccessMap {
   return Object.fromEntries(TAB_KEYS.map((k) => [k, 'edit'])) as TabAccessMap;
 }
+
+describe('round 30: Operations updates jobs and DOs only (deliveries:update, not documents:update)', () => {
+  const OPS = { alt: JOB_UPDATE_ALT };
+  it('the preset: deliveries:update + CALENDAR, no documents:update; the fix plans the same', () => {
+    const ops = presetPerms('Operations');
+    expect(ops).toContain('deliveries:update');
+    expect(ops).not.toContain('documents:update');
+    expect(ROLE_PRESETS.find((p) => p.name === 'Operations')!.allowedModules).toContain('CALENDAR');
+    expect(PRESET_FIXES.Operations).toEqual({ add: ['orders:read', 'deliveries:update'], modules: ['ORDERS', 'CALENDAR'] });
+    expect(NEW_PERMISSIONS.map((p) => p.name)).toEqual(['deliveries:update']);
+    // CALENDAR is a role grant, not an org module row: added although no org module is called that.
+    const plan = planPresetFix(PRESET_FIXES.Operations, { permissions: ['dashboard:read'], allowedModules: ['DELIVERIES'] }, CATALOGUE, ['DELIVERIES', 'ORDERS']);
+    expect(plan).toEqual({ addPerms: ['deliveries:update', 'orders:read'], removePerms: [], addModules: ['ORDERS', 'CALENDAR'] });
+    // The other presets' additions are unchanged.
+    expect(PRESET_FIXES.Sales.add).toEqual(['orders:read', 'orders:create', 'orders:update', 'maintenance-reports:create']);
+    expect(PRESET_FIXES.Accounting.add).toEqual(['orders:read', 'maintenance-reports:read']);
+  });
+
+  it('Operations completes / verifies / rejects jobs and completes DOs (stamped routes)', async () => {
+    const w = world();
+    expect(await allowed(w, 'ola', 'POST', '/deliveries/r1/verify', ['documents:update'], {}, OPS)).toBe(true);
+    expect(await allowed(w, 'ola', 'POST', '/deliveries/r1/office-complete', ['documents:update'], {}, OPS)).toBe(true);
+    expect(await allowed(w, 'ola', 'POST', '/deliveries/order-dos/do1/complete', ['documents:update'], {}, OPS)).toBe(true);
+    // A route WITHOUT the stamp keeps asking documents:update.
+    expect(await blocked(w, 'ola', 'POST', '/documents/do1/notes', ['documents:update'])).toBe(true);
+    expect(await blocked(w, 'ola', 'POST', '/documents/do1/confirm-invoice', ['documents:update'])).toBe(true);
+  });
+
+  it('the generic document routes take deliveries:update for a DELIVERY ORDER only (this org)', async () => {
+    const w = world();
+    const save = (id: string) => ({ alt: DO_UPDATE_ALT('body'), body: { id } });
+    const byParam = (id: string) => ({ alt: DO_UPDATE_ALT(), params: { id } });
+    expect(await allowed(w, 'ola', 'POST', '/documents/update', ['documents:update'], {}, save('do1'))).toBe(true);
+    expect(await blocked(w, 'ola', 'POST', '/documents/update', ['documents:update'], {}, save('qo1'))).toBe(true);
+    expect(await blocked(w, 'ola', 'POST', '/documents/update', ['documents:update'], {}, save('inv1'))).toBe(true);
+    expect(await blocked(w, 'ola', 'POST', '/documents/update', ['documents:update'], {}, save('do-ciel'))).toBe(true); // another org's DO
+    expect(await blocked(w, 'ola', 'POST', '/documents/update', ['documents:update'], {}, { alt: DO_UPDATE_ALT('body'), body: {} })).toBe(true);
+    expect(await allowed(w, 'ola', 'PATCH', '/documents/do1/lock', ['documents:update'], {}, byParam('do1'))).toBe(true);
+    expect(await blocked(w, 'ola', 'PATCH', '/documents/qo1/lock', ['documents:update'], {}, byParam('qo1'))).toBe(true);
+    expect(await allowed(w, 'ola', 'POST', '/documents/do1/share-link', ['documents:update'], {}, byParam('do1'))).toBe(true);
+    expect(await blocked(w, 'ola', 'POST', '/documents/inv1/share-link', ['documents:update'], {}, byParam('inv1'))).toBe(true);
+    // Delete is not a stamped route: deliveries:update never deletes a DO.
+    expect(await blocked(w, 'ola', 'DELETE', '/documents/delete/do1', ['documents:delete'])).toBe(true);
+  });
+
+  it('everyone who passes today passes the same way (no extra read); everyone refused today without deliveries:update still is', async () => {
+    const w = world();
+    expect(await allowed(w, 'sam', 'POST', '/documents/update', ['documents:update'], {}, { alt: DO_UPDATE_ALT('body'), body: { id: 'qo1' } })).toBe(true);
+    expect(await allowed(w, 'adam', 'POST', '/deliveries/r1/verify', ['documents:update'], {}, OPS)).toBe(true);
+    expect(await allowed(w, 'cadmin', 'POST', '/documents/update', ['documents:update'], {}, { alt: DO_UPDATE_ALT('body'), body: { id: 'do-ciel' } })).toBe(true);
+    expect(w.calls.document).toBe(0);
+    expect(await blocked(w, 'stan', 'POST', '/documents/update', ['documents:update'], {}, { alt: DO_UPDATE_ALT('body'), body: { id: 'do1' } })).toBe(true);
+    expect(await blocked(w, 'cia', 'POST', '/documents/update', ['documents:update'], {}, { alt: DO_UPDATE_ALT('body'), body: { id: 'do-ciel' } })).toBe(true); // CIEL Sales: no documents:update, as before
+    expect(await blocked(w, 'fred', 'POST', '/deliveries/r1/verify', ['documents:update'], {}, OPS)).toBe(true); // field-tech, as before
+  });
+
+  it('custom access: Jobs edit = DOs only too', async () => {
+    const w = world();
+    w.db.role.push({ id: 'w-jobs', organizationId: WCT, name: 'Job desk', description: 'Custom · Jobs edit', allowedModules: ['DELIVERIES'], permissions: [] });
+    w.db.customAccess.push({ id: 'ca9', organizationId: WCT, kind: 'ROLE', subjectId: 'w-jobs', tabs: { ...noAccess(), jobs: 'edit' } });
+    w.db.userOrganization.push({ userId: 'jill', organizationId: WCT, isActive: true, joinedAt: new Date(2026, 0, 1), lastActiveAt: null });
+    w.db.userRole.push({ id: 'ur-j', userId: 'jill', roleId: 'w-jobs', organizationId: WCT, isActive: true, createdAt: new Date(), assignedAt: new Date() });
+    expect(tabAccessGrants({ ...noAccess(), jobs: 'edit' }, ['documents:update'])).toBe(false);
+    expect(await allowed(w, 'jill', 'POST', '/documents/update', ['documents:update'], {}, { alt: DO_UPDATE_ALT('body'), body: { id: 'do1' } })).toBe(true);
+    expect(await blocked(w, 'jill', 'POST', '/documents/update', ['documents:update'], {}, { alt: DO_UPDATE_ALT('body'), body: { id: 'qo1' } })).toBe(true);
+    expect(await allowed(w, 'jill', 'POST', '/deliveries/r1/verify', ['documents:update'], {}, OPS)).toBe(true);
+  });
+
+  it('the 15 stamped routes, and only those, carry @AltPermissions', () => {
+    const src = (f: string) => readFileSync(join(__dirname, '..', f), 'utf8');
+    const stamped = (f: string) => {
+      const lines = src(f).split('\n');
+      const out: string[] = [];
+      lines.forEach((l, i) => {
+        if (!l.includes('@AltPermissions(')) return;
+        const route = lines.slice(Math.max(0, i - 4), i).reverse().find((x) => /@(Get|Post|Put|Patch|Delete)\(/.test(x));
+        out.push(`${route?.trim()} ${l.includes("'body'") ? 'body' : l.includes('DO_UPDATE_ALT') ? 'DO' : 'job'}`);
+      });
+      return out;
+    };
+    expect(stamped('deliveries/deliveries.controller.ts')).toEqual([
+      "@Post('order-dos/:doId/complete') job",
+      "@Post(':id/office-complete') job",
+      "@Post(':id/verify') job",
+      "@Post(':id/reject') job",
+      "@Post(':id/cancel-handoff') job",
+    ]);
+    expect(stamped('job-photos/job-photos.controller.ts')).toEqual(["@Post('job-photos/:id/hide') job", "@Patch('job-photos/:id/tag') job"]);
+    expect(stamped('public-document/public-document.controller.ts')).toEqual(["@Post('documents/:id/share-link') DO", "@Post('documents/:id/share-link/revoke') DO"]);
+    expect(stamped('public-delivery/public-delivery.controller.ts')).toEqual(["@Post('documents/:id/delivery-share-link') DO", "@Post('documents/:id/delivery-share-link/revoke') DO"]);
+    expect(stamped('documents/documents.controller.ts')).toEqual(["@Patch(':id/lock') DO", "@Patch(':id/lock/heartbeat') DO", "@Delete(':id/lock') DO", "@Post('update') body"]);
+  });
+});
+
+describe('enableCustomAccess ON with no CustomAccess rows changes nothing for existing users', () => {
+  const ROUTES: Array<[string, string, string[]]> = [
+    ['GET', '/orders', ['orders:read']],
+    ['PATCH', '/orders/o1', ['orders:update']],
+    ['DELETE', '/orders/o1', ['orders:delete']],
+    ['GET', '/journal', ['journal:read']],
+    ['POST', '/journal', ['journal:create']],
+    ['POST', '/import/invoices', []],
+    ['POST', '/admin/x', []],
+    ['GET', '/deliveries', ['maintenance-reports:read']],
+    ['POST', '/deliveries/r1/cancel', ['maintenance-reports:create']],
+    ['POST', '/maintenance-reports/office', ['maintenance-reports:create']],
+    ['GET', '/dashboard/jobs-calendar', ['dashboard:read']],
+    ['POST', '/dashboard/jobs-calendar/notes', ['dashboard:read']],
+    ['POST', '/documents/create-basic', ['documents:create-basic']],
+    ['DELETE', '/documents/delete/qo1', ['documents:delete']],
+    ['GET', '/sales-report', ['documents:read']],
+    ['POST', '/users', ['users:create']],
+    ['GET', '/users/me/roles', []],
+    ['POST', '/inventories/x', ['inventories:update']],
+    ['GET', '/vehicles', ['vehicles:read']],
+  ];
+  const USERS = ['adam', 'sue', 'sam', 'ola', 'fred', 'stan', 'dora', 'dual', 'mixed', 'ivy', 'rex'];
+  const empty = (flags: Record<string, Record<string, unknown>>) => {
+    const w = world(flags);
+    w.db.customAccess = []; // no CustomAccess rows yet (prod today)
+    return w;
+  };
+
+  it('every guard decision is the same with the flag on and off', async () => {
+    for (const multi of [false, true]) {
+      const off = empty({ [WCT]: { enableMultiRole: multi }, [RACK]: { enableMultiRole: multi } });
+      const decisions = async (w: ReturnType<typeof world>) => {
+        const out: string[] = [];
+        for (const u of USERS) for (const [m, p, perms] of ROUTES) out.push(`${u} ${m} ${p} ${(await guard(w, u, m, p, perms)).ok}`);
+        return out;
+      };
+      const before = await decisions(off);
+      invalidateCustomAccess();
+      const on = empty({ [WCT]: { enableMultiRole: multi, enableCustomAccess: true }, [RACK]: { enableMultiRole: multi, enableCustomAccess: true } });
+      const after = await decisions(on);
+      expect(after).toEqual(before);
+      expect(after.filter((d) => d.endsWith('true')).length).toBeGreaterThan(50); // the matrix really allows things
+    }
+  });
+
+  it('GET /users/me/roles and the Users list "Custom" are the same with the flag on and off', async () => {
+    for (const multi of [false, true]) {
+      const read = async (w: ReturnType<typeof world>) => {
+        const users = new UsersService(null as any, w.prisma, null as any);
+        const out: Record<string, any> = {};
+        for (const u of USERS) out[u] = JSON.parse(JSON.stringify(await users.getUserRoles(u, u === 'rex' ? RACK : WCT)));
+        out.customIds = [...(await customAccessUserIds(w.prisma, WCT, USERS))];
+        return out;
+      };
+      const before = await read(empty({ [WCT]: { enableMultiRole: multi } }));
+      invalidateCustomAccess();
+      const after = await read(empty({ [WCT]: { enableMultiRole: multi, enableCustomAccess: true } }));
+      expect(after).toEqual(before);
+      expect(after.customIds).toEqual([]);
+      expect(after.adam.length).toBeGreaterThan(0);
+    }
+  });
+});

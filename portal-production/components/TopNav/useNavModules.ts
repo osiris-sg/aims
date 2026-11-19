@@ -16,7 +16,7 @@ import { menuOrderOverride, assetsNavModule, wctMenuModule } from "@/helpers/wct
 import { canVehicles } from "@/helpers/wctVehicles";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
 import { booksNavModule, clientsNavModule, visibleSalesSubmenus, withoutSalesMonthly } from "@/helpers/shipmentsNav";
-import { atLeast, jobsSubmenus, salesSubmenuAllowed, settingsAllowed } from "@/helpers/customAccess";
+import { atLeast, jobsSubmenus, rolesGrantCalendarTab, salesSubmenuAllowed, settingsAllowed } from "@/helpers/customAccess";
 
 // Mirrors DynamicSidebarContent — keep the two in sync.
 // User Management and Audit left the menu for every org (guru 2026-11-12):
@@ -211,11 +211,14 @@ export function useNavModules() {
       }
       return { ...m, config: { ...(m.config as any), subMenus: filtered } };
     })
-    // Custom access orgs with the jobs calendar: Jobs reads "Jobs | Calendar" (Jobs > Calendar opens the
-    // calendar for people without Sales); a custom-access person sees the tabs their access opens.
-    .map((m: any) =>
-      m.moduleCode === "DELIVERIES" && isCustomAccessEnabled && isJobsCalendarEnabled ? { ...m, config: { ...(m.config as any), subMenus: jobsSubmenus(customTabs) } } : m,
-    );
+    // Custom access orgs with the jobs calendar: a custom-access person sees the Jobs tabs their access
+    // opens ("Jobs | Calendar"); someone on ordinary roles gets "Jobs | Calendar" only when a role grants
+    // the CALENDAR module and they have no Sales (round 30), so the flag alone changes nothing for them.
+    .map((m: any) => {
+      if (m.moduleCode !== "DELIVERIES" || !isCustomAccessEnabled || !isJobsCalendarEnabled) return m;
+      if (customTabs) return { ...m, config: { ...(m.config as any), subMenus: jobsSubmenus(customTabs) } };
+      return rolesGrantCalendarTab(userRoles, moduleOn("SALES")) ? { ...m, config: { ...(m.config as any), subMenus: jobsSubmenus(null) } } : m;
+    });
   // Round AM: "Clients" right after Sales for orgs whose menu has the SHIPMENTS module (Sales).
   const sales = built.find((m: any) => m.moduleCode === "SHIPMENTS");
   // WCT: Assets (Vehicles) after Service reports (helpers/wctNav.ts), for vehicles:read holders.
