@@ -365,7 +365,9 @@ function newOrderLinked(o, batch, at) {
 function withDoLinks(ld, entries) {
   const cur = Array.isArray(ld?.do) ? ld.do : [];
   const have = new Set(cur.map((x) => x?.id));
-  const add = entries.filter((e) => !have.has(e.id));
+  // A DO the office unlinked from the order in the app (round 19, imported.unlinked) is never linked back.
+  const unlinked = new Set((Array.isArray(ld?.imported?.unlinked) ? ld.imported.unlinked : []).map((x) => (typeof x === 'string' ? x : x?.id)));
+  const add = entries.filter((e) => !have.has(e.id) && !unlinked.has(e.id));
   return { ...(ld || {}), do: [...cur, ...add] };
 }
 

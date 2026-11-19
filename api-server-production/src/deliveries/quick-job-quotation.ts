@@ -70,6 +70,8 @@ export function quotationStatusLabel(status: string | null | undefined, orderNum
 export function isOpenDo(d: { status: string | null; config: any }): boolean {
   const c = d.config || {};
   if (c.cancelled === true) return false;
+  // An imported old-ERP DO (only ever on an imported order, round 19) is history: never open for a job.
+  if (c.erpImport && typeof c.erpImport === 'object') return false;
   if (String(d.status ?? '').startsWith('delivered')) return false;
   if (c.awaitingSignature === true) return false;
   return true;

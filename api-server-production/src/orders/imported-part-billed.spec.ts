@@ -74,18 +74,22 @@ describe('imported part-billed order: Create invoice (native draft for what is l
     // Still part billed while the new invoice is a draft.
     expect(order.status).toBe('PART_BILLED');
   });
-  it('refused: an order billed in full, a completed order, an order with a draft already, a non-imported order', async () => {
+  it('round 19: billed in full or complete = the office gives the lines (no lines: refused); refused with a draft made on the order or on a non-imported order', async () => {
     const full = world({ docs: [{ ...I014521, config: { ...I014521.config, totalWithTax: 2616, paidToDate: 2616 } }] });
-    await expect(full.svc.invoiceImportedOrderRemainder('o1', ORG)).rejects.toThrow(/Nothing left to bill/);
+    await expect(full.svc.invoiceImportedOrderRemainder('o1', ORG)).rejects.toThrow(/Nothing left to bill on this order/);
+    expect(full.svc.createBasicDocument).not.toHaveBeenCalled();
+    await full.svc.invoiceImportedOrderRemainder('o1', ORG, { lines: [{ description: 'Extra service', quantity: 1, unitPrice: 300 }] });
+    expect(full.svc.createBasicDocument).toHaveBeenCalledTimes(1);
     const done = world({ marker: { completed: { at: 'x', by: null, byName: null, reason: 'r', auto: true } } });
-    await expect(done.svc.invoiceImportedOrderRemainder('o1', ORG)).rejects.toThrow(/marked complete/);
-    const draft = world({ docs: [I014521, { id: 'inv9', name: 'INV202611-0040', status: 'unconfirmed', config: { totalWithTax: 1308 } }] });
+    await done.svc.invoiceImportedOrderRemainder('o1', ORG);
+    expect(done.svc.createBasicDocument).toHaveBeenCalledTimes(1);
+    expect(done.order.status).toBe('COMPLETED');
+    const draft = world({ docs: [I014521, { id: 'inv9', name: 'INV202611-0040', status: 'unconfirmed', config: { totalWithTax: 1308, orderId: 'o1' } }] });
     draft.order.linkedDocuments.invoice.push({ id: 'inv9', name: 'INV202611-0040', native: true });
     await expect(draft.svc.invoiceImportedOrderRemainder('o1', ORG)).rejects.toThrow(/already has a draft invoice \(INV202611-0040\)/);
     const native = world();
     native.order.linkedDocuments = { invoice: [] };
     await expect(native.svc.invoiceImportedOrderRemainder('o1', ORG)).rejects.toBeInstanceOf(HttpException);
-    expect(full.svc.createBasicDocument).not.toHaveBeenCalled();
   });
 });
 

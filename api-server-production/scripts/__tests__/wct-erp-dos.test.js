@@ -125,3 +125,8 @@ test('adding DO links changes only the do array: no repeats, marker and invoices
   assert.equal(next.imported, ld.imported);
   assert.deepEqual(withDoLinks(null, [{ id: 'd1' }]), { do: [{ id: 'd1' }] });
 });
+
+test('a DO unlinked in the app (imported.unlinked) is never linked back by a re-run', () => {
+  const ld = { do: [], imported: { source: 'erp-import', unlinked: [{ id: 'd1', type: 'DELIVERY_ORDER' }] } };
+  assert.deepEqual(withDoLinks(ld, [{ id: 'd1' }, { id: 'd2' }]).do.map((x) => x.id), ['d2']);
+});

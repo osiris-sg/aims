@@ -61,3 +61,20 @@ describe('ActionLogInterceptor — split payment (enableInvoiceSplit)', () => {
     expect(rows[0].details.result).toEqual(result);
   });
 });
+
+describe('ActionLogInterceptor — imported orders, Link existing document (round 19)', () => {
+  const ORDER = '6b1c1d7e-2222-4c3b-9b1a-0a0a0a0a0a0b';
+  it.each([
+    ['link-document', 'LINK', { linked: 'QUOTATION QO202611-0050', order: 'ORD-Q-014154' }],
+    ['unlink-document', 'UNLINK', { unlinked: 'INVOICE I-014521', order: 'ORD-Q-014154' }],
+  ])('POST /orders/:id/%s logs %s with the document and the order', async (verb, action, result) => {
+    const req: any = { ...base(), originalUrl: `/orders/${ORDER}/${verb}`, url: `/orders/${ORDER}/${verb}`, params: { id: ORDER }, body: { type: 'QUOTATION', id: 'x' } };
+    const { rows, out } = run(req, () => {
+      req.actionLogResult = result;
+      return of({ ok: true });
+    });
+    await out;
+    expect(rows[0]).toMatchObject({ action, resource: 'orders', resourceId: ORDER, status: 'SUCCESS' });
+    expect(rows[0].details.result).toEqual(result);
+  });
+});

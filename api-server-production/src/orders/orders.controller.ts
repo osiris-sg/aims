@@ -120,6 +120,33 @@ export class OrdersController {
     return this.ordersService.reopenImported(id, this.orgId(req));
   }
 
+  /**
+   * Imported orders, round 19 (2026-11-19): "Link existing document". The customer's quotations / invoices / DOs /
+   * service reports by number (each with the order it is already on), link one, unlink one. Activity Log: LINK /
+   * UNLINK rows (VERB_ACTIONS) whose result names the document and the order.
+   */
+  @Get(':id/link-options')
+  @Permissions('orders:read')
+  async linkOptions(@Param('id') id: string, @Req() req: any) {
+    return this.ordersService.importedLinkOptions(id, this.orgId(req), { type: req.query?.type, q: req.query?.q });
+  }
+
+  @Post(':id/link-document')
+  @Permissions('orders:update')
+  async linkDocumentToImported(@Param('id') id: string, @Body() body: any, @Req() req: any) {
+    const out = await this.ordersService.linkImportedDocument(id, this.orgId(req), body || {}, linkActorOf(req));
+    req.actionLogResult = { linked: `${out.type} ${out.name ?? out.id}`, order: out.orderNumber };
+    return out;
+  }
+
+  @Post(':id/unlink-document')
+  @Permissions('orders:update')
+  async unlinkDocumentFromImported(@Param('id') id: string, @Body() body: any, @Req() req: any) {
+    const out = await this.ordersService.unlinkImportedDocument(id, this.orgId(req), body || {}, linkActorOf(req));
+    req.actionLogResult = { unlinked: `${out.type} ${out.name ?? out.id}`, order: out.orderNumber };
+    return out;
+  }
+
   @Post('from-quotation/:quotationId')
   @Permissions('orders:create')
   async createFromQuotation(
@@ -197,6 +224,12 @@ export class OrdersController {
     if (!orgId) throw new Error('User is not assigned to any organization');
     return this.ordersService.delete(id, orgId);
   }
+}
+
+/** Who linked / unlinked a document (stored on the link entry). */
+function linkActorOf(req: any): { id: string | null; name: string | null } {
+  const u: any = req?.user || {};
+  return { id: u.id ?? null, name: [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.emailAddresses?.[0]?.emailAddress || u.email || null };
 }
 
 /** Who added it (id + display name from the Clerk user). */

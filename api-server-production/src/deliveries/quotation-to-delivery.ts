@@ -1,4 +1,4 @@
-import { isImportedOrder } from '../orders/imported-orders';
+import { importedOrderLinkingQuotation, isImportedOrder } from '../orders/imported-orders';
 import { ConflictException } from '@nestjs/common';
 import { isOrgFeatureEnabled } from 'src/common/org-features';
 import { runAsOrg } from 'src/common/tenancy/tenant-context';
@@ -76,6 +76,15 @@ export async function autoDraftDeliveryFromQuotation(
       select: { id: true, name: true, type: true, projectId: true, config: true },
     });
     if (!doc || !QUOTATION_TYPES.includes(String(doc.type).toUpperCase())) return null;
+    // Round 19: a quotation linked on an imported order (Link existing document) is on that order already: no order,
+    // no job, no DO of its own (one order per document). Read only where imported orders are on.
+    if (wctOrders) {
+      const holder = await importedOrderLinkingQuotation(prisma, organizationId, doc.id);
+      if (holder) {
+        logger?.log?.(`quotation→order: ${doc.name || doc.id} is linked on ${holder.orderNumber}; no order made`);
+        return null;
+      }
+    }
 
     // One run per quotation — a re-confirm (revert → edit → re-sign) must not
     // stack a second schedule next to the first. With WCT orders the order's

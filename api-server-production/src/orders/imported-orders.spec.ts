@@ -346,10 +346,10 @@ describe('imported orders: OrdersService', () => {
     expect(writes).toEqual([]);
   });
 
-  it('order page: tracker without DO / service report, nothing to act on; setting off = not found', async () => {
+  it('order page: tracker without DO / service report until some are added, open for work (round 19); setting off = not found', async () => {
     const on = svcWith({ enableWctOrders: true, enableImportedOrders: true }, [importedRow]);
     const page: any = await on.svc.getById('imp1', 'org');
-    expect(page).toMatchObject({ imported: true, readOnly: true, status: 'INVOICED', jobs: [], deliveryOrders: [], erpDoNumbers: ['DO1'], owed: 200 });
+    expect(page).toMatchObject({ imported: true, readOnly: false, canInvoice: true, canLink: true, status: 'INVOICED', jobs: [], deliveryOrders: [], linkedDos: [], quotations: [], erpDoNumbers: ['DO1'], owed: 200 });
     expect(page.tracker.map((s: any) => s.state)).toEqual(['done', 'done', 'na', 'na']);
     expect(page.invoices[0]).toMatchObject({ name: 'I-1', linkSource: 'contract_no', erpDoNumber: 'DO1', owed: 200, state: 'PART_PAID', stateLabel: 'Part paid' });
     expect(page).toMatchObject({ billed: 500, quoteTotal: 500, statusLabel: 'Invoiced, part paid' });
@@ -384,17 +384,23 @@ describe('imported orders: OrdersService', () => {
     expect(prisma.document.update).not.toHaveBeenCalled();
   });
 
-  it('server refuses cancel, edit, link, attach, status and delete on an imported order (setting on or off)', async () => {
+  it('server refuses cancel, edit, the generic link, status and delete on an imported order (setting on or off); files only with the setting on', async () => {
     for (const features of [{ enableWctOrders: true, enableImportedOrders: true }, { enableWctOrders: true }]) {
       const { svc, writes } = svcWith(features, [importedRow]);
       await expect(svc.cancelWctOrder('imp1', 'org')).rejects.toThrow(/imported from the old ERP/);
-      await expect(svc.updateStatus('imp1', 'org', 'PAID')).rejects.toThrow(/read-only/);
-      await expect(svc.updateItems('imp1', 'org', [])).rejects.toThrow(/read-only/);
-      await expect(svc.linkDocument('imp1', 'org', 'do', { id: 'd', name: 'DO' })).rejects.toThrow(/read-only/);
-      await expect(svc.addOrderAttachment('imp1', 'org', { kind: 'file', fileKey: 'k' }, {})).rejects.toThrow(/read-only/);
-      await expect(svc.delete('imp1', 'org')).rejects.toThrow(/read-only/);
+      await expect(svc.updateStatus('imp1', 'org', 'PAID')).rejects.toThrow(/cannot be cancelled, deleted or edited/);
+      await expect(svc.updateItems('imp1', 'org', [])).rejects.toThrow(/cannot be cancelled, deleted or edited/);
+      await expect(svc.linkDocument('imp1', 'org', 'do', { id: 'd', name: 'DO' })).rejects.toThrow(/cannot be cancelled, deleted or edited/);
+      await expect(svc.delete('imp1', 'org')).rejects.toThrow(/cannot be cancelled, deleted or edited/);
       expect(writes).toEqual([]);
     }
+    // Round 19: a file / service report goes on an imported order while the setting is on; off, it is refused.
+    const off = svcWith({ enableWctOrders: true }, [importedRow]);
+    await expect(off.svc.addOrderAttachment('imp1', 'org', { kind: 'file', fileKey: 'k', fileName: 'f.pdf' }, {})).rejects.toThrow(/switched off/);
+    expect(off.writes).toEqual([]);
+    const on = svcWith({ enableWctOrders: true, enableImportedOrders: true }, [importedRow]);
+    await on.svc.addOrderAttachment('imp1', 'org', { kind: 'file', fileKey: 'k', fileName: 'f.pdf' }, {});
+    expect(on.writes[0]).toEqual(['order.update', expect.objectContaining({ data: { attachments: [expect.objectContaining({ kind: 'file', fileKey: 'k' })] } })]);
   });
 
   it('assertNotImportedOrder lets a native order through', async () => {
@@ -402,6 +408,6 @@ describe('imported orders: OrdersService', () => {
     await expect(assertNotImportedOrder(prisma, 'org', 'n1')).resolves.toBeUndefined();
     await expect(assertNotImportedOrder(prisma, 'org', null)).resolves.toBeUndefined();
     prisma.order.findFirst.mockResolvedValue(importedRow);
-    await expect(assertNotImportedOrder(prisma, 'org', 'imp1')).rejects.toThrow(/read-only/);
+    await expect(assertNotImportedOrder(prisma, 'org', 'imp1')).rejects.toThrow(/cannot be cancelled, deleted or edited/);
   });
 });

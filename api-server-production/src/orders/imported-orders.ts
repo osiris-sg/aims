@@ -1,7 +1,8 @@
 import { HttpException, HttpStatus } from '@nestjs/common';
 import { isOrgFeatureEnabled } from '../common/org-features';
-import { erpImportOf } from '../common/erp-import';
+import { erpImportOf, isErpImported } from '../common/erp-import';
 import { amountPaidOf, grossOf, owedOf } from '../common/document-money';
+import { withSplitPartIds } from '../documents/invoice-split';
 
 /**
  * IMPORTED ORDERS (WCT group, 2026-11-18; per-org setting features.enableImportedOrders, default off).
@@ -26,8 +27,11 @@ import { amountPaidOf, grossOf, owedOf } from '../common/document-money';
  * The marker is linkedDocuments.imported (no schema change):
  *   { source: 'erp-import', batch, quotationNo, linkSources: { [invoiceId]: 'contract_no' | ... },
  *     erpDoNumbers: ['DO010975'], at }
- * An imported order is read-only everywhere: no DO, no job, no invoice from
- * the order, no cancel, no edit (assertNotImportedOrder at every entry point).
+ *
+ * Open for backfilling (round 19, 2026-11-19, setting on): an imported order takes the native manual-flow actions
+ * (Add DO, Add job, service report, Create invoice, Split payment on its new invoices) and "Link existing document"
+ * (imported-order-links.ts). It is never cancelled, deleted or edited (assertNotImportedOrder); everything else
+ * goes through assertImportedOrderOpen. The imported quotation / invoices / DOs stay read-only (common/erp-import.ts).
  */
 export const IMPORTED_ORDERS_FLAG = 'enableImportedOrders';
 export const IMPORTED_ORDER_SOURCE = 'erp-import';
@@ -94,9 +98,18 @@ export function importedMarkerOf(order: { linkedDocuments?: unknown } | null | u
 
 export const isImportedOrder = (order: { linkedDocuments?: unknown } | null | undefined): boolean => importedMarkerOf(order) !== null;
 
-export const IMPORTED_ORDER_READ_ONLY = 'This order was imported from the old ERP. It is read-only: it has no DO, jobs or service report, and it cannot be cancelled or edited.';
+export const IMPORTED_ORDER_READ_ONLY = 'This order was imported from the old ERP. It cannot be cancelled, deleted or edited.';
+/** An imported order while the setting is off (the order is hidden then). */
+export const IMPORTED_ORDERS_OFF = 'This order was imported from the old ERP and imported orders are switched off for this organisation.';
+/** "Invoice now" / the quotation invoice are native-order steps; an imported order is billed with Create invoice. */
+export const IMPORTED_ORDER_USE_CREATE_INVOICE = 'This order was imported from the old ERP: bill it with Create invoice on the order page.';
+/** An old-ERP quotation never gets a new order of its own (its order, if any, came from its ERP links). */
+export const IMPORTED_QUOTATION_NO_ORDER = 'This quotation was imported from the old ERP. Its order comes from the old ERP links only.';
 
-/** Refuse any change to an imported order. A missing order is left to the caller's own not-found handling. */
+/**
+ * Refuse cancel / delete / edit (status, items, the generic link) of an imported order. A missing order is left to
+ * the caller's own not-found handling.
+ */
 export async function assertNotImportedOrder(prisma: any, organizationId: string, orderId: string | null | undefined): Promise<void> {
   if (!orderId || String(orderId).startsWith('claim:')) return;
   let order: any = null;
@@ -106,6 +119,23 @@ export async function assertNotImportedOrder(prisma: any, organizationId: string
     return;
   }
   if (isImportedOrder(order)) throw new HttpException(IMPORTED_ORDER_READ_ONLY, HttpStatus.BAD_REQUEST);
+}
+
+/**
+ * Round 19 (2026-11-19): the work entry points (Add DO, Add job, service report, attachments) take an imported
+ * order like a native one while the setting is on; with it off the order is hidden, so they refuse. Native orders
+ * always pass (unchanged). A missing order is left to the caller.
+ */
+export async function assertImportedOrderOpen(prisma: any, organizationId: string, orderId: string | null | undefined): Promise<void> {
+  if (!orderId || String(orderId).startsWith('claim:')) return;
+  let order: any = null;
+  try {
+    order = await prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { linkedDocuments: true } });
+  } catch {
+    return;
+  }
+  if (!isImportedOrder(order)) return;
+  if (!(await isImportedOrdersEnabled(prisma, organizationId))) throw new HttpException(IMPORTED_ORDERS_OFF, HttpStatus.BAD_REQUEST);
 }
 
 /**
@@ -332,18 +362,24 @@ export function planImportedOrders(
     const ld: any = ex.linkedDocuments || {};
     const curIds: string[] = Array.isArray(ld.invoice) ? ld.invoice.map((x: any) => x?.id).filter(Boolean) : [];
     const cur = curIds.map((id) => docById.get(id)).filter(Boolean).map((doc) => ({ doc: doc as PlanDoc, source: (m.linkSources?.[(doc as PlanDoc).id] ?? 'contract_no') as ImportedLinkSource }));
-    const addInvoices = (ex.sourceQuotationId ? perQuote.get(ex.sourceQuotationId) ?? [] : []).filter((i) => !curIds.includes(i.doc.id)).sort(byDate);
+    // An invoice the office unlinked from the order (round 19, "Unlink") is never linked back by a re-run.
+    const unlinked = unlinkedIdsOf(ex);
+    const addInvoices = (ex.sourceQuotationId ? perQuote.get(ex.sourceQuotationId) ?? [] : []).filter((i) => !curIds.includes(i.doc.id) && !unlinked.has(i.doc.id)).sort(byDate);
     const all = [...cur, ...addInvoices];
     const q = ex.sourceQuotationId ? quoteById.get(ex.sourceQuotationId) ?? null : null;
     const credits = creditsFor(all);
     const quoteTotal = q ? grossOf(q.config) : m.quoteTotal ?? null;
-    const st = importedOrderStatus(all.map((i) => ({ ...i.doc, credit: credits[i.doc.id] ?? 0 })), quoteTotal, { completed: importedCompletionOf(ex), partBilledRule: usesPartBilledRule(ex), dos: importedDosOf(ex) });
+    const computed = importedOrderStatus(all.map((i) => ({ ...i.doc, credit: credits[i.doc.id] ?? 0 })), quoteTotal, { completed: importedCompletionOf(ex), partBilledRule: usesPartBilledRule(ex), dos: importedDosOf(ex) });
+    // Round 19: an order holding AIMS documents or links has its status from the app (which reads those too); the
+    // import only adds its newly linked ERP invoices there and keeps the stored status.
+    const appOwned = hasAimsLinks(ex);
+    const st: ImportedOrderStatus = appOwned ? { ...computed, status: ex.status as ImportedOrderStatusCode } : computed;
     const curCn: string[] = Array.isArray(ld.creditNote) ? ld.creditNote.map((x: any) => x?.id) : [];
     const addCreditNotes = all.flatMap((i) => cnByInvoice.get(i.doc.id) ?? []).filter((c) => !curCn.includes(c.id));
     const changes: string[] = [];
     if (addInvoices.length) changes.push('invoices');
-    if (st.status !== ex.status) changes.push('status');
-    if ((m.billedPct ?? null) !== st.billedPct || (m.billed ?? null) !== st.billed || (m.quoteTotal ?? null) !== quoteTotal) changes.push('billed');
+    if (!appOwned && st.status !== ex.status) changes.push('status');
+    if (!appOwned && ((m.billedPct ?? null) !== st.billedPct || (m.billed ?? null) !== st.billed || (m.quoteTotal ?? null) !== quoteTotal)) changes.push('billed');
     if (JSON.stringify(sortKeys(m.credits ?? {})) !== JSON.stringify(sortKeys(credits)) || addCreditNotes.length) changes.push('credits');
     if (!changes.length) continue;
     const customerId = (q?.config?.customerId as string) || null;
@@ -542,17 +578,29 @@ export const IMPORTED_STATUS_LABEL = (s: Pick<ImportedOrderStatus, 'label'>): st
  * The order page's tracker for an imported order: Quotation and Invoice done,
  * DO and Service report not applicable (the old ERP's DO numbers shown as text).
  */
-export function importedTracker(order: { erpDoNumbers?: string[]; dos?: Array<{ name?: string | null; erpStatus?: string | null; done?: boolean | null }> }, st: Pick<ImportedOrderStatus, 'label'> & { status?: string }) {
+export function importedTracker(
+  order: { erpDoNumbers?: string[]; dos?: Array<{ name?: string | null; erpStatus?: string | null; done?: boolean | null }>; reports?: Array<{ reportNumber?: number | null; status?: string | null }> },
+  st: Pick<ImportedOrderStatus, 'label'> & { status?: string },
+) {
   // 2026-11-19: ERP DOs imported and linked: the DO step shows them; an order made from a DO has no invoice yet.
+  // Round 19: DOs added in AIMS (Add DO / Link existing document) show there too, and service reports on the order.
   const dos = (order.dos ?? []).filter((d) => d && d.name);
+  const reports = order.reports ?? [];
   const noInvoice = st.status === 'DO_DRAFT' || st.status === 'DO_COMPLETED';
   return [
     { key: 'quotation', label: 'Quotation', state: 'done' as const },
     { key: 'invoice', label: 'Invoice', state: noInvoice ? ('todo' as const) : ('done' as const), note: noInvoice ? 'Invoice pending' : IMPORTED_STATUS_LABEL(st) },
     dos.length
-      ? { key: 'do', label: 'DO', state: 'done' as const, note: dos.map((d) => `${d.name} (${importedDoDone(d) ? 'Completed' : 'Draft'})`).join(', ') }
+      ? { key: 'do', label: 'DO', state: dos.every((d) => importedDoDone(d)) ? ('done' as const) : ('todo' as const), note: dos.map((d) => `${d.name} (${importedDoDone(d) ? 'Completed' : 'Draft'})`).join(', ') }
       : { key: 'do', label: 'DO', state: 'na' as const, note: order.erpDoNumbers?.length ? `ERP DO ${order.erpDoNumbers.join(', ')}` : null },
-    { key: 'serviceReport', label: 'Service report', state: 'na' as const, note: null },
+    reports.length
+      ? {
+          key: 'serviceReport',
+          label: 'Service report',
+          state: reports.every((r) => r.status === 'completed') ? ('done' as const) : ('todo' as const),
+          note: reports.map((r) => (r.reportNumber ? `#${r.reportNumber}` : 'Draft')).join(', '),
+        }
+      : { key: 'serviceReport', label: 'Service report', state: 'na' as const, note: null },
   ];
 }
 
@@ -564,21 +612,158 @@ export function importedTracker(order: { erpDoNumbers?: string[]; dos?: Array<{ 
 export async function refreshImportedOrderStatus(prisma: any, organizationId: string, orderId: string): Promise<ImportedOrderStatus | null> {
   const order = await prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, linkedDocuments: true, sourceQuotationId: true } });
   if (!order || !isImportedOrder(order)) return null;
-  const m: any = importedMarkerOf(order) || {};
-  const refs: any[] = Array.isArray((order.linkedDocuments as any)?.invoice) ? (order.linkedDocuments as any).invoice.filter((x: any) => x && typeof x.id === 'string') : [];
-  const docs: any[] = refs.length ? await prisma.document.findMany({ where: { organizationId, id: { in: refs.map((r) => r.id) } }, select: { id: true, status: true, config: true } }) : [];
-  let quoteTotal: number | null = m.quoteTotal != null && Number.isFinite(Number(m.quoteTotal)) ? Number(m.quoteTotal) : null;
-  if (quoteTotal == null && order.sourceQuotationId) {
-    const q = await prisma.document.findFirst({ where: { id: order.sourceQuotationId, organizationId }, select: { config: true } });
-    quoteTotal = q ? grossOf(q.config) : null;
-  }
-  const st = importedOrderStatus(
-    docs.map((d) => ({ ...d, credit: Number(m.credits?.[d.id]) || creditOfImportedInvoice(d.config) })),
-    quoteTotal,
-    { completed: importedCompletionOf(order), partBilledRule: usesPartBilledRule(order), dos: importedDosOf(order) },
-  );
+  const inputs = (await loadImportedOrderInputs(prisma, organizationId, [order])).get(order.id)!;
+  const st = importedStatusFrom(order, inputs);
   if (st.status !== order.status) await prisma.order.update({ where: { id: order.id }, data: { status: st.status } });
   return st;
+}
+
+// ── Round 19 (2026-11-19): everything on the order counts ───────────────────
+//
+// Invoices: linkedDocuments.invoice (imported, made by Create invoice, linked by "Link existing document") plus every
+// part of a split one. Quotation total: the source quotation's (the marker's quoteTotal, else the quotation) plus
+// every linked quotation's. DOs (status only when nothing is billed yet): the imported ERP DOs on the order (their
+// done flag) plus the order's AIMS DOs (config.orderId, made by Add DO) and linked AIMS DOs (completed / delivered).
+
+const DO_TYPES = ['DELIVERY_ORDER', 'DO'];
+const isDoType = (t: unknown) => DO_TYPES.includes(String(t ?? '').toUpperCase());
+
+/** An AIMS DO is done once completed / delivered. */
+export const nativeDoDone = (d: { status?: string | null }): boolean => String(d?.status ?? '').startsWith('delivered');
+
+/** A document that no longer counts (voided / cancelled). */
+const isDead = (d: { config?: any } | null | undefined) => d?.config?.voided === true || d?.config?.cancelled === true;
+
+const refsOf = (order: { linkedDocuments?: unknown }, key: string): any[] => {
+  const list = (order?.linkedDocuments as any)?.[key];
+  return Array.isArray(list) ? list.filter((x: any) => x && typeof x.id === 'string') : [];
+};
+
+/** The quotations linked on top of the order's own (round 19, "Link existing document"). */
+export const linkedQuotationRefsOf = (order: { linkedDocuments?: unknown }) => refsOf(order, 'quotation');
+
+/** Ids the office unlinked from the order (kept so a re-run of the import never links them back). */
+export const unlinkedIdsOf = (order: { linkedDocuments?: unknown } | null | undefined): Set<string> => {
+  const list = (importedMarkerOf(order) as any)?.unlinked;
+  return new Set(Array.isArray(list) ? list.map((x: any) => (typeof x === 'string' ? x : x?.id)).filter(Boolean) : []);
+};
+
+export interface ImportedOrderInputs {
+  /** Linked invoices plus split parts, link order first. */
+  invoiceDocs: any[];
+  creditNoteDocs: any[];
+  /** Linked quotations (not the source one), live ones only. */
+  linkedQuotations: any[];
+  /** The source quotation's config when it was read (no marker total). */
+  sourceQuotationConfig: any | null;
+  quoteTotal: number | null;
+  /** AIMS DOs of the order (own + linked), live ones; read only when nothing is billed yet. */
+  nativeDos: any[];
+}
+
+/**
+ * Read what the status needs for one or many imported orders in a few batched queries. AIMS DOs are read only for
+ * orders with no counted invoice (they decide the status only then).
+ */
+export async function loadImportedOrderInputs(
+  prisma: any,
+  organizationId: string,
+  orders: Array<{ id: string; sourceQuotationId?: string | null; linkedDocuments?: unknown }>,
+  opts: { sourceQuotationConfigs?: Map<string, any> } = {},
+): Promise<Map<string, ImportedOrderInputs>> {
+  const out = new Map<string, ImportedOrderInputs>();
+  if (!orders.length) return out;
+  const sel = { id: true, name: true, type: true, status: true, documentTemplateId: true, config: true, createdAt: true };
+  const linkedDoRefs = (o: any) => refsOf(o, 'do').filter((r) => r.imported !== true);
+  const ids = [...new Set(orders.flatMap((o) => [...refsOf(o, 'invoice'), ...refsOf(o, 'creditNote'), ...linkedQuotationRefsOf(o), ...linkedDoRefs(o)].map((r) => r.id)))];
+  const rows: any[] = ids.length ? await prisma.document.findMany({ where: { organizationId, id: { in: ids } }, select: sel }) : [];
+  const byId = new Map<string, any>(rows.map((d) => [d.id, d]));
+  // Split payment: the other parts of a split invoice count too.
+  const invIds = [...new Set(orders.flatMap((o) => refsOf(o, 'invoice').map((r) => r.id)))];
+  const parts = withSplitPartIds(invIds, invIds.map((id) => byId.get(id)).filter(Boolean)).filter((id) => !byId.has(id));
+  if (parts.length) for (const d of await prisma.document.findMany({ where: { organizationId, id: { in: parts } }, select: sel })) byId.set(d.id, d);
+  // Source quotation totals the marker does not carry.
+  const needQuote = orders.filter((o) => {
+    const m: any = importedMarkerOf(o) || {};
+    return !(m.quoteTotal != null && Number.isFinite(Number(m.quoteTotal))) && o.sourceQuotationId && !opts.sourceQuotationConfigs?.has(o.sourceQuotationId);
+  }).map((o) => o.sourceQuotationId as string);
+  const quoteCfg = new Map<string, any>(opts.sourceQuotationConfigs ?? []);
+  if (needQuote.length) for (const d of await prisma.document.findMany({ where: { organizationId, id: { in: [...new Set(needQuote)] } }, select: { id: true, config: true } })) quoteCfg.set(d.id, d.config);
+
+  const partial = new Map<string, Omit<ImportedOrderInputs, 'nativeDos'>>();
+  for (const o of orders) {
+    const m: any = importedMarkerOf(o) || {};
+    const own = refsOf(o, 'invoice').map((r) => r.id);
+    const invoiceDocs = withSplitPartIds(own, own.map((id) => byId.get(id)).filter(Boolean)).map((id) => byId.get(id)).filter(Boolean);
+    const creditNoteDocs = refsOf(o, 'creditNote').map((r) => byId.get(r.id)).filter(Boolean);
+    const linkedQuotations = linkedQuotationRefsOf(o).map((r) => byId.get(r.id)).filter((d) => d && !isDead(d));
+    const srcCfg = o.sourceQuotationId ? quoteCfg.get(o.sourceQuotationId) ?? null : null;
+    const base = m.quoteTotal != null && Number.isFinite(Number(m.quoteTotal)) ? Number(m.quoteTotal) : srcCfg ? grossOf(srcCfg) : null;
+    const totals = [base, ...linkedQuotations.map((d) => grossOf(d.config))].filter((n): n is number => n != null && Number.isFinite(Number(n)));
+    const quoteTotal = totals.length ? R2(totals.reduce((t, n) => t + Number(n), 0)) : null;
+    partial.set(o.id, { invoiceDocs, creditNoteDocs, linkedQuotations, sourceQuotationConfig: srcCfg, quoteTotal });
+  }
+  // AIMS DOs: only for orders with nothing counted yet (the DO statuses decide then).
+  const needDos = orders.filter((o) => !partial.get(o.id)!.invoiceDocs.some((d) => isCountedInvoice(d)));
+  const own = needDos.length
+    ? await prisma.document.findMany({
+        where: { organizationId, type: { in: DO_TYPES }, OR: needDos.map((o) => ({ config: { path: ['orderId'], equals: o.id } })) },
+        select: sel,
+      })
+    : [];
+  for (const o of orders) {
+    const p = partial.get(o.id)!;
+    let nativeDos: any[] = [];
+    if (needDos.includes(o)) {
+      const mine = (own as any[]).filter((d) => d.config?.orderId === o.id);
+      const linked = linkedDoRefs(o).map((r) => byId.get(r.id)).filter(Boolean);
+      const seen = new Set<string>();
+      nativeDos = [...mine, ...linked].filter((d) => isDoType(d.type) && !isErpImported(d.config) && !isDead(d) && !seen.has(d.id) && !!seen.add(d.id));
+    }
+    out.set(o.id, { ...p, nativeDos });
+  }
+  return out;
+}
+
+/** The order's status from what loadImportedOrderInputs read (the completion mark, then money, then DOs). */
+export function importedStatusFrom(order: { linkedDocuments?: unknown }, inputs: ImportedOrderInputs): ImportedOrderStatus {
+  const m: any = importedMarkerOf(order) || {};
+  const dos = [...importedDosOf(order), ...inputs.nativeDos.map((d) => ({ name: d.name, done: nativeDoDone(d) }))];
+  return importedOrderStatus(
+    inputs.invoiceDocs.map((d) => ({ ...d, credit: Number(m.credits?.[d.id]) || creditOfImportedInvoice(d.config) })),
+    inputs.quoteTotal,
+    { completed: importedCompletionOf(order), partBilledRule: usesPartBilledRule(order), dos },
+  );
+}
+
+/**
+ * The order's AIMS draft invoice made on it (Create invoice, or a split part of it), or null. "Open draft invoice"
+ * then, never a second one. A draft linked from elsewhere does not count (it was not made here).
+ */
+export function importedOrderDraftInvoice<T extends { status?: string; config?: any }>(invoiceDocs: T[], orderId: string): T | null {
+  return invoiceDocs.find((d) => !isErpImported(d.config) && !isCountedInvoice(d) && d.config?.voided !== true && d.config?.orderId === orderId) ?? null;
+}
+
+/**
+ * The imported order a quotation was linked to ("Link existing document", round 19), or null. Only read where
+ * imported orders are on; such a quotation never gets an order of its own when it is accepted (one order per document).
+ */
+export async function importedOrderLinkingQuotation(prisma: any, organizationId: string, quotationId: string): Promise<{ id: string; orderNumber: string } | null> {
+  if (!(await isImportedOrdersEnabled(prisma, organizationId))) return null;
+  try {
+    return await prisma.order.findFirst({ where: { organizationId, linkedDocuments: { path: ['quotation'], array_contains: [{ id: quotationId }] } }, select: { id: true, orderNumber: true } });
+  } catch {
+    return null;
+  }
+}
+
+/** The order holds an AIMS document or a link made in AIMS: its status can move without the import (round 19). */
+export function hasAimsLinks(order: { linkedDocuments?: unknown }): boolean {
+  return (
+    refsOf(order, 'invoice').some((r) => r.native === true || r.splitPart === true || !!r.linked) ||
+    linkedQuotationRefsOf(order).length > 0 ||
+    refsOf(order, 'do').some((r) => r.imported !== true || !!r.linked)
+  );
 }
 
 /** The order's ERP DOs (linkedDocuments.do, imported) for the status: their ERP state. */

@@ -1,4 +1,4 @@
-import { IMPORTED_ORDER_READ_ONLY, creditOfImportedInvoice, importedCompletionOf, importedMarkerOf, importedOrderStatus, isCountedInvoice, isImportedOrder, isImportedOrdersEnabled, refreshImportedOrderStatus, usesPartBilledRule } from '../orders/imported-orders';
+import { IMPORTED_ORDER_USE_CREATE_INVOICE, importedMarkerOf, importedOrderDraftInvoice, importedStatusFrom, isImportedOrder, isImportedOrdersEnabled, loadImportedOrderInputs, refreshImportedOrderStatus } from '../orders/imported-orders';
 import { remainingForOrder, validInvoiceNumber } from '../orders/imported-remaining';
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, NotFoundException, Optional, forwardRef } from '@nestjs/common';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
@@ -6919,6 +6919,12 @@ export class DocumentsService {
   async maybeInvoiceOrder(orderId: string, organizationId: string) {
     try {
       if (!(await isOrgFeatureEnabled(this.prisma, organizationId, WCT_ORDER_INVOICE_FLAG))) return null;
+      // An imported order (round 19: it takes DOs now) never bills itself when its DOs complete: its invoices are
+      // made with Create invoice on the order page (invoiceImportedOrderRemainder), so nothing is billed twice.
+      const head = await Promise.resolve()
+        .then(() => this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { linkedDocuments: true } }))
+        .catch(() => null);
+      if (isImportedOrder(head)) return null;
       // DO first: the order bills itself once every live DO is done (a DO with a job: its jobs verified too).
       if (await isManualOrderFlow(this.prisma, organizationId)) {
         const dos = await this.deliveriesService.orderDos(organizationId, orderId);
@@ -6972,7 +6978,7 @@ export class DocumentsService {
       select: { id: true, orderNumber: true, sourceQuotationId: true, linkedDocuments: true },
     });
     if (!order) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
-    if (isImportedOrder(order)) throw new HttpException(IMPORTED_ORDER_READ_ONLY, HttpStatus.BAD_REQUEST);
+    if (isImportedOrder(order)) throw new HttpException(IMPORTED_ORDER_USE_CREATE_INVOICE, HttpStatus.BAD_REQUEST);
     const jobs = await this.prisma.delivery.findMany({
       where: { organizationId, orderId },
       select: { id: true, deliveryNumber: true, status: true, verificationState: true, orderInvoiceId: true, projectId: true },
@@ -7229,7 +7235,7 @@ export class DocumentsService {
         select: { id: true, orderNumber: true, status: true, sourceQuotationId: true, linkedDocuments: true, invoiceDocumentId: true },
       });
       if (!order) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
-      if (isImportedOrder(order)) throw new HttpException(IMPORTED_ORDER_READ_ONLY, HttpStatus.BAD_REQUEST);
+      if (isImportedOrder(order)) throw new HttpException(IMPORTED_ORDER_USE_CREATE_INVOICE, HttpStatus.BAD_REQUEST);
       if (order.status === 'CANCELLED') throw new HttpException('This order is cancelled', HttpStatus.BAD_REQUEST);
       const existingIds = orderInvoiceIdsOf(order);
       const existing = existingIds.length ? await tx.document.findFirst({ where: { organizationId, id: { in: existingIds }, type: 'INVOICE' }, select: { name: true } }) : null;
@@ -7325,8 +7331,9 @@ export class DocumentsService {
    * (imported-remaining.ts: the remaining qty per quotation line plus its $0 description lines, else one line for
    * the remaining amount), header from the quotation (customer, addresses, attention, subject, salesperson), GST at
    * the org's current rate when the quotation charged GST. No DO. Linked to the order (linkedDocuments.invoice,
-   * native) and the order's status re-read. The imported quotation and invoices are never written. Refused when the
-   * order is not part billed, is marked complete, or already has a draft AIMS invoice (open that one).
+   * native) and the order's status re-read. The imported quotation and invoices are never written. Round 19: on any
+   * imported order (Paid, Invoiced, Complete too; the dialog then sends the quotation's lines, edited). Refused when
+   * the order already has a draft AIMS invoice made on it (open that one).
    */
   async invoiceImportedOrderRemainder(orderId: string, organizationId: string, body: { number?: string | null; lines?: Array<{ description?: string; quantity?: unknown; unitPrice?: unknown }> | null } = {}) {
     // 2026-11-19: a number typed by the office (prefilled e.g. I-014521-02): kept as typed, never from the INV counter.
@@ -7346,21 +7353,20 @@ export class DocumentsService {
         const order = await tx.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, orderNumber: true, linkedDocuments: true, sourceQuotationId: true } });
         if (!order) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
         if (!isImportedOrder(order)) throw new HttpException('Create invoice here is for orders imported from the old ERP', HttpStatus.BAD_REQUEST);
-        if (importedCompletionOf(order)) throw new HttpException('This order is marked complete. Reopen it first.', HttpStatus.BAD_REQUEST);
-        const ld: any = order.linkedDocuments || {};
         const m: any = importedMarkerOf(order) || {};
-        const refs: any[] = Array.isArray(ld.invoice) ? ld.invoice.filter((x: any) => x && typeof x.id === 'string') : [];
-        const docs: any[] = refs.length ? await tx.document.findMany({ where: { organizationId, id: { in: refs.map((r) => r.id) } }, select: { id: true, name: true, status: true, config: true } }) : [];
-        const draft = docs.find((d) => !isErpImported(d.config) && !isCountedInvoice(d) && d.config?.voided !== true);
-        if (draft) throw new HttpException(`This order already has a draft invoice (${draft.name ?? 'draft'}). Open it to finish it.`, HttpStatus.BAD_REQUEST);
         const qo = order.sourceQuotationId ? await tx.document.findFirst({ where: { id: order.sourceQuotationId, organizationId }, select: { id: true, name: true, config: true } }) : null;
         if (!qo) throw new HttpException('This order has no quotation to invoice from.', HttpStatus.BAD_REQUEST);
         const qc: any = qo.config || {};
-        const quoteTotal = m.quoteTotal != null && Number.isFinite(Number(m.quoteTotal)) ? Number(m.quoteTotal) : grossOf(qc);
-        const st = importedOrderStatus(docs.map((d) => ({ ...d, credit: Number(m.credits?.[d.id]) || creditOfImportedInvoice(d.config) })), quoteTotal, { partBilledRule: usesPartBilledRule(order) });
-        if (st.status !== 'PART_BILLED') throw new HttpException(`Nothing left to bill: this order is ${st.label.toLowerCase()}.`, HttpStatus.BAD_REQUEST);
-        const plan = remainingForOrder({ marker: m, invoiceDocs: docs, quotation: { name: qo.name, config: qc }, quoteTotal: st.quoteTotal, billed: st.billed });
-        if (!edited && !plan.lines.some((l) => l.priced && l.amount > 0)) throw new HttpException('Nothing left to bill on this quotation.', HttpStatus.BAD_REQUEST);
+        // Round 19: any status (Paid, Invoiced, Complete...); everything on the order counts (linked quotations and
+        // invoices, split parts). One draft made on the order at a time: open that one.
+        const inputs = (await loadImportedOrderInputs(tx, organizationId, [order], { sourceQuotationConfigs: new Map([[qo.id, qc]]) })).get(order.id)!;
+        const docs: any[] = inputs.invoiceDocs;
+        const draft = importedOrderDraftInvoice(docs, order.id);
+        if (draft) throw new HttpException(`This order already has a draft invoice (${draft.name ?? 'draft'}). Open it to finish it.`, HttpStatus.BAD_REQUEST);
+        const st = importedStatusFrom(order, inputs);
+        const allItems = [...(Array.isArray(qc.items) ? qc.items : []), ...inputs.linkedQuotations.flatMap((d: any) => (Array.isArray(d.config?.items) ? d.config.items : []))];
+        const plan = remainingForOrder({ marker: m, invoiceDocs: docs, quotation: { name: qo.name, config: { ...qc, items: allItems } }, quoteTotal: st.quoteTotal, billed: st.billed });
+        if (!edited && !plan.lines.some((l) => l.priced && l.amount > 0)) throw new HttpException('Nothing left to bill on this order: give the lines to bill.', HttpStatus.BAD_REQUEST);
         if (typed) {
           const used = await tx.document.findFirst({ where: { organizationId, type: 'INVOICE', name: { equals: typed, mode: 'insensitive' } }, select: { name: true } });
           if (used) throw new HttpException(`Invoice number ${used.name} is already used. Pick another.`, HttpStatus.BAD_REQUEST);
@@ -7420,7 +7426,7 @@ export class DocumentsService {
           },
           { gross: totals.nettTotal, outstanding: totals.nettTotal, paid: 0 },
         );
-        return { order, ld, invoiceConfig, typed };
+        return { order, invoiceConfig, typed };
       },
       { timeout: 30000 },
     ).then(async ({ order, invoiceConfig, typed: number }) => {

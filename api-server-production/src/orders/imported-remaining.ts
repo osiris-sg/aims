@@ -206,3 +206,22 @@ export const validInvoiceNumber = (s: unknown): string | null => {
   const t = String(s ?? '').trim();
   return /^[A-Za-z0-9][A-Za-z0-9\-_./]{0,39}$/.test(t) ? t : null;
 };
+
+/**
+ * Create invoice's prefilled lines on an imported order (round 19, any status): what is left to bill when something
+ * is; on an order billed in full the quotations' own lines (as quoted: priced lines with their qty, $0 description
+ * lines as they are); a quotation with no line: one empty line. The office edits them in the dialog.
+ */
+export function importedInvoicePrefill(remaining: Pick<RemainingPlan, 'lines'>, quoteItems: QuoteLine[]): RemainingLine[] {
+  if ((remaining.lines || []).some((l) => l.priced && l.amount > 0)) return remaining.lines;
+  const rows = (quoteItems || []).filter(isRow);
+  if (rows.some(isPriced)) {
+    return rows.map((q) => {
+      const priced = isPriced(q);
+      const qty = num(q.quantity) || 1;
+      const unit = priced ? num(q.unitPrice) || (num(q.quantity) ? R2(num(q.amount) / num(q.quantity)) : num(q.amount)) : 0;
+      return { description: String(q.description ?? ''), quantity: qty, unitPrice: unit, amount: R2(qty * unit), quotedQty: priced ? num(q.quantity) : null, billedQty: null, priced };
+    });
+  }
+  return [{ description: '', quantity: 1, unitPrice: 0, amount: 0, quotedQty: null, billedQty: null, priced: true }];
+}
