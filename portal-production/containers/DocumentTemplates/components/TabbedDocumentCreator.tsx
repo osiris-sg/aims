@@ -3912,7 +3912,7 @@ export default function TabbedDocumentCreator({
       const deleted = await request({ path: isJournalVoucher ? `/journal-vouchers/${docId}` : isPaymentVoucher ? `/payment-vouchers/${docId}` : `/receipts/${docId}`, method: "DELETE" }, {}, token);
       // A failure already shows the global error toast: no "deleted", stay on the voucher.
       if (requestFailed(deleted)) return;
-      toast.success(isJournalVoucher ? "Journal voucher deleted — journal voided" : isPaymentVoucher ? "Payment voucher deleted — journal voided" : "Receipt deleted — journal voided");
+      toast.success(isJournalVoucher ? "Journal voucher deleted, journal voided" : isPaymentVoucher ? "Payment voucher deleted, journal voided" : "Receipt deleted, journal voided");
       isDirtyRef.current = false;
       setHasUnsavedChanges(false);
       router.push(resolveBackRoute(documentType));

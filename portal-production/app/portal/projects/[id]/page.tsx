@@ -685,7 +685,7 @@ function LegacyProjectDetailsPage({ params }: { params: { id: string } }) {
         token,
       );
       if (requestFailed(res)) return;
-      toast.success("Converted to sale — unit marked sold");
+      toast.success("Converted to sale, unit marked sold");
       const paused = res?.deactivatedRecurringTemplates;
       if (Array.isArray(paused) && paused.length > 0) {
         toast.info(
