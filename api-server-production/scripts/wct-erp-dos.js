@@ -473,21 +473,24 @@ if (require.main === module) {
     const listRows = readCsv(path.join(FROM, 'erp-do-list.csv'));
     const parsedFile = path.join(FROM, 'erp-do-parsed.csv');
     const pdfCount = fs.existsSync(path.join(FROM, 'do-pdf')) ? fs.readdirSync(path.join(FROM, 'do-pdf')).length : 0;
-    if (!fs.existsSync(parsedFile) || readCsv(parsedFile).length !== listRows.length || pdfCount !== readCsv(parsedFile).filter((r) => r.parse_issues !== 'no PDF pulled').length) {
+    // --parsed-only (bulk old-DO run, 19 Nov): the prints were parsed and deleted as they arrived (wct-erp-olddos-watch.js); trust the CSVs.
+    if (!argv.includes('--parsed-only') && (!fs.existsSync(parsedFile) || readCsv(parsedFile).length !== listRows.length || pdfCount !== readCsv(parsedFile).filter((r) => r.parse_issues !== 'no PDF pulled').length)) {
       const r = await parseDoPdfs(FROM);
       console.log(`parsed ${r.parsed} DO prints (${r.lines} lines)`);
     }
     const parsed = new Map(readCsv(parsedFile).map((r) => [r.erp_id, r]));
     const linesBy = new Map();
     for (const l of readCsv(path.join(FROM, 'erp-do-lines.csv'))) linesBy.set(l.erp_id, [...(linesBy.get(l.erp_id) || []), l]);
-    const months = readCsv(path.join(FROM, 'erp-do-months.csv'));
+    const months = fs.existsSync(path.join(FROM, 'erp-do-months.csv')) ? readCsv(path.join(FROM, 'erp-do-months.csv')) : [];
 
     const orgs = [ORG.WCT, ORG.BCAIR];
     const quotations = await q(`select id::text id, "organizationId" "organizationId", name, (config - 'items' - 'termsAndConditions') config from "Document" where "organizationId" = any($1) and type = 'QUOTATION'`, [orgs]);
     const invoices = await q(`select id::text id, "organizationId" "organizationId", name, jsonb_build_object('erpImport', config->'erpImport', 'customerId', config->'customerId', 'subject', config->'subject') config from "Document" where "organizationId" = any($1) and type = 'INVOICE' and config ? 'erpImport' and coalesce(config->'erpImport'->>'ourDoNo', '') <> ''`, [orgs]);
     const orders = await q(`select id::text id, "organizationId" "organizationId", "orderNumber", status, "sourceQuotationId"::text "sourceQuotationId", "linkedDocuments" from "Order" where "organizationId" = any($1)`, [orgs]);
     const allDos = await q(`select id::text id, "organizationId" "organizationId", name, status::text status, (config - 'logo' - 'stamp') config, to_char("createdAt" + interval '8 hours', 'YYYY-MM-DD') "createdAtSgt" from "Document" where "organizationId" = any($1) and type in ('DELIVERY_ORDER', 'DO')`, [orgs]);
-    const nativeDos = allDos.filter((d) => !d.config?.erpImport && String(d.config?.date || d.createdAtSgt) >= '2026-11-01');
+    // --native-since <date> (default 1 Nov 2026): native AIMS DOs checked for look-alikes; the bulk old-DO run checks all of them.
+    const NATIVE_SINCE = one('--native-since', '2026-11-01');
+    const nativeDos = allDos.filter((d) => !d.config?.erpImport && String(d.config?.date || d.createdAtSgt) >= NATIVE_SINCE);
     const existingDoErpIds = new Set(allDos.filter((d) => d.config?.erpImport?.source === SOURCE).map((d) => String(d.config.erpImport.erpId)));
     const customersByOrg = new Map();
     for (const x of await q(`select id::text id, "organizationId" "organizationId", name, "customerCode", address from "Customer" where "organizationId" = any($1)`, [orgs])) customersByOrg.set(x.organizationId, [...(customersByOrg.get(x.organizationId) || []), x]);
@@ -552,7 +555,7 @@ if (require.main === module) {
     for (const d of plan.docs.filter((x) => !x.order)) say(`  UNLINKED ${ORG_NAME[d.organizationId]} ${d.name} (${d.erpDate}, ${d.customer.name}): ${d.flags.join('; ') || 'no order'}`);
     say(`\nFlags (imported, for review): ${plan.docs.filter((d) => d.flags.length).length}`);
     for (const d of plan.docs.filter((x) => x.flags.length && x.order)) say(`  ${d.name}: ${d.flags.join('; ')}`);
-    say(`\nNative AIMS DOs since 1 Nov (both orgs): ${nativeDos.length} (${nativeDos.map((n) => `${n.name} ${n.status}`).join(', ')})`);
+    say(`\nNative AIMS DOs since ${NATIVE_SINCE} (both orgs): ${nativeDos.length} (${nativeDos.map((n) => `${n.name} ${n.status}`).join(', ')})`);
     say(`Look-alike ERP DOs (same quotation, or same customer + same date / same lines): ${plan.dupes.length}${INCLUDE_DUPES ? ' (imported anyway: --include-duplicates)' : ' (held; --include-duplicates imports them)'}`);
     for (const x of plan.dupes) say(`  ERP ${x.do_no} (${x.date}, ${x.customer}, ${x.quotation}) ~ ${x.matches.map((m) => `${m.native} ${m.status} ${m.date} [${m.by}]`).join('; ')}`);
     const unmatched = nativeDos.filter((n) => !plan.dupes.some((x) => x.matches.some((m) => m.nativeId === n.id)));
