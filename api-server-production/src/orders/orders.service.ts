@@ -20,7 +20,7 @@ import { photosFileOf } from '../maintenance-reports/uploaded-report';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { taggedSinsView } from '../bills/bill-quotation';
 import { bySchedule, dueBy } from '../deliveries/all-day';
-import { IMPORTED_INVOICE_STATE_LABEL, IMPORTED_ORDER_READ_ONLY, assertNotImportedOrder, billedPercent, creditOfImportedInvoice, importedCompletionOf, importedInvoiceMoney, importedMarkerOf, importedOrderStatus, importedTracker, isCountedInvoice, isImportedOrder, isImportedOrdersEnabled, refreshImportedOrderStatus } from './imported-orders';
+import { IMPORTED_INVOICE_STATE_LABEL, IMPORTED_ORDER_READ_ONLY, assertNotImportedOrder, billedPercent, creditOfImportedInvoice, importedCompletionOf, importedInvoiceMoney, importedMarkerOf, importedOrderStatus, importedTracker, isCountedInvoice, isImportedOrder, isImportedOrdersEnabled, refreshImportedOrderStatus, usesPartBilledRule } from './imported-orders';
 import { isErpImported } from '../common/erp-import';
 import { remainingForOrder } from './imported-remaining';
 import { grossOf } from '../common/document-money';
@@ -522,7 +522,7 @@ export class OrdersService {
       .filter(Boolean)
       .map((d: any) => ({ ...d, credit: Number(m.credits?.[d.id]) || creditOfImportedInvoice(d.config) }));
     const quoteTotal = m.quoteTotal != null && Number.isFinite(Number(m.quoteTotal)) ? Number(m.quoteTotal) : quoteConfig ? grossOf(quoteConfig) : null;
-    return importedOrderStatus(invs, quoteTotal, { completed: importedCompletionOf(order) });
+    return importedOrderStatus(invs, quoteTotal, { completed: importedCompletionOf(order), partBilledRule: usesPartBilledRule(order) });
   }
 
   /** Billed % from the order's stored links (invoice totals, credits, quotation total), no document read. */

@@ -45,7 +45,7 @@ describe('imported orders: status refresh routes imported orders to their own ru
     id: 'o1',
     status: 'PAID',
     sourceQuotationId: 'q1',
-    linkedDocuments: { invoice: [{ id: 'i1', name: 'I-014521' }], imported: { source: IMPORTED_ORDER_SOURCE, quoteTotal: 2616, credits: {}, ...extra } },
+    linkedDocuments: { invoice: [{ id: 'i1', name: 'I-014521' }], imported: { source: IMPORTED_ORDER_SOURCE, quoteTotal: 2616, credits: {}, partBilledRule: true, ...extra } },
   });
   const prisma = (o: any) => ({
     order: { findFirst: jest.fn(async () => o), update: jest.fn(async () => ({})) },
@@ -65,5 +65,31 @@ describe('imported orders: status refresh routes imported orders to their own ru
     const native: any = prisma({ id: 'o2', status: 'OPEN', linkedDocuments: { invoice: [] } });
     expect(await refreshImportedOrderStatus(native, 'org', 'o2')).toBeNull();
     expect(importedOrderStatus([], 0).status).toBe('PAID');
+  });
+});
+
+describe('imported orders: the 2026-11-19 rule applies only to orders that carry its mark', () => {
+  const inv = (gross: number, owed: number | null, paid = 0, extra: any = {}) => ({ status: owed === 0 ? 'paid' : 'pending_payment', config: { totalWithTax: gross, ...(owed == null ? {} : { outstandingBalance: owed }), paidToDate: paid, ...extra } });
+  const B = { partBilledRule: true };
+  it('without the mark: the 18 Nov rule (all paid = Paid whatever share was billed)', () => {
+    expect(importedOrderStatus([inv(1308, 0, 1308)], 2616)).toMatchObject({ status: 'PAID', billedPct: 50 });
+    expect(importedOrderStatus([inv(0, 0)], 16692)).toMatchObject({ status: 'INVOICED', billedPct: 0 });
+  });
+  it('with the mark: Part billed below the quotation total; Invoiced / Paid once billed in full', () => {
+    expect(importedOrderStatus([inv(1308, 0, 1308)], 2616, B)).toMatchObject({ status: 'PART_BILLED', label: 'Part billed', billedPct: 50 });
+    expect(importedOrderStatus([inv(545, 245, 300)], 1090, B)).toMatchObject({ status: 'PART_BILLED', partPaid: true });
+    expect(importedOrderStatus([inv(0, 0)], 16692, B)).toMatchObject({ status: 'PART_BILLED', billed: 0 });
+    expect(importedOrderStatus([{ ...inv(500, 0, 500), credit: 500 }], 500, B)).toMatchObject({ status: 'PART_BILLED', credited: 500 });
+    expect(importedOrderStatus([inv(500, 0, 500), inv(590, 590)], 1090, B)).toMatchObject({ status: 'INVOICED', label: 'Invoiced, part paid' });
+    expect(importedOrderStatus([inv(1090, 0, 1090)], 1090, B)).toMatchObject({ status: 'PAID' });
+    expect(importedOrderStatus([inv(600, 0, 600), inv(600, 0, 600)], 1090, B)).toMatchObject({ status: 'PAID', billedPct: 110.1 });
+    expect(importedOrderStatus([inv(0, 0)], 0, B)).toMatchObject({ status: 'PAID' });
+  });
+  it('a draft AIMS invoice is not billed until confirmed; a completion mark wins either way', () => {
+    const draft = { status: 'unconfirmed', config: { totalWithTax: 1308, outstandingBalance: 1308 } };
+    expect(importedOrderStatus([inv(1308, 0, 1308), draft], 2616, B)).toMatchObject({ status: 'PART_BILLED', billed: 1308 });
+    expect(importedOrderStatus([inv(1308, 0, 1308), { ...draft, status: 'pending_payment' }], 2616, B)).toMatchObject({ status: 'INVOICED', billed: 2616 });
+    const completed = { at: 'x', by: null, byName: null, reason: 'r', auto: false };
+    expect(importedOrderStatus([inv(1308, 0, 1308)], 2616, { completed })).toMatchObject({ status: 'COMPLETED' });
   });
 });

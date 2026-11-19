@@ -1,4 +1,4 @@
-import { IMPORTED_ORDER_READ_ONLY, creditOfImportedInvoice, importedCompletionOf, importedMarkerOf, importedOrderStatus, isCountedInvoice, isImportedOrder, isImportedOrdersEnabled, refreshImportedOrderStatus } from '../orders/imported-orders';
+import { IMPORTED_ORDER_READ_ONLY, creditOfImportedInvoice, importedCompletionOf, importedMarkerOf, importedOrderStatus, isCountedInvoice, isImportedOrder, isImportedOrdersEnabled, refreshImportedOrderStatus, usesPartBilledRule } from '../orders/imported-orders';
 import { remainingForOrder } from '../orders/imported-remaining';
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, NotFoundException, Optional, forwardRef } from '@nestjs/common';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
@@ -7062,7 +7062,7 @@ export class DocumentsService {
         if (!qo) throw new HttpException('This order has no quotation to invoice from.', HttpStatus.BAD_REQUEST);
         const qc: any = qo.config || {};
         const quoteTotal = m.quoteTotal != null && Number.isFinite(Number(m.quoteTotal)) ? Number(m.quoteTotal) : grossOf(qc);
-        const st = importedOrderStatus(docs.map((d) => ({ ...d, credit: Number(m.credits?.[d.id]) || creditOfImportedInvoice(d.config) })), quoteTotal, {});
+        const st = importedOrderStatus(docs.map((d) => ({ ...d, credit: Number(m.credits?.[d.id]) || creditOfImportedInvoice(d.config) })), quoteTotal, { partBilledRule: usesPartBilledRule(order) });
         if (st.status !== 'PART_BILLED') throw new HttpException(`Nothing left to bill: this order is ${st.label.toLowerCase()}.`, HttpStatus.BAD_REQUEST);
         const plan = remainingForOrder({ marker: m, invoiceDocs: docs, quotation: { name: qo.name, config: qc }, quoteTotal: st.quoteTotal, billed: st.billed });
         if (!plan.lines.some((l) => l.priced && l.amount > 0)) throw new HttpException('Nothing left to bill on this quotation.', HttpStatus.BAD_REQUEST);

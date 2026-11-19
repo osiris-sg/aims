@@ -25,7 +25,7 @@ function world(extra: { docs?: any[]; marker?: any } = {}) {
     orderNumber: 'ORD-Q-014154',
     status: 'PART_BILLED',
     sourceQuotationId: 'q1',
-    linkedDocuments: { invoice: [{ id: 'i1', name: 'I-014521', total: 1308 }], imported: { source: IMPORTED_ORDER_SOURCE, quoteTotal: 2616, credits: {}, ...extra.marker } },
+    linkedDocuments: { invoice: [{ id: 'i1', name: 'I-014521', total: 1308 }], imported: { source: IMPORTED_ORDER_SOURCE, quoteTotal: 2616, credits: {}, partBilledRule: true, ...extra.marker } },
   };
   const docs = extra.docs ?? [I014521];
   const db: any = {

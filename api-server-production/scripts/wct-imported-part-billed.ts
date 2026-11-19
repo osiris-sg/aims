@@ -75,7 +75,7 @@ const bucket = (m: number) => (m < 6 ? '0-6' : m < 12 ? '6-12' : m < 24 ? '12-24
       const quoteTotal = m.quoteTotal != null && Number.isFinite(Number(m.quoteTotal)) ? Number(m.quoteTotal) : qo ? grossOf(qo.config) : null;
       const credit = (d: any) => Number(m.credits?.[d.id]) || creditOfImportedInvoice(d.config);
       const manual = importedCompletionOf(o);
-      const st = importedOrderStatus(invDocs.map((d) => ({ ...d, credit: credit(d) })), quoteTotal, { completed: manual });
+      const st = importedOrderStatus(invDocs.map((d) => ({ ...d, credit: credit(d) })), quoteTotal, { completed: manual, partBilledRule: true });
       const billing = invDocs.filter((d) => isCountedInvoice(d) && importedInvoiceMoney(d, credit(d)).net >= 0.005);
       const lastInvoice = billing.map((d) => String(d.config?.date || '')).filter(Boolean).sort().pop() || null;
       const quoteDate = String(qo?.config?.date || '') || null;
@@ -132,7 +132,8 @@ const bucket = (m: number) => (m < 6 ? '0-6' : m < 12 ? '6-12' : m < 24 ? '12-24
   say(`orders list: ${csvFile}`);
 
   // Writes.
-  const todo = all.filter((r) => r.next !== r.o.status || r.auto);
+  // Every imported order gets the 2026-11-19 mark (partBilledRule), so the app reads it by the same rule from now on.
+  const todo = all.filter((r) => r.next !== r.o.status || r.auto || importedMarkerOf(r.o)?.partBilledRule !== true);
   say('');
   say(`${APPLY ? 'writing' : 'would write'}: ${todo.length} order(s) (status ${todo.filter((r) => r.next !== r.o.status).length}, auto-complete marks ${todo.filter((r) => r.auto).length})`);
   if (APPLY && todo.length) {
@@ -142,7 +143,7 @@ const bucket = (m: number) => (m < 6 ? '0-6' : m < 12 ? '6-12' : m < 24 ? '12-24
       try {
         for (const r of todo.slice(i, i + 200)) {
           const ld = r.o.linkedDocuments || {};
-          const nextLd = r.auto ? { ...ld, imported: { ...ld.imported, completed: { at, by: null, byName: null, reason: IMPORTED_AUTO_COMPLETE_REASON, auto: true } } } : ld;
+          const nextLd = { ...ld, imported: { ...ld.imported, partBilledRule: true, ...(r.auto ? { completed: { at, by: null, byName: null, reason: IMPORTED_AUTO_COMPLETE_REASON, auto: true } } : {}) } };
           await c.query(`update "Order" set status = $2, "linkedDocuments" = $3::jsonb, "updatedAt" = now() where id = $1::uuid`, [r.o.id, r.next, JSON.stringify(nextLd)]);
           if (r.auto) {
             await c.query(

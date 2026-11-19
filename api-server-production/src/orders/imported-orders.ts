@@ -53,7 +53,15 @@ export interface ImportedMarker {
    * old, "imported, assumed closed"). "Reopen" removes it. Wins over the money-based status.
    */
   completed?: ImportedCompletion | null;
+  /**
+   * The 2026-11-19 billing rule applies to this order (Part billed below the quotation total). Set per order by
+   * Elroy's go: ORD-Q-014154 first, the rest by scripts/wct-imported-part-billed.ts. Without it the 18 Nov rule.
+   */
+  partBilledRule?: boolean;
 }
+
+/** The order uses the 2026-11-19 rule (Part billed). */
+export const usesPartBilledRule = (order: { linkedDocuments?: unknown } | null | undefined): boolean => importedMarkerOf(order)?.partBilledRule === true;
 
 export interface ImportedCompletion {
   at: string;
@@ -329,7 +337,7 @@ export function planImportedOrders(
     const q = ex.sourceQuotationId ? quoteById.get(ex.sourceQuotationId) ?? null : null;
     const credits = creditsFor(all);
     const quoteTotal = q ? grossOf(q.config) : m.quoteTotal ?? null;
-    const st = importedOrderStatus(all.map((i) => ({ ...i.doc, credit: credits[i.doc.id] ?? 0 })), quoteTotal);
+    const st = importedOrderStatus(all.map((i) => ({ ...i.doc, credit: credits[i.doc.id] ?? 0 })), quoteTotal, { completed: importedCompletionOf(ex), partBilledRule: usesPartBilledRule(ex) });
     const curCn: string[] = Array.isArray(ld.creditNote) ? ld.creditNote.map((x: any) => x?.id) : [];
     const addCreditNotes = all.flatMap((i) => cnByInvoice.get(i.doc.id) ?? []).filter((c) => !curCn.includes(c.id));
     const changes: string[] = [];
@@ -492,7 +500,7 @@ export const isCountedInvoice = (d: { status?: string; config?: any }) => d?.con
 export function importedOrderStatus(
   invoices: Array<{ status?: string; config: any; credit?: number }>,
   quoteTotal: number | null | undefined,
-  opts: { completed?: ImportedCompletion | null } = {},
+  opts: { completed?: ImportedCompletion | null; partBilledRule?: boolean } = {},
 ): ImportedOrderStatus {
   const live = invoices.filter(isCountedInvoice);
   const money = live.map((d) => importedInvoiceMoney(d, d.credit ?? 0));
@@ -511,6 +519,12 @@ export function importedOrderStatus(
     credited: R2(money.reduce((t, m) => t + m.credit, 0)),
   };
   if (opts.completed) return { status: 'COMPLETED', label: 'Complete', ...base };
+  if (!opts.partBilledRule) {
+    // The 18 Nov rule (orders without the 2026-11-19 mark): Paid = every invoice settled; $0 invoiced against a real
+    // quotation total is not Paid (a $0 quotation with $0 invoiced stays Paid).
+    const nothingInvoiced = base.total < EPS && qt != null && qt >= EPS;
+    return settled && !nothingInvoiced ? { status: 'PAID', label: 'Paid', ...base } : { status: 'INVOICED', label: partPaid ? 'Invoiced, part paid' : 'Invoiced', ...base };
+  }
   // Elroy 2026-11-19: billed below the quotation total = Part billed ($0 and fully credited invoices bill nothing;
   // a $0 quotation is never part billed). Over-billed counts as billed in full.
   if (qt != null && qt >= EPS && billed < qt - EPS) return { status: 'PART_BILLED', label: 'Part billed', ...base };
@@ -551,7 +565,7 @@ export async function refreshImportedOrderStatus(prisma: any, organizationId: st
   const st = importedOrderStatus(
     docs.map((d) => ({ ...d, credit: Number(m.credits?.[d.id]) || creditOfImportedInvoice(d.config) })),
     quoteTotal,
-    { completed: importedCompletionOf(order) },
+    { completed: importedCompletionOf(order), partBilledRule: usesPartBilledRule(order) },
   );
   if (st.status !== order.status) await prisma.order.update({ where: { id: order.id }, data: { status: st.status } });
   return st;
