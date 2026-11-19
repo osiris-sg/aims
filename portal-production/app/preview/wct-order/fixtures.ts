@@ -2,7 +2,7 @@
 // Fixtures for /preview/wct-order (round 24, 2026-11-19: one order page for AIMS and imported orders). Hand-built in the
 // shape GET /orders/:id returns, from realistic dev data; no API, no sign-in.
 
-/** An AIMS order on the manual flow: 1 of 2 units invoiced and paid, its DO completed (job #7), a second DO drafted. */
+/** An AIMS order on the manual flow: 1 of 2 units invoiced and paid, its DO completed (job #7), a second DO drafted; Create invoice for the rest (round 36). */
 export const nativeOrder = (manual: boolean): any => ({
   id: "o1",
   orderNumber: "ORD202611-021",
@@ -39,6 +39,9 @@ export const nativeOrder = (manual: boolean): any => ({
     remaining: { matched: true, remainingNet: 800, remainingGross: 872, lines: [{ description: "Kitchen exhaust hood and ducting cleaning", quantity: 1, unitPrice: 800, amount: 800, quotedQty: 2, billedQty: 1, priced: true }] },
   },
   supplierInvoices: { rows: [{ id: "b1", billNumber: "SIN-2026-0311", supplierName: "Clean Air Supplies Pte Ltd", billDate: "2026-11-13", quotationAmount: 180, totalAmount: 420, currency: "SGD", void: false }], total: 180 },
+  // Round 36: billed 872 of 1,744, so Create invoice stays for what is left (the lines dialog, prefilled).
+  canInvoiceRemaining: true,
+  invoiceLines: [{ description: "Kitchen exhaust hood and ducting cleaning", quantity: 1, unitPrice: 800, amount: 800, priced: true }],
 });
 
 /** An imported order (ORD-Q-014154, Bar Roque Grill): 1 of 2 billed and paid, a draft I-014521-02 for the rest. */
@@ -84,7 +87,6 @@ export const importedOrder = (): any => ({
       { description: "G- Provide tools", quantity: 1, unitPrice: 0, amount: 0, quotedQty: null, billedQty: null, priced: false },
     ],
   },
-  suggestedInvoiceNumber: "I-014521-03",
   invoiceLines: [],
   draftInvoice: { id: "i4", name: "I-014521-02", templateId: "t3" },
   canInvoice: false,

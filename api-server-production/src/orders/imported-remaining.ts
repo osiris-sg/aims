@@ -190,23 +190,6 @@ export function billingSteps(quoteItems: QuoteLine[], invoices: Array<{ items: Q
   return out;
 }
 
-/** The suggested number for a new invoice on an imported order: the first imported invoice's number + "-02", "-03"… (never one in use). */
-export function suggestedInvoiceNumber(baseNumber: string | null | undefined, invoiceCount: number, taken: Set<string>): string | null {
-  const base = String(baseNumber ?? '').trim().replace(/-\d{2}$/, '');
-  if (!base) return null;
-  for (let k = Math.max(2, invoiceCount + 1); k < 100; k++) {
-    const n = `${base}-${String(k).padStart(2, '0')}`;
-    if (!taken.has(n.toLowerCase())) return n;
-  }
-  return null;
-}
-
-/** An invoice number typed by a person: 1 to 40 characters, letters / digits / - / _ . /, starting with a letter or digit. */
-export const validInvoiceNumber = (s: unknown): string | null => {
-  const t = String(s ?? '').trim();
-  return /^[A-Za-z0-9][A-Za-z0-9\-_./]{0,39}$/.test(t) ? t : null;
-};
-
 /**
  * Create invoice's prefilled lines on an imported order (round 19, any status): what is left to bill when something
  * is; on an order billed in full the quotations' own lines (as quoted: priced lines with their qty, $0 description

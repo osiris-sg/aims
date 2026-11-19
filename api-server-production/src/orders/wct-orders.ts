@@ -6,6 +6,7 @@ import {
   DocumentNumberingService,
   ORDER_DOC_CODE,
   ORDER_NUMBER_TYPE,
+  orderNumberPrefixOf,
 } from '../document-numbering/document-numbering.service';
 
 /**
@@ -175,10 +176,16 @@ export const formatOrderNumber = (serial: number, when: Date) => DocumentNumberi
 /**
  * Inside an open interactive transaction: the ORDER number, claimed with the
  * format row locked (same lock as the DO issuer), committed with the Order row.
+ * Round 36: an org with a company order prefix (orderNumberPrefix, e.g. ORDW)
+ * gets it in place of ORD, as its own series (ORDW202611-001 first); every other
+ * org unchanged (ORD…).
  */
 export async function issueOrderNumberInTx(prisma: any, tx: any, organizationId: string, formatId: string, when = new Date()): Promise<string> {
   const numbering = new DocumentNumberingService(prisma);
-  const n = await numbering.issueNumberLocked(organizationId, ORDER_NUMBER_TYPE, formatId, when, tx);
+  const prefix = await orderNumberPrefixOf(prisma, organizationId);
+  const n = prefix
+    ? await numbering.issueNumberLocked(organizationId, ORDER_NUMBER_TYPE, formatId, when, tx, { docCode: prefix, series: prefix })
+    : await numbering.issueNumberLocked(organizationId, ORDER_NUMBER_TYPE, formatId, when, tx);
   if (!n) throw new Error('No ORDER number format');
   return n;
 }
@@ -349,6 +356,15 @@ export function orderInvoiceIdsOf(order: { linkedDocuments?: unknown; invoiceDoc
   const ld: any = order?.linkedDocuments;
   const fromLinks = Array.isArray(ld?.invoice) ? ld.invoice.map((x: any) => x?.id).filter((v: any) => typeof v === 'string' && v) : [];
   return [...new Set([...fromLinks, ...(order?.invoiceDocumentId ? [order.invoiceDocumentId] : [])])] as string[];
+}
+
+/**
+ * Round 36: the invoices made with Create invoice for what is left on an AIMS order (linkedDocuments.invoice entries
+ * with remainder: true). On the manual flow orderInvoiceIdsOf lists them already; another WCT order lists them too.
+ */
+export function remainderInvoiceIdsOf(order: { linkedDocuments?: unknown } | null | undefined): string[] {
+  const ld: any = order?.linkedDocuments;
+  return Array.isArray(ld?.invoice) ? [...new Set<string>(ld.invoice.filter((x: any) => x?.remainder === true && typeof x.id === 'string' && x.id).map((x: any) => x.id as string))] : [];
 }
 
 /** Phase 5: the order carries a service report (an uploaded file or a linked AIMS report). */

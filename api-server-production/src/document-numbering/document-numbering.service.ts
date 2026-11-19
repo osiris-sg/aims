@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { orgFeatureText } from '../common/org-features';
 
 type FormatDto = {
   documentType: string;
@@ -96,6 +97,34 @@ export const ORDER_NUMBER_TYPE = 'ORDER';
 export const ORDER_DOC_CODE = 'ORD';
 export const DEFAULT_ORDER_PATTERN = '{DOC}{YYYY}{MM}-{###}';
 const docCodeOf = (documentType: string) => DOC_CODE[documentType] || (documentType === ORDER_NUMBER_TYPE ? ORDER_DOC_CODE : '');
+
+/**
+ * Company order prefix (round 36, WCT group, 2026-11-19): the org setting OrganizationUIConfig.features.orderNumberPrefix
+ * (e.g. "ORDW" for WCT (S), "ORDR" Racking, "ORDY" YMM, "ORDB" BC Air; set by scripts/wct-order-prefix.ts) replaces
+ * the ORDER format's {DOC} code, so the default {DOC}{YYYY}{MM}-{###} reads ORDW202611-001. Absent (every other org)
+ * = "ORD", unchanged. Letters and digits only, starting with a letter, 2 to 10 long: never "ORD-Q-…" (imported orders).
+ * The prefixed numbers are their own series on the org's ORDER counter row (seriesResetKey): the first one is 001, the
+ * old ORD… numbers never count towards it (the highest-existing scan reads only names with the new prefix).
+ */
+export const ORDER_PREFIX_KEY = 'orderNumberPrefix';
+export const validOrderPrefix = (v: unknown): string | null => {
+  const t = typeof v === 'string' ? v.trim() : '';
+  return /^[A-Za-z][A-Za-z0-9]{1,9}$/.test(t) ? t : null;
+};
+export async function orderNumberPrefixOf(prisma: { organizationUIConfig: { findUnique: (args: any) => Promise<any> } }, organizationId: string): Promise<string | null> {
+  try {
+    return validOrderPrefix(await orgFeatureText(prisma, organizationId, ORDER_PREFIX_KEY));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The counter's reset key with a named series (round 36): a series ("ORDW") is its own run on the same counter row.
+ * The first number of a new series restarts at 1 (lastResetKey changes), the next ones continue from the counter.
+ * No series = the reset policy's key exactly as before.
+ */
+export const seriesResetKey = (policyKey: string | null, series?: string | null): string | null => (series ? `${policyKey ?? 'never'}#${series}` : policyKey);
 
 type NamesDb = {
   document: { findMany: (args: any) => Promise<Array<{ name: string | null }>> };
@@ -321,7 +350,9 @@ export class DocumentNumberingService {
     formatId?: string | null,
     when: Date = new Date(),
     tx?: any,
-    opts: { bankCode?: string } = {},
+    // docCode (round 36): the {DOC} code to use instead of the type's (a company order prefix); series: its own run
+    // on this counter row (seriesResetKey). Both absent = unchanged.
+    opts: { bankCode?: string; docCode?: string | null; series?: string | null } = {},
   ): Promise<string | null> {
     let format = formatId
       ? await this.prisma.documentNumberFormat.findFirst({ where: { id: formatId, organizationId } })
@@ -333,8 +364,8 @@ export class DocumentNumberingService {
       });
       if (!format) return null;
     }
-    const docCode = docCodeOf(format.documentType);
-    const key = this.resetKey(format.resetPolicy, when);
+    const docCode = opts.docCode || docCodeOf(format.documentType);
+    const key = seriesResetKey(this.resetKey(format.resetPolicy, when), opts.series);
     const bankCode = opts.bankCode || '';
     const claim = async (db: any) => {
       const f = await db.documentNumberFormat.update({ where: { id: format!.id }, data: { nextSerial: { increment: 0 } } });
@@ -401,14 +432,17 @@ export class DocumentNumberingService {
     // preview computed from it shows stale numbers (e.g. BI2026070005 when the
     // Xero imports already reach BI202607069).
     const when = new Date();
+    // Round 36: an org with a company order prefix previews its ORDER numbers with it (docCode sent for the editor).
+    const orderPrefix = formats.some((f) => f.documentType === ORDER_NUMBER_TYPE) ? await orderNumberPrefixOf(this.prisma, organizationId) : null;
     return Promise.all(
       formats.map(async (f) => {
-        const docCode = docCodeOf(f.documentType);
+        const prefixed = f.documentType === ORDER_NUMBER_TYPE && !!orderPrefix;
+        const docCode = prefixed ? orderPrefix! : docCodeOf(f.documentType);
         const maxExisting = await this.maxExistingSerial(organizationId, f.pattern, docCode, when, this.prisma, f.documentType);
-        const key = this.resetKey(f.resetPolicy, when);
+        const key = seriesResetKey(this.resetKey(f.resetPolicy, when), prefixed ? orderPrefix : null);
         const restart = key != null && f.lastResetKey !== key;
         const serial = Math.max(restart ? 1 : f.nextSerial, maxExisting + 1);
-        return { ...f, preview: DocumentNumberingService.format(f.pattern, serial, when, docCode) };
+        return { ...f, preview: DocumentNumberingService.format(f.pattern, serial, when, docCode), ...(prefixed ? { docCode } : {}) };
       }),
     );
   }

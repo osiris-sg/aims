@@ -451,3 +451,26 @@ test("round 33: a completed linked DO is billed by Create invoice; once billed i
   assert.deepEqual([billed.unlink, billed.unlinkBlocked, canUnlinkRow(billed)], [null, UNLINK_BLOCKED.billed, false]);
 });
 
+
+test("round 36: an AIMS order billed below its quotation total keeps Create invoice for what is left (lines dialog)", () => {
+  // Racking-style order (no manual flow): 1 of 2 billed, nothing new for Invoice now; the server says canInvoiceRemaining.
+  const o = native({ manualFlow: false, status: "INVOICED", toInvoice: [], toInvoiceDos: [], canInvoiceRemaining: true, invoiceLines: [{ description: "Hood cleaning", quantity: 1, unitPrice: 800, amount: 800, priced: true }] });
+  const ci = nativeCreateInvoice(o);
+  assert.deepEqual([ci.mode, ci.disabled, ci.remaining], ["create", false, true]);
+  const a = nativeOrderPage(o, {}).actions.find((x) => x.key === "create-invoice");
+  assert.deepEqual([a.label, a.disabled, a.mode], ["Create invoice", false, "remaining"]);
+  // Billed in full (the server says no): as before, nothing new to bill.
+  const full = nativeOrderPage({ ...o, canInvoiceRemaining: false }, {}).actions.find((x) => x.key === "create-invoice");
+  assert.deepEqual([full.disabled, full.mode], [true, "create"]);
+  // Jobs / DOs waiting for Invoice now keep the Invoice now question (round 33 linked DOs too), never the dialog.
+  assert.equal(nativeCreateInvoice({ ...o, toInvoiceDos: ["DO202611050"] }).remaining, false);
+  assert.equal(nativeCreateInvoice({ ...o, toInvoice: [7] }).remaining, false);
+  // Cancelled: nothing.
+  assert.equal(nativeCreateInvoice({ ...o, status: "CANCELLED" }).show, false);
+  // The page opens the lines dialog for mode "remaining", and never sends an invoice number (the server numbers it).
+  const page = read("app/portal/orders/[id]/WctOrderDetail.tsx");
+  assert.match(page, /else if \(imported \|\| a\.mode === "remaining"\) openInvoiceDialog\(\);/);
+  assert.doesNotMatch(page, /suggestedInvoiceNumber|invNumber|number: /);
+  const dialogs = read("app/portal/orders/[id]/OrderPageDialogs.tsx");
+  assert.doesNotMatch(dialogs, /Invoice number/);
+});

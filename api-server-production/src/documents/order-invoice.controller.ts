@@ -47,14 +47,16 @@ export class OrderInvoiceController {
   /**
    * Imported orders (2026-11-19): "Create invoice" on a part-billed imported order. A NATIVE draft invoice for
    * what is left on the quotation (normal numbering; posts per postInvoicesOnConfirm when confirmed), linked to
-   * the order. The quotation and the imported invoices are not touched.
+   * the order. The quotation and the imported invoices are not touched. Round 36: an AIMS order of an org with
+   * invoicing per order too, while it is billed below its quotation total; the number is always the org's next
+   * INV number (a `number` in the body is ignored).
    */
   @Post(':id/invoice-remaining')
   @Permissions('documents:update')
   async invoiceRemaining(@Param('id') id: string, @Body() body: any, @Req() req: any) {
     const orgId = req.userOrganization?.id;
     if (!orgId) throw new HttpException('User is not assigned to any organization', HttpStatus.FORBIDDEN);
-    const inv: any = await this.documents.invoiceImportedOrderRemainder(id, orgId, { number: body?.number ?? null, lines: Array.isArray(body?.lines) ? body.lines : null });
+    const inv: any = await this.documents.invoiceImportedOrderRemainder(id, orgId, { lines: Array.isArray(body?.lines) ? body.lines : null });
     return { id: inv.id, name: inv.name, type: 'INVOICE', href: `/portal/documents/INVOICE/${inv.documentTemplateId}/${inv.id}` };
   }
 

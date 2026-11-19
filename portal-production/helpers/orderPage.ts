@@ -64,7 +64,7 @@ export interface OrderAction {
   /** Why it is greyed out (a tooltip), or null. */
   tip: string | null;
   tour: string;
-  /** create-invoice: "create" | "open-draft"; mark-complete: "complete" | "reopen"; add-job: AddJobMode. */
+  /** create-invoice: "create" | "open-draft" | "remaining" (round 36, the lines dialog); mark-complete: "complete" | "reopen"; add-job: AddJobMode. */
   mode?: string | null;
   href?: string | null;
 }
@@ -371,8 +371,12 @@ function rowKeyOf(k: HubActionKey, createMode: string | null | undefined): Order
   return null;
 }
 
-/** Native Create invoice: what it does now (Invoice now / from the quotation), else the draft to open. */
-export function nativeCreateInvoice(o: any): { show: boolean; mode: "create" | "open-draft"; disabled: boolean; fromQuotation: boolean; href: string | null } {
+/**
+ * Native Create invoice: what it does now (Invoice now / from the quotation), else the draft to open. Round 36
+ * (2026-11-19): an order billed below its quotation total with nothing new for Invoice now (the server's
+ * canInvoiceRemaining) keeps Create invoice for what is left (remaining: the lines dialog, prefilled, editable).
+ */
+export function nativeCreateInvoice(o: any): { show: boolean; mode: "create" | "open-draft"; disabled: boolean; fromQuotation: boolean; remaining: boolean; href: string | null } {
   const cancelled = o.status === "CANCELLED";
   const manual = !!o.manualFlow;
   const invoices: any[] = o.invoices ?? [];
@@ -380,10 +384,11 @@ export function nativeCreateInvoice(o: any): { show: boolean; mode: "create" | "
   // Manual flow (2026-11-19): "DO completed, invoice pending" always offers Create invoice (a DO with extra lines
   // after the invoice was made first needs a new invoice; the server opens the existing one when nothing is new).
   const doCompleted = manual && hubStatus(o.status) === "DO_COMPLETED";
-  const canCreate = !cancelled && (!!o.toInvoice?.length || !!o.toInvoiceDos?.length || fromQuotation || doCompleted);
+  const remaining = !cancelled && o.canInvoiceRemaining === true && !o.toInvoice?.length && !o.toInvoiceDos?.length;
+  const canCreate = !cancelled && (!!o.toInvoice?.length || !!o.toInvoiceDos?.length || fromQuotation || doCompleted || remaining);
   const draft = invoices.find((i) => isDraftStatus(i.status) && !i.cancelled);
-  if (!canCreate && draft) return { show: !!o.invoicing && !cancelled, mode: "open-draft", disabled: false, fromQuotation, href: draft.href ?? null };
-  return { show: !!o.invoicing && !cancelled, mode: "create", disabled: !canCreate, fromQuotation, href: null };
+  if (!canCreate && draft) return { show: !!o.invoicing && !cancelled, mode: "open-draft", disabled: false, fromQuotation, remaining: false, href: draft.href ?? null };
+  return { show: !!o.invoicing && !cancelled, mode: "create", disabled: !canCreate, fromQuotation, remaining, href: null };
 }
 
 /** Native Create invoice's question (Invoice now / from the quotation / completed DOs). */
@@ -466,7 +471,8 @@ export function nativeOrderPage(order: any, ctx: OrderPageContext = {}): OrderPa
   const canCancel = !cancelled && !marked && hubRowActions(o.status, { doFirst }).includes("cancel-order");
 
   const actions: OrderAction[] = [
-    { key: "create-invoice", label: ci.mode === "open-draft" ? "Open draft invoice" : "Create invoice", show: ci.show, disabled: ci.disabled, primary: false, tip: null, tour: "wct-order-create-invoice", mode: ci.mode, href: ci.href },
+    // Round 36: mode "remaining" = Create invoice for what is left (the lines dialog).
+    { key: "create-invoice", label: ci.mode === "open-draft" ? "Open draft invoice" : "Create invoice", show: ci.show, disabled: ci.disabled, primary: false, tip: null, tour: "wct-order-create-invoice", mode: ci.remaining ? "remaining" : ci.mode, href: ci.href },
     { key: "add-do", label: "Add DO", show: manualFlow && !cancelled, disabled: false, primary: false, tip: null, tour: "wct-order-add-do" },
     { key: "add-job", label: "Add job", show: !!jobMode, disabled: false, primary: false, tip: null, tour: "wct-order-add-job", mode: jobMode },
     { key: "service-report", label: "Service report", show: true, disabled: false, primary: false, tip: null, tour: "wct-order-add-report" },
