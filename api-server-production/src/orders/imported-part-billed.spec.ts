@@ -162,7 +162,7 @@ describe('order page helpers: steps, suggested number, DO-only orders', () => {
     expect(importedOrderStatus([], 2616, { dos: [{ erpStatus: 'Completed' }] })).toMatchObject({ status: 'DO_COMPLETED', label: 'DO completed, invoice pending', billedPct: 0 });
     expect(importedOrderStatus([], 2616, { dos: [{ erpStatus: 'Signed' }, { erpStatus: 'Draft' }] })).toMatchObject({ status: 'DO_DRAFT', label: 'DO draft' });
     const t = importedTracker({ dos: [{ name: 'DO012538', erpStatus: 'Completed' }] }, { status: 'DO_COMPLETED', label: 'DO completed, invoice pending' });
-    expect(t.map((x: any) => [x.key, x.state, x.note ?? null])).toEqual([['quotation', 'done', null], ['invoice', 'todo', 'Invoice pending'], ['do', 'done', 'DO012538 (Completed)'], ['serviceReport', 'na', null]]);
+    expect(t.map((x: any) => [x.key, x.state, x.note ?? null])).toEqual([['quotation', 'done', null], ['invoice', 'todo', 'Invoice pending'], ['do', 'done', 'DO012538 (Completed)'], ['serviceReport', 'todo', 'Not yet']]);
   });
 });
 

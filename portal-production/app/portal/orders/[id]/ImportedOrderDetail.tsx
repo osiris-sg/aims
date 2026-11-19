@@ -10,6 +10,7 @@ import {
   Button,
   CircularProgress,
   Dialog,
+  Link,
   DialogActions,
   DialogContent,
   DialogTitle,
@@ -295,9 +296,24 @@ export default function ImportedOrderDetail({ order, onBack, onChanged }: { orde
                 {s.label}
               </Typography>
             </Stack>
-            <Typography variant="caption" color="text.secondary">
-              {s.state === "na" ? (s.note ? `Not applicable, ${s.note}` : "Not applicable") : s.note || "Done"}
+            <Typography variant="caption" color="text.secondary" component="div">
+              {s.note || (s.state === "done" ? "Done" : "")}
             </Typography>
+            {s.subNote && (
+              <Typography variant="caption" color="text.secondary" component="div">
+                {s.subNote}
+              </Typography>
+            )}
+            {s.action === "addDo" && manualFlow && (
+              <Link component="button" type="button" variant="caption" underline="hover" disabled={addingDo} onClick={() => void addDo()} sx={{ display: "block", mt: 0.5 }}>
+                Add DO
+              </Link>
+            )}
+            {s.action === "addServiceReport" && (
+              <Link component="button" type="button" variant="caption" underline="hover" onClick={(e: React.MouseEvent) => setSrMenu({ pos: { left: e.clientX, top: e.clientY } })} sx={{ display: "block", mt: 0.5 }}>
+                Add service report
+              </Link>
+            )}
           </Box>
         ))}
       </Stack>

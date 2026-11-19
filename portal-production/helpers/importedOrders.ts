@@ -23,7 +23,8 @@ export interface ImportedOrder {
   customer?: { id: string; name: string } | null;
   subject?: string | null;
   sourceQuotation?: (ImportedDocRef & { date?: string | null; total?: number | null }) | null;
-  tracker: Array<{ key: string; label: string; state: "done" | "na" | "todo"; note?: string | null }>;
+  /** subNote: a plain second line (the ERP DO no.); action: the card's add link when nothing is there yet. */
+  tracker: Array<{ key: string; label: string; state: "done" | "na" | "todo"; note?: string | null; subNote?: string | null; action?: "addDo" | "addServiceReport" | null }>;
   invoices: Array<ImportedDocRef & { date?: string | null; total?: number | null; owed: number; credit?: number; state?: string; stateLabel?: string; linkSource?: string | null; erpDoNumber?: string | null }>;
   creditNotes: Array<ImportedDocRef & { total?: number | null }>;
   total: number;

@@ -270,15 +270,17 @@ describe('imported orders: numbering + tracker', () => {
       }
     }
   });
-  it('tracker: Quotation + Invoice done, DO and Service report not applicable, the ERP DO no. as text', () => {
-    const t = importedTracker({ erpDoNumbers: ['DO010975'] }, { label: 'Invoiced, part paid' });
-    expect(t.map((s) => [s.key, s.state, s.note])).toEqual([
-      ['quotation', 'done', undefined],
-      ['invoice', 'done', 'Invoiced, part paid'],
-      ['do', 'na', 'ERP DO DO010975'],
-      ['serviceReport', 'na', null],
+  it('tracker: no "Not applicable": DO and Service report "Not yet" with their add links, the ERP DO no. as a plain note', () => {
+    const t: any[] = importedTracker({ erpDoNumbers: ['DO010975'] }, { label: 'Invoiced, part paid' });
+    expect(t.map((s) => [s.key, s.state, s.note ?? null, s.subNote ?? null, s.action ?? null])).toEqual([
+      ['quotation', 'done', null, null, null],
+      ['invoice', 'done', 'Invoiced, part paid', null, null],
+      ['do', 'todo', 'Not yet', 'ERP DO DO010975', 'addDo'],
+      ['serviceReport', 'todo', 'Not yet', null, 'addServiceReport'],
     ]);
-    expect(importedTracker({}, { label: 'Paid' })[2].note).toBeNull();
+    const none: any[] = importedTracker({}, { label: 'Paid' });
+    expect([none[2].note, none[2].subNote]).toEqual(['Not yet', null]);
+    expect(t.some((s) => s.state === 'na')).toBe(false);
   });
 });
 
@@ -350,7 +352,7 @@ describe('imported orders: OrdersService', () => {
     const on = svcWith({ enableWctOrders: true, enableImportedOrders: true }, [importedRow]);
     const page: any = await on.svc.getById('imp1', 'org');
     expect(page).toMatchObject({ imported: true, readOnly: false, canInvoice: true, canLink: true, status: 'INVOICED', jobs: [], deliveryOrders: [], linkedDos: [], quotations: [], erpDoNumbers: ['DO1'], owed: 200 });
-    expect(page.tracker.map((s: any) => s.state)).toEqual(['done', 'done', 'na', 'na']);
+    expect(page.tracker.map((s: any) => s.state)).toEqual(['done', 'done', 'todo', 'todo']);
     expect(page.invoices[0]).toMatchObject({ name: 'I-1', linkSource: 'contract_no', erpDoNumber: 'DO1', owed: 200, state: 'PART_PAID', stateLabel: 'Part paid' });
     expect(page).toMatchObject({ billed: 500, quoteTotal: 500, statusLabel: 'Invoiced, part paid' });
     const off = svcWith({ enableWctOrders: true }, [importedRow]);

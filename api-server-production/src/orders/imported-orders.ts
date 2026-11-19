@@ -592,7 +592,8 @@ export function importedTracker(
     { key: 'invoice', label: 'Invoice', state: noInvoice ? ('todo' as const) : ('done' as const), note: noInvoice ? 'Invoice pending' : IMPORTED_STATUS_LABEL(st) },
     dos.length
       ? { key: 'do', label: 'DO', state: dos.every((d) => importedDoDone(d)) ? ('done' as const) : ('todo' as const), note: dos.map((d) => `${d.name} (${importedDoDone(d) ? 'Completed' : 'Draft'})`).join(', ') }
-      : { key: 'do', label: 'DO', state: 'na' as const, note: order.erpDoNumbers?.length ? `ERP DO ${order.erpDoNumbers.join(', ')}` : null },
+      : // 2026-11-19 (Elroy): never "Not applicable": "Not yet" + Add DO; the ERP DO no., when known, as a plain note.
+        { key: 'do', label: 'DO', state: 'todo' as const, note: 'Not yet', subNote: order.erpDoNumbers?.length ? `ERP DO ${order.erpDoNumbers.join(', ')}` : null, action: 'addDo' as const },
     reports.length
       ? {
           key: 'serviceReport',
@@ -600,7 +601,7 @@ export function importedTracker(
           state: reports.every((r) => r.status === 'completed') ? ('done' as const) : ('todo' as const),
           note: reports.map((r) => (r.reportNumber ? `#${r.reportNumber}` : 'Draft')).join(', '),
         }
-      : { key: 'serviceReport', label: 'Service report', state: 'na' as const, note: null },
+      : { key: 'serviceReport', label: 'Service report', state: 'todo' as const, note: 'Not yet', action: 'addServiceReport' as const },
   ];
 }
 
