@@ -364,6 +364,7 @@ export class DeliveriesController {
   // Job category (WCT group): set this job's category. Body { category }.
   @Put(':id/category')
   @Permissions('documents:create-basic')
+  @AltPermissions(JOB_UPDATE_ALT)
   saveJobCategory(@Param('id') id: string, @Body() body: { category?: string }, @UserOrganization() org: { id: string }) {
     return this.service.saveJobCategory(id, org.id, body?.category);
   }
@@ -411,6 +412,7 @@ export class DeliveriesController {
 
   @Patch(':id/ptw')
   @Permissions('documents:create-basic')
+  @AltPermissions(JOB_UPDATE_ALT) // 2026-11-20: Operations (deliveries:update) use the calendar panel's PTW pills too
   setPtw(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }) {
     return this.service.setPtw(id, org.id, body);
   }
@@ -424,8 +426,33 @@ export class DeliveriesController {
 
   @Patch(':id/style')
   @Permissions('documents:create-basic')
+  @AltPermissions(JOB_UPDATE_ALT)
   setJobStyle(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }) {
     return this.service.setJobStyle(id, org.id, body);
+  }
+
+  // Calendar panel (WCT group, 2026-11-20, enableCalendarStyle): Cancel job (status only; DOs and invoices untouched),
+  // its Undo, and Postpone / Reschedule. Each is one Activity Log row (calendar-cancel = CANCEL, calendar-uncancel = UNDO,
+  // reschedule = RESCHEDULE).
+  @Post(':id/calendar-cancel')
+  @Permissions('documents:create-basic')
+  @AltPermissions(JOB_UPDATE_ALT)
+  calendarCancel(@Param('id') id: string, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
+    return this.service.calendarCancel(id, org.id, actorOf(req).id ?? null);
+  }
+
+  @Post(':id/calendar-uncancel')
+  @Permissions('documents:create-basic')
+  @AltPermissions(JOB_UPDATE_ALT)
+  calendarUncancel(@Param('id') id: string, @UserOrganization() org: { id: string }) {
+    return this.service.calendarUncancel(id, org.id);
+  }
+
+  @Post(':id/reschedule')
+  @Permissions('documents:create-basic')
+  @AltPermissions(JOB_UPDATE_ALT)
+  rescheduleJob(@Param('id') id: string, @Body() body: any, @UserOrganization() org: { id: string }) {
+    return this.service.rescheduleJob(id, org.id, body ?? {});
   }
 
   @Post(':id/link-order')

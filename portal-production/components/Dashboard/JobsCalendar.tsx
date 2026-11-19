@@ -17,7 +17,12 @@ import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { unwrap } from "@/app/portal/admin/organizations/_lib/siteclock-connection";
 import { calendarLegendItems, filterByPeople, legendTitle, parseHidden, parsePanelOpen, peopleOpenKey, peopleRows, peopleStorageKey, rangeOf, runIdOf, selectAllRows, selectNoRows, siteclockBanner, toggleRow, withoutSiteClockJobs, type CalendarEvent, type CalendarPayload } from "./jobs-calendar/calendarModel";
-import { useCalendarApi } from "./jobs-calendar/calendarAddApi";
+import { useCalendarApi, useCalendarStylePeople } from "./jobs-calendar/calendarAddApi";
+import CalendarFilterBar from "./jobs-calendar/CalendarFilterBar";
+import ExportListDialog from "./jobs-calendar/ExportListDialog";
+import type { CalendarActions } from "./jobs-calendar/StyledJobPanel";
+import { NO_FILTERS, RETURN_ORG_KEY, filterEvents, parseFilters, returnOrgAction, type CalendarFilters } from "./jobs-calendar/calendarPanel";
+import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
@@ -77,8 +82,72 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
     })();
   }, [range, getToken, reloadKey, isHideSiteClockJobs]);
 
-  const reload = () => setReloadKey((k) => k + 1);
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
   const api = useCalendarApi();
+
+  // Round 36: back from another company's job (opened from this calendar): this tab switches back to its company.
+  useEffect(() => {
+    const check = () => {
+      try {
+        const marker = window.sessionStorage.getItem(RETURN_ORG_KEY);
+        if (!marker) return;
+        window.sessionStorage.removeItem(RETURN_ORG_KEY);
+        const to = returnOrgAction(marker, window.sessionStorage.getItem(ACTIVE_ORG_KEY));
+        if (to === null) return;
+        if (to) window.sessionStorage.setItem(ACTIVE_ORG_KEY, to);
+        else window.sessionStorage.removeItem(ACTIVE_ORG_KEY);
+        window.location.reload();
+      } catch {
+        // No sessionStorage: nothing was switched.
+      }
+    };
+    check();
+    const onShow = (ev: PageTransitionEvent) => {
+      if (ev.persisted) check();
+    };
+    window.addEventListener("pageshow", onShow);
+    return () => window.removeEventListener("pageshow", onShow);
+  }, []);
+
+  // Round 36 (calendar style orgs): the side panel's toggles, Cancel / Undo, Reschedule; the job categories for its pills.
+  const styledOn = !!data?.style;
+  const stylePeople = useCalendarStylePeople(styledOn);
+  const [categories, setCategories] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!styledOn || categories) return;
+    void api<any>("GET", "/deliveries/job-category").then((r) => setCategories(r.ok && Array.isArray(r.data?.options) ? r.data.options : []));
+  }, [styledOn, categories, api]);
+  const actions = useMemo<CalendarActions | undefined>(
+    () =>
+      styledOn
+        ? {
+            call: async (method, path, body, orgId) => {
+              const r = await api(method, path, body, orgId);
+              return { ok: r.ok, data: r.data, message: r.message };
+            },
+            reload,
+            applicants: stylePeople.applicants,
+            defaultApplicant: stylePeople.defaultApplicant,
+            categories,
+          }
+        : undefined,
+    [styledOn, api, reload, stylePeople.applicants, stylePeople.defaultApplicant, categories],
+  );
+  // Export list: any range (up to a month) as the calendar shows it, and the header from Settings > Job fields.
+  const loadRange = useCallback(
+    async (from: string, to: string): Promise<CalendarPayload | null> => {
+      const token = await getToken();
+      if (!token) return null;
+      const res = await request({ path: `/dashboard/jobs-calendar?from=${from}&to=${to}`, method: "GET", ownError: true }, undefined, token);
+      const payload = unwrap<CalendarPayload>(res, "Couldn't load the jobs");
+      return payload ? withoutSiteClockJobs(payload, !!isHideSiteClockJobs) : null;
+    },
+    [getToken, isHideSiteClockJobs],
+  );
+  const loadHeader = useCallback(async () => {
+    const r = await api<any>("GET", "/dashboard/calendar-style/export-header");
+    return r.ok && typeof r.data?.header === "string" ? r.data.header : null;
+  }, [api]);
   // All-day jobs (2026-11-10): a drag to another day saves at once; a refusal snaps it back.
   const onMove = useCallback(
     async (e: CalendarEvent, date: string) => {
@@ -110,6 +179,9 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
         onNoteClick={setEditNote}
         onMove={onMove}
         peopleKey={peopleStorageKey(userId)}
+        actions={actions}
+        loadRange={loadRange}
+        loadHeader={loadHeader}
       />
       {canAdd && (
         <>
@@ -161,6 +233,9 @@ export function JobsCalendarPanel({
   onNoteClick,
   onMove,
   peopleKey = null,
+  actions,
+  loadRange,
+  loadHeader,
 }: {
   data: CalendarPayload | null;
   loading: boolean;
@@ -179,12 +254,17 @@ export function JobsCalendarPanel({
   onMove?: (event: CalendarEvent, date: string) => Promise<void>;
   /** People list (calendar style orgs): where this user's ticks are remembered in this browser (null = not kept). */
   peopleKey?: string | null;
+  /** Round 36 (calendar style): the side panel's actions (absent = read only). */
+  actions?: CalendarActions;
+  /** Round 36: the Export list's jobs for any range, and its header line. */
+  loadRange?: (from: string, to: string) => Promise<CalendarPayload | null>;
+  loadHeader?: () => Promise<string | null>;
 }) {
   const banner = siteclockBanner(data);
   // Calendar style (enableCalendarStyle, WCT group): an icon legend only, and cancelled / postponed always shown (greyed).
   const styled = !!data?.style;
   // The Salesperson filter (calendarHqView) was removed 2026-11-19: the people list beside the calendar does this job.
-  const allEvents = data?.events ?? [];
+  const allEvents = useMemo(() => data?.events ?? [], [data]);
   // People list (calendar style orgs, 2026-11-19): unticking a person hides the jobs and notes they made; a company
   // row hides that sister company's items. Everyone ticked by default; the hidden rows are remembered per user here.
   const withPeople = styled && Array.isArray(data?.people);
@@ -207,7 +287,53 @@ export function JobsCalendarPanel({
     }
   };
   const rows = useMemo(() => (withPeople && data ? peopleRows(data, hidden) : []), [withPeople, data, hidden]);
-  const shownEvents = useMemo(() => (withPeople ? filterByPeople(allEvents, hidden) : allEvents), [withPeople, allEvents, hidden]);
+  // Round 36 filter bar (calendar style orgs): remembered per user in this browser, next to the people ticks.
+  const filterKey = peopleKey ? peopleKey.replace(/^aims-jc-people-hidden:/, "aims-jc-filters:") : null;
+  const [filters, setFiltersState] = useState<CalendarFilters>(NO_FILTERS);
+  useEffect(() => {
+    if (!filterKey) return;
+    try {
+      setFiltersState(parseFilters(window.localStorage.getItem(filterKey)));
+    } catch {
+      setFiltersState(NO_FILTERS);
+    }
+  }, [filterKey]);
+  const setFilters = (f: CalendarFilters) => {
+    setFiltersState(f);
+    if (!filterKey) return;
+    try {
+      window.localStorage.setItem(filterKey, JSON.stringify(f));
+    } catch {
+      // Not remembered (private window or storage blocked); the filters still apply on this page.
+    }
+  };
+  const ownOrgId = data?.group?.orgs?.[0]?.id ?? null;
+  const shownEvents = useMemo(() => {
+    const byPeople = withPeople ? filterByPeople(allEvents, hidden) : allEvents;
+    return styled ? filterEvents(byPeople, filters, ownOrgId) : byPeople;
+  }, [withPeople, allEvents, hidden, styled, filters, ownOrgId]);
+  // The filter bar's choices: applicants and categories on screen plus the org's lists.
+  const filterApplicants = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of actions?.applicants ?? []) m.set(a.id, a.name);
+    for (const e of allEvents) if (e.ptwApplicant?.id && !m.has(e.ptwApplicant.id)) m.set(e.ptwApplicant.id, e.ptwApplicant.name || "Unknown");
+    return [...m].map(([id, name]) => ({ id, name }));
+  }, [actions, allEvents]);
+  const filterCategories = useMemo(() => {
+    const out = [...(actions?.categories ?? [])];
+    for (const e of allEvents) if (e.category && !out.some((c) => c.toLowerCase() === e.category!.toLowerCase())) out.push(e.category);
+    return out;
+  }, [actions, allEvents]);
+  const [exportOpen, setExportOpen] = useState(false);
+  const exportEvents = useCallback(
+    async (from: string, to: string) => {
+      const p = loadRange ? await loadRange(from, to) : data;
+      const list = p?.events ?? [];
+      const byPeople = withPeople ? filterByPeople(list, hidden) : list;
+      return filterEvents(byPeople, filters, ownOrgId);
+    },
+    [loadRange, data, withPeople, hidden, filters, ownOrgId],
+  );
   const shownNotes = useMemo(() => (withPeople && data?.notes ? filterByPeople(data.notes, hidden) : data?.notes), [withPeople, data, hidden]);
   const theme = useTheme();
   // People panel (2026-11-19): open by default only on wide screens (1600px+), so Month gets the full width on a
@@ -296,6 +422,17 @@ export function JobsCalendarPanel({
           {error}
         </Alert>
       )}
+      {styled && (
+        <CalendarFilterBar
+          value={filters}
+          onChange={setFilters}
+          applicants={filterApplicants}
+          categories={filterCategories}
+          companies={data?.group?.orgs ?? []}
+          onExport={() => setExportOpen(true)}
+        />
+      )}
+      {styled && <ExportListDialog open={exportOpen} onClose={() => setExportOpen(false)} loadEvents={exportEvents} loadHeader={loadHeader} />}
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start">
       {showPanel && <PeoplePanel rows={rows} onToggle={(id) => saveHidden(toggleRow(hidden, id))} onAll={() => saveHidden(selectAllRows())} onNone={() => saveHidden(selectNoRows(rows))} />}
       <Box sx={{ flex: 1, minWidth: 0, width: "100%" }}>
@@ -315,6 +452,7 @@ export function JobsCalendarPanel({
         onMove={onMove}
         styled={styled}
         schedule={styled}
+        actions={actions}
       />
       </Box>
       </Stack>

@@ -95,6 +95,8 @@ const VERB_ACTIONS: Record<string, string> = {
   'mark-paid': 'PAY',
   // Imported orders (2026-11-19): Mark complete (with a reason) / Reopen; Create invoice for what is left.
   'mark-complete': 'COMPLETE', 'invoice-remaining': 'CREATE', // reopen: mapped below (REOPEN)
+  // Jobs calendar panel (WCT group, 2026-11-20): Cancel job, its Undo, Postpone / Reschedule.
+  'calendar-cancel': 'CANCEL', 'calendar-uncancel': 'UNDO', reschedule: 'RESCHEDULE',
   // Round 19: "Link existing document" / "Unlink" on an imported order (POST /orders/:id/link-document | unlink-document).
   'link-document': 'LINK', 'unlink-document': 'UNLINK',
   // Round AK: Settings → Shipping → LME "Fetch now".

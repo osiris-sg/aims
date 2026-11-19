@@ -18,14 +18,16 @@ export interface ApiResult<T = any> {
 export function useCalendarApi() {
   const { getToken } = useAuth();
   return useCallback(
-    async <T = any>(method: string, path: string, body?: any): Promise<ApiResult<T>> => {
+    // orgId (round 36): read another company of the group the person is a member of (the panel's documents of
+    // that company's job); the server still checks the membership.
+    async <T = any>(method: string, path: string, body?: any, orgId?: string | null): Promise<ApiResult<T>> => {
       const token = await getToken();
       const headers: Record<string, string> = { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
       try {
-        const org = window.sessionStorage.getItem("aims-admin-active-org");
+        const org = orgId || window.sessionStorage.getItem("aims-admin-active-org");
         if (org) headers["X-Active-Org-Id"] = org;
       } catch {
-        /* no sessionStorage */
+        if (orgId) headers["X-Active-Org-Id"] = orgId;
       }
       try {
         const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });

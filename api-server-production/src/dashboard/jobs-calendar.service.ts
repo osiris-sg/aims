@@ -15,6 +15,7 @@ import { CALENDAR_STYLE_LEGEND, CalendarColours, StyleInput, mergeColours, quota
 import { jobCreatorIds, jobStyleValues } from '../deliveries/job-style';
 import type { PanelPerson } from './calendar-style';
 import { isCompletedDo } from './calendar-style';
+import { quotationSubjectOf } from '../deliveries/quick-job-quotation';
 
 export const JOBS_CALENDAR_FLAG = 'enableJobsCalendar';
 /**
@@ -263,7 +264,7 @@ export class JobsCalendarService {
   private async styled(
     organizationId: string,
     events: CalendarEvent[],
-    runs: Array<{ id: string; status: string; customerName?: string | null; siteAddress?: string | null }>,
+    runs: Array<{ id: string; status: string; customerName?: string | null; siteAddress?: string | null; notes?: string | null }>,
     ptwOf: Map<string, string | null>,
     quotationIds: Map<string, string | null>,
     colours: CalendarColours,
@@ -275,12 +276,13 @@ export class JobsCalendarService {
       this.runDoCounts(organizationId, ids),
       this.style!.salesmanCodes(organizationId),
       qIds.length
-        ? runAsOrg(organizationId, () => this.prisma.document.findMany({ where: { id: { in: qIds }, organizationId }, select: { id: true, config: true } }))
+        ? runAsOrg(organizationId, () => this.prisma.document.findMany({ where: { id: { in: qIds }, organizationId }, select: { id: true, status: true, config: true } }))
         : Promise.resolve([] as any[]),
       // Imported quotations' free-text salesperson (WCT group): the org's alias map (src/sales-report).
       salespersonAliases(this.prisma, organizationId),
     ]);
     const codeOfQuote = new Map((quotes as any[]).map((q) => [q.id as string, quotationSalesmanCode(q.config)]));
+    const quoteOf = new Map((quotes as any[]).map((q) => [q.id as string, q]));
     const salesOf = new Map<string, string | null>();
     for (const id of ids) {
       const own = meta.get(id)?.salespersonId ?? null;
@@ -331,8 +333,18 @@ export class JobsCalendarService {
       // PTW applicants list orgs (2026-11-19): the name comes from the list; an applicant not on it is marked.
       const listed = colours.ptwList ? applicantView(colours.ptwList, applicantId, nameOf(applicantId, m?.ptwApplicantName)) : null;
       const applicantName = listed ? listed.name : nameOf(applicantId, m?.ptwApplicantName);
+      const run = runOf.get(runId);
+      const q = quotationIds.get(runId) ? quoteOf.get(quotationIds.get(runId)!) : null;
       return {
         ...e,
+        // Panel + WhatsApp list (2026-11-20).
+        customer: run?.customerName?.trim() || null,
+        subject: q ? quotationSubjectOf(q.config) : null,
+        remarks: run?.notes?.trim() || null,
+        team: m?.team ?? null,
+        ptwStatus: ptwStatus || 'NOT_NEEDED',
+        quotationStatus: q?.status ?? null,
+        ...(e.cancelled && m?.calendarCancel ? { calendarCancelled: true as const } : {}),
         ...(postponed ? { statusLabel: 'Postponed' } : {}),
         postponed,
         cod: !!m?.cod,
@@ -340,7 +352,7 @@ export class JobsCalendarService {
         salesperson: salespersonId ? { id: salespersonId, name: salesName } : null,
         ptwApplicant: applicantId ? { id: listed?.id ?? applicantId, name: applicantName, ...(listed && !listed.inList ? { inList: false } : {}) } : null,
         ...(m?.sticker ? { sticker: true } : {}),
-        chipLabel: chipLabelOf(runOf.get(runId), e.title),
+        chipLabel: chipLabelOf(run, e.title),
         createdBy: m?.createdById ? { id: m.createdById, name: names.get(m.createdById)?.name ?? null } : null,
         style: styleOf(input, colours),
       };
@@ -385,6 +397,7 @@ export class JobsCalendarService {
           riderUserId: true,
           riderName: true,
           siteAddress: true,
+          notes: true,
           customer: { select: { name: true } },
           project: { select: { name: true } },
           order: { select: { id: true, orderNumber: true, sourceQuotationId: true } },
@@ -410,6 +423,7 @@ export class JobsCalendarService {
       siteAddress: r.siteAddress ?? null,
       customerName: r.customer?.name ?? null,
       projectName: r.project?.name ?? null,
+      notes: r.notes ?? null,
       service: (r.items?.length ?? 0) > 0,
       deliveryOrder: dos.get(r.id) ?? null,
       order: r.order ? { id: r.order.id, orderNumber: r.order.orderNumber } : null,

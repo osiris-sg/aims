@@ -10,6 +10,9 @@ import type { CalendarEvent, CalendarPayload } from "@/components/Dashboard/jobs
 import type { CalendarNote } from "@/helpers/calendarAdd";
 import QuickJobDialog from "@/components/Dashboard/jobs-calendar/QuickJobDialog";
 import NoteDialog from "@/components/Dashboard/jobs-calendar/NoteDialog";
+import type { CalendarActions } from "@/components/Dashboard/jobs-calendar/StyledJobPanel";
+import { colourCircle } from "@/components/Dashboard/jobs-calendar/calendarPanel";
+import { nativeOrder } from "@/app/preview/wct-order/fixtures";
 
 const at = (day: number, hh: number, mm = 0) => new Date(Date.parse(`2026-11-${String(day).padStart(2, "0")}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:00+08:00`)).toISOString();
 const base: Pick<CalendarEvent, "allDay" | "completed" | "cancelled" | "rider" | "crew" | "siteclockUrl" | "deliveryNumber"> = { allDay: false, completed: false, cancelled: false, rider: null, crew: [], siteclockUrl: null, deliveryNumber: null };
@@ -86,7 +89,40 @@ const STYLE_EVENTS: CalendarEvent[] = [
   aims("b7", "service", 67, "Kiat Lay Coldroom Specialist", 17, 14, 60, { salesperson: { id: "u3", name: "PC Tan" }, style: st("#e67c73", null, [icon("📌", "Generate sticker")]) }),
   aims("b8", "service", 68, "HongLi Eatery House", 17, 16, 60, { ptwApplicant: { id: "pta_bala", name: "Bala" }, style: st("#b0bec5", "#d50000", [icon("✋", "PTW pending")], { text: "#212121" }) }),
   aims("b9", "delivery", 69, "Iron Chef F&B @ FoodLoft", 17, 21, 30, { salesperson: { id: "u4", name: "Joyna" }, style: st("#3f51b5", null, []) }),
-].map((e, i) => (e.foreign ? e : { ...e, createdBy: i % 3 === 0 ? { id: "u1", name: "Nat HH" } : i % 3 === 1 ? { id: "u2", name: "Amy Yap" } : null }));
+].map((e, i) => (e.foreign ? e : { ...e, createdBy: i % 3 === 0 ? { id: "u1", name: "Nat HH" } : i % 3 === 1 ? { id: "u2", name: "Amy Yap" } : null }))
+  // Round 36: the fields the server now sends (customer, PTW status, DO count, applicant circle, team, subject, remarks).
+  .map((e, i): CalendarEvent => {
+    const icons = (e.style?.icons ?? []).map((x) => x.icon);
+    const ptwStatus = icons.includes("✋") ? "REQUIRED" : icons.includes("👍") ? "APPROVED" : icons.includes("👎") ? "REJECTED" : "NOT_NEEDED";
+    const doCount = icons.includes("2✅") ? 2 : icons.includes("✅") ? 1 : 0;
+    const applicantIcon = ptwStatus !== "NOT_NEEDED" && e.ptwApplicant && e.style?.bar ? colourCircle(e.style.bar) : null;
+    return {
+      ...e,
+      customer: e.chipLabel ?? null,
+      ptwStatus,
+      doCount,
+      sticker: e.sticker || icons.includes("📌"),
+      team: ["Team A", "Team B + Guru", null, "Team C"][i % 4],
+      subject: i % 2 === 0 ? "Kitchen exhaust hood cleaning" : null,
+      remarks: i % 3 === 0 ? "Please call the management upon arrival" : null,
+      quotationNumber: e.quotationNumber ?? `Q-0149${String(10 + i)}`,
+      quotationStatus: "ACCEPTED",
+      ...(e.orderNumber ? { orderHref: "/portal/orders/ord-preview" } : {}),
+      style: e.style ? { ...e.style, ...(applicantIcon ? { applicantIcon } : {}) } : e.style,
+    };
+  });
+// Round 36: the side panel's actions in the preview (saves nothing; the order is the order page's fixture).
+const PREVIEW_ACTIONS: CalendarActions = {
+  call: async (method, path) => (method === "GET" && path.startsWith("/orders/") ? { ok: true, data: nativeOrder(true), message: "" } : { ok: true, data: {}, message: "" }),
+  reload: () => undefined,
+  applicants: [
+    { id: "pta_bala", name: "Bala", colour: "#d50000" },
+    { id: "pta_joyna", name: "Joyna", colour: "#c99a00" },
+    { id: "pta_kherry", name: "Kherry", colour: "#0b8043" },
+  ],
+  defaultApplicant: { id: "pta_bala", name: "Bala", colour: "#d50000" },
+  categories: ["Service order", "Delivery", "Site visit", "Meeting", "Collect cheque", "Others"],
+};
 // People list (2026-11-19): creators + the Sales people, with their colours (Joyna: automatic colour).
 const STYLE_PEOPLE = [
   { id: "u2", name: "Amy Yap", colour: "#8e24aa", auto: false },
@@ -135,6 +171,9 @@ export default function PreviewClient({ mode, view, cancelled, down, add = false
           canAdd={add}
           onAdd={(kind, slot) => setAdding({ kind, slot })}
           onNoteClick={setEditNote}
+          actions={styled ? PREVIEW_ACTIONS : undefined}
+          loadRange={styled ? async () => data : undefined}
+          loadHeader={styled ? async () => null : undefined}
         />
         {add && (
           <>

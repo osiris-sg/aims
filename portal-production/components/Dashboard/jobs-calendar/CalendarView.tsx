@@ -28,7 +28,7 @@
 // items, opens on today and a click opens the same side panel. FullCalendar keeps the toolbar and paging; the list is
 // our own, rendered into the custom view's element (a stable host node, through a React portal).
 
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
@@ -48,8 +48,10 @@ import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
-import { CALENDAR_TZ, CHIP_TEXT, GREYED_OPACITY, applicantLabel, compactTime, rowIcons, badgeTitle, chipIcons, chipTimeRange, crewLine, crossOrgTarget, chipTitle, dayOfInstant, kindLabel, orgLabel, panelColor, panelLinks, panelMoreLink, panelRefs, rangeOf, scheduleBadge, scheduleDays, scheduleScrollDay, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag, type ScheduleDay, type ScheduleRow } from "./calendarModel";
+import { CALENDAR_TZ, CHIP_TEXT, GREYED_OPACITY, chipBorder, chipFill, applicantLabel, badgeTitle, chipTimeRange, crewLine, crossOrgTarget, dayOfInstant, kindLabel, orgLabel, panelColor, panelLinks, panelMoreLink, panelRefs, rangeOf, scheduleBadge, scheduleDays, scheduleScrollDay, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag, type ScheduleDay, type ScheduleRow } from "./calendarModel";
 import DoStatusTag from "@/components/DoStatusTag";
+import StyledJobPanel, { type CalendarActions } from "./StyledJobPanel";
+import { RETURN_ORG_KEY, chipLines, chipTone, customerOf, rescheduleClashes, returnOrgMarker, type RescheduleTarget } from "./calendarPanel";
 
 interface Props {
   events: CalendarEvent[];
@@ -75,6 +77,8 @@ interface Props {
   styled?: boolean;
   /** Calendar style orgs (2026-11-19): the "Schedule" view next to Month / Week / Day. */
   schedule?: boolean;
+  /** Round 36 (calendar style): what the side panel may do (toggles, Cancel / Undo, Reschedule); absent = read only. */
+  actions?: CalendarActions;
 }
 
 export const SCHEDULE_VIEW = "schedule";
@@ -95,6 +99,7 @@ export default function CalendarView({
   onMove,
   styled = false,
   schedule = false,
+  actions,
 }: Props) {
   const theme = useTheme();
   const [viewType, setViewType] = useState<string>(initialView);
@@ -129,6 +134,26 @@ export default function CalendarView({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  // Round 36: the side panel's changes show at once (overrides) until the calendar reloads from the server.
+  const [overrides, setOverrides] = useState<Record<string, CalendarEvent>>({});
+  useEffect(() => setOverrides({}), [events]);
+  const liveEvents = useMemo(() => (Object.keys(overrides).length ? events.map((e) => overrides[e.id] ?? e) : events), [events, overrides]);
+  // Postpone / Reschedule: the picked day; the calendar jumps there behind the panel and the clashing jobs are marked.
+  const [preview, setPreview] = useState<RescheduleTarget | null>(null);
+  const onReschedulePreview = useCallback((t: RescheduleTarget | null) => {
+    setPreview(t);
+    if (t) calRef.current?.getApi().gotoDate(t.date);
+  }, []);
+  // Another company's job (group calendar): a member opens it in one click; the calendar switches back on return.
+  const crossOpen = useCallback((orgId: string, href: string) => {
+    try {
+      window.sessionStorage.setItem(RETURN_ORG_KEY, returnOrgMarker(window.sessionStorage.getItem(ACTIVE_ORG_KEY)));
+      window.sessionStorage.setItem(ACTIVE_ORG_KEY, orgId);
+    } catch {
+      return;
+    }
+    window.location.assign(href);
+  }, []);
   const onScheduleRow = (row: ScheduleRow, pos: { left: number; top: number }) => {
     if (row.note) {
       if (row.note.foreign) return setNoteView({ pos, note: row.note });
@@ -146,13 +171,30 @@ export default function CalendarView({
   const [addMenu, setAddMenu] = useState<{ pos: { left: number; top: number }; slot: { date: string; time: string } } | null>(null);
   // WCT: the side panel: one job, or a day's jobs ("+n more"; a job picked from it keeps the way back).
   const [panel, setPanel] = useState<{ event: CalendarEvent | null; day: { date: string; events: CalendarEvent[] } | null } | null>(null);
+  const patchEvent = useCallback((e: CalendarEvent) => {
+    setOverrides((o) => ({ ...o, [e.id]: e }));
+    setPanel((p) => (p?.event?.id === e.id ? { ...p, event: e } : p));
+  }, []);
+  // A reload (or a change made in the panel) refreshes the job the panel shows.
+  useEffect(() => {
+    setPanel((p) => {
+      if (!p?.event) return p;
+      const fresh = liveEvents.find((x) => x.id === p.event!.id);
+      return fresh && fresh !== p.event ? { ...p, event: fresh } : p;
+    });
+  }, [liveEvents]);
+  const clashes = useMemo(() => (preview && panel?.event ? rescheduleClashes(liveEvents, panel.event, preview) : []), [preview, panel, liveEvents]);
+  const clashIds = useMemo(() => new Set(clashes.map((c) => c.event.id)), [clashes]);
   // Notes first on each day (displayOrder 0), then the jobs.
   // Calendar style (WCT group): Month shows compact Google Calendar rows (StyledRow), Week / Day keep the blocks.
-  const styledCal = useMemo(() => events.some((e) => !!e.style), [events]);
+  const styledCal = useMemo(() => liveEvents.some((e) => !!e.style), [liveEvents]);
   const monthRows = styledCal && viewType === "dayGridMonth";
   const inputs = useMemo(
-    () => [...(notes ?? []).map((n) => noteToCalendarInput(n, styled)), ...toCalendarInputs(events, showCancelled, !!onMove, openOnClick).map((i) => ({ ...i, displayOrder: 1 }))],
-    [events, showCancelled, notes, onMove, openOnClick, styled],
+    () => [
+      ...(notes ?? []).map((n) => noteToCalendarInput(n, styled)),
+      ...toCalendarInputs(liveEvents, showCancelled, !!onMove, openOnClick).map((i) => ({ ...i, displayOrder: 1, ...(clashIds.has(i.id) ? { classNames: [...i.classNames, "aims-jc-clash"] } : {}) })),
+    ],
+    [liveEvents, showCancelled, notes, onMove, openOnClick, styled, clashIds],
   );
 
   const onDateClick = (arg: DateClickArg) => {
@@ -215,11 +257,14 @@ export default function CalendarView({
         // Calendar style: cancelled / postponed stay, greyed out (fully grey; the softer fills keep the text readable
         // at this opacity: GREYED_OPACITY in calendarModel, checked by the contrast tests).
         "& .aims-jc-greyed": { opacity: GREYED_OPACITY, filter: "grayscale(1)" },
+        // Round 36: postponed / on hold = faded (greyed), cancelled = fully grey; a reschedule clash is outlined red.
+        "& .aims-jc-tone-postponed": { opacity: 0.55, filter: "grayscale(0.5)" },
+        "& .aims-jc-clash": { outline: "2px solid #d32f2f", outlineOffset: "1px", zIndex: 5 },
         "& .aims-jc-styled .fc-event-main": { padding: 0 },
-        // Month rows (calendar style, 2026-11-19): no fill or border, a hover tint; day cells tall enough for 6 rows.
-        "& .fc-dayGridMonth-view .aims-jc-styled": { backgroundColor: "transparent !important", borderColor: "transparent !important", borderRadius: "4px" },
-        "& .fc-dayGridMonth-view .aims-jc-styled:hover": { backgroundColor: `${theme.palette.action.hover} !important` },
-        ...(monthRows ? { "& .fc-dayGridMonth-view .fc-daygrid-day-frame": { minHeight: 150 } } : {}),
+        // Month (calendar style, round 36): the same pastel boxes as Week / Day, two rows each; cells fit about 4.
+        "& .fc-dayGridMonth-view .aims-jc-styled": { borderRadius: "4px", marginBottom: "2px" },
+        "& .fc-dayGridMonth-view .aims-jc-styled:hover": { filter: "brightness(0.96)" },
+        ...(monthRows ? { "& .fc-dayGridMonth-view .fc-daygrid-day-frame": { minHeight: 176 } } : {}),
         "& .fc-schedule-view": { height: "100%" },
         "@media (max-width: 600px)": { "& .fc .fc-toolbar": { flexDirection: "column", gap: 1 } },
       }}
@@ -236,8 +281,8 @@ export default function CalendarView({
         views={scheduleViews}
         buttonText={{ today: "Today", month: "Month", week: "Week", day: "Day", ...(scheduleViews ? { [SCHEDULE_VIEW]: "Schedule" } : {}) }}
         firstDay={1}
-        // Month rows (calendar style): up to 6 rows a day before "+N more"; blocks elsewhere: 4.
-        dayMaxEvents={monthRows ? 6 : 4}
+        // About 4 items a day before "+N more" (calendar style: two-row boxes since round 36).
+        dayMaxEvents={4}
         // Month: filled blocks so the source colours read at a glance, page-high.
         // Week / Day: a fixed-height grid that opens at 07:00 and scrolls for night jobs.
         eventDisplay="block"
@@ -263,7 +308,7 @@ export default function CalendarView({
         // Custom job fields: the job's icons after its time + title (default rendering otherwise).
         eventContent={(arg: EventContentArg) => {
           const e = arg.event.extendedProps.event as CalendarEvent;
-          if (e?.style) return arg.view.type === "dayGridMonth" ? <StyledRow event={e} /> : <StyledChip event={e} />;
+          if (e?.style) return <StyledBox event={e} block={arg.view.type !== "dayGridMonth"} />;
           if (!e?.badges?.length && !e?.ptw) return true;
           return (
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, overflow: "hidden", px: 0.25 }}>
@@ -293,7 +338,7 @@ export default function CalendarView({
       {scheduleHost &&
         viewType === SCHEDULE_VIEW &&
         createPortal(
-          <ScheduleList events={events} notes={notes} range={visible} showCancelled={showCancelled} byPtw={openOnClick} onRow={onScheduleRow} />,
+          <ScheduleList events={liveEvents} notes={notes} range={visible} showCancelled={showCancelled} byPtw={openOnClick} onRow={onScheduleRow} />,
           scheduleHost,
         )}
 
@@ -304,6 +349,11 @@ export default function CalendarView({
           jobWords={jobWords}
           linkRefs={canAdd}
           onCrossOrg={onCrossOrg}
+          actions={actions}
+          onPatched={patchEvent}
+          onReschedulePreview={onReschedulePreview}
+          clashes={clashes}
+          onCrossOpen={crossOpen}
           onPick={(event) => setPanel((p) => ({ event, day: p?.day ?? null }))}
           onBack={() => setPanel((p) => (p?.day ? { event: null, day: p.day } : null))}
           onClose={() => setPanel(null)}
@@ -640,6 +690,11 @@ function JobPanel({
   jobWords,
   linkRefs,
   onCrossOrg,
+  actions,
+  onPatched,
+  onReschedulePreview,
+  clashes,
+  onCrossOpen,
   onPick,
   onBack,
   onClose,
@@ -648,6 +703,11 @@ function JobPanel({
   jobWords: boolean;
   linkRefs: boolean;
   onCrossOrg: (t: { orgId: string; orgName: string }, href: string) => void;
+  actions?: CalendarActions;
+  onPatched: (e: CalendarEvent) => void;
+  onReschedulePreview: (t: RescheduleTarget | null) => void;
+  clashes: import("./calendarPanel").Clash[];
+  onCrossOpen: (orgId: string, href: string) => void;
   onPick: (e: CalendarEvent) => void;
   onBack: () => void;
   onClose: () => void;
@@ -669,6 +729,8 @@ function JobPanel({
         flexDirection: "column",
         borderLeft: 1,
         borderColor: "divider",
+        // Round 36: everything in the panel can be selected and copied.
+        userSelect: "text",
       }}
     >
       <Stack direction="row" alignItems="center" spacing={1} sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: "divider" }}>
@@ -686,14 +748,18 @@ function JobPanel({
       </Stack>
       <Box sx={{ p: 2, overflowY: "auto", flex: 1 }}>
         {event ? (
-          <EventCard event={event} jobWords={jobWords} byPtw linkRefs={linkRefs} onCrossOrg={onCrossOrg} />
+          event.style && event.source === "aims" ? (
+            <StyledJobPanel event={event} actions={actions} onPatched={onPatched} onReschedulePreview={onReschedulePreview} clashes={clashes} onCrossOpen={onCrossOpen} />
+          ) : (
+            <EventCard event={event} jobWords={jobWords} byPtw linkRefs={linkRefs} onCrossOrg={onCrossOrg} />
+          )
         ) : day ? (
           <List dense disablePadding>
             {day.events.map((e) => (
               <ListItemButton key={e.id} onClick={() => onPick(e)} sx={{ borderRadius: 1, alignItems: "flex-start" }}>
                 <Box sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: panelColor(e, true), mt: 0.75, mr: 1.25, flexShrink: 0, opacity: e.style?.greyed ? 0.45 : 1 }} />
                 <ListItemText
-                  primary={e.style ? `${chipIcons(e) ? `${chipIcons(e)} ` : ""}${styledTitle(e)}` : e.title}
+                  primary={e.style ? [chipLines(e).icons, customerOf(e), chipLines(e).row2].filter(Boolean).join(" ") : e.title}
                   secondary={`${chipTime(e)} · ${e.statusLabel}${e.orgName ? ` · ${e.orgName}` : ""}`}
                   primaryTypographyProps={{ sx: { fontWeight: 500, textDecoration: e.cancelled ? "line-through" : "none", wordBreak: "break-word" } }}
                 />
@@ -723,69 +789,31 @@ function PtwCircle({ colour, size = 9 }: { colour: string; size?: number }) {
 }
 
 /**
- * Month view row (2026-11-19, Google Calendar style): salesperson dot, short time (9am / 9:30pm), the PTW applicant's
- * circle (PTW needed only), icons, the customer; one line cut at the cell edge (no "…"), full text on hover.
- * Cancelled / postponed rows are greyed by the event's class (text and dot), cancelled struck through.
+ * Calendar style item (round 36, 2026-11-20): the same in Month, Week and Day. A box lightly filled in the
+ * salesperson's colour (the event's background) with dark text. Row 1: time, status icons (✅ / 2✅, ❌, ⭕, 📌, 🟫),
+ * customer. Row 2, only when there is something: (SV) / (M) / (CC), PTW status (✋ 👍 👎), the PTW applicant's colour
+ * circle. Cut at the edge (no "…"); the full text is in the hover text and the side panel.
  */
-function StyledRow({ event: e }: { event: CalendarEvent }) {
-  const st = e.style!;
-  // At most 2 icons inline (status, PTW, ✅, 📌, 🟫 first); every icon is in the hover text and the side panel.
-  const icons = rowIcons(st.icons);
+function StyledBox({ event: e, block }: { event: CalendarEvent; block: boolean }) {
+  const l = chipLines(e);
   return (
     <Box
       title={styledTooltip(e)}
-      sx={{ display: "flex", alignItems: "center", gap: "3px", overflow: "hidden", whiteSpace: "nowrap", px: 0.5, fontSize: "0.75rem", lineHeight: "18px", color: "text.primary", minWidth: 0 }}
+      data-testid="styled-chip"
+      sx={{ px: 0.5, py: "1px", overflow: "hidden", color: CHIP_TEXT, lineHeight: 1.3, fontSize: "0.72rem", minWidth: 0, height: block ? "100%" : "auto", boxSizing: "border-box" }}
     >
-      <Box component="span" data-testid="sales-dot" sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: st.fill, flexShrink: 0 }} />
-      {!e.allDay && (
-        <Box component="span" sx={{ flexShrink: 0, color: "text.secondary", fontVariantNumeric: "tabular-nums" }}>
-          {compactTime(e.start)}
+      <Box sx={{ display: "flex", gap: "3px", alignItems: "baseline", whiteSpace: "nowrap", overflow: "hidden" }}>
+        {l.time && (
+          <Box component="span" sx={{ flexShrink: 0, fontVariantNumeric: "tabular-nums", opacity: 0.85 }}>
+            {l.time}
+          </Box>
+        )}
+        {l.icons && <Box component="span" sx={{ flexShrink: 0 }}>{l.icons}</Box>}
+        <Box component="span" sx={{ fontWeight: 600, overflow: "hidden", textOverflow: "clip", textDecoration: e.cancelled ? "line-through" : "none" }}>
+          {l.customer}
         </Box>
-      )}
-      {st.bar && <PtwCircle colour={st.bar} />}
-      {icons && <Box component="span" sx={{ flexShrink: 0 }}>{icons}</Box>}
-      <Box component="span" sx={{ fontWeight: 600, overflow: "hidden", textOverflow: "clip", textDecoration: e.cancelled ? "line-through" : "none" }}>
-        {chipTitle(e)}
       </Box>
-    </Box>
-  );
-}
-
-function StyledChip({ event: e }: { event: CalendarEvent }) {
-  const st = e.style!;
-  const icons = chipIcons(e);
-  return (
-    <Box
-      title={styledTooltip(e)}
-      sx={{
-        position: "relative",
-        display: "flex",
-        // Fill the event (Week / Day: a timed job is taller than its text) so the PTW bar runs top to bottom.
-        height: "100%",
-        boxSizing: "border-box",
-        overflow: "hidden",
-        pl: 0.75,
-        pr: st.bar ? 1.5 : 0.5,
-        py: 0.25,
-        color: CHIP_TEXT,
-        lineHeight: 1.25,
-        minWidth: 0,
-      }}
-    >
-      {st.bar && (
-        <Box
-          aria-hidden
-          data-testid="ptw-bar"
-          sx={{ position: "absolute", top: 0, right: 0, bottom: 0, width: "7px", borderLeft: "2px solid #ffffff", bgcolor: st.bar, borderRadius: "0 2px 2px 0", boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.22)" }}
-        />
-      )}
-      <Box sx={{ minWidth: 0, flex: 1 }}>
-        <Box sx={{ fontWeight: 600, fontSize: "0.75rem", whiteSpace: "nowrap", overflow: "hidden", textDecoration: e.cancelled ? "line-through" : "none" }}>
-          {icons && <span style={{ marginRight: 4 }}>{icons}</span>}
-          {chipTitle(e)}
-        </Box>
-        <Box sx={{ fontSize: "0.7rem", opacity: 0.9, whiteSpace: "nowrap", overflow: "hidden" }}>{chipTimeRange(e)}</Box>
-      </Box>
+      {l.row2 && <Box sx={{ whiteSpace: "nowrap", overflow: "hidden", fontSize: "0.7rem" }}>{l.row2}</Box>}
     </Box>
   );
 }
@@ -880,7 +908,10 @@ function ScheduleList({
                 </Typography>
               </Box>
               <Box sx={{ flex: 1, minWidth: 0 }}>
-                {d.rows.map((r) => (
+                {d.rows.map((r) =>
+                  r.event?.style ? (
+                    <ScheduleStyledRow key={r.key} row={r} event={r.event} onRow={onRow} />
+                  ) : (
                   <ButtonBase
                     key={r.key}
                     onClick={(ev) => onRow(r, { left: ev.clientX, top: ev.clientY })}
@@ -915,12 +946,64 @@ function ScheduleList({
                       )}
                     </Box>
                   </ButtonBase>
-                ))}
+                  ),
+                )}
               </Box>
             </Box>
           );
         })
       )}
     </Box>
+  );
+}
+
+/** Schedule view, calendar style (round 36): the same pastel box and two rows as the calendar, the site after it. */
+function ScheduleStyledRow({ row: r, event: e, onRow }: { row: ScheduleRow; event: CalendarEvent; onRow: (row: ScheduleRow, pos: { left: number; top: number }) => void }) {
+  const l = chipLines(e);
+  const tone = chipTone(e);
+  const fill = e.style!.fill;
+  return (
+    <ButtonBase
+      onClick={(ev) => onRow(r, { left: ev.clientX, top: ev.clientY })}
+      sx={{
+        width: "100%",
+        justifyContent: "flex-start",
+        textAlign: "left",
+        borderRadius: 1,
+        px: 1,
+        py: 0.5,
+        mb: 0.5,
+        gap: 1.25,
+        flexWrap: { xs: "wrap", sm: "nowrap" },
+        bgcolor: chipFill(fill),
+        border: `1px solid ${chipBorder(fill)}`,
+        color: CHIP_TEXT,
+        opacity: tone === "cancelled" ? GREYED_OPACITY : tone === "postponed" ? 0.55 : 1,
+        filter: tone === "cancelled" ? "grayscale(1)" : tone === "postponed" ? "grayscale(0.5)" : "none",
+        "&:hover": { filter: tone ? undefined : "brightness(0.97)" },
+      }}
+    >
+      <Typography variant="body2" sx={{ width: { xs: "auto", sm: 120 }, flexShrink: 0, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", color: CHIP_TEXT, opacity: 0.85 }}>
+        {r.time}
+      </Typography>
+      <Box sx={{ minWidth: 0, flex: 1 }}>
+        <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: 1 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: "break-word", color: CHIP_TEXT, textDecoration: e.cancelled ? "line-through" : "none" }}>
+            {l.icons && <span style={{ marginRight: 6 }}>{l.icons}</span>}
+            {l.customer}
+          </Typography>
+          {r.site && (
+            <Typography variant="body2" sx={{ wordBreak: "break-word", color: CHIP_TEXT, opacity: 0.75 }}>
+              {r.site}
+            </Typography>
+          )}
+        </Box>
+        {l.row2 && (
+          <Typography variant="caption" component="div" sx={{ color: CHIP_TEXT }}>
+            {l.row2}
+          </Typography>
+        )}
+      </Box>
+    </ButtonBase>
   );
 }

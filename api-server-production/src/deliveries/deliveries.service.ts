@@ -72,6 +72,7 @@ import { jobCategoryDef, jobCategoryValues, parseCategory, saveJobCategory as st
 import { applicantEntryOf, applicantView, readApplicantList } from './ptw-applicants';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { displayNameOf } from '../users/users.service';
+import { parseRescheduleTarget, zonedInstant } from './calendar-panel';
 import { EMPTY_JOB_STYLE, withListedApplicant, defaultPtwApplicant, hasJobStylePatch, isCalendarStyleEnabled, jobStyleValues, parseJobStylePatch, saveJobStyle, stampJobCreator, withStampedApplicant } from './job-style';
 import { runNoun } from './job-wording';
 import { wctBrandStamp } from '../maintenance-reports/wct-brand';
@@ -1197,17 +1198,80 @@ export class DeliveriesService {
   /** PTW status + remark on any job of the org (calendar-add orgs); re-syncs the SiteClock notes. */
   async setPtw(id: string, organizationId: string, body: any) {
     await this.assertCalendarAdd(organizationId);
-    const run = await this.prisma.delivery.findFirst({ where: { id, organizationId }, select: { id: true } });
+    const run = await this.prisma.delivery.findFirst({ where: { id, organizationId }, select: { id: true, ptwRemark: true } });
     if (!run) throw new NotFoundException('Job not found');
     const ptwStatus = parsePtwStatus(body?.ptwStatus);
     const styleOn = await isCalendarStyleEnabled(this.prisma, organizationId);
     await this.assertPtwAllowed(ptwStatus, styleOn);
-    const ptwRemark = ptwStatus ? parsePtwRemark(body?.ptwRemark) : null;
+    // The calendar panel's PTW pills (2026-11-20) send the status only: a remark not sent is kept.
+    const ptwRemark = ptwStatus ? (body && 'ptwRemark' in body ? parsePtwRemark(body.ptwRemark) : (run.ptwRemark ?? null)) : null;
     await this.prisma.delivery.update({ where: { id }, data: { ptwStatus, ptwRemark } });
     // Calendar style: a job that now needs a PTW keeps (or gets) its applicant stored on it.
     if (styleOn) await this.saveStyleStamped(organizationId, id, {}, ptwStatus);
     await this.siteclock?.touch(organizationId, id);
     return { id, ptwStatus: ptwStatus ?? 'NOT_NEEDED', ptwRemark };
+  }
+
+  // ── Calendar panel: Cancel job / Undo, Postpone / Reschedule (WCT group, 2026-11-20, enableCalendarStyle) ──
+
+  /**
+   * Cancel a job from the calendar panel. Only the job's status changes (to cancelled): its DOs, invoices and service
+   * reports are left exactly as they are, so Undo can put the job back. The status it had is kept on the job
+   * (job-style.ts calendarCancel). A draft, a started or a finished job cannot be cancelled here.
+   */
+  async calendarCancel(id: string, organizationId: string, actorId: string | null) {
+    if (!(await isCalendarStyleEnabled(this.prisma, organizationId))) throw new NotFoundException('Calendar style is not enabled for this organisation');
+    const run = await this.prisma.delivery.findFirst({ where: { id, organizationId }, select: { id: true, status: true, isDraft: true } });
+    if (!run) throw new NotFoundException('Job not found');
+    if (run.isDraft) throw new BadRequestException('This job is a draft. Discard it from its page instead.');
+    if (run.status !== 'scheduled') throw new BadRequestException(`Only a scheduled job can be cancelled here (this one is ${run.status})`);
+    const done = await this.prisma.delivery.updateMany({ where: { id, organizationId, status: 'scheduled' }, data: { status: 'cancelled' } });
+    if (!done.count) throw new BadRequestException('The job changed meanwhile. Reload the calendar.');
+    await saveJobStyle(this.prisma, organizationId, id, { calendarCancel: { from: 'scheduled', at: new Date().toISOString(), byId: actorId || null } });
+    await this.orderFollowsRun(organizationId, id);
+    await this.siteclock?.touch(organizationId, id);
+    return { id, status: 'cancelled' };
+  }
+
+  /** Undo a calendar cancel: the job is scheduled again. Jobs cancelled any other way are not undone here. */
+  async calendarUncancel(id: string, organizationId: string) {
+    if (!(await isCalendarStyleEnabled(this.prisma, organizationId))) throw new NotFoundException('Calendar style is not enabled for this organisation');
+    const run = await this.prisma.delivery.findFirst({ where: { id, organizationId }, select: { id: true, status: true } });
+    if (!run) throw new NotFoundException('Job not found');
+    const meta = (await jobStyleValues(this.prisma, organizationId, [id])).get(id) ?? EMPTY_JOB_STYLE;
+    if (run.status !== 'cancelled' || !meta.calendarCancel) throw new BadRequestException('Only a job cancelled from the calendar can be undone here');
+    const done = await this.prisma.delivery.updateMany({ where: { id, organizationId, status: 'cancelled' }, data: { status: 'scheduled' } });
+    if (!done.count) throw new BadRequestException('The job changed meanwhile. Reload the calendar.');
+    await saveJobStyle(this.prisma, organizationId, id, { calendarCancel: null });
+    await this.orderFollowsRun(organizationId, id);
+    await this.siteclock?.touch(organizationId, id);
+    return { id, status: 'scheduled' };
+  }
+
+  /**
+   * Postpone / Reschedule from the calendar panel. Body { onHold: true } = on hold with no date (⭕, the job stays on
+   * its day, greyed); { date: 'yyyy-MM-dd', time?: 'HH:mm' } = a new day (no time = all day) and the on-hold mark
+   * cleared. Like the form's edit, a new date re-dates the job's DO and its scheduled service report.
+   */
+  async rescheduleJob(id: string, organizationId: string, body: any) {
+    if (!(await isCalendarStyleEnabled(this.prisma, organizationId))) throw new NotFoundException('Calendar style is not enabled for this organisation');
+    const run = await this.prisma.delivery.findFirst({ where: { id, organizationId }, select: { id: true, status: true, isDraft: true } });
+    if (!run) throw new NotFoundException('Job not found');
+    if (run.isDraft || run.status !== 'scheduled') throw new BadRequestException(`Only a scheduled job can be postponed or rescheduled (this one is ${run.isDraft ? 'a draft' : run.status})`);
+    if (body?.onHold === true) {
+      await saveJobStyle(this.prisma, organizationId, id, { postponed: true });
+      return { id, onHold: true };
+    }
+    const target = parseRescheduleTarget(body);
+    const sched = target.time
+      ? { scheduledFor: zonedInstant(target.date, target.time, await orgTimeZone(this.prisma, organizationId)), scheduledAllDay: false }
+      : await this.scheduleOf(target.date, true, organizationId);
+    await this.prisma.delivery.update({ where: { id }, data: { scheduledFor: sched.scheduledFor, scheduledAllDay: sched.scheduledAllDay } });
+    await saveJobStyle(this.prisma, organizationId, id, { postponed: false });
+    await this.redateRunDo(id, organizationId);
+    await this.ensureScheduledServiceReport(id, organizationId);
+    await this.siteclock?.touch(organizationId, id);
+    return { id, onHold: false, scheduledFor: sched.scheduledFor, scheduledAllDay: sched.scheduledAllDay };
   }
 
   /** PTW "Rejected" exists only with the calendar style (enableCalendarStyle). */

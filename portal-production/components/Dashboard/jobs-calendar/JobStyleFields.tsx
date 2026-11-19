@@ -16,6 +16,8 @@ export interface JobStyleValue {
   postponed?: boolean;
   /** "Generate sticker" (2026-11-19): the job shows 📌 on the calendar. */
   sticker?: boolean;
+  /** "Team / crew" (round 36, 2026-11-20): free text, e.g. "Team A + Guru"; absent = not offered on this form. */
+  team?: string;
 }
 
 /** Options with the current pick kept (a person no longer listed still shows by name). */
@@ -80,6 +82,18 @@ export default function JobStyleFields({
         sx={{ mr: 0, flexShrink: 0 }}
         data-tour="job-sticker"
       />
+      {value.team !== undefined && (
+        <TextField
+          size="small"
+          label="Team / crew"
+          value={value.team}
+          onChange={(e) => onChange({ team: e.target.value })}
+          inputProps={{ maxLength: 120 }}
+          InputLabelProps={{ shrink: true }}
+          sx={{ flex: 1, minWidth: 160 }}
+          data-tour="job-team"
+        />
+      )}
       {showPostponed && (
         <FormControlLabel
           control={<Checkbox size="small" checked={!!value.postponed} onChange={(e) => onChange({ postponed: e.target.checked })} />}

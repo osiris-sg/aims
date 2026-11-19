@@ -35,6 +35,13 @@ export interface JobStyleMeta {
   sticker: boolean;
   /** Who made the job (2026-11-19, the calendar's people list). Stamped by the server, never sent by a form. */
   createdById: string | null;
+  /** "Team / crew" (2026-11-20): free text, e.g. "Team A + Guru"; the calendar panel, the job page and the WhatsApp list. */
+  team: string | null;
+  /**
+   * Cancelled from the calendar panel (2026-11-20): the status the job had, when and by whom, so Undo can put it back.
+   * Stamped by the server only (never from a form); null for a job not cancelled there.
+   */
+  calendarCancel: { from: string; at: string; byId: string | null } | null;
 }
 
 export const EMPTY_JOB_STYLE: JobStyleMeta = {
@@ -46,6 +53,8 @@ export const EMPTY_JOB_STYLE: JobStyleMeta = {
   postponed: false,
   sticker: false,
   createdById: null,
+  team: null,
+  calendarCancel: null,
 };
 
 export async function isCalendarStyleEnabled(prisma: any, organizationId: string): Promise<boolean> {
@@ -67,13 +76,25 @@ export function jobStyleOf(raw: unknown): JobStyleMeta {
     postponed: v.postponed === true,
     sticker: v.sticker === true,
     createdById: idOf(v.createdById),
+    team: teamOf(v.team),
+    calendarCancel: cancelOf(v.calendarCancel),
   };
 }
+
+/** "Team A + Guru": one line, at most 120 characters (null when empty). */
+export const TEAM_MAX = 120;
+export function teamOf(v: unknown): string | null {
+  const s = typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '';
+  return s ? s.slice(0, TEAM_MAX) : null;
+}
+
+const cancelOf = (v: any): JobStyleMeta['calendarCancel'] =>
+  v && typeof v === 'object' && typeof v.from === 'string' && v.from && typeof v.at === 'string' ? { from: v.from, at: v.at, byId: idOf(v.byId) } : null;
 
 /**
  * The fields a form sent, as a partial update (keys left out are kept).
  * salesperson / ptwApplicant: { id, name } or null (cleared); cod / postponed / sticker: booleans.
- * The creator is never taken from a form (stampJobCreator).
+ * team: free text or null. The creator and the calendar cancel mark are never taken from a form.
  */
 export function parseJobStylePatch(body: any): Partial<JobStyleMeta> {
   const out: Partial<JobStyleMeta> = {};
@@ -104,6 +125,10 @@ export function parseJobStylePatch(body: any): Partial<JobStyleMeta> {
   if (body && 'sticker' in body) {
     if (typeof body.sticker !== 'boolean') throw new BadRequestException('Generate sticker must be true or false');
     out.sticker = body.sticker;
+  }
+  if (body && 'team' in body) {
+    if (body.team !== null && typeof body.team !== 'string') throw new BadRequestException('Team / crew must be text');
+    out.team = teamOf(body.team);
   }
   return out;
 }

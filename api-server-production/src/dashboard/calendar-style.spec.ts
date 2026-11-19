@@ -21,7 +21,9 @@ import { CalendarStyleService, isSalesMember } from './calendar-style.service';
 import { JobsCalendarService } from './jobs-calendar.service';
 import { CalendarNotesService } from './calendar-notes.service';
 import { jobStyleOf, parseJobStylePatch, stampJobCreator, withStampedApplicant, EMPTY_JOB_STYLE } from '../deliveries/job-style';
-import { AUTO_PALETTE, panelPeople } from './calendar-style';
+import { AUTO_PALETTE, colourCircle, panelPeople } from './calendar-style';
+import { DEFAULT_EXPORT_HEADER, cleanExportHeader, readExportHeader, writeExportHeader } from './calendar-export';
+import { parseRescheduleTarget, zonedInstant } from '../deliveries/calendar-panel';
 import { isCompletedDo } from './calendar-style';
 import { DEFAULT_ORG_FEATURES } from '../organizations/default-features';
 import { DeliveriesService } from '../deliveries/deliveries.service';
@@ -188,7 +190,7 @@ describe('calendar style: people', () => {
     expect(parseJobStylePatch({})).toEqual({});
     expect(() => parseJobStylePatch({ cod: 'yes' })).toThrow(BadRequestException);
     expect(() => parseJobStylePatch({ salesperson: { name: 'x' } })).toThrow(BadRequestException);
-    expect(jobStyleOf('junk')).toEqual({ salespersonId: null, salespersonName: null, ptwApplicantId: null, ptwApplicantName: null, cod: false, postponed: false, sticker: false, createdById: null });
+    expect(jobStyleOf('junk')).toEqual({ salespersonId: null, salespersonName: null, ptwApplicantId: null, ptwApplicantName: null, cod: false, postponed: false, sticker: false, createdById: null, team: null, calendarCancel: null });
   });
 
   it('✅ counts only completed / signed DOs: not drafts, not cancelled or voided', () => {
@@ -268,6 +270,8 @@ interface World {
   aliases?: Record<string, Array<{ text: string; userIds: string[] }>>;
   /** Calendar notes per org (people list tests). */
   notes?: Record<string, any[]>;
+  /** Round 36: the order's quotation Subject. */
+  quoteSubject?: string;
 }
 
 function world(): World {
@@ -329,7 +333,7 @@ function fakePrisma(w: World) {
             { id: 'do-2', name: 'DO2', status: 'unconfirmed', documentTemplateId: 't', config: {}, createdAt: new Date() },
             { id: 'do-3', name: 'DO3', status: 'delivered_installed', documentTemplateId: 't', config: { cancelled: true }, createdAt: new Date() },
           ].filter((d) => where.id.in.includes(d.id));
-        return where.id.in.includes(Q1) ? [{ id: Q1, name: 'QO1', type: 'QUOTATION', documentTemplateId: 'tq', config: { salesPerson: w.quoteSalesPerson ?? 'S002' } }] : [];
+        return where.id.in.includes(Q1) ? [{ id: Q1, name: 'QO1', type: 'QUOTATION', status: 'ACCEPTED', documentTemplateId: 'tq', config: { salesPerson: w.quoteSalesPerson ?? 'S002', ...(w.quoteSubject ? { subject: w.quoteSubject } : {}) } }] : [];
       }),
     },
     deliverySiteClockJob: { findMany: jest.fn(async () => []) },
@@ -634,5 +638,189 @@ describe('chip label fallback (2026-11-19): no order / job numbers', () => {
     expect(chipLabelOf(null, '#41 Site visit')).toBe('Site visit');
     expect(titleWithoutNumbers('Return #7 Acme')).toBe('Return Acme');
     expect(titleWithoutNumbers('#41')).toBe('#41');
+  });
+});
+
+
+/**
+ * Round 36 (WCT group, 2026-11-20, same gate as the style): the side panel and WhatsApp list fields on each event,
+ * the PTW applicant's colour circle, Team / crew, Cancel job / Undo, Postpone / Reschedule, the Export list header.
+ */
+describe('round 36: panel fields on the calendar events', () => {
+  it('each own job carries customer, Subject, Remarks, Team / crew, stored PTW status, quotation status; the applicant circle', async () => {
+    const w = world();
+    w.quoteSubject = 'Troubleshoot Exhaust VSD Issue at Rooftop';
+    w.runs[P][1] = { ...w.runs[P][1], notes: 'Please call the management 96420116 upon arrival' };
+    w.styleValues['r-order'] = { ...w.styleValues['r-order'], team: 'Team A + Guru' };
+    w.styleValues['r-cancel'] = { calendarCancel: { from: 'scheduled', at: '2026-11-20T01:00:00.000Z', byId: HH } };
+    const res = await svc(w).get(P, '2026-11-16', '2026-11-22', { userId: HH });
+    const order = byId(res.events, 'r-order');
+    expect(order).toMatchObject({
+      customer: 'Acme',
+      subject: 'Troubleshoot Exhaust VSD Issue at Rooftop',
+      remarks: 'Please call the management 96420116 upon arrival',
+      team: 'Team A + Guru',
+      ptwStatus: 'REQUIRED',
+      quotationStatus: 'ACCEPTED',
+    });
+    // Bala's bar #d50000 = 🔴; a PTW job with no stored applicant has no circle; no PTW = none.
+    expect(order.style.applicantIcon).toBe('🔴');
+    expect(byId(res.events, 'r-legacy').style.applicantIcon).toBeUndefined();
+    expect(byId(res.events, 'r-quick').style.applicantIcon).toBe('🟡');
+    const quick = byId(res.events, 'r-quick');
+    expect(quick).toMatchObject({ ptwStatus: 'APPROVED', team: null, subject: null, remarks: null });
+    // Cancelled from the calendar: Undo offered; a job cancelled elsewhere: not.
+    expect(byId(res.events, 'r-cancel').calendarCancelled).toBe(true);
+    expect(byId(res.events, 'r-legacy').calendarCancelled).toBeUndefined();
+    // No PTW: NOT_NEEDED (the panel's pills).
+    w.runs[P].push(baseRun('r-plain'));
+    expect(byId((await svc(w).get(P, '2026-11-16', '2026-11-22', { userId: HH })).events, 'r-plain').ptwStatus).toBe('NOT_NEEDED');
+  });
+
+  it('style off (and every other org): none of the new keys', async () => {
+    const w = world();
+    w.features[P].enableCalendarStyle = false;
+    const keys = /"(customer|subject|remarks|team|ptwStatus|quotationStatus|calendarCancelled|applicantIcon)"/;
+    expect(JSON.stringify(await svc(w).get(P, '2026-11-16', '2026-11-22', { userId: HH }))).not.toMatch(keys);
+    expect(JSON.stringify(await svc(w).get(X, '2026-11-16', '2026-11-22', { userId: 'x' }))).not.toMatch(keys);
+  });
+
+  it('colour circles: Bala red, Joyna amber or yellow, Kherry green; no colour none', () => {
+    expect(colourCircle('#d50000')).toBe('🔴');
+    expect(colourCircle('#c99a00')).toBe('🟡');
+    expect(colourCircle('#f6bf26')).toBe('🟡');
+    expect(colourCircle('#0b8043')).toBe('🟢');
+    expect(colourCircle('#212121')).toBe('⚫');
+    // An applicant with no colour yet (the neutral bar): no circle.
+    expect(styleOf(input({ ptwStatus: 'REQUIRED', ptwApplicantId: 'user_nobody' }), colours).applicantIcon).toBeUndefined();
+    expect(styleOf(input({ ptwStatus: 'REQUIRED', ptwApplicantId: BALA }), colours).applicantIcon).toBe('🔴');
+    expect(colourCircle(null)).toBeNull();
+    expect(colourCircle('red')).toBeNull();
+  });
+
+  it('Team / crew: free text from a form, one line, at most 120 characters; the cancel mark never from a form', () => {
+    expect(parseJobStylePatch({ team: '  Team A  +  Guru ' })).toEqual({ team: 'Team A + Guru' });
+    expect(parseJobStylePatch({ team: '' })).toEqual({ team: null });
+    expect(parseJobStylePatch({ team: null })).toEqual({ team: null });
+    expect(parseJobStylePatch({ team: 'x'.repeat(200) }).team).toHaveLength(120);
+    expect(() => parseJobStylePatch({ team: 5 })).toThrow(BadRequestException);
+    expect(parseJobStylePatch({ calendarCancel: { from: 'scheduled', at: 'x' } } as any)).toEqual({});
+    expect(jobStyleOf({ team: 'Team B', calendarCancel: { from: 'scheduled', at: '2026-11-20T00:00:00Z', byId: HH } })).toMatchObject({ team: 'Team B', calendarCancel: { from: 'scheduled', byId: HH } });
+  });
+});
+
+describe('round 36: Cancel job / Undo and Postpone / Reschedule from the panel', () => {
+  function jobSvc(run: any, opts: { styleOn?: boolean; stored?: any } = {}) {
+    const svc: any = Object.create(DeliveriesService.prototype);
+    svc.stored = opts.stored ?? null;
+    svc.run = { ...run };
+    svc.prisma = {
+      organizationUIConfig: { findUnique: jest.fn(async () => ({ features: { enableJobsCalendar: true, enableWctOrders: true, enableCalendarStyle: opts.styleOn !== false } })) },
+      accountingSetting: { findUnique: jest.fn(async () => null) },
+      userOrganization: { findMany: jest.fn(async () => []) },
+      delivery: {
+        findFirst: jest.fn(async () => ({ ...svc.run })),
+        updateMany: jest.fn(async ({ where, data }: any) => {
+          if (where.status && where.status !== svc.run.status) return { count: 0 };
+          Object.assign(svc.run, data);
+          return { count: 1 };
+        }),
+        update: jest.fn(async ({ data }: any) => Object.assign(svc.run, data)),
+      },
+      document: { findFirst: jest.fn(), update: jest.fn(), delete: jest.fn(), findMany: jest.fn(async () => []) },
+      order: { findFirst: jest.fn(async () => null), findUnique: jest.fn(async () => null), update: jest.fn() },
+      customField: { findFirst: jest.fn(async () => ({ id: 'cf' })), create: jest.fn() },
+      customFieldValue: {
+        findMany: jest.fn(async () => (svc.stored ? [{ entityId: 'j', value: svc.stored }] : [])),
+        findUnique: jest.fn(async () => (svc.stored ? { value: svc.stored } : null)),
+        upsert: jest.fn(async ({ update }: any) => ((svc.stored = update.value), {})),
+      },
+    };
+    svc.siteclock = { touch: jest.fn() };
+    svc.redateRunDo = jest.fn(async () => undefined);
+    svc.ensureScheduledServiceReport = jest.fn(async () => undefined);
+    svc.orderFollowsRun = jest.fn(async () => undefined);
+    return svc;
+  }
+
+  it('Cancel job: a scheduled job becomes cancelled, its DOs untouched, the status it had kept for Undo; Undo puts it back', async () => {
+    const s = jobSvc({ id: 'j', status: 'scheduled', isDraft: false });
+    await expect(s.calendarCancel('j', 'org', HH)).resolves.toEqual({ id: 'j', status: 'cancelled' });
+    expect(s.run.status).toBe('cancelled');
+    expect(s.stored.calendarCancel).toMatchObject({ from: 'scheduled', byId: HH });
+    expect(s.prisma.document.update).not.toHaveBeenCalled();
+    expect(s.prisma.document.delete).not.toHaveBeenCalled();
+    expect(s.orderFollowsRun).toHaveBeenCalledWith('org', 'j');
+    await expect(s.calendarUncancel('j', 'org')).resolves.toEqual({ id: 'j', status: 'scheduled' });
+    expect(s.run.status).toBe('scheduled');
+    expect(s.stored.calendarCancel).toBeNull();
+  });
+
+  it('Cancel job refuses drafts, started and finished jobs; Undo refuses a job cancelled any other way; style off = not found', async () => {
+    await expect(jobSvc({ id: 'j', status: 'scheduled', isDraft: true }).calendarCancel('j', 'org', HH)).rejects.toBeInstanceOf(BadRequestException);
+    for (const status of ['in_progress', 'completed', 'cancelled']) {
+      await expect(jobSvc({ id: 'j', status, isDraft: false }).calendarCancel('j', 'org', HH)).rejects.toBeInstanceOf(BadRequestException);
+    }
+    await expect(jobSvc({ id: 'j', status: 'cancelled' }).calendarUncancel('j', 'org')).rejects.toBeInstanceOf(BadRequestException);
+    const off = jobSvc({ id: 'j', status: 'scheduled', isDraft: false }, { styleOn: false });
+    await expect(off.calendarCancel('j', 'org', HH)).rejects.toThrow(/not enabled/);
+    expect(off.prisma.delivery.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('Postpone: on hold with no date = postponed, the day kept; Reschedule: a new day / time clears it', async () => {
+    const s = jobSvc({ id: 'j', status: 'scheduled', isDraft: false, scheduledFor: new Date('2026-11-20T02:00:00Z') });
+    await expect(s.rescheduleJob('j', 'org', { onHold: true })).resolves.toEqual({ id: 'j', onHold: true });
+    expect(s.stored.postponed).toBe(true);
+    expect(s.prisma.delivery.update).not.toHaveBeenCalled();
+    const timed = await s.rescheduleJob('j', 'org', { date: '2026-11-25', time: '14:30' });
+    expect(timed).toMatchObject({ onHold: false, scheduledAllDay: false });
+    expect(s.run.scheduledFor.toISOString()).toBe('2026-11-25T06:30:00.000Z');
+    expect(s.stored.postponed).toBe(false);
+    expect(s.redateRunDo).toHaveBeenCalledWith('j', 'org');
+    const allDay = await s.rescheduleJob('j', 'org', { date: '2026-11-26' });
+    expect(allDay).toMatchObject({ scheduledAllDay: true });
+    expect(s.run.scheduledAllDay).toBe(true);
+  });
+
+  it('Reschedule refuses a bad date or time and a job that is not scheduled', async () => {
+    const s = jobSvc({ id: 'j', status: 'scheduled', isDraft: false });
+    await expect(s.rescheduleJob('j', 'org', { date: '2026-02-30' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(s.rescheduleJob('j', 'org', { date: '2026-11-25', time: '25:00' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(s.rescheduleJob('j', 'org', {})).rejects.toBeInstanceOf(BadRequestException);
+    await expect(jobSvc({ id: 'j', status: 'cancelled', isDraft: false }).rescheduleJob('j', 'org', { onHold: true })).rejects.toBeInstanceOf(BadRequestException);
+    expect(parseRescheduleTarget({ date: '2026-11-25', time: '9:05' })).toEqual({ date: '2026-11-25', time: '09:05' });
+    expect(zonedInstant('2026-11-25', '09:05').toISOString()).toBe('2026-11-25T01:05:00.000Z');
+  });
+
+  it("the PTW pills send the status only: the job's PTW remark is kept; Not needed clears it", async () => {
+    const s = jobSvc({ id: 'j', status: 'scheduled', ptwRemark: 'MCST form' });
+    s.prisma.delivery.update = jest.fn(async () => ({}));
+    await s.setPtw('j', 'org', { ptwStatus: 'APPROVED' });
+    expect(s.prisma.delivery.update).toHaveBeenLastCalledWith({ where: { id: 'j' }, data: { ptwStatus: 'APPROVED', ptwRemark: 'MCST form' } });
+    await s.setPtw('j', 'org', { ptwStatus: 'APPROVED', ptwRemark: 'new' });
+    expect(s.prisma.delivery.update).toHaveBeenLastCalledWith({ where: { id: 'j' }, data: { ptwStatus: 'APPROVED', ptwRemark: 'new' } });
+    await s.setPtw('j', 'org', { ptwStatus: 'NOT_NEEDED' });
+    expect(s.prisma.delivery.update).toHaveBeenLastCalledWith({ where: { id: 'j' }, data: { ptwStatus: null, ptwRemark: null } });
+  });
+});
+
+describe('round 36: Export list header (Settings > Job fields)', () => {
+  it('default until set; saved as a hidden storage field; one line, at most 300 characters; empty allowed', async () => {
+    let row: any = null;
+    const prisma: any = {
+      customField: {
+        findFirst: jest.fn(async () => row),
+        create: jest.fn(async ({ data }: any) => (row = { id: 'cf', ...data })),
+        update: jest.fn(async ({ data }: any) => Object.assign(row, data)),
+      },
+    };
+    expect(await readExportHeader(prisma, 'org')).toEqual({ header: DEFAULT_EXPORT_HEADER, isDefault: true });
+    await writeExportHeader(prisma, 'org', cleanExportHeader('  Sign back   all DOs '));
+    expect(row).toMatchObject({ fieldName: 'calendar_export_header', isActive: false, showInForm: false, defaultValue: 'Sign back all DOs' });
+    expect(await readExportHeader(prisma, 'org')).toEqual({ header: 'Sign back all DOs', isDefault: false });
+    await writeExportHeader(prisma, 'org', cleanExportHeader(''));
+    expect(await readExportHeader(prisma, 'org')).toEqual({ header: '', isDefault: false });
+    expect(() => cleanExportHeader('x'.repeat(301))).toThrow(BadRequestException);
+    expect(() => cleanExportHeader(5)).toThrow(BadRequestException);
   });
 });

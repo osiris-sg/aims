@@ -73,6 +73,16 @@ export interface CalendarEvent {
   chipLabel?: string;
   /** Calendar style: who made the job; null = not recorded (the people list's "Unknown"). */
   createdBy?: { id: string; name: string | null } | null;
+  /** Round 36 (2026-11-20, calendar style): the panel and the WhatsApp list (calendarPanel.ts). */
+  customer?: string | null;
+  subject?: string | null;
+  remarks?: string | null;
+  team?: string | null;
+  /** The stored PTW status (NOT_NEEDED when none), for the panel's pills. */
+  ptwStatus?: string;
+  quotationStatus?: string | null;
+  /** Cancelled from the calendar panel: Undo is offered. */
+  calendarCancelled?: boolean;
 }
 
 /** Calendar style (server: api-server-production/src/dashboard/calendar-style.ts). */
@@ -86,6 +96,8 @@ export interface EventStyle {
   greyed: boolean;
   /** "(SV)" / "(M)" / "(CC)" before the title. */
   prefix: string | null;
+  /** Round 36: the PTW applicant as a colour circle (🔴 / 🟡 / 🟢), when a PTW is needed. */
+  applicantIcon?: string | null;
 }
 
 export interface CalendarBadge {
@@ -285,7 +297,13 @@ function styledInput(e: CalendarEvent, st: EventStyle, movable: boolean) {
     backgroundColor: chipFill(st.fill),
     borderColor: chipBorder(st.fill),
     textColor: CHIP_TEXT,
-    classNames: ["aims-jc-event", "aims-jc-styled", ...(e.completed ? ["aims-jc-completed"] : []), ...(st.greyed ? ["aims-jc-greyed"] : [])],
+    // Round 36: cancelled fully grey (greyscale), postponed / on hold faded (greyed); both keep aims-jc-greyed.
+    classNames: [
+      "aims-jc-event",
+      "aims-jc-styled",
+      ...(e.completed ? ["aims-jc-completed"] : []),
+      ...(st.greyed ? ["aims-jc-greyed", e.cancelled ? "aims-jc-tone-cancelled" : "aims-jc-tone-postponed"] : []),
+    ],
     extendedProps: { event: e },
   };
 }

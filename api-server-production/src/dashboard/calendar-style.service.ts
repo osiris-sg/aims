@@ -4,6 +4,7 @@ import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { displayNameOf, primaryEmailOf } from '../users/users.service';
 import { isCalendarStyleEnabled } from '../deliveries/job-style';
 import { PtwApplicantList, applicantBars, cleanApplicantList, readApplicantList, visibleApplicants, writeApplicantList } from '../deliveries/ptw-applicants';
+import { DEFAULT_EXPORT_HEADER, cleanExportHeader, readExportHeader, writeExportHeader } from './calendar-export';
 import { BAR_PALETTE, CalendarColours, FILL_PALETTE, NEUTRAL_FILL, PanelPerson, colourClash, coloursOf, normHex, panelPeople, personSettingsOf } from './calendar-style';
 
 export interface CalendarPerson {
@@ -175,6 +176,18 @@ export class CalendarStyleService {
       });
     }
     return this.settings(organizationId);
+  }
+
+  /** Settings > Job fields > WhatsApp list (2026-11-20): the header line of the calendar's Export list. */
+  async exportHeader(organizationId: string) {
+    await this.assertOn(organizationId);
+    return { ...(await readExportHeader(this.prisma, organizationId)), defaultHeader: DEFAULT_EXPORT_HEADER };
+  }
+
+  async saveExportHeader(organizationId: string, body: any) {
+    await this.assertOn(organizationId);
+    await writeExportHeader(this.prisma, organizationId, cleanExportHeader(body?.header));
+    return this.exportHeader(organizationId);
   }
 
   /**

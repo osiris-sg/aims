@@ -179,6 +179,31 @@ export interface EventStyle {
   greyed: boolean;
   /** "(SV)" / "(M)" / "(CC)" before the title, or null. */
   prefix: string | null;
+  /** The PTW applicant as a colour circle (2026-11-20: 🔴 Bala, 🟡 Joyna, 🟢 Kherry); null without a PTW or an applicant. */
+  applicantIcon?: string | null;
+}
+
+/**
+ * Colour circles for the PTW applicant (2026-11-20, chip line 2): the circle closest to the applicant's bar colour.
+ * Bala #d50000 = 🔴, Joyna amber #c99a00 (or the old yellow) = 🟡, Kherry #0b8043 = 🟢.
+ */
+export const COLOUR_CIRCLES: ReadonlyArray<{ icon: string; hex: string }> = [
+  { icon: '🔴', hex: '#d50000' },
+  { icon: '🟠', hex: '#f4511e' },
+  { icon: '🟡', hex: '#e8b500' },
+  { icon: '🟢', hex: '#0b8043' },
+  { icon: '🔵', hex: '#1e64c8' },
+  { icon: '🟣', hex: '#8e24aa' },
+  { icon: '🟤', hex: '#795548' },
+  { icon: '⚫', hex: '#212121' },
+];
+
+export function colourCircle(hex: string | null | undefined): string | null {
+  const h = normHex(hex);
+  if (!h) return null;
+  let best = COLOUR_CIRCLES[0];
+  for (const c of COLOUR_CIRCLES) if (colourDistance(h, c.hex) < colourDistance(h, best.hex)) best = c;
+  return best.icon;
 }
 
 const ptwNeeded = (s: string | null | undefined) => !!s && s !== 'NOT_NEEDED';
@@ -208,7 +233,9 @@ export function styleOf(i: StyleInput, colours: CalendarColours): EventStyle {
   if (d) icons.push({ icon: d, label: i.doCount > 1 ? `${i.doCount} DOs completed` : 'DO completed' });
   if (i.cod) icons.push({ icon: ICON.cod, label: 'COD' });
   if (i.sticker) icons.push({ icon: ICON.sticker, label: 'Generate sticker' });
-  return { fill, text: textOn(fill), bar, icons, greyed: i.cancelled || i.postponed, prefix: categoryPrefix(i.category) };
+  // An applicant with no colour (the neutral bar) gets no circle.
+  const applicantIcon = bar && applicant && bar !== NEUTRAL_BAR ? colourCircle(bar) : null;
+  return { fill, text: textOn(fill), bar, icons, greyed: i.cancelled || i.postponed, prefix: categoryPrefix(i.category), ...(applicantIcon ? { applicantIcon } : {}) };
 }
 
 /**

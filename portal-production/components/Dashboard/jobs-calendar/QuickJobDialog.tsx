@@ -124,7 +124,7 @@ export default function QuickJobDialog({
   useEffect(() => {
     if (!open || !people.loaded || !people.enabled) return;
     if (!editId) {
-      setForm((f) => ({ ...f, style: f.style ?? { salesperson: people.defaultSalesperson, ptwApplicant: people.defaultApplicant, cod: false, sticker: false } }));
+      setForm((f) => ({ ...f, style: f.style ?? { salesperson: people.defaultSalesperson, ptwApplicant: people.defaultApplicant, cod: false, sticker: false, team: "" } }));
       return;
     }
     let live = true;
@@ -134,7 +134,7 @@ export default function QuickJobDialog({
       const person = (id: string | null | undefined, name: string | null | undefined) => (id ? { id, name: name || people.applicants.find((p) => p.id === id)?.name || id } : null);
       setForm((f) => ({
         ...f,
-        style: { salesperson: person(d?.salespersonId, d?.salespersonName), ptwApplicant: person(d?.ptwApplicantId, d?.ptwApplicantName) ?? people.defaultApplicant, cod: !!d?.cod, sticker: !!d?.sticker },
+        style: { salesperson: person(d?.salespersonId, d?.salespersonName), ptwApplicant: person(d?.ptwApplicantId, d?.ptwApplicantName) ?? people.defaultApplicant, cod: !!d?.cod, sticker: !!d?.sticker, team: d?.team ?? "" },
       }));
     });
     return () => {

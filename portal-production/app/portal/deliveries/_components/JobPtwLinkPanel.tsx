@@ -63,6 +63,7 @@ export default function JobPtwLinkPanel({
         cod: !!d.cod,
         postponed: !!d.postponed,
         sticker: !!d.sticker,
+        team: d.team ?? "",
       };
       setStyle(v);
       setStyleSaved(v);
@@ -75,7 +76,7 @@ export default function JobPtwLinkPanel({
   const saveStyle = async () => {
     if (!style) return;
     setSaving(true);
-    const res = await api("PATCH", `/deliveries/${run.id}/style`, { salesperson: style.salesperson, ptwApplicant: style.ptwApplicant, cod: style.cod, postponed: !!style.postponed, sticker: !!style.sticker });
+    const res = await api("PATCH", `/deliveries/${run.id}/style`, { salesperson: style.salesperson, ptwApplicant: style.ptwApplicant, cod: style.cod, postponed: !!style.postponed, sticker: !!style.sticker, team: (style.team ?? "").trim() || null });
     setSaving(false);
     if (!res.ok) return toast.error(res.message || "Couldn't save the job");
     setStyleSaved(style);

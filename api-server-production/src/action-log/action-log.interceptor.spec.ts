@@ -78,3 +78,20 @@ describe('ActionLogInterceptor — imported orders, Link existing document (roun
     expect(rows[0].details.result).toEqual(result);
   });
 });
+
+describe('ActionLogInterceptor — jobs calendar panel (WCT round 36)', () => {
+  const JOB = '6b1c1d7e-3333-4c3b-9b1a-0a0a0a0a0a0c';
+  it.each([
+    ['POST', 'calendar-cancel', 'CANCEL', {}],
+    ['POST', 'calendar-uncancel', 'UNDO', {}],
+    ['POST', 'reschedule', 'RESCHEDULE', { date: '2026-11-25', time: '14:30' }],
+    ['PATCH', 'style', 'UPDATE', { sticker: true }],
+    ['PATCH', 'ptw', 'UPDATE', { ptwStatus: 'APPROVED' }],
+    ['PUT', 'category', 'UPDATE', { category: 'Site visit' }],
+  ])('%s /deliveries/:id/%s logs %s on the job', async (method, verb, action, body) => {
+    const req: any = { ...base(), method, originalUrl: `/deliveries/${JOB}/${verb}`, url: `/deliveries/${JOB}/${verb}`, params: { id: JOB }, body };
+    const { rows, out } = run(req, () => of({ ok: true }));
+    await out;
+    expect(rows[0]).toMatchObject({ action, resource: 'deliveries', resourceId: JOB, status: 'SUCCESS' });
+  });
+});

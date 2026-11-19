@@ -176,6 +176,18 @@ export interface CalendarEvent {
   chipLabel?: string;
   /** Calendar style: who made the job (null = not recorded: made before 19 Nov 2026, or by the system). */
   createdBy?: { id: string; name: string | null } | null;
+  /**
+   * Calendar style panel and WhatsApp list (2026-11-20): the customer's name, the quotation's Subject, the job's
+   * Remarks, its "Team / crew", its stored PTW status (NOT_NEEDED when none, for the panel's pills), the quotation's
+   * status, and calendarCancelled = cancelled from the calendar panel (Undo offered).
+   */
+  customer?: string | null;
+  subject?: string | null;
+  remarks?: string | null;
+  team?: string | null;
+  ptwStatus?: string;
+  quotationStatus?: string | null;
+  calendarCancelled?: true;
 }
 
 /** Group calendar: an item of another org the viewer may not open loses every link (numbers and details stay). */

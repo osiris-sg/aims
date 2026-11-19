@@ -37,6 +37,7 @@ import JobFieldIcon, { JOB_FIELD_ICON_KEYS } from "@/components/jobFields/JobFie
 import JobCategoryList from "./_components/JobCategoryList";
 import CalendarColours from "./_components/CalendarColours";
 import PtwApplicants from "./_components/PtwApplicants";
+import ExportListHeader from "./_components/ExportListHeader";
 import type { JobCategoryDef } from "@/helpers/jobCategory";
 import { COLOUR_CHOICES, ICON_LABEL, JOB_FIELD_TYPES, JOB_FIELD_TYPE_LABEL, JobFieldDef, JobFieldType, displayFromForm, displaySummary } from "@/helpers/jobFields";
 
@@ -201,6 +202,7 @@ export default function JobFieldsSettingsPage() {
       {/* Calendar style (enableCalendarStyle, WCT group): renders nothing for every other org. */}
       {features?.enableCalendarStyle === true && <PtwApplicants />}
       {features?.enableCalendarStyle === true && <CalendarColours />}
+      {features?.enableCalendarStyle === true && <ExportListHeader />}
       {fields === null ? (
         <CircularProgress />
       ) : fields.length === 0 ? (

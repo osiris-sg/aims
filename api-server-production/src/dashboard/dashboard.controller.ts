@@ -239,6 +239,21 @@ export class DashboardController {
     return await this.calendarStyle.saveApplicants(this.orgOf(req), body);
   }
 
+  // Jobs calendar Export list (2026-11-20): the WhatsApp list's header line (Settings > Job fields).
+  @Get('calendar-style/export-header')
+  @Permissions('dashboard:read')
+  @ApiOperation({ summary: 'Jobs calendar Export list: the header line (default when never set)' })
+  async getCalendarExportHeader(@Req() req: RequestWithOrganization) {
+    return await this.calendarStyle.exportHeader(this.orgOf(req));
+  }
+
+  @Put('calendar-style/export-header')
+  @Permissions('organizations:update')
+  @ApiOperation({ summary: 'Jobs calendar Export list: save the header line' })
+  async saveCalendarExportHeader(@Req() req: RequestWithOrganization, @Body() body: any) {
+    return await this.calendarStyle.saveExportHeader(this.orgOf(req), body);
+  }
+
   @Get('calendar-style/people')
   @Permissions('dashboard:read')
   @ApiOperation({ summary: 'Jobs calendar style: Salesperson and PTW applicant pickers with their defaults' })
