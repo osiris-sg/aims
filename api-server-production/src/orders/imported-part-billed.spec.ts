@@ -161,3 +161,15 @@ describe('order page helpers: steps, suggested number, DO-only orders', () => {
     expect(t.map((x: any) => [x.key, x.state, x.note ?? null])).toEqual([['quotation', 'done', null], ['invoice', 'todo', 'Invoice pending'], ['do', 'done', 'DO012538 (Completed)'], ['serviceReport', 'na', null]]);
   });
 });
+
+describe('imported ERP DOs carry a done flag (the ERP keeps no DO status, 2026-11-19)', () => {
+  const { importedOrderStatus, importedTracker, importedDoDone } = require('./imported-orders');
+  it('done: true = DO completed, invoice pending; false = DO draft; status text only when no flag', () => {
+    expect(importedOrderStatus([], 2616, { dos: [{ erpStatus: 'Issued', done: true }] })).toMatchObject({ status: 'DO_COMPLETED' });
+    expect(importedOrderStatus([], 2616, { dos: [{ erpStatus: 'Issued', done: true }, { erpStatus: 'Issued', done: false }] })).toMatchObject({ status: 'DO_DRAFT' });
+    expect(importedDoDone({ erpStatus: 'Completed' })).toBe(true);
+    expect(importedDoDone({ erpStatus: 'Issued' })).toBe(false);
+    const t = importedTracker({ dos: [{ name: 'DO012528', erpStatus: 'Issued', done: true }] }, { status: 'DO_COMPLETED', label: 'DO completed, invoice pending' });
+    expect(t.find((x: any) => x.key === 'do')).toMatchObject({ state: 'done', note: 'DO012528 (Completed)' });
+  });
+});

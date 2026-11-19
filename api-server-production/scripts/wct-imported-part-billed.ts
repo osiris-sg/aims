@@ -21,7 +21,7 @@ import 'dotenv/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Client, types } from 'pg';
-import { IMPORTED_AUTO_COMPLETE_REASON, creditOfImportedInvoice, importedCompletionOf, importedInvoiceMoney, importedMarkerOf, importedOrderStatus, isCountedInvoice, isImportedOrder } from '../src/orders/imported-orders';
+import { IMPORTED_AUTO_COMPLETE_REASON, creditOfImportedInvoice, importedCompletionOf, importedInvoiceMoney, importedMarkerOf, importedDosOf, importedOrderStatus, isCountedInvoice, isImportedOrder } from '../src/orders/imported-orders';
 import { firstLine, remainingForOrder } from '../src/orders/imported-remaining';
 import { grossOf } from '../src/common/document-money';
 
@@ -75,7 +75,8 @@ const bucket = (m: number) => (m < 6 ? '0-6' : m < 12 ? '6-12' : m < 24 ? '12-24
       const quoteTotal = m.quoteTotal != null && Number.isFinite(Number(m.quoteTotal)) ? Number(m.quoteTotal) : qo ? grossOf(qo.config) : null;
       const credit = (d: any) => Number(m.credits?.[d.id]) || creditOfImportedInvoice(d.config);
       const manual = importedCompletionOf(o);
-      const st = importedOrderStatus(invDocs.map((d) => ({ ...d, credit: credit(d) })), quoteTotal, { completed: manual, partBilledRule: true });
+      // An order made from an ERP DO before any invoice keeps its DO status (DO draft / DO completed, invoice pending).
+      const st = importedOrderStatus(invDocs.map((d) => ({ ...d, credit: credit(d) })), quoteTotal, { completed: manual, partBilledRule: true, dos: importedDosOf(o) });
       const billing = invDocs.filter((d) => isCountedInvoice(d) && importedInvoiceMoney(d, credit(d)).net >= 0.005);
       const lastInvoice = billing.map((d) => String(d.config?.date || '')).filter(Boolean).sort().pop() || null;
       const quoteDate = String(qo?.config?.date || '') || null;
