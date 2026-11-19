@@ -13,6 +13,9 @@ import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import PersonAddIcon from "@mui/icons-material/PersonAdd";
 import RoleChips from "./RoleChips";
 import { applySelect, rolePayload, singleRolePicker } from "@/helpers/multiRole";
+import { customSummary, isCustomRole, noAccess, type TabAccessMap } from "@/helpers/customAccess";
+import { failureText, replyBody, requestFailed } from "@/helpers/requestOutcome";
+import CustomAccessSection from "./CustomAccessSection";
 
 interface Props {
   open: boolean;
@@ -29,6 +32,8 @@ const PRESET_PREFIX = "Preset · ";
 const PRESET_LABEL: Record<string, string> = { "field-tech": "fieldTech" };
 const presetLabel = (r: { name: string; description?: string | null }, t: (key: string) => string) => (PRESET_LABEL[r.name] ? t(PRESET_LABEL[r.name]) : r.name);
 const presetSummary = (r: { description?: string | null }) => {
+  // Custom roles (enableCustomAccess): "Custom · Sales edit, Orders view" reads as its tabs.
+  if (isCustomRole(r)) return customSummary(r);
   const d = String(r.description ?? "");
   const i = d.indexOf(" — ");
   return d.startsWith(PRESET_PREFIX) && i > 0 ? d.slice(i + 3) : d;
@@ -50,10 +55,15 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
   const { getToken } = useAuth();
   const [roles, setRoles] = useState<Role[]>([]);
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
-  const { isRolePresetsEnabled, isMultiRoleEnabled } = useOrganizationFeatures();
+  const { isRolePresetsEnabled, isMultiRoleEnabled, isCustomAccessEnabled } = useOrganizationFeatures();
   // Multi-role orgs (enableMultiRole): several roles, the first chosen is Primary.
   const single = singleRolePicker(isRolePresetsEnabled, isMultiRoleEnabled);
-  const visibleRoles = isRolePresetsEnabled ? roles.filter(isPresetRole) : roles;
+  // Custom access orgs: the org's custom roles show next to the built-in ones.
+  const visibleRoles = isRolePresetsEnabled ? roles.filter((r) => isPresetRole(r) || (isCustomAccessEnabled && isCustomRole(r))) : roles;
+  // The new person's own Custom access (shown to Admin / superadmin only).
+  const [canSetAccess, setCanSetAccess] = useState(false);
+  const [accessOn, setAccessOn] = useState(false);
+  const [accessTabs, setAccessTabs] = useState<TabAccessMap>(noAccess());
   const [error, setError] = useState<string>("");
   const [showPassword, setShowPassword] = useState(false);
 
@@ -84,7 +94,8 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
         const response = await request(
           {
             method: "GET",
-            path: "/roles",
+            // Custom access orgs can hold more than the default page of 10 roles.
+            path: isCustomAccessEnabled ? "/roles?limit=200" : "/roles",
           },
           {},
           token
@@ -103,7 +114,24 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
     if (open) {
       fetchRoles();
     }
-  }, [open, getToken]);
+  }, [open, getToken, isCustomAccessEnabled]);
+
+  // Custom access (enableCustomAccess): only Admin / superadmin see the switch.
+  useEffect(() => {
+    let live = true;
+    setCanSetAccess(false);
+    setAccessOn(false);
+    setAccessTabs(noAccess());
+    if (!open || !isCustomAccessEnabled) return;
+    (async () => {
+      const token = await getToken();
+      const res: any = await request({ method: "GET", path: "/access", ownError: true, quiet: true }, {}, token ?? undefined);
+      if (live && !requestFailed(res)) setCanSetAccess(!!(replyBody(res) as any)?.canManage);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [open, isCustomAccessEnabled, getToken]);
 
   const onSubmit = async (data: any) => {
     if (selectedRoles.length === 0) {
@@ -129,6 +157,19 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
         salesmanCode: data.salesmanCode || undefined,
         salesmanMobile: data.salesmanMobile || undefined,
       });
+
+      // Custom access: set the new person's own access (the API sends their id in these orgs).
+      if (canSetAccess && accessOn) {
+        const newId = (replyBody(res) as any)?.userId;
+        if (!newId) throw new Error(t("createFailed"));
+        const accessToken = await getToken();
+        const accessRes = await request(
+          { method: "PUT", path: `/access/users/${encodeURIComponent(newId)}/custom-access`, ownError: true },
+          { enabled: true, tabs: accessTabs },
+          accessToken ?? undefined
+        );
+        if (requestFailed(accessRes)) throw new Error(failureText(accessRes, t("createFailed")));
+      }
 
       // The one success text (the same whether or not they already had a login).
       toast.success(res?.data?.message ?? res?.message ?? t("added"));
@@ -443,6 +484,18 @@ export default function AddUser({ open, onClose, onUserCreated }: Props) {
                     </Select>
                   </FormControl>
                 </Grid>
+                {canSetAccess && (
+                  <Grid item xs={12}>
+                    <CustomAccessSection
+                      on={accessOn}
+                      tabs={accessTabs}
+                      orgSettingsEdit={selectedRoles.some((id) => roles.find((r) => r.id === id)?.name === "Admin")}
+                      disabled={selectedRoles.some((id) => roles.find((r) => r.id === id)?.name === "superadmin")}
+                      onToggle={setAccessOn}
+                      onChange={setAccessTabs}
+                    />
+                  </Grid>
+                )}
               </Grid>
             </Box>
           </form>

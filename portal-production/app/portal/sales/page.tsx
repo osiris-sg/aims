@@ -10,6 +10,8 @@ import ModuleHome, { type ModuleStat } from "@/app/portal/components/ModuleHome/
 import { useRoleHomeSnapshot } from "@/app/portal/components/RoleHome/RoleHome";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import JobsCalendar from "@/components/Dashboard/JobsCalendar";
+import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
+import { calendarAllowed } from "@/helpers/customAccess";
 
 const money = (n: number, currency: string) =>
   new Intl.NumberFormat("en-SG", { style: "currency", currency: currency || "SGD", currencyDisplay: "narrowSymbol", maximumFractionDigits: 0 }).format(Math.round(n));
@@ -18,6 +20,8 @@ const count = (n: number) => n.toLocaleString("en-SG");
 export default function SalesPage() {
   const { snapshot: s, loading } = useRoleHomeSnapshot("30");
   const { isJobsCalendarEnabled } = useOrganizationFeatures();
+  // Custom access (enableCustomAccess): the calendar shows only with Calendar access. Everyone else: as before.
+  const { customTabs } = useUserPermissions();
   const cur = s?.currency || "SGD";
   const stats: ModuleStat[] = [
     { label: "Invoices issued", value: s ? count(s.invoicesIssued.current) : null, sub: "Last 30 days", href: "/portal/sales/invoices" },
@@ -29,7 +33,7 @@ export default function SalesPage() {
   ];
   return (
     <ModuleHome code="SALES" title="Sales" stats={stats} loading={loading}>
-      {isJobsCalendarEnabled ? <JobsCalendar /> : null}
+      {isJobsCalendarEnabled && calendarAllowed(customTabs) ? <JobsCalendar /> : null}
     </ModuleHome>
   );
 }

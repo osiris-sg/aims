@@ -182,6 +182,15 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // one anything needing a single role uses (src/roles/multi-role.ts). Also drops the Edit
   // User subtitle and puts the WhatsApp help in an (i) tooltip. Default OFF.
   enableMultiRole: false,
+  // Custom access (WCT group 2026-11-19, src/access): Org Settings > Roles (Admin makes roles with
+  // No access / View / Edit per tab), a per-person "Custom access" switch in Add / Edit User that
+  // supersedes their roles, "Custom" on the Users list, Jobs > Calendar; enforced by the API guard.
+  // Default OFF: no reads, no checks, nothing shown.
+  enableCustomAccess: false,
+  // Enforce the presets' per-tab table (PRESET_TAB_ACCESS) by API path for preset users too (e.g.
+  // Sales: Service Reports view only, though jobs and reports share maintenance-reports:create).
+  // Needs Elroy's go; default OFF.
+  enforcePresetTabs: false,
   // LME feed (round AK, 2026-10-25): daily LME aluminium cash-settlement from Westmetall (07:00 JST) fills the empty
   // months of the org's LME table and keeps its own provisional month current; typed months are never changed; a
   // month turning final raises "revise CI / invoice" tasks. Only orgs with the SHIPMENTS module. Default OFF: while

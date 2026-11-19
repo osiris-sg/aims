@@ -138,9 +138,10 @@ export function salespeopleOf(raw: unknown, salesmen: Salesman[], aliases: Alias
 // ── access ────────────────────────────────────────────────────────────────
 
 export type ReportScope = 'all' | 'own' | 'none';
-const ALL_ROLES = new Set(['admin', 'superadmin', 'osirisadmin', 'accounting']);
+// Viewer reads everything (WCT round 25, Elroy 19 Nov: "Viewer = view all").
+const ALL_ROLES = new Set(['admin', 'superadmin', 'osirisadmin', 'accounting', 'viewer']);
 
-/** All for Admin / Accounting (any of the user's roles); own for Sales only; none otherwise. */
+/** All for Admin / Accounting / Viewer (any of the user's roles); own for Sales only; none otherwise. */
 export function reportScope(roleNames: string[], isOsirisAdmin = false): ReportScope {
   if (isOsirisAdmin) return 'all';
   const names = roleNames.map((r) => norm(String(r || '')));

@@ -23,6 +23,7 @@ import {
   summarise,
 } from './sales-report';
 import { salespersonAliases } from './salesperson-resolver';
+import { resolveCustomAccess } from '../access/custom-access';
 
 const QUOTATION_TYPES = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'];
 const MAX_ROWS = 20000;
@@ -81,8 +82,11 @@ export class SalesReportService {
     if (viewer.isOsirisAdmin) return 'all';
     const rows = await this.prisma.userRole.findMany({
       where: { userId: viewer.userId, organizationId, isActive: true },
-      select: { role: { select: { name: true } } },
+      select: { role: { select: { id: true, name: true } } },
     });
+    // Custom access (enableCustomAccess): the Sales report tab decides (View = own, Edit = all).
+    const custom = await resolveCustomAccess(this.prisma, organizationId, viewer.userId, rows.map((r: any) => r.role).filter(Boolean));
+    if (custom && custom.source !== 'presets') return custom.map.salesReport === 'edit' ? 'all' : custom.map.salesReport === 'view' ? 'own' : 'none';
     return reportScope(rows.map((r: any) => r.role?.name || ''));
   }
 

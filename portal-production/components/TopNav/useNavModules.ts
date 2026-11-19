@@ -16,6 +16,7 @@ import { menuOrderOverride, assetsNavModule, wctMenuModule } from "@/helpers/wct
 import { canVehicles } from "@/helpers/wctVehicles";
 import { showAccountingSetup, showShippingSettings, shownInMenu } from "@/helpers/settingsVisibility";
 import { booksNavModule, clientsNavModule, visibleSalesSubmenus, withoutSalesMonthly } from "@/helpers/shipmentsNav";
+import { atLeast, jobsSubmenus, salesSubmenuAllowed, settingsAllowed } from "@/helpers/customAccess";
 
 // Mirrors DynamicSidebarContent — keep the two in sync.
 // User Management and Audit left the menu for every org (guru 2026-11-12):
@@ -60,6 +61,8 @@ export const SETTINGS_MENU = [
   { label: "Quotation categories", path: "/portal/settings/quotation-categories" },
   // Was the Audit module (guru 2026-11-12: "audit should be called audit log"); shown when the org has that module.
   { label: "Audit Log", path: "/portal/audit" },
+  // Custom roles (enableCustomAccess orgs, Admin / superadmin only; filtered below).
+  { label: "Roles", path: "/portal/settings/roles" },
 ];
 
 /** Org Settings entries that belong to a module: shown only when the org has it on and the role may open it. */
@@ -122,9 +125,12 @@ export function useNavLabels() {
 
 export function useNavModules() {
   const { modules, isModuleEnabled } = useConfiguration();
-  const { isModuleAllowed, userRoles, hasPermission } = useUserPermissions();
+  const { isModuleAllowed, userRoles, hasPermission, customTabs } = useUserPermissions();
   // Same rule as DynamicSidebarContent's Organization Settings group.
-  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled, isSalesReportEnabled, isQuotationCategoryEnabled } = useOrganizationFeatures();
+  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled, isSalesReportEnabled, isQuotationCategoryEnabled, isCustomAccessEnabled, isJobsCalendarEnabled } = useOrganizationFeatures();
+  const isAdminUser =
+    userRoles.length === 0 ||
+    userRoles.some((r: any) => ADMIN_ROLES.includes((r?.name || "").toLowerCase()));
   const moduleOn = (code: string) => (modules || []).some((m: any) => m.moduleCode === code && m.enabled) && isModuleAllowed(code);
   const settingsMenu = SETTINGS_MENU.filter(
     (s) =>
@@ -137,13 +143,16 @@ export function useNavModules() {
       (s.path !== "/portal/user-management/users" || !isUserMgmtMasterfileEnabled) &&
       ((s.path !== "/portal/settings/shipping" && s.path !== "/portal/settings/customers") || showShippingSettings(isModuleEnabled)) &&
       (s.path !== "/portal/settings/job-fields" || isJobFieldsEnabled) &&
-      (s.path !== "/portal/settings/quotation-categories" || isQuotationCategoryEnabled),
+      (s.path !== "/portal/settings/quotation-categories" || isQuotationCategoryEnabled) &&
+      // Custom access (enableCustomAccess): Roles for Admin / superadmin; a custom-access person
+      // sees Org Settings only at View or above, and never Roles.
+      (s.path !== "/portal/settings/roles" || (!!isCustomAccessEnabled && isAdminUser)) &&
+      settingsAllowed(customTabs, s.path),
   );
 
-  const isAdminUser =
-    userRoles.length === 0 ||
-    userRoles.some((r: any) => ADMIN_ROLES.includes((r?.name || "").toLowerCase()));
-  const isMasterTier = userRoles.length === 0 || userRoles.some((r: any) => !SCOPED_ROLES.includes(r?.name));
+  // Custom access orgs: a person on custom access (own or custom roles only) sees Org Settings at
+  // View or above; everyone else as before.
+  const isMasterTier = customTabs ? atLeast(customTabs.orgSettings, "view") : userRoles.length === 0 || userRoles.some((r: any) => !SCOPED_ROLES.includes(r?.name));
 
   // WCT: Orders, then Jobs, right after Sales (helpers/wctNav.ts).
   const orderOverride = isWctOrdersEnabled ? menuOrderOverride(true) : ORDER_OVERRIDE;
@@ -169,6 +178,8 @@ export function useNavModules() {
         if (key === "marketing" && m.moduleCode === "CRM" && !isAdsInsightsEnabled) return false;
         // Accounting → Posting Queue rides on the enablePostingQueue org flag (guru 2026-10-24).
         if (key === "posting-queue" && m.moduleCode === "ACCOUNTING" && !isPostingQueueEnabled) return false;
+        // Custom access: Sales sub tabs need the Sales tab (the Sales report its own tab).
+        if (m.moduleCode === "SALES" && !salesSubmenuAllowed(customTabs, key)) return false;
         // Round P: every Sales (Shipments) submenu shows — Dashboard · Orders · Shipments — except the retired
         // ones (round W: Inbox left the menu; the Dashboard hosts the emails now), whatever the DB row says.
         if (m.moduleCode === "SHIPMENTS" && visibleSalesSubmenus([s]).length === 0) return false;
@@ -195,11 +206,16 @@ export function useNavModules() {
         filtered.push({ key: "monthly-payables", label: "Monthly Payables" });
       }
       // Sales -> Sales report rides on the enableSalesReport flag (WCT group 2026-11-18).
-      if (m.moduleCode === "SALES" && isSalesReportEnabled && !filtered.some((s: any) => (typeof s === "string" ? s : s?.key) === "sales-report")) {
+      if (m.moduleCode === "SALES" && isSalesReportEnabled && salesSubmenuAllowed(customTabs, "sales-report") && !filtered.some((s: any) => (typeof s === "string" ? s : s?.key) === "sales-report")) {
         filtered.push(SALES_REPORT_SUBMENU);
       }
       return { ...m, config: { ...(m.config as any), subMenus: filtered } };
-    });
+    })
+    // Custom access orgs with the jobs calendar: Jobs reads "Jobs | Calendar" (Jobs > Calendar opens the
+    // calendar for people without Sales); a custom-access person sees the tabs their access opens.
+    .map((m: any) =>
+      m.moduleCode === "DELIVERIES" && isCustomAccessEnabled && isJobsCalendarEnabled ? { ...m, config: { ...(m.config as any), subMenus: jobsSubmenus(customTabs) } } : m,
+    );
   // Round AM: "Clients" right after Sales for orgs whose menu has the SHIPMENTS module (Sales).
   const sales = built.find((m: any) => m.moduleCode === "SHIPMENTS");
   // WCT: Assets (Vehicles) after Service reports (helpers/wctNav.ts), for vehicles:read holders.
