@@ -137,6 +137,10 @@ type Format = {
   resetPolicy: string;
   nextSerial: number;
   isActive: boolean;
+  /** Round 36: the server's {DOC} code when it is not the type's own (a company order prefix, e.g. ORDW), with the
+   *  number it will give next (its own series: ORDW202611-001 first). */
+  docCode?: string;
+  preview?: string;
 };
 const RESETS = [
   { value: "never", label: "Never" },
@@ -202,7 +206,9 @@ export default function DocumentNumberFormatsManager() {
   };
 
   const pattern = useMemo(() => segsToPattern(segs), [segs]);
-  const preview = useMemo(() => formatPattern(pattern, Number(nextSerial) || 1, new Date(), DOC_CODE[documentType] || ""), [pattern, nextSerial, documentType]);
+  // {DOC} for a type: the server's code when it sent one (round 36: a company order prefix such as ORDW), else the type's.
+  const docCodeFor = useCallback((t: string) => formats.find((f) => f.documentType === t && f.docCode)?.docCode || DOC_CODE[t] || "", [formats]);
+  const preview = useMemo(() => formatPattern(pattern, Number(nextSerial) || 1, new Date(), docCodeFor(documentType)), [pattern, nextSerial, documentType, docCodeFor]);
 
   const addSeg = (s: Seg) => setSegs((p) => [...p, s]);
   const removeSeg = (i: number) => setSegs((p) => p.filter((_, x) => x !== i));
@@ -292,7 +298,7 @@ export default function DocumentNumberFormatsManager() {
                       </Typography>
                     </TableCell>
                     <TableCell><Chip size="small" label={f.label} /></TableCell>
-                    <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontSize: 12, color: "primary.main" }}>{formatPattern(f.pattern, f.nextSerial, now, DOC_CODE[f.documentType])}</TableCell>
+                    <TableCell sx={{ fontVariantNumeric: "tabular-nums", fontSize: 12, color: "primary.main" }}>{f.docCode && f.preview ? f.preview : formatPattern(f.pattern, f.nextSerial, now, DOC_CODE[f.documentType])}</TableCell>
                     <TableCell><Typography variant="caption">{RESETS.find((r) => r.value === f.resetPolicy)?.label}</Typography></TableCell>
                     <TableCell align="center">{f.isActive ? <Chip size="small" color="success" label="On" /> : <Chip size="small" label="Off" />}</TableCell>
                     <TableCell align="right">
@@ -388,7 +394,7 @@ export default function DocumentNumberFormatsManager() {
                                 <MenuItem value="YY">YY</MenuItem>
                               </Select>
                             </Stack>
-                          ) : s.kind === "month" ? "Month (MM)" : s.kind === "day" ? "Day (DD)" : s.kind === "bank" ? `Bank (${SAMPLE_BANK} / UOB…)` : `Doc Code (${DOC_CODE[documentType] || "?"})`
+                          ) : s.kind === "month" ? "Month (MM)" : s.kind === "day" ? "Day (DD)" : s.kind === "bank" ? `Bank (${SAMPLE_BANK} / UOB…)` : `Doc Code (${docCodeFor(documentType) || "?"})`
                         }
                       />
                     )}

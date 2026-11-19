@@ -6,6 +6,7 @@ import {
   DocumentNumberingService,
   ORDER_DOC_CODE,
   ORDER_NUMBER_TYPE,
+  orderNumberPrefixOf,
 } from '../document-numbering/document-numbering.service';
 
 /**
@@ -175,10 +176,16 @@ export const formatOrderNumber = (serial: number, when: Date) => DocumentNumberi
 /**
  * Inside an open interactive transaction: the ORDER number, claimed with the
  * format row locked (same lock as the DO issuer), committed with the Order row.
+ * Round 36: an org with a company order prefix (orderNumberPrefix, e.g. ORDW)
+ * gets it in place of ORD, as its own series (ORDW202611-001 first); every other
+ * org unchanged (ORD…).
  */
 export async function issueOrderNumberInTx(prisma: any, tx: any, organizationId: string, formatId: string, when = new Date()): Promise<string> {
   const numbering = new DocumentNumberingService(prisma);
-  const n = await numbering.issueNumberLocked(organizationId, ORDER_NUMBER_TYPE, formatId, when, tx);
+  const prefix = await orderNumberPrefixOf(prisma, organizationId);
+  const n = prefix
+    ? await numbering.issueNumberLocked(organizationId, ORDER_NUMBER_TYPE, formatId, when, tx, { docCode: prefix, series: prefix })
+    : await numbering.issueNumberLocked(organizationId, ORDER_NUMBER_TYPE, formatId, when, tx);
   if (!n) throw new Error('No ORDER number format');
   return n;
 }

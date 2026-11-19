@@ -10,7 +10,9 @@ import {
 import { invoiceSplitOf, withSplitPartIds } from '../documents/invoice-split';
 import { AuditService } from '../common/audit.service';
 import { cancelBlockingInvoice, voidedWithOrderConfig } from './order-cancel';
-import { MARKED_COMPLETE, invoiceRowsWithSplitParts, isWctOrdersEnabled, linkedDoEntriesOf, linkedDoIdsOf, liveInvoiceIds, nativeCompletionOf, orderInvoiceIdsOf, refreshOrderStatus, remainderInvoiceIdsOf, WCT_ORDER_INVOICE_FLAG, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
+import { MARKED_COMPLETE, ensureOrderNumberFormat, invoiceRowsWithSplitParts, isWctOrdersEnabled, issueOrderNumberInTx, linkedDoEntriesOf, linkedDoIdsOf, liveInvoiceIds, nativeCompletionOf, orderInvoiceIdsOf, refreshOrderStatus, remainderInvoiceIdsOf, WCT_ORDER_INVOICE_FLAG, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
+import { orderNumberPrefixOf } from '../document-numbering/document-numbering.service';
+import { retryOnNumberConflict } from '../document-numbering/locked-number';
 import { MANUAL_ORDER_STATUS_LABEL, isManualOrderFlow, type ManualOrderStatus } from './manual-order-flow';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { SOFT_DELETED_TYPE, isOrgFeatureEnabled } from '../common/org-features';
@@ -162,20 +164,30 @@ export class OrdersService {
       }
     }
 
+    const data = {
+      organizationId,
+      customerId,
+      sourceQuotationId: quotation.id,
+      orderType,
+      status: 'DRAFT',
+      items: items as Prisma.InputJsonValue,
+      linkedDocuments: { po: [], do: [], invoice: [], salesOrder: [] } as Prisma.InputJsonValue,
+      notes: `Auto-created from quotation ${quotation.name}`,
+    };
+    // Round 36: an org with a company order prefix (WCT group, orderNumberPrefix) numbers this order from its ORDER
+    // counter too (locked, in the transaction that writes it; ORDW202611-001), retried on a clash. Others unchanged.
+    if (await orderNumberPrefixOf(this.prisma, organizationId)) {
+      const format = await ensureOrderNumberFormat(this.prisma, organizationId);
+      return retryOnNumberConflict(
+        () => this.prisma.$transaction(async (tx: any) => tx.order.create({ data: { ...data, orderNumber: await issueOrderNumberInTx(this.prisma, tx, organizationId, format.id) } })),
+        { what: 'order' },
+      );
+    }
+
     const orderNumber = await this.nextOrderNumber(organizationId);
 
     return await this.prisma.order.create({
-      data: {
-        orderNumber,
-        organizationId,
-        customerId,
-        sourceQuotationId: quotation.id,
-        orderType,
-        status: 'DRAFT',
-        items: items as Prisma.InputJsonValue,
-        linkedDocuments: { po: [], do: [], invoice: [], salesOrder: [] } as Prisma.InputJsonValue,
-        notes: `Auto-created from quotation ${quotation.name}`,
-      },
+      data: { orderNumber, ...data },
     });
   }
 

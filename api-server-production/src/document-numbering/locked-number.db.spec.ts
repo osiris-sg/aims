@@ -7,12 +7,13 @@ import ws = require('ws');
 import { DocumentNumberingService } from './document-numbering.service';
 import { insertWithLockedNumber } from './locked-number';
 import { invoiceNumberGuardSql } from './invoice-number-guard';
+import { issueOrderNumberInTx } from '../orders/wct-orders';
 
-// Round 36 (WCT group): invoice numbers claimed inside the transaction that writes the invoice, and the
-// aims_inv_number_guard trigger, against a REAL Postgres. Needs TEST_DATABASE_URL (skipped otherwise), e.g. the dev DB:
+// Round 36 (WCT group): invoice numbers claimed inside the transaction that writes the invoice, the
+// aims_inv_number_guard trigger, and company order numbers (ORDW…), against a REAL Postgres. Needs TEST_DATABASE_URL (skipped otherwise), e.g. the dev DB:
 //   TEST_DATABASE_URL="$(node -e "require('dotenv').config();console.log(process.env.DATABASE_URL)")" npx jest src/document-numbering/locked-number.db.spec.ts
 // Nothing shared is touched: the spec copies the Document / DocumentNumberFormat / OrganizationUIConfig tables into a
-// throwaway schema (CREATE TABLE … LIKE … INCLUDING ALL: same columns and unique indexes, no rows, no triggers),
+// throwaway schema (CREATE TABLE … LIKE … INCLUDING ALL: same columns and unique indexes, no rows, no triggers; Order too),
 // installs the guard there, runs the app's Prisma driver (Neon adapter) against it and drops the schema at the end.
 neonConfig.webSocketConstructor = ws as unknown as typeof WebSocket;
 const url = process.env.TEST_DATABASE_URL;
@@ -27,6 +28,8 @@ maybe('locked invoice numbers + aims_inv_number_guard (real Postgres)', () => {
   const flagged = randomUUID();
   const legacyOrg = randomUUID();
   const other = randomUUID();
+  const prefixed = randomUUID();
+  const plainOrders = randomUUID();
   const ym = (() => {
     const d = new Date();
     return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -40,6 +43,17 @@ maybe('locked invoice numbers + aims_inv_number_guard (real Postgres)', () => {
   /** A raw insert from ANOTHER connection (autocommit): a writer that does not go through the helper. */
   const rawInvoice = (org: string, name: string, template = 'tpl-other') =>
     pg.query(`INSERT INTO "${schema}"."Document" (id, "updatedAt", config, "documentTemplateId", type, "organizationId", name) VALUES (gen_random_uuid(), now(), '{}'::jsonb, $1, 'INVOICE', $2, $3)`, [template, org, name]);
+
+  const rawOrder = (org: string, orderNumber: string) =>
+    pg.query(`INSERT INTO "${schema}"."Order" (id, "orderNumber", "organizationId", items, "updatedAt") VALUES (gen_random_uuid(), $1, $2, '[]'::jsonb, now())`, [orderNumber, org]);
+  /** The quotation-to-order path: the ORDER number claimed in the transaction that writes the order. */
+  const createOrder = async (org: string) => {
+    const f = await pg.query(`SELECT id FROM "${schema}"."DocumentNumberFormat" WHERE "organizationId" = $1 AND "documentType" = 'ORDER'`, [org]);
+    return prisma.$transaction(async (tx: any) => {
+      const orderNumber = await issueOrderNumberInTx(prisma, tx, org, f.rows[0].id);
+      return tx.order.create({ data: { organizationId: org, orderNumber, status: 'OPEN', items: [] }, select: { orderNumber: true } });
+    });
+  };
 
   const create = (org: string, insertHook?: (attempt: number, name: string) => Promise<void>) => {
     let attempt = 0;
@@ -76,12 +90,23 @@ maybe('locked invoice numbers + aims_inv_number_guard (real Postgres)', () => {
     await pg.query(`CREATE TYPE "${schema}"."DocumentStatus" AS ENUM (${labels.map((l) => `'${String(l).replace(/'/g, "''")}'`).join(', ')})`);
     await pg.query(`ALTER TABLE "${schema}"."Document" ALTER COLUMN status DROP DEFAULT, ALTER COLUMN status TYPE "${schema}"."DocumentStatus" USING status::text::"${schema}"."DocumentStatus", ALTER COLUMN status SET DEFAULT 'unconfirmed'`);
     await pg.query(`CREATE TABLE "${schema}"."DocumentNumberFormat" (LIKE "${docSrc}"."DocumentNumberFormat" INCLUDING ALL)`);
+    await pg.query(`CREATE TABLE "${schema}"."Order" (LIKE "${docSrc}"."Order" INCLUDING ALL)`);
     await pg.query(`CREATE TABLE "${schema}"."OrganizationUIConfig" (LIKE "${uiSrc}"."OrganizationUIConfig" INCLUDING ALL)`);
     for (const sql of invoiceNumberGuardSql(schema, schema)) await pg.query(sql);
     const ui = (org: string, features: object) => pg.query(`INSERT INTO "${schema}"."OrganizationUIConfig" (id, "organizationId", features, "updatedAt") VALUES (gen_random_uuid(), $1, $2::jsonb, now())`, [org, JSON.stringify(features)]);
     await ui(flagged, { enableWctOrderInvoice: true, enableWctOrders: true });
     await ui(legacyOrg, { enableImportedOrders: true });
     await ui(other, { enableProjects: true });
+    await ui(prefixed, { enableWctOrders: true, orderNumberPrefix: 'ORDW' });
+    await ui(plainOrders, { enableWctOrders: true });
+    // Both orgs' ORDER counters are at 19 (as WCT (S) on prod), with an old ORD… order and an imported ORD-Q-… one.
+    for (const org of [prefixed, plainOrders]) {
+      await pg.query(
+        `INSERT INTO "${schema}"."DocumentNumberFormat" (id, "organizationId", "documentType", label, pattern, "nextSerial", "resetPolicy", "isActive", "sortOrder", "updatedAt") VALUES (gen_random_uuid(), $1, 'ORDER', 'Default', '{DOC}{YYYY}{MM}-{###}', 19, 'never', true, 0, now())`,
+        [org],
+      );
+      for (const n of [`ORD${ym}-018`, 'ORD-Q-014154']) await rawOrder(org, n);
+    }
     await pg.query(
       `INSERT INTO "${schema}"."DocumentNumberFormat" (id, "organizationId", "documentType", label, pattern, "nextSerial", "resetPolicy", "isActive", "sortOrder", "updatedAt") VALUES (gen_random_uuid(), $1, 'INVOICE', 'Default', '{DOC}{YYYY}{MM}-{####}', 1, 'never', true, 0, now())`,
       [flagged],
@@ -161,5 +186,22 @@ maybe('locked invoice numbers + aims_inv_number_guard (real Postgres)', () => {
     const after = await pg.query(`SELECT "nextSerial" FROM "${schema}"."DocumentNumberFormat" WHERE "organizationId" = $1`, [flagged]);
     // Each attempt rolled back its claim; only the outside writer's rows exist.
     expect(after.rows[0].nextSerial).toBe(before.rows[0].nextSerial);
+  });
+
+  it('company order prefix (ORDW): two orders at once get ORDW<yyyymm>-001 and -002, its own series', async () => {
+    const [a, b] = await Promise.all([createOrder(prefixed), createOrder(prefixed)]);
+    expect([a.orderNumber, b.orderNumber].sort()).toEqual([`ORDW${ym}-001`, `ORDW${ym}-002`]);
+    // The old ORD… order (018 on a counter at 19) and the imported ORD-Q-… one never count towards the new series.
+    await expect(createOrder(prefixed)).resolves.toEqual({ orderNumber: `ORDW${ym}-003` });
+  });
+
+  it('an org without the prefix: unchanged, ORD… continues from its counter (019, 020 at once)', async () => {
+    const out = await Promise.all([createOrder(plainOrders), createOrder(plainOrders)]);
+    expect(out.map((o) => o.orderNumber).sort()).toEqual([`ORD${ym}-019`, `ORD${ym}-020`]);
+  });
+
+  it('order numbers are unique per org (the existing unique index), never across orgs', async () => {
+    await expect(rawOrder(prefixed, `ORDW${ym}-001`)).rejects.toThrow(/duplicate key value/);
+    await expect(rawOrder(plainOrders, `ORDW${ym}-001`)).resolves.toBeTruthy();
   });
 });
