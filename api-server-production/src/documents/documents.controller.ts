@@ -359,7 +359,10 @@ export class DocumentsController {
     if (!organizationId) {
       throw new Error('User is not assigned to any organization');
     }
-    return await this.documentsService.updateDocument(updateDto, organizationId, actorFromReq(req));
+    const out: any = await this.documentsService.updateDocument(updateDto, organizationId, actorFromReq(req));
+    // Round 38: a quotation made from the Orders list "+" was linked to its order by this save.
+    if (out?.linkedToOrder) (req as any).actionLogResult = { linkedToOrder: out.linkedToOrder };
+    return out;
   }
 
   // ── History & notes (Xero-style per-document audit trail) ──────────────

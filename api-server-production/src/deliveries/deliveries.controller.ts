@@ -222,8 +222,10 @@ export class DeliveriesController {
   // "Add DO" on the order: another draft DO (real number, the quotation's lines), no job.
   @Post('order/:orderId/dos')
   @Permissions('documents:create-basic')
-  addOrderDo(@Param('orderId') orderId: string, @UserOrganization() org: { id: string }) {
-    return this.service.prepareManualOrderDo(orderId, org.id, { force: true, throwOnError: true });
+  async addOrderDo(@Param('orderId') orderId: string, @UserOrganization() org: { id: string }) {
+    const out = await this.service.prepareManualOrderDo(orderId, org.id, { force: true, throwOnError: true });
+    // Round 38: the DO editor's link too (the Orders list "+" DO opens the new DO).
+    return out ? { ...out, href: await this.service.documentEditorHref(out.doId, org.id) } : out;
   }
 
   // "Add job" on a DO: a draft job for the calendar / a technician, linked to that DO.

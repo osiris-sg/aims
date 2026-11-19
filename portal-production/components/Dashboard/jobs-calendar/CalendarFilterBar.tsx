@@ -1,13 +1,14 @@
 "use client";
 
 // Jobs calendar filter bar (round 36, WCT group, calendar style orgs): DO generated / not, PTW (needed / pending /
-// approved / rejected / not needed), PTW applicant, Cancelled, Postponed, COD, Sticker, Category, Company, and the
-// "Export list" button. Filters only narrow the jobs on screen (notes stay); the people panel keeps working alongside.
+// approved / rejected / not needed), PTW applicant, Category, Company, and the "Export list" button. Round 38: the
+// Cancelled / Postponed / COD / Sticker chips are gone (Export list keeps its own Include cancelled / on hold ticks).
+// Filters only narrow the jobs on screen (notes stay); the people panel keeps working alongside.
 
 import React from "react";
-import { Box, Button, Checkbox, Chip, FormControl, InputLabel, ListItemText, MenuItem, OutlinedInput, Select, Stack } from "@mui/material";
+import { Box, Button, Checkbox, FormControl, InputLabel, ListItemText, MenuItem, OutlinedInput, Select, Stack } from "@mui/material";
 import IosShareIcon from "@mui/icons-material/IosShare";
-import { NO_APPLICANT, NO_FILTERS, filterCount, type CalendarFilters, type FlagFilter, type PtwFilter } from "./calendarPanel";
+import { NO_APPLICANT, NO_FILTERS, filterCount, type CalendarFilters, type PtwFilter } from "./calendarPanel";
 
 const PTW_OPTIONS: Array<{ value: PtwFilter; label: string }> = [
   { value: "needed", label: "PTW needed" },
@@ -15,12 +16,6 @@ const PTW_OPTIONS: Array<{ value: PtwFilter; label: string }> = [
   { value: "approved", label: "Approved 👍" },
   { value: "rejected", label: "Rejected 👎" },
   { value: "none", label: "Not needed" },
-];
-const FLAGS: Array<{ value: FlagFilter; label: string }> = [
-  { value: "cancelled", label: "❌ Cancelled" },
-  { value: "postponed", label: "⭕ Postponed" },
-  { value: "cod", label: "🟫 COD" },
-  { value: "sticker", label: "📌 Sticker" },
 ];
 
 function Multi({ label, value, options, onChange, width = 150 }: { label: string; value: string[]; options: Array<{ value: string; label: string }>; onChange: (v: string[]) => void; width?: number }) {
@@ -81,20 +76,6 @@ export default function CalendarFilterBar({
       )}
       {categories.length > 0 && <Multi label="Category" value={value.categories} options={categories.map((c) => ({ value: c, label: c }))} onChange={(v) => set({ categories: v })} width={140} />}
       {companies.length > 1 && <Multi label="Company" value={value.companies} options={companies.map((c) => ({ value: c.id, label: c.name }))} onChange={(v) => set({ companies: v })} width={150} />}
-      {FLAGS.map((f) => {
-        const on = value.flags.includes(f.value);
-        return (
-          <Chip
-            key={f.value}
-            label={f.label}
-            size="small"
-            clickable
-            color={on ? "primary" : "default"}
-            variant={on ? "filled" : "outlined"}
-            onClick={() => set({ flags: on ? value.flags.filter((x) => x !== f.value) : [...value.flags, f.value] })}
-          />
-        );
-      })}
       {n > 0 && (
         <Button size="small" onClick={() => onChange(NO_FILTERS)}>
           {`Clear (${n})`}

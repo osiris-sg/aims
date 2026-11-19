@@ -355,6 +355,24 @@ describe('imported orders: OrdersService', () => {
     expect(writes).toEqual([]);
   });
 
+  it('round 38: the DO(s) cell lists linked ERP DOs; "+" flags follow the order page (manual flow), native and imported', async () => {
+    const withDo = { ...importedRow, id: 'imp2', linkedDocuments: { ...importedRow.linkedDocuments, do: [{ id: 'e1', name: 'DO012538', imported: true }], imported: { ...marker, erpDoNumbers: [] } } };
+    const noInv = { ...importedRow, id: 'imp3', linkedDocuments: { ...importedRow.linkedDocuments, invoice: [], imported: { ...marker, erpDoNumbers: [] } } };
+    const native = { ...nativeRow, deliveries: [] };
+    const { svc, writes } = svcWith({ enableWctOrders: true, enableImportedOrders: true, enableManualOrderFlow: true, enableWctOrderInvoice: true }, [native, withDo, noInv]);
+    const out: any[] = (await svc.list('org')) as any[];
+    const by = (id: string) => out.find((o) => o.id === id);
+    expect(by('imp2')).toMatchObject({ doNumbers: ['DO012538'], add: { quotation: false, do: false, invoice: false } });
+    expect(by('imp3')).toMatchObject({ doNumbers: [], add: { quotation: false, do: true, invoice: true } });
+    // The AIMS order with no quotation, DO or invoice: all three.
+    expect(by('n1').add).toEqual({ quotation: true, do: true, invoice: true });
+    // Reading the "+" never writes a document (the order status sync is the list's own, as before).
+    expect(writes.filter((w) => w[0] !== 'order.update')).toEqual([]);
+    // Without the manual flow (Racking): no "+" DO, and no "+" Invoice with nothing to bill.
+    const rk = svcWith({ enableWctOrders: true, enableWctOrderInvoice: true }, [native]);
+    expect(((await rk.svc.list('org')) as any[])[0].add).toEqual({ quotation: true, do: false, invoice: false });
+  });
+
   it('order page: tracker without DO / service report until some are added, open for work (round 19); setting off = not found', async () => {
     const on = svcWith({ enableWctOrders: true, enableImportedOrders: true }, [importedRow]);
     const page: any = await on.svc.getById('imp1', 'org');

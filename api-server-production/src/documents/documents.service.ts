@@ -1,5 +1,7 @@
 import { IMPORTED_ORDER_USE_CREATE_INVOICE, importedMarkerOf, importedOrderDraftInvoice, importedStatusFrom, isImportedOrder, isImportedOrdersEnabled, loadImportedOrderInputs, refreshImportedOrderStatus } from '../orders/imported-orders';
 import { remainingForOrder } from '../orders/imported-remaining';
+import { docCustomerIdOf } from '../orders/imported-order-links';
+import { PENDING_ORDER_LINK_KEY, pendingOrderLinkOf } from '../orders/order-list-add';
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, NotFoundException, Optional, forwardRef } from '@nestjs/common';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { SALES_USER_ID_RE } from '../common/services/document-html/shared';
@@ -1390,6 +1392,11 @@ export class DocumentsService {
       // incoming config sets them itself.
       if (configAsPlainObject && existingDocument.type === 'DELIVERY_ORDER') carryServerDoKeys(existingDocument.config, configAsPlainObject);
       if (configAsPlainObject && existingDocument.type === 'INVOICE') carryServerInvoiceKeys(existingDocument.config, configAsPlainObject);
+      // Orders list "+" Quotation (round 38, WCT orders): a quotation made for an order with none carries a pending
+      // link; its first content save links it to that order (after the write below) and drops the key.
+      const pendingOrderId = configAsPlainObject && String(existingDocument.type).toUpperCase() === 'QUOTATION' ? pendingOrderLinkOf(existingDocument.config) : null;
+      if (configAsPlainObject && PENDING_ORDER_LINK_KEY in configAsPlainObject) delete configAsPlainObject[PENDING_ORDER_LINK_KEY];
+      let linkedToOrder: string | null = null;
       const wasConfirmedBeforeSave = !['draft', 'unconfirmed'].includes(existingDocument.status);
 
       // RDO free-typed rows (enableRdoFreeTypedRows, Biofuel 2026-11-19): with the
@@ -1737,6 +1744,7 @@ export class DocumentsService {
           ...(configAsPlainObject ? { lastActivityAt: new Date() } : {}),
         } as any,
       });
+      if (pendingOrderId) linkedToOrder = await this.linkPendingQuotation(pendingOrderId, organizationId, updatedDocument, actor);
 
       // Order.linkedDocuments stores a *snapshot* of each linked doc's name —
       // so when the user renames a PO/DO/Invoice (typically by typing a custom
@@ -2599,13 +2607,17 @@ export class DocumentsService {
       // document, and failing the whole save would throw away their pricing and
       // PO to report a delivery-side precondition. Silence is the worse option
       // though — that is how the half state hid in the first place.
+      // Round 38: the order the save linked this quotation to (the controller puts it on the Activity Log row).
+      const withLink = (r: any) => (linkedToOrder ? { ...r, linkedToOrder } : r);
       if (adHocSummary) {
         const fresh = await this.prisma.document.findUnique({ where: { id: updatedDocument.id }, select: { status: true, name: true } });
-        return { ...updatedDocument, ...(fresh ?? {}), adHocAttach: { ok: true, message: adHocSummary } };
+        return withLink({ ...updatedDocument, ...(fresh ?? {}), adHocAttach: { ok: true, message: adHocSummary } });
       }
-      return adHocWarning
-        ? { ...updatedDocument, adHocAttachWarning: adHocWarning, adHocAttach: { ok: false, message: adHocWarning } }
-        : updatedDocument;
+      return withLink(
+        adHocWarning
+          ? { ...updatedDocument, adHocAttachWarning: adHocWarning, adHocAttach: { ok: false, message: adHocWarning } }
+          : updatedDocument,
+      );
     } catch (error) {
       throw new HttpException(`Update failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
@@ -2628,6 +2640,81 @@ export class DocumentsService {
    * linking; Delivery.documentId is frozen legacy and deliberately not read).
    * One indexed lookup gives the run and its origin.
    */
+  /**
+   * Orders list "+" Quotation (round 38, WCT orders): the order a new quotation was made for gets it as its own
+   * quotation on the quotation's first save, while the order is still without one and not cancelled (else nothing
+   * happens). The order's customer is filled from the quotation when it has none. Never throws (the save stands).
+   * Returns the order number when linked.
+   */
+  private async linkPendingQuotation(orderId: string, organizationId: string, doc: { id: string; name: string | null; config: any }, actor?: DocumentActor): Promise<string | null> {
+    try {
+      const order = await this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, orderNumber: true, status: true, sourceQuotationId: true, customerId: true, linkedDocuments: true } });
+      if (!order || order.sourceQuotationId || order.status === 'CANCELLED' || isImportedOrder(order)) return null;
+      const r = await this.prisma.order.updateMany({ where: { id: order.id, organizationId, sourceQuotationId: null }, data: { sourceQuotationId: doc.id } });
+      if (!r.count) return null;
+      const customerId = docCustomerIdOf(doc.config);
+      if (!order.customerId && customerId) await this.prisma.order.updateMany({ where: { id: order.id, organizationId, customerId: null }, data: { customerId } });
+      await refreshOrderStatus(this.prisma, organizationId, order.id).catch(() => null);
+      void this.logDocumentEvent({ documentId: doc.id, organizationId, action: 'EDITED', detail: `Linked to order ${order.orderNumber}`, documentName: doc.name ?? undefined, actor });
+      return order.orderNumber;
+    } catch (e: any) {
+      console.warn(`linkPendingQuotation ${doc.id} -> ${orderId} failed: ${e?.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Orders list "+" Quotation (round 38, WCT orders, enableWctOrders): a new draft quotation for an AIMS order that
+   * has none, prefilled with the order's customer and site, made the way Sales > New quotation makes one
+   * (createBasicDocument, the org's quotation numbering). It carries a pending link (PENDING_ORDER_LINK_KEY): its
+   * first save links it to the order (linkPendingQuotation). Abandoned unsaved, the order stays as it was.
+   */
+  async newQuotationForOrder(orderId: string, organizationId: string, actor?: DocumentActor) {
+    if (!(await isOrgFeatureEnabled(this.prisma as any, organizationId, 'enableWctOrders'))) throw new HttpException('Orders are not on for this company', HttpStatus.BAD_REQUEST);
+    const order: any = await this.prisma.order.findFirst({
+      where: { id: orderId, organizationId },
+      select: {
+        id: true,
+        orderNumber: true,
+        status: true,
+        sourceQuotationId: true,
+        linkedDocuments: true,
+        customer: { select: { id: true, name: true, customerCode: true, address: true, email: true, phone: true, gstRegNo: true } },
+        deliveries: { where: { status: { not: 'cancelled' } }, select: { siteAddress: true, deliveryNumber: true }, orderBy: { deliveryNumber: 'desc' } },
+      },
+    });
+    if (!order) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
+    if (isImportedOrder(order)) throw new HttpException('An imported order keeps its own quotation', HttpStatus.BAD_REQUEST);
+    if (order.status === 'CANCELLED') throw new HttpException('This order is cancelled', HttpStatus.BAD_REQUEST);
+    const linkedQuotes = Array.isArray(order.linkedDocuments?.quotation) ? order.linkedDocuments.quotation : [];
+    if (order.sourceQuotationId || linkedQuotes.length) throw new HttpException(`${order.orderNumber} already has a quotation`, HttpStatus.BAD_REQUEST);
+    // The site: the latest job's, else the first DO made on the order.
+    let site: string | null = (order.deliveries ?? []).find((j: any) => String(j.siteAddress ?? '').trim())?.siteAddress?.trim() ?? null;
+    if (!site) {
+      const d: any = await this.prisma.document.findFirst({ where: { organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] }, config: { path: ['orderId'], equals: order.id } } as any, select: { config: true }, orderBy: { createdAt: 'asc' } });
+      site = String(d?.config?.deliveryTo ?? d?.config?.location ?? '').trim() || null;
+    }
+    const c = order.customer;
+    const config: any = {
+      ...(c
+        ? {
+            customerId: c.id,
+            customerName: c.name,
+            ...(c.customerCode ? { customerCode: c.customerCode } : {}),
+            ...(c.address ? { customerAddress: c.address } : {}),
+            ...(c.email ? { customerEmail: c.email } : {}),
+            customer: { id: c.id, name: c.name, customerCode: c.customerCode ?? null, address: c.address ?? null, email: c.email ?? null, phone: c.phone ?? null, gstRegNo: c.gstRegNo ?? null },
+          }
+        : {}),
+      ...(site ? { location: site } : {}),
+      [PENDING_ORDER_LINK_KEY]: { orderId: order.id, orderNumber: order.orderNumber, at: new Date().toISOString(), byId: actor?.id ?? null },
+    };
+    const templateId = await this.resolveTemplateIdForType('QUOTATION', organizationId);
+    const doc: any = await this.createBasicDocument(templateId, 'QUOTATION', organizationId, config, undefined, actor);
+    const tid = doc?.documentTemplateId ?? templateId;
+    return { id: doc.id as string, name: (doc.name ?? null) as string | null, type: 'QUOTATION', orderNumber: order.orderNumber as string, href: `/portal/documents/QUOTATION/${tid}/${doc.id}` };
+  }
+
   private async tryAttachProjectToAdHocRun(
     documentId: string,
     projectId: string | null,

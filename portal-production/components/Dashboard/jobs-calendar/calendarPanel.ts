@@ -282,7 +282,6 @@ export function rescheduleClashes(events: CalendarEvent[], job: CalendarEvent, t
 // ── Filter bar ──────────────────────────────────────────────────────────────────────────────────────────────────
 
 export type PtwFilter = "needed" | "pending" | "approved" | "rejected" | "none";
-export type FlagFilter = "cancelled" | "postponed" | "cod" | "sticker";
 
 export interface CalendarFilters {
   /** "yes" = DO generated (a completed DO), "no" = none yet, "" = both. */
@@ -290,17 +289,16 @@ export interface CalendarFilters {
   ptw: PtwFilter[];
   /** PTW applicant ids; NO_APPLICANT = none. */
   applicants: string[];
-  /** Each ticked one: only jobs with it. */
-  flags: FlagFilter[];
   categories: string[];
   /** Group calendar: org ids. */
   companies: string[];
 }
 
 export const NO_APPLICANT = "__none__";
-export const NO_FILTERS: CalendarFilters = { doState: "", ptw: [], applicants: [], flags: [], categories: [], companies: [] };
+// Round 38 (2026-11-20): the Cancelled / Postponed / COD / Sticker chip filters are gone (a stored "flags" is ignored).
+export const NO_FILTERS: CalendarFilters = { doState: "", ptw: [], applicants: [], categories: [], companies: [] };
 
-export const filterCount = (f: CalendarFilters): number => (f.doState ? 1 : 0) + f.ptw.length + f.applicants.length + f.flags.length + f.categories.length + f.companies.length;
+export const filterCount = (f: CalendarFilters): number => (f.doState ? 1 : 0) + f.ptw.length + f.applicants.length + f.categories.length + f.companies.length;
 
 /** A stored filter set back (anything malformed = no filters). */
 export function parseFilters(raw: string | null | undefined): CalendarFilters {
@@ -312,7 +310,6 @@ export function parseFilters(raw: string | null | undefined): CalendarFilters {
       doState: v.doState === "yes" || v.doState === "no" ? v.doState : "",
       ptw: list(v.ptw).filter((s): s is PtwFilter => ["needed", "pending", "approved", "rejected", "none"].includes(s)),
       applicants: list(v.applicants),
-      flags: list(v.flags).filter((s): s is FlagFilter => ["cancelled", "postponed", "cod", "sticker"].includes(s)),
       categories: list(v.categories),
       companies: list(v.companies),
     };
@@ -336,12 +333,6 @@ export function eventMatches(e: CalendarEvent, f: CalendarFilters, ownOrgId?: st
   if (f.applicants.length) {
     const id = ptwStatusOf(e) !== "NOT_NEEDED" ? e.ptwApplicant?.id ?? null : null;
     if (!f.applicants.includes(id ?? NO_APPLICANT)) return false;
-  }
-  for (const flag of f.flags) {
-    if (flag === "cancelled" && !e.cancelled) return false;
-    if (flag === "postponed" && !(e.postponed && !e.cancelled)) return false;
-    if (flag === "cod" && !e.cod) return false;
-    if (flag === "sticker" && !e.sticker) return false;
   }
   if (f.categories.length && !f.categories.some((c) => norm(c) === norm(e.category))) return false;
   if (f.companies.length && !f.companies.includes(e.orgId || ownOrgId || "")) return false;

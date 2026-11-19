@@ -66,6 +66,7 @@ import { isErpImported } from '../common/erp-import';
 import { billingSteps, importedInvoicePrefill, remainingForOrder } from './imported-remaining';
 import { amountPaidOf, grossOf } from '../common/document-money';
 import { nativeInvoiceMoney, nativeOrderSummary, nativeRemainderOf } from './order-page-summary';
+import { importedDoNumbers, importedListAdd, nativeListAdd } from './order-list-add';
 
 /** Imported orders are numbered ORD-<quotation no.> (imported-orders.ts); no native number starts so. */
 const IMPORTED_NUMBER_PREFIX = 'ORD-Q-';
@@ -535,8 +536,14 @@ export class OrdersService {
         o.status = st.status;
       }
     }
+    // Round 38: the DO(s) cell also lists the order's linked DOs (the old ERP DOs) and the AIMS DOs made on it, and
+    // the "+" cells follow the order page (Add DO in the manual flow, Create invoice with the quotation).
+    const manualFlow = await isManualOrderFlow(this.prisma, organizationId);
+    const aimsDos = await this.aimsDoNamesByOrder(organizationId);
     return rows.map((o) => {
       const m: any = importedMarkerOf(o);
+      const doNumbers = importedDoNumbers(m?.erpDoNumbers, (o.linkedDocuments as any)?.do, aimsDos.get(o.id) ?? []);
+      const invoiceRefs = this.importedInvoiceRefs(o);
       return {
         id: o.id,
         orderNumber: o.orderNumber,
@@ -552,7 +559,9 @@ export class OrdersService {
         site: m?.site ?? null,
         deliveryOrders: [],
         erpDoNumbers: Array.isArray(m?.erpDoNumbers) ? m.erpDoNumbers : [],
-        invoices: this.importedInvoiceRefs(o).map((r) => ({ id: r.id, name: r.name, type: 'INVOICE', status: '', templateId: r.templateId ?? null, total: Number(r.total) || 0 })),
+        doNumbers,
+        invoices: invoiceRefs.map((r) => ({ id: r.id, name: r.name, type: 'INVOICE', status: '', templateId: r.templateId ?? null, total: Number(r.total) || 0 })),
+        add: importedListAdd({ hasQuotation: !!o.sourceQuotation, doCount: doNumbers.length, invoiceCount: invoiceRefs.length }, { manualFlow }),
         amount: Number.isFinite(Number(m?.total)) ? Number(m.total) : null,
         jobCounts: { total: 0, drafts: 0, completed: 0, awaitingVerification: 0, cancelled: 0 },
         nextJobAt: null,
@@ -562,6 +571,24 @@ export class OrdersService {
         serviceReportReady: false,
       };
     });
+  }
+
+  /** Round 38: the names of the AIMS DOs made on an order (config.orderId; not the imported ERP DOs, not cancelled), per order id. */
+  private async aimsDoNamesByOrder(organizationId: string): Promise<Map<string, string[]>> {
+    const out = new Map<string, string[]>();
+    // A failed read leaves the cells as before (ERP DO numbers and linked DOs only); the list itself still loads.
+    try {
+      const rows: Array<{ name: string | null; orderId: string | null }> = await (this.prisma as any).$queryRawUnsafe(
+        `SELECT d.name, d.config->>'orderId' AS "orderId" FROM "Document" d
+          WHERE d."organizationId" = $1 AND d.type IN ('DELIVERY_ORDER', 'DO') AND d.config->>'orderId' IS NOT NULL AND d.config->'erpImport' IS NULL
+            AND COALESCE(d.config->>'cancelled', '') <> 'true' AND COALESCE(d.config->>'voided', '') <> 'true'`,
+        organizationId,
+      );
+      for (const r of rows ?? []) if (r.orderId && r.name) out.set(r.orderId, [...(out.get(r.orderId) ?? []), r.name]);
+    } catch (e: any) {
+      console.warn(`aimsDoNamesByOrder ${organizationId}: ${e?.message}`);
+    }
+    return out;
   }
 
   /** Billed % from the order's stored links (invoice totals, credits, quotation total), no document read. */
@@ -1073,6 +1100,10 @@ export class OrdersService {
     const doIds = [...new Set(allJobs.flatMap((j) => (j.items ?? []).map((i: any) => i.documentId)).filter(Boolean))] as string[];
     // Manual flow: an invoice made first (from the quotation) is on the order before any DO / job points at it.
     const manual = await isManualOrderFlow(this.prisma, organizationId);
+    // Round 38: the list's "+" Invoice follows the page's Create invoice, which needs invoicing per order.
+    const invoicing = await isOrgFeatureEnabled(this.prisma, organizationId, WCT_ORDER_INVOICE_FLAG);
+    // Round 38: DOs linked to an order (Link existing document) are its DOs too: listed, and no "+" DO then.
+    const linkedIds = [...new Set(orders.flatMap((o: any) => linkedDoIdsOf(o)))];
     // Round 36: any WCT order lists the invoices made with Create invoice for what is left (remainder: true).
     const orderInv = (o: any): string[] => (manual ? orderInvoiceIdsOf(o) : remainderInvoiceIdsOf(o));
     const invIds = [...new Set([...allJobs.map((j) => j.orderInvoiceId), ...orders.flatMap((o) => orderInv(o))].filter((v) => v && !String(v).startsWith('claim:')))] as string[];
@@ -1082,7 +1113,7 @@ export class OrdersService {
           where: {
             organizationId,
             OR: [
-              { id: { in: [...doIds, ...invIds] } },
+              { id: { in: [...doIds, ...invIds, ...linkedIds] } },
               ...(orders.length ? [{ type: { in: ['DELIVERY_ORDER', 'DO'] }, OR: orders.map((o) => ({ config: { path: ['orderId'], equals: o.id } })) }] : []),
             ],
           } as any,
@@ -1121,6 +1152,11 @@ export class OrdersService {
       ].filter((d: any) => (d.config as any)?.cancelled !== true);
       const joblessDos = dos.filter((d: any) => !jobDoIds.has(d.id));
       const doDone = (d: any) => String(d.status).startsWith('delivered');
+      // Linked DOs (round 29), shown in the DO(s) cell; the row actions keep to the DOs made on the order.
+      const linkedDos = linkedDoEntriesOf(o)
+        .map((e: any) => ({ e, d: byId.get(e.id) as any }))
+        .filter(({ d }) => d && isDo(d) && (d.config as any)?.cancelled !== true && !dos.some((x: any) => x.id === d.id));
+      const realInvoice = (v: unknown) => !!v && !String(v).startsWith('claim:');
       const own = [...new Set([...live.map((j) => j.orderInvoiceId), ...joblessDos.map((d: any) => (d.config as any)?.orderInvoiceId), ...orderInv(o)].filter((v) => v && !String(v).startsWith('claim:')))] as string[];
       const invoices = withSplitPartIds(own, own.map((id) => byId.get(id)).filter(Boolean) as any[])
         .map((id) => byId.get(id))
@@ -1138,9 +1174,23 @@ export class OrdersService {
       return {
         subject: String(qc.subject ?? di.subject ?? '').trim() || null,
         site: String([...live].reverse().find((j) => j.siteAddress)?.siteAddress ?? di.jobLocation ?? di.location ?? '').split('\n')[0].trim() || null,
-        deliveryOrders: dos.map(docView),
+        deliveryOrders: [...dos, ...linkedDos.map((x) => x.d)].map(docView),
         doDate: doDates[0] ?? null,
         invoices,
+        // Round 38: which empty cells show a "+" (order-list-add.ts; the order page's own rules).
+        add: nativeListAdd(
+          {
+            cancelled: o.status === 'CANCELLED',
+            hasQuotation: !!o.sourceQuotation || (Array.isArray((o.linkedDocuments as any)?.quotation) && (o.linkedDocuments as any).quotation.length > 0),
+            doCount: dos.length + linkedDos.length,
+            invoiceCount: invoices.length,
+            toInvoiceJobs: live.filter((j) => isVerifiedJob(j) && !j.orderInvoiceId).length,
+            toInvoiceDos:
+              joblessDos.filter((d: any) => doDone(d) && !realInvoice((d.config as any)?.orderInvoiceId)).length +
+              linkedDos.filter(({ e, d }) => doDone(d) && !isErpImported(d.config) && !realInvoice(e.orderInvoiceId)).length,
+          },
+          { manualFlow: manual, invoicing },
+        ),
         amount: invoices.length ? invoices.reduce((t: number, i: any) => t + i.total, 0) : Number.isFinite(quoted) ? quoted : null,
         actionJobs: {
           draft: firstOf((j) => j.isDraft),

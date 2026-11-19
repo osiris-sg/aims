@@ -60,6 +60,22 @@ export class OrderInvoiceController {
     return { id: inv.id, name: inv.name, type: 'INVOICE', href: `/portal/documents/INVOICE/${inv.documentTemplateId}/${inv.id}` };
   }
 
+  /**
+   * Orders list "+" Quotation (round 38, WCT orders): a new draft quotation for an AIMS order with none, prefilled
+   * with the order's customer and site; its first save links it to the order. Activity Log: CREATE on orders with
+   * the quotation and order in the result.
+   */
+  @Post(':id/new-quotation')
+  @Permissions('orders:update', 'documents:create-basic')
+  async newQuotation(@Param('id') id: string, @Req() req: any) {
+    const orgId = req.userOrganization?.id;
+    if (!orgId) throw new HttpException('User is not assigned to any organization', HttpStatus.FORBIDDEN);
+    const u: any = req.user || {};
+    const out = await this.documents.newQuotationForOrder(id, orgId, { id: u.id, name: [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || undefined, email: u.emailAddresses?.[0]?.emailAddress ?? u.email ?? undefined } as any);
+    req.actionLogResult = { created: `Quotation ${out.name ?? out.id}`, forOrder: out.orderNumber, linksOnSave: true };
+    return out;
+  }
+
   @Post(':id/invoice-now')
   @Permissions('documents:update')
   async invoiceNow(@Param('id') id: string, @Req() req: any) {

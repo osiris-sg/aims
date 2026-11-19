@@ -1889,6 +1889,12 @@ export class DeliveriesService {
    * (its lines mirror the DO's lines and point at it). Draft, no date: the
    * office schedules it on the job page like any job. Its DO keeps its number.
    */
+  /** Round 38: a document's editor link (/portal/documents/<type>/<template>/<id>), or null. */
+  async documentEditorHref(id: string, organizationId: string): Promise<string | null> {
+    const d: any = await this.prisma.document.findFirst({ where: { id, organizationId }, select: { id: true, type: true, documentTemplateId: true } });
+    return d?.documentTemplateId ? `/portal/documents/${d.type}/${d.documentTemplateId}/${d.id}` : null;
+  }
+
   async createJobForDo(organizationId: string, doId: string) {
     if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('Jobs on a DO need the manual order flow');
     const d = await this.prisma.document.findFirst({ where: { id: doId, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, name: true, status: true, config: true, projectId: true } });

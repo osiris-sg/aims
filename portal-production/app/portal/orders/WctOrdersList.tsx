@@ -7,8 +7,9 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, ListItemText, Menu, MenuItem, TextField, Typography } from "@mui/material";
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, ListItemText, Menu, MenuItem, TextField, Tooltip, Typography } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
+import AddIcon from "@mui/icons-material/Add";
 import StatusPill from "./_components/StatusPill";
 import moment from "moment";
 import { toast } from "react-toastify";
@@ -16,6 +17,8 @@ import { fmtJobWhen, orderMatchesSearch, orderStatusColor, orderStatusLabel } fr
 import { HUB_ACTION_LABEL, HUB_DESTRUCTIVE, hubListTarget, hubMatchesTab, hubRowActions, hubStatusInfo, hubStatusSortValue, hubTabs, type HubActionKey, type HubContext, type HubStatus } from "@/helpers/wctOrderHub";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
+import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
+import { canAddCell, createInvoiceHref, LIST_ADD_LABEL, type ListAddAccess, type ListAddKind } from "@/helpers/orderListAdd";
 import { ORDER_SOURCE_OPTIONS, defaultOrderSource, newestFirst, importedBilledPct, showBilledPctColumn, importedMatchesTab, importedStatusHue, importedTabs, isImportedTab, matchesOrderSource, type OrderSource } from "@/helpers/importedOrders";
 
 // WCT calendar add (2026-11-04): jobs made from the calendar with no order yet, so nothing gets forgotten.
@@ -60,7 +63,11 @@ interface WctOrderRow {
   imported?: boolean;
   statusLabel?: string;
   erpDoNumbers?: string[];
+  /** Imported orders (round 38): every DO number of the order (ERP DO numbers, linked DOs, AIMS DOs). */
+  doNumbers?: string[];
   billedPct?: number | null;
+  /** Round 38: which empty cells show a "+" (the order page's rules; api orders/order-list-add.ts). */
+  add?: { quotation: boolean; do: boolean; invoice: boolean } | null;
 }
 
 const docHref = (d?: { id: string; type?: string; templateId?: string | null } | null, fallbackType = "QUOTATION") => (d && d.templateId ? `/portal/documents/${d.type || fallbackType}/${d.templateId}/${d.id}` : null);
@@ -103,8 +110,16 @@ const money = (n?: number | null) => (n == null ? "" : `S$ ${Number(n).toLocaleS
 /** fixture: /preview/wct-jobs only (screenshots without sign-in); the page itself always fetches. */
 export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } = {}) {
   const router = useRouter();
-  const { organization } = useOrganization();
+  const { organization, isOsirisAdmin } = useOrganization();
   const { getToken } = useAuth();
+  const { hasPermission, userRoles, isLoading: rolesLoading } = useUserPermissions();
+  // Round 38: the "+" cells need the same permissions as the order page's calls (read-only people see none).
+  const addAccess: ListAddAccess | null = fixture
+    ? { admin: true, has: () => true }
+    : rolesLoading
+      ? null
+      : { admin: !!isOsirisAdmin || userRoles.some((r) => ["superadmin", "osirisadmin"].includes(String(r.name).toLowerCase())), has: hasPermission };
+  const [adding, setAdding] = useState<string | null>(null);
   const [orders, setOrders] = useState<WctOrderRow[]>(fixture ?? []);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<HubStatus | "all" | "untagged">("all");
@@ -172,6 +187,54 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
           )),
     [sourceRows, tab, search],
   );
+
+  /** Round 38: a "+" cell. Quotation / DO: made here, then their editor opens; Invoice: the order page's Create invoice. */
+  const addFromList = async (kind: ListAddKind, row: WctOrderRow) => {
+    if (kind === "invoice") {
+      router.push(createInvoiceHref(row.id));
+      return;
+    }
+    setAdding(`${kind}:${row.id}`);
+    try {
+      const token = await getToken();
+      const path = kind === "quotation" ? `/orders/${row.id}/new-quotation` : `/deliveries/order/${row.id}/dos`;
+      const res: any = await request({ path, method: "POST", ownError: true }, {}, token ?? undefined);
+      if (res?.success === false) throw new Error(res?.message || "Could not add it");
+      const out = res?.data ?? res;
+      if (kind === "quotation") toast.success(`Quotation ${out?.name ?? ""} for ${row.orderNumber}`.replace(/\s+/g, " "));
+      else if (out?.note) toast.info(`${out?.doName || "A draft DO"} added. ${out.note}`);
+      else toast.success(`${out?.doName || "A draft DO"} added with what is still to deliver`);
+      if (out?.href) router.push(out.href);
+      else await fetchOrders();
+    } catch (e: any) {
+      toast.error(e?.message || "Could not add it");
+    } finally {
+      setAdding(null);
+    }
+  };
+  /** The cell's content, or a small "+" when the cell is empty and the step is allowed. */
+  const cellOrAdd = (row: WctOrderRow, kind: ListAddKind, content: React.ReactNode, empty: boolean) => {
+    if (!empty || !canAddCell(row, kind, addAccess)) return content;
+    const busyHere = adding === `${kind}:${row.id}`;
+    return (
+      <Tooltip title={LIST_ADD_LABEL[kind]}>
+        <span>
+          <IconButton
+            size="small"
+            aria-label={LIST_ADD_LABEL[kind]}
+            disabled={!!adding}
+            onClick={(e) => {
+              e.stopPropagation();
+              void addFromList(kind, row);
+            }}
+            sx={{ border: 1, borderColor: "divider", width: 24, height: 24, opacity: busyHere ? 0.5 : 1 }}
+          >
+            <AddIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </span>
+      </Tooltip>
+    );
+  };
 
   /** A row action: open its screen, or confirm a cancel first. */
   const runAction = (key: HubActionKey, row: WctOrderRow) => {
@@ -256,10 +319,28 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
         </Box>
       ),
     },
-    { id: "quotation", header: "Quotation", size: 9, enableSorting: false, cell: ({ row }: any) => plain(row.original.sourceQuotation?.name) },
+    { id: "quotation", header: "Quotation", size: 9, enableSorting: false, cell: ({ row }: any) => cellOrAdd(row.original, "quotation", plain(row.original.sourceQuotation?.name), !row.original.sourceQuotation?.name) },
     // "DO date" column hidden for now (Elroy 16 Nov); the API still sends doDate.
-    { id: "dos", header: "DO(s)", size: 9, enableSorting: false, cell: ({ row }: any) => <NumberList names={row.original.imported ? row.original.erpDoNumbers ?? [] : (row.original.deliveryOrders ?? []).map((d: any) => d.name)} /> },
-    { id: "invoice", header: "Invoice", size: 9, enableSorting: false, cell: ({ row }: any) => <NumberList names={(row.original.invoices ?? []).map((d: any) => d.name)} /> },
+    {
+      id: "dos",
+      header: "DO(s)",
+      size: 9,
+      enableSorting: false,
+      cell: ({ row }: any) => {
+        const names: (string | null)[] = row.original.imported ? row.original.doNumbers ?? row.original.erpDoNumbers ?? [] : (row.original.deliveryOrders ?? []).map((d: any) => d.name);
+        return cellOrAdd(row.original, "do", <NumberList names={names} />, !names.some(Boolean));
+      },
+    },
+    {
+      id: "invoice",
+      header: "Invoice",
+      size: 9,
+      enableSorting: false,
+      cell: ({ row }: any) => {
+        const names: (string | null)[] = (row.original.invoices ?? []).map((d: any) => d.name);
+        return cellOrAdd(row.original, "invoice", <NumberList names={names} />, !names.some(Boolean));
+      },
+    },
     {
       id: "amount",
       accessorFn: (o: WctOrderRow) => o.amount ?? -1,

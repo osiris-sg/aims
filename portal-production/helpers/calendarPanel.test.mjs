@@ -173,18 +173,16 @@ test("filters: DO, PTW, applicant, cancelled, postponed, COD, sticker, category,
   assert.equal(ids({ ptw: ["none"] }), "4");
   assert.equal(ids({ applicants: ["pta_joyna"] }), "2");
   assert.equal(ids({ applicants: [NO_APPLICANT] }), "3,4");
-  assert.equal(ids({ flags: ["cancelled"] }), "3");
-  assert.equal(ids({ flags: ["postponed"] }), "4");
-  assert.equal(ids({ flags: ["cod"] }), "2");
-  assert.equal(ids({ flags: ["sticker"] }), "3");
   assert.equal(ids({ categories: ["site visit", "Meeting"] }), "2,3");
   assert.equal(ids({ companies: ["bcair"] }), "3");
   // The own company also covers items with no org tag (calendars without the group view).
   assert.equal(ids({ companies: ["wct"] }), "1,2,4");
-  assert.equal(ids({ ptw: ["needed"], flags: ["cod"] }), "2");
-  assert.equal(filterCount({ ...NO_FILTERS, doState: "yes", ptw: ["needed", "pending"], flags: ["cod"] }), 4);
+  assert.equal(ids({ ptw: ["needed"], categories: ["Meeting"] }), "3");
+  assert.equal(filterCount({ ...NO_FILTERS, doState: "yes", ptw: ["needed", "pending"] }), 3);
   assert.deepEqual(parseFilters("junk"), NO_FILTERS);
-  assert.deepEqual(parseFilters(JSON.stringify({ doState: "x", ptw: ["pending", "bad"], flags: ["cod", 3] })), { ...NO_FILTERS, ptw: ["pending"], flags: ["cod"] });
+  // Round 38: the old Cancelled / Postponed / COD / Sticker filters are dropped, so a filter saved before never hides jobs.
+  assert.deepEqual(parseFilters(JSON.stringify({ doState: "x", ptw: ["pending", "bad"], flags: ["cod", 3] })), { ...NO_FILTERS, ptw: ["pending"] });
+  assert.equal(filterEvents(list, parseFilters(JSON.stringify({ flags: ["cancelled"] })), "wct"), list);
 });
 
 test("export: times 4pm / 830pm, short address, one line per job", () => {
