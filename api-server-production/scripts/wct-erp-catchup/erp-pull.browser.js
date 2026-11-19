@@ -96,7 +96,7 @@ window.__erpCatchup = async ({ lastQuoteId, lastInvoiceId, extraQuoteIds = [], e
   // have yet is fetched too (e.g. a quotation that was Draft at the last run and is Accepted now).
   const inRanges = (spec) => { const rs = String(spec || '').split(',').filter(Boolean).map((x) => x.split('-').map(Number)); return (id) => rs.some(([a, b]) => id >= a && id <= (b ?? a)); };
   const qHave = inRanges(importedQuoteRanges), iHave = inRanges(importedInvoiceRanges);
-  const Q_SCOPE = ['Accepted', 'Declined', 'Sent'], I_SCOPE = ['Paid', 'Overdue', 'Receivable', 'Partial'];
+  const Q_SCOPE = ['Accepted', 'Declined', 'Sent', 'Draft'], I_SCOPE = ['Paid', 'Overdue', 'Receivable', 'Partial'];
   // Open invoices that got a credit note on or after cnSince: their Amount Due is read too.
   const cnInvoices = new Set(cns.filter((r) => cnSince && dmy(strip(r[3])) >= cnSince).map((r) => strip(r[4])));
   const want = [

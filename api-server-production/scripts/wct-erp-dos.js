@@ -312,7 +312,11 @@ function planErpDos(ctx) {
       const nKey = (Array.isArray(n.config?.items) ? n.config.items : []).map((it) => normLine(it?.description)).filter(Boolean).sort().join('|');
       const sameLines = !!nKey && nKey === lineKey;
       const sameQuote = !!qName && [n.config?.quotationNo, n.config?.sourceDocumentNumber].map((x) => String(x || '').replace(/\(R\d*\)$/, '').trim()).includes(qName);
-      const hit = sameQuote || (sameCust && (sameDate || sameLines));
+      // 2026-11-20 (old DOs back to 2017): the same quotation or the same lines count only within 14 days of each
+      // other (a maintenance contract repeats its lines and quotation every visit); same customer + same date always.
+      const days = nDate && e.date ? Math.abs(Date.parse(`${nDate}T00:00:00Z`) - Date.parse(`${e.date}T00:00:00Z`)) / 86_400_000 : Infinity;
+      const near = days <= 14;
+      const hit = (sameCust && sameDate) || (near && (sameQuote || (sameCust && sameLines)));
       if (hit) matches.push({ native: n.name, nativeId: n.id, status: n.status, date: nDate, by: [sameCust && 'customer', sameDate && 'date', sameLines && 'lines', sameQuote && 'quotation'].filter(Boolean).join(' + ') });
     }
     if (matches.length) {
@@ -328,7 +332,12 @@ function planErpDos(ctx) {
     const cands = [...new Map([...byDo, ...byInv].map((o) => [o.id, o])).values()];
     let order = null, linkHow = null, newOrder = null;
     if (cands.length === 1) { order = cands[0]; linkHow = byDo.includes(order) ? 'order erpDoNumbers' : 'invoice ourDoNo'; }
-    else if (cands.length > 1) flags.push(`DO on ${cands.length} imported orders (${cands.map((o) => o.orderNumber).join(', ')}): not linked`);
+    else if (cands.length > 1 && byQuote && cands.some((o) => o.id === byQuote.id)) {
+      // 2026-11-20: named on several orders: the order of the DO's own quotation wins (Elroy: link to its quotation's order).
+      order = byQuote;
+      linkHow = 'quotation (DO named on several orders)';
+      flags.push(`DO also named on ${cands.filter((o) => o.id !== byQuote.id).map((o) => o.orderNumber).join(', ')}`);
+    } else if (cands.length > 1) flags.push(`DO on ${cands.length} imported orders (${cands.map((o) => o.orderNumber).join(', ')}): not linked`);
     if (!order && !cands.length && byQuote) {
       if (byQuote.linkedDocuments?.imported?.source === ORDER_SOURCE) { order = byQuote; linkHow = 'quotation'; }
       else flags.push(`quotation ${qName} has a native order ${byQuote.orderNumber}: not linked`);
