@@ -14,7 +14,9 @@
  *      do-pdf/<id>.pdf) and parses the PDFs into erp-do-parsed.csv + erp-do-lines.csv;
  *   2. plans the import: each ERP DO dated in the pull window becomes an imported DO (Document type
  *      DELIVERY_ORDER, the org's DO template, the ERP number kept, config.erpImport, status by --done-rule)
- *      in the org of its quotation ("(NG)" quotations live in BC Air), customer = the quotation's;
+ *      in the org of its linked AIMS quotation, else of the imported invoice(s) carrying its DO number;
+ *      only a DO with neither goes by "(NG)" in its ERP subject (BC Air) or else WCT (S) (placeErpDo);
+ *      customer = the quotation's, else the invoice's, else the ERP name in that org;
  *   3. links each DO to the imported order of its quotation / invoice (adds to order.linkedDocuments.do only,
  *      read and locked inside the apply transaction; the order's status is never changed), or
  *      creates a DO-only imported order when the quotation has none yet (no invoice yet);
@@ -55,6 +57,31 @@ const normLine = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 /** ERP DO numbers inside a free-text field ("DO012360", "DO 12360 / DO012361"). */
 const doNumbersIn = (s) => [...String(s || '').toUpperCase().matchAll(/DO\s*-?\s*(\d{4,})/g)].map((m) => `DO${m[1].padStart(6, '0')}`);
 const grossOf = (c) => { for (const k of ['totalWithTax', 'nettTotal', 'xeroGross', 'totalAmount']) { const x = Number(c?.[k]); if (c?.[k] !== undefined && c?.[k] !== null && c?.[k] !== '' && Number.isFinite(x)) return x; } return null; };
+const NG = /\(NG\)/i;
+
+/**
+ * The org an ERP DO belongs to (Elroy, 19 Nov 2026): the org of its linked AIMS quotation (the DO's contract
+ * no.), else of the imported invoice(s) carrying its DO number. Only a DO with no link goes by "(NG)" in its
+ * ERP subject (the ERP has no DO subject: its quotation's subject, or an ERP invoice's carrying the DO number):
+ * BC Air, else WCT (S). `force` (an owner decision) overrides. Pure; also used by wct-erp-dos-move.js.
+ * Returns { org (null = cannot place), by, ng, notes[] }.
+ */
+function placeErpDo({ quote = null, invoices = [], erpSubjects = [], force = null }) {
+  const ng = [quote?.config?.subject, quote?.config?.erpImport?.referenceNo, ...invoices.map((i) => i.config?.subject), ...erpSubjects].some((s) => NG.test(String(s ?? '')));
+  const invOrgs = [...new Set(invoices.map((i) => i.organizationId))];
+  let org, by;
+  if (force) { org = force; by = 'decision'; }
+  else if (quote) { org = quote.organizationId; by = 'quotation'; }
+  else if (invOrgs.length === 1) { org = invOrgs[0]; by = 'invoice'; }
+  else if (invOrgs.length > 1) return { org: null, by: `invoices in ${invOrgs.map((o) => ORG_NAME[o] || o).join(' and ')}`, ng, notes: [] };
+  else { org = ng ? ORG.BCAIR : ORG.WCT; by = ng ? '(NG) subject' : 'no link'; }
+  const notes = [];
+  if (quote && quote.organizationId !== org) notes.push(`quotation ${quote.name} is in ${ORG_NAME[quote.organizationId]}`);
+  for (const i of invoices) if (i.organizationId !== org) notes.push(`invoice ${i.name} is in ${ORG_NAME[i.organizationId]}`);
+  if (ng && org !== ORG.BCAIR) notes.push(`"(NG)" in the ERP subject, ${ORG_NAME[org]} by the ${by}`);
+  if (!ng && org === ORG.BCAIR) notes.push(`no "(NG)" in the ERP subject, BC Air by the ${by}`);
+  return { org, by, ng, notes };
+}
 
 // ── CSV ──────────────────────────────────────────────────────────────────────
 function parseCsv(text) {
@@ -177,12 +204,48 @@ async function parseDoPdfs(outDir) {
   return { parsed: parsed.length, lines: lines.length };
 }
 
-// ── 2. Plan (pure; tested by scripts/wct-erp-dos.spec.ts) ─────────────────
+/** A customer in `pool` (one org) for an ERP customer name: the importer's reviewed map (when its id is in this
+ *  org), then one exact name, then one normalised name (the "(NG)" mover's rule). Several hits = no match. */
+function customerByName(pool, erpName, customerMap) {
+  const m = customerMap?.get(erpName);
+  if (m?.aims_customer_id && ['exact', 'ambiguous-picked-by-address'].includes(m.match)) { const c = pool.find((x) => x.id === m.aims_customer_id); if (c) return c; }
+  for (const f of [n1, normName]) {
+    const hits = pool.filter((c) => f(c.name) && f(c.name) === f(erpName));
+    if (hits.length === 1) return hits[0];
+    if (hits.length > 1) return null;
+  }
+  return null;
+}
+
+/**
+ * ERP subjects from the pull files (the "(NG)" fallback): quotation subject by number (Q-0xxxxx) and the ERP
+ * invoices carrying each DO number. Read from <imports>/erp and every <imports>/erp-catchup/<day> (later wins).
+ */
+function loadErpSubjects(importsDir) {
+  const erpQuoteSubjects = new Map(), byDo = new Map();
+  const dirs = [path.join(importsDir, 'erp')];
+  const cu = path.join(importsDir, 'erp-catchup');
+  if (fs.existsSync(cu)) dirs.push(...fs.readdirSync(cu).sort().map((d) => path.join(cu, d)));
+  for (const d of dirs) {
+    for (const f of ['wct-quotes-full.csv', 'erp-quotation-list.csv']) {
+      for (const r of readCsv(path.join(d, f))) if (/^-\d+$/.test(r.quotation_no || '') && r.subject) erpQuoteSubjects.set(`Q${r.quotation_no}`, r.subject);
+    }
+    for (const r of readCsv(path.join(d, 'wct-invoices-full.csv'))) {
+      for (const dn of doNumbersIn(r.our_do_no)) { if (!byDo.has(dn)) byDo.set(dn, new Map()); byDo.get(dn).set(r.invoice_no, r.subject || ''); }
+    }
+  }
+  const erpInvoiceSubjects = new Map([...byDo].map(([dn, m]) => [dn, [...m].map(([invoice_no, subject]) => ({ invoice_no, subject }))]));
+  return { erpQuoteSubjects, erpInvoiceSubjects };
+}
+
+// ── 2. Plan (pure; tested by scripts/__tests__/wct-erp-dos.test.js) ──────
 /**
  * ctx: { dos: [{ erp_id, do_no, date, contract_no, customer, term, parsed, lines }], quotations, invoices,
  *        orders, nativeDos, customersByOrg: Map<org, customers[]>, customerMap: Map<erpName, row>,
  *        templates: { [org]: templateId }, existingDoErpIds: Set, takenNames: Set('org|name'),
- *        batch, now (ISO), pullDay ('YYYY-MM-DD'), doneRule, includeDuplicates }
+ *        batch, now (ISO), pullDay ('YYYY-MM-DD'), doneRule, includeDuplicates,
+ *        erpQuoteSubjects: Map<'Q-0xxxxx', subject>, erpInvoiceSubjects: Map<doNo, [{ invoice_no, subject }]>,
+ *        forceOrg: Map<doNo, org> (owner decisions) }
  */
 function planErpDos(ctx) {
   const { batch, now, pullDay, doneRule = 'dated', includeDuplicates = false } = ctx;
@@ -191,7 +254,6 @@ function planErpDos(ctx) {
   const invByDo = new Map();
   for (const inv of ctx.invoices) for (const d of doNumbersIn(inv.config?.erpImport?.ourDoNo)) invByDo.set(d, [...(invByDo.get(d) || []), inv]);
   const imported = ctx.orders.filter((o) => /^ORD-Q-/.test(o.orderNumber) && o.linkedDocuments?.imported?.source === ORDER_SOURCE);
-  const orderByQuote = new Map(ctx.orders.filter((o) => o.sourceQuotationId).map((o) => [o.sourceQuotationId, o]));
   const orderByDoNo = new Map(), orderByInvoice = new Map();
   for (const o of imported) {
     for (const d of o.linkedDocuments.imported.erpDoNumbers || []) orderByDoNo.set(d, [...(orderByDoNo.get(d) || []), o]);
@@ -210,25 +272,30 @@ function planErpDos(ctx) {
     if (e.parsed.pdf_date && e.parsed.pdf_date !== e.date) flags.push(`PDF date ${e.parsed.pdf_date} vs list ${e.date}`);
     const qName = /^-\d+$/.test(qNo) ? `Q${qNo}` : null;
     const qs = qName ? quoteByNo.get(qName) || [] : [];
-    let quote = null, org, customer = null, custHow;
+    let quote = null, customer = null, custHow;
     if (qs.length > 1) { why(`${qs.length} quotations ${qName} in AIMS (${qs.map((q) => ORG_NAME[q.organizationId]).join(', ')})`); continue; }
-    if (qs.length === 1) {
-      quote = qs[0];
-      org = quote.organizationId;
-      customer = (ctx.customersByOrg.get(org) || []).find((c) => c.id === quote.config?.customerId) || null;
+    if (qs.length === 1) quote = qs[0];
+    // Org: the linked quotation's, else the linked invoice's; "(NG)" only when there is no link (placeErpDo).
+    const invs = invByDo.get(e.do_no) || [];
+    const erpSubjects = [qName && ctx.erpQuoteSubjects?.get(qName), ...(ctx.erpInvoiceSubjects?.get(e.do_no) || []).map((x) => x.subject)].filter(Boolean);
+    const place = placeErpDo({ quote, invoices: invs, erpSubjects, force: ctx.forceOrg?.get(e.do_no) || null });
+    if (!place.org) { why(`cannot place: ${place.by}`); continue; }
+    const org = place.org;
+    flags.push(...place.notes);
+    if (quote && quote.organizationId !== org) quote = null; // an owner decision put the DO away from its quotation
+    const pool = ctx.customersByOrg.get(org) || [];
+    if (quote) {
+      customer = pool.find((c) => c.id === quote.config?.customerId) || null;
       custHow = 'quotation';
       if (!customer) { why(`quotation ${qName} has no customer in ${ORG_NAME[org]}`); continue; }
-      if (/\(NG\)/i.test(`${quote.config?.subject ?? ''} ${quote.config?.erpImport?.referenceNo ?? ''}`) && org !== ORG.BCAIR) flags.push(`"(NG)" quotation ${qName} still in WCT (S)`);
+      if (NG.test(`${quote.config?.subject ?? ''} ${quote.config?.erpImport?.referenceNo ?? ''}`) && org !== ORG.BCAIR) flags.push(`"(NG)" quotation ${qName} still in WCT (S)`);
     } else {
-      // Quotation not in AIMS: WCT (S), customer by the importer's reviewed map, then an exact name.
-      org = ORG.WCT;
-      const m = ctx.customerMap.get(e.customer);
-      const pool = ctx.customersByOrg.get(org) || [];
-      if (m?.aims_customer_id && ['exact', 'ambiguous-picked-by-address'].includes(m.match)) customer = pool.find((c) => c.id === m.aims_customer_id) || null;
-      if (!customer) { const hits = pool.filter((c) => n1(c.name) === n1(e.customer)); if (hits.length === 1) customer = hits[0]; }
-      custHow = 'erp name';
-      if (!customer) { why(`quotation ${qName || qNo || '(none)'} not in AIMS and customer "${e.customer}" not matched`); continue; }
-      flags.push(`quotation ${qName || qNo || '(none)'} not in AIMS`);
+      // No quotation in this org: the linked invoice's customer, else the importer's reviewed map, then the name.
+      const invCust = [...new Set(invs.filter((i) => i.organizationId === org).map((i) => i.config?.customerId).filter(Boolean))];
+      if (invCust.length === 1) { customer = pool.find((c) => c.id === invCust[0]) || null; custHow = 'invoice'; }
+      if (!customer) { customer = customerByName(pool, e.customer, ctx.customerMap); custHow = 'erp name'; }
+      if (!customer) { why(`quotation ${qName || qNo || '(none)'} not in ${ORG_NAME[org]} and customer "${e.customer}" not matched there`); continue; }
+      if (!qs.length) flags.push(`quotation ${qName || qNo || '(none)'} not in AIMS`);
     }
     if (custHow === 'quotation' && normName(e.customer) !== normName(customer.name) && n1(e.customer) !== n1(customer.name)) flags.push(`ERP DO customer "${e.customer}" vs quotation customer ${customer.customerCode} "${customer.name}"`);
     const tpl = ctx.templates[org];
@@ -255,10 +322,9 @@ function planErpDos(ctx) {
 
     // Order: the ERP's own links first (an imported order that already names this DO, or holds an invoice
     // carrying this DO number), then the quotation's imported order; else a new DO-only order.
-    const invs = invByDo.get(e.do_no) || [];
     const byDo = (orderByDoNo.get(e.do_no) || []).filter((o) => o.organizationId === org);
     const byInv = [...new Set(invs.map((i) => orderByInvoice.get(i.id)).filter(Boolean))].filter((o) => o.organizationId === org);
-    const byQuote = quote ? orderByQuote.get(quote.id) || null : null;
+    const byQuote = quote ? (ctx.orders.find((o) => o.sourceQuotationId === quote.id && o.organizationId === org) || null) : null;
     const cands = [...new Map([...byDo, ...byInv].map((o) => [o.id, o])).values()];
     let order = null, linkHow = null, newOrder = null;
     if (cands.length === 1) { order = cands[0]; linkHow = byDo.includes(order) ? 'order erpDoNumbers' : 'invoice ourDoNo'; }
@@ -340,7 +406,7 @@ function planErpDos(ctx) {
         importedAt: now,
       },
     };
-    const doc = { id, organizationId: org, type: 'DELIVERY_ORDER', name: e.do_no, status: done ? 'delivered_installed' : 'confirmed', templateId: tpl, createdAt, config, done, erpDate: e.date, quote, order, linkHow, newOrder: order === newOrder && !!newOrder, invoices: invs, flags, customer };
+    const doc = { id, organizationId: org, type: 'DELIVERY_ORDER', name: e.do_no, status: done ? 'delivered_installed' : 'confirmed', templateId: tpl, createdAt, config, done, erpDate: e.date, quote, order, linkHow, newOrder: order === newOrder && !!newOrder, invoices: invs, flags, customer, custHow, place };
     docs.push(doc);
     const entry = { id, name: e.do_no, templateId: tpl, imported: true, erpStatus: 'Issued', done, date: e.date };
     if (newOrder && order === newOrder) newOrder.dos.push(entry);
@@ -371,7 +437,7 @@ function withDoLinks(ld, entries) {
   return { ...(ld || {}), do: [...cur, ...add] };
 }
 
-module.exports = { mergeDoParts, parseDoPdf, parseDoPdfs, planErpDos, newOrderLinked, withDoLinks, doNumbersIn };
+module.exports = { ORG, ORG_NAME, SOURCE, ORDER_SOURCE, mergeDoParts, parseDoPdf, parseDoPdfs, planErpDos, placeErpDo, customerByName, loadErpSubjects, newOrderLinked, withDoLinks, doNumbersIn, readCsv, writeCsv };
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
 if (require.main === module) {
@@ -418,7 +484,7 @@ if (require.main === module) {
 
     const orgs = [ORG.WCT, ORG.BCAIR];
     const quotations = await q(`select id::text id, "organizationId" "organizationId", name, (config - 'items' - 'termsAndConditions') config from "Document" where "organizationId" = any($1) and type = 'QUOTATION'`, [orgs]);
-    const invoices = await q(`select id::text id, "organizationId" "organizationId", name, jsonb_build_object('erpImport', config->'erpImport') config from "Document" where "organizationId" = any($1) and type = 'INVOICE' and config ? 'erpImport' and coalesce(config->'erpImport'->>'ourDoNo', '') <> ''`, [orgs]);
+    const invoices = await q(`select id::text id, "organizationId" "organizationId", name, jsonb_build_object('erpImport', config->'erpImport', 'customerId', config->'customerId', 'subject', config->'subject') config from "Document" where "organizationId" = any($1) and type = 'INVOICE' and config ? 'erpImport' and coalesce(config->'erpImport'->>'ourDoNo', '') <> ''`, [orgs]);
     const orders = await q(`select id::text id, "organizationId" "organizationId", "orderNumber", status, "sourceQuotationId"::text "sourceQuotationId", "linkedDocuments" from "Order" where "organizationId" = any($1)`, [orgs]);
     const allDos = await q(`select id::text id, "organizationId" "organizationId", name, status::text status, (config - 'logo' - 'stamp') config, to_char("createdAt" + interval '8 hours', 'YYYY-MM-DD') "createdAtSgt" from "Document" where "organizationId" = any($1) and type in ('DELIVERY_ORDER', 'DO')`, [orgs]);
     const nativeDos = allDos.filter((d) => !d.config?.erpImport && String(d.config?.date || d.createdAtSgt) >= '2026-11-01');
@@ -444,7 +510,8 @@ if (require.main === module) {
     const pullDay = (listRows.map((r) => String(r.pulled_at || '').slice(0, 10)).sort().pop() || TODAY);
     const dos = listRows.map((r) => ({ ...r, parsed: parsed.get(r.erp_id) || null, lines: (linesBy.get(r.erp_id) || []).sort((a, b) => num(a.line_no) - num(b.line_no)) }));
     const at = new Date().toISOString();
-    const plan = planErpDos({ dos, quotations, invoices, orders, nativeDos, customersByOrg, customerMap, templates, company, gstRegNo, existingDoErpIds, takenNames, batch: BATCH, now: at, pullDay, doneRule: DONE_RULE, includeDuplicates: INCLUDE_DUPES });
+    const { erpQuoteSubjects, erpInvoiceSubjects } = loadErpSubjects(IMPORTS);
+    const plan = planErpDos({ dos, quotations, invoices, orders, nativeDos, customersByOrg, customerMap, templates, company, gstRegNo, existingDoErpIds, takenNames, batch: BATCH, now: at, pullDay, doneRule: DONE_RULE, includeDuplicates: INCLUDE_DUPES, erpQuoteSubjects, erpInvoiceSubjects });
 
     // ── Report ──
     const L = [];
@@ -473,7 +540,8 @@ if (require.main === module) {
     }
     const alt = plan.docs.filter((d) => d.invoices.length);
     say(`Done rule: "${DONE_RULE}" (the ERP has no status; erpImport.status = "Issued"). Under "invoiced": done ${alt.length}, not done ${plan.docs.length - alt.length}. Under "dated": all ${plan.docs.filter((d) => d.erpDate <= pullDay).length} dated on or before ${pullDay}.`);
-    say(`Customer: from the quotation ${plan.docs.filter((d) => d.quote).length}, by ERP name (quotation not in AIMS) ${plan.docs.filter((d) => !d.quote).length}.`);
+    say(`Org (linked quotation, else linked invoice, else "(NG)" in the ERP subject): ${fmt(countBy(plan.docs, (d) => `${ORG_NAME[d.organizationId]} by ${d.place.by}`))}.`);
+    say(`Customer: ${fmt(countBy(plan.docs, (d) => `from the ${d.custHow}`))}.`);
     for (const h of hold) say(`  HELD ${h.do_no} (${h.date}, ${h.customer}, ${h.quotation}): ${h.reason}`);
     say(`\nOrders: linked to an existing imported order ${plan.links.length} DO(s) on ${new Set(plan.links.map((l) => l.order.id)).size} order(s) (${fmt(countBy(plan.docs.filter((d) => d.order && !d.newOrder), (d) => d.linkHow))}) · new DO-only imported orders ${plan.orders.length} (${plan.docs.filter((d) => d.newOrder).length} DOs) · unlinked ${plan.docs.filter((d) => !d.order).length}`);
     for (const org of orgs) {
@@ -498,7 +566,7 @@ if (require.main === module) {
     }
     say(`\nAttachments: none in the ERP (no signed copies). The ERP's own print of each DO (~1 MB PDF, logo + text) is kept in ${path.join(FROM, 'do-pdf')}; not uploaded.`);
     fs.mkdirSync(FROM, { recursive: true });
-    writeCsv(path.join(FROM, 'erp-do-plan.csv'), ['org', 'do_no', 'date', 'status', 'done', 'customer', 'quotation', 'order', 'link', 'invoices', 'flags'], plan.docs.map((d) => ({ org: ORG_NAME[d.organizationId], do_no: d.name, date: d.erpDate, status: d.status, done: d.done, customer: `${d.customer.customerCode} ${d.customer.name}`, quotation: d.quote?.name || '', order: d.order?.orderNumber || '', link: d.linkHow || '', invoices: d.invoices.map((i) => i.name).join(' '), flags: d.flags.join('; ') })));
+    writeCsv(path.join(FROM, 'erp-do-plan.csv'), ['org', 'placed_by', 'do_no', 'date', 'status', 'done', 'customer', 'quotation', 'order', 'link', 'invoices', 'flags'], plan.docs.map((d) => ({ org: ORG_NAME[d.organizationId], placed_by: d.place.by, do_no: d.name, date: d.erpDate, status: d.status, done: d.done, customer: `${d.customer.customerCode} ${d.customer.name}`, quotation: d.quote?.name || '', order: d.order?.orderNumber || '', link: d.linkHow || '', invoices: d.invoices.map((i) => i.name).join(' '), flags: d.flags.join('; ') })));
     writeCsv(path.join(FROM, 'erp-do-held.csv'), ['do_no', 'date', 'customer', 'quotation', 'reason'], hold);
 
     if (!APPLY) {

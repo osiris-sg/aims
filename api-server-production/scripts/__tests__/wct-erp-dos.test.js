@@ -1,7 +1,10 @@
 // node --test scripts/__tests__/wct-erp-dos.test.js  (old-ERP DO import plan, 2026-11-19)
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { planErpDos, newOrderLinked, withDoLinks, doNumbersIn } = require('../wct-erp-dos');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { planErpDos, placeErpDo, customerByName, loadErpSubjects, newOrderLinked, withDoLinks, doNumbersIn } = require('../wct-erp-dos');
 
 const WCT = '5c700000-0000-4000-8000-5c7000000001';
 const BC = '5c700000-0000-4000-8000-5c7000000004';
@@ -129,4 +132,93 @@ test('adding DO links changes only the do array: no repeats, marker and invoices
 test('a DO unlinked in the app (imported.unlinked) is never linked back by a re-run', () => {
   const ld = { do: [], imported: { source: 'erp-import', unlinked: [{ id: 'd1', type: 'DELIVERY_ORDER' }] } };
   assert.deepEqual(withDoLinks(ld, [{ id: 'd1' }, { id: 'd2' }]).do.map((x) => x.id), ['d2']);
+});
+
+// ── Org rule (Elroy, 19 Nov): the linked quotation's org, else the linked invoice's; "(NG)" only with no link ──
+const inv = (id, org, name, doNo, extra = {}) => ({ id, organizationId: org, name, config: { erpImport: { ourDoNo: doNo }, customerId: 'c2', subject: 'Degreasing', ...extra } });
+
+test('placeErpDo: quotation first, then invoice, "(NG)" only when there is no link', () => {
+  const qBc = { id: 'q', organizationId: BC, name: 'Q-014867', config: { subject: '(NG) Booster fan' } };
+  // (NG) quotation in BC Air + its $1 (NG) placeholder invoice in WCT (S): BC Air, the invoice noted.
+  let p = placeErpDo({ quote: qBc, invoices: [inv('i', WCT, 'I-015289', 'DO012528', { subject: '(NG) Booster fan' })] });
+  assert.deepEqual([p.org, p.by, p.ng], [BC, 'quotation', true]);
+  assert.deepEqual(p.notes, ['invoice I-015289 is in WCT (S)']);
+  // No quotation in AIMS, invoice in WCT (S) with "(NG)": WCT (S) by the invoice (the link wins), noted.
+  p = placeErpDo({ invoices: [inv('i', WCT, 'I-015299', 'DO012537', { subject: '(NG) Degreasing' })], erpSubjects: ['(NG) Degreasing'] });
+  assert.deepEqual([p.org, p.by, p.ng], [WCT, 'invoice', true]);
+  assert.match(p.notes.join(), /"\(NG\)" in the ERP subject, WCT \(S\) by the invoice/);
+  // No link at all: "(NG)" in the ERP subject = BC Air, else WCT (S).
+  assert.deepEqual([placeErpDo({ erpSubjects: ['(NG) Degreasing'] }).org, placeErpDo({ erpSubjects: ['(NG) Degreasing'] }).by], [BC, '(NG) subject']);
+  assert.deepEqual([placeErpDo({ erpSubjects: ['Degreasing'] }).org, placeErpDo({}).by], [WCT, 'no link']);
+  // Invoices in both orgs: cannot place. An owner decision overrides everything.
+  assert.equal(placeErpDo({ invoices: [inv('a', WCT, 'I-1', 'DO1'), inv('b', BC, 'I-2', 'DO1')] }).org, null);
+  p = placeErpDo({ invoices: [inv('i', WCT, 'I-015299', 'DO012537')], force: BC });
+  assert.deepEqual([p.org, p.by], [BC, 'decision']);
+  assert.deepEqual(p.notes, ['invoice I-015299 is in WCT (S)', 'no "(NG)" in the ERP subject, BC Air by the decision']);
+});
+
+test('quotation not in AIMS, invoice carries the DO number: the invoice\'s org and customer', () => {
+  const invoices = [inv('i9', WCT, 'I-015299', 'DO012537', { subject: '(NG) Degreasing' })];
+  const p = planErpDos(base({ dos: [erpDo('7', 'DO012537', '-013548', { customer: 'Coffee and Tea Holdings Pte Ltd' })], invoices, erpQuoteSubjects: new Map([['Q-013548', '(NG) Degreasing']]) }));
+  assert.equal(p.docs.length, 1);
+  assert.equal(p.docs[0].organizationId, WCT);
+  assert.equal(p.docs[0].place.by, 'invoice');
+  assert.equal(p.docs[0].custHow, 'invoice');
+  assert.equal(p.docs[0].config.customerId, 'c2');
+  assert.deepEqual(p.docs[0].config.erpImport.invoices, ['I-015299']);
+  assert.match(p.docs[0].flags.join('; '), /"\(NG\)" in the ERP subject, WCT \(S\) by the invoice; quotation Q-013548 not in AIMS/);
+});
+
+test('no link and "(NG)" in the ERP quotation subject: BC Air, customer by name there, BC Air template', () => {
+  const dos = [erpDo('8', 'DO012600', '-013548', { customer: 'Mala Stall Pte. Ltd.' })];
+  let p = planErpDos(base({ dos, erpQuoteSubjects: new Map([['Q-013548', '(NG) Degreasing']]) }));
+  assert.equal(p.docs[0].organizationId, BC);
+  assert.equal(p.docs[0].templateId, 'tpl-bc');
+  assert.equal(p.docs[0].place.by, '(NG) subject');
+  assert.equal(p.docs[0].config.customerId, 'b1'); // normalised name "Mala Stall"
+  assert.equal(p.docs[0].order, null);
+  // The ERP invoice carrying the DO number counts as the ERP subject too.
+  p = planErpDos(base({ dos, erpInvoiceSubjects: new Map([['DO012600', [{ invoice_no: 'I-015400', subject: '(NG) x' }]]]) }));
+  assert.equal(p.docs[0].organizationId, BC);
+  // Without "(NG)": WCT (S), where no customer has that name: held.
+  p = planErpDos(base({ dos }));
+  assert.equal(p.docs.length, 0);
+  assert.match(p.held[0].reason, /not in WCT \(S\) and customer "Mala Stall Pte. Ltd." not matched there/);
+});
+
+test('owner decision (forceOrg): the DO leaves its quotation\'s org, no quotation link, customer by name', () => {
+  const p = planErpDos(base({ dos: [erpDo('9', 'DO012601', '-013000', { customer: 'Mala Stall' })], forceOrg: new Map([['DO012601', BC]]) }));
+  assert.equal(p.docs[0].organizationId, BC);
+  assert.equal(p.docs[0].quote, null);
+  assert.equal(p.docs[0].config.sourceDocumentId, '');
+  assert.equal(p.docs[0].config.quotationNo, 'Q-013000');
+  assert.equal(p.docs[0].config.customerId, 'b1');
+  assert.equal(p.orders.length, 0); // no DO-only order away from the quotation
+  assert.match(p.docs[0].flags.join(), /quotation Q-013000 is in WCT \(S\)/);
+});
+
+test('customerByName: reviewed map only inside the org, one exact or normalised name, several = none', () => {
+  const pool = [cust('b1', BC, 'Coffee and Tea Holdings Pte Ltd', 'CC049'), cust('b2', BC, 'Twin Co', 'CT001'), cust('b3', BC, 'Twin Co.', 'CT002')];
+  const map = new Map([['Coffee and Tea Holdings Pte Ltd', { match: 'exact', aims_customer_id: 'wct-id' }]]);
+  assert.equal(customerByName(pool, 'Coffee and Tea Holdings Pte Ltd', map).id, 'b1');
+  assert.equal(customerByName(pool, 'Coffee & Tea Holdings Pte. Ltd.', map).id, 'b1');
+  assert.equal(customerByName(pool, 'Twin Co', new Map()), null); // "Twin Co" and "Twin Co." are the same name: ambiguous
+  assert.equal(customerByName(pool, 'TWIN CO PTE LTD', new Map()), null);
+  assert.equal(customerByName(pool.slice(0, 2), 'TWIN CO PTE LTD', new Map()).id, 'b2'); // normalised name, one hit
+  assert.equal(customerByName(pool, 'Nobody', new Map()), null);
+});
+
+test('loadErpSubjects: quotation subjects and ERP invoices by DO number, later pulls win', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wct-erp-dos-'));
+  fs.mkdirSync(path.join(dir, 'erp'));
+  fs.mkdirSync(path.join(dir, 'erp-catchup', '2026-11-19'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'erp', 'wct-quotes-full.csv'), 'quotation_no,subject\n-013548,Old subject\n-013557,"(NG) Degreasing, 10 stalls"\n');
+  fs.writeFileSync(path.join(dir, 'erp-catchup', '2026-11-19', 'erp-quotation-list.csv'), '﻿list,quotation_no,subject\nquotation:new,-013548,(NG) New subject\n');
+  fs.writeFileSync(path.join(dir, 'erp-catchup', '2026-11-19', 'wct-invoices-full.csv'), 'invoice_no,our_do_no,subject\nI-015299,DO012537,(NG) Degreasing\nI-015300,DO 12538 / DO012539,Plain\n');
+  const s = loadErpSubjects(dir);
+  assert.equal(s.erpQuoteSubjects.get('Q-013548'), '(NG) New subject');
+  assert.equal(s.erpQuoteSubjects.get('Q-013557'), '(NG) Degreasing, 10 stalls');
+  assert.deepEqual(s.erpInvoiceSubjects.get('DO012537'), [{ invoice_no: 'I-015299', subject: '(NG) Degreasing' }]);
+  assert.deepEqual(s.erpInvoiceSubjects.get('DO012539'), [{ invoice_no: 'I-015300', subject: 'Plain' }]);
+  fs.rmSync(dir, { recursive: true });
 });
