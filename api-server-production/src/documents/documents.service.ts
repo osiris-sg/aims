@@ -37,7 +37,7 @@ import { effectiveDesign, isImportedDoc } from '../common/services/document-html
 import { outstandingOf, grossStampOf, grossOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
 import { splitInvoice as splitInvoiceOp, undoInvoiceSplit as undoInvoiceSplitOp } from './invoice-split-ops';
 import { keepSplitPartTotals, splitGlRevenueLines, type SplitPlan } from './invoice-split';
-import { sgToday, wctFamilyOf, wctFamilyOfTypes, isWctStatusValue, wctStatusOf } from '../common/wct-statuses';
+import { sgToday, wctFamilyOf, wctFamilyOfTypes, isWctStatusValue, wctStatusMatches, wctStatusOf } from '../common/wct-statuses';
 import { ERP_QUOTE_CANCELLED_STATUSES, assertNotErpImportedDo, confirmPostsToGl, erpPaidAtImport, erpQuotationTag, erpStoredTotalsOf, isErpImported, isErpImportedDo, isQuotationDocType, moneySignature } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
 import { fillEmptyOrderCustomer, invoiceRowsWithSplitParts, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
@@ -2990,6 +2990,16 @@ export class DocumentsService {
       this.prisma.auditLog.count({ where: { organizationId, resource: 'document', action: 'SENT', resourceId: id } }).catch(() => 0),
     ]);
     if (signLinks > 0 || sent > 0) throw new BadRequestException(`${what} was sent to the customer: void or cancel it instead.`);
+    const docType = String(doc.type || '').toUpperCase();
+    const isInvoice = ['INVOICE', 'TI', 'TI2', 'TAX_INVOICE', 'INV'].includes(docType);
+    // A DO a live job carries stays (the job's lines point at it; a hidden DO would leave the job without its DO).
+    if (docType === 'DELIVERY_ORDER' || docType === 'DO') {
+      const item: any = await this.prisma.deliveryItem.findFirst({
+        where: { documentId: id, delivery: { organizationId, status: { not: 'cancelled' } } } as any,
+        select: { delivery: { select: { deliveryNumber: true } } },
+      });
+      if (item) throw new BadRequestException(`${what} is the DO of job #${item.delivery?.deliveryNumber ?? ''}: cancel the job first.`);
+    }
     const at = new Date().toISOString();
     const orderIds = await this.prisma.$transaction(async (tx: any) => {
       await tx.document.update({
@@ -3013,7 +3023,26 @@ export class DocumentsService {
         }
         if (changed) await tx.order.update({ where: { id: o.id }, data: { linkedDocuments: ld } });
       }
-      return orders.map((o) => o.id);
+      // An invoice leaves no stale id behind (round 24): the order invoice, the jobs and the DOs billed on it are
+      // unbilled again (only where they point at exactly this invoice), and their orders are read again below.
+      const touched: string[] = [];
+      if (isInvoice) {
+        const heads: Array<{ id: string }> = await tx.order.findMany({ where: { organizationId, invoiceDocumentId: id }, select: { id: true } });
+        if (heads.length) await tx.order.updateMany({ where: { organizationId, invoiceDocumentId: id }, data: { invoiceDocumentId: null } });
+        const jobs: Array<{ id: string; orderId: string | null }> = await tx.delivery.findMany({ where: { organizationId, orderInvoiceId: id }, select: { id: true, orderId: true } });
+        if (jobs.length) await tx.delivery.updateMany({ where: { organizationId, orderInvoiceId: id }, data: { orderInvoiceId: null } });
+        const dos: Array<{ id: string; config: any }> = await tx.document.findMany({
+          where: { organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] }, config: { path: ['orderInvoiceId'], equals: id } },
+          select: { id: true, config: true },
+        });
+        const billedDos = dos.filter((d) => d.config?.orderInvoiceId === id);
+        for (const d of billedDos) {
+          const { orderInvoiceId: _gone, ...rest } = d.config || {};
+          await tx.document.update({ where: { id: d.id }, data: { config: rest } });
+        }
+        touched.push(...heads.map((o) => o.id), ...jobs.map((j) => j.orderId).filter((v): v is string => !!v), ...billedDos.map((d) => d.config?.orderId).filter((v: unknown): v is string => typeof v === 'string' && !!v));
+      }
+      return [...new Set([...orders.map((o) => o.id), ...touched])];
     });
     for (const oid of orderIds) await refreshOrderStatus(this.prisma, organizationId, oid).catch(() => null);
     void this.logDocumentEvent({ documentId: id, organizationId, action: 'DELETED', detail: `${what} deleted (hidden; its number is kept as a gap)`, documentName: doc.name || undefined, actor });
@@ -4659,8 +4688,9 @@ export class DocumentsService {
         const wanted = (Array.isArray(opts.status) ? opts.status : [opts.status]).filter(Boolean) as string[];
         if (wanted.length && wanted.every((v) => isWctStatusValue(wctFam, v))) {
           const classes = await this.wctStatusClasses(organizationId, opts.documentTypes!);
-          const hit = classes.filter((r) => wanted.includes(r.cls)).map((r) => r.id);
-          const miss = classes.filter((r) => !wanted.includes(r.cls)).map((r) => r.id);
+          // "Overdue" takes "Overdue · part paid" too (wctStatusMatches).
+          const hit = classes.filter((r) => wctStatusMatches(wanted, r.cls)).map((r) => r.id);
+          const miss = classes.filter((r) => !wctStatusMatches(wanted, r.cls)).map((r) => r.id);
           // The smaller list (the rows are already limited to these types): at most half the family.
           if (hit.length <= miss.length) and.push({ id: { in: hit } });
           else if (miss.length) and.push({ id: { notIn: miss } });
