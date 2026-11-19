@@ -50,7 +50,8 @@ const CREATE_EXTRA = args.includes('--create-customers')
   : [];
 const LOG = path.resolve(__dirname, `wct-erp-import.${BATCH}.log.json`);
 
-const QUOTE_SCOPE = new Set(['Accepted', 'Declined', 'Sent']);
+// --quote-scope (2026-11-19, Elroy): ERP Draft quotations imported too (their status refreshes in the weekly catch-up).
+const QUOTE_SCOPE = new Set(opt('--quote-scope', 'Accepted,Declined,Sent').split(',').map((x) => x.trim()).filter(Boolean));
 const INVOICE_SCOPE = new Set(['Paid', 'Overdue', 'Receivable', 'Partial']);
 // Decided with the owner (2026-11-05).
 const SKIP_CUSTOMERS = new Set(['WCT (S) SYSTEMS PTE LTD']); // internal test
