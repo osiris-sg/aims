@@ -306,6 +306,9 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // Cancelled / Declined, Draft / Completed / Cancelled, Draft / Unpaid / Part paid / Paid / Overdue /
   // Credited / Voided (common/wct-statuses.ts). Display only, stored statuses unchanged. Default OFF; WCT group.
   enableWctStatuses: false,
+  // Soft delete of drafts (2026-11-19): a person's Delete hides a draft (never imported / sent / posted / paid)
+  // and keeps its number as a gap. Default OFF; WCT group.
+  enableSoftDeleteDrafts: false,
   // AIMS never emails a customer by itself (service report on completion,
   // auto-send recurring invoices); button sends unchanged. Default OFF; WCT group.
   disableAutoCustomerEmails: false,
