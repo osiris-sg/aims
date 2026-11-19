@@ -437,3 +437,17 @@ test("round 29: linked quotations and DOs on an AIMS order: Quotation card + Doc
   assert.deepEqual([docRowMenu(own, { manualFlow: true })[0], own.unlinkBlocked], ["do-menu", UNLINK_BLOCKED.madeOnOrder]);
 });
 
+test("round 33: a completed linked DO is billed by Create invoice; once billed it reads Billed and cannot be unlinked", () => {
+  const ld = { id: "d9", name: "DO202611050", status: "delivered_installed", templateId: "td", completed: true, awaitingSignature: false, jobs: [], linkedOnly: true, linked: { at: "x", byName: "Finance" } };
+  const waiting = native({ status: "DO_COMPLETED", deliveryOrders: [ld], toInvoiceDos: ["DO202611050"], toInvoiceLinkedDos: ["DO202611050"] });
+  const a = nativeOrderPage(waiting, { doFirst: true }).actions.find((x) => x.key === "create-invoice");
+  assert.deepEqual([a.label, a.disabled, a.primary], ["Create invoice", false, true]);
+  assert.equal(nativeInvoiceAsk(waiting), "Create the invoice now for DO202611050? The quotation is already billed on this order, so the DO's own lines are invoiced as they are on the DO.");
+  const mixed = { ...waiting, toInvoiceDos: ["DO202611023", "DO202611050"] };
+  assert.equal(nativeInvoiceAsk(mixed), "Create the invoice now for DO202611023, DO202611050? The quotation is already billed on this order: DO202611050 is invoiced with its own lines, DO202611023 only for lines added on top of the quotation.");
+  // Quotation not billed yet: as before (the quotation once, plus lines on top).
+  assert.match(nativeInvoiceAsk({ ...waiting, invoices: [] }), /It bills the quotation once, plus any lines added on top of it\.$/);
+  const billed = nativeOrderPage(native({ deliveryOrders: [{ ...ld, invoiceId: "i1" }] }), {}).documents.find((r) => r.number === "DO202611050");
+  assert.deepEqual([billed.unlink, billed.unlinkBlocked, canUnlinkRow(billed)], [null, UNLINK_BLOCKED.billed, false]);
+});
+

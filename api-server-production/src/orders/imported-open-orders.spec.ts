@@ -724,9 +724,9 @@ describe('round 29: AIMS (native) orders: Mark complete / Reopen, Link existing 
     w.doc(DX).status = 'delivered_installed';
     await refreshOrderStatus(w.prisma, ORG, NATIVE);
     expect(status(w)).toBe('DO_COMPLETED');
-    // A linked DO is not listed as waiting for Create invoice (it was not made on the order).
+    // Round 33: a completed linked DO waits for Create invoice, which bills it.
     page = await w.orders.getById(NATIVE, ORG);
-    expect(page.toInvoiceDos).toEqual([]);
+    expect([page.toInvoiceDos, page.toInvoiceLinkedDos]).toEqual([['DO202611050'], ['DO202611050']]);
     await expect(w.orders.linkImportedDocument(PART, ORG, { type: 'DELIVERY_ORDER', id: DX }, w.actor)).rejects.toThrow('DO202611050 is already on order ORD202611-020. A document can be on one order only.');
     await w.orders.unlinkImportedDocument(NATIVE, ORG, { type: 'DELIVERY_ORDER', id: DX }, w.actor);
     expect(status(w)).toBe('INVOICED_DO_PENDING');
@@ -750,3 +750,97 @@ describe('round 29: AIMS (native) orders: Mark complete / Reopen, Link existing 
   });
 });
 
+
+describe('round 33: Create invoice bills a completed LINKED DO on an AIMS order (manual flow)', () => {
+  const MA2 = 'Maintenance agreement of 2 times per year package';
+  function billing(features: Record<string, boolean> = ON) {
+    const w = world(features);
+    w.documents.deliveriesService = w.deliveries;
+    w.documents.priceInvoiceLinesFromAsset = jest.fn(async (lines: any[]) => lines.map((l) => ({ unitPrice: 100, amount: 100 * (Number(l.quantity) || 1), ...l })));
+    w.documents.notifications = { emit: jest.fn(async () => undefined) };
+    w.documents.staffWhatsApp = { push: jest.fn(async () => undefined) };
+    w.documents.logDocumentEvent = jest.fn(async () => undefined);
+    w.doc(DX).config.items = [{ description: MA2, quantity: 1 }, { description: 'Degreasing', quantity: 1 }];
+    const linkAndDeliver = async () => {
+      await w.orders.linkImportedDocument(NATIVE, ORG, { type: 'DELIVERY_ORDER', id: DX }, w.actor);
+      w.doc(DX).status = 'delivered_installed';
+      await refreshOrderStatus(w.prisma, ORG, NATIVE);
+    };
+    const createInvoice = () => w.documents.invoiceOrder(NATIVE, ORG, { trigger: 'now' });
+    const entry = () => w.order(NATIVE).linkedDocuments.do.find((e: any) => e.id === DX);
+    const invoices = () => w.db.document.filter((d: any) => d.type === 'INVOICE' && d.config?.orderId === NATIVE);
+    return { ...w, linkAndDeliver, createInvoice, entry, invoices };
+  }
+
+  it('quotation already billed (nothing left): bills the linked DO\'s own lines; the marker is on the link entry; status Invoice draft; never twice', async () => {
+    const w = billing();
+    await w.linkAndDeliver();
+    expect(w.order(NATIVE).status).toBe('DO_COMPLETED');
+    const page: any = await w.orders.getById(NATIVE, ORG);
+    expect([page.toInvoiceDos, page.toInvoiceLinkedDos]).toEqual([['DO202611050'], ['DO202611050']]);
+    const inv: any = await w.createInvoice();
+    const cfg = w.doc(inv.id).config;
+    // Both DO lines, the quoted one too: the quotation has nothing left to bill on this order.
+    expect(cfg.items.map((l: any) => [l.description, l.quantity, l.unitPrice, l.orderExtra])).toEqual([[MA2, 1, 100, true], ['Degreasing', 1, 100, true]]);
+    expect(cfg).toMatchObject({ orderId: NATIVE, orderBillsQuote: false, orderLinkedDoIds: [DX], deliveryOrderNos: ['DO202611050'] });
+    expect(w.entry().orderInvoiceId).toBe(inv.id);
+    expect(docWrites(w, [DX])).toEqual([]);
+    expect(w.order(NATIVE).status).toBe('INVOICE_DRAFT');
+    // A second Create invoice bills nothing new: the order's invoice opens.
+    const again: any = await w.createInvoice();
+    expect(again).toMatchObject({ existing: true });
+    expect(w.invoices().map((d: any) => d.id).sort()).toEqual([IN, inv.id].sort());
+    const after: any = await w.orders.getById(NATIVE, ORG);
+    expect(after.toInvoiceLinkedDos).toEqual([]);
+    expect(after.deliveryOrders.find((d: any) => d.id === DX)).toMatchObject({ linkedOnly: true, invoiceId: inv.id });
+  });
+
+  it('unlink is refused while its invoice is live; voiding or soft-deleting the invoice frees the DO (unlink, or bill it again)', async () => {
+    const w = billing();
+    await w.linkAndDeliver();
+    const inv: any = await w.createInvoice();
+    await expect(w.orders.unlinkImportedDocument(NATIVE, ORG, { type: 'DELIVERY_ORDER', id: DX }, w.actor)).rejects.toThrow(`DO202611050 is billed on ${inv.name} of this order: void that invoice first`);
+    w.doc(inv.id).config.voided = true;
+    await refreshOrderStatus(w.prisma, ORG, NATIVE);
+    expect(w.order(NATIVE).status).toBe('DO_COMPLETED');
+    const second: any = await w.createInvoice();
+    expect(second.id).not.toBe(inv.id);
+    expect(w.entry().orderInvoiceId).toBe(second.id);
+    // A soft-deleted draft (enableSoftDeleteDrafts: type DELETED) frees it the same way.
+    w.doc(second.id).type = 'DELETED';
+    await w.orders.unlinkImportedDocument(NATIVE, ORG, { type: 'DELIVERY_ORDER', id: DX }, w.actor);
+    expect(w.entry()).toBeUndefined();
+  });
+
+  it('quotation not billed yet: the quotation once, the linked DO only for lines above it (same scope / extras rule as order DOs)', async () => {
+    const w = billing();
+    w.order(NATIVE).linkedDocuments.invoice = [];
+    w.doc(IN).config.voided = true;
+    await w.linkAndDeliver();
+    const inv: any = await w.createInvoice();
+    const cfg = w.doc(inv.id).config;
+    expect(cfg.orderBillsQuote).toBe(true);
+    expect(cfg.items.filter((l: any) => l.fromQuotation).map((l: any) => l.description)).toEqual(['G- Provide tools', MA2]);
+    expect(cfg.items.filter((l: any) => l.orderExtra).map((l: any) => [l.description, l.quantity])).toEqual([['Degreasing', 1]]);
+    expect(w.entry().orderInvoiceId).toBe(inv.id);
+  });
+
+  it('never automatic: the DO completing does not bill a linked DO by itself; imported orders and other orgs unchanged', async () => {
+    const w = billing();
+    await w.linkAndDeliver();
+    expect(await w.documents.maybeInvoiceOrder(NATIVE, ORG)).toBeNull();
+    expect(w.invoices().map((d: any) => d.id)).toEqual([IN]);
+    expect(w.entry().orderInvoiceId).toBeUndefined();
+    // Imported orders keep their own Create invoice.
+    await expect(w.documents.invoiceOrder(PART, ORG, { trigger: 'now' })).rejects.toThrow(/bill it with Create invoice/);
+    // Off the manual flow (WCT Racking): no linked-DO billing (the job-based path as before).
+    const r = billing({ ...ON, enableManualOrderFlow: false });
+    await r.orders.linkImportedDocument(NATIVE, ORG, { type: 'DELIVERY_ORDER', id: DX }, r.actor);
+    r.doc(DX).status = 'delivered_installed';
+    await expect(r.documents.invoiceOrder(NATIVE, ORG, { trigger: 'now' })).rejects.toThrow(/Nothing to invoice/);
+    expect(r.entry().orderInvoiceId).toBeUndefined();
+    // An org without invoicing per order: refused as before.
+    const off = billing({ ...ON, enableWctOrderInvoice: false });
+    await expect(off.documents.invoiceOrder(NATIVE, ORG, { trigger: 'now' })).rejects.toThrow(/not enabled/);
+  });
+});

@@ -123,6 +123,30 @@ export function linkedDoIdsOf(order: { linkedDocuments?: unknown } | null | unde
   return Array.isArray(list) ? list.map((x: any) => x?.id).filter((v: any): v is string => typeof v === 'string' && !!v) : [];
 }
 
+/**
+ * A linked DO's billing (round 33, 2026-11-19): Create invoice bills a completed linked DO, and the DO itself is never
+ * written, so its "billed on" marker lives on the order's link entry (linkedDocuments.do[i].orderInvoiceId, a
+ * `claim:` while an invoice run holds it). It only counts while that invoice is live: a voided or soft-deleted
+ * invoice frees the DO again.
+ */
+export interface LinkedDoEntry {
+  id: string;
+  name?: string | null;
+  imported?: boolean;
+  orderInvoiceId?: string | null;
+}
+export function linkedDoEntriesOf(order: { linkedDocuments?: unknown } | null | undefined): LinkedDoEntry[] {
+  const list = (order?.linkedDocuments as any)?.do;
+  return Array.isArray(list) ? list.filter((x: any) => x && typeof x.id === 'string' && x.id) : [];
+}
+/** The ids among these that are live invoices (an INVOICE, not voided, not void, not soft-deleted). */
+export async function liveInvoiceIds(prisma: any, organizationId: string, ids: Array<string | null | undefined>): Promise<Set<string>> {
+  const want = [...new Set(ids.filter((v): v is string => typeof v === 'string' && !!v && !v.startsWith('claim:')))];
+  if (!want.length) return new Set();
+  const rows: any[] = await prisma.document.findMany({ where: { organizationId, id: { in: want }, type: { in: ['INVOICE', 'TI', 'TI2'] } }, select: { id: true, status: true, config: true } });
+  return new Set(rows.filter((d) => d.config?.voided !== true && String(d.status) !== 'void').map((d) => d.id));
+}
+
 export async function isWctOrdersEnabled(prisma: any, organizationId: string): Promise<boolean> {
   return isOrgFeatureEnabled(prisma, organizationId, WCT_ORDERS_FLAG);
 }
@@ -221,6 +245,14 @@ async function refreshManualOrderStatus(prisma: any, organizationId: string, ord
     })
   ).filter((d: any) => d.config?.cancelled !== true);
   const realInvoice = (v: any) => (v && !String(v).startsWith('claim:') ? String(v) : null);
+  // Round 33: a linked DO is billed through its link entry (never the DO itself), while that invoice is live.
+  const linkedEntries = new Map(linkedDoEntriesOf(order).map((e) => [e.id, e]));
+  const liveLinked = await liveInvoiceIds(prisma, organizationId, [...linkedEntries.values()].map((e) => e.orderInvoiceId));
+  const linkedInvoiceOf = (d: any): string | null | undefined => {
+    const e = linkedEntries.get(d.id);
+    if (!e || d.config?.orderId === orderId) return undefined;
+    return e.orderInvoiceId && liveLinked.has(e.orderInvoiceId) ? e.orderInvoiceId : null;
+  };
   const units: OrderUnit[] = [];
   for (const d of dos as any[]) {
     const on = jobs.filter((j: any) => j.items.some((i: any) => i.documentId === d.id));
@@ -229,7 +261,8 @@ async function refreshManualOrderStatus(prisma: any, organizationId: string, ord
       units.push({ state: unitStateOfJobs(on), invoiceId: ids.every(Boolean) ? ids[0] : null });
     } else {
       const done = String(d.status).startsWith('delivered');
-      units.push({ state: done ? 'done' : d.config?.awaitingSignature ? 'awaiting' : 'draft', invoiceId: realInvoice(d.config?.orderInvoiceId) });
+      const viaLink = linkedInvoiceOf(d);
+      units.push({ state: done ? 'done' : d.config?.awaitingSignature ? 'awaiting' : 'draft', invoiceId: viaLink !== undefined ? viaLink : realInvoice(d.config?.orderInvoiceId) });
     }
   }
   for (const j of jobs.filter((j: any) => !j.items.some((i: any) => i.documentId)) as any[]) {

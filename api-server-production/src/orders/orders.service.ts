@@ -10,7 +10,7 @@ import {
 import { invoiceSplitOf, withSplitPartIds } from '../documents/invoice-split';
 import { AuditService } from '../common/audit.service';
 import { cancelBlockingInvoice, voidedWithOrderConfig } from './order-cancel';
-import { MARKED_COMPLETE, invoiceRowsWithSplitParts, isWctOrdersEnabled, linkedDoIdsOf, nativeCompletionOf, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
+import { MARKED_COMPLETE, invoiceRowsWithSplitParts, isWctOrdersEnabled, linkedDoEntriesOf, linkedDoIdsOf, liveInvoiceIds, nativeCompletionOf, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
 import { MANUAL_ORDER_STATUS_LABEL, isManualOrderFlow, type ManualOrderStatus } from './manual-order-flow';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { SOFT_DELETED_TYPE, isOrgFeatureEnabled } from '../common/org-features';
@@ -809,7 +809,7 @@ export class OrdersService {
     if (madeOnOrder(doc, order.id)) throw new HttpException(`${name} was made on this order: ${type === 'INVOICE' ? 'void' : 'cancel'} it instead of unlinking it`, HttpStatus.BAD_REQUEST);
     // Round 24: never an invoice a job or a DO of this order is billed on, never a DO a job of this order carries
     // (that link lives on the job / DO, so unlinking only the order's entry would leave them pointing at it).
-    const why = await this.billedOnOrderWork(organizationId, order.id, type, docId, name);
+    const why = await this.billedOnOrderWork(organizationId, order.id, type, docId, name, order.linkedDocuments);
     if (why) throw new HttpException(why, HttpStatus.BAD_REQUEST);
     await this.prisma.$transaction(
       async (tx: any) => {
@@ -840,7 +840,7 @@ export class OrdersService {
   }
 
   /** Why a document cannot be unlinked because the order's jobs / DOs point at it (null = free). */
-  private async billedOnOrderWork(organizationId: string, orderId: string, type: ImportedLinkType, docId: string, name: string): Promise<string | null> {
+  private async billedOnOrderWork(organizationId: string, orderId: string, type: ImportedLinkType, docId: string, name: string, linkedDocuments?: unknown): Promise<string | null> {
     if (type === 'INVOICE') {
       const job = await this.prisma.delivery.findFirst({ where: { organizationId, orderId, orderInvoiceId: docId }, select: { deliveryNumber: true } });
       if (job) return `${name} bills job #${job.deliveryNumber} of this order: void it instead of unlinking it`;
@@ -850,6 +850,13 @@ export class OrdersService {
     if (type === 'DELIVERY_ORDER') {
       const it: any = await this.prisma.deliveryItem.findFirst({ where: { documentId: docId, delivery: { organizationId, orderId, status: { not: 'cancelled' } } } as any, select: { delivery: { select: { deliveryNumber: true } } } });
       if (it) return `${name} is the DO of job #${it.delivery?.deliveryNumber ?? ''} of this order: cancel the job instead of unlinking it`;
+      // Round 33: a linked DO billed by Create invoice stays while that invoice is live (void it, and the DO is free again).
+      const e = linkedDoEntriesOf({ linkedDocuments }).find((x) => x.id === docId);
+      if (e?.orderInvoiceId && String(e.orderInvoiceId).startsWith('claim:')) return `${name} is being invoiced right now: try again in a moment`;
+      if (e?.orderInvoiceId && (await liveInvoiceIds(this.prisma, organizationId, [e.orderInvoiceId])).has(e.orderInvoiceId)) {
+        const inv = await this.prisma.document.findFirst({ where: { id: e.orderInvoiceId, organizationId }, select: { name: true } });
+        return `${name} is billed on ${inv?.name ?? 'an invoice'} of this order: void that invoice first`;
+      }
     }
     return null;
   }
@@ -1251,6 +1258,13 @@ export class OrdersService {
       const e = ((order.linkedDocuments as any)?.do ?? []).find((x: any) => x?.id === id);
       return e?.linked ? { at: e.linked.at ?? null, byName: e.linked.byName ?? null } : null;
     };
+    // Round 33: a linked DO's invoice is on its link entry (the DO is never written), while that invoice is live.
+    const linkedEntries = new Map(linkedDoEntriesOf(order).map((e) => [e.id, e]));
+    const liveLinked = await liveInvoiceIds(this.prisma, organizationId, [...linkedEntries.values()].map((e) => e.orderInvoiceId));
+    const linkedInvoiceOf = (id: string): string | null => {
+      const v = linkedEntries.get(id)?.orderInvoiceId;
+      return v && liveLinked.has(v) ? v : null;
+    };
     const allDos = [...docs, ...ownDos.filter((d: any) => !jobDocIds.has(d.id))].sort((a: any, b: any) => +new Date(a.createdAt) - +new Date(b.createdAt));
     const deliveryOrders = allDos
       .filter((d: any) => d.config?.cancelled !== true)
@@ -1275,7 +1289,7 @@ export class OrdersService {
             .map((it: any) => ({ assetId: it.assetId as string, name: String(it.description || it.itemCode || 'Product') })),
           jobs: onJobs.map((j) => ({ id: j.id, deliveryNumber: j.deliveryNumber, status: j.status, isDraft: j.isDraft, scheduledFor: j.scheduledFor, verificationState: j.verificationState })),
           // Round 29: on the order only through Link existing document (not made on it, no job): Unlink takes it off.
-          ...(linkedDoIds.includes(d.id) && c.orderId !== order.id && !onJobs.length ? { linkedOnly: true, linked: linkStamp(d.id) } : {}),
+          ...(linkedDoIds.includes(d.id) && c.orderId !== order.id && !onJobs.length ? { linkedOnly: true, linked: linkStamp(d.id), invoiceId: linkedInvoiceOf(d.id), ...(isErpImported(c) ? { imported: true } : {}) } : {}),
           // An imported ERP DO (only ever on an imported order; key absent otherwise): its page lists it from the order's links.
           ...(isErpImported(c) ? { imported: true } : {}),
         };
@@ -1283,7 +1297,9 @@ export class OrdersService {
     const joblessInvoiceIds = deliveryOrders.filter((d) => !d.jobs.length && d.invoiceId).map((d) => d.invoiceId as string);
     // Completed DOs with no job and no invoice yet (Invoice now bills them too).
     // A linked DO is not billed by Create invoice (it was not made on the order): not listed as waiting for it.
-    const toInvoiceDos = deliveryOrders.filter((d: any) => !d.jobs.length && d.completed && !d.invoiceId && !d.linkedOnly).map((d) => d.name);
+    // Round 33: a completed linked DO (not ERP-imported) waits for Create invoice too, which bills it.
+    const toInvoiceDos = deliveryOrders.filter((d: any) => !d.jobs.length && d.completed && !d.invoiceId && !(d.linkedOnly && d.imported)).map((d) => d.name);
+    const toInvoiceLinkedDos = deliveryOrders.filter((d: any) => d.linkedOnly && !d.imported && d.completed && !d.invoiceId).map((d) => d.name);
 
     // "Add job" prefill: the quotation's billable lines and where the work is.
     const qcfg: any = sourceQuotation?.config || {};
@@ -1350,6 +1366,7 @@ export class OrdersService {
       prefill: { siteAddress, lines: quotationLines, note: prefillNote },
       ...(await this.wctBilling(organizationId, jobsRaw, [...joblessInvoiceIds, ...((await isManualOrderFlow(this.prisma, organizationId)) ? orderInvoiceIdsOf(order as any) : [])], sourceQuotation, order as any, linkedQuoteDocs)),
       toInvoiceDos,
+      toInvoiceLinkedDos,
       attachments: await this.orderAttachmentsView(organizationId, Array.isArray(order.attachments) ? (order.attachments as any[]) : []),
       // The supplier invoices tagged to this order's quotation (job costs, read-only).
       supplierInvoices: await this.wctSupplierInvoices(organizationId, order.sourceQuotationId),
