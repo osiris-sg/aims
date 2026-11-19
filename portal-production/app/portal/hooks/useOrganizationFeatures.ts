@@ -45,6 +45,8 @@ interface OrganizationFeatures {
   enableWctDocNav?: boolean;
   /** WCT status set on quotation / DO / invoice lists (2026-11-19; WCT group). */
   enableWctStatuses?: boolean;
+  /** Soft delete of drafts: hidden, number kept as a gap (2026-11-19; WCT group). */
+  enableSoftDeleteDrafts?: boolean;
   postInvoicesOnConfirm?: boolean;
   enableQuotationSubject?: boolean;
   /** Quotation templates (2026-11-18; WCT group): "+ Add" arrow > Create from template, Save as template. */
@@ -319,6 +321,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableWctDocNav: false,
   // WCT status set on quotation / DO / invoice lists (helpers/wctStatuses.ts). Default OFF; WCT group.
   enableWctStatuses: false,
+  // Soft delete of drafts (hidden, number kept as a gap). Default OFF; WCT group.
+  enableSoftDeleteDrafts: false,
   // Subject field on quotations (the WCT paper has a Subject box). Default OFF; WCT group.
   enableQuotationSubject: false,
   // Quotation templates (2026-11-18): named sets of quotation lines. Default OFF; WCT group.
@@ -430,6 +434,7 @@ export function useOrganizationFeatures() {
     isInvoiceSplitEnabled: (features.enableInvoiceSplit ?? false) && (features.postInvoicesOnConfirm ?? false),
     isWctDocNavEnabled: features.enableWctDocNav ?? false,
     isWctStatusesEnabled: features.enableWctStatuses ?? false,
+    isSoftDeleteDraftsEnabled: features.enableSoftDeleteDrafts ?? false,
     isManualOrderFlowEnabled: (features.enableManualOrderFlow ?? false) && (features.enableWctOrders ?? false),
     isQuotationSubjectEnabled: features.enableQuotationSubject ?? false,
     isQuotationTemplatesEnabled: features.enableQuotationTemplates ?? false,

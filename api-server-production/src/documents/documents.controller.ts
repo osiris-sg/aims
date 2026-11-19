@@ -469,12 +469,13 @@ export class DocumentsController {
 
   @Delete('delete/:id')
   @Permissions('documents:delete')
-  async deleteDocument(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+  async deleteDocument(@Param('id') id: string, @Req() req: RequestWithOrganization, @Query('discard') discard?: string) {
     const organizationId = req.userOrganization?.id;
     if (!organizationId) {
       throw new Error('User is not assigned to any organization');
     }
-    return await this.documentsService.deleteDocument(id, organizationId, actorFromReq(req));
+    // ?discard=untouched: the editor leaving an untouched empty new draft (a real delete, its number given back).
+    return await this.documentsService.deleteDocument(id, organizationId, actorFromReq(req), { untouched: discard === 'untouched' });
   }
 
   @Post(':id/revisions')

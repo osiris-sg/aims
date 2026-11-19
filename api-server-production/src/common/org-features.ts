@@ -98,6 +98,10 @@ export const QUOTATION_TOTALS_TOGGLE_FLAG = 'enableQuotationTotalsToggle';
 export const POST_INVOICES_ON_CONFIRM_FLAG = 'postInvoicesOnConfirm';
 /** WCT group status set on quotation / DO / invoice lists (common/wct-statuses.ts). Display and filters only. */
 export const WCT_STATUSES_FLAG = 'enableWctStatuses';
+/** WCT group: a person's Delete of a draft hides it and keeps its number as a gap (documents.service softDeleteDraft). */
+export const SOFT_DELETE_DRAFTS_FLAG = 'enableSoftDeleteDrafts';
+/** Document.type of a soft-deleted draft (config.softDeleted.type keeps the real one). */
+export const SOFT_DELETED_TYPE = 'DELETED';
 
 // WCT group round 6 (2026-11-18). Each is per org, default OFF:
 // - DOC_REMARKS: invoice + DO "Remarks" (config.remarks, multi-line) typed in the
