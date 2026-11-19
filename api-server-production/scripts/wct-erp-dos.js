@@ -270,7 +270,22 @@ function planErpDos(ctx) {
     const flags = [];
     if (e.parsed.quotation_no && e.parsed.quotation_no !== e.contract_no) flags.push(`PDF quotation ${e.parsed.quotation_no} vs list contract ${e.contract_no}`);
     if (e.parsed.pdf_date && e.parsed.pdf_date !== e.date) flags.push(`PDF date ${e.parsed.pdf_date} vs list ${e.date}`);
-    const qName = /^-\d+$/.test(qNo) ? `Q${qNo}` : null;
+    // The quotation: the list's contract no. ("-000356"), else the print's quotation no., else the contract's base
+    // number (2026-11-20, old DOs: "-000356-3", "-000376 -10", "-000247 - March" = visits under quotation -000356),
+    // also "Q-001038" as typed. The first that names exactly one AIMS quotation wins.
+    const qCands = [];
+    const addQ = (v, how) => {
+      const s0 = String(v || '').trim();
+      if (/^-\d+$/.test(s0)) qCands.push({ name: `Q${s0}`, how });
+      else if (/^Q-\d+$/i.test(s0)) qCands.push({ name: s0.toUpperCase(), how });
+    };
+    addQ(e.contract_no, 'contract');
+    addQ(e.parsed.quotation_no, 'print');
+    const base = /^Q?(-\d{3,})\s*[-\s]/i.exec(String(e.contract_no || '').trim());
+    if (base) addQ(base[1], 'contract base');
+    const qPick = qCands.find((c) => (quoteByNo.get(c.name) || []).length >= 1) || qCands[0] || null;
+    const qName = qPick ? qPick.name : null;
+    if (qPick && qPick.how !== 'contract' && (quoteByNo.get(qPick.name) || []).length) flags.push(`quotation ${qPick.name} by the ${qPick.how === 'print' ? "print's quotation no." : "contract's base number"}`);
     const qs = qName ? quoteByNo.get(qName) || [] : [];
     let quote = null, customer = null, custHow;
     if (qs.length > 1) { why(`${qs.length} quotations ${qName} in AIMS (${qs.map((q) => ORG_NAME[q.organizationId]).join(', ')})`); continue; }
