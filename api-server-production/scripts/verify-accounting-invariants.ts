@@ -127,6 +127,22 @@ async function checkSchema(s: string, hasDoc: boolean) {
         and abs(je."totalDebit" - ${DOC_GROSS}) > 0.02`);
   if (stale.length) FAIL(s, `${stale.length} journal(s) disagree with their document's gross`, stale);
 
+  // 5b. two live generations of one document family (guru 2026-11-19).
+  // "Create Revision" used to leave the original live, so confirming the
+  // revision posted a second journal for the same job — Biofuel carried
+  // BIPL-JPSG-20261102-0009 and its Rev-1 at $9,500 each, under two different
+  // customers. Confirming a revision now cancels its predecessor; this is the
+  // backstop that says so out loud if it ever comes back.
+  const families = await q(
+    `select coalesce(d."baseDocumentId"::text, d.id::text) family,
+            count(*)::int n, array_agg(d.name order by d."revisionNumber") docs
+       from "${s}"."Document" d
+      where d.type::text in ('INVOICE','TI','TI2','CREDIT_NOTE','CN','DN')
+        and d.status::text not in ('draft','unconfirmed')
+        and coalesce(d.config->>'voided','') <> 'true'
+      group by 1 having count(*) > 1`);
+  if (families.length) FAIL(s, `${families.length} document famil(ies) have more than one live generation`, families);
+
   // 6/7. control-account tie-outs per org (WARN — layers/timing make exact ties env-specific)
   const orgs = await q<{ org: string; controls: any }>(
     `select a."organizationId" org, a."controlAccounts" controls from "${s}"."AccountingSetting" a`);

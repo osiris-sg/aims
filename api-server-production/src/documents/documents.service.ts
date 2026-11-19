@@ -257,6 +257,36 @@ export class DocumentsService {
     if (!ok) throw new BadRequestException(`Add at least one line item before confirming this ${what}.`);
   }
 
+  /** Sales documents that bill a customer: these are what the AR reports and
+   *  the Statement of Account key on. */
+  private static readonly CUSTOMER_DOC_TYPES = new Set(['INVOICE', 'TI', 'TI2', 'CN', 'CREDIT_NOTE', 'DN', 'DEBIT_NOTE']);
+
+  /**
+   * A customer document cannot be confirmed with a typed name and no customer
+   * RECORD behind it (guru 2026-11-19: "make it such that u cant confirm if no
+   * customer select").
+   *
+   * Heimen's CCDC invoice was missing from her Statement of Account: it carried
+   * `config.customer = { name, address }` and no `customerId`, and every
+   * customer-keyed report (SOA, aged receivables, customer ledger) matches on
+   * the id. The invoice was in the P&L and invisible to the customer — the
+   * worst kind of wrong, because nothing looks broken until someone asks why
+   * the statement is short. An invoice raised from a DO that itself had no
+   * customer arrives here the same way.
+   */
+  private assertHasCustomer(config: any, type: any, what = 'document'): void {
+    if (!DocumentsService.CUSTOMER_DOC_TYPES.has(String(type || '').toUpperCase())) return;
+    const cfg: any = config || {};
+    const id = cfg.customerId || cfg.customer?.id || cfg.documentInfo?.customerId;
+    if (id) return;
+    const typed = String(cfg.customerName || cfg.customer?.name || cfg.billTo || '').trim();
+    throw new BadRequestException(
+      typed
+        ? `Pick "${typed}" from the customer list before confirming this ${what} — a typed name alone leaves it off the customer's Statement of Account.`
+        : `Select a customer before confirming this ${what}.`,
+    );
+  }
+
   // Fast list path (WCT only, 2026-11-05): an org with the useDocumentListKeys setting ON whose
   // documents all carry the trigger-kept list keys (listIssueDate / listSearch / listCustomerId,
   // scripts/document-list-keys.js) sorts and searches on those columns. Every other org, and an
@@ -1551,6 +1581,7 @@ export class DocumentsService {
       }
       // Confirming an EMPTY document is refused here as well as in the editor.
       if (doConfirmingNow) this.assertHasLineItems(dto.config ?? existingDocument.config, String(existingDocument.type || 'document').toLowerCase().replace(/_/g, ' '));
+      if (doConfirmingNow) this.assertHasCustomer(dto.config ?? existingDocument.config, existingDocument.type, String(existingDocument.type || 'document').toLowerCase().replace(/_/g, ' '));
       let confirmedDoName: string | undefined;
       if (
         doConfirmingNow &&
@@ -2007,6 +2038,16 @@ export class DocumentsService {
         }
       }
 
+      // A confirmed revision retires the generation it replaces, so the family
+      // never has two live documents (guru 2026-11-19).
+      if (becomingConfirmed && existingDocument.baseDocumentId) {
+        await this.supersedePreviousGenerations(
+          { id, name: dto.name ?? existingDocument.name, baseDocumentId: existingDocument.baseDocumentId, revisionNumber: existingDocument.revisionNumber },
+          organizationId,
+          actor,
+        );
+      }
+
       // ERP-imported history never posts (common/erp-import.ts), even when its status is re-confirmed.
       if (confirmPostsToGl(becomingConfirmed, glType, configAsPlainObject || existingDocument.config)) {
         console.log('📒 [GL auto-post] entering for', dto.type, '→', glType);
@@ -2378,6 +2419,14 @@ export class DocumentsService {
           track('Document number', oldInfo.documentNumber, newInfo.documentNumber);
           track('Reference', oldInfo.referenceNo, newInfo.referenceNo);
           track('Terms', oldInfo.paymentTerms, newInfo.paymentTerms);
+          // The rest of the legacy header (guru 2026-11-19: an edit after
+          // confirm must show WHAT changed — a P/O number typed on a confirmed
+          // invoice logged nothing before).
+          track('P/O Number', oldInfo.poNo, newInfo.poNo);
+          track('D/O Number', oldInfo.doNo, newInfo.doNo);
+          track('Salesman', oldInfo.salesPerson, newInfo.salesPerson);
+          track('Remarks', oldInfo.remarks, newInfo.remarks);
+          track('Deliver to', oldCfg?.deliveryTo, newCfg?.deliveryTo);
           // Dates compared day-precision: create seeds ISO timestamps while the
           // form round-trips yyyy-mm-dd — full-string compare would log a fake
           // change on the first save.
@@ -4163,6 +4212,116 @@ export class DocumentsService {
     }
   }
 
+  /**
+   * REVISIONS, the accounting rule (guru 2026-11-19).
+   *
+   * An issued invoice is a record, not a draft: it is numbered, posted and in
+   * the customer's hands. There are only two honest ways to change one.
+   *
+   *   CANCEL & REISSUE — only while nothing has happened to it: not sent, no
+   *   payment, no allocation. The original is cancelled, its journal voided,
+   *   its number kept forever and never reused, and the replacement carries
+   *   (Rev-n). That is what "Create Revision" does here.
+   *
+   *   CREDIT NOTE — once it has gone to the customer or carries money, the
+   *   invoice stands and is credited: a CN against it, then a new invoice.
+   *   This is the IRAS route and the one Xero forces.
+   *
+   * So this refuses a revision in the cases where only a credit note is
+   * correct, and says which to raise instead. An UNCONFIRMED document needs no
+   * revision at all — it is still a draft, so it is simply edited.
+   */
+  private async assertRevisable(original: any, organizationId: string): Promise<void> {
+    const what = String(original.name || 'This document');
+    const status = String(original.status || '').toLowerCase();
+    if (['draft', 'unconfirmed'].includes(status)) {
+      throw new BadRequestException(`${what} is not issued yet — edit it instead of raising a revision.`);
+    }
+    if ((original.config as any)?.voided === true) {
+      throw new BadRequestException(`${what} is voided. Raise a new document instead.`);
+    }
+    const paid = await this.prisma.payment.count({ where: { organizationId, documentId: original.id } });
+    if (paid > 0) {
+      throw new BadRequestException(
+        `${what} already has a payment against it, so it cannot be replaced. Raise a credit note against it and then a new invoice.`,
+      );
+    }
+    const sent = await this.prisma.auditLog.count({
+      where: { organizationId, resourceId: original.id, action: 'SENT' },
+    });
+    if (sent > 0) {
+      throw new BadRequestException(
+        `${what} has already been sent to the customer, so it cannot be replaced. Raise a credit note against it and then a new invoice.`,
+      );
+    }
+  }
+
+  /**
+   * Confirming a revision RETIRES the generation it replaces: the previous
+   * document is cancelled and its journal voided, in the same breath (guru
+   * 2026-11-19). Before this, "Create Revision" left the original live, so
+   * confirming the revision posted a SECOND journal for the same job — on
+   * Biofuel, BIPL-JPSG-20261102-0009 and its Rev-1 both sat in AR for $9,500,
+   * under two different customers. Exactly ONE generation of a family is ever
+   * live.
+   */
+  private async supersedePreviousGenerations(doc: any, organizationId: string, actor?: DocumentActor): Promise<void> {
+    const family = doc.baseDocumentId || null;
+    // A revision always carries BOTH a base and a revision number. Nothing
+    // else is retired here: `baseDocumentId` is read defensively elsewhere as
+    // a source-document fallback, and a DO must never be cancelled because the
+    // invoice drawn from it was confirmed.
+    if (!family || !((doc.revisionNumber ?? 0) >= 1)) return;
+    const self = await this.prisma.document.findFirst({ where: { id: doc.id, organizationId }, select: { type: true } });
+    const olders = await this.prisma.document.findMany({
+      where: {
+        organizationId,
+        id: { not: doc.id },
+        type: self?.type,
+        OR: [{ id: family }, { baseDocumentId: family }],
+        status: { notIn: ['draft'] as any },
+      },
+      select: { id: true, name: true, status: true, config: true, revisionNumber: true },
+    });
+    for (const old of olders) {
+      if ((old.revisionNumber ?? 0) >= (doc.revisionNumber ?? 0)) continue; // never retire a NEWER generation
+      if ((old.config as any)?.voided === true) continue; // already retired
+      const jes = await this.prisma.journalEntry.findMany({
+        where: { organizationId, sourceDocumentId: old.id, status: { not: 'VOID' } },
+        select: { id: true },
+      });
+      for (const j of jes) {
+        await this.prisma.journalEntry.update({
+          where: { id: j.id },
+          data: { status: 'VOID', voidedAt: new Date(), voidedBy: actor?.id || 'system' },
+        });
+      }
+      // A document is voided through its CONFIG, the house convention — there
+      // is no 'cancelled' in the DocumentStatus enum, and the listings read
+      // config.voided for their Voided filter.
+      await this.prisma.document.update({
+        where: { id: old.id },
+        data: {
+          config: {
+            ...((old.config as any) || {}),
+            voided: true,
+            supersededBy: doc.name,
+            cancelledReason: `Superseded by ${doc.name}`,
+            cancelledAt: new Date().toISOString(),
+          } as any,
+        },
+      });
+      void this.logDocumentEvent({
+        documentId: old.id,
+        organizationId,
+        action: 'STATUS_CHANGED',
+        detail: `Cancelled — superseded by ${doc.name}${jes.length ? `; ${jes.length} journal(s) voided` : ''}`,
+        documentName: old.name || undefined,
+        actor,
+      });
+    }
+  }
+
   async createRevision(documentId: string, organizationId: string, actor?: DocumentActor) {
     try {
       // Load the original document with its revisions
@@ -4172,6 +4331,8 @@ export class DocumentsService {
       if (!original) {
         throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
       }
+      // A revision is only legal while the original can still be cancelled.
+      await this.assertRevisable(original, organizationId);
 
       // Determine baseDocumentId and next revision number
       const baseDocumentId = original.baseDocumentId || original.id;
@@ -4190,11 +4351,27 @@ export class DocumentsService {
       const cleanedBaseName = rawBaseName.replace(/\s*\(Rev-\d+\)/g, '').trim();
       const nameWithRevision = `${cleanedBaseName} (Rev-${nextRevisionNumber})`;
 
+      // The revision's NUMBER is its own name, "<number> (Rev-n)" — carried
+      // into the config the editor reads, not just the row's name (guru
+      // 2026-11-19). Leaving config.documentNumber on the base number made the
+      // editor show the ORIGINAL's number, so confirming the revision tried to
+      // rename it onto a number another live document already held and died
+      // with "already used by another invoice". A cancelled invoice also keeps
+      // its number for the audit trail — numbers are never reused.
+      const revisionConfig: any = { ...((original.config as any) || {}) };
+      revisionConfig.documentNumber = nameWithRevision;
+      if (revisionConfig.documentInfo) {
+        revisionConfig.documentInfo = { ...revisionConfig.documentInfo, documentNumber: nameWithRevision };
+      }
+      // A revision starts unissued: it has not been confirmed or sent.
+      delete revisionConfig.confirmedAt;
+      delete revisionConfig.confirmedBy;
+
       const created = await this.prisma.document.create({
         data: {
           documentTemplateId: original.documentTemplateId,
           type: original.type,
-          config: original.config,
+          config: revisionConfig,
           organizationId: original.organizationId,
           status: 'unconfirmed', // Always set revision status to unconfirmed
           name: nameWithRevision,
@@ -4217,6 +4394,9 @@ export class DocumentsService {
 
       return created;
     } catch (error) {
+      // A refusal ("raise a credit note instead") is the user's answer, not a
+      // server fault — it must reach the editor as its own message.
+      if (error instanceof HttpException) throw error;
       throw new HttpException(`Create revision failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
@@ -7604,6 +7784,7 @@ export class DocumentsService {
         throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
       }
       this.assertHasLineItems((document as any).config, 'invoice');
+      this.assertHasCustomer((document as any).config, (document as any).type, 'invoice');
 
       // Validate it's an Invoice
       const invoiceTypes = ['INVOICE', 'TI', 'TI2'];
@@ -7753,6 +7934,15 @@ export class DocumentsService {
 
       // The invoice's journals stop being "unconfirmed" now.
       await this.journalService.markConfirmedForDocument(organizationId, documentId).catch(() => undefined);
+
+      // A confirmed revision retires the generation it replaces (guru 2026-11-19).
+      if (document.baseDocumentId) {
+        await this.supersedePreviousGenerations(
+          { id: documentId, name: updatedDocument.name, baseDocumentId: document.baseDocumentId, revisionNumber: document.revisionNumber },
+          organizationId,
+          actor,
+        );
+      }
 
       console.log('✅ INVOICE CONFIRM: Document confirmed successfully');
 

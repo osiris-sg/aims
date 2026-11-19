@@ -3274,10 +3274,28 @@ export default function TabbedDocumentCreator({
         it && !it.isGroupHeader && !it.isTagGroup &&
         (String(it.description ?? "").replace(/<[^>]*>/g, "").trim() !== "" || Number(it.amount) > 0 || Number(it.unitPrice) > 0),
     );
+  // A customer document needs a customer RECORD, not a typed name (guru
+  // 2026-11-19: "make it such that u cant confirm if no customer select").
+  // Heimen's CCDC invoice carried only a typed bill-to name, so it never
+  // appeared on that customer's Statement of Account — every customer-keyed
+  // report matches on the id. The server refuses this too.
+  const CUSTOMER_DOC_TYPES = ["INVOICE", "TI", "TI2", "CN", "CREDIT_NOTE", "DN", "DEBIT_NOTE"];
   const refuseEmptyConfirm = () => {
-    if (hasLineItems()) return false;
-    toast.error("Add at least one line item before confirming.");
-    return true;
+    if (!hasLineItems()) {
+      toast.error("Add at least one line item before confirming.");
+      return true;
+    }
+    const type = String(actualDocumentType || documentType || "").toUpperCase();
+    if (CUSTOMER_DOC_TYPES.includes(type) && !formData.customer?.id) {
+      const typed = String(formData.customer?.name || "").trim();
+      toast.error(
+        typed
+          ? `Pick "${typed}" from the customer list before confirming — a typed name alone leaves this off the customer's Statement of Account.`
+          : "Select a customer before confirming.",
+      );
+      return true;
+    }
+    return false;
   };
 
   const handleConfirmDocument = async () => {
