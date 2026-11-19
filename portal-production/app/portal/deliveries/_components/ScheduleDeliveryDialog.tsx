@@ -147,7 +147,7 @@ export default function ScheduleDeliveryDialog({
 }) {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
-  const { isQuotationToDeliveryEnabled, isSiteClockLinkEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled } = useOrganizationFeatures();
+  const { isQuotationToDeliveryEnabled, isSiteClockLinkEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled, isOptionalSaleOrderEnabled } = useOrganizationFeatures();
   // WCT reads "job" (helpers/jobWording.ts).
   const w = runWords(!!isWctOrdersEnabled);
   // Custom job fields (enableJobFields): the org's fields + this job's values.
@@ -699,7 +699,8 @@ export default function ScheduleDeliveryDialog({
   const canSubmit =
     !!scheduleDate &&
     (allDay || !!scheduleTime) &&
-    (isQuotationToDeliveryEnabled || (!!project && !!saleOrder)) &&
+    // enableOptionalSaleOrder (Biofuel): the Project is still needed, the Sales Order is not.
+    (isQuotationToDeliveryEnabled || (!!project && (!!saleOrder || isOptionalSaleOrderEnabled))) &&
     validRows.length > 0 &&
     !submitting;
 
@@ -1174,8 +1175,8 @@ export default function ScheduleDeliveryDialog({
               }}
               fullWidth
               size="small"
-              required
-              error={poTouched && !saleOrder}
+              required={!isOptionalSaleOrderEnabled}
+              error={!isOptionalSaleOrderEnabled && poTouched && !saleOrder}
               InputProps={{
                 readOnly: true,
                 endAdornment: (
@@ -1201,7 +1202,9 @@ export default function ScheduleDeliveryDialog({
               }}
               InputLabelProps={{ shrink: true }}
               helperText={
-                poTouched && !saleOrder
+                isOptionalSaleOrderEnabled
+                  ? undefined
+                  : poTouched && !saleOrder
                   ? "Pick a Sales Order (required to schedule). Save as draft if it does not exist yet."
                   : 'The Sales Order\'s customer PO lands on the draft DO as "Your PO No."'
               }

@@ -56,6 +56,7 @@ export function parseAdHocReturnNotes(notes: string | null | undefined): { custo
 import { enqueueDeliveryGroupPost } from '../delivery-group-posts/enqueue';
 import { isOrgFeatureEnabled } from 'src/common/org-features';
 import { QUOTATION_TO_DELIVERY_FLAG, applyQuotationLinkToDoConfig, attachJobToQuotationOrder, quotationLinesForJob } from './quotation-to-delivery';
+import { OPTIONAL_SALE_ORDER_FLAG, saleOrderMissing } from './optional-sale-order';
 import { isCalendarAddEnabled, parseLinkKind, parsePtwRemark, parsePtwStatus, parseWorkers } from './quick-jobs';
 import { QUOTATION_DOC_TYPES, isOpenDo, isUuid, jobRowsFromDo, likePattern, pickDoForJob, quotationCustomerIdOf, quotationCustomerNameOf, quotationSiteOf, quotationStatusLabel, quotationSubjectOf, searchLimit } from './quick-job-quotation';
 import { REAL_DO_ON_SCHEDULE_FLAG, cancelledDoConfig, isIssuedOnSchedule } from './do-number';
@@ -622,7 +623,11 @@ export class DeliveriesService {
     // quotation, not rental deployments. Everyone else keeps the hard rule
     // (the DTO's ValidateIf moved here so the requirement can be per-org).
     const relaxedSchedule = await isOrgFeatureEnabled(this.prisma, organizationId, QUOTATION_TO_DELIVERY_FLAG);
-    if (!isDraft && !dto.saleOrderId && !relaxedSchedule) throw new BadRequestException('A Sale Order is required for a scheduled delivery');
+    // enableOptionalSaleOrder (Biofuel): the Sales Order is optional; the Project stays required.
+    const optionalSaleOrder = await isOrgFeatureEnabled(this.prisma, organizationId, OPTIONAL_SALE_ORDER_FLAG);
+    if (saleOrderMissing({ isDraft, saleOrderId: dto.saleOrderId, serviceJobOrg: relaxedSchedule, optionalSaleOrder })) {
+      throw new BadRequestException('A Sale Order is required for a scheduled delivery');
+    }
     // WCT orders: "Add job" on an order schedules another job of that order.
     const order = dto.orderId ? await this.orderForNewJob(dto.orderId, organizationId) : null;
     // Custom job fields: a bad value is refused BEFORE anything is created.
@@ -2252,7 +2257,11 @@ export class DeliveriesService {
     // draft (e.g. one auto-created from an accepted quotation) without a
     // Project or a Sale Order.
     const relaxedSchedule = await isOrgFeatureEnabled(this.prisma, organizationId, QUOTATION_TO_DELIVERY_FLAG);
-    if (!willBeDraft && !dto.saleOrderId && !relaxedSchedule) throw new BadRequestException('A Sale Order is required for a scheduled delivery');
+    // enableOptionalSaleOrder (Biofuel): the Sales Order is optional; the Project stays required.
+    const optionalSaleOrder = await isOrgFeatureEnabled(this.prisma, organizationId, OPTIONAL_SALE_ORDER_FLAG);
+    if (saleOrderMissing({ isDraft: willBeDraft, saleOrderId: dto.saleOrderId, serviceJobOrg: relaxedSchedule, optionalSaleOrder })) {
+      throw new BadRequestException('A Sale Order is required for a scheduled delivery');
+    }
     const project = dto.projectId
       ? await this.prisma.project.findFirst({
           where: { id: dto.projectId, organizationId },

@@ -248,6 +248,9 @@ export default function page() {
         invoiceSplit: config.invoiceSplit,
         voided: config.voided,
         cancelledWithOrder: config.cancelledWithOrder,
+        // enableOptionalSaleOrder: a draft invoice from a DO with no Sales Order is flagged.
+        sourceDocumentId: config.sourceDocumentId,
+        saleOrderId: config.saleOrderId,
       };
       documentData.type = response.data.type;
       // enableRdoFreeTypedRows (Biofuel): the API marks a signed RDO; the editor opens it read-only.

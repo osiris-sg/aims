@@ -75,6 +75,8 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   enableRdoFreeTypedRows: false,
   // Preview signed DO / RDO in a new tab on the delivery page (Biofuel, 2026-11-19). Default OFF.
   enableSignedDocPreview: false,
+  // Optional Sales Order on Schedule a delivery (Biofuel, 2026-11-19). Default OFF.
+  enableOptionalSaleOrder: false,
   // Role home (2026-11-06): /portal lands on the role-based home screen and
   // the org wears the role-home look on every page. Default OFF.
   enableRoleHome: false,

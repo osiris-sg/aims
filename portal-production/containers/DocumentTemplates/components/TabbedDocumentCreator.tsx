@@ -429,7 +429,7 @@ export default function TabbedDocumentCreator({
 }: DocumentCreatorProps) {
   const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isQuotationTemplatesEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled, isDocRemarksEnabled, isQuotationCategoryEnabled, isRackingLayoutEnabled } = useOrganizationFeatures();
   // RDO free-typed rows + signed-RDO lock (enableRdoFreeTypedRows, Biofuel 2026-11-19).
-  const { isRdoFreeTypedRowsEnabled } = useOrganizationFeatures();
+  const { isRdoFreeTypedRowsEnabled, isOptionalSaleOrderEnabled } = useOrganizationFeatures();
   // In-app Back (enableWctDocNav): history back when opened inside the app, else the parent list; off = the parent list.
   const { goBack } = useAppBack();
   // Manual order flow: after an order's invoice is emailed, offer to send its service report too.
@@ -5000,6 +5000,16 @@ export default function TabbedDocumentCreator({
               )}
             </Box>
           )}
+          {/* enableOptionalSaleOrder (Biofuel): a draft invoice made from a DO with no
+              Sales Order is priced from the price list, so flag it for a check. */}
+          {!isTemplateEditMode &&
+            isOptionalSaleOrderEnabled &&
+            isInvoiceTypeDoc &&
+            ["draft", "unconfirmed"].includes(String(documentStatus || "").toLowerCase()) &&
+            !!existingData?.config?.sourceDocumentId &&
+            !existingData?.config?.saleOrderId && (
+              <Chip size="small" color="warning" variant="outlined" label="No Sales Order, check prices" sx={{ flexShrink: 0 }} />
+            )}
           {/* Autosave status, right of the document status (guru 2026-11-18).
               Replaces the manual Save button while we hold the lock on a
               persisted draft (Confirm stays explicit). */}

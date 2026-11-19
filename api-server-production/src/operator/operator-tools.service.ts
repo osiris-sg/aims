@@ -1,4 +1,5 @@
 import { DeliveriesService } from '../deliveries/deliveries.service';
+import { OPTIONAL_SALE_ORDER_FLAG } from '../deliveries/optional-sale-order';
 import { Injectable, Logger } from '@nestjs/common';
 import type Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
@@ -2210,9 +2211,11 @@ export class OperatorToolsService {
               select: { id: true, name: true },
             });
           }
+          // enableOptionalSaleOrder (Biofuel): a missing Sales Order does not park the run.
+          const optionalSaleOrder = await isOrgFeatureEnabled(this.prisma, ctx.organizationId, OPTIONAL_SALE_ORDER_FLAG);
           const missing = [
             !projectId && 'a project',
-            !saleOrder && !quotation && 'a Sale Order or a quotation',
+            !saleOrder && !quotation && !optionalSaleOrder && 'a Sale Order or a quotation',
           ].filter(Boolean);
           const isDraft = missing.length > 0;
           const dto: any = {
