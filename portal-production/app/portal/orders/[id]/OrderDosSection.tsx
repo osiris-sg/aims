@@ -4,8 +4,8 @@
 // (Complete DO: sign here / upload the signed DO / sign link); a job is optional
 // (calendar, a technician) and is completed on its job page as before.
 // 2026-11-17: the "Delivery orders" section is gone; the DOs are rows of the
-// order page's Documents list (OrderHubPanel), with "Add DO" by its heading and
-// this menu on each DO row, anchored to the click position.
+// order page's Documents table (OrderPageLayout, round 24), with "Add DO" in the actions row
+// and this menu on each DO row, anchored to the click position.
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -73,12 +73,15 @@ export function OrderDoMenu({
   cancelled,
   onCompleteDo,
   onSignLink,
+  extra,
 }: {
   menu: { pos: { left: number; top: number }; d: OrderDo } | null;
   onClose: () => void;
   cancelled: boolean;
   onCompleteDo: (d: OrderDo) => void;
   onSignLink: (d: OrderDo) => void;
+  /** Round 24: the order page's row items after the DO's own (Unlink from order, Delete); an array, never a Fragment. */
+  extra?: React.ReactNode[];
 }) {
   const router = useRouter();
   const { post } = usePost();
@@ -103,6 +106,7 @@ export function OrderDoMenu({
       {d && !d.completed && !cancelled && (
         <MenuItem onClick={() => { onClose(); onSignLink(d); }}>Customer sign link</MenuItem>
       )}
+      {extra}
     </Menu>
   );
 }

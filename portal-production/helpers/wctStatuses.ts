@@ -1,6 +1,8 @@
 // WCT group status set (features.enableWctStatuses, 2026-11-19; same rule as the API's common/wct-statuses.ts).
 // Quotation, DO and invoice lists show and filter by these; the API sends each row's `wctStatus`. Display only:
-// stored statuses are unchanged and every other org keeps its own.
+// stored statuses are unchanged and every other org keeps its own. An invoice past its due date with some paid
+// reads "Overdue · part paid" (overdue_part_paid, Elroy 2026-11-19); the ONE "Overdue" filter option lists both
+// overdue values (the API matches them, common/wct-statuses.ts wctStatusMatches).
 export type WctFamily = "QUOTATION" | "DO" | "INVOICE";
 
 export const WCT_STATUS_OPTIONS: Record<WctFamily, Array<{ value: string; label: string }>> = {
@@ -52,6 +54,7 @@ const LABEL: Record<string, string> = {
   part_paid: "Part paid",
   paid: "Paid",
   overdue: "Overdue",
+  overdue_part_paid: "Overdue · part paid",
   credited: "Credited",
   voided: "Voided",
 };
@@ -64,6 +67,7 @@ const COLOR: Record<string, "default" | "primary" | "success" | "warning" | "inf
   unpaid: "warning",
   part_paid: "warning",
   overdue: "error",
+  overdue_part_paid: "error",
   credited: "info",
   cancelled: "error",
   declined: "error",

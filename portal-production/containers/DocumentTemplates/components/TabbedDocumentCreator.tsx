@@ -4403,7 +4403,8 @@ export default function TabbedDocumentCreator({
       try {
         const token = await getToken();
         if (token) {
-          await request({ path: `/documents/delete/${exitDocId}`, method: "DELETE", quiet: true }, {}, token);
+          // discard=untouched: a real delete (number given back), not the soft delete a person's Delete is.
+          await request({ path: `/documents/delete/${exitDocId}?discard=untouched`, method: "DELETE", quiet: true }, {}, token);
         }
       } catch {
         // ignore — leaving an empty draft is acceptable if delete fails

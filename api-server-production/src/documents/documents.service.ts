@@ -37,14 +37,14 @@ import { effectiveDesign, isImportedDoc } from '../common/services/document-html
 import { outstandingOf, grossStampOf, grossOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
 import { splitInvoice as splitInvoiceOp, undoInvoiceSplit as undoInvoiceSplitOp } from './invoice-split-ops';
 import { keepSplitPartTotals, splitGlRevenueLines, type SplitPlan } from './invoice-split';
-import { sgToday, wctFamilyOf, wctFamilyOfTypes, isWctStatusValue, wctStatusOf } from '../common/wct-statuses';
+import { sgToday, wctFamilyOf, wctFamilyOfTypes, isWctStatusValue, wctStatusMatches, wctStatusOf } from '../common/wct-statuses';
 import { ERP_QUOTE_CANCELLED_STATUSES, assertNotErpImportedDo, confirmPostsToGl, erpPaidAtImport, erpQuotationTag, erpStoredTotalsOf, isErpImported, isErpImportedDo, isQuotationDocType, moneySignature } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
 import { fillEmptyOrderCustomer, invoiceRowsWithSplitParts, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
 import { isManualOrderFlow, manualAutoDraftsOff } from '../orders/manual-order-flow';
 import { skipsDoSaveStockRule } from './do-first-save';
 import { RDO_FREE_ROWS_FLAG, allowsRdoFreeRows, hasUnit, isRdoSigned, isRdoType } from './rdo-free-rows';
-import { WCT_STATUSES_FLAG, isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
+import { SOFT_DELETE_DRAFTS_FLAG, SOFT_DELETED_TYPE, WCT_STATUSES_FLAG, isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { assetKey, descKey, invoiceDiscountPercent, isDisplayRow, orderInvoiceReference, planOrderInvoice, quoteDiscountAmount } from '../orders/order-billing';
 import { quotationLinesForJob } from '../deliveries/quotation-to-delivery';
@@ -873,6 +873,8 @@ export class DocumentsService {
         where: {
           id,
           organizationId,
+          // Soft-deleted drafts (enableSoftDeleteDrafts) are gone for the app; the row only keeps the number.
+          NOT: { type: SOFT_DELETED_TYPE },
         },
         include: {
           organization: true,
@@ -2972,7 +2974,82 @@ export class DocumentsService {
    * holds a live journal is VOIDED or credited, never deleted. An internal
    * caller that genuinely must remove a posted document passes force.
    */
-  async deleteDocument(id: string, organizationId: string, actor?: DocumentActor, opts?: { force?: boolean }) {
+  /**
+   * Soft delete of a draft (WCT group, enableSoftDeleteDrafts): never an imported or sent one. The row stays with its
+   * number (a gap in the sequence, never handed out again) as type DELETED (so no list, order, count or queue shows
+   * it; config.softDeleted keeps the type and who / when); it leaves any order it was on and that order's status is
+   * worked out again. Document history + Activity Log (the DELETE request) record it.
+   */
+  async softDeleteDraft(id: string, organizationId: string, actor?: DocumentActor) {
+    const doc: any = await this.prisma.document.findFirst({ where: { id, organizationId }, select: { id: true, name: true, type: true, status: true, config: true } });
+    if (!doc) throw new NotFoundException('Document not found');
+    const what = doc.name || 'This document';
+    if (isErpImported(doc.config)) throw new BadRequestException(`${what} was imported from the old ERP: it is never deleted.`);
+    const [signLinks, sent] = await Promise.all([
+      (this.prisma as any).documentSignLink?.count({ where: { documentId: id } }).catch(() => 0) ?? 0,
+      this.prisma.auditLog.count({ where: { organizationId, resource: 'document', action: 'SENT', resourceId: id } }).catch(() => 0),
+    ]);
+    if (signLinks > 0 || sent > 0) throw new BadRequestException(`${what} was sent to the customer: void or cancel it instead.`);
+    const docType = String(doc.type || '').toUpperCase();
+    const isInvoice = ['INVOICE', 'TI', 'TI2', 'TAX_INVOICE', 'INV'].includes(docType);
+    // A DO a live job carries stays (the job's lines point at it; a hidden DO would leave the job without its DO).
+    if (docType === 'DELIVERY_ORDER' || docType === 'DO') {
+      const item: any = await this.prisma.deliveryItem.findFirst({
+        where: { documentId: id, delivery: { organizationId, status: { not: 'cancelled' } } } as any,
+        select: { delivery: { select: { deliveryNumber: true } } },
+      });
+      if (item) throw new BadRequestException(`${what} is the DO of job #${item.delivery?.deliveryNumber ?? ''}: cancel the job first.`);
+    }
+    const at = new Date().toISOString();
+    const orderIds = await this.prisma.$transaction(async (tx: any) => {
+      await tx.document.update({
+        where: { id },
+        data: { type: SOFT_DELETED_TYPE, config: { ...(doc.config || {}), softDeleted: { type: doc.type, name: doc.name, at, by: actor?.id ?? null, byName: actor?.name ?? null } } },
+      });
+      // Off every order it sits on (link lists; documents made on an order point back with config.orderId).
+      const orders: Array<{ id: string; linkedDocuments: any }> = await tx.$queryRaw`
+        SELECT o.id, o."linkedDocuments" FROM "Order" o
+        WHERE o."organizationId" = ${organizationId} AND (o."linkedDocuments"::text LIKE ${'%' + id + '%'} OR o.id::text = ${String(doc.config?.orderId ?? '')})`;
+      for (const o of orders) {
+        const ld: any = o.linkedDocuments && typeof o.linkedDocuments === 'object' ? { ...o.linkedDocuments } : {};
+        let changed = false;
+        for (const k of Object.keys(ld)) {
+          if (!Array.isArray(ld[k])) continue;
+          const kept = ld[k].filter((x: any) => !(x && (x.id === id || x === id)));
+          if (kept.length !== ld[k].length) {
+            ld[k] = kept;
+            changed = true;
+          }
+        }
+        if (changed) await tx.order.update({ where: { id: o.id }, data: { linkedDocuments: ld } });
+      }
+      // An invoice leaves no stale id behind (round 24): the order invoice, the jobs and the DOs billed on it are
+      // unbilled again (only where they point at exactly this invoice), and their orders are read again below.
+      const touched: string[] = [];
+      if (isInvoice) {
+        const heads: Array<{ id: string }> = await tx.order.findMany({ where: { organizationId, invoiceDocumentId: id }, select: { id: true } });
+        if (heads.length) await tx.order.updateMany({ where: { organizationId, invoiceDocumentId: id }, data: { invoiceDocumentId: null } });
+        const jobs: Array<{ id: string; orderId: string | null }> = await tx.delivery.findMany({ where: { organizationId, orderInvoiceId: id }, select: { id: true, orderId: true } });
+        if (jobs.length) await tx.delivery.updateMany({ where: { organizationId, orderInvoiceId: id }, data: { orderInvoiceId: null } });
+        const dos: Array<{ id: string; config: any }> = await tx.document.findMany({
+          where: { organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] }, config: { path: ['orderInvoiceId'], equals: id } },
+          select: { id: true, config: true },
+        });
+        const billedDos = dos.filter((d) => d.config?.orderInvoiceId === id);
+        for (const d of billedDos) {
+          const { orderInvoiceId: _gone, ...rest } = d.config || {};
+          await tx.document.update({ where: { id: d.id }, data: { config: rest } });
+        }
+        touched.push(...heads.map((o) => o.id), ...jobs.map((j) => j.orderId).filter((v): v is string => !!v), ...billedDos.map((d) => d.config?.orderId).filter((v: unknown): v is string => typeof v === 'string' && !!v));
+      }
+      return [...new Set([...orders.map((o) => o.id), ...touched])];
+    });
+    for (const oid of orderIds) await refreshOrderStatus(this.prisma, organizationId, oid).catch(() => null);
+    void this.logDocumentEvent({ documentId: id, organizationId, action: 'DELETED', detail: `${what} deleted (hidden; its number is kept as a gap)`, documentName: doc.name || undefined, actor });
+    return { id, name: doc.name, type: doc.type, deleted: true, soft: true };
+  }
+
+  async deleteDocument(id: string, organizationId: string, actor?: DocumentActor, opts?: { force?: boolean; untouched?: boolean }) {
     try {
       // An imported (old-ERP) DO is never deleted through the app, not even by an internal force delete.
       assertNotErpImportedDo(await this.prisma.document.findFirst({ where: { id, organizationId }, select: { type: true, config: true } }));
@@ -2996,6 +3073,11 @@ export class DocumentsService {
         ]);
         if (paid > 0) throw new BadRequestException(`${what} has payments recorded against it — remove those first.`);
         if (jes > 0) throw new BadRequestException(`${what} is posted to the ledger — void its journal first.`);
+        // WCT group (enableSoftDeleteDrafts, Elroy 2026-11-19): a person's Delete hides the draft and keeps its
+        // number as a gap. The editor's discard of an untouched empty new draft (?discard=untouched) stays a real delete.
+        if (!opts?.untouched && (await isOrgFeatureEnabled(this.prisma, organizationId, SOFT_DELETE_DRAFTS_FLAG).catch(() => false))) {
+          return await this.softDeleteDraft(id, organizationId, actor);
+        }
       }
 
       // No-draft model: a saved document may already sit in the GL — void its
@@ -4580,7 +4662,9 @@ export class DocumentsService {
       }
 
       if (opts.documentTypes?.length) where.type = { in: opts.documentTypes };
-      else if (opts.excludeTypes?.length) where.type = { notIn: opts.excludeTypes };
+      // Soft-deleted drafts (type DELETED) are never listed.
+      else if (opts.excludeTypes?.length) where.type = { notIn: [...opts.excludeTypes, SOFT_DELETED_TYPE] };
+      else where.type = { not: SOFT_DELETED_TYPE };
       if (opts.templateId) where.documentTemplateId = opts.templateId;
 
       // Invoices voided with a cancelled order (orders/order-cancel.ts, manual order flow): out of the
@@ -4604,8 +4688,9 @@ export class DocumentsService {
         const wanted = (Array.isArray(opts.status) ? opts.status : [opts.status]).filter(Boolean) as string[];
         if (wanted.length && wanted.every((v) => isWctStatusValue(wctFam, v))) {
           const classes = await this.wctStatusClasses(organizationId, opts.documentTypes!);
-          const hit = classes.filter((r) => wanted.includes(r.cls)).map((r) => r.id);
-          const miss = classes.filter((r) => !wanted.includes(r.cls)).map((r) => r.id);
+          // "Overdue" takes "Overdue · part paid" too (wctStatusMatches).
+          const hit = classes.filter((r) => wctStatusMatches(wanted, r.cls)).map((r) => r.id);
+          const miss = classes.filter((r) => !wctStatusMatches(wanted, r.cls)).map((r) => r.id);
           // The smaller list (the rows are already limited to these types): at most half the family.
           if (hit.length <= miss.length) and.push({ id: { in: hit } });
           else if (miss.length) and.push({ id: { notIn: miss } });
@@ -4945,6 +5030,7 @@ export class DocumentsService {
     try {
       const base: any = { organizationId };
       if (opts.documentTypes?.length) base.type = { in: opts.documentTypes };
+      else base.type = { not: SOFT_DELETED_TYPE }; // soft-deleted drafts are never counted
       // The cards sit above the list and must count the SAME rows it shows:
       // a Sales credit-note list scoped to customers can't head a total that
       // includes the supplier ones (guru 2026-11-12).

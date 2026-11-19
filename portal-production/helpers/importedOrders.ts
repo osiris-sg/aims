@@ -2,6 +2,7 @@
 // quotation <-> invoice links (api: src/orders/imported-orders.ts). Round 19 (2026-11-19): open for
 // backfilling (Add DO, Add job, service report, Create invoice on any status, Link existing document /
 // Unlink; api: src/orders/imported-order-links.ts). The imported documents themselves stay read-only.
+// Round 24 (2026-11-19): the order page itself (cards, Documents rows) is helpers/orderPage.ts, one layout for both kinds.
 
 export type OrderSource = "aims" | "imported" | "all";
 
@@ -107,96 +108,6 @@ export function linkOptionState(o: Pick<LinkOption, "onOrder" | "onThisOrder">):
   return { disabled: false, note: "" };
 }
 
-/** One row of the imported order page's Documents table, with what its menu can do. */
-export interface ImportedDocRow {
-  key: string;
-  kind: "quotation" | "linkedQuotation" | "invoice" | "creditNote" | "do" | "linkedDo" | "job" | "report" | "file";
-  label: string;
-  date: string | null;
-  state: string;
-  by: string;
-  doNo: string;
-  amount: number | null;
-  owed: number | null;
-  href: string | null;
-  /** Unlink from the order (round 19): what the API takes. */
-  unlink?: { type: ImportedLinkType; id: string; name: string } | null;
-  /** An AIMS DO made on the order: the DO menu (View DO, Complete DO, Add job, Customer sign link). */
-  doId?: string;
-  /** A file stored on the order: Remove from order. */
-  attachmentId?: string;
-  fileKey?: string;
-}
-
-const linkedBy = (l?: LinkStamp | null) => (l ? ["Linked", l.byName ? `by ${l.byName}` : ""].filter(Boolean).join(" ") : "");
-
-/**
- * The Documents table of an imported order, in this order: its quotation, linked quotations, invoices, credit
- * notes, DOs made on the order, imported / linked DOs, jobs, service reports and files.
- */
-export function importedDocRows(order: ImportedOrder): ImportedDocRow[] {
-  const rows: ImportedDocRow[] = [];
-  const q = order.sourceQuotation;
-  if (q) rows.push({ key: `q:${q.id}`, kind: "quotation", label: `Quotation ${q.name ?? ""}`.trim(), date: q.date ?? null, state: "", by: "", doNo: "", amount: q.total ?? null, owed: null, href: importedDocHref(q, "QUOTATION") });
-  for (const x of order.quotations ?? []) {
-    rows.push({ key: `lq:${x.id}`, kind: "linkedQuotation", label: `Quotation ${x.name ?? ""}`.trim(), date: x.date ?? null, state: "", by: linkedBy(x.linked), doNo: "", amount: x.total ?? null, owed: null, href: importedDocHref(x, "QUOTATION"), unlink: x.unlinkable ? { type: "QUOTATION", id: x.id, name: x.name ?? "the quotation" } : null });
-  }
-  for (const i of order.invoices) {
-    const anyI: any = i;
-    const state = i.credit && i.state !== "CREDITED" ? `${i.stateLabel ?? ""}, credited ${importedMoney(i.credit)}` : i.stateLabel ?? "";
-    rows.push({
-      key: `i:${i.id}`,
-      kind: "invoice",
-      label: `Invoice ${i.name ?? ""}`.trim(),
-      date: i.date ?? null,
-      state,
-      by: anyI.linked ? linkedBy(anyI.linked) : importedLinkSourceLabel(i.linkSource),
-      doNo: i.erpDoNumber || "",
-      amount: i.total ?? null,
-      owed: i.owed,
-      href: importedDocHref(i, "INVOICE"),
-      unlink: anyI.unlinkable ? { type: "INVOICE", id: i.id, name: i.name ?? "the invoice" } : null,
-    });
-  }
-  for (const c of order.creditNotes) rows.push({ key: `cn:${c.id}`, kind: "creditNote", label: `Credit note ${c.name ?? ""}`.trim(), date: null, state: "", by: "", doNo: "", amount: c.total ?? null, owed: null, href: importedDocHref(c, "CREDIT_NOTE") });
-  for (const d of order.deliveryOrders ?? []) {
-    rows.push({ key: `do:${d.id}`, kind: "do", label: `DO ${d.name ?? ""}`.trim(), date: d.date ?? null, state: d.completed ? "Completed" : d.awaitingSignature ? "Awaiting signature" : "Draft", by: "", doNo: "", amount: null, owed: null, href: d.templateId ? `/portal/documents/DELIVERY_ORDER/${d.templateId}/${d.id}` : null, doId: d.id });
-  }
-  for (const d of order.linkedDos ?? []) {
-    rows.push({
-      key: `ld:${d.id ?? d.name}`,
-      kind: "linkedDo",
-      label: `DO ${d.name ?? ""}`.trim(),
-      date: d.date ?? null,
-      state: d.done ? "Completed" : "Draft",
-      by: d.linked ? linkedBy(d.linked) : d.imported ? "Imported" : "",
-      doNo: "",
-      amount: null,
-      owed: null,
-      href: d.id && d.templateId ? `/portal/documents/DELIVERY_ORDER/${d.templateId}/${d.id}` : null,
-      unlink: d.unlinkable && d.id ? { type: "DELIVERY_ORDER", id: d.id, name: d.name ?? "the DO" } : null,
-    });
-  }
-  for (const j of order.jobs ?? []) {
-    rows.push({ key: `j:${j.id}`, kind: "job", label: `Job #${j.deliveryNumber}`, date: j.scheduledFor ?? null, state: j.status === "cancelled" ? "Cancelled" : j.isDraft ? "Draft" : j.status === "completed" ? "Completed" : "Scheduled", by: "", doNo: j.deliveryOrder?.name ?? "", amount: null, owed: null, href: `/portal/deliveries/${j.id}` });
-  }
-  const jobReportIds = new Set((order.jobReports ?? []).map((r) => r.id));
-  for (const r of order.jobReports ?? []) {
-    rows.push({ key: `r:${r.id}`, kind: "report", label: r.reportNumber ? `Service report #${r.reportNumber}` : "Service report (draft)", date: null, state: r.status === "completed" ? (r.uploaded ? "Uploaded" : "Completed") : "Draft", by: "", doNo: "", amount: null, owed: null, href: `/portal/maintenance-reports/${r.id}` });
-  }
-  for (const a of order.attachments ?? []) {
-    if (a.kind === "report") {
-      if (a.reportId && jobReportIds.has(a.reportId)) continue;
-      const n = a.report?.reportNumber ?? a.reportNumber ?? null;
-      const name = n ? `Service report #${n}` : "Service report";
-      rows.push({ key: `a:${a.id}`, kind: "report", label: name, date: null, state: a.report ? (a.report.status === "completed" ? "Completed" : "Draft") : "", by: "Linked", doNo: "", amount: null, owed: null, href: a.reportId ? `/portal/maintenance-reports/${a.reportId}` : null, unlink: a.reportId ? { type: "SERVICE_REPORT", id: a.reportId, name } : null });
-    } else {
-      rows.push({ key: `a:${a.id}`, kind: "file", label: a.label || a.fileName || "File", date: null, state: "", by: "", doNo: "", amount: null, owed: null, href: null, attachmentId: a.id, fileKey: a.fileKey });
-    }
-  }
-  return rows;
-}
-
 /** Create invoice's lines as the dialog edits them (strings), from the order's prefill. */
 export function invoiceDialogLines(order: Pick<ImportedOrder, "invoiceLines" | "remaining">): Array<{ description: string; quantity: string; unitPrice: string; priced: boolean }> {
   const src = order.invoiceLines?.length ? order.invoiceLines : order.remaining?.lines ?? [];
@@ -279,11 +190,3 @@ export const isImportedTab = (tab: string) => tab.startsWith(IMP);
 /** An imported row matches All or its own imported status entry; never an AIMS status entry. */
 export const importedMatchesTab = (row: { imported?: boolean; status?: string | null }, tab: string) =>
   row.imported === true && (tab === "all" || tab === IMP + row.status);
-
-/** What a tracker card does on click (2026-11-19, like native orders): open its first document, else its add action. */
-export function trackerCardClick(step: { docs?: Array<{ href?: string | null }> | null; action?: string | null }): { href: string } | { action: "addDo" | "addServiceReport" } | null {
-  const href = (step.docs ?? []).find((d) => d.href)?.href;
-  if (href) return { href };
-  if (step.action === "addDo" || step.action === "addServiceReport") return { action: step.action };
-  return null;
-}

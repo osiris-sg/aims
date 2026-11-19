@@ -500,16 +500,94 @@ describe('imported orders open (round 19): one order per document, Unlink rules'
     await expect(w.orders.unlinkImportedDocument(PART, ORG, { type: 'QUOTATION', id: QX }, w.actor)).rejects.toThrow(/is not linked on this order/);
   });
 
-  it('link / unlink are imported-order actions only: a native order is refused and unchanged', async () => {
+  it('linking a quotation / DO is for imported orders only: a native order is refused and unchanged', async () => {
     const w = world();
     const before = JSON.stringify(w.order(NATIVE));
     await expect(w.orders.linkImportedDocument(NATIVE, ORG, { type: 'QUOTATION', id: QX }, w.actor)).rejects.toThrow(/orders imported from the old ERP/);
-    await expect(w.orders.unlinkImportedDocument(NATIVE, ORG, { type: 'INVOICE', id: IN }, w.actor)).rejects.toThrow(/orders imported from the old ERP/);
-    await expect(w.orders.importedLinkOptions(NATIVE, ORG, { type: 'INVOICE' })).rejects.toThrow(/orders imported from the old ERP/);
+    // Unlink from order (round 24) takes a native order by the same rules: an invoice made on the order is refused.
+    await expect(w.orders.unlinkImportedDocument(NATIVE, ORG, { type: 'INVOICE', id: IN }, w.actor)).rejects.toThrow('INV202611-0080 was made on this order: void it instead of unlinking it');
+    await expect(w.orders.importedLinkOptions(NATIVE, ORG, { type: 'DELIVERY_ORDER' })).rejects.toThrow(/orders imported from the old ERP/);
     expect(JSON.stringify(w.order(NATIVE))).toBe(before);
     // Setting off: the imported order is hidden.
     const off = world({ ...ON, enableImportedOrders: false });
     await expect(off.orders.linkImportedDocument(PART, ORG, { type: 'QUOTATION', id: QX }, off.actor)).rejects.toThrow(/not found/i);
+  });
+
+  it('round 24: an AIMS order links / unlinks a service report (one order per report); quotations, invoices and DOs stay refused', async () => {
+    const w = world();
+    const opts: any[] = await w.orders.importedLinkOptions(NATIVE, ORG, { type: 'SERVICE_REPORT', q: '' });
+    expect(opts.map((o) => [o.name, o.onOrder, o.onThisOrder])).toEqual([['Service report #12', null, false]]);
+    const out = await w.orders.linkImportedDocument(NATIVE, ORG, { type: 'SERVICE_REPORT', id: SR }, w.actor);
+    expect(out).toEqual({ type: 'SERVICE_REPORT', id: SR, name: 'Service report #12', orderNumber: 'ORD202611-020' });
+    expect(w.order(NATIVE).attachments).toEqual([expect.objectContaining({ kind: 'report', reportId: SR, addedByName: 'Finance' })]);
+    // The same one-order rule both ways.
+    await expect(w.orders.linkImportedDocument(PART, ORG, { type: 'SERVICE_REPORT', id: SR }, w.actor)).rejects.toThrow('Service report #12 is already on order ORD202611-020. A document can be on one order only.');
+    await expect(w.orders.linkImportedDocument(NATIVE, ORG, { type: 'SERVICE_REPORT', id: SR }, w.actor)).rejects.toThrow('Service report #12 is already on this order.');
+    for (const type of ['QUOTATION', 'DELIVERY_ORDER']) {
+      await expect(w.orders.linkImportedDocument(NATIVE, ORG, { type, id: QX }, w.actor)).rejects.toThrow('Only a service report (and, on the manual order flow, an invoice) can be linked to an order made in AIMS.');
+      await expect(w.orders.importedLinkOptions(NATIVE, ORG, { type })).rejects.toThrow('Only a service report (and, on the manual order flow, an invoice) can be linked to an order made in AIMS.');
+    }
+    await w.orders.unlinkImportedDocument(NATIVE, ORG, { type: 'SERVICE_REPORT', id: SR }, w.actor);
+    expect(w.order(NATIVE).attachments).toEqual([]);
+    expect(w.order(NATIVE).linkedDocuments).toEqual({ po: [], do: [], invoice: [{ id: IN, name: 'INV202611-0080' }], salesOrder: [] });
+    // An org without WCT orders: refused, nothing written.
+    const off = world({ enableImportedOrders: true });
+    await expect(off.orders.linkImportedDocument(NATIVE, ORG, { type: 'SERVICE_REPORT', id: SR }, off.actor)).rejects.toThrow('Only a service report (and, on the manual order flow, an invoice) can be linked to an order made in AIMS.');
+    expect(off.order(NATIVE).attachments).toBeNull();
+  });
+
+  it('round 24: Link existing document puts an invoice on an AIMS order (manual flow): its links + invoiceDocumentId, status re-read, the invoice never written', async () => {
+    const w = world();
+    const opts: any[] = await w.orders.importedLinkOptions(NATIVE, ORG, { type: 'INVOICE', q: 'INV2026' });
+    expect(opts.map((o) => [o.name, o.onOrder?.orderNumber ?? null, o.onThisOrder])).toEqual([['INV202611-0090', null, false], ['INV202611-0080', null, true]]);
+    const out = await w.orders.linkImportedDocument(NATIVE, ORG, { type: 'INVOICE', id: IX }, w.actor);
+    expect(out).toEqual({ type: 'INVOICE', id: IX, name: 'INV202611-0090', orderNumber: 'ORD202611-020' });
+    expect(w.order(NATIVE).linkedDocuments.invoice).toEqual([{ id: IN, name: 'INV202611-0080' }, expect.objectContaining({ id: IX, name: 'INV202611-0090', total: 1090, linked: expect.objectContaining({ byName: 'Finance' }) })]);
+    expect(w.order(NATIVE).invoiceDocumentId).toBe(IX);
+    expect(docWrites(w, EXISTING_DOCS)).toEqual([]);
+    const page: any = await w.orders.getById(NATIVE, ORG);
+    expect(page.invoices.map((i: any) => i.name).sort()).toEqual(['INV202611-0080', 'INV202611-0090']);
+    expect(page.summary).toMatchObject({ billed: 2180, owed: 2180 });
+    // One order per invoice: another order is refused, naming this one; an order already holding an invoice keeps it.
+    await expect(w.orders.linkImportedDocument(PART, ORG, { type: 'INVOICE', id: IX }, w.actor)).rejects.toThrow('INV202611-0090 is already on order ORD202611-020. A document can be on one order only.');
+    // Off the manual flow (WCT Racking): a native order links service reports only.
+    const racking = world({ ...ON, enableManualOrderFlow: false });
+    await expect(racking.orders.linkImportedDocument(NATIVE, ORG, { type: 'INVOICE', id: IX }, racking.actor)).rejects.toThrow(/Only a service report/);
+    expect(racking.order(NATIVE).linkedDocuments.invoice).toEqual([{ id: IN, name: 'INV202611-0080' }]);
+  });
+
+  it('round 24: Unlink from order on an AIMS order: a linked invoice comes off (with invoiceDocumentId); its own quotation, documents made on it and a job\'s invoice stay', async () => {
+    const w = world();
+    await w.orders.linkImportedDocument(NATIVE, ORG, { type: 'INVOICE', id: IX }, w.actor);
+    let page: any = await w.orders.getById(NATIVE, ORG);
+    expect(page.invoices.map((i: any) => [i.name, i.unlinkable, i.paid]).sort()).toEqual([['INV202611-0080', false, 0], ['INV202611-0090', true, 0]]);
+    await expect(w.orders.unlinkImportedDocument(NATIVE, ORG, { type: 'QUOTATION', id: QN }, w.actor)).rejects.toThrow("The order's own quotation cannot be unlinked");
+    await expect(w.orders.unlinkImportedDocument(NATIVE, ORG, { type: 'DELIVERY_ORDER', id: DX }, w.actor)).rejects.toThrow('DO202611050 is not linked on this order');
+    const out = await w.orders.unlinkImportedDocument(NATIVE, ORG, { type: 'INVOICE', id: IX }, w.actor);
+    expect(out).toEqual({ type: 'INVOICE', id: IX, name: 'INV202611-0090', orderNumber: 'ORD202611-020' });
+    expect(w.order(NATIVE).linkedDocuments.invoice).toEqual([{ id: IN, name: 'INV202611-0080' }]);
+    expect(w.order(NATIVE).invoiceDocumentId).toBeNull();
+    expect(docWrites(w, EXISTING_DOCS)).toEqual([]);
+    page = await w.orders.getById(NATIVE, ORG);
+    expect(page.invoices.map((i: any) => i.name)).toEqual(['INV202611-0080']);
+    // An invoice a job of the order is billed on stays (the job points at it).
+    await w.orders.linkImportedDocument(NATIVE, ORG, { type: 'INVOICE', id: IX }, w.actor);
+    w.db.delivery.push({ id: uid(90), organizationId: ORG, orderId: NATIVE, deliveryNumber: 31, status: 'completed', isDraft: false, orderInvoiceId: IX, createdAt: new Date(11) });
+    await expect(w.orders.unlinkImportedDocument(NATIVE, ORG, { type: 'INVOICE', id: IX }, w.actor)).rejects.toThrow('INV202611-0090 bills job #31 of this order: void it instead of unlinking it');
+    expect(w.order(NATIVE).linkedDocuments.invoice.map((x: any) => x.id)).toEqual([IN, IX]);
+  });
+
+  it('round 24: the AIMS order page carries the money summary and each invoice\'s date / owed (display only)', async () => {
+    const w = world();
+    const page: any = await w.orders.getById(NATIVE, ORG);
+    expect(page.summary).toMatchObject({ quoteTotal: 1090, billed: 1090, billedPct: 100, owed: 1090, billingSteps: [{ label: '1 of 2', state: 'Unpaid' }] });
+    expect(page.invoices).toEqual([expect.objectContaining({ id: IN, gross: 1090, owed: 1090, date: '2025-01-10' })]);
+    expect(page.sourceQuotation).toMatchObject({ id: QN, name: 'QO202611-0049', total: 1090 });
+    expect(page.subject).toBe('Degreasing');
+    // The imported page keeps its own reading and also lists the quotation's supplier invoices.
+    const imp: any = await w.orders.getById(PART, ORG);
+    expect(imp).toMatchObject({ quoteTotal: 2616, billed: 1308, billedPct: 50 });
+    expect(imp.supplierInvoices).toEqual({ rows: [], total: 0 });
   });
 
   it('pure helpers: holders, refusals, link lists (no mutation), unlinked remembered', () => {

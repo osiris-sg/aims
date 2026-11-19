@@ -22,4 +22,8 @@ test("WCT chip labels and colours", () => {
   assert.equal(wctStatusLabel("completed"), "Completed");
   assert.equal(wctStatusColor("overdue"), "error");
   assert.equal(wctStatusColor("paid"), "success");
+  // Past due with some paid (Elroy 2026-11-19): its own label, the Overdue colour; still ONE Overdue filter option.
+  assert.equal(wctStatusLabel("overdue_part_paid"), "Overdue · part paid");
+  assert.equal(wctStatusColor("overdue_part_paid"), wctStatusColor("overdue"));
+  assert.equal((wctStatusOptionsFor(["INVOICE"], true) || []).filter((o) => o.label.startsWith("Overdue")).length, 1);
 });

@@ -269,7 +269,7 @@ export default function DocumentListView({
   const dateHeader = useMemo(() => dateHeaderFor(documentTypes), [documentTypes]);
 
   // Real DO numbers (enableRealDoOnSchedule): a DO shows Pending / Completed / Cancelled next to its number.
-  const { isRealDoOnScheduleEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled, isWctDocNavEnabled, isQuotationTemplatesEnabled, isWctStatusesEnabled } = useOrganizationFeatures();
+  const { isRealDoOnScheduleEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled, isWctDocNavEnabled, isQuotationTemplatesEnabled, isWctStatusesEnabled, isSoftDeleteDraftsEnabled } = useOrganizationFeatures();
   // Quotation templates (enableQuotationTemplates, WCT group, 2026-11-19): "Create Quotation" gets an arrow ->
   // Create from template. Every other org / list: the plain Create button, as before.
   const templatesOn = quotationListTemplates(!!isQuotationTemplatesEnabled, createDocumentType);
@@ -740,7 +740,8 @@ export default function DocumentListView({
         >
           Open
         </MenuItem>
-        {rowMenu && ["draft", "unconfirmed"].includes(rowMenu.row.status || "unconfirmed") && (
+        {/* Drafts only; never an imported (old ERP) one. WCT group (enableSoftDeleteDrafts): hidden, number kept as a gap. */}
+        {rowMenu && ["draft", "unconfirmed"].includes(rowMenu.row.status || "unconfirmed") && !(rowMenu.row as any).imported && (
           <MenuItem
             sx={{ color: "error.main" }}
             onClick={() => {
@@ -758,7 +759,9 @@ export default function DocumentListView({
         <DialogTitle>Delete {documentLabel}</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Delete &quot;{docToDelete?.name || "this document"}&quot;? This cannot be undone.
+            {isSoftDeleteDraftsEnabled
+              ? `Delete "${docToDelete?.name || "this document"}"? Its number stays as a gap.`
+              : `Delete "${docToDelete?.name || "this document"}"? This cannot be undone.`}
           </DialogContentText>
         </DialogContent>
         <DialogActions>

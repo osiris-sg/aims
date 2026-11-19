@@ -10,6 +10,14 @@ import {
   Checkbox,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  IconButton,
+  Menu,
+  MenuItem,
   Paper,
   Stack,
   Table,
@@ -26,6 +34,7 @@ import SearchIcon from "@mui/icons-material/Search";
 import AddIcon from "@mui/icons-material/Add";
 import DownloadIcon from "@mui/icons-material/Download";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 import { request } from "@/helpers/request";
 import { MAX_BULK_REPORTS } from "@/helpers/serviceReportFiles";
 import { downloadServiceReportsZip } from "@/helpers/downloadServiceReportsZip";
@@ -42,6 +51,9 @@ interface ServiceData {
   scheduled?: boolean;
   /** Filed from the office as an existing file (Upload Service Report). */
   uploaded?: boolean;
+  /** Sent to the customer (signature link / email): never deleted. */
+  customerSentAt?: string | null;
+  emailSentAt?: string | null;
 }
 
 interface MsrRow {
@@ -90,7 +102,13 @@ const LIMIT = 20;
 export default function MaintenanceReportsListPage() {
   const router = useRouter();
   const { getToken } = useAuth();
-  const { isWctOrdersEnabled, isManualOrderFlowEnabled } = useOrganizationFeatures();
+  const { isWctOrdersEnabled, isManualOrderFlowEnabled, isSoftDeleteDraftsEnabled } = useOrganizationFeatures();
+  // Row ⋮ menu (WCT group, enableSoftDeleteDrafts, 2026-11-19): Open, and Delete for a report not sent to the customer
+  // (DELETE /maintenance-reports/:id: hidden, its number kept as a gap).
+  const [rowMenu, setRowMenu] = useState<{ pos: { left: number; top: number }; row: MsrRow } | null>(null);
+  const [toDelete, setToDelete] = useState<MsrRow | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   // WCT manual flow (2026-11-13): the order page's "Add service report" lands here with the customer + DO prefilled.
@@ -318,18 +336,19 @@ export default function MaintenanceReportsListPage() {
               <TableCell sx={{ fontWeight: 600, width: 140 }}>Service Date</TableCell>
               <TableCell sx={{ fontWeight: 600, width: 160 }}>Created</TableCell>
               <TableCell sx={{ fontWeight: 600, width: 160 }}>Status</TableCell>
+              {isSoftDeleteDraftsEnabled && <TableCell sx={{ width: 48 }} />}
             </TableRow>
           </TableHead>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={8} align="center" sx={{ py: 6 }}>
+                <TableCell colSpan={isSoftDeleteDraftsEnabled ? 9 : 8} align="center" sx={{ py: 6 }}>
                   <CircularProgress size={28} />
                 </TableCell>
               </TableRow>
             ) : docs.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} align="center" sx={{ py: 6, color: "text.secondary" }}>
+                <TableCell colSpan={isSoftDeleteDraftsEnabled ? 9 : 8} align="center" sx={{ py: 6, color: "text.secondary" }}>
                   {debouncedSearch ? "No reports match this search." : "No service reports yet."}
                 </TableCell>
               </TableRow>
@@ -376,6 +395,13 @@ export default function MaintenanceReportsListPage() {
                       {row.serviceData?.uploaded && <Chip size="small" label="Uploaded" variant="outlined" />}
                     </Stack>
                   </TableCell>
+                  {isSoftDeleteDraftsEnabled && (
+                    <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+                      <IconButton size="small" aria-label={`Actions for report ${row.reportNumber ?? ""}`} onClick={(e) => setRowMenu({ pos: { left: e.clientX, top: e.clientY }, row })}>
+                        <MoreVertIcon fontSize="small" />
+                      </IconButton>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))
             )}
@@ -407,6 +433,70 @@ export default function MaintenanceReportsListPage() {
           </Button>
         </Stack>
       </Stack>
+      <Menu anchorReference="anchorPosition" anchorPosition={rowMenu?.pos} open={!!rowMenu} onClose={() => setRowMenu(null)}>
+        <MenuItem
+          onClick={() => {
+            const r = rowMenu!.row;
+            setRowMenu(null);
+            router.push(`/portal/maintenance-reports/${r.id}`);
+          }}
+        >
+          Open
+        </MenuItem>
+        {rowMenu && !rowMenu.row.serviceData?.customerSentAt && !rowMenu.row.serviceData?.emailSentAt && (
+          <MenuItem
+            sx={{ color: "error.main" }}
+            onClick={() => {
+              const r = rowMenu!.row;
+              setRowMenu(null);
+              setDeleteError(null);
+              setToDelete(r);
+            }}
+          >
+            Delete
+          </MenuItem>
+        )}
+      </Menu>
+      <Dialog open={!!toDelete} onClose={() => !deleting && setToDelete(null)}>
+        <DialogTitle>Delete service report</DialogTitle>
+        <DialogContent>
+          <DialogContentText>Delete report {toDelete?.reportNumber != null ? `#${toDelete.reportNumber}` : "draft"}? Its number stays as a gap.</DialogContentText>
+          {deleteError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {deleteError}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setToDelete(null)} disabled={deleting}>
+            Cancel
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            disableElevation
+            disabled={deleting}
+            onClick={async () => {
+              if (!toDelete) return;
+              setDeleting(true);
+              setDeleteError(null);
+              try {
+                const token = await getToken();
+                const res: any = await request({ path: `/maintenance-reports/${toDelete.id}`, method: "DELETE", ownError: true }, {}, token ?? undefined);
+                if (res?.success === false) throw new Error(res?.message || "Could not delete the report");
+                setToDelete(null);
+                void load();
+              } catch (e: any) {
+                setDeleteError(e?.message || "Could not delete the report");
+              } finally {
+                setDeleting(false);
+              }
+            }}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

@@ -123,7 +123,8 @@ export class OrdersController {
   /**
    * Imported orders, round 19 (2026-11-19): "Link existing document". The customer's quotations / invoices / DOs /
    * service reports by number (each with the order it is already on), link one, unlink one. Activity Log: LINK /
-   * UNLINK rows (VERB_ACTIONS) whose result names the document and the order.
+   * UNLINK rows (VERB_ACTIONS) whose result names the document and the order. Round 24 (2026-11-19): an AIMS WCT
+   * order takes the same calls for a service report only (one order page for both kinds).
    */
   @Get(':id/link-options')
   @Permissions('orders:read')
