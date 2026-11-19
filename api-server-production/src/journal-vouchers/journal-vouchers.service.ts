@@ -198,6 +198,64 @@ export class JournalVouchersService {
     return this.toVoucher(doc);
   }
 
+  /**
+   * DUPLICATE a Journal Voucher (guru 2026-11-19: "why did aimee say this
+   * when there is a duplicate"). The Duplicate button has always been on the
+   * J/V toolbar, but it went through the generic /documents/:id/duplicate and
+   * landed on the sales-document editor, so the copy opened on the wrong
+   * screen. A J/V copies as a J/V: a NEW unconfirmed voucher dated TODAY with
+   * its own pending number, the same Dr/Cr lines, remarks and narration.
+   *
+   * What does NOT come across: the OFFSET allocations. Those settle named
+   * invoices, and the originals are already settled by the source voucher —
+   * copying them would settle them twice. An offset line keeps its account
+   * and description with the amount cleared, so the copy opens out of balance
+   * (incomplete = saved, NOT posted) until the user picks the invoices again.
+   */
+  async duplicate(organizationId: string, id: string, actor?: Actor) {
+    const src = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'JOURNAL_VOUCHER' } });
+    if (!src) throw new NotFoundException('Journal voucher not found');
+    const c: any = src.config || {};
+    const setting = await this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { timeZone: true } });
+    const lines = (Array.isArray(c.lines) ? c.lines : []).map((l: any, i: number) => {
+      const hadOffset = !!(l?.offset?.supplierId || l?.offset?.customerId);
+      return {
+        id: `l${i + 1}`,
+        accountCode: l?.accountCode || '',
+        description: l?.description || '',
+        remarks: l?.remarks || '',
+        debit: hadOffset ? 0 : Number(l?.debit) || 0,
+        credit: hadOffset ? 0 : Number(l?.credit) || 0,
+        offset: null,
+      };
+    });
+    const doc = await this.prisma.document.create({
+      data: {
+        organizationId,
+        documentTemplateId: src.documentTemplateId,
+        type: 'JOURNAL_VOUCHER',
+        name: JournalVouchersService.pendingNumber(),
+        status: 'unconfirmed',
+        config: {
+          date: orgToday(setting?.timeZone),
+          preparedBy: actor?.name || actor?.email || '',
+          notes: c.notes || '',
+          creditorAccountCode: c.creditorAccountCode || null,
+          debtorAccountCode: c.debtorAccountCode || null,
+          lines,
+        } as any,
+      },
+    });
+    void this.logEvent({
+      documentId: doc.id,
+      organizationId,
+      action: 'CREATED',
+      detail: `Journal Voucher copied from ${src.name || 'another voucher'}`,
+      actor,
+    });
+    return this.toVoucher(doc);
+  }
+
   async list(organizationId: string) {
     const docs = await this.prisma.document.findMany({ where: { organizationId, type: 'JOURNAL_VOUCHER' }, orderBy: { createdAt: 'desc' }, take: 500 });
     return docs.map((d) => this.toVoucher(d));

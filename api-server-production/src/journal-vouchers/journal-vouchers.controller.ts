@@ -72,6 +72,16 @@ export class JournalVouchersController {
     return this.service.getById(requireOrgId(req), id);
   }
 
+  // Duplicate — copies THIS voucher as a new unconfirmed one dated today
+  // (guru 2026-11-19). The generic /documents/:id/duplicate opened the copy on
+  // the sales-document editor; a J/V copy belongs on the J/V screen.
+  @Post(':id/duplicate')
+  @Permissions('journal:create')
+  @ApiOperation({ summary: 'Duplicate a Journal Voucher — same lines, new unconfirmed voucher dated today' })
+  duplicate(@Req() req: RequestWithOrganization, @Param('id') id: string) {
+    return this.service.duplicate(requireOrgId(req), id, actorFrom(req));
+  }
+
   @Put(':id')
   @Permissions('journal:create')
   @ApiOperation({ summary: 'Save a Journal Voucher — posts / updates its manual journal (number = voucher number)' })

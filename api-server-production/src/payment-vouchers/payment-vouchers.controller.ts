@@ -98,6 +98,16 @@ export class PaymentVouchersController {
     return this.service.getById(requireOrgId(req), id);
   }
 
+  // Duplicate — a copy of THIS voucher as a new unconfirmed one dated today
+  // (guru 2026-11-19); bank, payee and lines carry over, the bill offsets and
+  // the cheque number do not.
+  @Post(':id/duplicate')
+  @Permissions('payments:create')
+  @ApiOperation({ summary: 'Duplicate a Payment Voucher — same bank, payee and lines, new unconfirmed voucher dated today' })
+  duplicate(@Req() req: RequestWithOrganization, @Param('id') id: string) {
+    return this.service.duplicate(requireOrgId(req), id, actorFrom(req));
+  }
+
   @Put(':id')
   @Permissions('payments:update')
   @ApiOperation({ summary: 'Save a voucher — reposts its single journal, replaces the bill payments' })

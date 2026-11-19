@@ -289,6 +289,77 @@ export class PaymentVouchersService {
     return this.toVoucher(doc);
   }
 
+  /**
+   * DUPLICATE a Payment Voucher (guru 2026-11-19) — same treatment as the
+   * J/V: a NEW unconfirmed voucher dated TODAY, keeping the bank, payee,
+   * currency, narration and the GL lines, with its own number. The supplier
+   * OFFSET allocations never copy: those bills are already settled by the
+   * source voucher, so the offset line keeps its account with the amount
+   * cleared and the user picks the bills again. The cheque number does not
+   * copy either — one cheque, one voucher.
+   */
+  async duplicate(organizationId: string, id: string, actor?: Actor) {
+    const src = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'PAYMENT_VOUCHER' } });
+    if (!src) throw new NotFoundException('Payment voucher not found');
+    const c: any = src.config || {};
+    const [number, setting] = await Promise.all([
+      this.nextVoucherNumber(organizationId),
+      this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { timeZone: true } }),
+    ]);
+    const srcLines: any[] = Array.isArray(c.lines) ? c.lines : [];
+    const lines = srcLines.map((l: any, i: number) => {
+      const hadOffset = !!(l?.offset?.supplierId || l?.offset?.customerId);
+      return {
+        id: `l${i + 1}`,
+        accountCode: l?.accountCode || null,
+        description: l?.description || '',
+        remarks: l?.remarks || '',
+        amount: hadOffset ? 0 : Number(l?.amount) || 0,
+        offset: null,
+      };
+    });
+    const total = ROUND(lines.reduce((s2, l) => s2 + (Number(l.amount) || 0), 0));
+    const doc = await this.prisma.document.create({
+      data: {
+        organizationId,
+        documentTemplateId: src.documentTemplateId,
+        type: 'PAYMENT_VOUCHER',
+        name: number,
+        status: 'unconfirmed',
+        config: {
+          date: orgToday(setting?.timeZone),
+          bankAccountCode: c.bankAccountCode || c.creditAccountCode || null,
+          currency: c.currency || 'SGD',
+          rate: Number(c.rate) || 1,
+          payee: c.payee || '',
+          remarks: c.remarks || '',
+          notes: c.notes || '',
+          chequeNo: null,
+          preparedBy: actor?.name || actor?.email || '',
+          paymentMethod: c.paymentMethod || 'transfer',
+          creditorAccountCode: c.creditorAccountCode || c.debitAccountCode || null,
+          debtorAccountCode: c.debtorAccountCode || null,
+          lines,
+          // legacy mirrors
+          supplierId: null,
+          debitAccountCode: c.creditorAccountCode || c.debitAccountCode || null,
+          creditAccountCode: c.bankAccountCode || c.creditAccountCode || null,
+          voucherAmount: total,
+          allocations: [],
+        } as any,
+      },
+    });
+    void this.logEvent({
+      documentId: doc.id,
+      organizationId,
+      action: 'CREATED',
+      detail: `Payment Voucher ${number} copied from ${src.name || 'another voucher'}`,
+      documentName: number,
+      actor,
+    });
+    return this.toVoucher(doc);
+  }
+
   async list(organizationId: string) {
     const docs = await this.prisma.document.findMany({
       where: { organizationId, type: 'PAYMENT_VOUCHER' },

@@ -116,6 +116,16 @@ export class ReceiptsController {
     return this.service.getById(requireOrgId(req), id);
   }
 
+  // Duplicate — a copy of THIS receipt as a new unconfirmed one dated today
+  // (guru 2026-11-19); customer, bank and narration carry over, the invoice
+  // allocations, the amount and the cheque number do not.
+  @Post(':id/duplicate')
+  @Permissions('payments:create')
+  @ApiOperation({ summary: 'Duplicate an Official Receipt — same customer and bank, new unconfirmed receipt dated today' })
+  duplicate(@Req() req: RequestWithOrganization, @Param('id') id: string) {
+    return this.service.duplicate(requireOrgId(req), id, actorFrom(req));
+  }
+
   @Put(':id')
   @Permissions('payments:update')
   @ApiOperation({ summary: 'Save a receipt — replaces allocations, reposts its single journal' })

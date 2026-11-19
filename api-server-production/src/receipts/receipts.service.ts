@@ -217,6 +217,56 @@ export class ReceiptsService {
   }
 
   /**
+   * DUPLICATE an Official Receipt (guru 2026-11-19) — the same treatment as
+   * the J/V and the P/V: a NEW unconfirmed receipt dated TODAY with its own
+   * number, keeping the customer, the deposit bank, the currency, the method
+   * and the narration. The INVOICE ALLOCATIONS and the amount do not copy —
+   * the source receipt already settled those invoices and the same money is
+   * not received twice — nor does the cheque number.
+   */
+  async duplicate(organizationId: string, id: string, actor?: Actor) {
+    const src = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'OFFICIAL_RECEIPT' } });
+    if (!src) throw new NotFoundException('Receipt not found');
+    const c: any = src.config || {};
+    const [number, setting] = await Promise.all([
+      this.nextReceiptNumber(organizationId),
+      this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { timeZone: true } }),
+    ]);
+    const doc = await this.prisma.document.create({
+      data: {
+        organizationId,
+        documentTemplateId: src.documentTemplateId,
+        type: 'OFFICIAL_RECEIPT',
+        name: number,
+        status: 'unconfirmed',
+        config: {
+          date: orgToday(setting?.timeZone),
+          chequeNo: null,
+          remarks: c.remarks || '',
+          customerId: c.customerId || null,
+          customerName: c.customerName || null,
+          creditAccountCode: c.creditAccountCode || null,
+          debitAccountCode: c.debitAccountCode || null,
+          currency: c.currency || 'SGD',
+          rate: Number(c.rate) || 1,
+          receiptAmount: 0,
+          paymentMethod: c.paymentMethod || 'transfer',
+          allocations: [],
+        } as any,
+      },
+    });
+    void this.logEvent({
+      documentId: doc.id,
+      organizationId,
+      action: 'CREATED',
+      detail: `Official Receipt ${number} copied from ${src.name || 'another receipt'}`,
+      documentName: number,
+      actor,
+    });
+    return this.toReceipt(doc);
+  }
+
+  /**
    * List receipts, optionally one period at a time.
    *
    * The 500-row cap was safe while a receipt was something a person typed by

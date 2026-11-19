@@ -240,6 +240,7 @@ const LEGACY_BTN = {
   extract: legacyBtn("#B45309", "#92400E", "#F5C76B", "#F8D286", "#3D2300"),
   duplicate: legacyBtn("#0077C5", "#005F9E", "#8FC7F2", "#A5D3F5", "#082A44"),
   preview: legacyBtn("#BE185D", "#9D174D", "#F5A8C9", "#F8BBD6", "#4A0A2B"),
+  edit: legacyBtn("#D97706", "#B45309", "#F7CB7A", "#F9D694", "#3D2300"),
 };
 // A fully-uppercase tab label (a legacy config's "DETAILS") becomes Title case;
 // labels that already have lower-case letters (e.g. "Delivery Address") are
@@ -3838,6 +3839,31 @@ export default function TabbedDocumentCreator({
         return;
       }
 
+      // Receipts, payment vouchers and journal vouchers are documents, but
+      // they are not sales documents: each has its own copy endpoint (own
+      // numbering, offsets/allocations deliberately NOT copied) and its own
+      // editor route. The generic /documents/:id/duplicate opened the copy on
+      // the sales-document editor instead (guru 2026-11-19).
+      const voucherCopy = isJournalVoucher
+        ? { path: "/journal-vouchers", editor: "/portal/accounting/journal-vouchers", label: "Journal Voucher" }
+        : isPaymentVoucher
+        ? { path: "/payment-vouchers", editor: "/portal/accounting/payment-vouchers", label: "Payment Voucher" }
+        : isOfficialReceipt
+        ? { path: "/receipts", editor: "/portal/accounting/receipts", label: "Official Receipt" }
+        : null;
+      if (voucherCopy) {
+        const copied = await request({ path: `${voucherCopy.path}/${docId}/duplicate`, method: "POST" }, {}, token);
+        const newId = copied?.data?.id || copied?.id;
+        if (!newId) {
+          toast.error(copied?.message || `Failed to duplicate ${voucherCopy.label.toLowerCase()}`);
+          return;
+        }
+        toast.success(`${voucherCopy.label} duplicated`);
+        onDocumentCreated?.();
+        router.push(`${voucherCopy.editor}/${newId}${typeof window !== "undefined" ? window.location.search : ""}`);
+        return;
+      }
+
       const response = await request(
         { path: `/documents/${docId}/duplicate`, method: "POST", ownError: true },
         {},
@@ -5003,7 +5029,10 @@ export default function TabbedDocumentCreator({
               Voided here too. Real-DO orgs (enableRealDoOnSchedule) show the
               DO's Pending / Completed / Cancelled tag instead — it used to sit
               in the tracking strip below. */}
-          {!isTemplateEditMode && (documentId || existingData?.id) && (
+          {/* Receipts / vouchers have NO status (guru 2026-11-19): a complete
+              save is in the GL, an incomplete one is not, and the autosave pill
+              already says "Saved". No Unconfirmed / Confirmed chip for them. */}
+          {!isTemplateEditMode && (documentId || existingData?.id) && !isSettlementType && (
             <Box data-tour="editor-status" sx={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
               {isRealDoOnScheduleEnabled && String(actualDocumentType || "").toUpperCase() === "DELIVERY_ORDER" ? (
                 <DoStatusTag tag={docDoTag({ status: existingData?.status, config: existingData })} />
@@ -5337,6 +5366,15 @@ export default function TabbedDocumentCreator({
           {legacyLayout && (
             <Button size="small" variant="contained" startIcon={<ContentCopyIcon />} onClick={handleDuplicateDocument} disabled={!(existingData?.id || documentId)} sx={LEGACY_BTN.duplicate} data-tour="editor-legacy-duplicate">Duplicate</Button>
           )}
+          {/* Edit after confirm on the legacy toolbar too (guru 2026-11-19: "I
+              can't edit a confirmed document any more"). The coloured toolbar hid
+              the generic Edit button; this is the same unlock, behind the same
+              warning dialog, and every save after it lands in the document history
+              as "Edited after confirm" under the user's name. Paid invoices stay
+              locked — money is received through the receipt, not by editing. */}
+          {legacyLayout && confirmedReadOnly && !isPaidInvoice && (
+            <Button size="small" variant="contained" startIcon={<EditIcon />} onClick={() => setConfirmedEditWarningOpen(true)} sx={LEGACY_BTN.edit} data-tour="editor-legacy-edit">Edit</Button>
+          )}
           {/* enableQuotationESign (2026-11-13): CIEL's "Send for signature" toolbar
               button, just before Confirm Quotation; saved, unconfirmed quotations
               only (signing is what confirms them). */}
@@ -5542,6 +5580,16 @@ export default function TabbedDocumentCreator({
               <ListItemText>New {getDocumentTitle()}</ListItemText>
             </MenuItem>}
             {(existingData?.id || documentId) && !isSettlementDoc && !legacyLayout && (
+              <MenuItem onClick={() => { closeMoreMenu(); handleDuplicateDocument(); }}>
+                <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
+                <ListItemText>Duplicate</ListItemText>
+              </MenuItem>
+            )}
+            {/* Receipts / payment vouchers / journal vouchers copy too
+                (guru 2026-11-19) — same lines, new unconfirmed document dated
+                today; the settlement (offsets, allocations, cheque no) never
+                copies. The legacy layout has it as a toolbar button already. */}
+            {(existingData?.id || documentId) && isSettlementDoc && !legacyLayout && (
               <MenuItem onClick={() => { closeMoreMenu(); handleDuplicateDocument(); }}>
                 <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Duplicate</ListItemText>
@@ -5797,7 +5845,7 @@ export default function TabbedDocumentCreator({
                   title (2026-11-18); nothing sits at this strip's left now. */}
               {/* The legacy invoice/DO screen shows only Confirmed User + Last Used
                   (guru 2026-11-14: "remove the unconfirmed user"). */}
-              {!legacyLayout && (
+              {!legacyLayout && !isSettlementType && (
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                   <Typography variant="body2" sx={{ fontStyle: "italic", fontWeight: 600, color: "text.secondary" }}>
                     Unconfirmed User:
@@ -5813,6 +5861,9 @@ export default function TabbedDocumentCreator({
                   </Typography>
                 </Box>
               )}
+              {/* Receipts / vouchers are never "confirmed" (guru 2026-11-19), so
+                  neither user line applies to them — only Last Used. */}
+              {!isSettlementType && (
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                 <Typography variant="body2" sx={{ fontStyle: "italic", fontWeight: 600, color: "text.secondary" }}>
                   Confirmed User:
@@ -5823,6 +5874,7 @@ export default function TabbedDocumentCreator({
                     : '-'}
                 </Typography>
               </Box>
+              )}
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                 <Typography variant="body2" sx={{ fontWeight: 600, color: "text.secondary" }}>
                   Last Used:
