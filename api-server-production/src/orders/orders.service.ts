@@ -913,7 +913,11 @@ export class OrdersService {
       tracker: importedTracker(
         {
           erpDoNumbers: m?.erpDoNumbers,
-          dos: [...erpDos, ...ownDos.map((d: any) => ({ name: d.name, done: !!d.completed })), ...linkedNativeDos.map((d: any) => ({ name: d.name, done: String(d.status).startsWith('delivered') }))] as any,
+          dos: [
+            ...erpDos,
+            ...ownDos.map((d: any) => ({ id: d.id, templateId: d.templateId ?? null, name: d.name, done: !!d.completed })),
+            ...linkedNativeDos.map((d: any) => ({ id: d.id, templateId: d.documentTemplateId ?? null, name: d.name, done: String(d.status).startsWith('delivered') })),
+          ] as any,
           reports: reportsForTracker,
         },
         st,

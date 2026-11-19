@@ -166,3 +166,11 @@ test("round 19: Link dialog options and Create invoice lines", () => {
   assert.deepEqual(invoiceDialogLines({ remaining: { lines: [{ description: "Left", quantity: 1, unitPrice: 5, amount: 5, priced: true }] } }), [{ description: "Left", quantity: "1", unitPrice: "5", priced: true }]);
   assert.deepEqual(invoiceDialogLines({}), [{ description: "", quantity: "1", unitPrice: "0", priced: true }]);
 });
+
+test("imported order tracker cards: open the first document, else the add action (2026-11-19)", async () => {
+  const { trackerCardClick } = await import("./importedOrders.ts");
+  assert.deepEqual(trackerCardClick({ docs: [{ label: "DO012538", href: "/portal/documents/DELIVERY_ORDER/t1/d1" }], action: null }), { href: "/portal/documents/DELIVERY_ORDER/t1/d1" });
+  assert.deepEqual(trackerCardClick({ docs: [], action: "addDo" }), { action: "addDo" });
+  assert.deepEqual(trackerCardClick({ action: "addServiceReport" }), { action: "addServiceReport" });
+  assert.equal(trackerCardClick({ docs: [{ label: "x", href: null }] }), null);
+});

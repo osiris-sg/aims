@@ -281,6 +281,13 @@ describe('imported orders: numbering + tracker', () => {
     const none: any[] = importedTracker({}, { label: 'Paid' });
     expect([none[2].note, none[2].subNote]).toEqual(['Not yet', null]);
     expect(t.some((s) => s.state === 'na')).toBe(false);
+    // Once there: the card lists its documents, each a link.
+    const withDocs: any[] = importedTracker(
+      { dos: [{ id: 'd1', templateId: 't1', name: 'DO012538', done: true }], reports: [{ id: 'r1', reportNumber: 12, status: 'completed' }] },
+      { label: 'Paid' },
+    );
+    expect(withDocs[2].docs).toEqual([{ label: 'DO012538', status: 'Completed', href: '/portal/documents/DELIVERY_ORDER/t1/d1' }]);
+    expect(withDocs[3].docs).toEqual([{ label: '#12', status: 'Completed', href: '/portal/maintenance-reports/r1' }]);
   });
 });
 

@@ -2,6 +2,7 @@
 
 import React, { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import NextLink from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import moment from "moment";
 import { toast } from "react-toastify";
@@ -44,6 +45,7 @@ import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import PendingOutlinedIcon from "@mui/icons-material/PendingOutlined";
 import MainCard from "@/components/MainCard";
 import StatusPill from "../_components/StatusPill";
+import { trackerCardClick } from "@/helpers/importedOrders";
 import {
   IMPORTED_LINK_TYPES,
   importedBilledPct,
@@ -288,34 +290,66 @@ export default function ImportedOrderDetail({ order, onBack, onChanged }: { orde
       </Stack>
 
       <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mb: 3 }} data-tour="imported-order-tracker">
-        {order.tracker.map((s) => (
-          <Box key={s.key} sx={{ flex: 1, p: 1.5, border: 1, borderColor: "divider", borderRadius: 1, opacity: s.state === "na" ? 0.7 : 1 }}>
+        {order.tracker.map((s) => {
+          // 2026-11-19: the DO and Service report cards open their document, else their add action (like native orders).
+          const click = trackerCardClick(s);
+          const canClick = !!click && (!("action" in click) || click.action !== "addDo" || manualFlow);
+          const onCard = (e: React.MouseEvent) => {
+            if (!click || !canClick) return;
+            if ("href" in click) router.push(click.href);
+            else if (click.action === "addDo") void addDo();
+            else setSrMenu({ pos: { left: e.clientX, top: e.clientY } });
+          };
+          return (
+          <Box
+            key={s.key}
+            onClick={canClick ? onCard : undefined}
+            sx={{ flex: 1, p: 1.5, border: 1, borderColor: "divider", borderRadius: 1, opacity: s.state === "na" ? 0.7 : 1, cursor: canClick ? "pointer" : "default", "&:hover": canClick ? { bgcolor: "action.hover" } : undefined }}
+          >
             <Stack direction="row" spacing={1} alignItems="center">
               {s.state === "done" ? <CheckCircleIcon fontSize="small" color="success" /> : s.state === "todo" ? <PendingOutlinedIcon fontSize="small" color="warning" /> : <RemoveCircleOutlineIcon fontSize="small" sx={{ color: "text.disabled" }} />}
               <Typography variant="body2" sx={{ fontWeight: 600 }}>
                 {s.label}
               </Typography>
             </Stack>
-            <Typography variant="caption" color="text.secondary" component="div">
-              {s.note || (s.state === "done" ? "Done" : "")}
-            </Typography>
+            {s.docs?.length ? (
+              s.docs.map((d, i) => (
+                <Typography key={i} variant="caption" color="text.secondary" component="div">
+                  {d.href ? (
+                    <NextLink href={d.href} onClick={(e) => e.stopPropagation()} style={{ color: "inherit", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+                      {d.label}
+                    </NextLink>
+                  ) : (
+                    <Box component="span" sx={{ color: "text.primary", fontWeight: 600 }}>
+                      {d.label}
+                    </Box>
+                  )}
+                  {d.status ? ` · ${d.status}` : ""}
+                </Typography>
+              ))
+            ) : (
+              <Typography variant="caption" color="text.secondary" component="div">
+                {s.note || (s.state === "done" ? "Done" : "")}
+              </Typography>
+            )}
             {s.subNote && (
               <Typography variant="caption" color="text.secondary" component="div">
                 {s.subNote}
               </Typography>
             )}
             {s.action === "addDo" && manualFlow && (
-              <Link component="button" type="button" variant="caption" underline="hover" disabled={addingDo} onClick={() => void addDo()} sx={{ display: "block", mt: 0.5 }}>
+              <Link component="button" type="button" variant="caption" underline="hover" disabled={addingDo} onClick={(e: React.MouseEvent) => { e.stopPropagation(); void addDo(); }} sx={{ display: "block", mt: 0.5 }}>
                 Add DO
               </Link>
             )}
             {s.action === "addServiceReport" && (
-              <Link component="button" type="button" variant="caption" underline="hover" onClick={(e: React.MouseEvent) => setSrMenu({ pos: { left: e.clientX, top: e.clientY } })} sx={{ display: "block", mt: 0.5 }}>
+              <Link component="button" type="button" variant="caption" underline="hover" onClick={(e: React.MouseEvent) => { e.stopPropagation(); setSrMenu({ pos: { left: e.clientX, top: e.clientY } }); }} sx={{ display: "block", mt: 0.5 }}>
                 Add service report
               </Link>
             )}
           </Box>
-        ))}
+          );
+        })}
       </Stack>
 
       {order.status === "PART_BILLED" && left.length > 0 && (

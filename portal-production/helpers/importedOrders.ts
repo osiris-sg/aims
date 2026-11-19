@@ -24,7 +24,16 @@ export interface ImportedOrder {
   subject?: string | null;
   sourceQuotation?: (ImportedDocRef & { date?: string | null; total?: number | null }) | null;
   /** subNote: a plain second line (the ERP DO no.); action: the card's add link when nothing is there yet. */
-  tracker: Array<{ key: string; label: string; state: "done" | "na" | "todo"; note?: string | null; subNote?: string | null; action?: "addDo" | "addServiceReport" | null }>;
+  /** docs: the step's documents (DO / service report), each a link; the card opens the first. */
+  tracker: Array<{
+    key: string;
+    label: string;
+    state: "done" | "na" | "todo";
+    note?: string | null;
+    subNote?: string | null;
+    action?: "addDo" | "addServiceReport" | null;
+    docs?: Array<{ label: string; status?: string | null; href?: string | null }>;
+  }>;
   invoices: Array<ImportedDocRef & { date?: string | null; total?: number | null; owed: number; credit?: number; state?: string; stateLabel?: string; linkSource?: string | null; erpDoNumber?: string | null }>;
   creditNotes: Array<ImportedDocRef & { total?: number | null }>;
   total: number;
@@ -270,3 +279,11 @@ export const isImportedTab = (tab: string) => tab.startsWith(IMP);
 /** An imported row matches All or its own imported status entry; never an AIMS status entry. */
 export const importedMatchesTab = (row: { imported?: boolean; status?: string | null }, tab: string) =>
   row.imported === true && (tab === "all" || tab === IMP + row.status);
+
+/** What a tracker card does on click (2026-11-19, like native orders): open its first document, else its add action. */
+export function trackerCardClick(step: { docs?: Array<{ href?: string | null }> | null; action?: string | null }): { href: string } | { action: "addDo" | "addServiceReport" } | null {
+  const href = (step.docs ?? []).find((d) => d.href)?.href;
+  if (href) return { href };
+  if (step.action === "addDo" || step.action === "addServiceReport") return { action: step.action };
+  return null;
+}

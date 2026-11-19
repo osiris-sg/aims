@@ -579,7 +579,11 @@ export const IMPORTED_STATUS_LABEL = (s: Pick<ImportedOrderStatus, 'label'>): st
  * DO and Service report not applicable (the old ERP's DO numbers shown as text).
  */
 export function importedTracker(
-  order: { erpDoNumbers?: string[]; dos?: Array<{ name?: string | null; erpStatus?: string | null; done?: boolean | null }>; reports?: Array<{ reportNumber?: number | null; status?: string | null }> },
+  order: {
+    erpDoNumbers?: string[];
+    dos?: Array<{ id?: string | null; templateId?: string | null; name?: string | null; erpStatus?: string | null; done?: boolean | null }>;
+    reports?: Array<{ id?: string | null; reportNumber?: number | null; status?: string | null }>;
+  },
   st: Pick<ImportedOrderStatus, 'label'> & { status?: string },
 ) {
   // 2026-11-19: ERP DOs imported and linked: the DO step shows them; an order made from a DO has no invoice yet.
@@ -591,7 +595,14 @@ export function importedTracker(
     { key: 'quotation', label: 'Quotation', state: 'done' as const },
     { key: 'invoice', label: 'Invoice', state: noInvoice ? ('todo' as const) : ('done' as const), note: noInvoice ? 'Invoice pending' : IMPORTED_STATUS_LABEL(st) },
     dos.length
-      ? { key: 'do', label: 'DO', state: dos.every((d) => importedDoDone(d)) ? ('done' as const) : ('todo' as const), note: dos.map((d) => `${d.name} (${importedDoDone(d) ? 'Completed' : 'Draft'})`).join(', ') }
+      ? {
+          key: 'do',
+          label: 'DO',
+          state: dos.every((d) => importedDoDone(d)) ? ('done' as const) : ('todo' as const),
+          note: dos.map((d) => `${d.name} (${importedDoDone(d) ? 'Completed' : 'Draft'})`).join(', '),
+          // 2026-11-19: the card opens its DO; each number is a link (like native orders).
+          docs: dos.map((d) => ({ label: String(d.name), status: importedDoDone(d) ? 'Completed' : 'Draft', href: d.id && d.templateId ? `/portal/documents/DELIVERY_ORDER/${d.templateId}/${d.id}` : null })),
+        }
       : // 2026-11-19 (Elroy): never "Not applicable": "Not yet" + Add DO; the ERP DO no., when known, as a plain note.
         { key: 'do', label: 'DO', state: 'todo' as const, note: 'Not yet', subNote: order.erpDoNumbers?.length ? `ERP DO ${order.erpDoNumbers.join(', ')}` : null, action: 'addDo' as const },
     reports.length
@@ -600,6 +611,7 @@ export function importedTracker(
           label: 'Service report',
           state: reports.every((r) => r.status === 'completed') ? ('done' as const) : ('todo' as const),
           note: reports.map((r) => (r.reportNumber ? `#${r.reportNumber}` : 'Draft')).join(', '),
+          docs: reports.map((r) => ({ label: r.reportNumber ? `#${r.reportNumber}` : 'Draft', status: r.status === 'completed' ? 'Completed' : 'Draft', href: r.id ? `/portal/maintenance-reports/${r.id}` : null })),
         }
       : { key: 'serviceReport', label: 'Service report', state: 'todo' as const, note: 'Not yet', action: 'addServiceReport' as const },
   ];
