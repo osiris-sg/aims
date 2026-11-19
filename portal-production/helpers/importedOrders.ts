@@ -21,7 +21,7 @@ export interface ImportedOrder {
   customer?: { id: string; name: string } | null;
   subject?: string | null;
   sourceQuotation?: (ImportedDocRef & { date?: string | null; total?: number | null }) | null;
-  tracker: Array<{ key: string; label: string; state: "done" | "na"; note?: string | null }>;
+  tracker: Array<{ key: string; label: string; state: "done" | "na" | "todo"; note?: string | null }>;
   invoices: Array<ImportedDocRef & { date?: string | null; total?: number | null; owed: number; credit?: number; state?: string; stateLabel?: string; linkSource?: string | null; erpDoNumber?: string | null }>;
   creditNotes: Array<ImportedDocRef & { total?: number | null }>;
   total: number;
@@ -37,6 +37,10 @@ export interface ImportedOrder {
   /** "1 of 2" when the quotation has one priced line. */
   progress?: { billed: number; quoted: number } | null;
   draftInvoice?: { id: string; name: string | null; templateId: string | null } | null;
+  /** "1 of 2 Paid · 2 of 2 Draft" (one priced quotation line). */
+  billingSteps?: Array<{ label: string; state: string }>;
+  /** Create invoice's prefilled number (the first imported invoice's number + "-02"…). */
+  suggestedInvoiceNumber?: string | null;
   canInvoice?: boolean;
   canComplete?: boolean;
   canReopen?: boolean;
@@ -83,7 +87,11 @@ export function importedDocHref(d: ImportedDocRef | null | undefined, fallbackTy
 
 export const importedMoney = (n?: number | null) => (n == null ? "" : `S$ ${Number(n).toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 
-export const importedStatusHue = (status: string) => (status === "PAID" ? "#22c55e" : status === "PART_BILLED" ? "#d97706" : status === "COMPLETED" ? "#64748b" : "#6d28d9");
+export const importedStatusHue = (status: string) =>
+  status === "PAID" ? "#22c55e" : status === "PART_BILLED" ? "#d97706" : status === "COMPLETED" ? "#64748b" : status === "DO_DRAFT" || status === "DO_COMPLETED" ? "#0284c7" : "#6d28d9";
+
+/** "1 of 2 Paid · 2 of 2 Draft" from the order's billing steps. */
+export const importedSteps = (steps?: Array<{ label: string; state: string }> | null) => (steps ?? []).map((x) => `${x.label} ${x.state}`).join(" · ");
 
 /** "1 of 2" (billed of quoted, one priced line), else "". */
 export const importedProgress = (p?: { billed: number; quoted: number } | null) => (p && p.quoted > 0 ? `${Number(p.billed).toLocaleString("en-SG")} of ${Number(p.quoted).toLocaleString("en-SG")}` : "");
@@ -100,6 +108,8 @@ export const IMPORTED_STATUS_TABS: Array<{ key: string; label: string }> = [
   { key: "INVOICED", label: "Invoiced" },
   { key: "PAID", label: "Paid" },
   { key: "COMPLETED", label: "Complete" },
+  { key: "DO_DRAFT", label: "DO draft" },
+  { key: "DO_COMPLETED", label: "DO completed, invoice pending" },
 ];
 const IMP = "imported:";
 /** Status filter entries for imported rows (keys prefixed so they never mix with the AIMS order statuses). */

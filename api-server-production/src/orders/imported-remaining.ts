@@ -168,3 +168,41 @@ export function remainingForOrder(args: {
     subject: qc.subject ?? null,
   });
 }
+
+/**
+ * "1 of 2 Paid · 2 of 2 Draft" (2026-11-19): when the quotation has ONE priced line, each invoice on the order (in
+ * date order, drafts last) as the running qty it brings that line to, with its state. Empty otherwise.
+ */
+export function billingSteps(quoteItems: QuoteLine[], invoices: Array<{ items: QuoteLine[]; state: string }>): Array<{ label: string; state: string }> {
+  const priced = (quoteItems || []).filter(isRow).filter(isPriced);
+  if (priced.length !== 1) return [];
+  const key = norm(priced[0].description);
+  const quoted = num(priced[0].quantity);
+  if (!quoted) return [];
+  let running = 0;
+  const out: Array<{ label: string; state: string }> = [];
+  for (const inv of invoices) {
+    const qty = (inv.items || []).filter(isRow).filter(isPriced).filter((l) => norm(l.description) === key || (key && (norm(l.description).startsWith(key) || key.startsWith(norm(l.description))))).reduce((t, l) => t + (num(l.quantity) || 1), 0);
+    if (!qty) continue;
+    running = R2(running + qty);
+    out.push({ label: `${running} of ${quoted}`, state: inv.state });
+  }
+  return out;
+}
+
+/** The suggested number for a new invoice on an imported order: the first imported invoice's number + "-02", "-03"… (never one in use). */
+export function suggestedInvoiceNumber(baseNumber: string | null | undefined, invoiceCount: number, taken: Set<string>): string | null {
+  const base = String(baseNumber ?? '').trim().replace(/-\d{2}$/, '');
+  if (!base) return null;
+  for (let k = Math.max(2, invoiceCount + 1); k < 100; k++) {
+    const n = `${base}-${String(k).padStart(2, '0')}`;
+    if (!taken.has(n.toLowerCase())) return n;
+  }
+  return null;
+}
+
+/** An invoice number typed by a person: 1 to 40 characters, letters / digits / - / _ . /, starting with a letter or digit. */
+export const validInvoiceNumber = (s: unknown): string | null => {
+  const t = String(s ?? '').trim();
+  return /^[A-Za-z0-9][A-Za-z0-9\-_./]{0,39}$/.test(t) ? t : null;
+};

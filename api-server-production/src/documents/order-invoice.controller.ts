@@ -1,4 +1,4 @@
-import { Controller, Get, HttpException, HttpStatus, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpException, HttpStatus, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ClerkAuthGuard } from 'src/auth/clerk-auth.guard';
 import { Permissions } from 'src/auth/decorators/permissions.decorator';
 import { DocumentsService } from './documents.service';
@@ -51,10 +51,10 @@ export class OrderInvoiceController {
    */
   @Post(':id/invoice-remaining')
   @Permissions('documents:update')
-  async invoiceRemaining(@Param('id') id: string, @Req() req: any) {
+  async invoiceRemaining(@Param('id') id: string, @Body() body: any, @Req() req: any) {
     const orgId = req.userOrganization?.id;
     if (!orgId) throw new HttpException('User is not assigned to any organization', HttpStatus.FORBIDDEN);
-    const inv: any = await this.documents.invoiceImportedOrderRemainder(id, orgId);
+    const inv: any = await this.documents.invoiceImportedOrderRemainder(id, orgId, { number: body?.number ?? null, lines: Array.isArray(body?.lines) ? body.lines : null });
     return { id: inv.id, name: inv.name, type: 'INVOICE', href: `/portal/documents/INVOICE/${inv.documentTemplateId}/${inv.id}` };
   }
 

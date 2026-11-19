@@ -337,7 +337,7 @@ export function planImportedOrders(
     const q = ex.sourceQuotationId ? quoteById.get(ex.sourceQuotationId) ?? null : null;
     const credits = creditsFor(all);
     const quoteTotal = q ? grossOf(q.config) : m.quoteTotal ?? null;
-    const st = importedOrderStatus(all.map((i) => ({ ...i.doc, credit: credits[i.doc.id] ?? 0 })), quoteTotal, { completed: importedCompletionOf(ex), partBilledRule: usesPartBilledRule(ex) });
+    const st = importedOrderStatus(all.map((i) => ({ ...i.doc, credit: credits[i.doc.id] ?? 0 })), quoteTotal, { completed: importedCompletionOf(ex), partBilledRule: usesPartBilledRule(ex), dos: importedDosOf(ex) });
     const curCn: string[] = Array.isArray(ld.creditNote) ? ld.creditNote.map((x: any) => x?.id) : [];
     const addCreditNotes = all.flatMap((i) => cnByInvoice.get(i.doc.id) ?? []).filter((c) => !curCn.includes(c.id));
     const changes: string[] = [];
@@ -435,7 +435,7 @@ export const IMPORTED_INVOICE_STATE_LABEL: Record<ImportedInvoiceState, string> 
  * full, something unpaid; PAID = billed in full and every invoice settled; COMPLETED = marked complete (by a
  * person, or assumed closed by age).
  */
-export type ImportedOrderStatusCode = 'INVOICED' | 'PAID' | 'PART_BILLED' | 'COMPLETED';
+export type ImportedOrderStatusCode = 'INVOICED' | 'PAID' | 'PART_BILLED' | 'COMPLETED' | 'DO_DRAFT' | 'DO_COMPLETED';
 
 const EPS = 0.005;
 const R2 = (n: number) => Math.round(n * 100) / 100;
@@ -500,7 +500,7 @@ export const isCountedInvoice = (d: { status?: string; config?: any }) => d?.con
 export function importedOrderStatus(
   invoices: Array<{ status?: string; config: any; credit?: number }>,
   quoteTotal: number | null | undefined,
-  opts: { completed?: ImportedCompletion | null; partBilledRule?: boolean } = {},
+  opts: { completed?: ImportedCompletion | null; partBilledRule?: boolean; dos?: Array<{ erpStatus?: string | null }> } = {},
 ): ImportedOrderStatus {
   const live = invoices.filter(isCountedInvoice);
   const money = live.map((d) => importedInvoiceMoney(d, d.credit ?? 0));
@@ -519,6 +519,11 @@ export function importedOrderStatus(
     credited: R2(money.reduce((t, m) => t + m.credit, 0)),
   };
   if (opts.completed) return { status: 'COMPLETED', label: 'Complete', ...base };
+  // Imported from an ERP DO before any invoice (2026-11-19): the DO's state, Billed 0%.
+  if (!live.length && opts.dos?.length) {
+    const done = opts.dos.every((d) => /sign|complet|deliver/i.test(String(d.erpStatus ?? '')));
+    return done ? { status: 'DO_COMPLETED', label: 'DO completed, invoice pending', ...base } : { status: 'DO_DRAFT', label: 'DO draft', ...base };
+  }
   if (!opts.partBilledRule) {
     // The 18 Nov rule (orders without the 2026-11-19 mark): Paid = every invoice settled; $0 invoiced against a real
     // quotation total is not Paid (a $0 quotation with $0 invoiced stays Paid).
@@ -537,11 +542,16 @@ export const IMPORTED_STATUS_LABEL = (s: Pick<ImportedOrderStatus, 'label'>): st
  * The order page's tracker for an imported order: Quotation and Invoice done,
  * DO and Service report not applicable (the old ERP's DO numbers shown as text).
  */
-export function importedTracker(order: { erpDoNumbers?: string[] }, st: Pick<ImportedOrderStatus, 'label'>) {
+export function importedTracker(order: { erpDoNumbers?: string[]; dos?: Array<{ name?: string | null; erpStatus?: string | null }> }, st: Pick<ImportedOrderStatus, 'label'> & { status?: string }) {
+  // 2026-11-19: ERP DOs imported and linked: the DO step shows them; an order made from a DO has no invoice yet.
+  const dos = (order.dos ?? []).filter((d) => d && d.name);
+  const noInvoice = st.status === 'DO_DRAFT' || st.status === 'DO_COMPLETED';
   return [
     { key: 'quotation', label: 'Quotation', state: 'done' as const },
-    { key: 'invoice', label: 'Invoice', state: 'done' as const, note: IMPORTED_STATUS_LABEL(st) },
-    { key: 'do', label: 'DO', state: 'na' as const, note: order.erpDoNumbers?.length ? `ERP DO ${order.erpDoNumbers.join(', ')}` : null },
+    { key: 'invoice', label: 'Invoice', state: noInvoice ? ('todo' as const) : ('done' as const), note: noInvoice ? 'Invoice pending' : IMPORTED_STATUS_LABEL(st) },
+    dos.length
+      ? { key: 'do', label: 'DO', state: 'done' as const, note: dos.map((d) => `${d.name}${d.erpStatus ? ` (${d.erpStatus})` : ''}`).join(', ') }
+      : { key: 'do', label: 'DO', state: 'na' as const, note: order.erpDoNumbers?.length ? `ERP DO ${order.erpDoNumbers.join(', ')}` : null },
     { key: 'serviceReport', label: 'Service report', state: 'na' as const, note: null },
   ];
 }
@@ -565,8 +575,14 @@ export async function refreshImportedOrderStatus(prisma: any, organizationId: st
   const st = importedOrderStatus(
     docs.map((d) => ({ ...d, credit: Number(m.credits?.[d.id]) || creditOfImportedInvoice(d.config) })),
     quoteTotal,
-    { completed: importedCompletionOf(order), partBilledRule: usesPartBilledRule(order) },
+    { completed: importedCompletionOf(order), partBilledRule: usesPartBilledRule(order), dos: importedDosOf(order) },
   );
   if (st.status !== order.status) await prisma.order.update({ where: { id: order.id }, data: { status: st.status } });
   return st;
 }
+
+/** The order's ERP DOs (linkedDocuments.do, imported) for the status: their ERP state. */
+export const importedDosOf = (order: { linkedDocuments?: unknown } | null | undefined): Array<{ erpStatus?: string | null }> => {
+  const list = (order?.linkedDocuments as any)?.do;
+  return Array.isArray(list) ? list.filter((d: any) => d && d.imported === true) : [];
+};

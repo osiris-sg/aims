@@ -20,16 +20,16 @@ import { photosFileOf } from '../maintenance-reports/uploaded-report';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { taggedSinsView } from '../bills/bill-quotation';
 import { bySchedule, dueBy } from '../deliveries/all-day';
-import { IMPORTED_INVOICE_STATE_LABEL, IMPORTED_ORDER_READ_ONLY, assertNotImportedOrder, billedPercent, creditOfImportedInvoice, importedCompletionOf, importedInvoiceMoney, importedMarkerOf, importedOrderStatus, importedTracker, isCountedInvoice, isImportedOrder, isImportedOrdersEnabled, refreshImportedOrderStatus, usesPartBilledRule } from './imported-orders';
+import { IMPORTED_INVOICE_STATE_LABEL, IMPORTED_ORDER_READ_ONLY, assertNotImportedOrder, billedPercent, creditOfImportedInvoice, importedCompletionOf, importedInvoiceMoney, importedMarkerOf, importedOrderStatus, importedTracker, isCountedInvoice, isImportedOrder, isImportedOrdersEnabled, refreshImportedOrderStatus, usesPartBilledRule, importedDosOf } from './imported-orders';
 import { isErpImported } from '../common/erp-import';
-import { remainingForOrder } from './imported-remaining';
+import { billingSteps, remainingForOrder, suggestedInvoiceNumber } from './imported-remaining';
 import { grossOf } from '../common/document-money';
 
 /** Imported orders are numbered ORD-<quotation no.> (imported-orders.ts); no native number starts so. */
 const IMPORTED_NUMBER_PREFIX = 'ORD-Q-';
 const NOT_IMPORTED_NUMBER = { NOT: { orderNumber: { startsWith: IMPORTED_NUMBER_PREFIX } } };
 /** Imported order status codes as words (imported-orders.ts ImportedOrderStatusCode). */
-const IMPORTED_STATUS_TEXT: Record<string, string> = { PAID: 'Paid', INVOICED: 'Invoiced', PART_BILLED: 'Part billed', COMPLETED: 'Complete' };
+const IMPORTED_STATUS_TEXT: Record<string, string> = { PAID: 'Paid', INVOICED: 'Invoiced', PART_BILLED: 'Part billed', COMPLETED: 'Complete', DO_DRAFT: 'DO draft', DO_COMPLETED: 'DO completed, invoice pending' };
 
 /**
  * Orders are auto-created when a quotation is confirmed (gated by the
@@ -522,7 +522,7 @@ export class OrdersService {
       .filter(Boolean)
       .map((d: any) => ({ ...d, credit: Number(m.credits?.[d.id]) || creditOfImportedInvoice(d.config) }));
     const quoteTotal = m.quoteTotal != null && Number.isFinite(Number(m.quoteTotal)) ? Number(m.quoteTotal) : quoteConfig ? grossOf(quoteConfig) : null;
-    return importedOrderStatus(invs, quoteTotal, { completed: importedCompletionOf(order), partBilledRule: usesPartBilledRule(order) });
+    return importedOrderStatus(invs, quoteTotal, { completed: importedCompletionOf(order), partBilledRule: usesPartBilledRule(order), dos: importedDosOf(order) });
   }
 
   /** Billed % from the order's stored links (invoice totals, credits, quotation total), no document read. */
@@ -616,6 +616,21 @@ export class OrdersService {
     const qc: any = row.sourceQuotation?.config || {};
     // What is left to bill (2026-11-19): the quotation's lines minus what the counted, not fully credited invoices billed.
     const remaining = remainingForOrder({ marker: m, invoiceDocs: invDocs, quotation: row.sourceQuotation ? { name: row.sourceQuotation.name, config: qc } : null, quoteTotal: st.quoteTotal, billed: st.billed });
+    // "1 of 2 Paid · 2 of 2 Draft": imported invoices by date, then AIMS ones (drafts last).
+    const stateOf = (d: any) => (!isErpImported(d.config) && !isCountedInvoice(d) ? 'Draft' : IMPORTED_INVOICE_STATE_LABEL[importedInvoiceMoney(d, Number(m?.credits?.[d.id]) || creditOfImportedInvoice(d.config)).state]);
+    const ordered = [...invDocs].sort((a: any, b: any) => (isCountedInvoice(a) ? 0 : 1) - (isCountedInvoice(b) ? 0 : 1) || String(a.config?.date ?? '').localeCompare(String(b.config?.date ?? '')));
+    const steps = billingSteps(Array.isArray(qc.items) ? qc.items : [], ordered.map((d: any) => ({ items: Array.isArray(d.config?.items) ? d.config.items : [], state: stateOf(d) })));
+    // The suggested number for Create invoice: the first imported invoice's number + "-02" (never one in use).
+    const firstImported: any = invDocs.find((d: any) => isErpImported(d.config));
+    let suggestedNumber: string | null = null;
+    if (firstImported?.name) {
+      const base = String(firstImported.name).replace(/-\d{2}$/, '');
+      const taken = new Set(
+        (await this.prisma.document.findMany({ where: { organizationId, type: 'INVOICE', name: { startsWith: base } }, select: { name: true } })).map((d: any) => String(d.name).toLowerCase()),
+      );
+      // Counted (confirmed) invoices only: a draft still being made does not move the suffix.
+      suggestedNumber = suggestedInvoiceNumber(base, invDocs.filter((d: any) => isCountedInvoice(d)).length, taken);
+    }
     // A new AIMS invoice for the order that is still a draft: open it instead of making a second one.
     const draft = invDocs.find((d: any) => !isErpImported(d.config) && !isCountedInvoice(d) && d.config?.voided !== true);
     const completed = importedCompletionOf(row);
@@ -629,6 +644,9 @@ export class OrdersService {
       completed: completed ? { reason: completed.reason, at: completed.at, byName: completed.byName, auto: completed.auto } : null,
       remaining: st.status === 'PART_BILLED' || (completed && remaining.remainingGross > 0) ? remaining : null,
       progress: remaining.progress,
+      billingSteps: steps,
+      suggestedInvoiceNumber: suggestedNumber,
+      dos: importedDosOf(row),
       draftInvoice: draft ? { id: draft.id, name: draft.name, templateId: draft.documentTemplateId } : null,
       canInvoice: st.status === 'PART_BILLED' && !draft && remaining.remainingGross > 0,
       canComplete: st.status !== 'COMPLETED',
@@ -646,7 +664,7 @@ export class OrdersService {
       subject: m?.subject ?? (qc.subject || null),
       site: m?.site ?? null,
       erpDoNumbers: Array.isArray(m?.erpDoNumbers) ? m.erpDoNumbers : [],
-      tracker: importedTracker({ erpDoNumbers: m?.erpDoNumbers }, st),
+      tracker: importedTracker({ erpDoNumbers: m?.erpDoNumbers, dos: importedDosOf(row) as any }, st),
       invoices: invDocs.map((d: any) => {
         const money = importedInvoiceMoney(d, Number(m?.credits?.[d.id]) || creditOfImportedInvoice(d.config));
         return {

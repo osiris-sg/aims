@@ -114,3 +114,50 @@ describe('imported orders: Mark complete / Reopen', () => {
     await expect(orders(w).markImportedComplete('o1', ORG, { reason: 'x' }, {})).rejects.toThrow(/imported from the old ERP/);
   });
 });
+
+describe('Create invoice: typed number, edited lines (2026-11-19)', () => {
+  it('I-014521-02 typed: the document is named so (nameOverride, the INV counter is not used); edited lines kept', async () => {
+    const { svc } = world();
+    await svc.invoiceImportedOrderRemainder('o1', ORG, { number: ' I-014521-02 ', lines: [{ description: 'Maintenance agreement, 2nd service', quantity: 1, unitPrice: 1200 }, { description: 'S- Area cleaning', quantity: 1, unitPrice: 0 }] });
+    const call = svc.createBasicDocument.mock.calls[0];
+    expect(call[6]).toBe('I-014521-02');
+    expect(call[3]).toMatchObject({ documentNumber: 'I-014521-02', nettTotal: 1308 });
+    expect(call[3].items.map((l: any) => [l.description, l.quantity, l.amount])).toEqual([['Maintenance agreement, 2nd service', 1, 1200], ['S- Area cleaning', 1, 0]]);
+  });
+  it('no number: the normal numbering (no override)', async () => {
+    const { svc } = world();
+    await svc.invoiceImportedOrderRemainder('o1', ORG, {});
+    expect(svc.createBasicDocument.mock.calls[0][6]).toBeUndefined();
+  });
+  it('refused: a number already used, a bad number, $0-only lines', async () => {
+    const used = world();
+    used.db.document.findFirst = jest.fn(async ({ where }: any) => (where.id === 'q1' ? QUOTE : where.type === 'INVOICE' ? { name: 'I-014521-02' } : null));
+    await expect(used.svc.invoiceImportedOrderRemainder('o1', ORG, { number: 'i-014521-02' })).rejects.toThrow(/I-014521-02 is already used/);
+    await expect(world().svc.invoiceImportedOrderRemainder('o1', ORG, { number: 'I 014521/02 !' })).rejects.toThrow(/letters, digits/);
+    await expect(world().svc.invoiceImportedOrderRemainder('o1', ORG, { lines: [{ description: 'x', quantity: 1, unitPrice: 0 }] })).rejects.toThrow(/every line is \$0/);
+    expect(used.svc.createBasicDocument).not.toHaveBeenCalled();
+  });
+});
+
+describe('order page helpers: steps, suggested number, DO-only orders', () => {
+  const { billingSteps, suggestedInvoiceNumber, validInvoiceNumber } = require('./imported-remaining');
+  const { importedOrderStatus, importedTracker } = require('./imported-orders');
+  it('"1 of 2 Paid · 2 of 2 Draft"', () => {
+    const q = [zero('G- Provide tools'), { description: MA, quantity: 2, unitPrice: 1200, amount: 2400 }];
+    expect(billingSteps(q, [{ items: I014521.config.items, state: 'Paid' }, { items: [{ description: MA, quantity: 1, unitPrice: 1200, amount: 1200 }], state: 'Draft' }])).toEqual([{ label: '1 of 2', state: 'Paid' }, { label: '2 of 2', state: 'Draft' }]);
+    expect(billingSteps([...q, { description: 'Other', quantity: 1, unitPrice: 5, amount: 5 }], [])).toEqual([]);
+  });
+  it('suggested number: base + -02 (next free); valid numbers', () => {
+    expect(suggestedInvoiceNumber('I-014521', 1, new Set())).toBe('I-014521-02');
+    expect(suggestedInvoiceNumber('I-014521', 1, new Set(['i-014521-02']))).toBe('I-014521-03');
+    expect(suggestedInvoiceNumber('I-014521-01', 2, new Set())).toBe('I-014521-03');
+    expect(validInvoiceNumber(' I-014521-02 ')).toBe('I-014521-02');
+    expect(validInvoiceNumber('-x')).toBeNull();
+  });
+  it('an order made from an ERP DO (no invoice yet): DO draft / DO completed, invoice pending; Billed 0%', () => {
+    expect(importedOrderStatus([], 2616, { dos: [{ erpStatus: 'Completed' }] })).toMatchObject({ status: 'DO_COMPLETED', label: 'DO completed, invoice pending', billedPct: 0 });
+    expect(importedOrderStatus([], 2616, { dos: [{ erpStatus: 'Signed' }, { erpStatus: 'Draft' }] })).toMatchObject({ status: 'DO_DRAFT', label: 'DO draft' });
+    const t = importedTracker({ dos: [{ name: 'DO012538', erpStatus: 'Completed' }] }, { status: 'DO_COMPLETED', label: 'DO completed, invoice pending' });
+    expect(t.map((x: any) => [x.key, x.state, x.note ?? null])).toEqual([['quotation', 'done', null], ['invoice', 'todo', 'Invoice pending'], ['do', 'done', 'DO012538 (Completed)'], ['serviceReport', 'na', null]]);
+  });
+});

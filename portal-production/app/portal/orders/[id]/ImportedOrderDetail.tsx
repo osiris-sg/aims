@@ -9,9 +9,10 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
+import PendingOutlinedIcon from "@mui/icons-material/PendingOutlined";
 import MainCard from "@/components/MainCard";
 import StatusPill from "../_components/StatusPill";
-import { importedBilledPct, importedDocHref, importedLinkSourceLabel, importedMoney, importedProgress, importedStatusHue, type ImportedOrder } from "@/helpers/importedOrders";
+import { importedBilledPct, importedDocHref, importedLinkSourceLabel, importedMoney, importedProgress, importedStatusHue, importedSteps, type ImportedOrder } from "@/helpers/importedOrders";
 import { request } from "@/helpers/request";
 import { requestFailed } from "@/helpers/requestOutcome";
 
@@ -39,9 +40,23 @@ export default function ImportedOrderDetail({ order, onBack, onChanged }: { orde
       setBusy(null);
     }
   };
+  // Create invoice (2026-11-19): a dialog first: the number (prefilled, editable) and the lines (editable).
+  const [invOpen, setInvOpen] = useState(false);
+  const [invNumber, setInvNumber] = useState("");
+  const [invLines, setInvLines] = useState<Array<{ description: string; quantity: string; unitPrice: string; priced: boolean }>>([]);
+  const openInvoiceDialog = () => {
+    setInvNumber(order.suggestedInvoiceNumber ?? "");
+    setInvLines((order.remaining?.lines ?? []).map((l) => ({ description: l.description, quantity: String(l.quantity), unitPrice: String(l.unitPrice), priced: l.priced })));
+    setInvOpen(true);
+  };
+  const invNet = invLines.reduce((t, l) => t + (Number(l.quantity) || 0) * (Number(l.unitPrice) || 0), 0);
   const createInvoice = async () => {
-    const res: any = await post("invoice-remaining");
+    const res: any = await post("invoice-remaining", {
+      number: invNumber.trim() || null,
+      lines: invLines.map((l) => ({ description: l.description.trim(), quantity: Number(l.quantity), unitPrice: Number(l.unitPrice) })),
+    });
     if (requestFailed(res)) return;
+    setInvOpen(false);
     const href = res?.data?.href ?? res?.href;
     if (href) router.push(href);
     else onChanged?.();
@@ -82,7 +97,7 @@ export default function ImportedOrderDetail({ order, onBack, onChanged }: { orde
         </Tooltip>
         <Box sx={{ flex: 1 }} />
         {order.canInvoice && (
-          <Button variant="contained" disableElevation size="small" disabled={!!busy} onClick={() => void createInvoice()} data-tour="imported-order-create-invoice">
+          <Button variant="contained" disableElevation size="small" disabled={!!busy} onClick={openInvoiceDialog} data-tour="imported-order-create-invoice">
             Create invoice
           </Button>
         )}
@@ -110,7 +125,7 @@ export default function ImportedOrderDetail({ order, onBack, onChanged }: { orde
         <Field label="Quotation total" value={importedMoney(order.quoteTotal ?? q?.total ?? null)} />
         <Field label="Billed" value={importedMoney(order.billed ?? order.total)} />
         <Field label="Billed %" value={importedBilledPct(order.billedPct)} />
-        {!!importedProgress(order.progress) && <Field label="Billed qty" value={importedProgress(order.progress)} />}
+        {(order.billingSteps?.length ? true : !!importedProgress(order.progress)) && <Field label="Billed qty" value={order.billingSteps?.length ? importedSteps(order.billingSteps) : importedProgress(order.progress)} />}
         {order.remaining && order.status === "PART_BILLED" && <Field label="Left to bill" value={importedMoney(order.remaining.remainingGross)} />}
         {order.completed && (
           <Field
@@ -126,7 +141,7 @@ export default function ImportedOrderDetail({ order, onBack, onChanged }: { orde
         {order.tracker.map((s) => (
           <Box key={s.key} sx={{ flex: 1, p: 1.5, border: 1, borderColor: "divider", borderRadius: 1, opacity: s.state === "na" ? 0.7 : 1 }}>
             <Stack direction="row" spacing={1} alignItems="center">
-              {s.state === "done" ? <CheckCircleIcon fontSize="small" color="success" /> : <RemoveCircleOutlineIcon fontSize="small" sx={{ color: "text.disabled" }} />}
+              {s.state === "done" ? <CheckCircleIcon fontSize="small" color="success" /> : s.state === "todo" ? <PendingOutlinedIcon fontSize="small" color="warning" /> : <RemoveCircleOutlineIcon fontSize="small" sx={{ color: "text.disabled" }} />}
               <Typography variant="body2" sx={{ fontWeight: 600 }}>
                 {s.label}
               </Typography>
@@ -201,6 +216,60 @@ export default function ImportedOrderDetail({ order, onBack, onChanged }: { orde
           </TableBody>
         </Table>
       </TableContainer>
+
+      <Dialog open={invOpen} onClose={() => !busy && setInvOpen(false)} fullWidth maxWidth="md">
+        <DialogTitle>Create invoice</DialogTitle>
+        <DialogContent>
+          <TextField label="Invoice number" value={invNumber} onChange={(e) => setInvNumber(e.target.value)} inputProps={{ maxLength: 40 }} sx={{ mt: 1, mb: 2, minWidth: 260 }} />
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Item</TableCell>
+                  <TableCell align="right" sx={{ width: 90 }}>Qty</TableCell>
+                  <TableCell align="right" sx={{ width: 130 }}>Unit price</TableCell>
+                  <TableCell align="right" sx={{ width: 120 }}>Amount</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {invLines.map((l, i) => (
+                  <TableRow key={i}>
+                    <TableCell>
+                      <TextField
+                        size="small"
+                        fullWidth
+                        multiline
+                        maxRows={4}
+                        value={l.description}
+                        onChange={(e) => setInvLines((xs) => xs.map((x, k) => (k === i ? { ...x, description: e.target.value } : x)))}
+                        inputProps={{ "aria-label": `Line ${i + 1} description` }}
+                      />
+                    </TableCell>
+                    <TableCell align="right">
+                      <TextField size="small" type="number" value={l.quantity} onChange={(e) => setInvLines((xs) => xs.map((x, k) => (k === i ? { ...x, quantity: e.target.value } : x)))} inputProps={{ min: 0, step: "any", "aria-label": `Line ${i + 1} qty` }} />
+                    </TableCell>
+                    <TableCell align="right">
+                      <TextField size="small" type="number" value={l.unitPrice} onChange={(e) => setInvLines((xs) => xs.map((x, k) => (k === i ? { ...x, unitPrice: e.target.value } : x)))} inputProps={{ step: "any", "aria-label": `Line ${i + 1} unit price` }} />
+                    </TableCell>
+                    <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{importedMoney((Number(l.quantity) || 0) * (Number(l.unitPrice) || 0))}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          <Typography variant="body2" sx={{ mt: 1.5, textAlign: "right", fontWeight: 600 }}>
+            Total before GST {importedMoney(invNet)}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setInvOpen(false)} disabled={!!busy}>
+            Cancel
+          </Button>
+          <Button variant="contained" disableElevation disabled={!!busy || invNet <= 0} onClick={() => void createInvoice()}>
+            Create draft invoice
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={completeOpen} onClose={() => !busy && setCompleteOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>Mark complete</DialogTitle>

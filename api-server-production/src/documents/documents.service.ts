@@ -1,5 +1,5 @@
 import { IMPORTED_ORDER_READ_ONLY, creditOfImportedInvoice, importedCompletionOf, importedMarkerOf, importedOrderStatus, isCountedInvoice, isImportedOrder, isImportedOrdersEnabled, refreshImportedOrderStatus, usesPartBilledRule } from '../orders/imported-orders';
-import { remainingForOrder } from '../orders/imported-remaining';
+import { remainingForOrder, validInvoiceNumber } from '../orders/imported-remaining';
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, NotFoundException, Optional, forwardRef } from '@nestjs/common';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { SALES_USER_ID_RE } from '../common/services/document-html/shared';
@@ -7223,7 +7223,17 @@ export class DocumentsService {
    * native) and the order's status re-read. The imported quotation and invoices are never written. Refused when the
    * order is not part billed, is marked complete, or already has a draft AIMS invoice (open that one).
    */
-  async invoiceImportedOrderRemainder(orderId: string, organizationId: string) {
+  async invoiceImportedOrderRemainder(orderId: string, organizationId: string, body: { number?: string | null; lines?: Array<{ description?: string; quantity?: unknown; unitPrice?: unknown }> | null } = {}) {
+    // 2026-11-19: a number typed by the office (prefilled e.g. I-014521-02): kept as typed, never from the INV counter.
+    const typed = body?.number != null && String(body.number).trim() !== '' ? validInvoiceNumber(body.number) : null;
+    if (body?.number != null && String(body.number).trim() !== '' && !typed) throw new HttpException('An invoice number uses letters, digits and - _ . / (up to 40 characters)', HttpStatus.BAD_REQUEST);
+    // Lines edited before saving (else what is left on the quotation).
+    const edited = Array.isArray(body?.lines) ? body!.lines!.map((l) => ({ description: String(l?.description ?? '').trim(), quantity: Number(l?.quantity), unitPrice: Number(l?.unitPrice) })) : null;
+    if (edited) {
+      if (!edited.length) throw new HttpException('Give at least one line', HttpStatus.BAD_REQUEST);
+      if (edited.some((l) => !l.description || !Number.isFinite(l.quantity) || l.quantity < 0 || !Number.isFinite(l.unitPrice))) throw new HttpException('Every line needs a description, a quantity of 0 or more and a unit price', HttpStatus.BAD_REQUEST);
+      if (!edited.some((l) => l.quantity * l.unitPrice > 0)) throw new HttpException('Nothing to bill: every line is $0', HttpStatus.BAD_REQUEST);
+    }
     if (!(await isImportedOrdersEnabled(this.prisma as any, organizationId))) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
     return this.prisma.$transaction(
       async (tx) => {
@@ -7245,14 +7255,22 @@ export class DocumentsService {
         const st = importedOrderStatus(docs.map((d) => ({ ...d, credit: Number(m.credits?.[d.id]) || creditOfImportedInvoice(d.config) })), quoteTotal, { partBilledRule: usesPartBilledRule(order) });
         if (st.status !== 'PART_BILLED') throw new HttpException(`Nothing left to bill: this order is ${st.label.toLowerCase()}.`, HttpStatus.BAD_REQUEST);
         const plan = remainingForOrder({ marker: m, invoiceDocs: docs, quotation: { name: qo.name, config: qc }, quoteTotal: st.quoteTotal, billed: st.billed });
-        if (!plan.lines.some((l) => l.priced && l.amount > 0)) throw new HttpException('Nothing left to bill on this quotation.', HttpStatus.BAD_REQUEST);
+        if (!edited && !plan.lines.some((l) => l.priced && l.amount > 0)) throw new HttpException('Nothing left to bill on this quotation.', HttpStatus.BAD_REQUEST);
+        if (typed) {
+          const used = await tx.document.findFirst({ where: { organizationId, type: 'INVOICE', name: { equals: typed, mode: 'insensitive' } }, select: { name: true } });
+          if (used) throw new HttpException(`Invoice number ${used.name} is already used. Pick another.`, HttpStatus.BAD_REQUEST);
+        }
+        const R2l = (n: number) => Math.round(n * 100) / 100;
+        const sourceLines = edited
+          ? edited.map((l) => ({ description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, amount: R2l(l.quantity * l.unitPrice) }))
+          : plan.lines.map((l) => ({ description: l.description, quantity: l.quantity, unitPrice: l.unitPrice, amount: l.amount }));
 
         // Tax: the org's current rate when the quotation charged GST; none when it did not ("(NG)" / non-GST).
         const orgRow: any = await tx.organization.findUnique({ where: { id: organizationId }, select: { taxRate: true } }).catch(() => null);
         const quoteHasGst = (Number(qc.gstPercent) || 0) > 0 || Math.abs((Number(qc.gstAmount) || 0)) > 0.005;
         const rate = quoteHasGst ? Number(orgRow?.taxRate ?? 9) : 0;
         const taxSrc = { gstPercent: rate, taxApplicable: rate > 0 ? 'Y' : 'N', absorbTax: 'N' };
-        const items = plan.lines.map((l) => ({
+        const items = sourceLines.map((l) => ({
           id: randomUUID(),
           itemCode: '',
           description: l.description,
@@ -7288,7 +7306,8 @@ export class DocumentsService {
             ...(qo.name ? { sourceDocumentNumber: qo.name } : {}),
             orderId: order.id,
             orderNo: order.orderNumber,
-            importedOrderRemainder: { matched: plan.matched, reason: plan.reason, remainingGross: plan.remainingGross },
+            importedOrderRemainder: { matched: plan.matched, reason: plan.reason, remainingGross: plan.remainingGross, edited: !!edited },
+            ...(typed ? { documentNumber: typed } : {}),
             referenceNo: reference,
             ...totals,
             showTotals: true,
@@ -7296,12 +7315,13 @@ export class DocumentsService {
           },
           { gross: totals.nettTotal, outstanding: totals.nettTotal, paid: 0 },
         );
-        return { order, ld, invoiceConfig };
+        return { order, ld, invoiceConfig, typed };
       },
       { timeout: 30000 },
-    ).then(async ({ order, invoiceConfig }) => {
+    ).then(async ({ order, invoiceConfig, typed: number }) => {
       const templateId = await this.resolveTemplateIdForType('INVOICE', organizationId);
-      const invoice: any = await this.createBasicDocument(templateId, 'INVOICE', organizationId, invoiceConfig);
+      // A typed number is the document's name as is (nameOverride: the INV counter is not read or advanced).
+      const invoice: any = await this.createBasicDocument(templateId, 'INVOICE', organizationId, invoiceConfig, undefined, undefined, number ?? undefined);
       // Link on the order (re-read under the lock so a parallel write is kept).
       await this.prisma.$transaction(async (tx) => {
         await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock(hashtext($1))', `order-invoice:${order.id}`);

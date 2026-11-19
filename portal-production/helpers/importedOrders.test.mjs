@@ -70,7 +70,7 @@ test("newest first: a live order sits above imported history", () => {
 // 2026-11-19: Part billed / Complete statuses, "1 of 2", and the order page's actions only after success.
 test("imported orders: Part billed and Complete tabs, hues, billed qty", async () => {
   const { IMPORTED_STATUS_TABS, importedTabs, importedStatusHue, importedProgress } = await import("./importedOrders.ts");
-  assert.deepEqual(IMPORTED_STATUS_TABS.map((t) => t.label), ["Part billed", "Invoiced", "Paid", "Complete"]);
+  assert.deepEqual(IMPORTED_STATUS_TABS.map((t) => t.label), ["Part billed", "Invoiced", "Paid", "Complete", "DO draft", "DO completed, invoice pending"]);
   assert.deepEqual(importedTabs([{ imported: true, status: "PART_BILLED" }, { imported: true, status: "PART_BILLED" }, { imported: true, status: "COMPLETED" }]).map((t) => [t.label, t.count]), [["Part billed (imported)", 2], ["Complete (imported)", 1]]);
   assert.equal(importedStatusHue("PART_BILLED"), "#d97706");
   assert.notEqual(importedStatusHue("COMPLETED"), importedStatusHue("PAID"));
@@ -87,4 +87,12 @@ test("imported order page: Create invoice / Mark complete / Reopen act only when
   }
   assert.match(src, /invoice-remaining/);
   assert.match(src, /mark-complete/);
+});
+
+test("imported orders: billed steps line, DO statuses (2026-11-19)", async () => {
+  const { importedSteps, importedStatusHue } = await import("./importedOrders.ts");
+  assert.equal(importedSteps([{ label: "1 of 2", state: "Paid" }, { label: "2 of 2", state: "Draft" }]), "1 of 2 Paid · 2 of 2 Draft");
+  assert.equal(importedSteps([]), "");
+  assert.equal(importedStatusHue("DO_DRAFT"), importedStatusHue("DO_COMPLETED"));
+  assert.notEqual(importedStatusHue("DO_DRAFT"), importedStatusHue("INVOICED"));
 });
