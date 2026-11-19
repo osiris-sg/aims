@@ -42,7 +42,8 @@ const REPO = path.resolve(__dirname, '../..');
 const IMPORTS = path.join(os.homedir(), 'Desktop/aims/_imports/wct');
 const OUT = one('--from') || one('--out', path.join(IMPORTS, 'erp-catchup', TODAY));
 const PARTS = one('--parts-dir', path.join(os.homedir(), 'Downloads'));
-const QUOTE_SCOPE = new Set(['Accepted', 'Declined', 'Sent']); // same scope as the first import
+// 19 Nov (Elroy): ERP Draft quotations are imported too (they read "Unconfirmed · ERP draft", or "Expired" after 6 months).
+const QUOTE_SCOPE = new Set(['Accepted', 'Declined', 'Sent', 'Draft']);
 const INVOICE_SCOPE = new Set(['Paid', 'Overdue', 'Receivable', 'Partial']);
 const OPEN_INVOICE = new Set(['Overdue', 'Receivable', 'Partial']);
 const R2 = (n) => Math.round(n * 100) / 100;
@@ -157,11 +158,19 @@ function mergeParts() {
     const importedQuoteRanges = ranges(idsOf('QUOTATION'), lastQuoteId - 1500), importedInvoiceRanges = ranges(idsOf('INVOICE'), lastInvoiceId - 1500);
     // Open imported invoices that carry a credit note: their Amount Due is read every run.
     const extraInvoiceIds = wctErp.filter((d) => d.type === 'INVOICE' && OPEN_INVOICE.has(d.erp.status) && String(d.erp.creditNote || '').trim() && /^\d+$/.test(d.erp.erpId)).map((d) => Number(d.erp.erpId));
-    const openQuoteNos = wctErp.filter((d) => d.type === 'QUOTATION' && !['Accepted', 'Declined'].includes(d.erp.status)).map((d) => d.erp.originalNumber).filter(Boolean);
+    // Open quotations looked up by number each run: Sent ones, and Drafts dated within the last 6 months (older Drafts
+    // read Expired and rarely move; 5,800 lookups would take ~40 min). Cancelled / Declined / Accepted are final.
+    const sixMonthsAgo = (() => { const t = new Date(Date.now() + 8 * 3600e3); t.setUTCMonth(t.getUTCMonth() - 6); return t.toISOString().slice(0, 10); })();
+    const openQuoteNos = wctErp
+      .filter((d) => d.type === 'QUOTATION' && !['Accepted', 'Declined', 'Cancelled'].includes(d.erp.status))
+      .filter((d) => d.erp.status !== 'Draft' || String(d.date || '').slice(0, 10) >= sixMonthsAgo)
+      .map((d) => d.erp.originalNumber)
+      .filter(Boolean);
     // Credit notes dated on or after the last pull: their invoices' balances are read (the last pull folder's date).
     const pulls = fs.existsSync(path.join(IMPORTS, 'erp-catchup')) ? fs.readdirSync(path.join(IMPORTS, 'erp-catchup')).filter((f) => /^\d{4}-\d{2}-\d{2}$/.test(f)).sort() : [];
     const cnSince = pulls.length ? pulls[pulls.length - 1] : '2026-11-04';
-    const doIds = (await q(`select config->'erpImport'->>'erpId' id from "Document" where "organizationId" = any($1) and type = 'DELIVERY_ORDER' and config->'erpImport'->>'source' = 'wct-erp'`, [Object.values(ORG)])).map((r) => Number(r.id)).filter(Boolean).sort((a, b) => a - b);
+    // Only the DOs inside the pulled window (dated since 1 Nov) need skipping; the ~12,400 older ones are never listed.
+    const doIds = (await q(`select config->'erpImport'->>'erpId' id from "Document" where "organizationId" = any($1) and type = 'DELIVERY_ORDER' and config->'erpImport'->>'source' = 'wct-erp' and coalesce(config->>'date', '') >= '2026-11-01'`, [Object.values(ORG)])).map((r) => Number(r.id)).filter(Boolean).sort((a, b) => a - b);
     // Delivery orders: every ERP DO dated since the cutover month (a few dozen a week; already imported ones are skipped).
     console.log(`__erpCatchup({ lastQuoteId: ${lastQuoteId}, lastInvoiceId: ${lastInvoiceId}, cnSince: '${cnSince}', extraInvoiceIds: ${JSON.stringify(extraInvoiceIds)}, openQuoteNos: ${JSON.stringify(openQuoteNos)}, importedQuoteRanges: '${importedQuoteRanges}', importedInvoiceRanges: '${importedInvoiceRanges}', doFrom: '2026-11-01', doSkipIds: ${JSON.stringify(doIds)} })`);
     await c.end();
@@ -237,7 +246,7 @@ function mergeParts() {
   const inQ = newQ.filter((r) => QUOTE_SCOPE.has(r.status));
   const inI = newI.filter((r) => INVOICE_SCOPE.has(r.status));
   say(`Pulled: ${newQ.length} quotations (${fmt(countBy(newQ, (r) => r.status))}), ${newI.length} invoices (${fmt(countBy(newI, (r) => r.status))}).`);
-  say(`In scope (quotations Accepted/Declined/Sent, invoices Paid/Overdue/Receivable/Partial): ${inQ.length} quotations, ${inI.length} invoices. Drafts / Certified / Cancelled wait for a later run.`);
+  say(`In scope (quotations Accepted/Declined/Sent/Draft, invoices Paid/Overdue/Receivable/Partial): ${inQ.length} quotations, ${inI.length} invoices. Certified / Cancelled are not imported.`);
   // Pull checks: detail total vs list total, lines vs subtotal.
   const pullIssues = [];
   for (const r of [...newQ, ...newI]) {
@@ -322,7 +331,7 @@ function mergeParts() {
   let impOut = '';
   try {
     writeCsv(path.join(impDir, 'create-customers.csv'), ['erp_customer'], toCreateCust);
-    impOut = execFileSync('node', [path.join(__dirname, 'wct-erp-import.js'), '--dir', impDir, '--batch', `wct-erp-catchup-${path.basename(OUT)}`, '--create-customers', path.join(impDir, 'create-customers.csv')], { env: { ...process.env, DBURL: url }, encoding: 'utf8' });
+    impOut = execFileSync('node', [path.join(__dirname, 'wct-erp-import.js'), '--dir', impDir, '--batch', `wct-erp-catchup-${path.basename(OUT)}`, '--quote-scope', [...QUOTE_SCOPE].join(','), '--create-customers', path.join(impDir, 'create-customers.csv')], { env: { ...process.env, DBURL: url }, encoding: 'utf8' });
   } catch (e) { impOut = `IMPORTER FAILED: ${String(e.stdout || '')}${String(e.stderr || e.message).split('\n').slice(0, 5).join('\n')}`; }
   for (const l of impOut.trim().split('\n')) say(`  ${l}`);
 
@@ -448,7 +457,12 @@ function mergeParts() {
     } catch (e) { doOut = `DO DRY RUN FAILED: ${String(e.stdout || '').slice(-2000)}${String(e.stderr || e.message).split('\n').slice(0, 8).join('\n')}`; }
     for (const l of doOut.trim().split('\n')) say(`  ${l}`);
   } else say('No DO pull in this folder (run the browser call with doFrom).');
-  say('\nAPPLY order (owner go): wct-erp-import.js --apply, wct-ng-quotes-to-bcair.ts --apply, wct-erp-catchup-apply.js, wct-imported-orders.ts --apply --deployed, then wct-erp-dos.js --from <this pull> --apply --confirm-prod (DOs link to the orders, so they go last).');
+  say('\nAPPLY order (owner go; each has a dry run without --apply):');
+  say(`  1. DBURL=<prod> node scripts/wct-erp-import.js --dir ${path.join(OUT, 'import')} --batch wct-erp-catchup-${path.basename(OUT)} --quote-scope ${[...QUOTE_SCOPE].join(',')} --create-customers ${path.join(OUT, 'import', 'create-customers.csv')} --apply`);
+  say(`  2. DBURL=<prod> npx ts-node --transpile-only scripts/wct-ng-quotes-to-bcair.ts --include-held [--decisions=<json>] --out=${path.join(OUT, 'ng-move-apply')} --apply --confirm-prod   ("(NG)" quotations, Drafts included, to BC Air)`);
+  say(`  3. node scripts/wct-erp-catchup-apply.js --env prod --pull ${OUT} --step refresh --apply --confirm-prod   (then --step ng-customers)`);
+  say(`  4. npx ts-node --transpile-only scripts/wct-imported-orders.ts --env prod --erp-links ${path.join(OUT, 'quotation-links-merged.csv')} --wct-credit-notes ${path.join(OUT, 'credit-notes-merged.csv')} --org ${ORG.WCT} --org ${ORG.BCAIR} --out ${path.join(OUT, 'orders-apply')} --apply --deployed`);
+  say(`  5. node scripts/wct-erp-dos.js --env prod --from ${OUT} --apply --confirm-prod   (DOs link to the orders, so they go last; a DO of a quotation with no order yet gets a DO-only order)`);
 
   fs.writeFileSync(path.join(OUT, 'plan.json'), JSON.stringify({ at: new Date().toISOString(), env: ENV, lastQuoteId, lastInvoiceId, batch: `wct-erp-catchup-${path.basename(OUT)}`, importDir: impDir, updates, needDecision, holds: refreshRows.filter((r) => r.action !== 'update') }, null, 1));
   writeCsv(path.join(OUT, 'possible-duplicates.csv'), ['org', 'aims', 'erp', 'match'], dupRows);
