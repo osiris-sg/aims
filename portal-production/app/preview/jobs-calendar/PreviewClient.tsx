@@ -74,6 +74,16 @@ const STYLE_EVENTS: CalendarEvent[] = [
   aims("y12", "service", 52, "Ion Orchard", 12, 14, 60, { salesperson: { id: "u3", name: "PC Tan" }, ptwApplicant: { id: "pta_bala", name: "Bala" }, style: st("#e67c73", "#d50000", [icon("👍", "PTW approved")]) }),
   aims("y13", "service", 53, "Bugis Junction", 13, 9, 60, { ptwApplicant: { id: "user_richie", name: "Richie", inList: false }, style: st("#b0bec5", "#455a64", [icon("✋", "PTW pending")], { text: "#212121" }) }),
   aims("y14", "delivery", 54, "Northpoint City", 13, 13, 60, { salesperson: { id: "u2", name: "Amy Yap" }, ptwApplicant: { id: "pta_kherry", name: "Kherry" }, style: st("#8e24aa", "#0b8043", [icon("✋", "PTW pending")]) }),
+  // Add-on 4: a busy day (17 Nov, 9 jobs) for the Month rows: 6 rows, then "+3 more".
+  aims("b1", "service", 61, "Kopitiam Investment @ Jurong Point", 17, 8, 60, { salesperson: { id: "u1", name: "Nat HH" }, ptwApplicant: { id: "pta_bala", name: "Bala" }, style: st("#039be5", "#d50000", [icon("✋", "PTW pending")]) }),
+  aims("b2", "service", 62, "Yoshinoya (S) Pte Ltd", 17, 9, 30, { salesperson: { id: "u2", name: "Amy Yap" }, style: st("#8e24aa", null, [icon("✅", "DO completed")]) }),
+  aims("b3", "service", 63, "Domino's Pizza Singapore Pte Ltd (Kebun Baru Community Club)", 17, 9, 60, { salesperson: { id: "u3", name: "PC Tan" }, ptwApplicant: { id: "pta_joyna", name: "Joyna" }, style: st("#e67c73", "#f6bf26", [icon("👍", "PTW approved")]) }),
+  aims("b4", "delivery", 64, "Six1two Pte Ltd", 17, 10, 60, { salesperson: { id: "u4", name: "Joyna" }, ptwApplicant: { id: "pta_kherry", name: "Kherry" }, style: st("#3f51b5", "#0b8043", [icon("✋", "PTW pending"), icon("🟫", "COD")]) }),
+  aims("b5", "service", 65, "Old Chang Kee @ Ng Teng Fong Hospital", 17, 11, 60, { salesperson: { id: "u1", name: "Nat HH" }, status: "cancelled", statusLabel: "Cancelled", cancelled: true, style: st("#039be5", null, [icon("❌", "Cancelled")], { greyed: true }) }),
+  aims("b6", "service", 66, "Brinda's Pte Ltd", 17, 13, 30, { salesperson: { id: "u2", name: "Amy Yap" }, postponed: true, statusLabel: "Postponed", style: st("#8e24aa", "#d50000", [icon("⭕", "Postponed")], { greyed: true }) }),
+  aims("b7", "service", 67, "Kiat Lay Coldroom Specialist", 17, 14, 60, { salesperson: { id: "u3", name: "PC Tan" }, style: st("#e67c73", null, [icon("📌", "Generate sticker")]) }),
+  aims("b8", "service", 68, "HongLi Eatery House", 17, 16, 60, { ptwApplicant: { id: "pta_bala", name: "Bala" }, style: st("#b0bec5", "#d50000", [icon("✋", "PTW pending")], { text: "#212121" }) }),
+  aims("b9", "delivery", 69, "Iron Chef F&B @ FoodLoft", 17, 21, 30, { salesperson: { id: "u4", name: "Joyna" }, style: st("#3f51b5", null, []) }),
 ].map((e, i) => (e.foreign ? e : { ...e, createdBy: i % 3 === 0 ? { id: "u1", name: "Nat HH" } : i % 3 === 1 ? { id: "u2", name: "Amy Yap" } : null }));
 // People list (2026-11-19): creators + the Sales people, with their colours (Joyna: automatic colour).
 const STYLE_PEOPLE = [

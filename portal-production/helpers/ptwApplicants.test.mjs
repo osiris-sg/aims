@@ -84,3 +84,22 @@ test("chips: FullCalendar gets the tint and dark text; the style's own fill stay
   assert.equal(i.textColor, CHIP_TEXT);
   assert.equal(e.style.fill, "#039be5");
 });
+
+// Add-on 4 (2026-11-19): Month rows and the Schedule list use Google Calendar's short times; the Schedule row
+// carries the PTW applicant's colour for its circle (none when no PTW is needed).
+test("short times: 9am, 9:30pm, noon and midnight; a range; Schedule rows carry the PTW colour", async () => {
+  const { compactHhmm, compactTime, compactRange, scheduleDays } = await import("../components/Dashboard/jobs-calendar/calendarModel.ts");
+  assert.equal(compactHhmm("09:00"), "9am");
+  assert.equal(compactHhmm("21:30"), "9:30pm");
+  assert.equal(compactHhmm("12:00"), "12pm");
+  assert.equal(compactHhmm("00:15"), "12:15am");
+  assert.equal(compactTime("2026-11-19T01:00:00.000Z"), "9am");
+  assert.equal(compactRange({ start: "2026-11-19T01:00:00.000Z", end: "2026-11-19T02:30:00.000Z" }), "9am – 10:30am");
+  assert.equal(compactRange({ start: "2026-11-19T13:30:00.000Z", end: null }), "9:30pm");
+  const base = { source: "aims", title: "Acme", start: "2026-11-19T01:00:00.000Z", end: null, allDay: false, cancelled: false };
+  const [day] = scheduleDays([
+    { ...base, id: "aims:1", style: { fill: "#039be5", text: "#fff", bar: "#d50000", icons: [], greyed: false } },
+    { ...base, id: "aims:2", style: { fill: "#039be5", text: "#fff", bar: null, icons: [], greyed: false } },
+  ], [], null);
+  assert.deepEqual(day.rows.map((r) => r.ptw), ["#d50000", null]);
+});

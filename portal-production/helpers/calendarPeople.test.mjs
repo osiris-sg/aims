@@ -99,7 +99,7 @@ test("select all / none and single ticks; the choice is stored as the hidden row
   assert.equal(peopleRows(payload({ people: [...payload().people, { id: "u-new", name: "New", colour: "#000000", auto: true }] }), [AMY]).find((r) => r.id === "u-new").checked, true);
 });
 
-test("Schedule view: grouped by date in order; notes and all-day first, then by time; time, dot, icons, title, site", () => {
+test("Schedule view: grouped by date in order; notes and all-day first, then by time; dot, short time, PTW circle, icons, title, site", () => {
   const days = scheduleDays(
     [
       ev({ id: "aims:late", start: "2026-11-19T08:00:00.000Z", end: "2026-11-19T09:00:00.000Z", title: "Late" }),
@@ -114,7 +114,9 @@ test("Schedule view: grouped by date in order; notes and all-day first, then by 
   assert.deepEqual(days.map((d) => d.date), ["2026-11-19", "2026-11-20", "2026-11-21"]);
   assert.deepEqual(days[0].rows.map((r) => r.title), ["Leave · Ali", "All day job", "Early", "Late"]);
   const early = days[0].rows[2];
-  assert.equal(early.time, "9:00 am – 10:30 am");
+  // 2026-11-19: Google Calendar's short times, as in Month rows.
+  assert.equal(early.time, "9am – 10:30am");
+  assert.equal(early.ptw ?? null, early.event.style.bar ?? null);
   assert.equal(early.icons, "✋ 📌");
   assert.equal(early.colour, "#8e24aa");
   assert.equal(early.site, "1 Tuas Ave");
@@ -124,7 +126,7 @@ test("Schedule view: grouped by date in order; notes and all-day first, then by 
   // No address: the site name, unless the title already carries it.
   assert.equal(scheduleDays([ev({ address: null })], [], null)[0].rows[0].site, null);
   assert.equal(scheduleDays([ev({ address: null, site: "Tuas yard" })], [], null)[0].rows[0].site, "Tuas yard");
-  assert.equal(scheduleDays([], [note({ allDay: false, startTime: "09:00", endTime: "13:30" })], null)[0].rows[0].time, "9:00 am – 1:30 pm");
+  assert.equal(scheduleDays([], [note({ allDay: false, startTime: "09:00", endTime: "13:30" })], null)[0].rows[0].time, "9am – 1:30pm");
   // A timed note sits among the timed jobs by its clock time, after every all-day item.
   const mixed = scheduleDays([ev({ id: "aims:a", start: "2026-11-19T00:30:00.000Z", title: "Eight thirty" }), ev({ id: "aims:b", allDay: true, start: "2026-11-19", end: null, title: "Day job" })], [note({ allDay: false, startTime: "08:00", endTime: "09:00", title: "Bay closed", staffName: null })], null);
   assert.deepEqual(mixed[0].rows.map((r) => r.title), ["Day job", "Bay closed", "Eight thirty"]);

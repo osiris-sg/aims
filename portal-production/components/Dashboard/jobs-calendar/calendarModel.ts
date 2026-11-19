@@ -563,6 +563,8 @@ export interface ScheduleRow {
   key: string;
   time: string;
   colour: string;
+  /** Calendar style (2026-11-19): the PTW applicant's colour (a circle after the time); null when no PTW is needed. */
+  ptw?: string | null;
   icons: string;
   title: string;
   site: string | null;
@@ -577,13 +579,18 @@ export interface ScheduleDay {
   rows: ScheduleRow[];
 }
 
-/** "09:00" → "9:00 am" (the jobs' time style). */
-const hhmmText = (t: string): string => {
-  const [h, m] = t.split(":").map(Number);
-  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "am" : "pm"}`;
-};
 
 /** An instant's Singapore clock time, "09:05" (sorts timed jobs and notes together). */
+/** "09:00" → "9am", "21:30" → "9:30pm" (Month rows and the Schedule list, 2026-11-19: Google Calendar's short style). */
+export const compactHhmm = (t: string): string => {
+  const [h, m] = t.split(":").map(Number);
+  return `${h % 12 || 12}${m ? `:${String(m).padStart(2, "0")}` : ""}${h < 12 ? "am" : "pm"}`;
+};
+/** An instant's Singapore time, short: "9am", "9:30pm". */
+export const compactTime = (iso: string): string => compactHhmm(sgtHhmm(iso));
+/** A timed job's range, short: "9am – 10:30am" (start only when it has no end). */
+export const compactRange = (e: Pick<CalendarEvent, "start" | "end">): string => (e.end ? `${compactTime(e.start)} – ${compactTime(e.end)}` : compactTime(e.start));
+
 const sgtHhmm = (iso: string): string => new Intl.DateTimeFormat("en-GB", { timeZone: CALENDAR_TZ, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
 
 const dayOfEvent = (e: Pick<CalendarEvent, "start" | "allDay">): string => (e.allDay ? ymd(e.start) : dayOfInstant(new Date(e.start)));
@@ -609,7 +616,7 @@ export function scheduleDays(
       if (range && d > range.to) break;
       push(d, {
         key: `note:${n.id}:${d}`,
-        time: timed ? `${hhmmText(n.startTime!)} – ${hhmmText(n.endTime!)}` : "All day",
+        time: timed ? `${compactHhmm(n.startTime!)} – ${compactHhmm(n.endTime!)}` : "All day",
         colour: NOTE_CHIP_COLOR,
         icons: n.type === "LEAVE" ? LEAVE_ICON : "",
         title: [n.title, n.staffName].filter(Boolean).join(" · "),
@@ -628,8 +635,9 @@ export function scheduleDays(
     const site = [place, e.orgName ?? null].filter(Boolean).join(" · ") || null;
     push(dayOfEvent(e), {
       key: e.id,
-      time: e.allDay ? "All day" : chipTimeRange(e),
+      time: e.allDay ? "All day" : compactRange(e),
       colour: panelColor(e, !!opts.byPtw),
+      ptw: e.style?.bar ?? null,
       icons: chipIcons(e),
       title: chipTitle(e),
       site,

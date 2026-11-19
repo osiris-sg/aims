@@ -48,7 +48,7 @@ import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
-import { CALENDAR_TZ, CHIP_TEXT, GREYED_OPACITY, applicantLabel, badgeTitle, chipIcons, chipTimeRange, crewLine, crossOrgTarget, chipTitle, dayOfInstant, kindLabel, orgLabel, panelColor, panelLinks, panelMoreLink, panelRefs, rangeOf, scheduleBadge, scheduleDays, scheduleScrollDay, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag, type ScheduleDay, type ScheduleRow } from "./calendarModel";
+import { CALENDAR_TZ, CHIP_TEXT, GREYED_OPACITY, applicantLabel, compactTime, badgeTitle, chipIcons, chipTimeRange, crewLine, crossOrgTarget, chipTitle, dayOfInstant, kindLabel, orgLabel, panelColor, panelLinks, panelMoreLink, panelRefs, rangeOf, scheduleBadge, scheduleDays, scheduleScrollDay, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag, type ScheduleDay, type ScheduleRow } from "./calendarModel";
 import DoStatusTag from "@/components/DoStatusTag";
 
 interface Props {
@@ -147,6 +147,9 @@ export default function CalendarView({
   // WCT: the side panel: one job, or a day's jobs ("+n more"; a job picked from it keeps the way back).
   const [panel, setPanel] = useState<{ event: CalendarEvent | null; day: { date: string; events: CalendarEvent[] } | null } | null>(null);
   // Notes first on each day (displayOrder 0), then the jobs.
+  // Calendar style (WCT group): Month shows compact Google Calendar rows (StyledRow), Week / Day keep the blocks.
+  const styledCal = useMemo(() => events.some((e) => !!e.style), [events]);
+  const monthRows = styledCal && viewType === "dayGridMonth";
   const inputs = useMemo(
     () => [...(notes ?? []).map((n) => noteToCalendarInput(n, styled)), ...toCalendarInputs(events, showCancelled, !!onMove, openOnClick).map((i) => ({ ...i, displayOrder: 1 }))],
     [events, showCancelled, notes, onMove, openOnClick, styled],
@@ -213,6 +216,10 @@ export default function CalendarView({
         // at this opacity: GREYED_OPACITY in calendarModel, checked by the contrast tests).
         "& .aims-jc-greyed": { opacity: GREYED_OPACITY, filter: "grayscale(1)" },
         "& .aims-jc-styled .fc-event-main": { padding: 0 },
+        // Month rows (calendar style, 2026-11-19): no fill or border, a hover tint; day cells tall enough for 6 rows.
+        "& .fc-dayGridMonth-view .aims-jc-styled": { backgroundColor: "transparent !important", borderColor: "transparent !important", borderRadius: "4px" },
+        "& .fc-dayGridMonth-view .aims-jc-styled:hover": { backgroundColor: `${theme.palette.action.hover} !important` },
+        ...(monthRows ? { "& .fc-dayGridMonth-view .fc-daygrid-day-frame": { minHeight: 150 } } : {}),
         "& .fc-schedule-view": { height: "100%" },
         "@media (max-width: 600px)": { "& .fc .fc-toolbar": { flexDirection: "column", gap: 1 } },
       }}
@@ -229,12 +236,16 @@ export default function CalendarView({
         views={scheduleViews}
         buttonText={{ today: "Today", month: "Month", week: "Week", day: "Day", ...(scheduleViews ? { [SCHEDULE_VIEW]: "Schedule" } : {}) }}
         firstDay={1}
-        dayMaxEvents={4}
+        // Month rows (calendar style): up to 6 rows a day before "+N more"; blocks elsewhere: 4.
+        dayMaxEvents={monthRows ? 6 : 4}
         // Month: filled blocks so the source colours read at a glance, page-high.
         // Week / Day: a fixed-height grid that opens at 07:00 and scrolls for night jobs.
         eventDisplay="block"
         // WCT's dashboard is the calendar alone: it fills the screen in every view.
-        height={fullHeight ? "calc(100vh - 210px)" : viewType === "dayGridMonth" ? "auto" : viewType === SCHEDULE_VIEW ? 640 : 760}
+        // Month rows: the page grows with the taller day cells (6 rows each).
+        height={monthRows ? "auto" : fullHeight ? "calc(100vh - 210px)" : viewType === "dayGridMonth" ? "auto" : viewType === SCHEDULE_VIEW ? 640 : 760}
+        // Calendar style (Week / Day): jobs at the same time sit side by side, so no block hides another's text or PTW bar.
+        slotEventOverlap={!styledCal}
         nowIndicator
         scrollTime="07:00:00"
         eventTimeFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
@@ -252,7 +263,7 @@ export default function CalendarView({
         // Custom job fields: the job's icons after its time + title (default rendering otherwise).
         eventContent={(arg: EventContentArg) => {
           const e = arg.event.extendedProps.event as CalendarEvent;
-          if (e?.style) return <StyledChip event={e} />;
+          if (e?.style) return arg.view.type === "dayGridMonth" ? <StyledRow event={e} /> : <StyledChip event={e} />;
           if (!e?.badges?.length && !e?.ptw) return true;
           return (
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, overflow: "hidden", px: 0.25 }}>
@@ -700,12 +711,51 @@ function JobPanel({
  * PTW applicant's colour is a bar on the RIGHT edge (5px, none without a PTW) behind a thin white gap, so it reads
  * on any fill; line 1 the icons and title, line 2 the time range.
  */
+/** A styled job's hover text: the full title, time, DO / quotation, icons, salesperson and PTW applicant. */
+const styledTooltip = (e: CalendarEvent): string => {
+  const st = e.style!;
+  return [styledTitle(e), chipTimeRange(e), e.doNumber ? `DO ${e.doNumber}` : "", e.quotationNumber ? `Quotation ${e.quotationNumber}` : "", ...st.icons.map((i) => i.label), e.salesperson?.name ? `Salesperson: ${e.salesperson.name}` : "", e.ptwApplicant && st.bar ? `PTW applicant: ${applicantLabel(e.ptwApplicant)}` : ""].filter(Boolean).join("\n");
+};
+
+/** The PTW applicant's circle (only on a job that needs a PTW), with a hairline edge so yellow still reads. */
+function PtwCircle({ colour, size = 9 }: { colour: string; size?: number }) {
+  return <Box component="span" data-testid="ptw-circle" sx={{ width: size, height: size, borderRadius: "50%", bgcolor: colour, boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.25)", flexShrink: 0, display: "inline-block" }} />;
+}
+
+/**
+ * Month view row (2026-11-19, Google Calendar style): salesperson dot, short time (9am / 9:30pm), the PTW applicant's
+ * circle (PTW needed only), icons, the customer; one line cut at the cell edge (no "…"), full text on hover.
+ * Cancelled / postponed rows are greyed by the event's class (text and dot), cancelled struck through.
+ */
+function StyledRow({ event: e }: { event: CalendarEvent }) {
+  const st = e.style!;
+  const icons = chipIcons(e);
+  return (
+    <Box
+      title={styledTooltip(e)}
+      sx={{ display: "flex", alignItems: "center", gap: 0.5, overflow: "hidden", whiteSpace: "nowrap", px: 0.5, fontSize: "0.75rem", lineHeight: "18px", color: "text.primary", minWidth: 0 }}
+    >
+      <Box component="span" data-testid="sales-dot" sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: st.fill, flexShrink: 0 }} />
+      {!e.allDay && (
+        <Box component="span" sx={{ flexShrink: 0, color: "text.secondary", fontVariantNumeric: "tabular-nums" }}>
+          {compactTime(e.start)}
+        </Box>
+      )}
+      {st.bar && <PtwCircle colour={st.bar} />}
+      {icons && <Box component="span" sx={{ flexShrink: 0 }}>{icons}</Box>}
+      <Box component="span" sx={{ fontWeight: 600, overflow: "hidden", textOverflow: "clip", textDecoration: e.cancelled ? "line-through" : "none" }}>
+        {chipTitle(e)}
+      </Box>
+    </Box>
+  );
+}
+
 function StyledChip({ event: e }: { event: CalendarEvent }) {
   const st = e.style!;
   const icons = chipIcons(e);
   return (
     <Box
-      title={[styledTitle(e), chipTimeRange(e), e.doNumber ? `DO ${e.doNumber}` : "", e.quotationNumber ? `Quotation ${e.quotationNumber}` : "", ...st.icons.map((i) => i.label), e.salesperson?.name ? `Salesperson: ${e.salesperson.name}` : "", e.ptwApplicant && st.bar ? `PTW applicant: ${applicantLabel(e.ptwApplicant)}` : ""].filter(Boolean).join("\n")}
+      title={styledTooltip(e)}
       sx={{
         position: "relative",
         display: "flex",
@@ -842,14 +892,16 @@ function ScheduleList({
                       py: 0.75,
                       gap: 1.25,
                       flexWrap: { xs: "wrap", sm: "nowrap" },
-                      opacity: r.greyed ? 0.5 : 1,
+                      opacity: r.greyed ? GREYED_OPACITY : 1,
+                      filter: r.greyed ? "grayscale(1)" : "none",
                       "&:hover": { bgcolor: "action.hover" },
                     }}
                   >
-                    <Typography variant="body2" color="text.secondary" sx={{ width: { xs: "auto", sm: 150 }, flexShrink: 0, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                    <Box sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: r.colour, flexShrink: 0 }} />
+                    <Typography variant="body2" color="text.secondary" sx={{ width: { xs: "auto", sm: 120 }, flexShrink: 0, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
                       {r.time}
                     </Typography>
-                    <Box sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: r.colour, flexShrink: 0 }} />
+                    {r.ptw ? <PtwCircle colour={r.ptw} size={10} /> : r.event?.style ? <Box sx={{ width: 10, flexShrink: 0 }} /> : null}
                     <Box sx={{ minWidth: 0, flex: 1, display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: 1 }}>
                       <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: "break-word", textDecoration: r.cancelled ? "line-through" : "none" }}>
                         {r.icons && <span style={{ marginRight: 6 }}>{r.icons}</span>}
