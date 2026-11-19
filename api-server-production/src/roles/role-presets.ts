@@ -52,9 +52,15 @@ export const ROLE_PRESETS: RolePreset[] = [
     name: 'Sales',
     label: 'Sales',
     summary: 'Customers, quotations, delivery orders and invoices. No accounting.',
-    allowedModules: ['DASHBOARD', 'SALES', 'CUSTOMERS', 'MASTERFILES', 'INVENTORY', 'DELIVERIES', 'MAINTENANCE'],
+    allowedModules: ['DASHBOARD', 'SALES', 'ORDERS', 'CUSTOMERS', 'MASTERFILES', 'INVENTORY', 'DELIVERIES', 'MAINTENANCE'],
     permissions: [
       'dashboard:read',
+      // Round 25 (Elroy 19 Nov): Orders edit, Jobs edit (job cancel / delete / assign need
+      // maintenance-reports:create, which the API shares with service report writes).
+      'orders:read',
+      'orders:create',
+      'orders:update',
+      'maintenance-reports:create',
       'customers:*',
       'customer-info:*',
       'documents:*',
@@ -80,9 +86,12 @@ export const ROLE_PRESETS: RolePreset[] = [
     name: 'Accounting',
     label: 'Accounting',
     summary: 'Ledger, receivables, payables, bills, bank reconciliation and reports. Reads sales documents.',
-    allowedModules: ['DASHBOARD', 'ACCOUNTING', 'SALES', 'CUSTOMERS', 'SUPPLIERS', 'MASTERFILES'],
+    allowedModules: ['DASHBOARD', 'ACCOUNTING', 'SALES', 'ORDERS', 'CUSTOMERS', 'SUPPLIERS', 'MASTERFILES'],
     permissions: [
       'dashboard:read',
+      // Round 25: Orders view (the order page lists its service reports).
+      'orders:read',
+      'maintenance-reports:read',
       'accounting:*',
       'journal:*',
       'bills:*',
@@ -112,9 +121,12 @@ export const ROLE_PRESETS: RolePreset[] = [
     name: 'Operations',
     label: 'Operations',
     summary: 'Schedules deliveries and service jobs, sees stock and service reports.',
-    allowedModules: ['DASHBOARD', 'DELIVERIES', 'MAINTENANCE', 'INVENTORY', 'CUSTOMERS', 'MASTERFILES'],
+    allowedModules: ['DASHBOARD', 'ORDERS', 'DELIVERIES', 'MAINTENANCE', 'INVENTORY', 'CUSTOMERS', 'MASTERFILES'],
     permissions: [
       'dashboard:read',
+      // Round 25: Orders view; Jobs edit (complete / verify / reject a job, complete a DO need documents:update).
+      'orders:read',
+      'documents:update',
       'field-scan:access',
       'maintenance-reports:*',
       'assets:create-basic',
@@ -177,10 +189,51 @@ export const ROLE_PRESETS: RolePreset[] = [
     name: 'Viewer',
     label: 'Viewer',
     summary: 'Read-only across the system. Cannot create or change anything.',
-    allowedModules: ['DASHBOARD', 'SALES', 'INVENTORY', 'DELIVERIES', 'MAINTENANCE', 'ACCOUNTING', 'CUSTOMERS', 'SUPPLIERS', 'MASTERFILES'],
+    // Round 25: view all (Orders added; no edit anywhere).
+    allowedModules: ['DASHBOARD', 'SALES', 'ORDERS', 'INVENTORY', 'DELIVERIES', 'MAINTENANCE', 'ACCOUNTING', 'CUSTOMERS', 'SUPPLIERS', 'MASTERFILES', 'ASSETS', 'REPORTS'],
     permissions: READ_ALL,
   },
 ];
+
+/**
+ * Round 25 (Elroy 19 Nov) on EXISTING role rows: what scripts/wct-r25-preset-fix.ts adds to (or
+ * removes from) each preset role, keeping the role's other access (some orgs narrowed a preset's
+ * modules by hand, e.g. YMM's Accounting = [ACCOUNTING]; those narrowings stay). Modules the org
+ * has switched off are not added.
+ *   add       permission patterns to add
+ *   modules   nav modules to add
+ *   onlyReads Viewer: every read in the catalogue, and anything that is not a read is removed
+ */
+export interface PresetFix {
+  add: string[];
+  modules: string[];
+  onlyReads?: boolean;
+}
+export const PRESET_FIXES: Record<string, PresetFix> = {
+  Sales: { add: ['orders:read', 'orders:create', 'orders:update', 'maintenance-reports:create'], modules: ['ORDERS'] },
+  Accounting: { add: ['orders:read', 'maintenance-reports:read'], modules: ['ORDERS'] },
+  Operations: { add: ['orders:read', 'documents:update'], modules: ['ORDERS'] },
+  Viewer: { add: READ_ALL, modules: ['DASHBOARD', 'SALES', 'ORDERS', 'INVENTORY', 'DELIVERIES', 'MAINTENANCE', 'ACCOUNTING', 'CUSTOMERS', 'SUPPLIERS', 'MASTERFILES', 'ASSETS', 'REPORTS'], onlyReads: true },
+};
+
+/** A Viewer-safe permission: one READ_ALL matches. */
+export const isReadPermission = (name: string) => READ_ALL.some((p) => matchesPattern(p, name));
+
+/** The change a fix makes to one role row: permissions / modules added and removed. */
+export function planPresetFix(
+  fix: PresetFix,
+  role: { permissions: string[]; allowedModules: string[] },
+  catalogue: readonly string[],
+  orgModulesOn: readonly string[],
+): { addPerms: string[]; removePerms: string[]; addModules: string[] } {
+  const have = new Set(role.permissions);
+  const addPerms = catalogue.filter((n) => !have.has(n) && fix.add.some((p) => matchesPattern(p, n))).sort();
+  const removePerms = fix.onlyReads ? role.permissions.filter((n) => !isReadPermission(n)).sort() : [];
+  // [] = every module already: nothing to add.
+  const mods = role.allowedModules ?? [];
+  const addModules = mods.length === 0 ? [] : fix.modules.filter((m) => !mods.includes(m) && orgModulesOn.includes(m));
+  return { addPerms, removePerms, addModules };
+}
 
 /** Does `pattern` ("res:act", with * on either side) match a permission name? */
 export function matchesPattern(pattern: string, name: string): boolean {

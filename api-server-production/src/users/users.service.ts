@@ -11,6 +11,7 @@ import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { AdminActor, PLATFORM_ADMIN_ROLE_WHERE } from '../auth/admin-scope';
 import { normEmail } from '../auth/active-org';
 import { multiRoleOn, orderPrimaryFirst, planRoleSave, primaryRoleIdOf, roleChangeSummary } from '../roles/multi-role';
+import { customAccessUserIds, withCustomAccess } from '../access/custom-access';
 
 /** Edit User: the new email already belongs to another login. */
 export const EMAIL_TAKEN = 'That email is already used by another login';
@@ -148,6 +149,8 @@ export class UsersService {
       where: { organizationId, userId: { in: Object.keys(userRolesByUserId) } },
     });
     const profileByUser = new Map(profiles.map((p) => [p.userId, p]));
+    // Custom access orgs: who has their own access ("Custom" on the list). Other orgs: none.
+    const customIds = await customAccessUserIds(this.prisma, organizationId, Object.keys(userRolesByUserId));
 
     // Fetch user information from Clerk: ONE batched lookup for the page's
     // DB ids (by external_id, then id), not a getUser per user.
@@ -176,6 +179,7 @@ export class UsersService {
             yearlySalesTarget: profile?.yearlySalesTarget ?? null,
             // Multi-role orgs: roles come primary first, and the primary is named.
             ...(multi ? { primaryRoleId: firstRole.roleId } : {}),
+            ...(customIds.has(userId) ? { customAccess: true } : {}),
             roles: roles.map((ur) => ({
               id: ur.role.id,
               name: ur.role.name,
@@ -198,6 +202,7 @@ export class UsersService {
             commissionPct: profile?.commissionPct ?? null,
             yearlySalesTarget: profile?.yearlySalesTarget ?? null,
             ...(multi ? { primaryRoleId: firstRole.roleId } : {}),
+            ...(customIds.has(userId) ? { customAccess: true } : {}),
             roles: roles.map((ur) => ({
               id: ur.role.id,
               name: ur.role.name,
@@ -279,7 +284,10 @@ export class UsersService {
         where: { userId, organizationId, isActive: true },
         include: { role: { include: { permissions: true } } },
       });
-      return orderPrimaryFirst(rows).map((ur, i) => ({ ...ur.role, isPrimary: i === 0 }));
+      const mine = orderPrimaryFirst(rows).map((ur, i) => ({ ...ur.role, isPrimary: i === 0 }));
+      // Custom access orgs (enableCustomAccess): own access shows as one "Custom access" role,
+      // custom roles carry their tab map. Other orgs: unchanged.
+      return withCustomAccess(this.prisma, organizationId, userId, mine);
     }
     const userRoles = await this.prisma.userRole.findMany({
       where: {
@@ -295,7 +303,7 @@ export class UsersService {
       },
     });
 
-    return userRoles.map((ur) => ur.role);
+    return withCustomAccess(this.prisma, organizationId, userId, userRoles.map((ur) => ur.role));
   }
 
   async getUserPermissions(userId: string) {

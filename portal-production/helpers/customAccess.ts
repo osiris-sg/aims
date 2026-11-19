@@ -1,0 +1,115 @@
+// Custom access (features.enableCustomAccess, WCT group 2026-11-19). The API side is
+// api-server-production/src/access/tab-access.ts (the tab list below mirrors ACCESS_TABS there;
+// helpers/customAccess.test.mjs checks the keys match). Access is per tab: No access / View / Edit.
+// The server enforces it; these helpers only shape the menus and the editors.
+
+export type AccessLevel = "none" | "view" | "edit";
+export type TabKey =
+  | "dashboard"
+  | "sales"
+  | "orders"
+  | "jobs"
+  | "serviceReports"
+  | "assets"
+  | "inventory"
+  | "accounting"
+  | "orgSettings"
+  | "reports"
+  | "salesReport"
+  | "calendar";
+export type TabAccessMap = Record<TabKey, AccessLevel>;
+
+export const ACCESS_TABS: Array<{ key: TabKey; label: string; levels: AccessLevel[] }> = [
+  { key: "dashboard", label: "Dashboard", levels: ["none", "view"] },
+  { key: "sales", label: "Sales", levels: ["none", "view", "edit"] },
+  { key: "orders", label: "Orders", levels: ["none", "view", "edit"] },
+  { key: "jobs", label: "Jobs", levels: ["none", "view", "edit"] },
+  { key: "serviceReports", label: "Service Reports", levels: ["none", "view", "edit"] },
+  { key: "assets", label: "Assets", levels: ["none", "view", "edit"] },
+  { key: "inventory", label: "Inventory", levels: ["none", "view", "edit"] },
+  { key: "accounting", label: "Accounting", levels: ["none", "view", "edit"] },
+  { key: "orgSettings", label: "Org Settings", levels: ["none", "view", "edit"] },
+  { key: "reports", label: "Reports", levels: ["none", "view"] },
+  { key: "salesReport", label: "Sales report", levels: ["none", "view", "edit"] },
+  { key: "calendar", label: "Calendar", levels: ["none", "view", "edit"] },
+];
+
+/** What each level reads as on a tab (the Sales report's View / Edit are own / everyone's quotations). */
+export function levelLabel(tab: TabKey, level: AccessLevel): string {
+  if (level === "none") return "No access";
+  if (tab === "salesReport") return level === "view" ? "Own" : "All";
+  return level === "view" ? "View" : "Edit";
+}
+
+export const CUSTOM_PREFIX = "Custom · ";
+export const CUSTOM_ACCESS_ROLE_ID = "custom-access";
+
+const RANK: Record<AccessLevel, number> = { none: 0, view: 1, edit: 2 };
+export const atLeast = (l: AccessLevel | undefined | null, need: "view" | "edit") => RANK[l ?? "none"] >= RANK[need];
+
+export function noAccess(): TabAccessMap {
+  return Object.fromEntries(ACCESS_TABS.map((t) => [t.key, "none"])) as TabAccessMap;
+}
+
+/** A stored / API map read back: every tab present, anything odd = No access. */
+export function readTabAccess(raw: unknown): TabAccessMap {
+  const src = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const out = noAccess();
+  for (const t of ACCESS_TABS) {
+    const v = src[t.key] as AccessLevel;
+    out[t.key] = t.levels.includes(v) ? v : "none";
+  }
+  return out;
+}
+
+/** Union (multi-role): each tab at the highest level any map gives. */
+export function unionTabAccess(maps: TabAccessMap[]): TabAccessMap {
+  const out = noAccess();
+  for (const m of maps) for (const t of ACCESS_TABS) if (RANK[m[t.key]] > RANK[out[t.key]]) out[t.key] = m[t.key];
+  return out;
+}
+
+/** The map that governs the signed-in person (from GET /users/me/roles), or null = roles as before.
+ *  Custom only when EVERY role carries a tabAccess (own Custom access, or custom roles only). */
+export function effectiveTabAccess(roles: Array<{ tabAccess?: unknown }> | null | undefined): TabAccessMap | null {
+  const list = roles || [];
+  if (!list.length || !list.every((r) => r && r.tabAccess && typeof r.tabAccess === "object")) return null;
+  return unionTabAccess(list.map((r) => readTabAccess(r.tabAccess)));
+}
+
+/** A custom role row (Org Settings > Roles), told apart by its stored description. */
+export const isCustomRole = (r: { description?: string | null } | null | undefined) => String(r?.description ?? "").startsWith(CUSTOM_PREFIX);
+/** A custom role's one-line summary ("Sales edit, Orders view"). */
+export const customSummary = (r: { description?: string | null }) => String(r.description ?? "").slice(CUSTOM_PREFIX.length);
+
+/** Org Settings pages a custom-access person sees: none at No access; at View everything but Roles. */
+export function settingsAllowed(map: TabAccessMap | null, path: string): boolean {
+  if (!map) return true;
+  if (!atLeast(map.orgSettings, "view")) return false;
+  if (path === "/portal/settings/roles") return false;
+  return true;
+}
+
+/** Sales sub tabs for a custom-access person: the Sales report needs that tab, the rest need Sales. */
+export function salesSubmenuAllowed(map: TabAccessMap | null, key: string): boolean {
+  if (!map) return true;
+  if (key === "sales-report") return atLeast(map.salesReport, "view");
+  return atLeast(map.sales, "view");
+}
+
+/** Jobs sub tabs (enableCustomAccess + jobs calendar orgs): "Jobs" (the list) and "Calendar". */
+export const JOBS_LIST_TAB = { key: "list", label: "Jobs" };
+export const JOBS_CALENDAR_TAB = { key: "calendar", label: "Calendar", href: "/portal/deliveries/calendar" };
+export function jobsSubmenus(map: TabAccessMap | null): Array<{ key: string; label: string; href?: string }> {
+  if (!map) return [JOBS_LIST_TAB, JOBS_CALENDAR_TAB];
+  return [...(atLeast(map.jobs, "view") ? [JOBS_LIST_TAB] : []), ...(atLeast(map.calendar, "view") ? [JOBS_CALENDAR_TAB] : [])];
+}
+
+/** Can the person open the jobs calendar? (No custom map: as before.) */
+export const calendarAllowed = (map: TabAccessMap | null) => !map || atLeast(map.calendar, "view");
+
+/** "Sales edit, Orders view" for a map (the Roles list). */
+export function accessSummary(map: TabAccessMap): string {
+  const parts = ACCESS_TABS.filter((t) => map[t.key] !== "none").map((t) => `${t.label} ${levelLabel(t.key, map[t.key]).toLowerCase()}`);
+  return parts.length ? parts.join(", ") : "No access";
+}

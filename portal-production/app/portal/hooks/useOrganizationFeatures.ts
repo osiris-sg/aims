@@ -68,6 +68,8 @@ interface OrganizationFeatures {
   enableRolePresets?: boolean;
   /** Multi-role users (2026-11-17; WCT group): several roles per user, one Primary. Default OFF. */
   enableMultiRole?: boolean;
+  /** Custom access (2026-11-19; WCT group): custom roles + per-person access per tab. Default OFF. */
+  enableCustomAccess?: boolean;
   enableCappitechOrders?: boolean;
   enableNettRoundDown?: boolean;
   enableQuotationProjectLink?: boolean;
@@ -156,6 +158,7 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   enableQuotationToDelivery: false,
   enableRolePresets: false,
   enableMultiRole: false,
+  enableCustomAccess: false,
   // Gates the rich Cappitech Orders flow; default false = slim Orders (Biofuel default).
   enableCappitechOrders: false,
   enableDocumentListView: false,
@@ -448,6 +451,7 @@ export function useOrganizationFeatures() {
     isCustomerUenEnabled: features.enableCustomerUen ?? false,
     isRolePresetsEnabled: features.enableRolePresets ?? false,
     isMultiRoleEnabled: features.enableMultiRole === true,
+    isCustomAccessEnabled: features.enableCustomAccess === true,
     isCappitechOrdersEnabled: features.enableCappitechOrders ?? false,
     isNettRoundDownEnabled: features.enableNettRoundDown ?? false,
     isQuotationProjectLinkEnabled: features.enableQuotationProjectLink ?? false,

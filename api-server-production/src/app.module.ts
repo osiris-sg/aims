@@ -101,6 +101,7 @@ import { OperatorModule } from './operator/operator.module';
 import { ShortLinksModule } from './short-links/short-links.module';
 import { GuideModule } from './guide/guide.module';
 import { ActionLogModule } from './action-log/action-log.module';
+import { AccessModule } from './access/access.module';
 import { ActionLogInterceptor } from './action-log/action-log.interceptor';
 import { TenantContextInterceptor } from './common/tenancy/tenant-context.interceptor';
 
@@ -202,6 +203,7 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
     OperatorModule,
     ShortLinksModule,
     ActionLogModule,
+    AccessModule,
   ],
   controllers: [AppController],
   providers: [

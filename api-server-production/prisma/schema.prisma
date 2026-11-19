@@ -1273,6 +1273,26 @@ model UserRole {
   @@unique([userId, roleId, organizationId])
 }
 
+// Custom access (WCT group 2026-11-19, features.enableCustomAccess): per-tab access
+// (none / view / edit, src/access/tab-access.ts) for a custom role (kind ROLE, subjectId =
+// Role.id; the Role row carries the derived permissions + allowedModules) or for one person in
+// one org (kind USER, subjectId = the user id; supersedes their roles). Plain columns, no FK
+// relations: a purely additive CREATE TABLE.
+model CustomAccess {
+  id             String   @id @default(uuid())
+  organizationId String
+  kind           String
+  subjectId      String
+  tabs           Json
+  createdBy      String?
+  updatedBy      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, kind, subjectId])
+  @@index([organizationId])
+}
+
 // Persistent in-app notifications for the portal header bell. Per-user fan-out
 // (one row per recipient) so read state is per user. Plain-UUID columns, no FK
 // relations (mirrors DeliveryItem) so this is a purely additive CREATE TABLE.

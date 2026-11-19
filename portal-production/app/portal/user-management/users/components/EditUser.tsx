@@ -3,6 +3,8 @@ import { Box, Button, Drawer, Grid, Typography, FormControl, InputLabel, Select,
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import RoleChips from "./RoleChips";
 import { applySelect, rolePayload, selectionFromUser, singleRolePicker } from "@/helpers/multiRole";
+import { customSummary, isCustomRole, noAccess, readTabAccess, type TabAccessMap } from "@/helpers/customAccess";
+import CustomAccessSection from "./CustomAccessSection";
 
 // WhatsApp shipments assistant (round S): per-user pushes. Mirrors the API defaults.
 type WaPrefs = { digest: boolean; needsMe: boolean; filed: boolean; events: boolean; quietFrom: string; quietTo: string; lang: "en" | "ja" };
@@ -37,6 +39,8 @@ const PRESET_PREFIX = "Preset · ";
 const PRESET_LABEL: Record<string, string> = { "field-tech": "fieldTech" };
 const presetLabel = (r: { name: string; description?: string | null }, t: (key: string) => string) => (PRESET_LABEL[r.name] ? t(PRESET_LABEL[r.name]) : r.name);
 const presetSummary = (r: { description?: string | null }) => {
+  // Custom roles (enableCustomAccess): "Custom · Sales edit, Orders view" reads as its tabs.
+  if (isCustomRole(r)) return customSummary(r);
   const d = String(r.description ?? "");
   const i = d.indexOf(" — ");
   return d.startsWith(PRESET_PREFIX) && i > 0 ? d.slice(i + 3) : d;
@@ -57,7 +61,7 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
   // Commission % and the yearly sales target feed the ID-firm screens
   // (ID quotations + the ID project page's target bar), so they belong to the
   // orgs running that flow — CIEL today (guru 2026-10-28).
-  const { isRolePresetsEnabled, isIdQuotationEnabled, isMultiRoleEnabled } = useOrganizationFeatures();
+  const { isRolePresetsEnabled, isIdQuotationEnabled, isMultiRoleEnabled, isCustomAccessEnabled } = useOrganizationFeatures();
   // Multi-role orgs (enableMultiRole): several roles, the first one Primary; preset orgs
   // without it keep the single Role dropdown.
   const single = singleRolePicker(isRolePresetsEnabled, isMultiRoleEnabled);
@@ -68,7 +72,10 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
   // person to the Osiris operator agent.
   const { isModuleEnabled } = useConfiguration();
   const showWhatsAppDigest = isModuleEnabled("SHIPMENTS");
-  const visibleRoles = isRolePresetsEnabled ? roles.filter(isPresetRole) : roles;
+  // Custom access orgs: the org's custom roles show next to the built-in ones.
+  const visibleRoles = isRolePresetsEnabled ? roles.filter((r) => isPresetRole(r) || (isCustomAccessEnabled && isCustomRole(r))) : roles;
+  // The person's own Custom access (Admin / superadmin only; null = not shown).
+  const [access, setAccess] = useState<{ on: boolean; tabs: TabAccessMap; isAdmin: boolean; isSuperadmin: boolean; initial: string } | null>(null);
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -104,7 +111,8 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
         const response = await request(
           {
             method: "GET",
-            path: "/roles",
+            // Custom access orgs can hold more than the default page of 10 roles.
+            path: isCustomAccessEnabled ? "/roles?limit=200" : "/roles",
           },
           {},
           token
@@ -123,7 +131,26 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
     if (open) {
       fetchRoles();
     }
-  }, [open, getToken]);
+  }, [open, getToken, isCustomAccessEnabled]);
+
+  // Custom access (enableCustomAccess): the person's own access; a non-Admin caller gets a 403 and sees nothing.
+  useEffect(() => {
+    let live = true;
+    setAccess(null);
+    if (!open || !isCustomAccessEnabled || !user?.id) return;
+    (async () => {
+      const token = await getToken();
+      const res: any = await request({ method: "GET", path: `/access/users/${encodeURIComponent(user.id)}`, ownError: true, quiet: true }, {}, token ?? undefined);
+      if (!live || requestFailed(res)) return;
+      const b: any = res?.data ?? res;
+      const on = !!b?.enabled;
+      const tabs = b?.tabs ? readTabAccess(b.tabs) : noAccess();
+      setAccess({ on, tabs, isAdmin: !!b?.isAdmin, isSuperadmin: !!b?.isSuperadmin, initial: JSON.stringify({ on, tabs }) });
+    })();
+    return () => {
+      live = false;
+    };
+  }, [open, isCustomAccessEnabled, user?.id, getToken]);
 
   // Populate form when user data is available
   useEffect(() => {
@@ -218,6 +245,17 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
         profileToken ?? undefined
       );
       if (requestFailed(profileRes)) throw new Error(failureText(profileRes, t("updateFailed")));
+
+      // Custom access (enableCustomAccess): saved only when it changed.
+      if (access && JSON.stringify({ on: access.on, tabs: access.tabs }) !== access.initial) {
+        const accessToken = await getToken();
+        const accessRes = await request(
+          { method: "PUT", path: `/access/users/${encodeURIComponent(user.id)}/custom-access`, ownError: true },
+          { enabled: access.on, tabs: access.tabs },
+          accessToken ?? undefined
+        );
+        if (requestFailed(accessRes)) throw new Error(failureText(accessRes, t("updateFailed")));
+      }
 
       // Reset form and close drawer after successful update
       reset();
@@ -576,6 +614,18 @@ export default function EditUser({ open, onClose, onUserUpdated, user }: Props) 
                     </Select>
                   </FormControl>
                 </Grid>
+                {access && (
+                  <Grid item xs={12}>
+                    <CustomAccessSection
+                      on={access.on}
+                      tabs={access.tabs}
+                      disabled={access.isSuperadmin}
+                      orgSettingsEdit={selectedRoles.some((id) => roles.find((r) => r.id === id)?.name === "Admin")}
+                      onToggle={(on) => setAccess({ ...access, on })}
+                      onChange={(tabs) => setAccess({ ...access, tabs })}
+                    />
+                  </Grid>
+                )}
               </Grid>
             </Box>
           </form>

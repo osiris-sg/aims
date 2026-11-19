@@ -5,6 +5,7 @@ import { useUser } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { rolesAllowModule, rolesHavePermission } from "@/helpers/multiRole";
+import { effectiveTabAccess, type TabAccessMap } from "@/helpers/customAccess";
 
 interface Permission {
   id: string;
@@ -18,6 +19,8 @@ interface Role {
   name: string;
   permissions: Permission[];
   allowedModules?: string[];
+  /** Custom access orgs: a custom role's (or the person's own) access per tab. */
+  tabAccess?: Record<string, string>;
 }
 
 export function useUserPermissions() {
@@ -80,8 +83,12 @@ export function useUserPermissions() {
   // module; otherwise a module is allowed if any role grants it.
   const isModuleAllowed = (moduleCode: string) => rolesAllowModule(userRoles, moduleCode);
 
+  // Custom access orgs (enableCustomAccess): the person's access per tab, or null (roles as before).
+  const customTabs: TabAccessMap | null = effectiveTabAccess(userRoles);
+
   return {
     userRoles,
+    customTabs,
     isLoading,
     error,
     canManageOrganizations,

@@ -7,6 +7,8 @@ import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { PERMISSIONS_KEY } from './decorators/permissions.decorator';
 import { PrismaService } from '../common/prisma.service';
 import { multiRoleUnionGrants } from '../roles/multi-role';
+import { NO_TAB_ACCESS_MESSAGE, invalidateCustomAccess, resolveCustomAccess } from '../access/custom-access';
+import { tabAccessAllowsRequest, tabAccessGrants } from '../access/tab-access';
 import { Prisma } from '@prisma/client';
 
 // Selects defined once so the cached row types below stay in sync with the queries.
@@ -113,6 +115,7 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
   /** Clear the entire auth cache (e.g. after a bulk permissions migration). */
   static invalidateAll(): void {
     ClerkAuthGuard.authCache.clear();
+    invalidateCustomAccess();
   }
 
   /**
@@ -320,6 +323,27 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
 
     // Get required permissions from the route handler
     const requiredPermissions = this.reflector.get<string[]>(PERMISSIONS_KEY, context.getHandler());
+
+    // Custom access (features.enableCustomAccess / enforcePresetTabs, src/access): the person's
+    // tab map decides, by path (also routes with no @Permissions) and by permission. Null for
+    // every org without the setting and for Admin / superadmin / field-tech: the checks below run
+    // exactly as before.
+    if (!isOsirisAdmin) {
+      const orgId = request.userOrganization?.id ?? null;
+      const rolesHere = userRoles.filter((ur) => ur.organizationId === orgId).map((ur) => ur.role);
+      const access = await resolveCustomAccess(this.prisma, orgId, user.id, rolesHere);
+      if (access) {
+        const method = String(request.method || 'GET');
+        const path = String(request.originalUrl || request.url || request.path || '').split('?')[0];
+        if (!tabAccessAllowsRequest(access.map, method, path)) throw new ForbiddenException(NO_TAB_ACCESS_MESSAGE);
+        // A person's own Custom access, or custom roles only: the map is the whole grant.
+        // Presets (enforcePresetTabs) keep their own permissions below; the path check only narrows.
+        if (access.source !== 'presets') {
+          if (!requiredPermissions?.length || tabAccessGrants(access.map, requiredPermissions)) return true;
+          throw new ForbiddenException('User does not have sufficient permissions');
+        }
+      }
+    }
 
     // If no permissions are required, user just needs to be authenticated
     if (!requiredPermissions || requiredPermissions.length === 0) {

@@ -139,6 +139,9 @@ const VERB_ACTIONS: Record<string, string> = {
   'sign-link': 'SHARE',
   // Split payment (enableInvoiceSplit, 2026-11-17): a draft invoice split into parts, and merged back.
   'split-invoice': 'SPLIT', 'undo-split': 'UNDO_SPLIT',
+  // Custom access (enableCustomAccess, 2026-11-19): PUT /access/users/:userId/custom-access turns a
+  // person's own access on / off or changes it (the row's result names the tabs that changed).
+  'custom-access': 'SET_ACCESS',
   revoke: 'REVOKE', activate: 'ACTIVATE', deactivate: 'DEACTIVATE',
   'auto-match': 'MATCH', match: 'MATCH', unmatch: 'UNMATCH', ignore: 'IGNORE',
   // Designer advances (2026-10-06): approve/decline and the payout stamp.

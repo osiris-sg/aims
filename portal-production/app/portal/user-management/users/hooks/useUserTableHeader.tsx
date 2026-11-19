@@ -97,10 +97,13 @@ export default function useUserTableHeader() {
       header: t("roles"),
       cell: (info) => {
         const roles = info.getValue();
+        // Custom access orgs (enableCustomAccess): a person with their own access reads "Custom" (it replaces their roles).
+        const custom = !!info.row.original?.customAccess;
         // Multi-role orgs (WCT group): roles come primary first, with no Primary mark (2026-11-18); the API's
         // primaryRoleId is only used by Edit User to keep the order. Other orgs: plain chips as before.
         return (
           <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+            {custom && <Chip label="Custom" size="small" color="secondary" sx={{ borderRadius: "4px", fontSize: "0.75rem", height: "24px" }} />}
             {roles && roles.length > 0 ? (
               roles.map((role: any) => (
                 <Chip

@@ -78,7 +78,9 @@ describe('access', () => {
     expect(reportScope(['Sales'])).toBe('own');
     expect(reportScope(['Sales', 'Operations'])).toBe('own');
     expect(reportScope(['Sales', 'Accounting'])).toBe('all');
-    expect(reportScope(['Operations', 'Viewer'])).toBe('none');
+    expect(reportScope(['Operations'])).toBe('none');
+    // Round 25 (Elroy 19 Nov): Viewer = view all.
+    expect(reportScope(['Operations', 'Viewer'])).toBe('all');
     expect(reportScope([])).toBe('none');
     expect(reportScope([], true)).toBe('all');
   });

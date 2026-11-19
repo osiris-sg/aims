@@ -8,6 +8,7 @@ import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { EmailService } from '../email/email.service';
 import { ActionLogService } from '../action-log/action-log.service';
 import { multiRoleOn, multiRoleOrgs, orderPrimaryFirst, planRoleSave, primaryRoleIdOf, roleChangeSummary } from '../roles/multi-role';
+import { accessFlags } from '../access/custom-access';
 
 /** What the Add user form sends (owner 2026-11-03: email and/or SG mobile, names, roles, optional password). */
 export type AddMemberInput = {
@@ -248,7 +249,9 @@ export class MembershipsService {
     }
     ClerkAuthGuard.invalidateUser(userId);
     if (created && email) await this.sendSetPasswordEmail(email, userId, org.name, !!password);
-    return { ok: true, message: ADD_MEMBER_REPLY(memberLabel(email, phone), org.name), ...(roleChange ? { roleChange } : {}) };
+    // Custom access orgs: Add User sets the new person's own access next (PUT /access/users/:userId/custom-access).
+    const withId = (await accessFlags(this.prisma, organizationId)).custom ? { userId } : {};
+    return { ok: true, message: ADD_MEMBER_REPLY(memberLabel(email, phone), org.name), ...withId, ...(roleChange ? { roleChange } : {}) };
   }
 
   /** The old email-only call (kept for the old path). */
