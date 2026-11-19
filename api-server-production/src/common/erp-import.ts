@@ -115,3 +115,27 @@ export async function erpImportedZeroInvoiceIds(prisma: { $queryRawUnsafe: (sql:
   );
   return rows.map((r) => r.id);
 }
+
+// WCT group (Elroy 2026-11-19): an imported quotation the ERP still has open (Draft / Sent) reads as Unconfirmed
+// in the lists, the status filter and the Unconfirmed card; one that was open at import and the ERP later
+// cancelled reads as Cancelled (Accepted reads as Confirmed, the stored status). Display only: the stored status
+// stays `confirmed`, so the document stays locked (no edit, no confirm). Only wct-erp imports (WCT group).
+const QUOTE_DOC_TYPES = new Set(['QUOTATION', 'QO', 'QT', 'QO1']);
+const ERP_QUOTE_OPEN = new Set(['draft', 'sent']);
+const ERP_QUOTE_CANCELLED = ['cancelled', 'canceled', 'declined', 'rejected', 'lost', 'void', 'voided'];
+export const isQuotationDocType = (t: unknown): boolean => QUOTE_DOC_TYPES.has(String(t ?? '').toUpperCase());
+export function erpQuotationDisplayStatus(type: unknown, config: any): 'unconfirmed' | 'cancelled' | null {
+  const m = erpImportOf(config);
+  if (!m || m.source !== 'wct-erp' || !isQuotationDocType(type)) return null;
+  const st = String(m.status ?? '').trim().toLowerCase();
+  if (ERP_QUOTE_OPEN.has(st)) return 'unconfirmed';
+  const first = String((m as any).statusAtFirstImport ?? '').trim().toLowerCase();
+  if (ERP_QUOTE_CANCELLED.includes(st) && ERP_QUOTE_OPEN.has(first)) return 'cancelled';
+  return null;
+}
+/** The small tag beside the status: "ERP draft" / "ERP sent" while the ERP has it open. */
+export function erpQuotationTag(type: unknown, config: any): string | null {
+  if (erpQuotationDisplayStatus(type, config) !== 'unconfirmed') return null;
+  return `ERP ${String(erpImportOf(config)?.status ?? '').trim().toLowerCase()}`;
+}
+export const ERP_QUOTE_CANCELLED_STATUSES = ERP_QUOTE_CANCELLED;

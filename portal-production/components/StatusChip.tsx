@@ -32,14 +32,17 @@ const STATUS_LABEL: Record<string, string> = {
   partially_paid: "Partially Paid",
 };
 
-import { docDisplayStatus, docOutstandingOf, docPaidOf, PARTIALLY_PAID } from "@/helpers/docStatus";
-export { docPaidOf, docOutstandingOf, PARTIALLY_PAID, isInvoiceType, docDisplayStatus, isVoidedWithOrder } from "@/helpers/docStatus";
+import { docDisplayStatus, docOutstandingOf, docPaidOf, erpQuotationDisplayStatus, erpQuotationTag, PARTIALLY_PAID } from "@/helpers/docStatus";
+export { docPaidOf, docOutstandingOf, PARTIALLY_PAID, isInvoiceType, docDisplayStatus, isVoidedWithOrder, erpQuotationTag } from "@/helpers/docStatus";
 
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export default function StatusChip({ status, doc }: { status?: string | null; doc?: { status?: string | null; config?: any; type?: string | null } | null }) {
+export default function StatusChip({ status, doc }: { status?: string | null; doc?: { status?: string | null; config?: any; type?: string | null; documentType?: string | null } | null }) {
+  // WCT imported quotation (helpers/docStatus.ts): its status comes from the ERP. List rows carry the type as
+  // documentType; it is read for this rule only, so every other chip derives exactly as before.
+  const erpQuote = doc ? erpQuotationDisplayStatus(doc.type ?? doc.documentType, doc.config) : null;
   // With the document in hand the chip derives "Partially Paid" itself.
-  const s = doc ? docDisplayStatus({ status: status ?? doc.status, config: doc.config, type: doc.type }) : (status || "unconfirmed").toLowerCase();
+  const s = erpQuote ?? (doc ? docDisplayStatus({ status: status ?? doc.status, config: doc.config, type: doc.type }) : (status || "unconfirmed").toLowerCase());
   const label =
     STATUS_LABEL[s] ||
     s
@@ -65,6 +68,15 @@ export default function StatusChip({ status, doc }: { status?: string | null; do
       }}
     />
   );
+  // WCT imported quotation still open in the ERP: a small "ERP draft" / "ERP sent" tag beside the status.
+  const erpTag = doc ? erpQuotationTag(doc.type ?? doc.documentType, doc.config) : null;
+  if (erpTag)
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+        {chip}
+        <Chip size="small" label={erpTag} sx={{ fontSize: "0.65rem", height: 18, bgcolor: "action.hover", color: "text.secondary", "& .MuiChip-label": { px: 0.75 } }} />
+      </span>
+    );
   if (s !== PARTIALLY_PAID || !doc) return chip;
   // Hover shows how much came in and how much is still owed.
   const paid = docPaidOf(doc.config) ?? 0;

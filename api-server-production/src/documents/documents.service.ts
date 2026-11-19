@@ -37,7 +37,7 @@ import { effectiveDesign, isImportedDoc } from '../common/services/document-html
 import { outstandingOf, grossStampOf, grossOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
 import { splitInvoice as splitInvoiceOp, undoInvoiceSplit as undoInvoiceSplitOp } from './invoice-split-ops';
 import { keepSplitPartTotals, splitGlRevenueLines, type SplitPlan } from './invoice-split';
-import { confirmPostsToGl, erpPaidAtImport, erpStoredTotalsOf, isErpImported, moneySignature } from '../common/erp-import';
+import { ERP_QUOTE_CANCELLED_STATUSES, confirmPostsToGl, erpPaidAtImport, erpQuotationTag, erpStoredTotalsOf, isErpImported, isQuotationDocType, moneySignature } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
 import { fillEmptyOrderCustomer, invoiceRowsWithSplitParts, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
 import { isManualOrderFlow } from '../orders/manual-order-flow';
@@ -4620,8 +4620,18 @@ export class DocumentsService {
             where.status = s.length > 1 ? { in: s } : 'pending_payment';
             if (partialIds.length) and.push({ id: { notIn: partialIds } });
           }
-        } else if (s.length === 1) where.status = s[0];
-        else if (s.length > 1) where.status = { in: s };
+        } else if (s.length >= 1) {
+          // WCT imported quotations the ERP has open (Draft / Sent) are Unconfirmed, and ones it cancelled
+          // since import are Cancelled, whatever their stored status (common/erp-import.ts). None = no change.
+          const erpQ = await this.erpQuotationDisplayIds(organizationId, opts.documentTypes);
+          const shown = [...erpQ.unconfirmed, ...erpQ.cancelled];
+          const stored = s.length === 1 ? s[0] : { in: s };
+          if (!shown.length) where.status = stored as any;
+          else {
+            const wantsUnconfirmed = s.includes('unconfirmed') || s.includes('draft');
+            and.push({ OR: [{ AND: [{ status: stored as any }, { id: { notIn: shown } }] }, ...(wantsUnconfirmed && erpQ.unconfirmed.length ? [{ id: { in: erpQ.unconfirmed } }] : [])] });
+          }
+        }
       }
 
       // A supplier-side document is one that names a supplier: on an AP credit
@@ -4824,6 +4834,8 @@ export class DocumentsService {
           ...(orderByQuotation.has(doc.id) ? { linkedOrder: orderByQuotation.get(doc.id) } : {}),
           // Imported from the previous ERP (common/erp-import.ts): the list shows an "Imported" tag.
           ...(isErpImported(config) ? { imported: true } : {}),
+          // WCT imported quotation still open in the ERP: "ERP draft" / "ERP sent" beside its status.
+          ...(erpQuotationTag(doc.type, config) ? { erpTag: erpQuotationTag(doc.type, config) } : {}),
         };
       });
 
@@ -4837,6 +4849,26 @@ export class DocumentsService {
   // computed server-side so they stay accurate when the list is server-paginated
   // (the paginated query only returns one page). Counts the full type set,
   // independent of the user's search/filter.
+  /**
+   * WCT imported quotations whose list status comes from the ERP (common/erp-import.ts erpQuotationDisplayStatus):
+   * open in the ERP (Draft / Sent) = unconfirmed; open at import and cancelled since = cancelled. Only asked when
+   * the list can hold quotations; other orgs have no wct-erp imports, so both lists are empty for them.
+   */
+  async erpQuotationDisplayIds(organizationId: string, documentTypes?: string[]): Promise<{ unconfirmed: string[]; cancelled: string[] }> {
+    if (documentTypes?.length && !documentTypes.some((t) => isQuotationDocType(t))) return { unconfirmed: [], cancelled: [] };
+    const rows: Array<{ id: string; status: string | null; first: string | null }> = await this.prisma.$queryRaw`
+      SELECT d.id, lower(d.config #>> '{erpImport,status}') AS status, lower(d.config #>> '{erpImport,statusAtFirstImport}') AS first
+      FROM "Document" d
+      WHERE d."organizationId" = ${organizationId}
+        AND upper(d.type::text) IN ('QUOTATION', 'QO', 'QT', 'QO1')
+        AND d.config #>> '{erpImport,source}' = 'wct-erp'
+        AND (lower(d.config #>> '{erpImport,status}') IN ('draft', 'sent')
+             OR (lower(d.config #>> '{erpImport,status}') = ANY(${ERP_QUOTE_CANCELLED_STATUSES}) AND lower(d.config #>> '{erpImport,statusAtFirstImport}') IN ('draft', 'sent')))`;
+    const out = { unconfirmed: [] as string[], cancelled: [] as string[] };
+    for (const r of rows) out[r.status === 'draft' || r.status === 'sent' ? 'unconfirmed' : 'cancelled'].push(r.id);
+    return out;
+  }
+
   async getDocumentStats(
     organizationId: string,
     opts: { documentTypes?: string[]; counterparty?: 'CUSTOMER' | 'SUPPLIER' } = {},
@@ -4860,12 +4892,15 @@ export class DocumentsService {
       monthStart.setDate(1);
       monthStart.setHours(0, 0, 0, 0);
 
-      const [total, thisMonth, drafts] = await Promise.all([
+      const erpQ = await this.erpQuotationDisplayIds(organizationId, opts.documentTypes);
+      const [total, thisMonth, storedDrafts, erpOpen] = await Promise.all([
         this.prisma.document.count({ where: base }),
         this.prisma.document.count({ where: { ...base, createdAt: { gte: monthStart } } }),
         this.prisma.document.count({ where: { ...base, status: { in: ['draft', 'unconfirmed'] as any } } }),
+        // WCT imported quotations the ERP has open read as Unconfirmed (their stored status is confirmed).
+        erpQ.unconfirmed.length ? this.prisma.document.count({ where: { AND: [base, { id: { in: erpQ.unconfirmed } }, { status: { notIn: ['draft', 'unconfirmed'] as any } }] } }) : Promise.resolve(0),
       ]);
-      return { total, thisMonth, drafts };
+      return { total, thisMonth, drafts: storedDrafts + erpOpen };
     } catch (error) {
       throw new HttpException(`Fetch document stats failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }

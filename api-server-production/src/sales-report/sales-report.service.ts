@@ -197,6 +197,8 @@ export class SalesReportService {
         }),
         templateId: q.templateId,
         salespeople: refs.map((r) => r.label),
+        // WCT imported quotation still open in the ERP (Pending): "ERP draft" / "ERP sent" beside the status.
+        ...(q.imported && /^(draft|sent)$/i.test(String(q.erpStatus ?? '').trim()) ? { erpTag: `ERP ${String(q.erpStatus).trim().toLowerCase()}` } : {}),
       });
     }
 

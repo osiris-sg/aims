@@ -61,3 +61,23 @@ test("Status filter: the same four options for every org; Voided only on the man
 test("no Split payment / Undo split on a voided invoice", () => {
   assert.deepEqual(splitButtons({ enabled: true, isInvoice: true, saved: true, status: "unconfirmed", config: { voided: true, cancelledWithOrder: true } }), { split: false, undo: false });
 });
+
+test("WCT imported quotations: ERP Draft / Sent read Unconfirmed with a tag; cancelled since import reads Cancelled (2026-11-19)", async () => {
+  const { docDisplayStatus, erpQuotationDisplayStatus, erpQuotationTag } = await import("./docStatus.ts");
+  const q = (erp, extra = {}) => ({ type: "QUOTATION", status: "confirmed", config: { erpImport: { source: "wct-erp", status: erp, ...extra } } });
+  assert.equal(docDisplayStatus(q("Draft")), "unconfirmed");
+  assert.equal(erpQuotationTag("QUOTATION", q("Draft").config), "ERP draft");
+  assert.equal(docDisplayStatus(q("Sent")), "unconfirmed");
+  assert.equal(erpQuotationTag("QUOTATION", q("Sent").config), "ERP sent");
+  // The weekly run moved it on: Accepted = the stored Confirmed; Cancelled (open at import) = Cancelled.
+  assert.equal(docDisplayStatus(q("Accepted", { statusAtFirstImport: "Draft" })), "confirmed");
+  assert.equal(erpQuotationTag("QUOTATION", q("Accepted", { statusAtFirstImport: "Draft" }).config), null);
+  assert.equal(docDisplayStatus(q("Cancelled", { statusAtFirstImport: "Sent" })), "cancelled");
+  // Unchanged: imported as Declined, imported Accepted, other sources, other types, native quotations.
+  assert.equal(docDisplayStatus(q("Declined")), "confirmed");
+  assert.equal(docDisplayStatus(q("Accepted")), "confirmed");
+  assert.equal(erpQuotationDisplayStatus("QUOTATION", { erpImport: { source: "other-erp", status: "Draft" } }), null);
+  assert.equal(erpQuotationDisplayStatus("INVOICE", { erpImport: { source: "wct-erp", status: "Draft" } }), null);
+  assert.equal(docDisplayStatus({ type: "QUOTATION", status: "confirmed", config: {} }), "confirmed");
+  assert.equal(docDisplayStatus({ type: "QUOTATION", status: "unconfirmed", config: {} }), "unconfirmed");
+});

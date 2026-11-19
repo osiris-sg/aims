@@ -9,6 +9,8 @@ export const UNCATEGORISED = "Uncategorised";
 export type SalesStatus = "Draft" | "Pending" | "Signed" | "Cancelled";
 
 export interface SalesReportRow {
+  /** WCT imported quotation still open in the ERP: "ERP draft" / "ERP sent". */
+  erpTag?: string | null;
   id: string;
   number: string;
   date: string; // yyyy-mm-dd

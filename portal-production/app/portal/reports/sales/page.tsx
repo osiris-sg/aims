@@ -123,7 +123,13 @@ export default function SalesReportPage() {
       {
         accessorKey: "status",
         header: "Status",
-        cell: ({ row }: any) => <Chip size="small" variant="outlined" color={STATUS_COLOR[row.original.status as SalesStatus] || "default"} label={row.original.status} />,
+        cell: ({ row }: any) => (
+          <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
+            <Chip size="small" variant="outlined" color={STATUS_COLOR[row.original.status as SalesStatus] || "default"} label={row.original.status} />
+            {/* WCT imported quotation still open in the ERP. */}
+            {row.original.erpTag && <Chip size="small" label={row.original.erpTag} sx={{ fontSize: "0.65rem", height: 18, bgcolor: "action.hover", color: "text.secondary", "& .MuiChip-label": { px: 0.75 } }} />}
+          </Box>
+        ),
       },
     ],
     [],

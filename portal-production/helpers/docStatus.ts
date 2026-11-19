@@ -27,7 +27,26 @@ export const PARTIALLY_PAID = "partially_paid";
 // same rule drives the list filters.
 const INVOICE_TYPES = new Set(["INVOICE", "TI", "TI2"]);
 export const isInvoiceType = (t?: string | null) => INVOICE_TYPES.has(String(t || "").toUpperCase());
+// WCT group (Elroy 2026-11-19, same rule as the API's common/erp-import.ts): an imported quotation the ERP still
+// has open (Draft / Sent) reads as Unconfirmed with an "ERP draft" / "ERP sent" tag; one open at import that the
+// ERP cancelled since reads as Cancelled. Display only: the stored status stays confirmed (locked).
+const QUOTE_TYPES = new Set(["QUOTATION", "QO", "QT", "QO1"]);
+const ERP_OPEN = new Set(["draft", "sent"]);
+const ERP_CANCELLED = new Set(["cancelled", "canceled", "declined", "rejected", "lost", "void", "voided"]);
+export function erpQuotationDisplayStatus(type: string | null | undefined, config: any): "unconfirmed" | "cancelled" | null {
+  const m = config?.erpImport;
+  if (!m || m.source !== "wct-erp" || !QUOTE_TYPES.has(String(type || "").toUpperCase())) return null;
+  const st = String(m.status ?? "").trim().toLowerCase();
+  if (ERP_OPEN.has(st)) return "unconfirmed";
+  if (ERP_CANCELLED.has(st) && ERP_OPEN.has(String(m.statusAtFirstImport ?? "").trim().toLowerCase())) return "cancelled";
+  return null;
+}
+export const erpQuotationTag = (type: string | null | undefined, config: any): string | null =>
+  erpQuotationDisplayStatus(type, config) === "unconfirmed" ? `ERP ${String(config?.erpImport?.status ?? "").trim().toLowerCase()}` : null;
+
 export function docDisplayStatus(doc: { status?: string | null; config?: any; type?: string | null } | null | undefined): string {
+  const erpQuote = erpQuotationDisplayStatus(doc?.type, doc?.config);
+  if (erpQuote) return erpQuote;
   let s = (doc?.status || "unconfirmed").toLowerCase();
   if (s === "confirmed" && isInvoiceType(doc?.type)) s = "pending_payment";
   if (["paid", "cancelled", "voided", "returned"].includes(s)) return s;
