@@ -610,7 +610,8 @@ describe('calendar chip text (2026-11-19): customer only', () => {
     expect(byId(res.events, 'r-quick').chipLabel).toBe('Acme');
     expect(byId(res.events, 'r-nocust').chipLabel).toBe('10 Anson Road');
     const bare = byId(res.events, 'r-bare');
-    expect(bare.chipLabel).toBe(bare.title);
+    // Neither: the title without its job number (2026-11-19).
+    expect(bare.chipLabel).toBe(bare.title.replace(/^#\d+\s+/, ''));
     // Child company items get it too.
     expect(byId(res.events, 'r-child').chipLabel).toBe('Acme');
   });
@@ -621,5 +622,17 @@ describe('calendar chip text (2026-11-19): customer only', () => {
     const res = await svc(w).get(P, '2026-11-16', '2026-11-22', { userId: HH });
     expect(JSON.stringify(res)).not.toMatch(/chipLabel/);
     expect(JSON.stringify(await svc(w).get(X, '2026-11-16', '2026-11-22', { userId: 'x' }))).not.toMatch(/chipLabel/);
+  });
+});
+
+describe('chip label fallback (2026-11-19): no order / job numbers', () => {
+  it('customer, else site address, else the title without ORD… / #n', () => {
+    const { chipLabelOf, titleWithoutNumbers } = require('./jobs-calendar');
+    expect(chipLabelOf({ customerName: 'Acme' }, 'ORD202611-003 · #41 Acme')).toBe('Acme');
+    expect(chipLabelOf({ siteAddress: '10 Anson Road' }, '#41 X')).toBe('10 Anson Road');
+    expect(chipLabelOf(null, 'ORD202611-003 · #41 Domino\'s Pizza')).toBe("Domino's Pizza");
+    expect(chipLabelOf(null, '#41 Site visit')).toBe('Site visit');
+    expect(titleWithoutNumbers('Return #7 Acme')).toBe('Return Acme');
+    expect(titleWithoutNumbers('#41')).toBe('#41');
   });
 });

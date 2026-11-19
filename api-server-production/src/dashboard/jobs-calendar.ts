@@ -367,5 +367,17 @@ export function chipLabelOf(run: { customerName?: string | null; siteAddress?: s
   const c = String(run?.customerName ?? '').trim();
   if (c) return c;
   const a = String(run?.siteAddress ?? '').trim();
-  return a || title;
+  return a || titleWithoutNumbers(title);
+}
+
+/**
+ * The title fallback without order / job numbers (2026-11-19): "ORD202611-003 · #41 Domino's" and "#41 Domino's"
+ * read "Domino's" ("Return #7 X" keeps "Return X"). A title that is only numbers stays as it is.
+ */
+export function titleWithoutNumbers(title: string): string {
+  const t = String(title ?? '')
+    .replace(/^\s*ORD[\w-]*\s*·\s*/i, '')
+    .replace(/^(Return\s+)?#\d+\s+/i, (_m, r) => r ?? '')
+    .trim();
+  return t || title;
 }

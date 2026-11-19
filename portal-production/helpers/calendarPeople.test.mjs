@@ -188,8 +188,8 @@ test("chip text: prefix + customer only; no customer = site address; neither = t
   assert.equal(chipTitle(noCustomer), "10 Anson Road");
   const collect = ev({ title: "#44 Acme", chipLabel: "Acme", style: style({ prefix: "(CC)" }) });
   assert.equal(chipTitle(collect), "(CC) Acme");
-  // An older API (no chipLabel) falls back to the title.
-  assert.equal(chipTitle(ev({ title: "#45 X", style: style() })), "#45 X");
+  // An older API (no chipLabel) falls back to the title, without its order / job numbers (2026-11-19).
+  assert.equal(chipTitle(ev({ title: "#45 X", style: style() })), "X");
   // Schedule rows use the same short text.
   const days = scheduleDays([order, noCustomer], [], null);
   assert.deepEqual(days[0].rows.map((r) => r.title), ["(SV) Domino's Pizza", "10 Anson Road"]);

@@ -15,7 +15,9 @@ const at = (day: number, hh: number, mm = 0) => new Date(Date.parse(`2026-11-${S
 const base: Pick<CalendarEvent, "allDay" | "completed" | "cancelled" | "rider" | "crew" | "siteclockUrl" | "deliveryNumber"> = { allDay: false, completed: false, cancelled: false, rider: null, crew: [], siteclockUrl: null, deliveryNumber: null };
 const aims = (id: string, kind: CalendarEvent["kind"], n: number, who: string, day: number, hh: number, mins: number, over: Partial<CalendarEvent> = {}): CalendarEvent => ({
   ...base, id: `aims:${id}`, source: "aims", kind, title: `${kind === "return" ? "Return " : ""}#${n} ${who}`, start: at(day, hh), end: new Date(Date.parse(at(day, hh)) + mins * 60_000).toISOString(),
-  status: "scheduled", statusLabel: "Scheduled", address: "10 Anson Road, Singapore 079903", site: who, worker: null, href: `/portal/deliveries/${id}`, deliveryNumber: n, ...over,
+  status: "scheduled", statusLabel: "Scheduled", address: "10 Anson Road, Singapore 079903", site: who, worker: null, href: `/portal/deliveries/${id}`, deliveryNumber: n,
+  // The server's chip label (customer, else site address, else the title without numbers).
+  chipLabel: who, ...over,
 });
 const sc = (id: string, title: string, day: number, hh: number | null, mins = 60, over: Partial<CalendarEvent> = {}): CalendarEvent => ({
   ...base, id: `sc:${id}`, source: "siteclock", kind: "siteclock", title, start: hh === null ? `2026-11-${String(day).padStart(2, "0")}` : at(day, hh), end: hh === null ? null : new Date(Date.parse(at(day, hh)) + mins * 60_000).toISOString(),

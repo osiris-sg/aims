@@ -16,7 +16,7 @@ import JobFieldIcon from "@/components/jobFields/JobFieldIcon";
 import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import { unwrap } from "@/app/portal/admin/organizations/_lib/siteclock-connection";
-import { calendarLegendItems, filterByPeople, legendTitle, parseHidden, peopleRows, peopleStorageKey, rangeOf, runIdOf, selectAllRows, selectNoRows, siteclockBanner, toggleRow, withoutSiteClockJobs, type CalendarEvent, type CalendarPayload } from "./jobs-calendar/calendarModel";
+import { calendarLegendItems, filterByPeople, legendTitle, parseHidden, parsePanelOpen, peopleOpenKey, peopleRows, peopleStorageKey, rangeOf, runIdOf, selectAllRows, selectNoRows, siteclockBanner, toggleRow, withoutSiteClockJobs, type CalendarEvent, type CalendarPayload } from "./jobs-calendar/calendarModel";
 import { useCalendarApi } from "./jobs-calendar/calendarAddApi";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useRouter } from "next/navigation";
@@ -210,8 +210,28 @@ export function JobsCalendarPanel({
   const shownEvents = useMemo(() => (withPeople ? filterByPeople(allEvents, hidden) : allEvents), [withPeople, allEvents, hidden]);
   const shownNotes = useMemo(() => (withPeople && data?.notes ? filterByPeople(data.notes, hidden) : data?.notes), [withPeople, data, hidden]);
   const theme = useTheme();
-  const wide = useMediaQuery(theme.breakpoints.up("md"));
-  const [panelOpen, setPanelOpen] = useState<boolean | null>(null);
+  // People panel (2026-11-19): open by default only on wide screens (1600px+), so Month gets the full width on a
+  // laptop; the people icon toggles it and the choice is remembered for this user in this browser.
+  const wide = useMediaQuery("(min-width:1600px)");
+  const openKey = peopleOpenKey(peopleKey);
+  const [panelOpen, setPanelOpenState] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!openKey) return;
+    try {
+      setPanelOpenState(parsePanelOpen(window.localStorage.getItem(openKey)));
+    } catch {
+      setPanelOpenState(null);
+    }
+  }, [openKey]);
+  const setPanelOpen = (open: boolean) => {
+    setPanelOpenState(open);
+    if (!openKey) return;
+    try {
+      window.localStorage.setItem(openKey, open ? "1" : "0");
+    } catch {
+      // Not remembered (private window or storage blocked); the toggle still applies on this page.
+    }
+  };
   const showPanel = withPeople && (panelOpen ?? wide);
   return (
     <Box sx={{ mb: 4, width: "100%" }}>

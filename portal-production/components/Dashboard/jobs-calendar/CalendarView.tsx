@@ -48,7 +48,7 @@ import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
-import { CALENDAR_TZ, CHIP_TEXT, GREYED_OPACITY, applicantLabel, compactTime, badgeTitle, chipIcons, chipTimeRange, crewLine, crossOrgTarget, chipTitle, dayOfInstant, kindLabel, orgLabel, panelColor, panelLinks, panelMoreLink, panelRefs, rangeOf, scheduleBadge, scheduleDays, scheduleScrollDay, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag, type ScheduleDay, type ScheduleRow } from "./calendarModel";
+import { CALENDAR_TZ, CHIP_TEXT, GREYED_OPACITY, applicantLabel, compactTime, rowIcons, badgeTitle, chipIcons, chipTimeRange, crewLine, crossOrgTarget, chipTitle, dayOfInstant, kindLabel, orgLabel, panelColor, panelLinks, panelMoreLink, panelRefs, rangeOf, scheduleBadge, scheduleDays, scheduleScrollDay, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag, type ScheduleDay, type ScheduleRow } from "./calendarModel";
 import DoStatusTag from "@/components/DoStatusTag";
 
 interface Props {
@@ -729,11 +729,12 @@ function PtwCircle({ colour, size = 9 }: { colour: string; size?: number }) {
  */
 function StyledRow({ event: e }: { event: CalendarEvent }) {
   const st = e.style!;
-  const icons = chipIcons(e);
+  // At most 2 icons inline (status, PTW, ✅, 📌, 🟫 first); every icon is in the hover text and the side panel.
+  const icons = rowIcons(st.icons);
   return (
     <Box
       title={styledTooltip(e)}
-      sx={{ display: "flex", alignItems: "center", gap: 0.5, overflow: "hidden", whiteSpace: "nowrap", px: 0.5, fontSize: "0.75rem", lineHeight: "18px", color: "text.primary", minWidth: 0 }}
+      sx={{ display: "flex", alignItems: "center", gap: "3px", overflow: "hidden", whiteSpace: "nowrap", px: 0.5, fontSize: "0.75rem", lineHeight: "18px", color: "text.primary", minWidth: 0 }}
     >
       <Box component="span" data-testid="sales-dot" sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: st.fill, flexShrink: 0 }} />
       {!e.allDay && (

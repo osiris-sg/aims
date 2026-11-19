@@ -299,9 +299,42 @@ export const styledTitle = (e: Pick<CalendarEvent, "title" | "style">): string =
  * rows all use it; the tooltip and the side panel keep the full title.
  */
 export const chipTitle = (e: Pick<CalendarEvent, "title" | "style" | "chipLabel">): string => {
-  const label = e.chipLabel || e.title;
+  const label = e.chipLabel || titleWithoutNumbers(e.title);
   return e.style?.prefix ? `${e.style.prefix} ${label}` : label;
 };
+
+/** The title fallback without order / job numbers ("ORD… · #41 Domino's" → "Domino's"; same rule as the server). */
+export function titleWithoutNumbers(title: string): string {
+  const t = String(title ?? "")
+    .replace(/^\s*ORD[\w-]*\s*·\s*/i, "")
+    .replace(/^(Return\s+)?#\d+\s+/i, (_m, r) => r ?? "")
+    .trim();
+  return t || title;
+}
+
+/**
+ * Month rows (2026-11-19): at most 2 icons inline so the customer stays readable, by priority: ❌ / ⭕ status, PTW
+ * status, ✅, 📌, 🟫. The rest are in the hover text and the side panel (the Schedule view shows all).
+ */
+const ICON_RANK: Array<(icon: string) => boolean> = [
+  (i) => i === "❌" || i === "⭕",
+  (i) => i === "✋" || i === "👍" || i === "👎",
+  (i) => i.endsWith("✅"),
+  (i) => i === "📌",
+  (i) => i === "🟫",
+];
+export function rowIcons(icons: Array<{ icon: string }>, max = 2): string {
+  const rank = (i: string) => {
+    const k = ICON_RANK.findIndex((f) => f(i));
+    return k < 0 ? ICON_RANK.length : k;
+  };
+  return icons
+    .map((x, n) => ({ icon: x.icon, n }))
+    .sort((a, b) => rank(a.icon) - rank(b.icon) || a.n - b.n)
+    .slice(0, max)
+    .map((x) => x.icon)
+    .join(" ");
+}
 
 /** Calendar style chip, line 2: "10:00 am – 11:00 am" (Singapore), or "All day". */
 export function chipTimeRange(e: Pick<CalendarEvent, "start" | "end" | "allDay">): string {
@@ -705,3 +738,9 @@ export const applicantLabel = (p: { name: string | null; inList?: boolean | fals
 /** PTW applicants list orgs (2026-11-19): a job's applicant that is not on the list keeps showing, marked. */
 export const applicantOptionLabel = (o: { id: string; name: string }, list: Array<{ id: string }>, fromList: boolean): string =>
   fromList && !list.some((p) => p.id === o.id) ? `${o.name} (not in list)` : o.name;
+
+/** Where the People panel's open / closed choice is kept (next to the hidden people; null = not kept). */
+export const peopleOpenKey = (peopleKey: string | null | undefined): string | null =>
+  peopleKey ? peopleKey.replace(/^aims-jc-people-hidden:/, "aims-jc-people-open:") : null;
+/** The stored choice: "1" open, "0" closed, anything else = not chosen yet (the screen width decides). */
+export const parsePanelOpen = (v: string | null | undefined): boolean | null => (v === "1" ? true : v === "0" ? false : null);

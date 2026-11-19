@@ -103,3 +103,24 @@ test("short times: 9am, 9:30pm, noon and midnight; a range; Schedule rows carry 
   ], [], null);
   assert.deepEqual(day.rows.map((r) => r.ptw), ["#d50000", null]);
 });
+
+// Add-on 5 (2026-11-19): Month rows keep the customer readable.
+test("rows: no order / job numbers in the title fallback; at most 2 icons by priority; People panel choice kept", async () => {
+  const { titleWithoutNumbers, chipTitle, rowIcons, peopleOpenKey, parsePanelOpen } = await import("../components/Dashboard/jobs-calendar/calendarModel.ts");
+  assert.equal(titleWithoutNumbers("ORD202611-003 · #41 Domino's Pizza (Tampines)"), "Domino's Pizza (Tampines)");
+  assert.equal(titleWithoutNumbers("#41 Domino's"), "Domino's");
+  assert.equal(titleWithoutNumbers("Return #7 Acme"), "Return Acme");
+  assert.equal(titleWithoutNumbers("#41"), "#41");
+  assert.equal(chipTitle({ title: "ORD202611-003 · #41 Domino's", chipLabel: null, style: { prefix: "(SV)" } }), "(SV) Domino's");
+  assert.equal(chipTitle({ title: "#41 X", chipLabel: "Acme Pte Ltd" }), "Acme Pte Ltd");
+  const i = (...xs) => xs.map((icon) => ({ icon, label: icon }));
+  assert.equal(rowIcons(i("🟫", "📌", "2✅", "✋", "❌")), "❌ ✋");
+  assert.equal(rowIcons(i("🟫", "📌", "2✅")), "2✅ 📌");
+  assert.equal(rowIcons(i("🟫")), "🟫");
+  assert.equal(rowIcons([]), "");
+  assert.equal(peopleOpenKey("aims-jc-people-hidden:user_1"), "aims-jc-people-open:user_1");
+  assert.equal(peopleOpenKey(null), null);
+  assert.equal(parsePanelOpen("1"), true);
+  assert.equal(parsePanelOpen("0"), false);
+  assert.equal(parsePanelOpen(null), null);
+});
