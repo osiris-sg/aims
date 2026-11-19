@@ -588,7 +588,9 @@ describe('round 30: Operations updates jobs and DOs only (deliveries:update, not
     expect(await allowed(w, 'jill', 'POST', '/deliveries/r1/verify', ['documents:update'], {}, OPS)).toBe(true);
   });
 
-  it('the 15 stamped routes, and only those, carry @AltPermissions', () => {
+  // Round 36 (2026-11-20): the jobs calendar panel's job edits (PTW, calendar style fields, category, Cancel job / Undo,
+  // Postpone / Reschedule) are job updates too, so deliveries:update (Operations) may use them.
+  it('the stamped routes (15 in round 30, + 6 jobs calendar panel routes in round 36), and only those, carry @AltPermissions', () => {
     const src = (f: string) => readFileSync(join(__dirname, '..', f), 'utf8');
     const stamped = (f: string) => {
       const lines = src(f).split('\n');
@@ -602,9 +604,15 @@ describe('round 30: Operations updates jobs and DOs only (deliveries:update, not
     };
     expect(stamped('deliveries/deliveries.controller.ts')).toEqual([
       "@Post('order-dos/:doId/complete') job",
+      "@Put(':id/category') job",
       "@Post(':id/office-complete') job",
       "@Post(':id/verify') job",
       "@Post(':id/reject') job",
+      "@Patch(':id/ptw') job",
+      "@Patch(':id/style') job",
+      "@Post(':id/calendar-cancel') job",
+      "@Post(':id/calendar-uncancel') job",
+      "@Post(':id/reschedule') job",
       "@Post(':id/cancel-handoff') job",
     ]);
     expect(stamped('job-photos/job-photos.controller.ts')).toEqual(["@Post('job-photos/:id/hide') job", "@Patch('job-photos/:id/tag') job"]);
