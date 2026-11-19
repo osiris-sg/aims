@@ -6,8 +6,11 @@
  *               Confirmed, Cancelled (cancelled / voided, or ERP Cancelled), Declined (ERP Declined / Rejected / Lost).
  *   DOs         Draft (draft, unconfirmed, confirmed, Pending Delivery, anything not delivered), Completed
  *               (Delivered (Not Installed), Delivered & Installed, Returned; imported ERP DOs), Cancelled.
- *   Invoices    Draft (draft / unconfirmed), Voided (voided, or ERP Cancelled), Credited (credit notes cover the total), Paid, Overdue (still
- *               owed, part paid or not, past its due date), Part paid (part paid, not yet due), Unpaid.
+ *   Invoices    Draft (draft / unconfirmed), Voided (voided, or ERP Cancelled), Credited (credit notes cover the total), Paid,
+ *               Overdue (still owed past its due date, nothing paid), Overdue · part paid (overdue_part_paid: past its due
+ *               date with some paid, Elroy 2026-11-19), Part paid (part paid, not yet due), Unpaid.
+ *   Filter      ONE "Overdue" option, matching both overdue values (wctStatusMatches); "overdue_part_paid" is also
+ *               taken on its own (e.g. a link), it is just not a separate option in the list.
  */
 
 export type WctFamily = 'QUOTATION' | 'DO' | 'INVOICE';
@@ -53,7 +56,11 @@ export function wctFamilyOfTypes(types: unknown[] | null | undefined): WctFamily
   const fams = new Set(types.map((t) => wctFamilyOf(t)));
   return fams.size === 1 && !fams.has(null) ? ([...fams][0] as WctFamily) : null;
 }
-export const isWctStatusValue = (family: WctFamily, v: unknown): boolean => WCT_STATUS_OPTIONS[family].some((o) => o.value === v);
+/** Values a row can carry that are not their own filter option: overdue and part paid is under Overdue. */
+const EXTRA_VALUES: Record<WctFamily, string[]> = { QUOTATION: [], DO: [], INVOICE: ['overdue_part_paid'] };
+export const isWctStatusValue = (family: WctFamily, v: unknown): boolean => WCT_STATUS_OPTIONS[family].some((o) => o.value === v) || EXTRA_VALUES[family].includes(String(v));
+/** Does a row's WCT status match the wanted filter values? "Overdue" takes both overdue values. */
+export const wctStatusMatches = (wanted: string[], cls: string): boolean => wanted.includes(cls) || (cls === 'overdue_part_paid' && wanted.includes('overdue'));
 
 const n = (v: unknown): number | null => {
   if (v === null || v === undefined || v === '') return null;
@@ -105,7 +112,7 @@ export function wctStatusOf(d: WctStatusInput): string | null {
   const paid = n(c.paidToDate) ?? n(c.xeroAmountPaid) ?? 0;
   if (s === 'paid' || (outstanding !== null && outstanding <= 0.005)) return 'paid';
   const due = String(c.dueDate ?? c.documentInfo?.dueDate ?? '').slice(0, 10);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(due) && due < d.today) return 'overdue';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(due) && due < d.today) return paid > 0.005 ? 'overdue_part_paid' : 'overdue';
   return paid > 0.005 ? 'part_paid' : 'unpaid';
 }
 

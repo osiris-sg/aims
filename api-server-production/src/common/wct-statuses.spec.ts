@@ -1,4 +1,4 @@
-import { WCT_STATUS_OPTIONS, wctFamilyOfTypes, wctStatusOf } from './wct-statuses';
+import { WCT_STATUS_OPTIONS, isWctStatusValue, wctFamilyOfTypes, wctStatusMatches, wctStatusOf } from './wct-statuses';
 import { DocumentsService } from '../documents/documents.service';
 
 // WCT group status set (Elroy 2026-11-19): display + filters only; stored statuses unchanged; other orgs untouched.
@@ -33,8 +33,10 @@ describe('wctStatusOf', () => {
     expect(st('INVOICE', 'confirmed', { totalWithTax: 100, dueDate: '2026-12-01' })).toBe('unpaid');
     expect(st('INVOICE', 'pending_payment', { totalWithTax: 100, paidToDate: 40, outstandingBalance: 60, dueDate: '2026-12-01' })).toBe('part_paid');
     expect(st('INVOICE', 'pending_payment', { totalWithTax: 100, outstandingBalance: 100, dueDate: '2026-11-01' })).toBe('overdue');
-    // Still owed past its due date, part paid or not: Overdue.
-    expect(st('INVOICE', 'pending_payment', { totalWithTax: 100, paidToDate: 40, outstandingBalance: 60, dueDate: '2026-11-01' })).toBe('overdue');
+    // Past its due date with some paid: "Overdue · part paid" (Elroy 2026-11-19); nothing paid stays Overdue.
+    expect(st('INVOICE', 'pending_payment', { totalWithTax: 100, paidToDate: 40, outstandingBalance: 60, dueDate: '2026-11-01' })).toBe('overdue_part_paid');
+    expect(st('INVOICE', 'pending_payment', { totalWithTax: 100, xeroAmountPaid: 10, xeroBalance: 90, dueDate: '2026-11-01' })).toBe('overdue_part_paid');
+    expect(st('INVOICE', 'pending_payment', { totalWithTax: 100, paidToDate: 0, outstandingBalance: 100, dueDate: '2026-11-01' })).toBe('overdue');
     expect(st('INVOICE', 'paid', { totalWithTax: 100 })).toBe('paid');
     expect(st('INVOICE', 'pending_payment', { totalWithTax: 100, outstandingBalance: 0, paidToDate: 100 })).toBe('paid');
     expect(st('INVOICE', 'paid', { totalWithTax: 100, ...erp('Paid', { creditNotes: [{ amount: 100 }] }) })).toBe('credited');
@@ -51,6 +53,13 @@ describe('wctStatusOf', () => {
     expect(wctFamilyOfTypes(['INVOICE', 'QUOTATION'])).toBeNull();
     expect(wctFamilyOfTypes([])).toBeNull();
     expect(WCT_STATUS_OPTIONS.INVOICE.map((o) => o.label)).toEqual(['Draft', 'Unpaid', 'Part paid', 'Paid', 'Overdue', 'Credited', 'Voided']);
+    // One Overdue option takes both overdue values; overdue_part_paid is a valid value on its own too.
+    expect(wctStatusMatches(['overdue'], 'overdue_part_paid')).toBe(true);
+    expect(wctStatusMatches(['overdue'], 'overdue')).toBe(true);
+    expect(wctStatusMatches(['part_paid'], 'overdue_part_paid')).toBe(false);
+    expect(wctStatusMatches(['overdue_part_paid'], 'overdue')).toBe(false);
+    expect(isWctStatusValue('INVOICE', 'overdue_part_paid')).toBe(true);
+    expect(isWctStatusValue('DO', 'overdue_part_paid')).toBe(false);
     expect(WCT_STATUS_OPTIONS.DO.map((o) => o.label)).toEqual(['Draft', 'Completed', 'Cancelled']);
     expect(WCT_STATUS_OPTIONS.QUOTATION.map((o) => o.label)).toEqual(['Unconfirmed', 'Confirmed', 'Cancelled', 'Declined']);
   });
@@ -61,6 +70,8 @@ describe('document list with the WCT status set', () => {
     { id: 'i1', type: 'INVOICE', status: 'pending_payment', config: { totalWithTax: 100, dueDate: '2020-01-01' } },
     { id: 'i2', type: 'INVOICE', status: 'paid', config: { totalWithTax: 100 } },
     { id: 'i3', type: 'INVOICE', status: 'paid', config: { totalWithTax: 50 } },
+    { id: 'i4', type: 'INVOICE', status: 'pending_payment', config: { totalWithTax: 100, paidToDate: 40, outstandingBalance: 60, dueDate: '2020-01-01' } },
+    { id: 'i5', type: 'INVOICE', status: 'pending_payment', config: { totalWithTax: 100, paidToDate: 40, outstandingBalance: 60, dueDate: '2999-01-01' } },
   ];
   function svcWith(flag: boolean) {
     const findMany = jest.fn(async () => []);
@@ -84,10 +95,17 @@ describe('document list with the WCT status set', () => {
   it('flag on: Overdue / Paid filter by the WCT rule (the smaller id list)', async () => {
     const a = svcWith(true);
     await a.svc.getDocumentsPaginated('org', { documentTypes: ['INVOICE'], status: 'overdue' });
-    expect(whereOf(a.findMany)).toEqual({ organizationId: 'org', type: { in: ['INVOICE'] }, AND: [{ id: { in: ['i1'] } }] });
+    // Overdue lists both overdue kinds (i1 nothing paid, i4 part paid), never the part paid one not yet due (i5).
+    expect(whereOf(a.findMany)).toEqual({ organizationId: 'org', type: { in: ['INVOICE'] }, AND: [{ id: { in: ['i1', 'i4'] } }] });
     const b = svcWith(true);
     await b.svc.getDocumentsPaginated('org', { documentTypes: ['INVOICE'], status: 'paid' });
-    expect(whereOf(b.findMany)).toEqual({ organizationId: 'org', type: { in: ['INVOICE'] }, AND: [{ id: { notIn: ['i1'] } }] });
+    expect(whereOf(b.findMany)).toEqual({ organizationId: 'org', type: { in: ['INVOICE'] }, AND: [{ id: { in: ['i2', 'i3'] } }] });
+    const c = svcWith(true);
+    await c.svc.getDocumentsPaginated('org', { documentTypes: ['INVOICE'], status: 'part_paid' });
+    expect(whereOf(c.findMany)).toEqual({ organizationId: 'org', type: { in: ['INVOICE'] }, AND: [{ id: { in: ['i5'] } }] });
+    const d = svcWith(true);
+    await d.svc.getDocumentsPaginated('org', { documentTypes: ['INVOICE'], status: 'overdue_part_paid' });
+    expect(whereOf(d.findMany)).toEqual({ organizationId: 'org', type: { in: ['INVOICE'] }, AND: [{ id: { in: ['i4'] } }] });
   });
   it('flag off (every other org): the stored-status filter exactly as before', async () => {
     const { svc, findMany } = svcWith(false);
