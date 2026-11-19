@@ -8,6 +8,7 @@ import { request, withActiveOrg } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import StatusChip from "@/components/StatusChip";
+import { wctStatusOptionsFor } from "@/helpers/wctStatuses";
 import {
   Stack,
   Chip,
@@ -137,6 +138,13 @@ export const dateHeaderFor = (documentTypes: string[]): string => {
   return match ? match[1] : "Date";
 };
 
+/** The Status filter's options for this list's types (WCT group: helpers/wctStatuses.ts). */
+export function statusOptionsFor(documentTypes: string[], manualOrderFlow: boolean, wctStatuses: boolean) {
+  const wct = wctStatusOptionsFor(documentTypes, wctStatuses);
+  if (wct) return wct;
+  return documentTypes.length && documentTypes.every((t) => INVOICE_TYPE_SET.has(String(t).toUpperCase())) ? invoiceStatusOptions(manualOrderFlow) : DOC_STATUS_OPTIONS;
+}
+
 const formatStatus = (status: string) => {
   if (!status) return "Unconfirmed";
   if (status === "draft" || status === "unconfirmed") return "Unconfirmed";
@@ -261,7 +269,7 @@ export default function DocumentListView({
   const dateHeader = useMemo(() => dateHeaderFor(documentTypes), [documentTypes]);
 
   // Real DO numbers (enableRealDoOnSchedule): a DO shows Pending / Completed / Cancelled next to its number.
-  const { isRealDoOnScheduleEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled, isWctDocNavEnabled, isQuotationTemplatesEnabled } = useOrganizationFeatures();
+  const { isRealDoOnScheduleEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled, isWctDocNavEnabled, isQuotationTemplatesEnabled, isWctStatusesEnabled } = useOrganizationFeatures();
   // Quotation templates (enableQuotationTemplates, WCT group, 2026-11-19): "Create Quotation" gets an arrow ->
   // Create from template. Every other org / list: the plain Create button, as before.
   const templatesOn = quotationListTemplates(!!isQuotationTemplatesEnabled, createDocumentType);
@@ -288,11 +296,12 @@ export default function DocumentListView({
     () => [
       { type: "dateRange", key: "createdOn", label: "Created On" },
       // "Voided" (manual order flow only): invoices voided with a cancelled order, hidden from the default list.
-      { type: "select", key: "status", label: "Status", options: documentTypes.length && documentTypes.every((t) => INVOICE_TYPE_SET.has(String(t).toUpperCase())) ? invoiceStatusOptions(!!isManualOrderFlowEnabled) : DOC_STATUS_OPTIONS },
+      // WCT group (enableWctStatuses): quotation / DO / invoice lists offer only the statuses that apply there.
+      { type: "select", key: "status", label: "Status", options: statusOptionsFor(documentTypes, !!isManualOrderFlowEnabled, !!isWctStatusesEnabled) },
       // Server-search customer picker (orgs have thousands of customers).
       { type: "customer", key: "customerId", label: "Customer" },
     ],
-    [documentTypes, isManualOrderFlowEnabled],
+    [documentTypes, isManualOrderFlowEnabled, isWctStatusesEnabled],
   );
 
   // Column-header sort → server sort field (name/status/createdAt only; the

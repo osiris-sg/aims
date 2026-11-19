@@ -296,6 +296,10 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // WhatsApp) on quotation, invoice, DO and service report. Portal only.
   // Default OFF; WCT group.
   enableWctDocNav: false,
+  // WCT status set (2026-11-19): quotation / DO / invoice lists show and filter by Unconfirmed / Confirmed /
+  // Cancelled / Declined, Draft / Completed / Cancelled, Draft / Unpaid / Part paid / Paid / Overdue /
+  // Credited / Voided (common/wct-statuses.ts). Display only, stored statuses unchanged. Default OFF; WCT group.
+  enableWctStatuses: false,
   // AIMS never emails a customer by itself (service report on completion,
   // auto-send recurring invoices); button sends unchanged. Default OFF; WCT group.
   disableAutoCustomerEmails: false,

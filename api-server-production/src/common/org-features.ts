@@ -96,6 +96,8 @@ export const QUOTATION_TOTALS_TOGGLE_FLAG = 'enableQuotationTotalsToggle';
 // on a status change, or when it is emailed (which moves it to pending
 // payment). Saves after that repost as before. Off = the no-draft model.
 export const POST_INVOICES_ON_CONFIRM_FLAG = 'postInvoicesOnConfirm';
+/** WCT group status set on quotation / DO / invoice lists (common/wct-statuses.ts). Display and filters only. */
+export const WCT_STATUSES_FLAG = 'enableWctStatuses';
 
 // WCT group round 6 (2026-11-18). Each is per org, default OFF:
 // - DOC_REMARKS: invoice + DO "Remarks" (config.remarks, multi-line) typed in the

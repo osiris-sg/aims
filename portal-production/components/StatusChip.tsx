@@ -32,28 +32,32 @@ const STATUS_LABEL: Record<string, string> = {
   partially_paid: "Partially Paid",
 };
 
+import { wctStatusColor, wctStatusLabel } from "@/helpers/wctStatuses";
 import { docDisplayStatus, docOutstandingOf, docPaidOf, erpQuotationDisplayStatus, erpQuotationTag, PARTIALLY_PAID } from "@/helpers/docStatus";
 export { docPaidOf, docOutstandingOf, PARTIALLY_PAID, isInvoiceType, docDisplayStatus, isVoidedWithOrder, erpQuotationTag } from "@/helpers/docStatus";
 
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export default function StatusChip({ status, doc }: { status?: string | null; doc?: { status?: string | null; config?: any; type?: string | null; documentType?: string | null } | null }) {
+export default function StatusChip({ status, doc }: { status?: string | null; doc?: { status?: string | null; config?: any; type?: string | null; documentType?: string | null; wctStatus?: string | null } | null }) {
   // WCT imported quotation (helpers/docStatus.ts): its status comes from the ERP. List rows carry the type as
   // documentType; it is read for this rule only, so every other chip derives exactly as before.
   const erpQuote = doc ? erpQuotationDisplayStatus(doc.type ?? doc.documentType, doc.config) : null;
+  // WCT group (enableWctStatuses): the API sends the row's status in the WCT set (helpers/wctStatuses.ts).
+  const wct = doc?.wctStatus || null;
   // With the document in hand the chip derives "Partially Paid" itself.
-  const s = erpQuote ?? (doc ? docDisplayStatus({ status: status ?? doc.status, config: doc.config, type: doc.type }) : (status || "unconfirmed").toLowerCase());
-  const label =
-    STATUS_LABEL[s] ||
-    s
-      .split("_")
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(" ");
+  const s = wct ?? erpQuote ?? (doc ? docDisplayStatus({ status: status ?? doc.status, config: doc.config, type: doc.type }) : (status || "unconfirmed").toLowerCase());
+  const label = wct
+    ? wctStatusLabel(wct)
+    : STATUS_LABEL[s] ||
+      s
+        .split("_")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
   const chip = (
     <Chip
       size="small"
       variant="outlined"
-      color={STATUS_COLOR[s] || "default"}
+      color={wct ? wctStatusColor(wct) : STATUS_COLOR[s] || "default"}
       label={label}
       // Long statuses ("Delivered Installed") WRAP to a second line instead of
       // ellipsizing inside a fixed-width column (guru 2026-08-27: no "…").
@@ -77,7 +81,7 @@ export default function StatusChip({ status, doc }: { status?: string | null; do
         <Chip size="small" label={erpTag} sx={{ fontSize: "0.65rem", height: 18, bgcolor: "action.hover", color: "text.secondary", "& .MuiChip-label": { px: 0.75 } }} />
       </span>
     );
-  if (s !== PARTIALLY_PAID || !doc) return chip;
+  if ((s !== PARTIALLY_PAID && wct !== "part_paid") || !doc) return chip;
   // Hover shows how much came in and how much is still owed.
   const paid = docPaidOf(doc.config) ?? 0;
   const outstanding = docOutstandingOf(doc.config) ?? 0;

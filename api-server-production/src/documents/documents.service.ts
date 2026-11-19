@@ -37,13 +37,14 @@ import { effectiveDesign, isImportedDoc } from '../common/services/document-html
 import { outstandingOf, grossStampOf, grossOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
 import { splitInvoice as splitInvoiceOp, undoInvoiceSplit as undoInvoiceSplitOp } from './invoice-split-ops';
 import { keepSplitPartTotals, splitGlRevenueLines, type SplitPlan } from './invoice-split';
+import { sgToday, wctFamilyOf, wctFamilyOfTypes, isWctStatusValue, wctStatusOf } from '../common/wct-statuses';
 import { ERP_QUOTE_CANCELLED_STATUSES, assertNotErpImportedDo, confirmPostsToGl, erpPaidAtImport, erpQuotationTag, erpStoredTotalsOf, isErpImported, isErpImportedDo, isQuotationDocType, moneySignature } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
 import { fillEmptyOrderCustomer, invoiceRowsWithSplitParts, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
 import { isManualOrderFlow } from '../orders/manual-order-flow';
 import { skipsDoSaveStockRule } from './do-first-save';
 import { RDO_FREE_ROWS_FLAG, allowsRdoFreeRows, hasUnit, isRdoSigned, isRdoType } from './rdo-free-rows';
-import { isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
+import { WCT_STATUSES_FLAG, isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { assetKey, descKey, invoiceDiscountPercent, isDisplayRow, orderInvoiceReference, planOrderInvoice, quoteDiscountAmount } from '../orders/order-billing';
 import { quotationLinesForJob } from '../deliveries/quotation-to-delivery';
@@ -4592,6 +4593,24 @@ export class DocumentsService {
         } else if (voidedIds.length) and.push({ id: { notIn: voidedIds } });
       }
 
+      // WCT group status set (common/wct-statuses.ts, features.enableWctStatuses): on a quotation, DO or invoice
+      // list the filter takes the WCT values (Unconfirmed / Declined, Draft / Completed, Unpaid / Overdue /
+      // Credited…), matched on the same rule the rows are shown with. Display only; other orgs never get here.
+      const wctOn = await isOrgFeatureEnabled(this.prisma, organizationId, WCT_STATUSES_FLAG).catch(() => false);
+      const wctFam = wctOn ? wctFamilyOfTypes(opts.documentTypes) : null;
+      if (wctFam && opts.status) {
+        const wanted = (Array.isArray(opts.status) ? opts.status : [opts.status]).filter(Boolean) as string[];
+        if (wanted.length && wanted.every((v) => isWctStatusValue(wctFam, v))) {
+          const classes = await this.wctStatusClasses(organizationId, opts.documentTypes!);
+          const hit = classes.filter((r) => wanted.includes(r.cls)).map((r) => r.id);
+          const miss = classes.filter((r) => !wanted.includes(r.cls)).map((r) => r.id);
+          // The smaller list (the rows are already limited to these types): at most half the family.
+          if (hit.length <= miss.length) and.push({ id: { in: hit } });
+          else if (miss.length) and.push({ id: { notIn: miss } });
+          opts = { ...opts, status: undefined };
+        }
+      }
+
       if (opts.status) {
         const all = (Array.isArray(opts.status) ? opts.status : [opts.status]).filter(Boolean);
         // "partially_paid" is not a stored status: it is an unpaid document with
@@ -4802,6 +4821,9 @@ export class DocumentsService {
         : [];
       const projectMap = new Map(projects.map((p) => [p.id, p.name]));
       const orderByQuotation = await this.quotationOrders(organizationId, rows);
+      // WCT group: each row's status in the WCT set (the chip shows it).
+      const wctToday = sgToday();
+      const wctCredits = wctOn ? await this.wctInvoiceCredits(organizationId, rows.filter((d: any) => wctFamilyOf(d.type) === 'INVOICE').map((d: any) => d.id)) : new Map<string, number>();
 
       const docs = rows.map((doc: any) => {
         const config = doc.config as any;
@@ -4844,6 +4866,7 @@ export class DocumentsService {
           ...(isErpImported(config) ? { imported: true } : {}),
           // WCT imported quotation still open in the ERP: "ERP draft" / "ERP sent" beside its status.
           ...(erpQuotationTag(doc.type, config) ? { erpTag: erpQuotationTag(doc.type, config) } : {}),
+          ...(wctOn && wctFamilyOf(doc.type) ? { wctStatus: wctStatusOf({ type: doc.type, status: doc.status, config, creditFromNotes: wctCredits.get(doc.id) ?? 0, today: wctToday }) } : {}),
         };
       });
 
@@ -4857,6 +4880,42 @@ export class DocumentsService {
   // computed server-side so they stay accurate when the list is server-paginated
   // (the paginated query only returns one page). Counts the full type set,
   // independent of the user's search/filter.
+  /** WCT status set: confirmed credit notes' gross per source invoice (all the org's, or these invoices). */
+  async wctInvoiceCredits(organizationId: string, invoiceIds?: string[]): Promise<Map<string, number>> {
+    if (invoiceIds && !invoiceIds.length) return new Map();
+    const rows: Array<{ id: string; credit: number }> = await this.prisma.$queryRaw`
+      SELECT d.config ->> 'sourceDocumentId' AS id,
+             SUM(COALESCE((d.config ->> 'totalWithTax')::numeric, (d.config ->> 'xeroGross')::numeric, (d.config ->> 'nettTotal')::numeric, 0))::float8 AS credit
+      FROM "Document" d
+      WHERE d."organizationId" = ${organizationId}
+        AND upper(d.type::text) IN ('CREDIT_NOTE', 'CN')
+        AND d.status::text NOT IN ('draft', 'unconfirmed')
+        AND COALESCE(d.config ->> 'voided', 'false') <> 'true'
+        AND d.config ->> 'sourceDocumentId' IS NOT NULL
+        ${invoiceIds ? Prisma.sql`AND d.config ->> 'sourceDocumentId' = ANY(${invoiceIds})` : Prisma.empty}
+      GROUP BY 1`;
+    return new Map(rows.map((r) => [r.id, Number(r.credit) || 0]));
+  }
+
+  /** WCT status set: every document of these types in the org with its WCT status (common/wct-statuses.ts). */
+  async wctStatusClasses(organizationId: string, documentTypes: string[]): Promise<Array<{ id: string; cls: string }>> {
+    const docs: Array<{ id: string; type: string; status: string; config: any }> = await this.prisma.$queryRaw`
+      SELECT d.id, d.type::text AS type, d.status::text AS status,
+             jsonb_build_object(
+               'cancelled', d.config -> 'cancelled', 'voided', d.config -> 'voided',
+               'erpImport', jsonb_build_object('source', d.config #> '{erpImport,source}', 'status', d.config #> '{erpImport,status}', 'creditNotes', d.config #> '{erpImport,creditNotes}'),
+               'totalWithTax', d.config -> 'totalWithTax', 'xeroGross', d.config -> 'xeroGross', 'nettTotal', d.config -> 'nettTotal',
+               'outstandingBalance', d.config -> 'outstandingBalance', 'xeroBalance', d.config -> 'xeroBalance',
+               'paidToDate', d.config -> 'paidToDate', 'xeroAmountPaid', d.config -> 'xeroAmountPaid',
+               'dueDate', d.config -> 'dueDate', 'documentInfo', jsonb_build_object('dueDate', d.config #> '{documentInfo,dueDate}')
+             ) AS config
+      FROM "Document" d
+      WHERE d."organizationId" = ${organizationId} AND d.type::text = ANY(${documentTypes})`;
+    const credits = docs.some((d) => wctFamilyOf(d.type) === 'INVOICE') ? await this.wctInvoiceCredits(organizationId) : new Map<string, number>();
+    const today = sgToday();
+    return docs.map((d) => ({ id: d.id, cls: wctStatusOf({ type: d.type, status: d.status, config: d.config, creditFromNotes: credits.get(d.id) ?? 0, today }) || '' }));
+  }
+
   /**
    * WCT imported quotations whose list status comes from the ERP (common/erp-import.ts erpQuotationDisplayStatus):
    * open in the ERP (Draft / Sent) = unconfirmed; open at import and cancelled since = cancelled. Only asked when

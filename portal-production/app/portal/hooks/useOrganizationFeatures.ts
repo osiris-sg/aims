@@ -43,6 +43,8 @@ interface OrganizationFeatures {
   enableInvoiceSplit?: boolean;
   /** In-app Back + toolbar Send menu (2026-11-17; WCT group). */
   enableWctDocNav?: boolean;
+  /** WCT status set on quotation / DO / invoice lists (2026-11-19; WCT group). */
+  enableWctStatuses?: boolean;
   postInvoicesOnConfirm?: boolean;
   enableQuotationSubject?: boolean;
   /** Quotation templates (2026-11-18; WCT group): "+ Add" arrow > Create from template, Save as template. */
@@ -315,6 +317,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // WCT doc navigation (2026-11-17): Back buttons go to the previous page in the app (else the
   // parent list), and one "Send" menu on quotation / invoice / DO / service report. Default OFF; WCT group.
   enableWctDocNav: false,
+  // WCT status set on quotation / DO / invoice lists (helpers/wctStatuses.ts). Default OFF; WCT group.
+  enableWctStatuses: false,
   // Subject field on quotations (the WCT paper has a Subject box). Default OFF; WCT group.
   enableQuotationSubject: false,
   // Quotation templates (2026-11-18): named sets of quotation lines. Default OFF; WCT group.
@@ -425,6 +429,7 @@ export function useOrganizationFeatures() {
     // Needs WCT orders too, the flow it extends (same rule as the API).
     isInvoiceSplitEnabled: (features.enableInvoiceSplit ?? false) && (features.postInvoicesOnConfirm ?? false),
     isWctDocNavEnabled: features.enableWctDocNav ?? false,
+    isWctStatusesEnabled: features.enableWctStatuses ?? false,
     isManualOrderFlowEnabled: (features.enableManualOrderFlow ?? false) && (features.enableWctOrders ?? false),
     isQuotationSubjectEnabled: features.enableQuotationSubject ?? false,
     isQuotationTemplatesEnabled: features.enableQuotationTemplates ?? false,
