@@ -2,7 +2,7 @@
 
 // Receipts Listing (legacy screenshots 58/59 — guru 2026-07-20: Xero style):
 // Official Receipts for a period, grouped by deposit-to BANK ACCOUNT with
-// Unconfirmed/Confirmed sections, sub-totals, per-bank totals and a grand
+// per-bank totals and a grand
 // total. Columns follow the legacy printout: Receipt No / Date / Cheque /
 // Received From / Amount (base) / Curr / Foreign Amount. Print + CSV from
 // the shell footer (covers the legacy Output Destinations box).
@@ -131,35 +131,25 @@ export default function ReceiptListingReport() {
       const group = byBank.get(code)!;
       out.push({ kind: "group", key: `g-${code}`, cells: [`${code}${accountNames.get(code) ? ` — ${accountNames.get(code)}` : ""}`] });
       let bankTotal = 0;
-      // Legacy sections: Unconfirmed first (red header), then Confirmed.
-      const sections: Array<{ label: string; items: Receipt[]; highlight: boolean }> = [
-        { label: "Unconfirmed Receipt(s)", items: group.filter((r) => (r.status || "").toLowerCase() !== "confirmed"), highlight: true },
-        { label: "Confirmed Receipt(s)", items: group.filter((r) => (r.status || "").toLowerCase() === "confirmed"), highlight: false },
-      ];
-      for (const sec of sections) {
-        if (!sec.items.length) continue;
-        out.push({ kind: "row", key: `s-${code}-${sec.label}`, cells: [{ text: sec.label }, "", "", "", null, "", null], highlight: sec.highlight });
-        let subTotal = 0;
-        for (const r of sec.items.sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || a.receiptNumber.localeCompare(b.receiptNumber))) {
-          const amt = baseAmount(r);
-          subTotal = R(subTotal + amt);
-          out.push({
-            kind: "row",
-            key: r.id,
-            cells: [
-              // Click-through to the receipt (guru 2026-11-10); Back returns here.
-              { text: r.receiptNumber, href: `/portal/accounting/receipts/${r.id}?from=${encodeURIComponent(typeof window !== "undefined" ? window.location.pathname + window.location.search : "/portal/accounting/receivables")}` },
-              r.date ? fmtDate(r.date) : "",
-              r.chequeNo || "",
-              r.customerName || "",
-              amt,
-              (r.currency || "SGD").toUpperCase(),
-              R(Number(r.receiptAmount) || 0),
-            ],
-          });
-        }
-        out.push({ kind: "subtotal", key: `st-${code}-${sec.label}`, cells: ["SUB-TOTAL", "", "", "", subTotal, "", null] });
-        bankTotal = R(bankTotal + subTotal);
+      // One run per bank (guru 2026-11-19): receipts carry no Unconfirmed /
+      // Confirmed status any more — a saved receipt is in the GL.
+      for (const r of group.sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || a.receiptNumber.localeCompare(b.receiptNumber))) {
+        const amt = baseAmount(r);
+        bankTotal = R(bankTotal + amt);
+        out.push({
+          kind: "row",
+          key: r.id,
+          cells: [
+            // Click-through to the receipt (guru 2026-11-10); Back returns here.
+            { text: r.receiptNumber, href: `/portal/accounting/receipts/${r.id}?from=${encodeURIComponent(typeof window !== "undefined" ? window.location.pathname + window.location.search : "/portal/accounting/receivables")}` },
+            r.date ? fmtDate(r.date) : "",
+            r.chequeNo || "",
+            r.customerName || "",
+            amt,
+            (r.currency || "SGD").toUpperCase(),
+            R(Number(r.receiptAmount) || 0),
+          ],
+        });
       }
       out.push({ kind: "subtotal", key: `t-${code}`, cells: ["TOTAL", "", "", "", bankTotal, "", null] });
       grand = R(grand + bankTotal);
@@ -171,14 +161,13 @@ export default function ReceiptListingReport() {
   const exportCsv = () => {
     if (!filtered) return;
     downloadCsv(`Receipts-Listing-${from}-${to}.csv`, [
-      ["Receipt No.", "Date", "Cheque", "Received From", "Bank Account", "Status", "Amount", "Curr", "Foreign Amount"],
+      ["Receipt No.", "Date", "Cheque", "Received From", "Bank Account", "Amount", "Curr", "Foreign Amount"],
       ...filtered.map((r) => [
         r.receiptNumber,
         String(r.date || "").slice(0, 10),
         r.chequeNo || "",
         r.customerName || "",
         r.debitAccountCode || "",
-        (r.status || "").toLowerCase() === "confirmed" ? "Confirmed" : "Unconfirmed",
         baseAmount(r).toFixed(2),
         (r.currency || "SGD").toUpperCase(),
         (Number(r.receiptAmount) || 0).toFixed(2),

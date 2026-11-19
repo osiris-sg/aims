@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Box, Chip, Grid, Paper, Typography } from "@mui/material";
+import { Box, Grid, Paper, Typography } from "@mui/material";
 import { toast } from "react-toastify";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
@@ -93,15 +93,6 @@ const ymd = (v: any): string => {
 };
 const unwrap = (r: any) => (r && typeof r === "object" && r.success !== undefined && r.data !== undefined ? r.data : r);
 
-// Document.status → one of three words. A voucher is 'unconfirmed' until its
-// first save posts it; a deleted one is 'cancelled'.
-const statusOf = (s?: string | null): "Unconfirmed" | "Confirmed" | "Void" => {
-  const v = String(s || "").toLowerCase();
-  if (!v || v === "draft" || v === "unconfirmed") return "Unconfirmed";
-  if (v === "cancelled" || v === "void" || v === "voided") return "Void";
-  return "Confirmed";
-};
-
 function StatCard({ title, value, tone }: { title: string; value: string | number; tone?: string }) {
   return (
     <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
@@ -149,13 +140,13 @@ export default function VoucherListPage({ kind }: { kind: Kind }) {
   const { request } = useAccountingApi();
   const [rows, setRows] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
-  const [stats, setStats] = useState({ total: 0, thisMonth: 0, unconfirmed: 0, amount: 0 });
+  const [stats, setStats] = useState({ total: 0, thisMonth: 0, amount: 0 });
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState<any>({ status: "", date: { startDate: null, endDate: null } });
+  const [filters, setFilters] = useState<any>({ date: { startDate: null, endDate: null } });
 
   // SERVER-SIDE list (guru 2026-11-18). It used to fetch the endpoint's newest
   // 500 by created date and search, filter, total and page them in the browser.
@@ -179,26 +170,25 @@ export default function VoucherListPage({ kind }: { kind: Kind }) {
     try {
       const qs = new URLSearchParams({ page: String(page), limit: String(limit) });
       if (search.trim()) qs.set("search", search.trim());
-      if (filters?.status) qs.set("status", String(filters.status));
       if (dateFilter.from) qs.set("from", dateFilter.from);
       if (dateFilter.to) qs.set("to", dateFilter.to);
       const res = unwrap(await request(`${spec.apiPath}/paged?${qs.toString()}`));
       setRows(Array.isArray(res?.rows) ? res.rows : []);
       setTotal(Number(res?.total) || 0);
-      setStats(res?.stats || { total: 0, thisMonth: 0, unconfirmed: 0, amount: 0 });
+      setStats(res?.stats || { total: 0, thisMonth: 0, amount: 0 });
     } catch (e: any) {
       toast.error(e?.message || `Couldn't load ${spec.plural.toLowerCase()}`);
     } finally {
       setLoading(false);
     }
-  }, [request, spec.apiPath, spec.plural, page, limit, search, filters?.status, dateFilter]);
+  }, [request, spec.apiPath, spec.plural, page, limit, search, dateFilter]);
 
   // A new search or filter starts at page 1 — asking for page 7 of a narrower
   // result set shows an empty table. Declared BEFORE the fetch below so the
   // reset lands in the same pass, instead of fetching the old page first.
   useEffect(() => {
     setPage(1);
-  }, [search, filters?.status, dateFilter, limit]);
+  }, [search, dateFilter, limit]);
 
   useEffect(() => {
     void load();
@@ -259,21 +249,6 @@ export default function VoucherListPage({ kind }: { kind: Kind }) {
         <Box sx={{ fontVariantNumeric: "tabular-nums" }}>{fmt(spec.amount(row.original))}</Box>
       ),
     },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }: any) => {
-        const s = statusOf(row.original.status);
-        return (
-          <Chip
-            size="small"
-            variant="outlined"
-            label={s}
-            color={s === "Confirmed" ? "success" : s === "Void" ? "error" : "warning"}
-          />
-        );
-      },
-    },
   ];
 
   return (
@@ -296,36 +271,22 @@ export default function VoucherListPage({ kind }: { kind: Kind }) {
         setLimit={setLimit}
         setSearch={setSearch}
         setFilters={setFilters}
-        filterConfig={[
-          {
-            type: "select",
-            key: "status",
-            label: "Status",
-            options: [
-              { label: "All", value: "" },
-              { label: "Unconfirmed", value: "Unconfirmed" },
-              { label: "Confirmed", value: "Confirmed" },
-              { label: "Void", value: "Void" },
-            ],
-          },
-          { type: "dateRange", key: "date", label: "Date" },
-        ]}
+        filterConfig={[{ type: "dateRange", key: "date", label: "Date" }]}
         pageCount={Math.max(1, Math.ceil(total / limit))}
         totalDocs={total}
         headerContent={
           <Box sx={{ mb: 3 }}>
             <Grid container spacing={2}>
-              <Grid item xs={12} sm={3}>
+              {/* No Unconfirmed count (guru 2026-11-19): receipts and vouchers
+                  carry no status any more. */}
+              <Grid item xs={12} sm={4}>
                 {/* Counted in SQL over the filtered set — a real number, however many there are. */}
                 <StatCard title={`Total ${spec.plural}`} value={stats.total} />
               </Grid>
-              <Grid item xs={12} sm={3}>
+              <Grid item xs={12} sm={4}>
                 <StatCard title="This month" value={stats.thisMonth} />
               </Grid>
-              <Grid item xs={12} sm={3}>
-                <StatCard title="Unconfirmed" value={stats.unconfirmed} tone={stats.unconfirmed ? "warning.main" : undefined} />
-              </Grid>
-              <Grid item xs={12} sm={3}>
+              <Grid item xs={12} sm={4}>
                 <StatCard title="Amount shown" value={fmt(stats.amount)} tone="success.main" />
               </Grid>
             </Grid>

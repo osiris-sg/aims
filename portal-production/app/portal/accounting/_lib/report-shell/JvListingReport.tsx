@@ -1,9 +1,9 @@
 "use client";
 
 // Journal Voucher Listing (legacy screenshots 75/76 — guru 2026-07-24: Xero
-// style, legacy words verbatim): every journal LINE for a period, split into
-// the red "Unconfirmed Journal Voucher(s)" section (DRAFT) and "Confirmed
-// Journal Voucher(s)" (POSTED). Columns: J/V No. | Date. | Accn |
+// style, legacy words verbatim): every journal LINE for a period in one list
+// (no Unconfirmed / Confirmed split since 2026-11-19: vouchers carry no
+// status — a saved voucher is in the GL). Columns: J/V No. | Date. | Accn |
 // Description (with the "Rate: x.xxxxxx SGD n" note on foreign lines) |
 // Foreign Amount | Curr | Amount. The period opens on the CURRENT MONTH like
 // every other listing (2026-11-18); the legacy dialog's 01/01/2018 → today is
@@ -57,7 +57,7 @@ export default function JvListingReport() {
   // listings, so they never belong here. The server filters by type MANUAL
   // before its 500-journal cap.
   const [loading, setLoading] = useState(false);
-  const [sections, setSections] = useState<{ unconfirmed: JvLine[]; confirmed: JvLine[] } | null>(null);
+  const [lines, setLines] = useState<JvLine[] | null>(null);
   const [truncated, setTruncated] = useState(false);
 
   const load = useCallback(async () => {
@@ -67,14 +67,10 @@ export default function JvListingReport() {
         `/journal/reports/journal?startDate=${from}&endDate=${to}&orderBy=journalNumber&includeUnposted=true&source=manual`,
       );
       const data = (res as any)?.data ?? res;
-      const unconfirmed: JvLine[] = [];
-      const confirmed: JvLine[] = [];
+      const bucket: JvLine[] = [];
       for (const j of data?.journals || []) {
         // Guard for an older API that ignores ?source=: hand-keyed only.
         if (j.type && String(j.type).toUpperCase() !== "MANUAL") continue;
-        // Unconfirmed = draft JVs AND posted journals born from unconfirmed
-        // documents (guru 2026-07-24 status model).
-        const bucket = (j.status || "POSTED") === "DRAFT" || j.isUnconfirmed ? unconfirmed : confirmed;
         for (const l of j.lines || []) {
           const amount = R((Number(l.debit) || 0) - (Number(l.credit) || 0));
           const isForeign = l.foreignAmount != null && j.currency && j.currency !== "SGD";
@@ -92,7 +88,7 @@ export default function JvListingReport() {
           });
         }
       }
-      setSections({ unconfirmed, confirmed });
+      setLines(bucket);
       setTruncated(Boolean(data?.truncated));
       if (data?.truncated) toast.warn("More than 500 journals in the period — narrow the dates to see the rest");
     } catch (e: any) {
@@ -122,42 +118,29 @@ export default function JvListingReport() {
   );
 
   const rows = useMemo<ReportRow[]>(() => {
-    if (!sections) return [];
+    if (!lines) return [];
     const out: ReportRow[] = [];
-    const pushSection = (label: string, lines: JvLine[], highlight: boolean) => {
-      if (!lines.length) return;
-      out.push({ kind: "row", key: `s-${label}`, cells: [{ text: label }, "", "", "", null, "", null], highlight });
-      // A balanced journal nets to 0 in the single signed Amount column, so a
-      // plain sum printed "-" (guru 2026-10-23). Totals are shown per SIDE —
-      // debits and credits (which must agree) — the way an accountant reads a
-      // voucher listing.
-      const side = sideTotals(lines);
-      for (let i = 0; i < lines.length; i++) {
-        const l = lines[i];
-        out.push({
-          kind: "row",
-          key: `${label}-${i}`,
-          cells: [l.jvNo, fmtDate(l.date), l.accn, l.description, l.foreignAmount, l.curr, l.amount],
-        });
-      }
-      out.push({ kind: "subtotal", key: `t-${label}-dr`, cells: ["SUB-TOTAL", "", "", "Debits", side.fDr, "", side.dr] });
-      out.push({ kind: "subtotal", key: `t-${label}-cr`, cells: ["", "", "", "Credits", side.fCr, "", side.cr] });
-    };
-    pushSection("Unconfirmed Journal Voucher(s)", sections.unconfirmed, true);
-    pushSection("Confirmed Journal Voucher(s)", sections.confirmed, false);
-    const grand = sideTotals([...sections.unconfirmed, ...sections.confirmed]);
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      out.push({ kind: "row", key: `l-${i}`, cells: [l.jvNo, fmtDate(l.date), l.accn, l.description, l.foreignAmount, l.curr, l.amount] });
+    }
+    // A balanced journal nets to 0 in the single signed Amount column, so a
+    // plain sum printed "-" (guru 2026-10-23). Totals are shown per SIDE —
+    // debits and credits (which must agree) — the way an accountant reads a
+    // voucher listing.
+    const grand = sideTotals(lines);
     out.push({ kind: "total", key: "__grand-dr", cells: ["GRAND TOTAL", "", "", "Debits", grand.fDr, "", grand.dr] });
     out.push({ kind: "total", key: "__grand-cr", cells: ["", "", "", "Credits", grand.fCr, "", grand.cr] });
     return out;
-  }, [sections]);
+  }, [lines]);
 
-  const lineCount = (sections?.unconfirmed.length || 0) + (sections?.confirmed.length || 0);
+  const lineCount = lines?.length || 0;
 
   const exportCsv = () => {
-    if (!sections) return;
-    const body = (label: string, lines: JvLine[]) =>
-      lines.map((l) => [
-        label,
+    if (!lines) return;
+    downloadCsv(`Journal-Voucher-Listing-${from}-${to}.csv`, [
+      ["J/V No.", "Date", "Accn", "Description", "Foreign Amount", "Curr", "Amount"],
+      ...lines.map((l) => [
         l.jvNo,
         String(l.date).slice(0, 10),
         l.accn,
@@ -165,11 +148,7 @@ export default function JvListingReport() {
         l.foreignAmount != null ? l.foreignAmount.toFixed(2) : "",
         l.curr,
         l.amount.toFixed(2),
-      ]);
-    downloadCsv(`Journal-Voucher-Listing-${from}-${to}.csv`, [
-      ["Section", "J/V No.", "Date", "Accn", "Description", "Foreign Amount", "Curr", "Amount"],
-      ...body("Unconfirmed", sections.unconfirmed),
-      ...body("Confirmed", sections.confirmed),
+      ]),
     ]);
   };
 
@@ -183,11 +162,11 @@ export default function JvListingReport() {
           <DateRangeSelect label="Period" from={from} to={to} onChange={(f, t) => { setFrom(f); setTo(t); }} />
         </Stack>
       }
-      headerLines={sections ? [`From Date : ${fmtDate(from)}   To Date : ${fmtDate(to)}`] : []}
-      footerInfo={sections ? `${lineCount} line${lineCount === 1 ? "" : "s"}${truncated ? " · truncated at 500 journals" : ""}` : ""}
-      onExportCsv={sections ? exportCsv : undefined}
+      headerLines={lines ? [`From Date : ${fmtDate(from)}   To Date : ${fmtDate(to)}`] : []}
+      footerInfo={lines ? `${lineCount} line${lineCount === 1 ? "" : "s"}${truncated ? " · truncated at 500 journals" : ""}` : ""}
+      onExportCsv={lines ? exportCsv : undefined}
     >
-      {sections ? (
+      {lines ? (
         <>
           <ReportTable columns={columns} rows={rows} />
           <Typography variant="caption" sx={{ display: "block", mt: 1.5, color: "text.secondary" }}>

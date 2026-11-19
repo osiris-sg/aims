@@ -78,7 +78,7 @@ const yearStartISO = (iso: string) => `${iso.slice(0, 4)}-01-01`;
 // entries navigate elsewhere in the portal; `hint` entries just explain.
 const AR_REPORTS: { key: string; label: string; description: string; tab?: string; href?: string; hint?: string }[] = [
   { key: "receipt-listing", label: "Receipt Listing", description: "Official receipts for a period, grouped by deposit-to bank account", tab: "receipt-listing" },
-  { key: "jv-listing", label: "Journal Voucher Listing", description: "Every journal line for a period — Unconfirmed and Confirmed vouchers", tab: "jv-listing" },
+  { key: "jv-listing", label: "Journal Voucher Listing", description: "Every journal voucher line for a period, by bank and account", tab: "jv-listing" },
   { key: "debtor-statement", label: "Statement-Of-Accounts", description: "Legacy statement — open items, running balance and monthly ageing", tab: "debtor-statement" },
   { key: "summary-ageing", label: "Summary Ageing Analysis", description: "Outstanding per customer bucketed by calendar month, with contact info", tab: "summary-ageing" },
   { key: "detailed-ageing", label: "Detailed Ageing Analysis", description: "Every outstanding document per customer, aged by calendar month with running balance", tab: "detailed-ageing" },

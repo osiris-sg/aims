@@ -81,7 +81,7 @@ const GL_REPORTS: { key: string; label: string; description: string; tab?: strin
   { key: "expense-listing", label: "Expenses Listing", description: "Expense accounts by fiscal-year month up to a cut-off period, with the year-to-date balance", tab: "expense-listing" },
   { key: "bank-rec", label: "Bank Reconciliation", description: "Match bank statement lines to ledger entries", href: "/portal/accounting/bank-reconciliation" },
   { key: "foreign-banks", label: "Foreign Bank Listing", description: "Foreign-currency bank accounts — foreign and local balances", tab: "foreign-banks" },
-  { key: "jv-listing", label: "Journal Voucher Listing", description: "Every journal line for a period — Unconfirmed and Confirmed vouchers", tab: "jv-listing" },
+  { key: "jv-listing", label: "Journal Voucher Listing", description: "Every journal voucher line for a period, by bank and account", tab: "jv-listing" },
   { key: "gl-detail", label: "General Ledger", description: "Every posted line per account with running balance", tab: "gl" },
   { key: "account-transactions", label: "Account Transactions", description: "Transactions for chosen accounts over a period", tab: "account-transactions" },
   { key: "journal", label: "Journal Report", description: "Every posted journal with its balanced lines", tab: "journal" },

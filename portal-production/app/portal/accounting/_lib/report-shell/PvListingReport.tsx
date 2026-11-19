@@ -3,7 +3,7 @@
 // Payment Voucher Listing (legacy screenshots 88/89 — guru 2026-08-01, same
 // treatment as AR's Receipts Listing: Xero-style shell, legacy name/columns
 // word-for-word). Bill payments for a period, grouped by paid-from BANK
-// ACCOUNT with Unconfirmed/Confirmed sections, SUB-TOTALs, per-bank TOTALs
+// ACCOUNT, per-bank TOTALs
 // and a GRAND TOTAL. Columns: P/V No. / Date. / Payee / Amount / Curr /
 // Foreign Amount. Print + CSV from the shell footer (legacy Output
 // Destinations box).
@@ -103,7 +103,6 @@ export default function PvListingReport() {
     v.journal?.journalNumber ||
     v.journal?.reference ||
     (v.billNumber ? `P/V ${v.billNumber}` : v.reference || "—");
-  const isUnconfirmed = (v: Voucher) => !!v.journal?.isUnconfirmed;
   const currency = (v: Voucher) => (v.journal?.currency || "SGD").toUpperCase();
   const foreignAmount = (v: Voucher) =>
     v.journal?.foreignAmount != null ? R(Number(v.journal.foreignAmount)) : R(Number(v.amount) || 0);
@@ -134,36 +133,26 @@ export default function PvListingReport() {
       const group = byBank.get(code)!;
       out.push({ kind: "group", key: `g-${code}`, cells: [`${code}${bankName(code) ? ` — ${bankName(code)}` : ""}`] });
       let bankTotal = 0;
-      // Legacy sections: Unconfirmed first (red header), then Confirmed.
-      const sections: Array<{ label: string; items: Voucher[]; highlight: boolean }> = [
-        { label: "Unconfirmed Payment Voucher(s)", items: group.filter((v) => isUnconfirmed(v)), highlight: true },
-        { label: "Confirmed Payment Voucher(s)", items: group.filter((v) => !isUnconfirmed(v)), highlight: false },
-      ];
-      for (const sec of sections) {
-        if (!sec.items.length) continue;
-        out.push({ kind: "row", key: `s-${code}-${sec.label}`, cells: [{ text: sec.label }, "", "", null, "", null], highlight: sec.highlight });
-        let subTotal = 0;
-        for (const v of sec.items.sort((a, b) => String(a.paymentDate || "").localeCompare(String(b.paymentDate || "")) || pvNo(a).localeCompare(pvNo(b)))) {
-          const amt = R(Number(v.amount) || 0);
-          subTotal = R(subTotal + amt);
-          out.push({
-            kind: "row",
-            key: v.id,
-            // Click-through to the voucher (guru 2026-11-10); Back returns here.
-            cells: [
-              v.id
-                ? { text: pvNo(v), href: `/portal/accounting/payment-vouchers/${v.id}?from=${encodeURIComponent(typeof window !== "undefined" ? window.location.pathname + window.location.search : "/portal/accounting/payables")}` }
-                : pvNo(v),
-              v.paymentDate ? fmtDate(v.paymentDate) : "",
-              v.supplierName || "",
-              amt,
-              currency(v),
-              foreignAmount(v),
-            ],
-          });
-        }
-        out.push({ kind: "subtotal", key: `st-${code}-${sec.label}`, cells: ["SUB-TOTAL", "", "", subTotal, "", null] });
-        bankTotal = R(bankTotal + subTotal);
+      // One run per bank (guru 2026-11-19): vouchers carry no Unconfirmed /
+      // Confirmed status any more — a saved voucher is in the GL.
+      for (const v of group.sort((a, b) => String(a.paymentDate || "").localeCompare(String(b.paymentDate || "")) || pvNo(a).localeCompare(pvNo(b)))) {
+        const amt = R(Number(v.amount) || 0);
+        bankTotal = R(bankTotal + amt);
+        out.push({
+          kind: "row",
+          key: v.id,
+          // Click-through to the voucher (guru 2026-11-10); Back returns here.
+          cells: [
+            v.id
+              ? { text: pvNo(v), href: `/portal/accounting/payment-vouchers/${v.id}?from=${encodeURIComponent(typeof window !== "undefined" ? window.location.pathname + window.location.search : "/portal/accounting/payables")}` }
+              : pvNo(v),
+            v.paymentDate ? fmtDate(v.paymentDate) : "",
+            v.supplierName || "",
+            amt,
+            currency(v),
+            foreignAmount(v),
+          ],
+        });
       }
       out.push({ kind: "subtotal", key: `t-${code}`, cells: ["TOTAL", "", "", bankTotal, "", null] });
       grand = R(grand + bankTotal);
@@ -175,13 +164,12 @@ export default function PvListingReport() {
   const exportCsv = () => {
     if (!filtered) return;
     downloadCsv(`Payment-Voucher-Listing-${from}-${to}.csv`, [
-      ["P/V No.", "Date", "Payee", "Bank Account", "Status", "Amount", "Curr", "Foreign Amount"],
+      ["P/V No.", "Date", "Payee", "Bank Account", "Amount", "Curr", "Foreign Amount"],
       ...filtered.map((v) => [
         pvNo(v),
         String(v.paymentDate || "").slice(0, 10),
         v.supplierName || "",
         v.bankAccount?.code || "",
-        isUnconfirmed(v) ? "Unconfirmed" : "Confirmed",
         R(Number(v.amount) || 0).toFixed(2),
         currency(v),
         foreignAmount(v).toFixed(2),

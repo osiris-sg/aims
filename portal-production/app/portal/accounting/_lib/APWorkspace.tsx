@@ -76,7 +76,7 @@ const AP_REPORTS: { key: string; label: string; description: string; tab?: strin
   // bills list — link straight to the existing Bills page.
   { key: "purchase-journal-listing", label: "Purchase Journal Listing", description: "All supplier invoices (bills) — the purchase journal", href: "/portal/accounting/payables/purchase-journal" },
   { key: "pv-listing", label: "Payment Voucher Listing", description: "Payment vouchers for a period, grouped by paid-from bank account", tab: "pv-listing" },
-  { key: "jv-listing", label: "Journal Voucher Listing", description: "Every journal line for a period — Unconfirmed and Confirmed vouchers", tab: "jv-listing" },
+  { key: "jv-listing", label: "Journal Voucher Listing", description: "Every journal voucher line for a period, by bank and account", tab: "jv-listing" },
   { key: "creditor-statement", label: "Statement-Of-Accounts", description: "Legacy creditor statement — open items, running balance and monthly ageing", tab: "creditor-statement" },
   { key: "ap-summary-ageing", label: "Summary Ageing Analysis", description: "Outstanding per supplier bucketed by calendar month, with contact info", tab: "ap-summary-ageing" },
   { key: "ap-detailed-ageing", label: "Detailed Ageing Analysis", description: "Every outstanding document per supplier, aged by calendar month with running balance", tab: "ap-detailed-ageing" },
