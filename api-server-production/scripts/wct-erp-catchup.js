@@ -135,7 +135,7 @@ function mergeParts() {
   const docs = await q(
     `select d.id::text id, d."organizationId"::text org, d.type, d.name, d.status::text status, d."createdAt",
             d.config->'erpImport' erp, d.config->>'customerId' "customerId", d.config->>'customerName' "customerName",
-            d.config->>'subject' subject, d.config->>'date' date, (d.config->>'totalWithTax')::numeric total,
+            d.config->>'subject' subject, d.config->>'date' date, coalesce(d.config->>'totalWithTax', d.config->>'nettTotal')::numeric total,
             (d.config->>'outstandingBalance') outstanding, (d.config->>'paidToDate') paid
        from "Document" d where d."organizationId" = any($1) and d.type in ('QUOTATION','INVOICE','CREDIT_NOTE')`,
     [Object.values(ORG)],
@@ -241,8 +241,16 @@ function mergeParts() {
   const byN1 = new Map();
   for (const x of wctCust) byN1.set(n1(x.name), [...(byN1.get(n1(x.name)) || []), x]);
   const addMap = [], needDecision = [], toCreateCust = [];
+  // Owner decisions (<pull>/decisions.json): { "mapCustomers": { "<ERP name>": "<WCT (S) customer code>" } }.
+  const decisions = fs.existsSync(path.join(OUT, 'decisions.json')) ? JSON.parse(fs.readFileSync(path.join(OUT, 'decisions.json'), 'utf8')) : {};
+  for (const [erpName, code] of Object.entries(decisions.mapCustomers || {})) {
+    const hit = wctCust.find((x) => x.customerCode === code);
+    if (!hit) throw new Error(`decisions.json: WCT (S) customer ${code} not found`);
+    addMap.push({ erp_customer: erpName, quotes: '', invoices: '', balance_due: '', match: 'exact', score: '', aims_customer_id: hit.id, aims_customer_name: hit.name, aims_customer_code: hit.customerCode, approved: 'owner decision' });
+    say(`Decision: ERP customer "${erpName}" -> existing WCT (S) ${hit.customerCode} ${hit.name}`);
+  }
   for (const name of [...new Set([...inQ, ...inI].map((r) => r.customer))]) {
-    if (map.has(name)) continue;
+    if (map.has(name) || addMap.some((m) => m.erp_customer === name)) continue;
     const hits = byN1.get(n1(name)) || [];
     if (hits.length === 1) addMap.push({ erp_customer: name, quotes: '', invoices: '', balance_due: '', match: 'exact', score: '', aims_customer_id: hits[0].id, aims_customer_name: hits[0].name, aims_customer_code: hits[0].customerCode, approved: 'catchup' });
     else if (hits.length > 1) needDecision.push({ name, candidates: hits.map((h) => `${h.customerCode} ${h.name}`).join(' | '), docs: [...inQ, ...inI].filter((r) => r.customer === name).map((r) => r.quotation_no || r.invoice_no).join(' ') });
@@ -255,8 +263,13 @@ function mergeParts() {
       toCreateCust.push({ erp_customer: name, near: near.map((x) => `${x.customerCode} ${x.name}`).join(' | '), docs: docsOf.map((r) => r.quotation_no || r.invoice_no).join(' '), ng_only: ngOnly ? 'yes' : '' });
     }
   }
-  say(`New customers to create in WCT (S) (code by the app rule, like the first import's 3): ${toCreateCust.length} (${toCreateCust.filter((x) => x.ng_only).length} only on "(NG)" quotations, so BC Air gets them through the move) · with a near name already in WCT (S): ${toCreateCust.filter((x) => x.near).length}`);
-  for (const x of toCreateCust) say(`  CREATE "${x.erp_customer}" (${x.docs})${x.ng_only ? ' [(NG) only]' : ''}${x.near ? ` · near: ${x.near}` : ''}`);
+  // Customers only on "(NG)" quotations belong in BC Air (owner 19 Nov): the import creates them in WCT (S)
+  // last (so WCT's real new customers take the lower codes), the move creates or maps them in BC Air, and
+  // the temporary WCT (S) rows are deleted afterwards (wct-erp-catchup-apply.js step "ng-customers").
+  toCreateCust.sort((a, b) => (a.ng_only ? 1 : 0) - (b.ng_only ? 1 : 0));
+  const bcNames = new Map(bcCust.map((b) => [normName(b.name), b]));
+  say(`New customers: ${toCreateCust.filter((x) => !x.ng_only).length} in WCT (S) (code by the app rule) · ${toCreateCust.filter((x) => x.ng_only).length} only on "(NG)" quotations -> BC Air (${toCreateCust.filter((x) => x.ng_only && bcNames.has(normName(x.erp_customer))).length} already exist there by name, the rest created by the move; the temporary WCT (S) rows are removed after the move) · near names: ${toCreateCust.filter((x) => x.near).length}`);
+  for (const x of toCreateCust) say(`  ${x.ng_only ? `BC AIR ${bcNames.has(normName(x.erp_customer)) ? `existing ${bcNames.get(normName(x.erp_customer)).customerCode}` : 'new'}` : 'WCT (S) new'} "${x.erp_customer}" (${x.docs})${x.near ? ` · near in WCT (S): ${x.near}` : ''}`);
   writeCsv(path.join(OUT, 'customers-to-create.csv'), ['erp_customer', 'docs', 'ng_only', 'near'], toCreateCust);
   say(`Customers: ${[...new Set([...inQ, ...inI].map((r) => r.customer))].length} on new documents · in the first import's map ${[...new Set([...inQ, ...inI].map((r) => r.customer))].filter((n) => map.has(n)).length} · new exact name matches ${addMap.length} · to create ${toCreateCust.length} · several WCT (S) customers with the name (decision) ${needDecision.length}`);
   for (const d of needDecision) say(`  DECISION customer "${d.name}" (${d.docs}): ${d.candidates}`);
@@ -296,7 +309,7 @@ function mergeParts() {
   let impOut = '';
   try {
     writeCsv(path.join(impDir, 'create-customers.csv'), ['erp_customer'], toCreateCust);
-    impOut = execFileSync('node', [path.join(__dirname, 'wct-erp-import.js'), '--dir', impDir, '--batch', `wct-erp-catchup-${TODAY}`, '--create-customers', path.join(impDir, 'create-customers.csv')], { env: { ...process.env, DBURL: url }, encoding: 'utf8' });
+    impOut = execFileSync('node', [path.join(__dirname, 'wct-erp-import.js'), '--dir', impDir, '--batch', `wct-erp-catchup-${path.basename(OUT)}`, '--create-customers', path.join(impDir, 'create-customers.csv')], { env: { ...process.env, DBURL: url }, encoding: 'utf8' });
   } catch (e) { impOut = `IMPORTER FAILED: ${String(e.stdout || '')}${String(e.stderr || e.message).split('\n').slice(0, 5).join('\n')}`; }
   for (const l of impOut.trim().split('\n')) say(`  ${l}`);
 
@@ -333,7 +346,7 @@ function mergeParts() {
     if (conflict || newBal == null && !/^status /.test(kind)) continue;
     if (kind === 'cancelled in ERP' || kind === 'not in ERP list' || kind === 'balance went up') continue;
     const owed = newBal == null ? aimsOwed : R2(newBal);
-    updates.push({ id: d.id, org: d.org, name: d.name, type: 'INVOICE', erpStatus: e.status, owed, total, docStatus: owed <= 0.005 ? 'paid' : 'pending_payment', creditNotes: cns.map((x) => x.credit_note_no) });
+    updates.push({ id: d.id, org: d.org, name: d.name, type: 'INVOICE', erpStatus: e.status, owed, total, docStatus: owed <= 0.005 ? 'paid' : 'pending_payment', creditNotes: cns.map((x) => x.credit_note_no), from: { erpStatus: d.erp.status, owed: aimsOwed, docStatus: d.status, balanceAtImport: atImport } });
   }
   say(`Invoices open at import (WCT (S), wct-erp): ${openInv.length} · ${fmt(kinds)}`);
   say(`To update: ${updates.length} (Paid ${updates.filter((u) => u.docStatus === 'paid').length}, still owing ${updates.filter((u) => u.docStatus !== 'paid').length}) · held for a decision: ${refreshRows.filter((r) => r.action !== 'update').length}`);
@@ -352,7 +365,7 @@ function mergeParts() {
     if (e.status !== d.erp.status) qChanges.push({ id: d.id, org: d.org, quotation: d.name, was: d.erp.status, now: e.status });
   }
   say(`Quotations open (Sent) at import: ${openQ.length} · status changed: ${qChanges.length}${qChanges.length ? ' · ' + qChanges.map((x) => `${ORG_NAME[x.org]} ${x.quotation} ${x.was} -> ${x.now}`).join(', ') : ''}${qUnknown.length ? ` · not found in the lists read (status not checked): ${qUnknown.join(', ')}` : ''}`);
-  for (const x of qChanges) updates.push({ id: x.id, org: x.org, name: x.quotation, type: 'QUOTATION', erpStatus: x.now });
+  for (const x of qChanges) updates.push({ id: x.id, org: x.org, name: x.quotation, type: 'QUOTATION', erpStatus: x.now, from: { erpStatus: x.was } });
   // Revisions on new quotations.
   const revised = qDet.filter((r) => /-R[1-9]\d*$/.test(r.revision || ''));
   say(`New quotations that are a revision (R1+; the current revision is imported, as before): ${revised.length}${revised.length ? ' · ' + revised.map((r) => `${r.quotation_no} ${r.revision}`).join(', ') : ''}`);
@@ -407,7 +420,7 @@ function mergeParts() {
   } catch (e) { ordOut = `ORDERS DRY RUN FAILED: ${String(e.stdout || '').slice(-2000)}${String(e.stderr || e.message).split('\n').slice(0, 8).join('\n')}`; }
   for (const l of ordOut.trim().split('\n').filter((x) => !/^\s{2}\S+ \| ORD-/.test(x))) say(`  ${l}`);
 
-  fs.writeFileSync(path.join(OUT, 'plan.json'), JSON.stringify({ at: new Date().toISOString(), env: ENV, lastQuoteId, lastInvoiceId, batch: `wct-erp-catchup-${TODAY}`, importDir: impDir, updates, needDecision, holds: refreshRows.filter((r) => r.action !== 'update') }, null, 1));
+  fs.writeFileSync(path.join(OUT, 'plan.json'), JSON.stringify({ at: new Date().toISOString(), env: ENV, lastQuoteId, lastInvoiceId, batch: `wct-erp-catchup-${path.basename(OUT)}`, importDir: impDir, updates, needDecision, holds: refreshRows.filter((r) => r.action !== 'update') }, null, 1));
   writeCsv(path.join(OUT, 'possible-duplicates.csv'), ['org', 'aims', 'erp', 'match'], dupRows);
   writeCsv(path.join(OUT, 'needs-decision-customers.csv'), ['name', 'candidates', 'docs'], needDecision);
   fs.writeFileSync(path.join(OUT, 'catchup-dryrun.txt'), L.join('\n') + '\n');
