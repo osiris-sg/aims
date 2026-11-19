@@ -4,6 +4,9 @@ import { QuotationTemplatesController } from './quotation-templates.controller';
 import { ActionLogInterceptor } from '../action-log/action-log.interceptor';
 import { linesToItems, sanitizeLines, templateTotals } from './quotation-template-lines';
 import { DEFAULT_ORG_FEATURES } from '../organizations/default-features';
+import { lastValueFrom, of } from 'rxjs';
+import { CustomResponseInterceptor } from '../../helpers/custom-sucess.filter';
+import { CustomExceptionFilter } from '../../helpers/custom-exception.filter';
 
 /**
  * Quotation templates (2026-11-18, WCT group; reworked 2026-11-19: made only from a quotation, lines kept exactly). The service runs on a small
@@ -31,7 +34,8 @@ function harness(opts: { flags?: Record<string, boolean> } = {}) {
     findFirst: jest.fn(async ({ where }: any) => rows.find((r) => match(r, where)) ?? null),
     findMany: jest.fn(async ({ where }: any) => rows.filter((r) => match(r, where)).sort((a, b) => a.name.localeCompare(b.name))),
     create: jest.fn(async ({ data }: any) => {
-      const row = { id: `t${++n}`, hiddenAt: null, hiddenBy: null, createdAt: new Date(), updatedAt: new Date(), ...data };
+      // Fixed stamps: "never saves ... dates" looks for the quotation's date (2026-11-19) in the row.
+      const row = { id: `t${++n}`, hiddenAt: null, hiddenBy: null, createdAt: new Date('2026-01-02T00:00:00Z'), updatedAt: new Date('2026-01-02T00:00:00Z'), ...data };
       rows.push(row);
       return row;
     }),
@@ -279,5 +283,64 @@ describe('Activity Log for the template endpoints', () => {
     expect(action('PATCH', '/quotation-templates/0b0c7c39-3c1d-4c49-9f3e-0b7d5a1c2e11')).toBe('UPDATE');
     expect(action('DELETE', '/quotation-templates/0b0c7c39-3c1d-4c49-9f3e-0b7d5a1c2e11')).toBe('DELETE');
     expect(action('POST', '/quotation-templates/0b0c7c39-3c1d-4c49-9f3e-0b7d5a1c2e11/use')).toBe('CREATE');
+  });
+});
+
+/**
+ * 2026-11-19 prod bug ("Save as template" saved, but Create from template said "No templates yet"): the API wraps
+ * every reply in { success, data, message } (main.ts CustomResponseInterceptor) and sends errors as
+ * { success: false, message, data } (CustomExceptionFilter). The portal read the list as a bare array. These are the
+ * exact bodies the browser gets; portal-production/helpers/quotationTemplates.test.mjs parses the same shapes.
+ */
+describe('replies as the browser receives them', () => {
+  const wire = (value: any) =>
+    lastValueFrom(new CustomResponseInterceptor().intercept({ getType: () => 'http' } as any, { handle: () => of(value) } as any));
+  const wireError = (err: any) => {
+    const sent: any = {};
+    const res = { status: (c: number) => ((sent.status = c), res), setHeader: () => res, send: (b: any) => ((sent.body = b), res) };
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    new CustomExceptionFilter().catch(err, { switchToHttp: () => ({ getResponse: () => res, getRequest: () => ({ method: 'POST', url: '/quotation-templates' }) }) } as any);
+    warn.mockRestore();
+    return sent;
+  };
+
+  it('the list is wrapped: { success, data: [templates] }, never a bare array', async () => {
+    const { svc } = harness();
+    const saved = await svc.saveFromQuotation(QUOTE, ORG_A);
+    const body: any = await wire(await svc.list(ORG_A));
+    expect(Array.isArray(body)).toBe(false);
+    expect(body.success).toBe(true);
+    expect(body.data.map((t: any) => t.id)).toEqual([saved.id]);
+    expect(body.data[0]).toMatchObject({ name: 'Hood standard', lineCount: 2 });
+  });
+
+  it('a save is wrapped once ({ data: template }); Use is wrapped twice ({ data: { data: quotation } })', async () => {
+    const { svc } = harness();
+    const saveBody: any = await wire(await svc.saveFromQuotation(QUOTE, ORG_A));
+    expect(saveBody).toMatchObject({ success: true, data: { name: 'Hood standard' } });
+    expect(typeof saveBody.data.id).toBe('string');
+    const useBody: any = await wire(await svc.use(saveBody.data.id, { documentTemplateId: LAYOUT }, ORG_A));
+    expect(useBody.data.id).toBeUndefined();
+    expect(useBody).toMatchObject({ success: true, data: { success: true, data: { id: 'doc1', type: 'QUOTATION', documentTemplateId: LAYOUT } } });
+  });
+
+  it('a name in use reaches the browser as 409 { success: false, message, data: { existingId, existingName } }', async () => {
+    const { svc } = harness();
+    const first = await svc.saveFromQuotation(QUOTE, ORG_A);
+    const err = await svc.saveFromQuotation({ ...QUOTE, name: 'HOOD standard' }, ORG_A).catch((e) => e);
+    const sent = wireError(err);
+    expect(sent.status).toBe(409);
+    expect(sent.body).toEqual({
+      success: false,
+      message: 'A template named Hood standard already exists',
+      data: { existingId: first.id, existingName: 'Hood standard' },
+    });
+  });
+
+  it('the setting off reaches the browser as 403 with a message (other orgs: no template calls are made)', async () => {
+    const { svc } = harness({ flags: { [ORG_A]: false } });
+    const sent = wireError(await svc.list(ORG_A).catch((e) => e));
+    expect(sent.status).toBe(403);
+    expect(sent.body).toMatchObject({ success: false, message: 'Quotation templates are not enabled for this organisation' });
   });
 });

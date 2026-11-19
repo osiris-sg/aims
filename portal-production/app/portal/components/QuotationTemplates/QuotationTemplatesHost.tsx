@@ -27,7 +27,19 @@ import {
 import CloseIcon from "@mui/icons-material/Close";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import { request } from "@/helpers/request";
-import { QuotationTemplate, money, nameTaken, saveAsBody, saveAsSummary } from "@/helpers/quotationTemplates";
+import {
+  QuotationTemplate,
+  clashFrom,
+  money,
+  nameTaken,
+  readReply,
+  saveAsBody,
+  saveAsSummary,
+  savedFrom,
+  templatesFrom,
+  usedDocFrom,
+  withSaved,
+} from "@/helpers/quotationTemplates";
 
 /**
  * Quotation templates (features.enableQuotationTemplates, WCT group). Reworked 2026-11-19: a template is made ONLY
@@ -36,9 +48,16 @@ import { QuotationTemplate, money, nameTaken, saveAsBody, saveAsSummary } from "
  * "+ Add" arrow) lists them: name, line count, total, Preview, Use, ⋮ Delete (hides). Use opens a new draft
  * quotation in the normal editor with the same lines. There is no template editor: to change one, Use it, edit the
  * quotation, then Save as template > Replace. Every call goes to /quotation-templates (org-scoped on the API).
+ *
+ * 2026-11-19 fix: replies are read through readReply / templatesFrom / savedFrom / usedDocFrom (the API wraps every
+ * reply in { success, data }; the list used to read as empty). request() never shows its own error notice, so each
+ * failure here says so with a toast and leaves its dialog open. A save puts the template straight into the shared
+ * list cache (the quotations list and the editor's "+ Add" arrow read the same key) and then refetches it.
  */
 
-const failed = (res: any) => !res || res.success === false;
+const QT_KEY = ["quotation-templates"];
+
+type SaveResult = "saved" | "failed" | { clash: { id: string; name: string } };
 
 export interface QuotationTemplatesHostProps {
   listOpen: boolean;
@@ -64,15 +83,18 @@ export default function QuotationTemplatesHost(p: QuotationTemplatesHostProps) {
     return request({ path, method }, body, token || undefined);
   };
 
-  const { data: templates, isLoading } = useQuery<QuotationTemplate[]>({
-    queryKey: ["quotation-templates"],
+  const { data: templates, isLoading, isError, refetch } = useQuery<QuotationTemplate[]>({
+    queryKey: QT_KEY,
     queryFn: async () => {
       const res: any = await call("/quotation-templates", "GET");
-      return Array.isArray(res) ? res : [];
+      const list = templatesFrom(res);
+      if (!list) throw new Error(readReply(res).message || "Could not load the templates");
+      return list;
     },
     enabled: p.listOpen || !!p.saveAsOpen,
+    retry: false,
   });
-  const refresh = () => qc.invalidateQueries({ queryKey: ["quotation-templates"] });
+  const refresh = () => qc.invalidateQueries({ queryKey: QT_KEY });
 
   const [preview, setPreview] = useState<QuotationTemplate | null>(null);
   const [confirmHide, setConfirmHide] = useState<QuotationTemplate | null>(null);
@@ -95,11 +117,15 @@ export default function QuotationTemplatesHost(p: QuotationTemplatesHostProps) {
         return;
       }
       const res: any = await call(`/quotation-templates/${t.id}/use`, "POST", { documentTemplateId: layoutId, type: p.docType, ...(numberFormatId ? { numberFormatId } : {}) });
-      if (failed(res) || !res?.data?.id) return;
+      const doc = usedDocFrom(res);
+      if (!doc) {
+        toast.error(readReply(res).message || "Could not create the quotation");
+        return;
+      }
       toast.success(`Quotation created from ${t.name}`);
       setPreview(null);
       p.onCloseList();
-      p.onUsed(res.data);
+      p.onUsed(doc);
     } finally {
       setBusy(false);
     }
@@ -110,23 +136,38 @@ export default function QuotationTemplatesHost(p: QuotationTemplatesHostProps) {
     setBusy(true);
     try {
       const res: any = await call(`/quotation-templates/${confirmHide.id}`, "DELETE");
-      if (failed(res)) return;
+      const r = readReply(res);
+      if (!r.ok) {
+        toast.error(r.message || "Could not delete the template");
+        return;
+      }
+      const goneId = confirmHide.id;
+      qc.setQueryData<QuotationTemplate[]>(QT_KEY, (old) => (old || []).filter((x) => x.id !== goneId));
       toast.success("Template deleted");
       setConfirmHide(null);
-      refresh();
+      void refresh();
     } finally {
       setBusy(false);
     }
   };
 
-  const save = async (name: string, onExisting?: "replace" | "new") => {
+  const save = async (name: string, onExisting?: "replace" | "new"): Promise<SaveResult> => {
     setBusy(true);
     try {
       const res: any = await call("/quotation-templates", "POST", saveAsBody(name, p.editorItems, p.formData, onExisting));
-      if (failed(res)) return false;
-      toast.success(res?.replaced ? `Template ${res.name} replaced` : `Saved as template ${res?.name || name.trim()}`);
-      refresh();
-      return true;
+      const saved = savedFrom(res);
+      if (!saved) {
+        void refresh();
+        // The name was taken after the list loaded (someone else saved it): ask Replace or Save as new.
+        const clash = clashFrom(res);
+        if (clash && !onExisting) return { clash: { id: clash.id, name: clash.name || name.trim() } };
+        toast.error(readReply(res).message || "Could not save the template");
+        return "failed";
+      }
+      qc.setQueryData<QuotationTemplate[]>(QT_KEY, (old) => withSaved(old, saved));
+      void refresh();
+      toast.success(saved.replaced ? `Template ${saved.name} replaced` : `Saved as template ${saved.name}`);
+      return "saved";
     } finally {
       setBusy(false);
     }
@@ -148,6 +189,13 @@ export default function QuotationTemplatesHost(p: QuotationTemplatesHostProps) {
           {isLoading ? (
             <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
               <CircularProgress size={24} />
+            </Box>
+          ) : isError ? (
+            <Box sx={{ py: 3, textAlign: "center" }}>
+              <Typography color="error">Could not load the templates</Typography>
+              <Button size="small" onClick={() => void refetch()} sx={{ mt: 1 }}>
+                Try again
+              </Button>
             </Box>
           ) : rows.length === 0 ? (
             <Typography color="text.secondary" sx={{ py: 3, textAlign: "center" }}>
@@ -224,10 +272,13 @@ export default function QuotationTemplatesHost(p: QuotationTemplatesHostProps) {
           editorItems={p.editorItems || []}
           formData={p.formData}
           templates={templates}
+          loading={isLoading}
           busy={busy}
           onClose={() => p.onCloseSaveAs?.()}
           onSave={async (name, onExisting) => {
-            if (await save(name, onExisting)) p.onCloseSaveAs?.();
+            const result = await save(name, onExisting);
+            if (result === "saved") p.onCloseSaveAs?.();
+            return result;
           }}
         />
       )}
@@ -239,7 +290,8 @@ export default function QuotationTemplatesHost(p: QuotationTemplatesHostProps) {
 function TemplatePreviewDialog({ template, busy, onClose, onUse }: { template: QuotationTemplate; busy: boolean; onClose: () => void; onUse: () => void }) {
   const lines = template.lines || [];
   let no = 0;
-  const cell = { borderBottom: "1px solid #d0d0d0", color: "#111", py: 0.75, px: 1, fontSize: 12 } as const;
+  // White cells: the dark theme's table header / row hover colours must not show on the paper sheet.
+  const cell = { borderBottom: "1px solid #d0d0d0", color: "#111", bgcolor: "#fff", py: 0.75, px: 1, fontSize: 12 } as const;
   const head = { ...cell, fontWeight: 700, borderBottom: "1.5px solid #111", borderTop: "1.5px solid #111" } as const;
   return (
     <Dialog open onClose={onClose} maxWidth="md" fullWidth>
@@ -317,6 +369,7 @@ function SaveAsTemplateDialog({
   editorItems,
   formData,
   templates,
+  loading,
   busy,
   onClose,
   onSave,
@@ -324,19 +377,25 @@ function SaveAsTemplateDialog({
   editorItems: any[];
   formData: any;
   templates: QuotationTemplate[] | undefined;
+  loading: boolean;
   busy: boolean;
   onClose: () => void;
-  onSave: (name: string, onExisting?: "replace" | "new") => void;
+  onSave: (name: string, onExisting?: "replace" | "new") => Promise<SaveResult>;
 }) {
   const [name, setName] = useState(() => String(formData?.documentInfo?.subject || "").trim().slice(0, 120));
-  const [clash, setClash] = useState<QuotationTemplate | null>(null);
+  const [clash, setClash] = useState<{ id: string; name: string } | null>(null);
   const totals = saveAsSummary(editorItems);
-  const ready = !!name.trim() && totals.lineCount > 0 && !busy && templates !== undefined;
+  // Waits for the list (the name check) unless it failed to load; the API still refuses a taken name.
+  const ready = !!name.trim() && totals.lineCount > 0 && !busy && !loading;
+  const send = async (onExisting?: "replace" | "new") => {
+    const result = await onSave(name, onExisting);
+    if (typeof result === "object") setClash(result.clash);
+  };
   const submit = () => {
     if (!ready) return;
     const taken = nameTaken(name, templates);
-    if (taken) return setClash(taken as QuotationTemplate);
-    onSave(name);
+    if (taken) return setClash(taken);
+    void send();
   };
   return (
     <>
@@ -354,7 +413,7 @@ function SaveAsTemplateDialog({
             sx={{ mt: 1 }}
           />
           <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5 }}>
-            {totals.lineCount} lines, total {money(totals.total)}
+            {totals.lineCount} {totals.lineCount === 1 ? "line" : "lines"}, total {money(totals.total)}
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -368,10 +427,10 @@ function SaveAsTemplateDialog({
         <DialogTitle>{clash ? `${clash.name} already exists` : ""}</DialogTitle>
         <DialogActions>
           <Button onClick={() => setClash(null)}>Cancel</Button>
-          <Button disabled={busy} onClick={() => onSave(name, "new")}>
+          <Button disabled={busy} onClick={() => void send("new")}>
             Save as new
           </Button>
-          <Button variant="contained" disabled={busy} onClick={() => onSave(name, "replace")}>
+          <Button variant="contained" disabled={busy} onClick={() => void send("replace")}>
             Replace
           </Button>
         </DialogActions>

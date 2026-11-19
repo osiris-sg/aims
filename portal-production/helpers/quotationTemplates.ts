@@ -148,3 +148,66 @@ export function nameTaken(name: string, templates: Array<Pick<QuotationTemplate,
 
 /** The quotations list's "Create Quotation" arrow (Create from template): setting on and a quotation list only. */
 export const quotationListTemplates = (enabled: boolean, createDocumentType?: string | null): boolean => !!enabled && isQuotationDocType(createDocumentType);
+
+// ── API replies (2026-11-19 fix: "Save as template" looked like it did nothing) ─────────────────────────────────
+//
+// Every API reply comes wrapped as { success, data, message } (the API's CustomResponseInterceptor), and "Use" is
+// wrapped twice because its service already returns { success, data }. The first version read the list as a bare
+// array, so the saved templates never showed ("No templates yet") and Use never opened the new quotation. A
+// failed call from request() is { success: false, message, details: <the API's error body> }; request() does not
+// show it to the person (its notice goes to a store nothing renders), so these dialogs say it themselves.
+
+export interface ApiReply {
+  ok: boolean;
+  data: unknown;
+  message: string;
+}
+
+type Obj = Record<string, unknown>;
+const isObj = (v: unknown): v is Obj => !!v && typeof v === "object" && !Array.isArray(v);
+
+/** The payload inside the reply's { success, data } envelope(s); ok = false on any { success: false } level. */
+export function readReply(res: unknown): ApiReply {
+  let d: unknown = res;
+  for (let depth = 0; depth < 4 && isObj(d) && "success" in d; depth++) {
+    if (d.success === false) return { ok: false, data: null, message: typeof d.message === "string" ? d.message : "" };
+    if (!("data" in d)) break;
+    d = d.data;
+  }
+  return { ok: d != null, data: d ?? null, message: "" };
+}
+
+const isTemplateRow = (t: unknown): t is QuotationTemplate => isObj(t) && typeof t.id === "string" && !!t.id && typeof t.name === "string";
+
+/** GET /quotation-templates: the list, or null when the call failed. */
+export function templatesFrom(res: unknown): QuotationTemplate[] | null {
+  const r = readReply(res);
+  return r.ok && Array.isArray(r.data) ? r.data.filter(isTemplateRow) : null;
+}
+
+/** POST /quotation-templates: the saved template (replaced = true for Replace), or null when it was not saved. */
+export function savedFrom(res: unknown): (QuotationTemplate & { replaced?: boolean }) | null {
+  const r = readReply(res);
+  return r.ok && isTemplateRow(r.data) ? r.data : null;
+}
+
+/** POST /quotation-templates/:id/use: the new quotation, or null when none was made. */
+export function usedDocFrom(res: unknown): { id: string; type?: string; documentTemplateId?: string } | null {
+  const r = readReply(res);
+  return r.ok && isObj(r.data) && typeof r.data.id === "string" && r.data.id ? (r.data as { id: string; type?: string; documentTemplateId?: string }) : null;
+}
+
+/** A failed save because the name is taken (409, the API's error body data { existingId, existingName }). */
+export function clashFrom(res: unknown): { id: string; name: string } | null {
+  if (!isObj(res) || res.success !== false || !isObj(res.details) || !isObj(res.details.data)) return null;
+  const d = res.details.data;
+  return typeof d.existingId === "string" && d.existingId ? { id: d.existingId, name: String(d.existingName || "") } : null;
+}
+
+/** The cached list with a saved template in it (Replace swaps the row; a new one joins, by name like the API). */
+export function withSaved(list: QuotationTemplate[] | null | undefined, saved: QuotationTemplate & { replaced?: boolean }): QuotationTemplate[] {
+  const rest = (Array.isArray(list) ? list : []).filter((t) => t.id !== saved.id);
+  const row: QuotationTemplate & { replaced?: boolean } = { ...saved };
+  delete row.replaced;
+  return [...rest, row].sort((a, b) => a.name.localeCompare(b.name));
+}

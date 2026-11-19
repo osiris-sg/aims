@@ -123,7 +123,9 @@ export class QuotationTemplatesService {
       return { ...this.view(updated), replaced: true };
     }
     if (clash && mode !== 'new') {
-      throw new ConflictException({ message: `A template named ${clash.name} already exists`, existingId: clash.id, existingName: clash.name });
+      // `data` is what reaches the browser: CustomExceptionFilter sends { success: false, message, data } only.
+      const existing = { existingId: clash.id, existingName: clash.name };
+      throw new ConflictException({ message: `A template named ${clash.name} already exists`, ...existing, data: existing });
     }
     const finalName = clash ? nextFreeName(name, visible.map((r) => String(r.name))) : name;
     const row = await this.repo.create({
