@@ -6,7 +6,8 @@ import type { ReportExportModel } from "@/app/portal/accounting/_lib/report-expo
 
 export const UNCATEGORISED = "Uncategorised";
 
-export type SalesStatus = "Draft" | "Pending" | "Signed" | "Cancelled";
+// Round 35: Expired = an old ERP draft quotation (more than 6 months): its own status, never in the Pending totals.
+export type SalesStatus = "Draft" | "Pending" | "Signed" | "Cancelled" | "Expired";
 
 export interface SalesReportRow {
   /** WCT imported quotation still open in the ERP: "ERP draft" / "ERP sent". */

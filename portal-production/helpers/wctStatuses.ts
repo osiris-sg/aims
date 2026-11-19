@@ -9,6 +9,8 @@ export const WCT_STATUS_OPTIONS: Record<WctFamily, Array<{ value: string; label:
   QUOTATION: [
     { value: "unconfirmed", label: "Unconfirmed" },
     { value: "confirmed", label: "Confirmed" },
+    // Round 35: an imported ERP Draft / Sent quotation dated more than 6 months ago (never Unconfirmed / Pending).
+    { value: "expired", label: "Expired" },
     { value: "cancelled", label: "Cancelled" },
     { value: "declined", label: "Declined" },
   ],
@@ -48,6 +50,7 @@ const LABEL: Record<string, string> = {
   confirmed: "Confirmed",
   cancelled: "Cancelled",
   declined: "Declined",
+  expired: "Expired",
   draft: "Draft",
   completed: "Completed",
   unpaid: "Unpaid",
@@ -60,6 +63,7 @@ const LABEL: Record<string, string> = {
 };
 const COLOR: Record<string, "default" | "primary" | "success" | "warning" | "info" | "error"> = {
   unconfirmed: "default",
+  expired: "default",
   draft: "default",
   confirmed: "primary",
   completed: "success",

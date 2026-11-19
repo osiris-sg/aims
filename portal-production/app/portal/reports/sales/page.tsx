@@ -39,6 +39,7 @@ const STATUS_COLOR: Record<SalesStatus, "success" | "warning" | "default" | "err
   Pending: "warning",
   Draft: "default",
   Cancelled: "error",
+  Expired: "default",
 };
 
 const money = (n: number) => (Number(n) || 0).toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });

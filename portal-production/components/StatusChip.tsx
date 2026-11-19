@@ -20,6 +20,8 @@ const STATUS_COLOR: Record<string, "default" | "primary" | "success" | "warning"
   returned: "default",
   cancelled: "error",
   voided: "error",
+  // Round 35: an old ERP draft quotation (more than 6 months): grey, never pending.
+  expired: "default",
 };
 
 // Display overrides (guru 2026-07-24 status model): drafts READ as
@@ -38,10 +40,11 @@ export { docPaidOf, docOutstandingOf, PARTIALLY_PAID, isInvoiceType, docDisplayS
 
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export default function StatusChip({ status, doc }: { status?: string | null; doc?: { status?: string | null; config?: any; type?: string | null; documentType?: string | null; wctStatus?: string | null } | null }) {
+export default function StatusChip({ status, doc }: { status?: string | null; doc?: { status?: string | null; config?: any; type?: string | null; documentType?: string | null; wctStatus?: string | null; erpQuoteStatus?: string | null } | null }) {
   // WCT imported quotation (helpers/docStatus.ts): its status comes from the ERP. List rows carry the type as
-  // documentType; it is read for this rule only, so every other chip derives exactly as before.
-  const erpQuote = doc ? erpQuotationDisplayStatus(doc.type ?? doc.documentType, doc.config) : null;
+  // documentType; it is read for this rule only, so every other chip derives exactly as before. A list row carries
+  // the server's reading (erpQuoteStatus, round 35: the 6-month cut on the server's Singapore date).
+  const erpQuote = doc ? (doc.erpQuoteStatus || erpQuotationDisplayStatus(doc.type ?? doc.documentType, doc.config)) : null;
   // WCT group (enableWctStatuses): the API sends the row's status in the WCT set (helpers/wctStatuses.ts).
   const wct = doc?.wctStatus || null;
   // With the document in hand the chip derives "Partially Paid" itself.
@@ -73,7 +76,7 @@ export default function StatusChip({ status, doc }: { status?: string | null; do
     />
   );
   // WCT imported quotation still open in the ERP: a small "ERP draft" / "ERP sent" tag beside the status.
-  const erpTag = doc ? erpQuotationTag(doc.type ?? doc.documentType, doc.config) : null;
+  const erpTag = doc ? (doc.erpQuoteStatus === "unconfirmed" || doc.erpQuoteStatus === "expired" ? `ERP ${String(doc.config?.erpImport?.status ?? "").trim().toLowerCase()}` : erpQuotationTag(doc.type ?? doc.documentType, doc.config)) : null;
   if (erpTag)
     return (
       <span style={{ display: "inline-flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>

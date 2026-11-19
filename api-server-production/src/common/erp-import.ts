@@ -149,24 +149,83 @@ export async function erpImportedZeroInvoiceIds(prisma: { $queryRawUnsafe: (sql:
 // in the lists, the status filter and the Unconfirmed card; one that was open at import and the ERP later
 // cancelled reads as Cancelled (Accepted reads as Confirmed, the stored status). Display only: the stored status
 // stays `confirmed`, so the document stays locked (no edit, no confirm). Only wct-erp imports (WCT group).
+// Round 35 (Elroy 2026-11-19, the ~5,500 old ERP drafts): an open one dated MORE than 6 months before today reads
+// "Expired" (tag "ERP draft" / "ERP sent"): not Unconfirmed, not Pending anywhere. Within 6 months: as before.
 const QUOTE_DOC_TYPES = new Set(['QUOTATION', 'QO', 'QT', 'QO1']);
 const ERP_QUOTE_OPEN = new Set(['draft', 'sent']);
 const ERP_QUOTE_CANCELLED = ['cancelled', 'canceled', 'declined', 'rejected', 'lost', 'void', 'voided'];
 export const isQuotationDocType = (t: unknown): boolean => QUOTE_DOC_TYPES.has(String(t ?? '').toUpperCase());
-export function erpQuotationDisplayStatus(type: unknown, config: any): 'unconfirmed' | 'cancelled' | null {
-  const m = erpImportOf(config);
-  if (!m || m.source !== 'wct-erp' || !isQuotationDocType(type)) return null;
+
+export type ErpQuoteDisplay = 'unconfirmed' | 'expired' | 'cancelled';
+export interface ErpQuoteDateOpts {
+  /** YYYY-MM-DD in Singapore; default today. */
+  today?: string;
+  /** The row's list date key and created date: used only when the quotation carries no date of its own. */
+  listIssueDate?: string | null;
+  createdAt?: Date | string | null;
+}
+
+/** Today in Singapore (YYYY-MM-DD). */
+export const erpSgToday = (now = new Date()): string => new Date(now.getTime() + 8 * 3600e3).toISOString().slice(0, 10);
+
+/**
+ * The first date that is NOT expired: today minus 6 calendar months, the day clamped to the month's length
+ * (31 Aug -> 28 Feb, as Postgres' `- interval '6 months'`). A quotation dated before it has expired.
+ */
+export function erpDraftExpiryCut(today: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(today));
+  if (!m) return '0000-00-00';
+  let y = Number(m[1]);
+  let mo = Number(m[2]) - 6;
+  if (mo < 1) {
+    mo += 12;
+    y -= 1;
+  }
+  const last = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${y}-${pad(mo)}-${pad(Math.min(Number(m[3]), last))}`;
+}
+
+const isoDay = (v: unknown): string | null => {
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString().slice(0, 10);
+  const s = typeof v === 'string' ? v.trim() : '';
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const dmy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+  return dmy ? `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}` : null;
+};
+/** The quotation's date for the 6-month rule: config.date, else documentInfo.date, else the list date, else created. */
+export function erpQuotationDate(config: any, opts: Pick<ErpQuoteDateOpts, 'listIssueDate' | 'createdAt'> = {}): string | null {
+  return isoDay(config?.date) ?? isoDay(config?.documentInfo?.date) ?? isoDay(opts.listIssueDate) ?? isoDay(opts.createdAt) ?? null;
+}
+
+/**
+ * The display state from the ERP marker alone (the lists' SQL and the Sales report hand in the same fields):
+ * open (Draft / Sent) and not confirmed by the owner = Unconfirmed, or Expired when dated before the 6-month cut;
+ * open at import and cancelled since = Cancelled; else null (the stored status).
+ */
+export function erpDraftState(m: { status?: unknown; ownerConfirmed?: unknown; statusAtFirstImport?: unknown }, quoteDate: string | null, today: string): ErpQuoteDisplay | null {
   const st = String(m.status ?? '').trim().toLowerCase();
   // Confirmed by the owner in AIMS while the ERP still has it open (Q-013548 / Q-013557, Elroy 19 Nov): reads as
   // the stored Confirmed. A later ERP cancel still reads Cancelled.
-  if (ERP_QUOTE_OPEN.has(st)) return (m as any).ownerConfirmed ? null : 'unconfirmed';
-  const first = String((m as any).statusAtFirstImport ?? '').trim().toLowerCase();
+  if (ERP_QUOTE_OPEN.has(st)) {
+    if (m.ownerConfirmed) return null;
+    return quoteDate && quoteDate < erpDraftExpiryCut(today) ? 'expired' : 'unconfirmed';
+  }
+  const first = String(m.statusAtFirstImport ?? '').trim().toLowerCase();
   if (ERP_QUOTE_CANCELLED.includes(st) && ERP_QUOTE_OPEN.has(first)) return 'cancelled';
   return null;
 }
-/** The small tag beside the status: "ERP draft" / "ERP sent" while the ERP has it open. */
-export function erpQuotationTag(type: unknown, config: any): string | null {
-  if (erpQuotationDisplayStatus(type, config) !== 'unconfirmed') return null;
+
+export function erpQuotationDisplayStatus(type: unknown, config: any, opts: ErpQuoteDateOpts = {}): ErpQuoteDisplay | null {
+  const m = erpImportOf(config);
+  if (!m || m.source !== 'wct-erp' || !isQuotationDocType(type)) return null;
+  return erpDraftState(m as any, erpQuotationDate(config, opts), opts.today ?? erpSgToday());
+}
+/** The small tag beside the status: "ERP draft" / "ERP sent" while the ERP has it open (Unconfirmed or Expired). */
+export function erpQuotationTag(type: unknown, config: any, opts: ErpQuoteDateOpts = {}): string | null {
+  const d = erpQuotationDisplayStatus(type, config, opts);
+  if (d !== 'unconfirmed' && d !== 'expired') return null;
   return `ERP ${String(erpImportOf(config)?.status ?? '').trim().toLowerCase()}`;
 }
 export const ERP_QUOTE_CANCELLED_STATUSES = ERP_QUOTE_CANCELLED;

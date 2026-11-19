@@ -24,6 +24,7 @@ import {
 } from './sales-report';
 import { salespersonAliases } from './salesperson-resolver';
 import { resolveCustomAccess } from '../access/custom-access';
+import { erpDraftState, erpQuotationDate, erpSgToday } from '../common/erp-import';
 
 const QUOTATION_TYPES = ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'];
 const MAX_ROWS = 20000;
@@ -53,6 +54,11 @@ interface QuoteRow {
   signed: boolean;
   imported: boolean;
   erpStatus: string | null;
+  /** Round 35: for the 6-month rule (erp-import.ts erpQuotationDate): the source and the quotation's own dates. */
+  erpSource?: string | null;
+  cdate?: string | null;
+  idate?: string | null;
+  created?: string | null;
 }
 
 @Injectable()
@@ -123,7 +129,9 @@ export class SalesReportService {
            (d.config ? 'erpImport') AS imported,
            -- Confirmed by the owner in AIMS while the ERP still has it open: Signed, no ERP tag (erp-import.ts).
            CASE WHEN d.config->'erpImport' ? 'ownerConfirmed' AND lower(d.config->'erpImport'->>'status') IN ('draft', 'sent') THEN 'Accepted'
-                ELSE d.config->'erpImport'->>'status' END AS "erpStatus"
+                ELSE d.config->'erpImport'->>'status' END AS "erpStatus",
+           d.config->'erpImport'->>'source' AS "erpSource",
+           d.config->>'date' AS cdate, d.config->'documentInfo'->>'date' AS idate, to_char(d."createdAt", 'YYYY-MM-DD') AS created
          FROM "Document" d
          WHERE d."organizationId" = $1 AND d.type = ANY($2::text[])
        ) q
@@ -170,6 +178,8 @@ export class SalesReportService {
 
     const [salesmen, aliases] = await Promise.all([this.salesmen(organizationId), salespersonAliases(this.prisma, organizationId)]);
     const all = await this.quotations(organizationId, from, to);
+    // Round 35: Singapore today for the 6-month rule (the same cut as the lists, erp-import.ts).
+    const today = erpSgToday();
     const facts = await this.nativeFacts(organizationId, all.filter((q) => !q.imported).map((q) => q.id));
 
     // Sales only: their own quotations, whatever was asked for.
@@ -200,10 +210,14 @@ export class SalesReportService {
           orderStatus: facts.orders.get(q.id) ?? null,
           hasSignLink: facts.signLinks.has(q.id),
           emailed: facts.emailed.has(q.id),
+          expired:
+            q.imported &&
+            q.erpSource === 'wct-erp' &&
+            erpDraftState({ status: q.erpStatus }, erpQuotationDate({ date: q.cdate, documentInfo: { date: q.idate } }, { listIssueDate: q.date, createdAt: q.created }), today) === 'expired',
         }),
         templateId: q.templateId,
         salespeople: refs.map((r) => r.label),
-        // WCT imported quotation still open in the ERP (Pending): "ERP draft" / "ERP sent" beside the status.
+        // WCT imported quotation still open in the ERP (Pending, or Expired after 6 months): "ERP draft" / "ERP sent" beside the status.
         ...(q.imported && /^(draft|sent)$/i.test(String(q.erpStatus ?? '').trim()) ? { erpTag: `ERP ${String(q.erpStatus).trim().toLowerCase()}` } : {}),
       });
     }
