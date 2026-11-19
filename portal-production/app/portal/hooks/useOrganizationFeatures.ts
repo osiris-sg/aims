@@ -238,6 +238,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // RDO free-typed rows (Biofuel, 2026-11-19): the RDO editor takes rows with no unit (paper only),
   // and a signed RDO opens read-only. Default OFF.
   enableRdoFreeTypedRows: false,
+  // Preview signed DO / RDO (Biofuel, 2026-11-19): a Preview button beside Download on the
+  // delivery page opens the signed PDF in a new tab. Default OFF.
+  enableSignedDocPreview: false,
   // Maintenance Dates (Biofuel, 2026-09): Service Reports -> Maintenance Dates.
   // A maintenance date per asset, which deployed units are done this cycle, and
   // a reminder 7 days before (push to field techs + office bell). Default OFF.
@@ -455,6 +458,7 @@ export function useOrganizationFeatures() {
     isTemplateDesignEnabled: features.enableTemplateDesign ?? FEATURE_FLAG_DEFAULTS.enableTemplateDesign,
     isSpendMoneyEnabled: features.enableSpendMoney ?? FEATURE_FLAG_DEFAULTS.enableSpendMoney,
     isRdoFreeTypedRowsEnabled: features.enableRdoFreeTypedRows === true,
+    isSignedDocPreviewEnabled: features.enableSignedDocPreview === true,
     isShipmentsHomeEnabled: features.enableShipmentsHome ?? FEATURE_FLAG_DEFAULTS.enableShipmentsHome,
     isMaintenanceDatesEnabled: features.enableMaintenanceDates ?? false,
     isDeliveryGroupPostsEnabled: features.enableDeliveryGroupPosts ?? false,

@@ -5,6 +5,7 @@ import { useAuth } from "@clerk/nextjs";
 import { Alert, Box, Button, Chip, CircularProgress, Stack, Typography } from "@mui/material";
 import WhatsAppIcon from "@mui/icons-material/WhatsApp";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import VisibilityIcon from "@mui/icons-material/Visibility";
 import { request } from "@/helpers/request";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
@@ -53,9 +54,10 @@ export default function DeliveryGroupPostsPanel({
 }) {
   const docLabel = isReturn ? "RDO" : "DO";
   const { getToken } = useAuth();
-  const { isDeliveryGroupPostsEnabled } = useOrganizationFeatures();
+  const { isDeliveryGroupPostsEnabled, isSignedDocPreviewEnabled } = useOrganizationFeatures();
   const [posts, setPosts] = useState<Post[]>([]);
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState<string | null>(null);
   const [retrying, setRetrying] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,23 +75,28 @@ export default function DeliveryGroupPostsPanel({
     if (isDeliveryGroupPostsEnabled) void load();
   }, [isDeliveryGroupPostsEnabled, load]);
 
+  // The signed DO / RDO as rendered now (same PDF for Download and Preview).
+  const fetchSigned = async (doc: { id: string; name: string | null }): Promise<Blob> => {
+    const token = (await getToken()) ?? undefined;
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+    const activeOrg = typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null;
+    if (activeOrg) headers["X-Active-Org-Id"] = activeOrg;
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/delivery-group-posts/delivery/${deliveryId}/signed-do?documentId=${doc.id}`,
+      { headers },
+    );
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body?.message || `Could not load the signed ${docLabel} (${res.status})`);
+    }
+    return res.blob();
+  };
+
   const download = async (doc: { id: string; name: string | null }) => {
     setDownloading(doc.id);
     setError(null);
     try {
-      const token = (await getToken()) ?? undefined;
-      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
-      const activeOrg = typeof window !== "undefined" ? window.sessionStorage.getItem("aims-admin-active-org") : null;
-      if (activeOrg) headers["X-Active-Org-Id"] = activeOrg;
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_BACKEND_API_URL}/delivery-group-posts/delivery/${deliveryId}/signed-do?documentId=${doc.id}`,
-        { headers },
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.message || `Download failed (${res.status})`);
-      }
-      const blob = await res.blob();
+      const blob = await fetchSigned(doc);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -102,6 +109,35 @@ export default function DeliveryGroupPostsPanel({
       setError(e?.message ?? `Could not download the signed ${docLabel}`);
     } finally {
       setDownloading(null);
+    }
+  };
+
+  // Preview (enableSignedDocPreview, Biofuel 2026-11-19): the same PDF in a new
+  // tab. The tab opens on the click itself so pop-up blockers let it through.
+  const preview = async (doc: { id: string; name: string | null }) => {
+    const tab = window.open("", "_blank");
+    if (!tab) {
+      setError("Allow pop-ups for this site to preview");
+      return;
+    }
+    try {
+      tab.document.title = `${doc.name || docLabel} signed`;
+      tab.document.body.textContent = "Loading";
+    } catch {
+      /* cosmetic only */
+    }
+    setPreviewing(doc.id);
+    setError(null);
+    try {
+      const blob = await fetchSigned(doc);
+      const url = URL.createObjectURL(new Blob([blob], { type: "application/pdf" }));
+      tab.location.href = url;
+      setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000);
+    } catch (e: any) {
+      tab.close();
+      setError(e?.message ?? `Could not preview the signed ${docLabel}`);
+    } finally {
+      setPreviewing(null);
     }
   };
 
@@ -127,16 +163,28 @@ export default function DeliveryGroupPostsPanel({
       {signed && documents.length > 0 && (
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: posts.length ? 1 : 0 }}>
           {documents.map((d) => (
-            <Button
-              key={d.id}
-              size="small"
-              variant="outlined"
-              startIcon={downloading === d.id ? <CircularProgress size={14} /> : <PictureAsPdfIcon />}
-              disabled={!!downloading}
-              onClick={() => void download(d)}
-            >
-              Download signed {docLabel}{documents.length > 1 && d.name ? ` ${d.name}` : ""}
-            </Button>
+            <React.Fragment key={d.id}>
+              {isSignedDocPreviewEnabled && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={previewing === d.id ? <CircularProgress size={14} /> : <VisibilityIcon />}
+                  disabled={!!downloading || !!previewing}
+                  onClick={() => void preview(d)}
+                >
+                  Preview signed {docLabel}{documents.length > 1 && d.name ? ` ${d.name}` : ""}
+                </Button>
+              )}
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={downloading === d.id ? <CircularProgress size={14} /> : <PictureAsPdfIcon />}
+                disabled={!!downloading || !!previewing}
+                onClick={() => void download(d)}
+              >
+                Download signed {docLabel}{documents.length > 1 && d.name ? ` ${d.name}` : ""}
+              </Button>
+            </React.Fragment>
           ))}
         </Stack>
       )}
