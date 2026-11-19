@@ -30,6 +30,11 @@ const ORG_KEY = one('--org')!;
 const APPLY = argv.includes('--apply');
 const CARDS_ONLY = argv.includes('--cards-only');
 const ROLLBACK = one('--rollback');
+// --difference <amount> (Elroy 19 Nov, WCT (S)): one extra bill "Cutover difference (to confirm)" under a placeholder
+// supplier so the opening bills tie to the AP control at cutover while finance says which supplier it belongs to.
+const DIFFERENCE = argv.includes('--difference') ? Number(one('--difference')) : null;
+const DIFF_SUPPLIER = 'ABSS cutover difference';
+const DIFF_TEXT = 'Cutover difference (to confirm)';
 const SCHEMA = one('--schema');
 const IMPORTS = '/Users/elroylee/Desktop/aims/_imports/wct';
 const ORGS: Record<string, { id: string; label: string; cutover: string; cards: string }> = {
@@ -128,6 +133,13 @@ export function nextSupplierCode(name: string, taken: Set<string>): string {
   }
   plan.sort((a, b) => a.name.localeCompare(b.name));
   const cardSum = R(cards.reduce((s, k) => s + k.balance, 0));
+  if (DIFFERENCE !== null) {
+    if (!isFinite(DIFFERENCE) || Math.abs(DIFFERENCE) < 0.005) throw new Error('--difference needs a non-zero amount');
+    const key = nameKey(DIFF_SUPPLIER);
+    const ex = existingByKey.get(key);
+    plan.push({ key, name: DIFF_SUPPLIER, phone: '', balance: R(DIFFERENCE), currency: 'SGD', lines: 0, supplier: ex ?? null, create: !ex, code: ex?.code ?? nextSupplierCode(DIFF_SUPPLIER, taken), diff: true } as any);
+    console.log(`  cutover difference: ${R(DIFFERENCE).toFixed(2)} as "${DIFF_TEXT}" under supplier "${DIFF_SUPPLIER}"`);
+  }
   const withBal = plan.filter((p) => Math.abs(p.balance) > 0.004);
   const neg = withBal.filter((p) => p.balance < 0);
   const foreign = withBal.filter((p) => p.currency !== 'SGD');
@@ -194,7 +206,7 @@ export function nextSupplierCode(name: string, taken: Set<string>): string {
     }
     for (const p of withBal) {
       const name = `OB-${p.supplier.code}`;
-      const text = `Opening balance at ${dmy(org.cutover)} (ABSS)`;
+      const text = (p as any).diff ? DIFF_TEXT : `Opening balance at ${dmy(org.cutover)} (ABSS)`;
       const cfg = stampDocumentMoney(
         {
           kind: 'SIN',
@@ -204,8 +216,8 @@ export function nextSupplierCode(name: string, taken: Set<string>): string {
           date: org.cutover,
           dueDate: org.cutover,
           currency: 'SGD',
-          referenceNo: 'Opening balance',
-          reference: 'Opening balance',
+          referenceNo: (p as any).diff ? DIFF_TEXT : 'Opening balance',
+          reference: (p as any).diff ? DIFF_TEXT : 'Opening balance',
           description: text,
           subtotal: p.balance,
           taxAmount: 0,
@@ -215,7 +227,7 @@ export function nextSupplierCode(name: string, taken: Set<string>): string {
           lines: [{ description: text, quantity: 1, unitPrice: p.balance, amount: p.balance, taxAmount: 0 }],
           billStatus: 'POSTED',
           inboundChannel: 'IMPORT',
-          erpImport: { source: 'abss-opening', batch, erpId: `abss-card:${p.name}`, originalNumber: name, status: 'Open', balanceAtImport: p.balance, cardListDate: CARD_LIST_DATE, cutover: org.cutover },
+          erpImport: { source: 'abss-opening', batch, erpId: (p as any).diff ? 'abss-cutover-difference' : `abss-card:${p.name}`, originalNumber: name, status: 'Open', balanceAtImport: p.balance, ...((p as any).diff ? { cutoverDifference: true, toConfirm: 'which supplier (WCT finance)' } : {}), cardListDate: CARD_LIST_DATE, cutover: org.cutover },
         },
         { gross: p.balance, outstanding: p.balance, paid: 0 },
       );
