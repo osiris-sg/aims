@@ -95,3 +95,14 @@ test("vehicle Money spent: no Nothing spent line", () => {
   assert.match(col, /\{fmtMoney\(p\.total\)\}/);
   assert.doesNotMatch(read("app/portal/assets/vehicles/[id]/page.tsx"), /Nothing spent/);
 });
+
+// 2026-11-19 (WCT group): the quotation toolbar's "Go to order ORD…" is gone; the editor page's banner
+// ("Order ORD… created · Open order", shown on every open of a quotation with an order) stays.
+test("quotation: no Go to order toolbar button; the order banner stays", () => {
+  const editor = read("containers/DocumentTemplates/components/TabbedDocumentCreator.tsx");
+  assert.doesNotMatch(editor, /Go to order \{/);
+  assert.doesNotMatch(editor, /editor-go-to-order/);
+  const page = read("app/portal/documents/[type]/[id]/[documentId]/page.tsx");
+  assert.match(page, /Order \{linkedOrder\.orderNumber\} created/);
+  assert.match(page, /Open order/);
+});

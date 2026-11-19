@@ -4,7 +4,7 @@
 /**
  * "Back to order ORD…" on the DO toolbar and the service report page: gone with enableWctDocNav, where
  * the left Back (helpers/appNav.ts) returns to the previous page (the order, when it was opened from there).
- * The quotation's "Go to order" stays (it is not a back).
+ * The quotation's "Go to order" toolbar button was removed 2026-11-19 (the page's "Order … created · Open order" banner stays).
  */
 export const showBackToOrder = (wctDocNav: boolean): boolean => !wctDocNav;
 
