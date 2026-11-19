@@ -17,6 +17,9 @@ export type Side = 'receivable' | 'payable';
 
 const R = (n: number) => Math.round(n * 100) / 100;
 
+/** Config keys the document scan never reads (the heavy ones: lines, terms, signature images). */
+export const SCAN_SKIP_KEYS = ['items', 'lines', 'lineItems', 'tableData', 'termsAndConditions', 'clientSignature', 'signature', 'pdfData'];
+
 interface DocRow {
   id: string;
   number: string;
@@ -60,13 +63,23 @@ export class XeroReportsService {
   // ------------------------------------------------------------------
   // Shared document scan: normalized per-document rows for one side.
   // ------------------------------------------------------------------
+  /**
+   * The documents the scan reads, WITHOUT their line items, terms and signature images (outage 19 Nov 2026:
+   * three WCT (S) aged reports at once loaded its 15,260 invoices' full JSON, 78 MB each time, and the API ran out
+   * of memory and restarted). The scan reads money, dates, contact and reference only, so the rows it builds are
+   * the same; the invoice detail report reads its lines separately.
+   */
+  protected async scanDocRows(organizationId: string, type: 'INVOICE' | 'BILL'): Promise<Array<{ id: string; name: string | null; type: string; documentTemplateId: string | null; status: any; createdAt: Date; config: any }>> {
+    return this.prisma.$queryRaw`
+      SELECT d.id::text AS id, d.name, d.type, d."documentTemplateId", d.status::text AS status, d."createdAt", (d.config - ${SCAN_SKIP_KEYS}::text[]) AS config
+      FROM "Document" d
+      WHERE d."organizationId" = ${organizationId} AND d.type = ${type}`;
+  }
+
   private async scanDocs(organizationId: string, side: Side, opts?: { paymentsUpTo?: Date }): Promise<DocRow[]> {
     const isAR = side === 'receivable';
     const [docs, setting] = await Promise.all([
-      this.prisma.document.findMany({
-        where: { organizationId, type: isAR ? 'INVOICE' : 'BILL' },
-        select: { id: true, name: true, type: true, documentTemplateId: true, status: true, createdAt: true, config: true },
-      }),
+      this.scanDocRows(organizationId, isAR ? 'INVOICE' : 'BILL'),
       this.prisma.accountingSetting.findUnique({
         where: { organizationId },
         select: { baseCurrency: true, currencyRates: true },
