@@ -117,6 +117,8 @@ export const UNLINK_BLOCKED = {
   madeOnOrder: "Made on this order",
   writtenForOrder: "Written for this order",
   withInvoice: "Goes with its invoice",
+  // Round 33: a linked DO billed by Create invoice stays while that invoice is live.
+  billed: "Billed: void its invoice first",
 } as const;
 
 const docDelete = (id: string) => `/documents/delete/${id}`;
@@ -251,8 +253,11 @@ function workRows(o: any): OrderDocRow[] {
       // The signed DO once its job is finished (the existing "Download signed DO").
       file: d.completed && doneJob ? { label: "PDF", path: `/delivery-group-posts/delivery/${doneJob.id}/signed-do?documentId=${d.id}` } : null,
       // Round 29: a DO linked to an AIMS order (Link existing document): Open + Unlink, not the order's DO menu.
+      // Round 33: a linked DO billed by Create invoice stays on the order while that invoice is live.
       ...(d.linkedOnly
-        ? { unlink: { type: "DELIVERY_ORDER" as const, id: d.id, name: d.name ?? "the DO" }, unlinkBlocked: null }
+        ? d.invoiceId
+          ? { unlink: null, unlinkBlocked: UNLINK_BLOCKED.billed }
+          : { unlink: { type: "DELIVERY_ORDER" as const, id: d.id, name: d.name ?? "the DO" }, unlinkBlocked: null }
         : { doId: d.id, unlink: null, unlinkBlocked: UNLINK_BLOCKED.madeOnOrder }),
       deletePath: !d.completed && deletableDraft({ status: d.status, imported: d.imported === true }) ? docDelete(d.id) : null,
     });
@@ -390,7 +395,15 @@ export function nativeInvoiceAsk(o: any): string {
     return invoiceNowText(o.toInvoice ?? [], openJobs, quoteBilled, ci.fromQuotation);
   }
   const dos: string[] = (o.toInvoiceDos ?? []).filter(Boolean);
+  // Round 33: linked DOs (Link existing document) are billed with their own lines once the quotation is billed.
+  const linked: string[] = (o.toInvoiceLinkedDos ?? []).filter(Boolean);
   if (dos.length) {
+    if (quoteBilled && linked.length) {
+      const own = dos.filter((d) => !linked.includes(d));
+      return own.length
+        ? `Create the invoice now for ${dos.join(", ")}? The quotation is already billed on this order: ${linked.join(", ")} ${linked.length === 1 ? "is" : "are"} invoiced with ${linked.length === 1 ? "its" : "their"} own lines, ${own.join(", ")} only for lines added on top of the quotation.`
+        : `Create the invoice now for ${linked.join(", ")}? The quotation is already billed on this order, so ${linked.length === 1 ? "the DO's" : "their"} own lines are invoiced as they are on the DO.`;
+    }
     return quoteBilled
       ? `Create the invoice now for ${dos.join(", ")}? The quotation is already billed on this order, so only lines added on top of it are invoiced. If there are none, no invoice is made.`
       : `Create the invoice now for ${dos.join(", ")}? It bills the quotation once, plus any lines added on top of it.`;

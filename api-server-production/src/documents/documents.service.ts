@@ -40,13 +40,13 @@ import { keepSplitPartTotals, splitGlRevenueLines, type SplitPlan } from './invo
 import { sgToday, wctFamilyOf, wctFamilyOfTypes, isWctStatusValue, wctStatusMatches, wctStatusOf } from '../common/wct-statuses';
 import { ERP_QUOTE_CANCELLED_STATUSES, assertNotErpImportedDo, confirmPostsToGl, erpPaidAtImport, erpQuotationTag, erpStoredTotalsOf, isErpImported, isErpImportedDo, isQuotationDocType, moneySignature } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
-import { fillEmptyOrderCustomer, invoiceRowsWithSplitParts, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
+import { fillEmptyOrderCustomer, invoiceRowsWithSplitParts, linkedDoEntriesOf, liveInvoiceIds, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
 import { isManualOrderFlow, manualAutoDraftsOff } from '../orders/manual-order-flow';
 import { skipsDoSaveStockRule } from './do-first-save';
 import { RDO_FREE_ROWS_FLAG, allowsRdoFreeRows, hasUnit, isRdoSigned, isRdoType } from './rdo-free-rows';
 import { SOFT_DELETE_DRAFTS_FLAG, SOFT_DELETED_TYPE, WCT_STATUSES_FLAG, isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
-import { assetKey, descKey, invoiceDiscountPercent, isDisplayRow, orderInvoiceReference, planOrderInvoice, quoteDiscountAmount } from '../orders/order-billing';
+import { assetKey, descKey, invoiceDiscountPercent, isDisplayRow, orderInvoiceReference, planOrderInvoice, quoteDiscountAmount, splitJobLines } from '../orders/order-billing';
 import { quotationLinesForJob } from '../deliveries/quotation-to-delivery';
 import { orgTodayFor } from '../common/org-today';
 
@@ -7009,6 +7009,64 @@ export class DocumentsService {
     }
   }
 
+  // ── Linked DOs (round 33, 2026-11-19): a DO put on an AIMS order with Link existing document ─────
+  // Create invoice bills a completed linked DO too. The DO is never written: its billed marker is the order's link
+  // entry (linkedDocuments.do[i].orderInvoiceId, wct-orders.ts), claimed under the same per-order lock.
+
+  /** The order's linked DOs that are completed, carry no job, are not ERP-imported and have no live invoice yet. */
+  private async billableLinkedDos(organizationId: string, order: { id: string; linkedDocuments?: unknown }) {
+    const entries = linkedDoEntriesOf(order).filter((e) => e.imported !== true);
+    if (!entries.length) return [];
+    const docs: any[] = await this.prisma.document.findMany({ where: { organizationId, id: { in: entries.map((e) => e.id) }, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, name: true, status: true, config: true } });
+    const live = await liveInvoiceIds(this.prisma, organizationId, entries.map((e) => e.orderInvoiceId));
+    const out: Array<{ id: string; name: string | null }> = [];
+    for (const e of entries) {
+      const d = docs.find((x) => x.id === e.id);
+      if (!d || isErpImported(d.config) || d.config?.cancelled === true || d.config?.orderId === order.id) continue;
+      if (!String(d.status).startsWith('delivered')) continue;
+      if (e.orderInvoiceId && (String(e.orderInvoiceId).startsWith('claim:') || live.has(e.orderInvoiceId))) continue;
+      if ((await this.deliveriesService.jobsOnDo(organizationId, d.id)).length) continue;
+      out.push({ id: d.id, name: d.name ?? null });
+    }
+    return out;
+  }
+
+  /** Claim linked DOs for one invoice run on the order's link entries (per-order lock); returns those won. */
+  private async claimLinkedDos(organizationId: string, orderId: string, ids: string[], claim: string) {
+    return this.prisma.$transaction(async (tx: any) => {
+      await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock(hashtext($1))', `order-invoice:${orderId}`);
+      const row: any = await tx.order.findFirst({ where: { id: orderId, organizationId }, select: { linkedDocuments: true } });
+      const ld: any = row?.linkedDocuments && typeof row.linkedDocuments === 'object' ? row.linkedDocuments : {};
+      const list: any[] = Array.isArray(ld.do) ? ld.do : [];
+      const live = await liveInvoiceIds(tx, organizationId, list.map((e: any) => e?.orderInvoiceId));
+      const won: Array<{ id: string; name: string | null }> = [];
+      const next = list.map((e: any) => {
+        if (!e || !ids.includes(e.id)) return e;
+        if (e.orderInvoiceId && (String(e.orderInvoiceId).startsWith('claim:') || live.has(e.orderInvoiceId))) return e;
+        won.push({ id: e.id, name: e.name ?? null });
+        return { ...e, orderInvoiceId: claim };
+      });
+      if (won.length) await tx.order.update({ where: { id: orderId }, data: { linkedDocuments: { ...ld, do: next } } });
+      return won;
+    });
+  }
+
+  /** Move linked DOs from a claim to the invoice (or back to unbilled with null). */
+  private async setLinkedDoClaim(organizationId: string, orderId: string, claim: string, invoiceId: string | null) {
+    await this.prisma.$transaction(async (tx: any) => {
+      await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock(hashtext($1))', `order-invoice:${orderId}`);
+      const row: any = await tx.order.findFirst({ where: { id: orderId, organizationId }, select: { linkedDocuments: true } });
+      const ld: any = row?.linkedDocuments && typeof row.linkedDocuments === 'object' ? row.linkedDocuments : {};
+      if (!Array.isArray(ld.do) || !ld.do.some((e: any) => e?.orderInvoiceId === claim)) return;
+      const next = ld.do.map((e: any) => {
+        if (e?.orderInvoiceId !== claim) return e;
+        const { orderInvoiceId: _x, ...rest } = e;
+        return invoiceId ? { ...rest, orderInvoiceId: invoiceId } : rest;
+      });
+      await tx.order.update({ where: { id: orderId }, data: { linkedDocuments: { ...ld, do: next } } });
+    });
+  }
+
   async maybeInvoiceOrder(orderId: string, organizationId: string) {
     try {
       if (!(await isOrgFeatureEnabled(this.prisma, organizationId, WCT_ORDER_INVOICE_FLAG))) return null;
@@ -7099,7 +7157,9 @@ export class DocumentsService {
     // Manual order flow, DO first (2026-11-13): a completed DO with no job is billed on its own (a "DO unit").
     const manualDo = await isManualOrderFlow(this.prisma, organizationId);
     const doCandidates = manualDo ? await this.billableJoblessDos(organizationId, orderId) : [];
-    if (!billable.length && !doCandidates.length) {
+    // Round 33: completed linked DOs (Link existing document) not billed yet, on Create invoice only (never automatic).
+    const linkedCandidates = manualDo && opts.trigger === 'now' ? await this.billableLinkedDos(organizationId, order) : [];
+    if (!billable.length && !doCandidates.length && !linkedCandidates.length) {
       // Invoice first (manual flow, 2026-11-16): nothing completed yet, so "Create invoice" bills the quotation.
       if (opts.trigger === 'now' && manualDo) {
         // Already invoiced (e.g. the draft made at signing, 2026-11-17): open that one, never a second.
@@ -7124,7 +7184,8 @@ export class DocumentsService {
       orderBy: { deliveryNumber: 'asc' },
     });
     const claimedDos = doCandidates.length ? await this.claimJoblessDos(organizationId, orderId, doCandidates.map((d) => d.id), claim) : [];
-    if (!claimed.length && !claimedDos.length) return null;
+    const claimedLinked = linkedCandidates.length ? await this.claimLinkedDos(organizationId, orderId, linkedCandidates.map((d) => d.id), claim) : [];
+    if (!claimed.length && !claimedDos.length && !claimedLinked.length) return null;
 
     try {
       // Each job's DO, in job order: the jobs' lines, to tell the quote's scope from the extras.
@@ -7141,12 +7202,16 @@ export class DocumentsService {
         if (!doIdsInOrder.includes(d.id)) doIdsInOrder.push(d.id);
         doJob.set(d.id, `do:${d.id}`);
       }
+      for (const d of claimedLinked) {
+        if (!doIdsInOrder.includes(d.id)) doIdsInOrder.push(d.id);
+        doJob.set(d.id, `ldo:${d.id}`);
+      }
       const dos = await this.prisma.document.findMany({ where: { id: { in: doIdsInOrder }, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } } });
       const doById = new Map(dos.map((d) => [d.id, d]));
       const orderedDos = doIdsInOrder.map((id) => doById.get(id)).filter(Boolean) as any[];
       if (!orderedDos.length) throw new Error('the jobs have no Delivery Order to invoice from');
       // What this invoice bills, for the messages: job numbers and DO-only DOs.
-      const unitsText = [...claimed.map((j) => `job #${j.deliveryNumber}`), ...claimedDos.map((d) => d.name || 'DO')].join(', ');
+      const unitsText = [...claimed.map((j) => `job #${j.deliveryNumber}`), ...claimedDos.map((d) => d.name || 'DO'), ...claimedLinked.map((d) => d.name || 'DO')].join(', ');
 
       // The quotation is the contract: billed once per order (order-billing.ts).
       // It is already billed when an earlier invoice of this order exists (the
@@ -7169,20 +7234,30 @@ export class DocumentsService {
       const workLines = quoteItems.filter((l) => !isDisplayRow(l));
       const resolved = await quotationLinesForJob(this.prisma, organizationId, qc);
       const quoteKey = new Map<any, string | null>(workLines.map((l, i) => [l, resolved[i]?.asset ? assetKey(resolved[i].asset!.id) : descKey(l.description)]));
+      const unitLines = (unitId: string) =>
+        orderedDos
+          .filter((d) => doJob.get(d.id) === unitId)
+          .flatMap((d) => (Array.isArray((d.config as any)?.items) ? (d.config as any).items : []).map((l: any) => ({ ...l, __doId: d.id })));
+      // Round 33 (Elroy): a linked DO. With the quotation already billed on this order (nothing left to bill from
+      // it), Create invoice bills the linked DO's own lines as they are (qty / items, priced by the usual ladder).
+      // With the quotation not billed yet: the quotation once, and the linked DO's lines only as extras above it
+      // (the same scope / extras rule as the order's own DOs).
+      const quoteBilled = earlier.length > 0;
+      const linkedUnits = claimedLinked.map((d) => `ldo:${d.id}`);
       const plan = planOrderInvoice({
-        quoteBilled: earlier.length > 0,
+        quoteBilled,
         quoteLines: quoteItems,
-        jobs: [...claimed.map((j) => ({ id: j.id })), ...claimedDos.map((d) => ({ id: `do:${d.id}` }))].map((j) => ({
-          jobId: j.id,
-          lines: orderedDos
-            .filter((d) => doJob.get(d.id) === j.id)
-            .flatMap((d) => (Array.isArray((d.config as any)?.items) ? (d.config as any).items : []).map((l: any) => ({ ...l, __doId: d.id }))),
-        })),
+        jobs: [...claimed.map((j) => j.id), ...claimedDos.map((d) => `do:${d.id}`), ...(quoteBilled ? [] : linkedUnits)].map((id) => ({ jobId: id, lines: unitLines(id) })),
         keyOfQuoteLine: (l) => quoteKey.get(l) ?? null,
         keyOfJobLine: (l: any) => assetKey(l.assetId) ?? descKey(l.description),
       });
+      const linkedFull = quoteBilled
+        ? linkedUnits.flatMap((id) => splitJobLines(unitLines(id), (l: any) => assetKey(l.assetId) ?? descKey(l.description), new Map()).extras.map((e: any) => ({ ...e, jobId: id })))
+        : [];
+      const extrasAll: any[] = [...plan.extras, ...linkedFull];
+      const nothing = !plan.billQuote && !extrasAll.length;
 
-      if (plan.nothing) {
+      if (nothing) {
         // The quote is billed and these jobs add nothing on top: no empty
         // invoice. The jobs are covered by the invoice that billed the quote.
         const cover = earlier[0];
@@ -7190,6 +7265,7 @@ export class DocumentsService {
         if (!cover) throw new HttpException('Nothing to invoice: the quotation has no lines and the jobs add none.', HttpStatus.BAD_REQUEST);
         await this.prisma.delivery.updateMany({ where: { organizationId, orderInvoiceId: claim }, data: { orderInvoiceId: cover.id } });
         await this.setDoInvoiceClaim(organizationId, claimedDos.map((d) => d.id), claim, cover.id);
+        await this.setLinkedDoClaim(organizationId, order.id, claim, cover.id);
         console.log(`🧾 ORDER→INVOICE: ${order.orderNumber} jobs ${claimed.map((j) => `#${j.deliveryNumber}`).join(', ')} add no lines to the quotation; covered by ${cover.name} (${opts.trigger}).`);
         await refreshOrderStatus(this.prisma, organizationId, order.id);
         return { id: cover.id, name: cover.name, type: 'INVOICE', covered: true, jobNumbers: claimed.map((j) => j.deliveryNumber) } as any;
@@ -7200,6 +7276,7 @@ export class DocumentsService {
       if (opts.linkOnly) {
         await this.prisma.delivery.updateMany({ where: { organizationId, orderInvoiceId: claim }, data: { orderInvoiceId: null } });
         await this.setDoInvoiceClaim(organizationId, claimedDos.map((d) => d.id), claim, null);
+        await this.setLinkedDoClaim(organizationId, order.id, claim, null);
         console.log(`🧾 ORDER→INVOICE: ${order.orderNumber} ${unitsText} done; no automatic invoice (disableAutoDraftInvoice).`);
         await refreshOrderStatus(this.prisma, organizationId, order.id);
         return null;
@@ -7210,7 +7287,7 @@ export class DocumentsService {
       const lines: any[] = plan.billQuote ? quoteItems.map((l) => ({ ...l, fromQuotation: true })) : [];
       for (const d of orderedDos) {
         const c: any = d.config || {};
-        const extras = plan.extras.filter((e: any) => e.__doId === d.id).map(({ jobId: _j, __doId: _d, ...l }: any) => l);
+        const extras = extrasAll.filter((e: any) => e.__doId === d.id).map(({ jobId: _j, __doId: _d, ...l }: any) => l);
         if (!extras.length) continue;
         const priced = await this.priceInvoiceLinesFromAsset(extras, organizationId, {
           saleOrderId: c.saleOrderId,
@@ -7239,10 +7316,10 @@ export class DocumentsService {
       const quoteGross = plan.billQuote ? computeDocumentTotals(workLines, taxSrc).grossTotal : 0;
       const discount = plan.billQuote ? quoteDiscountAmount(qc, quoteGross) : 0;
       const totals = computeDocumentTotals(lines, taxSrc, { discountAmount: discount });
-      const discountPercent = invoiceDiscountPercent(qc, discount, totals.grossTotal, !plan.extras.length);
+      const discountPercent = invoiceDiscountPercent(qc, discount, totals.grossTotal, !extrasAll.length);
       const discountKeys = discount > 0 ? { discountAmount: totals.discountAmount ?? 0, discountPercent } : {};
       const quotedNett = Number(qc.nettTotal ?? qc.documentInfo?.nettTotal);
-      if (plan.billQuote && !plan.extras.length && isFinite(quotedNett) && quotedNett > 0 && Math.abs(quotedNett - totals.nettTotal) > 0.01) {
+      if (plan.billQuote && !extrasAll.length && isFinite(quotedNett) && quotedNett > 0 && Math.abs(quotedNett - totals.nettTotal) > 0.01) {
         console.warn(`🧾 ORDER→INVOICE: ${order.orderNumber} invoice total ${totals.nettTotal} differs from the quotation's ${quotedNett}; check the quotation's adjustments.`);
       }
       const doNumbers = orderedDos.map((d) => d.name).filter(Boolean) as string[];
@@ -7257,6 +7334,8 @@ export class DocumentsService {
           orderId: order.id,
           orderNo: order.orderNumber,
           orderJobIds: claimed.map((j) => j.id),
+          // Round 33: the linked DOs this invoice bills (their marker is on the order's link entries).
+          ...(claimedLinked.length ? { orderLinkedDoIds: claimedLinked.map((d) => d.id) } : {}),
           orderBillsQuote: plan.billQuote,
           deliveryOrderNos: doNumbers,
           // Reference (the canonical free-text key) names the order and its DOs
@@ -7274,9 +7353,12 @@ export class DocumentsService {
 
       await this.prisma.delivery.updateMany({ where: { organizationId, orderInvoiceId: claim }, data: { orderInvoiceId: invoice.id } });
       await this.setDoInvoiceClaim(organizationId, claimedDos.map((d) => d.id), claim, invoice.id);
-      const ld: any = (order.linkedDocuments as any) || { po: [], do: [], invoice: [], salesOrder: [] };
+      // Read the links again: the run's claims sit on them (linked DOs, round 33), never overwrite them with the start copy.
+      const freshLd: any = (await this.prisma.order.findFirst({ where: { id: order.id, organizationId }, select: { linkedDocuments: true } }))?.linkedDocuments;
+      const ld: any = (freshLd && typeof freshLd === 'object' ? freshLd : (order.linkedDocuments as any)) || { po: [], do: [], invoice: [], salesOrder: [] };
       ld.invoice = [...(Array.isArray(ld.invoice) ? ld.invoice : []), { id: invoice.id, name: invoice.name, jobIds: claimed.map((j) => j.id) }];
       await this.prisma.order.update({ where: { id: order.id }, data: { invoiceDocumentId: invoice.id, linkedDocuments: ld } });
+      await this.setLinkedDoClaim(organizationId, order.id, claim, invoice.id);
       console.log(`🧾 ORDER→INVOICE: ${invoice.name} for ${order.orderNumber} (${opts.trigger}; ${unitsText})`);
 
       // The jobs' service reports point at the invoice that bills them.
@@ -7311,6 +7393,7 @@ export class DocumentsService {
       // Hand the jobs back so the next trigger can bill them.
       await this.prisma.delivery.updateMany({ where: { organizationId, orderInvoiceId: claim }, data: { orderInvoiceId: null } }).catch(() => undefined);
       await this.setDoInvoiceClaim(organizationId, claimedDos.map((d) => d.id), claim, null).catch(() => undefined);
+      await this.setLinkedDoClaim(organizationId, order.id, claim, null).catch(() => undefined);
       throw e;
     }
   }
