@@ -278,7 +278,8 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
   // DO first: the order's DOs; the first one completable on its own (no job, no product line).
   const dos: OrderDo[] = (order as any).deliveryOrders ?? [];
   const manualFlow = !!(order as any).manualFlow;
-  const doFirst = manualFlow && dos.length > 0;
+  // An order with no DO and no job yet (disableAutoDraftDo, 2026-11-19: signing made no DO) is DO first too.
+  const doFirst = manualFlow && (dos.length > 0 || !liveJobs.length);
   // Invoice first (2026-11-16): on the manual flow, an order with no invoice and nothing completed yet is invoiced from its quotation.
   const invoiceFromQuotation =
     !!(order as any).manualFlow && order.status !== "CANCELLED" && !(order.invoices?.length ?? 0) && !order.toInvoice?.length && !(order as any).toInvoiceDos?.length;

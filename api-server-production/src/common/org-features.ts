@@ -135,6 +135,15 @@ export const SNO_SKIP_TITLES_SINCE_SETTING = 'snoSkipTitlesSince';
 // Send invoice, Send service report, statements) are unchanged. Default OFF.
 export const NO_AUTO_CUSTOMER_EMAILS_FLAG = 'disableAutoCustomerEmails';
 
+// NO AUTOMATIC DRAFT DO / INVOICE ON ORDERS (2026-11-19, Elroy; WCT (S) + BC Air). Only on the manual order
+// flow (enableManualOrderFlow + enableWctOrders; manual-order-flow.ts manualAutoDraftsOff), default OFF:
+//   disableAutoDraftDo       signing a quotation makes the order only, no draft DO (the office uses Add DO).
+//   disableAutoDraftInvoice  no draft invoice at signing, none when the last DO completes (the office uses
+//                            Create invoice); a DO completing after the invoice still links to it (no new document).
+// Drafts already made are left as they are.
+export const NO_AUTO_DRAFT_DO_FLAG = 'disableAutoDraftDo';
+export const NO_AUTO_DRAFT_INVOICE_FLAG = 'disableAutoDraftInvoice';
+
 /** Invoice statuses that are still a draft (no GL entry under the flag above). */
 export const DRAFT_INVOICE_STATUSES = ['draft', 'unconfirmed'];
 

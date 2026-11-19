@@ -279,6 +279,12 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // the customer. No SiteClock sync, no field-app steps. The order keeps one
   // status (+ the date of each). Default OFF; WCT group only.
   enableManualOrderFlow: false,
+  // No automatic drafts on manual-flow orders (2026-11-19; common/org-features.ts NO_AUTO_DRAFT_*):
+  // signing makes the order only (no draft DO / draft invoice) and the last DO completing makes no
+  // draft invoice; the office adds them with Add DO / Create invoice, in either order. Needs the
+  // manual order flow. Default OFF; WCT (S) + BC Air.
+  disableAutoDraftDo: false,
+  disableAutoDraftInvoice: false,
   // Imported orders (2026-11-18, src/orders/imported-orders.ts): the orders made from the
   // old ERP's own quotation <-> invoice links (scripts/wct-imported-orders.ts) show in the
   // Orders list ("Imported" filter) and open read-only. Off: they stay hidden. Default OFF; WCT group.

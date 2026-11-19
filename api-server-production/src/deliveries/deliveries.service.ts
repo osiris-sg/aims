@@ -63,7 +63,7 @@ import { REAL_DO_ON_SCHEDULE_FLAG, cancelledDoConfig, isIssuedOnSchedule } from 
 import { SiteClockLinkService, SiteClockScheduleInput } from '../siteclock/siteclock-link.service';
 import { applyOrderToDoConfig, isWctOrdersEnabled, refreshOrderStatus, refreshOrderStatusForRun } from '../orders/wct-orders';
 import { assertDocNotErpImportedDo, assertNotErpImportedDo } from '../common/erp-import';
-import { isManualOrderFlow } from '../orders/manual-order-flow';
+import { isManualOrderFlow, manualAutoDraftsOff } from '../orders/manual-order-flow';
 import { assetKey, descKey, doLineWarnings, remainingAllowance, remainingQuoteLines } from '../orders/order-billing';
 import { plannedRiderView, savePlannedRider } from './planned-rider';
 import { CompletionMode, WCT_FINISH_MODES_FLAG, finishModeProblem, initialVerification, isCompletionMode } from './finish-modes';
@@ -1809,7 +1809,8 @@ export class DeliveriesService {
         quotation?.projectId ?? undefined,
       );
       // The order's first DO (on accept): calendar jobs made with this quotation before it was signed go on it.
-      if (!opts.force) await this.attachWaitingJobsToDo(organizationId, order.id);
+      // disableAutoDraftDo (2026-11-19): signing made no DO, so the first "Add DO" takes them (only with one open DO).
+      if (!opts.force || (await manualAutoDraftsOff(this.prisma, organizationId)).doOff) await this.attachWaitingJobsToDo(organizationId, order.id);
       await refreshOrderStatus(this.prisma, organizationId, order.id);
       return { doId: doc.id, doName: doc.name ?? null, ...(note ? { note } : {}) };
     } catch (err: any) {

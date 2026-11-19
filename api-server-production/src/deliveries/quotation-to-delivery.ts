@@ -68,7 +68,8 @@ export async function autoDraftDeliveryFromQuotation(
     if (!(await isOrgFeatureEnabled(prisma, organizationId, QUOTATION_TO_DELIVERY_FLAG))) return null;
     const wctOrders = await isWctOrdersEnabled(prisma, organizationId);
     // Manual order flow (2026-11-13, DOs without jobs): the accepted quotation makes the order only; the caller
-    // then issues its first DRAFT DO (prepareManualOrderDo). Jobs are optional, added later on a DO.
+    // then issues its first DRAFT DO (prepareManualOrderDo; none with disableAutoDraftDo, 2026-11-19). Jobs are
+    // optional, added later on a DO.
     const doFirst = wctOrders && (await isManualOrderFlow(prisma, organizationId));
 
     const doc = await prisma.document.findFirst({

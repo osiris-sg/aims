@@ -123,7 +123,8 @@ export const HUB_DESTRUCTIVE = new Set<HubActionKey>(["cancel-job", "cancel-orde
 export function hubRowActions(status: string | null | undefined, opts: { doFirst?: boolean } = {}): HubActionKey[] {
   switch (hubStatus(status)) {
     case "QUOTATION_SIGNED":
-      return opts.doFirst ? ["view-order", "view-quotation", "create-invoice", "add-job", "cancel-order"] : ["view-order", "view-quotation", "add-job", "cancel-order"];
+      // Manual flow (2026-11-19): signed with no DO yet (disableAutoDraftDo): Create invoice here, Add DO on the order page.
+      return opts.doFirst ? ["view-order", "view-quotation", "create-invoice", "cancel-order"] : ["view-order", "view-quotation", "add-job", "cancel-order"];
     case "DO_DRAFT":
       // DO first (manual flow, 2026-11-13): the DO is completed on its own; a job is optional.
       // Invoice first (2026-11-16): the invoice can be made before the DO.
@@ -163,7 +164,8 @@ export function hubRowActions(status: string | null | undefined, opts: { doFirst
 export function hubNextStep(o: { status?: string | null; invoices?: unknown[]; serviceReportReady?: boolean; doFirst?: boolean; awaitingDo?: boolean }): { primary: HubActionKey; secondary?: HubActionKey; label?: string } | null {
   switch (hubStatus(o.status)) {
     case "QUOTATION_SIGNED":
-      return o.doFirst ? { primary: "create-invoice", secondary: "add-job" } : { primary: "add-job" };
+      // Manual flow: no DO yet (disableAutoDraftDo, 2026-11-19); "Add DO" sits by the Documents heading.
+      return o.doFirst ? { primary: "create-invoice" } : { primary: "add-job" };
     // DO first (2026-11-13): a DO step opens the DO itself, whose toolbar completes it (and adds a job, the sign link,
     // a service report). The order page has no Add job of its own.
     // Invoice first (2026-11-16): after the quotation, BOTH next steps (Create invoice and View DO), in either order.

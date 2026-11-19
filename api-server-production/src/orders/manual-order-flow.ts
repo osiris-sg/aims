@@ -15,9 +15,28 @@
  * every check below needs BOTH flags, so an org without WCT orders behaves
  * exactly as before even if the flag were set by mistake.
  */
+import { NO_AUTO_DRAFT_DO_FLAG, NO_AUTO_DRAFT_INVOICE_FLAG } from '../common/org-features';
+
 export const MANUAL_ORDER_FLOW_FLAG = 'enableManualOrderFlow';
 // Same key as wct-orders.ts WCT_ORDERS_FLAG (not imported: wct-orders imports this file).
 const WCT_ORDERS_FLAG = 'enableWctOrders';
+
+/**
+ * No automatic drafts (2026-11-19, WCT (S) + BC Air): which automatic drafts the manual flow skips.
+ * doOff: signing makes no draft DO. invoiceOff: no draft invoice at signing or when the last DO
+ * completes. Both false unless the manual flow itself is on (an org without it is never affected),
+ * and on any read error.
+ */
+export async function manualAutoDraftsOff(prisma: any, organizationId: string): Promise<{ doOff: boolean; invoiceOff: boolean }> {
+  try {
+    const ui = await prisma.organizationUIConfig.findUnique({ where: { organizationId }, select: { features: true } });
+    const f = ((ui?.features as any) || {}) as Record<string, unknown>;
+    const manual = f[MANUAL_ORDER_FLOW_FLAG] === true && f[WCT_ORDERS_FLAG] === true;
+    return { doOff: manual && f[NO_AUTO_DRAFT_DO_FLAG] === true, invoiceOff: manual && f[NO_AUTO_DRAFT_INVOICE_FLAG] === true };
+  } catch {
+    return { doOff: false, invoiceOff: false };
+  }
+}
 
 export async function isManualOrderFlow(prisma: any, organizationId: string): Promise<boolean> {
   try {

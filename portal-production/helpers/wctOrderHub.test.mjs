@@ -285,3 +285,27 @@ test("links: every number goes to its own page", () => {
   assert.equal(steps[1].docs[0].href, "/portal/documents/INVOICE/ti/i1");
   assert.equal(steps[2].docs[0].href, "/portal/documents/DELIVERY_ORDER/td/d1");
 });
+
+// 2026-11-19 (disableAutoDraftDo / disableAutoDraftInvoice): signing makes the order only.
+test("signed, no DO and no invoice yet (manual flow): Quotation signed, Create invoice; Add DO is by the Documents heading", () => {
+  const label = (k) => HUB_STATUSES.find((s) => s.key === k).label;
+  assert.equal(label("QUOTATION_SIGNED"), "Quotation signed");
+  assert.deepEqual(hubNextStep({ status: "QUOTATION_SIGNED", doFirst: true, invoices: [] }), { primary: "create-invoice" });
+  assert.deepEqual(hubRowActions("QUOTATION_SIGNED", { doFirst: true }), ["view-order", "view-quotation", "create-invoice", "cancel-order"]);
+  // Without the manual flow (WCT Racking): as before.
+  assert.deepEqual(hubNextStep({ status: "QUOTATION_SIGNED" }), { primary: "add-job" });
+  assert.deepEqual(hubRowActions("QUOTATION_SIGNED"), ["view-order", "view-quotation", "add-job", "cancel-order"]);
+  // Tracker: the quotation ticked, Invoice and DO both still to do, no DO / invoice listed.
+  const steps = hubSteps({ id: "o1", status: "QUOTATION_SIGNED", sourceQuotation: { id: "q", name: "QO1", status: "confirmed" }, deliveryOrders: [], invoices: [] });
+  assert.deepEqual(steps.map((s) => [s.key, s.done, s.current, s.docs.length]), [["quotation", true, false, 1], ["invoice", false, true, 0], ["do", false, true, 0], ["report", false, false, 0]]);
+  assert.deepEqual(hubDocuments({ id: "o1", status: "QUOTATION_SIGNED", sourceQuotation: { id: "q", name: "QO1", status: "confirmed" }, deliveryOrders: [], invoices: [] }, { full: true }).map((r) => r.type), ["Quotation"]);
+});
+
+test("no automatic drafts: statuses only name a DO / invoice draft that exists", () => {
+  // Create invoice first (no DO yet): Invoice draft, DO pending; DO first then completed with no invoice: DO completed, invoice pending.
+  assert.deepEqual(hubNextStep({ status: "INVOICE_DRAFT_DO_PENDING", doFirst: true }), null);
+  const inv = hubSteps({ id: "o1", status: "INVOICE_DRAFT_DO_PENDING", sourceQuotation: { id: "q", name: "QO1", status: "confirmed" }, deliveryOrders: [], invoices: [{ id: "i1", name: "INV1", status: "draft" }] });
+  assert.deepEqual(inv.map((s) => [s.key, s.docs.map((d) => d.status)]), [["quotation", ["Signed / accepted"]], ["invoice", ["Draft"]], ["do", []], ["report", []]]);
+  assert.deepEqual(hubNextStep({ status: "DO_COMPLETED", doFirst: true, invoices: [] }), { primary: "create-invoice" });
+  assert.equal(HUB_STATUSES.find((s) => s.key === "DO_COMPLETED").label, "DO completed, invoice pending");
+});

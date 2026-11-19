@@ -41,7 +41,7 @@ import { sgToday, wctFamilyOf, wctFamilyOfTypes, isWctStatusValue, wctStatusOf }
 import { ERP_QUOTE_CANCELLED_STATUSES, assertNotErpImportedDo, confirmPostsToGl, erpPaidAtImport, erpQuotationTag, erpStoredTotalsOf, isErpImported, isErpImportedDo, isQuotationDocType, moneySignature } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
 import { fillEmptyOrderCustomer, invoiceRowsWithSplitParts, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
-import { isManualOrderFlow } from '../orders/manual-order-flow';
+import { isManualOrderFlow, manualAutoDraftsOff } from '../orders/manual-order-flow';
 import { skipsDoSaveStockRule } from './do-first-save';
 import { RDO_FREE_ROWS_FLAG, allowsRdoFreeRows, hasUnit, isRdoSigned, isRdoType } from './rdo-free-rows';
 import { WCT_STATUSES_FLAG, isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
@@ -1960,7 +1960,9 @@ export class DocumentsService {
             const who = c.customerName || c.customer?.name || '';
             await this.staffWhatsApp.push(
               organizationId,
-              run.doFirst
+              run.doFirst && !firstDo
+                ? `Quotation ${updatedDocument.name || ''}${who ? ` (${who})` : ''} confirmed. Order ${run.orderNumber} created: add the DO and create the invoice from the order page.`
+                : run.doFirst
                 ? `Quotation ${updatedDocument.name || ''}${who ? ` (${who})` : ''} confirmed. Order ${run.orderNumber} created with draft DO ${firstDo?.doName || ''}: complete the DO when the work is done (add a job for a date or a technician if needed).`
                 : run.orderNumber
                 ? `Quotation ${updatedDocument.name || ''}${who ? ` (${who})` : ''} confirmed. Order ${run.orderNumber} created with draft job #${run.deliveryNumber}: please schedule a date and confirm the items.`
@@ -6676,6 +6678,11 @@ export class DocumentsService {
         await this.maybeInvoiceOrder(orderId, organizationId);
         return null;
       }
+      // disableAutoDraftInvoice (manual order flow, 2026-11-19): a DO of an order never makes a draft invoice by itself.
+      if (orderId && (await manualAutoDraftsOff(this.prisma, organizationId)).invoiceOff) {
+        console.log(`🧾 DO→INVOICE: DO ${documentId} of order ${orderId} completed; no automatic invoice (disableAutoDraftInvoice).`);
+        return null;
+      }
     }
     const existing = await this.prisma.document.findFirst({
       where: {
@@ -6925,6 +6932,9 @@ export class DocumentsService {
         .then(() => this.prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { linkedDocuments: true } }))
         .catch(() => null);
       if (isImportedOrder(head)) return null;
+      // disableAutoDraftInvoice (manual flow, 2026-11-19): the run below only links the DOs / jobs to an invoice
+      // already on the order (no new document); with none, the order reads "DO completed, invoice pending".
+      const auto = (await manualAutoDraftsOff(this.prisma, organizationId)).invoiceOff ? ({ trigger: 'auto', linkOnly: true } as const) : ({ trigger: 'auto' } as const);
       // DO first: the order bills itself once every live DO is done (a DO with a job: its jobs verified too).
       if (await isManualOrderFlow(this.prisma, organizationId)) {
         const dos = await this.deliveriesService.orderDos(organizationId, orderId);
@@ -6946,7 +6956,7 @@ export class DocumentsService {
           });
           if (loose.length) return null; // a job with no DO yet (before DO first): finish it the old way
           if (!unbilled) return null;
-          return await this.invoiceOrder(orderId, organizationId, { trigger: 'auto' });
+          return await this.invoiceOrder(orderId, organizationId, auto);
         }
       }
       const jobs = await this.prisma.delivery.findMany({
@@ -6956,7 +6966,7 @@ export class DocumentsService {
       const live = jobs.filter((j) => j.status !== 'cancelled');
       if (!live.length || live.some((j) => j.isDraft) || !live.every((j) => isVerifiedJob(j))) return null;
       if (!live.some((j) => !j.orderInvoiceId)) return null;
-      return await this.invoiceOrder(orderId, organizationId, { trigger: 'auto' });
+      return await this.invoiceOrder(orderId, organizationId, auto);
     } catch (e: any) {
       console.warn(`🧾 ORDER→INVOICE: automatic invoice for order ${orderId} failed: ${e?.message}`);
       return null;
@@ -6969,7 +6979,7 @@ export class DocumentsService {
    * bill); 'auto' = from maybeInvoiceOrder. Returns the new invoice, or null
    * when another trigger already took the jobs.
    */
-  async invoiceOrder(orderId: string, organizationId: string, opts: { trigger: 'auto' | 'now'; actor?: DocumentActor }) {
+  async invoiceOrder(orderId: string, organizationId: string, opts: { trigger: 'auto' | 'now'; actor?: DocumentActor; linkOnly?: boolean }) {
     if (!(await isOrgFeatureEnabled(this.prisma, organizationId, WCT_ORDER_INVOICE_FLAG))) {
       throw new HttpException('Invoicing per order is not enabled for this organisation', HttpStatus.BAD_REQUEST);
     }
@@ -7097,6 +7107,16 @@ export class DocumentsService {
         console.log(`🧾 ORDER→INVOICE: ${order.orderNumber} jobs ${claimed.map((j) => `#${j.deliveryNumber}`).join(', ')} add no lines to the quotation; covered by ${cover.name} (${opts.trigger}).`);
         await refreshOrderStatus(this.prisma, organizationId, order.id);
         return { id: cover.id, name: cover.name, type: 'INVOICE', covered: true, jobNumbers: claimed.map((j) => j.deliveryNumber) } as any;
+      }
+
+      // disableAutoDraftInvoice (linkOnly, from maybeInvoiceOrder): never a new draft by itself. The jobs / DOs go
+      // back to unbilled, so the order reads "DO completed, invoice pending" and Create invoice bills them.
+      if (opts.linkOnly) {
+        await this.prisma.delivery.updateMany({ where: { organizationId, orderInvoiceId: claim }, data: { orderInvoiceId: null } });
+        await this.setDoInvoiceClaim(organizationId, claimedDos.map((d) => d.id), claim, null);
+        console.log(`🧾 ORDER→INVOICE: ${order.orderNumber} ${unitsText} done; no automatic invoice (disableAutoDraftInvoice).`);
+        await refreshOrderStatus(this.prisma, organizationId, order.id);
+        return null;
       }
 
       // Lines: the quotation's exactly as quoted (once), then each job's extras
@@ -8466,10 +8486,16 @@ export class DocumentsService {
    * Manual order flow, DO first: the order's draft DO (see DeliveriesService.prepareManualOrderDo),
    * made when the quotation is signed (staff Confirm and e-sign both call this). 2026-11-17: then
    * the order's draft invoice at once, as "Create invoice" (autoInvoiceAtSigning).
+   * 2026-11-19 (disableAutoDraftDo / disableAutoDraftInvoice, manual flow only): each draft is skipped
+   * when its flag is on, so signing can make the order only; the office then uses Add DO and Create
+   * invoice, in either order. Returns null when no DO was made.
    */
   async prepareManualOrderDo(orderId: string, organizationId: string) {
-    const out = await this.deliveriesService.prepareManualOrderDo(orderId, organizationId);
-    await this.autoInvoiceAtSigning(orderId, organizationId);
+    const off = await manualAutoDraftsOff(this.prisma, organizationId);
+    const out = off.doOff ? null : await this.deliveriesService.prepareManualOrderDo(orderId, organizationId);
+    if (!off.invoiceOff) await this.autoInvoiceAtSigning(orderId, organizationId);
+    // A draft skipped: store the order's status now ("Quotation signed" with nothing made), not the new row's OPEN.
+    if (off.doOff || off.invoiceOff) await refreshOrderStatus(this.prisma as any, organizationId, orderId);
     return out;
   }
 

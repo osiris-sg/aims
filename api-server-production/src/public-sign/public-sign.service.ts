@@ -611,7 +611,9 @@ export class PublicSignService {
       doc.organizationId,
       `Quotation ${allocatedName || doc.name || ''} signed by ${name}${clientLabel ? ` (${clientLabel})` : ''}.` +
         (run
-          ? run.doFirst
+          ? run.doFirst && !firstDo
+            ? ` Order ${run.orderNumber} created: add the DO and create the invoice from the order page.`
+            : run.doFirst
             ? ` Order ${run.orderNumber} created with draft DO ${firstDo?.doName || ''}: complete the DO when the work is done (add a job for a date or a technician if needed).`
             : run.orderNumber
             ? ` Order ${run.orderNumber} created with draft job #${run.deliveryNumber}: please schedule a date and confirm the items.`
