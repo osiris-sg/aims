@@ -1,25 +1,65 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
 import moment from "moment";
-import { Box, IconButton, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography } from "@mui/material";
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Tooltip, Typography } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RemoveCircleOutlineIcon from "@mui/icons-material/RemoveCircleOutline";
 import MainCard from "@/components/MainCard";
 import StatusPill from "../_components/StatusPill";
-import { importedBilledPct, importedDocHref, importedLinkSourceLabel, importedMoney, importedStatusHue, type ImportedOrder } from "@/helpers/importedOrders";
+import { importedBilledPct, importedDocHref, importedLinkSourceLabel, importedMoney, importedProgress, importedStatusHue, type ImportedOrder } from "@/helpers/importedOrders";
+import { request } from "@/helpers/request";
+import { requestFailed } from "@/helpers/requestOutcome";
 
 /**
- * An order imported from the old ERP (enableImportedOrders): read-only. Tracker
- * Quotation -> Invoice done, DO and Service report not applicable (the ERP's DO
- * number as text). No actions: no DO, job, invoice, service report, cancel or edit.
+ * An order imported from the old ERP (enableImportedOrders). Its quotation and imported invoices stay read-only.
+ * Tracker Quotation -> Invoice, DO and Service report not applicable (the ERP's DO number as text).
+ * 2026-11-19: a Part billed order offers "Create invoice" (a normal AIMS draft invoice for what is left, opened in
+ * the editor) or "Open draft invoice"; any imported order can be marked complete (with a reason) and reopened.
  */
-export default function ImportedOrderDetail({ order, onBack }: { order: ImportedOrder; onBack: () => void }) {
+export default function ImportedOrderDetail({ order, onBack, onChanged }: { order: ImportedOrder; onBack: () => void; onChanged?: () => void }) {
   const q = order.sourceQuotation;
   const qHref = importedDocHref(q, "QUOTATION");
+  const router = useRouter();
+  const { getToken } = useAuth();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [completeOpen, setCompleteOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  // Failures show the portal's error toast; nothing here says "done" unless the call succeeded.
+  const post = async (action: string, body: any = {}) => {
+    setBusy(action);
+    try {
+      const token = await getToken();
+      return await request({ path: `/orders/${order.id}/${action}`, method: "POST" }, body, token ?? undefined);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const createInvoice = async () => {
+    const res: any = await post("invoice-remaining");
+    if (requestFailed(res)) return;
+    const href = res?.data?.href ?? res?.href;
+    if (href) router.push(href);
+    else onChanged?.();
+  };
+  const markComplete = async () => {
+    const res: any = await post("mark-complete", { reason: reason.trim() });
+    if (requestFailed(res)) return;
+    setCompleteOpen(false);
+    setReason("");
+    onChanged?.();
+  };
+  const reopen = async () => {
+    const res: any = await post("reopen");
+    if (requestFailed(res)) return;
+    onChanged?.();
+  };
+  const draftHref = order.draftInvoice?.templateId ? `/portal/documents/INVOICE/${order.draftInvoice.templateId}/${order.draftInvoice.id}` : null;
+  const left = (order.remaining?.lines ?? []).filter((l) => l.priced);
   return (
     <MainCard>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
@@ -37,9 +77,30 @@ export default function ImportedOrderDetail({ order, onBack }: { order: Imported
         </Typography>
         <StatusPill label={order.statusLabel || order.status} color="default" hue={importedStatusHue(order.status)} />
         <StatusPill label="Imported" color="default" variant="outlined" />
-        <Tooltip title="Imported from the old ERP: its quotation and the invoices the ERP linked to it. Read-only.">
+        <Tooltip title="Imported from the old ERP: its quotation and the invoices the ERP linked to it. The imported documents are read-only.">
           <InfoOutlinedIcon fontSize="small" sx={{ color: "text.secondary" }} />
         </Tooltip>
+        <Box sx={{ flex: 1 }} />
+        {order.canInvoice && (
+          <Button variant="contained" disableElevation size="small" disabled={!!busy} onClick={() => void createInvoice()} data-tour="imported-order-create-invoice">
+            Create invoice
+          </Button>
+        )}
+        {order.draftInvoice && draftHref && (
+          <Button variant="contained" disableElevation size="small" onClick={() => router.push(draftHref)}>
+            Open draft invoice {order.draftInvoice.name ?? ""}
+          </Button>
+        )}
+        {order.canComplete && (
+          <Button variant="outlined" size="small" disabled={!!busy} onClick={() => setCompleteOpen(true)} data-tour="imported-order-mark-complete">
+            Mark complete
+          </Button>
+        )}
+        {order.canReopen && (
+          <Button variant="outlined" size="small" disabled={!!busy} onClick={() => void reopen()}>
+            Reopen
+          </Button>
+        )}
       </Stack>
 
       <Stack direction="row" spacing={3} sx={{ mb: 3 }} flexWrap="wrap" useFlexGap>
@@ -49,6 +110,14 @@ export default function ImportedOrderDetail({ order, onBack }: { order: Imported
         <Field label="Quotation total" value={importedMoney(order.quoteTotal ?? q?.total ?? null)} />
         <Field label="Billed" value={importedMoney(order.billed ?? order.total)} />
         <Field label="Billed %" value={importedBilledPct(order.billedPct)} />
+        {!!importedProgress(order.progress) && <Field label="Billed qty" value={importedProgress(order.progress)} />}
+        {order.remaining && order.status === "PART_BILLED" && <Field label="Left to bill" value={importedMoney(order.remaining.remainingGross)} />}
+        {order.completed && (
+          <Field
+            label={order.completed.auto ? "Complete (assumed closed)" : "Marked complete"}
+            value={[order.completed.reason, order.completed.byName, order.completed.at ? moment(order.completed.at).format("DD/MM/YYYY") : ""].filter(Boolean).join(", ")}
+          />
+        )}
         {!!order.credited && <Field label="Credited" value={importedMoney(order.credited)} />}
         <Field label="Owed" value={importedMoney(order.owed)} />
       </Stack>
@@ -68,6 +137,40 @@ export default function ImportedOrderDetail({ order, onBack }: { order: Imported
           </Box>
         ))}
       </Stack>
+
+      {order.status === "PART_BILLED" && left.length > 0 && (
+        <Box sx={{ mb: 3 }} data-tour="imported-order-left-to-bill">
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
+            Left to bill
+          </Typography>
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Item</TableCell>
+                  <TableCell align="right">Quoted</TableCell>
+                  <TableCell align="right">Billed</TableCell>
+                  <TableCell align="right">Left</TableCell>
+                  <TableCell align="right">Unit price</TableCell>
+                  <TableCell align="right">Amount</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {left.map((l, i) => (
+                  <TableRow key={i}>
+                    <TableCell sx={{ whiteSpace: "pre-line" }}>{l.description.split("\n")[0]}</TableCell>
+                    <TableCell align="right">{l.quotedQty ?? ""}</TableCell>
+                    <TableCell align="right">{l.billedQty ?? ""}</TableCell>
+                    <TableCell align="right">{l.quantity}</TableCell>
+                    <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{importedMoney(l.unitPrice)}</TableCell>
+                    <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>{importedMoney(l.amount)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Box>
+      )}
 
       <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
         Documents
@@ -98,6 +201,21 @@ export default function ImportedOrderDetail({ order, onBack }: { order: Imported
           </TableBody>
         </Table>
       </TableContainer>
+
+      <Dialog open={completeOpen} onClose={() => !busy && setCompleteOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Mark complete</DialogTitle>
+        <DialogContent>
+          <TextField autoFocus fullWidth multiline minRows={2} label="Reason" value={reason} onChange={(e) => setReason(e.target.value)} inputProps={{ maxLength: 300 }} sx={{ mt: 1 }} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCompleteOpen(false)} disabled={!!busy}>
+            Cancel
+          </Button>
+          <Button variant="contained" disableElevation disabled={!reason.trim() || !!busy} onClick={() => void markComplete()}>
+            Mark complete
+          </Button>
+        </DialogActions>
+      </Dialog>
     </MainCard>
   );
 }

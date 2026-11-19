@@ -1,3 +1,4 @@
+import { refreshImportedOrderStatus } from './imported-orders';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { runAsOrg } from '../common/tenancy/tenant-context';
 import {
@@ -137,6 +138,10 @@ export async function refreshOrderStatus(prisma: any, organizationId: string, or
   if (!orderId) return null;
   try {
     return await runAsOrg(organizationId, async () => {
+      // Imported orders (2026-11-19): their own money-based status (an AIMS invoice made for the order can be
+      // confirmed or paid); never the native job / DO rules.
+      const imported = await refreshImportedOrderStatus(prisma, organizationId, orderId);
+      if (imported) return imported.status as any;
       // Manual (dashboard-only) flow: its own status list + the date each was
       // reached. Every other org takes the unchanged path below.
       if (await isManualOrderFlow(prisma, organizationId)) return (await refreshManualOrderStatus(prisma, organizationId, orderId)) as any;

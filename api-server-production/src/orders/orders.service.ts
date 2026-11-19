@@ -20,13 +20,16 @@ import { photosFileOf } from '../maintenance-reports/uploaded-report';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { taggedSinsView } from '../bills/bill-quotation';
 import { bySchedule, dueBy } from '../deliveries/all-day';
-import { IMPORTED_INVOICE_STATE_LABEL, IMPORTED_ORDER_READ_ONLY, assertNotImportedOrder, billedPercent, creditOfImportedInvoice, importedInvoiceMoney, importedMarkerOf, importedOrderStatus, importedTracker, isImportedOrder, isImportedOrdersEnabled } from './imported-orders';
+import { IMPORTED_INVOICE_STATE_LABEL, IMPORTED_ORDER_READ_ONLY, assertNotImportedOrder, billedPercent, creditOfImportedInvoice, importedCompletionOf, importedInvoiceMoney, importedMarkerOf, importedOrderStatus, importedTracker, isCountedInvoice, isImportedOrder, isImportedOrdersEnabled, refreshImportedOrderStatus } from './imported-orders';
 import { isErpImported } from '../common/erp-import';
+import { remainingForOrder } from './imported-remaining';
 import { grossOf } from '../common/document-money';
 
 /** Imported orders are numbered ORD-<quotation no.> (imported-orders.ts); no native number starts so. */
 const IMPORTED_NUMBER_PREFIX = 'ORD-Q-';
 const NOT_IMPORTED_NUMBER = { NOT: { orderNumber: { startsWith: IMPORTED_NUMBER_PREFIX } } };
+/** Imported order status codes as words (imported-orders.ts ImportedOrderStatusCode). */
+const IMPORTED_STATUS_TEXT: Record<string, string> = { PAID: 'Paid', INVOICED: 'Invoiced', PART_BILLED: 'Part billed', COMPLETED: 'Complete' };
 
 /**
  * Orders are auto-created when a quotation is confirmed (gated by the
@@ -462,7 +465,8 @@ export class OrdersService {
       })
     ).filter((o: any) => isImportedOrder(o));
     // Payments can still land on an open imported invoice: re-read those orders' invoices (Paid ones stay Paid).
-    const open = rows.filter((o) => o.status !== 'PAID');
+    // Paid and Complete orders keep their status (a completion wins over the money; Reopen re-reads it).
+    const open = rows.filter((o) => o.status !== 'PAID' && o.status !== 'COMPLETED');
     const ids = [...new Set(open.flatMap((o) => this.importedInvoiceRefs(o).map((r) => r.id)))];
     const docs = ids.length ? await this.prisma.document.findMany({ where: { organizationId, id: { in: ids } }, select: { id: true, status: true, config: true } }) : [];
     const byId = new Map(docs.map((d: any) => [d.id, d]));
@@ -487,7 +491,7 @@ export class OrdersService {
         id: o.id,
         orderNumber: o.orderNumber,
         status: o.status,
-        statusLabel: labels.get(o.id) ?? (o.status === 'PAID' ? 'Paid' : 'Invoiced'),
+        statusLabel: labels.get(o.id) ?? IMPORTED_STATUS_TEXT[o.status] ?? 'Invoiced',
         // Billed % (imported only): billed / quotation total, from the order's own links when not re-read above.
         billedPct: pcts.has(o.id) ? pcts.get(o.id) : this.importedBilledPctFromLinks(o),
         imported: true,
@@ -518,7 +522,7 @@ export class OrdersService {
       .filter(Boolean)
       .map((d: any) => ({ ...d, credit: Number(m.credits?.[d.id]) || creditOfImportedInvoice(d.config) }));
     const quoteTotal = m.quoteTotal != null && Number.isFinite(Number(m.quoteTotal)) ? Number(m.quoteTotal) : quoteConfig ? grossOf(quoteConfig) : null;
-    return importedOrderStatus(invs, quoteTotal);
+    return importedOrderStatus(invs, quoteTotal, { completed: importedCompletionOf(order) });
   }
 
   /** Billed % from the order's stored links (invoice totals, credits, quotation total), no document read. */
@@ -532,6 +536,41 @@ export class OrdersService {
   private importedInvoiceRefs(order: { linkedDocuments?: unknown }): Array<{ id: string; name: string | null; templateId?: string | null; total?: number }> {
     const list = (order.linkedDocuments as any)?.invoice;
     return Array.isArray(list) ? list.filter((x: any) => x && typeof x.id === 'string') : [];
+  }
+
+  /**
+   * Imported orders (2026-11-19): "Mark complete" (a reason is required) and "Reopen", on any imported order. The
+   * mark is stored on the order's imported marker (linkedDocuments.imported.completed) and wins over the
+   * money-based status; Reopen removes it and the status is read from the invoices again. The quotation and the
+   * imported invoices are not touched. Activity Log: the HTTP rows (mark-complete / reopen).
+   */
+  async markImportedComplete(id: string, organizationId: string, body: any, actor: { id?: string | null; name?: string | null }) {
+    const reason = String(body?.reason ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+    if (!reason) throw new HttpException('Give a reason for marking this order complete', HttpStatus.BAD_REQUEST);
+    const row = await this.importedOrderRow(id, organizationId);
+    const ld: any = row.linkedDocuments || {};
+    const completed = { at: new Date().toISOString(), by: actor.id ?? null, byName: actor.name ?? null, reason, auto: false };
+    await this.prisma.order.update({ where: { id: row.id }, data: { linkedDocuments: { ...ld, imported: { ...ld.imported, completed } } } });
+    await refreshImportedOrderStatus(this.prisma, organizationId, row.id);
+    return this.importedOrderView(row.id, organizationId);
+  }
+
+  async reopenImported(id: string, organizationId: string) {
+    const row = await this.importedOrderRow(id, organizationId);
+    const ld: any = row.linkedDocuments || {};
+    if (!importedCompletionOf(row)) throw new HttpException('This order is not marked complete', HttpStatus.BAD_REQUEST);
+    const { completed: _c, ...imported } = ld.imported || {};
+    await this.prisma.order.update({ where: { id: row.id }, data: { linkedDocuments: { ...ld, imported } } });
+    await refreshImportedOrderStatus(this.prisma, organizationId, row.id);
+    return this.importedOrderView(row.id, organizationId);
+  }
+
+  private async importedOrderRow(id: string, organizationId: string) {
+    const row = await this.prisma.order.findFirst({ where: { id, organizationId }, select: { id: true, linkedDocuments: true } });
+    if (!row) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
+    if (!isImportedOrder(row)) throw new HttpException('Only an order imported from the old ERP can be marked complete or reopened', HttpStatus.BAD_REQUEST);
+    if (!(await isImportedOrdersEnabled(this.prisma, organizationId))) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
+    return row;
   }
 
   /**
@@ -575,6 +614,11 @@ export class OrdersService {
       row.status = st.status;
     }
     const qc: any = row.sourceQuotation?.config || {};
+    // What is left to bill (2026-11-19): the quotation's lines minus what the counted, not fully credited invoices billed.
+    const remaining = remainingForOrder({ marker: m, invoiceDocs: invDocs, quotation: row.sourceQuotation ? { name: row.sourceQuotation.name, config: qc } : null, quoteTotal: st.quoteTotal, billed: st.billed });
+    // A new AIMS invoice for the order that is still a draft: open it instead of making a second one.
+    const draft = invDocs.find((d: any) => !isErpImported(d.config) && !isCountedInvoice(d) && d.config?.voided !== true);
+    const completed = importedCompletionOf(row);
     return {
       id: row.id,
       orderNumber: row.orderNumber,
@@ -582,6 +626,13 @@ export class OrdersService {
       statusLabel: st.label,
       imported: true,
       readOnly: true,
+      completed: completed ? { reason: completed.reason, at: completed.at, byName: completed.byName, auto: completed.auto } : null,
+      remaining: st.status === 'PART_BILLED' || (completed && remaining.remainingGross > 0) ? remaining : null,
+      progress: remaining.progress,
+      draftInvoice: draft ? { id: draft.id, name: draft.name, templateId: draft.documentTemplateId } : null,
+      canInvoice: st.status === 'PART_BILLED' && !draft && remaining.remainingGross > 0,
+      canComplete: st.status !== 'COMPLETED',
+      canReopen: st.status === 'COMPLETED',
       billed: st.billed,
       billedPct: st.billedPct,
       quoteTotal: st.quoteTotal,
@@ -609,7 +660,8 @@ export class OrdersService {
         owed: money.owed,
         credit: money.credit,
         state: money.state,
-        stateLabel: IMPORTED_INVOICE_STATE_LABEL[money.state],
+        stateLabel: !isErpImported(d.config) && !isCountedInvoice(d) ? 'Draft' : IMPORTED_INVOICE_STATE_LABEL[money.state],
+        native: !isErpImported(d.config),
         linkSource: m?.linkSources?.[d.id] ?? null,
         erpDoNumber: d.config?.erpImport?.ourDoNo ?? d.config?.erpImport?.doNo ?? null,
         };

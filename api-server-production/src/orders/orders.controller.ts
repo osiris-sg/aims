@@ -26,6 +26,12 @@ interface RequestWithOrganization extends Request {
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
+  private orgId(req: any): string {
+    const orgId = req.userOrganization?.id;
+    if (!orgId) throw new Error('User is not assigned to any organization');
+    return orgId;
+  }
+
   @Get()
   @Permissions('orders:read')
   async list(@Req() req: RequestWithOrganization) {
@@ -98,6 +104,20 @@ export class OrdersController {
     // Activity Log (CANCEL): what went with the order, incl. draft invoices voided with it.
     (req as any).actionLogResult = out;
     return out;
+  }
+
+  /** Imported orders (2026-11-19): Mark complete (reason required) / Reopen. */
+  @Post(':id/mark-complete')
+  @Permissions('orders:update')
+  async markComplete(@Param('id') id: string, @Body() body: any, @Req() req: any) {
+    const u: any = req.user || {};
+    return this.ordersService.markImportedComplete(id, this.orgId(req), body, { id: u.id ?? null, name: [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email || null });
+  }
+
+  @Post(':id/reopen')
+  @Permissions('orders:update')
+  async reopen(@Param('id') id: string, @Req() req: any) {
+    return this.ordersService.reopenImported(id, this.orgId(req));
   }
 
   @Post('from-quotation/:quotationId')

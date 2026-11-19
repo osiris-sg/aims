@@ -265,7 +265,7 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
   }
 
   // Imported from the old ERP (enableImportedOrders): read-only, no DO / job / service report.
-  if ((order as any).imported === true) return <ImportedOrderDetail order={order as any} onBack={() => goBack("/portal/orders")} />;
+  if ((order as any).imported === true) return <ImportedOrderDetail order={order as any} onBack={() => goBack("/portal/orders")} onChanged={() => void load()} />;
   const q = order.sourceQuotation;
   // Service reports: the order's job reports, and the linked / uploaded ones not already among them.
   const jobReports: Array<{ id: string; reportNumber: number | null; status: string; jobNumber: number | null; uploaded: boolean; sentAt: string | null }> = (order as any).jobReports ?? [];

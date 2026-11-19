@@ -47,6 +47,28 @@ export interface ImportedMarker {
   linkSources: Record<string, ImportedLinkSource>;
   erpDoNumbers: string[];
   at: string;
+  /**
+   * Marked complete (2026-11-19): by a person ("Mark complete" with a reason, auto false) or by
+   * scripts/wct-imported-part-billed.ts (auto true: a part-billed order whose last invoice is over 12 months
+   * old, "imported, assumed closed"). "Reopen" removes it. Wins over the money-based status.
+   */
+  completed?: ImportedCompletion | null;
+}
+
+export interface ImportedCompletion {
+  at: string;
+  by: string | null;
+  byName: string | null;
+  reason: string;
+  auto: boolean;
+}
+
+export const IMPORTED_AUTO_COMPLETE_REASON = 'Imported, assumed closed';
+
+/** The order's completion mark, or null. */
+export function importedCompletionOf(order: { linkedDocuments?: unknown } | null | undefined): ImportedCompletion | null {
+  const c: any = importedMarkerOf(order)?.completed;
+  return c && typeof c === 'object' && typeof c.at === 'string' ? (c as ImportedCompletion) : null;
 }
 
 export async function isImportedOrdersEnabled(prisma: any, organizationId: string): Promise<boolean> {
@@ -400,7 +422,12 @@ export const IMPORTED_INVOICE_STATE_LABEL: Record<ImportedInvoiceState, string> 
   PART_PAID: 'Part paid',
   UNPAID: 'Unpaid',
 };
-export type ImportedOrderStatusCode = 'INVOICED' | 'PAID';
+/**
+ * 2026-11-19 (Elroy): PART_BILLED = billed below the quotation total (not for a $0 quotation); INVOICED = billed in
+ * full, something unpaid; PAID = billed in full and every invoice settled; COMPLETED = marked complete (by a
+ * person, or assumed closed by age).
+ */
+export type ImportedOrderStatusCode = 'INVOICED' | 'PAID' | 'PART_BILLED' | 'COMPLETED';
 
 const EPS = 0.005;
 const R2 = (n: number) => Math.round(n * 100) / 100;
@@ -459,8 +486,15 @@ export function billedPercent(billed: number, quoteTotal: number | null | undefi
   return Math.round((billed / qt) * 1000) / 10;
 }
 
-export function importedOrderStatus(invoices: Array<{ status?: string; config: any; credit?: number }>, quoteTotal: number | null | undefined): ImportedOrderStatus {
-  const live = invoices.filter((d) => d?.config?.voided !== true && d?.status !== 'void');
+/** An invoice that counts on the order: not voided, not a draft (a new AIMS invoice counts once confirmed). */
+export const isCountedInvoice = (d: { status?: string; config?: any }) => d?.config?.voided !== true && !['void', 'unconfirmed', 'draft'].includes(String(d?.status ?? ''));
+
+export function importedOrderStatus(
+  invoices: Array<{ status?: string; config: any; credit?: number }>,
+  quoteTotal: number | null | undefined,
+  opts: { completed?: ImportedCompletion | null } = {},
+): ImportedOrderStatus {
+  const live = invoices.filter(isCountedInvoice);
   const money = live.map((d) => importedInvoiceMoney(d, d.credit ?? 0));
   const billing = money.filter((m) => m.net >= EPS);
   const billed = R2(billing.reduce((t, m) => t + m.net, 0));
@@ -476,9 +510,11 @@ export function importedOrderStatus(invoices: Array<{ status?: string; config: a
     owed: R2(money.reduce((t, m) => t + m.owed, 0)),
     credited: R2(money.reduce((t, m) => t + m.credit, 0)),
   };
-  // Elroy 2026-11-18: $0 invoiced against a real quotation total is not Paid (a $0 quotation with $0 invoiced stays Paid).
-  const nothingInvoiced = base.total < EPS && qt != null && qt >= EPS;
-  return settled && !nothingInvoiced ? { status: 'PAID', label: 'Paid', ...base } : { status: 'INVOICED', label: partPaid ? 'Invoiced, part paid' : 'Invoiced', ...base };
+  if (opts.completed) return { status: 'COMPLETED', label: 'Complete', ...base };
+  // Elroy 2026-11-19: billed below the quotation total = Part billed ($0 and fully credited invoices bill nothing;
+  // a $0 quotation is never part billed). Over-billed counts as billed in full.
+  if (qt != null && qt >= EPS && billed < qt - EPS) return { status: 'PART_BILLED', label: 'Part billed', ...base };
+  return settled ? { status: 'PAID', label: 'Paid', ...base } : { status: 'INVOICED', label: partPaid ? 'Invoiced, part paid' : 'Invoiced', ...base };
 }
 
 export const IMPORTED_STATUS_LABEL = (s: Pick<ImportedOrderStatus, 'label'>): string => s.label;
@@ -494,4 +530,29 @@ export function importedTracker(order: { erpDoNumbers?: string[] }, st: Pick<Imp
     { key: 'do', label: 'DO', state: 'na' as const, note: order.erpDoNumbers?.length ? `ERP DO ${order.erpDoNumbers.join(', ')}` : null },
     { key: 'serviceReport', label: 'Service report', state: 'na' as const, note: null },
   ];
+}
+
+/**
+ * Re-read an imported order's invoices (and its quotation total) and store its status (2026-11-19). Used after
+ * anything that can change it: a payment or a confirm on an AIMS invoice made for the order (refreshOrderStatus
+ * routes imported orders here), Mark complete / Reopen. Returns the status, or null when not an imported order.
+ */
+export async function refreshImportedOrderStatus(prisma: any, organizationId: string, orderId: string): Promise<ImportedOrderStatus | null> {
+  const order = await prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, linkedDocuments: true, sourceQuotationId: true } });
+  if (!order || !isImportedOrder(order)) return null;
+  const m: any = importedMarkerOf(order) || {};
+  const refs: any[] = Array.isArray((order.linkedDocuments as any)?.invoice) ? (order.linkedDocuments as any).invoice.filter((x: any) => x && typeof x.id === 'string') : [];
+  const docs: any[] = refs.length ? await prisma.document.findMany({ where: { organizationId, id: { in: refs.map((r) => r.id) } }, select: { id: true, status: true, config: true } }) : [];
+  let quoteTotal: number | null = m.quoteTotal != null && Number.isFinite(Number(m.quoteTotal)) ? Number(m.quoteTotal) : null;
+  if (quoteTotal == null && order.sourceQuotationId) {
+    const q = await prisma.document.findFirst({ where: { id: order.sourceQuotationId, organizationId }, select: { config: true } });
+    quoteTotal = q ? grossOf(q.config) : null;
+  }
+  const st = importedOrderStatus(
+    docs.map((d) => ({ ...d, credit: Number(m.credits?.[d.id]) || creditOfImportedInvoice(d.config) })),
+    quoteTotal,
+    { completed: importedCompletionOf(order) },
+  );
+  if (st.status !== order.status) await prisma.order.update({ where: { id: order.id }, data: { status: st.status } });
+  return st;
 }

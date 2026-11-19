@@ -1,4 +1,5 @@
-import { IMPORTED_ORDER_READ_ONLY, isImportedOrder, isImportedOrdersEnabled } from '../orders/imported-orders';
+import { IMPORTED_ORDER_READ_ONLY, creditOfImportedInvoice, importedCompletionOf, importedMarkerOf, importedOrderStatus, isCountedInvoice, isImportedOrder, isImportedOrdersEnabled, refreshImportedOrderStatus } from '../orders/imported-orders';
+import { remainingForOrder } from '../orders/imported-remaining';
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, NotFoundException, Optional, forwardRef } from '@nestjs/common';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { SALES_USER_ID_RE } from '../common/services/document-html/shared';
@@ -33,7 +34,7 @@ import * as moment from 'moment';
 import { pdfOptionsFor, isNamedLayout } from '../common/services/document-html';
 import { resolveDesign } from '../common/services/document-html/design';
 import { effectiveDesign, isImportedDoc } from '../common/services/document-html/wct-brand';
-import { outstandingOf, grossStampOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
+import { outstandingOf, grossStampOf, grossOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
 import { splitInvoice as splitInvoiceOp, undoInvoiceSplit as undoInvoiceSplitOp } from './invoice-split-ops';
 import { keepSplitPartTotals, splitGlRevenueLines, type SplitPlan } from './invoice-split';
 import { confirmPostsToGl, erpPaidAtImport, erpStoredTotalsOf, isErpImported, moneySignature } from '../common/erp-import';
@@ -7031,6 +7032,111 @@ export class DocumentsService {
       await release(null).catch(() => undefined);
       throw e;
     }
+  }
+
+  /**
+   * Imported orders (2026-11-19): "Create invoice" on a PART BILLED imported order. A NATIVE draft invoice (normal
+   * INV numbering; posts per postInvoicesOnConfirm once confirmed) for what is left on the quotation
+   * (imported-remaining.ts: the remaining qty per quotation line plus its $0 description lines, else one line for
+   * the remaining amount), header from the quotation (customer, addresses, attention, subject, salesperson), GST at
+   * the org's current rate when the quotation charged GST. No DO. Linked to the order (linkedDocuments.invoice,
+   * native) and the order's status re-read. The imported quotation and invoices are never written. Refused when the
+   * order is not part billed, is marked complete, or already has a draft AIMS invoice (open that one).
+   */
+  async invoiceImportedOrderRemainder(orderId: string, organizationId: string) {
+    if (!(await isImportedOrdersEnabled(this.prisma as any, organizationId))) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
+    return this.prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock(hashtext($1))', `order-invoice:${orderId}`);
+        const order = await tx.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, orderNumber: true, linkedDocuments: true, sourceQuotationId: true } });
+        if (!order) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
+        if (!isImportedOrder(order)) throw new HttpException('Create invoice here is for orders imported from the old ERP', HttpStatus.BAD_REQUEST);
+        if (importedCompletionOf(order)) throw new HttpException('This order is marked complete. Reopen it first.', HttpStatus.BAD_REQUEST);
+        const ld: any = order.linkedDocuments || {};
+        const m: any = importedMarkerOf(order) || {};
+        const refs: any[] = Array.isArray(ld.invoice) ? ld.invoice.filter((x: any) => x && typeof x.id === 'string') : [];
+        const docs: any[] = refs.length ? await tx.document.findMany({ where: { organizationId, id: { in: refs.map((r) => r.id) } }, select: { id: true, name: true, status: true, config: true } }) : [];
+        const draft = docs.find((d) => !isErpImported(d.config) && !isCountedInvoice(d) && d.config?.voided !== true);
+        if (draft) throw new HttpException(`This order already has a draft invoice (${draft.name ?? 'draft'}). Open it to finish it.`, HttpStatus.BAD_REQUEST);
+        const qo = order.sourceQuotationId ? await tx.document.findFirst({ where: { id: order.sourceQuotationId, organizationId }, select: { id: true, name: true, config: true } }) : null;
+        if (!qo) throw new HttpException('This order has no quotation to invoice from.', HttpStatus.BAD_REQUEST);
+        const qc: any = qo.config || {};
+        const quoteTotal = m.quoteTotal != null && Number.isFinite(Number(m.quoteTotal)) ? Number(m.quoteTotal) : grossOf(qc);
+        const st = importedOrderStatus(docs.map((d) => ({ ...d, credit: Number(m.credits?.[d.id]) || creditOfImportedInvoice(d.config) })), quoteTotal, {});
+        if (st.status !== 'PART_BILLED') throw new HttpException(`Nothing left to bill: this order is ${st.label.toLowerCase()}.`, HttpStatus.BAD_REQUEST);
+        const plan = remainingForOrder({ marker: m, invoiceDocs: docs, quotation: { name: qo.name, config: qc }, quoteTotal: st.quoteTotal, billed: st.billed });
+        if (!plan.lines.some((l) => l.priced && l.amount > 0)) throw new HttpException('Nothing left to bill on this quotation.', HttpStatus.BAD_REQUEST);
+
+        // Tax: the org's current rate when the quotation charged GST; none when it did not ("(NG)" / non-GST).
+        const orgRow: any = await tx.organization.findUnique({ where: { id: organizationId }, select: { taxRate: true } }).catch(() => null);
+        const quoteHasGst = (Number(qc.gstPercent) || 0) > 0 || Math.abs((Number(qc.gstAmount) || 0)) > 0.005;
+        const rate = quoteHasGst ? Number(orgRow?.taxRate ?? 9) : 0;
+        const taxSrc = { gstPercent: rate, taxApplicable: rate > 0 ? 'Y' : 'N', absorbTax: 'N' };
+        const items = plan.lines.map((l) => ({
+          id: randomUUID(),
+          itemCode: '',
+          description: l.description,
+          quantity: l.quantity,
+          unitPrice: l.unitPrice,
+          amount: l.amount,
+          tax: String(rate),
+          uom: '',
+          isService: true,
+          revenueTag: 'service',
+          accountCode: '',
+          inventoryItemId: '',
+        }));
+        const totals = computeDocumentTotals(items, taxSrc);
+        const reference = orderInvoiceReference(order.orderNumber, [], qc.referenceNo ?? qc.subject ?? null);
+        // Header: the quotation's customer side only (never its ERP marker, numbers, totals or money keys).
+        const pick = (k: string) => (qc[k] === undefined ? {} : { [k]: qc[k] });
+        const header = {
+          ...pick('company'), ...pick('gstRegNo'), ...pick('footerMessage'), ...pick('currency'),
+          ...pick('customerId'), ...pick('customerCode'), ...pick('customerName'), ...pick('customerEmail'), ...pick('customerAddress'),
+          ...pick('billTo'), ...pick('location'), ...pick('deliveryTo'), ...pick('attention'), ...pick('contact'),
+          ...pick('subject'), ...pick('salesPerson'), ...pick('salesMobile'), ...pick('termsAndConditions'),
+        };
+        const date = await orgTodayFor(this.prisma, organizationId);
+        const invoiceConfig = stampDocumentMoney(
+          {
+            ...header,
+            items,
+            date,
+            dueDate: date,
+            sourceDocumentId: qo.id,
+            sourceDocumentType: 'QUOTATION',
+            ...(qo.name ? { sourceDocumentNumber: qo.name } : {}),
+            orderId: order.id,
+            orderNo: order.orderNumber,
+            importedOrderRemainder: { matched: plan.matched, reason: plan.reason, remainingGross: plan.remainingGross },
+            referenceNo: reference,
+            ...totals,
+            showTotals: true,
+            documentInfo: { ...totals, referenceNo: reference },
+          },
+          { gross: totals.nettTotal, outstanding: totals.nettTotal, paid: 0 },
+        );
+        return { order, ld, invoiceConfig };
+      },
+      { timeout: 30000 },
+    ).then(async ({ order, invoiceConfig }) => {
+      const templateId = await this.resolveTemplateIdForType('INVOICE', organizationId);
+      const invoice: any = await this.createBasicDocument(templateId, 'INVOICE', organizationId, invoiceConfig);
+      // Link on the order (re-read under the lock so a parallel write is kept).
+      await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock(hashtext($1))', `order-invoice:${order.id}`);
+        const fresh = await tx.order.findFirst({ where: { id: order.id, organizationId }, select: { linkedDocuments: true } });
+        const next: any = (fresh?.linkedDocuments as any) || {};
+        next.invoice = [...(Array.isArray(next.invoice) ? next.invoice : []), { id: invoice.id, name: invoice.name ?? null, templateId: invoice.documentTemplateId ?? templateId, total: (invoiceConfig as any).nettTotal, native: true }];
+        await tx.order.update({ where: { id: order.id }, data: { linkedDocuments: next } });
+      });
+      console.log(`🧾 IMPORTED ORDER→INVOICE: ${invoice.name} for ${order.orderNumber} (what is left on the quotation)`);
+      await this.repostGlForDocument(organizationId, invoice.id, 'INVOICE', invoiceConfig, invoice.name).catch((e: any) =>
+        console.warn(`IMPORTED ORDER→INVOICE: GL post for ${invoice.name} skipped: ${e?.message}`),
+      );
+      await refreshImportedOrderStatus(this.prisma as any, organizationId, order.id);
+      return { ...invoice, documentTemplateId: invoice.documentTemplateId ?? templateId };
+    });
   }
 
   /**

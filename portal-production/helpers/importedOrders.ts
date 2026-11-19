@@ -30,6 +30,16 @@ export interface ImportedOrder {
   billedPct?: number | null;
   quoteTotal?: number | null;
   credited?: number;
+  /** 2026-11-19: marked complete (by a person, or auto "Imported, assumed closed"). */
+  completed?: { reason: string; at: string; byName: string | null; auto: boolean } | null;
+  /** What is left to bill (Part billed): the lines a new invoice would carry. */
+  remaining?: { matched: boolean; reason: string | null; remainingNet: number; remainingGross: number; lines: Array<{ description: string; quantity: number; unitPrice: number; amount: number; quotedQty: number | null; billedQty: number | null; priced: boolean }> } | null;
+  /** "1 of 2" when the quotation has one priced line. */
+  progress?: { billed: number; quoted: number } | null;
+  draftInvoice?: { id: string; name: string | null; templateId: string | null } | null;
+  canInvoice?: boolean;
+  canComplete?: boolean;
+  canReopen?: boolean;
 }
 
 /** The orders list's source filter. Default "aims": imported history does not crowd the working list. */
@@ -73,7 +83,10 @@ export function importedDocHref(d: ImportedDocRef | null | undefined, fallbackTy
 
 export const importedMoney = (n?: number | null) => (n == null ? "" : `S$ ${Number(n).toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 
-export const importedStatusHue = (status: string) => (status === "PAID" ? "#22c55e" : "#6d28d9");
+export const importedStatusHue = (status: string) => (status === "PAID" ? "#22c55e" : status === "PART_BILLED" ? "#d97706" : status === "COMPLETED" ? "#64748b" : "#6d28d9");
+
+/** "1 of 2" (billed of quoted, one priced line), else "". */
+export const importedProgress = (p?: { billed: number; quoted: number } | null) => (p && p.quoted > 0 ? `${Number(p.billed).toLocaleString("en-SG")} of ${Number(p.quoted).toLocaleString("en-SG")}` : "");
 
 /** Billed % (billed / quotation total), one decimal; blank without a quotation total. */
 export const importedBilledPct = (pct?: number | null) => (pct == null || !Number.isFinite(Number(pct)) ? "" : `${Number(pct).toLocaleString("en-SG", { maximumFractionDigits: 1 })}%`);
@@ -81,10 +94,12 @@ export const importedBilledPct = (pct?: number | null) => (pct == null || !Numbe
 /** The Orders list shows the Billed % column only when imported orders are in view (Imported or All). */
 export const showBilledPctColumn = (hasImported: boolean, source: OrderSource) => hasImported && source !== "aims";
 
-/** Imported order statuses (api imported-orders.ts): Invoiced, Paid. */
+/** Imported order statuses (api imported-orders.ts, 2026-11-19): Part billed, Invoiced, Paid, Complete. */
 export const IMPORTED_STATUS_TABS: Array<{ key: string; label: string }> = [
+  { key: "PART_BILLED", label: "Part billed" },
   { key: "INVOICED", label: "Invoiced" },
   { key: "PAID", label: "Paid" },
+  { key: "COMPLETED", label: "Complete" },
 ];
 const IMP = "imported:";
 /** Status filter entries for imported rows (keys prefixed so they never mix with the AIMS order statuses). */

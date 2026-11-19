@@ -93,6 +93,8 @@ const VERB_ACTIONS: Record<string, string> = {
   payment: 'UPDATE', 'pi-table': 'UPDATE', monthly: 'CREATE',
   // Round BP: Dashboard → Unpaid → Mark paid (the step's payment / a receipt on a correction invoice).
   'mark-paid': 'PAY',
+  // Imported orders (2026-11-19): Mark complete (with a reason) / Reopen; Create invoice for what is left.
+  'mark-complete': 'COMPLETE', 'invoice-remaining': 'CREATE', // reopen: mapped below (REOPEN)
   // Round AK: Settings → Shipping → LME "Fetch now".
   fetch: 'FETCH',
   // Round AL: a carrier tracking read (screenshot / paste) and its Confirm.
