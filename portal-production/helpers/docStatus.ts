@@ -30,19 +30,51 @@ export const isInvoiceType = (t?: string | null) => INVOICE_TYPES.has(String(t |
 // WCT group (Elroy 2026-11-19, same rule as the API's common/erp-import.ts): an imported quotation the ERP still
 // has open (Draft / Sent) reads as Unconfirmed with an "ERP draft" / "ERP sent" tag; one open at import that the
 // ERP cancelled since reads as Cancelled. Display only: the stored status stays confirmed (locked).
+// Round 35: an open one dated MORE than 6 months before today (Singapore) reads "Expired" (same tag); one the owner
+// confirmed in AIMS reads as the stored Confirmed. List rows carry the server's own reading (erpQuoteStatus).
 const QUOTE_TYPES = new Set(["QUOTATION", "QO", "QT", "QO1"]);
 const ERP_OPEN = new Set(["draft", "sent"]);
 const ERP_CANCELLED = new Set(["cancelled", "canceled", "declined", "rejected", "lost", "void", "voided"]);
-export function erpQuotationDisplayStatus(type: string | null | undefined, config: any): "unconfirmed" | "cancelled" | null {
+export type ErpQuoteDisplay = "unconfirmed" | "expired" | "cancelled";
+/** Today in Singapore (YYYY-MM-DD). */
+export const sgTodayIso = (now = new Date()): string => new Date(now.getTime() + 8 * 3600e3).toISOString().slice(0, 10);
+/** The first date that is not expired: today minus 6 calendar months (day clamped), as the API's erpDraftExpiryCut. */
+export function erpDraftExpiryCut(today: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(today));
+  if (!m) return "0000-00-00";
+  let y = Number(m[1]);
+  let mo = Number(m[2]) - 6;
+  if (mo < 1) {
+    mo += 12;
+    y -= 1;
+  }
+  const last = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${y}-${pad(mo)}-${pad(Math.min(Number(m[3]), last))}`;
+}
+const isoDay = (v: unknown): string | null => {
+  const s = typeof v === "string" ? v.trim() : "";
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const dmy = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+  return dmy ? `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}` : null;
+};
+export function erpQuotationDisplayStatus(type: string | null | undefined, config: any, today: string = sgTodayIso()): ErpQuoteDisplay | null {
   const m = config?.erpImport;
   if (!m || m.source !== "wct-erp" || !QUOTE_TYPES.has(String(type || "").toUpperCase())) return null;
   const st = String(m.status ?? "").trim().toLowerCase();
-  if (ERP_OPEN.has(st)) return "unconfirmed";
+  if (ERP_OPEN.has(st)) {
+    if (m.ownerConfirmed) return null;
+    const date = isoDay(config?.date) ?? isoDay(config?.documentInfo?.date);
+    return date && date < erpDraftExpiryCut(today) ? "expired" : "unconfirmed";
+  }
   if (ERP_CANCELLED.has(st) && ERP_OPEN.has(String(m.statusAtFirstImport ?? "").trim().toLowerCase())) return "cancelled";
   return null;
 }
-export const erpQuotationTag = (type: string | null | undefined, config: any): string | null =>
-  erpQuotationDisplayStatus(type, config) === "unconfirmed" ? `ERP ${String(config?.erpImport?.status ?? "").trim().toLowerCase()}` : null;
+export const erpQuotationTag = (type: string | null | undefined, config: any, today?: string): string | null => {
+  const d = erpQuotationDisplayStatus(type, config, today);
+  return d === "unconfirmed" || d === "expired" ? `ERP ${String(config?.erpImport?.status ?? "").trim().toLowerCase()}` : null;
+};
 
 export function docDisplayStatus(doc: { status?: string | null; config?: any; type?: string | null } | null | undefined): string {
   const erpQuote = erpQuotationDisplayStatus(doc?.type, doc?.config);

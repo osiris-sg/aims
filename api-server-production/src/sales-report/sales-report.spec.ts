@@ -337,3 +337,23 @@ describe('Sales report with the alias map', () => {
     expect(r.salespeople).toEqual([{ key: 'u:u-joyna', label: 'Joyna Chua' }]);
   });
 });
+
+describe('round 35: expired ERP drafts in the Sales report', () => {
+  it('an ERP Draft over 6 months old is Expired (not Pending, not in the totals); a recent one stays Pending; other sources unchanged', async () => {
+    const recent = new Date(Date.now() + 8 * 3600e3 - 10 * 86400e3).toISOString().slice(0, 10);
+    const rows = [
+      q({ id: 'x', name: 'Q-001000', salesPerson: 'S001', imported: true, status: 'confirmed', erpStatus: 'Draft', erpSource: 'wct-erp', cdate: '2019-04-01', date: '2019-04-01', nettTotal: '545', gstAmount: '45' }),
+      q({ id: 'y', name: 'Q-014800', salesPerson: 'S001', imported: true, status: 'confirmed', erpStatus: 'Sent', erpSource: 'wct-erp', cdate: recent, date: recent }),
+      q({ id: 'z', name: 'Q-OTHER', salesPerson: 'S001', imported: true, status: 'confirmed', erpStatus: 'Draft', erpSource: 'xero', cdate: '2019-04-01', date: '2019-04-01' }),
+    ];
+    const { svc } = fakeService({ roles: { 'u-admin': ['Admin'] }, rows });
+    const r = await svc.report('org', { userId: 'u-admin' }, {});
+    expect(r.rows.map((x: any) => [x.number, x.status, x.erpTag ?? null])).toEqual([
+      ['Q-001000', 'Expired', 'ERP draft'],
+      ['Q-014800', 'Pending', 'ERP sent'],
+      ['Q-OTHER', 'Pending', 'ERP draft'],
+    ]);
+    expect(r.summary.total).toMatchObject({ pendingCount: 2, pendingAmount: 200, signedCount: 0 });
+  });
+});
+

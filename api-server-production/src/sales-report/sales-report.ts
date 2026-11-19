@@ -29,8 +29,10 @@
 
 import { AliasMap, resolveSalespersonIds } from './salesperson-resolver';
 
-export type SalesStatus = 'Draft' | 'Pending' | 'Signed' | 'Cancelled';
-export const SALES_STATUSES: SalesStatus[] = ['Signed', 'Pending', 'Draft', 'Cancelled'];
+// Round 35: Expired = a WCT imported quotation the old ERP still has as Draft / Sent, dated more than 6 months ago
+// (common/erp-import.ts erpDraftState). Never Pending: not in the Pending counts or totals.
+export type SalesStatus = 'Draft' | 'Pending' | 'Signed' | 'Cancelled' | 'Expired';
+export const SALES_STATUSES: SalesStatus[] = ['Signed', 'Pending', 'Draft', 'Expired', 'Cancelled'];
 
 const ERP_CANCELLED = new Set(['declined', 'cancelled', 'canceled', 'rejected', 'lost', 'void', 'voided']);
 const ERP_SIGNED = new Set(['accepted', 'signed', 'confirmed', 'approved', 'won']);
@@ -44,6 +46,8 @@ export interface StatusInput {
   orderStatus?: string | null; // Order made from this quotation (latest)
   hasSignLink?: boolean;
   emailed?: boolean;
+  /** Round 35: an imported ERP draft past the 6-month cut (the caller decides with erpDraftState). */
+  expired?: boolean;
 }
 
 export function quotationStatus(q: StatusInput): SalesStatus {
@@ -52,6 +56,7 @@ export function quotationStatus(q: StatusInput): SalesStatus {
   if (q.cancelled || order === 'CANCELLED' || (q.imported && ERP_CANCELLED.has(erp))) return 'Cancelled';
   if (q.imported) {
     if (ERP_SIGNED.has(erp)) return 'Signed';
+    if (q.expired) return 'Expired';
     if (erp) return 'Pending';
   }
   if (q.signed || order) return 'Signed';

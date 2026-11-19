@@ -38,7 +38,7 @@ import { outstandingOf, grossStampOf, grossOf, amountPaidOf, computeDocumentTota
 import { splitInvoice as splitInvoiceOp, undoInvoiceSplit as undoInvoiceSplitOp } from './invoice-split-ops';
 import { keepSplitPartTotals, splitGlRevenueLines, type SplitPlan } from './invoice-split';
 import { sgToday, wctFamilyOf, wctFamilyOfTypes, isWctStatusValue, wctStatusMatches, wctStatusOf } from '../common/wct-statuses';
-import { ERP_QUOTE_CANCELLED_STATUSES, assertNotErpImportedDo, confirmPostsToGl, erpPaidAtImport, erpQuotationTag, erpStoredTotalsOf, isErpImported, isErpImportedDo, isQuotationDocType, moneySignature } from '../common/erp-import';
+import { ERP_QUOTE_CANCELLED_STATUSES, assertNotErpImportedDo, confirmPostsToGl, erpDraftState, erpPaidAtImport, erpQuotationDate, erpQuotationDisplayStatus, erpQuotationTag, erpStoredTotalsOf, isErpImported, isErpImportedDo, isQuotationDocType, moneySignature } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
 import { fillEmptyOrderCustomer, invoiceRowsWithSplitParts, linkedDoEntriesOf, liveInvoiceIds, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
 import { isManualOrderFlow, manualAutoDraftsOff } from '../orders/manual-order-flow';
@@ -4738,12 +4738,20 @@ export class DocumentsService {
           // WCT imported quotations the ERP has open (Draft / Sent) are Unconfirmed, and ones it cancelled
           // since import are Cancelled, whatever their stored status (common/erp-import.ts). None = no change.
           const erpQ = await this.erpQuotationDisplayIds(organizationId, opts.documentTypes);
-          const shown = [...erpQ.unconfirmed, ...erpQ.cancelled];
+          // Round 35: an ERP draft over 6 months old is Expired: never under Unconfirmed, only under "expired".
+          const shown = [...erpQ.unconfirmed, ...erpQ.cancelled, ...erpQ.expired];
           const stored = s.length === 1 ? s[0] : { in: s };
           if (!shown.length) where.status = stored as any;
           else {
             const wantsUnconfirmed = s.includes('unconfirmed') || s.includes('draft');
-            and.push({ OR: [{ AND: [{ status: stored as any }, { id: { notIn: shown } }] }, ...(wantsUnconfirmed && erpQ.unconfirmed.length ? [{ id: { in: erpQ.unconfirmed } }] : [])] });
+            const wantsExpired = s.includes('expired');
+            and.push({
+              OR: [
+                { AND: [{ status: stored as any }, { id: { notIn: shown } }] },
+                ...(wantsUnconfirmed && erpQ.unconfirmed.length ? [{ id: { in: erpQ.unconfirmed } }] : []),
+                ...(wantsExpired && erpQ.expired.length ? [{ id: { in: erpQ.expired } }] : []),
+              ],
+            });
           }
         }
       }
@@ -4952,8 +4960,10 @@ export class DocumentsService {
           // Imported from the previous ERP (common/erp-import.ts): the list shows an "Imported" tag.
           ...(isErpImported(config) ? { imported: true } : {}),
           // WCT imported quotation still open in the ERP: "ERP draft" / "ERP sent" beside its status.
-          ...(erpQuotationTag(doc.type, config) ? { erpTag: erpQuotationTag(doc.type, config) } : {}),
-          ...(wctOn && wctFamilyOf(doc.type) ? { wctStatus: wctStatusOf({ type: doc.type, status: doc.status, config, creditFromNotes: wctCredits.get(doc.id) ?? 0, today: wctToday }) } : {}),
+          ...(erpQuotationTag(doc.type, config, { today: wctToday, createdAt: doc.createdAt }) ? { erpTag: erpQuotationTag(doc.type, config, { today: wctToday, createdAt: doc.createdAt }) } : {}),
+          // Round 35: the ERP quotation's display state decided here (SG today), so the chip never guesses the 6-month cut.
+          ...(erpQuotationDisplayStatus(doc.type, config, { today: wctToday, createdAt: doc.createdAt }) ? { erpQuoteStatus: erpQuotationDisplayStatus(doc.type, config, { today: wctToday, createdAt: doc.createdAt }) } : {}),
+          ...(wctOn && wctFamilyOf(doc.type) ? { wctStatus: wctStatusOf({ type: doc.type, status: doc.status, config, creditFromNotes: wctCredits.get(doc.id) ?? 0, today: wctToday, createdAt: doc.createdAt }) } : {}),
         };
       });
 
@@ -4986,21 +4996,23 @@ export class DocumentsService {
 
   /** WCT status set: every document of these types in the org with its WCT status (common/wct-statuses.ts). */
   async wctStatusClasses(organizationId: string, documentTypes: string[]): Promise<Array<{ id: string; cls: string }>> {
-    const docs: Array<{ id: string; type: string; status: string; config: any }> = await this.prisma.$queryRaw`
-      SELECT d.id, d.type::text AS type, d.status::text AS status,
+    const docs: Array<{ id: string; type: string; status: string; config: any; listIssueDate?: string | null; createdAt?: Date | null }> = await this.prisma.$queryRaw`
+      SELECT d.id, d.type::text AS type, d.status::text AS status, d."listIssueDate" AS "listIssueDate", d."createdAt" AS "createdAt",
              jsonb_build_object(
                'cancelled', d.config -> 'cancelled', 'voided', d.config -> 'voided',
-               'erpImport', jsonb_build_object('source', d.config #> '{erpImport,source}', 'status', d.config #> '{erpImport,status}', 'creditNotes', d.config #> '{erpImport,creditNotes}'),
+               'erpImport', jsonb_build_object('source', d.config #> '{erpImport,source}', 'status', d.config #> '{erpImport,status}', 'creditNotes', d.config #> '{erpImport,creditNotes}',
+                 'ownerConfirmed', d.config #> '{erpImport,ownerConfirmed}', 'statusAtFirstImport', d.config #> '{erpImport,statusAtFirstImport}'),
+               'date', d.config -> 'date',
                'totalWithTax', d.config -> 'totalWithTax', 'xeroGross', d.config -> 'xeroGross', 'nettTotal', d.config -> 'nettTotal',
                'outstandingBalance', d.config -> 'outstandingBalance', 'xeroBalance', d.config -> 'xeroBalance',
                'paidToDate', d.config -> 'paidToDate', 'xeroAmountPaid', d.config -> 'xeroAmountPaid',
-               'dueDate', d.config -> 'dueDate', 'documentInfo', jsonb_build_object('dueDate', d.config #> '{documentInfo,dueDate}')
+               'dueDate', d.config -> 'dueDate', 'documentInfo', jsonb_build_object('dueDate', d.config #> '{documentInfo,dueDate}', 'date', d.config #> '{documentInfo,date}')
              ) AS config
       FROM "Document" d
       WHERE d."organizationId" = ${organizationId} AND d.type::text = ANY(${documentTypes})`;
     const credits = docs.some((d) => wctFamilyOf(d.type) === 'INVOICE') ? await this.wctInvoiceCredits(organizationId) : new Map<string, number>();
     const today = sgToday();
-    return docs.map((d) => ({ id: d.id, cls: wctStatusOf({ type: d.type, status: d.status, config: d.config, creditFromNotes: credits.get(d.id) ?? 0, today }) || '' }));
+    return docs.map((d) => ({ id: d.id, cls: wctStatusOf({ type: d.type, status: d.status, config: d.config, creditFromNotes: credits.get(d.id) ?? 0, today, listIssueDate: d.listIssueDate ?? null, createdAt: d.createdAt ?? null }) || '' }));
   }
 
   /**
@@ -5008,18 +5020,26 @@ export class DocumentsService {
    * open in the ERP (Draft / Sent) = unconfirmed; open at import and cancelled since = cancelled. Only asked when
    * the list can hold quotations; other orgs have no wct-erp imports, so both lists are empty for them.
    */
-  async erpQuotationDisplayIds(organizationId: string, documentTypes?: string[]): Promise<{ unconfirmed: string[]; cancelled: string[] }> {
-    if (documentTypes?.length && !documentTypes.some((t) => isQuotationDocType(t))) return { unconfirmed: [], cancelled: [] };
-    const rows: Array<{ id: string; status: string | null; first: string | null }> = await this.prisma.$queryRaw`
-      SELECT d.id, lower(d.config #>> '{erpImport,status}') AS status, lower(d.config #>> '{erpImport,statusAtFirstImport}') AS first
+  async erpQuotationDisplayIds(organizationId: string, documentTypes?: string[], today = sgToday()): Promise<{ unconfirmed: string[]; cancelled: string[]; expired: string[] }> {
+    if (documentTypes?.length && !documentTypes.some((t) => isQuotationDocType(t))) return { unconfirmed: [], cancelled: [], expired: [] };
+    // Round 35: the quotation's own date too (config.date, else documentInfo.date, else the list date, else created),
+    // classified by the one rule in erp-import.ts (erpDraftState), so the lists, filter, cards and chips agree.
+    const rows: Array<{ id: string; status: string | null; first: string | null; cdate: string | null; idate: string | null; ldate: string | null; created: Date | null }> = await this.prisma.$queryRaw`
+      SELECT d.id, lower(d.config #>> '{erpImport,status}') AS status, lower(d.config #>> '{erpImport,statusAtFirstImport}') AS first,
+             d.config ->> 'date' AS cdate, d.config #>> '{documentInfo,date}' AS idate, d."listIssueDate" AS ldate, d."createdAt" AS created
       FROM "Document" d
       WHERE d."organizationId" = ${organizationId}
         AND upper(d.type::text) IN ('QUOTATION', 'QO', 'QT', 'QO1')
         AND d.config #>> '{erpImport,source}' = 'wct-erp'
         AND ((lower(d.config #>> '{erpImport,status}') IN ('draft', 'sent') AND d.config #> '{erpImport,ownerConfirmed}' IS NULL)
              OR (lower(d.config #>> '{erpImport,status}') = ANY(${ERP_QUOTE_CANCELLED_STATUSES}) AND lower(d.config #>> '{erpImport,statusAtFirstImport}') IN ('draft', 'sent')))`;
-    const out = { unconfirmed: [] as string[], cancelled: [] as string[] };
-    for (const r of rows) out[r.status === 'draft' || r.status === 'sent' ? 'unconfirmed' : 'cancelled'].push(r.id);
+    const out = { unconfirmed: [] as string[], cancelled: [] as string[], expired: [] as string[] };
+    for (const r of rows) {
+      const date = erpQuotationDate({ date: r.cdate, documentInfo: { date: r.idate } }, { listIssueDate: r.ldate, createdAt: r.created });
+      // ownerConfirmed rows are already left out by the query; the cancelled branch needs statusAtFirstImport.
+      const st = erpDraftState({ status: r.status, statusAtFirstImport: r.first }, date, today);
+      if (st) out[st].push(r.id);
+    }
     return out;
   }
 

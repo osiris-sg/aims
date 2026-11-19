@@ -5,7 +5,7 @@ import { wctStatusOptionsFor, wctStatusLabel, wctStatusColor } from "./wctStatus
 
 test("WCT status filters per list; flag off or mixed lists: none (the usual options stay)", () => {
   const labels = (types) => (wctStatusOptionsFor(types, true) || []).map((o) => o.label);
-  assert.deepEqual(labels(["QUOTATION"]), ["Unconfirmed", "Confirmed", "Cancelled", "Declined"]);
+  assert.deepEqual(labels(["QUOTATION"]), ["Unconfirmed", "Confirmed", "Expired", "Cancelled", "Declined"]);
   assert.deepEqual(labels(["DELIVERY_ORDER", "DO"]), ["Draft", "Completed", "Cancelled"]);
   assert.deepEqual(labels(["INVOICE", "TI", "TI2"]), ["Draft", "Unpaid", "Part paid", "Paid", "Overdue", "Credited", "Voided"]);
   for (const types of [["INVOICE"], ["QUOTATION"], ["DELIVERY_ORDER"]]) {
@@ -27,3 +27,11 @@ test("WCT chip labels and colours", () => {
   assert.equal(wctStatusColor("overdue_part_paid"), wctStatusColor("overdue"));
   assert.equal((wctStatusOptionsFor(["INVOICE"], true) || []).filter((o) => o.label.startsWith("Overdue")).length, 1);
 });
+
+test("round 35: Expired (old ERP draft quotation): its own grey chip and filter option", () => {
+  assert.equal(wctStatusLabel("expired"), "Expired");
+  assert.equal(wctStatusColor("expired"), "default");
+  assert.ok((wctStatusOptionsFor(["QUOTATION"], true) || []).some((o) => o.value === "expired"));
+  assert.ok(!(wctStatusOptionsFor(["INVOICE"], true) || []).some((o) => o.value === "expired"));
+});
+

@@ -61,7 +61,7 @@ describe('wctStatusOf', () => {
     expect(isWctStatusValue('INVOICE', 'overdue_part_paid')).toBe(true);
     expect(isWctStatusValue('DO', 'overdue_part_paid')).toBe(false);
     expect(WCT_STATUS_OPTIONS.DO.map((o) => o.label)).toEqual(['Draft', 'Completed', 'Cancelled']);
-    expect(WCT_STATUS_OPTIONS.QUOTATION.map((o) => o.label)).toEqual(['Unconfirmed', 'Confirmed', 'Cancelled', 'Declined']);
+    expect(WCT_STATUS_OPTIONS.QUOTATION.map((o) => o.label)).toEqual(['Unconfirmed', 'Confirmed', 'Expired', 'Cancelled', 'Declined']);
   });
 });
 

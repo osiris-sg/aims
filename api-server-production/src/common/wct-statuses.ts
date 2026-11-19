@@ -1,9 +1,13 @@
+import { erpQuotationDisplayStatus } from './erp-import';
+
 /**
  * WCT group status set (features.enableWctStatuses, Elroy 2026-11-19). Display and list filters only: the stored
  * Document.status is never changed, so no data is lost and every other org keeps its statuses.
  *
- *   Quotations  Unconfirmed (draft / unconfirmed, or an imported one the old ERP has as Draft / Sent),
- *               Confirmed, Cancelled (cancelled / voided, or ERP Cancelled), Declined (ERP Declined / Rejected / Lost).
+ *   Quotations  Unconfirmed (draft / unconfirmed, or an imported one the old ERP has as Draft / Sent, dated within
+ *               the last 6 months), Expired (an imported ERP Draft / Sent dated more than 6 months ago, round 35;
+ *               common/erp-import.ts erpDraftState), Confirmed (incl. one the owner confirmed in AIMS while the ERP
+ *               still has it open), Cancelled (cancelled / voided, or ERP Cancelled), Declined (ERP Declined / Rejected / Lost).
  *   DOs         Draft (draft, unconfirmed, confirmed, Pending Delivery, anything not delivered), Completed
  *               (Delivered (Not Installed), Delivered & Installed, Returned; imported ERP DOs), Cancelled.
  *   Invoices    Draft (draft / unconfirmed), Voided (voided, or ERP Cancelled), Credited (credit notes cover the total), Paid,
@@ -19,6 +23,7 @@ export const WCT_STATUS_OPTIONS: Record<WctFamily, Array<{ value: string; label:
   QUOTATION: [
     { value: 'unconfirmed', label: 'Unconfirmed' },
     { value: 'confirmed', label: 'Confirmed' },
+    { value: 'expired', label: 'Expired' },
     { value: 'cancelled', label: 'Cancelled' },
     { value: 'declined', label: 'Declined' },
   ],
@@ -80,6 +85,9 @@ export interface WctStatusInput {
   creditFromNotes?: number;
   /** YYYY-MM-DD, Singapore. */
   today: string;
+  /** Round 35: a quotation's list date / created date, used for the 6-month rule only when it carries no date. */
+  listIssueDate?: string | null;
+  createdAt?: Date | string | null;
 }
 
 /** The WCT display status of one document (null when its type is not a quotation, DO or invoice). */
@@ -97,7 +105,9 @@ export function wctStatusOf(d: WctStatusInput): string | null {
     const erp = c.erpImport?.source === 'wct-erp' ? String(c.erpImport?.status ?? '').trim().toLowerCase() : '';
     if (cancelledFlag || ERP_CANCELLED.includes(erp)) return 'cancelled';
     if (ERP_DECLINED.includes(erp)) return 'declined';
-    if (s === 'draft' || s === 'unconfirmed' || !s || ERP_OPEN.includes(erp)) return 'unconfirmed';
+    // Open in the ERP (Draft / Sent): Unconfirmed, Expired after 6 months, Confirmed when the owner confirmed it (erp-import.ts).
+    if (ERP_OPEN.includes(erp)) return erpQuotationDisplayStatus(d.type, c, { today: d.today, listIssueDate: d.listIssueDate, createdAt: d.createdAt }) ?? 'confirmed';
+    if (s === 'draft' || s === 'unconfirmed' || !s) return 'unconfirmed';
     return 'confirmed';
   }
   // INVOICE (an imported one the old ERP cancelled reads Voided)

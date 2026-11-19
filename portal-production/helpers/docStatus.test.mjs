@@ -81,3 +81,26 @@ test("WCT imported quotations: ERP Draft / Sent read Unconfirmed with a tag; can
   assert.equal(docDisplayStatus({ type: "QUOTATION", status: "confirmed", config: {} }), "confirmed");
   assert.equal(docDisplayStatus({ type: "QUOTATION", status: "unconfirmed", config: {} }), "unconfirmed");
 });
+
+test("round 35: an ERP Draft / Sent quotation dated more than 6 months ago reads Expired (tag kept); owner-confirmed reads Confirmed", async () => {
+  const { docDisplayStatus, erpQuotationDisplayStatus, erpQuotationTag, erpDraftExpiryCut, sgTodayIso } = await import("./docStatus.ts");
+  const q = (erp, date, extra = {}) => ({ type: "QUOTATION", status: "confirmed", config: { date, erpImport: { source: "wct-erp", status: erp, ...extra } } });
+  const T = "2026-11-19";
+  assert.equal(erpDraftExpiryCut(T), "2026-05-19");
+  assert.equal(erpDraftExpiryCut("2026-08-31"), "2026-02-28");
+  assert.equal(erpQuotationDisplayStatus("QUOTATION", q("Draft", "2026-05-18").config, T), "expired");
+  assert.equal(erpQuotationDisplayStatus("QUOTATION", q("Draft", "2026-05-19").config, T), "unconfirmed");
+  assert.equal(erpQuotationDisplayStatus("QUOTATION", q("Sent", "2019-01-01").config, T), "expired");
+  assert.equal(erpQuotationTag("QUOTATION", q("Sent", "2019-01-01").config, T), "ERP sent");
+  assert.equal(erpQuotationDisplayStatus("QUOTATION", q("Draft", "2019-01-01", { ownerConfirmed: { at: "x" } }).config, T), null);
+  assert.equal(erpQuotationDisplayStatus("QUOTATION", q("Cancelled", "2019-01-01", { statusAtFirstImport: "Draft" }).config, T), "cancelled");
+  // docDisplayStatus reads today's Singapore date: a 2017 draft is Expired, today's is Unconfirmed; native unchanged.
+  assert.equal(docDisplayStatus(q("Draft", "2017-03-01")), "expired");
+  assert.equal(docDisplayStatus(q("Draft", sgTodayIso())), "unconfirmed");
+  assert.equal(docDisplayStatus({ type: "QUOTATION", status: "unconfirmed", config: { date: "2017-03-01" } }), "unconfirmed");
+  // The chip prefers the server's reading on list rows.
+  const chip = (await import("node:fs")).readFileSync(new URL("../components/StatusChip.tsx", import.meta.url), "utf8");
+  assert.match(chip, /doc\.erpQuoteStatus \|\| erpQuotationDisplayStatus/);
+  assert.match(chip, /expired: "default"/);
+});
+
