@@ -37,11 +37,14 @@ export function nativeInvoiceMoney(d: { status?: string; config?: any; createdAt
 export function nativeOrderSummary(args: {
   quotation: { name?: string | null; config?: any } | null;
   invoices: Array<{ id: string; status?: string; config?: any; createdAt?: Date | string | null }>;
+  /** Round 29: quotations linked to the order (Link existing document) add their total and lines, as on an imported order. */
+  linkedQuotations?: Array<{ name?: string | null; config?: any }>;
 }): OrderPageSummary {
   const qc: any = args.quotation?.config || {};
-  const quoteItems = Array.isArray(qc.items) ? qc.items : [];
-  const qt = args.quotation ? grossOf(qc) : null;
-  const quoteTotal = qt == null || !Number.isFinite(Number(qt)) ? null : R2(Number(qt));
+  const extra = (args.linkedQuotations ?? []).filter((x) => x && x.config);
+  const quoteItems = [...(Array.isArray(qc.items) ? qc.items : []), ...extra.flatMap((x) => (Array.isArray(x.config?.items) ? x.config.items : []))];
+  const totals = [...(args.quotation ? [grossOf(qc)] : []), ...extra.map((x) => grossOf(x.config))].filter((v): v is number => v != null && Number.isFinite(Number(v)));
+  const quoteTotal = totals.length ? R2(totals.reduce((t, v) => t + Number(v), 0)) : null;
   const counted = args.invoices.filter((d) => isCountedInvoice({ status: d.status, config: d.config }));
   const money = counted.map((d) => ({ d, m: importedInvoiceMoney({ config: d.config || {} }, 0) }));
   const billing = money.filter((x) => x.m.net >= 0.005);
@@ -53,7 +56,7 @@ export function nativeOrderSummary(args: {
     quoteTotal: quoteTotal ?? 0,
     billed,
     gstPercent: Number(qc.gstPercent) || 0,
-    quotationNo: args.quotation?.name ?? null,
+    quotationNo: [args.quotation?.name, ...extra.map((x) => x.name)].filter(Boolean).join(', ') || null,
     subject: qc.subject ?? null,
   });
   // Counted invoices by date first, then drafts (as an imported order's "1 of 2 Paid · 2 of 2 Draft").

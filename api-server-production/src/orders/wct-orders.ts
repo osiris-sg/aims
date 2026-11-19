@@ -1,4 +1,4 @@
-import { refreshImportedOrderStatus } from './imported-orders';
+import { isImportedOrder, refreshImportedOrderStatus } from './imported-orders';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { runAsOrg } from '../common/tenancy/tenant-context';
 import {
@@ -89,6 +89,40 @@ export function deriveOrderStatus(
   return 'SCHEDULED';
 }
 
+/**
+ * Mark complete on an AIMS (native) WCT order (round 29, 2026-11-19; imported orders keep linkedDocuments.imported.completed).
+ * Stored on the order as linkedDocuments.completed (no schema change): who, when, the reason, and `underlying` = the
+ * status the order's documents give (kept current by refreshOrderStatus, so the page can still show the steps).
+ * While it is there the order reads MARKED_COMPLETE ("Complete"), whatever the DOs / invoices / jobs do; Reopen
+ * removes it and the status is derived again. A cancelled order stays cancelled (never marked).
+ */
+export const MARKED_COMPLETE = 'MARKED_COMPLETE';
+export interface NativeCompletion {
+  at: string;
+  by: string | null;
+  byName: string | null;
+  reason: string;
+  underlying?: string | null;
+}
+export function nativeCompletionOf(order: { linkedDocuments?: unknown } | null | undefined): NativeCompletion | null {
+  if (!order || isImportedOrder(order)) return null;
+  const c = (order.linkedDocuments as any)?.completed;
+  return c && typeof c === 'object' && !Array.isArray(c) && typeof c.reason === 'string' && c.reason ? (c as NativeCompletion) : null;
+}
+/** The stored status: the Complete mark wins over what the documents give; linkedDocuments keeps `underlying` current. */
+function withCompletionMark(order: { linkedDocuments?: unknown }, derived: string): { status: string; linkedDocuments?: any } {
+  const mark = nativeCompletionOf(order);
+  if (!mark) return { status: derived };
+  if (mark.underlying === derived) return { status: MARKED_COMPLETE };
+  return { status: MARKED_COMPLETE, linkedDocuments: { ...(order.linkedDocuments as any), completed: { ...mark, underlying: derived } } };
+}
+
+/** An AIMS order's DOs linked by "Link existing document" (round 29): ids on linkedDocuments.do (not imported ERP entries made by the import). */
+export function linkedDoIdsOf(order: { linkedDocuments?: unknown } | null | undefined): string[] {
+  const list = (order?.linkedDocuments as any)?.do;
+  return Array.isArray(list) ? list.map((x: any) => x?.id).filter((v: any): v is string => typeof v === 'string' && !!v) : [];
+}
+
 export async function isWctOrdersEnabled(prisma: any, organizationId: string): Promise<boolean> {
   return isOrgFeatureEnabled(prisma, organizationId, WCT_ORDERS_FLAG);
 }
@@ -145,19 +179,21 @@ export async function refreshOrderStatus(prisma: any, organizationId: string, or
       // Manual (dashboard-only) flow: its own status list + the date each was
       // reached. Every other org takes the unchanged path below.
       if (await isManualOrderFlow(prisma, organizationId)) return (await refreshManualOrderStatus(prisma, organizationId, orderId)) as any;
-      const order = await prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, attachments: true } });
+      const order = await prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, attachments: true, linkedDocuments: true } });
       if (!order) return null;
       // A cancelled order (Cancel order, 2026-11-13) stays cancelled.
       if (order.status === 'CANCELLED') return null;
       const jobs = await prisma.delivery.findMany({ where: { organizationId, orderId }, select: { status: true, isDraft: true, verificationState: true, orderInvoiceId: true } });
       const invoiceIds = [...new Set(jobs.map((j: any) => j.orderInvoiceId).filter((v: any) => v && !String(v).startsWith('claim:')))] as string[];
       const invoices = await invoiceRowsWithSplitParts(prisma, organizationId, invoiceIds);
-      const status = deriveOrderStatus(jobs, {
+      const derived = deriveOrderStatus(jobs, {
         invoiceStatuses: invoices.map((d: any) => String(d.status)),
         hasServiceReport: hasServiceReportAttachment(order.attachments),
       });
-      if (order.status !== status) await prisma.order.update({ where: { id: orderId }, data: { status } });
-      return status;
+      // Round 29: an order marked complete stays Complete until Reopen.
+      const { status, linkedDocuments } = withCompletionMark(order, derived);
+      if (order.status !== status || linkedDocuments) await prisma.order.update({ where: { id: orderId }, data: { status, ...(linkedDocuments ? { linkedDocuments } : {}) } });
+      return status as WctOrderStatus;
     });
   } catch {
     return null;
@@ -176,9 +212,11 @@ async function refreshManualOrderStatus(prisma: any, organizationId: string, ord
     select: { id: true, status: true, isDraft: true, verificationState: true, orderInvoiceId: true, items: { select: { documentId: true } } },
   });
   const jobDoIds = [...new Set(jobs.flatMap((j: any) => j.items.map((i: any) => i.documentId)).filter(Boolean))] as string[];
+  // Round 29: a DO linked to the order (Link existing document) is one of its DOs too; the DO itself is never written.
+  const linkedDoIds = linkedDoIdsOf(order);
   const dos = (
     await prisma.document.findMany({
-      where: { organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] }, OR: [{ config: { path: ['orderId'], equals: orderId } }, { id: { in: jobDoIds } }] },
+      where: { organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] }, OR: [{ config: { path: ['orderId'], equals: orderId } }, { id: { in: [...jobDoIds, ...linkedDoIds] } }] },
       select: { id: true, status: true, config: true },
     })
   ).filter((d: any) => d.config?.cancelled !== true);
@@ -202,15 +240,17 @@ async function refreshManualOrderStatus(prisma: any, organizationId: string, ord
   // Split payment (2026-11-17): every part of a split invoice counts ("all parts" sent / paid).
   const invoices = await invoiceRowsWithSplitParts(prisma, organizationId, invoiceIds, { type: 'INVOICE' });
   const dates = (order.statusDates as Record<string, string> | null) ?? {};
-  const status = deriveManualOrderStatusFromUnits(units, { invoiceStatuses: invoices.map((d: any) => String(d.status)), serviceReportSent: !!dates.serviceReportSentAt });
+  const derived = deriveManualOrderStatusFromUnits(units, { invoiceStatuses: invoices.map((d: any) => String(d.status)), serviceReportSent: !!dates.serviceReportSentAt });
   // The order exists because the quotation was signed / accepted: that first
   // step is dated by the order itself, even when the first refresh already
   // sees its draft job.
-  const nextDates = withStatusDate(withStatusDate(dates, 'QUOTATION_SIGNED', new Date(order.createdAt)), status);
-  if (order.status !== status || JSON.stringify(nextDates) !== JSON.stringify(dates)) {
-    await prisma.order.update({ where: { id: orderId }, data: { status, statusDates: nextDates } });
+  const nextDates = withStatusDate(withStatusDate(dates, 'QUOTATION_SIGNED', new Date(order.createdAt)), derived);
+  // Round 29: an order marked complete stays Complete until Reopen (the steps keep their dates).
+  const { status, linkedDocuments } = withCompletionMark(order, derived);
+  if (order.status !== status || JSON.stringify(nextDates) !== JSON.stringify(dates) || linkedDocuments) {
+    await prisma.order.update({ where: { id: orderId }, data: { status, statusDates: nextDates, ...(linkedDocuments ? { linkedDocuments } : {}) } });
   }
-  return status;
+  return status as ManualOrderStatus;
 }
 
 /**

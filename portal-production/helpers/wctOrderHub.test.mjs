@@ -1,11 +1,12 @@
 // Run: npm test. 2026-11-13: WCT orders as the hub (list tabs / row menu / order page tracker + next step).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { HUB_STATUSES, hubStatus, hubTabs, hubMatchesTab, hubRowActions, hubNextStep, hubSteps, HUB_DESTRUCTIVE } from "./wctOrderHub.ts";
+import { HUB_STATUSES, hubStatus, hubStatusInfo, hubTabs, hubMatchesTab, hubRowActions, hubNextStep, hubSteps, HUB_DESTRUCTIVE } from "./wctOrderHub.ts";
 
 test("every status has its own colour and label", () => {
   assert.equal(new Set(HUB_STATUSES.map((s) => s.hue)).size, HUB_STATUSES.length);
-  assert.equal(HUB_STATUSES.at(-2).key, "SERVICE_REPORT_SENT"); // the last step before Cancelled
+  assert.equal(HUB_STATUSES.at(-3).key, "SERVICE_REPORT_SENT"); // the last step, then the office's Complete mark and Cancelled
+  assert.deepEqual(HUB_STATUSES.slice(-2).map((s) => [s.key, s.label]), [["MARKED_COMPLETE", "Complete"], ["CANCELLED", "Cancelled"]]);
   for (const s of HUB_STATUSES) assert.ok(!s.label.includes("—"));
 });
 
@@ -317,4 +318,13 @@ test("manual flow, DO completed, invoice pending: the next step is always Create
   assert.deepEqual(hubNextStep({ status: "DO_COMPLETED", invoices: [{ id: "i1" }] }), { primary: "view-invoice", label: "Open draft invoice" });
   // The list row menu already offers Create invoice at this status.
   assert.deepEqual(hubRowActions("DO_COMPLETED", { doFirst: true }), ["view-signed-do", "create-invoice"]);
+});
+
+test("round 29: an AIMS order marked complete reads Complete; no next step, only View order in the list menu, its own tab when used", () => {
+  assert.equal(hubStatus("MARKED_COMPLETE"), "MARKED_COMPLETE");
+  assert.equal(hubStatusInfo("MARKED_COMPLETE").label, "Complete");
+  assert.equal(hubNextStep({ status: "MARKED_COMPLETE", manualFlow: true, doFirst: true }), null);
+  assert.deepEqual(hubRowActions("MARKED_COMPLETE", { doFirst: true }), ["view-order"]);
+  assert.equal(hubTabs([{ status: "DO_DRAFT" }]).some((t) => t.key === "MARKED_COMPLETE"), false);
+  assert.equal(hubTabs([{ status: "MARKED_COMPLETE" }]).find((t) => t.key === "MARKED_COMPLETE").count, 1);
 });

@@ -9,6 +9,7 @@ import { OrdersService } from './orders.service';
 import { IMPORTED_ORDER_SOURCE, assertImportedOrderOpen, assertNotImportedOrder, hasAimsLinks, importedOrderLinkingQuotation, planImportedOrders } from './imported-orders';
 import { holderRefusal, orderHoldsDoc, withLinkedDocument, withoutLinkedDocument } from './imported-order-links';
 import { importedInvoicePrefill } from './imported-remaining';
+import { refreshOrderStatus } from './wct-orders';
 
 /**
  * Imported orders fully open for backfilling (WCT group, round 19, 2026-11-19). Over a small in-memory Prisma:
@@ -500,14 +501,16 @@ describe('imported orders open (round 19): one order per document, Unlink rules'
     await expect(w.orders.unlinkImportedDocument(PART, ORG, { type: 'QUOTATION', id: QX }, w.actor)).rejects.toThrow(/is not linked on this order/);
   });
 
-  it('linking a quotation / DO is for imported orders only: a native order is refused and unchanged', async () => {
+  it('an AIMS order of an org without WCT orders is refused and unchanged; unlink keeps the made-on-order rule', async () => {
     const w = world();
     const before = JSON.stringify(w.order(NATIVE));
-    await expect(w.orders.linkImportedDocument(NATIVE, ORG, { type: 'QUOTATION', id: QX }, w.actor)).rejects.toThrow(/orders imported from the old ERP/);
     // Unlink from order (round 24) takes a native order by the same rules: an invoice made on the order is refused.
     await expect(w.orders.unlinkImportedDocument(NATIVE, ORG, { type: 'INVOICE', id: IN }, w.actor)).rejects.toThrow('INV202611-0080 was made on this order: void it instead of unlinking it');
-    await expect(w.orders.importedLinkOptions(NATIVE, ORG, { type: 'DELIVERY_ORDER' })).rejects.toThrow(/orders imported from the old ERP/);
     expect(JSON.stringify(w.order(NATIVE))).toBe(before);
+    const noWct = world({ enableImportedOrders: true });
+    await expect(noWct.orders.linkImportedDocument(NATIVE, ORG, { type: 'QUOTATION', id: QX }, noWct.actor)).rejects.toThrow(/orders imported from the old ERP/);
+    await expect(noWct.orders.importedLinkOptions(NATIVE, ORG, { type: 'DELIVERY_ORDER' })).rejects.toThrow(/orders imported from the old ERP/);
+    expect(JSON.stringify(noWct.order(NATIVE))).toBe(before);
     // Setting off: the imported order is hidden.
     const off = world({ ...ON, enableImportedOrders: false });
     await expect(off.orders.linkImportedDocument(PART, ORG, { type: 'QUOTATION', id: QX }, off.actor)).rejects.toThrow(/not found/i);
@@ -523,16 +526,12 @@ describe('imported orders open (round 19): one order per document, Unlink rules'
     // The same one-order rule both ways.
     await expect(w.orders.linkImportedDocument(PART, ORG, { type: 'SERVICE_REPORT', id: SR }, w.actor)).rejects.toThrow('Service report #12 is already on order ORD202611-020. A document can be on one order only.');
     await expect(w.orders.linkImportedDocument(NATIVE, ORG, { type: 'SERVICE_REPORT', id: SR }, w.actor)).rejects.toThrow('Service report #12 is already on this order.');
-    for (const type of ['QUOTATION', 'DELIVERY_ORDER']) {
-      await expect(w.orders.linkImportedDocument(NATIVE, ORG, { type, id: QX }, w.actor)).rejects.toThrow('Only a service report (and, on the manual order flow, an invoice) can be linked to an order made in AIMS.');
-      await expect(w.orders.importedLinkOptions(NATIVE, ORG, { type })).rejects.toThrow('Only a service report (and, on the manual order flow, an invoice) can be linked to an order made in AIMS.');
-    }
     await w.orders.unlinkImportedDocument(NATIVE, ORG, { type: 'SERVICE_REPORT', id: SR }, w.actor);
     expect(w.order(NATIVE).attachments).toEqual([]);
     expect(w.order(NATIVE).linkedDocuments).toEqual({ po: [], do: [], invoice: [{ id: IN, name: 'INV202611-0080' }], salesOrder: [] });
     // An org without WCT orders: refused, nothing written.
     const off = world({ enableImportedOrders: true });
-    await expect(off.orders.linkImportedDocument(NATIVE, ORG, { type: 'SERVICE_REPORT', id: SR }, off.actor)).rejects.toThrow('Only a service report (and, on the manual order flow, an invoice) can be linked to an order made in AIMS.');
+    await expect(off.orders.linkImportedDocument(NATIVE, ORG, { type: 'SERVICE_REPORT', id: SR }, off.actor)).rejects.toThrow('Link existing document is for orders imported from the old ERP');
     expect(off.order(NATIVE).attachments).toBeNull();
   });
 
@@ -552,7 +551,7 @@ describe('imported orders open (round 19): one order per document, Unlink rules'
     await expect(w.orders.linkImportedDocument(PART, ORG, { type: 'INVOICE', id: IX }, w.actor)).rejects.toThrow('INV202611-0090 is already on order ORD202611-020. A document can be on one order only.');
     // Off the manual flow (WCT Racking): a native order links service reports only.
     const racking = world({ ...ON, enableManualOrderFlow: false });
-    await expect(racking.orders.linkImportedDocument(NATIVE, ORG, { type: 'INVOICE', id: IX }, racking.actor)).rejects.toThrow(/Only a service report/);
+    await expect(racking.orders.linkImportedDocument(NATIVE, ORG, { type: 'INVOICE', id: IX }, racking.actor)).rejects.toThrow('An invoice can be linked to an order made in AIMS on the manual order flow only.');
     expect(racking.order(NATIVE).linkedDocuments.invoice).toEqual([{ id: IN, name: 'INV202611-0080' }]);
   });
 
@@ -631,8 +630,8 @@ describe('imported orders open (round 19): other orgs and native orders unchange
     expect(run).toBeNull();
     expect(w.db.order).toHaveLength(3);
     expect(await importedOrderLinkingQuotation(w.prisma, ORG, QX)).toMatchObject({ id: PAID });
-    // An org without imported orders: no order read at all.
-    const other: any = { organizationUIConfig: { findUnique: jest.fn(async () => ({ features: { enableWctOrders: true } })) }, order: { findFirst: jest.fn() } };
+    // An org with neither imported nor WCT orders: no order read at all (round 29: a WCT org reads, its AIMS orders link quotations too).
+    const other: any = { organizationUIConfig: { findUnique: jest.fn(async () => ({ features: { enableConfirmQuotation: true } })) }, order: { findFirst: jest.fn() } };
     expect(await importedOrderLinkingQuotation(other, OTHER, QX)).toBeNull();
     expect(other.order.findFirst).not.toHaveBeenCalled();
   });
@@ -653,3 +652,101 @@ describe('imported orders open (round 19): other orgs and native orders unchange
     await expect(w.documents.invoiceOrder(PAID, ORG, { trigger: 'now' })).rejects.toThrow(/bill it with Create invoice/);
   });
 });
+
+describe('round 29: AIMS (native) orders: Mark complete / Reopen, Link existing quotation and DO', () => {
+  const status = (w: ReturnType<typeof world>) => w.order(NATIVE).status;
+
+  it('Mark complete needs a reason, reads Complete and wins over every later refresh; Reopen derives the status again', async () => {
+    const w = world();
+    await refreshOrderStatus(w.prisma, ORG, NATIVE);
+    expect(status(w)).toBe('INVOICED_DO_PENDING');
+    await expect(w.orders.markImportedComplete(NATIVE, ORG, { reason: ' ' }, w.actor)).rejects.toThrow(/Give a reason/);
+    const out: any = await w.orders.markImportedComplete(NATIVE, ORG, { reason: 'Customer closed the job' }, { id: 'user_1', name: 'Finance' });
+    expect(out).toEqual({ id: NATIVE, orderNumber: 'ORD202611-020', status: 'MARKED_COMPLETE', reason: 'Customer closed the job' });
+    expect(w.order(NATIVE).linkedDocuments.completed).toMatchObject({ by: 'user_1', byName: 'Finance', reason: 'Customer closed the job', underlying: 'INVOICED_DO_PENDING' });
+    // Auto flows: a DO linked and completed, the order refreshed, the auto invoice hook: still Complete.
+    await w.orders.linkImportedDocument(NATIVE, ORG, { type: 'DELIVERY_ORDER', id: DX }, w.actor);
+    w.doc(DX).status = 'delivered_installed';
+    await refreshOrderStatus(w.prisma, ORG, NATIVE);
+    await w.documents.maybeInvoiceOrder(NATIVE, ORG).catch(() => null);
+    expect(status(w)).toBe('MARKED_COMPLETE');
+    expect(w.order(NATIVE).linkedDocuments.completed.underlying).toBe('DO_COMPLETED');
+    const page: any = await w.orders.getById(NATIVE, ORG);
+    expect(page).toMatchObject({ status: 'MARKED_COMPLETE', statusLabel: 'Complete', completed: { reason: 'Customer closed the job', byName: 'Finance', underlying: 'DO_COMPLETED' } });
+    const back: any = await w.orders.reopenImported(NATIVE, ORG);
+    expect(back).toMatchObject({ orderNumber: 'ORD202611-020', status: 'DO_COMPLETED' });
+    expect(w.order(NATIVE).linkedDocuments.completed).toBeUndefined();
+    await expect(w.orders.reopenImported(NATIVE, ORG)).rejects.toThrow(/not marked complete/);
+  });
+
+  it('a cancelled order stays cancelled (never marked); off the manual flow (WCT Racking) the mark works the same', async () => {
+    const w = world();
+    w.order(NATIVE).status = 'CANCELLED';
+    await expect(w.orders.markImportedComplete(NATIVE, ORG, { reason: 'x' }, w.actor)).rejects.toThrow('This order is cancelled');
+    expect(await refreshOrderStatus(w.prisma, ORG, NATIVE)).toBeNull();
+    expect(status(w)).toBe('CANCELLED');
+    const r = world({ ...ON, enableManualOrderFlow: false });
+    await r.orders.markImportedComplete(NATIVE, ORG, { reason: 'Done on paper' }, r.actor);
+    expect(r.order(NATIVE).status).toBe('MARKED_COMPLETE');
+    await refreshOrderStatus(r.prisma, ORG, NATIVE);
+    expect(r.order(NATIVE).status).toBe('MARKED_COMPLETE');
+    await r.orders.reopenImported(NATIVE, ORG);
+    expect(r.order(NATIVE).status).toBe('OPEN');
+  });
+
+  it('Link existing quotation: on the order (one order per quotation), adds to the quotation total, no order of its own on accept; Unlink reverses', async () => {
+    const w = world({ ...ON, enableQuotationToDelivery: true });
+    const out = await w.orders.linkImportedDocument(NATIVE, ORG, { type: 'QUOTATION', id: QX }, w.actor);
+    expect(out).toEqual({ type: 'QUOTATION', id: QX, name: 'QO202611-0050', orderNumber: 'ORD202611-020' });
+    expect(w.order(NATIVE).linkedDocuments.quotation).toEqual([expect.objectContaining({ id: QX, total: 1090, linked: expect.objectContaining({ byName: 'Finance' }) })]);
+    let page: any = await w.orders.getById(NATIVE, ORG);
+    expect(page.quotations).toEqual([expect.objectContaining({ id: QX, name: 'QO202611-0050', total: 1090, unlinkable: true })]);
+    expect(page.summary.quoteTotal).toBe(2180);
+    expect(await autoDraftDeliveryFromQuotation(w.prisma, ORG, QX)).toBeNull();
+    expect(w.db.order).toHaveLength(3);
+    await expect(w.orders.linkImportedDocument(PART, ORG, { type: 'QUOTATION', id: QX }, w.actor)).rejects.toThrow('QO202611-0050 is already on order ORD202611-020. A document can be on one order only.');
+    await expect(w.orders.unlinkImportedDocument(NATIVE, ORG, { type: 'QUOTATION', id: QN }, w.actor)).rejects.toThrow("The order's own quotation cannot be unlinked");
+    await w.orders.unlinkImportedDocument(NATIVE, ORG, { type: 'QUOTATION', id: QX }, w.actor);
+    page = await w.orders.getById(NATIVE, ORG);
+    expect(page.quotations).toEqual([]);
+    expect(page.summary.quoteTotal).toBe(1090);
+    expect(docWrites(w, EXISTING_DOCS)).toEqual([]);
+  });
+
+  it('Link existing DO: one of the order\'s DOs in its status and on its page, the DO never written; Unlink reverses; refused when held elsewhere', async () => {
+    const w = world();
+    await refreshOrderStatus(w.prisma, ORG, NATIVE);
+    expect(status(w)).toBe('INVOICED_DO_PENDING');
+    await w.orders.linkImportedDocument(NATIVE, ORG, { type: 'DELIVERY_ORDER', id: DX }, w.actor);
+    let page: any = await w.orders.getById(NATIVE, ORG);
+    expect(page.deliveryOrders).toEqual([expect.objectContaining({ id: DX, name: 'DO202611050', linkedOnly: true, completed: false, linked: expect.objectContaining({ byName: 'Finance' }) })]);
+    expect(status(w)).toBe('INVOICED_DO_PENDING');
+    w.doc(DX).status = 'delivered_installed';
+    await refreshOrderStatus(w.prisma, ORG, NATIVE);
+    expect(status(w)).toBe('DO_COMPLETED');
+    // A linked DO is not listed as waiting for Create invoice (it was not made on the order).
+    page = await w.orders.getById(NATIVE, ORG);
+    expect(page.toInvoiceDos).toEqual([]);
+    await expect(w.orders.linkImportedDocument(PART, ORG, { type: 'DELIVERY_ORDER', id: DX }, w.actor)).rejects.toThrow('DO202611050 is already on order ORD202611-020. A document can be on one order only.');
+    await w.orders.unlinkImportedDocument(NATIVE, ORG, { type: 'DELIVERY_ORDER', id: DX }, w.actor);
+    expect(status(w)).toBe('INVOICED_DO_PENDING');
+    page = await w.orders.getById(NATIVE, ORG);
+    expect(page.deliveryOrders).toEqual([]);
+    expect(w.doc(DX).config.orderId).toBeUndefined();
+    // A DO made on the order (config.orderId) is never unlinked: cancel it instead.
+    const r = await w.deliveries.prepareManualOrderDo(NATIVE, ORG, { force: true, throwOnError: true });
+    await expect(w.orders.unlinkImportedDocument(NATIVE, ORG, { type: 'DELIVERY_ORDER', id: r!.doId }, w.actor)).rejects.toThrow(/is not linked on this order|was made on this order/);
+  });
+
+  it('imported orders keep their own DO list (a native-linked DO is never listed twice) and other orgs are unchanged', async () => {
+    const w = world();
+    await w.orders.linkImportedDocument(PART, ORG, { type: 'DELIVERY_ORDER', id: DX }, w.actor);
+    const page: any = await w.orders.getById(PART, ORG);
+    expect(page.deliveryOrders).toEqual([]);
+    expect(page.linkedDos).toEqual([expect.objectContaining({ id: DX, imported: false, unlinkable: true })]);
+    const none = world({ enableConfirmQuotation: true } as any);
+    await expect(none.orders.markImportedComplete(NATIVE, ORG, { reason: 'x' }, none.actor)).rejects.toThrow(/imported from the old ERP/);
+    expect(none.order(NATIVE).linkedDocuments.completed).toBeUndefined();
+  });
+});
+

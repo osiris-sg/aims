@@ -146,7 +146,7 @@ test("the layout draws every section in order and the page renders it for both k
   assert.match(page, /const doFirst = manualFlow && \(dos\.length > 0 \|\| !liveJobs\.length\);/);
 });
 
-test("native actions: each keeps its gating; Mark complete shows greyed with a tooltip; Cancel only where the list allows", () => {
+test("native actions: each keeps its gating; Mark complete / Reopen (round 29); Cancel only where the list allows", () => {
   const m = nativeOrderPage(native(), { jobsCalendar: true, doFirst: true });
   const a = Object.fromEntries(m.actions.map((x) => [x.key, x]));
   assert.equal(a["create-invoice"].show, true);
@@ -156,10 +156,10 @@ test("native actions: each keeps its gating; Mark complete shows greyed with a t
   assert.equal(a["service-report"].show, true);
   assert.deepEqual([a["send-report"].show, a["send-report"].disabled, a["send-report"].primary], [true, false, true], "next step: Send service report");
   assert.equal(a["link-document"].show, true);
-  assert.deepEqual([a["mark-complete"].show, a["mark-complete"].disabled, a["mark-complete"].tip], [true, true, "Only imported orders can be marked complete for now"]);
+  assert.deepEqual([a["mark-complete"].show, a["mark-complete"].disabled, a["mark-complete"].label, a["mark-complete"].mode], [true, false, "Mark complete", "complete"]);
   assert.equal(a["cancel-order"].show, false, "an invoiced order cannot be cancelled");
-  assert.deepEqual(m.linkTypes, ["INVOICE", "SERVICE_REPORT"], "manual flow: an invoice made elsewhere can be linked");
-  assert.deepEqual(nativeOrderPage(native({ manualFlow: false }), {}).linkTypes, ["SERVICE_REPORT"], "WCT Racking: service reports only");
+  assert.deepEqual(m.linkTypes, ["QUOTATION", "INVOICE", "DELIVERY_ORDER", "SERVICE_REPORT"], "manual flow: every type (round 29)");
+  assert.deepEqual(nativeOrderPage(native({ manualFlow: false }), {}).linkTypes, ["QUOTATION", "DELIVERY_ORDER", "SERVICE_REPORT"], "WCT Racking: no invoice (its page does not read linked invoices)");
   // Before anything is invoiced: Create invoice from the quotation is the next step; Cancel is offered.
   const fresh = nativeOrderPage(native({ status: "QUOTATION_SIGNED", invoices: [], deliveryOrders: [], jobs: [], jobReports: [], attachments: [] }), { jobsCalendar: false, doFirst: true });
   const f = Object.fromEntries(fresh.actions.map((x) => [x.key, x]));
@@ -169,7 +169,7 @@ test("native actions: each keeps its gating; Mark complete shows greyed with a t
   assert.deepEqual([f["send-report"].disabled, f["send-report"].tip], [true, "Complete or upload a service report first"]);
   // Cancelled: no work actions.
   const c = nativeOrderPage(native({ status: "CANCELLED" }), { jobsCalendar: true });
-  assert.deepEqual(c.actions.filter((x) => x.show).map((x) => x.key), ["service-report", "send-report", "link-document", "mark-complete"]);
+  assert.deepEqual(c.actions.filter((x) => x.show).map((x) => x.key), ["service-report", "send-report", "link-document"], "a cancelled order is never marked complete");
   assert.equal(c.cancelled, true);
 });
 
@@ -401,3 +401,39 @@ test("Guide: every order page anchor the Guide knows is stamped on the page (bot
     assert.ok(!know.includes(`"${gone}"`) && !footer.includes(`"${gone}"`), gone);
   }
 });
+
+test("round 29: an AIMS order marked complete reads Complete, its steps read the status underneath; Reopen in the row; no next step or Cancel", () => {
+  const o = native({ status: "MARKED_COMPLETE", completed: { reason: "Customer closed the job", at: "2026-11-19T08:00:00.000Z", byName: "Finance", underlying: "DO_COMPLETED" }, invoices: [], toInvoiceDos: [] });
+  const m = nativeOrderPage(o, { doFirst: true });
+  assert.deepEqual([m.statusLabel, m.statusHue], ["Complete", "#64748b"]);
+  const a = Object.fromEntries(m.actions.map((x) => [x.key, x]));
+  assert.deepEqual([a["mark-complete"].label, a["mark-complete"].mode, a["mark-complete"].disabled], ["Reopen", "reopen", false]);
+  assert.equal(a["cancel-order"].show, false);
+  assert.equal(m.nextSteps.length, 0);
+  assert.ok(m.actions.every((x) => !x.primary), "no highlighted next step on a complete order");
+  assert.equal(m.cards.find((c) => c.key === "do").done, true, "the DO card ticks from the status underneath (DO completed)");
+  assert.ok(m.cards.every((c) => !c.current));
+  assert.deepEqual(m.extras, [{ key: "completed", label: "Marked complete", value: "Customer closed the job, Finance, 19/11/2026" }]);
+  // Same structure as any order.
+  assert.deepEqual(m.actions.map((x) => x.key), ORDER_ACTION_KEYS);
+  assert.deepEqual(m.cards.map((c) => c.key), ORDER_CARD_KEYS);
+});
+
+test("round 29: linked quotations and DOs on an AIMS order: Quotation card + Documents rows with Unlink from order; a linked DO has no DO menu", () => {
+  const o = native({
+    quotations: [{ id: "q9", name: "QO202611-0050", type: "QUOTATION", status: "confirmed", templateId: "tq", date: "2026-11-15", total: 1090, unlinkable: true, linked: { at: "x", byName: "Finance" } }],
+    deliveryOrders: [...native().deliveryOrders, { id: "d9", name: "DO202611050", status: "draft", templateId: "td", completed: false, awaitingSignature: false, jobs: [], linkedOnly: true, linked: { at: "x", byName: "Finance" } }],
+  });
+  const m = nativeOrderPage(o, { doFirst: true });
+  assert.deepEqual(m.cards[0].docs.map((d) => d.label), ["QO202611-0049", "QO202611-0050"]);
+  const lq = m.documents.find((r) => r.number === "QO202611-0050");
+  assert.deepEqual([lq.type, lq.by, lq.amount, lq.status, canUnlinkRow(lq)], ["Quotation", "Linked by Finance", 1090, "Confirmed", true]);
+  assert.deepEqual(lq.unlink, { type: "QUOTATION", id: "q9", name: "QO202611-0050" });
+  const ld = m.documents.find((r) => r.number === "DO202611050");
+  assert.deepEqual([ld.by, ld.doId, ld.unlink, ld.deletePath], ["Linked by Finance", undefined, { type: "DELIVERY_ORDER", id: "d9", name: "DO202611050" }, "/documents/delete/d9"]);
+  assert.deepEqual(docRowMenu(ld, { manualFlow: true }), ["open", "unlink", "delete"]);
+  // The order's own DO keeps its DO menu and stays "Made on this order".
+  const own = m.documents.find((r) => r.number === "DO202611023");
+  assert.deepEqual([docRowMenu(own, { manualFlow: true })[0], own.unlinkBlocked], ["do-menu", UNLINK_BLOCKED.madeOnOrder]);
+});
+
