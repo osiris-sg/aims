@@ -1,0 +1,103 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// Fixtures for /preview/wct-order (round 24, 2026-11-19: one order page for AIMS and imported orders). Hand-built in the
+// shape GET /orders/:id returns, from realistic dev data; no API, no sign-in.
+
+/** An AIMS order on the manual flow: 1 of 2 units invoiced and paid, its DO completed (job #7), a second DO drafted. */
+export const nativeOrder = (manual: boolean): any => ({
+  id: "o1",
+  orderNumber: "ORD202611-021",
+  status: manual ? "DO_COMPLETED" : "COMPLETED",
+  createdAt: "2026-11-10T01:00:00.000Z",
+  customer: { id: "c1", name: "Ajiya Okonomiyaki Restaurant", customerCode: "A001", address: "E!Avenue #02-346", email: "ops@example.com" },
+  subject: "Kitchen exhaust hood cleaning",
+  sourceQuotation: { id: "q1", name: "QO202611-0026", status: "confirmed", type: "QUOTATION", documentTemplateId: "t1", date: "2026-11-09", total: 1744 },
+  statusDates: { QUOTATION_SIGNED: "2026-11-10T01:00:00.000Z", DO_COMPLETED: "2026-11-14T06:00:00.000Z" },
+  manualFlow: manual,
+  invoicing: true,
+  invoices: [
+    { id: "i1", name: "INV202611-0012", status: "paid", href: "#", total: 872, gross: 872, owed: 0, paid: 872, date: "2026-11-11", jobNumbers: [], emailed: true, unlinkable: false },
+  ],
+  toInvoice: [],
+  toInvoiceDos: [],
+  deliveryOrders: [
+    { id: "d1", name: "DO202611021", status: "delivered_installed", templateId: "t2", date: "2026-11-14", completed: true, awaitingSignature: false, invoiceId: "i1", hasProducts: false, jobs: [{ id: "j1", deliveryNumber: 7, status: "completed", isDraft: false }] },
+    { id: "d2", name: "DO202611024", status: "draft", templateId: "t2", date: "2026-11-18", completed: false, awaitingSignature: false, invoiceId: null, hasProducts: false, jobs: [] },
+  ],
+  jobs: [
+    { id: "j1", deliveryNumber: 7, status: "completed", isDraft: false, scheduledFor: "2026-11-14T02:00:00.000Z", completedAt: "2026-11-14T06:00:00.000Z", siteAddress: "E!Avenue #02-346", rider: null, worker: null, deliveryOrder: { id: "d1", name: "DO202611021", status: "delivered_installed", templateId: "t2", tag: "Completed" } },
+  ],
+  jobReports: [{ id: "r1", reportNumber: 12, status: "completed", jobNumber: 7, uploaded: false, sentAt: null, date: "2026-11-14", photosFile: true }],
+  attachments: [{ id: "a1", kind: "file", fileKey: "orders/o1/signed-do.pdf", fileName: "signed-do.pdf", label: "Service report", addedAt: "2026-11-14T07:00:00.000Z", addedByName: "Finance" }],
+  prefill: { siteAddress: "E!Avenue #02-346", lines: [] },
+  summary: {
+    quoteTotal: 1744,
+    billed: 872,
+    billedPct: 50,
+    owed: 0,
+    billingSteps: [{ label: "1 of 2", state: "Paid" }],
+    progress: { billed: 1, quoted: 2 },
+    remaining: { matched: true, remainingNet: 800, remainingGross: 872, lines: [{ description: "Kitchen exhaust hood and ducting cleaning", quantity: 1, unitPrice: 800, amount: 800, quotedQty: 2, billedQty: 1, priced: true }] },
+  },
+  supplierInvoices: { rows: [{ id: "b1", billNumber: "SIN-2026-0311", supplierName: "Clean Air Supplies Pte Ltd", billDate: "2026-11-13", quotationAmount: 180, totalAmount: 420, currency: "SGD", void: false }], total: 180 },
+});
+
+/** An imported order (ORD-Q-014154, Bar Roque Grill): 1 of 2 billed and paid, a draft I-014521-02 for the rest. */
+export const importedOrder = (): any => ({
+  id: "o2",
+  orderNumber: "ORD-Q-014154",
+  status: "PART_BILLED",
+  statusLabel: "Part billed",
+  imported: true,
+  readOnly: false,
+  createdAt: "2025-01-05T00:00:00.000Z",
+  customer: { id: "c2", name: "Bar Roque Grill", customerCode: "B012", address: "165 Tanjong Pagar Road", email: null },
+  subject: "Kitchen exhaust degreasing, maintenance agreement",
+  sourceQuotation: { id: "q2", name: "Q-014154", status: "confirmed", type: "QUOTATION", documentTemplateId: "t1", date: "2025-01-05", total: 2616 },
+  quotations: [],
+  tracker: [
+    { key: "quotation", label: "Quotation", state: "done" },
+    { key: "invoice", label: "Invoice", state: "done", note: "Part billed" },
+    { key: "do", label: "DO", state: "todo", note: "Not yet", subNote: "ERP DO DO011764", action: "addDo" },
+    { key: "serviceReport", label: "Service report", state: "todo", note: "Not yet", action: "addServiceReport" },
+  ],
+  invoices: [
+    { id: "i3", name: "I-014521", type: "INVOICE", status: "paid", templateId: "t3", date: "2025-01-10", total: 1308, owed: 0, paid: 1308, credit: 0, state: "PAID", stateLabel: "Paid", native: false, linkSource: "erp_quotation_link", erpDoNumber: "DO011764", unlinkable: true, linked: null },
+    { id: "i4", name: "I-014521-02", type: "INVOICE", status: "draft", templateId: "t3", date: "2026-11-19", total: 1308, owed: 1308, paid: 0, credit: 0, state: "UNPAID", stateLabel: "Draft", native: true, linkSource: null, erpDoNumber: null, unlinkable: false, linked: null },
+  ],
+  creditNotes: [],
+  total: 2616,
+  owed: 0,
+  billed: 1308,
+  billedPct: 50,
+  quoteTotal: 2616,
+  credited: 0,
+  completed: null,
+  billingSteps: [{ label: "1 of 2", state: "Paid" }, { label: "2 of 2", state: "Draft" }],
+  progress: { billed: 1, quoted: 2 },
+  remaining: {
+    matched: true,
+    reason: null,
+    remainingNet: 1200,
+    remainingGross: 1308,
+    lines: [
+      { description: "Maintenance agreement of 2 times per year package", quantity: 1, unitPrice: 1200, amount: 1200, quotedQty: 2, billedQty: 1, priced: true },
+      { description: "G- Provide tools", quantity: 1, unitPrice: 0, amount: 0, quotedQty: null, billedQty: null, priced: false },
+    ],
+  },
+  suggestedInvoiceNumber: "I-014521-03",
+  invoiceLines: [],
+  draftInvoice: { id: "i4", name: "I-014521-02", templateId: "t3" },
+  canInvoice: false,
+  canComplete: true,
+  canReopen: false,
+  canLink: true,
+  deliveryOrders: [],
+  linkedDos: [],
+  jobs: [],
+  jobReports: [],
+  attachments: [],
+  manualFlow: true,
+  prefill: { siteAddress: "165 Tanjong Pagar Road", lines: [] },
+  statusDates: null,
+  supplierInvoices: { rows: [], total: 0 },
+});

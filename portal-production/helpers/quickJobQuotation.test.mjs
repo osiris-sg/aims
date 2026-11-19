@@ -135,8 +135,11 @@ test("wiring: the order page opens the New job dialog with its quotation; the di
   assert.match(dlg, /doId: q\.openDos\.length === 1 \? q\.openDos\[0\]\.id : null/);
   const page = read("app/portal/orders/[id]/WctOrderDetail.tsx");
   assert.match(page, /<QuickJobDialog[\s\S]*withQuotation[\s\S]*initialQuotationId=\{q\.id\}/);
-  // Manual flow only, with the jobs calendar (the quick-job API's gate); never on a cancelled order.
-  assert.match(page, /onAddJob=\{manualFlow && isJobsCalendarEnabled && q && order\.status !== "CANCELLED"/);
-  const panel = read("app/portal/orders/[id]/OrderHubPanel.tsx");
-  assert.ok(panel.indexOf("            Add DO") < panel.indexOf("            Add job"), "Add job sits next to Add DO by the Documents heading");
+  // Round 24: the actions row's Add job; "quick" (the New job dialog) only on the manual flow with the jobs calendar
+  // and a quotation, never on a cancelled order (helpers/orderPage.ts addJobMode, tested in orderPage.test.mjs).
+  assert.match(page, /if \(a\.mode === "quick"\) setJobOpen\(true\);/);
+  const helper = read("helpers/orderPage.ts");
+  assert.match(helper, /if \(o\.status === "CANCELLED"\) return null;/);
+  assert.match(helper, /if \(ctx\.jobsCalendar && o\.sourceQuotation\) return "quick";/);
+  assert.ok(helper.indexOf('"add-do", "add-job"') > 0, "Add job sits next to Add DO in the actions row");
 });

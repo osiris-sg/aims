@@ -78,12 +78,13 @@ test("imported orders: Part billed and Complete tabs, hues, billed qty", async (
   assert.equal(importedProgress(null), "");
 });
 
-test("imported order page: Create invoice / Mark complete / Reopen act only when the call succeeded", async () => {
+test("order page: Create invoice / Mark complete / Reopen / Cancel act only when the call succeeded", async () => {
   const { readFileSync } = await import("node:fs");
-  const src = readFileSync(new URL("../app/portal/orders/[id]/ImportedOrderDetail.tsx", import.meta.url), "utf8");
-  for (const fn of ["createInvoice", "markComplete", "reopen"]) {
+  // Round 24: one order page for both kinds (WctOrderDetail + OrderPageLayout).
+  const src = readFileSync(new URL("../app/portal/orders/[id]/WctOrderDetail.tsx", import.meta.url), "utf8");
+  for (const fn of ["createInvoice", "invoiceNow", "markComplete", "reopen", "cancelOrder", "unlink", "deleteDoc"]) {
     const body = src.slice(src.indexOf(`const ${fn} = async`), src.indexOf("};", src.indexOf(`const ${fn} = async`)));
-    assert.match(body, /if \(requestFailed\(res\)\) return;/, fn);
+    assert.match(body, /if \(!res \|\| requestFailed\(res\)\) return;/, fn);
   }
   assert.match(src, /invoice-remaining/);
   assert.match(src, /mark-complete/);
@@ -98,64 +99,9 @@ test("imported orders: billed steps line, DO statuses (2026-11-19)", async () =>
 });
 
 // Round 19 (2026-11-19): imported orders open for backfilling: the Documents rows and their menus, the Link dialog.
-import { importedDocRows, invoiceDialogLines, linkOptionState, IMPORTED_LINK_TYPES } from "./importedOrders.ts";
+import { invoiceDialogLines, linkOptionState, IMPORTED_LINK_TYPES } from "./importedOrders.ts";
 
-const r19 = {
-  id: "o1",
-  orderNumber: "ORD-Q-014154",
-  status: "PAID",
-  imported: true,
-  createdAt: "2026-01-01",
-  tracker: [],
-  total: 2616,
-  owed: 0,
-  sourceQuotation: { id: "q1", name: "Q-014154", type: "QUOTATION", documentTemplateId: "tq", total: 2616 },
-  quotations: [{ id: "q2", name: "QO202611-0050", type: "QUOTATION", templateId: "tq", total: 1090, unlinkable: true, linked: { at: "x", byName: "Finance" } }],
-  invoices: [
-    { id: "i1", name: "I-014521", templateId: "ti", total: 1308, owed: 0, state: "PAID", stateLabel: "Paid", linkSource: "contract_no", unlinkable: true },
-    { id: "i2", name: "INV202611-0100", templateId: "ti", total: 1308, owed: 1308, state: "UNPAID", stateLabel: "Draft", native: true, unlinkable: false },
-  ],
-  creditNotes: [],
-  deliveryOrders: [{ id: "d1", name: "DO202611070", status: "draft", templateId: "td", completed: false, awaitingSignature: false, jobs: [] }],
-  linkedDos: [{ id: "d0", name: "DO012528", templateId: "td", done: true, imported: true, unlinkable: true, linked: null }],
-  jobs: [{ id: "j1", deliveryNumber: 12, status: "scheduled", isDraft: true, scheduledFor: null }],
-  jobReports: [{ id: "r1", reportNumber: 7, status: "completed", jobNumber: 12 }],
-  attachments: [
-    { id: "a1", kind: "report", reportId: "r1", report: { reportNumber: 7, status: "completed" } },
-    { id: "a2", kind: "report", reportId: "r2", report: { reportNumber: 9, status: "draft" } },
-    { id: "a3", kind: "file", fileKey: "k", fileName: "signed.pdf" },
-  ],
-};
-
-test("round 19: Documents rows in order, each with what its menu can do", () => {
-  const rows = importedDocRows(r19);
-  assert.deepEqual(rows.map((r) => [r.kind, r.label]), [
-    ["quotation", "Quotation Q-014154"],
-    ["linkedQuotation", "Quotation QO202611-0050"],
-    ["invoice", "Invoice I-014521"],
-    ["invoice", "Invoice INV202611-0100"],
-    ["do", "DO DO202611070"],
-    ["linkedDo", "DO DO012528"],
-    ["job", "Job #12"],
-    ["report", "Service report #7"],
-    ["report", "Service report #9"],
-    ["file", "signed.pdf"],
-  ]);
-  // The order's own quotation and an invoice made on the order: no Unlink.
-  assert.equal(rows[0].unlink, undefined);
-  assert.equal(rows[3].unlink, null);
-  assert.deepEqual(rows[1].unlink, { type: "QUOTATION", id: "q2", name: "QO202611-0050" });
-  assert.equal(rows[1].by, "Linked by Finance");
-  assert.deepEqual(rows[2].unlink, { type: "INVOICE", id: "i1", name: "I-014521" });
-  assert.equal(rows[2].by, "ERP contract no.");
-  assert.equal(rows[4].doId, "d1");
-  assert.deepEqual(rows[5].unlink, { type: "DELIVERY_ORDER", id: "d0", name: "DO012528" });
-  assert.equal(rows[5].href, "/portal/documents/DELIVERY_ORDER/td/d0");
-  // A linked report already listed as a job report is not repeated; a linked one is unlinkable; a file is removable.
-  assert.deepEqual(rows[8].unlink, { type: "SERVICE_REPORT", id: "r2", name: "Service report #9" });
-  assert.equal(rows[9].attachmentId, "a3");
-  assert.equal(rows[6].href, "/portal/deliveries/j1");
-});
+// The Documents rows (and their menus) are tested on the one order page model: orderPage.test.mjs (round 24).
 
 test("round 19: Link dialog options and Create invoice lines", () => {
   assert.deepEqual(IMPORTED_LINK_TYPES.map((t) => t.key), ["QUOTATION", "INVOICE", "DELIVERY_ORDER", "SERVICE_REPORT"]);
@@ -165,12 +111,4 @@ test("round 19: Link dialog options and Create invoice lines", () => {
   assert.deepEqual(invoiceDialogLines({ invoiceLines: [{ description: "MA", quantity: 2, unitPrice: 1200, amount: 2400, priced: true }] }), [{ description: "MA", quantity: "2", unitPrice: "1200", priced: true }]);
   assert.deepEqual(invoiceDialogLines({ remaining: { lines: [{ description: "Left", quantity: 1, unitPrice: 5, amount: 5, priced: true }] } }), [{ description: "Left", quantity: "1", unitPrice: "5", priced: true }]);
   assert.deepEqual(invoiceDialogLines({}), [{ description: "", quantity: "1", unitPrice: "0", priced: true }]);
-});
-
-test("imported order tracker cards: open the first document, else the add action (2026-11-19)", async () => {
-  const { trackerCardClick } = await import("./importedOrders.ts");
-  assert.deepEqual(trackerCardClick({ docs: [{ label: "DO012538", href: "/portal/documents/DELIVERY_ORDER/t1/d1" }], action: null }), { href: "/portal/documents/DELIVERY_ORDER/t1/d1" });
-  assert.deepEqual(trackerCardClick({ docs: [], action: "addDo" }), { action: "addDo" });
-  assert.deepEqual(trackerCardClick({ action: "addServiceReport" }), { action: "addServiceReport" });
-  assert.equal(trackerCardClick({ docs: [{ label: "x", href: null }] }), null);
 });

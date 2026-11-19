@@ -161,7 +161,7 @@ export function hubRowActions(status: string | null | undefined, opts: { doFirst
  * one (Send invoice beside Confirm invoice). null = no button: "Completed" for a
  * finished order, nothing for a cancelled one.
  */
-export function hubNextStep(o: { status?: string | null; invoices?: unknown[]; serviceReportReady?: boolean; doFirst?: boolean; awaitingDo?: boolean }): { primary: HubActionKey; secondary?: HubActionKey; label?: string } | null {
+export function hubNextStep(o: { status?: string | null; invoices?: unknown[]; serviceReportReady?: boolean; doFirst?: boolean; awaitingDo?: boolean; manualFlow?: boolean }): { primary: HubActionKey; secondary?: HubActionKey; label?: string } | null {
   switch (hubStatus(o.status)) {
     case "QUOTATION_SIGNED":
       // Manual flow: no DO yet (disableAutoDraftDo, 2026-11-19); "Add DO" sits by the Documents heading.
@@ -182,6 +182,9 @@ export function hubNextStep(o: { status?: string | null; invoices?: unknown[]; s
     case "INVOICED_DO_PENDING":
       return o.doFirst ? null : { primary: "view-do" };
     case "DO_COMPLETED":
+      // Manual flow (2026-11-19): always Create invoice (invoice made first + a DO with extra lines completed: the
+      // extras need a new invoice; "Open draft invoice" opened the first one).
+      if (o.manualFlow) return { primary: "create-invoice" };
       return (o.invoices?.length ?? 0) > 0 ? { primary: "view-invoice", label: "Open draft invoice" } : { primary: "create-invoice" };
     case "INVOICE_DRAFT":
       return o.doFirst ? { primary: "send-invoice" } : { primary: "confirm-invoice", secondary: "send-invoice" };

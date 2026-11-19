@@ -2,48 +2,18 @@
 
 import { useAppBack } from "@/app/portal/hooks/useAppBack";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
+import { requestFailed } from "@/helpers/requestOutcome";
 import { toast } from "react-toastify";
 import MainCard from "@/components/MainCard";
-import DoStatusTag from "@/components/DoStatusTag";
-import StatusPill from "../_components/StatusPill";
-import ImportedOrderDetail from "./ImportedOrderDetail";
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  IconButton,
-  Menu,
-  MenuItem,
-  Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Tooltip,
-  Typography,
-} from "@mui/material";
-import AddIcon from "@mui/icons-material/Add";
-import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import MoreVertIcon from "@mui/icons-material/MoreVert";
-import moment from "moment";
+import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, ListItemText, Menu, MenuItem, Tooltip } from "@mui/material";
 import ScheduleDeliveryDialog from "@/app/portal/deliveries/_components/ScheduleDeliveryDialog";
-import { addJobPrefill, fmtJobWhen, invoiceNowText, jobStatusColor, jobStatusLabel, orderStatusColor, orderStatusLabel, type PrefillLine } from "@/helpers/wctOrders";
-import { Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, List, ListItemButton, ListItemText, TextField } from "@mui/material";
+import { addJobPrefill, type OrderAttachment, type PrefillLine } from "@/helpers/wctOrders";
 import { uploadFile, publicFileUrl } from "@/helpers/fileUploader";
-import { attachmentLine, type OrderAttachment, type ReportOption } from "@/helpers/wctOrders";
-import { OrderJobPhotos } from "@/components/delivery/JobPhotos";
 import SendServiceReportDialog from "@/components/orders/SendServiceReportDialog";
-import OrderHubPanel from "./OrderHubPanel";
 import { OrderDoMenu, useAddDo, type OrderDo } from "./OrderDosSection";
 import OfficeCompleteJobDialog from "@/components/delivery/OfficeCompleteJobDialog";
 import CustomerSignLink from "@/components/delivery/CustomerSignLink";
@@ -51,12 +21,17 @@ import QuickJobDialog from "@/components/Dashboard/jobs-calendar/QuickJobDialog"
 import { linkedToast } from "@/helpers/quickJobQuotation";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { ORDER_FILE_ACCEPT, orderUploadTip, serviceReportFlowHref, serviceReportMenuItems, type ServiceReportPrefill } from "@/helpers/serviceReportFlow";
-import { hubActionTarget, hubStatusInfo, type HubActionKey } from "@/helpers/wctOrderHub";
+import { hubActionTarget, type HubActionKey } from "@/helpers/wctOrderHub";
+import { invoiceDialogLines, type ImportedLinkType } from "@/helpers/importedOrders";
+import { canUnlinkRow, docRowMenu, nativeInvoiceAsk, orderPageModel, type OrderAction, type OrderCard, type OrderDocRow } from "@/helpers/orderPage";
+import OrderPageLayout from "./OrderPageLayout";
+import { CancelOrderDialog, ConfirmRowDialog, ImportedInvoiceDialog, LinkDocumentDialog, MarkCompleteDialog, type InvoiceLineDraft } from "./OrderPageDialogs";
 
-// WCT order page (enableWctOrders, 2026-11-01): the order header, its jobs
-// (Delivery runs), and "Add job", which opens the usual schedule dialog
-// pre-filled with the customer, the site and the quotation's lines (SiteClock
-// worker + duration as on any schedule). A row opens the job; the kebab has the DO.
+// WCT order page (enableWctOrders). Round 24 (2026-11-19): ONE layout for AIMS (native) and imported orders
+// (OrderPageLayout, fed by helpers/orderPage.ts): the numbered tracker cards, the summary row, one actions row
+// (Create invoice, Add DO, Add job, Service report, Send service report, Link existing document, Mark complete /
+// Reopen, Cancel order where allowed), one Documents table, Left to bill, then Supplier invoices and Photos
+// (collapsed). This page owns the data, the dialogs and every call; each action keeps its own gating.
 interface Job {
   id: string;
   deliveryNumber: number;
@@ -85,6 +60,10 @@ interface OrderInvoice {
   extra?: boolean;
   /** Made from the quotation before any DO was done. */
   fromQuotation?: boolean;
+  /** Round 24: the Documents row (gross with GST, owed once confirmed, the invoice date). */
+  gross?: number;
+  owed?: number | null;
+  date?: string | null;
 }
 export interface WctOrder {
   id: string;
@@ -92,7 +71,7 @@ export interface WctOrder {
   status: string;
   createdAt: string;
   customer: { id: string; name: string; customerCode: string | null; address: string | null } | null;
-  sourceQuotation: { id: string; name: string; status: string; type: string; documentTemplateId: string } | null;
+  sourceQuotation: { id: string; name: string; status: string; type: string; documentTemplateId: string; date?: string | null; total?: number | null } | null;
   jobs: Job[];
   prefill: { siteAddress: string | null; lines: PrefillLine[] };
   // WCT invoice per order (enableWctOrderInvoice)
@@ -106,58 +85,45 @@ export interface WctOrder {
   supplierInvoices?: { rows: Array<{ id: string; billNumber: string; supplierName: string | null; billDate: string | null; quotationAmount?: number; totalAmount: number; currency: string; void: boolean }>; total: number };
 }
 
-const INVOICE_STATUS: Record<string, string> = { draft: "Draft", unconfirmed: "Draft", confirmed: "Confirmed", pending_payment: "Confirmed, awaiting payment", paid: "Paid" };
-// "Sent" only when the invoice was actually emailed (the API's `emailed`).
-const invoiceStatusLabel = (inv: { status: string; emailed?: boolean; extra?: boolean; cancelled?: boolean }) => {
-  // Voided with the cancelled order (2026-11-17).
-  if (inv.cancelled) return "Voided";
-  const base = inv.status === "pending_payment" && inv.emailed ? "Sent, awaiting payment" : INVOICE_STATUS[inv.status] ?? inv.status;
-  // An invoice for lines added to a DO on top of the quotation (2026-11-16).
-  if (!inv.extra) return base;
-  return inv.status === "draft" || inv.status === "unconfirmed" ? "Extra invoice draft" : `Extra invoice, ${base.charAt(0).toLowerCase()}${base.slice(1)}`;
-};
-
-const doHref = (d: NonNullable<Job["deliveryOrder"]>) => `/portal/documents/DELIVERY_ORDER/${d.templateId}/${d.id}`;
+type Pos = { left: number; top: number };
 
 /** fixture: /preview/wct-order only (screenshots without sign-in); the page itself always fetches. */
-export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: WctOrder }) {
+export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: WctOrder | Record<string, any> }) {
   const router = useRouter();
   const { goBack } = useAppBack();
   const { organization } = useOrganization();
   const { getToken } = useAuth();
-  const [order, setOrder] = useState<WctOrder | null>(fixture ?? null);
+  const [order, setOrder] = useState<WctOrder | null>((fixture as WctOrder) ?? null);
   const [loading, setLoading] = useState(!fixture);
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
-  const [menu, setMenu] = useState<{ pos: { left: number; top: number }; job: Job } | null>(null);
   const [invoiceAsk, setInvoiceAsk] = useState(false);
-  const [invoicing, setInvoicing] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   const [actionInfo, setActionInfo] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [linkOpen, setLinkOpen] = useState(false);
-  const [reportNo, setReportNo] = useState("");
-  const [options, setOptions] = useState<ReportOption[] | null>(null);
-  const [attMenu, setAttMenu] = useState<{ pos: { left: number; top: number }; att: OrderAttachment } | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [sendReportOpen, setSendReportOpen] = useState(false);
-  // Manual order flow (2026-11-13): "Add service report" = a small Create new / Upload file menu at the click,
-  // each going to the Service Reports page's own flow with the customer + DO prefilled (no dialog here).
-  // Round 12 (2026-11-19): one "Service report" button for every order; its menu also holds Link existing.
-  const [srMenu, setSrMenu] = useState<{ pos: { left: number; top: number }; doId: string | null } | null>(null);
-  const addReportBtn = React.useRef<HTMLButtonElement>(null);
-  const openSrMenuAtButton = (doId: string | null = null) => {
-    const r = addReportBtn.current?.getBoundingClientRect();
-    setSrMenu({ pos: r ? { left: r.left, top: r.bottom } : { left: window.innerWidth / 2, top: 120 }, doId });
-  };
-  // DO first (manual flow, 2026-11-13): complete a DO with no job; its sign link; a report for one DO.
+  // One "Service report" menu (round 12): New / Upload file (manual flow) or Upload file, and Link existing; at the click.
+  const [srMenu, setSrMenu] = useState<{ pos: Pos; doId: string | null } | null>(null);
+  // DO first (manual flow, 2026-11-13): complete a DO with no job; its sign link; a DO row's menu.
   const [completeDo, setCompleteDo] = useState<OrderDo | null>(null);
   const [signLinkDo, setSignLinkDo] = useState<OrderDo | null>(null);
-  // Order page cleanup (manual flow, 2026-11-17): DO rows of the Documents list carry this menu; Add DO sits by its heading.
-  const [doMenu, setDoMenu] = useState<{ pos: { left: number; top: number }; d: OrderDo } | null>(null);
-  // Manual flow (2026-11-17): "Add job" by the Documents heading = the calendar's New job, with this order's quotation.
+  const [doMenu, setDoMenu] = useState<{ pos: Pos; d: OrderDo; row: OrderDocRow } | null>(null);
+  // Unlink from order / Delete on a Documents row (Elroy 2026-11-19): asked first, naming the document.
+  const [rowAsk, setRowAsk] = useState<{ kind: "unlink" | "delete"; row: OrderDocRow } | null>(null);
+  const [rowMenu, setRowMenu] = useState<{ pos: Pos; row: OrderDocRow } | null>(null);
+  // Add job = the calendar's New job, with this order's quotation (manual flow + jobs calendar).
   const [jobOpen, setJobOpen] = useState(false);
-  const { isJobsCalendarEnabled } = useOrganizationFeatures();
+  const [linkOpen, setLinkOpen] = useState<ImportedLinkType | null>(null);
+  const [completeOpen, setCompleteOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [cancelAsk, setCancelAsk] = useState(false);
+  const [invOpen, setInvOpen] = useState(false);
+  const [invNumber, setInvNumber] = useState("");
+  const [invLines, setInvLines] = useState<InvoiceLineDraft[]>([]);
+  const { isJobsCalendarEnabled, features } = useOrganizationFeatures();
+  // WCT group soft delete of drafts (enableSoftDeleteDrafts): the number stays as a gap.
+  const softDelete = (features as any)?.enableSoftDeleteDrafts === true;
 
   const load = useCallback(async () => {
     if (fixture || !organization?.id) return;
@@ -178,76 +144,62 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
     load();
   }, [load]);
 
-  // Orders list row menu (?open=…): open this page's own dialog once the order is in.
-  const openedFromList = React.useRef(false);
-  useEffect(() => {
-    if (!order || openedFromList.current || typeof window === "undefined") return;
-    openedFromList.current = true;
-    const open = new URLSearchParams(window.location.search).get("open");
-    if (open === "add-job") setAddOpen(true);
-    else if (open === "create-invoice") setInvoiceAsk(true);
-    else if (open === "send-report") setSendReportOpen(true);
-    else if (open === "service-report") openSrMenuAtButton();
-    else if (open === "complete-do") {
-      const d = ((order as any).deliveryOrders as OrderDo[] | undefined)?.find((x) => !x.completed);
-      if (d) setCompleteDo(d);
-    } else if (open === "sign-link") {
-      const all = ((order as any).deliveryOrders as OrderDo[] | undefined) ?? [];
-      const d = all.find((x) => x.awaitingSignature && !x.jobs.length) ?? all.find((x) => !x.completed);
-      if (d) setSignLinkDo(d);
-    }
-  }, [order]);
-
-  /** POST + reload; the error shows inline. */
-  const post = async (path: string, body: any) => {
+  /** POST; failures show the portal's error toast. Returns the reply, or null when the call failed. */
+  const post = async (path: string, body: any = {}, what = "save") => {
+    setBusy(what);
     try {
       const token = await getToken();
-      const res = await request({ path, method: "POST", ownError: true }, body, token ?? undefined);
-      if (res?.success === false) throw new Error(res?.message || "Could not save");
-      await load();
-      return true;
-    } catch (e: any) {
-      setActionError(e?.message || "Could not save");
-      return false;
-    }
-  };
-
-  const uploadAttachment = async (file?: File) => {
-    if (!file || !order) return;
-    setUploading(true);
-    try {
-      const token = await getToken();
-      if (!token) throw new Error("Not signed in");
-      const meta = await uploadFile({ file, folder: `orders/${order.id}`, token });
-      await post(`/orders/${order.id}/attachments`, { kind: "file", fileKey: meta.fileKey, fileName: meta.fileName, mimeType: meta.mimeType });
-    } catch (e: any) {
-      setActionError(e?.message || "Upload failed");
+      const res: any = await request({ path, method: "POST" }, body, token ?? undefined);
+      return requestFailed(res) ? null : res;
     } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = "";
+      setBusy(null);
     }
-  };
-
-  const loadOptions = async (number?: string) => {
-    if (!order) return;
-    setOptions(null);
-    try {
-      const token = await getToken();
-      const res = await request({ path: `/orders/${order.id}/report-options${number ? `?number=${encodeURIComponent(number)}` : ""}`, method: "GET" }, {}, token ?? undefined);
-      setOptions(Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : []);
-    } catch {
-      setOptions([]);
-    }
-  };
-  const openLink = async () => {
-    setReportNo("");
-    setLinkOpen(true);
-    await loadOptions();
   };
 
   const { addDo, adding: addingDo } = useAddDo(id, () => load());
   // Memoised: the dialog re-applies its prefill whenever this object changes.
   const prefill = useMemo(() => (order ? addJobPrefill(order) : null), [order]);
+
+  const o: any = order;
+  const liveJobs = (order?.jobs ?? []).filter((j) => j.status !== "cancelled");
+  // DO first: the order's DOs; the first one completable on its own (no job, no product line).
+  const dos: OrderDo[] = (order as any)?.deliveryOrders ?? [];
+  const manualFlow = !!(order as any)?.manualFlow;
+  // An order with no DO and no job yet (disableAutoDraftDo, 2026-11-19: signing made no DO) is DO first too.
+  const doFirst = manualFlow && (dos.length > 0 || !liveJobs.length);
+  const model = useMemo(() => (order ? orderPageModel(order, { jobsCalendar: !!isJobsCalendarEnabled, doFirst }) : null), [order, isJobsCalendarEnabled, doFirst]);
+  const imported = o?.imported === true;
+
+  const openSrMenuAtButton = (doId: string | null = null) => {
+    const r = typeof document !== "undefined" ? document.querySelector('[data-action="service-report"]')?.getBoundingClientRect() : null;
+    setSrMenu({ pos: r ? { left: r.left, top: r.bottom } : { left: window.innerWidth / 2, top: 120 }, doId });
+  };
+
+  // Orders list row menu (?open=…): open this page's own dialog once the order is in.
+  const openedFromList = React.useRef(false);
+  useEffect(() => {
+    if (!order || !model || openedFromList.current || typeof window === "undefined") return;
+    openedFromList.current = true;
+    const open = new URLSearchParams(window.location.search).get("open");
+    const act = (k: OrderAction["key"]) => model.actions.find((a) => a.key === k && a.show && !a.disabled);
+    if (open === "add-job") {
+      const a = act("add-job");
+      if (a) runAction(a);
+      else setAddOpen(true);
+    } else if (open === "create-invoice") {
+      const a = act("create-invoice");
+      if (a) runAction(a);
+    } else if (open === "send-report") setSendReportOpen(true);
+    else if (open === "service-report") openSrMenuAtButton();
+    else if (open === "complete-do") {
+      const d = dos.find((x) => !x.completed);
+      if (d) setCompleteDo(d);
+    } else if (open === "sign-link") {
+      const d = dos.find((x) => x.awaitingSignature && !x.jobs.length) ?? dos.find((x) => !x.completed);
+      if (d) setSignLinkDo(d);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order, model]);
 
   if (loading) {
     return (
@@ -256,7 +208,7 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
       </Box>
     );
   }
-  if (error || !order) {
+  if (error || !order || !model) {
     return (
       <MainCard>
         <Alert severity="error">{error || "Order not found"}</Alert>
@@ -264,40 +216,188 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
     );
   }
 
-  // Imported from the old ERP (enableImportedOrders): read-only, no DO / job / service report.
-  if ((order as any).imported === true) return <ImportedOrderDetail order={order as any} onBack={() => goBack("/portal/orders")} onChanged={() => void load()} />;
   const q = order.sourceQuotation;
-  // Service reports: the order's job reports, and the linked / uploaded ones not already among them.
-  const jobReports: Array<{ id: string; reportNumber: number | null; status: string; jobNumber: number | null; uploaded: boolean; sentAt: string | null }> = (order as any).jobReports ?? [];
-  const jobReportIds = new Set(jobReports.map((r) => r.id));
-  const otherAttachments = (order.attachments ?? []).filter((a) => !(a.kind === "report" && a.reportId && jobReportIds.has(a.reportId)));
-  const canSendReport =
-    jobReports.some((r) => r.status === "completed") || (order.attachments ?? []).some((a: any) => a.kind === "report" && a.report?.status === "completed");
-  // Orders hub (2026-11-13): the tracker's next-step button reuses the existing screens and dialogs.
-  const liveJobs = order.jobs.filter((j) => j.status !== "cancelled");
-  // DO first: the order's DOs; the first one completable on its own (no job, no product line).
-  const dos: OrderDo[] = (order as any).deliveryOrders ?? [];
-  const manualFlow = !!(order as any).manualFlow;
-  // An order with no DO and no job yet (disableAutoDraftDo, 2026-11-19: signing made no DO) is DO first too.
-  const doFirst = manualFlow && (dos.length > 0 || !liveJobs.length);
-  // Invoice first (2026-11-16): on the manual flow, an order with no invoice and nothing completed yet is invoiced from its quotation.
-  const invoiceFromQuotation =
-    !!(order as any).manualFlow && order.status !== "CANCELLED" && !(order.invoices?.length ?? 0) && !order.toInvoice?.length && !(order as any).toInvoiceDos?.length;
   // Complete DO works on any open DO, with or without a job (the server takes the job's way when it has one).
   const openDo = dos.find((d) => !d.completed) ?? null;
   const awaitingDo = dos.find((d) => d.awaitingSignature && !d.jobs.length) ?? null;
-  const addJobForDo = async (d: OrderDo) => {
+
+  const addJobForDo = async (d: OrderDo | undefined) => {
+    if (!d) return;
+    const res: any = await post(`/deliveries/order-dos/${d.id}/job`, {}, "add-job");
+    const r = res?.data ?? res;
+    if (r?.id) router.push(`/portal/deliveries/${r.id}?open=schedule`);
+  };
+
+  const uploadAttachment = async (file?: File) => {
+    if (!file) return;
+    setUploading(true);
     try {
       const token = await getToken();
-      const res: any = await request({ path: `/deliveries/order-dos/${d.id}/job`, method: "POST", ownError: true }, {}, token ?? undefined);
-      if (res?.success === false) throw new Error(res?.message || "Could not add the job");
-      const r = res?.data ?? res;
-      if (r?.id) router.push(`/portal/deliveries/${r.id}?open=schedule`);
+      if (!token) throw new Error("Not signed in");
+      const meta = await uploadFile({ file, folder: `orders/${order.id}`, token });
+      if (await post(`/orders/${order.id}/attachments`, { kind: "file", fileKey: meta.fileKey, fileName: meta.fileName, mimeType: meta.mimeType })) await load();
     } catch (e: any) {
-      setActionError(e?.message || "Could not add the job");
+      toast.error(e?.message || "Upload failed");
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
     }
   };
-  const runHub = (key: HubActionKey, pos?: { left: number; top: number }) => {
+
+  // ── Create invoice: AIMS orders = Invoice now / from the quotation; imported orders = number + lines dialog ──
+  const openInvoiceDialog = () => {
+    setInvNumber(o.suggestedInvoiceNumber ?? "");
+    setInvLines(invoiceDialogLines(o));
+    setInvOpen(true);
+  };
+  const createInvoice = async () => {
+    const res: any = await post(`/orders/${order.id}/invoice-remaining`, {
+      number: invNumber.trim() || null,
+      lines: invLines.map((l) => ({ description: l.description.trim(), quantity: Number(l.quantity), unitPrice: Number(l.unitPrice) })),
+    }, "create-invoice");
+    if (!res || requestFailed(res)) return;
+    setInvOpen(false);
+    const href = res?.data?.href ?? res?.href;
+    if (href) router.push(href);
+    else void load();
+  };
+  const invoiceNow = async () => {
+    const res: any = await post(`/orders/${order.id}/invoice-now`, {}, "create-invoice");
+    if (!res || requestFailed(res)) return;
+    setInvoiceAsk(false);
+    const out = res?.data ?? res;
+    // The order already has its invoice (made at signing, 2026-11-17): open it, never a second one.
+    if (out?.existing && out.href) {
+      router.push(out.href);
+      return;
+    }
+    // The quotation was already billed and the jobs added nothing on top: no new invoice.
+    if (out?.covered) setActionInfo(`No new invoice: nothing was added on top of the quotation, so job${(out.jobNumbers?.length ?? 0) === 1 ? "" : "s"} ${(out.jobNumbers ?? []).map((n: number) => `#${n}`).join(", ")} ${(out.jobNumbers?.length ?? 0) === 1 ? "is" : "are"} covered by ${out.name || "the order's invoice"}.`);
+    await load();
+  };
+
+  // ── Imported orders: Mark complete / Reopen ──
+  const markComplete = async () => {
+    const res: any = await post(`/orders/${order.id}/mark-complete`, { reason: reason.trim() }, "mark-complete");
+    if (!res || requestFailed(res)) return;
+    setCompleteOpen(false);
+    setReason("");
+    void load();
+  };
+  const reopen = async () => {
+    const res: any = await post(`/orders/${order.id}/reopen`, {}, "mark-complete");
+    if (!res || requestFailed(res)) return;
+    void load();
+  };
+
+  // ── AIMS orders: Cancel order (where the Orders list allows it) ──
+  const cancelOrder = async () => {
+    const res: any = await post(`/orders/${order.id}/cancel`, {}, "cancel-order");
+    if (!res || requestFailed(res)) return;
+    setCancelAsk(false);
+    toast.success(`Order ${order.orderNumber} cancelled`);
+    void load();
+  };
+
+  const rowName = (r: OrderDocRow) => (r.kind === "file" ? r.number : `${r.type} ${r.number}`);
+  // Unlink from order: a linked document (unlink-document, same rules on both kinds), or a file (attachments/remove).
+  const unlink = async (r: OrderDocRow) => {
+    const res: any = r.unlink
+      ? await post(`/orders/${order.id}/unlink-document`, { type: r.unlink.type, id: r.unlink.id }, "unlink")
+      : r.attachmentId
+        ? await post(`/orders/${order.id}/attachments/remove`, { id: r.attachmentId }, "unlink")
+        : null;
+    if (!res || requestFailed(res)) return;
+    setRowAsk(null);
+    toast.success(`${rowName(r)} unlinked from ${order.orderNumber}`);
+    void load();
+  };
+  // Delete: an AIMS draft / an unsent service report only (the API refuses anything else; its message shows as the toast).
+  const deleteDoc = async (r: OrderDocRow) => {
+    if (!r.deletePath) return;
+    setBusy("delete");
+    try {
+      const token = await getToken();
+      const res: any = await request({ path: r.deletePath, method: "DELETE" }, {}, token ?? undefined);
+      if (!res || requestFailed(res)) return;
+      setRowAsk(null);
+      toast.success(`${rowName(r)} deleted`);
+      void load();
+    } finally {
+      setBusy(null);
+    }
+  };
+  /** A row's own items (all but the DO menu), each closing the menu first. */
+  const rowItems = (r: OrderDocRow, close: () => void) =>
+    docRowMenu(r, { manualFlow })
+      .filter((k) => k !== "do-menu")
+      .map((k) => {
+        const go = (fn: () => void) => () => {
+          close();
+          fn();
+        };
+        if (k === "open-job") return <MenuItem key={k} onClick={go(() => r.href && router.push(r.href))}>Open job</MenuItem>;
+        if (k === "view-do") return <MenuItem key={k} onClick={go(() => r.jobDoHref && router.push(r.jobDoHref))}>View DO</MenuItem>;
+        if (k === "open") return <MenuItem key={k} onClick={go(() => openRow(r))}>Open</MenuItem>;
+        if (k === "unlink")
+          return canUnlinkRow(r) ? (
+            <MenuItem key={k} sx={{ color: "error.main" }} onClick={go(() => setRowAsk({ kind: "unlink", row: r }))} data-tour="wct-order-unlink">
+              Unlink from order
+            </MenuItem>
+          ) : (
+            <MenuItem key={k} disabled>
+              <ListItemText primary="Unlink from order" secondary={r.unlinkBlocked} />
+            </MenuItem>
+          );
+        return (
+          <MenuItem key={k} sx={{ color: "error.main" }} onClick={go(() => setRowAsk({ kind: "delete", row: r }))} data-tour="wct-order-delete-draft">
+            Delete
+          </MenuItem>
+        );
+      });
+
+  function runAction(a: OrderAction, e?: React.MouseEvent<HTMLElement>) {
+    const pos = e ? { left: e.clientX, top: e.clientY } : null;
+    switch (a.key) {
+      case "create-invoice":
+        if (a.mode === "open-draft" && a.href) router.push(a.href);
+        else if (imported) openInvoiceDialog();
+        else setInvoiceAsk(true);
+        return;
+      case "add-do":
+        void addDo();
+        return;
+      case "add-job":
+        if (a.mode === "quick") setJobOpen(true);
+        else if (a.mode === "do-job") void addJobForDo(openDo ?? undefined);
+        else {
+          // Prefilled with the quoted lines still to deliver (2026-11-13); empty with a note when nothing is left.
+          if (o.prefill?.note) toast.info(`${o.prefill.note} The job starts empty.`);
+          setAddOpen(true);
+        }
+        return;
+      case "service-report":
+        if (pos) setSrMenu({ pos, doId: null });
+        else openSrMenuAtButton();
+        return;
+      case "send-report":
+        setSendReportOpen(true);
+        return;
+      case "link-document":
+        setLinkOpen(model!.linkTypes[0] ?? "SERVICE_REPORT");
+        return;
+      case "mark-complete":
+        if (a.mode === "reopen") void reopen();
+        else setCompleteOpen(true);
+        return;
+      case "cancel-order":
+        setCancelAsk(true);
+        return;
+    }
+  }
+
+  // The native next steps that are not in the actions row (Schedule DO, Complete DO, Confirm invoice…), as before.
+  const runHub = (key: HubActionKey, pos?: Pos) => {
     const draftInvoice = (order.invoices ?? []).find((i: any) => i.status === "draft" || i.status === "unconfirmed");
     const lastInvoice = (order.invoices ?? []).slice(-1)[0];
     const firstDo = liveJobs.find((j) => j.deliveryOrder)?.deliveryOrder;
@@ -314,7 +414,7 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
       draftJobId: liveJobs.find((j) => j.isDraft)?.id ?? null,
       scheduledJobId: liveJobs.find((j) => !j.isDraft && j.status !== "completed")?.id ?? null,
       completedJobId: [...liveJobs].reverse().find((j) => j.status === "completed")?.id ?? null,
-      manualFlow: !!(order as any).manualFlow,
+      manualFlow,
       openDoId: openDo?.id ?? null,
       awaitingDoId: awaitingDo?.id ?? null,
     });
@@ -330,483 +430,125 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
     else if (t.dialog === "complete-do" && openDo) setCompleteDo(openDo);
     else if (t.dialog === "sign-link" && (awaitingDo ?? openDo)) setSignLinkDo((awaitingDo ?? openDo) as OrderDo);
   };
-  // The report's customer and DO, prefilled: the order's customer, the DO of its last finished job (else its first DO).
+
+  const onCard = (c: OrderCard, pos: Pos) => {
+    const click = c.click;
+    if (!click) return;
+    if ("href" in click) router.push(click.href);
+    else if (click.action === "add-do") void addDo();
+    else if (click.action === "service-report") setSrMenu({ pos, doId: null });
+    else {
+      const a = model.actions.find((x) => x.key === "create-invoice");
+      if (a) runAction(a);
+    }
+  };
+
+  const openRow = (r: OrderDocRow) => {
+    if (r.href) router.push(r.href);
+    else if (r.fileKey) window.open(publicFileUrl(r.fileKey), "_blank", "noopener");
+  };
+
+  // A file from the API: the quotation / invoice PDF (a signed URL back), the signed DO or a photos file (the bytes).
+  const openFile = async (r: OrderDocRow) => {
+    if (!r.file) return openRow(r);
+    const tab = window.open("", "_blank");
+    try {
+      const token = await getToken();
+      const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+      const activeOrg = window.sessionStorage.getItem("aims-admin-active-org");
+      if (activeOrg) headers["X-Active-Org-Id"] = activeOrg;
+      const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_API_URL}${r.file.path}`, { headers });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.message || `Could not open the file (${res.status})`);
+      }
+      let url: string;
+      if ((res.headers.get("content-type") || "").includes("application/json")) {
+        const j = await res.json();
+        url = (j?.data ?? j)?.url;
+        if (!url) throw new Error("The file is not available");
+      } else {
+        url = URL.createObjectURL(await res.blob());
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      }
+      if (tab) tab.location.href = url;
+      else window.open(url, "_blank");
+    } catch (e: any) {
+      tab?.close();
+      toast.error(e?.message || "Could not open the file");
+    }
+  };
+
+  const onRowMenu = (row: OrderDocRow, pos: Pos) => {
+    const items = docRowMenu(row, { manualFlow });
+    if (items[0] === "do-menu") {
+      const d = dos.find((x) => x.id === row.doId);
+      if (d) setDoMenu({ pos, d, row });
+      return;
+    }
+    setRowMenu({ pos, row });
+  };
+
+  // The report's customer and DO, prefilled: the order's customer, its last completed DO (else its first DO, a job's DO, a linked DO).
   const srPrefillFor = (doId: string | null): ServiceReportPrefill => ({
     customer: order.customer ? { id: order.customer.id, name: order.customer.name } : null,
     doId:
       doId ??
       ([...dos].reverse().find((d) => d.completed) ?? dos[0])?.id ??
       ([...liveJobs].reverse().find((j) => j.status === "completed" && j.deliveryOrder) ?? liveJobs.find((j) => j.deliveryOrder))?.deliveryOrder?.id ??
+      (o.linkedDos ?? []).find((d: any) => d.id)?.id ??
       null,
   });
+
   return (
-    <MainCard>
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-        <IconButton size="small" onClick={() => goBack("/portal/orders")} aria-label="Back to orders">
-          <ArrowBackIcon fontSize="small" />
-        </IconButton>
-        <Typography variant="caption" color="text.secondary">
-          Orders
-        </Typography>
-      </Stack>
+    <OrderPageLayout
+      model={model}
+      onBack={() => goBack("/portal/orders")}
+      onAction={(a, e) => runAction(a, e)}
+      onNextStep={(k, pos) => runHub(k, pos)}
+      onCard={onCard}
+      onRow={openRow}
+      onRowMenu={onRowMenu}
+      onFile={(r) => void openFile(r)}
+      busy={{ "add-do": addingDo, "service-report": uploading, "create-invoice": busy === "create-invoice", "mark-complete": busy === "mark-complete", "add-job": busy === "add-job" }}
+      photos={!fixture}
+      alerts={
+        actionInfo ? (
+          <Alert severity="info" sx={{ mb: 2 }} onClose={() => setActionInfo(null)}>
+            {actionInfo}
+          </Alert>
+        ) : null
+      }
+    >
+      <input ref={fileRef} type="file" accept={ORDER_FILE_ACCEPT} hidden onChange={(e) => void uploadAttachment(e.target.files?.[0])} />
 
-      <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }} spacing={2} sx={{ mb: 3 }}>
-        <Box>
-          <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
-            <Typography variant="h5" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-              {order.orderNumber}
-            </Typography>
-            <StatusPill label={orderStatusLabel(order.status)} color={orderStatusColor(order.status)} hue={hubStatusInfo(order.status).hue} />
-          </Stack>
-          <Stack direction="row" spacing={3} sx={{ mt: 1 }} flexWrap="wrap" useFlexGap>
-            <Box>
-              <Typography variant="caption" color="text.secondary">
-                Customer
-              </Typography>
-              <Typography variant="body2">{order.customer?.name || "—"}</Typography>
-            </Box>
-            <Box>
-              <Typography variant="caption" color="text.secondary">
-                Quotation
-              </Typography>
-              <Typography variant="body2">
-                {q ? (
-                  <Link href={`/portal/documents/${q.type}/${q.documentTemplateId}/${q.id}`} style={{ color: "inherit" }}>
-                    {q.name}
-                  </Link>
-                ) : (
-                  "—"
-                )}
-              </Typography>
-            </Box>
-            <Box>
-              <Typography variant="caption" color="text.secondary">
-                Created
-              </Typography>
-              <Typography variant="body2">{moment(order.createdAt).format("DD/MM/YYYY")}</Typography>
-            </Box>
-          </Stack>
-        </Box>
-        {/* Hidden on a cancelled order, and when Add job is already the next-step button below. */}
-        {order.status !== "CANCELLED" && order.status !== "QUOTATION_SIGNED" && !doFirst && (
-          <Button
-            variant="outlined"
-            startIcon={<AddIcon />}
-            onClick={() => {
-              // Prefilled with the quoted lines still to deliver (2026-11-13); empty with a note when nothing is left.
-              if ((order as any).prefill?.note) toast.info(`${(order as any).prefill.note} The job starts empty.`);
-              setAddOpen(true);
-            }}
-            data-tour="wct-order-add-job"
-          >
-            Add job
-          </Button>
-        )}
-      </Stack>
+      <Menu anchorReference="anchorPosition" anchorPosition={rowMenu?.pos} open={!!rowMenu} onClose={() => setRowMenu(null)}>
+        {rowMenu ? rowItems(rowMenu.row, () => setRowMenu(null)) : []}
+      </Menu>
 
-      <OrderHubPanel
-        order={order}
-        serviceReportReady={canSendReport}
-        onAction={runHub}
-        doFirst={doFirst}
-        awaitingDo={!!awaitingDo}
-        full={manualFlow}
-        jobLabel={jobStatusLabel}
-        onAddDo={manualFlow && order.status !== "CANCELLED" ? () => void addDo() : undefined}
-        addingDo={addingDo}
-        onDoMenu={(row, pos) => {
-          const d = dos.find((x) => x.id === row.id);
-          if (d) setDoMenu({ pos, d });
-        }}
-        onAddJob={manualFlow && isJobsCalendarEnabled && q && order.status !== "CANCELLED" ? () => setJobOpen(true) : undefined}
-      />
-      {jobOpen && q && (
-        <QuickJobDialog
-          open
-          withQuotation
-          initialQuotationId={q.id}
-          onClose={() => setJobOpen(false)}
-          onSaved={(_id, r) => {
-            setJobOpen(false);
-            toast.success(linkedToast(r, q.name));
-            void load();
-          }}
-        />
-      )}
       <OrderDoMenu
         menu={doMenu}
         onClose={() => setDoMenu(null)}
-        cancelled={order.status === "CANCELLED"}
+        cancelled={model.cancelled}
         onCompleteDo={(d) => setCompleteDo(d)}
         onSignLink={(d) => setSignLinkDo(d)}
+        extra={doMenu ? rowItems(doMenu.row, () => setDoMenu(null)) : []}
       />
-      {completeDo && (
-        <OfficeCompleteJobDialog
-          open
-          onClose={() => setCompleteDo(null)}
-          deliveryId=""
-          doId={completeDo.id}
-          productSlots={(completeDo.products ?? []).map((p) => ({ assetId: p.assetId, name: p.name, quantity: 1 }))}
-          jobLabel={completeDo.name || "the DO"}
-          defaultName={(order as any).customer?.name ?? null}
-          onDone={(mode) => {
-            const d = completeDo;
-            setCompleteDo(null);
-            if (mode === "sign_link") setSignLinkDo(d);
-            void load();
-          }}
-        />
-      )}
-      <Dialog open={!!signLinkDo} onClose={() => setSignLinkDo(null)} fullWidth maxWidth="sm">
-        <DialogTitle>Customer sign link</DialogTitle>
-        <DialogContent>{signLinkDo && <CustomerSignLink documentId={signLinkDo.id} doName={signLinkDo.name} />}</DialogContent>
-        <DialogActions>
-          <Button onClick={() => setSignLinkDo(null)}>Close</Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Manual flow (2026-11-17): jobs are rows of the Documents list above, under their DO. */}
-      {!manualFlow && (
-      <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-        Jobs
-      </Typography>
-      )}
-      {manualFlow ? null : order.jobs.length === 0 ? (
-        <Alert severity="info">{doFirst ? "No jobs. A job is optional: use Add job in a DO's menu for a date or a technician." : "No jobs yet. Use Add job to schedule the first one."}</Alert>
-      ) : (
-        <TableContainer sx={{ border: 1, borderColor: "divider", borderRadius: 1 }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Job</TableCell>
-                <TableCell>When</TableCell>
-                <TableCell>Worker</TableCell>
-                <TableCell>Site</TableCell>
-                <TableCell>DO</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell padding="checkbox" />
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {order.jobs.map((j) => (
-                <TableRow key={j.id} hover sx={{ cursor: "pointer", opacity: j.status === "cancelled" ? 0.6 : 1 }} onClick={() => router.push(`/portal/deliveries/${j.id}`)}>
-                  <TableCell sx={{ fontWeight: 600, whiteSpace: "nowrap" }}>#{j.deliveryNumber}</TableCell>
-                  <TableCell sx={{ whiteSpace: "nowrap" }}>{fmtJobWhen(j.scheduledFor, j.scheduledAllDay)}</TableCell>
-                  <TableCell>
-                    {j.worker?.name || "—"}
-                    {j.rider && j.rider !== j.worker?.name && (
-                      <Typography variant="caption" color="text.secondary" component="div">
-                        Started by {j.rider}
-                      </Typography>
-                    )}
-                  </TableCell>
-                  <TableCell sx={{ maxWidth: 260 }}>
-                    <Typography variant="body2" noWrap title={j.siteAddress || ""}>
-                      {j.siteAddress || "—"}
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={{ whiteSpace: "nowrap" }}>
-                    {j.deliveryOrder ? (
-                      <Stack direction="row" spacing={0.75} alignItems="center">
-                        <span style={{ fontVariantNumeric: "tabular-nums" }}>{j.deliveryOrder.name || "—"}</span>
-                        <DoStatusTag tag={j.deliveryOrder.tag} />
-                      </Stack>
-                    ) : (
-                      "—"
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <StatusPill label={jobStatusLabel(j)} color={jobStatusColor(j)} variant={j.isDraft ? "outlined" : "filled"} />
-                  </TableCell>
-                  <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
-                    <IconButton
-                      size="small"
-                      aria-label="More actions"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setMenu({ pos: { left: e.clientX, top: e.clientY }, job: j });
-                      }}
-                    >
-                      <MoreVertIcon fontSize="small" />
-                    </IconButton>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      )}
-
-      {actionError && (
-        <Alert severity="warning" sx={{ mt: 2 }} onClose={() => setActionError(null)}>
-          {actionError}
-        </Alert>
-      )}
-      {actionInfo && (
-        <Alert severity="info" sx={{ mt: 2 }} onClose={() => setActionInfo(null)}>
-          {actionInfo}
-        </Alert>
-      )}
-      {order.invoicing && (
-        <Box sx={{ mt: 3 }}>
-          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-              Invoices
-            </Typography>
-            <Box sx={{ flex: 1 }} />
-            <Button size="small" variant="outlined" disabled={(!order.toInvoice?.length && !(order as any).toInvoiceDos?.length && !invoiceFromQuotation) || invoicing} onClick={() => setInvoiceAsk(true)} data-tour="wct-order-invoice-now">
-              {invoiceFromQuotation ? "Create invoice" : "Invoice now"}
-            </Button>
-          </Stack>
-          {!order.invoices?.length ? (
-            <Typography variant="body2" color="text.secondary">
-              {order.toInvoice?.length
-                ? `${order.toInvoice.length} verified job${order.toInvoice.length === 1 ? "" : "s"} not invoiced yet. The order is invoiced automatically once every job is done and verified, or use Invoice now.`
-                : (order as any).toInvoiceDos?.length ? `${(order as any).toInvoiceDos.join(", ")} completed, not invoiced yet. The order is invoiced automatically once every DO is completed, or use Invoice now.` : null}
-            </Typography>
-          ) : (
-            <TableContainer sx={{ border: 1, borderColor: "divider", borderRadius: 1 }}>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Invoice</TableCell>
-                    <TableCell>Jobs</TableCell>
-                    <TableCell align="right">Amount</TableCell>
-                    <TableCell>Status</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {order.invoices.map((inv) => (
-                    <TableRow key={inv.id} hover sx={{ cursor: "pointer" }} onClick={() => router.push(inv.href)}>
-                      <TableCell sx={{ fontWeight: 600 }}>{inv.name || "Invoice"}</TableCell>
-                      <TableCell>{inv.jobNumbers.map((n) => `#${n}`).join(", ")}</TableCell>
-                      <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums" }}>
-                        {inv.total.toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </TableCell>
-                      <TableCell>
-                        <StatusPill label={invoiceStatusLabel(inv)} color={inv.status === "paid" ? "success" : inv.status === "pending_payment" ? "info" : "default"} />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          )}
-        </Box>
-      )}
-
-      {/* Job photos from SiteClock, one group per job (orgs with the SiteClock link; renders nothing otherwise). */}
-      <OrderPhotosSection orderId={order.id} />
-
-      <Box sx={{ mt: 3 }}>
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-            Service report
-          </Typography>
-          <Box sx={{ flex: 1 }} />
-          {/* WCT round 12: ONE "Service report" button; its menu has New / Upload file (manual flow) or Upload file
-              (a file stored on the order), and Link existing. */}
-          <input ref={fileRef} type="file" accept={ORDER_FILE_ACCEPT} hidden onChange={(e) => void uploadAttachment(e.target.files?.[0])} />
-          <Button
-            ref={addReportBtn}
-            size="small"
-            variant="contained"
-            disableElevation
-            disabled={uploading}
-            endIcon={uploading ? <CircularProgress size={14} color="inherit" /> : <ArrowDropDownIcon />}
-            onClick={(e) => setSrMenu({ pos: { left: e.clientX, top: e.clientY }, doId: null })}
-            data-tour="wct-order-add-report"
-          >
-            Service report
-          </Button>
-          {/* Manual order flow: email the order's service report(s) to the customer. */}
-          {(order as any).manualFlow && (
-            <Tooltip title={canSendReport ? "" : "Complete or upload a service report first"}>
-              <span>
-                <Button size="small" variant="contained" disableElevation disabled={!canSendReport} onClick={() => setSendReportOpen(true)} data-tour="wct-order-send-report">
-                  Send service report
-                </Button>
-              </span>
-            </Tooltip>
-          )}
-        </Stack>
-        {(order as any).manualFlow && (order as any).statusDates?.serviceReportSentAt && (
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-            Sent to the customer on {moment((order as any).statusDates.serviceReportSentAt).format("DD/MM/YYYY HH:mm")}
-          </Typography>
-        )}
-        <SendServiceReportDialog
-          open={sendReportOpen}
-          onClose={() => setSendReportOpen(false)}
-          orderId={order.id}
-          orderNumber={(order as any).orderNumber}
-          defaultEmail={(order as any).customer?.email ?? null}
-          onSent={(r) => {
-            setActionInfo(`Service report sent to ${r.sentTo.join(", ")}`);
-            void load();
-          }}
-        />
-        {/* The service reports on the order's own jobs (drafts too), each with its status. */}
-        {jobReports.length > 0 && (
-          <TableContainer sx={{ border: 1, borderColor: "divider", borderRadius: 1, mb: 1 }}>
-            <Table size="small">
-              <TableBody>
-                {jobReports.map((r) => (
-                  <TableRow key={r.id} hover sx={{ cursor: "pointer" }} onClick={() => router.push(`/portal/maintenance-reports/${r.id}`)}>
-                    <TableCell sx={{ fontWeight: 600 }}>{r.reportNumber ? `Service report #${r.reportNumber}` : "Service report (draft)"}</TableCell>
-                    <TableCell>{r.jobNumber ? `Job #${r.jobNumber}` : ""}</TableCell>
-                    <TableCell>
-                      <Chip
-                        size="small"
-                        variant={r.status === "completed" ? "filled" : "outlined"}
-                        color={r.status === "completed" ? "success" : "default"}
-                        label={r.status === "completed" ? (r.uploaded ? "Uploaded" : "Completed") : "Draft"}
-                      />
-                      {r.sentAt && (
-                        <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                          Sent {moment(r.sentAt).format("DD/MM/YYYY")}
-                        </Typography>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        )}
-        {!otherAttachments.length ? (
-          jobReports.length ? null : (
-          <Typography variant="body2" color="text.secondary">
-            No service report on this order yet. Upload the file, or link a service report written in AIMS.
-          </Typography>
-          )
-        ) : (
-          <TableContainer sx={{ border: 1, borderColor: "divider", borderRadius: 1 }}>
-            <Table size="small">
-              <TableBody>
-                {otherAttachments.map((a) => (
-                  <TableRow
-                    key={a.id}
-                    hover
-                    sx={{ cursor: "pointer" }}
-                    onClick={() => (a.kind === "report" ? router.push(`/portal/maintenance-reports/${a.reportId}`) : window.open(publicFileUrl(a.fileKey!), "_blank", "noopener"))}
-                  >
-                    <TableCell sx={{ fontWeight: 600 }}>{attachmentLine(a).title}</TableCell>
-                    <TableCell>{attachmentLine(a).detail}</TableCell>
-                    <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
-                      <IconButton size="small" aria-label="More actions" onClick={(e) => { e.stopPropagation(); setAttMenu({ pos: { left: e.clientX, top: e.clientY }, att: a }); }}>
-                        <MoreVertIcon fontSize="small" />
-                      </IconButton>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        )}
-      </Box>
-
-      {/* Supplier invoices tagged with this order's quotation (their Quotation No.): what the job cost. Read-only. */}
-      <Box sx={{ mt: 3 }} data-tour="wct-order-supplier-invoices">
-        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-          Supplier invoices
-        </Typography>
-        {!order.supplierInvoices?.rows?.length ? (
-          <Typography variant="body2" color="text.secondary">
-            No supplier invoice lines tagged to {order.sourceQuotation?.name || "this order's quotation"} yet. Set the Quotation No. on a supplier invoice's lines to list it here.
-          </Typography>
-        ) : (
-          <TableContainer sx={{ border: 1, borderColor: "divider", borderRadius: 1 }}>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Invoice #</TableCell>
-                  <TableCell>Supplier</TableCell>
-                  <TableCell>Date</TableCell>
-                  <TableCell align="right">Total</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {order.supplierInvoices.rows.map((b) => (
-                  <TableRow key={b.id} hover sx={{ cursor: "pointer", opacity: b.void ? 0.55 : 1 }} onClick={() => router.push(`/portal/accounting/payables/purchase-journal?bill=${b.id}`)}>
-                    <TableCell sx={{ fontWeight: 600 }}>
-                      {b.billNumber}
-                      {b.void ? " (void)" : ""}
-                    </TableCell>
-                    <TableCell>{b.supplierName || "-"}</TableCell>
-                    <TableCell>{b.billDate ? new Date(b.billDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "-"}</TableCell>
-                    <TableCell align="right" sx={{ fontVariantNumeric: "tabular-nums", textDecoration: b.void ? "line-through" : "none" }}>
-                      {/* This quotation's lines; the invoice's whole total under it, smaller. */}
-                      {b.currency} {(b.quotationAmount ?? b.totalAmount).toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      <Typography component="div" variant="caption" color="text.secondary">
-                        of {b.currency} {b.totalAmount.toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </Typography>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                <TableRow>
-                  <TableCell colSpan={3} sx={{ fontWeight: 700 }}>
-                    Supplier invoices total
-                  </TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-                    SGD {order.supplierInvoices.total.toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </TableContainer>
-        )}
-      </Box>
-
-      <Menu anchorReference="anchorPosition" anchorPosition={attMenu?.pos} open={!!attMenu} onClose={() => setAttMenu(null)}>
-        <MenuItem
-          sx={{ color: "error.main" }}
-          onClick={async () => {
-            const a = attMenu!.att;
-            setAttMenu(null);
-            if (!window.confirm(`Remove "${attachmentLine(a).title}" from this order?`)) return;
-            await post(`/orders/${order.id}/attachments/remove`, { id: a.id });
-          }}
-        >
-          Remove from order
-        </MenuItem>
-      </Menu>
-
-      <Dialog open={linkOpen} onClose={() => setLinkOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Link a service report</DialogTitle>
-        <DialogContent>
-          <Stack direction="row" spacing={1} sx={{ mt: 1, mb: 1 }}>
-            <TextField size="small" label="Report number" value={reportNo} onChange={(e) => setReportNo(e.target.value.replace(/\D/g, ""))} />
-            <Button onClick={() => void loadOptions(reportNo)}>Find</Button>
-          </Stack>
-          {options === null ? (
-            <CircularProgress size={20} />
-          ) : options.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">
-              No service report found. The order&apos;s own jobs have none yet; search by report number.
-            </Typography>
-          ) : (
-            <List dense>
-              {options.map((r) => (
-                <ListItemButton
-                  key={r.id}
-                  onClick={async () => {
-                    if (await post(`/orders/${order.id}/attachments`, { kind: "report", reportId: r.id })) setLinkOpen(false);
-                  }}
-                >
-                  <ListItemText
-                    primary={`Service report ${r.reportNumber ? `#${r.reportNumber}` : "(draft)"}${r.jobNumber ? ` · job #${r.jobNumber}` : ""}`}
-                    secondary={`${r.status === "completed" ? "Completed" : "Draft"}${r.technicianName ? ` · ${r.technicianName}` : ""}${r.ofThisOrder ? " · this order" : ""}`}
-                  />
-                </ListItemButton>
-              ))}
-            </List>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setLinkOpen(false)}>Close</Button>
-        </DialogActions>
-      </Dialog>
+      <ConfirmRowDialog
+        open={!!rowAsk}
+        busy={!!busy}
+        title={rowAsk ? (rowAsk.kind === "unlink" ? `Unlink ${rowName(rowAsk.row)} from ${order.orderNumber}?` : `Delete "${rowAsk.row.number}"?`) : ""}
+        text={
+          rowAsk?.kind === "unlink"
+            ? "The document itself stays as it is; only its link to this order goes."
+            : softDelete || rowAsk?.row.kind === "report"
+              ? "Its number stays as a gap."
+              : "This can't be undone."
+        }
+        confirmLabel={rowAsk?.kind === "unlink" ? "Unlink from order" : "Delete"}
+        onClose={() => setRowAsk(null)}
+        onConfirm={() => rowAsk && void (rowAsk.kind === "unlink" ? unlink(rowAsk.row) : deleteDoc(rowAsk.row))}
+      />
 
       <Menu anchorReference="anchorPosition" anchorPosition={srMenu?.pos} open={!!srMenu} onClose={() => setSrMenu(null)}>
         {serviceReportMenuItems(manualFlow).map((it) => {
@@ -821,7 +563,7 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
                 if (it.key === "new" || (it.key === "upload" && manualFlow)) router.push(serviceReportFlowHref(it.key, srPrefillFor(doId)));
                 // Otherwise Upload file stores the file on the order.
                 else if (it.key === "upload") fileRef.current?.click();
-                else void openLink();
+                else setLinkOpen("SERVICE_REPORT");
               }}
             >
               {it.label}
@@ -837,90 +579,82 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
         })}
       </Menu>
 
-      <Dialog open={invoiceAsk} onClose={() => setInvoiceAsk(false)} fullWidth maxWidth="xs">
-        <DialogTitle>{invoiceFromQuotation ? "Create invoice" : "Invoice now"}</DialogTitle>
+      {jobOpen && q && (
+        <QuickJobDialog
+          open
+          withQuotation
+          initialQuotationId={q.id}
+          onClose={() => setJobOpen(false)}
+          onSaved={(_id, r) => {
+            setJobOpen(false);
+            toast.success(linkedToast(r, q.name));
+            void load();
+          }}
+        />
+      )}
+      <ScheduleDeliveryDialog open={addOpen} onClose={() => setAddOpen(false)} onCreated={() => void load()} prefill={prefill} />
+      {completeDo && (
+        <OfficeCompleteJobDialog
+          open
+          onClose={() => setCompleteDo(null)}
+          deliveryId=""
+          doId={completeDo.id}
+          productSlots={(completeDo.products ?? []).map((p) => ({ assetId: p.assetId, name: p.name, quantity: 1 }))}
+          jobLabel={completeDo.name || "the DO"}
+          defaultName={order.customer?.name ?? null}
+          onDone={(mode) => {
+            const d = completeDo;
+            setCompleteDo(null);
+            if (mode === "sign_link") setSignLinkDo(d);
+            void load();
+          }}
+        />
+      )}
+      <Dialog open={!!signLinkDo} onClose={() => setSignLinkDo(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Customer sign link</DialogTitle>
+        <DialogContent>{signLinkDo && <CustomerSignLink documentId={signLinkDo.id} doName={signLinkDo.name} />}</DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSignLinkDo(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+      <SendServiceReportDialog
+        open={sendReportOpen}
+        onClose={() => setSendReportOpen(false)}
+        orderId={order.id}
+        orderNumber={order.orderNumber}
+        defaultEmail={(order as any).customer?.email ?? null}
+        onSent={(r) => {
+          setActionInfo(`Service report sent to ${r.sentTo.join(", ")}`);
+          void load();
+        }}
+      />
+      <LinkDocumentDialog
+        open={!!linkOpen}
+        onClose={() => setLinkOpen(null)}
+        orderId={order.id}
+        orderNumber={order.orderNumber}
+        types={model.linkTypes}
+        initialType={linkOpen ?? "SERVICE_REPORT"}
+        onLinked={() => void load()}
+      />
+
+      <Dialog open={invoiceAsk} onClose={() => !busy && setInvoiceAsk(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Create invoice</DialogTitle>
         <DialogContent>
-          <DialogContentText>
-            {invoiceNowText(
-              order.toInvoice ?? [],
-              order.jobs.filter((j) => j.status !== "cancelled" && !j.invoiceId && !(order.toInvoice ?? []).includes(j.deliveryNumber)).length,
-              (order.invoices?.length ?? 0) > 0,
-              invoiceFromQuotation,
-            )}
-          </DialogContentText>
+          <DialogContentText>{nativeInvoiceAsk(order)}</DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setInvoiceAsk(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            disableElevation
-            disabled={invoicing}
-            onClick={async () => {
-              setInvoicing(true);
-              try {
-                const token = await getToken();
-                const res = await request({ path: `/orders/${order.id}/invoice-now`, method: "POST", ownError: true }, {}, token ?? undefined);
-                if (res?.success === false) throw new Error(res?.message || "Could not create the invoice");
-                setInvoiceAsk(false);
-                const out = res?.data ?? res;
-                // The order already has its invoice (made at signing, 2026-11-17): open it, never a second one.
-                if (out?.existing && out.href) {
-                  router.push(out.href);
-                  return;
-                }
-                // The quotation was already billed and the jobs added nothing on top: no new invoice.
-                if (out?.covered) setActionInfo(`No new invoice: nothing was added on top of the quotation, so job${(out.jobNumbers?.length ?? 0) === 1 ? "" : "s"} ${(out.jobNumbers ?? []).map((n: number) => `#${n}`).join(", ")} ${(out.jobNumbers?.length ?? 0) === 1 ? "is" : "are"} covered by ${out.name || "the order's invoice"}.`);
-                await load();
-              } catch (e: any) {
-                setActionError(e?.message || "Could not create the invoice");
-                setInvoiceAsk(false);
-              } finally {
-                setInvoicing(false);
-              }
-            }}
-          >
+          <Button onClick={() => setInvoiceAsk(false)} disabled={!!busy}>
+            Cancel
+          </Button>
+          <Button variant="contained" disableElevation disabled={!!busy} onClick={() => void invoiceNow()}>
             Create invoice
           </Button>
         </DialogActions>
       </Dialog>
-
-      <Menu anchorReference="anchorPosition" anchorPosition={menu?.pos} open={!!menu} onClose={() => setMenu(null)}>
-        <MenuItem
-          onClick={() => {
-            const j = menu!.job;
-            setMenu(null);
-            router.push(`/portal/deliveries/${j.id}`);
-          }}
-        >
-          Open job
-        </MenuItem>
-        <MenuItem
-          disabled={!menu?.job.deliveryOrder}
-          onClick={() => {
-            const d = menu!.job.deliveryOrder!;
-            setMenu(null);
-            router.push(doHref(d));
-          }}
-        >
-          View DO
-        </MenuItem>
-      </Menu>
-
-      <ScheduleDeliveryDialog open={addOpen} onClose={() => setAddOpen(false)} onCreated={() => void load()} prefill={prefill} />
-    </MainCard>
-  );
-}
-
-/** The order's "Photos" heading + the per-job photo groups; the whole block hides for orgs without the SiteClock link. */
-function OrderPhotosSection({ orderId }: { orderId: string }) {
-  const [shown, setShown] = React.useState(true);
-  if (!shown) return null;
-  return (
-    <Box sx={{ mt: 3 }}>
-      <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1 }}>
-        Photos
-      </Typography>
-      <OrderJobPhotos orderId={orderId} onUnavailable={() => setShown(false)} />
-    </Box>
+      <ImportedInvoiceDialog open={invOpen} busy={!!busy} number={invNumber} lines={invLines} onNumber={setInvNumber} onLines={setInvLines} onClose={() => setInvOpen(false)} onCreate={() => void createInvoice()} />
+      <MarkCompleteDialog open={completeOpen} busy={!!busy} reason={reason} onReason={setReason} onClose={() => setCompleteOpen(false)} onConfirm={() => void markComplete()} />
+      <CancelOrderDialog open={cancelAsk} busy={!!busy} orderNumber={order.orderNumber} hasInvoices={(order.invoices ?? []).length > 0} onClose={() => setCancelAsk(false)} onConfirm={() => void cancelOrder()} />
+    </OrderPageLayout>
   );
 }

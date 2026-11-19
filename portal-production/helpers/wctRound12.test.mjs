@@ -27,15 +27,16 @@ test("order page: one Service report button, wired to the old flows", () => {
   const src = read("app/portal/orders/[id]/WctOrderDetail.tsx");
   assert.doesNotMatch(src, />\s*Add service report\s*</);
   assert.doesNotMatch(src, />\s*Link a service report\s*<\/Button>/);
-  assert.match(src, /data-tour="wct-order-add-report"\s*>\s*Service report\s*<\/Button>/);
+  // Round 24: the actions row's one "Service report" button (helpers/orderPage.ts), its menu on this page.
+  assert.match(read("helpers/orderPage.ts"), /\{ key: "service-report", label: "Service report", show: true, disabled: false, primary: false, tip: null, tour: "wct-order-add-report" \}/);
   assert.match(src, /serviceReportMenuItems\(manualFlow\)/);
   // manual flow: New / Upload go to the Service Reports page's flows; otherwise Upload stores on the order; Link opens the dialog.
   assert.match(src, /if \(it\.key === "new" \|\| \(it\.key === "upload" && manualFlow\)\) router\.push\(serviceReportFlowHref\(it\.key, srPrefillFor\(doId\)\)\);/);
   assert.match(src, /else if \(it\.key === "upload"\) fileRef\.current\?\.click\(\);/);
-  assert.match(src, /else void openLink\(\);/);
+  // Round 24: Link existing opens the one Link existing document dialog on Service report (both order kinds).
+  assert.match(src, /else setLinkOpen\("SERVICE_REPORT"\);/);
   assert.match(src, /accept={ORDER_FILE_ACCEPT}/);
-  // The Link dialog itself is unchanged.
-  assert.match(src, /<DialogTitle>Link a service report<\/DialogTitle>/);
+  assert.match(read("app/portal/orders/[id]/OrderPageDialogs.tsx"), /<DialogTitle>Link existing document<\/DialogTitle>/);
 });
 
 // 3. The file types, the same on the picker and the API.

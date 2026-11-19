@@ -309,3 +309,12 @@ test("no automatic drafts: statuses only name a DO / invoice draft that exists",
   assert.deepEqual(hubNextStep({ status: "DO_COMPLETED", doFirst: true, invoices: [] }), { primary: "create-invoice" });
   assert.equal(HUB_STATUSES.find((s) => s.key === "DO_COMPLETED").label, "DO completed, invoice pending");
 });
+
+test("manual flow, DO completed, invoice pending: the next step is always Create invoice (2026-11-19, round 24)", () => {
+  // Invoice made first, then a DO with extra lines completed: the extras need a new invoice, not the first one opened.
+  assert.deepEqual(hubNextStep({ status: "DO_COMPLETED", doFirst: true, manualFlow: true, invoices: [{ id: "i1" }] }), { primary: "create-invoice" });
+  // Off the manual flow (WCT Racking): unchanged, the draft invoice opens.
+  assert.deepEqual(hubNextStep({ status: "DO_COMPLETED", invoices: [{ id: "i1" }] }), { primary: "view-invoice", label: "Open draft invoice" });
+  // The list row menu already offers Create invoice at this status.
+  assert.deepEqual(hubRowActions("DO_COMPLETED", { doFirst: true }), ["view-signed-do", "create-invoice"]);
+});

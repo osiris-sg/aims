@@ -68,5 +68,5 @@ test("WCT Quotation No.: label, total, tag; shown only for WCT supplier invoices
   const pj = read("app/portal/accounting/payables/purchase-journal/page.tsx");
   assert.match(pj, /header: "Quotation No\."/);
   assert.match(pj, /\/portal\/documents\/open\/\$\{q\.id\}/);
-  assert.match(read("app/portal/orders/[id]/WctOrderDetail.tsx"), /Supplier invoices total/);
+  assert.match(read("app/portal/orders/[id]/OrderPageLayout.tsx"), /Supplier invoices total/);
 });
