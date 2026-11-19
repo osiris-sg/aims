@@ -162,7 +162,7 @@ export interface CalendarEvent {
   style?: EventStyle;
   /** Calendar style: the job's salesperson (own pick, else its quotation's salesman) and PTW applicant. */
   salesperson?: { id: string; name: string | null } | null;
-  ptwApplicant?: { id: string; name: string | null } | null;
+  ptwApplicant?: { id: string; name: string | null; inList?: false } | null;
   /** Calendar style: COD job, postponed (on hold), live DOs on the job. */
   cod?: boolean;
   postponed?: boolean;

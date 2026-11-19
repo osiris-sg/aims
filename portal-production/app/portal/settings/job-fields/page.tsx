@@ -36,6 +36,7 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 import JobFieldIcon, { JOB_FIELD_ICON_KEYS } from "@/components/jobFields/JobFieldIcon";
 import JobCategoryList from "./_components/JobCategoryList";
 import CalendarColours from "./_components/CalendarColours";
+import PtwApplicants from "./_components/PtwApplicants";
 import type { JobCategoryDef } from "@/helpers/jobCategory";
 import { COLOUR_CHOICES, ICON_LABEL, JOB_FIELD_TYPES, JOB_FIELD_TYPE_LABEL, JobFieldDef, JobFieldType, displayFromForm, displaySummary } from "@/helpers/jobFields";
 
@@ -198,6 +199,7 @@ export default function JobFieldsSettingsPage() {
       )}
       {category && <JobCategoryList category={category} onSaved={() => void load()} />}
       {/* Calendar style (enableCalendarStyle, WCT group): renders nothing for every other org. */}
+      {features?.enableCalendarStyle === true && <PtwApplicants />}
       {features?.enableCalendarStyle === true && <CalendarColours />}
       {fields === null ? (
         <CircularProgress />

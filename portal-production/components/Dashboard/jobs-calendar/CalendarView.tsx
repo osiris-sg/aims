@@ -48,7 +48,7 @@ import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
-import { CALENDAR_TZ, badgeTitle, chipIcons, chipTimeRange, crewLine, crossOrgTarget, chipTitle, dayOfInstant, kindLabel, orgLabel, panelColor, panelLinks, panelMoreLink, panelRefs, rangeOf, scheduleBadge, scheduleDays, scheduleScrollDay, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag, type ScheduleDay, type ScheduleRow } from "./calendarModel";
+import { CALENDAR_TZ, CHIP_TEXT, GREYED_OPACITY, applicantLabel, badgeTitle, chipIcons, chipTimeRange, crewLine, crossOrgTarget, chipTitle, dayOfInstant, kindLabel, orgLabel, panelColor, panelLinks, panelMoreLink, panelRefs, rangeOf, scheduleBadge, scheduleDays, scheduleScrollDay, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag, type ScheduleDay, type ScheduleRow } from "./calendarModel";
 import DoStatusTag from "@/components/DoStatusTag";
 
 interface Props {
@@ -209,8 +209,9 @@ export default function CalendarView({
         "& .aims-jc-note": { fontSize: "0.68rem", lineHeight: 1.25, borderRadius: "8px", mx: "2px", px: "2px", py: 0, fontWeight: 500 },
         "& .aims-jc-note .fc-event-main": { color: "#37474f", padding: "0 2px" },
         "& .aims-jc-cancelled .fc-event-title, & .aims-jc-cancelled .fc-event-time": { textDecoration: "line-through" },
-        // Calendar style: cancelled / postponed stay, greyed out.
-        "& .aims-jc-greyed": { opacity: 0.45, filter: "grayscale(0.9)" },
+        // Calendar style: cancelled / postponed stay, greyed out (fully grey; the softer fills keep the text readable
+        // at this opacity: GREYED_OPACITY in calendarModel, checked by the contrast tests).
+        "& .aims-jc-greyed": { opacity: GREYED_OPACITY, filter: "grayscale(1)" },
         "& .aims-jc-styled .fc-event-main": { padding: 0 },
         "& .fc-schedule-view": { height: "100%" },
         "@media (max-width: 600px)": { "& .fc .fc-toolbar": { flexDirection: "column", gap: 1 } },
@@ -526,7 +527,7 @@ function EventCard({
         </Row>
       )}
       {e.style && <Row label="Salesperson">{e.salesperson?.name || "None"}</Row>}
-      {e.style && e.ptwApplicant && <Row label="PTW applicant">{e.ptwApplicant.name || "Unknown"}</Row>}
+      {e.style && e.ptwApplicant && <Row label="PTW applicant">{applicantLabel(e.ptwApplicant)}</Row>}
       {/* People list (2026-11-19): who made the job (own company's jobs; "Unknown" when not recorded). */}
       {e.style && e.createdBy !== undefined && !e.foreign && <Row label="Created by">{e.createdBy?.name || "Unknown"}</Row>}
       <Row label="Status">
@@ -695,28 +696,38 @@ function JobPanel({
 }
 
 /**
- * Calendar style chip (Google Calendar-like): the salesperson fill comes from FullCalendar's background; a slim left
- * bar in the PTW applicant's colour (none without a PTW); line 1 the icons and title, line 2 the time range.
+ * Calendar style chip (Google Calendar-like): the salesperson's soft fill comes from FullCalendar's background; the
+ * PTW applicant's colour is a bar on the RIGHT edge (5px, none without a PTW) behind a thin white gap, so it reads
+ * on any fill; line 1 the icons and title, line 2 the time range.
  */
 function StyledChip({ event: e }: { event: CalendarEvent }) {
   const st = e.style!;
   const icons = chipIcons(e);
   return (
     <Box
-      title={[styledTitle(e), chipTimeRange(e), e.doNumber ? `DO ${e.doNumber}` : "", e.quotationNumber ? `Quotation ${e.quotationNumber}` : "", ...st.icons.map((i) => i.label), e.salesperson?.name ? `Salesperson: ${e.salesperson.name}` : "", e.ptwApplicant?.name && st.bar ? `PTW applicant: ${e.ptwApplicant.name}` : ""].filter(Boolean).join("\n")}
+      title={[styledTitle(e), chipTimeRange(e), e.doNumber ? `DO ${e.doNumber}` : "", e.quotationNumber ? `Quotation ${e.quotationNumber}` : "", ...st.icons.map((i) => i.label), e.salesperson?.name ? `Salesperson: ${e.salesperson.name}` : "", e.ptwApplicant && st.bar ? `PTW applicant: ${applicantLabel(e.ptwApplicant)}` : ""].filter(Boolean).join("\n")}
       sx={{
+        position: "relative",
         display: "flex",
+        // Fill the event (Week / Day: a timed job is taller than its text) so the PTW bar runs top to bottom.
+        height: "100%",
+        boxSizing: "border-box",
         overflow: "hidden",
-        borderLeft: st.bar ? `4px solid ${st.bar}` : "none",
-        borderRadius: "3px 0 0 3px",
-        pl: st.bar ? 0.5 : 0.75,
-        pr: 0.5,
+        pl: 0.75,
+        pr: st.bar ? 1.5 : 0.5,
         py: 0.25,
-        color: st.text,
+        color: CHIP_TEXT,
         lineHeight: 1.25,
         minWidth: 0,
       }}
     >
+      {st.bar && (
+        <Box
+          aria-hidden
+          data-testid="ptw-bar"
+          sx={{ position: "absolute", top: 0, right: 0, bottom: 0, width: "7px", borderLeft: "2px solid #ffffff", bgcolor: st.bar, borderRadius: "0 2px 2px 0", boxShadow: "inset 0 0 0 1px rgba(0,0,0,0.22)" }}
+        />
+      )}
       <Box sx={{ minWidth: 0, flex: 1 }}>
         <Box sx={{ fontWeight: 600, fontSize: "0.75rem", whiteSpace: "nowrap", overflow: "hidden", textDecoration: e.cancelled ? "line-through" : "none" }}>
           {icons && <span style={{ marginRight: 4 }}>{icons}</span>}

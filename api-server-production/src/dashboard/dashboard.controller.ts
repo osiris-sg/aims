@@ -225,6 +225,20 @@ export class DashboardController {
     return await this.calendarStyle.save(this.orgOf(req), body);
   }
 
+  @Get('calendar-style/ptw-applicants')
+  @Permissions('dashboard:read')
+  @ApiOperation({ summary: 'PTW applicants list (Settings > Job fields): entries, linkable logins, colours' })
+  async getPtwApplicants(@Req() req: RequestWithOrganization) {
+    return await this.calendarStyle.applicants(this.orgOf(req));
+  }
+
+  @Put('calendar-style/ptw-applicants')
+  @Permissions('organizations:update')
+  @ApiOperation({ summary: 'PTW applicants list: save entries (name, colour, login link, hidden, order) and the default' })
+  async savePtwApplicants(@Req() req: RequestWithOrganization, @Body() body: any) {
+    return await this.calendarStyle.saveApplicants(this.orgOf(req), body);
+  }
+
   @Get('calendar-style/people')
   @Permissions('dashboard:read')
   @ApiOperation({ summary: 'Jobs calendar style: Salesperson and PTW applicant pickers with their defaults' })

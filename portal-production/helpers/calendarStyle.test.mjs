@@ -3,6 +3,7 @@
 // greyed cancelled / postponed (never hidden), Leave 📅, category prefixes; gate off = unchanged.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { CHIP_TEXT, chipBorder, chipFill } from "../components/Dashboard/jobs-calendar/calendarModel.ts";
 import { toCalendarInputs, styledTitle, chipTimeRange, chipIcons, panelColor, eventColor, LEAVE_ICON } from "../components/Dashboard/jobs-calendar/calendarModel.ts";
 import { noteToCalendarInput, ptwOptions, PTW_OPTIONS, quickJobBody } from "./calendarAdd.ts";
 
@@ -13,13 +14,15 @@ const ev = (over = {}) => ({
 });
 const style = (over = {}) => ({ fill: "#039be5", text: "#ffffff", bar: null, icons: [], greyed: false, prefix: null, ...over });
 
-test("fill = the salesperson colour the server sent; text colour follows", () => {
+// 2026-11-19: chips are a soft tint of the salesperson colour the server sent, with dark text (the side panel and
+// the Schedule dot keep the full colour).
+test("fill = a soft tint of the salesperson colour the server sent, dark text", () => {
   const [a, b] = toCalendarInputs([ev({ style: style() }), ev({ id: "aims:2", style: style({ fill: "#b0bec5", text: "#212121" }) })], false, false, true);
-  assert.equal(a.backgroundColor, "#039be5");
-  assert.equal(a.borderColor, "#039be5");
-  assert.equal(a.textColor, "#ffffff");
-  assert.equal(b.backgroundColor, "#b0bec5");
-  assert.equal(b.textColor, "#212121");
+  assert.equal(a.backgroundColor, chipFill("#039be5"));
+  assert.equal(a.borderColor, chipBorder("#039be5"));
+  assert.equal(a.textColor, CHIP_TEXT);
+  assert.equal(b.backgroundColor, chipFill("#b0bec5"));
+  assert.equal(b.textColor, CHIP_TEXT);
   assert.ok(a.classNames.includes("aims-jc-styled"));
   assert.equal(panelColor(ev({ style: style({ fill: "#8e24aa" }) }), true), "#8e24aa");
 });

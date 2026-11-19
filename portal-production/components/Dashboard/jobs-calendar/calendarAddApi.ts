@@ -78,6 +78,8 @@ export function useSiteClockWorkers(open: boolean) {
 export interface StylePerson {
   id: string;
   name: string;
+  /** PTW applicants list entries (2026-11-19): the calendar bar colour. */
+  colour?: string;
 }
 
 export interface CalendarStylePeople {
@@ -86,8 +88,10 @@ export interface CalendarStylePeople {
   applicants: StylePerson[];
   /** The viewer when they are Sales (a "Sales" role or a salesman code). */
   defaultSalesperson: StylePerson | null;
-  /** The org's default PTW applicant (Settings > Job fields > Calendar colours). */
+  /** The org's default PTW applicant (Settings > Job fields: the PTW applicants list, else Calendar colours). */
   defaultApplicant: StylePerson | null;
+  /** true: the applicants are the org's PTW applicants list (a job's pick outside it shows marked). */
+  applicantsFromList?: boolean;
 }
 
 const NO_STYLE: CalendarStylePeople = { enabled: false, salespeople: [], applicants: [], defaultSalesperson: null, defaultApplicant: null };

@@ -69,6 +69,11 @@ const STYLE_EVENTS: CalendarEvent[] = [
   aims("y8", "service", 48, "Sheng Siong (Bedok)", 19, 9, 120, { salesperson: { id: "u2", name: "Amy Yap" }, sticker: true, style: st("#8e24aa", null, [icon("📌", "Generate sticker")]) }),
   aims("y9", "delivery", 49, "Changi City Point", 19, 0, 0, { allDay: true, start: "2026-11-19", end: null, salesperson: { id: "u1", name: "Nat HH" }, style: st("#039be5", null, []) }),
   aims("y10", "service", 50, "Woodlands Civic Centre", 20, 14, 60, { salesperson: { id: "u1", name: "Nat HH" }, ptwApplicant: { id: "b", name: "Bala" }, sticker: true, style: st("#039be5", "#d50000", [icon("✋", "PTW pending"), icon("📌", "Generate sticker")]) }),
+  // 2026-11-19: every salesperson tint with a PTW bar on the right; an applicant who is not on the PTW applicants list.
+  aims("y11", "service", 51, "Jewel Changi Airport", 12, 10, 90, { salesperson: { id: "u4", name: "Joyna" }, ptwApplicant: { id: "pta_joyna", name: "Joyna" }, style: st("#3f51b5", "#f6bf26", [icon("✋", "PTW pending")]) }),
+  aims("y12", "service", 52, "Ion Orchard", 12, 14, 60, { salesperson: { id: "u3", name: "PC Tan" }, ptwApplicant: { id: "pta_bala", name: "Bala" }, style: st("#e67c73", "#d50000", [icon("👍", "PTW approved")]) }),
+  aims("y13", "service", 53, "Bugis Junction", 13, 9, 60, { ptwApplicant: { id: "user_richie", name: "Richie", inList: false }, style: st("#b0bec5", "#455a64", [icon("✋", "PTW pending")], { text: "#212121" }) }),
+  aims("y14", "delivery", 54, "Northpoint City", 13, 13, 60, { salesperson: { id: "u2", name: "Amy Yap" }, ptwApplicant: { id: "pta_kherry", name: "Kherry" }, style: st("#8e24aa", "#0b8043", [icon("✋", "PTW pending")]) }),
 ].map((e, i) => (e.foreign ? e : { ...e, createdBy: i % 3 === 0 ? { id: "u1", name: "Nat HH" } : i % 3 === 1 ? { id: "u2", name: "Amy Yap" } : null }));
 // People list (2026-11-19): creators + the Sales people, with their colours (Joyna: automatic colour).
 const STYLE_PEOPLE = [
@@ -118,7 +123,6 @@ export default function PreviewClient({ mode, view, cancelled, down, add = false
           canAdd={add}
           onAdd={(kind, slot) => setAdding({ kind, slot })}
           onNoteClick={setEditNote}
-          salesFilter={hq}
         />
         {add && (
           <>

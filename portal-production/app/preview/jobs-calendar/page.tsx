@@ -1,4 +1,4 @@
-// /preview/jobs-calendar?mode=light|dark&view=month|week|day|schedule&cancelled=1&down=1&add=1&style=1&hq=1 (hq: the HQ view Salesperson filter, with style; add: WCT calendar add, notes + PTW + Untagged; style: calendar style chips) — the Dashboard jobs calendar
+// /preview/jobs-calendar?mode=light|dark&view=month|week|day|schedule&cancelled=1&down=1&add=1&style=1&hq=1 (hq: the server's HQ view flag only, its Salesperson filter was removed 2026-11-19; add: WCT calendar add, notes + PTW + Untagged; style: calendar style chips) — the Dashboard jobs calendar
 // rendered from fixtures (no sign-in, no API) for layout checks and screenshots.
 // Only with PREVIEW_FIXTURES=1 in the server's environment; 404 otherwise.
 import { notFound } from "next/navigation";

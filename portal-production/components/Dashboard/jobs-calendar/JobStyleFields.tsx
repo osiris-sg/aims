@@ -5,8 +5,9 @@
 // page. Rendered only when the org has the calendar style.
 
 import React from "react";
-import { Autocomplete, Checkbox, FormControlLabel, Stack, TextField } from "@mui/material";
+import { Autocomplete, Box, Checkbox, FormControlLabel, Stack, TextField } from "@mui/material";
 import type { StylePerson } from "./calendarAddApi";
+import { applicantOptionLabel } from "./calendarModel";
 
 export interface JobStyleValue {
   salesperson: StylePerson | null;
@@ -28,6 +29,7 @@ export default function JobStyleFields({
   showApplicant,
   showPostponed = false,
   salespersonPlaceholder,
+  applicantsFromList = false,
 }: {
   value: JobStyleValue;
   onChange: (patch: Partial<JobStyleValue>) => void;
@@ -38,6 +40,8 @@ export default function JobStyleFields({
   showPostponed?: boolean;
   /** Order jobs: who fills the chip when no one is picked (the quotation's salesman). */
   salespersonPlaceholder?: string;
+  /** The applicants are the org's PTW applicants list (2026-11-19): only they are offered; a pick outside is marked. */
+  applicantsFromList?: boolean;
 }) {
   return (
     <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }} data-tour="job-style-fields">
@@ -58,7 +62,13 @@ export default function JobStyleFields({
           value={value.ptwApplicant}
           onChange={(_e, v) => onChange({ ptwApplicant: v ?? null })}
           isOptionEqualToValue={(a, b) => a.id === b.id}
-          getOptionLabel={(o) => o.name}
+          getOptionLabel={(o) => applicantOptionLabel(o, applicants, applicantsFromList)}
+          renderOption={({ key, ...props }: any, o) => (
+            <li key={key ?? o.id} {...props}>
+              {o.colour && <Box component="span" sx={{ width: 12, height: 12, borderRadius: "3px", bgcolor: o.colour, mr: 1, flexShrink: 0 }} />}
+              {applicantOptionLabel(o, applicants, applicantsFromList)}
+            </li>
+          )}
           sx={{ flex: 1, minWidth: 180 }}
           renderInput={(params) => <TextField {...params} label="PTW applicant" />}
         />

@@ -11,6 +11,7 @@
  *
  * Pure helpers; calendar-style.service.ts does the reads and writes.
  */
+import type { PtwApplicantList } from '../deliveries/ptw-applicants';
 
 /** Salesperson fills (Google Calendar tones). */
 export const FILL_PALETTE = ['#039be5', '#8e24aa', '#e67c73', '#3f51b5', '#7986cb', '#ad1457', '#26a69a'] as const;
@@ -111,6 +112,8 @@ export interface CalendarColours {
   bar: Record<string, string>;
   /** The org's default PTW applicant (prefilled on new jobs, and used for a PTW job with none). */
   defaultApplicant: { id: string; name: string | null } | null;
+  /** The org's PTW applicants list (2026-11-19; deliveries/ptw-applicants.ts), when it has one: bars and the default come from it. */
+  ptwList?: PtwApplicantList | null;
 }
 
 export const NO_COLOURS: CalendarColours = { fill: {}, bar: {}, defaultApplicant: null };
@@ -122,6 +125,7 @@ export function mergeColours(child: CalendarColours, parent: CalendarColours | n
     fill: { ...child.fill, ...parent.fill },
     bar: { ...child.bar, ...parent.bar },
     defaultApplicant: child.defaultApplicant ?? parent.defaultApplicant,
+    ...(child.ptwList || parent.ptwList ? { ptwList: child.ptwList ?? parent.ptwList } : {}),
   };
 }
 

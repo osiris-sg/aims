@@ -23,6 +23,8 @@ interface StyleSettings {
   people: Person[];
   palettes: { fill: string[]; bar: string[] };
   neutral: string;
+  /** The org has a PTW applicants list (2026-11-19): PTW colours and the default live there, not per person. */
+  ptwList?: boolean;
 }
 
 function Swatch({ colour }: { colour: string | null }) {
@@ -114,7 +116,7 @@ export default function CalendarColours() {
             Calendar colours
           </Typography>
           <Tooltip
-            title="Salesperson colour fills the jobs of that salesperson on the jobs calendar. PTW colour is the slim bar on the left of a job that needs a PTW, for its applicant. The default PTW applicant is filled in on new jobs."
+            title={data.ptwList ? "Salesperson colour fills the jobs of that salesperson on the jobs calendar." : "Salesperson colour fills the jobs of that salesperson on the jobs calendar. PTW colour is the bar on the right of a job that needs a PTW, for its applicant. The default PTW applicant is filled in on new jobs."}
             enterTouchDelay={0}
           >
             <InfoOutlinedIcon fontSize="small" sx={{ color: "text.secondary", cursor: "help" }} aria-label="About calendar colours" />
@@ -136,8 +138,8 @@ export default function CalendarColours() {
             <TableRow>
               <TableCell>Person</TableCell>
               <TableCell>Salesperson colour</TableCell>
-              <TableCell>PTW colour</TableCell>
-              <TableCell align="center">Default PTW applicant</TableCell>
+              {!data.ptwList && <TableCell>PTW colour</TableCell>}
+              {!data.ptwList && <TableCell align="center">Default PTW applicant</TableCell>}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -156,12 +158,16 @@ export default function CalendarColours() {
                 <TableCell>
                   <ColourSelect label={`Salesperson colour of ${p.name}`} value={p.fill} palette={data.palettes.fill} onChange={(fill) => set(p.id, { fill })} />
                 </TableCell>
-                <TableCell>
-                  <ColourSelect label={`PTW colour of ${p.name}`} value={p.bar} palette={data.palettes.bar} onChange={(bar) => set(p.id, { bar })} />
-                </TableCell>
-                <TableCell align="center">
-                  <Radio size="small" checked={p.ptwDefault} onClick={() => set(p.id, { ptwDefault: !p.ptwDefault })} inputProps={{ "aria-label": `Default PTW applicant: ${p.name}` }} />
-                </TableCell>
+                {!data.ptwList && (
+                  <TableCell>
+                    <ColourSelect label={`PTW colour of ${p.name}`} value={p.bar} palette={data.palettes.bar} onChange={(bar) => set(p.id, { bar })} />
+                  </TableCell>
+                )}
+                {!data.ptwList && (
+                  <TableCell align="center">
+                    <Radio size="small" checked={p.ptwDefault} onClick={() => set(p.id, { ptwDefault: !p.ptwDefault })} inputProps={{ "aria-label": `Default PTW applicant: ${p.name}` }} />
+                  </TableCell>
+                )}
               </TableRow>
             ))}
           </TableBody>

@@ -310,6 +310,7 @@ export default function QuickJobDialog({
               onChange={(patch) => setForm((f) => ({ ...f, style: { ...f.style!, ...patch } }))}
               salespeople={people.salespeople}
               applicants={people.applicants}
+              applicantsFromList={!!people.applicantsFromList}
               showApplicant={form.ptwStatus !== "NOT_NEEDED"}
             />
           )}

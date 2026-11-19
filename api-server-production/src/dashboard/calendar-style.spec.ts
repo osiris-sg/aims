@@ -231,6 +231,8 @@ function fakeMembersPrisma(members: Array<{ userId: string; settings: any; sales
       update: jest.fn(async () => ({})),
     },
     userRole: { findMany: jest.fn(async () => members.flatMap((m) => m.roles.map((r) => ({ userId: m.userId, role: { name: r } })))) },
+    // No PTW applicants list (2026-11-19): the people's own bar colours apply, as before.
+    customField: { findFirst: jest.fn(async () => null) },
   } as any;
 }
 

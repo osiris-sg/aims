@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { displayNameOf, primaryEmailOf } from '../users/users.service';
 import { isCalendarStyleEnabled } from '../deliveries/job-style';
+import { PtwApplicantList, applicantBars, cleanApplicantList, readApplicantList, visibleApplicants, writeApplicantList } from '../deliveries/ptw-applicants';
 import { BAR_PALETTE, CalendarColours, FILL_PALETTE, NEUTRAL_FILL, PanelPerson, colourClash, coloursOf, normHex, panelPeople, personSettingsOf } from './calendar-style';
 
 export interface CalendarPerson {
@@ -71,7 +72,8 @@ export class CalendarStyleService {
 
   /** The org's colours (no Clerk call; the default applicant's name is filled by the caller when needed). */
   async colours(organizationId: string): Promise<CalendarColours> {
-    return coloursOf(await this.members(organizationId));
+    const [members, list] = await Promise.all([this.members(organizationId), readApplicantList(this.prisma, organizationId)]);
+    return withApplicantList(coloursOf(members), list);
   }
 
   /** Salesman code (upper case) -> user id, for quotations' salesman field. */
@@ -92,7 +94,46 @@ export class CalendarStyleService {
         return { id: m.userId, name: n?.name ?? m.userId, email: n?.email ?? null, sales: isSalesMember(m), fill: s.fill, bar: s.bar, ptwDefault: s.ptwDefault };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
-    return { people, palettes: { fill: [...FILL_PALETTE], bar: [...BAR_PALETTE] }, neutral: NEUTRAL_FILL };
+    // ptwList: the org manages PTW applicants as a list (Settings > Job fields > PTW applicants), so the people
+    // table's PTW colour and default columns are not used.
+    const list = await readApplicantList(this.prisma, organizationId);
+    return { people, palettes: { fill: [...FILL_PALETTE], bar: [...BAR_PALETTE] }, neutral: NEUTRAL_FILL, ptwList: !!list };
+  }
+
+  /** Settings > Job fields > PTW applicants: the list (null: none yet), the logins it can link to, the colours. */
+  async applicants(organizationId: string) {
+    await this.assertOn(organizationId);
+    const [members, list] = await Promise.all([this.members(organizationId), readApplicantList(this.prisma, organizationId)]);
+    const names = await this.names(members.map((m) => m.userId));
+    const users = members
+      .map((m) => ({ id: m.userId, name: names.get(m.userId)?.name ?? m.userId, email: names.get(m.userId)?.email ?? null }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    // A linked login that is no longer a member still shows on its entry.
+    for (const e of list?.entries ?? []) {
+      if (e.userId && !users.some((u) => u.id === e.userId)) {
+        const n = (await this.names([e.userId])).get(e.userId);
+        users.push({ id: e.userId, name: n?.name ?? 'Former user', email: n?.email ?? null });
+      }
+    }
+    return { list, users, palette: [...BAR_PALETTE] };
+  }
+
+  /**
+   * Save the PTW applicants list: { entries: [{ id?, name, colour, userId?, hidden? }], defaultId }.
+   * A colour may not be close to a salesperson colour (the bar must read apart from the fill).
+   */
+  async saveApplicants(organizationId: string, body: any) {
+    await this.assertOn(organizationId);
+    const members = await this.members(organizationId);
+    const current = await readApplicantList(this.prisma, organizationId);
+    // Members may be linked; a login already linked (no longer a member) may stay on its entry.
+    const allowed = new Set([...members.map((m) => m.userId), ...(current?.entries ?? []).map((e) => e.userId).filter((x): x is string => !!x)]);
+    const list = cleanApplicantList(body, allowed);
+    const fills = members.map((m) => personSettingsOf(m.settings).fill).filter((x): x is string => !!x);
+    const clash = colourClash(fills, list.entries.filter((e) => !e.hidden).map((e) => e.colour));
+    if (clash) throw new BadRequestException(`The PTW colour ${clash.bar} is too close to the salesperson colour ${clash.fill}. Pick another.`);
+    await writeApplicantList(this.prisma, organizationId, list);
+    return this.applicants(organizationId);
   }
 
   /**
@@ -118,7 +159,10 @@ export class CalendarStyleService {
     }
     const all = [...next.values()];
     if (all.filter((s) => s.ptwDefault).length > 1) throw new BadRequestException('Pick one default PTW applicant');
-    const clash = colourClash(all.map((s) => s.fill).filter((x): x is string => !!x), all.map((s) => s.bar).filter((x): x is string => !!x));
+    // With a PTW applicants list the bars are the list's colours (the people's own bar colours are unused).
+    const ptwList = await readApplicantList(this.prisma, organizationId);
+    const bars = ptwList ? ptwList.entries.filter((e) => !e.hidden).map((e) => e.colour) : all.map((s) => s.bar).filter((x): x is string => !!x);
+    const clash = colourClash(all.map((s) => s.fill).filter((x): x is string => !!x), bars);
     if (clash) throw new BadRequestException(`The PTW colour ${clash.bar} is too close to the salesperson colour ${clash.fill}. Pick another.`);
     for (const [id, s] of next) {
       const m = byId.get(id)!;
@@ -153,7 +197,7 @@ export class CalendarStyleService {
    */
   async formPeople(organizationId: string, viewerId: string | null) {
     if (!(await this.enabled(organizationId))) return { enabled: false as const };
-    const members = await this.members(organizationId);
+    const [members, list] = await Promise.all([this.members(organizationId), readApplicantList(this.prisma, organizationId)]);
     const names = await this.names(members.map((m) => m.userId));
     const person = (id: string) => ({ id, name: names.get(id)?.name ?? id });
     const colours = coloursOf(members);
@@ -161,12 +205,32 @@ export class CalendarStyleService {
     const applicants = members.map((m) => person(m.userId));
     const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
     const viewer = viewerId ? members.find((m) => m.userId === viewerId) : null;
+    const defaultSalesperson = viewer && isSalesMember(viewer) ? person(viewer.userId) : null;
+    if (list) {
+      // PTW applicants list (2026-11-19): only its visible entries, in list order; the default from the list.
+      const d = list.entries.find((e) => e.id === list.defaultId) ?? null;
+      return {
+        enabled: true as const,
+        salespeople: salespeople.sort(byName),
+        applicants: visibleApplicants(list),
+        applicantsFromList: true as const,
+        defaultSalesperson,
+        defaultApplicant: d ? { id: d.id, name: d.name } : null,
+      };
+    }
     return {
       enabled: true as const,
       salespeople: salespeople.sort(byName),
       applicants: applicants.sort(byName),
-      defaultSalesperson: viewer && isSalesMember(viewer) ? person(viewer.userId) : null,
+      defaultSalesperson,
       defaultApplicant: colours.defaultApplicant ? person(colours.defaultApplicant.id) : null,
     };
   }
+}
+
+/** An org with a PTW applicants list: bar colours and the default applicant come from the list only. */
+export function withApplicantList(colours: CalendarColours, list: PtwApplicantList | null): CalendarColours {
+  if (!list) return colours;
+  const d = list.entries.find((e) => e.id === list.defaultId) ?? null;
+  return { ...colours, bar: applicantBars(list), defaultApplicant: d ? { id: d.id, name: d.name } : null, ptwList: list };
 }

@@ -68,7 +68,10 @@ import { plannedRiderView, savePlannedRider } from './planned-rider';
 import { CompletionMode, WCT_FINISH_MODES_FLAG, finishModeProblem, initialVerification, isCompletionMode } from './finish-modes';
 import { checkJobFieldValues, isJobFieldsEnabled, jobFieldDefs, jobFieldValues, saveJobFieldValues } from './job-fields';
 import { jobCategoryDef, jobCategoryValues, parseCategory, saveJobCategory as storeJobCategory } from './job-category';
-import { EMPTY_JOB_STYLE, defaultPtwApplicant, hasJobStylePatch, isCalendarStyleEnabled, jobStyleValues, parseJobStylePatch, saveJobStyle, stampJobCreator, withStampedApplicant } from './job-style';
+import { applicantEntryOf, applicantView, readApplicantList } from './ptw-applicants';
+import { ClerkIdentityService } from '../clerk/clerk-identity.service';
+import { displayNameOf } from '../users/users.service';
+import { EMPTY_JOB_STYLE, withListedApplicant, defaultPtwApplicant, hasJobStylePatch, isCalendarStyleEnabled, jobStyleValues, parseJobStylePatch, saveJobStyle, stampJobCreator, withStampedApplicant } from './job-style';
 import { runNoun } from './job-wording';
 import { wctBrandStamp } from '../maintenance-reports/wct-brand';
 import { withRunLease } from './run-lease';
@@ -96,6 +99,8 @@ export class DeliveriesService {
     @Optional() private readonly actionLog?: ActionLogService,
     // SiteClock link (WCT): optional so hand-built instances (scripts) still work.
     @Optional() private readonly siteclock?: SiteClockLinkService,
+    // Names of PTW applicants that are not on the org's list (global Clerk module); optional for scripts.
+    @Optional() private readonly clerk?: ClerkIdentityService,
   ) {}
 
   /** WCT orders: the job's order re-derives its status. Best-effort, never throws; a no-op for runs without an order. */
@@ -853,7 +858,7 @@ export class DeliveriesService {
   }
 
   /** Customer (org-scoped) + the quick-job form's fields, checked before anything is written. */
-  private async quickJobFields(organizationId: string, body: any) {
+  private async quickJobFields(organizationId: string, body: any, existingId?: string) {
     const customerId = typeof body?.customerId === 'string' && body.customerId ? body.customerId : null;
     if (!customerId) throw new BadRequestException('Pick a customer');
     const customer = await this.prisma.customer.findFirst({ where: { id: customerId, organizationId }, select: { id: true } });
@@ -876,7 +881,15 @@ export class DeliveriesService {
     // Calendar style (enableCalendarStyle): Salesperson, PTW applicant, COD (and PTW Rejected). Ignored elsewhere.
     const styleOn = await isCalendarStyleEnabled(this.prisma, organizationId);
     await this.assertPtwAllowed(ptwStatus, styleOn);
-    const style = styleOn ? parseJobStylePatch(body) : {};
+    let style = styleOn ? parseJobStylePatch(body) : {};
+    // PTW applicants list (2026-11-19): check the pick before anything is written (a job keeps the one it has).
+    if (styleOn && style.ptwApplicantId) {
+      const list = await readApplicantList(this.prisma, organizationId);
+      if (list) {
+        const stored = existingId ? ((await jobStyleValues(this.prisma, organizationId, [existingId])).get(existingId) ?? null) : null;
+        style = withListedApplicant(style, list, stored);
+      }
+    }
     return {
       styleOn,
       style,
@@ -1155,7 +1168,7 @@ export class DeliveriesService {
     if (!run) throw new NotFoundException('Job not found');
     if (run.orderId) throw new BadRequestException('This job is under an order now: edit it from its page with the full form');
     if (run.status !== 'scheduled') throw new BadRequestException(`Only a scheduled job can be edited (this one is ${run.status})`);
-    const f = await this.quickJobFields(organizationId, body);
+    const f = await this.quickJobFields(organizationId, body, id);
     await this.prisma.delivery.update({
       where: { id },
       data: {
@@ -1206,7 +1219,29 @@ export class DeliveriesService {
     if (!(await isCalendarStyleEnabled(this.prisma, organizationId))) throw new NotFoundException('Calendar style is not enabled for this organisation');
     const run = await this.prisma.delivery.findFirst({ where: { id, organizationId }, select: { id: true } });
     if (!run) throw new NotFoundException('Job not found');
-    return { id, ...((await jobStyleValues(this.prisma, organizationId, [id])).get(id) ?? EMPTY_JOB_STYLE) };
+    const meta = (await jobStyleValues(this.prisma, organizationId, [id])).get(id) ?? EMPTY_JOB_STYLE;
+    return { id, ...(await this.listedApplicantView(organizationId, meta)) };
+  }
+
+  /**
+   * PTW applicants list orgs: the job's applicant as the forms show it. A stored user id linked to an entry
+   * reads as that entry; one not in the list keeps its id and name (from Clerk when none was stored) and is
+   * marked ptwApplicantInList: false. Orgs without a list: unchanged.
+   */
+  private async listedApplicantView(organizationId: string, meta: import('./job-style').JobStyleMeta) {
+    const list = await readApplicantList(this.prisma, organizationId);
+    if (!list || !meta.ptwApplicantId) return meta;
+    let fallback = meta.ptwApplicantName;
+    if (!fallback && !applicantEntryOf(list, meta.ptwApplicantId) && this.clerk) {
+      try {
+        const u = (await this.clerk.toClerkUsers([meta.ptwApplicantId])).get(meta.ptwApplicantId);
+        fallback = u ? displayNameOf(u) : null;
+      } catch {
+        fallback = null;
+      }
+    }
+    const v = applicantView(list, meta.ptwApplicantId, fallback);
+    return { ...meta, ptwApplicantId: v?.id ?? meta.ptwApplicantId, ptwApplicantName: v?.name ?? fallback ?? null, ptwApplicantInList: v?.inList ?? false };
   }
 
   /** Save any of salesperson / ptwApplicant / cod / postponed on a job (keys left out are kept). */
@@ -1216,7 +1251,7 @@ export class DeliveriesService {
     if (!run) throw new NotFoundException('Job not found');
     const patch = parseJobStylePatch(body);
     if (!hasJobStylePatch(patch)) throw new BadRequestException('Nothing to save');
-    return { id, ...((await this.saveStyleStamped(organizationId, id, patch, run.ptwStatus)) ?? EMPTY_JOB_STYLE) };
+    return { id, ...(await this.listedApplicantView(organizationId, (await this.saveStyleStamped(organizationId, id, patch, run.ptwStatus)) ?? EMPTY_JOB_STYLE)) };
   }
 
   /**
@@ -1239,9 +1274,14 @@ export class DeliveriesService {
    */
   private async saveStyleStamped(organizationId: string, deliveryId: string, patch: Partial<import('./job-style').JobStyleMeta>, ptwStatus: string | null | undefined) {
     let next = patch;
+    const list = await readApplicantList(this.prisma, organizationId);
+    const needsStored = (ptwStatus && ptwStatus !== 'NOT_NEEDED') || (list && 'ptwApplicantId' in patch && !!patch.ptwApplicantId);
+    const stored = needsStored ? ((await jobStyleValues(this.prisma, organizationId, [deliveryId])).get(deliveryId) ?? null) : null;
+    // PTW applicants list (2026-11-19): only its entries may be picked (a job keeps an applicant it already has).
+    next = withListedApplicant(next, list, stored);
     if (ptwStatus && ptwStatus !== 'NOT_NEEDED') {
-      const stored = (await jobStyleValues(this.prisma, organizationId, [deliveryId])).get(deliveryId) ?? null;
-      next = withStampedApplicant(patch, ptwStatus, stored, await defaultPtwApplicant(this.prisma, organizationId));
+      next = withStampedApplicant(next, ptwStatus, stored, await defaultPtwApplicant(this.prisma, organizationId));
+      if (list && next.ptwApplicantId && !next.ptwApplicantName) next = { ...next, ptwApplicantName: applicantEntryOf(list, next.ptwApplicantId)?.name ?? null };
     }
     if (!hasJobStylePatch(next)) return null;
     return saveJobStyle(this.prisma, organizationId, deliveryId, next);

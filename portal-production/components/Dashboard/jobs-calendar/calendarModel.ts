@@ -62,7 +62,8 @@ export interface CalendarEvent {
   style?: EventStyle;
   /** Calendar style: the job's salesperson and PTW applicant, COD, postponed, live DOs. */
   salesperson?: { id: string; name: string | null } | null;
-  ptwApplicant?: { id: string; name: string | null } | null;
+  /** inList false: the job's applicant is not on the org's PTW applicants list (kept, shown marked). */
+  ptwApplicant?: { id: string; name: string | null; inList?: false } | null;
   cod?: boolean;
   postponed?: boolean;
   doCount?: number;
@@ -118,7 +119,7 @@ export interface CalendarPayload {
   style?: { legend: Array<{ icon: string; label: string }> };
   /** hideSiteClockJobs (WCT group): the server left SiteClock-created jobs out (absent otherwise). */
   siteclockJobsHidden?: boolean;
-  /** calendarHqView (WCT group): the Salesperson filter is offered (absent otherwise). */
+  /** calendarHqView (WCT group): sent by the server; the Salesperson filter it offered was removed 2026-11-19 (people list instead). */
   hqView?: boolean;
   /** Calendar style (WCT group, 2026-11-19): the people list beside the calendar (absent otherwise). */
   people?: PanelPerson[];
@@ -132,41 +133,6 @@ export interface PanelPerson {
   auto: boolean;
 }
 
-/**
- * Calendar HQ view (calendarHqView, WCT group 2026-11-18): the Salesperson filter. Client side over each event's
- * `salesperson` (calendar style; group child items carry theirs too). No selection = All. An event with no salesperson
- * (none picked and no salesman code on its quotation, or a SiteClock job) shows only under "No salesperson".
- * Notes are not jobs and are never filtered.
- */
-export const NO_SALESPERSON = "__none__";
-
-export interface SalespersonOption {
-  id: string;
-  name: string;
-}
-
-/** The filter's options: every salesperson on screen by name, plus the ones still selected, then "No salesperson". */
-export function salespersonOptions(events: Pick<CalendarEvent, "salesperson">[], selected: string[] = [], known: Map<string, string> = new Map()): SalespersonOption[] {
-  const byId = new Map<string, string>();
-  for (const e of events) if (e.salesperson?.id) byId.set(e.salesperson.id, e.salesperson.name || known.get(e.salesperson.id) || "Unnamed");
-  for (const id of selected) if (id !== NO_SALESPERSON && !byId.has(id)) byId.set(id, known.get(id) || "Unnamed");
-  const people = [...byId].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
-  return [...people, { id: NO_SALESPERSON, name: "No salesperson" }];
-}
-
-/** Events for the selected salespeople; an empty selection keeps every event (the same array). */
-export function filterBySalesperson<T extends Pick<CalendarEvent, "salesperson">>(events: T[], selected: string[]): T[] {
-  if (!selected.length) return events;
-  const want = new Set(selected);
-  return events.filter((e) => (e.salesperson?.id ? want.has(e.salesperson.id) : want.has(NO_SALESPERSON)));
-}
-
-/** The closed filter's text: All, the one name, or "3 salespeople". */
-export function salespersonFilterLabel(selected: string[], options: SalespersonOption[]): string {
-  if (!selected.length) return "All";
-  if (selected.length === 1) return options.find((o) => o.id === selected[0])?.name ?? "1 salesperson";
-  return `${selected.length} salespeople`;
-}
 
 /**
  * hideSiteClockJobs (WCT group 2026-11-18): only jobs made in AIMS. Drops every SiteClock-created
@@ -314,9 +280,11 @@ function styledInput(e: CalendarEvent, st: EventStyle, movable: boolean) {
     end: e.end ?? undefined,
     allDay: e.allDay,
     ...(movable && isMovable(e) && !st.greyed ? { startEditable: true, durationEditable: false } : {}),
-    backgroundColor: st.fill,
-    borderColor: st.fill,
-    textColor: st.text,
+    // 2026-11-19: a soft tint of the salesperson's colour with dark text (the full colour stays for the Schedule dot
+    // and the side panel); the PTW bar sits on the chip's right edge (StyledChip).
+    backgroundColor: chipFill(st.fill),
+    borderColor: chipBorder(st.fill),
+    textColor: CHIP_TEXT,
     classNames: ["aims-jc-event", "aims-jc-styled", ...(e.completed ? ["aims-jc-completed"] : []), ...(st.greyed ? ["aims-jc-greyed"] : [])],
     extendedProps: { event: e },
   };
@@ -688,3 +656,44 @@ export function scheduleBadge(date: string): { day: string; weekday: string; mon
   const f = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-SG", { timeZone: CALENDAR_TZ, ...o }).format(d);
   return { day: f({ day: "numeric" }), weekday: f({ weekday: "short" }).toUpperCase(), month: f({ month: "short" }) };
 }
+
+/**
+ * Calendar style chips (2026-11-19): soft fills. A chip is the salesperson's colour at CHIP_STRENGTH over white
+ * (a pastel tint, each person still distinct) with dark text; its outline a little stronger so a pale chip
+ * still has an edge. The PTW bar keeps the full colour.
+ */
+export const CHIP_STRENGTH = 0.35;
+export const CHIP_TEXT = "#1f2328";
+/** Cancelled / postponed chips: fully grey at this opacity. */
+export const GREYED_OPACITY = 0.8;
+const mixWhite = (hex: string, strength: number): string => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || "").trim());
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => Math.round(c * strength + 255 * (1 - strength)));
+  return `#${ch.map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+};
+export const chipFill = (hex: string) => mixWhite(hex, CHIP_STRENGTH);
+export const chipBorder = (hex: string) => mixWhite(hex, 0.6);
+
+/** WCAG contrast ratio of two #rrggbb colours (1 to 21). */
+export function contrastRatio(a: string, b: string): number {
+  const lum = (hex: string) => {
+    const n = parseInt(hex.replace("#", ""), 16);
+    const [r, g, bl] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => {
+      const s = c / 255;
+      return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+}
+
+/** The applicant as the side panel and pickers show it: marked when it is not on the org's list. */
+export const applicantLabel = (p: { name: string | null; inList?: boolean | false } | null | undefined): string =>
+  !p ? "" : `${p.name || "Unknown"}${p.inList === false ? " (not in list)" : ""}`;
+
+/** PTW applicants list orgs (2026-11-19): a job's applicant that is not on the list keeps showing, marked. */
+export const applicantOptionLabel = (o: { id: string; name: string }, list: Array<{ id: string }>, fromList: boolean): string =>
+  fromList && !list.some((p) => p.id === o.id) ? `${o.name} (not in list)` : o.name;

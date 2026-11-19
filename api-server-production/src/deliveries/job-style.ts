@@ -3,6 +3,7 @@ import { isOrgFeatureEnabled } from '../common/org-features';
 import { runAsOrg } from '../common/tenancy/tenant-context';
 import { JOB_ENTITY } from './job-fields';
 import { coloursOf } from '../dashboard/calendar-style';
+import { PtwApplicantList, applicantEntryOf, readApplicantList } from './ptw-applicants';
 
 /**
  * Calendar style job fields (WCT group, 2026-11-18, flag enableCalendarStyle):
@@ -169,10 +170,31 @@ export async function saveJobStyle(prisma: any, organizationId: string, delivery
   });
 }
 
-/** The org's default PTW applicant (the member marked in Settings > Job fields > Calendar colours), or null. */
+/**
+ * The org's default PTW applicant: the PTW applicants list's default entry (2026-11-19) when the org has
+ * a list, else the member marked in Settings > Job fields > Calendar colours, or null.
+ */
 export async function defaultPtwApplicant(prisma: any, organizationId: string): Promise<string | null> {
+  const list = await readApplicantList(prisma, organizationId);
+  if (list) return list.defaultId;
   const rows: any[] = await prisma.userOrganization.findMany({ where: { organizationId, isActive: true }, select: { userId: true, settings: true } });
   return coloursOf(rows).defaultApplicant?.id ?? null;
+}
+
+/**
+ * A PTW applicant sent by a form, checked against the org's list (orgs without a list: unchanged).
+ * A visible entry is stored by its entry id with its name; a user id linked to a visible entry is
+ * stored as that entry. Anything else is refused, unless it is what the job already stores (a job
+ * whose applicant is not in the list keeps it when saved again). Returns the patch to store.
+ */
+export function withListedApplicant(patch: Partial<JobStyleMeta>, list: PtwApplicantList | null, stored: JobStyleMeta | null | undefined): Partial<JobStyleMeta> {
+  if (!list || !('ptwApplicantId' in patch) || !patch.ptwApplicantId) return patch;
+  const key = patch.ptwApplicantId;
+  const e = applicantEntryOf(list, key);
+  if (e && !e.hidden) return { ...patch, ptwApplicantId: e.id, ptwApplicantName: e.name };
+  const kept = stored?.ptwApplicantId ?? null;
+  if (kept && (kept === key || (e && applicantEntryOf(list, kept)?.id === e.id))) return { ...patch, ptwApplicantId: kept, ptwApplicantName: stored?.ptwApplicantName ?? null };
+  throw new BadRequestException('Pick a PTW applicant from the list');
 }
 
 const ptwNeeded = (s: string | null | undefined) => !!s && s !== 'NOT_NEEDED';

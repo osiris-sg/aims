@@ -121,6 +121,7 @@ export default function JobPtwLinkPanel({
             onChange={(patch) => setStyle((v) => (v ? { ...v, ...patch } : v))}
             salespeople={people.salespeople}
             applicants={people.applicants}
+            applicantsFromList={!!people.applicantsFromList}
             showApplicant={ptw !== "NOT_NEEDED"}
             showPostponed={run.status !== "cancelled"}
             salespersonPlaceholder={run.order ? "From the quotation" : undefined}

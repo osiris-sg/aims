@@ -180,29 +180,3 @@ test("hide SiteClock jobs: SiteClock-created events dropped, AIMS jobs (pushed o
   assert.equal(siteclockBanner({ siteclock: { state: "unavailable" }, siteclockJobsHidden: true }), null);
 });
 
-// Calendar HQ view (calendarHqView, WCT group 2026-11-18): the Salesperson filter (client side; default All).
-test("HQ view: Salesperson filter, All keeps every job, a pick narrows, no salesperson only under its own option", async () => {
-  const { filterBySalesperson, salespersonOptions, salespersonFilterLabel, NO_SALESPERSON } = await import("../components/Dashboard/jobs-calendar/calendarModel.ts");
-  const amy = { id: "u-amy", name: "Amy" };
-  const ben = { id: "u-ben", name: "Ben" };
-  const events = [
-    ev({ id: "aims:1", salesperson: ben }),
-    ev({ id: "aims:2", salesperson: amy, orgId: "c1", orgName: "WCT Racking", foreign: true, viewOnly: true }),
-    ev({ id: "aims:3", salesperson: null }),
-    ev({ id: "sc:1", source: "siteclock", kind: "siteclock" }),
-  ];
-  // All (empty selection): the same array, nothing hidden.
-  assert.equal(filterBySalesperson(events, []), events);
-  // A pick narrows, group (child org) items included; items without a salesperson drop out.
-  assert.deepEqual(filterBySalesperson(events, ["u-amy"]).map((e) => e.id), ["aims:2"]);
-  assert.deepEqual(filterBySalesperson(events, ["u-amy", "u-ben"]).map((e) => e.id), ["aims:1", "aims:2"]);
-  assert.deepEqual(filterBySalesperson(events, [NO_SALESPERSON]).map((e) => e.id), ["aims:3", "sc:1"]);
-  // Options: by name, then "No salesperson"; a selected person off screen stays listed by the remembered name.
-  assert.deepEqual(salespersonOptions(events).map((o) => o.name), ["Amy", "Ben", "No salesperson"]);
-  const known = new Map([["u-cat", "Cat"]]);
-  assert.deepEqual(salespersonOptions(events, ["u-cat"], known).map((o) => o.name), ["Amy", "Ben", "Cat", "No salesperson"]);
-  const opts = salespersonOptions(events);
-  assert.equal(salespersonFilterLabel([], opts), "All");
-  assert.equal(salespersonFilterLabel(["u-ben"], opts), "Ben");
-  assert.equal(salespersonFilterLabel(["u-ben", "u-amy"], opts), "2 salespeople");
-});

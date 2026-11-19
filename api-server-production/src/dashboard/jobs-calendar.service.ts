@@ -1,3 +1,4 @@
+import { applicantView } from '../deliveries/ptw-applicants';
 import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { runAsOrg } from '../common/tenancy/tenant-context';
@@ -327,7 +328,9 @@ export class JobsCalendarService {
         sticker: !!m?.sticker,
       };
       const salesName = nameOf(salespersonId, m?.salespersonId === salespersonId ? m?.salespersonName : null);
-      const applicantName = nameOf(applicantId, m?.ptwApplicantName);
+      // PTW applicants list orgs (2026-11-19): the name comes from the list; an applicant not on it is marked.
+      const listed = colours.ptwList ? applicantView(colours.ptwList, applicantId, nameOf(applicantId, m?.ptwApplicantName)) : null;
+      const applicantName = listed ? listed.name : nameOf(applicantId, m?.ptwApplicantName);
       return {
         ...e,
         ...(postponed ? { statusLabel: 'Postponed' } : {}),
@@ -335,7 +338,7 @@ export class JobsCalendarService {
         cod: !!m?.cod,
         doCount: input.doCount,
         salesperson: salespersonId ? { id: salespersonId, name: salesName } : null,
-        ptwApplicant: applicantId ? { id: applicantId, name: applicantName } : null,
+        ptwApplicant: applicantId ? { id: listed?.id ?? applicantId, name: applicantName, ...(listed && !listed.inList ? { inList: false } : {}) } : null,
         ...(m?.sticker ? { sticker: true } : {}),
         chipLabel: chipLabelOf(runOf.get(runId), e.title),
         createdBy: m?.createdById ? { id: m.createdById, name: names.get(m.createdById)?.name ?? null } : null,

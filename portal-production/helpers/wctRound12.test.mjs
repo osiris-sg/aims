@@ -8,14 +8,12 @@ import { ORDER_FILE_ACCEPT, REPORT_FILE_ACCEPT, acceptLabel, orderUploadTip, ser
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 
-// 1. Jobs calendar: the Salesperson label sits on the outline (displayEmpty shows "All"), never over the value.
-test("calendar Salesperson filter: label shrunk + notched outline, still only with the HQ view + calendar style", () => {
+// 1. Jobs calendar: the Salesperson filter (round 12 fixed its label) was removed 2026-11-19; the people list
+// beside the calendar does this job.
+test("calendar Salesperson filter is gone (people list instead)", () => {
   const src = read("components/Dashboard/JobsCalendar.tsx");
-  const block = src.slice(src.indexOf("{showSalesFilter && ("), src.indexOf("</FormControl>"));
-  assert.match(block, /<InputLabel id="jc-salesperson-label" shrink>/);
-  assert.match(block, /input={<OutlinedInput notched label="Salesperson" \/>}/);
-  assert.match(block, /displayEmpty/);
-  assert.match(src, /const showSalesFilter = salesFilter && styled;/);
+  assert.doesNotMatch(src, /jc-salesperson-label|showSalesFilter|salesFilter/);
+  assert.match(src, /filterByPeople/);
 });
 
 // 2b. One Service report button; the menu keeps every old path.
