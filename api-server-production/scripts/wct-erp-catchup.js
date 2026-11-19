@@ -21,6 +21,8 @@
  *   node scripts/wct-erp-catchup.js --env prod                       merge ~/Downloads parts + dry run
  *   node scripts/wct-erp-catchup.js --env prod --from <out dir>      dry run again on an earlier pull
  * Apply (only with Elroy's APPLY): see the "APPLY steps" printed at the end of the report.
+ * Delivery orders (2026-11-19): the browser call also pulls the ERP's DOs (doFrom); section 7 runs
+ * scripts/wct-erp-dos.js on them (import as read-only imported DOs, linked to the imported orders).
  */
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const { Client } = require('pg');
@@ -28,6 +30,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { mergeDoParts } = require('./wct-erp-dos');
 
 const ORG = { WCT: '5c700000-0000-4000-8000-5c7000000001', RACKING: '5c700000-0000-4000-8000-5c7000000002', BCAIR: '5c700000-0000-4000-8000-5c7000000004' };
 const ORG_NAME = { [ORG.WCT]: 'WCT (S)', [ORG.RACKING]: 'Racking', [ORG.BCAIR]: 'BC Air' };
@@ -74,6 +77,9 @@ const L_COLS = ['erp_id', 'doc_no', 'line_no', 'description', 'qty', 'unit_price
 
 /** Merge ~/Downloads/erp-catchup-part-NN.csv into OUT (original export columns), then delete the parts. */
 function mergeParts() {
+  // Delivery orders (2026-11-19): their parts (do_kind rows) and PDFs go first, to OUT/erp-do-*.csv + do-pdf/.
+  const dos = mergeDoParts(PARTS, OUT);
+  if (dos) console.log(`merged DO parts: ${dos.list} DOs, ${dos.months} month counts, ${dos.pdfs} PDFs`);
   const parts = fs.existsSync(PARTS) ? fs.readdirSync(PARTS).filter((f) => /^erp-catchup-part-\d+( \(\d+\))?\.csv$/.test(f)).sort() : [];
   if (!parts.length) return false;
   const lists = { quotation: [], invoice: [], credit_note: [] };
@@ -155,7 +161,9 @@ function mergeParts() {
     // Credit notes dated on or after the last pull: their invoices' balances are read (the last pull folder's date).
     const pulls = fs.existsSync(path.join(IMPORTS, 'erp-catchup')) ? fs.readdirSync(path.join(IMPORTS, 'erp-catchup')).filter((f) => /^\d{4}-\d{2}-\d{2}$/.test(f)).sort() : [];
     const cnSince = pulls.length ? pulls[pulls.length - 1] : '2026-11-04';
-    console.log(`__erpCatchup({ lastQuoteId: ${lastQuoteId}, lastInvoiceId: ${lastInvoiceId}, cnSince: '${cnSince}', extraInvoiceIds: ${JSON.stringify(extraInvoiceIds)}, openQuoteNos: ${JSON.stringify(openQuoteNos)}, importedQuoteRanges: '${importedQuoteRanges}', importedInvoiceRanges: '${importedInvoiceRanges}' })`);
+    const doIds = (await q(`select config->'erpImport'->>'erpId' id from "Document" where "organizationId" = any($1) and type = 'DELIVERY_ORDER' and config->'erpImport'->>'source' = 'wct-erp'`, [Object.values(ORG)])).map((r) => Number(r.id)).filter(Boolean).sort((a, b) => a - b);
+    // Delivery orders: every ERP DO dated since the cutover month (a few dozen a week; already imported ones are skipped).
+    console.log(`__erpCatchup({ lastQuoteId: ${lastQuoteId}, lastInvoiceId: ${lastInvoiceId}, cnSince: '${cnSince}', extraInvoiceIds: ${JSON.stringify(extraInvoiceIds)}, openQuoteNos: ${JSON.stringify(openQuoteNos)}, importedQuoteRanges: '${importedQuoteRanges}', importedInvoiceRanges: '${importedInvoiceRanges}', doFrom: '2026-11-01', doSkipIds: ${JSON.stringify(doIds)} })`);
     await c.end();
     return;
   }
@@ -430,6 +438,17 @@ function mergeParts() {
     ordOut = execFileSync('npx', ['ts-node', '--transpile-only', path.join(__dirname, 'wct-imported-orders.ts'), '--env', ENV, '--erp-links', path.join(OUT, 'quotation-links-merged.csv'), '--wct-credit-notes', path.join(OUT, 'credit-notes-merged.csv'), '--extra-docs', path.join(OUT, 'planned-docs.json'), '--out', path.join(OUT, 'orders'), '--org', ORG.WCT, '--org', ORG.BCAIR], { cwd: path.resolve(__dirname, '..'), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   } catch (e) { ordOut = `ORDERS DRY RUN FAILED: ${String(e.stdout || '').slice(-2000)}${String(e.stderr || e.message).split('\n').slice(0, 8).join('\n')}`; }
   for (const l of ordOut.trim().split('\n').filter((x) => !/^\s{2}\S+ \| ORD-/.test(x))) say(`  ${l}`);
+
+  // ── 7. Delivery orders (wct-erp-dos.js dry run on this pull) ──
+  say('\n== 7. Delivery orders (wct-erp-dos.js dry run) ==');
+  if (fs.existsSync(path.join(OUT, 'erp-do-list.csv'))) {
+    let doOut = '';
+    try {
+      doOut = execFileSync('node', [path.join(__dirname, 'wct-erp-dos.js'), '--env', ENV, '--from', OUT, '--no-merge'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    } catch (e) { doOut = `DO DRY RUN FAILED: ${String(e.stdout || '').slice(-2000)}${String(e.stderr || e.message).split('\n').slice(0, 8).join('\n')}`; }
+    for (const l of doOut.trim().split('\n')) say(`  ${l}`);
+  } else say('No DO pull in this folder (run the browser call with doFrom).');
+  say('\nAPPLY order (owner go): wct-erp-import.js --apply, wct-ng-quotes-to-bcair.ts --apply, wct-erp-catchup-apply.js, wct-imported-orders.ts --apply --deployed, then wct-erp-dos.js --from <this pull> --apply --confirm-prod (DOs link to the orders, so they go last).');
 
   fs.writeFileSync(path.join(OUT, 'plan.json'), JSON.stringify({ at: new Date().toISOString(), env: ENV, lastQuoteId, lastInvoiceId, batch: `wct-erp-catchup-${path.basename(OUT)}`, importDir: impDir, updates, needDecision, holds: refreshRows.filter((r) => r.action !== 'update') }, null, 1));
   writeCsv(path.join(OUT, 'possible-duplicates.csv'), ['org', 'aims', 'erp', 'match'], dupRows);

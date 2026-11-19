@@ -15,6 +15,7 @@ import { DeliveriesService } from '../deliveries/deliveries.service';
 import { minPhotosForAssetClass } from '../common/asset-class';
 import { CreateMaintenanceReportDto } from '../maintenance-reports/dto/create-maintenance-report.dto';
 import { dueBy } from '../deliveries/all-day';
+import { assertNotErpImportedDo } from '../common/erp-import';
 
 // technicianUserId is NOT NULL (means "Clerk user id" in the field flow). Guests
 // have no Clerk identity, so we store a fixed non-secret marker (NEVER the token).
@@ -105,12 +106,14 @@ export class PublicDeliveryService {
   async generateForDocument(documentId: string, organizationId: string) {
     const doc = await this.prisma.document.findFirst({
       where: { id: documentId, organizationId },
-      select: { id: true, type: true },
+      select: { id: true, type: true, config: true },
     });
     if (!doc) throw new NotFoundException('Delivery order not found');
     if (doc.type !== 'DELIVERY_ORDER') {
       throw new BadRequestException('Only delivery orders can be shared via a guest link');
     }
+    // An imported (old-ERP) DO has no run and is never shared for signing (common/erp-import.ts).
+    assertNotErpImportedDo(doc);
 
     // The DO's born-linked RUN (a scheduled/started delivery's items carry the DO id).
     const runItem = await this.prisma.deliveryItem.findFirst({

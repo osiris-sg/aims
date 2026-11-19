@@ -1,3 +1,4 @@
+import { HttpException, HttpStatus } from '@nestjs/common';
 import { amountPaidOf, outstandingOf } from './document-money';
 
 // Documents imported from a customer's previous ERP (WCT 2026-11, scripts/wct-erp-import.ts).
@@ -24,6 +25,34 @@ export function erpImportOf(config: any): ErpImportMeta | null {
 }
 
 export const isErpImported = (config: any): boolean => erpImportOf(config) !== null;
+
+// ── Imported delivery orders (WCT 2026-11-19, scripts/wct-erp-dos.js) ──────
+// The old ERP's DOs are imported as history: DELIVERY_ORDER rows with config.erpImport and no
+// DocumentItem rows (so no stock can move). They are READ-ONLY: no save, confirm, complete, sign
+// link, job, revision, project link or delete. Every DO entry point calls assertNotErpImportedDo.
+
+const DO_DOC_TYPES = new Set(['DELIVERY_ORDER', 'DO']);
+export const IMPORTED_DO_READ_ONLY = 'This DO was imported from the old ERP. It is read-only: it cannot be edited, confirmed, completed, signed, deleted or given a job.';
+
+/** An imported (old-ERP) delivery order. */
+export const isErpImportedDo = (doc: { type?: string | null; config?: unknown } | null | undefined): boolean =>
+  !!doc && DO_DOC_TYPES.has(String(doc.type ?? '').toUpperCase()) && isErpImported(doc.config);
+
+/** Refuse any change to an imported DO (400 with IMPORTED_DO_READ_ONLY). Other documents pass. */
+export function assertNotErpImportedDo(doc: { type?: string | null; config?: unknown } | null | undefined): void {
+  if (isErpImportedDo(doc)) throw new HttpException(IMPORTED_DO_READ_ONLY, HttpStatus.BAD_REQUEST);
+}
+
+/** Same, by id (a missing document is left to the caller's own not-found handling). */
+export async function assertDocNotErpImportedDo(
+  prisma: { document: { findFirst: (args: any) => Promise<any> } },
+  organizationId: string,
+  documentId: string | null | undefined,
+): Promise<void> {
+  if (!documentId) return;
+  const doc = await prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { type: true, config: true } });
+  assertNotErpImportedDo(doc);
+}
 
 /** Does confirming this document post its GL journal (CN / DN / PO / PR)? Never for imported history,
  *  even when its status is set back and confirmed again (BC Air credit notes, 2026-11-12). */

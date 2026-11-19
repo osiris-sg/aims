@@ -7,13 +7,15 @@
  *   erp-catchup-part-03.csv  credit-note list
  *   erp-catchup-part-NN.csv  details (header columns = the original export's wct-quotes-full /
  *                            wct-invoices-full, plus kind/amount_paid) and lines (wct-*-lines columns)
+ *   erp-catchup-do-<id>.pdf  with doFrom: every DO dated doFrom..today (Contracts > Delivery Order) as
+ *                            the ERP's own print, plus a do_kind part (see __erpDoPull below)
  * Details are fetched only for quotations / invoices with an ERP id above the given thresholds
  * (the highest ERP ids already imported) and for invoices whose list status is Partial.
  *   __erpCatchup({ lastQuoteId, lastInvoiceId, extraQuoteIds: [], extraInvoiceIds: [] })
  *   (node scripts/wct-erp-catchup.js --env prod --print-pull prints the exact call)
  * Progress: window.__erpCatchupState. Then: node scripts/wct-erp-catchup.js --env prod
  */
-window.__erpCatchup = async ({ lastQuoteId, lastInvoiceId, extraQuoteIds = [], extraInvoiceIds = [], openQuoteNos = [], cnSince = '', importedQuoteRanges = '', importedInvoiceRanges = '', listsOnly = false, delayMs = 400, detailsPerPart = 40 }) => {
+window.__erpCatchup = async ({ lastQuoteId, lastInvoiceId, extraQuoteIds = [], extraInvoiceIds = [], openQuoteNos = [], cnSince = '', importedQuoteRanges = '', importedInvoiceRanges = '', listsOnly = false, delayMs = 400, detailsPerPart = 40, doFrom = '', doCountFrom = '', doSkipIds = [] }) => {
   const S = (window.__erpCatchupState = { phase: 'lists', parts: 0, details: 0, detailTotal: 0, errors: [], done: false, t0: Date.now() });
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const q = (v) => { v = v == null ? '' : String(v); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
@@ -159,6 +161,91 @@ window.__erpCatchup = async ({ lastQuoteId, lastInvoiceId, extraQuoteIds = [], e
   }
   function flush2() { if (det.length) { save([DH, ...det]); save([LH, ...lines]); det = []; lines = []; } }
   flush2();
+  // ── 3. delivery orders (2026-11-19): Contracts > Delivery Order ──
+  if (doFrom) { S.phase = 'dos'; S.dos = await window.__erpDoPull({ from: doFrom, countFrom: doCountFrom, delayMs, partNo: () => ++S.parts, skipIds: doSkipIds }); }
+  S.done = true; S.secs = Math.round((Date.now() - S.t0) / 1000);
+  return S;
+};
+
+/**
+ * Delivery orders (2026-11-19). The ERP keeps DOs under Contracts > "Delivery Order" (m=engagements,
+ * list a=list_do, DataTables JSON, filtered by DO date). A DO's detail form is POST-only, so the DO
+ * itself is read from its print (GET m=DO&a=vw_form_add_do&c=_do_print_PDF&do_id=<id>, a ~1 MB PDF:
+ * header, Sold To / Ship To, attention, quotation number, lines S/No / description / qty / remark).
+ * The ERP has no DO status and no signed copy / attachment. Downloads to ~/Downloads:
+ *   erp-catchup-part-NN.csv       do_kind=do (one row per DO dated from..today) and do_kind=do_month
+ *                                 (DO count per month from countFrom to the month before `from`)
+ *   erp-catchup-do-<id>.pdf       the ERP's DO print, one per DO (parsed by wct-erp-catchup.js)
+ *   __erpDoPull({ from: '2026-11-01', countFrom: '2017-10', skipIds: [] })   skipIds: DOs already in AIMS (no print)
+ */
+window.__erpDoPull = async ({ from, to = '', countFrom = '', delayMs = 400, partNo = null, pdfs = true, skipIds = [] }) => {
+  const S = (window.__erpDoPullState = { phase: 'list', dos: 0, pdfs: 0, errors: [], done: false, t0: Date.now() });
+  let localPart = 0;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const q = (v) => { v = v == null ? '' : String(v); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  const dl = (blob, name) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); };
+  const save = (rows) => dl(new Blob(['﻿' + rows.map((r) => r.map(q).join(',')).join('\n') + '\n'], { type: 'text/csv' }), 'erp-catchup-part-' + String(partNo ? partNo() : 90 + ++localPart).padStart(2, '0') + '.csv');
+  const get = async (qs, kind = 'text') => {
+    for (let t = 0; t < 3; t++) {
+      try {
+        const r = await fetch(location.origin + '/?' + qs, { credentials: 'same-origin', cache: 'no-store' });
+        if (r.ok) {
+          if (kind === 'blob') { const b = await r.blob(); if (!/pdf/i.test(b.type)) throw new Error('session expired (not a PDF)'); return b; }
+          const s = await r.text(); if (/type=["']?password/i.test(s) && s.length < 20000) throw new Error('session expired'); return s;
+        }
+      } catch (e) { if (/session/.test(e.message)) throw e; }
+      await sleep(3000);
+    }
+    throw new Error('fetch failed: ' + qs.replace(/&.*/, ''));
+  };
+  const strip = (h) => String(h ?? '').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
+  const dmy = (s) => { const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(String(s).trim()); return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s).trim(); };
+  const today = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+  const LB = (f, t) => `m=engagements&a=list_do&do_no=&date_from=${f}&date_to=${t}&contract_id=&customer_id=&suppressHeaders=true&sEcho=1`;
+  const list = async (f, t) => {
+    const out = [];
+    for (let start = 0; ; start += 500) {
+      const j = JSON.parse(await get(LB(f, t) + '&iDisplayStart=' + start + '&iDisplayLength=500'));
+      out.push(...j.aaData);
+      if (out.length >= Number(j.iTotalRecords) || !j.aaData.length) break;
+      await sleep(delayMs);
+    }
+    return out;
+  };
+  const rows = (await list(from, to || today)).map((r) => ({
+    erp_id: String(r.DT_RowId ?? r[5] ?? ''), do_no: strip(r[0]), date: dmy(strip(r[1])), contract_no: strip(r[2]),
+    engagement_id: (String(r[2]).match(/engagement_id=(\d+)/) || [])[1] || '', customer: strip(r[3]), term: strip(r[4]),
+  }));
+  S.dos = rows.length;
+  save([['do_kind', 'erp_id', 'do_no', 'date', 'contract_no', 'engagement_id', 'customer', 'term', 'pulled_at'], ...rows.map((x) => ['do', x.erp_id, x.do_no, x.date, x.contract_no, x.engagement_id, x.customer, x.term, new Date().toISOString()])]);
+  // Earlier months: counts only.
+  if (countFrom) {
+    S.phase = 'counts';
+    const counts = [];
+    const end = from.slice(0, 7);
+    for (let [y, m] = countFrom.split('-').map(Number); `${y}-${String(m).padStart(2, '0')}` < end; m === 12 ? (y++, (m = 1)) : m++) {
+      const ym = `${y}-${String(m).padStart(2, '0')}`;
+      const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const j = JSON.parse(await get(LB(`${ym}-01`, `${ym}-${last}`) + '&iDisplayStart=0&iDisplayLength=1'));
+      counts.push(['do_month', ym, j.iTotalRecords]);
+      await sleep(Math.min(delayMs, 200));
+    }
+    save([['do_kind', 'month', 'count'], ...counts]);
+  }
+  if (pdfs) {
+    S.phase = 'pdfs';
+    const skip = new Set(skipIds.map(String)); // DOs already in AIMS: listed, print not downloaded again
+    for (const x of rows.filter((r) => !skip.has(r.erp_id))) {
+      try {
+        dl(await get(`m=DO&a=vw_form_add_do&c=_do_print_PDF&suppressHeaders=true&do_id=${x.erp_id}`, 'blob'), `erp-catchup-do-${x.erp_id}.pdf`);
+        S.pdfs++;
+      } catch (e) {
+        S.errors.push(x.do_no + ': ' + e.message);
+        if (/session/.test(e.message)) break;
+      }
+      await sleep(delayMs);
+    }
+  }
   S.done = true; S.secs = Math.round((Date.now() - S.t0) / 1000);
   return S;
 };

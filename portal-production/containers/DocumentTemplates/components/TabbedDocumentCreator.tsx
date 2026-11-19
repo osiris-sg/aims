@@ -838,6 +838,8 @@ export default function TabbedDocumentCreator({
   const isStockAdjustmentOut = documentType === "SAO" || documentType === "STOCK_ADJUSTMENT_OUT";
   const isStockAdjustment = isStockAdjustmentIn || isStockAdjustmentOut;
   const isDeliveryOrder = documentType === "DO" || documentType === "DELIVERY_ORDER";
+  // An old-ERP DO (config.erpImport, WCT 2026-11-19) is read-only for good: no Edit unlock (the API refuses its saves).
+  const isImportedDo = isDeliveryOrder && !!((existingData as any)?.config?.erpImport?.source ?? (existingData as any)?.erpImport?.source);
   // DO first: a saved DO that belongs to an order in the manual order flow.
   // The document page passes the DO's config flattened (orderId at the top, no .id / .config): read both shapes.
   const doOnOrder = isDeliveryOrder && !!isManualOrderFlowEnabled && !!(documentId || (existingData as any)?.id) && !!doOrderIdOf(existingData);
@@ -5372,7 +5374,7 @@ export default function TabbedDocumentCreator({
               warning dialog, and every save after it lands in the document history
               as "Edited after confirm" under the user's name. Paid invoices stay
               locked — money is received through the receipt, not by editing. */}
-          {legacyLayout && confirmedReadOnly && !isPaidInvoice && (
+          {legacyLayout && confirmedReadOnly && !isPaidInvoice && !isImportedDo && (
             <Button size="small" variant="contained" startIcon={<EditIcon />} onClick={() => setConfirmedEditWarningOpen(true)} sx={LEGACY_BTN.edit} data-tour="editor-legacy-edit">Edit</Button>
           )}
           {/* enableQuotationESign (2026-11-13): CIEL's "Send for signature" toolbar
@@ -5548,7 +5550,7 @@ export default function TabbedDocumentCreator({
               sx={{ fontWeight: 600 }}
             />
           ))}
-          {confirmedReadOnly && !isTemplateEditMode && !isPaidInvoice && !legacyLayout && (
+          {confirmedReadOnly && !isTemplateEditMode && !isPaidInvoice && !legacyLayout && !isImportedDo && (
             <Button
               size="small"
               variant="outlined"

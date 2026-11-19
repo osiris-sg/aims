@@ -62,6 +62,7 @@ import { QUOTATION_DOC_TYPES, isOpenDo, isUuid, jobRowsFromDo, likePattern, pick
 import { REAL_DO_ON_SCHEDULE_FLAG, cancelledDoConfig, isIssuedOnSchedule } from './do-number';
 import { SiteClockLinkService, SiteClockScheduleInput } from '../siteclock/siteclock-link.service';
 import { applyOrderToDoConfig, isWctOrdersEnabled, refreshOrderStatus, refreshOrderStatusForRun } from '../orders/wct-orders';
+import { assertDocNotErpImportedDo, assertNotErpImportedDo } from '../common/erp-import';
 import { isManualOrderFlow } from '../orders/manual-order-flow';
 import { assetKey, descKey, doLineWarnings, remainingAllowance, remainingQuoteLines } from '../orders/order-billing';
 import { plannedRiderView, savePlannedRider } from './planned-rider';
@@ -204,6 +205,8 @@ export class DeliveriesService {
     riderName: string | null,
     unit: { assetId: string; inventoryId: string },
   ): Promise<string | null> {
+    // An imported (old-ERP) DO never gets a run (common/erp-import.ts).
+    await assertDocNotErpImportedDo(this.prisma, organizationId, documentId);
     const existing = await this.prisma.delivery.findFirst({
       where: {
         organizationId,
@@ -1825,6 +1828,7 @@ export class DeliveriesService {
     if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('Jobs on a DO need the manual order flow');
     const d = await this.prisma.document.findFirst({ where: { id: doId, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, name: true, status: true, config: true, projectId: true } });
     if (!d) throw new NotFoundException('DO not found');
+    assertNotErpImportedDo({ type: 'DELIVERY_ORDER', config: d.config });
     const c: any = d.config || {};
     if (c.cancelled === true) throw new BadRequestException(`${d.name ?? 'This DO'} is cancelled`);
     if (String(d.status).startsWith('delivered')) throw new BadRequestException(`${d.name ?? 'This DO'} is already completed`);
@@ -1883,6 +1887,7 @@ export class DeliveriesService {
     if (!(await isManualOrderFlow(this.prisma, organizationId))) throw new BadRequestException('Complete DO needs the manual order flow');
     const d = await this.prisma.document.findFirst({ where: { id: doId, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, name: true, status: true, config: true } });
     if (!d) throw new NotFoundException('DO not found');
+    assertNotErpImportedDo({ type: 'DELIVERY_ORDER', config: d.config });
     const c: any = d.config || {};
     const label = d.name ?? 'This DO';
     if (c.cancelled === true) throw new BadRequestException(`${label} is cancelled`);
@@ -4815,9 +4820,10 @@ export class DeliveriesService {
     const selection = this.resolveLinkSelection(delivery.items, itemIds);
     const document = await this.prisma.document.findFirst({
       where: { id: documentId, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } },
-      select: { id: true, name: true, status: true },
+      select: { id: true, name: true, status: true, config: true },
     });
     if (!document) throw new NotFoundException('Delivery Order not found in this organization');
+    assertNotErpImportedDo({ type: 'DELIVERY_ORDER', config: document.config });
 
     // Per-item link write (placement). The documentId:null guard keeps a
     // concurrent link of the same item exactly-once (loser writes nothing).

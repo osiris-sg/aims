@@ -37,7 +37,7 @@ import { effectiveDesign, isImportedDoc } from '../common/services/document-html
 import { outstandingOf, grossStampOf, grossOf, amountPaidOf, computeDocumentTotals, stampDocumentMoney } from '../common/document-money';
 import { splitInvoice as splitInvoiceOp, undoInvoiceSplit as undoInvoiceSplitOp } from './invoice-split-ops';
 import { keepSplitPartTotals, splitGlRevenueLines, type SplitPlan } from './invoice-split';
-import { ERP_QUOTE_CANCELLED_STATUSES, confirmPostsToGl, erpPaidAtImport, erpQuotationTag, erpStoredTotalsOf, isErpImported, isQuotationDocType, moneySignature } from '../common/erp-import';
+import { ERP_QUOTE_CANCELLED_STATUSES, assertNotErpImportedDo, confirmPostsToGl, erpPaidAtImport, erpQuotationTag, erpStoredTotalsOf, isErpImported, isErpImportedDo, isQuotationDocType, moneySignature } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
 import { fillEmptyOrderCustomer, invoiceRowsWithSplitParts, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
 import { isManualOrderFlow } from '../orders/manual-order-flow';
@@ -1318,6 +1318,8 @@ export class DocumentsService {
       if (!existingDocument) {
         throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
       }
+      // An imported (old-ERP) DO is read-only (common/erp-import.ts): no save, no status change.
+      assertNotErpImportedDo(existingDocument);
 
       // Confirmed documents ARE editable (guru 2026-09-09) — the editor gates
       // this behind an explicit "Edit" unlock with a warning, and every such
@@ -2898,9 +2900,10 @@ export class DocumentsService {
   ) {
     const doc = await this.prisma.document.findFirst({
       where: { id: documentId, organizationId },
-      select: { id: true, name: true, type: true, projectId: true },
+      select: { id: true, name: true, type: true, projectId: true, config: true },
     });
     if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+    assertNotErpImportedDo(doc);
     // DO rows are stored as type 'DO'; some paths also use 'DELIVERY_ORDER'
     // (see the project page DO filter), so accept both.
     if (!['QUOTATION', 'DO', 'DELIVERY_ORDER'].includes(doc.type)) {
@@ -2968,6 +2971,8 @@ export class DocumentsService {
    */
   async deleteDocument(id: string, organizationId: string, actor?: DocumentActor, opts?: { force?: boolean }) {
     try {
+      // An imported (old-ERP) DO is never deleted through the app, not even by an internal force delete.
+      assertNotErpImportedDo(await this.prisma.document.findFirst({ where: { id, organizationId }, select: { type: true, config: true } }));
       if (!opts?.force) {
         const doc = await this.prisma.document.findFirst({
           where: { id, organizationId },
@@ -4113,6 +4118,8 @@ export class DocumentsService {
       // Strip fields tied to the source document's identity/state.
       delete duplicatedConfig.id;
       delete duplicatedConfig.documentNumber;
+      // A copy of an imported (old-ERP) DO is a new native DO: it does not inherit the import marker.
+      if (isErpImportedDo(original)) delete duplicatedConfig.erpImport;
       if (duplicatedConfig.documentInfo) {
         duplicatedConfig.documentInfo = { ...duplicatedConfig.documentInfo };
         delete duplicatedConfig.documentInfo.documentNumber;
@@ -4232,6 +4239,7 @@ export class DocumentsService {
    * revision at all — it is still a draft, so it is simply edited.
    */
   private async assertRevisable(original: any, organizationId: string): Promise<void> {
+    assertNotErpImportedDo(original);
     const what = String(original.name || 'This document');
     const status = String(original.status || '').toLowerCase();
     if (['draft', 'unconfirmed'].includes(status)) {
@@ -6508,6 +6516,9 @@ export class DocumentsService {
     documentId: string,
     organizationId: string,
   ) {
+    // An imported (old-ERP) DO never completes here and never makes an invoice.
+    const guard = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { type: true, config: true } });
+    if (isErpImportedDo(guard)) return null;
     const items = await this.prisma.documentItem.findMany({
       where: { documentId },
       select: { isService: true, deliveryStatus: true },
@@ -7643,8 +7654,9 @@ export class DocumentsService {
   async bulkCompleteDeliveryOrder(documentId: string, organizationId: string) {
     const document = await this.prisma.document.findFirst({
       where: { id: documentId, organizationId },
-      select: { id: true, name: true, type: true },
+      select: { id: true, name: true, type: true, config: true },
     });
+    assertNotErpImportedDo(document);
     if (!document) {
       throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
     }
@@ -7738,6 +7750,7 @@ export class DocumentsService {
       if (!document) {
         throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
       }
+      assertNotErpImportedDo(document);
       this.assertHasLineItems((document as any).config, 'delivery order');
 
       // Validate it's a Delivery Order

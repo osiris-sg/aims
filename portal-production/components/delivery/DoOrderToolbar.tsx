@@ -24,6 +24,8 @@ export default function DoOrderToolbar({ documentId, doName, status, config }: {
   const { getToken } = useAuth();
   const c: any = config || {};
   const completed = String(status || "").startsWith("delivered");
+  // Imported from the old ERP (config.erpImport, 2026-11-19): read-only, no job / sign link / Complete DO.
+  const imported = !!c.erpImport?.source;
   const [completeOpen, setCompleteOpen] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -59,7 +61,7 @@ export default function DoOrderToolbar({ documentId, doName, status, config }: {
       {/* A completed DO shows nothing here: its Completed tag sits beside the
           DO number in the title row (guru 2026-11-18, "remove the status on the
           right cos we added the left one"). */}
-      {!completed && (
+      {!completed && !imported && (
         <>
           <Button size="small" variant="outlined" disabled={busy} onClick={() => void addJob()} data-tour="do-add-job">
             Add job

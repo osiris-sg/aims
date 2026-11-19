@@ -158,6 +158,13 @@ const money = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 
     console.log(`WCT ERP credit notes read: ${creditsByInvoiceNo.size} invoice(s)`);
   }
   const plan = planImportedOrders(docs, { quotationIdsWithOrder: withOrder, exclude: EXCLUDE, erpLinks, creditsByInvoiceNo, existingImported });
+  // DO-only imported orders (scripts/wct-erp-dos.js, 2026-11-19: made from an old-ERP DO before any invoice): their
+  // status is the DO's (DO draft / DO completed) until an invoice is linked, so a top-up without an invoice leaves
+  // them alone. Once an invoice links, the normal top-up adds it and sets the status from the invoices;
+  // updateOrder spreads the existing linkedDocuments, so linkedDocuments.do and imported.doOnly are kept.
+  const doOnlyHeld = plan.updates.filter((u) => (u.order.linkedDocuments as any)?.imported?.doOnly === true && !u.addInvoices.length && !((u.order.linkedDocuments as any)?.invoice ?? []).length);
+  plan.updates = plan.updates.filter((u) => !doOnlyHeld.includes(u));
+  if (doOnlyHeld.length) console.log(`DO-only imported orders still without an invoice (left as they are): ${doOnlyHeld.length}`);
   const clash = plan.orders.filter((o) => numbers.has(`${o.organizationId}|${o.orderNumber}`));
   const todo = plan.orders.filter((o) => !numbers.has(`${o.organizationId}|${o.orderNumber}`));
 

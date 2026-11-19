@@ -14,6 +14,7 @@ import {
 import { DocumentsService } from '../documents/documents.service';
 import { refreshOrderStatus, refreshOrderStatusForRun } from '../orders/wct-orders';
 import { isManualOrderFlow } from '../orders/manual-order-flow';
+import { assertDocNotErpImportedDo, assertNotErpImportedDo } from '../common/erp-import';
 import { OFFICE_DO_SIGN_FLAG, isOrgFeatureEnabled } from '../common/org-features';
 
 // Only delivery orders (outbound + return) get a view-only link.
@@ -367,12 +368,14 @@ export class PublicDocumentService {
   async generateForDocument(documentId: string, organizationId: string) {
     const doc = await this.prisma.document.findFirst({
       where: { id: documentId, organizationId },
-      select: { id: true, type: true },
+      select: { id: true, type: true, config: true },
     });
     if (!doc) throw new NotFoundException('Document not found');
     if (!DO_TYPES.includes(doc.type)) {
       throw new BadRequestException('Only delivery orders can be shared as a view-only link');
     }
+    // An imported (old-ERP) DO is never sent for signing (common/erp-import.ts).
+    assertNotErpImportedDo(doc);
 
     // Ordinary (signable) links only: a view-only link minted for the Operator
     // PA must never be handed out by the office share button.
@@ -506,6 +509,8 @@ export class PublicDocumentService {
     if (PublicDocumentService.isViewOnly(token)) {
       throw new HttpException('This link is view only. It cannot be used to sign.', HttpStatus.FORBIDDEN);
     }
+    // An imported (old-ERP) DO can never be signed.
+    await assertDocNotErpImportedDo(this.prisma, link.organizationId, link.documentId);
 
     // ── validate the payload ────────────────────────────────────────────────
     const name = (body?.name ?? '').trim();
