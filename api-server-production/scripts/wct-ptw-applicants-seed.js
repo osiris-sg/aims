@@ -3,7 +3,7 @@
  * Racking and BC Air (src/deliveries/ptw-applicants.ts). DRY RUN BY DEFAULT (read-only session).
  *
  *   Bala   red    #d50000  default, linked to submission@wct.com.sg
- *   Joyna  yellow #f6bf26  linked to joyna@wct.com.sg
+ *   Joyna  amber  #c99a00  linked to joyna@wct.com.sg (Elroy 19 Nov: darker than #f6bf26 so the bar reads on pale chips)
  *   Kherry green  #0b8043  name only, no login
  *
  * Writes (only with --apply; prod also needs --confirm-prod): one storage-only CustomField row per org
@@ -27,7 +27,7 @@ const ORGS = {
 };
 const SEED = [
   { id: 'pta_bala', name: 'Bala', colour: '#d50000', email: 'submission@wct.com.sg', default: true },
-  { id: 'pta_joyna', name: 'Joyna', colour: '#f6bf26', email: 'joyna@wct.com.sg' },
+  { id: 'pta_joyna', name: 'Joyna', colour: '#c99a00', email: 'joyna@wct.com.sg' },
   { id: 'pta_kherry', name: 'Kherry', colour: '#0b8043', email: null },
 ];
 const argv = process.argv.slice(2);
@@ -102,13 +102,14 @@ const MIN_COLOUR_DISTANCE = 80; // src/dashboard/calendar-style.ts
       say(`  before: default PTW applicant per person: ${oldDefault.length ? oldDefault.map((u) => (u === entries[0].userId ? 'Bala' : u === entries[1].userId ? 'Joyna' : `user ${u}`)).join(', ') : 'none'} · people with their own PTW colour: ${oldBars}`);
       // Jobs with a stored applicant (calendar style JSON).
       const field = (await q(`select id from "CustomField" where "organizationId" = $1 and "entityType" = 'Delivery' and "fieldName" = 'job_calendar_style'`, [org]))[0];
+      // Report only; no fallback query (a failed query would abort the APPLY transaction).
       const jobs = field
         ? await q(
-            `select v."entityId" id, v.value->>'ptwApplicantId' a, v.value->>'ptwApplicantName' n, d."jobNumber" no, d.status, d."ptwStatus" ptw
+            `select v."entityId" id, v.value->>'ptwApplicantId' a, v.value->>'ptwApplicantName' n, d."deliveryNumber" no, d.status, d."ptwStatus" ptw
                from "CustomFieldValue" v left join "Delivery" d on d.id::text = v."entityId"
               where v."customFieldId" = $1 and coalesce(v.value->>'ptwApplicantId', '') <> ''`,
             [field.id],
-          ).catch(() => q(`select v."entityId" id, v.value->>'ptwApplicantId' a, v.value->>'ptwApplicantName' n from "CustomFieldValue" v where v."customFieldId" = $1 and coalesce(v.value->>'ptwApplicantId', '') <> ''`, [field.id]))
+          )
         : [];
       const resolves = (k) => entries.some((e) => e.id === k || (e.userId && e.userId === k));
       const outside = jobs.filter((j) => !resolves(j.a));

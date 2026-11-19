@@ -16,7 +16,8 @@ import type { PtwApplicantList } from '../deliveries/ptw-applicants';
 /** Salesperson fills (Google Calendar tones). */
 export const FILL_PALETTE = ['#039be5', '#8e24aa', '#e67c73', '#3f51b5', '#7986cb', '#ad1457', '#26a69a'] as const;
 /** PTW applicant bars. */
-export const BAR_PALETTE = ['#d50000', '#f6bf26', '#0b8043', '#f4511e', '#795548', '#212121'] as const;
+// 2026-11-19: amber #c99a00 replaces yellow #f6bf26 (too faint as a bar on the soft chip fills).
+export const BAR_PALETTE = ['#d50000', '#c99a00', '#0b8043', '#f4511e', '#795548', '#212121'] as const;
 /** A job with no salesperson (or one with no colour yet). */
 export const NEUTRAL_FILL = '#b0bec5';
 /** A PTW bar whose applicant has no colour yet. */
