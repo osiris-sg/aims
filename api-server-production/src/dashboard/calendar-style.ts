@@ -35,7 +35,16 @@ export const SEED_FILLS: Record<string, string> = {
 export const SEED_BARS: Record<string, string> = { Bala: '#d50000', Joyna: '#f6bf26', Kherry: '#0b8043' };
 export const SEED_DEFAULT_APPLICANT = 'Bala';
 
-/** ✅ counts a DO only once it is completed / signed (the DO's "Completed" tag); drafts, cancelled and voided DOs don't. */
+/**
+ * ✅ (Elroy 2026-11-20, replaces the round 6 "completed only" rule): every DO that is not cancelled or voided counts,
+ * draft or completed ("DO generated"). Soft-deleted DOs are no longer DOs (their type changes), so they never count.
+ */
+export function isLiveDo(d: { config?: unknown }): boolean {
+  const c: any = d.config || {};
+  return c.cancelled !== true && c.voided !== true;
+}
+
+/** A completed / signed DO (the DO's "Completed" tag); kept for callers that need it. */
 export function isCompletedDo(d: { status?: string | null; config?: unknown }): boolean {
   const c: any = d.config || {};
   if (c.cancelled === true || c.voided === true) return false;
@@ -59,7 +68,7 @@ export const CALENDAR_STYLE_LEGEND: Array<{ icon: string; label: string }> = [
   { icon: ICON.ptwPending, label: 'PTW pending' },
   { icon: ICON.ptwApproved, label: 'PTW approved' },
   { icon: ICON.ptwRejected, label: 'PTW rejected' },
-  { icon: ICON.doDone, label: 'DO completed' },
+  { icon: ICON.doDone, label: 'DO generated' },
   { icon: ICON.cancelled, label: 'Cancelled' },
   { icon: ICON.postponed, label: 'Postponed' },
   { icon: ICON.leave, label: 'Leave' },
@@ -159,7 +168,7 @@ export interface StyleInput {
   postponed: boolean;
   /** PTW status (null / NOT_NEEDED = no PTW). */
   ptwStatus: string | null;
-  /** Completed (signed) DOs of the job. */
+  /** The job's DOs that are not cancelled (draft or completed; else its order's). */
   doCount: number;
   cod: boolean;
   category: string | null;
@@ -230,7 +239,7 @@ export function styleOf(i: StyleInput, colours: CalendarColours): EventStyle {
   const p = ptwIcon(i.ptwStatus);
   if (p) icons.push(p);
   const d = doIcon(i.doCount);
-  if (d) icons.push({ icon: d, label: i.doCount > 1 ? `${i.doCount} DOs completed` : 'DO completed' });
+  if (d) icons.push({ icon: d, label: i.doCount > 1 ? `${i.doCount} DOs generated` : 'DO generated' });
   if (i.cod) icons.push({ icon: ICON.cod, label: 'COD' });
   if (i.sticker) icons.push({ icon: ICON.sticker, label: 'Generate sticker' });
   // An applicant with no colour (the neutral bar) gets no circle.

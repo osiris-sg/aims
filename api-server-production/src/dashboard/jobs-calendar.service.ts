@@ -14,7 +14,7 @@ import { resolveSalespersonIds, salespersonAliases } from '../sales-report/sales
 import { CALENDAR_STYLE_LEGEND, CalendarColours, StyleInput, mergeColours, quotationSalesmanCode, salespersonFromCode, styleOf } from './calendar-style';
 import { jobCreatorIds, jobStyleValues } from '../deliveries/job-style';
 import type { PanelPerson } from './calendar-style';
-import { isCompletedDo } from './calendar-style';
+import { isLiveDo } from './calendar-style';
 import { quotationSubjectOf } from '../deliveries/quick-job-quotation';
 
 export const JOBS_CALENDAR_FLAG = 'enableJobsCalendar';
@@ -273,7 +273,7 @@ export class JobsCalendarService {
     const qIds = [...new Set([...quotationIds.values()].filter((x): x is string => !!x))];
     const [meta, doCounts, codes, quotes, aliases] = await Promise.all([
       jobStyleValues(this.prisma, organizationId, ids),
-      this.runDoCounts(organizationId, ids),
+      this.runDoCounts(organizationId, runs as any[]),
       this.style!.salesmanCodes(organizationId),
       qIds.length
         ? runAsOrg(organizationId, () => this.prisma.document.findMany({ where: { id: { in: qIds }, organizationId }, select: { id: true, status: true, config: true } }))
@@ -359,19 +359,26 @@ export class JobsCalendarService {
     });
   }
 
-  /** Calendar style: each run's completed (signed) DOs, counted once each; drafts and cancelled DOs don't count. */
-  private async runDoCounts(organizationId: string, runIds: string[]): Promise<Map<string, number>> {
+  /**
+   * Calendar style ✅ (Elroy 2026-11-20): each job's DOs that are not cancelled or voided, draft or completed, counted
+   * once each. A job with no DO of its own counts its order's DOs instead: the AIMS DOs made on the order
+   * (config.orderId) and native DOs linked to it (Link existing document). Old ERP DOs imported onto an order are
+   * history and never count.
+   */
+  private async runDoCounts(organizationId: string, runs: Array<{ id: string; order?: { id: string } | null }>): Promise<Map<string, number>> {
     const out = new Map<string, number>();
+    const runIds = runs.map((r) => r.id);
     if (!runIds.length) return out;
     const items: any[] = await runAsOrg(organizationId, () =>
       this.prisma.deliveryItem.findMany({ where: { deliveryId: { in: runIds }, documentId: { not: null } }, select: { deliveryId: true, documentId: true } }),
     );
     const docIds = [...new Set(items.map((i) => i.documentId as string))];
-    if (!docIds.length) return out;
-    const docs: any[] = await runAsOrg(organizationId, () =>
-      this.prisma.document.findMany({ where: { id: { in: docIds }, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, status: true, config: true } }),
-    );
-    const live = new Set(docs.filter((d) => isCompletedDo(d)).map((d) => d.id as string));
+    const docs: any[] = docIds.length
+      ? await runAsOrg(organizationId, () =>
+          this.prisma.document.findMany({ where: { id: { in: docIds }, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, status: true, config: true } }),
+        )
+      : [];
+    const live = new Set(docs.filter((d) => isLiveDo(d)).map((d) => d.id as string));
     const per = new Map<string, Set<string>>();
     for (const i of items) {
       if (!live.has(i.documentId)) continue;
@@ -380,6 +387,40 @@ export class JobsCalendarService {
       per.set(i.deliveryId, set);
     }
     for (const [k, v] of per) out.set(k, v.size);
+    // No DO of its own: the order's DOs.
+    const orderIds = [...new Set(runs.filter((r) => !out.get(r.id) && r.order?.id).map((r) => r.order!.id))];
+    if (orderIds.length) {
+      const [orderDocs, orders] = await Promise.all([
+        runAsOrg(organizationId, () =>
+          this.prisma.document.findMany({
+            where: { organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] }, OR: orderIds.map((id) => ({ config: { path: ['orderId'], equals: id } })) } as any,
+            select: { id: true, config: true },
+          }),
+        ) as Promise<any[]>,
+        runAsOrg(organizationId, () => this.prisma.order.findMany({ where: { id: { in: orderIds }, organizationId }, select: { id: true, linkedDocuments: true } })) as Promise<any[]>,
+      ]);
+      const byOrder = new Map<string, Set<string>>();
+      for (const d of orderDocs) {
+        const oid = (d.config as any)?.orderId;
+        if (!oid || !isLiveDo(d) || (d.config as any)?.erpImport) continue;
+        byOrder.set(oid, (byOrder.get(oid) ?? new Set<string>()).add(d.id));
+      }
+      const linkedIds = new Map<string, string[]>();
+      for (const o of orders) {
+        const ld: any = o.linkedDocuments || {};
+        const ids = (Array.isArray(ld.do) ? ld.do : []).filter((x: any) => x && typeof x.id === 'string' && x.imported !== true).map((x: any) => x.id as string);
+        if (ids.length) linkedIds.set(o.id, ids);
+      }
+      const allLinked = [...new Set([...linkedIds.values()].flat())];
+      if (allLinked.length) {
+        const linkedDocs: any[] = await runAsOrg(organizationId, () =>
+          this.prisma.document.findMany({ where: { id: { in: allLinked }, organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, config: true } }),
+        );
+        const ok = new Set(linkedDocs.filter((d) => isLiveDo(d) && !(d.config as any)?.erpImport).map((d) => d.id as string));
+        for (const [oid, ids] of linkedIds) for (const id of ids) if (ok.has(id)) byOrder.set(oid, (byOrder.get(oid) ?? new Set<string>()).add(id));
+      }
+      for (const r of runs) if (!out.get(r.id) && r.order?.id && byOrder.get(r.order.id)?.size) out.set(r.id, byOrder.get(r.order.id)!.size);
+    }
     return out;
   }
 

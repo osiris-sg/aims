@@ -85,7 +85,7 @@ describe('insertWithLockedNumber (mocked database)', () => {
 describe('aims_inv_number_guard SQL', () => {
   it('gated on the order-invoicing flags; checks INVOICE rows of the same org only; raises a unique violation', () => {
     const sql = invoiceNumberGuardSql('public', 'public').join('\n');
-    expect(INVOICE_NUMBER_GUARD_FLAGS).toEqual(['enableWctOrderInvoice', 'enableImportedOrders']);
+    expect(INVOICE_NUMBER_GUARD_FLAGS).toEqual(['enableWctOrderInvoice', 'enableImportedOrders', 'invoiceNumberGuard']);
     expect(sql).toContain(`COALESCE(c.features ->> 'enableWctOrderInvoice', '') = 'true' OR COALESCE(c.features ->> 'enableImportedOrders', '') = 'true'`);
     expect(sql).toContain(`WHEN (NEW.type = 'INVOICE' AND NEW.name IS NOT NULL AND NEW.name <> '')`);
     expect(sql).toContain('BEFORE INSERT OR UPDATE OF name, type, "organizationId" ON "public"."Document"');

@@ -273,6 +273,10 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // reads Invoiced → Paid → Closed (paid + service report on the order).
   // Default OFF; WCT only.
   enableWctOrderInvoice: false,
+  // Invoice number guard (WCT group, 2026-11-20): the database refuses a second invoice with a number already used in
+  // the org (trigger aims_inv_number_guard, scripts/invoice-number-guard.ts). The guard also checks orgs with
+  // enableWctOrderInvoice or enableImportedOrders; this setting adds orgs with neither (YMM). Default OFF.
+  invoiceNumberGuard: false,
   // WCT vehicles (2026-11-12): a Vehicles tab after Orders with the vans and
   // lorries (number, model, COE and lifespan expiry) and each one's usage &
   // repair log (driver, start / end date and mileage, damage or repair and its

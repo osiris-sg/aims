@@ -24,7 +24,7 @@ import { jobStyleOf, parseJobStylePatch, stampJobCreator, withStampedApplicant, 
 import { AUTO_PALETTE, colourCircle, panelPeople } from './calendar-style';
 import { DEFAULT_EXPORT_HEADER, cleanExportHeader, readExportHeader, writeExportHeader } from './calendar-export';
 import { parseRescheduleTarget, zonedInstant } from '../deliveries/calendar-panel';
-import { isCompletedDo } from './calendar-style';
+import { isCompletedDo, isLiveDo } from './calendar-style';
 import { DEFAULT_ORG_FEATURES } from '../organizations/default-features';
 import { DeliveriesService } from '../deliveries/deliveries.service';
 
@@ -272,6 +272,9 @@ interface World {
   notes?: Record<string, any[]>;
   /** Round 36: the order's quotation Subject. */
   quoteSubject?: string;
+  /** Round 37: DOs made on orders (config.orderId) and orders' linked documents. */
+  orderDos?: any[];
+  orderLinks?: Record<string, any>;
 }
 
 function world(): World {
@@ -327,6 +330,8 @@ function fakePrisma(w: World) {
     },
     document: {
       findMany: jest.fn(async ({ where }: any) => {
+        // Round 37: the order fallback reads the order's DOs by config.orderId (no id list).
+        if (where.type && !where.id) return (w.orderDos ?? []).filter((d: any) => where.OR?.some((o: any) => o.config?.equals === d.config?.orderId));
         if (where.type)
           return [
             { id: 'do-1', name: 'DO1', status: 'delivered_installed', documentTemplateId: 't', config: {}, createdAt: new Date() },
@@ -337,6 +342,7 @@ function fakePrisma(w: World) {
       }),
     },
     deliverySiteClockJob: { findMany: jest.fn(async () => []) },
+    order: { findMany: jest.fn(async ({ where }: any) => where.id.in.map((id: string) => ({ id, linkedDocuments: w.orderLinks?.[id] ?? {} }))) },
     calendarNote: {
       findMany: jest.fn(async ({ where, distinct }: any) => {
         const list = (w.notes?.[org(where)] ?? []).filter((n: any) => (where.id?.in ? where.id.in.includes(n.id) : true)).filter((n: any) => (where.createdById ? !!n.createdById : true));
@@ -386,7 +392,8 @@ describe('jobs calendar with the style on (WCT group)', () => {
     const order = byId(res.events, 'r-order');
     expect(order.style).toMatchObject({ fill: '#039be5', bar: '#d50000', greyed: false });
     // One completed DO (the draft and the cancelled one don't count).
-    expect(order.style.icons.map((i: any) => i.icon)).toEqual(['✋', '✅']);
+    // Round 37 (Elroy 20 Nov): every DO that is not cancelled counts, draft or completed: DO1 (completed) + DO2 (draft) = 2✅; DO3 is cancelled.
+    expect(order.style.icons.map((i: any) => i.icon)).toEqual(['✋', '2✅']);
     expect(order.salesperson).toEqual({ id: HH, name: 'Nat HH' });
     expect(order.ptwApplicant).toEqual({ id: BALA, name: 'Bala' });
     const quick = byId(res.events, 'r-quick');
@@ -822,5 +829,33 @@ describe('round 36: Export list header (Settings > Job fields)', () => {
     expect(await readExportHeader(prisma, 'org')).toEqual({ header: '', isDefault: false });
     expect(() => cleanExportHeader('x'.repeat(301))).toThrow(BadRequestException);
     expect(() => cleanExportHeader(5)).toThrow(BadRequestException);
+  });
+});
+
+
+describe('round 37: ✅ = any DO that is not cancelled (Elroy 20 Nov)', () => {
+  it('draft and completed DOs count, cancelled / voided never; the label says generated', () => {
+    expect(isLiveDo({ config: {} })).toBe(true);
+    expect(isLiveDo({ config: { cancelled: true } })).toBe(false);
+    expect(isLiveDo({ config: { voided: true } })).toBe(false);
+    expect(styleOf(input({ doCount: 1 }), colours).icons).toEqual([{ icon: '✅', label: 'DO generated' }]);
+    expect(styleOf(input({ doCount: 3 }), colours).icons).toEqual([{ icon: '3✅', label: '3 DOs generated' }]);
+  });
+
+  it("a job with no DO of its own counts its order's DOs (made on the order or linked; old ERP DOs never)", async () => {
+    const w = world();
+    w.runs[P].push(baseRun('r-o2', { order: { id: 'o2', orderNumber: 'ORD-2', sourceQuotationId: null } }));
+    w.orderDos = [
+      { id: 'od1', config: { orderId: 'o2' } },
+      { id: 'od2', config: { orderId: 'o2', cancelled: true } },
+      { id: 'od3', config: { orderId: 'o2', erpImport: { source: 'wct-erp' } } },
+    ];
+    const res = await svc(w).get(P, '2026-11-16', '2026-11-22', { userId: HH });
+    expect(byId(res.events, 'r-o2').doCount).toBe(1);
+    expect(byId(res.events, 'r-o2').style.icons.map((i: any) => i.icon)).toContain('✅');
+    // The job with its own DOs keeps its own count (not the order's).
+    expect(byId(res.events, 'r-order').doCount).toBe(2);
+    // No order and no DO: none.
+    expect(byId(res.events, 'r-quick').doCount).toBe(0);
   });
 });

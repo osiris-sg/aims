@@ -16,8 +16,12 @@
  * Installer: scripts/invoice-number-guard.ts (dry run by default).
  */
 
-/** The orgs checked: order invoicing on (AIMS orders' Create invoice / imported orders' Create invoice). */
-export const INVOICE_NUMBER_GUARD_FLAGS = ['enableWctOrderInvoice', 'enableImportedOrders'] as const;
+/**
+ * The orgs checked: order invoicing on (AIMS orders' Create invoice / imported orders' Create invoice), or the
+ * dedicated setting invoiceNumberGuard (Elroy 2026-11-20: the whole WCT group incl. YMM, which has neither flag).
+ */
+export const INVOICE_NUMBER_GUARD_SETTING = 'invoiceNumberGuard';
+export const INVOICE_NUMBER_GUARD_FLAGS = ['enableWctOrderInvoice', 'enableImportedOrders', INVOICE_NUMBER_GUARD_SETTING] as const;
 export const INVOICE_NUMBER_GUARD_NAME = 'aims_inv_number_guard';
 
 const ident = (s: string) => {
