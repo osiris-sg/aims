@@ -41,6 +41,7 @@ import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-numb
 import { fillEmptyOrderCustomer, invoiceRowsWithSplitParts, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
 import { isManualOrderFlow } from '../orders/manual-order-flow';
 import { skipsDoSaveStockRule } from './do-first-save';
+import { RDO_FREE_ROWS_FLAG, allowsRdoFreeRows, hasUnit, isRdoSigned, isRdoType } from './rdo-free-rows';
 import { isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { assetKey, descKey, invoiceDiscountPercent, isDisplayRow, orderInvoiceReference, planOrderInvoice, quoteDiscountAmount } from '../orders/order-billing';
@@ -1105,6 +1106,12 @@ export class DocumentsService {
         // WCT (enableWctOrders, 2026-11-03): the order this quotation became, for the
         // "Order ORD… created" banner. Absent for every other org / document.
         ...(await this.quotationOrders(organizationId, [document]).then((m) => (m.has(document.id) ? { linkedOrder: m.get(document.id) } : {}))),
+        // enableRdoFreeTypedRows (Biofuel): a signed RDO opens read-only. Absent otherwise.
+        ...(isRdoType(document.type) &&
+        (await isOrgFeatureEnabled(this.prisma, organizationId, RDO_FREE_ROWS_FLAG)) &&
+        (await isRdoSigned(this.prisma as any, organizationId, document.id))
+          ? { rdoSigned: true }
+          : {}),
       };
     } catch (error) {
       throw new HttpException(`Fetch by ID failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -1293,6 +1300,15 @@ export class DocumentsService {
       if (configAsPlainObject && existingDocument.type === 'DELIVERY_ORDER') carryServerDoKeys(existingDocument.config, configAsPlainObject);
       if (configAsPlainObject && existingDocument.type === 'INVOICE') carryServerInvoiceKeys(existingDocument.config, configAsPlainObject);
       const wasConfirmedBeforeSave = !['draft', 'unconfirmed'].includes(existingDocument.status);
+
+      // RDO free-typed rows (enableRdoFreeTypedRows, Biofuel 2026-11-19): with the
+      // flag on, a signed RDO (signed DO_ACK or completed run) is read-only.
+      const rdoFreeRowsOn = isRdoType(existingDocument.type)
+        ? await isOrgFeatureEnabled(this.prisma, organizationId, RDO_FREE_ROWS_FLAG)
+        : false;
+      if (rdoFreeRowsOn && (await isRdoSigned(this.prisma as any, organizationId, existingDocument.id))) {
+        throw new HttpException('This RDO is signed and can no longer be changed', HttpStatus.FORBIDDEN);
+      }
 
       // Managers and up only (guru 2026-09-29): a Designer-tier user may
       // neither CONFIRM a document nor edit one that is already confirmed.
@@ -2132,12 +2148,16 @@ export class DocumentsService {
         (dto.config as any)?.orderId ?? (existingDocument.config as any)?.orderId,
         await isManualOrderFlow(this.prisma, organizationId),
       );
+      // RDO free-typed rows: rows with no unit are paper only (no stock move).
+      const rdoFreeRows = allowsRdoFreeRows(dto.type || existingDocument.type, rdoFreeRowsOn);
       if (!documentTypesExcludedFromInventory.includes(dto.type) && !doFirstOrderDo && dto.config && Array.isArray(dto.config.items)) {
         // PHYSICAL items only — a service row has no unit to point at
         // (guru 2026-11-12). Same rule as the project-assignment block below.
-        const itemsWithoutInventory = dto.config.items.filter(
-          (_item) => !_item.isService && (!_item.inventoryItemId || _item.inventoryItemId.trim() === '')
-        );
+        const itemsWithoutInventory = rdoFreeRows
+          ? []
+          : dto.config.items.filter(
+              (_item) => !_item.isService && (!_item.inventoryItemId || _item.inventoryItemId.trim() === '')
+            );
 
         if (itemsWithoutInventory.length > 0) {
           throw new HttpException(
@@ -2148,6 +2168,8 @@ export class DocumentsService {
 
         await Promise.all(
           dto.config.items.map(async (_item) => {
+            // RDO free-typed row (no unit): paper only, nothing to look up or move.
+            if (rdoFreeRows && !hasUnit(_item)) return;
 
             // Determine inventory status based on document type (not document status)
             let docMessage = '';
@@ -3007,7 +3029,12 @@ export class DocumentsService {
           // Same carve-outs as the update path above: quotations are priced
           // before any unit is picked, and credit / debit notes adjust money
           // rather than stock (guru 2026-11-12).
-          if (!['QO1', 'QUOTATION', 'QT', 'QO', 'CREDIT_NOTE', 'CN', 'DEBIT_NOTE', 'DN'].includes(dto.type)) {
+          // RDO free-typed rows (enableRdoFreeTypedRows): rows with no unit are paper only.
+          const rdoFreeRows = allowsRdoFreeRows(
+            dto.type,
+            isRdoType(dto.type) ? await isOrgFeatureEnabled(tx as any, organizationId, RDO_FREE_ROWS_FLAG) : false,
+          );
+          if (!rdoFreeRows && !['QO1', 'QUOTATION', 'QT', 'QO', 'CREDIT_NOTE', 'CN', 'DEBIT_NOTE', 'DN'].includes(dto.type)) {
             const itemsWithoutInventory = dto.config.items.filter(
               (_item: any) => !_item.isService && (!_item.inventoryItemId || _item.inventoryItemId.trim() === '')
             );
@@ -3022,6 +3049,8 @@ export class DocumentsService {
 
           await Promise.all(
             dto.config.items.map(async (_item) => {
+              // RDO free-typed row (no unit): paper only, nothing to move.
+              if (rdoFreeRows && !hasUnit(_item)) return;
               // Determine new inventory status and timeline messages based on document type
               let newStatus: InventoryStatus = InventoryStatus.instock;
               let docMessage = 'A RDO document is submitted';

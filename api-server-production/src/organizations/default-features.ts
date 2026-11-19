@@ -71,6 +71,8 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // Spend Money / Receive Money (2026-11-06): direct bank transactions with no
   // invoice behind them, under AP / AR. Default OFF.
   enableSpendMoney: false,
+  // RDO free-typed rows + signed-RDO lock (Biofuel, 2026-11-19). Default OFF.
+  enableRdoFreeTypedRows: false,
   // Role home (2026-11-06): /portal lands on the role-based home screen and
   // the org wears the role-home look on every page. Default OFF.
   enableRoleHome: false,

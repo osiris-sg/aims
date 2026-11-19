@@ -428,6 +428,8 @@ export default function TabbedDocumentCreator({
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
   const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isQuotationTemplatesEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled, isDocRemarksEnabled, isQuotationCategoryEnabled, isRackingLayoutEnabled } = useOrganizationFeatures();
+  // RDO free-typed rows + signed-RDO lock (enableRdoFreeTypedRows, Biofuel 2026-11-19).
+  const { isRdoFreeTypedRowsEnabled } = useOrganizationFeatures();
   // In-app Back (enableWctDocNav): history back when opened inside the app, else the parent list; off = the parent list.
   const { goBack } = useAppBack();
   // Manual order flow: after an order's invoice is emailed, offer to send its service report too.
@@ -576,8 +578,10 @@ export default function TabbedDocumentCreator({
   // should already be in the GL, so no need to Confirm"). They never lock:
   // every later save voids and reposts, so the form stays editable.
   const isSettlementType = ["OFFICIAL_RECEIPT", "OR", "PAYMENT_VOUCHER", "PV", "JOURNAL_VOUCHER", "JV"].includes(String(documentType || ""));
-  const isDocumentConfirmed = isDocumentConfirmedStatus && !confirmedEditUnlocked && !isSettlementType;
-  const confirmedReadOnly = isDocumentConfirmedStatus && !confirmedEditUnlocked && !isSettlementType;
+  // A signed RDO (enableRdoFreeTypedRows orgs) is read-only, with no unlock.
+  const rdoSignedLock = isRdoFreeTypedRowsEnabled && existingData?.rdoSigned === true;
+  const isDocumentConfirmed = (isDocumentConfirmedStatus && !confirmedEditUnlocked && !isSettlementType) || rdoSignedLock;
+  const confirmedReadOnly = (isDocumentConfirmedStatus && !confirmedEditUnlocked && !isSettlementType) || rdoSignedLock;
   const isDocumentEditable = !isDocumentConfirmed && !isTemplateEditMode;
 
   // Confirmed documents now open on the (read-only) edit screen, not preview.
@@ -7894,6 +7898,11 @@ export default function TabbedDocumentCreator({
                       >
                         {isFcuCuVariant ? "Add Row" : "Add Item"}
                       </Button>
+                      {isRdoFreeTypedRowsEnabled && isRDO && !isTemplateEditMode && (
+                        <Button variant="outlined" startIcon={<AddIcon />} onClick={addNewItem} size="small" data-tour="editor-rdo-free-item">
+                          Free type item
+                        </Button>
+                      )}
                       {isLumpEligible && lumpSelection.length >= 2 && (
                         <Button
                           variant="outlined"

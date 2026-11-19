@@ -235,6 +235,9 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // no invoice behind them (Xero's Spend/Receive Money) under AP / AR.
   // Default OFF; toggle per org in Admin → Configuration → Advanced.
   enableSpendMoney: false,
+  // RDO free-typed rows (Biofuel, 2026-11-19): the RDO editor takes rows with no unit (paper only),
+  // and a signed RDO opens read-only. Default OFF.
+  enableRdoFreeTypedRows: false,
   // Maintenance Dates (Biofuel, 2026-09): Service Reports -> Maintenance Dates.
   // A maintenance date per asset, which deployed units are done this cycle, and
   // a reminder 7 days before (push to field techs + office bell). Default OFF.
@@ -451,6 +454,7 @@ export function useOrganizationFeatures() {
     isRecurringInvoicesEnabled: features.enableRecurringInvoices ?? FEATURE_FLAG_DEFAULTS.enableRecurringInvoices,
     isTemplateDesignEnabled: features.enableTemplateDesign ?? FEATURE_FLAG_DEFAULTS.enableTemplateDesign,
     isSpendMoneyEnabled: features.enableSpendMoney ?? FEATURE_FLAG_DEFAULTS.enableSpendMoney,
+    isRdoFreeTypedRowsEnabled: features.enableRdoFreeTypedRows === true,
     isShipmentsHomeEnabled: features.enableShipmentsHome ?? FEATURE_FLAG_DEFAULTS.enableShipmentsHome,
     isMaintenanceDatesEnabled: features.enableMaintenanceDates ?? false,
     isDeliveryGroupPostsEnabled: features.enableDeliveryGroupPosts ?? false,

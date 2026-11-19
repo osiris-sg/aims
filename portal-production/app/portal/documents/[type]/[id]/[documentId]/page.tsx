@@ -250,6 +250,8 @@ export default function page() {
         cancelledWithOrder: config.cancelledWithOrder,
       };
       documentData.type = response.data.type;
+      // enableRdoFreeTypedRows (Biofuel): the API marks a signed RDO; the editor opens it read-only.
+      documentData.rdoSigned = response.data.rdoSigned === true;
       // Forward linked field-tech delivery reports so the DO preview/print can
       // render the Proof of Delivery section (see CleanDocumentPreview DO block).
       documentData.maintenanceReports = response.data.maintenanceReports;
