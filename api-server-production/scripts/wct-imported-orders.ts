@@ -25,6 +25,7 @@
  *   npx ts-node --transpile-only scripts/wct-imported-orders.ts --env prod                       # dry run (read-only session)
  *   npx ts-node --transpile-only scripts/wct-imported-orders.ts --env prod --exclude <orgId>
  *   npx ts-node --transpile-only scripts/wct-imported-orders.ts --env prod --apply --deployed     # NOT without Elroy's go
+ *   --extra-docs <json> DRY RUN only: planned documents added to (or replacing, same id) the stored ones.
  *   --erp-links <csv>  invoice_no,erp_quotation_no (the invoice's Quotation No. link read
  *                      read-only from the old ERP, _imports/wct/links/); WCT (S) invoices only; used first.
  * Options: --org <id> (repeatable; default the 4 WCT group orgs), --exclude <id> (repeatable),
@@ -107,7 +108,17 @@ const money = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 
       where d."organizationId" = any($1) and d.type in ('QUOTATION', 'INVOICE', 'CREDIT_NOTE') and d.config ? 'erpImport'`,
     [orgs],
   );
-  const docs: PlanDoc[] = rows.map((r: any) => ({ ...r, config: { ...(r.config || {}), items: r.ref_text ? [{ description: r.ref_text }] : [] } }));
+  let docs: PlanDoc[] = rows.map((r: any) => ({ ...r, config: { ...(r.config || {}), items: r.ref_text ? [{ description: r.ref_text }] : [] } }));
+  // --extra-docs <json> (DRY RUN only, scripts/wct-erp-catchup.js): planned documents that are not in the
+  // database yet (new imports) or planned money / status updates (same id replaces the stored row).
+  const extraFile = one('--extra-docs');
+  if (extraFile) {
+    if (APPLY) throw new Error('--extra-docs is for dry runs only');
+    const extra: PlanDoc[] = JSON.parse(fs.readFileSync(extraFile, 'utf8'));
+    const byId = new Map(extra.map((d) => [d.id, d]));
+    docs = [...docs.map((d) => byId.get(d.id) ?? d), ...extra.filter((d) => !docs.some((x) => x.id === d.id))];
+    console.log(`extra planned documents: ${extra.length} (${extra.filter((d) => rows.some((r: any) => r.id === d.id)).length} replace stored rows)`);
+  }
   const templateOf = new Map(rows.map((r: any) => [r.id, r.templateId]));
   const existing = await q(`select id::text id, "organizationId", "orderNumber", status, "sourceQuotationId"::text "sourceQuotationId", "linkedDocuments" from ${T('Order')} where "organizationId" = any($1)`, [orgs]);
   // Top-up: imported orders already made (never a native order: number ORD-Q- AND the erp-import marker).

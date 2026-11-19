@@ -43,6 +43,11 @@ const SEARCH_PATH = opt('--search-path', null);
 const REMAP = args.includes('--remap-by-name');
 const CHUNK = 500;
 const SOURCE = 'wct-erp';
+// --create-customers <csv> (catch-up runs): ERP customer names (column erp_customer) that are new since the
+// customer import; created in WCT (S) by the app's code rule, like CREATE_CUSTOMERS below.
+const CREATE_EXTRA = args.includes('--create-customers')
+  ? fs.readFileSync(opt('--create-customers'), 'utf8').replace(/^\ufeff/, '').split(/\r?\n/).slice(1).map((l) => l.replace(/^"|"$/g, '').replace(/""/g, '"').trim()).filter(Boolean)
+  : [];
 const LOG = path.resolve(__dirname, `wct-erp-import.${BATCH}.log.json`);
 
 const QUOTE_SCOPE = new Set(['Accepted', 'Declined', 'Sent']);
@@ -54,6 +59,7 @@ const CREATE_CUSTOMERS = {
   '88rounding Pte Ltd': { name: '88rounding Pte Ltd' },
   'MCST 1166': { name: 'MCST 1166' },
 };
+for (const n of CREATE_EXTRA) if (!CREATE_CUSTOMERS[n]) CREATE_CUSTOMERS[n] = { name: n };
 // createdAt: the document's own date (09:00 SGT), but never on or after WCT's first AIMS document
 // (2026-11-02), so "open the latest invoice / quotation" and newest-first lists stay on AIMS's own.
 const CREATED_CAP = Date.parse('2026-11-02T00:00:00+08:00');
@@ -123,10 +129,17 @@ async function main() {
   const saveLog = () => APPLY && fs.writeFileSync(LOG.replace('.log.json', ROLLBACK ? '.rollback.log.json' : '.log.json'), JSON.stringify(log, null, 1));
 
   const org = (await q(`select id, name from "Organization" where id = $1`, [WCT]))[0];
-  if (!org || org.name !== 'WCT') throw new Error(`WCT org ${WCT} not found (got ${JSON.stringify(org)})`);
+  // The org was renamed from "WCT" to "WCT (S) Systems Pte Ltd" after the first import.
+  if (!org || !/^WCT\b/.test(org.name)) throw new Error(`WCT org ${WCT} not found (got ${JSON.stringify(org)})`);
   // One run at a time (released when the session ends).
-  const lock = (await q(`select pg_try_advisory_lock(hashtext('wct-erp-import')) ok`))[0].ok;
-  if (!lock) throw new Error('another wct-erp-import run holds the lock');
+  // One APPLY at a time. Dry runs are read-only and take no lock: behind the connection pooler a session
+  // lock outlives the run on the pooled server connection (seen 19 Nov), so apply also unlocks explicitly.
+  if (APPLY) {
+    const lock = (await q(`select pg_try_advisory_lock(hashtext('wct-erp-import')) ok`))[0].ok;
+    if (!lock) throw new Error('another wct-erp-import run holds the lock');
+    const end = c.end.bind(c);
+    c.end = async () => { await c.query(`select pg_advisory_unlock(hashtext('wct-erp-import'))`).catch(() => {}); return end(); };
+  }
 
   const formatsBefore = await q(`select "documentType", pattern, "nextSerial", "lastResetKey", "updatedAt" from "DocumentNumberFormat" where "organizationId" = $1 order by "documentType"`, [WCT]);
 
@@ -150,7 +163,8 @@ async function main() {
   const mapRows = readCsv('customer-map.csv');
   const map = new Map(mapRows.map((r) => [r.erp_customer, r]));
 
-  const existing = await q(`select type, config->'erpImport'->>'erpId' erp_id from "Document" where "organizationId" = $1 and config ? 'erpImport'`, [WCT]);
+  // Also BC Air: WCT's "(NG)" quotations were moved there (wct-ng-quotes-to-bcair.ts) and keep their erpId.
+  const existing = await q(`select type, config->'erpImport'->>'erpId' erp_id from "Document" where "organizationId" = any($1) and config->'erpImport'->>'source' = $2`, [[WCT, '5c700000-0000-4000-8000-5c7000000004'], SOURCE]);
   const have = new Set(existing.map((r) => `${r.type}:${r.erp_id}`));
   const namesTaken = new Set((await q(`select "documentTemplateId" t, name from "Document" where "organizationId" = $1 and name is not null`, [WCT])).map((r) => `${r.t}|${r.name}`));
 
@@ -197,7 +211,8 @@ async function main() {
     throw new Error(`customer "${name}" has match "${m.match}" with no rule`);
   }
   for (const [erpName, spec] of Object.entries(CREATE_CUSTOMERS)) {
-    const reuse = spec.reuseExisting ? customers.filter((x) => n2(x.name) === n2(spec.name)).sort(byCode)[0] : null;
+    // Always reuse a customer that already exists by name (a catch-up run must not create 88rounding etc. twice).
+    const reuse = customers.filter((x) => n2(x.name) === n2(spec.name)).sort(byCode)[0] || null;
     const docs = [...quotes, ...invoices].filter((r) => r.customer === erpName);
     const latest = docs.sort((a, b) => (a.date < b.date ? 1 : -1))[0];
     if (reuse) toCreate.set(erpName, { existing: reuse });
