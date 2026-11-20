@@ -9,6 +9,7 @@
 import { HUB_ACTION_LABEL, hubNextStep, hubRowActions, hubStatus, hubStatusInfo, hubSteps, type HubActionKey } from "./wctOrderHub";
 import { importedBilledPct, importedLinkSourceLabel, importedMoney, importedProgress, importedStatusHue, importedSteps, type ImportedLinkType } from "./importedOrders";
 import { invoiceNowText, jobStatusLabel, orderStatusLabel } from "./wctOrders";
+import { flowDocStatus, flowOrderStatus } from "./wctStatusFlow";
 
 export type OrderKind = "native" | "imported";
 export type OrderCardKey = "quotation" | "invoice" | "do" | "report";
@@ -166,12 +167,15 @@ export interface OrderPageContext {
   jobsCalendar?: boolean;
   /** Native: the page's DO-first reading (manual flow with DOs), passed in so the page keeps one definition. */
   doFirst?: boolean;
+  /** enableWctStatusFlow: the WCT group wording (Pending / Accepted, Draft / Pending / Awaiting Payment / Paid, order Pending / Completed). */
+  statusFlow?: boolean;
 }
 
 const linkedBy = (l?: { byName?: string | null } | null) => (l ? ["Linked", l.byName ? `by ${l.byName}` : ""].filter(Boolean).join(" ") : "");
 const fmtMoney = (n: number | null | undefined) => (n == null || !Number.isFinite(Number(n)) ? "-" : importedMoney(n));
 const orDash = (s: string | null | undefined) => (s && String(s).trim() ? String(s) : "-");
 const docHref = (type: string, tpl: string | null | undefined, id: string | null | undefined) => (tpl && id ? `/portal/documents/${type}/${tpl}/${id}` : null);
+const FLOW_ORDER_HUE: Record<string, string> = { pending: "#f59e0b", completed: "#16a34a", cancelled: "#ef4444" };
 const isDraftStatus = (s: unknown) => s === "draft" || s === "unconfirmed";
 
 /** Can a service report be emailed (one completed on a job / DO, or a linked completed one)? */
@@ -211,7 +215,9 @@ const cardClick = (docs: OrderCardDoc[], add: "add-do" | "service-report" | "cre
 
 // ── Documents rows shared by both kinds: the order's DOs (jobs under each), jobs with no DO, service reports, files ──
 
-function doStatusOf(d: any): string {
+function doStatusOf(d: any, flow = false): string {
+  // WCT group wording (enableWctStatusFlow): Draft → Pending → Accepted.
+  if (flow) return d.completed ? "Accepted" : d.awaitingSignature || (d.jobs ?? []).some((j: any) => j.isDraft === false) ? "Pending" : "Draft";
   if (d.completed) return "Completed";
   if (d.awaitingSignature) return "Awaiting signature";
   return (d.jobs ?? []).some((j: any) => j.isDraft === false) ? "Scheduled" : "Draft";
@@ -245,7 +251,7 @@ function workRows(o: any): OrderDocRow[] {
       type: "DO",
       number: d.name || "DO",
       date: d.date ?? null,
-      status: doStatusOf(d),
+      status: doStatusOf(d, o.statusFlow === true),
       by: d.linkedOnly ? linkedBy(d.linked) || "Linked" : "",
       amount: null,
       owed: null,
@@ -420,7 +426,9 @@ export function nativeOrderPage(order: any, ctx: OrderPageContext = {}): OrderPa
   // Round 29: an order marked complete reads Complete; its steps, Create invoice and the next steps read the status
   // its documents give underneath (completed.underlying).
   const marked = !!order.completed;
-  const o = marked && order.completed?.underlying ? { ...order, status: order.completed.underlying } : order;
+  // WCT group wording (enableWctStatusFlow): the hub steps and document rows read o.statusFlow.
+  const flow = !!ctx.statusFlow;
+  const o = { ...(marked && order.completed?.underlying ? { ...order, status: order.completed.underlying } : order), statusFlow: flow };
   const cancelled = order.status === "CANCELLED";
   const manualFlow = !!o.manualFlow;
   const doFirst = !!ctx.doFirst;
@@ -514,7 +522,7 @@ export function nativeOrderPage(order: any, ctx: OrderPageContext = {}): OrderPa
       type: "Quotation",
       number: x.name || "Quotation",
       date: x.date ?? null,
-      status: x.status === "confirmed" ? "Confirmed" : x.status === "draft" || x.status === "unconfirmed" ? "Draft" : x.status ?? "",
+      status: (flow && flowDocStatus({ type: "QUOTATION", status: x.status })?.label) || (x.status === "confirmed" ? "Confirmed" : x.status === "draft" || x.status === "unconfirmed" ? "Draft" : x.status ?? ""),
       by: linkedBy(x.linked) || "Linked",
       amount: x.total ?? null,
       owed: null,
@@ -547,8 +555,9 @@ export function nativeOrderPage(order: any, ctx: OrderPageContext = {}): OrderPa
     kind: "native",
     id: o.id,
     number: o.orderNumber,
-    statusLabel: orderStatusLabel(order.status),
-    statusHue: hubStatusInfo(order.status).hue,
+    // WCT group wording: Pending (amber) → Completed (green), Cancelled (red).
+    statusLabel: flow ? flowOrderStatus(order).label : orderStatusLabel(order.status),
+    statusHue: flow ? FLOW_ORDER_HUE[flowOrderStatus(order).key] ?? FLOW_ORDER_HUE.pending : hubStatusInfo(order.status).hue,
     imported: false,
     cancelled,
     manualFlow,

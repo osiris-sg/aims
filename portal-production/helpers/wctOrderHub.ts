@@ -7,6 +7,8 @@
 // DO -> Service report (WCT invoices first), but Invoice and DO each tick on
 // their own whichever happens first; the service report comes last.
 
+import { flowDocStatus } from "./wctStatusFlow";
+
 export type HubStatus =
   | "QUOTATION_SIGNED"
   | "DO_DRAFT"
@@ -243,9 +245,13 @@ export function hubSteps(order: {
   /** DO first: the order's DOs with or without a job (the DO step lists these). */
   deliveryOrders?: { id: string; name?: string | null; tag?: string | null; templateId?: string | null; completed?: boolean; awaitingSignature?: boolean; jobs?: { id: string; status: string; isDraft?: boolean }[] }[];
   jobs?: { id?: string; status: string; isDraft?: boolean; deliveryOrder?: { id: string; name?: string | null; tag?: string | null; templateId?: string | null } | null }[];
-  invoices?: { id: string; name?: string | null; status?: string | null; type?: string | null; documentTemplateId?: string | null; href?: string | null; extra?: boolean; split?: { part: number; of: number } | null; cancelled?: boolean }[];
+  invoices?: { id: string; name?: string | null; status?: string | null; type?: string | null; documentTemplateId?: string | null; href?: string | null; extra?: boolean; split?: { part: number; of: number } | null; cancelled?: boolean; edited?: boolean }[];
   jobReports?: { id: string; reportNumber?: number | null; status: string; uploaded?: boolean; sentAt?: string | null; photosFile?: boolean }[];
+  /** WCT group wording (enableWctStatusFlow): Pending / Accepted, Draft / Pending / Awaiting Payment / Paid, Draft / Pending / Accepted. */
+  statusFlow?: boolean;
 }): HubStep[] {
+  const flow = order.statusFlow === true;
+  const flowInvoice = (i: { status?: string | null; edited?: boolean }) => flowDocStatus({ type: "INVOICE", status: i.status, config: { savedAt: i.edited ? "1" : undefined } })?.label ?? invoiceStatusLabel(i.status);
   const idx = hubStatusIndex(order.status);
   const at = (k: HubStatus) => HUB_STATUSES.findIndex((x) => x.key === k);
   const st = hubStatus(order.status);
@@ -267,7 +273,7 @@ export function hubSteps(order: {
         ? [
             {
               label: q.name || "Quotation",
-              status: q.status === "confirmed" ? "Signed / accepted" : q.status,
+              status: flow ? (flowDocStatus({ type: "QUOTATION", status: q.status })?.label ?? q.status) : q.status === "confirmed" ? "Signed / accepted" : q.status,
               href: docHref(q.type, q.documentTemplateId, q.id),
               file: q.status === "confirmed" && order.id ? { label: "PDF", path: `/orders/${order.id}/quotation-pdf` } : null,
             },
@@ -285,7 +291,7 @@ export function hubSteps(order: {
         label: i.name || "Invoice",
         // An invoice for lines added to a DO on top of the quotation (2026-11-16).
         // Voided with the cancelled order (2026-11-17).
-        status: i.cancelled ? "Voided" : i.extra ? (i.status === "draft" || i.status === "unconfirmed" ? "Extra invoice draft" : `Extra invoice, ${invoiceStatusLabel(i.status).toLowerCase()}`) : invoiceStatusLabel(i.status),
+        status: i.cancelled ? "Voided" : flow ? (i.extra ? `Extra invoice, ${flowInvoice(i).toLowerCase()}` : flowInvoice(i)) : i.extra ? (i.status === "draft" || i.status === "unconfirmed" ? "Extra invoice draft" : `Extra invoice, ${invoiceStatusLabel(i.status).toLowerCase()}`) : invoiceStatusLabel(i.status),
         href: i.href ?? docHref(i.type || "INVOICE", i.documentTemplateId, i.id),
       })),
     },
@@ -302,7 +308,9 @@ export function hubSteps(order: {
             return {
               label: d.name || "DO",
               // Same words as the order page's Delivery orders section.
-              status: d.completed ? "Completed" : d.awaitingSignature ? "Awaiting signature" : (d.jobs ?? []).some((j) => j.isDraft === false) ? "Scheduled" : "Draft",
+              status: flow
+                ? d.completed ? "Accepted" : d.awaitingSignature || (d.jobs ?? []).some((j) => j.isDraft === false) ? "Pending" : "Draft"
+                : d.completed ? "Completed" : d.awaitingSignature ? "Awaiting signature" : (d.jobs ?? []).some((j) => j.isDraft === false) ? "Scheduled" : "Draft",
               href: docHref("DELIVERY_ORDER", d.templateId, d.id),
               file: d.completed && done ? { label: "PDF" as const, path: `/delivery-group-posts/delivery/${done.id}/signed-do?documentId=${d.id}` } : null,
             };
@@ -311,7 +319,7 @@ export function hubSteps(order: {
         .filter((j) => j.deliveryOrder)
         .map((j) => ({
           label: j.deliveryOrder!.name || "DO",
-          status: j.deliveryOrder!.tag ?? null,
+          status: flow && j.deliveryOrder!.tag === "Completed" ? "Accepted" : j.deliveryOrder!.tag ?? null,
           href: docHref("DELIVERY_ORDER", j.deliveryOrder!.templateId, j.deliveryOrder!.id),
           // The signed DO, once the job is finished (the existing "Download signed DO").
           file: j.status === "completed" && j.id ? { label: "PDF" as const, path: `/delivery-group-posts/delivery/${j.id}/signed-do?documentId=${j.deliveryOrder!.id}` } : null,

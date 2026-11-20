@@ -7,7 +7,7 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, ListItemText, Menu, MenuItem, TextField, Tooltip, Typography } from "@mui/material";
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, ListItemText, Menu, MenuItem, Stack, TextField, Tooltip, Typography, alpha, lighten } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import AddIcon from "@mui/icons-material/Add";
 import StatusPill from "./_components/StatusPill";
@@ -16,6 +16,7 @@ import { toast } from "react-toastify";
 import { fmtJobWhen, orderMatchesSearch, orderStatusColor, orderStatusLabel } from "@/helpers/wctOrders";
 import { HUB_ACTION_LABEL, HUB_DESTRUCTIVE, hubListTarget, hubMatchesTab, hubRowActions, hubStatusInfo, hubStatusSortValue, hubTabs, type HubActionKey, type HubContext, type HubStatus } from "@/helpers/wctOrderHub";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { flowDocStatus, flowOrderStatus } from "@/helpers/wctStatusFlow";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { canAddCell, createInvoiceHref, LIST_ADD_LABEL, type ListAddAccess, type ListAddKind } from "@/helpers/orderListAdd";
@@ -105,6 +106,40 @@ function NumberList({ names }: { names: (string | null)[] }) {
     </Box>
   );
 }
+// WCT group wording (enableWctStatusFlow, guru 2026-11-20): the row lists a delivery order only once it
+// is Accepted and an invoice only once it has gone out (Awaiting Payment / Paid); a document that is still
+// Draft or Pending leaves its cell empty. Each number carries its status in its own colour.
+const FLOW_HUE: Record<string, string> = { Accepted: "#16a34a", Paid: "#16a34a", "Awaiting Payment": "#2563eb", "Partially Paid": "#7c3aed" };
+function FlowDocList({ docs, type }: { docs: { id: string; name: string | null; status: string }[]; type: "DELIVERY_ORDER" | "INVOICE" }) {
+  const shown = docs
+    .map((d) => ({ d, f: flowDocStatus({ type, status: d.status, config: { savedAt: "1" } }) }))
+    .filter(({ d, f }) => !!d.name && !!f && !!FLOW_HUE[f.label]);
+  if (!shown.length) return null;
+  return (
+    <Stack spacing={0.5} data-testid={`order-row-${type === "INVOICE" ? "invoices" : "dos"}`}>
+      {shown.slice(0, 2).map(({ d, f }) => (
+        <Box key={d.id} sx={{ whiteSpace: "nowrap" }}>
+          <Box sx={{ fontVariantNumeric: "tabular-nums", lineHeight: 1.3 }}>{d.name}</Box>
+          <Box
+            component="span"
+            sx={(t) => ({
+              display: "inline-block", px: 0.75, borderRadius: 999, fontSize: "0.68rem", fontWeight: 600, lineHeight: 1.6,
+              bgcolor: alpha(FLOW_HUE[f!.label], t.palette.mode === "dark" ? 0.24 : 0.12),
+              color: t.palette.mode === "dark" ? lighten(FLOW_HUE[f!.label], 0.45) : FLOW_HUE[f!.label],
+            })}
+          >
+            {f!.label}
+          </Box>
+        </Box>
+      ))}
+      {shown.length > 2 && (
+        <Typography variant="caption" color="text.secondary">
+          +{shown.length - 2} more
+        </Typography>
+      )}
+    </Stack>
+  );
+}
 const money = (n?: number | null) => (n == null ? "" : `S$ ${Number(n).toLocaleString("en-SG", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 
 /** fixture: /preview/wct-jobs only (screenshots without sign-in); the page itself always fetches. */
@@ -126,7 +161,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
   const [rowMenu, setRowMenu] = useState<{ pos: { left: number; top: number }; row: WctOrderRow } | null>(null);
   const [confirm, setConfirm] = useState<{ action: HubActionKey; row: WctOrderRow; jobId?: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
-  const { isWctOrdersEnabled, isManualOrderFlowEnabled, features } = useOrganizationFeatures();
+  const { isWctOrdersEnabled, isManualOrderFlowEnabled, isWctStatusFlowEnabled, features } = useOrganizationFeatures();
   const calendarAdd = !fixture && !!isWctOrdersEnabled && !!features?.enableJobsCalendar;
   const [untagged, setUntagged] = useState<UntaggedJob[]>([]);
   const [untaggedCount, setUntaggedCount] = useState<number | null>(null);
@@ -175,14 +210,29 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
   // Imported rows have their own statuses (Invoiced / Paid), listed after the AIMS ones.
   const tabs = useMemo(() => {
     const native = sourceRows.filter((o) => o.imported !== true);
+    // WCT group wording (enableWctStatusFlow): an order is Pending or Completed (Cancelled when there is one).
+    if (isWctStatusFlowEnabled && (native.length || source !== "imported")) {
+      const n = (k: string) => native.filter((o) => flowOrderStatus(o).key === k).length;
+      const flowTabs = [
+        { key: "all" as const, label: "All", count: sourceRows.length },
+        { key: "flow:pending", label: "Pending", count: n("pending") },
+        { key: "flow:completed", label: "Completed", count: n("completed") },
+        ...(n("cancelled") ? [{ key: "flow:cancelled", label: "Cancelled", count: n("cancelled") }] : []),
+      ];
+      return [...flowTabs, ...importedTabs(sourceRows)] as Array<{ key: any; label: string; count: number }>;
+    }
     const own = native.length || source !== "imported" ? hubTabs(native).map((t) => (t.key === "all" ? { ...t, count: sourceRows.length } : t)) : [{ key: "all" as const, label: "All", count: sourceRows.length }];
     return [...own, ...importedTabs(sourceRows)] as Array<{ key: any; label: string; count: number }>;
-  }, [sourceRows, source]);
+  }, [sourceRows, source, isWctStatusFlowEnabled]);
 
   const filtered = useMemo(
     () => (tab === "untagged" ? [] : sourceRows.filter(
             (o) =>
-              (o.imported ? importedMatchesTab(o, tab as string) : !isImportedTab(tab as string) && hubMatchesTab(o, tab)) &&
+              (o.imported
+                ? importedMatchesTab(o, tab as string)
+                : String(tab).startsWith("flow:")
+                  ? `flow:${flowOrderStatus(o).key}` === tab
+                  : !isImportedTab(tab as string) && hubMatchesTab(o, tab)) &&
               (orderMatchesSearch(o, search || "") || [o.subject, o.site].some((v) => (v || "").toLowerCase().includes((search || "").trim().toLowerCase()))),
           )),
     [sourceRows, tab, search],
@@ -285,6 +335,11 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
       cell: ({ row }: any) => {
         const info = hubStatusInfo(row.original.status);
         if (row.original.imported) return <StatusPill label={row.original.statusLabel || info.label} color="default" hue={importedStatusHue(row.original.status)} />;
+        if (isWctStatusFlowEnabled) {
+          const f = flowOrderStatus(row.original);
+          // One colour per order status: amber while anything is left to do, green when done, red when cancelled.
+          return <StatusPill label={f.label} color="default" hue={f.key === "completed" ? "#16a34a" : f.key === "cancelled" ? "#ef4444" : "#f59e0b"} />;
+        }
         return (
           <Box sx={{ "& .MuiChip-label": { whiteSpace: "nowrap", overflow: "visible" }, "& .MuiChip-root": { maxWidth: "none" } }}>
             <StatusPill label={orderStatusLabel(row.original.status) || info.label} color={orderStatusColor(row.original.status)} hue={info.hue} />
@@ -328,7 +383,9 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
       enableSorting: false,
       cell: ({ row }: any) => {
         const names: (string | null)[] = row.original.imported ? row.original.doNumbers ?? row.original.erpDoNumbers ?? [] : (row.original.deliveryOrders ?? []).map((d: any) => d.name);
-        return cellOrAdd(row.original, "do", <NumberList names={names} />, !names.some(Boolean));
+        // WCT group wording: a delivery order is listed once it is Accepted; the "+" only when the order has none at all.
+        const shown = isWctStatusFlowEnabled && !row.original.imported ? <FlowDocList docs={row.original.deliveryOrders ?? []} type="DELIVERY_ORDER" /> : <NumberList names={names} />;
+        return cellOrAdd(row.original, "do", shown, !names.some(Boolean));
       },
     },
     {
@@ -338,7 +395,9 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
       enableSorting: false,
       cell: ({ row }: any) => {
         const names: (string | null)[] = (row.original.invoices ?? []).map((d: any) => d.name);
-        return cellOrAdd(row.original, "invoice", <NumberList names={names} />, !names.some(Boolean));
+        // WCT group wording: an invoice is listed once it is Awaiting Payment or Paid.
+        const shown = isWctStatusFlowEnabled && !row.original.imported ? <FlowDocList docs={row.original.invoices ?? []} type="INVOICE" /> : <NumberList names={names} />;
+        return cellOrAdd(row.original, "invoice", shown, !names.some(Boolean));
       },
     },
     {

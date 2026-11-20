@@ -37,6 +37,8 @@ const STATUS_LABEL: Record<string, string> = {
 import { wctStatusColor, wctStatusLabel } from "@/helpers/wctStatuses";
 import { docDisplayStatus, docOutstandingOf, docPaidOf, erpQuotationDisplayStatus, erpQuotationTag, PARTIALLY_PAID } from "@/helpers/docStatus";
 export { docPaidOf, docOutstandingOf, PARTIALLY_PAID, isInvoiceType, docDisplayStatus, isVoidedWithOrder, erpQuotationTag } from "@/helpers/docStatus";
+import { flowDocStatus } from "@/helpers/wctStatusFlow";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 const money = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -49,18 +51,28 @@ export default function StatusChip({ status, doc }: { status?: string | null; do
   const wct = doc?.wctStatus || null;
   // With the document in hand the chip derives "Partially Paid" itself.
   const s = wct ?? erpQuote ?? (doc ? docDisplayStatus({ status: status ?? doc.status, config: doc.config, type: doc.type }) : (status || "unconfirmed").toLowerCase());
-  const label = wct
-    ? wctStatusLabel(wct)
-    : STATUS_LABEL[s] ||
-      s
-        .split("_")
-        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-        .join(" ");
+  // WCT group wording (enableWctStatusFlow, guru 2026-11-20: "ours is the main one"): quotations, invoices and
+  // delivery orders read Pending / Accepted / Draft… (helpers/wctStatusFlow.ts) and this wins over the
+  // enableWctStatuses set. What the old ERP says about an imported quotation still stands: Expired / Cancelled
+  // stay, and one the ERP has open reads Pending.
+  const { isWctStatusFlowEnabled } = useOrganizationFeatures();
+  const erpFact = erpQuote === "expired" || erpQuote === "cancelled";
+  const flow = isWctStatusFlowEnabled && doc && !erpFact ? flowDocStatus({ ...doc, type: doc.type ?? doc.documentType, status: erpQuote === "unconfirmed" ? "unconfirmed" : status ?? doc.status }) : null;
+  const label =
+    flow?.label ||
+    (wct
+      ? wctStatusLabel(wct)
+      : STATUS_LABEL[s] ||
+        s
+          .split("_")
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(" "));
   const chip = (
     <Chip
       size="small"
       variant="outlined"
-      color={wct ? wctStatusColor(wct) : STATUS_COLOR[s] || "default"}
+      color={flow?.color || (wct ? wctStatusColor(wct) : STATUS_COLOR[s] || "default")}
+      data-testid="status-chip"
       label={label}
       // Long statuses ("Delivered Installed") WRAP to a second line instead of
       // ellipsizing inside a fixed-width column (guru 2026-08-27: no "…").

@@ -121,7 +121,7 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
   const [invOpen, setInvOpen] = useState(false);
   const [invLines, setInvLines] = useState<InvoiceLineDraft[]>([]);
   // WCT group soft delete of drafts (enableSoftDeleteDrafts): Delete hides the draft, its number stays as a gap.
-  const { isJobsCalendarEnabled, isSoftDeleteDraftsEnabled: softDelete } = useOrganizationFeatures();
+  const { isJobsCalendarEnabled, isSoftDeleteDraftsEnabled: softDelete, isWctStatusFlowEnabled } = useOrganizationFeatures();
 
   const load = useCallback(async () => {
     if (fixture || !organization?.id) return;
@@ -165,7 +165,7 @@ export default function WctOrderDetail({ id, fixture }: { id: string; fixture?: 
   const manualFlow = !!(order as any)?.manualFlow;
   // An order with no DO and no job yet (disableAutoDraftDo, 2026-11-19: signing made no DO) is DO first too.
   const doFirst = manualFlow && (dos.length > 0 || !liveJobs.length);
-  const model = useMemo(() => (order ? orderPageModel(order, { jobsCalendar: !!isJobsCalendarEnabled, doFirst }) : null), [order, isJobsCalendarEnabled, doFirst]);
+  const model = useMemo(() => (order ? orderPageModel(order, { jobsCalendar: !!isJobsCalendarEnabled, doFirst, statusFlow: !!isWctStatusFlowEnabled }) : null), [order, isJobsCalendarEnabled, doFirst, isWctStatusFlowEnabled]);
   const imported = o?.imported === true;
 
   const openSrMenuAtButton = (doId: string | null = null) => {

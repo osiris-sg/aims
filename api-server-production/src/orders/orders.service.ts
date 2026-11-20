@@ -450,7 +450,16 @@ export class OrdersService {
 
   /** Store the status the jobs + invoices say, where it drifted (best-effort). Mutates the rows. */
   private async syncWctStatuses(organizationId: string, orders: Array<{ id: string; status: string }>) {
-    for (const o of orders) o.status = (await refreshOrderStatus(this.prisma, organizationId, o.id)) ?? o.status;
+    // Eight at a time (2026-11-20): one after another this was ~0.4s per order, so the Orders list of
+    // 100 orders took ~40s on dev and timed out in the portal. Same refresh, same result per order.
+    const BATCH = 8;
+    for (let i = 0; i < orders.length; i += BATCH) {
+      await Promise.all(
+        orders.slice(i, i + BATCH).map(async (o) => {
+          o.status = (await refreshOrderStatus(this.prisma, organizationId, o.id)) ?? o.status;
+        }),
+      );
+    }
   }
 
   private async listWct(organizationId: string) {
@@ -1108,15 +1117,22 @@ export class OrdersService {
     const orderInv = (o: any): string[] => (manual ? orderInvoiceIdsOf(o) : remainderInvoiceIdsOf(o));
     const invIds = [...new Set([...allJobs.map((j) => j.orderInvoiceId), ...orders.flatMap((o) => orderInv(o))].filter((v) => v && !String(v).startsWith('claim:')))] as string[];
     // DO first (2026-11-13): an order's DOs also include those with no job (config.orderId).
-    const docs = doIds.length || invIds.length || orders.length
+    // Their ids come from ONE query (2026-11-20): the old filter was an OR of one JSON-path test
+    // per order, which took ~40s for 100 orders on dev and timed the Orders list out.
+    const orderIds = orders.map((o) => o.id);
+    const orderDoIds: string[] = orderIds.length
+      ? (
+          await this.prisma.$queryRaw<Array<{ id: string }>>`
+            SELECT d.id FROM "Document" d
+            WHERE d."organizationId" = ${organizationId}
+              AND d.type::text IN ('DELIVERY_ORDER', 'DO')
+              AND d.config ->> 'orderId' = ANY(${orderIds})`
+        ).map((r) => r.id)
+      : [];
+    const wantedIds = [...new Set([...doIds, ...invIds, ...linkedIds, ...orderDoIds])];
+    const docs = wantedIds.length
       ? await this.prisma.document.findMany({
-          where: {
-            organizationId,
-            OR: [
-              { id: { in: [...doIds, ...invIds, ...linkedIds] } },
-              ...(orders.length ? [{ type: { in: ['DELIVERY_ORDER', 'DO'] }, OR: orders.map((o) => ({ config: { path: ['orderId'], equals: o.id } })) }] : []),
-            ],
-          } as any,
+          where: { organizationId, id: { in: wantedIds } } as any,
           select: { id: true, name: true, type: true, status: true, documentTemplateId: true, config: true },
           orderBy: { createdAt: 'asc' },
         })
@@ -1728,6 +1744,9 @@ export class OrdersService {
       name: d.name,
       status: d.status,
       emailed: sent.has(d.id),
+      // Somebody has saved it in the editor (the server strips savedAt from the invoices it
+      // makes itself): the WCT status wording reads Draft before, Pending after (2026-11-19).
+      edited: !!d.config?.savedAt,
       href: `/portal/documents/${d.type}/${d.documentTemplateId}/${d.id}`,
       total: Number(d.config?.grandTotal ?? d.config?.documentInfo?.grandTotal ?? d.config?.nettTotal ?? 0) || 0,
       jobNumbers: jobs.filter((j) => j.orderInvoiceId === d.id).map((j) => j.deliveryNumber),

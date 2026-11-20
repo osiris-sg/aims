@@ -138,7 +138,7 @@ test("the layout draws every section in order and the page renders it for both k
   // No separate Invoices / Service report / Jobs sections, no helper sentence.
   for (const gone of [">Invoices<", "No service report on this order yet", "not invoiced yet", "No jobs yet"]) assert.ok(!layout.includes(gone), gone);
   const page = read("app/portal/orders/[id]/WctOrderDetail.tsx");
-  assert.match(page, /orderPageModel\(order, \{ jobsCalendar: !!isJobsCalendarEnabled, doFirst \}\)/);
+  assert.match(page, /orderPageModel\(order, \{ jobsCalendar: !!isJobsCalendarEnabled, doFirst, statusFlow: !!isWctStatusFlowEnabled \}\)/);
   assert.doesNotMatch(page, /ImportedOrderDetail|OrderHubPanel/);
   // Every action key has its handler.
   for (const k of ORDER_ACTION_KEYS) assert.match(page, new RegExp(`case "${k}":`), k);

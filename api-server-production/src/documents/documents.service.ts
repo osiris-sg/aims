@@ -4968,6 +4968,30 @@ export class DocumentsService {
         }
       }
 
+      // WCT group wording (enableWctStatusFlow, portal helpers/wctStatusFlow.ts): "Draft" = made by the system and
+      // never saved by a person (no config.savedAt), "Pending" = someone has saved it and it is not finished.
+      // Neither is a stored status, so both are resolved to ids here. Only lists that offer them send them.
+      {
+        const asked = (Array.isArray(opts.status) ? opts.status : [opts.status]).filter(Boolean) as string[];
+        const wantsDraft = asked.includes('flow_draft');
+        const wantsPending = asked.includes('flow_pending');
+        if ((wantsDraft || wantsPending) && opts.documentTypes?.length) {
+          const isDo = opts.documentTypes.every((t) => ['DELIVERY_ORDER', 'DO'].includes(String(t).toUpperCase()));
+          const rows: Array<{ id: string; untouched: boolean }> = await this.prisma.$queryRaw`
+            SELECT d.id,
+                   (d.status::text IN ('draft', 'unconfirmed') AND d.config ->> 'savedAt' IS NULL AND COALESCE(d.config ->> 'awaitingSignature', 'false') <> 'true') AS untouched
+            FROM "Document" d
+            WHERE d."organizationId" = ${organizationId}
+              AND d.type::text = ANY(${opts.documentTypes})
+              AND ((${isDo} AND d.status::text NOT IN ('delivered_installed', 'cancelled') AND COALESCE(d.config ->> 'cancelled', 'false') <> 'true')
+                OR (NOT ${isDo} AND d.status::text IN ('draft', 'unconfirmed')))`;
+          const ids = rows.filter((r) => (r.untouched ? wantsDraft : wantsPending)).map((r) => r.id);
+          const rest = asked.filter((x) => x !== 'flow_draft' && x !== 'flow_pending');
+          and.push(rest.length ? { OR: [{ id: { in: ids } }, { status: { in: rest } }] } : { id: { in: ids } });
+          opts = { ...opts, status: undefined };
+        }
+      }
+
       if (opts.status) {
         const all = (Array.isArray(opts.status) ? opts.status : [opts.status]).filter(Boolean);
         // "partially_paid" is not a stored status: it is an unpaid document with

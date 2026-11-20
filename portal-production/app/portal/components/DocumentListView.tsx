@@ -9,6 +9,7 @@ import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import StatusChip from "@/components/StatusChip";
 import { wctStatusOptionsFor } from "@/helpers/wctStatuses";
+import { flowStatusOptions } from "@/helpers/wctStatusFlow";
 import {
   Stack,
   Chip,
@@ -56,6 +57,7 @@ const DOC_STATUS_OPTIONS = [
   { value: "paid", label: "Paid" },
   { value: "pending_return", label: "Pending Return" },
   { value: "returned", label: "Returned" },
+  { value: "voided", label: "Voided" },
 ];
 import { useCreateDocumentFlow } from "./useCreateDocumentFlow";
 import { docGrossTotal, docPaidToDate, docAmountDue } from "@/helpers/docTotal";
@@ -139,7 +141,10 @@ export const dateHeaderFor = (documentTypes: string[]): string => {
 };
 
 /** The Status filter's options for this list's types (WCT group: helpers/wctStatuses.ts). */
-export function statusOptionsFor(documentTypes: string[], manualOrderFlow: boolean, wctStatuses: boolean) {
+export function statusOptionsFor(documentTypes: string[], manualOrderFlow: boolean, wctStatuses: boolean, statusFlow = false) {
+  // enableWctStatusFlow is the main WCT wording (guru 2026-11-20) and wins over the enableWctStatuses set.
+  const flow = statusFlow ? flowStatusOptions(documentTypes, { voided: true }) : null;
+  if (flow) return flow;
   const wct = wctStatusOptionsFor(documentTypes, wctStatuses);
   if (wct) return wct;
   return documentTypes.length && documentTypes.every((t) => INVOICE_TYPE_SET.has(String(t).toUpperCase())) ? invoiceStatusOptions(manualOrderFlow) : DOC_STATUS_OPTIONS;
@@ -269,7 +274,7 @@ export default function DocumentListView({
   const dateHeader = useMemo(() => dateHeaderFor(documentTypes), [documentTypes]);
 
   // Real DO numbers (enableRealDoOnSchedule): a DO shows Pending / Completed / Cancelled next to its number.
-  const { isRealDoOnScheduleEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled, isWctDocNavEnabled, isQuotationTemplatesEnabled, isWctStatusesEnabled, isSoftDeleteDraftsEnabled } = useOrganizationFeatures();
+  const { isRealDoOnScheduleEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled, isWctDocNavEnabled, isQuotationTemplatesEnabled, isWctStatusesEnabled, isWctStatusFlowEnabled, isSoftDeleteDraftsEnabled } = useOrganizationFeatures();
   // Quotation templates (enableQuotationTemplates, WCT group, 2026-11-19): "Create Quotation" gets an arrow ->
   // Create from template. Every other org / list: the plain Create button, as before.
   const templatesOn = quotationListTemplates(!!isQuotationTemplatesEnabled, createDocumentType);
@@ -297,11 +302,11 @@ export default function DocumentListView({
       { type: "dateRange", key: "createdOn", label: "Created On" },
       // "Voided" (manual order flow only): invoices voided with a cancelled order, hidden from the default list.
       // WCT group (enableWctStatuses): quotation / DO / invoice lists offer only the statuses that apply there.
-      { type: "select", key: "status", label: "Status", options: statusOptionsFor(documentTypes, !!isManualOrderFlowEnabled, !!isWctStatusesEnabled) },
+      { type: "select", key: "status", label: "Status", options: statusOptionsFor(documentTypes, !!isManualOrderFlowEnabled, !!isWctStatusesEnabled, !!isWctStatusFlowEnabled) },
       // Server-search customer picker (orgs have thousands of customers).
       { type: "customer", key: "customerId", label: "Customer" },
     ],
-    [documentTypes, isManualOrderFlowEnabled, isWctStatusesEnabled],
+    [documentTypes, isManualOrderFlowEnabled, isWctStatusesEnabled, isWctStatusFlowEnabled],
   );
 
   // Column-header sort → server sort field (name/status/createdAt only; the
@@ -384,7 +389,7 @@ export default function DocumentListView({
         return (
           <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
             {num}
-            <DoStatusTag tag={docDoTag(r)} />
+            <DoStatusTag tag={docDoTag(r)} doc={r} />
           </Stack>
         );
       },
@@ -691,7 +696,7 @@ export default function DocumentListView({
               </Grid>
               <Grid item xs={12} sm={4}>
                 <StatCard
-                  title="UNCONFIRMED"
+                  title={isWctStatusFlowEnabled && flowStatusOptions(documentTypes) ? (flowStatusOptions(documentTypes)!.some((o) => o.value === "flow_draft") ? "DRAFT + PENDING" : "PENDING") : "UNCONFIRMED"}
                   value={stats.drafts}
                   icon={<DraftsOutlinedIcon />}
                   color="customYellow.dark"
