@@ -3,7 +3,7 @@
 // People list beside the jobs calendar (WCT group, 2026-11-19, calendar style orgs), like Google Calendar's "Other
 // calendars": one row per person who made jobs / notes (plus the Sales people), "Unknown" for items with no creator
 // recorded, and a row per sister company on the group calendar. Ticked = shown. The rules live in calendarModel.ts
-// (peopleRows / filterByPeople); this is the list itself.
+// (peopleRows / filterByPeople); this is the list itself. Round 39: the icon legend sits below it, one per row.
 
 import React from "react";
 import { Box, Button, Checkbox, Divider, FormControlLabel, Stack, Typography } from "@mui/material";
@@ -14,11 +14,14 @@ export default function PeoplePanel({
   onToggle,
   onAll,
   onNone,
+  legend = [],
 }: {
   rows: PeopleRow[];
   onToggle: (id: string) => void;
   onAll: () => void;
   onNone: () => void;
+  /** The calendar's icon legend (emoji + label). */
+  legend?: Array<{ icon: string; label: string }>;
 }) {
   const people = rows.filter((r) => r.kind !== "company");
   const companies = rows.filter((r) => r.kind === "company");
@@ -65,6 +68,24 @@ export default function PeoplePanel({
             Companies
           </Typography>
           <Stack>{companies.map(row)}</Stack>
+        </>
+      )}
+      {legend.length > 0 && (
+        <>
+          <Divider sx={{ my: 1 }} />
+          <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
+            Legend
+          </Typography>
+          <Stack spacing={0.25} data-tour="jobs-calendar-legend">
+            {legend.map((l) => (
+              <Typography key={l.label} variant="body2" sx={{ display: "flex", gap: 1, alignItems: "baseline" }}>
+                <Box component="span" sx={{ width: 22, flexShrink: 0, textAlign: "center" }}>
+                  {l.icon}
+                </Box>
+                {l.label}
+              </Typography>
+            ))}
+          </Stack>
         </>
       )}
     </Box>

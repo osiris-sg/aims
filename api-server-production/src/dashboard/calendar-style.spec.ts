@@ -21,7 +21,7 @@ import { CalendarStyleService, isSalesMember } from './calendar-style.service';
 import { JobsCalendarService } from './jobs-calendar.service';
 import { CalendarNotesService } from './calendar-notes.service';
 import { jobStyleOf, parseJobStylePatch, stampJobCreator, withStampedApplicant, EMPTY_JOB_STYLE } from '../deliveries/job-style';
-import { AUTO_PALETTE, colourCircle, panelPeople } from './calendar-style';
+import { AUTO_PALETTE, colourCircle, panelPeople, withPanelFills } from './calendar-style';
 import { DEFAULT_EXPORT_HEADER, cleanExportHeader, readExportHeader, writeExportHeader } from './calendar-export';
 import { parseRescheduleTarget, zonedInstant } from '../deliveries/calendar-panel';
 import { isCompletedDo, isLiveDo } from './calendar-style';
@@ -857,5 +857,21 @@ describe('round 37: ✅ = any DO that is not cancelled (Elroy 20 Nov)', () => {
     expect(byId(res.events, 'r-order').doCount).toBe(2);
     // No order and no DO: none.
     expect(byId(res.events, 'r-quick').doCount).toBe(0);
+  });
+});
+
+
+// Round 39 (Elroy 2026-11-20): a chip takes its salesperson's People panel colour, the automatic ones too.
+describe('withPanelFills', () => {
+  it('adds the automatic colours; a colour picked in Settings still wins; no people = unchanged', () => {
+    const colours = { fill: { a: '#039be5' }, bar: {}, defaultApplicant: null } as any;
+    const people = [
+      { id: 'a', name: 'Amy', colour: '#039be5', auto: false },
+      { id: 'h', name: 'Henry Hoo', colour: '#f09300', auto: true },
+    ];
+    expect(withPanelFills(colours, people).fill).toEqual({ a: '#039be5', h: '#f09300' });
+    expect(withPanelFills(colours, [{ id: 'a', name: 'Amy', colour: '#33b679', auto: true }]).fill.a).toBe('#039be5');
+    expect(withPanelFills(colours, null)).toBe(colours);
+    expect(colours.fill).toEqual({ a: '#039be5' });
   });
 });

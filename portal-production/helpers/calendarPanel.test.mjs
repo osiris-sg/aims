@@ -238,3 +238,34 @@ test("export: cancelled / on hold when asked, a range = one block per date, an e
   assert.equal(tomorrowSgt(new Date("2026-11-19T17:00:00.000Z")), "2026-11-21");
   assert.equal(tomorrowSgt(new Date("2026-11-19T15:00:00.000Z")), "2026-11-20");
 });
+
+// Round 39 (WCT group, 2026-11-20): the side panel's documents, one line per type, and the quotation's real status.
+import { panelDocGroups, PANEL_DOC_LIMIT } from "../components/Dashboard/jobs-calendar/calendarPanel.ts";
+
+test("panel docs: one line per type (plural when several), quotation shows its real status, not Imported", () => {
+  const model = {
+    number: "ORD-Q-014739",
+    statusLabel: "Part billed",
+    documents: [
+      { key: "q:1", kind: "quotation", number: "Q-014739", status: "Imported", href: "/q" },
+      { key: "i:1", kind: "invoice", number: "I-014739", status: "Paid", href: "/i1" },
+      { key: "i:2", kind: "invoice", number: "I-014897", status: "Unpaid", href: "/i2" },
+      { key: "d:1", kind: "do", number: "DO012538", status: "Completed", href: null },
+    ],
+  };
+  const docs = panelDocsFromOrder(model, "/portal/orders/o1", "Unconfirmed · ERP draft");
+  assert.equal(docs.find((d) => d.key === "q:1").status, "Unconfirmed · ERP draft");
+  // Without the label (older API): the order page's own wording, as before.
+  assert.equal(panelDocsFromOrder(model, null).find((d) => d.key === "q:1").status, "Imported");
+  const groups = panelDocGroups(docs);
+  assert.deepEqual(groups.map((g) => [g.label, g.docs.map((d) => `${d.number} ${d.status}`)]), [
+    ["Order", ["ORD-Q-014739 Part billed"]],
+    ["Quotation", ["Q-014739 Unconfirmed · ERP draft"]],
+    ["Invoices", ["I-014739 Paid", "I-014897 Unpaid"]],
+    ["DO", ["DO012538 Completed"]],
+  ]);
+  assert.equal(PANEL_DOC_LIMIT, 6);
+  // A job with no order: the server's label wins over the raw status.
+  assert.equal(panelDocsFallback({ quotationNumber: "Q-1", quotationStatus: "confirmed", quotationStatusLabel: "Declined" })[0].status, "Declined");
+  assert.equal(panelDocsFallback({ quotationNumber: "Q-1", quotationStatus: "confirmed" })[0].status, "Confirmed");
+});

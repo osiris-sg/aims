@@ -16,7 +16,7 @@ import DateInput from "@/components/DateInput";
 import { orderPageModel } from "@/helpers/orderPage";
 import { applicantLabel, crewLine, timeWindow, type CalendarEvent } from "./calendarModel";
 import {
-  PTW_PILLS, applyToggle, canEditOnCalendar, colourCircle, crossOrgOpen, customerOf, panelDocsFallback, panelDocsFromOrder, ptwPillOf, ptwStatusOf, toggleRequest,
+  PANEL_DOC_LIMIT, PTW_PILLS, applyToggle, canEditOnCalendar, colourCircle, crossOrgOpen, customerOf, panelDocGroups, panelDocsFallback, panelDocsFromOrder, ptwPillOf, ptwStatusOf, toggleRequest,
   type Clash, type PanelDoc, type PanelToggle, type RescheduleTarget,
 } from "./calendarPanel";
 import type { StylePerson } from "./calendarAddApi";
@@ -130,6 +130,9 @@ export default function StyledJobPanel({
 
   // Linked documents: the order page's own list (status chips as the order page shows them), else the job's own.
   const [docs, setDocs] = useState<PanelDoc[] | null>(null);
+  // Round 39: the types whose "+N more" was opened.
+  const [openGroups, setOpenGroups] = useState<string[]>([]);
+  useEffect(() => setOpenGroups([]), [e.id]);
   const orderId = e.orderHref ? e.orderHref.split("/").filter(Boolean).pop() ?? null : null;
   useEffect(() => {
     let live = true;
@@ -140,7 +143,7 @@ export default function StyledJobPanel({
       if (!live) return;
       if (!res.ok || !res.data) return setDocs([{ key: "order", label: "Order", number: e.orderNumber || "", status: "", href: e.orderHref ?? null }, ...panelDocsFallback(e).filter((d) => d.key !== "order")]);
       try {
-        setDocs(panelDocsFromOrder(orderPageModel(res.data, {}), e.orderHref ?? null));
+        setDocs(panelDocsFromOrder(orderPageModel(res.data, {}), e.orderHref ?? null, res.data?.sourceQuotation?.statusLabel ?? null));
       } catch {
         setDocs(fallback);
       }
@@ -314,14 +317,38 @@ export default function StyledJobPanel({
           Loading documents
         </Typography>
       ) : (
-        docs.map((d) => (
-          <Row key={d.key} label={d.label}>
-            <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
-              <DocLink doc={d} onCross={openCross} />
-              <StatusChip status={d.status} />
-            </Stack>
-          </Row>
-        ))
+        // Round 39: one line per type; several of a type comma separated with a small status each, 6 then "+N more".
+        panelDocGroups(docs).map((g) =>
+          g.docs.length === 1 ? (
+            <Row key={g.docs[0].key} label={g.label}>
+              <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+                <DocLink doc={g.docs[0]} onCross={openCross} />
+                <StatusChip status={g.docs[0].status} />
+              </Stack>
+            </Row>
+          ) : (
+            <Row key={g.label} label={g.label}>
+              <Box sx={{ lineHeight: 1.7 }}>
+                {(openGroups.includes(g.label) ? g.docs : g.docs.slice(0, PANEL_DOC_LIMIT)).map((d, i, shown) => (
+                  <Box component="span" key={d.key} sx={{ whiteSpace: "nowrap" }}>
+                    <DocLink doc={d} onCross={openCross} />
+                    {d.status && (
+                      <Box component="span" sx={{ fontSize: "0.7rem", color: "text.secondary", ml: 0.5 }}>
+                        {d.status}
+                      </Box>
+                    )}
+                    {i < shown.length - 1 || (!openGroups.includes(g.label) && g.docs.length > PANEL_DOC_LIMIT) ? ", " : ""}
+                  </Box>
+                ))}
+                {!openGroups.includes(g.label) && g.docs.length > PANEL_DOC_LIMIT && (
+                  <Button size="small" onClick={() => setOpenGroups((x) => [...x, g.label])} sx={{ minWidth: 0, p: 0, ml: 0.25, textTransform: "none", verticalAlign: "baseline" }}>
+                    {`+${g.docs.length - PANEL_DOC_LIMIT} more`}
+                  </Button>
+                )}
+              </Box>
+            </Row>
+          ),
+        )
       )}
 
       {editable && (

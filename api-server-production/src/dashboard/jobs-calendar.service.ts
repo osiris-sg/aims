@@ -14,7 +14,8 @@ import { resolveSalespersonIds, salespersonAliases } from '../sales-report/sales
 import { CALENDAR_STYLE_LEGEND, CalendarColours, StyleInput, mergeColours, quotationSalesmanCode, salespersonFromCode, styleOf } from './calendar-style';
 import { jobCreatorIds, jobStyleValues } from '../deliveries/job-style';
 import type { PanelPerson } from './calendar-style';
-import { isLiveDo } from './calendar-style';
+import { isLiveDo, withPanelFills } from './calendar-style';
+import { quotationStatusLabel } from '../orders/quotation-status-label';
 import { quotationSubjectOf } from '../deliveries/quick-job-quotation';
 
 export const JOBS_CALENDAR_FLAG = 'enableJobsCalendar';
@@ -94,14 +95,15 @@ export class JobsCalendarService {
 
     // Calendar style (enableCalendarStyle): this org's flag decides for its own items and its children's.
     const styleOn = this.style ? await this.style.enabled(organizationId) : false;
-    const ownColours = styleOn ? await this.style!.colours(organizationId) : null;
+    // Round 39: the people list first, so each chip takes its salesperson's People panel colour (automatic ones too).
+    const people = styleOn ? await this.people(organizationId) : null;
+    const ownColours = styleOn ? withPanelFills(await this.style!.colours(organizationId), people) : null;
     const hideSc = await isOrgFeatureEnabled(this.prisma, organizationId, HIDE_SITECLOCK_JOBS_FLAG);
     const [own, scope] = await Promise.all([
       this.orgCalendar(organizationId, from, to, styleOn ? { parent: null } : null, ownColours, hideSc),
       groupReadScope(this.prisma, organizationId, 'jobsCalendar'),
     ]);
     const hq = await isOrgFeatureEnabled(this.prisma, organizationId, CALENDAR_HQ_VIEW_FLAG);
-    const people = styleOn ? await this.people(organizationId) : null;
     const withHq = (r: JobsCalendarResponse): JobsCalendarResponse => {
       const out = hq ? { ...r, hqView: true as const } : r;
       return people ? { ...out, people } : out;
@@ -344,6 +346,8 @@ export class JobsCalendarService {
         team: m?.team ?? null,
         ptwStatus: ptwStatus || 'NOT_NEEDED',
         quotationStatus: q?.status ?? null,
+        // Round 39: the side panel's quotation chip, the real status (never "Imported").
+        quotationStatusLabel: q ? quotationStatusLabel(q) || null : null,
         ...(e.cancelled && m?.calendarCancel ? { calendarCancelled: true as const } : {}),
         ...(postponed ? { statusLabel: 'Postponed' } : {}),
         postponed,

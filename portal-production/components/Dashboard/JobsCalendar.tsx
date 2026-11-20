@@ -375,15 +375,8 @@ export function JobsCalendarPanel({
           </Typography>
           {loading && <CircularProgress size={16} />}
         </Stack>
-        {styled ? (
-          <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap data-tour="jobs-calendar-legend">
-            {data!.style!.legend.map((l) => (
-              <Typography key={l.label} variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
-                {`${l.icon} ${l.label}`}
-              </Typography>
-            ))}
-          </Stack>
-        ) : (
+        {/* Round 39: the calendar style legend lives in the left panel (PeoplePanel), below Companies. */}
+        {styled ? null : (
         <Stack direction="row" spacing={jobWords ? 1.5 : 2} alignItems="center" flexWrap={jobWords ? "nowrap" : "wrap"} useFlexGap>
           {calendarLegendItems(jobWords, !!data?.siteclockJobsHidden).map((l) => (
             <Stack key={l.label} direction="row" spacing={0.75} alignItems="center">
@@ -434,7 +427,7 @@ export function JobsCalendarPanel({
       )}
       {styled && <ExportListDialog open={exportOpen} onClose={() => setExportOpen(false)} loadEvents={exportEvents} loadHeader={loadHeader} />}
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="flex-start">
-      {showPanel && <PeoplePanel rows={rows} onToggle={(id) => saveHidden(toggleRow(hidden, id))} onAll={() => saveHidden(selectAllRows())} onNone={() => saveHidden(selectNoRows(rows))} />}
+      {showPanel && <PeoplePanel rows={rows} legend={data?.style?.legend ?? []} onToggle={(id) => saveHidden(toggleRow(hidden, id))} onAll={() => saveHidden(selectAllRows())} onNone={() => saveHidden(selectNoRows(rows))} />}
       <Box sx={{ flex: 1, minWidth: 0, width: "100%" }}>
       <CalendarView
         events={shownEvents}

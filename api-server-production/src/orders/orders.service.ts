@@ -67,6 +67,7 @@ import { billingSteps, importedInvoicePrefill, remainingForOrder } from './impor
 import { amountPaidOf, grossOf } from '../common/document-money';
 import { nativeInvoiceMoney, nativeOrderSummary, nativeRemainderOf } from './order-page-summary';
 import { importedDoNumbers, importedListAdd, nativeListAdd } from './order-list-add';
+import { quotationStatusLabel } from './quotation-status-label';
 
 /** Imported orders are numbered ORD-<quotation no.> (imported-orders.ts); no native number starts so. */
 const IMPORTED_NUMBER_PREFIX = 'ORD-Q-';
@@ -1017,7 +1018,7 @@ export class OrdersService {
       customer: row.customer ?? null,
       customerMismatch: Array.isArray(m?.customerMismatch) ? m.customerMismatch : [],
       sourceQuotation: row.sourceQuotation
-        ? { id: row.sourceQuotation.id, name: row.sourceQuotation.name, status: row.sourceQuotation.status, type: row.sourceQuotation.type, documentTemplateId: row.sourceQuotation.documentTemplateId, date: qc.date ?? null, total: grossOf(qc) }
+        ? { id: row.sourceQuotation.id, name: row.sourceQuotation.name, status: row.sourceQuotation.status, type: row.sourceQuotation.type, documentTemplateId: row.sourceQuotation.documentTemplateId, date: qc.date ?? null, total: grossOf(qc), statusLabel: quotationStatusLabel(row.sourceQuotation) }
         : null,
       quotations: inputs.linkedQuotations.map((d: any) => ({
         id: d.id,
@@ -1426,6 +1427,8 @@ export class OrdersService {
             documentTemplateId: sourceQuotation.documentTemplateId,
             date: typeof (qcfg.date ?? di.date) === 'string' ? qcfg.date ?? di.date : null,
             total: grossOf(qcfg),
+            // Round 39: the jobs calendar side panel's quotation chip (quotation-status-label.ts).
+            statusLabel: quotationStatusLabel(sourceQuotation),
           }
         : null,
       subject: String(qcfg.subject || di.subject || '').trim() || null,

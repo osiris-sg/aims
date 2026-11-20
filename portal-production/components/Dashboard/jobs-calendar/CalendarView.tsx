@@ -48,7 +48,7 @@ import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import { alpha, useTheme } from "@mui/material/styles";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import Link from "next/link";
-import { CALENDAR_TZ, CHIP_TEXT, GREYED_OPACITY, chipBorder, chipFill, applicantLabel, badgeTitle, chipTimeRange, crewLine, crossOrgTarget, dayOfInstant, kindLabel, orgLabel, panelColor, panelLinks, panelMoreLink, panelRefs, rangeOf, scheduleBadge, scheduleDays, scheduleScrollDay, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag, type ScheduleDay, type ScheduleRow } from "./calendarModel";
+import { CALENDAR_TZ, CHIP_TEXT, CHIP_TIME, GREYED_OPACITY, chipBorder, chipFill, applicantLabel, badgeTitle, chipTimeRange, crewLine, crossOrgTarget, dayOfInstant, kindLabel, orgLabel, panelColor, panelLinks, panelMoreLink, panelRefs, rangeOf, scheduleBadge, scheduleDays, scheduleScrollDay, styledTitle, timeWindow, toCalendarInputs, wctKindLabel, ymdOf, type CalendarEvent, type GroupTag, type ScheduleDay, type ScheduleRow } from "./calendarModel";
 import DoStatusTag from "@/components/DoStatusTag";
 import StyledJobPanel, { type CalendarActions } from "./StyledJobPanel";
 import { RETURN_ORG_KEY, chipLines, chipTone, customerOf, rescheduleClashes, returnOrgMarker, type RescheduleTarget } from "./calendarPanel";
@@ -246,6 +246,7 @@ export default function CalendarView({
         "& .fc .fc-toolbar-title": { fontSize: "1.15rem", fontWeight: 600 },
         "& .fc .fc-button": { textTransform: "capitalize", fontSize: "0.8rem", padding: "4px 10px" },
         "& .fc .fc-col-header-cell-cushion, & .fc .fc-daygrid-day-number": { color: "text.primary", textDecoration: "none" },
+        "& .fc a[data-navlink]:hover": { textDecoration: "underline", cursor: "pointer" },
         "& .fc a": { color: "inherit" },
         "& .aims-jc-event": { cursor: "pointer" },
         ...(canAdd ? { "& .fc-daygrid-day, & .fc-timegrid-slot-lane": { cursor: "copy" } } : {}),
@@ -281,6 +282,9 @@ export default function CalendarView({
         views={scheduleViews}
         buttonText={{ today: "Today", month: "Month", week: "Week", day: "Day", ...(scheduleViews ? { [SCHEDULE_VIEW]: "Schedule" } : {}) }}
         firstDay={1}
+        // Round 39 (calendar style orgs): a day number (Month) or day header (Week) opens that day in Day view.
+        navLinks={styledCal}
+        navLinkDayClick="timeGridDay"
         // About 4 items a day before "+N more" (calendar style: two-row boxes since round 36).
         dayMaxEvents={4}
         // Month: filled blocks so the source colours read at a glance, page-high.
@@ -685,6 +689,9 @@ const panelDay = (date: string) => new Intl.DateTimeFormat("en-SG", { timeZone: 
 const chipTime = (e: CalendarEvent) => (e.allDay ? "All day" : new Intl.DateTimeFormat("en-SG", { timeZone: CALENDAR_TZ, hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(e.start)).toLowerCase());
 
 /** WCT: the side panel. One job's details, or a day's jobs ("+n more") to pick from. */
+/** What sits outside the side panel but belongs to it: its dialogs, menus, pickers, tooltips and the toasts. */
+const PANEL_KEEPS_OPEN = '.MuiModal-root, .MuiDialog-root, .MuiPopover-root, .MuiPopper-root, .MuiMenu-root, .Toastify, [role="dialog"], [role="listbox"], [role="menu"], [role="tooltip"]';
+
 function JobPanel({
   panel,
   jobWords,
@@ -713,8 +720,30 @@ function JobPanel({
   onClose: () => void;
 }) {
   const { event, day } = panel;
+  // Round 39: a click anywhere outside the panel closes it, and so does Esc. Its own dialogs, menus, pickers and
+  // tooltips (drawn outside it) do not count; a job clicked outside opens in a fresh panel.
+  const paperRef = useRef<HTMLDivElement | null>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const down = (ev: PointerEvent) => {
+      const t = ev.target;
+      if (!(t instanceof Element) || paperRef.current?.contains(t) || t.closest(PANEL_KEEPS_OPEN)) return;
+      closeRef.current();
+    };
+    const key = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape" && !ev.defaultPrevented) closeRef.current();
+    };
+    document.addEventListener("pointerdown", down, true);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("pointerdown", down, true);
+      document.removeEventListener("keydown", key);
+    };
+  }, []);
   return (
     <Paper
+      ref={paperRef}
       elevation={8}
       square
       data-tour="jobs-calendar-panel"
@@ -790,8 +819,8 @@ function PtwCircle({ colour, size = 9 }: { colour: string; size?: number }) {
 
 /**
  * Calendar style item (round 36, 2026-11-20): the same in Month, Week and Day. A box lightly filled in the
- * salesperson's colour (the event's background) with dark text. Row 1: time, status icons (✅ / 2✅, ❌, ⭕, 📌, 🟫),
- * customer. Row 2, only when there is something: (SV) / (M) / (CC), PTW status (✋ 👍 👎), the PTW applicant's colour
+ * salesperson's colour (the event's background) with dark text. Row 1: status icons (✅ / 2✅, ❌, ⭕, 📌, 🟫), then the
+ * customer; Month puts a small grey time first (round 39: Day / Week blocks none, the time axis shows it). Row 2, only when there is something: (SV) / (M) / (CC), PTW status (✋ 👍 👎), the PTW applicant's colour
  * circle. Cut at the edge (no "…"); the full text is in the hover text and the side panel.
  */
 function StyledBox({ event: e, block }: { event: CalendarEvent; block: boolean }) {
@@ -803,8 +832,9 @@ function StyledBox({ event: e, block }: { event: CalendarEvent; block: boolean }
       sx={{ px: 0.5, py: "1px", overflow: "hidden", color: CHIP_TEXT, lineHeight: 1.3, fontSize: "0.72rem", minWidth: 0, height: block ? "100%" : "auto", boxSizing: "border-box" }}
     >
       <Box sx={{ display: "flex", gap: "3px", alignItems: "baseline", whiteSpace: "nowrap", overflow: "hidden" }}>
-        {l.time && (
-          <Box component="span" sx={{ flexShrink: 0, fontVariantNumeric: "tabular-nums", opacity: 0.85 }}>
+        {/* Round 39: Day / Week blocks print no time (the time axis shows it); Month keeps a small grey time. */}
+        {l.time && !block && (
+          <Box component="span" sx={{ flexShrink: 0, fontVariantNumeric: "tabular-nums", fontSize: "0.64rem", color: CHIP_TIME }}>
             {l.time}
           </Box>
         )}
@@ -983,7 +1013,7 @@ function ScheduleStyledRow({ row: r, event: e, onRow }: { row: ScheduleRow; even
         "&:hover": { filter: tone ? undefined : "brightness(0.97)" },
       }}
     >
-      <Typography variant="body2" sx={{ width: { xs: "auto", sm: 120 }, flexShrink: 0, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", color: CHIP_TEXT, opacity: 0.85 }}>
+      <Typography variant="body2" sx={{ width: { xs: "auto", sm: 120 }, flexShrink: 0, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", fontSize: "0.75rem", color: CHIP_TIME }}>
         {r.time}
       </Typography>
       <Box sx={{ minWidth: 0, flex: 1 }}>

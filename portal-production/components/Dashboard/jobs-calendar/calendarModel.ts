@@ -81,6 +81,8 @@ export interface CalendarEvent {
   /** The stored PTW status (NOT_NEEDED when none), for the panel's pills. */
   ptwStatus?: string;
   quotationStatus?: string | null;
+  /** Round 39: the quotation's real status as the side panel shows it (Confirmed / Unconfirmed · ERP draft / Declined…). */
+  quotationStatusLabel?: string | null;
   /** Cancelled from the calendar panel: Undo is offered. */
   calendarCancelled?: boolean;
 }
@@ -723,6 +725,8 @@ export function scheduleBadge(date: string): { day: string; weekday: string; mon
  */
 export const CHIP_STRENGTH = 0.35;
 export const CHIP_TEXT = "#1f2328";
+/** Round 39: the small time on Month chips and Schedule rows (grey, still readable on every pastel fill). */
+export const CHIP_TIME = "#5f6368";
 /** Cancelled / postponed chips: fully grey at this opacity. */
 export const GREYED_OPACITY = 0.8;
 const mixWhite = (hex: string, strength: number): string => {

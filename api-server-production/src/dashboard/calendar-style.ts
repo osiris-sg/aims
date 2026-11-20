@@ -279,6 +279,17 @@ export interface PanelPerson {
   auto: boolean;
 }
 
+/**
+ * Round 39 (Elroy 2026-11-20): a chip is filled with its salesperson's colour exactly as the People panel shows it,
+ * the automatic colours too (Henry Hoo orange). A colour picked in Settings still wins; nobody else changes.
+ */
+export function withPanelFills(colours: CalendarColours, people: PanelPerson[] | null | undefined): CalendarColours {
+  if (!people?.length) return colours;
+  const fill = { ...colours.fill };
+  for (const p of people) if (!fill[p.id] && p.colour) fill[p.id] = p.colour;
+  return { ...colours, fill };
+}
+
 export function panelPeople(people: Array<{ id: string; name: string }>, fills: Record<string, string>): PanelPerson[] {
   const sorted = [...people].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
   const used = new Set(Object.values(fills).map((c) => c.toLowerCase()));

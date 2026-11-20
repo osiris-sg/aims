@@ -215,23 +215,59 @@ const titleCase = (s: string | null | undefined) => {
  * From the order page's own model (helpers/orderPage.ts orderPageModel), so the panel and the order page always
  * agree: the order, then its quotations, invoices and DOs, one line each (jobs, reports, files, credit notes left out).
  */
-export function panelDocsFromOrder(model: { number: string; statusLabel: string; documents: Array<{ key: string; kind: string; number: string; status: string; href: string | null }> }, orderHref: string | null): PanelDoc[] {
+export function panelDocsFromOrder(
+  model: { number: string; statusLabel: string; documents: Array<{ key: string; kind: string; number: string; status: string; href: string | null }> },
+  orderHref: string | null,
+  /** Round 39: the order's own quotation's real status (the API's sourceQuotation.statusLabel), instead of "Imported". */
+  quotationLabel?: string | null,
+): PanelDoc[] {
   const label = { quotation: "Quotation", invoice: "Invoice", do: "DO" } as const;
   const rank = { quotation: 0, invoice: 1, do: 2 } as Record<string, number>;
   const rows = model.documents
     .filter((d) => d.kind in label)
     .sort((a, b) => rank[a.kind] - rank[b.kind])
-    .map((d) => ({ key: d.key, label: label[d.kind as keyof typeof label], number: d.number, status: d.status || "", href: d.href ?? null }));
+    .map((d) => ({
+      key: d.key,
+      label: label[d.kind as keyof typeof label],
+      number: d.number,
+      status: (d.kind === "quotation" && d.key.startsWith("q:") && quotationLabel) || d.status || "",
+      href: d.href ?? null,
+    }));
   return [{ key: "order", label: "Order", number: model.number, status: model.statusLabel, href: orderHref }, ...rows];
 }
 
 /** A job with no order: its quotation (with the quotation's status) and its DO (Pending / Completed / Cancelled). */
-export function panelDocsFallback(e: Pick<CalendarEvent, "quotationNumber" | "quotationHref" | "quotationStatus" | "doNumber" | "doHref" | "doTag" | "viewOnly">): PanelDoc[] {
+export function panelDocsFallback(e: Pick<CalendarEvent, "quotationNumber" | "quotationHref" | "quotationStatus" | "quotationStatusLabel" | "doNumber" | "doHref" | "doTag" | "viewOnly">): PanelDoc[] {
   const link = (h: string | null | undefined) => (e.viewOnly ? null : h ?? null);
   const out: PanelDoc[] = [];
-  if (e.quotationNumber) out.push({ key: "quotation", label: "Quotation", number: e.quotationNumber, status: titleCase(e.quotationStatus), href: link(e.quotationHref) });
+  if (e.quotationNumber) out.push({ key: "quotation", label: "Quotation", number: e.quotationNumber, status: e.quotationStatusLabel || titleCase(e.quotationStatus), href: link(e.quotationHref) });
   if (e.doNumber) out.push({ key: "do", label: "DO", number: e.doNumber, status: e.doTag ?? "", href: link(e.doHref) });
   return out;
+}
+
+/** Round 39: the panel shows at most this many documents of a type before "+N more" (which expands). */
+export const PANEL_DOC_LIMIT = 6;
+
+export interface PanelDocGroup {
+  /** "Quotation" for one, "Quotations" for several (Invoices, DOs). */
+  label: string;
+  docs: PanelDoc[];
+}
+
+const PLURAL: Record<PanelDoc["label"], string> = { Order: "Orders", Quotation: "Quotations", Invoice: "Invoices", DO: "DOs" };
+
+/**
+ * Round 39 (Elroy 2026-11-20): one line per type in the order they come (Order, Quotation, Invoices, DOs); several of
+ * a type sit on one line, comma separated, each with its small status.
+ */
+export function panelDocGroups(docs: PanelDoc[]): PanelDocGroup[] {
+  const out: PanelDocGroup[] = [];
+  for (const d of docs) {
+    const g = out.find((x) => x.docs[0].label === d.label);
+    if (g) g.docs.push(d);
+    else out.push({ label: d.label, docs: [d] });
+  }
+  return out.map((g) => ({ ...g, label: g.docs.length > 1 ? PLURAL[g.docs[0].label] : g.label }));
 }
 
 // ── Postpone / Reschedule: clashes on the new day ───────────────────────────────────────────────────────────────
