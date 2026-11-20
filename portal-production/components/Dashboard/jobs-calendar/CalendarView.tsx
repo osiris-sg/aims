@@ -79,6 +79,11 @@ interface Props {
   schedule?: boolean;
   /** Round 36 (calendar style): what the side panel may do (toggles, Cancel / Undo, Reschedule); absent = read only. */
   actions?: CalendarActions;
+  /**
+   * Round 39 #8: the job dialogs' mini calendar. Read only (no panel, pop-over, add menu or drag), Day / Week only,
+   * follows initialDate, a click on an empty slot picks it, the chosen time is shaded.
+   */
+  mini?: { height: number | string; onPick: (slot: { date: string; time: string; allDay: boolean }) => void; highlight?: { start: string; end: string; allDay: boolean } | null; scrollTo?: string | null };
 }
 
 export const SCHEDULE_VIEW = "schedule";
@@ -100,6 +105,7 @@ export default function CalendarView({
   styled = false,
   schedule = false,
   actions,
+  mini,
 }: Props) {
   const theme = useTheme();
   const [viewType, setViewType] = useState<string>(initialView);
@@ -134,6 +140,16 @@ export default function CalendarView({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  // Round 39 #8 (mini): the form's date moves the mini calendar, its time scrolls into view.
+  useEffect(() => {
+    if (!mini || !initialDate) return;
+    const api = calRef.current?.getApi();
+    if (!api) return;
+    if (api.view.currentStart > new Date(`${initialDate}T23:59:59+08:00`) || api.view.currentEnd <= new Date(`${initialDate}T00:00:00+08:00`)) api.gotoDate(initialDate);
+  }, [mini, initialDate]);
+  useEffect(() => {
+    if (mini?.scrollTo) calRef.current?.getApi().scrollToTime(mini.scrollTo);
+  }, [mini?.scrollTo]);
   // Round 36: the side panel's changes show at once (overrides) until the calendar reloads from the server.
   const [overrides, setOverrides] = useState<Record<string, CalendarEvent>>({});
   useEffect(() => setOverrides({}), [events]);
@@ -192,9 +208,11 @@ export default function CalendarView({
   const inputs = useMemo(
     () => [
       ...(notes ?? []).map((n) => noteToCalendarInput(n, styled)),
-      ...toCalendarInputs(liveEvents, showCancelled, !!onMove, openOnClick).map((i) => ({ ...i, displayOrder: 1, ...(clashIds.has(i.id) ? { classNames: [...i.classNames, "aims-jc-clash"] } : {}) })),
+      ...toCalendarInputs(liveEvents, showCancelled, !!onMove && !mini, openOnClick).map((i) => ({ ...i, displayOrder: 1, ...(clashIds.has(i.id) ? { classNames: [...i.classNames, "aims-jc-clash"] } : {}) })),
+      // Round 39 #8: the time chosen in the job form, shaded behind the jobs.
+      ...(mini?.highlight ? [{ id: "aims-jc-pick", start: mini.highlight.start, end: mini.highlight.end, allDay: mini.highlight.allDay, display: "background", backgroundColor: theme.palette.primary.main, classNames: ["aims-jc-pick"] }] : []),
     ],
-    [liveEvents, showCancelled, notes, onMove, openOnClick, styled, clashIds],
+    [liveEvents, showCancelled, notes, onMove, openOnClick, styled, clashIds, mini?.highlight, theme.palette.primary.main],
   );
 
   const onDateClick = (arg: DateClickArg) => {
@@ -273,13 +291,13 @@ export default function CalendarView({
       <FullCalendar
         ref={calRef}
         plugins={[dayGridPlugin, timeGridPlugin, luxonPlugin, interactionPlugin]}
-        dateClick={canAdd ? onDateClick : undefined}
+        dateClick={mini ? (arg: DateClickArg) => mini.onPick({ ...slotOf(arg.dateStr, arg.allDay), allDay: arg.allDay }) : canAdd ? onDateClick : undefined}
         eventOrder="displayOrder,start,-duration,allDay,title"
         timeZone={CALENDAR_TZ}
         initialView={initialView}
         initialDate={initialDate}
-        headerToolbar={{ left: "prev,next today", center: "title", right: `dayGridMonth,timeGridWeek,timeGridDay${scheduleViews ? `,${SCHEDULE_VIEW}` : ""}` }}
-        views={scheduleViews}
+        headerToolbar={mini ? { left: "prev,next", center: "title", right: "timeGridDay,timeGridWeek" } : { left: "prev,next today", center: "title", right: `dayGridMonth,timeGridWeek,timeGridDay${scheduleViews ? `,${SCHEDULE_VIEW}` : ""}` }}
+        views={mini ? undefined : scheduleViews}
         buttonText={{ today: "Today", month: "Month", week: "Week", day: "Day", ...(scheduleViews ? { [SCHEDULE_VIEW]: "Schedule" } : {}) }}
         firstDay={1}
         // Round 39 (calendar style orgs): a day number (Month) or day header (Week) opens that day in Day view.
@@ -292,16 +310,16 @@ export default function CalendarView({
         eventDisplay="block"
         // WCT's dashboard is the calendar alone: it fills the screen in every view.
         // Month rows: the page grows with the taller day cells (6 rows each).
-        height={monthRows ? "auto" : fullHeight ? "calc(100vh - 210px)" : viewType === "dayGridMonth" ? "auto" : viewType === SCHEDULE_VIEW ? 640 : 760}
+        height={mini ? mini.height : monthRows ? "auto" : fullHeight ? "calc(100vh - 210px)" : viewType === "dayGridMonth" ? "auto" : viewType === SCHEDULE_VIEW ? 640 : 760}
         // Calendar style (Week / Day): jobs at the same time sit side by side, so no block hides another's text or PTW bar.
         slotEventOverlap={!styledCal}
         nowIndicator
         scrollTime="07:00:00"
         eventTimeFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
         events={inputs}
-        eventClick={onClick}
+        eventClick={mini ? undefined : onClick}
         // WCT: the day goes to the panel and FullCalendar opens no pop-over (see MORE_LINK_HANDLED).
-        moreLinkClick={openOnClick ? (panelMoreLink((day) => setPanel({ event: null, day })) as any) : undefined}
+        moreLinkClick={openOnClick && !mini ? (panelMoreLink((day) => setPanel({ event: null, day })) as any) : undefined}
         // Job category (WCT group): the chip's tooltip names it (no tooltip for orgs without categories).
         eventDidMount={(arg) => {
           const t = categoryChipTitle(arg.event.extendedProps.event as CalendarEvent | undefined, arg.event.title);

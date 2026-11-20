@@ -9,6 +9,7 @@ import { JobsCalendarPanel } from "@/components/Dashboard/JobsCalendar";
 import type { CalendarEvent, CalendarPayload } from "@/components/Dashboard/jobs-calendar/calendarModel";
 import type { CalendarNote } from "@/helpers/calendarAdd";
 import QuickJobDialog from "@/components/Dashboard/jobs-calendar/QuickJobDialog";
+import { JobDayPreviewFixture } from "@/components/Dashboard/jobs-calendar/JobDayPreview";
 import NoteDialog from "@/components/Dashboard/jobs-calendar/NoteDialog";
 import type { CalendarActions } from "@/components/Dashboard/jobs-calendar/StyledJobPanel";
 import { colourCircle } from "@/components/Dashboard/jobs-calendar/calendarPanel";
@@ -177,7 +178,10 @@ export default function PreviewClient({ mode, view, cancelled, down, add = false
         />
         {add && (
           <>
-            <QuickJobDialog open={adding?.kind === "job"} slot={adding?.slot} withQuotation onClose={() => setAdding(null)} onSaved={() => setAdding(null)} />
+            {/* Round 39 #8: the dialog's mini calendar reads the same fixture data. */}
+            <JobDayPreviewFixture.Provider value={data}>
+              <QuickJobDialog open={adding?.kind === "job"} slot={adding?.slot} withQuotation onClose={() => setAdding(null)} onSaved={() => setAdding(null)} />
+            </JobDayPreviewFixture.Provider>
             <NoteDialog open={adding?.kind === "note" || !!editNote} slot={adding?.kind === "note" ? adding.slot : null} note={editNote} onClose={() => { setAdding(null); setEditNote(null); }} onSaved={() => undefined} />
           </>
         )}

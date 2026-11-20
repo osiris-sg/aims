@@ -58,7 +58,8 @@ test("wiring: interaction plugin pinned like the others; add only for WCT calend
   assert.equal(new Set(fc.map(([, v]) => v)).size, 1, JSON.stringify(fc));
   assert.ok(!fc.some(([, v]) => /[\^~]/.test(v)));
   const view = read("components/Dashboard/jobs-calendar/CalendarView.tsx");
-  assert.match(view, /dateClick=\{canAdd \? onDateClick : undefined\}/);
+  // Round 39 #8: the job dialogs' mini calendar picks a slot; otherwise the add menu only where adding is on.
+  assert.match(view, /dateClick=\{mini \? \(arg: DateClickArg\) => mini\.onPick\([^}]*\}\) : canAdd \? onDateClick : undefined\}/);
   const cal = read("components/Dashboard/JobsCalendar.tsx");
   assert.match(cal, /const canAdd = !!isWctOrdersEnabled && Array\.isArray\(data\?\.notes\);/);
 });

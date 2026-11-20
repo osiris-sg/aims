@@ -52,6 +52,7 @@ import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import dayjs from "dayjs";
+import JobDayPreview, { SlotHintsAlert, SplitIf, SPLIT_PAPER_SX } from "@/components/Dashboard/jobs-calendar/JobDayPreview";
 
 /**
  * Office "Schedule a delivery" dialog. Field order (top→bottom): CUSTOMER →
@@ -147,7 +148,11 @@ export default function ScheduleDeliveryDialog({
 }) {
   const { getToken } = useAuth();
   const { organization } = useOrganization();
-  const { isQuotationToDeliveryEnabled, isSiteClockLinkEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled, isOptionalSaleOrderEnabled } = useOrganizationFeatures();
+  const { isQuotationToDeliveryEnabled, isSiteClockLinkEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isManualOrderFlowEnabled, isOptionalSaleOrderEnabled, isJobsCalendarEnabled } = useOrganizationFeatures();
+  // Round 39 #8 (WCT group: WCT orders + the jobs calendar): a large dialog, the form on the left and the day's jobs on
+  // the right. Every other org keeps the old dialog.
+  const split = !!isWctOrdersEnabled && !!isJobsCalendarEnabled;
+  const [slotHintLines, setSlotHintLines] = useState<string[]>([]);
   // WCT reads "job" (helpers/jobWording.ts).
   const w = runWords(!!isWctOrdersEnabled);
   // Custom job fields (enableJobFields): the org's fields + this job's values.
@@ -1011,11 +1016,33 @@ export default function ScheduleDeliveryDialog({
         void submit(!canSubmit);
       }}
       fullWidth
-      maxWidth="sm"
+      maxWidth={split ? false : "sm"}
       fullScreen={fullScreenDialog}
+      PaperProps={split && !fullScreenDialog ? { sx: SPLIT_PAPER_SX } : undefined}
     >
       <DialogTitle>{editRun ? `Edit scheduled ${w.noun}` : prefill ? `Add a job to ${prefill.orderNumber}` : `Schedule a ${w.noun}`}</DialogTitle>
-      <DialogContent dividers>
+      <DialogContent dividers sx={split ? { display: "flex", flexDirection: "column", minHeight: 0 } : undefined}>
+        <SplitIf
+          split={split}
+          preview={
+            <JobDayPreview
+              date={scheduleDate}
+              time={allDay ? null : scheduleTime}
+              allDay={allDay}
+              durationMin={scPick.durationMin ?? 60}
+              team={scPick.workerName}
+              excludeId={editRun?.id ?? null}
+              onPick={(sl) => {
+                setScheduleDate(sl.date);
+                if (sl.time) {
+                  setScheduleTime(sl.time);
+                  setAllDay(false);
+                } else setAllDay(true);
+              }}
+              onHints={setSlotHintLines}
+            />
+          }
+        >
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           {serviceJobs && isManualOrderFlowEnabled
             ? "The job is done by the office: when the work is finished, open the job and use Complete job for the customer's sign-off."
@@ -1417,7 +1444,9 @@ export default function ScheduleDeliveryDialog({
 
         {note && <Alert severity="info" sx={{ mt: 2 }} onClose={() => setNote(null)}>{note}</Alert>}
         {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+        </SplitIf>
       </DialogContent>
+      {split && <SlotHintsAlert lines={slotHintLines} />}
       <DialogActions>
         <Button onClick={onClose} disabled={submitting}>Cancel</Button>
         <Button variant="contained" onClick={() => void submit(false)} disabled={!canSubmit}>

@@ -8,6 +8,7 @@
 // under the quotation's order (and its DO), or waits for the order until the quotation is signed.
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import JobDayPreview, { JobSplitContent, SlotHintsAlert, SPLIT_PAPER_SX } from "./JobDayPreview";
 import { Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, TextField, Tooltip, Typography, useMediaQuery } from "@mui/material";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import CustomerPicker from "@/components/CustomerPicker";
@@ -67,6 +68,8 @@ export default function QuickJobDialog({
   const phone = useMediaQuery((t: any) => t.breakpoints.down("sm"));
   const workers = useSiteClockWorkers(open);
   const [form, setForm] = useState<QuickJobForm>(() => blank(slot));
+  // Round 39 #8: the mini calendar's warning above Save (same team at the same time, a busy slot).
+  const [hints, setHints] = useState<string[]>([]);
   const [customer, setCustomer] = useState<PickerCustomer | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -197,9 +200,24 @@ export default function QuickJobDialog({
   };
 
   return (
-    <Dialog open={open} onClose={() => !saving && onClose()} fullWidth maxWidth="sm" fullScreen={phone}>
+    // Round 39 #8: a large dialog, the form on the left and the day's jobs on the right (full screen on phones).
+    <Dialog open={open} onClose={() => !saving && onClose()} fullWidth maxWidth={false} fullScreen={phone} PaperProps={{ sx: phone ? undefined : SPLIT_PAPER_SX }}>
       <DialogTitle>{edit ? "Edit job" : "New job"}</DialogTitle>
-      <DialogContent dividers>
+      <DialogContent dividers sx={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <JobSplitContent
+          preview={
+            <JobDayPreview
+              date={form.date}
+              time={form.time}
+              allDay={!!form.allDay}
+              durationMin={form.durationMin}
+              team={form.style?.team ?? null}
+              excludeId={edit?.id ?? null}
+              onPick={(sl) => set(sl.time ? { date: sl.date, time: sl.time, allDay: false } : { date: sl.date, allDay: true })}
+              onHints={setHints}
+            />
+          }
+          form={
         <Stack spacing={2} sx={{ mt: 1 }}>
           {quotationOn && (
             <QuotationPicker value={quotation} customerId={form.customerId} busy={quotationBusy} onChange={(o) => void pickQuotation(o)} />
@@ -316,7 +334,10 @@ export default function QuickJobDialog({
           )}
           {error && <Alert severity="error">{error}</Alert>}
         </Stack>
+          }
+        />
       </DialogContent>
+      <SlotHintsAlert lines={hints} />
       <DialogActions>
         {edit && onDeleted &&
           (confirmDelete ? (

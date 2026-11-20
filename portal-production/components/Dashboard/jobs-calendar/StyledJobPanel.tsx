@@ -9,7 +9,8 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, Radio, RadioGroup, Stack, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, Radio, RadioGroup, Stack, TextField, Typography, useMediaQuery } from "@mui/material";
+import JobDayPreview, { JobSplitContent, SlotHintsAlert, SPLIT_PAPER_SX } from "./JobDayPreview";
 import { alpha } from "@mui/material/styles";
 import { toast } from "react-toastify";
 import DateInput from "@/components/DateInput";
@@ -214,6 +215,8 @@ export default function StyledJobPanel({
   // Postpone / Reschedule: inline, so the calendar behind the panel shows the new day and its clashes.
   const [resched, setResched] = useState<{ mode: "date" | "hold"; date: string; time: string; allDay: boolean } | null>(null);
   const [askResched, setAskResched] = useState(false);
+  const [reschedHints, setReschedHints] = useState<string[]>([]);
+  const phone = useMediaQuery((t: any) => t.breakpoints.down("sm"));
   const target: RescheduleTarget | null = resched?.mode === "date" && /^\d{4}-\d{2}-\d{2}$/.test(resched.date) ? { date: resched.date, time: resched.allDay || !resched.time ? null : resched.time } : null;
   useEffect(() => {
     onReschedulePreview(target);
@@ -407,49 +410,79 @@ export default function StyledJobPanel({
         </>
       )}
 
-      {resched && (
-        <Box sx={{ mt: 2, p: 1.5, border: 1, borderColor: "divider", borderRadius: 1 }} data-tour="jobs-calendar-reschedule">
-          <RadioGroup value={resched.mode} onChange={(ev) => setResched({ ...resched, mode: ev.target.value as "date" | "hold" })}>
-            <FormControlLabel value="date" control={<Radio size="small" />} label="New date / time" />
-            {resched.mode === "date" && (
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ pl: 3.5, mb: 1 }}>
-                <DateInput label="Date" size="small" value={resched.date} onChange={(ev) => setResched({ ...resched, date: ev.target.value })} InputLabelProps={{ shrink: true }} sx={{ flex: 1 }} />
-                <TextField
-                  label="Time"
-                  type="time"
-                  size="small"
-                  value={resched.allDay ? "" : resched.time}
-                  disabled={resched.allDay}
-                  onChange={(ev) => setResched({ ...resched, time: ev.target.value })}
-                  InputLabelProps={{ shrink: true }}
-                  sx={{ width: 120 }}
+      {/* Round 39 #8: Postpone / Reschedule in the large dialog, the day's jobs beside the form. */}
+      <Dialog
+        open={!!resched}
+        onClose={() => !busy && setResched(null)}
+        fullWidth
+        maxWidth={false}
+        fullScreen={phone}
+        PaperProps={phone ? undefined : { sx: SPLIT_PAPER_SX }}
+      >
+        <DialogTitle>{`Postpone / Reschedule: ${customer}`}</DialogTitle>
+        <DialogContent dividers sx={{ display: "flex", flexDirection: "column", minHeight: 0 }} data-tour="jobs-calendar-reschedule">
+          {resched && (
+            <JobSplitContent
+              preview={
+                <JobDayPreview
+                  date={resched.mode === "date" ? resched.date : ""}
+                  time={resched.allDay ? null : resched.time || null}
+                  allDay={resched.allDay}
+                  durationMin={e.end ? Math.max(15, Math.round((Date.parse(e.end) - Date.parse(e.start)) / 60_000)) : 60}
+                  team={e.team ?? null}
+                  excludeId={e.id}
+                  onPick={(sl) => setResched({ ...resched, mode: "date", date: sl.date, time: sl.time ?? resched.time, allDay: !sl.time })}
+                  onHints={setReschedHints}
                 />
-                <FormControlLabel
-                  control={<Checkbox size="small" checked={resched.allDay} onChange={(ev) => setResched({ ...resched, allDay: ev.target.checked })} />}
-                  label="All day"
-                  sx={{ mr: 0 }}
-                />
-              </Stack>
-            )}
-            <FormControlLabel value="hold" control={<Radio size="small" />} label="On hold, no date ⭕" />
-          </RadioGroup>
-          {resched.mode === "date" && clashes.length > 0 && (
-            <Alert severity="warning" sx={{ mt: 1 }}>
-              {clashes.map((c) => (
-                <div key={c.event.id}>{`${customerOf(c.event)}: ${c.reasons.join(", ").toLowerCase()}`}</div>
-              ))}
-            </Alert>
+              }
+              form={
+                <Box>
+                <RadioGroup value={resched.mode} onChange={(ev) => setResched({ ...resched, mode: ev.target.value as "date" | "hold" })}>
+                  <FormControlLabel value="date" control={<Radio size="small" />} label="New date / time" />
+                  {resched.mode === "date" && (
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ pl: 3.5, mb: 1 }}>
+                      <DateInput label="Date" size="small" value={resched.date} onChange={(ev) => setResched({ ...resched, date: ev.target.value })} InputLabelProps={{ shrink: true }} sx={{ flex: 1 }} />
+                      <TextField
+                        label="Time"
+                        type="time"
+                        size="small"
+                        value={resched.allDay ? "" : resched.time}
+                        disabled={resched.allDay}
+                        onChange={(ev) => setResched({ ...resched, time: ev.target.value })}
+                        InputLabelProps={{ shrink: true }}
+                        sx={{ width: 120 }}
+                      />
+                      <FormControlLabel
+                        control={<Checkbox size="small" checked={resched.allDay} onChange={(ev) => setResched({ ...resched, allDay: ev.target.checked })} />}
+                        label="All day"
+                        sx={{ mr: 0 }}
+                      />
+                    </Stack>
+                  )}
+                  <FormControlLabel value="hold" control={<Radio size="small" />} label="On hold, no date ⭕" />
+                </RadioGroup>
+                {resched.mode === "date" && clashes.length > 0 && (
+                  <Alert severity="warning" sx={{ mt: 1 }}>
+                    {clashes.map((c) => (
+                      <div key={c.event.id}>{`${customerOf(c.event)}: ${c.reasons.join(", ").toLowerCase()}`}</div>
+                    ))}
+                  </Alert>
+                )}
+                </Box>
+              }
+            />
           )}
-          <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 1.5 }}>
-            <Button size="small" onClick={() => setResched(null)}>
-              Back
-            </Button>
-            <Button size="small" variant="contained" disableElevation disabled={busy || (resched.mode === "date" && !target)} onClick={() => setAskResched(true)}>
-              Save
-            </Button>
-          </Stack>
-        </Box>
-      )}
+        </DialogContent>
+        <SlotHintsAlert lines={resched?.mode === "date" ? reschedHints : []} />
+        <DialogActions>
+          <Button onClick={() => setResched(null)} disabled={busy}>
+            Back
+          </Button>
+          <Button variant="contained" disableElevation disabled={busy || (resched?.mode === "date" && !target)} onClick={() => setAskResched(true)}>
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Divider sx={{ my: 1.5 }} />
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>

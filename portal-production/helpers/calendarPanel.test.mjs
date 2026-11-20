@@ -269,3 +269,31 @@ test("panel docs: one line per type (plural when several), quotation shows its r
   assert.equal(panelDocsFallback({ quotationNumber: "Q-1", quotationStatus: "confirmed", quotationStatusLabel: "Declined" })[0].status, "Declined");
   assert.equal(panelDocsFallback({ quotationNumber: "Q-1", quotationStatus: "confirmed" })[0].status, "Confirmed");
 });
+
+// Round 39 #8: the job dialogs' warning above Save (never blocks).
+import { slotHints, crewParts, BUSY_SLOT } from "../components/Dashboard/jobs-calendar/calendarPanel.ts";
+
+test("slot hints: same team at the same time, 3+ jobs in the slot, never the job itself or cancelled ones", () => {
+  // 20 Nov 2026, Singapore time (UTC+8): 10:00-11:00 is 02:00-03:00Z.
+  const job = (id, startZ, endZ, over = {}) => ({ id, source: "aims", title: id, start: startZ, end: endZ, allDay: false, cancelled: false, crew: [], ...over });
+  const events = [
+    job("aims:1", "2026-11-20T02:00:00Z", "2026-11-20T03:00:00Z", { team: "Team A + Guru", customer: "Jewel Changi" }),
+    job("aims:2", "2026-11-20T02:30:00Z", "2026-11-20T03:30:00Z", { team: "Team B", customer: "Ion Orchard" }),
+    job("aims:3", "2026-11-20T02:15:00Z", "2026-11-20T02:45:00Z", { team: null, customer: "Bugis" }),
+    job("aims:4", "2026-11-20T02:00:00Z", "2026-11-20T03:00:00Z", { team: "Team A", customer: "Gone", cancelled: true }),
+    job("aims:5", "2026-11-20T06:00:00Z", "2026-11-20T07:00:00Z", { team: "Team A", customer: "Later" }),
+  ];
+  assert.deepEqual(crewParts("Team A + Guru, Ali"), ["team a", "guru", "ali"]);
+  assert.equal(BUSY_SLOT, 3);
+  // 10:00 for an hour, Team A: clashes with job 1 (shares "team a"), the slot holds 3 live jobs.
+  assert.deepEqual(slotHints(events, { date: "2026-11-20", time: "10:00", durationMin: 60, team: "Team A" }), ["Team A + Guru already has a job then: Jewel Changi", "3 jobs already at this time"]);
+  // Editing job 1 itself: no clash with itself; 2 others left, not busy.
+  assert.deepEqual(slotHints(events, { date: "2026-11-20", time: "10:00", durationMin: 60, team: "Team A", excludeId: "1" }), []);
+  // No team typed: only the busy slot.
+  assert.deepEqual(slotHints(events, { date: "2026-11-20", time: "10:00", durationMin: 60 }), ["3 jobs already at this time"]);
+  // 2pm: job 5 (Team A) overlaps.
+  assert.deepEqual(slotHints(events, { date: "2026-11-20", time: "14:00", durationMin: 30, team: "team a" }), ["Team A already has a job then: Later"]);
+  // No specific time: the whole day (4 live jobs).
+  assert.deepEqual(slotHints(events, { date: "2026-11-20", time: null, durationMin: 60 }), ["4 jobs already at this time"]);
+  assert.deepEqual(slotHints(events, { date: "", time: "10:00", durationMin: 60 }), []);
+});

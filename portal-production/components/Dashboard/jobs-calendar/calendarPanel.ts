@@ -315,6 +315,57 @@ export function rescheduleClashes(events: CalendarEvent[], job: CalendarEvent, t
   return out;
 }
 
+// ── Job dialogs' mini calendar (round 39 #8): a hint above Save, never a block ────────────────────────────────────
+
+/** A slot with this many jobs or more already reads as busy. */
+export const BUSY_SLOT = 3;
+
+export interface SlotPick {
+  date: string;
+  /** "HH:mm"; null = no specific time (the whole day). */
+  time: string | null;
+  durationMin: number;
+  /** The form's Team / crew ("Team A + Guru"); its parts are compared one by one. */
+  team?: string | null;
+  /** The job being edited / rescheduled (never a clash with itself): its run id or calendar id. */
+  excludeId?: string | null;
+}
+
+/** "Team A + Guru, Ali" -> ["team a", "guru", "ali"]. */
+export const crewParts = (team: string | null | undefined): string[] =>
+  String(team ?? "")
+    .split(/[+,&/]/)
+    .map((x) => norm(x))
+    .filter(Boolean);
+
+/**
+ * Round 39 (Elroy 2026-11-20): what the chosen time already has. Overlapping jobs (the whole day for "no specific
+ * time") that share a Team / crew part, and a slot with BUSY_SLOT jobs or more. Cancelled jobs and notes never count.
+ */
+export function slotHints(events: CalendarEvent[], pick: SlotPick): string[] {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(pick.date)) return [];
+  const start = pick.time ? instantOf(pick.date, pick.time) : instantOf(pick.date, "00:00");
+  const end = pick.time ? start + Math.max(15, pick.durationMin || 60) * 60_000 : start + 24 * 3600_000;
+  const parts = crewParts(pick.team);
+  const skip = new Set([pick.excludeId, pick.excludeId ? `aims:${pick.excludeId}` : null].filter(Boolean) as string[]);
+  const overlapping = events.filter((e) => {
+    if (skip.has(e.id) || e.cancelled) return false;
+    if (e.allDay) return dayOfEvent(e) === pick.date;
+    const s = Date.parse(e.start);
+    const f = e.end ? Date.parse(e.end) : s + 60 * 60_000;
+    return s < end && start < f;
+  });
+  const out: string[] = [];
+  if (parts.length) {
+    for (const e of overlapping) {
+      const shared = crewParts(e.team).filter((x) => parts.includes(x));
+      if (shared.length) out.push(`${e.team} already has a job then: ${customerOf(e)}`);
+    }
+  }
+  if (overlapping.length >= BUSY_SLOT) out.push(`${overlapping.length} jobs already at this time`);
+  return out.slice(0, 4);
+}
+
 // ── Filter bar ──────────────────────────────────────────────────────────────────────────────────────────────────
 
 export type PtwFilter = "needed" | "pending" | "approved" | "rejected" | "none";
