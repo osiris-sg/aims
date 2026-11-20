@@ -290,6 +290,8 @@ export const PATH_RULES: PathRule[] = [
   r(/^\/documents(\/|$)/, 'open', ['sales', 'orders', 'jobs', 'accounting']),
   r(/^\/customers(\/|$)/, 'open', ['sales', 'orders', 'jobs', 'accounting', 'orgSettings']),
   // Orders (the list is Orders only; one order is also read from the jobs / calendar / report screens)
+  // Round 39: the invoice / DO editors' Reference = order link (read where documents are read; written by who edits them).
+  r(/^\/order-refs(\/|$)/, ['sales', 'orders', 'jobs', 'accounting'], ['sales', 'orders', 'accounting']),
   r(/^\/orders$/, ['orders']),
   r(/^\/orders\/[^/]+\/job-photos$/, ['orders', 'jobs', 'serviceReports']),
   r(/^\/orders(\/|$)/, ['orders', 'sales', 'jobs', 'calendar', 'serviceReports', 'accounting'], ['orders']),

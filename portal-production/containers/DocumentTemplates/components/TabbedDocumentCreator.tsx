@@ -102,6 +102,8 @@ import DeliveryRouteDialog from "@/components/DeliveryRouteDialog";
 import RichTextDescription from "./RichTextDescription";
 import DocumentCustomizer from "./DocumentCustomizer";
 import DynamicFormFields, { headerInputSx } from "./DynamicFormFields";
+import OrderRefField from "./OrderRefField";
+import { isEmptyItems, itemsFromLines, referenceOf, refLinkOn, withReference } from "@/helpers/orderRef";
 import StockCardDialog from "./StockCardDialog";
 import RevenueItemPickerDialog, { type RevenueItem } from "./RevenueItemPickerDialog";
 import { resolveQuotationGroup, insertItemGrouped, makeGroupHeaderItem, mergeRates, dissolveMerge, normalizeRateMerges, contiguityError, mergeMembers, mergeRunPosition, setMergePriceOn, setMergeQuantityOn, RateMergeColumn } from "./quotationItemGroups";
@@ -435,7 +437,7 @@ export default function TabbedDocumentCreator({
   onDocumentCreated,
   initialPreviewMode = false,
 }: DocumentCreatorProps) {
-  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isQuotationTemplatesEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled, isDocRemarksEnabled, isQuotationCategoryEnabled, isRackingLayoutEnabled } = useOrganizationFeatures();
+  const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isQuotationTemplatesEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled, isDocRemarksEnabled, isQuotationCategoryEnabled, isRackingLayoutEnabled, features: orgFeatureFlags } = useOrganizationFeatures();
   // RDO free-typed rows + signed-RDO lock (enableRdoFreeTypedRows, Biofuel 2026-11-19).
   const { isRdoFreeTypedRowsEnabled, isOptionalSaleOrderEnabled } = useOrganizationFeatures();
   // In-app Back (enableWctDocNav): history back when opened inside the app, else the parent list; off = the parent list.
@@ -1123,6 +1125,14 @@ export default function TabbedDocumentCreator({
   // toolbar. `legacyInvoice` / `legacyDo` stay for the type-specific field bits
   // (the invoice GL row, the DO hidden fields).
   const legacyLayout = isHeaderGlAccountEnabled && !isTemplateEditMode;
+  // Round 39 (WCT group): the Reference field of an invoice / DO is the order link combobox (helpers/orderRef.ts).
+  const orderRefOn =
+    !isTemplateEditMode &&
+    refLinkOn(isInvoiceTypeDoc ? "INVOICE" : isDeliveryOrder ? "DELIVERY_ORDER" : null, {
+      wctOrders: !!isWctOrdersEnabled,
+      manualFlow: !!isManualOrderFlowEnabled,
+      importedOrders: !!(orgFeatureFlags as any)?.enableImportedOrders,
+    });
   // The title bar: WCT group (enableWctDocNav) never cuts the title or squeezes the back arrow.
   const titleBar = editorTitleBar(!!isWctDocNavEnabled);
   // Quotation templates (enableQuotationTemplates, WCT group): "+ Add" becomes a
@@ -1899,6 +1909,38 @@ export default function TabbedDocumentCreator({
     markEdited();
     setItemsState(update);
   }, [markEdited, pushHistory]);
+  // Round 39 (WCT group): the Reference = order link combobox (OrderRefField; rules in helpers/orderRef.ts). Picking a
+  // quotation links this invoice / DO to its order; the Reference text (and, on a draft with none, the customer) follow
+  // the server; typed text stays a plain reference. Merged into the header's custom inputs (both layouts).
+  const orderRefField = orderRefOn ? (
+    <OrderRefField
+      documentId={(documentId || (existingData as any)?.id || null) as string | null}
+      customerId={(formData as any)?.customer?.id || (formData as any)?.customerId || null}
+      value={referenceOf(formData)}
+      readOnly={confirmedReadOnly}
+      offerFill={isInvoiceTypeDoc && !confirmedReadOnly && isEmptyItems(items as any[])}
+      onText={(t) => setFormData((prev: any) => withReference(prev, t))}
+      onLinked={({ reference, customer }) =>
+        setFormData((prev: any) => {
+          let next: any = reference ? withReference(prev, reference) : prev;
+          if (customer && !prev?.customer?.id) {
+            next = {
+              ...next,
+              customer: { id: customer.id, name: customer.name || "", address: customer.address || "", email: customer.email || "", customerCode: customer.customerCode || "", gstRegNo: customer.gstRegNo || "" },
+              billTo: next.billTo || addressToBillTo(customer.address),
+            };
+          }
+          return next;
+        })
+      }
+      onUnlinked={({ label, clearedReference }) => {
+        if (clearedReference) setFormData((prev: any) => (referenceOf(prev) === label ? withReference(prev, "") : prev));
+      }}
+      onFill={(lines) => setItems(itemsFromLines(lines, Date.now()))}
+      sx={headerInputSx}
+    />
+  ) : null;
+  const orderRefMerge = (base?: Record<string, React.ReactNode>) => (orderRefField ? { ...(base || {}), "documentInfo.referenceNo": orderRefField, referenceNo: orderRefField } : base);
   // Mirror the committed state for the undo machinery. The wrappers run
   // BEFORE React applies the update, so at push time this still holds the
   // pre-edit values — exactly what a snapshot should capture.
@@ -6190,7 +6232,7 @@ export default function TabbedDocumentCreator({
                       // Official Receipts keep their fixed legacy layout.
                       if (
                         !isSettlementDoc &&
-                        !legacyLayout &&
+                        (!legacyLayout || orderRefOn) &&
                         tab.tabId === "general" &&
                         !fields.some((f: any) => f.fieldName === "documentInfo.referenceNo" || f.fieldName === "referenceNo")
                       ) {
@@ -6272,7 +6314,7 @@ export default function TabbedDocumentCreator({
                           ["documentInfo.currency", "documentInfo.contactName", "documentInfo.contactNumber", "documentInfo.salesPerson", "documentInfo.paymentTerms"]
                         : []
                     }
-                    customInputs={
+                    customInputs={orderRefMerge(
                       // Official Receipt: the legacy header rows that need more
                       // than a plain input (read-only number, customer picker
                       // without the attention trio, account echoes, amount trio).
@@ -6383,7 +6425,7 @@ export default function TabbedDocumentCreator({
                               />
                             ),
                           }
-                        : undefined
+                        : undefined)
                     }
                     appendRow={
                       // Project picker as the LAST header row, styled like the

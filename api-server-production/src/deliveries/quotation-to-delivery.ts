@@ -331,6 +331,32 @@ function orderItemsOf(lines: any[]) {
 }
 
 /**
+ * Round 39 (WCT group, 2026-11-20): the quotation's order for a document linked by its Reference (invoice / DO
+ * editor). The existing order when there is one; otherwise one is made the way the order flow makes it for a DO-first
+ * (manual flow) quotation: same per-quotation lock, the company order number claimed in the same transaction, no
+ * automatic first job (calendar jobs waiting for the quotation move onto it, as at signing). Race-safe: a confirm or
+ * another link landing at the same moment sees the order already there.
+ */
+export async function ensureQuotationOrder(
+  prisma: any,
+  organizationId: string,
+  quotation: { id: string; name: string | null; config: any },
+): Promise<{ orderId: string; orderNumber: string; created: boolean }> {
+  const find = () =>
+    runAsOrg(organizationId, () => prisma.order.findFirst({ where: { organizationId, sourceQuotationId: quotation.id }, orderBy: { createdAt: 'asc' }, select: { id: true, orderNumber: true } }));
+  const found: any = await find();
+  if (found) return { orderId: found.id, orderNumber: found.orderNumber, created: false };
+  const cfg: any = quotation.config || {};
+  const customerRef = cfg.customerId || cfg.customer?.id || null;
+  const customer = customerRef ? await prisma.customer.findFirst({ where: { id: customerRef, organizationId }, select: { id: true } }) : null;
+  const out = await createOrderWithFirstJob(prisma, organizationId, { id: quotation.id, name: quotation.name }, customer?.id ?? null, quotationLines(cfg), () => null, undefined, { withJob: false });
+  if (out) return { orderId: out.orderId, orderNumber: out.orderNumber, created: true };
+  const raced: any = await find();
+  if (raced) return { orderId: raced.id, orderNumber: raced.orderNumber, created: false };
+  throw new ConflictException('Could not make the order, please try again');
+}
+
+/**
  * WCT jobs calendar "Link to… quotation" (2026-11-04): put an existing job (one
  * made from the calendar, no order yet) under the quotation's order. A
  * quotation with no order gets one WITHOUT the automatic first job: this job
