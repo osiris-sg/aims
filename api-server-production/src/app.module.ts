@@ -67,6 +67,7 @@ import { MaintenanceReportsModule } from './maintenance-reports/maintenance-repo
 import { DeliveriesModule } from './deliveries/deliveries.module';
 import { JobPhotosModule } from './job-photos/job-photos.module';
 import { SiteClockDeliveryModule } from './siteclock-delivery/siteclock-delivery.module';
+import { WorkersTeamsModule } from './workers-teams/workers-teams.module';
 import { DeliveryGroupPostsModule } from './delivery-group-posts/delivery-group-posts.module';
 import { MaintenanceSchedulesModule } from './maintenance-schedules/maintenance-schedules.module';
 import { VehiclesModule } from './vehicles/vehicles.module';
@@ -153,6 +154,7 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
     DeliveriesModule,
     JobPhotosModule,
     SiteClockDeliveryModule, // SiteClock worker delivery API (enableSiteClockDeliveries)
+    WorkersTeamsModule, // Settings > Workers & Teams, synced from SiteClock (enableWorkersTeams)
     DeliveryGroupPostsModule,
     MaintenanceSchedulesModule,
     VehiclesModule,

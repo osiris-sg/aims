@@ -272,6 +272,9 @@ export const PATH_RULES: PathRule[] = [
   r(/^\/(users|roles|permissions|action-log|admin|import)(\/|$)/, ['orgSettings']),
   r(/^\/(teams|org-rules|organizations|configuration|documentTemplates|job-fields)(\/|$)/, 'open', ['orgSettings']),
   r(/^\/dashboard\/calendar-style(\/|$)/, 'open', ['orgSettings']),
+  // Workers & Teams (WCT 2026-11-20): Org Settings; the job forms' picker is read from the jobs / calendar / orders screens.
+  r(/^\/workers-teams\/picker$/, ['jobs', 'calendar', 'orders', 'orgSettings']),
+  r(/^\/workers-teams(\/|$)/, ['orgSettings']),
   r(/^\/document-numbering(\/|$)/, 'open', ['orgSettings', 'accounting']),
   // Calendar, Dashboard
   r(/^\/dashboard\/jobs-calendar(\/|$)/, ['calendar']),

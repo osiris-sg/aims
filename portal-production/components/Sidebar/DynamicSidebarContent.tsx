@@ -94,7 +94,7 @@ export default function DynamicSidebarContent() {
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ["superadmin", "admin", "osirisadmin"].includes((r?.name || "").toLowerCase()));
-  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled, isSalesReportEnabled, isQuotationCategoryEnabled, isCustomAccessEnabled } = useOrganizationFeatures();
+  const { isDocumentListViewEnabled, isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isRolePresetsEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled, isSalesReportEnabled, isQuotationCategoryEnabled, isCustomAccessEnabled, isWorkersTeamsEnabled } = useOrganizationFeatures();
   const { isCollapsed } = useSidebar();
   const [openMenus, setOpenMenus] = React.useState<Record<string, boolean>>({});
   const navLang = useUiLang().lang;
@@ -510,13 +510,15 @@ export default function DynamicSidebarContent() {
         { key: 'masterfiles', label: 'Master Files', path: '/portal/masterfiles' },
         // Custom job fields (enableJobFields orgs only).
         { key: 'job-fields', label: 'Job fields', path: '/portal/settings/job-fields' },
+        // Workers & Teams (enableWorkersTeams orgs only; WCT 2026-11-20).
+        { key: 'workers-teams', label: 'Workers & Teams', path: '/portal/settings/workers-teams' },
         // Quotation categories for the sales report (enableQuotationCategory orgs only).
         { key: 'quotation-categories', label: 'Quotation categories', path: '/portal/settings/quotation-categories' },
         // Was the Audit module (guru 2026-11-12: "audit should be called audit log").
         { key: 'audit', label: 'Audit Log', path: '/portal/audit' },
         // Custom roles (enableCustomAccess orgs, Admin / superadmin only); mirrors useNavModules.
         { key: 'roles', label: 'Roles', path: '/portal/settings/roles' },
-      ].filter((s) => (s.key !== 'roles' || (!!isCustomAccessEnabled && isAdminUser)) && (s.key !== 'users' || (settingsModuleOn('USER_MANAGEMENT') && !isUserMgmtMasterfileEnabled)) && (s.key !== 'audit' || settingsModuleOn('AUDIT')) && (s.key !== 'accounting-setup' || accountingSetupShown) && (s.key !== 'business-rules' || isBusinessRulesEnabled) && (s.key !== 'hotkeys' || isHotkeysEnabled) && ((s.key !== 'shipping' && s.key !== 'customer-profiles') || showShippingSettings(isModuleEnabled)) && (s.key !== 'job-fields' || isJobFieldsEnabled) && (s.key !== 'quotation-categories' || isQuotationCategoryEnabled))
+      ].filter((s) => (s.key !== 'roles' || (!!isCustomAccessEnabled && isAdminUser)) && (s.key !== 'users' || (settingsModuleOn('USER_MANAGEMENT') && !isUserMgmtMasterfileEnabled)) && (s.key !== 'audit' || settingsModuleOn('AUDIT')) && (s.key !== 'accounting-setup' || accountingSetupShown) && (s.key !== 'business-rules' || isBusinessRulesEnabled) && (s.key !== 'hotkeys' || isHotkeysEnabled) && ((s.key !== 'shipping' && s.key !== 'customer-profiles') || showShippingSettings(isModuleEnabled)) && (s.key !== 'job-fields' || isJobFieldsEnabled) && (s.key !== 'workers-teams' || !!isWorkersTeamsEnabled) && (s.key !== 'quotation-categories' || isQuotationCategoryEnabled))
         .map((s) => ({ ...s, label: settingLabel(s) })),
     },
   ];

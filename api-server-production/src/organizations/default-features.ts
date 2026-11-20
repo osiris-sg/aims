@@ -246,6 +246,10 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // Adds Salesperson, PTW applicant, COD and Postponed to jobs and PTW
   // "Rejected". Colours per person in Settings > Job fields. Default OFF.
   enableCalendarStyle: false,
+  // Workers & Teams (WCT 2026-11-20, src/workers-teams): Settings > Workers & Teams lists the org's
+  // field workers and crews (Worker / WorkerTeam / WorkerTeamMember), added by hand or synced from
+  // SiteClock (read-only there; preview first, then apply). Nothing is hard-deleted. Default OFF.
+  enableWorkersTeams: false,
   // Real DO numbers on schedule (WCT 2026-10-30): a scheduled delivery's DO gets
   // its real number (e.g. DO202610007) the moment it is scheduled — no
   // DO-PENDING-NN placeholder — issued with the counter locked so concurrent

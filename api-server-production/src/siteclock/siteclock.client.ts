@@ -128,6 +128,16 @@ export class SiteClockClient {
   workers() {
     return this.call<{ workers: SiteClockWorker[] }>('GET', '/v1/workers');
   }
+  /**
+   * Workers & Teams sync (2026-11-20): every worker, inactive ones too; with `phone` the call asks for phone numbers
+   * (needs the key's opt-in workers:phone scope, else SiteClock answers 403).
+   */
+  allWorkers(opts: { phone?: boolean } = {}) {
+    return this.call<{ workers: Array<SiteClockWorker & { clerkUserId?: string | null; phone?: string | null }> }>(
+      'GET',
+      `/v1/workers?active=all${opts.phone ? '&include=phone' : ''}`,
+    );
+  }
   putSite(ref: string, body: { name: string; address: string }) {
     return this.call<{ site: { id: string; externalRef: string } }>('PUT', `/v1/sites/by-ref/${this.ref(ref)}`, body);
   }

@@ -348,6 +348,9 @@ export class ActionLogInterceptor implements NestInterceptor {
       if (s === 'quotation' && segments[0] === 'bills' && method === 'PATCH') return 'TAG_QUOTATION';
       // WCT jobs calendar notes (2026-11-04): add / edit / delete, not a document "NOTE".
       if (s === 'notes' && segments.includes('jobs-calendar')) return METHOD_ACTION[method] || 'UNKNOWN';
+      // Workers & Teams (WCT 2026-11-20): unhide a worker / team; POST siteclock-sync applies the SiteClock sync.
+      if (segments[0] === 'workers-teams' && s === 'unhide') return 'UNHIDE';
+      if (segments[0] === 'workers-teams' && s === 'siteclock-sync') return method === 'POST' ? 'SYNC' : METHOD_ACTION[method] || 'UNKNOWN';
       if (VERB_ACTIONS[s]) return VERB_ACTIONS[s];
       break;
     }

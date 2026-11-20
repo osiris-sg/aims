@@ -33,6 +33,8 @@ interface OrganizationFeatures {
   hideSiteClockJobs?: boolean;
   calendarHqView?: boolean;
   enableCalendarStyle?: boolean;
+  /** Workers & Teams (WCT 2026-11-20): Settings > Workers & Teams, synced from SiteClock. */
+  enableWorkersTeams?: boolean;
   enableRealDoOnSchedule?: boolean;
   enableWctOrders?: boolean;
   enableWctMyJobs?: boolean;
@@ -317,6 +319,7 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   hideSiteClockJobs: false,
   calendarHqView: false,
   enableCalendarStyle: false,
+  enableWorkersTeams: false,
   // Real DO numbers on schedule (WCT 2026-10-30): a scheduled run's DO gets its
   // real number at once; a Pending / Completed / Cancelled tag shows next to it.
   enableRealDoOnSchedule: false,
@@ -483,6 +486,7 @@ export function useOrganizationFeatures() {
     isRoleHomeEnabled: features.enableRoleHome ?? FEATURE_FLAG_DEFAULTS.enableRoleHome,
     isAppSwitcherHidden: features.hideAppSwitcher ?? FEATURE_FLAG_DEFAULTS.hideAppSwitcher,
     isWctStatusFlowEnabled: features.enableWctStatusFlow ?? FEATURE_FLAG_DEFAULTS.enableWctStatusFlow,
+    isWorkersTeamsEnabled: features.enableWorkersTeams ?? FEATURE_FLAG_DEFAULTS.enableWorkersTeams,
     isSubjectTypeEnabled: features.enableSubjectType ?? FEATURE_FLAG_DEFAULTS.enableSubjectType,
     isQuotationGstEnabled: features.enableQuotationGst ?? FEATURE_FLAG_DEFAULTS.enableQuotationGst,
     isQuotationTotalsToggleEnabled: features.enableQuotationTotalsToggle ?? FEATURE_FLAG_DEFAULTS.enableQuotationTotalsToggle,
