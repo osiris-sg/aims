@@ -190,7 +190,7 @@ describe('calendar style: people', () => {
     expect(parseJobStylePatch({})).toEqual({});
     expect(() => parseJobStylePatch({ cod: 'yes' })).toThrow(BadRequestException);
     expect(() => parseJobStylePatch({ salesperson: { name: 'x' } })).toThrow(BadRequestException);
-    expect(jobStyleOf('junk')).toEqual({ salespersonId: null, salespersonName: null, ptwApplicantId: null, ptwApplicantName: null, cod: false, postponed: false, sticker: false, createdById: null, team: null, calendarCancel: null });
+    expect(jobStyleOf('junk')).toEqual({ salespersonId: null, salespersonName: null, ptwApplicantId: null, ptwApplicantName: null, cod: false, postponed: false, sticker: false, createdById: null, team: null, crew: [], calendarCancel: null });
   });
 
   it('✅ counts only completed / signed DOs: not drafts, not cancelled or voided', () => {

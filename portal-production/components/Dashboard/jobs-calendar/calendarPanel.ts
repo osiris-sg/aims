@@ -103,7 +103,9 @@ export type PanelToggle =
   | { kind: "sticker"; on: boolean }
   | { kind: "cod"; on: boolean }
   | { kind: "category"; category: string }
-  | { kind: "team"; team: string | null };
+  | { kind: "team"; team: string | null }
+  /** Round 39 B4: picked teams / workers plus the free text. */
+  | { kind: "crew"; crew: Array<{ kind: "team" | "worker"; id: string; name: string }>; team: string | null };
 
 /** The run id behind an AIMS event, or null. */
 const runOf = (e: Pick<CalendarEvent, "id">) => (e.id.startsWith("aims:") ? e.id.slice(5) : null);
@@ -127,6 +129,8 @@ export function toggleRequest(e: Pick<CalendarEvent, "id">, t: PanelToggle, curr
       return { method: "PUT", path: `/deliveries/${id}/category`, body: { category: t.category } };
     case "team":
       return { method: "PATCH", path: `/deliveries/${id}/style`, body: { team: t.team } };
+    case "crew":
+      return { method: "PATCH", path: `/deliveries/${id}/style`, body: { crew: t.crew, team: t.team } };
   }
 }
 
@@ -156,7 +160,11 @@ export function applyToggle(e: CalendarEvent, t: PanelToggle, defaultApplicant?:
       if (style) style.prefix = categoryPrefix(t.category);
       return { ...e, category: t.category, style };
     case "team":
-      return { ...e, team: t.team?.trim() || null };
+      return { ...e, team: t.team?.trim() || null, teamText: t.team?.trim() || null };
+    case "crew": {
+      const free = t.team?.trim() || null;
+      return { ...e, crewPicks: t.crew, teamText: free, team: [...t.crew.map((c) => c.name), free ?? ""].filter(Boolean).join(" + ") || null };
+    }
   }
 }
 

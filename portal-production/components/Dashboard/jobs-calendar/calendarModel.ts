@@ -78,6 +78,9 @@ export interface CalendarEvent {
   subject?: string | null;
   remarks?: string | null;
   team?: string | null;
+  /** Round 39 B4 (Workers & Teams): the picked teams / workers (team = picks + free text); teamText = the free text. */
+  crewPicks?: Array<{ kind: "team" | "worker"; id: string; name: string }>;
+  teamText?: string | null;
   /** The stored PTW status (NOT_NEEDED when none), for the panel's pills. */
   ptwStatus?: string;
   quotationStatus?: string | null;

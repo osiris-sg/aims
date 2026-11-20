@@ -64,6 +64,8 @@ export default function JobPtwLinkPanel({
         postponed: !!d.postponed,
         sticker: !!d.sticker,
         team: d.team ?? "",
+        // Round 39 B4: picked teams / workers (Workers & Teams orgs).
+        crew: Array.isArray(d.crew) ? d.crew : [],
       };
       setStyle(v);
       setStyleSaved(v);
@@ -76,7 +78,7 @@ export default function JobPtwLinkPanel({
   const saveStyle = async () => {
     if (!style) return;
     setSaving(true);
-    const res = await api("PATCH", `/deliveries/${run.id}/style`, { salesperson: style.salesperson, ptwApplicant: style.ptwApplicant, cod: style.cod, postponed: !!style.postponed, sticker: !!style.sticker, team: (style.team ?? "").trim() || null });
+    const res = await api("PATCH", `/deliveries/${run.id}/style`, { salesperson: style.salesperson, ptwApplicant: style.ptwApplicant, cod: style.cod, postponed: !!style.postponed, sticker: !!style.sticker, team: (style.team ?? "").trim() || null, ...(style.crew ? { crew: style.crew } : {}) });
     setSaving(false);
     if (!res.ok) return toast.error(res.message || "Couldn't save the job");
     setStyleSaved(style);

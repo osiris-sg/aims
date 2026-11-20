@@ -8,6 +8,9 @@ import React from "react";
 import { Autocomplete, Box, Checkbox, FormControlLabel, Stack, TextField } from "@mui/material";
 import type { StylePerson } from "./calendarAddApi";
 import { applicantOptionLabel } from "./calendarModel";
+import CrewPicker from "./CrewPicker";
+import type { CrewPick } from "@/helpers/crewPicker";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 
 export interface JobStyleValue {
   salesperson: StylePerson | null;
@@ -18,6 +21,8 @@ export interface JobStyleValue {
   sticker?: boolean;
   /** "Team / crew" (round 36, 2026-11-20): free text, e.g. "Team A + Guru"; absent = not offered on this form. */
   team?: string;
+  /** Round 39 B4 (Workers & Teams on): the picked teams / workers (team then holds the free text only). */
+  crew?: CrewPick[];
 }
 
 /** Options with the current pick kept (a person no longer listed still shows by name). */
@@ -45,6 +50,9 @@ export default function JobStyleFields({
   /** The applicants are the org's PTW applicants list (2026-11-19): only they are offered; a pick outside is marked. */
   applicantsFromList?: boolean;
 }) {
+  // Round 39 B4: Workers & Teams orgs pick teams / workers; everyone else types as before.
+  const { isWorkersTeamsEnabled } = useOrganizationFeatures();
+  const crewOn = !!isWorkersTeamsEnabled;
   return (
     <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }} data-tour="job-style-fields">
       <Autocomplete
@@ -82,7 +90,12 @@ export default function JobStyleFields({
         sx={{ mr: 0, flexShrink: 0 }}
         data-tour="job-sticker"
       />
-      {value.team !== undefined && (
+      {value.team !== undefined && crewOn && (
+        <Box sx={{ flex: 1, minWidth: 220 }}>
+          <CrewPicker crew={value.crew ?? []} team={value.team} onChange={(v) => onChange({ crew: v.crew, team: v.team })} />
+        </Box>
+      )}
+      {value.team !== undefined && !crewOn && (
         <TextField
           size="small"
           label="Team / crew"

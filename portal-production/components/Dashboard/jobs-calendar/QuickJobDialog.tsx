@@ -9,6 +9,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import JobDayPreview, { JobSplitContent, SlotHintsAlert, SPLIT_PAPER_SX } from "./JobDayPreview";
+import { crewDisplay } from "@/helpers/crewPicker";
 import { Alert, Autocomplete, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, TextField, Tooltip, Typography, useMediaQuery } from "@mui/material";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import CustomerPicker from "@/components/CustomerPicker";
@@ -127,7 +128,7 @@ export default function QuickJobDialog({
   useEffect(() => {
     if (!open || !people.loaded || !people.enabled) return;
     if (!editId) {
-      setForm((f) => ({ ...f, style: f.style ?? { salesperson: people.defaultSalesperson, ptwApplicant: people.defaultApplicant, cod: false, sticker: false, team: "" } }));
+      setForm((f) => ({ ...f, style: f.style ?? { salesperson: people.defaultSalesperson, ptwApplicant: people.defaultApplicant, cod: false, sticker: false, team: "", crew: [] } }));
       return;
     }
     let live = true;
@@ -137,7 +138,7 @@ export default function QuickJobDialog({
       const person = (id: string | null | undefined, name: string | null | undefined) => (id ? { id, name: name || people.applicants.find((p) => p.id === id)?.name || id } : null);
       setForm((f) => ({
         ...f,
-        style: { salesperson: person(d?.salespersonId, d?.salespersonName), ptwApplicant: person(d?.ptwApplicantId, d?.ptwApplicantName) ?? people.defaultApplicant, cod: !!d?.cod, sticker: !!d?.sticker, team: d?.team ?? "" },
+        style: { salesperson: person(d?.salespersonId, d?.salespersonName), ptwApplicant: person(d?.ptwApplicantId, d?.ptwApplicantName) ?? people.defaultApplicant, cod: !!d?.cod, sticker: !!d?.sticker, team: d?.team ?? "", crew: Array.isArray(d?.crew) ? d.crew : [] },
       }));
     });
     return () => {
@@ -211,7 +212,7 @@ export default function QuickJobDialog({
               time={form.time}
               allDay={!!form.allDay}
               durationMin={form.durationMin}
-              team={form.style?.team ?? null}
+              team={crewDisplay(form.style?.crew, form.style?.team) || null}
               excludeId={edit?.id ?? null}
               onPick={(sl) => set(sl.time ? { date: sl.date, time: sl.time, allDay: false } : { date: sl.date, allDay: true })}
               onHints={setHints}

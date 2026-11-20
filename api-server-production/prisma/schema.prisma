@@ -448,9 +448,9 @@ model Document {
   // List keys (2026-11-05), kept by the aims_doc_list_keys trigger (scripts/document-list-keys.js)
   // from config so the document lists sort / search in the database: the issue date (yyyy-MM-dd,
   // documentIssueDate), the searched text (lower-case) and the customer id.
-  listIssueDate      String?
-  listSearch         String?
-  listCustomerId     String?
+  listIssueDate  String?
+  listSearch     String?
+  listCustomerId String?
   status             DocumentStatus @default(unconfirmed)
 
   // Revision fields for document versioning
@@ -504,6 +504,7 @@ model Document {
   embedding DocumentEmbedding? // Semantic-search vector for the AI assistant
 
   @@unique([name, organizationId, documentTemplateId])
+
   @@index([organizationId, type, listIssueDate])
   @@index([baseDocumentId])
   @@index([organizationId, type])
@@ -2135,7 +2136,7 @@ model AccountingSetting {
   // Inclusive cut-off date for the last closed period. Posting / editing
   // journal entries with entryDate <= this date is rejected. Updated by the
   // Smart Close Wizard on Month-End / Year-End run.
-  lockedThroughDate      DateTime?
+  lockedThroughDate DateTime?
   // Xero-style lock dates (guru 2026-11-20). lockedThroughDate = "Stop all users making
   // changes on and before" (hard lock, everyone). staffLockedThroughDate = "Stop all users
   // (except accounting admins) making changes on and before": a user who holds
@@ -2144,7 +2145,7 @@ model AccountingSetting {
   staffLockedThroughDate DateTime?
   // Log of past close runs — array of { type, lockedThrough, runAt, runBy,
   // yearEndJournalEntryId? } so users can audit / unwind if needed.
-  closeHistory           Json?
+  closeHistory      Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -3266,45 +3267,45 @@ enum DeliveryOrigin {
 }
 
 model Delivery {
-  id                 String            @id @default(uuid()) @db.Uuid
-  organizationId     String
+  id                String            @id @default(uuid()) @db.Uuid
+  organizationId    String
   // Per-org serial (paper-trail analogue, same pattern as MSR.reportNumber).
   // Assigned at creation — required, unlike MSR's nullable historic rows.
-  deliveryNumber     Int
+  deliveryNumber    Int
   // OUTBOUND (normal delivery) or RETURN (reverse — collecting rentals back to
   // stock). Additive with a default so every existing run reads as OUTBOUND.
-  direction          DeliveryDirection @default(OUTBOUND)
-  status             DeliveryRunStatus @default(in_progress)
+  direction         DeliveryDirection @default(OUTBOUND)
+  status            DeliveryRunStatus @default(in_progress)
   // Nullable so an office-SCHEDULED run can exist before any rider picks it up.
   // The rider claims it at scan-to-bind (sets riderUserId, status → in_progress).
   // Every rider-started run sets it at creation as before.
-  riderUserId        String?
-  riderName          String?
+  riderUserId       String?
+  riderName         String?
   // DRIVER HANDOFF (2026-09): who delivers the CURRENT trip of a scheduled run.
   // SELF = the rider; DRIVER = handed to another driver via a drv_ share link
   // (QR). Cleared at each sign-off so the next trip asks again. vehicleNumber
   // is the driver's vehicle; handedOffAt / handedOffByUserId record the hand-off.
   // All nullable + additive (safe db push).
-  vehicleNumber      String?
-  handoffMode        String?
-  handedOffAt        DateTime?
-  handedOffByUserId  String?
-  projectId          String?           @db.Uuid
-  customerId         String?           @db.Uuid
-  siteAddress        String? // free-text drop site when no project is linked yet
-  notes              String?
+  vehicleNumber     String?
+  handoffMode       String?
+  handedOffAt       DateTime?
+  handedOffByUserId String?
+  projectId         String?           @db.Uuid
+  customerId        String?           @db.Uuid
+  siteAddress       String? // free-text drop site when no project is linked yet
+  notes             String?
   // Office-scheduled runs: the target delivery date/time. Null for ad-hoc runs
   // recorded live in the field. A run with scheduledFor set + status `scheduled`
   // is waiting for a rider to pick it up.
-  scheduledFor       DateTime?
+  scheduledFor      DateTime?
   // Office DRAFT: a partly-filled schedule the office can come back to. A draft
-  scheduledAllDay    Boolean           @default(false) // all-day job (2026-11-10): scheduledFor = 00:00 of the day in the org time zone, no specific time
+  scheduledAllDay   Boolean     @default(false) // all-day job (2026-11-10): scheduledFor = 00:00 of the day in the org time zone, no specific time
   // is NOT a real scheduled run — it is excluded from every rider-facing query,
   // from claim/merge/fold/cancel, and it mints NO Delivery Order. The DO is
   // created only when the draft is promoted to a real schedule. Boolean rather
   // than a DeliveryRunStatus value on purpose: adding an enum value means
   // ALTER TYPE ADD VALUE, which has stopped backend deploys before.
-  isDraft            Boolean           @default(false)
+  isDraft           Boolean           @default(false)
   /// AD_HOC marks a run a rider started from a scan with no scheduled run to
   /// join. Set at CREATION only — existing rows keep the SCHEDULED default, so
   /// nothing is reclassified. Deliberately not inferred from `projectId IS
@@ -3315,18 +3316,18 @@ model Delivery {
   /// An AD_HOC run completes down a third path: its DO is created but NOT
   /// committed, so the unit stays `reserved` until the office attaches a
   /// project and the deployment is created.
-  origin             DeliveryOrigin    @default(SCHEDULED)
+  origin            DeliveryOrigin    @default(SCHEDULED)
   // Accepted QUOTATION this run was auto-created from (enableQuotationToDelivery,
   // WCT 2026-10-26: signing/confirming a quotation auto-creates a DRAFT schedule).
   // Written only by the quotation→delivery hook; also the idempotency key (one
   // run per quotation). The DO minted at promotion reads it to stamp
   // quotationNo + sourceDocument* (and the quote's prices) onto its config.
   // Plain pointer, no FK — same reasoning as the frozen documentId below.
-  sourceQuotationId  String?           @db.Uuid
+  sourceQuotationId String?           @db.Uuid
   // WCT orders (enableWctOrders, 2026-11-01): the Order this job belongs to. An
   // accepted quotation makes ONE order and its first job; "Add job" on the
   // order adds more. Null for every run outside that flow.
-  orderId            String?           @db.Uuid
+  orderId           String?           @db.Uuid
   // WCT worker logins (enableWctMyJobs, 2026-11-01): who the job is PLANNED
   // for — the AIMS user behind the picked SiteClock worker, set whenever the
   // schedule's worker is saved. riderUserId stays who actually started it.
@@ -3366,11 +3367,11 @@ model Delivery {
   // neither writes nor reads it; the truth is DeliveryItem.documentId. Kept
   // for zero-downtime deploys (Render db-pushes on deploy while old code may
   // still serve) and dropped in a later cleanup.
-  documentId         String?           @db.Uuid
-  startedAt          DateTime          @default(now())
-  completedAt        DateTime?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  documentId        String?           @db.Uuid
+  startedAt         DateTime          @default(now())
+  completedAt       DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   organization Organization               @relation(fields: [organizationId], references: [id])
   project      Project?                   @relation(fields: [projectId], references: [id])
@@ -3937,61 +3938,61 @@ model Contract {
 /// client premium lives here (it changes per order); the contract line is only
 /// its default. Displayed "#{orderNo}"; unique per org + year.
 model TradeOrder {
-  id               String            @id @default(uuid()) @db.Uuid
-  organizationId   String
-  year             Int
-  orderNo          Int
+  id              String            @id @default(uuid()) @db.Uuid
+  organizationId  String
+  year            Int
+  orderNo         Int
   /// Round AT: the order numbers this order had before a renumber (search "#26" still finds it; never reused by it).
-  previousOrderNos Int[]             @default([])
-  contractId       String?           @db.Uuid
-  customerId       String            @db.Uuid
-  supplierId       String            @db.Uuid
-  shipMonth        String? // "YYYY-MM"
-  deliveryMonth    String? // "YYYY-MM"
-  product          String? // e.g. "Aluminium Billet"
-  grade            String? // e.g. "6063"
-  size             String? // e.g. "203 MM X 5800 MM"
-  qtyMt            Decimal?          @db.Decimal(14, 3)
-  tolPct           Decimal?          @default(5) @db.Decimal(5, 2)
+  previousOrderNos Int[] @default([])
+  contractId      String?           @db.Uuid
+  customerId      String            @db.Uuid
+  supplierId      String            @db.Uuid
+  shipMonth       String? // "YYYY-MM"
+  deliveryMonth   String? // "YYYY-MM"
+  product         String? // e.g. "Aluminium Billet"
+  grade           String? // e.g. "6063"
+  size            String? // e.g. "203 MM X 5800 MM"
+  qtyMt           Decimal?          @db.Decimal(14, 3)
+  tolPct          Decimal?          @default(5) @db.Decimal(5, 2)
   /// USD per tonne.
-  supplierPremium  Decimal?          @db.Decimal(12, 2)
-  clientPremium    Decimal?          @db.Decimal(12, 2)
-  upcharge         Decimal?          @db.Decimal(12, 2)
-  piNo             String?
-  piDate           DateTime?
-  piAmount         Decimal?          @db.Decimal(16, 2)
-  depositPct       Decimal?          @default(10) @db.Decimal(5, 2)
+  supplierPremium Decimal?          @db.Decimal(12, 2)
+  clientPremium   Decimal?          @db.Decimal(12, 2)
+  upcharge        Decimal?          @db.Decimal(12, 2)
+  piNo            String?
+  piDate          DateTime?
+  piAmount        Decimal?          @db.Decimal(16, 2)
+  depositPct      Decimal?          @default(10) @db.Decimal(5, 2)
   /// Deposit details (step 1), as on the contract before orders existed.
-  depositAmount    Decimal?          @db.Decimal(16, 2)
-  depositDueDays   Int?
-  depositDueUnit   String? // "BUSINESS" | "CALENDAR"
-  depositPaidAt    DateTime?
+  depositAmount   Decimal?          @db.Decimal(16, 2)
+  depositDueDays  Int?
+  depositDueUnit  String? // "BUSINESS" | "CALENDAR"
+  depositPaidAt   DateTime?
   /// Round BP: the PI's "Instrument to be received by" date — when the deposit (depositAmount = the PI line's Amount Payable) is due; step 1's due date.
-  depositDueDate   DateTime?
-  currency         String            @default("USD")
-  incoterm         String?
-  destinationPort  String?
+  depositDueDate  DateTime?
+  currency        String            @default("USD")
+  incoterm        String?
+  destinationPort String?
   /// B/L instructions (multi-line); default from the contract / TradeSetting.
-  consignee        String?
-  notifyParty      String?
-  status           TradeRecordStatus @default(OPEN)
+  consignee       String?
+  notifyParty     String?
+  status          TradeRecordStatus @default(OPEN)
   /// Round N: a click-through / test order — hidden from lists, Home, counts and alerts unless "Show test orders" (ADH Manager).
-  isTest           Boolean           @default(false)
-  notes            String?
+  isTest          Boolean           @default(false)
+  notes           String?
   /// Step 13 inputs that aren't documents (PI / CI paid, import tax actual, Mitsui Soko actuals …).
-  reconciliation   Json?
+  reconciliation  Json?
   /// Round BW: books inputs ADH Admin typed for the lot ({ invoice1: { principal, tax, number, byId, byName, at } } — USD).
-  booksInput       Json?
+  booksInput      Json?
   /// The customer's own purchase order (Kato's 発注書) — the file is linked as CUSTOMER_PO.
-  customerPoNo     String?
-  customerPoDate   DateTime?
+  customerPoNo    String?
+  customerPoDate  DateTime?
   /// Fields flagged "check" for ADH (imported from the task list / assumed): ["clientPremium", "contractId", "customerId"].
-  checkFields      String[]          @default([])
+  checkFields     String[]          @default([])
   /// The supplier order (Vedanta PI) this customer order is bought under.
-  supplierOrderId  String?           @db.Uuid
-  createdById      String?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  supplierOrderId String?           @db.Uuid
+  createdById     String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
   contract      Contract?           @relation(fields: [contractId], references: [id], onDelete: SetNull)
   supplierOrder SupplierOrder?      @relation(fields: [supplierOrderId], references: [id], onDelete: SetNull)
@@ -4334,18 +4335,18 @@ model TradeIssue {
 }
 
 model TradeFileLink {
-  id              String    @id @default(uuid()) @db.Uuid
+  id              String   @id @default(uuid()) @db.Uuid
   organizationId  String
-  fileId          String    @db.Uuid
-  contractId      String?   @db.Uuid
-  shipmentId      String?   @db.Uuid
-  orderId         String?   @db.Uuid
-  supplierOrderId String?   @db.Uuid
-  stepId          String?   @db.Uuid
+  fileId          String   @db.Uuid
+  contractId      String?  @db.Uuid
+  shipmentId      String?  @db.Uuid
+  orderId         String?  @db.Uuid
+  supplierOrderId String?  @db.Uuid
+  stepId          String?  @db.Uuid
   /// Round AO: hidden (placeholder / superseded file) — kept, never deleted; reads and step checks skip it.
   hiddenAt        DateTime?
   hiddenReason    String?
-  createdAt       DateTime  @default(now())
+  createdAt       DateTime @default(now())
 
   file          TradeFile      @relation(fields: [fileId], references: [id], onDelete: Cascade)
   supplierOrder SupplierOrder? @relation(fields: [supplierOrderId], references: [id], onDelete: Cascade)
@@ -4706,24 +4707,24 @@ model ShipmentTracking {
 /// Per-org SiteClock credentials. apiKey is AES-256-GCM sealed with the
 /// AIMS_SECRETS_KEY env var (common/secret-box.ts) and never sent to the portal.
 model SiteClockConnection {
-  id                   String    @id @default(uuid())
-  organizationId       String    @unique
-  baseUrl              String // e.g. https://api.siteclock.osiris.sg
-  siteclockCompanyId   String // the SiteClock company the key belongs to
-  apiKeyEnc            String // sealed sck_live_… key
-  apiKeyLast4          String
-  enabled              Boolean   @default(false)
-  defaultDurationMin   Int       @default(60)
-  lastOkAt             DateTime?
-  lastError            String?
+  id                 String    @id @default(uuid())
+  organizationId     String    @unique
+  baseUrl            String // e.g. https://api.siteclock.osiris.sg
+  siteclockCompanyId String // the SiteClock company the key belongs to
+  apiKeyEnc          String // sealed sck_live_… key
+  apiKeyLast4        String
+  enabled            Boolean   @default(false)
+  defaultDurationMin Int       @default(60)
+  lastOkAt           DateTime?
+  lastError          String?
   // Inbound key: SiteClock calls AIMS with it (job photos, 2026-11-02). Only
   // its sha256 is stored; the plaintext is shown once when generated.
   inboundKeyHash       String? // indexed, not @unique: a unique index on an existing table stops Render's db push (data-loss prompt); keys are 256-bit random
   inboundKeyLast4      String?
   inboundKeyCreatedAt  DateTime?
   inboundKeyLastUsedAt DateTime?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@index([inboundKeyHash])
 }
@@ -4972,31 +4973,32 @@ model RecurringPayable {
   @@index([organizationId, active])
 }
 
+
 // WCT VEHICLES (enableWctVehicles, 2026-11-12): the company's vans and lorries
 // and their "Vehicle / Lorry Usage & Repair Form", kept by the office. Not an
 // Asset (those are the sales catalogue and its stock units). Platform model in
 // per-org dev tenancy. Plain indexes only; "one open usage per vehicle" is a
 // service rule.
 model Vehicle {
-  id               String            @id @default(uuid())
-  organizationId   String
-  vehicleNo        String // e.g. GBD1126U
-  model            String? // e.g. Nissan NV350 Panel Van
-  coeExpiry        DateTime? // date only (UTC midnight)
-  lifespanExpiry   DateTime? // date only (UTC midnight)
+  id             String         @id @default(uuid())
+  organizationId String
+  vehicleNo      String // e.g. GBD1126U
+  model          String? // e.g. Nissan NV350 Panel Van
+  coeExpiry      DateTime? // date only (UTC midnight)
+  lifespanExpiry DateTime? // date only (UTC midnight)
   // Log book (2026-11-16): renewals logged on the vehicle also update these (date only).
   roadTaxExpiry    DateTime?
   insuranceExpiry  DateTime?
   inspectionExpiry DateTime?
   // Optional link to the accounting register (FixedAsset.id); nothing posts from here.
-  fixedAssetId     String?
-  notes            String?
-  archivedAt       DateTime?
-  createdBy        String?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  usages           VehicleUsage[]
-  logEntries       VehicleLogEntry[]
+  fixedAssetId   String?
+  notes          String?
+  archivedAt     DateTime?
+  createdBy      String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  usages         VehicleUsage[]
+  logEntries     VehicleLogEntry[]
 
   @@index([organizationId])
 }

@@ -11,6 +11,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControlLabel, Radio, RadioGroup, Stack, TextField, Typography, useMediaQuery } from "@mui/material";
 import JobDayPreview, { JobSplitContent, SlotHintsAlert, SPLIT_PAPER_SX } from "./JobDayPreview";
+import CrewPicker from "./CrewPicker";
+import type { CrewPick } from "@/helpers/crewPicker";
+import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { alpha } from "@mui/material/styles";
 import { toast } from "react-toastify";
 import DateInput from "@/components/DateInput";
@@ -156,8 +159,11 @@ export default function StyledJobPanel({
   }, [e.id, orderId, !!actions]);
 
   // Team / crew: typed here, saved when the field is left (or Enter).
-  const [team, setTeam] = useState(e.team ?? "");
-  useEffect(() => setTeam(e.team ?? ""), [e.id, e.team]);
+  // Round 39 B4: the free text part (teamText) when the API sends it, else the whole text as before.
+  const [team, setTeam] = useState(e.teamText ?? e.team ?? "");
+  useEffect(() => setTeam(e.teamText ?? e.team ?? ""), [e.id, e.team, e.teamText]);
+  const { isWorkersTeamsEnabled } = useOrganizationFeatures();
+  const crewOn = !!isWorkersTeamsEnabled && !e.foreign;
 
   const [busy, setBusy] = useState(false);
   const toggle = async (t: PanelToggle) => {
@@ -176,8 +182,13 @@ export default function StyledJobPanel({
   };
   const saveTeam = () => {
     const next = team.replace(/\s+/g, " ").trim();
-    if (next === (e.team ?? "")) return;
+    if (next === (e.teamText ?? e.team ?? "")) return;
     void toggle({ kind: "team", team: next || null });
+  };
+  /** Round 39 B4: a pick or a typed piece, saved at once. */
+  const saveCrew = (v: { crew: CrewPick[]; team: string }) => {
+    setTeam(v.team);
+    void toggle({ kind: "crew", crew: v.crew, team: v.team || null });
   };
 
   // Cancel job (confirm) and its Undo.
@@ -287,7 +298,9 @@ export default function StyledJobPanel({
       <Row label="When">{timeWindow(e)}</Row>
       {e.address && <Row label="Address">{e.address}</Row>}
       <Row label="Team / crew">
-        {editable ? (
+        {editable && crewOn ? (
+          <CrewPicker crew={e.crewPicks ?? []} team={team} onChange={saveCrew} hideLabel />
+        ) : editable ? (
           <TextField
             size="small"
             fullWidth

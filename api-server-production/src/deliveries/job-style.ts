@@ -38,6 +38,11 @@ export interface JobStyleMeta {
   /** "Team / crew" (2026-11-20): free text, e.g. "Team A + Guru"; the calendar panel, the job page and the WhatsApp list. */
   team: string | null;
   /**
+   * Round 39 B4 (Workers & Teams, WCT (S)): the teams and workers picked for the job, names as last read from
+   * Settings > Workers & Teams. Shown before the free text: "Team A + Guru + <free text>". Empty = none picked.
+   */
+  crew: CrewPick[];
+  /**
    * Cancelled from the calendar panel (2026-11-20): the status the job had, when and by whom, so Undo can put it back.
    * Stamped by the server only (never from a form); null for a job not cancelled there.
    */
@@ -54,8 +59,40 @@ export const EMPTY_JOB_STYLE: JobStyleMeta = {
   sticker: false,
   createdById: null,
   team: null,
+  crew: [],
   calendarCancel: null,
 };
+
+export interface CrewPick {
+  kind: 'team' | 'worker';
+  id: string;
+  name: string;
+}
+
+/** At most this many picks on one job. */
+export const CREW_MAX = 12;
+
+/** Stored / sent picks as clean CrewPick[] (unknown kinds, blank ids and duplicates dropped). */
+export function crewOf(v: unknown): CrewPick[] {
+  if (!Array.isArray(v)) return [];
+  const out: CrewPick[] = [];
+  for (const x of v) {
+    if (!x || typeof x !== 'object') continue;
+    const kind = (x as any).kind === 'team' || (x as any).kind === 'worker' ? (x as any).kind : null;
+    const id = idOf((x as any).id);
+    if (!kind || !id || out.some((o) => o.kind === kind && o.id === id)) continue;
+    out.push({ kind, id, name: (typeof (x as any).name === 'string' ? (x as any).name.replace(/\s+/g, ' ').trim() : '').slice(0, 80) });
+    if (out.length >= CREW_MAX) break;
+  }
+  return out;
+}
+
+/** What the calendar, the panel and the WhatsApp list show: picked teams / workers first, then the free text. */
+export function crewText(m: Pick<JobStyleMeta, 'crew' | 'team'> | null | undefined): string | null {
+  if (!m) return null;
+  const parts = [...(m.crew ?? []).map((c) => c.name).filter(Boolean), m.team ?? ''].filter(Boolean);
+  return parts.length ? parts.join(' + ') : null;
+}
 
 export async function isCalendarStyleEnabled(prisma: any, organizationId: string): Promise<boolean> {
   return isOrgFeatureEnabled(prisma, organizationId, CALENDAR_STYLE_FLAG);
@@ -77,6 +114,7 @@ export function jobStyleOf(raw: unknown): JobStyleMeta {
     sticker: v.sticker === true,
     createdById: idOf(v.createdById),
     team: teamOf(v.team),
+    crew: crewOf(v.crew),
     calendarCancel: cancelOf(v.calendarCancel),
   };
 }
@@ -129,6 +167,11 @@ export function parseJobStylePatch(body: any): Partial<JobStyleMeta> {
   if (body && 'team' in body) {
     if (body.team !== null && typeof body.team !== 'string') throw new BadRequestException('Team / crew must be text');
     out.team = teamOf(body.team);
+  }
+  // Round 39 B4: picked teams / workers (names are re-read from the org's Workers & Teams before saving).
+  if (body && 'crew' in body) {
+    if (body.crew !== null && !Array.isArray(body.crew)) throw new BadRequestException('Team / crew picks must be a list');
+    out.crew = crewOf(body.crew);
   }
   return out;
 }

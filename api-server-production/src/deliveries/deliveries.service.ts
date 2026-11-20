@@ -73,6 +73,7 @@ import { applicantEntryOf, applicantView, readApplicantList } from './ptw-applic
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { displayNameOf } from '../users/users.service';
 import { parseRescheduleTarget, zonedInstant } from './calendar-panel';
+import { resolveCrew } from '../workers-teams/crew';
 import { EMPTY_JOB_STYLE, withListedApplicant, defaultPtwApplicant, hasJobStylePatch, isCalendarStyleEnabled, jobStyleValues, parseJobStylePatch, saveJobStyle, stampJobCreator, withStampedApplicant } from './job-style';
 import { runNoun } from './job-wording';
 import { wctBrandStamp } from '../maintenance-reports/wct-brand';
@@ -886,6 +887,8 @@ export class DeliveriesService {
     const styleOn = await isCalendarStyleEnabled(this.prisma, organizationId);
     await this.assertPtwAllowed(ptwStatus, styleOn);
     let style = styleOn ? parseJobStylePatch(body) : {};
+    // Round 39 B4: picked teams / workers, checked against the org's Workers & Teams (names re-read).
+    if (style.crew) style = { ...style, crew: await resolveCrew(this.prisma, organizationId, style.crew) };
     // PTW applicants list (2026-11-19): check the pick before anything is written (a job keeps the one it has).
     if (styleOn && style.ptwApplicantId) {
       const list = await readApplicantList(this.prisma, organizationId);
@@ -1316,8 +1319,10 @@ export class DeliveriesService {
     if (!(await isCalendarStyleEnabled(this.prisma, organizationId))) throw new NotFoundException('Calendar style is not enabled for this organisation');
     const run = await this.prisma.delivery.findFirst({ where: { id, organizationId }, select: { id: true, ptwStatus: true } });
     if (!run) throw new NotFoundException('Job not found');
-    const patch = parseJobStylePatch(body);
+    let patch = parseJobStylePatch(body);
     if (!hasJobStylePatch(patch)) throw new BadRequestException('Nothing to save');
+    // Round 39 B4: picked teams / workers, checked against the org's Workers & Teams (names re-read).
+    if (patch.crew) patch = { ...patch, crew: await resolveCrew(this.prisma, organizationId, patch.crew) };
     return { id, ...(await this.listedApplicantView(organizationId, (await this.saveStyleStamped(organizationId, id, patch, run.ptwStatus)) ?? EMPTY_JOB_STYLE)) };
   }
 

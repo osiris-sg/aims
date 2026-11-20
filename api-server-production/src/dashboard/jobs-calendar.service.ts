@@ -16,6 +16,8 @@ import { jobCreatorIds, jobStyleValues } from '../deliveries/job-style';
 import type { PanelPerson } from './calendar-style';
 import { isLiveDo, withPanelFills } from './calendar-style';
 import { quotationStatusLabel } from '../orders/quotation-status-label';
+import { crewText } from '../deliveries/job-style';
+import { currentCrewNames } from '../workers-teams/crew';
 import { quotationSubjectOf } from '../deliveries/quick-job-quotation';
 
 export const JOBS_CALENDAR_FLAG = 'enableJobsCalendar';
@@ -303,6 +305,9 @@ export class JobsCalendarService {
       if (c) people.add(c);
     }
     const names = await this.style!.names(people);
+    // Round 39 B4: picked teams / workers show their current names (a renamed team reads its new name).
+    const crewNames = await currentCrewNames(this.prisma, organizationId, [...meta.values()].flatMap((m) => m.crew ?? []));
+    const teamOf = (m: any) => (m ? crewText({ team: m.team ?? null, crew: (m.crew ?? []).map((c: any) => ({ ...c, name: crewNames.get(`${c.kind}:${c.id}`) ?? c.name })) }) : null);
     const nameOf = (id: string | null, stored: string | null | undefined) => (id ? names.get(id)?.name ?? stored ?? null : null);
 
     const runOf = new Map(runs.map((r) => [r.id, r]));
@@ -343,7 +348,10 @@ export class JobsCalendarService {
         customer: run?.customerName?.trim() || null,
         subject: q ? quotationSubjectOf(q.config) : null,
         remarks: run?.notes?.trim() || null,
-        team: m?.team ?? null,
+        team: teamOf(m),
+        // Round 39 B4: the picks themselves, for the panel's Team / crew picker (free text stays in teamText).
+        crewPicks: (m?.crew ?? []).map((c: any) => ({ ...c, name: crewNames.get(`${c.kind}:${c.id}`) ?? c.name })),
+        teamText: m?.team ?? null,
         ptwStatus: ptwStatus || 'NOT_NEEDED',
         quotationStatus: q?.status ?? null,
         // Round 39: the side panel's quotation chip, the real status (never "Imported").

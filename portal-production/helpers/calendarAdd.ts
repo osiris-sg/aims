@@ -132,6 +132,8 @@ export interface JobStyleForm {
   sticker?: boolean;
   /** "Team / crew" (round 36): sent when the form has the field. */
   team?: string;
+  /** Round 39 B4: picked teams / workers (Workers & Teams orgs). */
+  crew?: Array<{ kind: "team" | "worker"; id: string; name: string }>;
 }
 
 /** The form → the API body, or a message saying what is missing. */
@@ -153,7 +155,7 @@ export function quickJobBody(f: QuickJobForm): { body?: Record<string, any>; err
       ptwRemark: f.ptwStatus === "NOT_NEEDED" ? "" : f.ptwRemark.trim(),
       ...(f.quotationId ? { quotationId: f.quotationId, ...(f.doId ? { doId: f.doId } : {}) } : {}),
       ...(f.category ? { category: f.category } : {}),
-      ...(f.style ? { salesperson: f.style.salesperson, ptwApplicant: f.style.ptwApplicant, cod: f.style.cod, sticker: !!f.style.sticker, ...(f.style.team !== undefined ? { team: f.style.team.trim() || null } : {}) } : {}),
+      ...(f.style ? { salesperson: f.style.salesperson, ptwApplicant: f.style.ptwApplicant, cod: f.style.cod, sticker: !!f.style.sticker, ...(f.style.team !== undefined ? { team: f.style.team.trim() || null } : {}), ...(f.style.crew ? { crew: f.style.crew } : {}) } : {}),
     },
   };
 }
