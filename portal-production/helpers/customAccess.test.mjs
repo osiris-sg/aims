@@ -14,7 +14,6 @@ import {
   levelLabel,
   noAccess,
   readTabAccess,
-  rolesGrantCalendarTab,
   salesSubmenuAllowed,
   settingsAllowed,
   unionTabAccess,
@@ -45,11 +44,11 @@ test("custom only when EVERY role carries a map; union across roles", () => {
   assert.equal(readTabAccess({ dashboard: "edit", sales: "x" }).dashboard, "none");
 });
 
-test("menus: Org Settings, Sales sub tabs, Jobs | Calendar", () => {
+test("menus: Org Settings, Sales sub tabs, Calendar | Jobs (Calendar first)", () => {
   // No custom map: everything as before.
   assert.equal(settingsAllowed(null, "/portal/settings/company-profile"), true);
   assert.equal(salesSubmenuAllowed(null, "quotations"), true);
-  assert.deepEqual(jobsSubmenus(null).map((s) => s.label), ["Jobs", "Calendar"]);
+  assert.deepEqual(jobsSubmenus(null).map((s) => s.label), ["Calendar", "Jobs"]);
   assert.equal(calendarAllowed(null), true);
   // Custom map.
   const desk = map({ orders: "edit", calendar: "view", salesReport: "view" });
@@ -81,8 +80,9 @@ test("wiring: every new screen is behind enableCustomAccess (default off)", () =
   assert.match(feats, /isCustomAccessEnabled: features\.enableCustomAccess === true/);
   const nav = read("components/TopNav/useNavModules.ts");
   assert.match(nav, /s\.path !== "\/portal\/settings\/roles" \|\| \(!!isCustomAccessEnabled && isAdminUser\)/);
-  assert.match(nav, /m\.moduleCode !== "DELIVERIES" \|\| !isCustomAccessEnabled \|\| !isJobsCalendarEnabled\) return m;/);
-  assert.match(nav, /rolesGrantCalendarTab\(userRoles, moduleOn\("SALES"\)\)/);
+  // Jobs calendar orgs: everyone with Jobs gets Calendar | Jobs (Elroy 2026-11-21), custom access or not.
+  assert.match(nav, /m\.moduleCode !== "DELIVERIES" \|\| !isJobsCalendarEnabled\) return m;/);
+  assert.match(nav, /subMenus: jobsSubmenus\(customTabs\)/);
   const side = read("components/Sidebar/DynamicSidebarContent.tsx");
   assert.match(side, /s\.key !== 'roles' \|\| \(!!isCustomAccessEnabled && isAdminUser\)/);
   for (const f of ["app/portal/user-management/users/components/EditUser.tsx", "app/portal/user-management/users/components/AddUser.tsx"]) {
@@ -95,7 +95,7 @@ test("wiring: every new screen is behind enableCustomAccess (default off)", () =
   assert.match(read("app/portal/user-management/users/components/AddUser.tsx"), /if \(!open \|\| !isCustomAccessEnabled\) return;/);
   assert.match(read("app/portal/user-management/users/hooks/useUserTableHeader.tsx"), /customAccess[\s\S]*label="Custom"/);
   assert.match(read("app/portal/sales/page.tsx"), /isJobsCalendarEnabled && calendarAllowed\(customTabs\)/);
-  assert.match(read("app/portal/deliveries/calendar/page.tsx"), /!isJobsCalendarEnabled \|\| !isCustomAccessEnabled \|\| !calendarAllowed\(customTabs\)/);
+  assert.match(read("app/portal/deliveries/calendar/page.tsx"), /!isJobsCalendarEnabled \|\| !calendarAllowed\(customTabs\)/);
   const roles = read("app/portal/settings/roles/page.tsx");
   assert.match(roles, /anchorReference="anchorPosition"/);
   assert.match(roles, /isCustomAccessEnabled\) void load\(\)/);
@@ -110,23 +110,3 @@ test("no em-dashes or helper text in the new screens' copy", () => {
   }
 });
 
-test("round 30: Jobs > Calendar for people on roles only with a CALENDAR role grant and no Sales (flag alone changes nothing)", () => {
-  // Today's WCT presets: nobody has CALENDAR in allowedModules.
-  const today = {
-    Admin: [],
-    Sales: ["DASHBOARD", "SALES", "CUSTOMERS", "MASTERFILES", "INVENTORY", "DELIVERIES", "MAINTENANCE"],
-    Operations: ["DASHBOARD", "DELIVERIES", "MAINTENANCE", "INVENTORY", "CUSTOMERS", "MASTERFILES"],
-    Viewer: ["DASHBOARD", "SALES", "INVENTORY", "DELIVERIES", "MAINTENANCE", "ACCOUNTING", "CUSTOMERS", "SUPPLIERS", "MASTERFILES"],
-    Accounting: ["DASHBOARD", "ACCOUNTING", "SALES", "CUSTOMERS", "SUPPLIERS", "MASTERFILES"],
-  };
-  for (const [name, mods] of Object.entries(today)) {
-    const hasSales = mods.length === 0 || mods.includes("SALES");
-    assert.equal(rolesGrantCalendarTab([{ allowedModules: mods }], hasSales), false, name);
-  }
-  // Operations after the round 30 preset fix (CALENDAR granted), no Sales: the tab shows.
-  assert.equal(rolesGrantCalendarTab([{ allowedModules: [...today.Operations, "ORDERS", "CALENDAR"] }], false), true);
-  // Operations + Sales (multi-role): the calendar stays on the Sales page.
-  assert.equal(rolesGrantCalendarTab([{ allowedModules: ["CALENDAR"] }, { allowedModules: today.Sales }], true), false);
-  assert.equal(rolesGrantCalendarTab([], false), false);
-  assert.equal(rolesGrantCalendarTab(null, false), false);
-});

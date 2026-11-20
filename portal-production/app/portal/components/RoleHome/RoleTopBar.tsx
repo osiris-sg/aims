@@ -253,7 +253,8 @@ export default function RoleTopBar() {
             // Inventory → the Inventory overview; any other module → its own
             // route when that is one of its tabs, else its first tab.
             const MODULE_HOME: Record<string, string> = { ACCOUNTING: "/portal/accounting/ledger", SALES: "/portal/sales", INVENTORY: "/portal/inventory/overview" };
-            const homeOf = (b: Bar) => MODULE_HOME[b.code] ?? (b.tabs.some((t) => t.path === b.route) || !b.tabs.length ? b.route : b.tabs[0].path);
+            // Jobs calendar orgs: Jobs opens on its Calendar tab when that is the first one.
+            const homeOf = (b: Bar) => MODULE_HOME[b.code] ?? (b.code === "DELIVERIES" && b.tabs[0]?.path === "/portal/deliveries/calendar" ? b.tabs[0].path : null) ?? (b.tabs.some((t) => t.path === b.route) || !b.tabs.length ? b.route : b.tabs[0].path);
             // The tab whose route is the longest prefix of the page is the
             // current one (a module's own route is a prefix of every page under it).
             const currentTab = (b: Bar) =>

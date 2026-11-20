@@ -192,7 +192,9 @@ export default function APWorkspace() {
         const credits = unwrap(creditsRaw);
         setOpenCredits(credits && typeof credits === "object" ? credits : {});
         setGrandTotal(Number(aged?.grandTotal) || 0);
-        setOverdue(agedRows.reduce((s, r) => s + r.total - (r.buckets?.[0] || 0), 0));
+        // Overdue = everything past Current, except the opening-balance bills (ABSS cutover; no real due date).
+        const ob = typeof aged?.openingBucket === "number" ? aged.openingBucket : -1;
+        setOverdue(agedRows.reduce((s, r) => s + r.total - (r.buckets?.[0] || 0) - (ob >= 0 ? r.buckets?.[ob] || 0 : 0), 0));
         setPurchases(ytd(pl?.cogs));
         setPayments((Array.isArray(payList) ? payList : []).reduce((s, p) => s + (Number(p.amount) || 0), 0));
       } catch (e) {

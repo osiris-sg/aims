@@ -45,7 +45,7 @@ const monthEndISO = (iso: string) => {
 
 const MONTH_LABELS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 
-type AgedDoc = { id: string; number: string; date: string; reference: string | null; total: number; currency: string | null };
+type AgedDoc = { id: string; number: string; date: string; reference: string | null; total: number; currency: string | null; openingBalance?: boolean };
 
 // 8 columns of amounts: 6 named months (Current..150 DAYS), "& Older", Balance.
 const N_MONTHS = 6;
@@ -118,28 +118,33 @@ export default function SummaryAgeingReport({ side = "receivable" }: { side?: Re
   // Columns word-for-word from the legacy sheet: CODE | NAME | month (Current)
   // | months (30..150 DAYS) | & > | BALANCE.
   const cols = monthColumns(asOf);
+  // Opening-balance bills (ABSS cutover, no real due date; Elroy 2026-11-21): their own column, only when there are any.
+  const hasOpening = !!groups?.some((g) => g.docs.some((d) => d.openingBalance));
+  const NB = N_MONTHS + 1 + (hasOpening ? 1 : 0);
+  const idxOf = (d: AgedDoc): number => (hasOpening && d.openingBalance ? N_MONTHS + 1 : bucketIndex(d.date, asOf));
   const columns = useMemo(
     () => [
       { key: "code", label: "CODE", align: "left" as const, width: 90 },
       { key: "name", label: "NAME", align: "left" as const },
       ...cols.map((c, i) => ({ key: `m${i}`, label: `${c.label} ${c.sub}`, align: "right" as const, width: 112 })),
       { key: "older", label: "& >", align: "right" as const, width: 100 },
+      ...(hasOpening ? [{ key: "opening", label: "OPENING BALANCE", align: "right" as const, width: 120 }] : []),
       { key: "balance", label: "BALANCE", align: "right" as const, width: 120 },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [asOf],
+    [asOf, hasOpening],
   );
 
   const rows = useMemo<ReportRow[]>(() => {
     if (!filteredGroups) return [];
     const out: ReportRow[] = [];
-    const grand = Array(N_MONTHS + 1).fill(0);
+    const grand = Array(NB).fill(0);
     let grandTotal = 0;
     for (const g of filteredGroups) {
       const master = customerById.get(g.contactId);
-      const buckets = Array(N_MONTHS + 1).fill(0);
+      const buckets = Array(NB).fill(0);
       for (const d of g.docs) {
-        const idx = bucketIndex(d.date, asOf);
+        const idx = idxOf(d);
         buckets[idx] = R(buckets[idx] + (Number(d.total) || 0));
       }
       const total = R(buckets.reduce((s, v) => s + v, 0));
@@ -152,11 +157,11 @@ export default function SummaryAgeingReport({ side = "receivable" }: { side?: Re
       // Legacy line 2: Tel : / Contact : (Term and Credit Limit aren't in the
       // customer master — omitted).
       const info = [`Tel : ${master?.phone || ""}`, `Contact : ${master?.contacts?.[0]?.name || ""}`].join("   ");
-      out.push({ kind: "row", key: `i-${g.contactId}`, cells: ["", info, ...Array(N_MONTHS + 1).fill(""), ""] });
+      out.push({ kind: "row", key: `i-${g.contactId}`, cells: ["", info, ...Array(NB).fill(""), ""] });
       if (details === "details") {
         for (const d of g.docs) {
-          const idx = bucketIndex(d.date, asOf);
-          const docCells = Array(N_MONTHS + 1).fill(null);
+          const idx = idxOf(d);
+          const docCells = Array(NB).fill(null);
           docCells[idx] = Number(d.total) || 0;
           out.push({
             kind: "row",
@@ -175,16 +180,16 @@ export default function SummaryAgeingReport({ side = "receivable" }: { side?: Re
     }
     out.push({ kind: "total", key: "__grand", cells: ["GRAND-TOTAL", "", ...grand.map((v) => v || 0), grandTotal] });
     return out;
-  }, [filteredGroups, details, asOf, customerById]);
+  }, [filteredGroups, details, asOf, customerById, hasOpening]);
 
   const exportCsv = () => {
     if (!filteredGroups) return;
     downloadCsv(`${words.party}-Summary-Ageing-Analysis-${asOf}.csv`, [
-      ["CODE", "NAME", ...cols.map((c) => `${c.label} ${c.sub}`), "& >", "BALANCE"],
+      ["CODE", "NAME", ...cols.map((c) => `${c.label} ${c.sub}`), "& >", ...(hasOpening ? ["OPENING BALANCE"] : []), "BALANCE"],
       ...filteredGroups.map((g) => {
-        const buckets = Array(N_MONTHS + 1).fill(0);
+        const buckets = Array(NB).fill(0);
         for (const d of g.docs) {
-          const idx = bucketIndex(d.date, asOf);
+          const idx = idxOf(d);
           buckets[idx] = R(buckets[idx] + (Number(d.total) || 0));
         }
         return [g.code, g.contactName, ...buckets.map((v) => v.toFixed(2)), R(buckets.reduce((s, v) => s + v, 0)).toFixed(2)];

@@ -43,6 +43,7 @@ import { QUICK_ACTIONS, ROLES, ROLE_ORDER, type Metric, type Priority, type Quic
 import { RoleIcon, ICON_TONE } from "./icons";
 import { useRoleView } from "./useRoleView";
 import { useNavModules } from "@/components/TopNav/useNavModules";
+import TodaysJobsCard from "@/components/Dashboard/TodaysJobsCard";
 
 // The mock-up's palette. Ink/surface come from the theme so dark mode works;
 // the accents are the same in both.
@@ -693,6 +694,7 @@ export default function RoleHome() {
   const [range, setRange] = React.useState("30");
   const { snapshot, loading } = useRoleHomeSnapshot(range);
   const cut = React.useMemo(() => role.cut(snapshot), [role, snapshot]);
+  const card = useCardSx();
   return (
     <Box sx={{ minHeight: "100%", bgcolor: (th) => (th.palette.mode === "dark" ? "background.default" : "#F2F4FA") }} data-testid="role-home">
       <AimeeKeyframes />
@@ -711,6 +713,8 @@ export default function RoleHome() {
             <Overview metrics={cut.overview} range={range} setRange={setRange} />
           </Stack>
           <Stack gap={2} className="aims-rise" key={`r-${roleId}`} sx={{ animationDelay: "120ms" }}>
+            {/* Jobs calendar orgs (the WCT group): today's jobs, "View calendar" opens Jobs > Calendar. */}
+            <TodaysJobsCard sx={card} />
             <QuickActions pool={actionPool} active={shortcuts} onSave={setShortcuts} />
             <AssistantCard prompts={prompts} />
           </Stack>

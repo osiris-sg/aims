@@ -1,4 +1,5 @@
 import { isUnconfirmedDoc } from '../common/doc-status';
+import { OPENING_BALANCE_LABEL, isOpeningBalanceDoc } from '../common/opening-balance';
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { docRef, documentReferenceOf } from '../common/doc-ref';
@@ -49,6 +50,8 @@ interface DocRow {
   // separately (guru 2026-11-12). Declared here so the field survives the
   // DocRow -> payload mapping instead of being dropped silently.
   unconfirmed: boolean;
+  // ABSS cutover opening-balance bill (common/opening-balance.ts): no real due date; ageing's own column.
+  openingBalance: boolean;
   source: string;
   // Multi-currency: trading currency + face amounts (null when base-currency doc)
   currency: string | null;
@@ -180,6 +183,7 @@ export class XeroReportsService {
         // Saved but not yet confirmed — ageing / statement reports print it
         // under an "Unconfirmed" band (every report, guru 2026-11-12).
         unconfirmed: isUnconfirmedDoc(doc.status),
+        openingBalance: isOpeningBalanceDoc(c),
         source: isAR ? 'Receivable Invoice' : 'Payable Invoice',
         currency: isForeign ? docCurrency : null,
         foreignGross,
@@ -285,8 +289,11 @@ export class XeroReportsService {
       (d) => d.outstanding > 0.005 && d.date <= asOf,
     );
 
-    // bucketIndex: 0 = Current (age <= 0), 1..periods = aged periods, periods+1 = Older
+    // bucketIndex: 0 = Current (age <= 0), 1..periods = aged periods, periods+1 = Older; then, only when the
+    // org has any, "Opening balance" (ABSS cutover bills: no real due date, never aged as overdue).
+    const openingBucket = docs.some((d) => d.openingBalance) ? periods + 2 : null;
     const bucketOf = (d: DocRow) => {
+      if (openingBucket !== null && d.openingBalance) return openingBucket;
       const ref = ageingBy === 'dueDate' ? (d.dueDate ?? d.date) : d.date;
       const age = Math.floor((asOf.getTime() - ref.getTime()) / 86400000);
       if (age <= 0) return 0;
@@ -298,9 +305,10 @@ export class XeroReportsService {
       'Current',
       ...Array.from({ length: periods }, (_, i) => (i === 0 ? `< 1 ${this.periodLabel(periodDays)}` : `${i} ${this.periodLabel(periodDays, i > 1)}`)),
       'Older',
+      ...(openingBucket !== null ? [OPENING_BALANCE_LABEL] : []),
     ];
 
-    const nBuckets = periods + 2;
+    const nBuckets = periods + 2 + (openingBucket !== null ? 1 : 0);
     if (level === 'summary') {
       const byContact = new Map<string, { name: string; code: string | null; buckets: number[]; total: number; currency: string | null; foreignTotal: number }>();
       for (const d of docs) {
@@ -328,6 +336,7 @@ export class XeroReportsService {
           asOf: asOf.toISOString(),
           ageingBy,
           bucketLabels,
+          openingBucket,
           rows,
           totals: totals.map(R),
           grandTotal: R(grand),
@@ -354,6 +363,7 @@ export class XeroReportsService {
         total: R(d.outstanding),
         currency: d.currency,
         foreignTotal: d.foreignOutstanding,
+        ...(d.openingBalance ? { openingBalance: true } : {}),
       });
       e.buckets[b] += d.outstanding;
       e.total += d.outstanding;
@@ -377,7 +387,7 @@ export class XeroReportsService {
     }
     return {
       success: true,
-      data: { asOf: asOf.toISOString(), ageingBy, bucketLabels, groups, totals: totals.map(R), grandTotal: R(grand) },
+      data: { asOf: asOf.toISOString(), ageingBy, bucketLabels, openingBucket, groups, totals: totals.map(R), grandTotal: R(grand) },
     };
   }
 

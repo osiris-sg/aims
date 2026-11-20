@@ -1,9 +1,8 @@
 "use client";
 
-// Jobs > Calendar (enableCustomAccess + enableJobsCalendar orgs, WCT group 2026-11-19): the jobs
-// calendar the Sales main page shows, for people who have the Calendar but not Sales (e.g.
-// Operations). Same calendar, same API (GET /dashboard/jobs-calendar), which the server allows by
-// the person's Calendar access.
+// Jobs > Calendar (enableJobsCalendar orgs, the WCT group): the jobs calendar, the first Jobs tab
+// and its default view (Elroy 2026-11-21). Same calendar as the Sales page, same API
+// (GET /dashboard/jobs-calendar), which the server allows by the person's Calendar access.
 import React from "react";
 import { Alert } from "@mui/material";
 import MainCard from "@/components/MainCard";
@@ -13,10 +12,10 @@ import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { calendarAllowed } from "@/helpers/customAccess";
 
 export default function JobsCalendarPage() {
-  const { isJobsCalendarEnabled, isCustomAccessEnabled, isLoading } = useOrganizationFeatures();
+  const { isJobsCalendarEnabled, isLoading } = useOrganizationFeatures();
   const { customTabs, isLoading: rolesLoading } = useUserPermissions();
   if (isLoading || rolesLoading) return null;
-  if (!isJobsCalendarEnabled || !isCustomAccessEnabled || !calendarAllowed(customTabs)) {
+  if (!isJobsCalendarEnabled || !calendarAllowed(customTabs)) {
     return (
       <MainCard>
         <Alert severity="info">The calendar is not available here.</Alert>

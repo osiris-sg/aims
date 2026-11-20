@@ -48,7 +48,7 @@ const monthEndISO = (iso: string) => {
 const MONTH_LABELS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 const N_MONTHS = 6;
 
-type AgedDoc = { id: string; number: string; date: string; reference: string | null; total: number; currency: string | null; unconfirmed?: boolean };
+type AgedDoc = { id: string; number: string; date: string; reference: string | null; total: number; currency: string | null; unconfirmed?: boolean; openingBalance?: boolean };
 
 function monthColumns(cutISO: string) {
   const cut = new Date(cutISO);
@@ -115,22 +115,27 @@ export default function DetailedAgeingReport({ side = "receivable" }: { side?: R
 
   // Columns word-for-word from the legacy sheet.
   const cols = monthColumns(asOf);
+  // Opening-balance bills (ABSS cutover, no real due date; Elroy 2026-11-21): their own column, only when there are any.
+  const hasOpening = !!groups?.some((g) => g.docs.some((d) => d.openingBalance));
+  const NB = N_MONTHS + 1 + (hasOpening ? 1 : 0);
+  const idxOf = (d: AgedDoc): number => (hasOpening && d.openingBalance ? N_MONTHS + 1 : bucketIndex(d.date, asOf));
   const columns = useMemo(
     () => [
       { key: "document", label: "DOCUMENT", align: "left" as const, width: 150 },
       { key: "date", label: "DATE", align: "left" as const, width: 105 },
       ...cols.map((c, i) => ({ key: `m${i}`, label: `${c.label} ${c.sub}`, align: "right" as const, width: 108 })),
       { key: "older", label: "& >", align: "right" as const, width: 100 },
+      ...(hasOpening ? [{ key: "opening", label: "OPENING BALANCE", align: "right" as const, width: 120 }] : []),
       { key: "balance", label: "BALANCE", align: "right" as const, width: 120 },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [asOf],
+    [asOf, hasOpening],
   );
 
   const rows = useMemo<ReportRow[]>(() => {
     if (!filteredGroups) return [];
     const out: ReportRow[] = [];
-    const grand = Array(N_MONTHS + 1).fill(0);
+    const grand = Array(NB).fill(0);
     let grandTotal = 0;
     for (const g of filteredGroups) {
       const master = customerById.get(g.contactId);
@@ -142,9 +147,9 @@ export default function DetailedAgeingReport({ side = "receivable" }: { side?: R
       });
       // Legacy info line (Term and Credit Limit aren't in the customer master).
       const info = [`Tel : ${master?.phone || ""}`, `Contact : ${master?.contacts?.[0]?.name || ""}`].join("   ");
-      out.push({ kind: "row", key: `i-${g.contactId}`, cells: ["", info, ...Array(N_MONTHS + 1).fill(""), ""] });
+      out.push({ kind: "row", key: `i-${g.contactId}`, cells: ["", info, ...Array(NB).fill(""), ""] });
 
-      const buckets = Array(N_MONTHS + 1).fill(0);
+      const buckets = Array(NB).fill(0);
       let run = 0;
       const docs = [...g.docs].sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.number.localeCompare(b.number));
       // Legacy split (guru 2026-11-12: every report): Unconfirmed documents
@@ -153,13 +158,13 @@ export default function DetailedAgeingReport({ side = "receivable" }: { side?: R
       const { unconfirmed, confirmed } = splitConfirmed(docs, (d) => !!d.unconfirmed);
       for (const [sec, isUnc] of [[unconfirmed, true], [confirmed, false]] as Array<[AgedDoc[], boolean]>) {
         if (!sec.length) continue;
-        if (unconfirmed.length) out.push(bandRow(`band-${g.contactId}-${isUnc}`, bandLabel("Document", isUnc), N_MONTHS + 4, isUnc));
+        if (unconfirmed.length) out.push(bandRow(`band-${g.contactId}-${isUnc}`, bandLabel("Document", isUnc), NB + 3, isUnc));
         for (const d of sec) {
-          const idx = bucketIndex(d.date, asOf);
+          const idx = idxOf(d);
           const amt = Number(d.total) || 0;
           buckets[idx] = R(buckets[idx] + amt);
           run = R(run + amt);
-          const docCells = Array(N_MONTHS + 1).fill(null);
+          const docCells = Array(NB).fill(null);
           docCells[idx] = amt;
           out.push({ kind: "row", key: `d-${d.id}`, cells: [docCell(d) as any, fmtDate(d.date), ...docCells, run] });
         }
@@ -171,21 +176,21 @@ export default function DetailedAgeingReport({ side = "receivable" }: { side?: R
     }
     out.push({ kind: "total", key: "__grand", cells: ["GRAND-TOTAL", "", ...grand.map((v) => v || 0), grandTotal] });
     return out;
-  }, [filteredGroups, asOf, customerById]);
+  }, [filteredGroups, asOf, customerById, hasOpening]);
 
   const exportCsv = () => {
     if (!filteredGroups) return;
     const body: (string | number)[][] = [];
     for (const g of filteredGroups) {
       for (const d of g.docs) {
-        const idx = bucketIndex(d.date, asOf);
-        const buckets = Array(N_MONTHS + 1).fill("");
+        const idx = idxOf(d);
+        const buckets = Array(NB).fill("");
         buckets[idx] = (Number(d.total) || 0).toFixed(2);
         body.push([g.code, g.contactName, d.number, String(d.date).slice(0, 10), ...buckets, (Number(d.total) || 0).toFixed(2)]);
       }
     }
     downloadCsv(`${words.party}-Detailed-Ageing-Analysis-${asOf}.csv`, [
-      ["CODE", "NAME", "DOCUMENT", "DATE", ...cols.map((c) => `${c.label} ${c.sub}`), "& >", "BALANCE"],
+      ["CODE", "NAME", "DOCUMENT", "DATE", ...cols.map((c) => `${c.label} ${c.sub}`), "& >", ...(hasOpening ? ["OPENING BALANCE"] : []), "BALANCE"],
       ...body,
     ]);
   };

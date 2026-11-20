@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { OPENING_BALANCE_SQL } from '../common/opening-balance';
 import { PrismaService } from 'src/common/prisma.service';
 import { JournalService } from 'src/journal/journal.service';
 
@@ -185,17 +186,19 @@ export class RoleHomeService {
            COALESCE(
              CASE WHEN config->>'dueDate' ~ $4 THEN LEFT(config->>'dueDate', 10)::date END,
              CASE WHEN config->>'date' ~ $4 THEN LEFT(config->>'date', 10)::date + 30 END,
-             "createdAt"::date + 30) AS due
+             "createdAt"::date + 30) AS due,
+           -- Opening-balance bills (ABSS cutover) have no real due date: owed, never overdue / due today.
+           ${OPENING_BALANCE_SQL} AS opening
          FROM "Document"
          WHERE "organizationId" = $1 AND type IN (${typesSql})
            AND COALESCE(config->>'voided','false') <> 'true'
        )
        SELECT COUNT(*) FILTER (WHERE outstanding > 0.005)::int AS open_count,
               COALESCE(SUM(outstanding) FILTER (WHERE outstanding > 0.005), 0)::float AS outstanding,
-              COALESCE(SUM(outstanding) FILTER (WHERE outstanding > 0.005 AND due < $2::date), 0)::float AS overdue,
-              COUNT(*) FILTER (WHERE outstanding > 0.005 AND due < $2::date)::int AS overdue_count,
-              COALESCE(SUM(outstanding) FILTER (WHERE outstanding > 0.005 AND due = $2::date), 0)::float AS due_today,
-              COUNT(*) FILTER (WHERE outstanding > 0.005 AND due = $2::date)::int AS due_today_count
+              COALESCE(SUM(outstanding) FILTER (WHERE outstanding > 0.005 AND NOT opening AND due < $2::date), 0)::float AS overdue,
+              COUNT(*) FILTER (WHERE outstanding > 0.005 AND NOT opening AND due < $2::date)::int AS overdue_count,
+              COALESCE(SUM(outstanding) FILTER (WHERE outstanding > 0.005 AND NOT opening AND due = $2::date), 0)::float AS due_today,
+              COUNT(*) FILTER (WHERE outstanding > 0.005 AND NOT opening AND due = $2::date)::int AS due_today_count
        FROM d`,
       organizationId,
       todayIso,
