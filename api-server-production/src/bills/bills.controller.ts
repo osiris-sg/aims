@@ -109,7 +109,7 @@ export class BillsController {
   @Patch(':id')
   @Permissions('bills:update')
   update(@Req() req: RequestWithOrganization, @Param('id') id: string, @Body() body: any) {
-    return this.service.update(requireOrgId(req), id, body);
+    return this.service.update(requireOrgId(req), id, body, { userId: req.auth?.userId });
   }
 
   // Duplicate a bill as a fresh DRAFT (the supplier-invoice twin of the

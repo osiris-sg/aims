@@ -187,6 +187,8 @@ const RK_CSS = `
   .wct.rk .rkfoot { margin: 6px 0 18px; font-size: 12px; line-height: 1.6; }
   .wct.rk .rkfoot .hd { font-weight: 700; margin-top: 10px; page-break-after: avoid; break-after: avoid; }
   .wct.rk .rkfoot .hd:first-child { margin-top: 0; }
+  /* The quotation's payment terms always start a new page (guru 2026-11-19). */
+  .wct.rk .rkfoot .pb { page-break-before: always; break-before: page; margin-top: 0; }
   .wct.rk .rkfoot .ln { white-space: pre-wrap; word-break: break-word; }
   .wct.rk .rkfoot .gap { height: 6px; }
   .wct.rk .rkfoot .gap + .hd { margin-top: 4px; }
@@ -649,10 +651,13 @@ export function renderWctBody(kind: WctDocKind, data: any, organization: any, de
   // Racking quotation: the Notes and the terms as one footer, no "Remarks" heading; a TERMS & CONDITIONS
   // heading is added when the terms do not carry one.
   const rkNote = first(data?.note, di('note'), data?.remarks, di('remarks'));
+  // The PAYMENT TERMS heading (and everything after it) always starts on a new page (guru
+  // 2026-11-19); terms with no such heading start the new page at their first line instead.
+  const rkTnc = tnc ? `${hasTermsHeading(tnc) ? '' : `<div class="hd">TERMS &amp; CONDITIONS:</div>`}${rackingFooterText(tnc)}` : '';
+  const RK_PAY = '<div class="hd">PAYMENT TERMS:</div>';
+  const rkTncPaged = rkTnc.includes(RK_PAY) ? rkTnc.replace(RK_PAY, '<div class="hd pb">PAYMENT TERMS:</div>') : rkTnc ? `<div class="pb">${rkTnc}</div>` : '';
   const rkFooter = rkQuote && (rkNote || tnc)
-    ? `<div class="rkfoot">${rkNote ? rackingFooterText(rkNote) : ''}${
-        tnc ? `${hasTermsHeading(tnc) ? '' : `<div class="hd">TERMS &amp; CONDITIONS:</div>`}${rackingFooterText(tnc)}` : ''
-      }</div>`
+    ? `<div class="rkfoot">${rkNote ? rackingFooterText(rkNote) : ''}${rkTncPaged}</div>`
     : '';
   const stampHtml = signature
     ? `<div class="stamp"><img class="sigimg" src="${signature.image}" alt="" />Company Stamp &amp; Authorized Signature${signature.who ? `<div class="who">${signature.who}</div>` : ''}</div>`

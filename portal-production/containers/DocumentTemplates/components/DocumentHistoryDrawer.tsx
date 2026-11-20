@@ -34,6 +34,9 @@ const ACTION_CHIPS: Record<string, { label: string; sx: object }> = {
   // The moment someone pressed "Yes, edit document" on a confirmed doc —
   // marks the START of a post-confirm editing session (amber = caution).
   EDIT_UNLOCKED: { label: "Unlocked for editing", sx: { bgcolor: "#FBF3D9", color: "#7A5A00" } },
+  // Per-document Lock button (2026-11-20): no edits at all until unlocked.
+  LOCKED: { label: "Locked", sx: { bgcolor: "#FBE2E2", color: "#8A1F1F" } },
+  UNLOCKED: { label: "Unlocked", sx: { bgcolor: "#DCF5E4", color: "#116632" } },
   APPROVED: { label: "Approved", sx: { bgcolor: "#DCF5E4", color: "#116632" } },
   STATUS_CHANGED: { label: "Status changed", sx: { bgcolor: "#FBEEDC", color: "#8A5A00" } },
   NOTE: { label: "Note", sx: { bgcolor: "#F0E8FB", color: "#5B2E98" } },

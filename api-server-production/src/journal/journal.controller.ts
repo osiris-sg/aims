@@ -82,7 +82,7 @@ export class JournalController {
   @Post('entries/:id/confirm')
   @Permissions('journal:post')
   confirmEntry(@Req() req: RequestWithOrganization, @Param('id') id: string) {
-    return this.service.confirmEntry(requireOrgId(req), id);
+    return this.service.confirmEntry(requireOrgId(req), id, req.auth?.userId);
   }
 
   @Post('entries/:id/post')

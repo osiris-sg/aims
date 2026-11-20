@@ -76,6 +76,8 @@ const VERB_ACTIONS: Record<string, string> = {
   void: 'VOID', post: 'POST_GL', 'post-batch': 'POST_GL', 'post-held': 'POST_GL', confirm: 'CONFIRM',
   'close-filed': 'PROCESS', 'send-email': 'SEND', 'sync-to-xero': 'SYNC', sync: 'SYNC', 'confirm-from-xero': 'CONFIRM', duplicate: 'DUPLICATE',
   revisions: 'CREATE_REVISION', notes: 'NOTE', sign: 'SIGN', 'generate-pdf': 'EXPORT',
+  // Per-document Lock (2026-11-20) and the lock dates' edit-unlock stamp.
+  'record-lock': 'LOCK', 'record-unlock': 'UNLOCK',
   'run-due': 'RUN', run: 'RUN', 'generate-now': 'RUN', cancel: 'CANCEL', assign: 'ASSIGN',
   'link-project': 'LINK', link: 'LINK', 'claim-scheduled': 'CLAIM', 'claim-return': 'CLAIM', 'ack-all': 'ACKNOWLEDGE',
   // Delivery group posts (2026-09-30): the post worker claims a post and

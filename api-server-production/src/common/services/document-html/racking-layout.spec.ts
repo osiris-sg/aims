@@ -35,6 +35,20 @@ describe('effectiveDesign: racking', () => {
 });
 
 describe('Racking quotation', () => {
+  it('payment terms always start a new page (the heading carries the page break)', () => {
+    const h = quote();
+    expect(h).toContain('<div class="hd pb">PAYMENT TERMS:</div>');
+    expect((h.match(/class="hd pb"/g) || []).length).toBe(1);
+    expect(h).toMatch(/\.wct\.rk \.rkfoot \.pb \{[^}]*page-break-before: always/);
+    // Terms with no PAYMENT TERMS heading: the page break sits before the terms as a whole.
+    const plain = quote({}, { termsAndConditions: 'Goods sold are not returnable' });
+    expect(plain).toContain('<div class="pb"><div class="hd">TERMS &amp; CONDITIONS:</div>');
+    // A Racking invoice and every other org's quotation carry no such break.
+    const inv = renderDocumentHtml('INVOICE', data('INVOICE', effectiveDesign(TPL, 'INVOICE', RK)), org)!;
+    expect(inv).not.toMatch(/class="(hd )?pb"/);
+    const wct = renderDocumentHtml('QUOTATION', data('QUOTATION', effectiveDesign(TPL, 'QUOTATION', {})), org)!;
+    expect(wct).not.toMatch(/class="(hd )?pb"/);
+  });
   it('section titles take no S/No (first item is 1) and print as a full-width row', () => {
     const h = quote();
     expect([...h.matchAll(/<td class="no">(\d*)<\/td>/g)].map((m) => m[1])).toEqual(['1', '2', '3']);
@@ -71,7 +85,7 @@ describe('Racking quotation', () => {
     const h = quote({}, { note: 'Site access from 9am', remarks: '' });
     expect(h).not.toContain('Remarks:');
     expect(h).not.toContain('Terms and Conditions:');
-    for (const x of ['<div class="hd">PAYMENT TERMS:</div>', '<div class="hd">PAYMENT METHOD:</div>', '<div class="hd">TERMS &amp; CONDITIONS:</div>']) expect(h).toContain(x);
+    for (const x of ['<div class="hd pb">PAYMENT TERMS:</div>', '<div class="hd">PAYMENT METHOD:</div>', '<div class="hd">TERMS &amp; CONDITIONS:</div>']) expect(h).toContain(x);
     expect(h.indexOf('Site access from 9am')).toBeLessThan(h.indexOf('PAYMENT TERMS:'));
     expect(h).toContain('<div class="bl"><span>•</span><span>Pay Now Method: 202100255Z001</span></div>');
   });

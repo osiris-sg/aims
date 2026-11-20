@@ -161,7 +161,7 @@ export class PaymentsController {
       throw new Error('User is not assigned to any organization');
     }
 
-    return this.paymentsService.update(id, updatePaymentDto, organizationId);
+    return this.paymentsService.update(id, updatePaymentDto, organizationId, req.auth?.userId);
   }
 
   @Delete(':id')
@@ -176,6 +176,6 @@ export class PaymentsController {
       throw new Error('User is not assigned to any organization');
     }
 
-    return this.paymentsService.remove(id, organizationId);
+    return this.paymentsService.remove(id, organizationId, req.auth?.userId);
   }
 }
