@@ -20,12 +20,16 @@ test("one press scrolls most of the visible width", () => {
   assert.equal(scrollStep(100), 120);
 });
 
-test("both bars use the scroller; the role-home bar keeps ⌂ and the module name outside it", () => {
+test("both bars use the scroller; the role-home bar scrolls its modules row and its sub-tabs", () => {
+  // The 2026-11-12 two-level bar ([⌂] Module | tabs) was retired on 2026-11-21 when
+  // the dropdowns came back, so there is no role-nav-home to order against any more.
+  // Both of the role-home bar's rows still scroll: the modules row, and the sub-tabs
+  // shown inline when a module is the only one the user can see.
   const role = read("app/portal/components/RoleHome/RoleTopBar.tsx");
   assert.doesNotMatch(role, /maskImage/);
-  const level = role.slice(role.indexOf('data-testid="role-nav-home"'));
-  assert.ok(level.indexOf('data-testid="role-nav-level"') < level.indexOf("<NavTabsScroller"), "module name before the scroller");
-  assert.match(level, /<NavTabsScroller[^>]*>\s*\{open\.tabs\.map/);
+  assert.doesNotMatch(role, /data-testid="role-nav-home"/);
+  assert.match(role, /<NavTabsScroller[^>]*>\s*\{only\.tabs\.map/);
+  assert.match(role, /<NavTabsScroller[^>]*>\s*\{bars\.map/);
   const dark = read("components/TopNav/TopNavBar.tsx");
   assert.match(dark, /<NavTabsScroller fade="#041627" arrowColor="#FFFFFF" testId="top-nav-scroller">/);
   const sc = read("components/TopNav/NavTabsScroller.tsx");
