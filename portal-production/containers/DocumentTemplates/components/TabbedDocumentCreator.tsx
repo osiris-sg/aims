@@ -5086,10 +5086,10 @@ export default function TabbedDocumentCreator({
           {!isTemplateEditMode && (documentId || existingData?.id) && !isSettlementType && (
             <Box data-tour="editor-status" sx={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
               {isRealDoOnScheduleEnabled && String(actualDocumentType || "").toUpperCase() === "DELIVERY_ORDER" ? (
-                <DoStatusTag tag={docDoTag({ status: existingData?.status, config: existingData })} doc={{ status: existingData?.status, config: { ...((existingData as any)?.config || existingData), savedAt: liveTracking.savedAt ?? (existingData as any)?.config?.savedAt ?? existingData?.savedAt } }} />
+                <DoStatusTag tag={docDoTag({ status: existingData?.status, config: existingData })} />
               ) : (
-                // config.savedAt from this session's saves too, so a WCT invoice the user has just
-                // edited reads Pending at once, not Draft until the next reload (enableWctStatusFlow).
+                // config.savedAt is carried from this session's saves as well as the
+                // stored config, so any status rule that reads it sees the current value.
                 <StatusChip status={documentStatus} doc={{ ...(existingData as any), type: (existingData as any)?.type || documentType, config: { ...((existingData as any)?.config || {}), savedAt: liveTracking.savedAt ?? (existingData as any)?.config?.savedAt ?? existingData?.savedAt } }} />
               )}
             </Box>
