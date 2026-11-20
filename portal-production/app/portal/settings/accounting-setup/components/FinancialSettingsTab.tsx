@@ -49,11 +49,28 @@ type Settings = {
   salesTaxInclusive?: boolean;
   purchasesTaxInclusive?: boolean;
   lockedThroughDate?: string | null;
+  staffLockedThroughDate?: string | null;
   timeZone?: string;
   currencyRates?: Record<string, number>;
 };
 
 type RateRow = { code: string; rate: string };
+
+const ddmmyyyy = (iso: string) => {
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+};
+
+// The sentence under the two dates, in the accountant's words.
+function lockSummary(staff?: string | null, all?: string | null): string {
+  if (!staff && !all) return "Nothing is locked. Invoices, notes, bills, receipts, vouchers, payments and journals of any date can be changed.";
+  let line: string;
+  if (all && staff && staff > all) line = `Your accounts are locked as at ${ddmmyyyy(all)} for everyone, and up to ${ddmmyyyy(staff)} for everyone except accounting admins.`;
+  else if (all && staff) line = `Your accounts are locked as at ${ddmmyyyy(all)} for everyone. The accounting-admin date falls inside it and has no further effect.`;
+  else if (all) line = `Your accounts are locked as at ${ddmmyyyy(all)} for everyone.`;
+  else line = `Your accounts are locked as at ${ddmmyyyy(staff as string)}. Only a user with the accounting update permission can change records dated on or before it.`;
+  return `${line} Quotations, orders and delivery orders are never locked.`;
+}
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -98,6 +115,7 @@ export default function FinancialSettingsTab({
       salesTaxInclusive: settings?.salesTaxInclusive ?? false,
       purchasesTaxInclusive: settings?.purchasesTaxInclusive ?? false,
       lockedThroughDate: settings?.lockedThroughDate ? String(settings.lockedThroughDate).slice(0, 10) : "",
+      staffLockedThroughDate: settings?.staffLockedThroughDate ? String(settings.staffLockedThroughDate).slice(0, 10) : "",
       timeZone: settings?.timeZone || "Asia/Singapore",
     });
   }, [settings]);
@@ -119,6 +137,7 @@ export default function FinancialSettingsTab({
         salesTaxInclusive: !!form.salesTaxInclusive,
         purchasesTaxInclusive: !!form.purchasesTaxInclusive,
         lockedThroughDate: form.lockedThroughDate || null,
+        staffLockedThroughDate: form.staffLockedThroughDate || null,
         timeZone: form.timeZone,
         currencyRates: Object.fromEntries(
           rates
@@ -302,18 +321,38 @@ export default function FinancialSettingsTab({
 
       <Divider sx={{ mb: 3 }} />
 
+      {/* Lock Dates (guru 2026-11-20): the two dates Xero has, same wording. Every
+          invoice, note, bill, receipt, voucher, payment and journal dated on or
+          before a lock date is refused by the server (period-lock.ts) and opens
+          read-only. Quotations, orders and delivery orders carry no money and stay
+          open. Set after filing a GST return or closing the year. */}
       <Section
-        title="Lock Date"
-        hint="Lock dates stop data from being changed on or before a date. Journal entries dated on/before this are read-only."
+        title="Lock Dates"
+        hint="Lock dates stop data from being changed for a specific period. You can change these at any time."
       >
-        <DateInput
-          size="small"
-          label="Locked through"
-          InputLabelProps={{ shrink: true }}
-          value={form.lockedThroughDate || ""}
-          onChange={(e) => set({ lockedThroughDate: e.target.value })}
-          sx={sx}
-        />
+        <Stack gap={2}>
+          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "minmax(0, 440px) 180px" }, alignItems: "center", columnGap: 2, rowGap: 2 }}>
+            <Typography variant="body2">Stop all users (except accounting admins) making changes on and before</Typography>
+            <DateInput
+              size="small"
+              InputLabelProps={{ shrink: true }}
+              value={form.staffLockedThroughDate || ""}
+              onChange={(e) => set({ staffLockedThroughDate: e.target.value })}
+              inputProps={{ "data-testid": "lock-date-staff" }}
+            />
+            <Typography variant="body2">Stop all users making changes on and before</Typography>
+            <DateInput
+              size="small"
+              InputLabelProps={{ shrink: true }}
+              value={form.lockedThroughDate || ""}
+              onChange={(e) => set({ lockedThroughDate: e.target.value })}
+              inputProps={{ "data-testid": "lock-date-all" }}
+            />
+          </Box>
+          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+            {lockSummary(form.staffLockedThroughDate, form.lockedThroughDate)}
+          </Typography>
+        </Stack>
       </Section>
 
       <Divider sx={{ mb: 3 }} />

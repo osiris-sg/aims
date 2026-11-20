@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { assertPeriodOpen, documentDay } from '../common/period-lock';
 import { JournalAutoPostService } from '../journal/journal-auto-post.service';
 import { JournalService } from '../journal/journal.service';
 import { AuditService } from 'src/common/audit.service';
@@ -299,6 +300,7 @@ export class BankTransactionsService {
   }
 
   async create(organizationId: string, dto: SaveBankTransactionDto, actor?: Actor) {
+    await assertPeriodOpen(this.prisma, { organizationId, date: dto.date, actorId: actor?.id, what: 'This transaction', verb: 'saved' });
     const p = await this.prepare(organizationId, dto);
     const templateId = await this.getOrCreateTemplate(organizationId, p.kind);
     const typed = String(dto.number || '').trim();
@@ -356,6 +358,8 @@ export class BankTransactionsService {
     if (!doc) throw new NotFoundException('Bank transaction not found');
     const prev: any = doc.config || {};
     if (prev.voided) throw new BadRequestException('A voided transaction cannot be edited');
+    await assertPeriodOpen(this.prisma, { organizationId, date: documentDay(prev, doc.createdAt), actorId: actor?.id, what: doc.name || 'This transaction' });
+    await assertPeriodOpen(this.prisma, { organizationId, date: dto.date, actorId: actor?.id, what: doc.name || 'This transaction', verb: 'dated there' });
     const kind = KIND_OF_TYPE[doc.type];
     const p = await this.prepare(organizationId, { ...dto, kind });
 
@@ -400,6 +404,7 @@ export class BankTransactionsService {
     if (!doc) throw new NotFoundException('Bank transaction not found');
     const prev: any = doc.config || {};
     if (prev.voided) return this.toRow(doc);
+    await assertPeriodOpen(this.prisma, { organizationId, date: documentDay(prev, doc.createdAt), actorId: actor?.id, what: doc.name || 'This transaction', verb: 'voided' });
     const live = await this.prisma.journalEntry.findFirst({
       where: { organizationId, sourceDocumentId: id, type: 'PAYMENT', status: { not: 'VOID' } },
       select: { id: true },

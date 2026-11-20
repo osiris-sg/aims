@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { assertPeriodOpen, documentDay } from '../common/period-lock';
+import { assertRecordUnlocked } from '../common/record-lock';
 import { JournalAutoPostService } from '../journal/journal-auto-post.service';
 import { JournalService } from '../journal/journal.service';
 import { BillsService } from '../bills/bills.service';
@@ -242,6 +244,9 @@ export class PaymentVouchersService {
       incompleteReason: c.incompleteReason || null,
       documentTemplateId: doc.documentTemplateId || null,
       savedBy: c.savedBy || null,
+      recordLocked: c.recordLocked === true,
+      recordLockedAt: c.recordLockedAt || null,
+      recordLockedBy: c.recordLockedBy || null,
       savedAt: c.savedAt || null,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
@@ -1023,6 +1028,7 @@ export class PaymentVouchersService {
       this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { timeZone: true, controlAccounts: true } }),
     ]);
     const date = dto.date || orgToday(setting?.timeZone);
+    await assertPeriodOpen(this.prisma, { organizationId, date, actorId: actor?.id, what: 'This offset', verb: 'recorded' });
     // BillPayment needs an account: no bank moves in an offset, so the rows
     // carry the creditor control the settlement ran through.
     const creditorCode = ((setting?.controlAccounts as any) || {}).creditorControl || 'CL001';
@@ -1111,6 +1117,8 @@ export class PaymentVouchersService {
   async remove(organizationId: string, id: string, actor?: Actor) {
     const doc = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'PAYMENT_VOUCHER' } });
     if (!doc) return { ok: true }; // idempotent (editor close can double-DELETE)
+    assertRecordUnlocked(doc, 'deleted');
+    await assertPeriodOpen(this.prisma, { organizationId, date: documentDay(doc.config, doc.createdAt), actorId: actor?.id, what: doc.name || 'This voucher', verb: 'deleted' });
 
     const touched = await this.unpost(organizationId, id, actor);
     await this.prisma.document.deleteMany({ where: { id, organizationId } });

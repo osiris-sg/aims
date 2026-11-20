@@ -39,6 +39,8 @@ const toExisting = (r: any) => ({
     savedAt: r.savedAt,
     incompleteReason: r.incompleteReason ?? null,
     lastUsedBy: r.savedBy,
+    // Per-document Lock button: a locked voucher opens read-only.
+    config: { recordLocked: r.recordLocked === true, recordLockedAt: r.recordLockedAt, recordLockedBy: r.recordLockedBy },
     lastUsedAt: r.savedAt,
     updatedAt: r.updatedAt,
     orData: {

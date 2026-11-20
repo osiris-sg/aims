@@ -126,6 +126,9 @@ import { request, withActiveOrg } from "@/helpers/request";
 import { requestFailed } from "@/helpers/requestOutcome";
 import { categoryChoices } from "@/helpers/salesReport";
 import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
+import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
+import LockOpenOutlinedIcon from "@mui/icons-material/LockOpenOutlined";
+import { useLockDates, isPeriodLockedDocType, lockDayLabel } from "@/app/portal/hooks/useLockDates";
 import EditorRail from "./EditorRail";
 import DebtorStatementDialog from "./DebtorStatementDialog";
 import ViewListOutlinedIcon from "@mui/icons-material/ViewListOutlined";
@@ -241,6 +244,7 @@ const LEGACY_BTN = {
   duplicate: legacyBtn("#0077C5", "#005F9E", "#8FC7F2", "#A5D3F5", "#082A44"),
   preview: legacyBtn("#BE185D", "#9D174D", "#F5A8C9", "#F8BBD6", "#4A0A2B"),
   edit: legacyBtn("#D97706", "#B45309", "#F7CB7A", "#F9D694", "#3D2300"),
+  lock: legacyBtn("#64748B", "#475569", "#C3CCD9", "#D0D8E3", "#111827"),
 };
 // A fully-uppercase tab label (a legacy config's "DETAILS") becomes Title case;
 // labels that already have lower-case letters (e.g. "Delivery Address") are
@@ -582,8 +586,50 @@ export default function TabbedDocumentCreator({
   const isSettlementType = ["OFFICIAL_RECEIPT", "OR", "PAYMENT_VOUCHER", "PV", "JOURNAL_VOUCHER", "JV"].includes(String(documentType || ""));
   // A signed RDO (enableRdoFreeTypedRows orgs) is read-only, with no unlock.
   const rdoSignedLock = isRdoFreeTypedRowsEnabled && existingData?.rdoSigned === true;
-  const isDocumentConfirmed = (isDocumentConfirmedStatus && !confirmedEditUnlocked && !isSettlementType) || rdoSignedLock;
-  const confirmedReadOnly = (isDocumentConfirmedStatus && !confirmedEditUnlocked && !isSettlementType) || rdoSignedLock;
+  // Lock dates (Accounting Setup → Financial Settings, guru 2026-11-20, as Xero): a
+  // financial document whose SAVED date is on or before the lock date that binds
+  // this user is read-only, with no Edit unlock. The server refuses the write
+  // regardless (period-lock.ts); this only shows it up front. Judged on the saved
+  // date, not the one being typed, so moving an open document into the locked
+  // period gets the server's refusal toast rather than a frozen form.
+  const { effectiveLockDay, isLockedDay, adviser: isLockAdviser } = useLockDates();
+  const periodLocked =
+    !isTemplateEditMode &&
+    !!(documentId || existingData?.id) &&
+    isPeriodLockedDocType(actualDocumentType || documentType) &&
+    isLockedDay(existingData?.documentInfo?.date || existingData?.date || existingData?.config?.documentInfo?.date || existingData?.createdAt);
+  // Per-document Lock button (guru 2026-11-20): a locked accounting document takes no
+  // edits at all, whatever its status, until an accounting admin unlocks it. Stored on
+  // config.recordLocked by POST /documents/:id/record-lock|record-unlock; the server
+  // refuses every write on a locked record (common/record-lock.ts).
+  const [recordLock, setRecordLock] = useState<{ locked: boolean; at?: string | null; by?: { name?: string | null; email?: string | null } | null }>({ locked: false });
+  useEffect(() => {
+    const c = (existingData as any)?.config || {};
+    setRecordLock({ locked: c.recordLocked === true, at: c.recordLockedAt ?? null, by: c.recordLockedBy ?? null });
+  }, [existingData?.id, (existingData as any)?.config?.recordLocked]);
+  const recordLocked = recordLock.locked;
+  const recordLockable = !isTemplateEditMode && !!(documentId || existingData?.id) && isPeriodLockedDocType(actualDocumentType || documentType);
+  const [recordLockBusy, setRecordLockBusy] = useState(false);
+  const toggleRecordLock = async () => {
+    const docId = existingData?.id || documentId;
+    if (!docId || recordLockBusy) return;
+    setRecordLockBusy(true);
+    try {
+      const token = await getToken();
+      const res: any = await request({ path: `/documents/${docId}/${recordLocked ? "record-unlock" : "record-lock"}`, method: "POST" }, {}, token || undefined);
+      if (requestFailed(res)) return; // the global error toast already said why
+      const body = res?.data ?? res;
+      setRecordLock({ locked: body?.recordLocked === true, at: body?.recordLockedAt ?? null, by: body?.recordLockedBy ?? null });
+      toast.success(body?.recordLocked ? "Locked. No edits until it is unlocked." : "Unlocked. Editing allowed again.");
+    } finally {
+      setRecordLockBusy(false);
+    }
+  };
+  const recordLockTitle = recordLocked
+    ? `Locked${recordLock.by?.name || recordLock.by?.email ? ` by ${recordLock.by?.name || recordLock.by?.email}` : ""}${recordLock.at ? ` on ${new Date(recordLock.at).toLocaleDateString("en-GB")}` : ""}. No edits until it is unlocked.`
+    : "Lock this document: no edits at all until an accounting admin unlocks it.";
+  const isDocumentConfirmed = (isDocumentConfirmedStatus && !confirmedEditUnlocked && !isSettlementType) || rdoSignedLock || periodLocked || recordLocked;
+  const confirmedReadOnly = (isDocumentConfirmedStatus && !confirmedEditUnlocked && !isSettlementType) || rdoSignedLock || periodLocked || recordLocked;
   const isDocumentEditable = !isDocumentConfirmed && !isTemplateEditMode;
 
   // Confirmed documents now open on the (read-only) edit screen, not preview.
@@ -4718,11 +4764,13 @@ export default function TabbedDocumentCreator({
         if (response?.success) {
           toast.success("Document deleted successfully");
         } else {
+          // A refused delete (locked period, posted journal, payments) keeps the
+          // document on screen with the server's reason; leaving would read as deleted.
           toast.error(response?.message || "Failed to delete document");
+          return;
         }
       }
 
-      // Navigate to parent page regardless of deletion result
       router.push(resolveBackRoute(documentType));
     } catch (error) {
       console.error("Error deleting document:", error);
@@ -5038,11 +5086,25 @@ export default function TabbedDocumentCreator({
           {!isTemplateEditMode && (documentId || existingData?.id) && !isSettlementType && (
             <Box data-tour="editor-status" sx={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
               {isRealDoOnScheduleEnabled && String(actualDocumentType || "").toUpperCase() === "DELIVERY_ORDER" ? (
-                <DoStatusTag tag={docDoTag({ status: existingData?.status, config: existingData })} />
+                <DoStatusTag tag={docDoTag({ status: existingData?.status, config: existingData })} doc={{ status: existingData?.status, config: { ...((existingData as any)?.config || existingData), savedAt: liveTracking.savedAt ?? (existingData as any)?.config?.savedAt ?? existingData?.savedAt } }} />
               ) : (
-                <StatusChip status={documentStatus} doc={{ ...(existingData as any), type: (existingData as any)?.type || documentType }} />
+                // config.savedAt from this session's saves too, so a WCT invoice the user has just
+                // edited reads Pending at once, not Draft until the next reload (enableWctStatusFlow).
+                <StatusChip status={documentStatus} doc={{ ...(existingData as any), type: (existingData as any)?.type || documentType, config: { ...((existingData as any)?.config || {}), savedAt: liveTracking.savedAt ?? (existingData as any)?.config?.savedAt ?? existingData?.savedAt } }} />
               )}
             </Box>
+          )}
+          {/* Lock dates: dated on or before the lock date that binds this user. */}
+          {periodLocked && effectiveLockDay && (
+            <Tooltip title={`Dated on or before the lock date ${lockDayLabel(effectiveLockDay)}. Move the lock date in Accounting Setup, Financial Settings, Lock Dates to change it.`}>
+              <Chip size="small" variant="outlined" color="warning" icon={<LockOutlinedIcon />} label="Locked period" data-tour="editor-locked-period" sx={{ fontWeight: 600, flexShrink: 0 }} />
+            </Tooltip>
+          )}
+          {/* Per-document Lock button: locked by someone, no edits until unlocked. */}
+          {recordLocked && !isTemplateEditMode && (
+            <Tooltip title={recordLockTitle}>
+              <Chip size="small" variant="outlined" color="error" icon={<LockOutlinedIcon />} label="Locked" data-tour="editor-record-locked" sx={{ fontWeight: 600, flexShrink: 0 }} />
+            </Tooltip>
           )}
           {/* enableOptionalSaleOrder (Biofuel): a draft invoice made from a DO with no
               Sales Order is priced from the price list, so flag it for a check. */}
@@ -5125,7 +5187,7 @@ export default function TabbedDocumentCreator({
                   now, and the button no longer offers it. */}
               <Tooltip title={isDraftDoc ? "" : "Confirmed documents are voided or credited, not deleted"}>
                 <span>
-                  <Button size="small" variant="contained" startIcon={<DeleteIcon />} onClick={() => setInvoiceDeleteOpen(true)} disabled={!(existingData?.id || documentId) || isPaidInvoice || !isDraftDoc} sx={LEGACY_BTN.delete} data-tour="editor-legacy-delete">Delete</Button>
+                  <Button size="small" variant="contained" startIcon={<DeleteIcon />} onClick={() => setInvoiceDeleteOpen(true)} disabled={!(existingData?.id || documentId) || isPaidInvoice || !isDraftDoc || periodLocked || recordLocked} sx={LEGACY_BTN.delete} data-tour="editor-legacy-delete">Delete</Button>
                 </span>
               </Tooltip>
               <Button size="small" variant="contained" startIcon={<NavigateBeforeIcon />} onClick={onPrevious} disabled={!onPrevious || !hasPrevious} sx={LEGACY_BTN.nav}>Previous</Button>
@@ -5369,13 +5431,23 @@ export default function TabbedDocumentCreator({
           {legacyLayout && (
             <Button size="small" variant="contained" startIcon={<ContentCopyIcon />} onClick={handleDuplicateDocument} disabled={!(existingData?.id || documentId)} sx={LEGACY_BTN.duplicate} data-tour="editor-legacy-duplicate">Duplicate</Button>
           )}
+          {/* Per-document Lock / Unlock (2026-11-20): unlock is for accounting admins only. */}
+          {legacyLayout && recordLockable && (
+            <Tooltip title={recordLocked && !isLockAdviser ? `${recordLockTitle} Only an accounting admin can unlock it.` : recordLockTitle}>
+              <span>
+                <Button size="small" variant="contained" startIcon={recordLocked ? <LockOpenOutlinedIcon /> : <LockOutlinedIcon />} onClick={toggleRecordLock} disabled={recordLockBusy || (recordLocked && !isLockAdviser)} sx={LEGACY_BTN.lock} data-tour="editor-legacy-lock">
+                  {recordLocked ? "Unlock" : "Lock"}
+                </Button>
+              </span>
+            </Tooltip>
+          )}
           {/* Edit after confirm on the legacy toolbar too (guru 2026-11-19: "I
               can't edit a confirmed document any more"). The coloured toolbar hid
               the generic Edit button; this is the same unlock, behind the same
               warning dialog, and every save after it lands in the document history
               as "Edited after confirm" under the user's name. Paid invoices stay
               locked — money is received through the receipt, not by editing. */}
-          {legacyLayout && confirmedReadOnly && !isPaidInvoice && !isImportedDo && (
+          {legacyLayout && confirmedReadOnly && !isPaidInvoice && !isImportedDo && !periodLocked && !recordLocked && (
             <Button size="small" variant="contained" startIcon={<EditIcon />} onClick={() => setConfirmedEditWarningOpen(true)} sx={LEGACY_BTN.edit} data-tour="editor-legacy-edit">Edit</Button>
           )}
           {/* enableQuotationESign (2026-11-13): CIEL's "Send for signature" toolbar
@@ -5551,7 +5623,7 @@ export default function TabbedDocumentCreator({
               sx={{ fontWeight: 600 }}
             />
           ))}
-          {confirmedReadOnly && !isTemplateEditMode && !isPaidInvoice && !legacyLayout && !isImportedDo && (
+          {confirmedReadOnly && !isTemplateEditMode && !isPaidInvoice && !legacyLayout && !isImportedDo && !periodLocked && !recordLocked && (
             <Button
               size="small"
               variant="outlined"
@@ -5662,6 +5734,13 @@ export default function TabbedDocumentCreator({
               <MenuItem onClick={() => { closeMoreMenu(); setHistoryDrawerOpen(true); }}>
                 <ListItemIcon><HistoryIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>History &amp; notes</ListItemText>
+              </MenuItem>
+            )}
+            {/* Per-document Lock / Unlock (2026-11-20). */}
+            {!legacyLayout && recordLockable && (
+              <MenuItem onClick={() => { closeMoreMenu(); void toggleRecordLock(); }} disabled={recordLockBusy || (recordLocked && !isLockAdviser)}>
+                <ListItemIcon>{recordLocked ? <LockOpenOutlinedIcon fontSize="small" /> : <LockOutlinedIcon fontSize="small" />}</ListItemIcon>
+                <ListItemText>{recordLocked ? "Unlock" : "Lock"}</ListItemText>
               </MenuItem>
             )}
             {/* Receipts: legacy toolbar's Delete — voids the journal and

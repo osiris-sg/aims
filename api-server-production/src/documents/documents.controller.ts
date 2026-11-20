@@ -519,6 +519,23 @@ export class DocumentsController {
     return out;
   }
 
+  // Per-document Lock / Unlock (guru 2026-11-20): a locked accounting document takes no edits at all.
+  @Post(':id/record-lock')
+  @Permissions('documents:update')
+  async recordLock(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return await this.documentsService.setRecordLock(id, organizationId, true, actorFromReq(req));
+  }
+
+  @Post(':id/record-unlock')
+  @Permissions('documents:update')
+  async recordUnlock(@Param('id') id: string, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return await this.documentsService.setRecordLock(id, organizationId, false, actorFromReq(req));
+  }
+
   @Post(':id/duplicate')
   @Permissions('documents:create-basic')
   async duplicateDocument(@Param('id') id: string, @Req() req: RequestWithOrganization) {

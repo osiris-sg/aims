@@ -440,6 +440,12 @@ model AccountingSetting {
   // journal entries with entryDate <= this date is rejected. Updated by the
   // Smart Close Wizard on Month-End / Year-End run.
   lockedThroughDate DateTime?
+  // Xero-style lock dates (guru 2026-11-20). lockedThroughDate = "Stop all users making
+  // changes on and before" (hard lock, everyone). staffLockedThroughDate = "Stop all users
+  // (except accounting admins) making changes on and before": a user who holds
+  // accounting:update (the same permission that sets these dates) may still change
+  // records inside it. Enforced by src/common/period-lock.ts on every dated write.
+  staffLockedThroughDate DateTime?
   // Log of past close runs — array of { type, lockedThrough, runAt, runBy,
   // yearEndJournalEntryId? } so users can audit / unwind if needed.
   closeHistory      Json?

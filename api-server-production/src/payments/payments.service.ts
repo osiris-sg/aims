@@ -2,6 +2,7 @@ import { isVoidedWithOrder } from '../orders/order-cancel';
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { refreshOrderStatus } from '../orders/wct-orders';
 import { PrismaService } from '../common/prisma.service';
+import { assertPeriodOpen } from '../common/period-lock';
 import { amountPaidOf, grossStampOf, outstandingOf, owedOf, stampDocumentMoney } from '../common/document-money';
 import { erpPaidAtImport, isErpImported } from '../common/erp-import';
 import { CreatePaymentDto } from './dto/create-payment.dto';
@@ -36,6 +37,7 @@ export class PaymentsService {
       if (!document) {
         throw new HttpException('Invoice not found', HttpStatus.NOT_FOUND);
       }
+      await assertPeriodOpen(this.prisma, { organizationId, date: createPaymentDto.paymentDate, actorId: userId, what: `The payment on ${document.name || 'this invoice'}`, verb: 'recorded' });
       // A draft invoice voided with its cancelled order (orders/order-cancel.ts) takes no payment.
       if (isVoidedWithOrder(document.config)) throw new HttpException(`${document.name ?? 'This invoice'} was voided with its cancelled order.`, HttpStatus.BAD_REQUEST);
 
@@ -496,7 +498,7 @@ export class PaymentsService {
   /**
    * Update a payment record
    */
-  async update(id: string, updatePaymentDto: UpdatePaymentDto, organizationId: string) {
+  async update(id: string, updatePaymentDto: UpdatePaymentDto, organizationId: string, userId?: string) {
     try {
       // Check if payment exists
       const existingPayment = await this.prisma.payment.findFirst({
@@ -509,6 +511,8 @@ export class PaymentsService {
       if (!existingPayment) {
         throw new HttpException('Payment not found', HttpStatus.NOT_FOUND);
       }
+      await assertPeriodOpen(this.prisma, { organizationId, date: existingPayment.paymentDate, actorId: userId, what: 'This payment' });
+      if (updatePaymentDto.paymentDate) await assertPeriodOpen(this.prisma, { organizationId, date: updatePaymentDto.paymentDate, actorId: userId, what: 'This payment', verb: 'dated there' });
 
       // Update payment in a transaction to also update related transaction
       const result = await this.prisma.$transaction(async (tx) => {
@@ -552,7 +556,7 @@ export class PaymentsService {
   /**
    * Delete a payment record
    */
-  async remove(id: string, organizationId: string) {
+  async remove(id: string, organizationId: string, userId?: string) {
     try {
       // Check if payment exists
       const payment = await this.prisma.payment.findFirst({
@@ -565,6 +569,7 @@ export class PaymentsService {
       if (!payment) {
         throw new HttpException('Payment not found', HttpStatus.NOT_FOUND);
       }
+      await assertPeriodOpen(this.prisma, { organizationId, date: payment.paymentDate, actorId: userId, what: 'This payment', verb: 'deleted' });
 
       await this.prisma.payment.delete({ where: { id } });
 

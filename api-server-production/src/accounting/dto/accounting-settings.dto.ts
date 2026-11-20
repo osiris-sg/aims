@@ -118,6 +118,11 @@ export class UpdateAccountingSettingsDto {
   @IsDateString()
   lockedThroughDate?: string;
 
+  @ApiPropertyOptional({ description: 'Staff lock date (inclusive): users without accounting:update cannot change records on/before it' })
+  @IsOptional()
+  @IsDateString()
+  staffLockedThroughDate?: string;
+
   @ApiPropertyOptional({ description: 'Account code ranges per section' })
   @IsOptional()
   @IsObject()

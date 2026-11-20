@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { assertPeriodOpen, documentDay } from '../common/period-lock';
+import { assertRecordUnlocked } from '../common/record-lock';
 import { JournalService } from '../journal/journal.service';
 import { JournalAutoPostService } from '../journal/journal-auto-post.service';
 import { BillsService } from '../bills/bills.service';
@@ -165,6 +167,9 @@ export class JournalVouchersService {
       incompleteReason: c.incompleteReason || null,
       documentTemplateId: doc.documentTemplateId || null,
       savedBy: c.savedBy || null,
+      recordLocked: c.recordLocked === true,
+      recordLockedAt: c.recordLockedAt || null,
+      recordLockedBy: c.recordLockedBy || null,
       savedAt: c.savedAt || null,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
@@ -763,6 +768,8 @@ export class JournalVouchersService {
   async remove(organizationId: string, id: string, actor?: Actor) {
     const doc = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'JOURNAL_VOUCHER' } });
     if (!doc) return { ok: true };
+    assertRecordUnlocked(doc, 'deleted');
+    await assertPeriodOpen(this.prisma, { organizationId, date: documentDay(doc.config, doc.createdAt), actorId: actor?.id, what: doc.name || 'This journal voucher', verb: 'deleted' });
     const touched = await this.unpost(organizationId, id, actor);
     await this.prisma.document.deleteMany({ where: { id, organizationId } });
     await this.refreshTouched(organizationId, touched, 'J/V delete');

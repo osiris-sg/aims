@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { assertPeriodOpen, documentDay } from '../common/period-lock';
+import { assertRecordUnlocked } from '../common/record-lock';
 import { JournalAutoPostService } from '../journal/journal-auto-post.service';
 import { JournalService } from '../journal/journal.service';
 import { PaymentsService } from '../payments/payments.service';
@@ -170,6 +172,9 @@ export class ReceiptsService {
       // and the save-tracking stamps for the Unconfirmed User / Last Used strip.
       documentTemplateId: doc.documentTemplateId || null,
       savedBy: c.savedBy || null,
+      recordLocked: c.recordLocked === true,
+      recordLockedAt: c.recordLockedAt || null,
+      recordLockedBy: c.recordLockedBy || null,
       savedAt: c.savedAt || null,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
@@ -696,6 +701,8 @@ export class ReceiptsService {
     // Idempotent: closing the editor can race a backdrop-close double-DELETE —
     // an already-deleted receipt is a success, not an error.
     if (!doc) return { ok: true };
+    assertRecordUnlocked(doc, 'deleted');
+    await assertPeriodOpen(this.prisma, { organizationId, date: documentDay(doc.config, doc.createdAt), actorId: actor?.id, what: doc.name || 'This receipt', verb: 'deleted' });
 
     const touched = await this.unpost(organizationId, id, actor);
     // deleteMany: no P2025 when a concurrent close already removed the row.
@@ -871,6 +878,7 @@ export class ReceiptsService {
       this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { timeZone: true } }),
     ]);
     const date = dto.date || orgToday(tzSetting?.timeZone);
+    await assertPeriodOpen(this.prisma, { organizationId, date, actorId: actor?.id, what: 'This offset', verb: 'recorded' });
     const enrich = (a: { documentId: string; amount: number }, m: Map<string, any>) => {
       const o = m.get(a.documentId);
       return { ...a, reference: o?.reference ?? null, date: o?.date ?? null, currency: o?.currency ?? null };
@@ -983,6 +991,7 @@ export class ReceiptsService {
   async removeOffset(organizationId: string, id: string, actor?: Actor) {
     const doc = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'MANUAL_OFFSET' } });
     if (!doc) return { ok: true };
+    await assertPeriodOpen(this.prisma, { organizationId, date: documentDay(doc.config, doc.createdAt), actorId: actor?.id, what: doc.name || 'This offset', verb: 'deleted' });
     const existingJe = await this.prisma.journalEntry.findFirst({
       where: { organizationId, sourceDocumentId: id, status: { not: 'VOID' } },
       select: { id: true },

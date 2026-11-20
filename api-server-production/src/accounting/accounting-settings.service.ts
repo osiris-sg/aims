@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { UpdateAccountingSettingsDto } from './dto/accounting-settings.dto';
+import { forgetLockDates } from '../common/period-lock';
 import {
   DEFAULT_ACCOUNT_CODE_RANGES,
   DEFAULT_CONTROL_ACCOUNTS,
@@ -41,11 +42,15 @@ export class AccountingSettingsService {
     if (dto.lockedThroughDate !== undefined) {
       data.lockedThroughDate = dto.lockedThroughDate ? new Date(dto.lockedThroughDate) : null;
     }
+    if (dto.staffLockedThroughDate !== undefined) {
+      data.staffLockedThroughDate = dto.staffLockedThroughDate ? new Date(dto.staffLockedThroughDate) : null;
+    }
 
     const updated = await this.prisma.accountingSetting.update({
       where: { organizationId },
       data,
     });
+    forgetLockDates(organizationId);
 
     // Keep the legacy Organization-level tax fields in sync so existing readers
     // (document editor, GST report) stay consistent — single source of truth is

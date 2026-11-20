@@ -252,8 +252,14 @@ export default function page() {
         // enableOptionalSaleOrder: a draft invoice from a DO with no Sales Order is flagged.
         sourceDocumentId: config.sourceDocumentId,
         saleOrderId: config.saleOrderId,
+        // Per-document Lock button: the editor opens a locked record read-only.
+        recordLocked: config.recordLocked === true,
+        recordLockedAt: config.recordLockedAt,
+        recordLockedBy: config.recordLockedBy,
       };
       documentData.type = response.data.type;
+      // Lock dates: an undated draft counts on its creation day (period-lock.ts documentDay).
+      documentData.createdAt = response.data.createdAt;
       // enableRdoFreeTypedRows (Biofuel): the API marks a signed RDO; the editor opens it read-only.
       documentData.rdoSigned = response.data.rdoSigned === true;
       // Forward linked field-tech delivery reports so the DO preview/print can

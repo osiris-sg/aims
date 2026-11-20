@@ -32,6 +32,8 @@ const toExisting = (r: any) => ({
   name: r.voucherNumber,
   status: r.status,
   documentTemplateId: r.documentTemplateId,
+  // Per-document Lock button: a locked voucher opens read-only.
+  config: { recordLocked: r.recordLocked === true, recordLockedAt: r.recordLockedAt, recordLockedBy: r.recordLockedBy },
   supplier: r.supplierId ? { id: r.supplierId, name: r.supplierName || "", supplierCode: r.supplierCode || "" } : undefined,
   documentInfo: { documentNumber: r.voucherNumber, date: r.date },
   savedBy: r.savedBy,

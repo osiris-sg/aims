@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { assertPeriodOpen } from '../common/period-lock';
 import { CreateJournalEntryDto, JournalLineDto, UpdateJournalEntryDto } from './dto/journal-entry.dto';
 import { AnomaliesService } from '../anomalies/anomalies.service';
 import { docRef, isPrefixed } from '../common/doc-ref';
@@ -53,9 +54,10 @@ export class JournalService {
   }
 
   /** Confirm a single journal (manual JV confirm flow). */
-  async confirmEntry(organizationId: string, id: string) {
-    const entry = await this.prisma.journalEntry.findFirst({ where: { id, organizationId }, select: { id: true } });
+  async confirmEntry(organizationId: string, id: string, userId?: string) {
+    const entry = await this.prisma.journalEntry.findFirst({ where: { id, organizationId }, select: { id: true, entryDate: true } });
     if (!entry) throw new NotFoundException('Journal entry not found');
+    await assertPeriodOpen(this.prisma, { organizationId, date: entry.entryDate, actorId: userId, what: 'This journal entry', verb: 'confirmed' });
     return this.prisma.journalEntry.update({ where: { id }, data: { isUnconfirmed: false } });
   }
 
@@ -195,18 +197,7 @@ export class JournalService {
     // period. The Close Wizard itself bypasses this when posting the year-end
     // rollover JE (bypassPeriodLock=true).
     if (!options?.bypassPeriodLock) {
-      const settings = await this.prisma.accountingSetting.findUnique({
-        where: { organizationId },
-        select: { lockedThroughDate: true },
-      });
-      if (settings?.lockedThroughDate) {
-        const entryDate = new Date(dto.entryDate);
-        if (entryDate <= settings.lockedThroughDate) {
-          throw new BadRequestException(
-            `Period is closed through ${settings.lockedThroughDate.toISOString().slice(0, 10)}. Cannot create entries dated on or before that date.`,
-          );
-        }
-      }
+      await assertPeriodOpen(this.prisma, { organizationId, date: dto.entryDate, actorId: userId, what: 'This journal entry', verb: 'posted' });
     }
 
     // Retry on unique-constraint collisions: concurrent calls to nextJournalNumber
@@ -354,6 +345,7 @@ export class JournalService {
   async void(organizationId: string, id: string, userId?: string) {
     const entry = await this.findOne(organizationId, id);
     if (entry.status === 'VOID') return entry;
+    await assertPeriodOpen(this.prisma, { organizationId, date: entry.entryDate, actorId: userId, what: `Journal ${entry.journalNumber || ''}`.trim(), verb: 'voided' });
 
     // Void IN PLACE — never also post a reversing entry.
     //

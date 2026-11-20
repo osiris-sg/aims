@@ -5,6 +5,9 @@ import { PENDING_ORDER_LINK_KEY, pendingOrderLinkOf } from '../orders/order-list
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, NotFoundException, Optional, forwardRef } from '@nestjs/common';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { SALES_USER_ID_RE } from '../common/services/document-html/shared';
+import { assertRecordUnlocked, carryRecordLock, isRecordLocked } from '../common/record-lock';
+import { isLockAdviser } from '../common/period-lock';
+import { assertPeriodOpen, documentDay, isPeriodLockedDocType } from '../common/period-lock';
 import { tierOfRoleNames } from '../common/role-tier';
 import { DeliveriesService } from '../deliveries/deliveries.service';
 import { randomUUID } from 'crypto';
@@ -49,6 +52,10 @@ import { RDO_FREE_ROWS_FLAG, allowsRdoFreeRows, hasUnit, isRdoSigned, isRdoType 
 import { SOFT_DELETE_DRAFTS_FLAG, SOFT_DELETED_TYPE, WCT_STATUSES_FLAG, isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { assetKey, descKey, invoiceDiscountPercent, isDisplayRow, orderInvoiceReference, planOrderInvoice, quoteDiscountAmount, splitJobLines } from '../orders/order-billing';
+import { loadSubjectAccounts, subjectPostingLines } from './subject-type-account';
+
+/** A quotation's Subject as stored (flat, or under documentInfo on older rows; WCT orders). */
+const quoteSubjectOf = (qc: any): string => String(qc?.subject ?? qc?.documentInfo?.subject ?? '').trim();
 import { quotationLinesForJob } from '../deliveries/quotation-to-delivery';
 import { orgTodayFor } from '../common/org-today';
 import { insertWithLockedNumber } from '../document-numbering/locked-number';
@@ -268,7 +275,7 @@ export class DocumentsService {
   private logDocumentEvent(opts: {
     documentId: string;
     organizationId: string;
-    action: 'CREATED' | 'EDITED' | 'EDITED_AFTER_CONFIRM' | 'EDIT_UNLOCKED' | 'APPROVED' | 'STATUS_CHANGED' | 'NOTE' | 'SENT' | 'EMAIL_FAILED' | 'DELETED';
+    action: 'CREATED' | 'EDITED' | 'EDITED_AFTER_CONFIRM' | 'EDIT_UNLOCKED' | 'APPROVED' | 'STATUS_CHANGED' | 'NOTE' | 'SENT' | 'EMAIL_FAILED' | 'DELETED' | 'LOCKED' | 'UNLOCKED';
     detail: string;
     documentName?: string;
     actor?: DocumentActor;
@@ -462,6 +469,7 @@ export class DocumentsService {
         const headerGl = (await isOrgFeatureEnabled(this.prisma as any, organizationId, HEADER_GL_ACCOUNT_FLAG))
           ? { accountCode: String(cfg?.glAccountCode || '').trim() || null, remarks: String(cfg?.glRemarks || '').trim() || null }
           : null;
+        const bySubject = subjectPostingLines(cfg, await loadSubjectAccounts(this.prisma, organizationId), netAmount);
         entry = await this.journalAutoPost.postFromInvoice({
           organizationId,
           documentId,
@@ -471,7 +479,13 @@ export class DocumentsService {
           netAmount,
           taxAmount,
           grossAmount,
-          revenueLines: headerGl
+          // WCT (subject-type-account.ts): the Subject's type decides what posts — the whole net on the
+          // type's account, or only the priced lines when the subject combines types. It comes BEFORE
+          // the header account: WCT also has "Accounts to Credit" on, and a blank one used to send
+          // every invoice to the default sales account. Null (no type in the subject) = as before.
+          revenueLines: bySubject
+            ? bySubject.lines.map((l) => ({ accountCode: l.accountCode, amount: l.lineIndex < 0 ? l.amount : Math.round(l.amount * factor * 100) / 100 }))
+            : headerGl
             ? headerGl.accountCode
               ? [{ accountCode: headerGl.accountCode, amount: netAmount }]
               : []
@@ -481,7 +495,8 @@ export class DocumentsService {
                 accountCode: it.accountCode || it.revenueAccountCode || null,
                 amount: Math.round((parseFloat(it.amount) || (parseFloat(it.quantity) * parseFloat(it.unitPrice)) || 0) * factor * 100) / 100,
               })),
-          glRemarks: headerGl?.remarks || null,
+          // One subject line: the journal line reads as the subject, not "Sales — <no>".
+          glRemarks: (bySubject?.mode === 'subject' ? bySubject.lines[0].description : null) || headerGl?.remarks || null,
           userId: actor?.id,
         });
       } else {
@@ -585,9 +600,10 @@ export class DocumentsService {
     }
     const doc = await this.prisma.document.findFirst({
       where: { id: documentId, organizationId },
-      select: { id: true, name: true, status: true },
+      select: { id: true, name: true, status: true, config: true },
     });
     if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+    assertRecordUnlocked(doc, 'edited');
     await this.logDocumentEvent({
       documentId,
       organizationId,
@@ -597,6 +613,43 @@ export class DocumentsService {
       actor,
     });
     return { success: true };
+  }
+
+  // Per-document Lock / Unlock (common/record-lock.ts). Unlocking needs an accounting
+  // admin (the lock-dates adviser rule) so a lock is not undone by the person it stops.
+  async setRecordLock(documentId: string, organizationId: string, locked: boolean, actor?: DocumentActor) {
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, organizationId },
+      select: { id: true, name: true, status: true, config: true },
+    });
+    if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+    const config: any = { ...((doc.config as any) || {}) };
+    if (locked === isRecordLocked(config)) return { success: true, recordLocked: locked, recordLockedAt: config.recordLockedAt ?? null, recordLockedBy: config.recordLockedBy ?? null };
+    if (!locked && !(await isLockAdviser(this.prisma, organizationId, actor?.id))) {
+      throw new HttpException('Only an accounting admin can unlock a locked document', HttpStatus.FORBIDDEN);
+    }
+    const stamp = actor?.id ? { id: actor.id, name: actor.name || null, email: actor.email || null } : null;
+    if (locked) {
+      config.recordLocked = true;
+      config.recordLockedAt = new Date().toISOString();
+      config.recordLockedBy = stamp;
+    } else {
+      config.recordLocked = false;
+      config.recordLockedAt = null;
+      config.recordLockedBy = null;
+    }
+    await this.prisma.document.update({ where: { id: documentId }, data: { config } });
+    await this.logDocumentEvent({
+      documentId,
+      organizationId,
+      action: locked ? 'LOCKED' : 'UNLOCKED',
+      detail: locked
+        ? `Locked ${doc.name || 'document'}: no edits until it is unlocked (status: ${doc.status})`
+        : `Unlocked ${doc.name || 'document'}: editing allowed again (status: ${doc.status})`,
+      documentName: doc.name || undefined,
+      actor,
+    });
+    return { success: true, recordLocked: locked, recordLockedAt: config.recordLockedAt, recordLockedBy: config.recordLockedBy };
   }
 
   async addDocumentNote(documentId: string, organizationId: string, actor: DocumentActor, text: string) {
@@ -1380,6 +1433,18 @@ export class DocumentsService {
       }
       // An imported (old-ERP) DO is read-only (common/erp-import.ts): no save, no status change.
       assertNotErpImportedDo(existingDocument);
+
+      // Lock dates (common/period-lock.ts): a financial document dated inside the
+      // locked period is refused on its own date, and on the date it is being moved to.
+      // Per-document Lock (common/record-lock.ts): nothing changes on a locked record.
+      assertRecordUnlocked(existingDocument);
+      carryRecordLock(existingDocument.config, configAsPlainObject);
+      if (isPeriodLockedDocType(existingDocument.type)) {
+        const lockWhat = existingDocument.name || 'This document';
+        await assertPeriodOpen(this.prisma, { organizationId, date: documentDay(existingDocument.config, existingDocument.createdAt), actorId: actor?.id, what: lockWhat });
+        const movedTo = documentDay(configAsPlainObject, null);
+        if (movedTo) await assertPeriodOpen(this.prisma, { organizationId, date: movedTo, actorId: actor?.id, what: lockWhat, verb: 'dated there' });
+      }
 
       // Confirmed documents ARE editable (guru 2026-09-09) — the editor gates
       // this behind an explicit "Edit" unlock with a warning, and every such
@@ -2619,6 +2684,8 @@ export class DocumentsService {
           : updatedDocument,
       );
     } catch (error) {
+      // A refusal with its own status (403 locked / locked period, 404, 409 version) passes through as is.
+      if (error instanceof HttpException) throw error;
       throw new HttpException(`Update failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
@@ -3198,9 +3265,13 @@ export class DocumentsService {
       if (!opts?.force) {
         const doc = await this.prisma.document.findFirst({
           where: { id, organizationId },
-          select: { id: true, name: true, type: true, status: true },
+          select: { id: true, name: true, type: true, status: true, config: true, createdAt: true },
         });
         if (!doc) throw new NotFoundException('Document not found');
+        assertRecordUnlocked(doc, 'deleted');
+        if (isPeriodLockedDocType(doc.type)) {
+          await assertPeriodOpen(this.prisma, { organizationId, date: documentDay(doc.config, doc.createdAt), actorId: actor?.id, what: doc.name || 'This document', verb: 'deleted' });
+        }
         const status = String(doc.status || '').toLowerCase();
         const isDraft = status === '' || status === 'draft' || status === 'unconfirmed' || status === 'rejected';
         const what = doc.name || 'This document';
@@ -4598,6 +4669,10 @@ export class DocumentsService {
       }
       // A revision is only legal while the original can still be cancelled.
       await this.assertRevisable(original, organizationId);
+      assertRecordUnlocked(original, 'revised');
+      if (isPeriodLockedDocType(original.type)) {
+        await assertPeriodOpen(this.prisma, { organizationId, date: documentDay(original.config, original.createdAt), actorId: actor?.id, what: original.name || 'This document', verb: 'revised' });
+      }
 
       // Determine baseDocumentId and next revision number
       const baseDocumentId = original.baseDocumentId || original.id;
@@ -7519,6 +7594,10 @@ export class DocumentsService {
       const invoiceConfig = stampDocumentMoney(
         {
           ...base,
+          // The quotation's Subject comes with it (2026-11-20): the header is taken from the DO,
+          // which has no Subject, so the invoice used to start with a blank one. WCT's subject
+          // also carries the job type that decides what the invoice posts (subject-type-account.ts).
+          ...(!(base as any).subject && !(base as any).documentInfo?.subject && quoteSubjectOf(qc) ? { subject: quoteSubjectOf(qc) } : {}),
           items: lines,
           date: await orgTodayFor(this.prisma, organizationId),
           // Priced from the quotation; the order + its DOs are named on it.
@@ -7692,6 +7771,10 @@ export class DocumentsService {
       const invoiceConfig = stampDocumentMoney(
         {
           ...base,
+          // The quotation's Subject comes with it (2026-11-20): the header is taken from the DO,
+          // which has no Subject, so the invoice used to start with a blank one. WCT's subject
+          // also carries the job type that decides what the invoice posts (subject-type-account.ts).
+          ...(!(base as any).subject && !(base as any).documentInfo?.subject && quoteSubjectOf(qc) ? { subject: quoteSubjectOf(qc) } : {}),
           items: lines,
           date: await orgTodayFor(this.prisma, organizationId),
           sourceDocumentId: qo.id,
@@ -8398,6 +8481,8 @@ export class DocumentsService {
       if (!document) {
         throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
       }
+      assertRecordUnlocked(document, 'confirmed');
+      await assertPeriodOpen(this.prisma, { organizationId, date: documentDay(document.config, document.createdAt), actorId: actor?.id, what: document.name || 'This invoice', verb: 'confirmed' });
       this.assertHasLineItems((document as any).config, 'invoice');
       this.assertHasCustomer((document as any).config, (document as any).type, 'invoice');
 
@@ -8642,6 +8727,7 @@ export class DocumentsService {
         } else if (grossAmount <= 0) {
           console.warn('📒 [GL auto-post] grossAmount <= 0, skipping');
         } else {
+          const subjectPosting = subjectPostingLines(config, await loadSubjectAccounts(this.prisma, organizationId), netAmount);
           const entry = await this.journalAutoPost.postFromInvoice({
             organizationId,
             documentId,
@@ -8651,15 +8737,18 @@ export class DocumentsService {
             netAmount,
             taxAmount,
             grossAmount,
+            glRemarks: subjectPosting?.mode === 'subject' ? subjectPosting.lines[0].description : null,
             // Per-line revenue accounts from the Revenue Master File (config.items[].accountCode).
             // Tax-inclusive docs carry GROSS line amounts — scale them to net so the
             // revenue credits exclude GST (postFromInvoice expects line NET).
             revenueLines: (() => {
               // Split payment part: its net over the original invoice's revenue accounts. Null for every other invoice.
-              const split = splitGlRevenueLines(config, netAmount);
-              if (split) return split;
               const inclusive = di?.absorbTax === 'Y' || di?.absorbTax === true;
               const factor = inclusive && fallbackNet > 0 ? netAmount / fallbackNet : 1;
+              // WCT: the Subject's type decides what posts (subject-type-account.ts). Null for everyone else.
+              if (subjectPosting) return subjectPosting.lines.map((l) => ({ accountCode: l.accountCode, amount: l.lineIndex < 0 ? l.amount : Math.round(l.amount * factor * 100) / 100 }));
+              const split = splitGlRevenueLines(config, netAmount);
+              if (split) return split;
               return itemsForTotal.map((it: any) => ({
                 accountCode: it.accountCode || it.revenueAccountCode || null,
                 amount: Math.round((parseFloat(it.amount) || (parseFloat(it.quantity) * parseFloat(it.unitPrice)) || 0) * factor * 100) / 100,

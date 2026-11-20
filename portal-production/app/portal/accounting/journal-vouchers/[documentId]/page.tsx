@@ -27,6 +27,8 @@ const toExisting = (v: any) => ({
   name: v.voucherNumber,
   status: v.status,
   documentTemplateId: v.documentTemplateId,
+  // Per-document Lock button: a locked voucher opens read-only.
+  config: { recordLocked: v.recordLocked === true, recordLockedAt: v.recordLockedAt, recordLockedBy: v.recordLockedBy },
   documentInfo: { documentNumber: v.voucherNumber, date: v.date },
   savedBy: v.savedBy,
   savedAt: v.savedAt,

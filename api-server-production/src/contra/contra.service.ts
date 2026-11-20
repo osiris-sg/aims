@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { assertPeriodOpen } from '../common/period-lock';
 import { JournalAutoPostService } from '../journal/journal-auto-post.service';
 import { ReceiptsService } from '../receipts/receipts.service';
 import { PaymentVouchersService } from '../payment-vouchers/payment-vouchers.service';
@@ -216,6 +217,7 @@ export class ContraService {
 
     const tz = await this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { timeZone: true } });
     const date = dto.date || orgToday(tz?.timeZone);
+    await assertPeriodOpen(this.prisma, { organizationId, date, actorId: actor?.id, what: 'This contra', verb: 'recorded' });
     const number = await this.nextNumber(organizationId);
     const templateId = await this.getOrCreateTemplate(organizationId);
     // BillPayment.bankAccountId is required, and a contra touches no bank —

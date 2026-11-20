@@ -1,6 +1,7 @@
 import { BadRequestException, HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
 import { PrismaService } from '../common/prisma.service';
+import { assertPeriodOpen } from '../common/period-lock';
 import { JournalService } from '../journal/journal.service';
 import { AuditService } from '../common/audit.service';
 import { PaymentsService } from '../payments/payments.service';
@@ -945,6 +946,7 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
     const line = await this.prisma.bankStatementLine.findFirst({ where: { id: lineId, organizationId } });
     if (!line) throw new NotFoundException();
     if (line.status !== 'SUGGESTED') throw new BadRequestException(`Line is ${line.status} — only SUGGESTED lines need confirming`);
+    await assertPeriodOpen(this.prisma, { organizationId, date: line.date, actorId: userId, what: 'This bank statement line', verb: 'matched' });
     const updated = await this.prisma.bankStatementLine.update({
       where: { id: lineId },
       data: { status: 'MATCHED', matchedBy: userId, matchedAt: new Date() },
@@ -1056,6 +1058,7 @@ Output STRICT JSON only — never emit the token undefined, no trailing commas, 
     const line = await this.prisma.bankStatementLine.findFirst({ where: { id: lineId, organizationId } });
     if (!line) throw new NotFoundException();
     if (line.status !== 'PENDING') throw new BadRequestException(`Line is ${line.status}`);
+    await assertPeriodOpen(this.prisma, { organizationId, date: line.date, actorId: userId, what: 'This bank statement line', verb: 'posted' });
 
     const contra = await this.prisma.chartOfAccount.findFirst({
       where: { id: args.contraAccountId, organizationId, isActive: true },

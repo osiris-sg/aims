@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import Anthropic from '@anthropic-ai/sdk';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
+import { assertPeriodOpen } from '../common/period-lock';
 import { JournalService } from '../journal/journal.service';
 import { refWith, documentReferenceOf } from '../common/doc-ref';
 import { ChartOfAccountsService } from '../accounting/chart-of-accounts.service';
@@ -453,6 +454,7 @@ export class BillsService {
     },
     opts?: { postOnSave?: boolean },
   ) {
+    await assertPeriodOpen(this.prisma, { organizationId, date: dto.billDate, actorId: userId, what: dto.billNumber ? `Bill ${dto.billNumber}` : 'This bill', verb: 'saved' });
     if (!dto.supplierId && dto.supplierName) {
       dto.supplierId = (await this.resolveSupplierByName(organizationId, dto.supplierName)) as string;
     }
@@ -640,11 +642,13 @@ export class BillsService {
     return created;
   }
 
-  async update(organizationId: string, id: string, dto: Partial<any>, opts?: { postOnSave?: boolean }) {
+  async update(organizationId: string, id: string, dto: Partial<any>, opts?: { postOnSave?: boolean; userId?: string }) {
     const existing = await this.findOne(organizationId, id);
     if (existing.status !== 'DRAFT' && existing.status !== 'PENDING_APPROVAL') {
       throw new BadRequestException(`Can't edit a ${existing.status} bill — void and re-create`);
     }
+    await assertPeriodOpen(this.prisma, { organizationId, date: existing.billDate, actorId: opts?.userId, what: existing.billNumber ? `Bill ${existing.billNumber}` : 'This bill' });
+    if (dto.billDate) await assertPeriodOpen(this.prisma, { organizationId, date: dto.billDate, actorId: opts?.userId, what: existing.billNumber ? `Bill ${existing.billNumber}` : 'This bill', verb: 'dated there' });
     const cfg: any = { ...existing };
     // Pull the latest config from DB so we don't lose unknown fields.
     const dbDoc = await this.prisma.document.findUniqueOrThrow({ where: { id }, select: { config: true } });
@@ -781,6 +785,7 @@ export class BillsService {
   async post(organizationId: string, id: string, userId?: string) {
     const bill = await this.findOne(organizationId, id);
     if (bill.status === 'POSTED' || bill.status === 'PAID') return bill;
+    await assertPeriodOpen(this.prisma, { organizationId, date: bill.billDate, actorId: userId, what: bill.billNumber ? `Bill ${bill.billNumber}` : 'This bill', verb: 'confirmed' });
 
     // guru 2026-07-24: every save already posted an UNCONFIRMED journal —
     // confirming just flips the tag; no second journal.
@@ -1115,6 +1120,7 @@ export class BillsService {
   async voidBill(organizationId: string, id: string, userId?: string) {
     const bill = await this.findOne(organizationId, id);
     if (bill.status === 'VOID') return bill;
+    await assertPeriodOpen(this.prisma, { organizationId, date: bill.billDate, actorId: userId, what: bill.billNumber ? `Bill ${bill.billNumber}` : 'This bill', verb: 'voided' });
     // Unconfirmed bills carry a save-posted journal too — void it as well.
     if (bill.journalEntryId) {
       await this.journal.void(organizationId, bill.journalEntryId, userId).catch(() => undefined);
@@ -1569,6 +1575,7 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
   ) {
     if (!dto.amount || dto.amount <= 0) throw new BadRequestException('amount must be > 0');
     const bill = await this.findOne(organizationId, billId);
+    await assertPeriodOpen(this.prisma, { organizationId, date: dto.paymentDate, actorId: userId, what: `The payment on ${bill.billNumber ? `bill ${bill.billNumber}` : 'this bill'}`, verb: 'recorded' });
     if (bill.status !== 'POSTED' && bill.status !== 'PAID') {
       throw new BadRequestException(`Can only pay a POSTED bill, got ${bill.status}`);
     }
