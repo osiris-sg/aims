@@ -54,7 +54,8 @@ export default function JobStyleFields({
   const { isWorkersTeamsEnabled } = useOrganizationFeatures();
   const crewOn = !!isWorkersTeamsEnabled;
   return (
-    <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }} data-tour="job-style-fields">
+    // Round 41: the row wraps when narrow (the job dialogs' left column) instead of pushing the form sideways.
+    <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} useFlexGap flexWrap="wrap" alignItems={{ sm: "center" }} data-tour="job-style-fields">
       <Autocomplete
         size="small"
         options={withPick(salespeople, value.salesperson)}

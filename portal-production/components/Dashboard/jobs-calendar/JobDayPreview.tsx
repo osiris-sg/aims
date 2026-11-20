@@ -155,7 +155,7 @@ export const SPLIT_PAPER_SX = { width: "90vw", maxWidth: "1500px", height: "88vh
 export function JobSplitContent({ form, preview }: { form: React.ReactNode; preview: React.ReactNode }) {
   return (
     <Box sx={{ display: "flex", flexDirection: { xs: "column", md: "row" }, gap: 2, height: { md: "100%" }, minHeight: 0 }}>
-      <Box sx={{ width: { xs: "100%", md: 580 }, flexShrink: 0, overflowY: { md: "auto" }, pr: { md: 1 } }}>{form}</Box>
+      <Box sx={{ width: { xs: "100%", md: 580 }, flexShrink: 0, overflowY: { md: "auto" }, overflowX: "hidden", pr: { md: 1 } }}>{form}</Box>
       <Box sx={{ flex: 1, minWidth: 0 }}>{preview}</Box>
     </Box>
   );
