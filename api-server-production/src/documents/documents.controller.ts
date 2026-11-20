@@ -536,6 +536,15 @@ export class DocumentsController {
     return await this.documentsService.setRecordLock(id, organizationId, false, actorFromReq(req));
   }
 
+  // VOID (guru 2026-11-20): the document and every live journal posted from it. Refused while it has payments.
+  @Post(':id/void')
+  @Permissions('documents:update')
+  async voidDocument(@Param('id') id: string, @Body() body: { reason?: string } | undefined, @Req() req: RequestWithOrganization) {
+    const organizationId = req.userOrganization?.id;
+    if (!organizationId) throw new Error('User is not assigned to any organization');
+    return await this.documentsService.voidDocument(id, organizationId, actorFromReq(req), body?.reason ?? null);
+  }
+
   @Post(':id/duplicate')
   @Permissions('documents:create-basic')
   async duplicateDocument(@Param('id') id: string, @Req() req: RequestWithOrganization) {

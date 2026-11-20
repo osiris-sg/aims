@@ -1,4 +1,4 @@
-import { isVoidedWithOrder } from '../orders/order-cancel';
+import { isDocumentVoided } from '../common/document-void';
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { refreshOrderStatus } from '../orders/wct-orders';
 import { PrismaService } from '../common/prisma.service';
@@ -39,7 +39,7 @@ export class PaymentsService {
       }
       await assertPeriodOpen(this.prisma, { organizationId, date: createPaymentDto.paymentDate, actorId: userId, what: `The payment on ${document.name || 'this invoice'}`, verb: 'recorded' });
       // A draft invoice voided with its cancelled order (orders/order-cancel.ts) takes no payment.
-      if (isVoidedWithOrder(document.config)) throw new HttpException(`${document.name ?? 'This invoice'} was voided with its cancelled order.`, HttpStatus.BAD_REQUEST);
+      if (isDocumentVoided(document.config)) throw new HttpException(`${document.name ?? 'This invoice'} is voided: no payment can be recorded on it.`, HttpStatus.BAD_REQUEST);
 
       // No-draft model: a SAVED invoice is already in the GL/AR and can take
       // payments. Only block documents that were never posted (unsaved legacy

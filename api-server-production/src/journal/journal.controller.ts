@@ -94,7 +94,10 @@ export class JournalController {
   @Post('entries/:id/void')
   @Permissions('journal:void')
   void(@Req() req: RequestWithOrganization, @Param('id') id: string) {
-    return this.service.void(requireOrgId(req), id, req.auth?.userId);
+    // A document's own journal voids the document with it (journal.service voidByUser).
+    const u: any = (req as any).user || {};
+    const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim();
+    return this.service.voidByUser(requireOrgId(req), id, { id: req.auth?.userId || u.id, name: name || null, email: u.emailAddresses?.[0]?.emailAddress ?? null });
   }
 
   // Payment / receipt journals held for ERP-imported invoices (flag holdErpImportPaymentGl).

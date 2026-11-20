@@ -59,8 +59,10 @@ type BillLine = {
 type BillStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'POSTED' | 'PAID' | 'VOID';
 
 // Map our fine-grained billStatus to the coarse DocumentStatus enum (draft/confirmed/cancelled).
-function toDocStatus(billStatus: BillStatus): 'unconfirmed' | 'confirmed' | 'cancelled' {
-  if (billStatus === 'VOID') return 'cancelled';
+function toDocStatus(billStatus: BillStatus): 'unconfirmed' | 'confirmed' {
+  // No 'cancelled' in the DocumentStatus enum (Postgres refused it, so a bill could never be
+  // voided): a VOID bill keeps 'confirmed' and is voided through config.voided + billStatus.
+  if (billStatus === 'VOID') return 'confirmed';
   if (billStatus === 'DRAFT' || billStatus === 'PENDING_APPROVAL') return 'unconfirmed';
   return 'confirmed';
 }
@@ -1126,7 +1128,8 @@ export class BillsService {
       await this.journal.void(organizationId, bill.journalEntryId, userId).catch(() => undefined);
     }
     await this.patchStatus(id, 'VOID');
-    await this.patchConfig(id, { voidedAt: new Date().toISOString(), voidedBy: userId });
+    // config.voided: the one marker every reader honours (common/document-void.ts).
+    await this.patchConfig(id, { voided: true, voidedAt: new Date().toISOString(), voidedBy: userId });
     return this.findOne(organizationId, id);
   }
 

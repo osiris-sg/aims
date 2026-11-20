@@ -1,7 +1,8 @@
 // Run: npm test. 2026-11-17: invoices voided with a cancelled order read "Voided"; every other document as before.
+// 2026-11-20: EVERY voided document (config.voided, the Void button / a voided journal) reads "Voided".
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { docDisplayStatus, isVoidedWithOrder } from "./docStatus.ts";
+import { docDisplayStatus, isVoidedWithOrder, isDocVoided } from "./docStatus.ts";
 import { invoiceStatusOptions, INVOICE_STATUS_BASE } from "./invoiceStatusOptions.ts";
 import { splitButtons } from "./invoiceSplit.ts";
 
@@ -29,15 +30,21 @@ const DOCS = [
   { status: "pending_payment", type: "INVOICE", config: { paidToDate: 10, outstandingBalance: 5 } },
   { status: "pending_payment", type: "INVOICE", config: { xeroAmountPaid: 10, xeroBalance: 0 } },
   { status: "paid", type: "INVOICE", config: { voided: true } },
-  // Biofuel-style voided invoices (81 on prod, config.voided without the order marker): unchanged.
-  { status: "pending_payment", type: "INVOICE", config: { voided: true, paidToDate: 1, outstandingBalance: 1 } },
-  { status: "unconfirmed", type: "INVOICE", config: { voided: true } },
   { status: "delivered_installed", type: "DELIVERY_ORDER", config: { cancelled: true } },
   { status: "returned", type: "RDO" },
 ];
 
-test("every document without the order-cancel marker reads exactly as before", () => {
+test("every document that is not voided reads exactly as before", () => {
   for (const d of DOCS) assert.equal(docDisplayStatus(d), before(d), JSON.stringify(d));
+});
+
+test("a voided document reads Voided whatever its status (Void button, voided journal, Xero voided imports)", () => {
+  assert.equal(docDisplayStatus({ status: "pending_payment", type: "INVOICE", config: { voided: true, paidToDate: 1, outstandingBalance: 1 } }), "voided");
+  assert.equal(docDisplayStatus({ status: "unconfirmed", type: "INVOICE", config: { voided: true, voidedAt: "2026-11-20T00:00:00Z" } }), "voided");
+  assert.equal(docDisplayStatus({ status: "confirmed", type: "CN", config: { voided: true } }), "voided");
+  assert.equal(docDisplayStatus({ status: "pending_payment", type: "INVOICE", config: { voided: false } }), "pending_payment");
+  assert.equal(isDocVoided({ voided: true }), true);
+  assert.equal(isDocVoided({ voided: "true" }), false);
 });
 
 test("an invoice voided with its cancelled order reads Voided", () => {
@@ -47,15 +54,16 @@ test("an invoice voided with its cancelled order reads Voided", () => {
   assert.equal(isVoidedWithOrder({ voided: true }), false);
 });
 
-test("Status filter: the same four options for every org; Voided only on the manual order flow", () => {
+test("Status filter: the same five options for every org, Voided last (2026-11-20: every org can void)", () => {
   assert.deepEqual(invoiceStatusOptions(false), [
     { value: "unconfirmed", label: "Unconfirmed" },
     { value: "pending_payment", label: "Awaiting Payment" },
     { value: "partially_paid", label: "Partially Paid" },
     { value: "paid", label: "Paid" },
+    { value: "voided", label: "Voided" },
   ]);
-  assert.equal(invoiceStatusOptions(false), INVOICE_STATUS_BASE);
-  assert.deepEqual(invoiceStatusOptions(true).at(-1), { value: "voided", label: "Voided" });
+  assert.deepEqual(invoiceStatusOptions(true), invoiceStatusOptions(false));
+  assert.deepEqual(INVOICE_STATUS_BASE.at(-1), { value: "paid", label: "Paid" });
 });
 
 test("no Split payment / Undo split on a voided invoice", () => {

@@ -127,6 +127,7 @@ import { requestFailed } from "@/helpers/requestOutcome";
 import { categoryChoices } from "@/helpers/salesReport";
 import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
+import BlockOutlinedIcon from "@mui/icons-material/BlockOutlined";
 import LockOpenOutlinedIcon from "@mui/icons-material/LockOpenOutlined";
 import { useLockDates, isPeriodLockedDocType, lockDayLabel } from "@/app/portal/hooks/useLockDates";
 import EditorRail from "./EditorRail";
@@ -187,7 +188,7 @@ import { storedTotalsFor } from "@/helpers/erpImport";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
 import InvoiceSplitDialog from "./InvoiceSplitDialog";
 import { splitButtons } from "@/helpers/invoiceSplit";
-import { isVoidedWithOrder } from "@/helpers/docStatus";
+import { isDocVoided, docPaidOf } from "@/helpers/docStatus";
 import StatusChip from "@/components/StatusChip";
 import { quotationTemplateControls } from "@/helpers/quotationTemplates";
 import QuotationAddSplitButton from "@/app/portal/components/QuotationTemplates/QuotationAddSplitButton";
@@ -245,6 +246,7 @@ const LEGACY_BTN = {
   preview: legacyBtn("#BE185D", "#9D174D", "#F5A8C9", "#F8BBD6", "#4A0A2B"),
   edit: legacyBtn("#D97706", "#B45309", "#F7CB7A", "#F9D694", "#3D2300"),
   lock: legacyBtn("#64748B", "#475569", "#C3CCD9", "#D0D8E3", "#111827"),
+  void: legacyBtn("#7F1D1D", "#641616", "#E3A5A5", "#EBB5B5", "#2B0707"),
 };
 // A fully-uppercase tab label (a legacy config's "DETAILS") becomes Title case;
 // labels that already have lower-case letters (e.g. "Delivery Address") are
@@ -513,9 +515,12 @@ export default function TabbedDocumentCreator({
   // paid, delivered_*, …) — it is locked to the read-only preview. Named
   // "confirmed" for history; it really means "not unconfirmed" so all
   // downstream lock/preview gates cover those states.
-  // An invoice voided with its cancelled order (manual flow) is locked like a confirmed one: no Confirm, no edits.
-  const voidedWithOrder = isVoidedWithOrder((existingData as any)?.config);
-  const isDocumentConfirmedStatus = !["draft", "unconfirmed"].includes(documentStatus) || voidedWithOrder;
+  // A VOIDED document (the Void button, a voided journal, a cancelled order; config.voided) is
+  // locked like a confirmed one: no Confirm, no edits, no send. voidedLocal = voided in this session.
+  const [voidedLocal, setVoidedLocal] = useState(false);
+  useEffect(() => setVoidedLocal(false), [existingData?.id]);
+  const isVoidedDoc = voidedLocal || isDocVoided((existingData as any)?.config);
+  const isDocumentConfirmedStatus = !["draft", "unconfirmed"].includes(documentStatus) || isVoidedDoc;
   // Edit-after-confirm (guru 2026-09-09): a confirmed document opens as a
   // READ-ONLY form; the toolbar "Edit" button (behind a warning dialog)
   // unlocks it. Unlocking flips this effective flag so every downstream
@@ -628,6 +633,41 @@ export default function TabbedDocumentCreator({
   const recordLockTitle = recordLocked
     ? `Locked${recordLock.by?.name || recordLock.by?.email ? ` by ${recordLock.by?.name || recordLock.by?.email}` : ""}${recordLock.at ? ` on ${new Date(recordLock.at).toLocaleDateString("en-GB")}` : ""}. No edits until it is unlocked.`
     : "Lock this document: no edits at all until an accounting admin unlocks it.";
+  // VOID (guru 2026-11-20: "there is no way to void an actual document"): POST /documents/:id/void
+  // voids the document AND every live journal posted from it; the status pill reads Voided, it
+  // owes nothing, and it is read-only for good. Refused while money is recorded against it.
+  const voidable = !isTemplateEditMode && !!(documentId || existingData?.id) && isPeriodLockedDocType(actualDocumentType || documentType) && !isSettlementType && !isVoidedDoc;
+  const docHasMoney = isPaidInvoice || (docPaidOf((existingData as any)?.config) ?? 0) > 0.005;
+  const [voidDialogOpen, setVoidDialogOpen] = useState(false);
+  const [voidReason, setVoidReason] = useState("");
+  const [voidBusy, setVoidBusy] = useState(false);
+  const voidDisabled = voidBusy || docHasMoney || recordLocked || periodLocked;
+  const voidTitle = docHasMoney
+    ? "Money is recorded against it. Delete the receipt first (it goes back to Awaiting Payment), then void."
+    : recordLocked
+    ? "Locked. Unlock it first."
+    : periodLocked
+    ? "Dated inside the locked period."
+    : "Void this document: it stays on file as Voided, owes nothing, and its journal is voided.";
+  const handleVoid = async () => {
+    const docId = existingData?.id || documentId;
+    if (!docId || voidBusy) return;
+    setVoidBusy(true);
+    try {
+      const token = await getToken();
+      const res: any = await request({ path: `/documents/${docId}/void`, method: "POST" }, { reason: voidReason.trim() || undefined }, token || undefined);
+      if (requestFailed(res)) return; // the global error toast already said why
+      const body = res?.data ?? res;
+      setVoidDialogOpen(false);
+      setVoidReason("");
+      setVoidedLocal(true);
+      setConfirmedEditUnlocked(false);
+      const jnums: string[] = Array.isArray(body?.journalsVoided) ? body.journalsVoided : [];
+      toast.success(jnums.length ? `Voided. Journal ${jnums.join(", ")} voided with it.` : "Voided.");
+    } finally {
+      setVoidBusy(false);
+    }
+  };
   const isDocumentConfirmed = (isDocumentConfirmedStatus && !confirmedEditUnlocked && !isSettlementType) || rdoSignedLock || periodLocked || recordLocked;
   const confirmedReadOnly = (isDocumentConfirmedStatus && !confirmedEditUnlocked && !isSettlementType) || rdoSignedLock || periodLocked || recordLocked;
   const isDocumentEditable = !isDocumentConfirmed && !isTemplateEditMode;
@@ -898,7 +938,7 @@ export default function TabbedDocumentCreator({
     quotationESign: isQuotationESignEnabled,
     doOnOrder,
     doCompleted: String(documentStatus || "").startsWith("delivered"),
-  }), voidedWithOrder);
+  }), isVoidedDoc);
   // Return Delivery Order. Documents genuinely carry the canonical
   // RETURN_DELIVERY_ORDER type (not just the "RDO" variant), so every RDO-only
   // render branch matches BOTH: the editor tracks reality rather than relying on
@@ -5090,7 +5130,7 @@ export default function TabbedDocumentCreator({
               ) : (
                 // config.savedAt is carried from this session's saves as well as the
                 // stored config, so any status rule that reads it sees the current value.
-                <StatusChip status={documentStatus} doc={{ ...(existingData as any), type: (existingData as any)?.type || documentType, config: { ...((existingData as any)?.config || {}), savedAt: liveTracking.savedAt ?? (existingData as any)?.config?.savedAt ?? existingData?.savedAt } }} />
+                <StatusChip status={documentStatus} doc={{ ...(existingData as any), type: (existingData as any)?.type || documentType, config: { ...((existingData as any)?.config || {}), ...(voidedLocal ? { voided: true } : {}), savedAt: liveTracking.savedAt ?? (existingData as any)?.config?.savedAt ?? existingData?.savedAt } }} />
               )}
             </Box>
           )}
@@ -5187,7 +5227,7 @@ export default function TabbedDocumentCreator({
                   now, and the button no longer offers it. */}
               <Tooltip title={isDraftDoc ? "" : "Confirmed documents are voided or credited, not deleted"}>
                 <span>
-                  <Button size="small" variant="contained" startIcon={<DeleteIcon />} onClick={() => setInvoiceDeleteOpen(true)} disabled={!(existingData?.id || documentId) || isPaidInvoice || !isDraftDoc || periodLocked || recordLocked} sx={LEGACY_BTN.delete} data-tour="editor-legacy-delete">Delete</Button>
+                  <Button size="small" variant="contained" startIcon={<DeleteIcon />} onClick={() => setInvoiceDeleteOpen(true)} disabled={!(existingData?.id || documentId) || isPaidInvoice || !isDraftDoc || periodLocked || recordLocked || isVoidedDoc} sx={LEGACY_BTN.delete} data-tour="editor-legacy-delete">Delete</Button>
                 </span>
               </Tooltip>
               <Button size="small" variant="contained" startIcon={<NavigateBeforeIcon />} onClick={onPrevious} disabled={!onPrevious || !hasPrevious} sx={LEGACY_BTN.nav}>Previous</Button>
@@ -5432,11 +5472,21 @@ export default function TabbedDocumentCreator({
             <Button size="small" variant="contained" startIcon={<ContentCopyIcon />} onClick={handleDuplicateDocument} disabled={!(existingData?.id || documentId)} sx={LEGACY_BTN.duplicate} data-tour="editor-legacy-duplicate">Duplicate</Button>
           )}
           {/* Per-document Lock / Unlock (2026-11-20): unlock is for accounting admins only. */}
-          {legacyLayout && recordLockable && (
+          {legacyLayout && recordLockable && !isVoidedDoc && (
             <Tooltip title={recordLocked && !isLockAdviser ? `${recordLockTitle} Only an accounting admin can unlock it.` : recordLockTitle}>
               <span>
                 <Button size="small" variant="contained" startIcon={recordLocked ? <LockOpenOutlinedIcon /> : <LockOutlinedIcon />} onClick={toggleRecordLock} disabled={recordLockBusy || (recordLocked && !isLockAdviser)} sx={LEGACY_BTN.lock} data-tour="editor-legacy-lock">
                   {recordLocked ? "Unlock" : "Lock"}
+                </Button>
+              </span>
+            </Tooltip>
+          )}
+          {/* Void (2026-11-20): the document and its journal, for good. Greyed while it has money. */}
+          {legacyLayout && voidable && (
+            <Tooltip title={voidTitle}>
+              <span>
+                <Button size="small" variant="contained" startIcon={<BlockOutlinedIcon />} onClick={() => setVoidDialogOpen(true)} disabled={voidDisabled} sx={LEGACY_BTN.void} data-tour="editor-legacy-void">
+                  Void
                 </Button>
               </span>
             </Tooltip>
@@ -5447,7 +5497,7 @@ export default function TabbedDocumentCreator({
               warning dialog, and every save after it lands in the document history
               as "Edited after confirm" under the user's name. Paid invoices stay
               locked — money is received through the receipt, not by editing. */}
-          {legacyLayout && confirmedReadOnly && !isPaidInvoice && !isImportedDo && !periodLocked && !recordLocked && (
+          {legacyLayout && confirmedReadOnly && !isPaidInvoice && !isImportedDo && !periodLocked && !recordLocked && !isVoidedDoc && (
             <Button size="small" variant="contained" startIcon={<EditIcon />} onClick={() => setConfirmedEditWarningOpen(true)} sx={LEGACY_BTN.edit} data-tour="editor-legacy-edit">Edit</Button>
           )}
           {/* enableQuotationESign (2026-11-13): CIEL's "Send for signature" toolbar
@@ -5623,7 +5673,7 @@ export default function TabbedDocumentCreator({
               sx={{ fontWeight: 600 }}
             />
           ))}
-          {confirmedReadOnly && !isTemplateEditMode && !isPaidInvoice && !legacyLayout && !isImportedDo && !periodLocked && !recordLocked && (
+          {confirmedReadOnly && !isTemplateEditMode && !isPaidInvoice && !legacyLayout && !isImportedDo && !periodLocked && !recordLocked && !isVoidedDoc && (
             <Button
               size="small"
               variant="outlined"
@@ -5737,10 +5787,17 @@ export default function TabbedDocumentCreator({
               </MenuItem>
             )}
             {/* Per-document Lock / Unlock (2026-11-20). */}
-            {!legacyLayout && recordLockable && (
+            {!legacyLayout && recordLockable && !isVoidedDoc && (
               <MenuItem onClick={() => { closeMoreMenu(); void toggleRecordLock(); }} disabled={recordLockBusy || (recordLocked && !isLockAdviser)}>
                 <ListItemIcon>{recordLocked ? <LockOpenOutlinedIcon fontSize="small" /> : <LockOutlinedIcon fontSize="small" />}</ListItemIcon>
                 <ListItemText>{recordLocked ? "Unlock" : "Lock"}</ListItemText>
+              </MenuItem>
+            )}
+            {/* Void (2026-11-20): the document and its journal, for good. */}
+            {!legacyLayout && voidable && (
+              <MenuItem onClick={() => { closeMoreMenu(); setVoidDialogOpen(true); }} disabled={voidDisabled} sx={{ color: "error.main" }} data-tour="editor-void">
+                <ListItemIcon><BlockOutlinedIcon fontSize="small" color="error" /></ListItemIcon>
+                <ListItemText primary="Void" secondary={voidDisabled ? voidTitle : undefined} />
               </MenuItem>
             )}
             {/* Receipts: legacy toolbar's Delete — voids the journal and
@@ -9313,6 +9370,21 @@ export default function TabbedDocumentCreator({
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setInvoiceDeleteOpen(false)}>Cancel</Button>
           <Button color="error" variant="contained" onClick={() => { setInvoiceDeleteOpen(false); void handleDelete(); }}>Delete</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Void (2026-11-20): the document and every journal posted from it; no un-void. */}
+      <Dialog open={voidDialogOpen} onClose={() => !voidBusy && setVoidDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Void {getDocumentTitle().toLowerCase()}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ color: "text.secondary", mb: 2 }}>
+            Void {formData.documentInfo?.documentNumber || formData.name || `this ${getDocumentTitle().toLowerCase()}`}? It stays on file as Voided, owes nothing and its journal is voided. This cannot be undone.
+          </Typography>
+          <TextField label="Reason (optional)" size="small" fullWidth autoFocus value={voidReason} onChange={(e) => setVoidReason(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void handleVoid(); } }} />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setVoidDialogOpen(false)} disabled={voidBusy}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={() => void handleVoid()} disabled={voidBusy} data-tour="editor-void-confirm">Void</Button>
         </DialogActions>
       </Dialog>
 

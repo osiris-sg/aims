@@ -83,14 +83,18 @@ export function docDisplayStatus(doc: { status?: string | null; config?: any; ty
   if (s === "confirmed" && isInvoiceType(doc?.type)) s = "pending_payment";
   if (["paid", "cancelled", "voided", "returned"].includes(s)) return s;
   const c = doc?.config || {};
-  if (c.voided && c.cancelledWithOrder === true) return "voided";
-  if (c.voided) return s;
+  // Voided (2026-11-20: the Void button, a voided journal, a cancelled order, Xero's voided
+  // imports): config.voided is the one marker, so every voided document reads Voided.
+  if (c.voided === true) return "voided";
   const paid = docPaidOf(c);
   const outstanding = docOutstandingOf(c);
   if (paid !== null && paid > 0.005 && outstanding !== null && outstanding > 0.005) return PARTIALLY_PAID;
   return s;
 }
 
+
+/** A voided document (Void button / voided journal / cancelled order): read-only, owes nothing. */
+export const isDocVoided = (config: any): boolean => config?.voided === true;
 
 /** An invoice voided with its cancelled order (manual order flow). */
 export const isVoidedWithOrder = (config: any): boolean => config?.voided === true && config?.cancelledWithOrder === true;

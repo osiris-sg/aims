@@ -63,6 +63,7 @@ const SALES_STATUS_OPTIONS = [
   { value: "delivered_installed", label: "Delivered & Installed" },
   { value: "pending_return", label: "Pending Return" },
   { value: "returned", label: "Returned" },
+  { value: "voided", label: "Voided" },
 ];
 
 // Invoices (guru 2026-11-14): never "Confirmed" — an invoice is Unconfirmed,
@@ -137,7 +138,7 @@ export default function SalesDocumentList({
     sortDir: "desc",
   });
 
-  // "Voided" status filter: manual order flow only (invoices voided with a cancelled order).
+  // "Voided" status filter (every org since 2026-11-20; the flag only still feeds the helper's signature).
   const { isManualOrderFlowEnabled } = useOrganizationFeatures();
   const filterConfig: FilterField[] = useMemo(() => {
     const cfg: FilterField[] = [

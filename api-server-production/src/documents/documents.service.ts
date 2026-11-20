@@ -7,6 +7,7 @@ import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { SALES_USER_ID_RE } from '../common/services/document-html/shared';
 import { assertRecordUnlocked, carryRecordLock, isRecordLocked } from '../common/record-lock';
 import { isLockAdviser } from '../common/period-lock';
+import { assertNotVoided, isDocumentVoided, voidDocumentCore, voidedDocumentIds } from '../common/document-void';
 import { assertPeriodOpen, documentDay, isPeriodLockedDocType } from '../common/period-lock';
 import { tierOfRoleNames } from '../common/role-tier';
 import { DeliveriesService } from '../deliveries/deliveries.service';
@@ -27,7 +28,7 @@ import { JournalService } from '../journal/journal.service';
 import { OrdersService } from '../orders/orders.service';
 import { DocumentTemplatesService } from '../documentTemplates/documentTemplates.service';
 import { runAsOrg } from '../common/tenancy/tenant-context';
-import { isVoidedWithOrder, voidedWithOrderIds } from '../orders/order-cancel';
+import { isVoidedWithOrder } from '../orders/order-cancel';
 import { DocumentNumberingService, splitPartNamesAmong } from '../document-numbering/document-numbering.service';
 import { SendInvoiceEmailDto } from '../email/dto/send-invoice-email.dto';
 import { S3Service } from 'src/common/services/s3.service';
@@ -275,7 +276,7 @@ export class DocumentsService {
   private logDocumentEvent(opts: {
     documentId: string;
     organizationId: string;
-    action: 'CREATED' | 'EDITED' | 'EDITED_AFTER_CONFIRM' | 'EDIT_UNLOCKED' | 'APPROVED' | 'STATUS_CHANGED' | 'NOTE' | 'SENT' | 'EMAIL_FAILED' | 'DELETED' | 'LOCKED' | 'UNLOCKED';
+    action: 'CREATED' | 'EDITED' | 'EDITED_AFTER_CONFIRM' | 'EDIT_UNLOCKED' | 'APPROVED' | 'STATUS_CHANGED' | 'NOTE' | 'SENT' | 'EMAIL_FAILED' | 'DELETED' | 'LOCKED' | 'UNLOCKED' | 'VOIDED';
     detail: string;
     documentName?: string;
     actor?: DocumentActor;
@@ -396,6 +397,8 @@ export class DocumentsService {
     if (!jeType) return;
     // ERP-imported history never posts (common/erp-import.ts), even when edited and saved.
     if (isErpImported(config)) return;
+    // A voided document has no GL entry (its journals were voided with it).
+    if (isDocumentVoided(config)) return;
     try {
       // postInvoicesOnConfirm (WCT group): a draft invoice has no GL entry yet;
       // one left by an earlier save is voided. It posts when it leaves draft.
@@ -604,6 +607,7 @@ export class DocumentsService {
     });
     if (!doc) throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
     assertRecordUnlocked(doc, 'edited');
+    assertNotVoided(doc, 'edited');
     await this.logDocumentEvent({
       documentId,
       organizationId,
@@ -650,6 +654,23 @@ export class DocumentsService {
       actor,
     });
     return { success: true, recordLocked: locked, recordLockedAt: config.recordLockedAt, recordLockedBy: config.recordLockedBy };
+  }
+
+  /**
+   * VOID a document (guru 2026-11-20): the Void button on every accounting document and the
+   * cascade from a voided journal (journal.service voidByUser). Voids every live journal posted
+   * from it, stamps config.voided / voidedAt / voidedBy / voidReason, writes History VOIDED.
+   * Refused while money is recorded against it (delete the receipt first). No un-void.
+   */
+  async voidDocument(documentId: string, organizationId: string, actor?: DocumentActor, reason?: string | null) {
+    return voidDocumentCore(this.prisma, {
+      organizationId,
+      documentId,
+      actor,
+      reason,
+      voidJournal: (journalId) => this.journalService.void(organizationId, journalId, actor?.id),
+      log: (detail, documentName) => this.logDocumentEvent({ documentId, organizationId, action: 'VOIDED', detail, documentName, actor }),
+    });
   }
 
   async addDocumentNote(documentId: string, organizationId: string, actor: DocumentActor, text: string) {
@@ -1438,6 +1459,7 @@ export class DocumentsService {
       // locked period is refused on its own date, and on the date it is being moved to.
       // Per-document Lock (common/record-lock.ts): nothing changes on a locked record.
       assertRecordUnlocked(existingDocument);
+      assertNotVoided(existingDocument);
       carryRecordLock(existingDocument.config, configAsPlainObject);
       if (isPeriodLockedDocType(existingDocument.type)) {
         const lockWhat = existingDocument.name || 'This document';
@@ -4670,6 +4692,7 @@ export class DocumentsService {
       // A revision is only legal while the original can still be cancelled.
       await this.assertRevisable(original, organizationId);
       assertRecordUnlocked(original, 'revised');
+      assertNotVoided(original, 'revised');
       if (isPeriodLockedDocType(original.type)) {
         await assertPeriodOpen(this.prisma, { organizationId, date: documentDay(original.config, original.createdAt), actorId: actor?.id, what: original.name || 'This document', verb: 'revised' });
       }
@@ -4914,11 +4937,11 @@ export class DocumentsService {
       else where.type = { not: SOFT_DELETED_TYPE };
       if (opts.templateId) where.documentTemplateId = opts.templateId;
 
-      // Invoices voided with a cancelled order (orders/order-cancel.ts, manual order flow): out of the
+      // Voided documents (config.voided: the Void button, a voided journal, a cancelled order): out of the
       // default list, and the only rows under the "Voided" status filter. No such rows = no change.
       {
         const asked = (Array.isArray(opts.status) ? opts.status : [opts.status]).filter(Boolean) as string[];
-        const voidedIds = await voidedWithOrderIds(this.prisma, organizationId);
+        const voidedIds = await voidedDocumentIds(this.prisma, organizationId);
         if (asked.includes('voided')) {
           and.push({ id: { in: voidedIds } });
           const rest = asked.filter((x) => x !== 'voided');
@@ -4969,7 +4992,9 @@ export class DocumentsService {
               -- Same exclusions the chip makes (components/StatusChip.tsx
               -- docDisplayStatus), so the filter cannot hand back a row that
               -- then renders as Paid or Cancelled.
-              AND d.status NOT IN ('paid', 'returned', 'cancelled', 'voided')
+              -- ::text — the DocumentStatus enum has no cancelled / voided, Postgres refuses the bare compare.
+              AND d.status::text NOT IN ('paid', 'returned', 'cancelled', 'voided')
+              AND COALESCE(d.config ->> 'voided', 'false') <> 'true'
               AND COALESCE((d.config ->> 'paidToDate')::numeric, (d.config ->> 'xeroAmountPaid')::numeric, 0) > 0.005
               AND COALESCE((d.config ->> 'outstandingBalance')::numeric, (d.config ->> 'xeroBalance')::numeric, 0) > 0.005
             LIMIT 5000`;
@@ -8482,6 +8507,7 @@ export class DocumentsService {
         throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
       }
       assertRecordUnlocked(document, 'confirmed');
+      assertNotVoided(document, 'confirmed');
       await assertPeriodOpen(this.prisma, { organizationId, date: documentDay(document.config, document.createdAt), actorId: actor?.id, what: document.name || 'This invoice', verb: 'confirmed' });
       this.assertHasLineItems((document as any).config, 'invoice');
       this.assertHasCustomer((document as any).config, (document as any).type, 'invoice');

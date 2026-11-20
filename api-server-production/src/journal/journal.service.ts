@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { assertPeriodOpen } from '../common/period-lock';
+import { DOCUMENT_JOURNAL_TYPES, voidDocumentCore } from '../common/document-void';
 import { CreateJournalEntryDto, JournalLineDto, UpdateJournalEntryDto } from './dto/journal-entry.dto';
 import { AnomaliesService } from '../anomalies/anomalies.service';
 import { docRef, isPrefixed } from '../common/doc-ref';
@@ -370,6 +371,57 @@ export class JournalService {
       where: { id },
       data: { status: 'VOID', voidedAt: new Date(), voidedBy: userId },
     });
+  }
+
+  /**
+   * Void BY HAND (GL screen, AIMEE api_write; guru 2026-11-20): when the journal is a document's own
+   * posting, the document is voided with it (common/document-void.ts) so the invoice never stays
+   * "Awaiting Payment" with no GL entry behind it. Refused while the document has payments. The
+   * internal void-then-repost paths keep calling void() and never touch the document.
+   */
+  async voidByUser(organizationId: string, id: string, actor?: { id?: string; name?: string | null; email?: string | null }) {
+    const entry: any = await this.prisma.journalEntry.findFirst({
+      where: { id, organizationId },
+      select: { id: true, status: true, type: true, sourceDocumentId: true, sourcePaymentId: true },
+    });
+    if (!entry) throw new NotFoundException('Journal entry not found');
+    if (entry.status === 'VOID') return this.findOne(organizationId, id);
+    const cascades = !!entry.sourceDocumentId && !entry.sourcePaymentId && DOCUMENT_JOURNAL_TYPES.includes(String(entry.type || '').toUpperCase());
+    if (cascades) {
+      const documentId = entry.sourceDocumentId as string;
+      const doc = await this.prisma.document.findFirst({ where: { id: documentId, organizationId }, select: { id: true } });
+      if (doc) {
+        // voidDocumentCore voids every live journal of the document, this one included.
+        await voidDocumentCore(this.prisma, {
+          organizationId,
+          documentId,
+          actor,
+          reason: 'Its journal was voided',
+          voidJournal: (jid) => this.void(organizationId, jid, actor?.id),
+          log: (detail, documentName) =>
+            (this.prisma as any).auditLog
+              .create({
+                data: {
+                  userId: actor?.id || 'system',
+                  userName: actor?.name?.substring(0, 100),
+                  userEmail: actor?.email?.substring(0, 100),
+                  action: 'VOIDED',
+                  resource: 'document',
+                  resourceId: documentId,
+                  resourceName: documentName?.substring(0, 200),
+                  organizationId,
+                  details: { detail },
+                  ipAddress: 'unknown',
+                  userAgent: 'unknown',
+                  status: 'SUCCESS',
+                },
+              })
+              .catch(() => undefined),
+        });
+        return this.findOne(organizationId, id);
+      }
+    }
+    return this.void(organizationId, id, actor?.id);
   }
 
   // ---------- Reports ----------
