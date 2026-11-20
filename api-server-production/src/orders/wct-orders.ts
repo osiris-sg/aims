@@ -361,10 +361,12 @@ export function orderInvoiceIdsOf(order: { linkedDocuments?: unknown; invoiceDoc
 /**
  * Round 36: the invoices made with Create invoice for what is left on an AIMS order (linkedDocuments.invoice entries
  * with remainder: true). On the manual flow orderInvoiceIdsOf lists them already; another WCT order lists them too.
+ * Round 40 (Elroy 2026-11-20): and the invoices linked to it (Link existing document or an invoice's Reference;
+ * entries with a `linked` stamp), so Racking's orders show and count them.
  */
 export function remainderInvoiceIdsOf(order: { linkedDocuments?: unknown } | null | undefined): string[] {
   const ld: any = order?.linkedDocuments;
-  return Array.isArray(ld?.invoice) ? [...new Set<string>(ld.invoice.filter((x: any) => x?.remainder === true && typeof x.id === 'string' && x.id).map((x: any) => x.id as string))] : [];
+  return Array.isArray(ld?.invoice) ? [...new Set<string>(ld.invoice.filter((x: any) => (x?.remainder === true || !!x?.linked) && typeof x.id === 'string' && x.id).map((x: any) => x.id as string))] : [];
 }
 
 /** Phase 5: the order carries a service report (an uploaded file or a linked AIMS report). */

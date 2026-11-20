@@ -1,5 +1,7 @@
 jest.mock('../deliveries/quotation-to-delivery', () => ({ ensureQuotationOrder: jest.fn() }));
+jest.mock('./imported-order-create', () => ({ ensureImportedQuotationOrder: jest.fn() }));
 import { ensureQuotationOrder } from '../deliveries/quotation-to-delivery';
+import { ensureImportedQuotationOrder } from './imported-order-create';
 import { DocOrderRefService } from './doc-order-ref.service';
 import { fillLinesOf, isAcceptedQuotation, isOpenRefOption, orderRefLabel, refDocKind } from './doc-order-ref';
 
@@ -46,7 +48,10 @@ function make(opts: { features?: any; doc?: any; quotation?: any; order?: any; h
   return { svc: new DocOrderRefService(prisma, orders), prisma, orders, writes, doc, setOrder: (o: any) => (order = o) };
 }
 
-beforeEach(() => (ensureQuotationOrder as jest.Mock).mockReset());
+beforeEach(() => {
+  (ensureQuotationOrder as jest.Mock).mockReset();
+  (ensureImportedQuotationOrder as jest.Mock).mockReset();
+});
 
 describe('Reference = order link: helpers', () => {
   it('label, kinds, accepted, open', () => {
@@ -105,17 +110,30 @@ describe('DocOrderRefService', () => {
     expect(writes[0][1]).toMatchObject({ customerId: CUST, customer: { id: CUST, name: 'TEST Client' }, billTo: '1 Test Road' });
   });
 
-  it('refuses before making any order: another customer, another order, a non-manual-flow invoice, an old ERP quotation with no order', async () => {
+  it('refuses before making any order: another customer, another order', async () => {
     const other = make({ quotation: { id: QO, name: 'QO1', type: 'QUOTATION', status: 'confirmed', config: { customerId: 'someone-else' } } });
     await expect(other.svc.link(ORG, { documentId: INV, quotationId: QO }, {})).rejects.toThrow(/another customer/);
     const held = make({ order: null, holders: [{ id: 'o9', orderNumber: 'ORDW202611-001', linkedDocuments: { invoice: [{ id: INV }] } }] });
     await expect(held.svc.link(ORG, { documentId: INV, quotationId: QO }, {})).rejects.toThrow(/already on order ORDW202611-001/);
-    const racking = make({ features: { enableWctOrders: true } });
-    await expect(racking.svc.link(ORG, { documentId: INV, quotationId: QO }, {})).rejects.toThrow(/linked invoices/);
-    const erp = make({ order: null, features: { ...ON, enableImportedOrders: true }, quotation: { id: QO, name: 'Q-014000', type: 'QUOTATION', status: 'confirmed', config: { customerId: CUST, erpImport: { source: 'wct-erp', status: 'Accepted' } } } });
-    await expect(erp.svc.link(ORG, { documentId: INV, quotationId: QO }, {})).rejects.toThrow(/old ERP/);
     expect(ensureQuotationOrder).not.toHaveBeenCalled();
-    for (const t of [other, held, racking, erp]) expect(t.orders.linkImportedDocument).not.toHaveBeenCalled();
+    expect(ensureImportedQuotationOrder).not.toHaveBeenCalled();
+    for (const t of [other, held]) expect(t.orders.linkImportedDocument).not.toHaveBeenCalled();
+  });
+
+  it('round 40: Racking invoices link too (no manual flow needed)', async () => {
+    const racking = make({ features: { enableWctOrders: true } });
+    await racking.svc.link(ORG, { documentId: INV, quotationId: QO }, {});
+    expect(racking.orders.linkImportedDocument).toHaveBeenCalledWith(ORD, ORG, { type: 'INVOICE', id: INV }, {});
+  });
+
+  it('round 40: an old ERP quotation with no order gets its imported order, then the link', async () => {
+    (ensureImportedQuotationOrder as jest.Mock).mockResolvedValue({ orderId: ORD, orderNumber: 'ORD-Q-014000', created: true });
+    const erp = make({ order: null, features: { ...ON, enableImportedOrders: true }, quotation: { id: QO, name: 'Q-014000', type: 'QUOTATION', status: 'confirmed', config: { customerId: CUST, erpImport: { source: 'wct-erp', status: 'Accepted' } } } });
+    const out: any = await erp.svc.link(ORG, { documentId: INV, quotationId: QO }, {});
+    expect(ensureImportedQuotationOrder).toHaveBeenCalledWith(erp.prisma, ORG, expect.objectContaining({ id: QO, name: 'Q-014000' }), CUST);
+    expect(ensureQuotationOrder).not.toHaveBeenCalled();
+    expect(erp.orders.linkImportedDocument).toHaveBeenCalledWith(ORD, ORG, { type: 'INVOICE', id: INV }, {});
+    expect(out).toMatchObject({ createdOrder: true, orderNumber: 'ORD-Q-014000' });
   });
 
   it('a DO links the same way (Racking too: DOs need no manual flow)', async () => {

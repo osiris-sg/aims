@@ -1,7 +1,7 @@
 // One order page for AIMS (native) and imported orders (WCT group, enableWctOrders; round 24, 2026-11-19).
 //
 // The order page is ONE layout (app/portal/orders/[id]/OrderPageLayout.tsx) fed by this pure adapter, one reading
-// per order kind: the header (number, status, "Imported" tag), the info and money summary rows, the four numbered
+// per order kind: the header (number, status, an (i) on imported orders), the info and money summary rows, the four numbered
 // tracker cards (Quotation, Invoice, DO, Service report), the actions row, ONE Documents table, the Left to bill
 // table, then Supplier invoices and Photos (collapsed). Both kinds give the same card keys, summary keys, action
 // keys and Documents columns; only the values and each action's own gating differ. Pure: tested by orderPage.test.mjs.
@@ -573,7 +573,8 @@ export function nativeOrderPage(order: any, ctx: OrderPageContext = {}): OrderPa
     leftToBill: cancelled ? [] : leftLines(s?.remaining),
     supplierInvoices: o.supplierInvoices ?? null,
     // Link existing document on an AIMS order (round 29): quotations, DOs, service reports; invoices on the manual flow.
-    linkTypes: manualFlow ? ["QUOTATION", "INVOICE", "DELIVERY_ORDER", "SERVICE_REPORT"] : ["QUOTATION", "DELIVERY_ORDER", "SERVICE_REPORT"],
+    // Round 40 (Elroy 2026-11-20): invoices on every WCT order (Racking's order lists its linked invoices).
+    linkTypes: ["QUOTATION", "INVOICE", "DELIVERY_ORDER", "SERVICE_REPORT"],
   };
 }
 
@@ -646,7 +647,9 @@ export function importedOrderPage(o: any, ctx: OrderPageContext = {}): OrderPage
       type: "Quotation",
       number: q.name || "Quotation",
       date: q.date ?? null,
-      status: "Imported",
+      // Round 40 (Elroy 2026-11-20): the quotation's real status (API sourceQuotation.statusLabel: Confirmed /
+      // Unconfirmed · ERP draft / Expired · ERP draft / Declined), never "Imported".
+      status: q.statusLabel || (q.status === "confirmed" ? "Confirmed" : q.status ? String(q.status).charAt(0).toUpperCase() + String(q.status).slice(1) : ""),
       by: "",
       amount: q.total ?? null,
       owed: null,
@@ -707,7 +710,7 @@ export function importedOrderPage(o: any, ctx: OrderPageContext = {}): OrderPage
     number: d.name || "DO",
     date: d.date ?? null,
     status: d.done ? "Completed" : "Draft",
-    by: d.linked ? linkedBy(d.linked) : d.imported ? "Imported" : "",
+    by: d.linked ? linkedBy(d.linked) : d.imported ? "ERP" : "",
     amount: null,
     owed: null,
     href: docHref("DELIVERY_ORDER", d.templateId, d.id),

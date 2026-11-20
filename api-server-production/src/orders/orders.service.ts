@@ -700,8 +700,8 @@ export class OrdersService {
     const native = !isImportedOrder(row);
     if (native) {
       if (!(await isWctOrdersEnabled(this.prisma, organizationId))) throw new HttpException('Link existing document is for orders imported from the old ERP', HttpStatus.BAD_REQUEST);
-      // Round 29: quotations, DOs and service reports on every WCT AIMS order; an invoice on the manual flow (its page reads them).
-      if (mode === 'link' && type === 'INVOICE' && !(await isManualOrderFlow(this.prisma, organizationId))) throw new HttpException(NATIVE_LINK_INVOICE_MANUAL_ONLY, HttpStatus.BAD_REQUEST);
+      // Round 29: quotations, DOs and service reports on every WCT AIMS order. Round 40 (Elroy 2026-11-20): invoices on
+      // every WCT order too (Racking's order reads its linked invoices: wct-orders remainderInvoiceIdsOf).
     } else if (!(await isImportedOrdersEnabled(this.prisma, organizationId))) throw new HttpException('Order not found', HttpStatus.NOT_FOUND);
     let customerId: string | null = row.customerId ?? null;
     if (!customerId && row.sourceQuotationId) {
@@ -809,6 +809,7 @@ export class OrdersService {
     if (isDeadDoc(doc)) throw new HttpException(`${name} is voided or cancelled`, HttpStatus.BAD_REQUEST);
     if (docCustomerIdOf(doc.config) !== order.customerId) throw new HttpException(`${name} is for another customer`, HttpStatus.BAD_REQUEST);
     const linkType = type as Exclude<ImportedLinkType, 'SERVICE_REPORT'>;
+    const manualFlow = order.native && linkType === 'INVOICE' ? await isManualOrderFlow(this.prisma, organizationId) : false;
     await this.prisma.$transaction(
       async (tx: any) => {
         // One document at a time (two orders linking it at once), then the order's links (same lock as its invoices).
@@ -823,7 +824,8 @@ export class OrdersService {
           data: {
             linkedDocuments: withLinkedDocument(fresh?.linkedDocuments, linkType, doc, stamp),
             // An AIMS order's invoice (round 24): also its order invoice when it has none yet, as the order's own.
-            ...(order.native && linkType === 'INVOICE' && !fresh?.invoiceDocumentId ? { invoiceDocumentId: doc.id } : {}),
+            // Round 40: only on the manual flow (another WCT order lists a linked invoice through its link entry).
+            ...(order.native && linkType === 'INVOICE' && !fresh?.invoiceDocumentId && manualFlow ? { invoiceDocumentId: doc.id } : {}),
           },
         });
       },

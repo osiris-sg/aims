@@ -159,7 +159,8 @@ test("native actions: each keeps its gating; Mark complete / Reopen (round 29); 
   assert.deepEqual([a["mark-complete"].show, a["mark-complete"].disabled, a["mark-complete"].label, a["mark-complete"].mode], [true, false, "Mark complete", "complete"]);
   assert.equal(a["cancel-order"].show, false, "an invoiced order cannot be cancelled");
   assert.deepEqual(m.linkTypes, ["QUOTATION", "INVOICE", "DELIVERY_ORDER", "SERVICE_REPORT"], "manual flow: every type (round 29)");
-  assert.deepEqual(nativeOrderPage(native({ manualFlow: false }), {}).linkTypes, ["QUOTATION", "DELIVERY_ORDER", "SERVICE_REPORT"], "WCT Racking: no invoice (its page does not read linked invoices)");
+  // Round 40 (Elroy 2026-11-20): Racking links invoices too (its order reads linked invoices).
+  assert.deepEqual(nativeOrderPage(native({ manualFlow: false }), {}).linkTypes, ["QUOTATION", "INVOICE", "DELIVERY_ORDER", "SERVICE_REPORT"]);
   // Before anything is invoiced: Create invoice from the quotation is the next step; Cancel is offered.
   const fresh = nativeOrderPage(native({ status: "QUOTATION_SIGNED", invoices: [], deliveryOrders: [], jobs: [], jobReports: [], attachments: [] }), { jobsCalendar: false, doFirst: true });
   const f = Object.fromEntries(fresh.actions.map((x) => [x.key, x]));
@@ -291,7 +292,8 @@ test("Documents, imported: quotation (+ linked), invoices with how they were lin
   assert.deepEqual(rows[2].file, { label: "PDF", path: "/orders/o1/invoice-pdf?documentId=i1" });
   assert.equal(rows[4].doId, "d1");
   assert.equal(rows[5].child, true);
-  assert.deepEqual([rows[6].by, rows[6].unlink, rows[6].href], ["Imported", { type: "DELIVERY_ORDER", id: "d0", name: "DO012528" }, "/portal/documents/DELIVERY_ORDER/td/d0"]);
+  // Round 40: no "Imported" wording; an old ERP DO reads "ERP".
+  assert.deepEqual([rows[6].by, rows[6].unlink, rows[6].href], ["ERP", { type: "DELIVERY_ORDER", id: "d0", name: "DO012528" }, "/portal/documents/DELIVERY_ORDER/td/d0"]);
   assert.deepEqual(rows[8].unlink, { type: "SERVICE_REPORT", id: "r2", name: "Service report #9" });
   assert.equal(rows[9].attachmentId, "a3");
 });
@@ -473,4 +475,14 @@ test("round 36: an AIMS order billed below its quotation total keeps Create invo
   assert.doesNotMatch(page, /suggestedInvoiceNumber|invNumber|number: /);
   const dialogs = read("app/portal/orders/[id]/OrderPageDialogs.tsx");
   assert.doesNotMatch(dialogs, /Invoice number/);
+});
+
+test("round 40: an imported order's quotation shows its real status, never Imported", () => {
+  const base = imported();
+  const withLabel = { ...base, sourceQuotation: { ...base.sourceQuotation, statusLabel: "Unconfirmed · ERP draft" } };
+  assert.equal(importedOrderPage(withLabel, {}).documents[0].status, "Unconfirmed · ERP draft");
+  // An older API without the label: the stored status.
+  const noLabel = { ...base, sourceQuotation: { ...base.sourceQuotation, statusLabel: undefined, status: "confirmed" } };
+  assert.equal(importedOrderPage(noLabel, {}).documents[0].status, "Confirmed");
+  assert.ok(!importedOrderPage(withLabel, {}).documents.some((r) => r.status === "Imported" || r.by === "Imported"));
 });

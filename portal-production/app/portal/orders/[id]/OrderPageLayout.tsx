@@ -266,13 +266,11 @@ export default function OrderPageLayout({
           {m.number}
         </Typography>
         <StatusPill label={m.statusLabel} color="default" hue={m.statusHue} />
+        {/* Round 40 (Elroy 2026-11-20): no "Imported" tag; the (i) still says where the order came from. */}
         {m.imported && (
-          <>
-            <StatusPill label="Imported" color="default" variant="outlined" />
-            <Tooltip title="Imported from the old ERP: its quotation and the invoices the ERP linked to it. The imported documents are read-only.">
-              <InfoOutlinedIcon fontSize="small" sx={{ color: "text.secondary" }} />
-            </Tooltip>
-          </>
+          <Tooltip title="Imported from the old ERP: its quotation and the invoices the ERP linked to it. The imported documents are read-only.">
+            <InfoOutlinedIcon fontSize="small" sx={{ color: "text.secondary" }} />
+          </Tooltip>
         )}
       </Stack>
 

@@ -1,3 +1,4 @@
+import { ensureImportedQuotationOrder } from './imported-order-create';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { grossOf } from '../common/document-money';
@@ -5,8 +6,7 @@ import { isErpImported } from '../common/erp-import';
 import { ensureQuotationOrder } from '../deliveries/quotation-to-delivery';
 import { quotationCustomerNameOf, quotationSubjectOf } from '../deliveries/quick-job-quotation';
 import { DOC_TYPES_FOR, docCustomerIdOf, holderRefusal, linkEntryOf, madeOnOrder, orderHoldersOf } from './imported-order-links';
-import { IMPORTED_QUOTATION_NO_ORDER, importedMarkerOf, isCountedInvoice, isImportedOrder, isImportedOrdersEnabled } from './imported-orders';
-import { isManualOrderFlow } from './manual-order-flow';
+import { importedMarkerOf, isCountedInvoice, isImportedOrder, isImportedOrdersEnabled } from './imported-orders';
 import { OrdersService } from './orders.service';
 import { isWctOrdersEnabled, orderInvoiceIdsOf } from './wct-orders';
 import { fillLinesOf, isAcceptedQuotation, isDraftDoc, isOpenRefOption, orderRefLabel, refBilledPct, refDocKind } from './doc-order-ref';
@@ -19,7 +19,6 @@ const like = (q: unknown): string | null => {
   const t = String(q ?? '').trim().slice(0, 60);
   return t ? `%${t.replace(/[\\%_]/g, (ch) => '\\' + ch)}%` : null;
 };
-const NATIVE_INVOICE_MANUAL_ONLY = "This company's orders do not take linked invoices";
 
 type Actor = { id?: string | null; name?: string | null };
 
@@ -87,14 +86,14 @@ export class DocOrderRefService {
     const orderOf = new Map<string, any>();
     for (const o of orders) if (!orderOf.has(o.sourceQuotationId)) orderOf.set(o.sourceQuotationId, o);
     const billed = await this.billedByOrder(organizationId, [...orderOf.values()]);
-    const importedOn = await isImportedOrdersEnabled(this.prisma as any, organizationId);
     const out = rows.map((r) => {
       const o = orderOf.get(r.id) ?? null;
       const total = grossOf(r.config);
       const m: any = o ? importedMarkerOf(o) : null;
       const billedPct = o ? (m && typeof m.billedPct === 'number' ? m.billedPct : refBilledPct(billed.get(o.id) ?? 0, m?.quoteTotal ?? total)) : 0;
       const accepted = isAcceptedQuotation(r);
-      const noOrderPossible = !o && importedOn && isErpImported(r.config);
+      // Round 40: an old ERP quotation with no order gets its imported order when picked, so every one is linkable.
+      const noOrderPossible = false;
       return {
         quotationId: r.id as string,
         quotationName: (r.name ?? null) as string | null,
@@ -185,7 +184,7 @@ export class DocOrderRefService {
     if (!docCustomer && !isDraftDoc(doc.status)) throw new BadRequestException(`Pick the customer of ${docName} first`);
 
     // One document = one order (the same order again is fine: nothing to do).
-    let existing: any = await this.prisma.order.findFirst({ where: { organizationId, sourceQuotationId: quotation.id }, orderBy: { createdAt: 'asc' }, select: { id: true, orderNumber: true, status: true, linkedDocuments: true } });
+    const existing: any = await this.prisma.order.findFirst({ where: { organizationId, sourceQuotationId: quotation.id }, orderBy: { createdAt: 'asc' }, select: { id: true, orderNumber: true, status: true, linkedDocuments: true } });
     const holders = (await orderHoldersOf(this.prisma, organizationId, kind, [{ id: doc.id, config: doc.config }])).get(doc.id) ?? [];
     if (existing && holders.some((h) => h.id === existing.id)) {
       return { ...(await this.linkOf(organizationId, doc, kind))!, createdOrder: false, reference: null, customer: null, already: true };
@@ -193,9 +192,9 @@ export class DocOrderRefService {
     const why = holders.length ? holderRefusal(docName, existing?.id ?? '', holders) : null;
     if (why) throw new BadRequestException(why);
     if (existing?.status === 'CANCELLED') throw new BadRequestException(`${existing.orderNumber} is cancelled`);
-    if (!existing && isErpImported(quotation.config) && (await isImportedOrdersEnabled(this.prisma as any, organizationId))) throw new BadRequestException(IMPORTED_QUOTATION_NO_ORDER);
-    // An AIMS order reads linked invoices only in the manual flow (the same rule as Link existing document).
-    if (kind === 'INVOICE' && (!existing || !isImportedOrder(existing)) && !(await isManualOrderFlow(this.prisma as any, organizationId))) throw new BadRequestException(NATIVE_INVOICE_MANUAL_ONLY);
+    // Round 40 (Elroy 2026-11-20): an old ERP quotation with no order gets its imported order (made below); every WCT
+    // order takes linked invoices (Racking too).
+    const erpQuote = !existing && isErpImported(quotation.config) && (await isImportedOrdersEnabled(this.prisma as any, organizationId));
 
     // A draft with no customer takes the quotation's (written now, so the link's customer check passes).
     let customer: any = null;
@@ -216,7 +215,11 @@ export class DocOrderRefService {
       throw new BadRequestException(`${qName} has no customer`);
     }
 
-    const ensured = existing ? { orderId: existing.id as string, orderNumber: existing.orderNumber as string, created: false } : await ensureQuotationOrder(this.prisma, organizationId, quotation);
+    const ensured = existing
+      ? { orderId: existing.id as string, orderNumber: existing.orderNumber as string, created: false }
+      : erpQuote
+        ? await ensureImportedQuotationOrder(this.prisma, organizationId, quotation, docCustomerIdOf(doc.config) ?? qCustomer ?? null)
+        : await ensureQuotationOrder(this.prisma, organizationId, quotation);
     await this.orders.linkImportedDocument(ensured.orderId, organizationId, { type: kind, id: doc.id }, actor);
 
     // A draft: its Reference reads the link (canonical config.referenceNo; the editor's copy follows).

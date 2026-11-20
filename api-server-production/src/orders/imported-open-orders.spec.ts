@@ -549,10 +549,13 @@ describe('imported orders open (round 19): one order per document, Unlink rules'
     expect(page.summary).toMatchObject({ billed: 2180, owed: 2180 });
     // One order per invoice: another order is refused, naming this one; an order already holding an invoice keeps it.
     await expect(w.orders.linkImportedDocument(PART, ORG, { type: 'INVOICE', id: IX }, w.actor)).rejects.toThrow('INV202611-0090 is already on order ORD202611-020. A document can be on one order only.');
-    // Off the manual flow (WCT Racking): a native order links service reports only.
+    // Round 40: off the manual flow (WCT Racking) an invoice links too: on the order's links (its page reads them),
+    // never as the order's own invoice (invoiceDocumentId stays).
     const racking = world({ ...ON, enableManualOrderFlow: false });
-    await expect(racking.orders.linkImportedDocument(NATIVE, ORG, { type: 'INVOICE', id: IX }, racking.actor)).rejects.toThrow('An invoice can be linked to an order made in AIMS on the manual order flow only.');
-    expect(racking.order(NATIVE).linkedDocuments.invoice).toEqual([{ id: IN, name: 'INV202611-0080' }]);
+    const before = racking.order(NATIVE).invoiceDocumentId ?? null;
+    await racking.orders.linkImportedDocument(NATIVE, ORG, { type: 'INVOICE', id: IX }, racking.actor);
+    expect(racking.order(NATIVE).linkedDocuments.invoice).toEqual([{ id: IN, name: 'INV202611-0080' }, expect.objectContaining({ id: IX, linked: expect.objectContaining({ byName: 'Finance' }) })]);
+    expect(racking.order(NATIVE).invoiceDocumentId ?? null).toBe(before);
   });
 
   it('round 24: Unlink from order on an AIMS order: a linked invoice comes off (with invoiceDocumentId); its own quotation, documents made on it and a job\'s invoice stay', async () => {

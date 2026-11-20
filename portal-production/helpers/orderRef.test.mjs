@@ -3,12 +3,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { isEmptyItems, itemsFromLines, referenceOf, refDocKind, refLinkOn, refOptionRow, refOptionsPath, withReference } from "./orderRef.ts";
 
-test("on for WCT orders companies only: DOs everywhere there, invoices where the order reads linked invoices", () => {
+test("on for WCT orders companies only: invoices and DOs everywhere there (round 40: Racking invoices too)", () => {
   const wct = { wctOrders: true, manualFlow: true };
   assert.equal(refLinkOn("INVOICE", wct), true);
   assert.equal(refLinkOn("DELIVERY_ORDER", wct), true);
-  // Racking (no manual flow, no imported orders): DOs only.
-  assert.equal(refLinkOn("INVOICE", { wctOrders: true }), false);
+  // Racking (no manual flow, no imported orders): invoices and DOs (round 40).
+  assert.equal(refLinkOn("INVOICE", { wctOrders: true }), true);
   assert.equal(refLinkOn("DO", { wctOrders: true }), true);
   // Other companies (flag off): the plain Reference text field as today.
   assert.equal(refLinkOn("INVOICE", { manualFlow: true }), false);

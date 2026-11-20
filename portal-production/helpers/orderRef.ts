@@ -46,7 +46,8 @@ export function refDocKind(type: string | null | undefined): Kind | null {
 export function refLinkOn(type: string | null | undefined, f: { wctOrders?: boolean; manualFlow?: boolean; importedOrders?: boolean }): boolean {
   const kind = refDocKind(type);
   if (!kind || !f.wctOrders) return false;
-  return kind === "DELIVERY_ORDER" || !!f.manualFlow || !!f.importedOrders;
+  // Round 40 (Elroy 2026-11-20): invoices on every WCT orders org (Racking too), DOs as before.
+  return true;
 }
 
 /** The options request: the customer's (when one is picked), the typed text, all or the open ones. */
