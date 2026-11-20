@@ -5,6 +5,9 @@ import { PaymentsService } from './payments.service';
 function run(opts: { flag: boolean; status: string; posted?: boolean }) {
   const document = { id: 'inv-1', name: 'INV-1', type: 'INVOICE', status: opts.status, config: { customerId: 'cust-1', nettTotal: 109, items: [{ amount: 100 }] } };
   const prisma: any = {
+    // The lock-date guard (common/period-lock.ts) reads these on every dated write.
+    accountingSetting: { findUnique: jest.fn(async () => null) },
+    userRole: { findMany: jest.fn(async () => []), findFirst: jest.fn(async () => null) },
     organizationUIConfig: { findUnique: jest.fn(async () => ({ features: opts.flag ? { postInvoicesOnConfirm: true } : {} })) },
     document: { findFirst: jest.fn(async () => document) },
     journalEntry: { findFirst: jest.fn(async () => (opts.posted ? { id: 'je-1' } : null)) },

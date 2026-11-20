@@ -19,6 +19,9 @@ function world(opts: { flag?: boolean; doc?: any; sent?: number; links?: number;
     $queryRaw: jest.fn(async () => opts.orders ?? [{ id: 'o1', linkedDocuments: { invoice: [{ id: 'd1', name: 'INV202611-0030' }, { id: 'd2' }], do: [] } }]),
   };
   const prisma: any = {
+    // The lock-date guard (common/period-lock.ts) reads these on every dated write.
+    accountingSetting: { findUnique: jest.fn(async () => null) },
+    userRole: { findMany: jest.fn(async () => []), findFirst: jest.fn(async () => null) },
     organizationUIConfig: { findUnique: jest.fn(async () => ({ features: { enableSoftDeleteDrafts: opts.flag ?? true } })) },
     document: { findFirst: jest.fn(async () => doc), delete: jest.fn(async () => doc) },
     payment: { count: jest.fn(async () => 0) },

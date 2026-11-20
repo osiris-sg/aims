@@ -11,6 +11,9 @@ import { PaymentsService } from '../payments/payments.service';
 function listSvc(voidedIds: string[]) {
   const findMany = jest.fn(async () => []);
   const prisma: any = {
+    // The lock-date guard (common/period-lock.ts) reads these on every dated write.
+    accountingSetting: { findUnique: jest.fn(async () => null) },
+    userRole: { findMany: jest.fn(async () => []), findFirst: jest.fn(async () => null) },
     $queryRaw: jest.fn(async () => voidedIds.map((id) => ({ id }))),
     document: { findMany, count: jest.fn(async () => 0) },
     customer: { findMany: jest.fn(async () => []) },
@@ -47,6 +50,9 @@ describe('document list: voided-with-order invoices', () => {
 describe('no payment on a voided invoice', () => {
   it('refused before anything is written', async () => {
     const prisma: any = {
+    // The lock-date guard (common/period-lock.ts) reads these on every dated write.
+    accountingSetting: { findUnique: jest.fn(async () => null) },
+    userRole: { findMany: jest.fn(async () => []), findFirst: jest.fn(async () => null) },
       document: { findFirst: jest.fn(async () => ({ id: 'i1', name: 'INV202611-0020', type: 'INVOICE', status: 'unconfirmed', config: { voided: true, cancelledWithOrder: true } })) },
       $transaction: jest.fn(),
     };
