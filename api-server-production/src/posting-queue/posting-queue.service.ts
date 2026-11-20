@@ -7,6 +7,7 @@ import { JournalAutoPostService } from '../journal/journal-auto-post.service';
 import { PostingPreviewService } from '../posting-preview/posting-preview.service';
 import { isErpImported } from '../common/erp-import';
 import { documentGlPostingOn } from '../common/org-features';
+import { loadSubjectAccounts, subjectPostingLines, type SubjectAccounts } from '../documents/subject-type-account';
 
 // ---------------------------------------------------------------------------
 // Posting-Review Queue (Feature B) + Batch Post (Feature C).
@@ -80,7 +81,11 @@ export class PostingQueueService {
     ]);
 
     // ERP-imported history never queues (never draft / unconfirmed; this keeps it that way).
-    const rows: any[] = docs.filter((d) => !isErpImported(d.config)).map((d) => this.shapeRow(d));
+    // WCT (documents/subject-type-account.ts): an invoice whose Subject starts with a job type shows
+    // as ONE line, the subject, on that type's account; one that combines types on different
+    // accounts shows only its priced lines. Null for every other org.
+    const subjectAccounts = await loadSubjectAccounts(this.prisma, organizationId);
+    const rows: any[] = docs.filter((d) => !isErpImported(d.config)).map((d) => this.shapeRow(d, subjectAccounts));
 
     // Standalone unconfirmed journal vouchers (manual JVs; doc-sourced JEs are
     // already represented by their documents above). Rendered RED in the UI.
@@ -119,9 +124,10 @@ export class PostingQueueService {
     return { total: total + jvs.length, page, limit, rows };
   }
 
-  private shapeRow(d: { id: string; name: string | null; type?: string; status: string; config: any; createdAt: Date }) {
+  private shapeRow(d: { id: string; name: string | null; type?: string; status: string; config: any; createdAt: Date }, subjectAccounts: SubjectAccounts | null = null) {
     const c = (d.config || {}) as any;
     const items = Array.isArray(c.items) ? c.items : [];
+    const bySubject = (d.type ?? 'INVOICE') === 'INVOICE' ? subjectPostingLines(c, subjectAccounts, ROUND(c.subTotal)) : null;
     return {
       rowType: 'DOC',
       id: d.id,
@@ -137,7 +143,9 @@ export class PostingQueueService {
       source: c.glPosting?.source ?? null,
       ingestBatch: c.ingestBatch ?? null,
       createdAt: d.createdAt,
-      items: items.map((it: any, i: number) => ({
+      // 'subject' = one line for the whole net; 'priced-lines' = only the lines that carry a price.
+      postsBy: bySubject?.mode ?? null,
+      items: bySubject ? bySubject.lines : items.map((it: any, i: number) => ({
         lineIndex: i,
         description: it.description ?? '',
         amount: ROUND(it.amount),
@@ -150,7 +158,8 @@ export class PostingQueueService {
   async previewOne(organizationId: string, documentId: string) {
     const doc = await this.loadInvoice(organizationId, documentId);
     const c = (doc.config || {}) as any;
-    const items = Array.isArray(c.items) ? c.items : [];
+    const bySubject = doc.type === 'INVOICE' ? subjectPostingLines(c, await loadSubjectAccounts(this.prisma, organizationId), ROUND(c.subTotal)) : null;
+    const items = bySubject ? bySubject.lines : Array.isArray(c.items) ? c.items : [];
     return this.preview.preview(organizationId, {
       type: 'INVOICE',
       documentNumber: doc.name ?? c.documentNumber,
@@ -173,9 +182,15 @@ export class PostingQueueService {
     const doc = await this.loadInvoice(organizationId, documentId);
     const c = (doc.config || {}) as any;
     const items = Array.isArray(c.items) ? [...c.items] : [];
+    // WCT subject rule: the queue lists the subject (its account comes from the type, nothing to
+    // save) or only the priced lines, so a pick's position is mapped back to the real line.
+    const bySubject = doc.type === 'INVOICE' ? subjectPostingLines(c, await loadSubjectAccounts(this.prisma, organizationId), ROUND(c.subTotal)) : null;
+    if (bySubject?.mode === 'subject') return { ok: true, documentId };
+    const realIndex = (i: number) => (bySubject ? bySubject.lines[i]?.lineIndex ?? -1 : i);
     for (const p of picks || []) {
-      if (p.lineIndex >= 0 && p.lineIndex < items.length && p.accountCode) {
-        items[p.lineIndex] = { ...items[p.lineIndex], accountCode: p.accountCode };
+      const i = realIndex(p.lineIndex);
+      if (i >= 0 && i < items.length && p.accountCode) {
+        items[i] = { ...items[i], accountCode: p.accountCode };
       }
     }
     const config = { ...c, items } as Prisma.InputJsonValue;
@@ -325,7 +340,9 @@ export class PostingQueueService {
     const debtor = await this.resolveCode(organizationId, controls.debtorControl);
     if (!debtor) throw new BadRequestException(`Debtor control account (${controls.debtorControl}) not found`);
 
-    const items = Array.isArray(c.items) ? c.items : [];
+    // WCT subject rule: the subject line (whole net) or the priced lines; every other org, its lines.
+    const bySubject = subjectPostingLines(c, await loadSubjectAccounts(this.prisma, organizationId), ROUND(c.subTotal));
+    const items = bySubject ? bySubject.lines : Array.isArray(c.items) ? c.items : [];
     const tax = ROUND(c.gstAmount);
 
     const creditLines: { accountId: string; debit: number; credit: number; description: string }[] = [];

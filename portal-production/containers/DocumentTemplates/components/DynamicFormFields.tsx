@@ -10,6 +10,7 @@ import RateInput from '@/components/RateInput';
 import {
   Autocomplete,
   Box,
+  Checkbox,
   TextField,
   Select,
   MenuItem,
@@ -31,6 +32,8 @@ import { rememberCustomers } from '@/app/portal/hooks/api/useCustomerPicker';
 import { toast } from 'react-toastify';
 import { FieldDefinition } from '../types/templateFieldTypes';
 import DateInput from '@/components/DateInput';
+import { useOrganizationFeatures } from '@/app/portal/hooks/useOrganizationFeatures';
+import { SUBJECT_TYPES, joinSubject, splitSubject } from '@/helpers/subjectType';
 
 // Salesman interface
 interface Salesman {
@@ -1093,6 +1096,7 @@ export default function DynamicFormFields({
   onOpenSalesmanDialog,
 }: DynamicFormFieldsProps) {
   const taxCodes = useTaxCodes();
+  const { isSubjectTypeEnabled } = useOrganizationFeatures();
 
   // Helper to get nested value from object path
   const getNestedValue = (obj: any, path: string) => {
@@ -1143,6 +1147,43 @@ export default function DynamicFormFields({
             <TextField {...params} size="small" placeholder="Terms" sx={inputSx} />
           )}
         />
+      );
+    }
+
+    // Subject with its job type(s) (WCT group, enableSubjectType): a dropdown of AA / CD / MV /
+    // TS / VO on the left of the text; more than one can be ticked ("CD+MV"). Both are stored
+    // as ONE subject string, "CD+MV - text" (helpers/subjectType.ts), so the printout and every
+    // list read it as before.
+    if (isSubjectTypeEnabled && field.fieldName === 'documentInfo.subject') {
+      const { types, text } = splitSubject(value);
+      return (
+        <Box sx={{ display: 'flex', gap: 0.5, flex: 1, minWidth: 150 }}>
+          <Select
+            multiple
+            value={types as string[]}
+            displayEmpty
+            renderValue={(v) => ((v as string[]).length ? (v as string[]).join('+') : '—')}
+            onChange={(e) => setFormData(setNestedValue(formData, field.fieldName, joinSubject(e.target.value as string[], text)))}
+            size="small"
+            data-testid="subject-type"
+            inputProps={{ 'aria-label': 'Subject type' }}
+            sx={{ ...selectSx, width: types.length > 1 ? 34 + types.length * 30 : 68, flexShrink: 0 }}
+          >
+            {SUBJECT_TYPES.map((t) => (
+              <MenuItem key={t} value={t} sx={{ fontSize: '13px', py: 0.25 }}>
+                <Checkbox size="small" checked={types.includes(t)} sx={{ p: 0.25, mr: 0.75 }} />
+                {t}
+              </MenuItem>
+            ))}
+          </Select>
+          <TextField
+            value={text}
+            onChange={(e) => setFormData(setNestedValue(formData, field.fieldName, joinSubject(types, e.target.value)))}
+            size="small"
+            inputProps={{ 'data-testid': 'subject-text' }}
+            sx={{ ...inputSx, flex: 1, minWidth: 80 }}
+          />
+        </Box>
       );
     }
 

@@ -84,6 +84,18 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // Hide the app switcher (guru 2026-11-13, Chong Aik): no grid icon / AIMS ↔ SiteClock
   // launcher in the top bar for orgs that have no SiteClock. Default OFF (shown).
   hideAppSwitcher: false,
+  // WCT group status wording (guru 2026-11-19): quotation Pending / Accepted, invoice Draft /
+  // Pending / Awaiting Payment / Paid, delivery order Draft / Pending / Accepted, order
+  // Pending / Completed. Wording + list filters only; stored statuses unchanged. Default OFF.
+  enableWctStatusFlow: false,
+  // Subject type (guru 2026-11-19, WCT group): a dropdown of AA / CD / MV / TS / VO on the left
+  // of the Subject box on quotations and invoices; stored in the subject as "AA - text". Default OFF.
+  enableSubjectType: false,
+  // The Subject's type decides what an invoice posts (guru 2026-11-20, WCT only): one type =
+  // one line, the subject, for the whole net on the type's account (MV 4-1000, CD 4-2000,
+  // AA + VO 4-3000, TS 4-3500); types on different accounts = the priced lines only
+  // (documents/subject-type-account.ts). Default OFF.
+  subjectTypeSetsAccount: false,
   // GST on quotations (guru 2026-11-14): the printed standard quotation shows a
   // GST row and the nett total (absorb tax: Sub-Total net of GST). Off = the
   // quotation prints Sub-Total / Total with no tax, as every org had. Per org.
