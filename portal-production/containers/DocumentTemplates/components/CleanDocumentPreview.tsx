@@ -684,6 +684,9 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
     const total = isJv ? 0 : lines.reduce((s: number, l: any) => s + (Number(l.amount) || 0), 0);
     const totalDebit = isJv ? (Number(v.totalDebit) || lines.reduce((s: number, l: any) => s + (Number(l.debit) || 0), 0)) : 0;
     const totalCredit = isJv ? (Number(v.totalCredit) || lines.reduce((s: number, l: any) => s + (Number(l.credit) || 0), 0)) : 0;
+    // J/V tax column (GST orgs, 2026-11-21): only when a line carries tax; the TOTAL already includes it.
+    const jvTax = (l: any) => (l?.offset ? 0 : Math.round(((Number(l?.debit) || Number(l?.credit) || 0) * (Number(l?.taxRate) || 0)) ) / 100);
+    const jvHasTax = isJv && lines.some((l: any) => jvTax(l) > 0);
     const currency = String(v.currency || "SGD");
     const wordsOf = legacyAmountWords(isJv ? totalDebit : Number(v.voucherAmount) || total, currency);
     const co: any = v.company || {};
@@ -761,6 +764,7 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                 <Box component="th">Description</Box>
                 {isJv ? (
                   <>
+                    {jvHasTax && <Box component="th" sx={{ width: 150 }}>Tax</Box>}
                     <Box component="th" sx={{ textAlign: "right !important", width: 120 }}>Debit</Box>
                     <Box component="th" sx={{ textAlign: "right !important", width: 120 }}>Credit</Box>
                   </>
@@ -791,6 +795,11 @@ function CleanDocumentPreviewInner({ documentType, data, organization, maintenan
                     </Box>
                     {isJv ? (
                       <>
+                        {jvHasTax && (
+                          <Box component="td" sx={{ fontVariantNumeric: "tabular-nums", fontSize: "0.75rem" }}>
+                            {jvTax(l) > 0 ? `GST ${Number(l.taxRate)}%  ${money(jvTax(l))}` : "No Tax"}
+                          </Box>
+                        )}
                         <Box component="td" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{Number(l.debit) ? money(Number(l.debit)) : ""}</Box>
                         <Box component="td" sx={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{Number(l.credit) ? money(Number(l.credit)) : ""}</Box>
                       </>

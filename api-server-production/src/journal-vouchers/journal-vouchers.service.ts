@@ -49,6 +49,29 @@ export function assertJournalBalances(lines: Array<{ debit: number; credit: numb
   }
 }
 
+/**
+ * Line tax (guru 2026-11-21: "a Tax column on the J/V, only if the company has GST"; Xero's
+ * manual journal). Amounts are TAX EXCLUSIVE: the line's debit / credit is the net, the tax
+ * rides on the same side and posts to the GST control account (input tax → taxInput, else
+ * the tax liabilities account, the same accounts bills and invoices use). Offset lines never
+ * carry tax. The rate is snapshotted from the org's Tax Rates master at save time.
+ */
+type LineTax = { taxCode: string | null; taxRate: number; taxAmount: number; taxDirection: 'INPUT' | 'OUTPUT' | null };
+type TaxRateRow = { code: string; rate: number; direction: string; isActive: boolean };
+export function resolveLineTax(raw: any, debit: number, credit: number, hasOffset: boolean, rates: TaxRateRow[], lineNo: number): LineTax {
+  const code = String(raw?.taxCode || '').trim();
+  if (!code || hasOffset) return { taxCode: null, taxRate: 0, taxAmount: 0, taxDirection: null };
+  const t = rates.find((r) => r.code === code);
+  if (!t) throw new BadRequestException(`Line ${lineNo}: tax code ${code} is not in Accounting Setup → Tax Rates`);
+  const rate = Number(t.rate) || 0;
+  const amount = debit > 0 ? debit : credit;
+  const dir = String(t.direction || '').toUpperCase() === 'INPUT' ? 'INPUT' : 'OUTPUT';
+  return { taxCode: code, taxRate: rate, taxAmount: ROUND((amount * rate) / 100), taxDirection: dir };
+}
+/** The GST control account a tax line posts to (journal-auto-post uses the same pair). */
+export const taxAccountCodeFor = (dir: 'INPUT' | 'OUTPUT' | null, controls: any): string =>
+  dir === 'INPUT' ? controls?.taxInput || controls?.taxLiabilities || 'CL900' : controls?.taxLiabilities || 'CL900';
+
 // ---------------------------------------------------------------------------
 // Journal Vouchers (guru 2026-11-09: "change the way we do journal voucher —
 // do it like our template like OR and PV"). A J/V is a Document row (type
@@ -85,6 +108,8 @@ export type JvLine = {
   accountCode?: string | null;
   description?: string | null;
   remarks?: string | null;
+  /** Tax Rate per line (guru 2026-11-21, like Xero's manual journal; GST-registered orgs only): a TaxRate.code, empty = No Tax. */
+  taxCode?: string | null;
   debit: number;
   credit: number;
   offset?: JvOffset | null;
@@ -159,8 +184,9 @@ export class JournalVouchersService {
       creditorAccountCode: c.creditorAccountCode || null,
       debtorAccountCode: c.debtorAccountCode || null,
       lines,
-      totalDebit: ROUND(lines.reduce((s, l) => s + (Number(l.debit) || 0), 0)),
-      totalCredit: ROUND(lines.reduce((s, l) => s + (Number(l.credit) || 0), 0)),
+      // Totals INCLUDE line tax (GST orgs' Tax Rate column, 2026-11-21).
+      totalDebit: ROUND(lines.reduce((s, l) => s + (Number(l.debit) || 0) + (Number(l.debit) > 0 ? Number(l.taxAmount) || 0 : 0), 0)),
+      totalCredit: ROUND(lines.reduce((s, l) => s + (Number(l.credit) || 0) + (Number(l.credit) > 0 ? Number(l.taxAmount) || 0 : 0), 0)),
       journalNumber: c.journalNumber || null,
       journalEntryId: c.journalEntryId || null,
       // Saved but not in the books yet — what the complete save still needs.
@@ -229,6 +255,9 @@ export class JournalVouchersService {
         accountCode: l?.accountCode || '',
         description: l?.description || '',
         remarks: l?.remarks || '',
+        taxCode: l?.taxCode || null,
+        taxRate: Number(l?.taxRate) || 0,
+        taxAmount: 0,
         debit: hadOffset ? 0 : Number(l?.debit) || 0,
         credit: hadOffset ? 0 : Number(l?.credit) || 0,
         offset: null,
@@ -323,11 +352,16 @@ export class JournalVouchersService {
       accountCode: string;
       description: string;
       remarks: string;
+      taxCode: string | null;
+      taxRate: number;
+      taxAmount: number;
+      taxDirection: 'INPUT' | 'OUTPUT' | null;
       debit: number;
       credit: number;
       offset: null | (JvOffset & { party: 'supplier' | 'customer'; supplierCode: string | null; supplierName: string; customerCode: string | null; customerName: string; currency: string; supplierAmount: number; allocations: Array<JvAllocation & { reference?: string | null; date?: string | null; description?: string }> });
     };
     const lines: L[] = [];
+    const taxRates: TaxRateRow[] = await this.prisma.taxRate.findMany({ where: { organizationId }, select: { code: true, rate: true, direction: true, isActive: true } });
     for (const [i, raw] of (dto.lines || []).entries()) {
       const debit = ROUND(Math.max(0, Number(raw?.debit) || 0));
       const credit = ROUND(Math.max(0, Number(raw?.credit) || 0));
@@ -343,6 +377,7 @@ export class JournalVouchersService {
         accountCode,
         description: String(raw?.description || '').trim(),
         remarks: String(raw?.remarks || '').trim(),
+        ...resolveLineTax(raw, debit, credit, hasOffset, taxRates, i + 1),
         debit,
         credit,
         offset: hasOffset
@@ -370,20 +405,30 @@ export class JournalVouchersService {
     if (lines.length < 2) throw new BadRequestException('A journal voucher needs at least two lines — a debit and a credit');
     if (lines.filter((l) => l.offset?.party === 'supplier').length > 1) throw new BadRequestException('One supplier offset line per voucher');
     if (lines.filter((l) => l.offset?.party === 'customer').length > 1) throw new BadRequestException('One customer offset line per voucher');
-    const totalDebit = ROUND(lines.reduce((s, l) => s + l.debit, 0));
-    const totalCredit = ROUND(lines.reduce((s, l) => s + l.credit, 0));
+    // Totals INCLUDE each line's tax (it sits on the line's side), as on Xero's manual journal.
+    const totalDebit = ROUND(lines.reduce((s, l) => s + l.debit + (l.debit > 0 ? l.taxAmount : 0), 0));
+    const totalCredit = ROUND(lines.reduce((s, l) => s + l.credit + (l.credit > 0 ? l.taxAmount : 0), 0));
     if (totalDebit <= 0) throw new BadRequestException('The voucher has no amount');
     if (Math.abs(totalDebit - totalCredit) > 0.005)
       throw new BadRequestException(`Debits ${totalDebit.toFixed(2)} and credits ${totalCredit.toFixed(2)} must match (out of balance ${(totalDebit - totalCredit).toFixed(2)})`);
 
     // Accounts.
-    const codes = Array.from(new Set([...lines.map((l) => l.accountCode), ...(lines.map((l) => l.offset?.fxAccountCode).filter(Boolean) as string[])]));
+    const codes = Array.from(
+      new Set([
+        ...lines.map((l) => l.accountCode),
+        ...(lines.map((l) => l.offset?.fxAccountCode).filter(Boolean) as string[]),
+        ...lines.filter((l) => l.taxAmount > 0).map((l) => taxAccountCodeFor(l.taxDirection, controls)),
+      ]),
+    );
     const accounts = await this.prisma.chartOfAccount.findMany({ where: { organizationId, code: { in: codes }, isActive: true }, select: { id: true, code: true, name: true } });
     const byCode = new Map(accounts.map((a) => [a.code, a]));
     for (const l of lines) {
       if (!byCode.get(l.accountCode)) throw new BadRequestException(`Account ${l.accountCode} not found or inactive`);
       if (l.offset?.fxAccountCode && !byCode.get(l.offset.fxAccountCode)) throw new BadRequestException(`Exchange gain/loss account ${l.offset.fxAccountCode} not found`);
       if (!l.description) l.description = byCode.get(l.accountCode)!.name.toUpperCase();
+      if (l.taxAmount > 0 && !byCode.get(taxAccountCodeFor(l.taxDirection, controls))) {
+        throw new BadRequestException(`GST account ${taxAccountCodeFor(l.taxDirection, controls)} is not in the chart of accounts — set it in Accounting Setup → Control Accounts`);
+      }
     }
 
     // Previous journals / payment rows (before any repost).
@@ -483,6 +528,15 @@ export class JournalVouchersService {
       const acc = byCode.get(l.accountCode)!;
       if (!l.offset) {
         jl.push({ accountId: acc.id, debit: l.debit, credit: l.credit, description: [l.description, l.remarks].filter(Boolean).join(' — ') });
+        if (l.taxAmount > 0) {
+          const taxAcc = byCode.get(taxAccountCodeFor(l.taxDirection, controls))!;
+          jl.push({
+            accountId: taxAcc.id,
+            debit: l.debit > 0 ? l.taxAmount : 0,
+            credit: l.credit > 0 ? l.taxAmount : 0,
+            description: `GST ${l.taxRate}% on ${l.description || l.accountCode}`,
+          });
+        }
         continue;
       }
       const o = l.offset;
@@ -657,6 +711,7 @@ export class JournalVouchersService {
   /** The incomplete-save path (see save()): keep what was typed, take the voucher out of the books. */
   private async saveIncomplete(organizationId: string, id: string, cfg: any, dto: SaveJournalVoucherDto, reason: string, actor?: Actor) {
     const touched = await this.unpost(organizationId, id, actor);
+    const taxRates: TaxRateRow[] = await this.prisma.taxRate.findMany({ where: { organizationId }, select: { code: true, rate: true, direction: true, isActive: true } });
     const lines = await Promise.all(
       (dto.lines || []).map(async (raw, i) => {
         const debit = ROUND(Math.max(0, Number(raw?.debit) || 0));
@@ -691,6 +746,7 @@ export class JournalVouchersService {
           accountCode: String(raw?.accountCode || '').trim(),
           description: String(raw?.description || '').trim(),
           remarks: String(raw?.remarks || '').trim(),
+          ...((): LineTax => { try { return resolveLineTax(raw, debit, credit, !!offset, taxRates, i + 1); } catch { return { taxCode: null, taxRate: 0, taxAmount: 0, taxDirection: null }; } })(),
           debit,
           credit,
           offset,
@@ -712,8 +768,8 @@ export class JournalVouchersService {
           preparedBy: dto.preparedBy || cfg.preparedBy || '',
           notes: dto.notes || '',
           lines,
-          totalDebit: ROUND(lines.reduce((s, l) => s + l.debit, 0)),
-          totalCredit: ROUND(lines.reduce((s, l) => s + l.credit, 0)),
+          totalDebit: ROUND(lines.reduce((s, l) => s + l.debit + (l.debit > 0 ? l.taxAmount : 0), 0)),
+          totalCredit: ROUND(lines.reduce((s, l) => s + l.credit + (l.credit > 0 ? l.taxAmount : 0), 0)),
           journalNumber: null,
           journalEntryId: null,
           incompleteReason: reason,

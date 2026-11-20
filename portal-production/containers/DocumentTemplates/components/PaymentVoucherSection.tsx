@@ -88,7 +88,6 @@ export const PV_FIELD_DEFINITIONS: TemplateFieldConfig = {
         { fieldName: "pvVoucherNo", displayLabel: "Voucher No.", fieldType: "text", required: false },
         { fieldName: "pvData.date", displayLabel: "Date", fieldType: "date", required: true },
         { fieldName: "pvPayeeRow", displayLabel: "Payee", fieldType: "text", required: false },
-        { fieldName: "pvData.remarks", displayLabel: "Remarks", fieldType: "text", required: false },
         { fieldName: "pvChequeRow", displayLabel: "Bank advice", fieldType: "text", required: false },
       ],
     },

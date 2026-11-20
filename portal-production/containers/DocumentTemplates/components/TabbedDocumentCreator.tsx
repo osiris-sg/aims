@@ -174,7 +174,6 @@ import {
 } from "./OfficialReceiptSection";
 import {
   PaymentVoucherLinesSection,
-  PvRemarksMemo,
   PvVoucherNoInput,
   PvBankInput,
   PvPayeeInput,
@@ -182,7 +181,8 @@ import {
   pvTotal,
   voucherSupplierPatch,
 } from "./PaymentVoucherSection";
-import { JournalVoucherLinesSection, JvRemarksMemo, JvVoucherNoInput, JvPrepareByInput, jvTotals } from "./JournalVoucherSection";
+import { JournalVoucherLinesSection, JvVoucherNoInput, JvPrepareByInput, jvTotals } from "./JournalVoucherSection";
+import DocRemarksMemo from "./DocRemarksMemo";
 import { getDocumentListRoute, getListRouteFromPathname } from "@/app/portal/components/documentRoutes"; // co-pkg: depends on fa8351c
 import { useAimsUserId } from "@hooks/useAimsUserId";
 import { todayIso } from "@/helpers/orgToday";
@@ -1483,6 +1483,8 @@ export default function TabbedDocumentCreator({
         existingData?.documentInfo?.reference ||
         existingData?.reference ||
         existingData?.xeroReference ||
+        // The old quotation / WCT Remarks box (config.remarks) is the same field now.
+        existingData?.remarks ||
         "",
       poNo: existingData?.documentInfo?.poNo || existingData?.poNo || "",
       doNo: existingData?.documentInfo?.doNo || existingData?.doNo || "",
@@ -1631,6 +1633,31 @@ export default function TabbedDocumentCreator({
     jvData: existingData?.jvData || null,
     supplier: existingData?.supplier || null,
   });
+
+  // ONE Remarks memo on the right of every editor (guru 2026-11-21). The receipt
+  // keeps it as orData.remarks; the payment / journal voucher's memo IS the old
+  // "To-Do List" memo (guru: "the todo list is the remarks for that page"), stored
+  // as notes (the P/V also mirrors remarks, its old header field); every other
+  // document keeps it in documentInfo.referenceNo (canonical, what the lists and
+  // prints read) and mirrors config.remarks (the WCT invoice / DO print).
+  const docRemarks: string = isOfficialReceipt
+    ? formData.orData?.remarks || ""
+    : isPaymentVoucher
+    ? formData.pvData?.notes || formData.pvData?.remarks || ""
+    : isJournalVoucher
+    ? formData.jvData?.notes || ""
+    : (formData.documentInfo as any)?.referenceNo || "";
+  const setDocRemarks = (next: string) =>
+    setFormData((prev: any) =>
+      isOfficialReceipt
+        ? { ...prev, orData: { ...(prev.orData || {}), remarks: next } }
+        : isPaymentVoucher
+        ? { ...prev, pvData: { ...(prev.pvData || {}), notes: next, remarks: next } }
+        : isJournalVoucher
+        ? { ...prev, jvData: { ...(prev.jvData || {}), notes: next } }
+        : // Typed-over refs are no longer a picked quotation (Biofuel DO picker).
+          { ...prev, remarks: next, documentInfo: { ...(prev.documentInfo || {}), referenceNo: next, referenceQuotationDate: null } },
+    );
 
   // Load template field configuration
   // DO editor is single-tab: Reference No moves onto the General tab (ordering
@@ -6230,6 +6257,9 @@ export default function TabbedDocumentCreator({
                       // predate it, so inject editor-side; saves flat as
                       // config.referenceNo via the transformer's special-case.
                       // Official Receipts keep their fixed legacy layout.
+                      // The Reference box stays on the General tab (the order-link work
+                      // needs it); the Remarks memo on the right edits the SAME key and the
+                      // two stay in step through the form state.
                       if (
                         !isSettlementDoc &&
                         (!legacyLayout || orderRefOn) &&
@@ -6618,26 +6648,6 @@ export default function TabbedDocumentCreator({
                           size="small"
                         />
                       </Grid>
-                      {(documentType === "TI" || documentType === "DO" || documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO") && (!isTemplateEditMode || templateWatch("referenceNo")) && (
-                        <Grid item xs={12} md={6}>
-                          <TextField
-                            fullWidth
-                            label="Reference No"
-                            value={isTemplateEditMode && templateWatch("defaultValues.referenceNo") ? templateWatch("defaultValues.referenceNo") : formData.documentInfo.referenceNo}
-                            onChange={(e) =>
-                              setFormData({
-                                ...formData,
-                                documentInfo: {
-                                  ...formData.documentInfo,
-                                  referenceNo: e.target.value,
-                                },
-                              })
-                            }
-                            size="small"
-                            disabled={isTemplateEditMode}
-                          />
-                        </Grid>
-                      )}
                       {documentType === "TI" && (
                         <Grid item xs={12} md={6}>
                           <FormControl fullWidth size="small">
@@ -8445,19 +8455,7 @@ export default function TabbedDocumentCreator({
                     {/* Remarks (enableDocRemarks, WCT group; Elroy 2026-11-18): invoice + DO, at the TOP of the
                         Footer tab, above Notes and the T&Cs (both editor layouts share this tab). Prints below
                         the totals, above the terms (config.remarks; empty = not printed). */}
-                    {showDocRemarks && (
-                      <Grid item xs={12} data-tour="doc-remarks">
-                        <TextField
-                          fullWidth
-                          label="Remarks"
-                          value={formData.remarks || ""}
-                          onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
-                          multiline
-                          minRows={2}
-                          size="small"
-                        />
-                      </Grid>
-                    )}
+                    {/* 2026-11-21: the WCT Remarks box moved into the right-hand Remarks memo (same key). */}
 
                     {/* Notes - for all types (WCT Racking quotation: only while it still has notes; its footer is the T&Cs) */}
                     {!(isRackingQuote && !String(formData.note || "").replace(/<[^>]*>/g, "").trim()) && (
@@ -8486,19 +8484,7 @@ export default function TabbedDocumentCreator({
                     {/* Quotation-specific fields */}
                     {documentType === "QO1" || documentType === "QUOTATION" || documentType === "QT" || documentType === "QO" && (
                       <>
-                        <Grid item xs={12}>
-                          <TextField
-                            fullWidth
-                            label="Remarks"
-                            value={formData.remarks}
-                            onChange={(e) =>
-                              setFormData({ ...formData, remarks: e.target.value })
-                            }
-                            multiline
-                            rows={3}
-                            size="small"
-                          />
-                        </Grid>
+                        {/* 2026-11-21: the quotation Remarks box moved into the right-hand Remarks memo (same key). */}
                         <Grid item xs={12}>
                           <TextField
                             fullWidth
@@ -8536,8 +8522,9 @@ export default function TabbedDocumentCreator({
           </Box>
           )}
           </Box>
-          {!isTemplateEditMode && isPaymentVoucher && <PvRemarksMemo formData={formData} setFormData={setFormData} disabled={lockReadOnly} />}
-          {!isTemplateEditMode && isJournalVoucher && <JvRemarksMemo formData={formData} setFormData={setFormData} disabled={lockReadOnly} />}
+          {/* The Remarks memo, right of every editor (guru 2026-11-21): on the vouchers it is the
+              old To-Do List memo, now called what it is. */}
+          {!isTemplateEditMode && <DocRemarksMemo value={docRemarks} onChange={setDocRemarks} disabled={lockReadOnly || confirmedReadOnly} />}
           </Box>
           </Box>
         ) : (

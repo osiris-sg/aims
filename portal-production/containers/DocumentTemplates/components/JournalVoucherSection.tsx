@@ -28,7 +28,9 @@ import {
   Chip,
   IconButton,
   InputAdornment,
+  MenuItem,
   Paper,
+  Select,
   Stack,
   Table,
   TableBody,
@@ -55,6 +57,8 @@ import { AccountSelectDialog, useOrAccounts, type OrAccount } from "./OfficialRe
 import { focusNextEmptyInRow } from "@/helpers/focusNextEmptyInRow";
 import type { TemplateFieldConfig } from "../types/templateFieldTypes";
 import { todayIso } from "@/helpers/orgToday";
+import { useAuth } from "@clerk/nextjs";
+import { request } from "@/helpers/request";
 import EditorRail from "./EditorRail";
 
 export type JvLine = {
@@ -63,6 +67,10 @@ export type JvLine = {
   accountName?: string | null;
   description?: string | null;
   remarks?: string | null;
+  // Tax Rate per line (GST-registered orgs only; Xero's manual journal). Amounts are tax
+  // exclusive: the tax rides on the line's side and posts to the GST control account.
+  taxCode?: string | null;
+  taxRate?: number | null;
   debit: number | string;
   credit: number | string;
   offset?: PvOffset | null;
@@ -91,10 +99,56 @@ const setJvData = (formData: any, setFormData: (next: any) => void, patch: Recor
   setFormData({ ...formData, jvData: { ...(formData.jvData || {}), ...patch } });
 
 export const jvLines = (formData: any): JvLine[] => (Array.isArray(formData?.jvData?.lines) ? formData.jvData.lines : []);
+/** A line's tax: net amount × its rate, on the line's side (offset lines never carry tax). */
+export const jvTaxOf = (l: JvLine): number => {
+  if (l.offset || !num(l.taxRate)) return 0;
+  const amount = Math.max(0, num(l.debit)) || Math.max(0, num(l.credit));
+  return R((amount * num(l.taxRate)) / 100);
+};
+/** debit / credit INCLUDE tax (what must balance, what the server stores); the parts are shown under the grid. */
 export const jvTotals = (formData: any) => {
   const lines = jvLines(formData);
-  return { debit: R(lines.reduce((s, l) => s + Math.max(0, num(l.debit)), 0)), credit: R(lines.reduce((s, l) => s + Math.max(0, num(l.credit)), 0)) };
+  const subDebit = R(lines.reduce((s, l) => s + Math.max(0, num(l.debit)), 0));
+  const subCredit = R(lines.reduce((s, l) => s + Math.max(0, num(l.credit)), 0));
+  const taxDebit = R(lines.reduce((s, l) => s + (num(l.debit) > 0 ? jvTaxOf(l) : 0), 0));
+  const taxCredit = R(lines.reduce((s, l) => s + (num(l.credit) > 0 ? jvTaxOf(l) : 0), 0));
+  return { subDebit, subCredit, taxDebit, taxCredit, debit: R(subDebit + taxDebit), credit: R(subCredit + taxCredit) };
 };
+
+export type JvTaxRate = { code: string; name: string; rate: number; direction: string; isActive?: boolean };
+/**
+ * The org's GST standing for the J/V (guru 2026-11-21: "only if a company has GST"): the Tax
+ * column shows when Accounting Setup → Tax Settings has a GST registration number. Tax rates
+ * come from Accounting Setup → Tax Rates (active ones).
+ */
+export function useJvTax(): { gstOrg: boolean; taxRates: JvTaxRate[] } {
+  const { getToken } = useAuth();
+  const [gstOrg, setGstOrg] = useState(false);
+  const [taxRates, setTaxRates] = useState<JvTaxRate[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        const [settings, rates]: any[] = await Promise.all([
+          request({ path: "/accounting/settings", method: "GET", quiet: true }, {}, token || undefined),
+          request({ path: "/accounting/tax-rates", method: "GET", quiet: true }, {}, token || undefined),
+        ]);
+        const st = settings?.data ?? settings;
+        const list: any[] = Array.isArray(rates?.data) ? rates.data : Array.isArray(rates) ? rates : [];
+        if (cancelled) return;
+        setGstOrg(!!String(st?.taxRegistrationNumber || "").trim());
+        setTaxRates(list.filter((t) => t.isActive !== false).map((t) => ({ code: String(t.code), name: t.name, rate: Number(t.rate) || 0, direction: t.direction })));
+      } catch {
+        /* no accounting access: no tax column */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken]);
+  return { gstOrg, taxRates };
+}
 export const jvCreditorLine = (formData: any): JvLine | undefined => jvLines(formData).find((l) => l.offset?.supplierId);
 export const jvDebtorLine = (formData: any): JvLine | undefined => jvLines(formData).find((l) => l.offset?.customerId);
 
@@ -271,6 +325,7 @@ export function JournalVoucherLinesSection({
 }) {
   const router = useRouter();
   const accounts = useOrAccounts();
+  const { gstOrg, taxRates } = useJvTax();
   const jd = formData?.jvData || {};
   const lines = jvLines(formData);
   const creditor = jvCreditorLine(formData);
@@ -410,6 +465,7 @@ export function JournalVoucherLinesSection({
                     <TableCell sx={{ ...headCellSx, width: 170 }}>Account code</TableCell>
                     <TableCell sx={headCellSx}>Description</TableCell>
                     <TableCell sx={headCellSx}>Remarks</TableCell>
+                    {gstOrg && <TableCell sx={{ ...headCellSx, width: 190 }}>Tax Rate</TableCell>}
                     <TableCell sx={{ ...headCellSx, textAlign: "right", width: 150 }}>Debit</TableCell>
                     <TableCell sx={{ ...headCellSx, textAlign: "right", width: 150 }}>Credit</TableCell>
                     <TableCell sx={{ ...headCellSx, width: 44 }} />
@@ -418,7 +474,7 @@ export function JournalVoucherLinesSection({
                 <TableBody>
                   {lines.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={6} sx={{ color: "text.secondary", py: 2 }}>
+                      <TableCell colSpan={gstOrg ? 7 : 6} sx={{ color: "text.secondary", py: 2 }}>
                         No lines yet. Add a line per account; keying the Trade Creditors code opens Offset Supplier Invoices, the Trade Debtors code opens Offset Customer Invoices.
                       </TableCell>
                     </TableRow>
@@ -463,6 +519,38 @@ export function JournalVoucherLinesSection({
                             <TextField size="small" fullWidth value={l.remarks || ""} disabled={disabled} onChange={(e) => patchLine(l.id, { remarks: e.target.value })} />
                           )}
                         </TableCell>
+                        {gstOrg && (
+                          <TableCell>
+                            {isCreditor ? (
+                              <Typography variant="body2" sx={{ color: "text.secondary", pl: 0.5 }}>—</Typography>
+                            ) : (
+                              <Select
+                                size="small"
+                                fullWidth
+                                displayEmpty
+                                value={taxRates.some((t) => t.code === l.taxCode) ? String(l.taxCode) : ""}
+                                disabled={disabled}
+                                data-testid="jv-tax-rate"
+                                onChange={(e) => {
+                                  const t = taxRates.find((x) => x.code === e.target.value);
+                                  patchLine(l.id, { taxCode: t ? t.code : null, taxRate: t ? t.rate : 0 });
+                                }}
+                                renderValue={(v) => {
+                                  const t = taxRates.find((x) => x.code === v);
+                                  return t ? `${t.name} (${t.rate}%)` : "No Tax (0%)";
+                                }}
+                                sx={{ fontSize: "0.8125rem" }}
+                              >
+                                <MenuItem value="">No Tax (0%)</MenuItem>
+                                {taxRates.map((t) => (
+                                  <MenuItem key={t.code} value={t.code}>
+                                    {t.name} ({t.rate}%)
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            )}
+                          </TableCell>
+                        )}
                         <TableCell sx={{ textAlign: "right" }}>
                           <MoneyInput
                             value={l.debit ?? ""}
@@ -502,7 +590,7 @@ export function JournalVoucherLinesSection({
                       2026-11-16), so it reads as part of the table rather than
                       a control floating above it. */}
                   <TableRow>
-                    <TableCell colSpan={6} sx={{ py: 0.75, borderBottom: "none !important" }}>
+                    <TableCell colSpan={gstOrg ? 7 : 6} sx={{ py: 0.75, borderBottom: "none !important" }}>
                       <Button data-hotkey="addLine" variant="contained" size="small" startIcon={<AddIcon />} onClick={addLine} disabled={disabled}>
                         Add line
                       </Button>
@@ -512,8 +600,25 @@ export function JournalVoucherLinesSection({
               </Table>
             </TableContainer>
 
+            {/* GST orgs: Subtotal and Total tax above the TOTAL, as on Xero's manual journal. */}
+            {gstOrg && lines.length > 0 && (
+              <Stack sx={{ mt: 1, pr: 1 }} spacing={0.25} data-testid="jv-tax-totals">
+                {[
+                  ["Subtotal", totals.subDebit, totals.subCredit],
+                  ["Total tax", totals.taxDebit, totals.taxCredit],
+                ].map(([label, dr, cr]) => (
+                  <Stack key={String(label)} direction="row" alignItems="center" spacing={2}>
+                    <Box sx={{ flex: 1 }} />
+                    <Typography variant="body2" sx={{ color: "text.secondary", minWidth: 90, textAlign: "right" }}>{label}</Typography>
+                    <Typography sx={{ fontVariantNumeric: "tabular-nums", fontSize: "0.875rem", minWidth: 135, textAlign: "right" }}>{fmt(Number(dr))}</Typography>
+                    <Typography sx={{ fontVariantNumeric: "tabular-nums", fontSize: "0.875rem", minWidth: 135, textAlign: "right", mr: 5.5 }}>{fmt(Number(cr))}</Typography>
+                  </Stack>
+                ))}
+              </Stack>
+            )}
             <Stack direction="row" alignItems="center" sx={{ mt: 1, pr: 1 }} spacing={2}>
               <Box sx={{ flex: 1 }} />
+              {gstOrg && lines.length > 0 && <Typography variant="body2" sx={{ fontWeight: 700, minWidth: 90, textAlign: "right" }}>TOTAL</Typography>}
               {lines.length > 0 && (
                 <Chip
                   size="small"

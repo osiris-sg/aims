@@ -77,7 +77,6 @@ export const OR_FIELD_DEFINITIONS: TemplateFieldConfig = {
         { fieldName: "orData.date", displayLabel: "Date", fieldType: "date", required: true },
         // Bank advice (cheque / transfer reference; guru 2026-11-14, as on the Payment Voucher). Stored as chequeNo.
         { fieldName: "orData.chequeNo", displayLabel: "Bank advice", fieldType: "text", required: false },
-        { fieldName: "orData.remarks", displayLabel: "Remarks", fieldType: "text", required: false },
         { fieldName: "orCustomer", displayLabel: "Customer code", fieldType: "text", required: true },
         { fieldName: "orCredit", displayLabel: "Accounts to  CREDIT", fieldType: "text", required: false },
         { fieldName: "orDebit", displayLabel: "Accounts to  DEBIT", fieldType: "text", required: true },
