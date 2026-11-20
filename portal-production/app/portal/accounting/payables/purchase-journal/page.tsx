@@ -30,6 +30,11 @@ import { expandUploadFiles, UPLOAD_ACCEPT } from "@/helpers/uploadExpand";
 import { Button } from "@mui/material";
 import RecordBillPaymentDialog from "../../bills/_components/RecordBillPaymentDialog";
 import PageTable from "@/components/PageTable";
+import BulkActionBar from "@/components/BulkActionBar";
+import { BulkConfirmDialog, runBulk, useBulkSelection } from "@/components/useBulkSelection";
+import BlockIcon from "@mui/icons-material/Block";
+import SendIcon from "@mui/icons-material/Send";
+import TaskAltIcon from "@mui/icons-material/TaskAlt";
 import { useClientSort } from "@/components/clientSort";
 import { kebabColumn } from "@/components/RowKebab";
 import Link from "next/link";
@@ -283,6 +288,22 @@ export default function BillsPage() {
     catch (e: any) { toast.error(e?.message || "Void failed"); }
   };
 
+  // Bulk actions (guru 2026-11-21): the row kebab's Submit / Approve / Void, for every ticked bill.
+  const bulk = useBulkSelection<Bill>(paged, { resetKey: `${tab}|${search}|${JSON.stringify(filters)}|${quotationFilter ?? ""}` });
+  const bulkSubmittable = bulk.selectedRows.filter((b) => b.status === "DRAFT");
+  const bulkApprovable = bulk.selectedRows.filter((b) => b.status === "PENDING_APPROVAL");
+  const bulkVoidable = bulk.selectedRows.filter((b) => b.status !== "VOID");
+  const [bulkConfirm, setBulkConfirm] = useState<"submit" | "approve" | "void" | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const runBulkBills = async (rows: Bill[], call: (b: Bill) => Promise<unknown>, past: string) => {
+    setBulkBusy(true);
+    const { ok } = await runBulk(rows, call, { done: (n) => `${n} ${past}`, failed: (n) => `${n} could not be ${past}` });
+    bulk.remove(ok.map((b) => b.id));
+    setBulkBusy(false);
+    setBulkConfirm(null);
+    load();
+  };
+
   // ---------- Column defs for PageTable (tanstack-react-table) ----------
   const columns = useMemo(() => [
     {
@@ -495,7 +516,8 @@ export default function BillsPage() {
       {/* Standard reusable table (same component as Invoices, Inventory, etc.) */}
       <PageTable
         onRowClick={openRow}
-        columns={columns}
+        noSelectionColumn
+        columns={[bulk.column, ...columns]}
         data={paged}
         {...sortingProps}
         tableName="Purchase Journal"
@@ -615,6 +637,69 @@ export default function BillsPage() {
           }}
         />
       )}
+
+      {/* Floating bulk-action bar (guru 2026-11-21) */}
+      <BulkActionBar
+        count={bulk.count}
+        onClear={bulk.clear}
+        actions={[
+          {
+            key: "submit",
+            label: bulkSubmittable.length > 0 && bulkSubmittable.length < bulk.count ? `Submit ${bulkSubmittable.length}` : "Submit",
+            icon: <SendIcon />,
+            disabled: bulkSubmittable.length === 0 || bulkBusy,
+            tooltip: bulkSubmittable.length === 0 ? "Only unconfirmed bills can be submitted" : "Submit the selected unconfirmed bills for approval",
+            onClick: () => setBulkConfirm("submit"),
+          },
+          {
+            key: "approve",
+            label: bulkApprovable.length > 0 && bulkApprovable.length < bulk.count ? `Approve ${bulkApprovable.length}` : "Approve",
+            icon: <TaskAltIcon />,
+            color: "success",
+            disabled: bulkApprovable.length === 0 || bulkBusy,
+            tooltip: bulkApprovable.length === 0 ? "Only bills pending approval can be approved" : "Approve and post the selected bills",
+            onClick: () => setBulkConfirm("approve"),
+          },
+          {
+            key: "void",
+            label: bulkVoidable.length > 0 && bulkVoidable.length < bulk.count ? `Void ${bulkVoidable.length}` : "Void",
+            icon: <BlockIcon />,
+            color: "error",
+            disabled: bulkVoidable.length === 0 || bulkBusy,
+            tooltip: bulkVoidable.length === 0 ? "Already void" : "Void the selected bills and their journals",
+            onClick: () => setBulkConfirm("void"),
+          },
+        ]}
+      />
+      <BulkConfirmDialog
+        open={bulkConfirm === "submit"}
+        title={`Submit ${bulkSubmittable.length} ${bulkSubmittable.length === 1 ? "bill" : "bills"}?`}
+        body={`They move to Pending Approval.${bulk.count > bulkSubmittable.length ? ` ${bulk.count - bulkSubmittable.length} selected ${bulk.count - bulkSubmittable.length === 1 ? "row is" : "rows are"} not unconfirmed and will not be touched.` : ""}`}
+        confirmLabel={bulkBusy ? "Submitting…" : "Submit"}
+        color="primary"
+        busy={bulkBusy}
+        onCancel={() => setBulkConfirm(null)}
+        onConfirm={() => void runBulkBills(bulkSubmittable, (b) => request(`/bills/${b.id}/submit`, { method: "POST" }), "submitted")}
+      />
+      <BulkConfirmDialog
+        open={bulkConfirm === "approve"}
+        title={`Approve ${bulkApprovable.length} ${bulkApprovable.length === 1 ? "bill" : "bills"}?`}
+        body={`Each one is approved and posted to the General Ledger.${bulk.count > bulkApprovable.length ? ` ${bulk.count - bulkApprovable.length} selected ${bulk.count - bulkApprovable.length === 1 ? "row is" : "rows are"} not pending approval and will not be touched.` : ""}`}
+        confirmLabel={bulkBusy ? "Approving…" : "Approve + post"}
+        color="success"
+        busy={bulkBusy}
+        onCancel={() => setBulkConfirm(null)}
+        onConfirm={() => void runBulkBills(bulkApprovable, (b) => request(`/bills/${b.id}/approve`, { method: "POST" }), "approved")}
+      />
+      <BulkConfirmDialog
+        open={bulkConfirm === "void"}
+        title={`Void ${bulkVoidable.length} ${bulkVoidable.length === 1 ? "bill" : "bills"}?`}
+        body={`Each bill's journal is voided too (a reversing entry is created only where it was already confirmed). There is no un-void.${bulk.count > bulkVoidable.length ? ` ${bulk.count - bulkVoidable.length} selected ${bulk.count - bulkVoidable.length === 1 ? "row is" : "rows are"} already void.` : ""}`}
+        confirmLabel={bulkBusy ? "Voiding…" : "Void"}
+        busy={bulkBusy}
+        onCancel={() => setBulkConfirm(null)}
+        onConfirm={() => void runBulkBills(bulkVoidable, (b) => request(`/bills/${b.id}`, { method: "DELETE" }), "voided")}
+      />
     </Box>
   );
 }

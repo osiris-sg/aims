@@ -17,6 +17,7 @@ import { Box, Grid, Paper, Typography } from "@mui/material";
 import { toast } from "react-toastify";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import { useAccountingApi } from "./api";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
@@ -212,6 +213,10 @@ export default function VoucherListPage({ kind }: { kind: Kind }) {
   // The server already returned exactly this page, in order.
   const pageRows = rows;
 
+  // Bulk delete (guru 2026-11-21). A hand-keyed journal shown in the J/V list
+  // (source "journal") is read-only here and is skipped.
+  const bulk = useBulkSelection<any>(pageRows, { resetKey: `${search}|${dateFilter.from}|${dateFilter.to}` });
+
   const columns = [
     {
       accessorKey: "number",
@@ -240,6 +245,15 @@ export default function VoucherListPage({ kind }: { kind: Kind }) {
       cell: ({ row }: any) => spec.party.of(row.original) || "—",
     },
     {
+      // The editor's right-hand Remarks memo (2026-11-21; on the P/V and J/V the old To-Do List,
+      // stored as notes): the reference people read a voucher by.
+      id: "remarks",
+      header: "Remarks",
+      cell: ({ row }: any) => (
+        <Box sx={{ maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.original.notes || row.original.remarks || "—"}</Box>
+      ),
+    },
+    {
       id: "amount",
       header: "Amount",
       // Table right-aligns the header AND the cell from `align`, so the
@@ -254,7 +268,8 @@ export default function VoucherListPage({ kind }: { kind: Kind }) {
   return (
     <MainCard>
       <PageTable
-        columns={columns}
+        noSelectionColumn
+        columns={[bulk.column, ...columns]}
         data={pageRows}
         onRowClick={(r: any) => router.push(editorUrl(r))}
         rowHref={editorUrl}
@@ -292,6 +307,16 @@ export default function VoucherListPage({ kind }: { kind: Kind }) {
             </Grid>
           </Box>
         }
+      />
+      <BulkDeleteBar
+        bulk={bulk}
+        noun={spec.label.toLowerCase()}
+        plural={spec.plural.toLowerCase()}
+        run={(r) => request(`${spec.apiPath}/${r.id}`, { method: "DELETE" })}
+        eligible={(r) => !spec.rowPath?.(r)}
+        skipNote="are journals, not vouchers, and"
+        confirmBody="Each voucher's journal is voided with it. This cannot be undone."
+        onDone={() => void load()}
       />
     </MainCard>
   );

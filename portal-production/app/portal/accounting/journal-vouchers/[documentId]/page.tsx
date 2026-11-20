@@ -116,6 +116,7 @@ export default function JournalVoucherPage() {
         accountCode: l.accountCode || null,
         description: l.description || null,
         remarks: l.remarks || null,
+        taxCode: l.taxCode || null,
         debit: Math.round((parseFloat(String(l.debit)) || 0) * 100) / 100,
         credit: Math.round((parseFloat(String(l.credit)) || 0) * 100) / 100,
         offset: l.offset

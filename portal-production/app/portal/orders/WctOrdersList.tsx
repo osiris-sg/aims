@@ -7,6 +7,8 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
+import CancelIcon from "@mui/icons-material/Cancel";
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, ListItemText, Menu, MenuItem, Stack, TextField, Tooltip, Typography, alpha, lighten } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import AddIcon from "@mui/icons-material/Add";
@@ -492,12 +494,20 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
     </Box>
   );
 
+  // Bulk cancel (guru 2026-11-21): the rows whose kebab offers Cancel order (hubRowActions), i.e. orders that have not started.
+  const bulk = useBulkSelection<WctOrderRow>(tab === "untagged" ? [] : filtered, { resetKey: `${tab}|${search}|${JSON.stringify(filters)}` });
+  const bulkCancel = async (row: WctOrderRow) => {
+    const token = await getToken();
+    const res: any = await request({ path: `/orders/${row.id}/cancel`, method: "POST", ownError: true }, {}, token ?? undefined);
+    if (res?.success === false) throw new Error(res?.message || "Could not cancel");
+  };
+
   return (
     <MainCard>
       <PageTable
         onRowClick={(r: any) => router.push(tab === "untagged" ? `/portal/deliveries/${r.id}` : `/portal/orders/${r.id}`)}
         rowHref={(r: any) => (tab === "untagged" ? `/portal/deliveries/${r.id}` : `/portal/orders/${r.id}`)}
-        columns={tab === "untagged" ? jobColumns : columns}
+        columns={tab === "untagged" ? jobColumns : [bulk.column, ...columns]}
         data={tab === "untagged" ? untaggedRows : filtered}
         tableName="Orders"
         subTitle={tab === "untagged" ? "Jobs added from the calendar with no quotation or order yet. Open one and use Link to… to put it under an order." : undefined}
@@ -517,6 +527,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
         totalDocs={tab === "untagged" ? untaggedRows.length : filtered.length}
         noSelectionColumn
       />
+      <BulkDeleteBar bulk={bulk} noun="order" verb="Cancel" color="error" icon={<CancelIcon />} eligible={(r) => hubRowActions(r.status, { doFirst: !!isManualOrderFlowEnabled }).includes("cancel-order")} skipNote="have started (a job is done or an invoice exists)" confirmBody="Each order's draft jobs and draft invoices go with it." run={bulkCancel} onDone={() => void fetchOrders()} />
 
       {/* Row menu: anchored to the click position (table rows re-render). */}
       <Menu open={!!rowMenu} onClose={() => setRowMenu(null)} anchorReference="anchorPosition" anchorPosition={rowMenu?.pos}>

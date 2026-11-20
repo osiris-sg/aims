@@ -5,6 +5,7 @@ import { useGetCustomers, useDeleteCustomer } from "@/app/portal/hooks/api";
 import MainCard from "@/components/MainCard";
 import { kebabColumn } from "@/components/RowKebab";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import type { FilterField } from "@/components/FilterDrawer";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import { Box, IconButton } from "@mui/material";
@@ -112,6 +113,7 @@ export default function CustomersPage() {
 
   // Delete customer mutation
   const deleteCustomerMutation = useDeleteCustomer();
+  const bulk = useBulkSelection<any>(customers, { resetKey: `${search}|${JSON.stringify(filters)}` });
 
   const columns = [
     {
@@ -210,7 +212,8 @@ export default function CustomersPage() {
     <MainCard>
       <PageTable
         onRowClick={(r: any) => router.push(`${ROUTES.CUSTOMERS}/${r.id}`)}
-        columns={columns}
+        noSelectionColumn
+        columns={[bulk.column, ...columns]}
         data={customers}
         tableName="Customers List"
         subTitle="Customers Detail Information"
@@ -229,6 +232,8 @@ export default function CustomersPage() {
         pageCount={Math.ceil(total / limit)}
         totalDocs={total}
       />
+
+      <BulkDeleteBar bulk={bulk} noun="customer" run={(r) => deleteCustomerMutation.mutateAsync(r.id)} onDone={() => refetch()} />
 
       <DeleteItemDialogNoConfirm
         open={!!customerToDelete}

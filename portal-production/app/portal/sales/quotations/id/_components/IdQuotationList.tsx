@@ -13,6 +13,7 @@ import moment from "moment";
 import { toast } from "react-toastify";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import { kebabColumn } from "@/components/RowKebab";
 import StatusChip from "@/components/StatusChip";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
@@ -200,15 +201,19 @@ export default function IdQuotationList() {
     [],
   );
 
+  // Bulk delete (guru 2026-11-21).
+  const bulk = useBulkSelection<any>(rows, { resetKey: `${search}|${JSON.stringify(filters)}` });
+
   return (
     <MainCard>
       <PageTable
+        noSelectionColumn
         onRowClick={(d: any) => router.push(quotationUrl(d))}
         // Real row links → native "Open link in new tab" on right-click.
         rowHref={quotationUrl}
         tableName="Quotations"
         subTitle="Letter of Intent & Appointment for Renovation Works"
-        columns={columns as any}
+        columns={[bulk.column, ...(columns as any)]}
         data={rows}
         loading={loading}
         page={page}
@@ -226,6 +231,7 @@ export default function IdQuotationList() {
         buttonDisabled={creating}
         onAddClick={handleCreate}
       />
+      <BulkDeleteBar bulk={bulk} noun="quotation" run={(r) => api.deleteDocument(r.id)} onDone={() => void load()} />
       <DeleteItemDialogNoConfirm open={!!toDelete} onCancel={() => setToDelete(null)} onConfirm={handleDelete} loading={deleting} />
     </MainCard>
   );

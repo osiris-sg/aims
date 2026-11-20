@@ -7,6 +7,7 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import { Box, Chip, IconButton, Tab, Tabs, Typography } from "@mui/material";
 import moment from "moment";
 import { toast } from "react-toastify";
@@ -229,6 +230,14 @@ export default function SlimOrdersList() {
     },
   ];
 
+  // Bulk delete (guru 2026-11-21).
+  const bulk = useBulkSelection<any>(filtered, { resetKey: `${search}|${JSON.stringify(filters)}` });
+  const bulkDeleteOrder = async (r: any) => {
+    const token = await getToken();
+    const res: any = await request({ path: `/orders/${r.id}`, method: "DELETE", ownError: true }, {}, token ?? undefined);
+    if (res?.success === false) throw new Error(res?.message || "Delete failed");
+  };
+
   return (
     <MainCard>
       <Box sx={{ borderBottom: 1, borderColor: "divider", mb: 2 }}>
@@ -250,8 +259,9 @@ export default function SlimOrdersList() {
         </Tabs>
       </Box>
       <PageTable
+        noSelectionColumn
         onRowClick={(r: any) => router.push(`/portal/orders/${r.id}`)}
-        columns={columns}
+        columns={[bulk.column, ...(columns)]}
         data={filtered}
         tableName="Orders"
         subTitle="Pipeline board — filter by quotation / delivery / invoice stage."
@@ -269,6 +279,7 @@ export default function SlimOrdersList() {
         pageCount={1}
         totalDocs={filtered.length}
       />
+      <BulkDeleteBar bulk={bulk} noun="order" run={bulkDeleteOrder} onDone={() => void fetchOrders()} />
     </MainCard>
   );
 }

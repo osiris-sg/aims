@@ -255,7 +255,7 @@ export default function PageTable(props: Props) {
                 flex: 1,
               })}
             >
-              <Table columns={columns} data={data} onRowClick={onRowClick} rowHref={rowHref} rowSx={rowSx} onRowSelect={() => {}} loading={loading} subRowAccessor={subRowAccessor} manualSorting={manualSorting} sorting={sorting} onSortingChange={onSortingChange} isNoSelectionColumn={noSelectionColumn} showAllRows={!sliced} clientPage={sliced ? { index: sliced.page - 1, size: limit ?? DEFAULT_PAGE_SIZE } : undefined} />
+              <Table columns={columns} data={data} onRowClick={onRowClick} rowHref={rowHref} rowSx={rowSx} loading={loading} subRowAccessor={subRowAccessor} manualSorting={manualSorting} sorting={sorting} onSortingChange={onSortingChange} isNoSelectionColumn={noSelectionColumn} showAllRows={!sliced} clientPage={sliced ? { index: sliced.page - 1, size: limit ?? DEFAULT_PAGE_SIZE } : undefined} />
             </Box>
             {!noPagination && (
               <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", overflowX: "hidden" }}>

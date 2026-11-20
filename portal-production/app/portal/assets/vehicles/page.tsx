@@ -7,6 +7,8 @@ import { Alert, Box, Button, Chip, FormControlLabel, Stack, Switch, Typography }
 import AddIcon from "@mui/icons-material/Add";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
+import ArchiveIcon from "@mui/icons-material/Archive";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { canVehicles, expiryChip, fmtDate, fmtKm, fmtMoney, vehiclesApi, type VehicleRow } from "@/helpers/wctVehicles";
@@ -119,6 +121,9 @@ export default function VehiclesPage() {
     },
   ];
 
+  // Bulk archive (guru 2026-11-21).
+  const bulk = useBulkSelection<any>(filtered, { resetKey: `${search}|${JSON.stringify(filters)}|${showArchived}` });
+
   if (!isWctVehiclesEnabled) {
     return (
       <MainCard>
@@ -126,6 +131,7 @@ export default function VehiclesPage() {
       </MainCard>
     );
   }
+
 
   return (
     <MainCard>
@@ -137,7 +143,7 @@ export default function VehiclesPage() {
       <PageTable
         onRowClick={(r: any) => router.push(vehicleHref(r.id))}
         rowHref={(r: any) => vehicleHref(r.id)}
-        columns={columns}
+        columns={[bulk.column, ...(columns)]}
         data={filtered}
         tableName="Vehicles"
         headerContent={
@@ -171,6 +177,7 @@ export default function VehiclesPage() {
         totalDocs={filtered.length}
         noSelectionColumn
       />
+      <BulkDeleteBar bulk={bulk} noun="vehicle" verb="Archive" color="warning" icon={<ArchiveIcon />} eligible={(r) => !r.archived} skipNote="are already archived" confirmBody="Archived vehicles are hidden from the list (Show archived brings them back)." run={async (r) => vehiclesApi(`/${r.id}/archive`, "POST", (await getToken()) as string)} onDone={() => void load()} />
     </MainCard>
   );
 }

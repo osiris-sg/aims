@@ -8,6 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from "@mui/material";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import { kebabColumn } from "@/components/RowKebab";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import MassCostUpload from "./MassCostUpload";
@@ -193,6 +194,9 @@ export default function IdProjectList() {
     { value: "completed", label: "Completed", count: stageCounts?.completed ?? null },
   ];
 
+  // Bulk delete (guru 2026-11-21) — same role rule as the row kebab.
+  const bulk = useBulkSelection<any>(rows, { resetKey: `${search}|${JSON.stringify(filters)}` });
+
   return (
     <MainCard>
       {/* Stage funnel — quick filters (New-project button removed 2026-09-24:
@@ -220,12 +224,13 @@ export default function IdProjectList() {
         </ToggleButtonGroup>
       </Stack>
       <PageTable
+        noSelectionColumn
         onRowClick={(r: any) => router.push(`/portal/projects/${r.id}`)}
         tableName="Projects"
         buttonName={intakeCount > 0 ? `Upload invoices (${intakeCount} from WhatsApp)` : "Upload invoices"}
         onAddClick={() => setMassUploadOpen(true)}
         subTitle="Every signed quotation becomes a project — costing, payments and profit live here"
-        columns={columns as any}
+        columns={[bulk.column, ...(columns as any)]}
         data={rows}
         loading={loading}
         page={page}
@@ -240,6 +245,7 @@ export default function IdProjectList() {
         pageCount={Math.max(1, Math.ceil(total / limit))}
         totalDocs={total}
       />
+      {canDelete && <BulkDeleteBar bulk={bulk} noun="project" run={(r) => api.request(`/id-projects/${r.id}`, { method: "DELETE" })} onDone={() => void load()} />}
           <Dialog open={createOpen} onClose={() => setCreateOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>New project</DialogTitle>
         <DialogContent>

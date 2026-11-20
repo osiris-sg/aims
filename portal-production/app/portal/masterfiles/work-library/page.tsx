@@ -26,6 +26,7 @@ import {
 import { toast } from "react-toastify";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import { useClientSort } from "@/components/clientSort";
 import { kebabColumn } from "@/components/RowKebab";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
@@ -462,13 +463,17 @@ export default function WorkLibraryPage() {
     [],
   );
 
+  // Bulk delete (guru 2026-11-21).
+  const bulk = useBulkSelection<any>(paged, { resetKey: `${search}|${JSON.stringify(filters)}` });
+
   return (
     <MainCard>
       <PageTable
+        noSelectionColumn
         onRowClick={(r: any) => openEdit(r)}
         tableName="Work Library"
         subTitle="Trade sections and templatised quotation lines used by the quotation editor"
-        columns={columns as any}
+        columns={[bulk.column, ...(columns as any)]}
         data={paged}
         {...sortingProps}
         loading={loading}
@@ -510,6 +515,7 @@ export default function WorkLibraryPage() {
           </Stack>
         }
       />
+      <BulkDeleteBar bulk={bulk} noun="item" run={(r) => api.request(`/revenue-items/${r.id}`, { method: "DELETE" })} onDone={() => void load()} />
 
       <Dialog open={dialog} onClose={() => setDialog(false)} fullWidth maxWidth="md" PaperProps={{ sx: { borderRadius: 2 } }}>
         <DialogTitle>{editing ? "Edit work item" : "New work item"}</DialogTitle>

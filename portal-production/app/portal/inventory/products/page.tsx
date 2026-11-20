@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import { kebabColumn } from "@/components/RowKebab";
 import { useRouter, usePathname } from "next/navigation";
 import { Avatar, IconButton, Typography, Box, TextField, ToggleButton, ToggleButtonGroup } from "@mui/material";
@@ -85,6 +86,7 @@ export default function ProductsPage() {
   const { categories = [], isLoading: loadingCategories } = useGetCategories();
 
   const deleteAssetMutation = useDeleteAsset();
+  const bulk = useBulkSelection<any>(assets, { resetKey: `${search}|${JSON.stringify(filters)}` });
 
   const isLoading = loadingAssets || loadingCategories;
 
@@ -218,27 +220,31 @@ export default function ProductsPage() {
       </Box>
 
       {viewMode === "table" ? (
-        <PageTable
-          onRowClick={(r: any) => router.push(`${ROUTES.ASSETS}/${r.skuKey}`)}
-          loading={isLoading}
-          columns={columns}
-          data={assets}
-          tableName={isTrackedInventoryOnlyEnabled ? "All Inventory" : "All Products"}
-          subTitle={isTrackedInventoryOnlyEnabled ? "Inventory Detail Information" : "Products Detail Information"}
-          buttonName={isTrackedInventoryOnlyEnabled ? "Add Inventory" : "Add Product"}
-          page={page}
-          limit={limit}
-          search={search}
-          filters={filters}
-          setPage={setPage}
-          setLimit={setLimit}
-          setSearch={setSearch}
-          setFilters={setFilters}
-          onAddClick={() => router.push(`${ROUTES.ADD_ASSET}?${fromQ}`)}
-          availableFilters={["category"]}
-          pageCount={Math.ceil(total / limit)}
-          totalDocs={total}
-        />
+        <>
+  <PageTable
+            noSelectionColumn
+            onRowClick={(r: any) => router.push(`${ROUTES.ASSETS}/${r.skuKey}`)}
+            loading={isLoading}
+            columns={[bulk.column, ...(columns)]}
+            data={assets}
+            tableName={isTrackedInventoryOnlyEnabled ? "All Inventory" : "All Products"}
+            subTitle={isTrackedInventoryOnlyEnabled ? "Inventory Detail Information" : "Products Detail Information"}
+            buttonName={isTrackedInventoryOnlyEnabled ? "Add Inventory" : "Add Product"}
+            page={page}
+            limit={limit}
+            search={search}
+            filters={filters}
+            setPage={setPage}
+            setLimit={setLimit}
+            setSearch={setSearch}
+            setFilters={setFilters}
+            onAddClick={() => router.push(`${ROUTES.ADD_ASSET}?${fromQ}`)}
+            availableFilters={["category"]}
+            pageCount={Math.ceil(total / limit)}
+            totalDocs={total}
+          />
+          <BulkDeleteBar bulk={bulk} noun="product" run={(r) => deleteAssetMutation.mutateAsync(r.id)} onDone={() => refetchAssets()} />
+        </>
       ) : (
         <AssetHierarchyTable
           assets={hierarchyAssets}

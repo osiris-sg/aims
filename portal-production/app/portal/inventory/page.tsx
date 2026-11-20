@@ -5,6 +5,7 @@ import { useAuth } from "@clerk/nextjs";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import { kebabColumn } from "@/components/RowKebab";
 import type { FilterField } from "@/components/FilterDrawer";
 import { INVENTORY_STATUS } from "@/containers/Inventory/slice/constants";
@@ -178,6 +179,7 @@ export default function InventoryPage() {
 
   // Delete inventory mutation
   const deleteInventoryMutation = useDeleteInventory();
+  const bulk = useBulkSelection<any>(inventory, { resetKey: `${search}|${JSON.stringify(filters)}` });
 
   // Update inventory mutation
   const updateInventoryMutation = useUpdateInventory();
@@ -360,8 +362,9 @@ export default function InventoryPage() {
   return (
     <MainCard>
       <PageTable
+        noSelectionColumn
         onRowClick={(r: any) => router.push(`${ROUTES.INVENTORY}/${r.sku}`)}
-        columns={columns}
+        columns={[bulk.column, ...(columns)]}
         data={inventory}
         tableName="Inventory List"
         subTitle="Items Detail Information"
@@ -380,6 +383,7 @@ export default function InventoryPage() {
         pageCount={Math.ceil(total / limit)}
         totalDocs={total}
       />
+      <BulkDeleteBar bulk={bulk} noun="item" run={(r) => deleteInventoryMutation.mutateAsync(r.id)} onDone={() => refetch()} />
 
       <AddInventoryItem open={openDrawer} onClose={handleCloseDrawer} />
 

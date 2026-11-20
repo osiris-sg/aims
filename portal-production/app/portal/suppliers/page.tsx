@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useGetSuppliers, useDeleteSupplier } from "@/app/portal/hooks/api/useSuppliers";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import { kebabColumn } from "@/components/RowKebab";
 import AddSupplier from "./components/AddSupplier";
@@ -35,6 +36,7 @@ export default function SuppliersPage() {
   const { suppliers = [], total = 0, isLoading, refetch } = useGetSuppliers({ page, limit, search, filters });
 
   const deleteSupplierMutation = useDeleteSupplier();
+  const bulk = useBulkSelection<any>(suppliers, { resetKey: `${search}|${JSON.stringify(filters)}` });
 
   const columns = [
     {
@@ -122,7 +124,8 @@ export default function SuppliersPage() {
     <MainCard>
       <PageTable
         onRowClick={(r: any) => handleEditSupplier(r.id)}
-        columns={columns}
+        noSelectionColumn
+        columns={[bulk.column, ...columns]}
         data={suppliers}
         tableName="Suppliers List"
         subTitle="Suppliers Detail Information"
@@ -141,6 +144,8 @@ export default function SuppliersPage() {
         pageCount={Math.ceil(total / limit)}
         totalDocs={total}
       />
+
+      <BulkDeleteBar bulk={bulk} noun="supplier" run={(r) => deleteSupplierMutation.mutateAsync(r.id)} onDone={() => refetch()} />
 
       <DeleteItemDialogNoConfirm
         open={!!supplierToDelete}

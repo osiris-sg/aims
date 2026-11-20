@@ -7,6 +7,7 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import type { FilterField } from "@/components/FilterDrawer";
 import { Box, Chip, IconButton, Stack, Tooltip, Typography } from "@mui/material";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
@@ -250,12 +251,21 @@ export function CappitechOrdersList() {
     },
   ] as Array<any>).filter(Boolean);
 
+  // Bulk delete (guru 2026-11-21).
+  const bulk = useBulkSelection<any>(filteredOrders, { resetKey: `${search}|${JSON.stringify(filters)}` });
+  const bulkDeleteOrder = async (r: any) => {
+    const token = await getToken();
+    const res: any = await request({ path: `/orders/${r.id}`, method: "DELETE", ownError: true }, {}, token ?? undefined);
+    if (res?.success === false) throw new Error(res?.message || "Delete failed");
+  };
+
   return (
     <MainCard>
       <VerifySupplierUploadPanel />
       <PageTable
+        noSelectionColumn
         onRowClick={(r: any) => router.push(`/portal/orders/${r.id}`)}
-        columns={columns}
+        columns={[bulk.column, ...(columns)]}
         data={filteredOrders}
         tableName="Orders"
         subTitle="Orders auto-created when quotations are confirmed. Spin off POs, DOs, and Invoices from inside each one."
@@ -273,6 +283,7 @@ export function CappitechOrdersList() {
         pageCount={1}
         totalDocs={filteredOrders.length}
       />
+      <BulkDeleteBar bulk={bulk} noun="order" run={bulkDeleteOrder} onDone={() => void fetchOrders()} />
     </MainCard>
   );
 }

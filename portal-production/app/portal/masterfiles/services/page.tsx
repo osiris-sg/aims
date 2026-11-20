@@ -20,6 +20,7 @@ import {
 import { toast } from "react-toastify";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import { useClientSort } from "@/components/clientSort";
 import { kebabColumn } from "@/components/RowKebab";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
@@ -218,11 +219,19 @@ export default function MasterFilesServices() {
     ]),
   ];
 
+  // Bulk delete (guru 2026-11-21).
+  const bulk = useBulkSelection<any>(paged, { resetKey: `${search}|${JSON.stringify(filters)}` });
+  const bulkDeleteService = async (r: any) => {
+    const res = await authedFetch(`/revenue-items/${r.id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Delete failed");
+  };
+
   return (
     <MainCard>
       <PageTable
+        noSelectionColumn
         onRowClick={(r: any) => openEdit(r as Service)}
-        columns={columns}
+        columns={[bulk.column, ...(columns)]}
         data={paged}
         {...sortingProps}
         tableName="Services List"
@@ -241,6 +250,7 @@ export default function MasterFilesServices() {
         pageCount={Math.max(1, Math.ceil(filtered.length / limit))}
         totalDocs={filtered.length}
       />
+      <BulkDeleteBar bulk={bulk} noun="service" run={bulkDeleteService} onDone={() => void load()} />
 
       <DeleteItemDialogNoConfirm
         open={!!serviceToDelete}

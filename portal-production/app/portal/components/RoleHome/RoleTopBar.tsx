@@ -11,44 +11,28 @@
 // list, order, routes and permission rules as TopNavBar. The role chosen on
 // the profile chip changes the HOME SCREEN only; it does not filter this menu.
 //
-// NO DROPDOWNS (guru 2026-11-12: "when I click Sales the Sales tab opens with
-// only those [items]… and they can still select the home icon and select the
-// other modules"). The bar has two levels:
-//   • modules row — Dashboard · Sales · Inventory · … · Org Settings. A module
-//     with sub-pages swaps the bar to its level; one without (Dashboard,
-//     Projects, Deliveries) just opens.
-//   • module level — [⌂] Sales │ Quotations · Invoices · … — the sub-pages
-//     the dropdown used to list, as flat tabs. ⌂ returns to the modules row.
-//     HOVERING ⌂ lists every module (guru 2026-11-12: "when I hover the home
-//     I can see all the modules… from there they can select") so a user can
-//     jump from Sales straight to Inventory without going home first.
-// Landing inside a module (deep link, list → record) opens its level.
+// DROPDOWNS ARE BACK (guru 2026-11-20: "add back the dropdown for the navbar,
+// but if a user can only see one then show the subtabs in the bar"). The
+// 2026-11-12 two-level bar (modules row ⇄ [⌂] Module │ tabs) is gone:
+//   • modules row — Dashboard · Sales ▾ · Inventory ▾ · … · Org Settings ▾.
+//     A module with sub-pages opens a dropdown of them — ONLY them, no
+//     "main page" item (guru 2026-11-21: "remove the main dashboard for the
+//     inventory/sales modules"); one without (Dashboard, Projects,
+//     Deliveries) just opens. ORDERS sits at the top of the Sales dropdown
+//     instead of being its own entry (guru 2026-11-21: "move orders to the
+//     top of sales tabs").
+//   • ONE module only — a user whose menu has a single entry sees that
+//     module's name and its sub-pages as flat tabs in the bar: nothing to
+//     drop down for, so the tabs are right there.
 
 import * as React from "react";
 import { documentEditorNavPath } from "@/helpers/documentNavPath";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  Box, Button, ButtonBase, Divider, IconButton, Menu, MenuItem, Paper, Popper, Stack,
+  Box, Button, ButtonBase, Divider, IconButton, Menu, MenuItem, Stack,
   Tooltip, Typography, alpha, useTheme,
 } from "@mui/material";
-import HomeOutlinedIcon from "@mui/icons-material/HomeOutlined";
-import CalculateOutlinedIcon from "@mui/icons-material/CalculateOutlined";
-import TrendingUpRoundedIcon from "@mui/icons-material/TrendingUpRounded";
-import ViewInArOutlinedIcon from "@mui/icons-material/ViewInArOutlined";
-import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined";
-import GroupOutlinedIcon from "@mui/icons-material/GroupOutlined";
-import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
-import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
-import HandymanOutlinedIcon from "@mui/icons-material/HandymanOutlined";
-import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
-import DescriptionOutlinedIcon from "@mui/icons-material/DescriptionOutlined";
-import SupportAgentOutlinedIcon from "@mui/icons-material/SupportAgentOutlined";
-import PeopleOutlinedIcon from "@mui/icons-material/PeopleOutlined";
-import DirectionsCarOutlinedIcon from "@mui/icons-material/DirectionsCarOutlined";
-import StorefrontOutlinedIcon from "@mui/icons-material/StorefrontOutlined";
-import GridViewOutlinedIcon from "@mui/icons-material/GridViewOutlined";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
-import HomeRoundedIcon from "@mui/icons-material/HomeRounded";
 import LightModeOutlinedIcon from "@mui/icons-material/LightModeOutlined";
 import DarkModeOutlinedIcon from "@mui/icons-material/DarkModeOutlined";
 import CheckIcon from "@mui/icons-material/Check";
@@ -72,28 +56,6 @@ import { isClientsPath } from "@/helpers/shipmentsNav";
 
 const TEAL = "#1BA39C";
 
-// ⌂ hover tiles — the mock-up launcher's tiles (eb3c7247 AppGrid/apps.ts,
-// guru 2026-11-12 "use these logos"): a 44px rounded square in the app's
-// colour with its outlined icon, keyed by module code.
-const TILE: Record<string, { icon: React.ComponentType<any>; bg: string }> = {
-  DASHBOARD: { icon: HomeOutlinedIcon, bg: "#2B2257" },
-  ACCOUNTING: { icon: CalculateOutlinedIcon, bg: "#2B2257" },
-  SALES: { icon: TrendingUpRoundedIcon, bg: "#F59E0B" },
-  SHIPMENTS: { icon: TrendingUpRoundedIcon, bg: "#F59E0B" },
-  ORDERS: { icon: ReceiptLongOutlinedIcon, bg: "#B45309" },
-  INVENTORY: { icon: ViewInArOutlinedIcon, bg: "#178F8A" },
-  DELIVERIES: { icon: LocalShippingOutlinedIcon, bg: "#4B3F8F" },
-  USER_MANAGEMENT: { icon: GroupOutlinedIcon, bg: "#E5293F" },
-  PROJECTS: { icon: AccountTreeOutlinedIcon, bg: "#0E7490" },
-  MAINTENANCE: { icon: HandymanOutlinedIcon, bg: "#1BA39C" },
-  DOCUMENTS: { icon: DescriptionOutlinedIcon, bg: "#1D4ED8" },
-  CRM: { icon: SupportAgentOutlinedIcon, bg: "#BE185D" },
-  CLIENTS: { icon: PeopleOutlinedIcon, bg: "#BE185D" },
-  SUPPLIERS: { icon: StorefrontOutlinedIcon, bg: "#B45309" },
-  VEHICLES: { icon: DirectionsCarOutlinedIcon, bg: "#0E7490" },
-  ORG_SETTINGS: { icon: TuneRoundedIcon, bg: "#64748B" },
-};
-const TILE_FALLBACK = { icon: GridViewOutlinedIcon, bg: "#64748B" };
 const NAVY = "#2B2257";
 const INK = "#1C1A33";
 
@@ -152,29 +114,6 @@ export default function RoleTopBar() {
     setMenu(null);
     router.push(path);
   };
-
-  // Which level the bar shows. null = follow the page (inside a module → that
-  // module's level; elsewhere → the modules row); "home" = the modules row
-  // even while inside a module (⌂ pressed); { code } = that module's level
-  // (module pressed, page not changed yet). Any navigation resets to "follow".
-  const [level, setLevel] = React.useState<"home" | { code: string } | null>(null);
-  React.useEffect(() => setLevel(null), [navPath]);
-
-  // ⌂ hover list of every module. Opens on hover of the icon, stays while the
-  // pointer is on the icon or the list, closes a beat after it leaves both
-  // (so the pointer can cross the gap). A Popper, not a Menu: a Menu's
-  // backdrop would swallow the hover.
-  const [homeList, setHomeList] = React.useState<HTMLElement | null>(null);
-  const homeCloseTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showHomeList = (el: HTMLElement) => {
-    if (homeCloseTimer.current) clearTimeout(homeCloseTimer.current);
-    setHomeList(el);
-  };
-  const hideHomeListSoon = () => {
-    if (homeCloseTimer.current) clearTimeout(homeCloseTimer.current);
-    homeCloseTimer.current = setTimeout(() => setHomeList(null), 160);
-  };
-  React.useEffect(() => () => { if (homeCloseTimer.current) clearTimeout(homeCloseTimer.current); }, []);
 
   // Same highlight rule as the normal bar.
   const isActive = (m: any): boolean => {
@@ -301,149 +240,110 @@ export default function RoleTopBar() {
                   }]
                 : []),
             ];
-            // Picking a module OPENS ITS MAIN PAGE as well as its level (guru
-            // 2026-11-14): Accounting → General Ledger (its Dashboard tab is
-            // gone), Sales → the Sales page, Inventory → the Inventory overview;
-            // any other module → its own route when that is one of its tabs,
-            // else its first tab.
+            // Orders is the first Sales item, not a module of its own.
+            const ordersAt = bars.findIndex((b) => b.code === "ORDERS");
+            const sales = bars.find((b) => b.code === "SALES");
+            if (ordersAt >= 0 && sales) {
+              const [orders] = bars.splice(ordersAt, 1);
+              sales.tabs = [...(orders.tabs.length ? orders.tabs : [{ label: orders.label, path: orders.route }]), ...sales.tabs];
+              sales.active = sales.active || orders.active;
+            }
+            // A module's MAIN PAGE (guru 2026-11-14): Accounting → General
+            // Ledger (its Dashboard tab is gone), Sales → the Sales page,
+            // Inventory → the Inventory overview; any other module → its own
+            // route when that is one of its tabs, else its first tab.
             const MODULE_HOME: Record<string, string> = { ACCOUNTING: "/portal/accounting/ledger", SALES: "/portal/sales", INVENTORY: "/portal/inventory/overview" };
             const homeOf = (b: Bar) => MODULE_HOME[b.code] ?? (b.tabs.some((t) => t.path === b.route) || !b.tabs.length ? b.route : b.tabs[0].path);
-            const pick = (b: Bar) => {
-              setHomeList(null);
-              if (b.tabs.length) setLevel({ code: b.code });
-              const home = homeOf(b);
-              if (home && home !== navPath) go(home);
-            };
-            const followed = bars.find((b) => b.active && b.tabs.length)?.code ?? null;
-            const openCode = level === "home" ? null : level?.code ?? followed;
-            const open = openCode ? bars.find((b) => b.code === openCode) : undefined;
+            // The tab whose route is the longest prefix of the page is the
+            // current one (a module's own route is a prefix of every page under it).
+            const currentTab = (b: Bar) =>
+              b.tabs
+                .filter((tb) => navPath === tb.path || navPath.startsWith(tb.path + "/"))
+                .sort((x, y) => y.path.length - x.path.length)[0];
 
-            if (!open) {
-              // Modules row.
+            if (bars.length === 1) {
+              // One module only: its name, then its sub-pages as flat tabs.
+              const only = bars[0];
+              const current = currentTab(only);
               return (
-                <NavTabsScroller fade={barBg} arrowColor={dark ? "rgba(255,255,255,0.85)" : INK} gap={0.25} testId="role-nav-scroller">
-                  {bars.map((b) => (
-                    <Button
-                      key={b.code}
-                      size="small"
-                      data-testid={`role-nav-module-${b.code}`}
-                      onClick={() => pick(b)}
-                      sx={navBtnSx(b.active, false)}
-                    >
-                      {b.label}
-                    </Button>
-                  ))}
-                </NavTabsScroller>
+                <>
+                  <ButtonBase
+                    data-testid="role-nav-level"
+                    onClick={() => {
+                      const home = homeOf(only);
+                      if (home && home !== navPath) go(home);
+                    }}
+                    sx={{
+                      fontFamily: "inherit",
+                      fontSize: "0.875rem",
+                      fontWeight: 600,
+                      color: dark ? "text.primary" : INK,
+                      px: 0.75,
+                      py: 0.5,
+                      borderRadius: 1.5,
+                      whiteSpace: "nowrap",
+                      flexShrink: 0,
+                      "&:hover": { bgcolor: dark ? alpha("#fff", 0.08) : "#EEF0F7" },
+                    }}
+                  >
+                    {only.label}
+                  </ButtonBase>
+                  {only.tabs.length > 0 && (
+                    <>
+                      <Box sx={{ width: "1px", height: 20, bgcolor: dark ? alpha("#fff", 0.16) : "#E2E6F0", mx: 0.5, flexShrink: 0 }} />
+                      <NavTabsScroller fade={barBg} arrowColor={dark ? "rgba(255,255,255,0.85)" : INK} gap={0.25} testId="role-nav-scroller">
+                        {only.tabs.map((tb) => (
+                          <Button
+                            key={tb.path}
+                            size="small"
+                            data-testid="role-nav-tab"
+                            onClick={() => go(tb.path)}
+                            sx={navBtnSx(current?.path === tb.path, false)}
+                          >
+                            {tb.label}
+                          </Button>
+                        ))}
+                      </NavTabsScroller>
+                    </>
+                  )}
+                </>
               );
             }
 
-            // Module level: ⌂ · module name │ its sub-pages as tabs. The tab
-            // whose route is the longest prefix of the page is the current one
-            // (a module's own route is a prefix of every page under it).
-            const current = open.tabs
-              .filter((tb) => navPath === tb.path || navPath.startsWith(tb.path + "/"))
-              .sort((a, b) => b.path.length - a.path.length)[0];
+            // Modules row with dropdowns — the normal bar's menu in this bar's styling.
             return (
-              <>
-                <IconButton
-                  size="small"
-                  data-testid="role-nav-home"
-                  aria-label="All modules"
-                  aria-haspopup="menu"
-                  aria-expanded={!!homeList}
-                  onClick={() => { setHomeList(null); setLevel("home"); }}
-                  onMouseEnter={(e) => showHomeList(e.currentTarget)}
-                  onMouseLeave={hideHomeListSoon}
-                  onFocus={(e) => showHomeList(e.currentTarget)}
-                  onBlur={hideHomeListSoon}
-                  sx={{ color: dark ? "text.primary" : INK, flexShrink: 0, bgcolor: homeList ? (dark ? alpha("#fff", 0.08) : "#F2F4FA") : "transparent", "&:hover": { bgcolor: dark ? alpha("#fff", 0.08) : "#F2F4FA" } }}
-                >
-                  <HomeRoundedIcon fontSize="small" />
-                </IconButton>
-                <Popper
-                  open={!!homeList}
-                  anchorEl={homeList}
-                  placement="bottom"
-                  modifiers={[{ name: "offset", options: { offset: [0, 6] } }, { name: "preventOverflow", options: { padding: 8 } }]}
-                  sx={{ zIndex: (t) => t.zIndex.modal }}
-                >
-                  <Paper
-                    elevation={0}
-                    data-testid="role-nav-home-list"
-                    onMouseEnter={() => homeList && showHomeList(homeList)}
-                    onMouseLeave={hideHomeListSoon}
-                    sx={{
-                      p: 1.5, borderRadius: "20px", width: 300, bgcolor: dark ? "background.paper" : "#fff", backgroundImage: "none",
-                      border: "1px solid", borderColor: dark ? alpha("#fff", 0.1) : "#E2E8F0",
-                      boxShadow: "0 20px 25px -5px rgba(0,0,0,.1), 0 8px 10px -6px rgba(0,0,0,.1)",
-                    }}
-                  >
-                    <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)" }}>
-                      {bars.map((b) => {
-                        const { icon: Icon, bg } = TILE[b.code] ?? TILE_FALLBACK;
-                        const here = b.code === open.code;
-                        return (
-                          <ButtonBase
-                            key={b.code}
-                            data-testid={`role-nav-home-item-${b.code}`}
-                            onClick={() => pick(b)}
-                            sx={{
-                              display: "flex", flexDirection: "column", alignItems: "center", gap: 1, py: 1.5, borderRadius: "16px",
-                              bgcolor: here ? (dark ? alpha("#fff", 0.08) : "#ECEAF7") : "transparent",
-                              "&:hover": { bgcolor: dark ? alpha("#fff", 0.08) : "#ECEAF7" },
-                              "&:hover .home-tile": { transform: "scale(1.1)" },
-                              "& .home-tile": { transition: "transform .15s" },
-                            }}
-                          >
-                            <Box className="home-tile" sx={{ height: 44, width: 44, borderRadius: "16px", bgcolor: bg, display: "grid", placeItems: "center", boxShadow: "0 1px 2px rgba(0,0,0,.08)" }}>
-                              <Icon sx={{ fontSize: 21, color: "#fff" }} />
-                            </Box>
-                            <Typography sx={{ fontSize: 13, color: dark ? "text.primary" : INK, lineHeight: 1.2, textAlign: "center" }}>
-                              {b.label}
-                            </Typography>
-                          </ButtonBase>
-                        );
-                      })}
-                    </Box>
-                  </Paper>
-                </Popper>
-                {/* The module name is a button back to the module's main page (guru 2026-11-17: "allow me to click this to go back to the sales main tab"). */}
-                <ButtonBase
-                  data-testid="role-nav-level"
-                  onClick={() => {
-                    const home = homeOf(open);
-                    if (home && home !== navPath) go(home);
-                  }}
-                  sx={{
-                    fontFamily: "inherit",
-                    fontSize: "0.875rem",
-                    fontWeight: 600,
-                    color: dark ? "text.primary" : INK,
-                    px: 0.75,
-                    py: 0.5,
-                    borderRadius: 1.5,
-                    whiteSpace: "nowrap",
-                    flexShrink: 0,
-                    "&:hover": { bgcolor: dark ? alpha("#fff", 0.08) : "#EEF0F7" },
-                  }}
-                >
-                  {open.label}
-                </ButtonBase>
-                <Box sx={{ width: "1px", height: 20, bgcolor: dark ? alpha("#fff", 0.16) : "#E2E6F0", mx: 0.5, flexShrink: 0 }} />
-                <NavTabsScroller fade={barBg} arrowColor={dark ? "rgba(255,255,255,0.85)" : INK} gap={0.25} testId="role-nav-scroller">
-                  {open.tabs.map((tb) => (
-                    <Button
-                      key={tb.path}
-                      size="small"
-                      data-testid="role-nav-tab"
-                      onClick={() => go(tb.path)}
-                      sx={navBtnSx(current?.path === tb.path, false)}
-                    >
-                      {tb.label}
-                    </Button>
-                  ))}
-                </NavTabsScroller>
-              </>
+              <NavTabsScroller fade={barBg} arrowColor={dark ? "rgba(255,255,255,0.85)" : INK} gap={0.25} testId="role-nav-scroller">
+                {bars.map((b) => {
+                  const hasMenu = b.tabs.length > 0;
+                  const isOpen = menu?.code === b.code;
+                  const current = currentTab(b);
+                  const home = homeOf(b);
+                  return (
+                    <React.Fragment key={b.code}>
+                      <Button
+                        size="small"
+                        data-testid={`role-nav-module-${b.code}`}
+                        aria-haspopup={hasMenu ? "menu" : undefined}
+                        aria-expanded={hasMenu ? isOpen : undefined}
+                        onClick={(e) => (hasMenu ? setMenu(isOpen ? null : { code: b.code, anchor: e.currentTarget }) : go(home || b.route))}
+                        endIcon={hasMenu ? <KeyboardArrowDownIcon sx={{ fontSize: "1rem !important", opacity: 0.7, transition: "transform .15s", transform: isOpen ? "rotate(180deg)" : "none" }} /> : undefined}
+                        sx={{ ...navBtnSx(b.active, isOpen), "& .MuiButton-endIcon": { ml: 0.25, mr: -0.5 } }}
+                      >
+                        {b.label}
+                      </Button>
+                      {hasMenu &&
+                        dropdown(
+                          b.code,
+                          b.tabs.map((tb) => (
+                            <MenuItem key={tb.path} data-testid="role-nav-item" onClick={() => go(tb.path)} selected={current?.path === tb.path} sx={{ fontSize: "0.875rem", py: 1 }}>
+                              {tb.label}
+                            </MenuItem>
+                          )),
+                        )}
+                    </React.Fragment>
+                  );
+                })}
+              </NavTabsScroller>
             );
           })()}
         </Stack>

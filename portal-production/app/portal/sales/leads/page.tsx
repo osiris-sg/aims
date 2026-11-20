@@ -42,6 +42,7 @@ import moment from "moment";
 import { toast } from "react-toastify";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import { kebabColumn } from "@/components/RowKebab";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import type { FilterField } from "@/components/FilterDrawer";
@@ -739,7 +740,11 @@ export default function LeadsPage() {
     [designers],
   );
 
+  // Bulk delete (guru 2026-11-21).
+  const bulk = useBulkSelection<any>(rows, { resetKey: `${search}|${JSON.stringify(filters)}` });
+
   if (!flagsLoading && !isIdQuotationEnabled) return <Alert severity="info" sx={{ m: 3 }}>Leads are available for interior-design organisations.</Alert>;
+
 
   return (
     <MainCard>
@@ -790,10 +795,11 @@ export default function LeadsPage() {
         </Stack>
       )}
       <PageTable
+        noSelectionColumn
         onRowClick={(l: Lead) => setDetail(l)}
         tableName="Leads"
         subTitle="EZiD and Network Singapore enquiries land here automatically from email"
-        columns={columns as any}
+        columns={[bulk.column, ...(columns as any)]}
         data={rows}
         loading={loading}
         page={page}
@@ -813,6 +819,7 @@ export default function LeadsPage() {
           setManualOpen(true);
         }}
       />
+      <BulkDeleteBar bulk={bulk} noun="lead" run={(r) => api.request(`/leads/${r.id}`, { method: "DELETE" })} onDone={() => void load()} />
 
       {/* detail drawer */}
       <Drawer anchor="right" open={!!detail} onClose={() => setDetail(null)} PaperProps={{ sx: { width: { xs: "100%", sm: 460 }, p: 2.5 } }}>

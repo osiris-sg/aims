@@ -38,6 +38,10 @@ import { Button } from "@mui/material";
 import moment from "moment";
 import { toast } from "react-toastify";
 import DocumentUploadDialog from "./DocumentUploadDialog";
+import BulkActionBar from "@/components/BulkActionBar";
+import { BulkConfirmDialog, downloadDocumentPdfs, runBulk, useBulkSelection } from "@/components/useBulkSelection";
+import DownloadIcon from "@mui/icons-material/Download";
+import BlockIcon from "@mui/icons-material/Block";
 import { useDeleteDocument, useGetDocumentsPaginated, useGetDocumentStats } from "@/app/portal/hooks/api";
 import type { FilterField } from "@/components/FilterDrawer";
 
@@ -356,6 +360,59 @@ export default function DocumentListView({
 
   const deleteDocumentMutation = useDeleteDocument();
 
+  // Bulk actions (guru 2026-11-21): tick rows → Download (PDF / ZIP), Delete
+  // drafts, Void. Selection survives paging and clears on any re-scope.
+  const bulk = useBulkSelection<any>(docs, { resetKey: `${documentTypes.join(",")}|${search}|${JSON.stringify(filters)}` });
+  const isDraftRow = (d: any) => ["draft", "unconfirmed"].includes(d.status || "unconfirmed");
+  const isVoidedRow = (d: any) => d.status === "voided" || !!d.config?.voided;
+  // Same rule as the row kebab: drafts only, never an imported (old ERP) one.
+  const bulkDeletable = bulk.selectedRows.filter((d) => isDraftRow(d) && !d.imported);
+  // Void = the editor's Void button, for confirmed documents (the server refuses one with payments).
+  const bulkVoidable = bulk.selectedRows.filter((d) => !isDraftRow(d) && !isVoidedRow(d));
+  const [bulkConfirm, setBulkConfirm] = useState<"delete" | "void" | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkDownloading, setBulkDownloading] = useState(false);
+  const bulkDownload = async () => {
+    if (bulkDownloading) return;
+    setBulkDownloading(true);
+    try {
+      await downloadDocumentPdfs(bulk.selectedRows.map((d) => d.id), request, await getToken(), `${(pluralLabel || documentLabel + "s").toLowerCase()}.zip`);
+    } catch (e: any) {
+      toast.error(e?.message || "Download failed");
+    } finally {
+      setBulkDownloading(false);
+    }
+  };
+  const bulkDelete = async () => {
+    setBulkBusy(true);
+    const { ok } = await runBulk(bulkDeletable, (d) => deleteDocumentMutation.mutateAsync(d.id), {
+      done: (n) => `${n} ${n === 1 ? documentLabel.toLowerCase() : (pluralLabel || documentLabel + "s").toLowerCase()} deleted`,
+      failed: (n) => `${n} could not be deleted`,
+    });
+    bulk.remove(ok.map((d) => d.id));
+    setBulkBusy(false);
+    setBulkConfirm(null);
+    refetch();
+    refetchStats();
+  };
+  const bulkVoid = async () => {
+    setBulkBusy(true);
+    const token = await getToken();
+    const { ok } = await runBulk(
+      bulkVoidable,
+      async (d) => {
+        const res: any = await request({ path: `/documents/${d.id}/void`, method: "POST", ownError: true }, {}, token ?? undefined);
+        if (res?.success === false) throw new Error(res?.message || "Void failed");
+      },
+      { done: (n) => `${n} voided`, failed: (n) => `${n} could not be voided (a document with payments cannot be voided)` },
+    );
+    bulk.remove(ok.map((d) => d.id));
+    setBulkBusy(false);
+    setBulkConfirm(null);
+    refetch();
+    refetchStats();
+  };
+
   const handleDeleteConfirm = async () => {
     if (!docToDelete) return;
     try {
@@ -450,14 +507,15 @@ export default function DocumentListView({
       },
     },
     {
-      // Free-text Reference — what the document is FOR (guru 2026-07-24:
-      // every document carries one and every list shows it).
+      // Free-text Remarks — what the document is FOR (guru 2026-07-24: every document carries
+      // one and every list shows it; 2026-11-21: ONE Remarks memo on the right of every editor,
+      // this column is what people take their reference from). Canonical key referenceNo.
       accessorKey: "reference",
-      header: "Reference",
+      header: "Remarks",
       enableSorting: false, // JSON-derived (config), not server-sortable
       cell: ({ row }: any) => {
         const c: any = row.original.config || {};
-        return c?.documentInfo?.referenceNo || c?.referenceNo || c?.reference || c?.xeroReference || "—";
+        return c?.documentInfo?.referenceNo || c?.referenceNo || c?.remarks || c?.reference || c?.xeroReference || "—";
       },
     },
     // "Associated Item" dropped from all document lists (2026-07-13, guru).
@@ -641,7 +699,9 @@ export default function DocumentListView({
   return (
     <MainCard>
       <PageTable
-        columns={columns}
+        // This list renders its own id-keyed checkbox column (feeds the BulkActionBar).
+        noSelectionColumn
+        columns={[bulk.column, ...columns]}
         data={docs}
         onRowClick={openDocument}
         // Makes each row a REAL link, so right-click offers Chrome's own
@@ -783,6 +843,75 @@ export default function DocumentListView({
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Floating bulk-action bar (guru 2026-11-21) */}
+      <BulkActionBar
+        count={bulk.count}
+        onClear={bulk.clear}
+        actions={[
+          {
+            key: "download",
+            label: bulkDownloading ? "Preparing…" : "Download",
+            icon: <DownloadIcon />,
+            disabled: bulkDownloading,
+            tooltip: bulk.count > 1 ? "Download the selected documents as one ZIP of PDFs" : "Download this document's PDF",
+            onClick: () => void bulkDownload(),
+          },
+          {
+            key: "void",
+            label: bulkVoidable.length > 0 && bulkVoidable.length < bulk.count ? `Void ${bulkVoidable.length}` : "Void",
+            icon: <BlockIcon />,
+            color: "warning",
+            disabled: bulkVoidable.length === 0 || bulkBusy,
+            tooltip:
+              bulkVoidable.length === 0
+                ? "Only confirmed documents can be voided — delete a draft instead"
+                : bulkVoidable.length < bulk.count
+                ? `${bulk.count - bulkVoidable.length} draft / already-voided will be skipped`
+                : "Void the selected documents and their journals",
+            onClick: () => setBulkConfirm("void"),
+          },
+          {
+            key: "delete",
+            label: bulkDeletable.length > 0 && bulkDeletable.length < bulk.count ? `Delete ${bulkDeletable.length} ${bulkDeletable.length === 1 ? "draft" : "drafts"}` : "Delete",
+            icon: <DeleteIcon />,
+            color: "error",
+            disabled: bulkDeletable.length === 0 || bulkBusy,
+            tooltip:
+              bulkDeletable.length === 0
+                ? "Only unconfirmed drafts can be deleted"
+                : bulkDeletable.length < bulk.count
+                ? `${bulk.count - bulkDeletable.length} confirmed / imported will be skipped`
+                : "Delete the selected drafts",
+            onClick: () => setBulkConfirm("delete"),
+          },
+        ]}
+      />
+      <BulkConfirmDialog
+        open={bulkConfirm === "delete"}
+        title={`Delete ${bulkDeletable.length} ${bulkDeletable.length === 1 ? documentLabel.toLowerCase() : (pluralLabel || documentLabel + "s").toLowerCase()}?`}
+        body={
+          (isSoftDeleteDraftsEnabled ? "Their numbers stay as gaps." : "This cannot be undone.") +
+          (bulk.count > bulkDeletable.length ? ` ${bulk.count - bulkDeletable.length} selected ${bulk.count - bulkDeletable.length === 1 ? "row is not a draft" : "rows are not drafts"} and will not be touched.` : "")
+        }
+        confirmLabel={bulkBusy ? "Deleting…" : "Delete"}
+        busy={bulkBusy}
+        onCancel={() => setBulkConfirm(null)}
+        onConfirm={() => void bulkDelete()}
+      />
+      <BulkConfirmDialog
+        open={bulkConfirm === "void"}
+        title={`Void ${bulkVoidable.length} ${bulkVoidable.length === 1 ? documentLabel.toLowerCase() : (pluralLabel || documentLabel + "s").toLowerCase()}?`}
+        body={
+          "Each document and every live journal posted from it is voided. A document that already has payments is refused and left as it is. There is no un-void." +
+          (bulk.count > bulkVoidable.length ? ` ${bulk.count - bulkVoidable.length} selected ${bulk.count - bulkVoidable.length === 1 ? "row is a draft or already voided" : "rows are drafts or already voided"} and will not be touched.` : "")
+        }
+        confirmLabel={bulkBusy ? "Voiding…" : "Void"}
+        color="warning"
+        busy={bulkBusy}
+        onCancel={() => setBulkConfirm(null)}
+        onConfirm={() => void bulkVoid()}
+      />
 
       {createFlowDialogs}
     </MainCard>

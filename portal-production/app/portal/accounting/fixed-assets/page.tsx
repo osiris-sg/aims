@@ -22,6 +22,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import { useClientSort } from "@/components/clientSort";
 import { todayIso } from "@/helpers/orgToday";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
@@ -201,6 +202,9 @@ export default function FixedAssetsPage() {
     },
   ], []);
 
+  // Bulk delete (guru 2026-11-21).
+  const bulk = useBulkSelection<FA>(paged, { resetKey: `${search}|${JSON.stringify(filters)}` });
+
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       {/* Phone: stat cards wrap onto extra rows */}
@@ -224,8 +228,9 @@ export default function FixedAssetsPage() {
       </Stack>
 
       <PageTable
+        noSelectionColumn
         onRowClick={(r: FA) => { setEditing(r); setEditorOpen(true); }}
-        columns={columns}
+        columns={[bulk.column, ...(columns)]}
         data={paged}
         {...sortingProps}
         tableName="Fixed Assets Register"
@@ -244,6 +249,7 @@ export default function FixedAssetsPage() {
         pageCount={pageCount}
         totalDocs={visible.length}
       />
+      <BulkDeleteBar bulk={bulk} noun="fixed asset" run={(r) => request(`/fixed-assets/${r.id}`, { method: "DELETE" })} onDone={() => void load()} />
 
       <FAEditor
         open={editorOpen}

@@ -6,6 +6,7 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import { kebabColumn } from "@/components/RowKebab";
 import type { FilterField } from "@/components/FilterDrawer";
 import { Box, Chip, Dialog, DialogTitle, DialogContent, DialogActions, Button, CircularProgress, Typography, IconButton } from "@mui/material";
@@ -183,6 +184,13 @@ function LegacyProjectsPage() {
     [],
   );
 
+  const bulk = useBulkSelection<any>(projects.docs, { resetKey: `${search}|${JSON.stringify(filters)}` });
+  const bulkDeleteProject = async (r: any) => {
+    const token = await getToken();
+    const res: any = await request({ path: `/projects/${r.id}`, method: "DELETE", ownError: true }, {}, token ?? undefined);
+    if (res?.success === false) throw new Error(res?.message || "Delete failed");
+  };
+
   const handleDelete = async () => {
     if (!selectedProject || !organizationId) return;
     setIsDeleting(true);
@@ -214,8 +222,9 @@ function LegacyProjectsPage() {
   return (
     <MainCard>
       <PageTable
+        noSelectionColumn
         onRowClick={(r: any) => router.push(`${ROUTES.PROJECTS}/${r.id}`)}
-        columns={columns}
+        columns={[bulk.column, ...(columns)]}
         data={projects.docs}
         tableName="Projects"
         subTitle="Items Detail Information"
@@ -234,6 +243,7 @@ function LegacyProjectsPage() {
         pageCount={projects.totalPagesCount}
         totalDocs={projects.totalDocuments}
       />
+      <BulkDeleteBar bulk={bulk} noun="project" run={bulkDeleteProject} onDone={() => fetchProjects()} />
 
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
         <DialogTitle>Delete Project</DialogTitle>

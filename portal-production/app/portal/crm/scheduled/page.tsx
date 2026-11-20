@@ -23,6 +23,8 @@ import { Schedule } from "@mui/icons-material";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
+import CancelScheduleSendIcon from "@mui/icons-material/CancelScheduleSend";
 import { useClientSort } from "@/components/clientSort";
 import { kebabColumn } from "@/components/RowKebab";
 import ContactSelect from "../_components/ContactSelect";
@@ -246,6 +248,9 @@ export default function CrmScheduledPage() {
     [cancel],
   );
 
+  // Bulk cancel (guru 2026-11-21): pending messages only.
+  const bulk = useBulkSelection<any>(paged, { resetKey: `${search}|${JSON.stringify(filters)}` });
+
   return (
     <Box sx={{ px: { xs: 1.5, md: 3 }, py: 3 }}>
       <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 2 }}>
@@ -267,7 +272,8 @@ export default function CrmScheduledPage() {
       </Alert>
 
       <PageTable
-        columns={columns}
+        noSelectionColumn
+        columns={[bulk.column, ...(columns)]}
         data={paged}
         {...sortingProps}
         tableName="Scheduled messages"
@@ -285,6 +291,7 @@ export default function CrmScheduledPage() {
         pageCount={pageCount}
         totalDocs={visible.length}
       />
+      <BulkDeleteBar bulk={bulk} noun="message" verb="Cancel" color="warning" icon={<CancelScheduleSendIcon />} eligible={(r) => r.status === "PENDING"} skipNote="are not pending" confirmBody="They will not be sent." run={(r) => request(`/whatsapp/schedule/${r.id}/cancel`, { method: "POST" })} onDone={() => void load()} />
 
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>Schedule a message</DialogTitle>

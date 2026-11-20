@@ -2,6 +2,7 @@
 import React, { useMemo, useState } from "react";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import { kebabColumn } from "@/components/RowKebab";
 import type { FilterField } from "@/components/FilterDrawer";
 import { useRouter } from "next/navigation";
@@ -63,6 +64,7 @@ export default function AssetsPage() {
 
   // Delete asset mutation
   const deleteAssetMutation = useDeleteAsset();
+  const bulk = useBulkSelection<any>(assets, { resetKey: `${search}|${JSON.stringify(filters)}` });
 
   const isLoading = loadingAssets || loadingCategories;
 
@@ -172,27 +174,31 @@ export default function AssetsPage() {
       </Box>
 
       {viewMode === "table" ? (
-        <PageTable
-          onRowClick={(r: any) => router.push(`${ROUTES.ASSETS}/${r.skuKey}`)}
-          loading={isLoading}
-          columns={columns}
-          data={filteredAssets}
-          tableName={isAssetTrackingModeEnabled ? "All Assets" : "All Products"}
-          subTitle="Items Detail Information"
-          buttonName={isAssetTrackingModeEnabled ? "Add Asset" : "Add Product"}
-          page={page}
-          limit={limit}
-          search={search}
-          filters={filters}
-          setPage={setPage}
-          setLimit={setLimit}
-          setSearch={setSearch}
-          setFilters={setFilters}
-          onAddClick={() => router.push(ROUTES.ADD_ASSET)}
-          filterConfig={filterConfig}
-          pageCount={Math.ceil(total / limit)}
-          totalDocs={total}
-        />
+        <>
+  <PageTable
+            noSelectionColumn
+            onRowClick={(r: any) => router.push(`${ROUTES.ASSETS}/${r.skuKey}`)}
+            loading={isLoading}
+            columns={[bulk.column, ...(columns)]}
+            data={filteredAssets}
+            tableName={isAssetTrackingModeEnabled ? "All Assets" : "All Products"}
+            subTitle="Items Detail Information"
+            buttonName={isAssetTrackingModeEnabled ? "Add Asset" : "Add Product"}
+            page={page}
+            limit={limit}
+            search={search}
+            filters={filters}
+            setPage={setPage}
+            setLimit={setLimit}
+            setSearch={setSearch}
+            setFilters={setFilters}
+            onAddClick={() => router.push(ROUTES.ADD_ASSET)}
+            filterConfig={filterConfig}
+            pageCount={Math.ceil(total / limit)}
+            totalDocs={total}
+          />
+          <BulkDeleteBar bulk={bulk} noun="asset" run={(r) => deleteAssetMutation.mutateAsync(r.id)} onDone={() => refetchAssets()} />
+        </>
       ) : (
         <AssetHierarchyTable
           assets={hierarchyAssets}

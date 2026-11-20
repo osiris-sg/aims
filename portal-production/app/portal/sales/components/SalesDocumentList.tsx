@@ -6,6 +6,9 @@ import { invoiceStatusOptions } from "@/helpers/invoiceStatusOptions";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
+import { downloadDocumentPdfs } from "@/components/useBulkSelection";
+import DownloadIcon from "@mui/icons-material/Download";
 import type { FilterField } from "@/components/FilterDrawer";
 import {
   Box,
@@ -380,6 +383,21 @@ export default function SalesDocumentList({
     }
   };
 
+  // Bulk actions (guru 2026-11-21): Download (PDF / ZIP) + Delete drafts.
+  const bulk = useBulkSelection<any>(filteredDocuments, { resetKey: `${search}|${JSON.stringify(filters)}` });
+  const [bulkDownloading, setBulkDownloading] = useState(false);
+  const bulkDownload = async () => {
+    if (bulkDownloading) return;
+    setBulkDownloading(true);
+    try {
+      await downloadDocumentPdfs(bulk.selectedRows.map((d) => d.id), request, await getToken());
+    } catch (e: any) {
+      toast.error(e?.message || "Download failed");
+    } finally {
+      setBulkDownloading(false);
+    }
+  };
+
   return (
     <MainCard>
       {error && (
@@ -388,10 +406,11 @@ export default function SalesDocumentList({
         </Alert>
       )}
       <PageTable
+        noSelectionColumn
         onRowClick={openDocument}
         // Real row links → Chrome's native "Open link in new tab" on right-click.
         rowHref={documentUrl}
-        columns={baseColumns}
+        columns={[bulk.column, ...(baseColumns)]}
         data={filteredDocuments}
         tableName={title}
         subTitle={subtitle}
@@ -427,6 +446,7 @@ export default function SalesDocumentList({
           ...(actionButtons ?? []),
         ]}
       />
+      <BulkDeleteBar bulk={bulk} noun="draft" eligible={(d) => (d.status || "draft") === "draft"} skipNote="are not drafts" run={(d) => deleteDocumentMutation.mutateAsync(d.id)} onDone={() => refetch()} before={[{ key: "download", label: bulkDownloading ? "Preparing…" : "Download", icon: <DownloadIcon />, disabled: bulkDownloading, tooltip: bulk.count > 1 ? "Download the selected documents as one ZIP of PDFs" : "Download this document's PDF", onClick: () => void bulkDownload() }]} />
 
       {/* OSI-13: upload a document → AI extract → pre-fill a draft of this type
           (extracts as delivery_order for the DO list), then route to the editor. */}

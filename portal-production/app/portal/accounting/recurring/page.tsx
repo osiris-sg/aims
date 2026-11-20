@@ -12,6 +12,7 @@ import { toast } from "react-toastify";
 import { useAccountingApi } from "../_lib/api";
 import RecurringTemplateDialog from "./_components/RecurringTemplateDialog";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import { useClientSort } from "@/components/clientSort";
 import { kebabColumn } from "@/components/RowKebab";
 import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
@@ -195,11 +196,15 @@ export default function RecurringPage() {
     ]),
   ], [runningId]);
 
+  // Bulk delete (guru 2026-11-21).
+  const bulk = useBulkSelection<Template>(paged, { resetKey: `${search}|${JSON.stringify(filters)}` });
+
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 }, display: "flex", flexDirection: "column", gap: 2 }}>
       <PageTable
+        noSelectionColumn
         onRowClick={(t: Template) => { setEditing(t); setEditorOpen(true); }}
-        columns={columns}
+        columns={[bulk.column, ...(columns)]}
         data={paged}
         {...sortingProps}
         tableName="Recurring Journals"
@@ -218,6 +223,7 @@ export default function RecurringPage() {
         pageCount={pageCount}
         totalDocs={visible.length}
       />
+      <BulkDeleteBar bulk={bulk} noun="template" run={(r) => request(`/recurring-journals/${r.id}`, { method: "DELETE" })} onDone={() => void load()} />
 
       <RecurringTemplateDialog
         open={editorOpen}

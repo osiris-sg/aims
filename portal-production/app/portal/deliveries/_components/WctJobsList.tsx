@@ -8,6 +8,8 @@ import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, FormCon
 import { toast } from "react-toastify";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
+import TaskAltIcon from "@mui/icons-material/TaskAlt";
 import { kebabColumn } from "@/components/RowKebab";
 import JobFieldIcon from "@/components/jobFields/JobFieldIcon";
 import { request } from "@/helpers/request";
@@ -224,12 +226,21 @@ export default function WctJobsList({ fixture }: { fixture?: JobsFixture } = {})
     </>
   );
 
+  // Bulk verify (guru 2026-11-21): the kebab's Verify for every ticked job awaiting it.
+  const bulk = useBulkSelection<JobRow>(rows, { resetKey: `${state}|${search}|${JSON.stringify(filters)}` });
+  const bulkVerify = async (row: JobRow) => {
+    const token = await getToken();
+    const res: any = await request({ path: `/deliveries/${row.id}/verify`, method: "POST", ownError: true }, {}, token ?? undefined);
+    if (res?.success === false) throw new Error(res?.message || "Could not verify");
+  };
+
   return (
     <MainCard>
       <PageTable
+        noSelectionColumn
         onRowClick={(r: any) => router.push(`/portal/deliveries/${r.id}`)}
         rowHref={(r: any) => `/portal/deliveries/${r.id}`}
-        columns={columns}
+        columns={[bulk.column, ...(columns)]}
         data={rows}
         tableName="Jobs"
         headerContent={header}
@@ -246,6 +257,7 @@ export default function WctJobsList({ fixture }: { fixture?: JobsFixture } = {})
         pageCount={pages}
         totalDocs={total}
       />
+      <BulkDeleteBar bulk={bulk} noun="job" verb="Verify" color="success" icon={<TaskAltIcon />} eligible={(r) => r.state === "to_verify" || r.state === "rejected"} skipNote="are not awaiting verification" confirmBody="Each job is marked verified by the office." run={bulkVerify} onDone={() => void load()} />
       <Dialog open={!!rejecting} onClose={() => !working && setRejecting(null)} maxWidth="xs" fullWidth>
         <DialogTitle>Reject job #{rejecting?.deliveryNumber}?</DialogTitle>
         <DialogContent>

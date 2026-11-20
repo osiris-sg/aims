@@ -104,7 +104,12 @@ export default function Table(props: Props) {
     }),
     []
   );
-  const _columns = useMemo(() => (isNoSelectionColumn ? [...columns] : [selectionColumn, ...columns]), [columns, isNoSelectionColumn, selectionColumn]);
+  // The built-in index-keyed checkbox column only exists for callers that
+  // actually consume the selection (onRowSelect). PageTable lists never did —
+  // their checkboxes did nothing (guru 2026-11-21) — so a list page shows
+  // checkboxes ONLY through components/useBulkSelection + BulkActionBar.
+  const showSelectionColumn = !isNoSelectionColumn && !!onRowSelect;
+  const _columns = useMemo(() => (showSelectionColumn ? [selectionColumn, ...columns] : [...columns]), [columns, showSelectionColumn, selectionColumn]);
 
   // Control pagination locally to avoid infinite resets from react-table
   const [pagination, setPagination] = React.useState(() => ({ pageIndex: 0, pageSize: manualSorting || showAllRows ? Math.max(data.length, 1) : 30 }));
