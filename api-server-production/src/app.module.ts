@@ -10,6 +10,7 @@ import { AuthModule } from './auth/auth.module';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ClerkAuthGuard } from './auth/clerk-auth.guard';
 import { ModuleGuard } from './auth/module.guard';
+import { OperatorDeliveryLockGuard } from './operator/operator-delivery-lock.guard';
 import { InventoriesModule } from './inventories/inventories.module';
 import { CustomersModule } from './customers/customers.module';
 import { SuppliersModule } from './suppliers/suppliers.module';
@@ -217,6 +218,11 @@ import { TenantContextInterceptor } from './common/tenancy/tenant-context.interc
     {
       provide: APP_GUARD,
       useClass: ModuleGuard,
+    },
+    // WhatsApp assistant may not change delivered/signed DOs/RDOs (enableAssistantSignedDocLock orgs only).
+    {
+      provide: APP_GUARD,
+      useClass: OperatorDeliveryLockGuard,
     },
     {
       // Schema-per-org: runs each request inside its org's tenant context so

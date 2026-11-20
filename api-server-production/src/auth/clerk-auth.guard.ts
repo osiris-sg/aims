@@ -242,6 +242,9 @@ export class ClerkAuthGuard extends AuthGuard('clerk') {
     const impersonatedUserId = this.verifyOperatorInternal(request);
     if (impersonatedUserId) {
       request.user = { id: impersonatedUserId };
+      // Marks the request as the WhatsApp assistant's own call, for the
+      // per-org assistant locks (OperatorDeliveryLockGuard). Nothing else reads it.
+      request.viaOperator = true;
     } else {
       const canActivate = await super.canActivate(context);
       if (!canActivate) {

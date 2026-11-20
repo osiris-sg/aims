@@ -251,6 +251,7 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // Optional Sales Order (Biofuel, 2026-11-19): Schedule a delivery no longer needs a Sales Order
   // (the Project still does); a draft invoice from a DO with none is flagged for a price check. Default OFF.
   enableOptionalSaleOrder: false,
+  enableAssistantSignedDocLock: false,
   // Maintenance Dates (Biofuel, 2026-09): Service Reports -> Maintenance Dates.
   // A maintenance date per asset, which deployed units are done this cycle, and
   // a reminder 7 days before (push to field techs + office bell). Default OFF.

@@ -33,6 +33,7 @@ import { PublicDocumentService } from '../public-document/public-document.servic
 import { PublicSignService } from '../public-sign/public-sign.service';
 import { QUOTATION_TO_DELIVERY_FLAG } from '../deliveries/quotation-to-delivery';
 import { isOrgFeatureEnabled } from '../common/org-features';
+import { ASSISTANT_SIGNED_DOC_LOCK_FLAG, assistantLockMessage, deliveryDocLockReason } from '../documents/delivery-doc-lock';
 import { OperatorContext, PendingAction, WebUiEvent } from './operator.types';
 import { ActionLogService } from '../action-log/action-log.service';
 import { cleanText } from './text.util';
@@ -1361,6 +1362,13 @@ export class OperatorToolsService {
                 error: `${doc.name} is ${doc.status} and can't be edited. Confirmed documents need a revision (do that in the app).`,
               },
             };
+          }
+          // Delivered / signed DOs and RDOs are final (enableAssistantSignedDocLock orgs).
+          if (
+            (await isOrgFeatureEnabled(this.prisma, ctx.organizationId, ASSISTANT_SIGNED_DOC_LOCK_FLAG)) &&
+            (await deliveryDocLockReason(this.prisma as any, ctx.organizationId, doc as any))
+          ) {
+            return { result: { error: assistantLockMessage(doc.name) } };
           }
 
           const cfg: any = (doc.config as any) || {};

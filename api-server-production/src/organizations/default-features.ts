@@ -77,6 +77,7 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   enableSignedDocPreview: false,
   // Optional Sales Order on Schedule a delivery (Biofuel, 2026-11-19). Default OFF.
   enableOptionalSaleOrder: false,
+  enableAssistantSignedDocLock: false,
   // Role home (2026-11-06): /portal lands on the role-based home screen and
   // the org wears the role-home look on every page. Default OFF.
   enableRoleHome: false,
