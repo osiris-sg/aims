@@ -58,7 +58,7 @@ describe('no payment on a voided invoice', () => {
     };
     const svc: any = Object.create(PaymentsService.prototype);
     Object.assign(svc, { prisma });
-    await expect(svc.create({ documentId: 'i1', amount: 10 } as any, 'org', 'u1')).rejects.toThrow('voided with its cancelled order');
+    await expect(svc.create({ documentId: 'i1', amount: 10 } as any, 'org', 'u1')).rejects.toThrow('is voided: no payment can be recorded on it');
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });

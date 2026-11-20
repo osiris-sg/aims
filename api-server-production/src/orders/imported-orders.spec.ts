@@ -314,6 +314,8 @@ function svcWith(features: Record<string, unknown>, orders: any[]) {
     return true;
   };
   const prisma: any = {
+    // The DO(s) cell reads the order's linked delivery orders with a raw query.
+    $queryRaw: jest.fn(async () => []),
     organizationUIConfig: { findUnique: jest.fn(async () => ({ features })) },
     order: {
       findMany: jest.fn(async ({ where }: any) => orders.filter((o) => matches(o, where))),
