@@ -194,7 +194,8 @@ describe('months and supplier profiles', () => {
 describe('carriers, folder names', () => {
   it('carrier from the B/L prefix / shipping line; Maersk / MSC links take the B/L', () => {
     expect(carrierOf('198GX04630')).toMatchObject({ code: 'WANHAI', prefilled: false });
-    expect(carrierOf('MEDUAB123456')).toMatchObject({ code: 'MSC', prefilled: true });
+    // Round BX: MSC's page no longer fills the search box from the URL — the B/L is copied as well.
+    expect(carrierOf('MEDUAB123456')).toMatchObject({ code: 'MSC', prefilled: false });
     expect(carrierOf('MEDUAB123456')!.url).toContain('trackingNumber=MEDUAB123456');
     expect(carrierOf('263548901')).toMatchObject({ code: 'MAERSK', url: 'https://www.maersk.com/tracking/263548901' });
     expect(carrierOf('KMTCJKT1234567')!.code).toBe('KMTC');

@@ -20,8 +20,11 @@ const CARRIERS: Array<{ code: Carrier['code']; name: string; bl?: RegExp; line: 
   // Wan Hai B/Ls: 3 digits + 2 letters + 5 digits (198GX04630).
   { code: 'WANHAI', name: 'Wan Hai Lines', bl: /^\d{3}[A-Z]{2}\d{5,}$/, line: /WAN\s*HAI/i, url: () => 'https://www.wanhai.com/views/cargoTrack/CargoTrack.xhtml', prefilled: false },
   { code: 'KMTC', name: 'KMTC', bl: /^KMTC/, line: /KMTC|KOREA MARINE/i, url: () => 'https://www.ekmtc.com/', prefilled: false },
-  { code: 'MSC', name: 'MSC', bl: /^MEDU/, line: /\bMSC\b|MEDITERRANEAN SHIPPING/i, url: (bl) => `https://www.msc.com/en/track-a-shipment?agencyPath=msc&trackingNumber=${enc(bl)}`, prefilled: true },
-  { code: 'SITC', name: 'SITC', bl: /^SITG/, line: /\bSITC\b/i, url: () => 'https://www.sitcline.com/', prefilled: false },
+  // Round BX (checked 21 Nov): MSC's page no longer fills its search box from trackingNumber — the B/L is copied too.
+  { code: 'MSC', name: 'MSC', bl: /^MEDU/, line: /\bMSC\b|MEDITERRANEAN SHIPPING/i, url: (bl) => `https://www.msc.com/en/track-a-shipment?agencyPath=msc&trackingNumber=${enc(bl)}`, prefilled: false },
+  // Round BX: www.sitcline.com doesn't load (ERR_EMPTY_RESPONSE, 21 Nov) — SITC's own cargo tracking page. It ignores a
+  // B/L in the URL (checked: ?blNo= / ?bl= / ?billNo= leave the search box empty), so the B/L is copied to paste.
+  { code: 'SITC', name: 'SITC', bl: /^SITG/, line: /\bSITC\b/i, url: () => 'https://api.sitcline.com/app/cargoTrackSearch', prefilled: false },
   // Round AZ: VKTCB… = RCL from Visakhapatnam (B/L VKTCB25000562 is RCL's form, carrier RCL Feeder Pte Ltd).
   { code: 'RCL', name: 'RCL (Regional Container Lines)', bl: /^(GGVC|VKTCB)/, line: /\bRCL\b|REGIONAL CONTAINER/i, url: () => 'https://www.rclgroup.com/', prefilled: false },
   { code: 'EVERGREEN', name: 'Evergreen', bl: /^EGLV/, line: /EVERGREEN/i, url: () => 'https://ct.shipmentlink.com/servlet/TDB1_CargoTracking.do', prefilled: false },

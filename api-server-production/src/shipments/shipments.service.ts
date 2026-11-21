@@ -5,6 +5,7 @@ import { etaChangedLine } from '../operator/push-text';
 import { TradeAlertsService } from './trade-alerts.service';
 import { etaTrail, withEtaChange } from './trade-alerts';
 import { carrierOf } from './trade-carrier';
+import { TRACKING_DAYS, trackingBoard, trackingWindow } from './trade-tracking-board';
 import { PrismaService } from '../common/prisma.service';
 import { CreateShipmentDto, ListShipmentsQuery, UpdateShipmentDto } from './dto/shipment.dto';
 import { CONTRACT_LINE_SELECT, FILE_LINK_SELECT, shapeFileLinks, STEP_SELECT, STEP_SUMMARY_SELECT } from './trade-selects';
@@ -137,6 +138,49 @@ export class ShipmentsService {
     ]);
     const items = rows.map(shape);
     return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize), counts };
+  }
+
+  /**
+   * Round BX (Sayaka): the Tracking list — open shipments arriving in the next `days` days (default 21) that have no
+   * arrival / discharge date yet, one row each, sorted by ETA; test orders stay out.
+   */
+  async tracking(organizationId: string, days = TRACKING_DAYS) {
+    const span = Number.isFinite(days) ? Math.min(60, Math.max(1, Math.round(days))) : TRACKING_DAYS;
+    const today = tradeToday();
+    const w = trackingWindow(today, span);
+    const rows = await this.prisma.shipment.findMany({
+      where: {
+        organizationId,
+        status: 'OPEN',
+        actualArrivalDate: null,
+        dischargeDate: null,
+        eta: { gte: new Date(`${w.from}T00:00:00Z`), lte: new Date(`${w.to}T23:59:59Z`) },
+        NOT: { order: { isTest: true } },
+      },
+      select: {
+        id: true,
+        orderId: true,
+        seqNo: true,
+        status: true,
+        blNumber: true,
+        shippingLine: true,
+        vessel: true,
+        voyageNo: true,
+        eta: true,
+        etaHistory: true,
+        actualArrivalDate: true,
+        dischargeDate: true,
+        tsPort: true,
+        tsEta: true,
+        tsEtd: true,
+        arrivingVessel: true,
+        arrivingVoyageNo: true,
+        order: { select: { orderNo: true, customer: { select: { name: true } } } },
+        customer: { select: { name: true } },
+        steps: { select: STEP_SUMMARY_SELECT },
+      },
+    });
+    return { today, days: span, items: trackingBoard(rows as any, today, span) };
   }
 
   /** Shipments already billed by a FINAL Invoice #2 / single invoice (own record or "covers"). */

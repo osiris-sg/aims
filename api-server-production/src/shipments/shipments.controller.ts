@@ -18,6 +18,13 @@ export class ShipmentsController {
     return this.shipments.list(orgIdOf(req), query);
   }
 
+  /** Round BX: the Tracking list (open shipments arriving in the next ~21 days). Before ':id'. */
+  @Get('tracking')
+  @Permissions('shipments:read')
+  tracking(@Query('days') days: string | undefined, @Req() req: TradeRequest) {
+    return this.shipments.tracking(orgIdOf(req), days ? Number(days) : undefined);
+  }
+
   @Post()
   @Permissions('shipments:create')
   create(@Body() dto: CreateShipmentDto, @Req() req: TradeRequest) {

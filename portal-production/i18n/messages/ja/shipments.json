@@ -959,5 +959,10 @@
     "markFailed": "保存できませんでした",
     "noDueDate": "支払期限なし",
     "sharedBill": "{refs} の共通請求 — 証憑は各出荷に保存されます。"
+  },
+  "stickyBar": {
+    "prev": "前の出荷",
+    "next": "次の出荷",
+    "pick": "出荷を選択"
   }
 }

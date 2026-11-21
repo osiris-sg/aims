@@ -5,6 +5,7 @@
 // invalidates every Shipments root (records, files, generated docs, hub).
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { useOrganization } from "@hooks/useOrganization";
 import { useShipmentsApi, type ContractFilters, type FileFilters, type HubFilters, type OrderFilters, type ShipmentFilters, type SupplierOrderFilters } from "./api";
 
@@ -123,6 +124,17 @@ export const useShipments = (f: ShipmentFilters, enabled = true) => {
   });
 };
 
+/** Round BX: the Tracking list (open shipments arriving in the next ~21 days). Under the shipments root, so a saved ETA refreshes it. */
+export const useShipmentTracking = (enabled = true) => {
+  const api = useShipmentsApi();
+  const orgId = useOrgId();
+  return useQuery({
+    queryKey: [...SHIPMENT_KEYS.shipments, orgId, "tracking"],
+    enabled: !!orgId && enabled,
+    queryFn: () => api.shipmentTracking(),
+  });
+};
+
 export const useShipment = (id?: string) => {
   const api = useShipmentsApi();
   const orgId = useOrgId();
@@ -131,6 +143,18 @@ export const useShipment = (id?: string) => {
     enabled: !!orgId && !!id,
     queryFn: () => api.getShipment(id!),
   });
+};
+
+/** Round BX: load these shipments ahead (the sticky bar's ‹ › neighbours), so a switch shows at once. */
+export const usePrefetchShipments = (ids: Array<string | null | undefined>) => {
+  const api = useShipmentsApi();
+  const orgId = useOrgId();
+  const qc = useQueryClient();
+  const key = ids.filter(Boolean).join(",");
+  useEffect(() => {
+    if (!orgId || !key) return;
+    for (const id of key.split(",")) void qc.prefetchQuery({ queryKey: [...SHIPMENT_KEYS.shipments, orgId, "detail", id], queryFn: () => api.getShipment(id), staleTime: 30_000 });
+  }, [orgId, key]); // eslint-disable-line react-hooks/exhaustive-deps
 };
 
 export const useTradeFiles = (f: FileFilters, enabled = true) => {

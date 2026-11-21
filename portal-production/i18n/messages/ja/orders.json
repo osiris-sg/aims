@@ -160,7 +160,8 @@
       "in_transit": "輸送中",
       "arrived": "到着済",
       "delivered": "納入済",
-      "completed": "完了"
+      "completed": "完了",
+      "tracking": "追跡"
     },
     "loadError": "出荷を読み込めませんでした",
     "emptySearch": "検索に一致する出荷はありません",
@@ -168,7 +169,28 @@
       "in_transit": "輸送中の出荷はありません",
       "arrived": "到着済の出荷はありません",
       "delivered": "納入済の出荷はありません",
-      "completed": "完了した出荷はありません"
+      "completed": "完了した出荷はありません",
+      "tracking": "21日以内に到着予定の出荷はありません"
+    },
+    "tracking": {
+      "info": "21日以内に到着予定の出荷（到着日未入力の遅れ分を含む）、ETA順。オレンジ＝最初のETAより遅れています。",
+      "eta": "ETA（最新）",
+      "ts": "T/S",
+      "actions": "追跡",
+      "inDays": "ETAまで{n}日",
+      "late": "ETAから{n}日経過",
+      "delayed": "+{n}日",
+      "delayedTip": "最初のETA {first} · 現在 {now}",
+      "history": "履歴 {trail}",
+      "historyLine": "{date} → {eta} · {by} · {source}",
+      "arriving": "本船 {vessel}",
+      "saved": "{ref}: ETA {eta}",
+      "saveError": "ETAを保存できませんでした",
+      "noCarrier": "船会社不明",
+      "noBl": "B/L 未定",
+      "editEta": "{ref} のETA",
+      "today": "本日ETA",
+      "track": "追跡"
     }
   },
   "monthlyOrder": {

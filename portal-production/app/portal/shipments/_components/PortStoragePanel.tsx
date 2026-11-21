@@ -17,6 +17,7 @@ import type { Shipment } from "../_lib/api";
 import { useTradeMutation } from "../_lib/hooks";
 import { fmtDay } from "../_lib/format";
 import { toast } from "../_lib/toast";
+import { useTrackCarrier } from "./useTrackCarrier";
 import { useTranslations } from "next-intl";
 
 export default function PortStoragePanel({ shipment: s }: { shipment: Shipment }) {
@@ -47,18 +48,8 @@ export default function PortStoragePanel({ shipment: s }: { shipment: Shipment }
     if (v === cur) return;
     void put({ [k]: v === "" ? null : kind === "int" ? Number(v) : v });
   };
-  const track = async () => {
-    if (!s.carrier) return;
-    if (!s.carrier.prefilled && s.blNumber) {
-      try {
-        await navigator.clipboard.writeText(s.blNumber);
-        toast.info(t("copied", { bl: s.blNumber, carrier: s.carrier.name }));
-      } catch {
-        toast.info(t("search", { carrier: s.carrier.name, bl: s.blNumber }));
-      }
-    }
-    window.open(s.carrier.url, "_blank", "noopener");
-  };
+  const trackCarrier = useTrackCarrier();
+  const track = () => void trackCarrier(s.carrier, s.blNumber);
   const field = (k: string, label: string, kind: "date" | "int" | "text", extra: Record<string, unknown> = {}) => (
     <TextField
       fullWidth
@@ -74,7 +65,7 @@ export default function PortStoragePanel({ shipment: s }: { shipment: Shipment }
     />
   );
   return (
-    <Paper variant="outlined" sx={{ p: 2 }} data-tour="shipment-port-storage">
+    <Paper variant="outlined" sx={{ p: 2 }} data-tour="shipment-port-storage" data-keep-place="port" id="shipment-tracking-card">
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
         <Typography variant="subtitle2" sx={{ flex: 1 }}>
           {t("title")}

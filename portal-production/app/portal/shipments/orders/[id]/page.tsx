@@ -21,7 +21,7 @@ import AddIcon from "@mui/icons-material/Add";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import EditIcon from "@mui/icons-material/EditOutlined";
 import { toast } from "../../_lib/toast";
-import { SHIPMENT_KEYS, useGeneratedDocs, useOrder, useOrderGeneratedDocs, useShipment, useTradeMutation } from "../../_lib/hooks";
+import { SHIPMENT_KEYS, usePrefetchShipments, useGeneratedDocs, useOrder, useOrderGeneratedDocs, useShipment, useTradeMutation } from "../../_lib/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 import { defaultShipmentId, focusStepId, headerLine2 } from "../../_lib/order-focus";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
@@ -34,7 +34,8 @@ import { setAimeeContext } from "../../_components/aimee/bridge";
 import OverallProcess from "../../_components/OverallProcess";
 import ShipmentOverview from "../../_components/ShipmentOverview";
 import StepCards, { type StepContext } from "../../_components/StepCards";
-import ShipmentStickyBar from "../../_components/ShipmentStickyBar";
+import ShipmentStickyBar, { type ShipmentSwitcher } from "../../_components/ShipmentStickyBar";
+import { capturePlace, neighbours, restorePlace, type Place } from "../../_lib/keep-place";
 import ShipmentFormDialog from "../../_components/ShipmentFormDialog";
 import FilesTable from "../../_components/FilesTable";
 import LinkedDocuments from "../../_components/LinkedDocuments";
@@ -99,6 +100,9 @@ export default function OrderPage() {
   };
   /** A shipment card click / "Add shipment": select it — the focus effect below scrolls to its open step. */
   const showShipment = (id: string) => setParam("shipment", id);
+  // Round BX (Sayaka): ‹ ▾ › on the sticky bar — the next shipment, same card, same height on screen (no scrolling
+  // back up to the shipment cards). A ?step= of the old shipment is dropped (it is that shipment's step).
+  const keepPlace = useRef<Place | null>(null);
 
   const complete = useTradeMutation((a, oid: string) => a.completeOrder(oid));
   const reopen = useTradeMutation((a, oid: string) => a.reopenOrder(oid));
@@ -137,6 +141,27 @@ export default function OrderPage() {
     setUserPicked(true);
     setOpenId(stepId);
   };
+  const switchShipment = (nid: string) => {
+    if (!nid || nid === shipmentId) return;
+    const openCode = shipSteps.find((x) => x.id === shown)?.code ?? null;
+    keepPlace.current = capturePlace(shown, openCode);
+    const p = new URLSearchParams(params?.toString() ?? "");
+    p.set("shipment", nid);
+    p.delete("step");
+    p.delete("file");
+    router.replace(`${pathname}?${p.toString()}`, { scroll: false });
+  };
+  const switcher: ShipmentSwitcher | null =
+    shipments.length > 1 && shipmentId
+      ? {
+          items: shipments.map((x) => ({ id: x.id, label: x.ref, hint: [x.blNumber ? `B/L ${x.blNumber}` : t("blPending"), x.eta ? `ETA ${fmtDay(x.eta)}` : null].filter(Boolean).join(" · ") })),
+          currentId: shipmentId,
+          onSwitch: switchShipment,
+        }
+      : null;
+  // The arrows' neighbours load ahead, so a switch shows the next shipment at once.
+  const near = neighbours(shipments, shipmentId);
+  usePrefetchShipments([near.prev?.id, near.next?.id]);
   // Round BL: tell AIMEE what is in view — the shipment (or the order), the open step card.
   useEffect(() => {
     if (!o) return;
@@ -169,6 +194,17 @@ export default function OrderPage() {
     const key = `${id}:${shipmentId ?? ""}`;
     if (focusedFor.current === key) return;
     focusedFor.current = key;
+    // Round BX: a switch from the sticky bar — open the same step of this shipment and put the same card back.
+    const kept = keepPlace.current;
+    if (kept) {
+      keepPlace.current = null;
+      const same = kept.openCode ? shipSteps.find((x) => x.code === kept.openCode) : null;
+      setUserPicked(true);
+      setOpenId(same?.id ?? kept.openStepId);
+      // Not cleared on re-render: the step card opens and the panels load in after the first paint.
+      for (const ms of [60, 250, 600]) setTimeout(() => restorePlace(kept), ms);
+      return;
+    }
     const target = wantedStep ?? focusStepId(earlySteps, shipSteps, lateSteps);
     if (!target) return;
     const t = setTimeout(() => document.getElementById(`step-${target}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
@@ -553,19 +589,7 @@ export default function OrderPage() {
               <>
                 <Box id="shipment-steps" />
                 {/* Round BW (Sayaka): the shipment stays named while its steps scroll — sticky under the top nav. */}
-                <ShipmentStickyBar
-                  title={s.ref ?? ""}
-                  facts={[
-                    shortCustomer(o.customer?.name),
-                    o.grade || o.product,
-                    s.netWeightMt != null ? `${fmtMt(s.netWeightMt)} t` : null,
-                    s.blNumber ? `B/L ${s.blNumber}` : t("blPending"),
-                    [s.vessel, s.voyageNo].filter(Boolean).join(" / ") || t("vesselNone"),
-                    s.eta ? `ETA ${fmtDay(s.eta)}` : null,
-                  ]}
-                  current={s.currentStep}
-                  total={s.progress?.total ?? 0}
-                />
+                <ShipmentStickyBar {...stickyBarProps(o, s, t)} switcher={switcher} />
                 {/* Round BA: how this customer wants it packed (nothing when there's no packing info). */}
                 <Box sx={{ mb: 1.5, "&:empty": { display: "none" } }}>
                   <CustomerPackingPanel customerId={o.customerId} />
@@ -643,9 +667,8 @@ export default function OrderPage() {
           <IssuesPanel orderId={o.id} />
           {s && (
             <Box>
-              <Typography variant="overline" color="text.secondary">
-                {t("shipmentHeading", { ref: s.ref, bl: s.blNumber || t("pending") })}
-              </Typography>
+              {/* Round BX (Sayaka): the tracking card is here — the same bar, so ‹ › moves to the next shipment's card. */}
+              <ShipmentStickyBar {...stickyBarProps(o, s, t)} switcher={switcher} />
               <ShipmentOverview shipment={s} />
             </Box>
           )}
@@ -1017,4 +1040,21 @@ function FactList({ rows }: { rows: Array<[string, string]> }) {
       ))}
     </Box>
   );
+}
+
+/** Round BW / BX: the sticky shipment bar's line — "#25-1 · SUS · 6063 · 305.949 t · B/L … · vessel / voyage · ETA". */
+function stickyBarProps(o: Order, s: Shipment, t: ReturnType<typeof useTranslations<"shipments.orderPage">>) {
+  return {
+    title: s.ref ?? "",
+    facts: [
+      shortCustomer(o.customer?.name),
+      o.grade || o.product,
+      s.netWeightMt != null ? `${fmtMt(s.netWeightMt)} t` : null,
+      s.blNumber ? `B/L ${s.blNumber}` : t("blPending"),
+      [s.vessel, s.voyageNo].filter(Boolean).join(" / ") || t("vesselNone"),
+      s.eta ? `ETA ${fmtDay(s.eta)}` : null,
+    ],
+    current: s.currentStep,
+    total: s.progress?.total ?? 0,
+  };
 }
