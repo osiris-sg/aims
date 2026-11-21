@@ -10,6 +10,9 @@
  * Dry run: counts per table (source / upsert / skipped with reason) and 3 masked samples each. Nothing written.
  * Apply: one transaction per area, under an advisory lock taken on apply only; log JSON in _imports/wct/logs/.
  */
+// Timestamps: Prisma stores UTC in "timestamp without time zone"; node-pg would read them in local time (memory
+// pg-naive-timestamps-shift), so the whole script runs in UTC.
+process.env.TZ = 'UTC';
 import 'dotenv/config';
 import { randomUUID } from 'crypto';
 import { mkdirSync, writeFileSync } from 'fs';

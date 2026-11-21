@@ -65,7 +65,7 @@ test("sites: SiteClock's ranges; invites: state", () => {
 });
 
 test("UI copy: no em-dashes, no helper text, no subtitles in the Field pages", () => {
-  for (const f of ["workers", "teams", "sites", "invites", "settings", "plan", "working-hours", "clock-ins"]) {
+  for (const f of ["workers", "teams", "sites", "invites", "settings", "plan", "working-hours", "clock-ins", "timesheets"]) {
     const src = read(`app/portal/field/${f}/page.tsx`).replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
     assert.ok(!src.includes("—"), f);
     assert.ok(!/helperText=/.test(src), f);
@@ -93,4 +93,15 @@ test("phase 3 helpers: flag words, approve body only sends what moved", async ()
   const moved = approveBody({ clockInAt: "", punchAt: "2026-02-02T08:00", note: "ok" }, rec);
   assert.equal(moved.note, "ok");
   assert.ok(moved.punchAt);
+});
+
+test("phase 4 helpers: minutes, notes without dashes, the oddity warnings, bulk result", async () => {
+  const { hm, plainNote, entryWarnings, bulkResultText } = await import("./fieldTimesheets.ts");
+  assert.equal(hm(125), "2h 5m");
+  assert.equal(hm(45), "45m");
+  assert.equal(hm(120), "2h");
+  assert.equal(plainNote("Not on any job's crew this day — paid as clocked."), "Not on any job's crew this day: paid as clocked.");
+  assert.deepEqual(entryWarnings({ nlb: true, needsReview: true }), ["Needs review: approve it on its own", "No lunch break approved, but no credit is set"]);
+  assert.deepEqual(entryWarnings({ nlb: true }, { nlbCreditMinutes: 30 }), []);
+  assert.equal(bulkResultText({ approved: 3, needsReview: 2 }), "3 approved. 2 need review and were not approved.");
 });
