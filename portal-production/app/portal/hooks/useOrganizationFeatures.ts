@@ -1,5 +1,6 @@
 "use client";
 
+import { fieldAreasOn } from "@/helpers/fieldModule";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@clerk/nextjs";
 import { useOrganization } from "@hooks/useOrganization";
@@ -35,6 +36,16 @@ interface OrganizationFeatures {
   enableCalendarStyle?: boolean;
   /** Workers & Teams (WCT 2026-11-20): Settings > Workers & Teams, synced from SiteClock. */
   enableWorkersTeams?: boolean;
+  /** Field module (FIELD_PLAN.md, 2026-11-21): SiteClock's office side; group flag + one flag per area. */
+  enableFieldModule?: boolean;
+  enableFieldPeople?: boolean;
+  enableFieldJobs?: boolean;
+  enableFieldPunches?: boolean;
+  enableFieldTimesheets?: boolean;
+  enableFieldLeave?: boolean;
+  enableFieldPayroll?: boolean;
+  enableFieldReports?: boolean;
+  fieldEngineLive?: boolean;
   enableRealDoOnSchedule?: boolean;
   enableWctOrders?: boolean;
   enableWctMyJobs?: boolean;
@@ -320,6 +331,16 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   calendarHqView: false,
   enableCalendarStyle: false,
   enableWorkersTeams: false,
+  // Field module (2026-11-21): all off; an area is on only with enableFieldModule AND its own flag.
+  enableFieldModule: false,
+  enableFieldPeople: false,
+  enableFieldJobs: false,
+  enableFieldPunches: false,
+  enableFieldTimesheets: false,
+  enableFieldLeave: false,
+  enableFieldPayroll: false,
+  enableFieldReports: false,
+  fieldEngineLive: false,
   // Real DO numbers on schedule (WCT 2026-10-30): a scheduled run's DO gets its
   // real number at once; a Pending / Completed / Cancelled tag shows next to it.
   enableRealDoOnSchedule: false,
@@ -487,6 +508,8 @@ export function useOrganizationFeatures() {
     isAppSwitcherHidden: features.hideAppSwitcher ?? FEATURE_FLAG_DEFAULTS.hideAppSwitcher,
     isWctStatusFlowEnabled: features.enableWctStatusFlow ?? FEATURE_FLAG_DEFAULTS.enableWctStatusFlow,
     isWorkersTeamsEnabled: features.enableWorkersTeams ?? FEATURE_FLAG_DEFAULTS.enableWorkersTeams,
+    // Field module: the areas that are on (empty when the group flag is off).
+    fieldAreas: fieldAreasOn(features as Record<string, unknown>),
     isSubjectTypeEnabled: features.enableSubjectType ?? FEATURE_FLAG_DEFAULTS.enableSubjectType,
     isQuotationGstEnabled: features.enableQuotationGst ?? FEATURE_FLAG_DEFAULTS.enableQuotationGst,
     isQuotationTotalsToggleEnabled: features.enableQuotationTotalsToggle ?? FEATURE_FLAG_DEFAULTS.enableQuotationTotalsToggle,

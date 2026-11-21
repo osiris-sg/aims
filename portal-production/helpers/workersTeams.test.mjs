@@ -1,7 +1,7 @@
 // Run: npm test. Workers & Teams (WCT 2026-11-20): the Settings page and the SiteClock sync dialog.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { memberChanges, sortRows, syncDifferences, syncSummary, teamNames, unmatchedLogins } from "./workersTeams.ts";
+import { memberChanges, sortRows, syncDifferences, syncSummary, teamNames, unmatchedLogins, withActive } from "./workersTeams.ts";
 
 test("rows: active first by name; a worker's team names leave hidden teams out", () => {
   assert.deepEqual(sortRows([{ name: "b", active: false }, { name: "c", active: true }, { name: "a", active: true }]).map((r) => r.name), ["a", "c", "b"]);
@@ -29,4 +29,19 @@ test("sync dialog: counts, the differences AIMS keeps, logins not matched", () =
   assert.deepEqual(syncDifferences(r), ["Ali (A): name is Ali (A) in AIMS, Ali in SiteClock", "Tan stays out of Team B (removed in AIMS)"]);
   assert.deepEqual(unmatchedLogins(r), ["Kumar: No AIMS login matches"]);
   assert.deepEqual(syncSummary(null), []);
+});
+
+test("hide / unhide: the row changes at once and the reload asks for a fresh list", async () => {
+  const d = { workers: [{ id: "w1", active: true }, { id: "w2", active: true }], teams: [{ id: "t1", active: true }], users: [] };
+  const hidden = withActive(d, "worker", "w1", false);
+  assert.equal(hidden.workers[0].active, false);
+  assert.equal(hidden.workers[1].active, true);
+  assert.equal(d.workers[0].active, true); // not mutated
+  assert.equal(withActive(d, "team", "t1", false).teams[0].active, false);
+  const { readFileSync } = await import("node:fs");
+  const page = readFileSync(new URL("../app/portal/settings/workers-teams/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /\/workers-teams\?fresh=\$\{Date\.now\(\)\}/);
+  assert.match(page, /setData\(\(d\) => \(d \? withActive\(d, m\.kind, m\.id, !m\.active\) : d\)\)/);
+  const api = readFileSync(new URL("../../api-server-production/src/workers-teams/workers-teams.controller.ts", import.meta.url), "utf8");
+  assert.match(api, /@Get\(\)\n  @Header\('Cache-Control', 'no-store'\)/);
 });

@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { isOrgFeatureEnabled } from '../common/org-features';
+import { fieldAreaOn } from '../field/common/field-flags';
 import { open } from '../common/secret-box';
 import { ClerkIdentityService } from '../clerk/clerk-identity.service';
 import { SiteClockApiError, SiteClockClient } from '../siteclock/siteclock.client';
@@ -36,6 +37,16 @@ export class WorkersTeamsService {
 
   async assertOn(organizationId: string) {
     if (!(await isOrgFeatureEnabled(this.prisma as any, organizationId, WORKERS_TEAMS_FLAG))) throw new NotFoundException('Workers & Teams is not on for this company');
+  }
+
+  /**
+   * Field People on (FIELD_PLAN.md phase 1): team membership is dated there (FieldTeamStint) and
+   * WorkerTeamMember is rebuilt from it, so this page must not change members or run the SiteClock
+   * sync. Every other org: unchanged.
+   */
+  private async assertNotFieldManaged(organizationId: string) {
+    const ui = await this.db.organizationUIConfig.findUnique({ where: { organizationId }, select: { features: true } });
+    if (fieldAreaOn((ui?.features as any) || {}, 'people')) throw new BadRequestException('Team members are managed in Field > Teams');
   }
 
   // ── Reads ───────────────────────────────────────────────────────────────────
@@ -154,6 +165,7 @@ export class WorkersTeamsService {
     await this.assertOn(organizationId);
     const name = text(body?.name, 120);
     if (!name) throw new BadRequestException('Give the team a name');
+    if (Array.isArray(body?.workerIds) && body.workerIds.length) await this.assertNotFieldManaged(organizationId);
     const team = await this.db.workerTeam.create({ data: { organizationId, name, active: true } });
     for (const wid of Array.isArray(body?.workerIds) ? body.workerIds : []) await this.addMember(organizationId, team.id, wid);
     return team;
@@ -175,6 +187,7 @@ export class WorkersTeamsService {
 
   async addMember(organizationId: string, teamId: string, workerId: unknown) {
     await this.assertOn(organizationId);
+    await this.assertNotFieldManaged(organizationId);
     const t = await this.team(organizationId, teamId);
     const w = await this.worker(organizationId, String(workerId ?? ''));
     const existing = await this.db.workerTeamMember.findFirst({ where: { teamId: t.id, workerId: w.id } });
@@ -184,6 +197,7 @@ export class WorkersTeamsService {
 
   async removeMember(organizationId: string, teamId: string, workerId: string) {
     await this.assertOn(organizationId);
+    await this.assertNotFieldManaged(organizationId);
     const t = await this.team(organizationId, teamId);
     const r = await this.db.workerTeamMember.deleteMany({ where: { organizationId, teamId: t.id, workerId } });
     return { removed: r.count };
@@ -263,6 +277,7 @@ export class WorkersTeamsService {
    * Re-runnable: a second apply with nothing new in SiteClock writes nothing.
    */
   async apply(organizationId: string) {
+    await this.assertNotFieldManaged(organizationId);
     const plan = await this.plan(organizationId);
     const db = this.db;
     await db.$transaction(

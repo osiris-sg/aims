@@ -109,6 +109,8 @@ const VERB_ACTIONS: Record<string, string> = {
   'deployment-type': 'UPDATE', 'asset-class': 'UPDATE',
   // Round AM: Clients → Document formats — a sample hidden (kept, never deleted).
   hide: 'HIDE',
+  // Field module (2026-11-21): a worker's phone binding reset, the next clock-in held for a selfie, a phone change.
+  'reset-device': 'RESET', 'request-verification': 'REQUEST', 'change-phone': 'UPDATE',
   // Multi-org users (2026-11-02): switching org, and an org admin adding a person by email.
   'active-org': 'SWITCH_ORG', 'add-by-email': 'ADD_MEMBER', 'add-member': 'ADD_MEMBER', 'first-password': 'SET_PASSWORD', 'delete-login': 'DELETE_LOGIN',
   // Round AR: the Answer flow's draft of a general issue read from the emails (nothing saved).

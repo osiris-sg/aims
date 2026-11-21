@@ -71,3 +71,14 @@ export function syncDifferences(r: any): string[] {
 export function unmatchedLogins(r: any): string[] {
   return (r?.workers ?? []).filter((w: any) => !w.user && w.userNote && w.snapshot?.active !== false).map((w: any) => `${w.data?.name ?? w.name}: ${w.userNote}`);
 }
+
+/** Hide / Unhide: the row's new state in the page data, before the reload confirms it. */
+export function withActive<D extends { workers: Array<{ id: string; active: boolean }>; teams: Array<{ id: string; active: boolean }> }>(
+  data: D,
+  kind: "worker" | "team",
+  id: string,
+  active: boolean,
+): D {
+  const key = kind === "worker" ? "workers" : "teams";
+  return { ...data, [key]: data[key].map((r) => (r.id === id ? { ...r, active } : r)) };
+}

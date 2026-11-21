@@ -5147,3 +5147,610 @@ model LotPosting {
   @@unique([organizationId, orderId, postingKey])
   @@index([organizationId, orderId])
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// FIELD MODULE (native port of SiteClock's office side; FIELD_PLAN.md, 2026-11-21)
+// Flag enableFieldModule + per-area flags (all default off). Every table is
+// org-scoped and carries siteclockId (the SiteClock row it was imported from)
+// with @@unique([organizationId, siteclockId]) so the shadow import is
+// re-runnable. Worker / team ids point at the existing Worker / WorkerTeam rows.
+// Enum-like columns are plain strings (no ALTER TYPE on deploy); their values
+// are SiteClock's enum values, listed in each comment.
+// Ported from siteclock backend/prisma/schema.prisma @62b7d9d.
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Company settings (SiteClock Company rule columns), one row per org.
+model FieldSettings {
+  id                           String    @id @default(uuid())
+  organizationId               String    @unique
+  siteclockCompanyId           String?
+  timezone                     String    @default("Asia/Singapore")
+  fraudPolicy                  String    @default("FLAG") // BLOCK | FLAG
+  unassignedSelfie             Boolean   @default(true)
+  supervisorsApproveTimesheets Boolean   @default(false) // legacy switch (kept as data)
+  notifyRoster                 Boolean   @default(false)
+  supervisorsManageJobs        Boolean   @default(false) // legacy switch (kept as data)
+  termsText                    String?
+  termsVersion                 Int       @default(1)
+  termsUpdatedAt               DateTime?
+  selfiePolicy                 String    @default("SMART") // SMART | ALWAYS
+  jobClocking                  String    @default("ARRIVE_LEAVE") // OFF | ARRIVE | ARRIVE_LEAVE
+  groupJobClocking             Boolean   @default(false)
+  photoAtFirstLogin            Boolean   @default(false)
+  offSiteReview                String    @default("REVIEW") // REVIEW | MARK | BLOCK
+  missedClockOut               String    @default("FULL_SHIFT") // FULL_SHIFT | SHIFT_END | NO_HOURS
+  groupClockBy                 String    @default("ANYONE") // ANYONE | SUPERVISORS
+  jobClockingTeamIds           String[]  @default([]) // WorkerTeam ids
+  crewMarginBeforeMin          Int       @default(15)
+  crewMarginAfterMin           Int       @default(30)
+  baseClocking                 Boolean   @default(true)
+  shareWorkers                 String    @default("NONE") // NONE | ALL | SELECTED
+  createdAt                    DateTime  @default(now())
+  updatedAt                    DateTime  @updatedAt
+}
+
+/// The Field side of a Worker (SiteClock User): tier, per-worker rules, device, face data.
+model FieldWorkerProfile {
+  id                   String    @id @default(uuid())
+  organizationId       String
+  workerId             String    @unique // Worker.id
+  siteclockId          String?
+  tier                 String    @default("WORKER") // WORKER | SUPERVISOR | COMPANY_ADMIN (SiteClock User.role)
+  siteclockRoleName    String? // the SiteClock company role it had (mapped to AIMS roles by hand)
+  employeeNo           String?
+  deviceId             String?
+  deviceBoundAt        DateTime?
+  deviceVerified       Boolean   @default(true)
+  photoKey             String? // photo on record (S3 key; SiteClock lastBindPhotoPath until copied)
+  faceDescriptor       Json?
+  verifyRequested      Boolean   @default(false)
+  fcmToken             String? // placeholder for the AIMS app (never sent to)
+  termsAcceptedVersion Int?
+  termsAcceptedAt      DateTime?
+  attendanceExempt     Boolean   @default(false)
+  payslipVisible       Boolean   @default(false)
+  jobClocking          String? // null = company rule
+  offSiteClocking      String? // REVIEW | MARK | BLOCK | null
+  selfiePolicy         String? // SMART | ALWAYS | null
+  baseClocking         String? // ALLOWED | NOT_ALLOWED | null
+  payFollowsCrew       Boolean   @default(false)
+  crewMarginBeforeMin  Int?
+  crewMarginAfterMin   Int?
+  sharedWithLinked     Boolean   @default(false)
+  siteclockCreatedAt   DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@unique([organizationId, siteclockId])
+  @@index([organizationId])
+}
+
+/// A dated team stint (SiteClock TeamMembership). WorkerTeamMember stays the "current members" list.
+model FieldTeamStint {
+  id             String   @id @default(uuid())
+  organizationId String
+  siteclockId    String?
+  teamId         String // WorkerTeam.id
+  workerId       String // Worker.id
+  startDate      String // yyyy-MM-dd
+  endDate        String? // last day in the team; null = still a member
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, siteclockId])
+  @@index([organizationId, teamId])
+  @@index([workerId])
+}
+
+model FieldTeamSupervisor {
+  id             String   @id @default(uuid())
+  organizationId String
+  siteclockId    String?
+  teamId         String
+  workerId       String
+  createdAt      DateTime @default(now())
+
+  @@unique([teamId, workerId])
+  @@unique([organizationId, siteclockId])
+  @@index([workerId])
+}
+
+/// A geofenced place to clock at (SiteClock Site).
+model FieldSite {
+  id              String   @id @default(uuid())
+  organizationId  String
+  siteclockId     String?
+  name            String
+  address         String?
+  lat             Float
+  lng             Float
+  radiusM         Int      @default(150)
+  timezone        String   @default("Asia/Singapore")
+  maxAccuracyM    Int      @default(50)
+  autoCloseAfterH Int      @default(14)
+  active          Boolean  @default(true)
+  kind            String   @default("PERMANENT") // PERMANENT | JOB | BASE
+  allWorkers      Boolean  @default(false)
+  externalRef     String?
+  customerId      String? // AIMS customer this place belongs to, when known
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([organizationId, siteclockId])
+  @@index([organizationId, kind])
+}
+
+model FieldSiteAssignment {
+  id             String   @id @default(uuid())
+  organizationId String
+  siteclockId    String?
+  siteId         String
+  workerId       String
+  isSupervisor   Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@unique([siteId, workerId])
+  @@unique([organizationId, siteclockId])
+  @@index([workerId])
+}
+
+model FieldTrade {
+  id             String   @id @default(uuid())
+  organizationId String
+  siteclockId    String?
+  name           String
+  createdAt      DateTime @default(now())
+
+  @@unique([organizationId, name])
+  @@unique([organizationId, siteclockId])
+}
+
+model FieldWorkerTrade {
+  organizationId String
+  workerId       String
+  tradeId        String
+
+  @@id([workerId, tradeId])
+  @@index([organizationId])
+}
+
+model FieldManningPreset {
+  id             String   @id @default(uuid())
+  organizationId String
+  siteclockId    String?
+  name           String
+  items          Json     @default("[]") // [{tradeId, qty}]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, name])
+  @@unique([organizationId, siteclockId])
+}
+
+/// The attendance side of a job (SiteClock Job). deliveryId = the AIMS calendar job, when there is one.
+model FieldJob {
+  id              String    @id @default(uuid())
+  organizationId  String
+  siteclockId     String?
+  deliveryId      String?   @unique
+  source          String    @default("aims") // aims | siteclock (made in SiteClock) | siteclock-external (AIMS-pushed, from SiteClock)
+  date            String // yyyy-MM-dd
+  startTime       String? // HH:mm
+  allDay          Boolean   @default(false)
+  title           String
+  location        String
+  siteId          String? // FieldSite.id
+  description     String?
+  instructions    String?
+  teamIds         String[]  @default([])
+  exceptWorkerIds String[]  @default([])
+  expectedMinutes Int?
+  clocking        String? // OFF | ARRIVE | ARRIVE_LEAVE | null = company rule
+  qrRequired      Boolean   @default(false)
+  qrToken         String?   @unique
+  createdById     String?
+  externalRef     String?
+  startAt         DateTime?
+  endAt           DateTime?
+  timezone        String?
+  status          String? // SCHEDULED | IN_PROGRESS | COMPLETED | CANCELLED (external jobs only)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  cancelledAt     DateTime?
+  cancelReason    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([organizationId, siteclockId])
+  @@index([organizationId, date])
+}
+
+model FieldJobCrew {
+  id             String    @id @default(uuid())
+  organizationId String
+  siteclockId    String?
+  jobId          String
+  workerId       String
+  teamId         String?
+  tradeId        String?
+  notifiedAt     DateTime?
+
+  @@unique([jobId, workerId])
+  @@unique([organizationId, siteclockId])
+  @@index([workerId])
+}
+
+model FieldJobNeed {
+  id             String  @id @default(uuid())
+  organizationId String
+  siteclockId    String?
+  jobId          String
+  tradeId        String
+  qty            Int
+
+  @@unique([jobId, tradeId])
+  @@unique([organizationId, siteclockId])
+}
+
+model FieldDayNote {
+  id             String   @id @default(uuid())
+  organizationId String
+  siteclockId    String?
+  date           String
+  text           String
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, date])
+  @@unique([organizationId, siteclockId])
+}
+
+model FieldShiftTemplate {
+  id             String   @id @default(uuid())
+  organizationId String
+  siteclockId    String?
+  siteId         String? // legacy single site (read as a fallback, as SiteClock does)
+  siteIds        String[] @default([]) // empty = company-wide
+  name           String
+  startTime      String
+  endTime        String
+  daysOfWeek     Int[]
+  graceLateMin   Int      @default(10)
+  payEarly       Boolean? // legacy
+  earlyMode      String? // null | clamp | pay | slide
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, siteclockId])
+  @@index([organizationId])
+}
+
+model FieldShiftAssignment {
+  id             String   @id @default(uuid())
+  organizationId String
+  siteclockId    String?
+  templateId     String
+  workerId       String
+  startDate      String
+  endDate        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, siteclockId])
+  @@index([workerId])
+  @@index([templateId])
+}
+
+model FieldPunch {
+  id                 String    @id @default(uuid())
+  organizationId     String
+  siteclockId        String?
+  workerId           String
+  siteId             String
+  type               String // IN | OUT
+  serverTime         DateTime  @default(now())
+  originalTime       DateTime?
+  deviceTime         DateTime?
+  lat                Float
+  lng                Float
+  accuracyM          Float
+  distanceM          Float
+  insideFence        Boolean
+  address            String?
+  faceScore          Float?
+  faceResult         String?
+  mockedFlag         Boolean   @default(false)
+  rootedFlag         Boolean   @default(false)
+  offlineSynced      Boolean   @default(false)
+  deviceId           String?
+  idempotencyKey     String?
+  photoKey           String?
+  workerNote         String?
+  nlbClaimed         Boolean   @default(false)
+  reviewNote         String?
+  status             String    @default("OK") // OK | FLAGGED | APPROVED | REJECTED
+  flagReason         String? // FACE_MISMATCH | VERIFY_REQUESTED | OUTSIDE_FENCE | MOCKED | ROOTED | NEW_DEVICE | OFFLINE | TIME_DRIFT | OUT_WITHOUT_IN | AUTO_CLOSE_OVERRIDE | NOT_ASSIGNED | POOR_ACCURACY | QR_MISSING
+  reviewedById       String? // AIMS user id, or "siteclock:<user id>" for imported rows
+  reviewedByName     String?
+  reviewedAt         DateTime?
+  timeEntryId        String?
+  jobId              String? // FieldJob.id
+  endsDay            Boolean   @default(false)
+  recordedByWorkerId String?
+  qrScanned          Boolean   @default(false)
+  autoLeft           Boolean   @default(false)
+  homeOrganizationId String? // linked orgs: the punch stays with the worker's home org (= organizationId)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([organizationId, siteclockId])
+  @@index([organizationId, status])
+  @@index([workerId, serverTime])
+  @@index([siteId, serverTime])
+  @@index([jobId])
+  @@index([timeEntryId])
+}
+
+model FieldTimeEntry {
+  id                String    @id @default(uuid())
+  organizationId    String
+  siteclockId       String?
+  workerId          String
+  siteId            String
+  workDate          String
+  clockInAt         DateTime
+  clockOutAt        DateTime?
+  status            String    @default("OPEN") // OPEN | PENDING | APPROVED | REJECTED | AUTO_CLOSED
+  grossMinutes      Int?
+  breakMinutes      Int?
+  nlbClaimed        Boolean   @default(false)
+  nlb               Boolean   @default(false)
+  regularMinutes    Int?
+  otMinutes         Int?
+  otMultiplier      Float?
+  lateMinutes       Int?
+  earlyMinutes      Int?
+  leftEarlyMinutes  Int?
+  shiftAssignmentId String?
+  clockOutSiteId    String?
+  editedById        String? // set = an office edit (SiteClock rule: paid-follows-crew stops); "siteclock:<id>" for imported rows
+  editedByName      String?
+  editedAt          DateTime?
+  editNote          String?
+  origClockInAt     DateTime?
+  origClockOutAt    DateTime?
+  approvedById      String?
+  approvedByName    String?
+  approvedAt        DateTime?
+  paidFromAt        DateTime?
+  paidToAt          DateTime?
+  crewFirstInAt     DateTime?
+  crewLastOutAt     DateTime?
+  needsReview       Boolean   @default(false)
+  crewNote          String?
+  workedFor         Json? // { <organizationId>: minutes } (SiteClock: company ids, mapped on import)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([organizationId, siteclockId])
+  @@index([organizationId, workDate])
+  @@index([workerId, workDate])
+  @@index([siteId, workDate])
+  @@index([organizationId, status])
+}
+
+model FieldOvertimeRule {
+  id                String   @id @default(uuid())
+  organizationId    String
+  siteclockId       String?
+  siteId            String? // null = company-wide
+  dailyThresholdMin Int      @default(528)
+  otMultiplier      Float    @default(1.5)
+  weeklyCapOtMin    Int?
+  countEarlyAsWork  Boolean  @default(false) // legacy
+  earlyMode         String?
+  updatedAt         DateTime @updatedAt
+
+  @@unique([organizationId, siteclockId])
+  @@index([organizationId, siteId])
+}
+
+model FieldBreakRule {
+  id               String   @id @default(uuid())
+  organizationId   String
+  siteclockId      String?
+  siteId           String?
+  deductMinutes    Int      @default(60)
+  minShiftMinutes  Int      @default(360)
+  nlbCreditMinutes Int      @default(0)
+  updatedAt        DateTime @updatedAt
+
+  @@unique([organizationId, siteclockId])
+  @@index([organizationId, siteId])
+}
+
+model FieldLeaveType {
+  id               String   @id @default(uuid())
+  organizationId   String
+  siteclockId      String?
+  name             String
+  paid             Boolean  @default(true)
+  defaultDays      Float?
+  requiresDocument Boolean  @default(false)
+  archived         Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([organizationId, siteclockId])
+  @@index([organizationId])
+}
+
+model FieldLeaveEntitlement {
+  id             String   @id @default(uuid())
+  organizationId String
+  siteclockId    String?
+  workerId       String
+  typeId         String
+  days           Float
+  updatedAt      DateTime @updatedAt
+
+  @@unique([workerId, typeId])
+  @@unique([organizationId, siteclockId])
+}
+
+model FieldLeaveRequest {
+  id             String    @id @default(uuid())
+  organizationId String
+  siteclockId    String?
+  workerId       String
+  typeId         String
+  startDate      String
+  endDate        String
+  halfDay        Boolean   @default(false)
+  reason         String?
+  documentKeys   String[]  @default([]) // S3 keys (SiteClock documentPaths until copied)
+  recordedById   String?
+  recordedByName String?
+  status         String    @default("PENDING") // PENDING | APPROVED | REJECTED | CANCELLED
+  decidedById    String?
+  decidedByName  String?
+  decidedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([organizationId, siteclockId])
+  @@index([organizationId, status])
+  @@index([workerId])
+}
+
+model FieldPayProfile {
+  id                     String   @id @default(uuid())
+  organizationId         String
+  siteclockId            String?
+  workerId               String   @unique
+  payType                String   @default("MONTHLY") // MONTHLY | DAILY | HOURLY
+  hourlyRateCents        Int      @default(0)
+  restDays               Int[]    @default([])
+  premiumMode            String   @default("DOUBLE_DAY") // DOUBLE_DAY | OT_RATE | FIXED_HOURLY
+  premiumRateCents       Int      @default(0)
+  weekdayOt              Boolean  @default(true)
+  basicMonthlyCents      Int      @default(0)
+  fixedAllowanceCents    Int      @default(0)
+  deductHousingCents     Int      @default(0)
+  deductOtherCents       Int      @default(0)
+  workDaysPerWeek        Int      @default(6)
+  otRateCentsOverride    Int?
+  dailyRateCentsOverride Int?
+  updatedAt              DateTime @updatedAt
+
+  @@unique([organizationId, siteclockId])
+  @@index([organizationId])
+}
+
+model FieldPublicHoliday {
+  id             String   @id @default(uuid())
+  organizationId String
+  siteclockId    String?
+  date           String
+  name           String
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, date])
+  @@unique([organizationId, siteclockId])
+}
+
+model FieldInvite {
+  id             String    @id @default(uuid())
+  organizationId String
+  siteclockId    String?
+  token          String    @unique
+  label          String?
+  siteId         String?
+  templateId     String?
+  role           String? // WORKER | SUPERVISOR
+  templateIds    String[]  @default([])
+  leaveDays      Json?
+  active         Boolean   @default(true)
+  expiresAt      DateTime?
+  maxUses        Int?
+  uses           Int       @default(0)
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([organizationId, siteclockId])
+  @@index([organizationId])
+}
+
+model FieldRegistration {
+  id             String    @id @default(uuid())
+  organizationId String
+  siteclockId    String?
+  inviteId       String
+  phone          String
+  name           String
+  employeeNo     String?
+  photoKey       String?
+  status         String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  reviewedById   String?
+  reviewedByName String?
+  reviewedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([organizationId, siteclockId])
+  @@index([organizationId, status])
+}
+
+model FieldPhotoUpdate {
+  id              String    @id @default(uuid())
+  organizationId  String
+  siteclockId     String?
+  workerId        String
+  status          String // REQUESTED | PENDING | APPROVED | REJECTED | CANCELLED
+  photoKey        String?
+  requestedById   String?
+  requestedByName String?
+  auto            Boolean   @default(false)
+  setVerify       Boolean   @default(false)
+  reviewedById    String?
+  reviewedByName  String?
+  reviewedAt      DateTime?
+  note            String?
+  submittedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([organizationId, siteclockId])
+  @@index([organizationId, status])
+  @@index([workerId])
+}
+
+/// Two AIMS orgs that share workers (SiteClock CompanyLink). Stored with sorted ids (orgAId < orgBId).
+model FieldOrgLink {
+  id        String   @id @default(uuid())
+  orgAId    String
+  orgBId    String
+  createdAt DateTime @default(now())
+
+  @@unique([orgAId, orgBId])
+  @@index([orgBId])
+}
+
+/// SiteClock's own audit history for the org, read-only (shown in the Field audit viewer).
+model FieldAuditImport {
+  id               String   @id @default(uuid())
+  organizationId   String
+  siteclockId      String
+  actorSiteclockId String?
+  actorName        String?
+  action           String
+  entity           String
+  entityId         String?
+  before           Json?
+  after            Json?
+  createdAt        DateTime
+
+  @@unique([organizationId, siteclockId])
+  @@index([organizationId, createdAt])
+}

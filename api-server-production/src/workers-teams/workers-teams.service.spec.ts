@@ -136,4 +136,24 @@ describe('WorkersTeamsService', () => {
     const picker = await svc.picker(ORG);
     expect(picker).toEqual({ teams: [{ id: team.id, name: 'Team B', workerIds: [] }], workers: [{ id: a.id, name: 'Guru' }] });
   });
+
+  it('Field People on (FIELD_PLAN.md phase 1): members and the SiteClock sync are managed in Field; names and hide still work', async () => {
+    const { prisma, t } = fakeDb({ enableWorkersTeams: true, enableFieldModule: true, enableFieldPeople: true });
+    const svc = new WorkersTeamsService(prisma);
+    const a = await svc.createWorker(ORG, { name: 'Ali' });
+    const team = await svc.createTeam(ORG, { name: 'Team C' });
+    await expect(svc.addMember(ORG, team.id, a.id)).rejects.toThrow('Team members are managed in Field > Teams');
+    await expect(svc.removeMember(ORG, team.id, a.id)).rejects.toThrow('Team members are managed in Field > Teams');
+    await expect(svc.createTeam(ORG, { name: 'Team D', workerIds: [a.id] })).rejects.toThrow('Team members are managed in Field > Teams');
+    await expect(svc.apply(ORG)).rejects.toThrow('Team members are managed in Field > Teams');
+    await svc.setWorkerActive(ORG, a.id, false);
+    expect(t.worker[0].active).toBe(false);
+    // The module flag alone (no People area) changes nothing.
+    const off = fakeDb({ enableWorkersTeams: true, enableFieldModule: true });
+    const svc2 = new WorkersTeamsService(off.prisma);
+    const b = await svc2.createWorker(ORG, { name: 'Ben' });
+    const t2 = await svc2.createTeam(ORG, { name: 'Team E', workerIds: [b.id] });
+    expect(off.t.workerTeamMember).toHaveLength(1);
+    void t2;
+  });
 });

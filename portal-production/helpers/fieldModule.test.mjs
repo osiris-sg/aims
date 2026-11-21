@@ -1,0 +1,73 @@
+// Field module (FIELD_PLAN.md, 2026-11-21): flags, nav group, access, phase 1 page helpers.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { FIELD_AREAS, FIELD_AREA_FLAGS, fieldAreasOn, fieldNavModule, fieldPagesFor } from "./fieldModule.ts";
+import { filterWorkers, inviteState, ruleBadges, siteFormErrors, workerPatch } from "./fieldPeople.ts";
+
+const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+const allOn = (lv) => ({ levels: Object.fromEntries(FIELD_AREAS.map((a) => [a, lv])), scoped: {}, admin: lv === "approve" });
+
+test("flags: nothing without enableFieldModule; an area needs both flags; every flag defaults off on both sides", () => {
+  assert.deepEqual(fieldAreasOn({ enableFieldPeople: true }), []);
+  assert.deepEqual(fieldAreasOn({ enableFieldModule: true }), []);
+  assert.deepEqual(fieldAreasOn({ enableFieldModule: true, enableFieldPeople: true, enableFieldPayroll: false }), ["people"]);
+  const api = read("../api-server-production/src/organizations/default-features.ts");
+  const portal = read("app/portal/hooks/useOrganizationFeatures.ts");
+  const flags = ["enableFieldModule", ...Object.values(FIELD_AREA_FLAGS), "fieldEngineLive"];
+  for (const f of flags) {
+    assert.match(api, new RegExp(`\\n  ${f}: false,`), `api default ${f}`);
+    assert.match(portal, new RegExp(`\\n  ${f}: false,`), `portal default ${f}`);
+  }
+  const apiFlags = read("../api-server-production/src/field/common/field-flags.ts");
+  for (const [area, flag] of Object.entries(FIELD_AREA_FLAGS)) assert.match(apiFlags, new RegExp(`${area}: '${flag}'`));
+});
+
+test("nav: the Field group only when an area is on and the person may view a page in it", () => {
+  assert.equal(fieldNavModule([], allOn("approve")), null);
+  assert.equal(fieldNavModule(["people"], null), null);
+  assert.equal(fieldNavModule(["people"], allOn("none")), null);
+  const nav = fieldNavModule(["people"], allOn("view"));
+  assert.equal(nav.displayName, "Field");
+  assert.deepEqual(nav.config.subMenus.map((s) => s.label), ["Workers", "Teams", "Sites", "Invites", "Field settings"]);
+  assert.equal(fieldPagesFor(["payroll"], allOn("approve")).length, 0); // no payroll pages yet in phase 1
+  const nm = read("components/TopNav/useNavModules.ts");
+  assert.match(nm, /fieldNavModule\(fieldAreas \?\? \[\], fieldMe\?\.access\)/);
+});
+
+test("access presets match the API (Operations, Accounting, supervisor grant)", () => {
+  const api = read("../api-server-production/src/field/common/field-access.ts");
+  assert.match(api, /operations: \{ people: 'view', jobs: 'edit', punches: 'approve', timesheets: 'approve', leave: 'approve', reports: 'view' \}/);
+  assert.match(api, /accounting: \{ people: 'view', timesheets: 'view', payroll: 'edit', reports: 'view' \}/);
+});
+
+test("workers: badges, search, hidden, patch only what changed (\"\" = company rule)", () => {
+  assert.deepEqual(ruleBadges({ selfiePolicy: "ALWAYS", payFollowsCrew: true, offSiteClocking: null }), ["Selfie every punch", "Pay follows crew"]);
+  const rows = [
+    { id: "1", name: "Ann", active: true, employeeNo: "E1", phone: "+6590000001", teams: [{ id: "t", name: "Team A" }], sites: [] },
+    { id: "2", name: "Ben", active: false, employeeNo: null, phone: null, teams: [], sites: [{ siteId: "s", name: "Yard", isSupervisor: false }] },
+  ];
+  assert.deepEqual(filterWorkers(rows, "", false).map((r) => r.id), ["1"]);
+  assert.deepEqual(filterWorkers(rows, "yard", true).map((r) => r.id), ["2"]);
+  assert.deepEqual(filterWorkers(rows, "team a", false).map((r) => r.id), ["1"]);
+  assert.deepEqual(workerPatch({ name: "Ann", selfiePolicy: "ALWAYS", payFollowsCrew: false }, { name: "Ann", selfiePolicy: null, payFollowsCrew: false }), { selfiePolicy: "" });
+});
+
+test("sites: SiteClock's ranges; invites: state", () => {
+  const ok = { name: "Yard", lat: "1.3", lng: "103.8", radiusM: 150, maxAccuracyM: 50, autoCloseAfterH: 14 };
+  assert.equal(siteFormErrors(ok), null);
+  assert.match(siteFormErrors({ ...ok, radiusM: 10 }), /Radius must be 20 to 5000/);
+  assert.match(siteFormErrors({ ...ok, lat: "" }), /latitude/);
+  assert.equal(inviteState({ active: true, expiresAt: null, maxUses: 2, uses: 2 }), "Used up");
+  assert.equal(inviteState({ active: true, expiresAt: "2000-01-01T00:00:00Z", maxUses: null, uses: 0 }), "Expired");
+  assert.equal(inviteState({ active: false, expiresAt: null, maxUses: null, uses: 0 }), "Off");
+});
+
+test("UI copy: no em-dashes, no helper text, no subtitles in the Field pages", () => {
+  for (const f of ["workers", "teams", "sites", "invites", "settings"]) {
+    const src = read(`app/portal/field/${f}/page.tsx`).replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.ok(!src.includes("—"), f);
+    assert.ok(!/helperText=/.test(src), f);
+    assert.ok(!/subTitle=/.test(src), f);
+  }
+});

@@ -6,6 +6,8 @@
 // by TopNavBar and the chat home, so the assistant can only open screens the
 // bar itself would show.
 
+import { fieldNavModule } from "@/helpers/fieldModule";
+import { useFieldMe } from "@/app/portal/field/_lib/useField";
 import { useMemo } from "react";
 import { useTranslations } from "next-intl";
 import { useUiLang } from "@/i18n/UiLangProvider";
@@ -129,7 +131,9 @@ export function useNavModules() {
   const { modules, isModuleEnabled } = useConfiguration();
   const { isModuleAllowed, userRoles, hasPermission, customTabs } = useUserPermissions();
   // Same rule as DynamicSidebarContent's Organization Settings group.
-  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled, isSalesReportEnabled, isQuotationCategoryEnabled, isCustomAccessEnabled, isJobsCalendarEnabled, isWorkersTeamsEnabled } = useOrganizationFeatures();
+  const { isAdsInsightsEnabled, isMaintenanceDatesEnabled, isPostingQueueEnabled, isJobFieldsEnabled, isWctOrdersEnabled, isWctVehiclesEnabled, isBusinessRulesEnabled, isPayablesEnabled, isHotkeysEnabled, isUserMgmtMasterfileEnabled, isSalesReportEnabled, isQuotationCategoryEnabled, isCustomAccessEnabled, isJobsCalendarEnabled, isWorkersTeamsEnabled, fieldAreas } = useOrganizationFeatures();
+  // Field module (enableFieldModule + area flags, all default off): the "Field" group, only the pages this person may open.
+  const { me: fieldMe } = useFieldMe();
   const isAdminUser =
     userRoles.length === 0 ||
     userRoles.some((r: any) => ADMIN_ROLES.includes((r?.name || "").toLowerCase()));
@@ -223,10 +227,12 @@ export function useNavModules() {
   // Round AM: "Clients" right after Sales for orgs whose menu has the SHIPMENTS module (Sales).
   const sales = built.find((m: any) => m.moduleCode === "SHIPMENTS");
   // WCT: Assets (Vehicles) after Service reports (helpers/wctNav.ts), for vehicles:read holders.
+  const fieldNav = fieldNavModule(fieldAreas ?? [], fieldMe?.access);
+  const field = fieldNav ? [fieldNav] : [];
   const vehicles = isWctVehiclesEnabled && canVehicles(userRoles, hasPermission, "read") ? [assetsNavModule()] : [];
   // Round BW: "Books" after Clients — SHIPMENTS orgs, money holders only (ADH Admin / Manager).
   const books = sales && hasPermission("shipments", "money") ? [booksNavModule(lang, orderKey(sales))] : [];
-  const navModules = [...built, ...(sales ? [clientsNavModule(lang, orderKey(sales))] : []), ...books, ...vehicles].sort((a: any, b: any) => orderKey(a) - orderKey(b));
+  const navModules = [...built, ...(sales ? [clientsNavModule(lang, orderKey(sales))] : []), ...books, ...vehicles, ...field].sort((a: any, b: any) => orderKey(a) - orderKey(b));
 
   // Flat list of every screen the user can reach: module roots + submenus +
   // the settings group. This is what the chat assistant is allowed to open.

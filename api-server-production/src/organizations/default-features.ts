@@ -250,6 +250,19 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   // field workers and crews (Worker / WorkerTeam / WorkerTeamMember), added by hand or synced from
   // SiteClock (read-only there; preview first, then apply). Nothing is hard-deleted. Default OFF.
   enableWorkersTeams: false,
+  // Field module (FIELD_PLAN.md, 2026-11-21): SiteClock's office side native in AIMS (src/field).
+  // enableFieldModule turns the group on; each area has its own flag and is on only with both.
+  // Off = no nav, every /field route 404s, no cron work. fieldEngineLive is the extra switch the
+  // ported crons (auto-close) need: never on while SiteClock is the live clock-in engine. All OFF.
+  enableFieldModule: false,
+  enableFieldPeople: false,
+  enableFieldJobs: false,
+  enableFieldPunches: false,
+  enableFieldTimesheets: false,
+  enableFieldLeave: false,
+  enableFieldPayroll: false,
+  enableFieldReports: false,
+  fieldEngineLive: false,
   // Real DO numbers on schedule (WCT 2026-10-30): a scheduled delivery's DO gets
   // its real number (e.g. DO202610007) the moment it is scheduled — no
   // DO-PENDING-NN placeholder — issued with the counter locked so concurrent

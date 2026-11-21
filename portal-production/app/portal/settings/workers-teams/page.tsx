@@ -35,7 +35,7 @@ import { request } from "@/helpers/request";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
 import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { useOrganization } from "@hooks/useOrganization";
-import { memberChanges, sortRows, syncDifferences, syncSummary, teamNames, unmatchedLogins, type WtTeam, type WtWorker } from "@/helpers/workersTeams";
+import { memberChanges, sortRows, syncDifferences, syncSummary, teamNames, unmatchedLogins, type WtTeam, type WtWorker, withActive } from "@/helpers/workersTeams";
 
 // Workers & Teams (WCT 2026-11-20, enableWorkersTeams): the org's field workers and crews, added here or synced from
 // SiteClock (read-only there: preview first, then Apply). A row opens its dialog; the three dots hide / unhide it
@@ -79,7 +79,8 @@ export default function WorkersTeamsPage() {
 
   const load = useCallback(async () => {
     try {
-      const d = await call("/workers-teams", "GET");
+      // A fresh list every time (the reload after Hide / Unhide must never be answered from a cache).
+      const d = await call(`/workers-teams?fresh=${Date.now()}`, "GET");
       setData({ workers: d?.workers ?? [], teams: d?.teams ?? [], users: d?.users ?? [] });
     } catch (e: any) {
       setError(e?.message || "Could not load the workers");
@@ -135,7 +136,11 @@ export default function WorkersTeamsPage() {
   const toggle = (m: NonNullable<RowMenu>) => {
     setMenu(null);
     const base = m.kind === "worker" ? "workers" : "teams";
-    void run(() => call(`/workers-teams/${base}/${m.id}/${m.active ? "hide" : "unhide"}`, "POST"));
+    // The row changes at once; the reload that follows confirms it.
+    void run(async () => {
+      await call(`/workers-teams/${base}/${m.id}/${m.active ? "hide" : "unhide"}`, "POST");
+      setData((d) => (d ? withActive(d, m.kind, m.id, !m.active) : d));
+    });
   };
 
   const openSync = async () => {

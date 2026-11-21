@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpException, HttpStatus, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, HttpException, HttpStatus, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ClerkAuthGuard } from '../auth/clerk-auth.guard';
 import { Permissions } from '../auth/decorators/permissions.decorator';
@@ -24,6 +24,7 @@ export class WorkersTeamsController {
   }
 
   @Get()
+  @Header('Cache-Control', 'no-store')
   @Permissions('organizations:read')
   @ApiOperation({ summary: 'Every worker and team (hidden too), membership and the logins a worker can be linked to' })
   list(@Req() req: any) {
