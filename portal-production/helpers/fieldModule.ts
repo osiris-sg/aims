@@ -36,6 +36,7 @@ export const FIELD_BASE = "/portal/field";
 
 /** The Field pages, in nav order, with the area each one belongs to. */
 export const FIELD_PAGES: Array<{ key: string; label: string; area: FieldArea; path: string }> = [
+  { key: "overview", label: "Overview", area: "reports", path: `${FIELD_BASE}/overview` },
   { key: "workers", label: "Workers", area: "people", path: `${FIELD_BASE}/workers` },
   { key: "teams", label: "Teams", area: "people", path: `${FIELD_BASE}/teams` },
   { key: "sites", label: "Sites", area: "people", path: `${FIELD_BASE}/sites` },
@@ -46,6 +47,9 @@ export const FIELD_PAGES: Array<{ key: string; label: string; area: FieldArea; p
   { key: "timesheets", label: "Timesheets", area: "timesheets", path: `${FIELD_BASE}/timesheets` },
   { key: "leave", label: "Leave", area: "leave", path: `${FIELD_BASE}/leave` },
   { key: "payroll", label: "Payroll", area: "payroll", path: `${FIELD_BASE}/payroll` },
+  { key: "reports", label: "Reports", area: "reports", path: `${FIELD_BASE}/reports` },
+  { key: "rules", label: "Rules", area: "reports", path: `${FIELD_BASE}/rules` },
+  { key: "audit", label: "Audit log", area: "reports", path: `${FIELD_BASE}/audit` },
   { key: "settings", label: "Field settings", area: "people", path: `${FIELD_BASE}/settings` },
 ];
 

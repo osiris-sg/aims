@@ -32,6 +32,8 @@ test("nav: the Field group only when an area is on and the person may view a pag
   assert.deepEqual(nav.config.subMenus.map((s) => s.label), ["Workers", "Teams", "Sites", "Invites", "Field settings"]);
   assert.equal(fieldPagesFor(["payroll"], allOn("approve")).length, 1);
   assert.deepEqual(fieldPagesFor(["jobs"], allOn("view")).map((p) => p.label), ["Plan", "Working hours"]);
+  assert.deepEqual(fieldPagesFor(["reports"], allOn("view")).map((p) => p.label), ["Overview", "Reports", "Rules", "Audit log"]);
+  assert.equal(fieldNavModule(["reports", "people"], allOn("view")).config.route, "/portal/field/overview");
   const nm = read("components/TopNav/useNavModules.ts");
   assert.match(nm, /fieldNavModule\(fieldAreas \?\? \[\], fieldMe\?\.access\)/);
 });
