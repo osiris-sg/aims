@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, ForbiddenException, Get, Header, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, Header, Param, Patch, Post, Put, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ClerkAuthGuard } from '../../auth/clerk-auth.guard';
 import { Field, FieldAreaGuard, FieldRoute } from '../common/field-area.guard';
@@ -23,6 +24,32 @@ export class FieldJobsController {
   @FieldRoute('jobs', 'view')
   day(@Field() ctx: FieldCtx, @Query('date') date: string) {
     return this.jobs.day(ctx, date);
+  }
+
+  @Get('import/template')
+  @FieldRoute('jobs', 'edit')
+  async importTemplate(@Field() ctx: FieldCtx, @Res() res: any) {
+    const wb = await this.jobs.importTemplate(ctx);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="field-schedule-template.xlsx"');
+    await wb.xlsx.write(res);
+    res.end();
+  }
+
+  /** Read the file and show what would be made (a view: listed in VIEW_POST_RE). */
+  @Post('import/preview')
+  @FieldRoute('jobs', 'edit')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024, files: 1 } }))
+  importPreview(@Field() ctx: FieldCtx, @UploadedFile() file: any) {
+    return this.jobs.importPreview(ctx, file);
+  }
+
+  @Post('import')
+  @FieldRoute('jobs', 'edit')
+  async importApply(@Field() ctx: FieldCtx, @Body() body: any, @Req() req: any) {
+    const out = await this.jobs.importApply(ctx, body);
+    fieldAudit(req, 'JOBS_PLAN', { entity: 'Job', after: { via: 'import', mode: 'add', jobs: out.created, days: out.days.length } });
+    return out;
   }
 
   @Get('attendance')

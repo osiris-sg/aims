@@ -9,7 +9,7 @@
  * calendar's own path (DeliveriesService.createQuickJob), never jobs of an order (SiteClock: never external jobs).
  * Notify marks the crew as told (notifiedAt); nothing is sent until the AIMS phone app exists.
  */
-import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional, UnprocessableEntityException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional, UnprocessableEntityException } from '@nestjs/common';
 import { DateTime } from 'luxon';
 import { z } from 'zod';
 import { PrismaService } from '../../common/prisma.service';
@@ -17,11 +17,29 @@ import { DeliveriesService } from '../../deliveries/deliveries.service';
 import { jobStyleValues } from '../../deliveries/job-style';
 import { FieldCtx } from '../common/field-context.service';
 import { fieldSettings } from '../common/settings';
-import { addDays } from '../common/time';
+import { addDays, todayIn } from '../common/time';
+import { buildTemplate, parseScheduleFile, planDayJobs, type ImportRow } from './jobs-import';
 import { ensurePlaceSite, findPlace, jobStatus, newQrToken, resolveCrew, visitFor } from './jobs-lib';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ymd = z.string().regex(DATE_RE);
+
+export const importRowSchema = z.object({
+  row: z.number().int().optional(),
+  label: z.string().max(60).optional(),
+  date: ymd,
+  time: z.string().nullable().optional(),
+  title: z.string().max(200),
+  location: z.string().max(200),
+  search: z.string().max(200).nullable().optional(),
+  description: z.string().max(1000).nullable().optional(),
+  instructions: z.string().max(1000).nullable().optional(),
+  teams: z.array(z.string().max(100)).max(50).default([]),
+  workers: z.array(z.string().max(100)).max(200).default([]),
+  exceptWorkers: z.array(z.string().max(100)).max(200).default([]),
+  clocking: z.enum(['OFF', 'ARRIVE', 'ARRIVE_LEAVE']).nullable().optional(),
+  qrRequired: z.boolean().optional(),
+});
 
 export const jobSettingsSchema = z.object({
   deliveryId: z.string().optional(),
@@ -353,5 +371,68 @@ export class FieldJobsService {
     const n = await this.db.fieldManningPreset.deleteMany({ where: { id, organizationId: ctx.organizationId } });
     if (!n.count) throw new NotFoundException('Not found');
     return { ok: true };
+  }
+  // ── Upload schedule (jobs.router /import*, Admin only as SiteClock jobs.setup; "add" only, see jobs-import.ts) ──
+
+  private importAdmin(ctx: FieldCtx) {
+    if (!ctx.access.admin) throw new ForbiddenException('Admin only');
+  }
+
+  private async planImport(ctx: FieldCtx, rows: ImportRow[]) {
+    const byDate = new Map<string, ImportRow[]>();
+    for (const r of rows) if (r.date) byDate.set(r.date, [...(byDate.get(r.date) ?? []), r]);
+    const days: any[] = [];
+    const problems: string[] = [];
+    for (const [date, list] of [...byDate.entries()].sort()) {
+      const { planned, problems: p } = await planDayJobs(this.db, ctx.organizationId, date, list.map((r) => ({ ...r, label: r.label ?? `Row ${r.row ?? '?'}` })));
+      problems.push(...p);
+      const existing = (await this.calendarJobs(ctx, date)).length;
+      const crew = new Set<string>();
+      const jobs = [];
+      for (const j of planned) {
+        const c = await resolveCrew(this.db, ctx.organizationId, date, j.teamIds, j.workerIds, j.exceptWorkerIds);
+        c.forEach((x) => crew.add(x.workerId));
+        jobs.push({ time: j.startTime, title: j.title, where: j.place.siteId ? j.place.name : `${j.location}, ${j.place.address ?? 'pinned'}`, crew: c.length, warning: c.length ? undefined : 'team has nobody on that date' });
+      }
+      days.push({ date, existing, workers: crew.size, jobs, planned });
+    }
+    return { days, problems };
+  }
+
+  async importTemplate(ctx: FieldCtx) {
+    this.importAdmin(ctx);
+    return buildTemplate(this.db, ctx.organizationId, todayIn(ctx.timezone));
+  }
+
+  async importPreview(ctx: FieldCtx, file?: { buffer: Buffer; originalname: string }) {
+    this.importAdmin(ctx);
+    if (!file) throw new BadRequestException('No file');
+    const parsed = await parseScheduleFile(file.buffer, file.originalname);
+    if (parsed.rows.length > 500) throw new BadRequestException('Too many rows (max 500 jobs per upload)');
+    const plan = await this.planImport(ctx, parsed.rows.filter((r) => r.date));
+    return { rows: parsed.rows, problems: [...parsed.problems, ...plan.problems], days: plan.days.map(({ planned, ...d }) => d) };
+  }
+
+  /** Make the previewed rows into calendar jobs with their Field side; refuses while any row doesn't resolve. */
+  async importApply(ctx: FieldCtx, body: unknown) {
+    this.importAdmin(ctx);
+    if (!this.deliveries) throw new BadRequestException('Uploading a schedule is not available');
+    const p = z.object({ rows: z.array(importRowSchema).min(1).max(500) }).safeParse(body ?? {});
+    if (!p.success) throw new BadRequestException({ message: 'Check the rows', error: p.error.flatten() });
+    const plan = await this.planImport(ctx, p.data.rows as ImportRow[]);
+    if (plan.problems.length) throw new UnprocessableEntityException({ message: 'Some rows need fixing', problems: plan.problems });
+    const days = [];
+    for (const d of plan.days) {
+      let created = 0;
+      for (const j of d.planned) {
+        const at = j.startTime ? DateTime.fromISO(`${d.date}T${j.startTime}`, { zone: ctx.timezone }) : DateTime.fromISO(d.date, { zone: ctx.timezone });
+        const cal: any = await this.deliveries.createQuickJob(ctx.organizationId, { customerId: j.customerId, allDay: !j.startTime, scheduledFor: at.toUTC().toISO(), siteAddress: j.place.address ?? j.location, remarks: j.description ?? '' });
+        const siteId = j.place.siteId ?? (await ensurePlaceSite(this.db, ctx.organizationId, j.place, ctx.timezone));
+        await this.saveJob(ctx, { deliveryId: cal.id, siteId, location: j.location, teamIds: j.teamIds, workerIds: j.workerIds, exceptWorkerIds: j.exceptWorkerIds, ...(j.clocking !== undefined ? { clocking: j.clocking } : {}), ...(j.qrRequired !== undefined ? { qrRequired: j.qrRequired } : {}), ...(j.instructions ? { instructions: j.instructions } : {}) });
+        created++;
+      }
+      days.push({ date: d.date, created, workers: d.workers });
+    }
+    return { days, created: days.reduce((a, d) => a + d.created, 0) };
   }
 }

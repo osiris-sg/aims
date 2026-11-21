@@ -14,6 +14,7 @@ import { fieldAtLeast } from "@/helpers/fieldModule";
 import { ATTENDANCE_LABEL, CLOCKING_LABEL, STATUS_LABEL, addDaysIso, mondayOf, toldText } from "@/helpers/fieldJobs";
 import { todayIso } from "@/helpers/orgToday";
 import FieldGate from "../_components/FieldGate";
+import UploadSchedule from "./UploadSchedule";
 import { useFieldApi, type FieldMe } from "../_lib/useField";
 
 type Job = {
@@ -44,6 +45,7 @@ function Plan({ me }: { me: FieldMe }) {
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [upload, setUpload] = React.useState(false);
   const people = (workers.data?.workers ?? []).filter((w) => w.active);
 
   const run = async (fn: () => Promise<any>, done?: (out: any) => void) => {
@@ -127,6 +129,7 @@ function Plan({ me }: { me: FieldMe }) {
             <Button variant="outlined" disabled={busy} onClick={() => setNote(plan.data?.note ?? "")}>Day note</Button>
             <Button variant="outlined" disabled={busy} onClick={() => setCopy({ kind: "day", to: addDaysIso(date, 1) })}>Copy day</Button>
             <Button variant="outlined" disabled={busy} onClick={() => setCopy({ kind: "week", to: addDaysIso(mondayOf(date), 7) })}>Copy week</Button>
+            {me.access.admin && <Button variant="outlined" disabled={busy} onClick={() => setUpload(true)}>Upload schedule</Button>}
             <Button variant="contained" disableElevation disabled={busy}
               onClick={() => void run(() => send(`/field/jobs/notify`, "POST", { date }), (o) => setNotice(o.marked ? `${o.workers} workers marked as told. They see their jobs in the AIMS phone app once it is out.` : "Everyone on this day was already told."))}>
               Mark crews as told
@@ -237,6 +240,7 @@ function Plan({ me }: { me: FieldMe }) {
           </Button>
         </DialogActions>
       </Dialog>
+      <UploadSchedule open={upload} onClose={() => setUpload(false)} onDone={(m) => { setNotice(m); void qc.invalidateQueries(); }} />
     </>
   );
 }
