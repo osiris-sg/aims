@@ -65,7 +65,7 @@ test("sites: SiteClock's ranges; invites: state", () => {
 });
 
 test("UI copy: no em-dashes, no helper text, no subtitles in the Field pages", () => {
-  for (const f of ["workers", "teams", "sites", "invites", "settings", "plan", "working-hours", "clock-ins", "timesheets"]) {
+  for (const f of ["workers", "teams", "sites", "invites", "settings", "plan", "working-hours", "clock-ins", "timesheets", "leave"]) {
     const src = read(`app/portal/field/${f}/page.tsx`).replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
     assert.ok(!src.includes("—"), f);
     assert.ok(!/helperText=/.test(src), f);

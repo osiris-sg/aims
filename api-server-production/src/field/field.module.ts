@@ -8,6 +8,10 @@ import { FieldPunchesController } from './punches/punches.controller';
 import { FieldPunchesService } from './punches/punches.service';
 import { FieldTimesheetsController } from './timesheets/timesheets.controller';
 import { FieldTimesheetsService } from './timesheets/timesheets.service';
+import { FieldLeaveController } from './leave/leave.controller';
+import { FieldLeaveService } from './leave/leave.service';
+import { FieldPayrollController } from './payroll/payroll.controller';
+import { FieldPayrollService } from './payroll/payroll.service';
 import { PrismaService } from '../common/prisma.service';
 import { FieldAreaGuard } from './common/field-area.guard';
 import { FieldContextService } from './common/field-context.service';
@@ -22,8 +26,8 @@ import { FieldPeopleService } from './people/people.service';
 @Module({
   // DeliveriesModule: copy day / week creates calendar quick jobs through the calendar's own path.
   imports: [forwardRef(() => DeliveriesModule)],
-  controllers: [FieldMeController, FieldPeopleController, FieldJobsController, FieldPunchesController, FieldTimesheetsController],
-  providers: [PrismaService, FieldContextService, FieldAreaGuard, FieldPeopleService, FieldJobsService, FieldSchedulesService, FieldPunchesService, FieldAutoCloseCron, FieldTimesheetsService],
+  controllers: [FieldMeController, FieldPeopleController, FieldJobsController, FieldPunchesController, FieldTimesheetsController, FieldLeaveController, FieldPayrollController],
+  providers: [PrismaService, FieldContextService, FieldAreaGuard, FieldPeopleService, FieldJobsService, FieldSchedulesService, FieldPunchesService, FieldAutoCloseCron, FieldTimesheetsService, FieldLeaveService, FieldPayrollService],
   exports: [FieldContextService, FieldPeopleService],
 })
 export class FieldModule {}
