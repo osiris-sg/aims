@@ -27,6 +27,7 @@ import { RunSummary, completedRunTime, itemLabel, relTime } from "../lib/deliver
 import { StatusChip } from "./fieldUi";
 import type { FieldTone } from "@/themes/fieldTheme";
 import { jobLabel, returnLabel, runWords } from "@/helpers/jobWording";
+import { scheduledViewDo } from "../lib/viewDo";
 
 /**
  * Run cards shared by the Deliveries home (/scan) and the standalone list
@@ -120,7 +121,7 @@ export function ScheduledRunCard({
   onStart: () => void | Promise<void>;
   onViewDo: (assetId: string, docId: string) => void;
 }) {
-  const { isQuotationToDeliveryEnabled: serviceJobs, isRealDoOnScheduleEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
+  const { isQuotationToDeliveryEnabled: serviceJobs, isRealDoOnScheduleEnabled, isWctOrdersEnabled, isFieldDoViewAnyLineEnabled } = useOrganizationFeatures();
   // WCT (enableWctOrders): "Job" (helpers/jobWording.ts).
   const w = runWords(!!isWctOrdersEnabled);
   const isReturn = r.direction === "RETURN";
@@ -135,7 +136,7 @@ export function ScheduledRunCard({
   const open = r.items.filter((i) => !i.inventoryId);
   const rows = isReturn ? r.items : open.length ? open : r.items;
   const context = r.project?.name ?? r.customer?.name ?? r.siteAddress ?? null;
-  const viewDo = !isReturn && r.document?.id && r.items[0]?.assetId ? { assetId: r.items[0].assetId, docId: r.document.id } : null;
+  const viewDo = scheduledViewDo(r, !!isFieldDoViewAnyLineEnabled);
   // Where a return is collected FROM: the run's siteAddress (the office copies
   // it from the project's address when the return is scheduled). Hidden when
   // the office left none.

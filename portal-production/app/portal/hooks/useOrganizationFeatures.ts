@@ -47,6 +47,7 @@ interface OrganizationFeatures {
   enableFieldReports?: boolean;
   fieldEngineLive?: boolean;
   enableRealDoOnSchedule?: boolean;
+  enableFieldDoViewAnyLine?: boolean;
   enableWctOrders?: boolean;
   enableWctMyJobs?: boolean;
   enableWctFinishModes?: boolean;
@@ -277,6 +278,8 @@ export const FEATURE_FLAG_DEFAULTS: Record<string, boolean> = {
   // (the Project still does); a draft invoice from a DO with none is flagged for a price check. Default OFF.
   enableOptionalSaleOrder: false,
   enableAssistantSignedDocLock: false,
+  // Field app Pending card: "View full DO" even when the first line is typed text (Biofuel, 2026-11-21). Default OFF.
+  enableFieldDoViewAnyLine: false,
   // Maintenance Dates (Biofuel, 2026-09): Service Reports -> Maintenance Dates.
   // A maintenance date per asset, which deployed units are done this cycle, and
   // a reminder 7 days before (push to field techs + office bell). Default OFF.
@@ -465,6 +468,7 @@ export function useOrganizationFeatures() {
     // Calendar HQ view (WCT group 2026-11-18): the jobs calendar's Salesperson filter.
     isCalendarHqView: features.calendarHqView ?? false,
     isRealDoOnScheduleEnabled: features.enableRealDoOnSchedule ?? false,
+    isFieldDoViewAnyLineEnabled: features.enableFieldDoViewAnyLine ?? false,
     isWctOrdersEnabled: features.enableWctOrders ?? false,
     isWctMyJobsEnabled: features.enableWctMyJobs ?? false,
     isWctFinishModesEnabled: features.enableWctFinishModes ?? false,
