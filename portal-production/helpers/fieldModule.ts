@@ -45,6 +45,7 @@ export const FIELD_PAGES: Array<{ key: string; label: string; area: FieldArea; p
   { key: "clock-ins", label: "Clock-ins", area: "punches", path: `${FIELD_BASE}/clock-ins` },
   { key: "timesheets", label: "Timesheets", area: "timesheets", path: `${FIELD_BASE}/timesheets` },
   { key: "leave", label: "Leave", area: "leave", path: `${FIELD_BASE}/leave` },
+  { key: "payroll", label: "Payroll", area: "payroll", path: `${FIELD_BASE}/payroll` },
   { key: "settings", label: "Field settings", area: "people", path: `${FIELD_BASE}/settings` },
 ];
 

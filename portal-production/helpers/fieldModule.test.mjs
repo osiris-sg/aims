@@ -30,7 +30,7 @@ test("nav: the Field group only when an area is on and the person may view a pag
   const nav = fieldNavModule(["people"], allOn("view"));
   assert.equal(nav.displayName, "Field");
   assert.deepEqual(nav.config.subMenus.map((s) => s.label), ["Workers", "Teams", "Sites", "Invites", "Field settings"]);
-  assert.equal(fieldPagesFor(["payroll"], allOn("approve")).length, 0); // no payroll pages yet
+  assert.equal(fieldPagesFor(["payroll"], allOn("approve")).length, 1);
   assert.deepEqual(fieldPagesFor(["jobs"], allOn("view")).map((p) => p.label), ["Plan", "Working hours"]);
   const nm = read("components/TopNav/useNavModules.ts");
   assert.match(nm, /fieldNavModule\(fieldAreas \?\? \[\], fieldMe\?\.access\)/);
@@ -65,7 +65,7 @@ test("sites: SiteClock's ranges; invites: state", () => {
 });
 
 test("UI copy: no em-dashes, no helper text, no subtitles in the Field pages", () => {
-  for (const f of ["workers", "teams", "sites", "invites", "settings", "plan", "working-hours", "clock-ins", "timesheets", "leave"]) {
+  for (const f of ["workers", "teams", "sites", "invites", "settings", "plan", "working-hours", "clock-ins", "timesheets", "leave", "payroll"]) {
     const src = read(`app/portal/field/${f}/page.tsx`).replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
     assert.ok(!src.includes("—"), f);
     assert.ok(!/helperText=/.test(src), f);
@@ -104,4 +104,14 @@ test("phase 4 helpers: minutes, notes without dashes, the oddity warnings, bulk 
   assert.deepEqual(entryWarnings({ nlb: true, needsReview: true }), ["Needs review: approve it on its own", "No lunch break approved, but no credit is set"]);
   assert.deepEqual(entryWarnings({ nlb: true }, { nlbCreditMinutes: 30 }), []);
   assert.equal(bulkResultText({ approved: 3, needsReview: 2 }), "3 approved. 2 need review and were not approved.");
+});
+
+test("phase 6 helpers: money, cents, profile body and form", async () => {
+  const { money, toCents, profileBody, profileForm } = await import("./fieldPayroll.ts");
+  assert.equal(money(76022), "$760.22");
+  assert.equal(toCents("$650"), 65000);
+  assert.equal(toCents(""), null);
+  const b = profileBody({ payType: "DAILY", dailyRateOverride: "100", workDaysPerWeek: "6", restDays: [6, 7], premiumMode: "OT_RATE", weekdayOt: true, otRateOverride: "" });
+  assert.deepEqual([b.dailyRateCentsOverride, b.otRateCentsOverride, b.basicMonthlyCents, b.restDays.length], [10000, null, 0, 2]);
+  assert.equal(profileForm({ basicMonthlyCents: 65000 }).basicMonthly, "650");
 });

@@ -20,6 +20,7 @@ import { join } from 'path';
 import { Client } from 'pg';
 import { planAttendance, type ScAttendance } from '../src/field/import/attendance-plan';
 import { planJobs, type ScJobs } from '../src/field/import/jobs-plan';
+import { planLeavePay, type ScLeavePay } from '../src/field/import/leave-pay-plan';
 import { planPeople, type PeoplePlan, type ScPeople } from '../src/field/import/people-plan';
 
 const arg = (k: string) => {
@@ -34,12 +35,13 @@ const TABLE: Record<string, string> = {
   fieldInvite: 'FieldInvite', fieldRegistration: 'FieldRegistration', fieldPhotoUpdate: 'FieldPhotoUpdate', fieldShiftTemplate: 'FieldShiftTemplate',
   fieldShiftAssignment: 'FieldShiftAssignment', fieldManningPreset: 'FieldManningPreset', fieldDayNote: 'FieldDayNote', fieldJob: 'FieldJob',
   fieldJobCrew: 'FieldJobCrew', fieldJobNeed: 'FieldJobNeed', fieldOvertimeRule: 'FieldOvertimeRule', fieldBreakRule: 'FieldBreakRule',
-  fieldTimeEntry: 'FieldTimeEntry', fieldPunch: 'FieldPunch',
+  fieldTimeEntry: 'FieldTimeEntry', fieldPunch: 'FieldPunch', fieldLeaveType: 'FieldLeaveType', fieldLeaveEntitlement: 'FieldLeaveEntitlement',
+  fieldLeaveRequest: 'FieldLeaveRequest', fieldPayProfile: 'FieldPayProfile', fieldPublicHoliday: 'FieldPublicHoliday', fieldAuditImport: 'FieldAuditImport',
 };
 /** The conflict key of each table (settings: one row per org; worker trades: composite). */
 const KEY: Record<string, string[]> = { fieldSettings: ['organizationId'], fieldWorkerTrade: ['workerId', 'tradeId'] };
-const HAS_UPDATED_AT = new Set(['fieldSettings', 'fieldWorkerProfile', 'fieldTeamStint', 'fieldSite', 'fieldInvite', 'fieldRegistration', 'fieldPhotoUpdate', 'fieldShiftTemplate', 'fieldShiftAssignment', 'fieldManningPreset', 'fieldDayNote', 'fieldJob', 'fieldOvertimeRule', 'fieldBreakRule', 'fieldTimeEntry', 'fieldPunch']);
-const AREAS = ['people', 'jobs', 'attendance'];
+const HAS_UPDATED_AT = new Set(['fieldSettings', 'fieldWorkerProfile', 'fieldTeamStint', 'fieldSite', 'fieldInvite', 'fieldRegistration', 'fieldPhotoUpdate', 'fieldShiftTemplate', 'fieldShiftAssignment', 'fieldManningPreset', 'fieldDayNote', 'fieldJob', 'fieldOvertimeRule', 'fieldBreakRule', 'fieldTimeEntry', 'fieldPunch', 'fieldLeaveType', 'fieldLeaveEntitlement', 'fieldLeaveRequest', 'fieldPayProfile', 'fieldPublicHoliday']);
+const AREAS = ['people', 'jobs', 'attendance', 'leavepay'];
 const JSON_COLS = new Set(['items', 'leaveDays', 'faceDescriptor', 'workedFor', 'before', 'after']);
 
 /** Masks for printed samples: names cut to initials, phones to the last 4, no face data, no tokens. */
@@ -89,6 +91,20 @@ async function readSiteClockAttendance(sc: Client, companyId: string): Promise<S
   };
 }
 
+async function readSiteClockLeavePay(sc: Client, companyId: string): Promise<ScLeavePay> {
+  const q = async (sql: string) => (await sc.query(sql, [companyId])).rows;
+  const users = await q(`select id, name from "User" where "companyId" = $1`);
+  return {
+    leaveTypes: await q(`select * from "LeaveType" where "companyId" = $1`),
+    entitlements: await q(`select e.* from "LeaveEntitlement" e join "User" u on u.id = e."userId" where u."companyId" = $1`),
+    requests: await q(`select * from "LeaveRequest" where "companyId" = $1`),
+    payProfiles: await q(`select * from "PayProfile" where "companyId" = $1`),
+    holidays: await q(`select * from "PublicHoliday" where "companyId" = $1`),
+    audit: await q(`select * from "AuditLog" where "companyId" = $1`),
+    userNames: new Map(users.map((u: any) => [u.id, u.name])),
+  };
+}
+
 async function readSiteClockJobs(sc: Client, companyId: string): Promise<ScJobs> {
   const q = async (sql: string, p: unknown[] = [companyId]) => (await sc.query(sql, p)).rows;
   const jobs = await q(`select * from "Job" where "companyId" = $1`);
@@ -128,6 +144,7 @@ async function readSiteClockJobs(sc: Client, companyId: string): Promise<ScJobs>
     const source = await readSiteClock(sc, companyId);
     const jobsSource = areas.includes('jobs') ? await readSiteClockJobs(sc, companyId) : null;
     const attSource = areas.includes('attendance') ? await readSiteClockAttendance(sc, companyId) : null;
+    const lpSource = areas.includes('leavepay') ? await readSiteClockLeavePay(sc, companyId) : null;
     await sc.query('ROLLBACK');
 
     const workers = (await db.query(`select id, "siteclockId" from ${S}."Worker" where "organizationId" = $1`, [org])).rows;
@@ -144,6 +161,7 @@ async function readSiteClockJobs(sc: Client, companyId: string): Promise<ScJobs>
       const links = (await db.query(`select "organizationId", "siteclockCompanyId" from ${S}."FieldSettings" where "siteclockCompanyId" is not null`)).rows;
       parts.push(planAttendance(attSource, { workers, orgOfCompany: new Map(links.map((r: any) => [r.siteclockCompanyId, r.organizationId])) }, org));
     }
+    if (lpSource) parts.push(planLeavePay(lpSource, { workers }, org));
     const plan: PeoplePlan = { upserts: parts.flatMap((p) => p.upserts), skipped: parts.flatMap((p) => p.skipped), counts: Object.assign({}, ...parts.map((p) => p.counts)) };
 
     console.log(`SiteClock company ${companyId} -> AIMS org ${org} (${env}), ${dry ? 'DRY RUN' : 'APPLY'}`);
@@ -197,7 +215,7 @@ async function readSiteClockJobs(sc: Client, companyId: string): Promise<ScJobs>
       const params = cols.map((c) => (JSON_COLS.has(c) && data[c] != null ? JSON.stringify(data[c]) : data[c] !== null && typeof data[c] === 'object' && !(data[c] instanceof Date) && !Array.isArray(data[c]) ? JSON.stringify(data[c]) : data[c]));
       const r = await db.query(sql, params);
       const id = r.rows[0]?.id;
-      if (id && ['fieldSite', 'fieldTrade', 'fieldInvite', 'fieldShiftTemplate', 'fieldShiftAssignment', 'fieldJob', 'fieldTimeEntry'].includes(u.table)) resolved.set(`new:${u.table}:${u.siteclockId}`, id);
+      if (id && ['fieldSite', 'fieldTrade', 'fieldInvite', 'fieldShiftTemplate', 'fieldShiftAssignment', 'fieldJob', 'fieldTimeEntry', 'fieldLeaveType'].includes(u.table)) resolved.set(`new:${u.table}:${u.siteclockId}`, id);
       written++;
     }
     await db.query('COMMIT');
