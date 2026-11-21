@@ -88,7 +88,7 @@ export const DEDUPE_MS = 8000;
  * VIEW_POST_RE (api-server-production/src/action-log/action-log.interceptor.ts); keep the two in step.
  */
 export const READ_POST_RE =
-  /^\/(documents(\/paginated|\/stats)?|assets|inventories(\/by-status|\/by-ids)?|customers(\/lookup)?|suppliers|projects|documentTemplates|users\/list|payments\/summary|statements\/(soa|supplier-soa)|posting-preview|documentTemplates\/variants\/[^/]+\/design-preview|trade-generated\/preview|trade-clients\/customers\/[0-9a-f-]{36}\/formats\/[A-Z_]+\/(preview|layout-preview)|trade-clients\/customers\/[0-9a-f-]{36}\/(process|due-rules)\/preview|email-inbox\/[0-9a-f-]{36}\/preview|email-inbox\/placements|email-inbox\/shipment-facts|payables\/match-payment)$/;
+  /^\/(documents(\/paginated|\/stats)?|assets|inventories(\/by-status|\/by-ids)?|customers(\/lookup)?|suppliers|projects|documentTemplates|users\/list|payments\/summary|statements\/(soa|supplier-soa)|posting-preview|documentTemplates\/variants\/[^/]+\/design-preview|trade-generated\/preview|trade-clients\/customers\/[0-9a-f-]{36}\/formats\/[A-Z_]+\/(preview|layout-preview)|trade-clients\/customers\/[0-9a-f-]{36}\/(process|due-rules)\/preview|email-inbox\/[0-9a-f-]{36}\/preview|email-inbox\/placements|email-inbox\/shipment-facts|payables\/match-payment|field\/jobs\/import\/preview)$/;
 
 /** A call that only reads: a GET (or no method), or a listing POST. */
 export const isReadCall = (method?: string | null, path?: string | null): boolean => {
