@@ -1,7 +1,7 @@
 // Run: npm test. Field app Pending card "View full DO" (enableFieldDoViewAnyLine, Biofuel 2026-11-21).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { scheduledViewDo } from "../app/(field)/lib/viewDo.ts";
+import { openRunViewDoHref, scheduledViewDo } from "../app/(field)/lib/viewDo.ts";
 
 const DO = { id: "do-1" };
 // Run #110 shape: typed "Rubber Fender" first, a catalog FIREFLY line second.
@@ -28,4 +28,25 @@ test("never for returns or runs without exactly one DO, switch on or off", () =>
     assert.equal(scheduledViewDo({ ...catalogFirst, direction: "RETURN" }, on), null);
     assert.equal(scheduledViewDo({ ...typedFirst, document: null }, on), null);
   }
+});
+
+// In-progress screen (header, under End Delivery, Ready to finish card).
+const run114 = { direction: "OUTBOUND", document: null, items: [{ assetId: null, document: DO }] };
+const run110 = { direction: "OUTBOUND", document: DO, items: [{ assetId: null, document: DO }, { assetId: "asset-firefly", document: DO }] };
+
+test("in progress, switch on (Biofuel): View DO opens the run's one DO", () => {
+  assert.equal(openRunViewDoHref(run114, true), "/scan/asset/_/do/do-1/view");
+  assert.equal(openRunViewDoHref(run110, true), "/scan/asset/asset-firefly/do/do-1/view");
+  assert.equal(openRunViewDoHref({ direction: "OUTBOUND", document: DO, items: [{ assetId: null }] }, true), "/scan/asset/_/do/do-1/view");
+});
+
+test("in progress, switch off (WCT and every other org): no View DO", () => {
+  assert.equal(openRunViewDoHref(run114, false), null);
+  assert.equal(openRunViewDoHref(run110, false), null);
+});
+
+test("in progress: never for returns, runs with no DO, or runs spanning two DOs", () => {
+  assert.equal(openRunViewDoHref({ ...run114, direction: "RETURN" }, true), null);
+  assert.equal(openRunViewDoHref({ direction: "OUTBOUND", document: null, items: [{ assetId: null }] }, true), null);
+  assert.equal(openRunViewDoHref({ direction: "OUTBOUND", document: null, items: [{ document: DO }, { document: { id: "do-2" } }] }, true), null);
 });

@@ -23,3 +23,26 @@ export function scheduledViewDo(r: ViewDoRun, anyLine: boolean): { assetId: stri
   if (!anyLine) return null;
   return { assetId: r.items.find((i) => i.assetId)?.assetId || "_", docId: r.document.id };
 }
+
+/**
+ * "View DO" on an open run (in-progress screen, beside End Delivery and the
+ * Ready to finish card). enableFieldDoViewAnyLine only: off returns null, so
+ * every org without the switch keeps today's screen. A delivery (not a return)
+ * whose linked lines name exactly one DO; the run's own DO counts when no line
+ * names one.
+ */
+export interface OpenRunForDo {
+  direction?: string | null;
+  document?: { id: string } | null;
+  items: Array<{ assetId?: string | null; document?: { id: string } | null }>;
+}
+
+export function openRunViewDoHref(r: OpenRunForDo, anyLine: boolean): string | null {
+  if (!anyLine || r.direction === "RETURN") return null;
+  const ids = new Set(r.items.map((i) => i.document?.id).filter((v): v is string => !!v));
+  if (ids.size === 0 && r.document?.id) ids.add(r.document.id);
+  if (ids.size !== 1) return null;
+  const docId = [...ids][0];
+  const assetId = r.items.find((i) => i.assetId)?.assetId || "_";
+  return `/scan/asset/${assetId}/do/${docId}/view`;
+}

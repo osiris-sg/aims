@@ -33,6 +33,7 @@ import {
   type AssetClass,
 } from "@/helpers/assetClass";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
+import DescriptionIcon from "@mui/icons-material/Description";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import ShareIcon from "@mui/icons-material/Share";
 import NfcIcon from "@mui/icons-material/Nfc";
@@ -56,6 +57,7 @@ import { ListCard, StatusChip } from "@/app/(field)/components/fieldUi";
 import type { FieldTone } from "@/themes/fieldTheme";
 import { claimReturnRun } from "../../../lib/deliveryLists";
 import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatures";
+import { openRunViewDoHref } from "../../../lib/viewDo";
 import DoStatusTag from "@/components/DoStatusTag";
 import { runDoTag } from "@/helpers/doStatusTag";
 import { jobLabel, returnLabel, RETURN_RUN_STATUS_LABEL, runTitle, runWords } from "@/helpers/jobWording";
@@ -161,7 +163,7 @@ const RUN_STATUS_LABEL: Record<Run["status"], string> = {
 
 export default function DeliveryBasketPage() {
   // Real DO numbers (enableRealDoOnSchedule): the DO's state sits next to its number.
-  const { isRealDoOnScheduleEnabled, isWctOrdersEnabled } = useOrganizationFeatures();
+  const { isRealDoOnScheduleEnabled, isWctOrdersEnabled, isFieldDoViewAnyLineEnabled } = useOrganizationFeatures();
   // WCT (enableWctOrders): "Job" wording (helpers/jobWording.ts).
   const w = runWords(!!isWctOrdersEnabled);
   const wct = !!isWctOrdersEnabled;
@@ -1058,6 +1060,8 @@ export default function DeliveryBasketPage() {
   // printed from here (the run is not in the Completed list yet).
   const hasSignedItems = run.status !== "completed" && run.items.some((it) => it.deliveryStatus === "completed");
   const printableDoId = run.document?.id ?? run.items.find((it) => it.document?.id)?.document?.id ?? null;
+  // enableFieldDoViewAnyLine (Biofuel): open the DO mid-delivery. Null for every other org.
+  const viewDoHref = openRunViewDoHref(run, !!isFieldDoViewAnyLineEnabled);
   // Partly signed run: print what the customer has signed for so far. Sits
   // BELOW the item walk / list (the work comes first), above "View all items".
   const signedSoFar = hasSignedItems ? (
@@ -1673,6 +1677,11 @@ export default function DeliveryBasketPage() {
               <DoStatusTag tag={runDoTag(run.status)} />
             </Box>
           )}
+          {viewDoHref && (
+            <Button size="small" variant="text" startIcon={<DescriptionIcon />} onClick={() => router.push(viewDoHref)} sx={{ mt: 0.5, px: 0, minHeight: 36 }}>
+              View DO
+            </Button>
+          )}
         </Box>
       </Stack>
 
@@ -1777,6 +1786,11 @@ export default function DeliveryBasketPage() {
             >
               Get customer signature
             </Button>
+            {viewDoHref && (
+              <Button fullWidth variant="outlined" startIcon={<DescriptionIcon />} onClick={() => router.push(viewDoHref)} disabled={busy} sx={{ mt: 1, minHeight: 48 }}>
+                View DO
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -2148,6 +2162,11 @@ export default function DeliveryBasketPage() {
           sx={{ mt: 1.5, minHeight: 44 }}
         >
           {isReturnRun ? "End Return" : `End ${w.Noun}`}
+        </Button>
+      )}
+      {viewDoHref && !serviceJobOpen && deliveringItems.length >= 1 && !returnToAdHoc && !handedOver && (
+        <Button fullWidth variant="outlined" startIcon={<DescriptionIcon />} onClick={() => router.push(viewDoHref)} disabled={busy} sx={{ mt: 1, minHeight: 44 }}>
+          View DO
         </Button>
       )}
 
