@@ -30,7 +30,8 @@ test("nav: the Field group only when an area is on and the person may view a pag
   const nav = fieldNavModule(["people"], allOn("view"));
   assert.equal(nav.displayName, "Field");
   assert.deepEqual(nav.config.subMenus.map((s) => s.label), ["Workers", "Teams", "Sites", "Invites", "Field settings"]);
-  assert.equal(fieldPagesFor(["payroll"], allOn("approve")).length, 0); // no payroll pages yet in phase 1
+  assert.equal(fieldPagesFor(["payroll"], allOn("approve")).length, 0); // no payroll pages yet
+  assert.deepEqual(fieldPagesFor(["jobs"], allOn("view")).map((p) => p.label), ["Plan", "Working hours"]);
   const nm = read("components/TopNav/useNavModules.ts");
   assert.match(nm, /fieldNavModule\(fieldAreas \?\? \[\], fieldMe\?\.access\)/);
 });
@@ -64,10 +65,22 @@ test("sites: SiteClock's ranges; invites: state", () => {
 });
 
 test("UI copy: no em-dashes, no helper text, no subtitles in the Field pages", () => {
-  for (const f of ["workers", "teams", "sites", "invites", "settings"]) {
+  for (const f of ["workers", "teams", "sites", "invites", "settings", "plan", "working-hours"]) {
     const src = read(`app/portal/field/${f}/page.tsx`).replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
     assert.ok(!src.includes("—"), f);
     assert.ok(!/helperText=/.test(src), f);
     assert.ok(!/subTitle=/.test(src), f);
   }
+});
+
+test("phase 2 helpers: days, weeks, told", async () => {
+  const { daysText, mondayOf, addDaysIso, toldText } = await import("./fieldJobs.ts");
+  assert.equal(daysText([1, 2, 3, 4, 5]), "Mon to Fri");
+  assert.equal(daysText([1, 3, 6]), "Mon, Wed, Sat");
+  assert.equal(daysText([1, 2, 3, 4, 5, 6, 7]), "Every day");
+  assert.equal(mondayOf("2026-11-21"), "2026-11-16");
+  assert.equal(mondayOf("2026-11-16"), "2026-11-16");
+  assert.equal(addDaysIso("2026-11-30", 1), "2026-12-01");
+  assert.equal(toldText([{ notifiedAt: "x" }, { notifiedAt: null }]), "1 of 2 told");
+  assert.equal(toldText([]), "No crew");
 });

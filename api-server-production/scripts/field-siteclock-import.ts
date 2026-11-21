@@ -15,7 +15,8 @@ import { randomUUID } from 'crypto';
 import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { Client } from 'pg';
-import { planPeople, type ScPeople } from '../src/field/import/people-plan';
+import { planJobs, type ScJobs } from '../src/field/import/jobs-plan';
+import { planPeople, type PeoplePlan, type ScPeople } from '../src/field/import/people-plan';
 
 const arg = (k: string) => {
   const i = process.argv.indexOf(k);
@@ -27,10 +28,14 @@ const TABLE: Record<string, string> = {
   fieldSettings: 'FieldSettings', fieldWorkerProfile: 'FieldWorkerProfile', fieldTeamStint: 'FieldTeamStint', fieldTeamSupervisor: 'FieldTeamSupervisor',
   fieldSite: 'FieldSite', fieldSiteAssignment: 'FieldSiteAssignment', fieldTrade: 'FieldTrade', fieldWorkerTrade: 'FieldWorkerTrade',
   fieldInvite: 'FieldInvite', fieldRegistration: 'FieldRegistration', fieldPhotoUpdate: 'FieldPhotoUpdate', fieldShiftTemplate: 'FieldShiftTemplate',
+  fieldShiftAssignment: 'FieldShiftAssignment', fieldManningPreset: 'FieldManningPreset', fieldDayNote: 'FieldDayNote', fieldJob: 'FieldJob',
+  fieldJobCrew: 'FieldJobCrew', fieldJobNeed: 'FieldJobNeed',
 };
 /** The conflict key of each table (settings: one row per org; worker trades: composite). */
 const KEY: Record<string, string[]> = { fieldSettings: ['organizationId'], fieldWorkerTrade: ['workerId', 'tradeId'] };
-const HAS_UPDATED_AT = new Set(['fieldSettings', 'fieldWorkerProfile', 'fieldTeamStint', 'fieldSite', 'fieldInvite', 'fieldRegistration', 'fieldPhotoUpdate', 'fieldShiftTemplate']);
+const HAS_UPDATED_AT = new Set(['fieldSettings', 'fieldWorkerProfile', 'fieldTeamStint', 'fieldSite', 'fieldInvite', 'fieldRegistration', 'fieldPhotoUpdate', 'fieldShiftTemplate', 'fieldShiftAssignment', 'fieldManningPreset', 'fieldDayNote', 'fieldJob']);
+const AREAS = ['people', 'jobs'];
+const JSON_COLS = new Set(['items', 'leaveDays', 'faceDescriptor', 'workedFor', 'before', 'after']);
 
 /** Masks for printed samples: names cut to initials, phones to the last 4, no face data, no tokens. */
 function mask(row: Record<string, unknown>) {
@@ -69,6 +74,21 @@ async function readSiteClock(sc: Client, companyId: string): Promise<ScPeople> {
   return { company, users, teams, memberships, teamSupervisors, sites, siteAssignments, trades, userTrades, invites, registrations, photoUpdates } as ScPeople;
 }
 
+async function readSiteClockJobs(sc: Client, companyId: string): Promise<ScJobs> {
+  const q = async (sql: string, p: unknown[] = [companyId]) => (await sc.query(sql, p)).rows;
+  const jobs = await q(`select * from "Job" where "companyId" = $1`);
+  const jobIds = jobs.map((j: any) => j.id);
+  const crews = jobIds.length ? await q(`select id, "jobId", "userId", "teamId", "tradeId", "notifiedAt" from "JobCrew" where "jobId" = any($1)`, [jobIds]) : [];
+  const needs = jobIds.length ? await q(`select id, "jobId", "tradeId", qty from "JobNeed" where "jobId" = any($1)`, [jobIds]) : [];
+  const dayNotes = await q(`select id, date, text from "DayNote" where "companyId" = $1`);
+  const templates = await q(`select * from "ShiftTemplate" where "companyId" = $1`);
+  const tplIds = templates.map((t: any) => t.id);
+  const assignments = tplIds.length ? await q(`select id, "templateId", "userId", "startDate", "endDate" from "ShiftAssignment" where "templateId" = any($1)`, [tplIds]) : [];
+  const presets = await q(`select p.id, p.name, coalesce(json_agg(json_build_object('tradeId', i."tradeId", 'qty', i.qty)) filter (where i.id is not null), '[]') as items
+    from "ManningPreset" p left join "ManningPresetItem" i on i."presetId" = p.id where p."companyId" = $1 group by p.id`);
+  return { jobs, crews, needs, dayNotes, templates, assignments, presets } as ScJobs;
+}
+
 (async () => {
   const env = arg('--env') ?? 'dev';
   const org = arg('--org');
@@ -77,7 +97,7 @@ async function readSiteClock(sc: Client, companyId: string): Promise<ScPeople> {
   const dry = has('--dry-run') || !apply;
   const areas = (arg('--areas') ?? 'people').split(',');
   if (!org || !companyId) throw new Error('need --org <aims org id> and --siteclock-company <id>');
-  if (!areas.every((a) => a === 'people')) throw new Error('only --areas people exists so far (phase 1)');
+  if (!areas.every((a) => AREAS.includes(a))) throw new Error(`--areas must be some of ${AREAS.join(',')}`);
   const scUrl = process.env.SITECLOCK_RO_DATABASE_URL;
   if (!scUrl) throw new Error('SITECLOCK_RO_DATABASE_URL is not set (Elroy sets it; read-only user)');
   const aimsUrl = env === 'prod' ? process.env.PROD_DATABASE_URL : process.env.DATABASE_URL;
@@ -91,6 +111,7 @@ async function readSiteClock(sc: Client, companyId: string): Promise<ScPeople> {
   try {
     await sc.query('BEGIN TRANSACTION READ ONLY');
     const source = await readSiteClock(sc, companyId);
+    const jobsSource = areas.includes('jobs') ? await readSiteClockJobs(sc, companyId) : null;
     await sc.query('ROLLBACK');
 
     const workers = (await db.query(`select id, "siteclockId" from ${S}."Worker" where "organizationId" = $1`, [org])).rows;
@@ -100,7 +121,10 @@ async function readSiteClock(sc: Client, companyId: string): Promise<ScPeople> {
       const rows = (await db.query(`select id, "siteclockId" from ${S}."${TABLE[t]}" where "organizationId" = $1 and "siteclockId" is not null`, [org])).rows;
       existing[t] = new Map(rows.map((r: any) => [r.siteclockId, r.id]));
     }
-    const plan = planPeople(source, { workers, teams, existing }, org);
+    const parts: PeoplePlan[] = [];
+    if (areas.includes('people')) parts.push(planPeople(source, { workers, teams, existing }, org));
+    if (jobsSource) parts.push(planJobs(jobsSource, { workers, teams }, org));
+    const plan: PeoplePlan = { upserts: parts.flatMap((p) => p.upserts), skipped: parts.flatMap((p) => p.skipped), counts: Object.assign({}, ...parts.map((p) => p.counts)) };
 
     console.log(`SiteClock company ${companyId} -> AIMS org ${org} (${env}), ${dry ? 'DRY RUN' : 'APPLY'}`);
     console.table(Object.fromEntries(Object.entries(plan.counts).map(([t, c]) => [t, c])));
@@ -121,7 +145,13 @@ async function readSiteClock(sc: Client, companyId: string): Promise<ScPeople> {
     await db.query(`select pg_advisory_xact_lock(hashtext($1))`, [`field-import:${org}`]);
     const resolved = new Map<string, string>(); // "new:table:scId" -> id
     const resolve = async (v: unknown): Promise<unknown> => {
-      if (typeof v !== 'string' || !v.startsWith('new:')) return Array.isArray(v) ? (await Promise.all(v.map(resolve))).filter((x) => x != null) : v;
+      if (Array.isArray(v)) return (await Promise.all(v.map(resolve))).filter((x) => x != null);
+      if (v && typeof v === 'object' && !(v instanceof Date)) {
+        const o: Record<string, unknown> = {};
+        for (const [k, x] of Object.entries(v)) o[k] = await resolve(x);
+        return o;
+      }
+      if (typeof v !== 'string' || !v.startsWith('new:')) return v;
       if (resolved.has(v)) return resolved.get(v)!;
       const [, table, scId] = v.split(':');
       const r = await db.query(`select id from ${S}."${TABLE[table]}" where "organizationId" = $1 and "siteclockId" = $2`, [org, scId]);
@@ -143,10 +173,11 @@ async function readSiteClock(sc: Client, companyId: string): Promise<ScPeople> {
       const sets = cols.filter((c) => !key.includes(c) && c !== 'id' && c !== 'createdAt').map((c) => `"${c}" = excluded."${c}"`);
       const sql = `insert into ${S}."${TABLE[u.table]}" (${cols.map((c) => `"${c}"`).join(', ')}) values (${cols.map((_, i) => `$${i + 1}`).join(', ')})
         on conflict (${key.map((k) => `"${k}"`).join(', ')}) do ${sets.length ? `update set ${sets.join(', ')}` : 'nothing'} returning id`;
-      const params = cols.map((c) => (data[c] !== null && typeof data[c] === 'object' && !(data[c] instanceof Date) && !Array.isArray(data[c]) ? JSON.stringify(data[c]) : data[c]));
+      // Json columns go as JSON text (an array there is JSON, not a Postgres array); String[] / Int[] columns stay arrays.
+      const params = cols.map((c) => (JSON_COLS.has(c) && data[c] != null ? JSON.stringify(data[c]) : data[c] !== null && typeof data[c] === 'object' && !(data[c] instanceof Date) && !Array.isArray(data[c]) ? JSON.stringify(data[c]) : data[c]));
       const r = await db.query(sql, params);
       const id = r.rows[0]?.id;
-      if (id && ['fieldSite', 'fieldTrade', 'fieldInvite'].includes(u.table)) resolved.set(`new:${u.table}:${u.siteclockId}`, id);
+      if (id && ['fieldSite', 'fieldTrade', 'fieldInvite', 'fieldShiftTemplate', 'fieldJob'].includes(u.table)) resolved.set(`new:${u.table}:${u.siteclockId}`, id);
       written++;
     }
     await db.query('COMMIT');

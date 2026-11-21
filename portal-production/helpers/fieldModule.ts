@@ -40,6 +40,8 @@ export const FIELD_PAGES: Array<{ key: string; label: string; area: FieldArea; p
   { key: "teams", label: "Teams", area: "people", path: `${FIELD_BASE}/teams` },
   { key: "sites", label: "Sites", area: "people", path: `${FIELD_BASE}/sites` },
   { key: "invites", label: "Invites", area: "people", path: `${FIELD_BASE}/invites` },
+  { key: "plan", label: "Plan", area: "jobs", path: `${FIELD_BASE}/plan` },
+  { key: "working-hours", label: "Working hours", area: "jobs", path: `${FIELD_BASE}/working-hours` },
   { key: "settings", label: "Field settings", area: "people", path: `${FIELD_BASE}/settings` },
 ];
 
