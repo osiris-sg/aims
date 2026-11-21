@@ -47,10 +47,16 @@ describe('field reports', () => {
   });
 
   it('a supervisor sees only their site, and not another one', async () => {
-    const { svc, site } = await setup();
+    const { db, svc, site, a } = await setup();
+    await db.fieldTimeEntry.create({ data: { organizationId: ORG, workerId: a.id, siteId: site.id, workDate: '2026-03-02', clockInAt: new Date(), status: 'APPROVED', regularMinutes: 480 } });
+    await db.fieldPunch.create({ data: { organizationId: ORG, workerId: a.id, siteId: site.id, type: 'IN', serverTime: new Date('2026-03-02T01:00:00Z'), flagReason: 'OUTSIDE_FENCE', status: 'FLAGGED' } });
+    expect((await svc.summary(ctx(), { from: '2026-03-01', to: '2026-03-31' })).summary).toHaveLength(1);
+    expect((await svc.fraud(ctx(), { from: '2026-03-01', to: '2026-03-31' })).total).toBe(1);
     const sup = ctx(['Viewer'], { access: computeFieldAccess({ isOsirisAdmin: false, roleNames: ['Viewer'], supervises: true }), supervisedSiteIds: ['other'], supervisedWorkerIds: [] });
     expect(sup.access.scoped.reports).toBe(true);
     expect((await svc.attendance(sup, { from: '2026-03-02', to: '2026-03-02' })).rows).toEqual([]);
+    expect((await svc.summary(sup, { from: '2026-03-01', to: '2026-03-31' })).summary).toEqual([]);
+    expect((await svc.fraud(sup, { from: '2026-03-01', to: '2026-03-31' })).total).toBe(0);
     await expect(svc.attendance(sup, { from: '2026-03-02', to: '2026-03-02', siteId: site.id })).rejects.toThrow('Not your site');
   });
 

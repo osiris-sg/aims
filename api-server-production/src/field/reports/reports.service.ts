@@ -133,7 +133,9 @@ export class FieldReportsService {
   async summary(ctx: FieldCtx, q: unknown) {
     const p = range.safeParse(q ?? {});
     if (!p.success) throw new BadRequestException('Pick the dates');
-    const entries = await this.db.fieldTimeEntry.findMany({ where: { organizationId: ctx.organizationId, workDate: { gte: p.data.from, lte: p.data.to }, status: { not: 'REJECTED' } } });
+    // Supervisors: their sites only (SiteClock leaks every site here: FIELD_PLAN.md §6.2, not reproduced).
+    const scope = ctx.access.scoped.reports ? { siteId: { in: ctx.supervisedSiteIds } } : {};
+    const entries = await this.db.fieldTimeEntry.findMany({ where: { organizationId: ctx.organizationId, workDate: { gte: p.data.from, lte: p.data.to }, status: { not: 'REJECTED' }, ...scope } });
     const sites = await this.db.fieldSite.findMany({ where: { organizationId: ctx.organizationId }, select: { id: true, name: true } });
     const sn = new Map(sites.map((s: any) => [s.id, s.name]));
     const by = new Map<string, any>();
@@ -150,11 +152,11 @@ export class FieldReportsService {
     return { summary: [...by.values()].map(({ workers, ...s }) => ({ ...s, uniqueWorkers: workers.size })) };
   }
 
-  /** Flagged punches by reason and the top 20 workers. Oddity kept: days in UTC (SiteClock). */
+  /** Flagged punches by reason and the top 20 workers. Oddity kept: days in UTC (SiteClock). Supervisors: their people. */
   async fraud(ctx: FieldCtx, q: unknown) {
     const p = range.safeParse(q ?? {});
     if (!p.success) throw new BadRequestException('Pick the dates');
-    const punches = await this.db.fieldPunch.findMany({ where: { organizationId: ctx.organizationId, serverTime: { gte: new Date(`${p.data.from}T00:00:00Z`), lte: new Date(`${p.data.to}T23:59:59Z`) }, flagReason: { not: null } } });
+    const punches = await this.db.fieldPunch.findMany({ where: { organizationId: ctx.organizationId, serverTime: { gte: new Date(`${p.data.from}T00:00:00Z`), lte: new Date(`${p.data.to}T23:59:59Z`) }, flagReason: { not: null }, ...(ctx.access.scoped.reports ? { OR: [{ siteId: { in: ctx.supervisedSiteIds } }, { workerId: { in: ctx.supervisedWorkerIds } }] } : {}) } });
     const workers = await this.db.worker.findMany({ where: { id: { in: [...new Set(punches.map((x: any) => x.workerId))] } }, select: { id: true, name: true } });
     const wn = new Map(workers.map((w: any) => [w.id, w.name]));
     const byReason: Record<string, number> = {};
