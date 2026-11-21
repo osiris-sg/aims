@@ -959,5 +959,10 @@
     "markFailed": "Could not save",
     "noDueDate": "No due date",
     "sharedBill": "One bill for {refs} — the proof is filed on each of them."
+  },
+  "stickyBar": {
+    "prev": "Previous shipment",
+    "next": "Next shipment",
+    "pick": "Pick a shipment"
   }
 }

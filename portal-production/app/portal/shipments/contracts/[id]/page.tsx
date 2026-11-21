@@ -20,7 +20,7 @@ import AddIcon from "@mui/icons-material/Add";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import { useTranslations } from "next-intl";
 import { toast } from "../../_lib/toast";
-import { useContract, useContractGeneratedDocs, useGeneratedDocs, useShipment, useTradeMutation } from "../../_lib/hooks";
+import { useContract, useContractGeneratedDocs, useGeneratedDocs, usePrefetchShipments, useShipment, useTradeMutation } from "../../_lib/hooks";
 import { recordFileCount, useShipmentsApi, type AnExtraction, type BlExtraction, type Contract, type Shipment, type TradeFile, type TradeStep } from "../../_lib/api";
 import { blLabel, fmtDay, fmtDmy, fmtMoney, fmtMt, stepLabel } from "../../_lib/format";
 import RecordHeader from "../../_components/RecordHeader";
@@ -29,6 +29,7 @@ import ContractOverview from "../../_components/ContractOverview";
 import ShipmentOverview from "../../_components/ShipmentOverview";
 import StepCards, { type StepContext } from "../../_components/StepCards";
 import ShipmentStickyBar from "../../_components/ShipmentStickyBar";
+import { capturePlace, neighbours, restorePlace, type Place } from "../../_lib/keep-place";
 import ShipmentFormDialog from "../../_components/ShipmentFormDialog";
 import FilesTable from "../../_components/FilesTable";
 import LinkedDocuments from "../../_components/LinkedDocuments";
@@ -97,6 +98,26 @@ export default function DealPage() {
   };
   // A new shipment / deal: back to following the current step.
   useEffect(() => setUserPicked(false), [id, shipmentId]);
+  // Round BX (Sayaka): ‹ ▾ › on the sticky bar — the next shipment with the same step open and the same card in view.
+  const keepPlace = useRef<Place | null>(null);
+  const switchShipment = (nid: string) => {
+    if (!nid || nid === shipmentId) return;
+    keepPlace.current = capturePlace(shown, shipSteps.find((x) => x.id === shown)?.code ?? null);
+    const p = new URLSearchParams(params?.toString() ?? "");
+    p.set("shipment", nid);
+    router.replace(`${pathname}?${p.toString()}`, { scroll: false });
+  };
+  useEffect(() => {
+    const kept = keepPlace.current;
+    if (!kept || !s || s.id !== shipmentId) return;
+    keepPlace.current = null;
+    const same = kept.openCode ? shipSteps.find((x) => x.code === kept.openCode) : null;
+    setUserPicked(true);
+    setOpenId(same?.id ?? kept.openStepId);
+    for (const ms of [60, 250, 600]) setTimeout(() => restorePlace(kept), ms);
+  }, [s, shipmentId, shipSteps]);
+  const near = neighbours(shipments, shipmentId);
+  usePrefetchShipments([near.prev?.id, near.next?.id]);
 
   // The deal / shipment completed by the server (last step done), not from a ⋮
   // menu: say so; a completed deal goes back to the Shipments list.
@@ -341,6 +362,11 @@ export default function DealPage() {
                 <ShipmentStickyBar
                   title={`${shipments.length > 1 ? `#${shipIndex + 1} · ` : ""}${t("bl", { bl: s.blNumber || t("pending") })}`}
                   status={<RecordStatusChip status={s.status} />}
+                  switcher={
+                    shipments.length > 1 && shipmentId
+                      ? { items: shipments.map((x, i) => ({ id: x.id, label: `#${i + 1} · ${blLabel(x.blNumber)}`, hint: x.currentStep?.label ?? null })), currentId: shipmentId, onSwitch: switchShipment }
+                      : null
+                  }
                   facts={[
                     shortName(c.customer?.name),
                     Array.from(new Set((c.lines ?? []).map((l) => l.grade).filter(Boolean))).join("/") || null,

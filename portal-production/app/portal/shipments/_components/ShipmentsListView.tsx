@@ -1,0 +1,153 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+"use client";
+
+// Shipments (round H) — every B/L across all orders. Tabs: In transit (ETA
+// ahead), Arrived (arrival / discharge date, or the latest ETA passed),
+// Delivered (cleared: steps up to 10 done) and Completed. Columns: #n-seq,
+// customer, B/L, vessel / voyage, carrier, net MT, ETD, latest ETA, current
+// step. (Owner, round Q follow-up: no free-time / DET-DEM column — the data and
+// the detention reminders stay; the countdown lives on the dashboard's
+// "Arriving this week" and in the reminders.)
+// Search by B/L, order no. ("#19" / "19-1") or vessel. A row opens the
+// shipment's steps on its order page.
+// Round BX (Sayaka): a "Tracking" tab — open shipments arriving in the next ~21 days, sorted by ETA, with Track /
+// Paste tracking and the ETA typed in place (TrackingBoard).
+
+import React, { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Alert, Box, Stack, Tab, Tabs, Tooltip, Typography } from "@mui/material";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import { useTranslations } from "next-intl";
+import PageTable from "@/components/PageTable";
+import type { ShipmentListItem, ShipmentTab } from "../_lib/api";
+import { useShipments, useShipmentTracking } from "../_lib/hooks";
+import TrackingBoard from "./TrackingBoard";
+import { blLabel, fmtDay, fmtMt, shortCustomer } from "../_lib/format";
+import { CurrentStepCell, EmptyState } from "./bits";
+import { useDebounced } from "./useDebounced";
+import { DEFAULT_PAGE_SIZE } from "@/components/PageTable";
+
+type ListTab = ShipmentTab | "tracking";
+const TABS: Array<{ value: ListTab }> = [{ value: "tracking" }, { value: "in_transit" }, { value: "arrived" }, { value: "delivered" }, { value: "completed" }];
+
+const hrefOf = (s: ShipmentListItem) => (s.orderId ? `/portal/shipments/orders/${s.orderId}?shipment=${s.id}` : `/portal/shipments/${s.id}`);
+
+/** Round BX: the page body (the preview passes canEditTracking; the app reads the user's permissions). */
+export default function ShipmentsListView({ canEditTracking }: { canEditTracking?: boolean } = {}) {
+  const t = useTranslations("orders.shipmentsList");
+  const router = useRouter();
+  const params = useSearchParams();
+  const [tab, setTabState] = useState<ListTab>(TABS.some((x) => x.value === params?.get("tab")) ? (params!.get("tab") as ListTab) : "in_transit");
+  // The tab is in the URL, so Back from a shipment returns to the same tab.
+  const setTab = (v: ListTab) => {
+    setTabState(v);
+    const p = new URLSearchParams(params?.toString() ?? "");
+    p.set("tab", v);
+    router.replace(`?${p.toString()}`, { scroll: false });
+  };
+  const tracking = useShipmentTracking();
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
+  const [search, setSearch] = useState("");
+  const q = useDebounced(search);
+  // Round W: test orders stay hidden for everyone (the "Show test orders" switch is gone).
+  const list = useShipments({ tab: tab === "tracking" ? "in_transit" : tab, page, pageSize: limit, q: q || undefined }, tab !== "tracking");
+  const counts = list.data?.tabs;
+
+  const columns = useMemo(
+    () => [
+      { id: "ref", header: "#", nowrap: true, cell: ({ row }: any) => <Typography variant="body2" sx={{ fontWeight: 800 }}>{row.original.ref || "—"}</Typography> },
+      { id: "customer", header: t("customer"), cell: ({ row }: any) => <span title={row.original.customerName ?? undefined}>{shortCustomer(row.original.customerName) || "—"}</span> },
+      { id: "bl", header: "B/L", nowrap: true, cell: ({ row }: any) => blLabel(row.original.blNumber) },
+      { id: "vessel", header: t("vessel"), cell: ({ row }: any) => [row.original.vessel, row.original.voyageNo].filter(Boolean).join(" / ") || "—" },
+      { id: "carrier", header: t("carrier"), cell: ({ row }: any) => row.original.carrier || "—" },
+      { id: "net", header: t("net"), cell: ({ row }: any) => <Box sx={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>{row.original.netWeightMt != null ? fmtMt(row.original.netWeightMt) : "—"}</Box> },
+      { id: "etd", header: "ETD", nowrap: true, cell: ({ row }: any) => fmtDay(row.original.etd) },
+      { id: "eta", header: t("eta"), nowrap: true, cell: ({ row }: any) => fmtDay(row.original.eta) },
+      { id: "step", header: t("step"), cell: ({ row }: any) => <CurrentStepCell step={row.original.currentStep} progress={row.original.progress} maxWidth={260} wrap /> },
+    ],
+    [t],
+  );
+
+  const tabs = (
+    <Tabs
+      value={tab}
+      onChange={(_, v) => {
+        setTab(v);
+        setPage(1);
+      }}
+      variant="scrollable"
+      allowScrollButtonsMobile
+      sx={{ minHeight: 40, "& .MuiTab-root": { minHeight: 40, textTransform: "none" } }}
+      data-tour="shipments-list-tabs"
+    >
+      {TABS.map((x) => (
+        <Tab
+          key={x.value}
+          value={x.value}
+          data-tour={x.value === "tracking" ? "shipments-tracking-tab" : undefined}
+          label={x.value === "tracking" ? `${t("tabs.tracking")}${tracking.data ? ` (${tracking.data.items.length})` : ""}` : `${t(`tabs.${x.value}`)}${counts ? ` (${counts[x.value] ?? 0})` : ""}`}
+        />
+      ))}
+    </Tabs>
+  );
+
+  if (tab === "tracking")
+    return (
+      <Box sx={{ p: { xs: 1.5, md: 3 }, height: "100%" }} data-tour="shipments-tracking">
+        <TrackingBoard
+          canEdit={canEditTracking}
+          header={
+            <Stack direction="row" alignItems="center" spacing={1}>
+              {tabs}
+              <Tooltip title={t("tracking.info")}>
+                <InfoOutlinedIcon fontSize="small" color="action" aria-label={t("tracking.info")} />
+              </Tooltip>
+            </Stack>
+          }
+        />
+      </Box>
+    );
+
+  return (
+    <Box sx={{ p: { xs: 1.5, md: 3 }, height: "100%" }} data-tour="shipments-list">
+      <PageTable
+        tableName={t("title")}
+        columns={columns}
+        data={list.data?.items ?? []}
+        loading={list.isLoading}
+        page={page}
+        limit={limit}
+        search={search}
+        setPage={setPage}
+        setLimit={(l) => {
+          setLimit(l);
+          setPage(1);
+        }}
+        setSearch={(s) => {
+          setSearch(s);
+          setPage(1);
+        }}
+        pageCount={list.data?.totalPages ?? 1}
+        totalDocs={list.data?.total}
+        onRowClick={(r: ShipmentListItem) => router.push(hrefOf(r))}
+        rowHref={(r: ShipmentListItem) => hrefOf(r)}
+        noSelectionColumn
+        manualSorting
+        hideTable={!list.isLoading && !list.isError && !list.data?.items?.length}
+        headerContent={
+          <>
+            <Stack direction="row" alignItems="center" spacing={1}>
+              {tabs}
+            </Stack>
+            {list.isError ? (
+              <Alert severity="error">{(list.error as Error)?.message || t("loadError")}</Alert>
+            ) : !list.isLoading && !list.data?.items?.length ? (
+              <EmptyState title={q ? t("emptySearch") : t(`empty.${tab}`)} />
+            ) : null}
+          </>
+        }
+      />
+    </Box>
+  );
+}

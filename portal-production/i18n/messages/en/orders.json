@@ -160,7 +160,8 @@
       "in_transit": "In transit",
       "arrived": "Arrived",
       "delivered": "Delivered",
-      "completed": "Completed"
+      "completed": "Completed",
+      "tracking": "Tracking"
     },
     "loadError": "Could not load shipments",
     "emptySearch": "No shipment matches this search",
@@ -168,7 +169,28 @@
       "in_transit": "No shipments in transit",
       "arrived": "No shipments arrived",
       "delivered": "No shipments delivered",
-      "completed": "No shipments completed"
+      "completed": "No shipments completed",
+      "tracking": "No open shipment arrives in the next 21 days"
+    },
+    "tracking": {
+      "info": "Open shipments arriving in the next 21 days (and late ones without an arrival date), sorted by ETA. Orange = the ETA moved later than first known.",
+      "eta": "ETA (latest)",
+      "ts": "T/S",
+      "actions": "Tracking",
+      "inDays": "{n, plural, one {# day to ETA} other {# days to ETA}}",
+      "late": "{n, plural, one {# day past ETA} other {# days past ETA}}",
+      "delayed": "+{n, plural, one {# day} other {# days}}",
+      "delayedTip": "First ETA {first} · now {now}",
+      "history": "History {trail}",
+      "historyLine": "{date} → {eta} · {by} · {source}",
+      "arriving": "Arriving (本船) {vessel}",
+      "saved": "{ref}: ETA {eta}",
+      "saveError": "Could not save the ETA",
+      "noCarrier": "Carrier unknown",
+      "noBl": "B/L pending",
+      "editEta": "ETA of {ref}",
+      "today": "ETA today",
+      "track": "Track"
     }
   },
   "monthlyOrder": {

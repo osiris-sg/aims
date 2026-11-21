@@ -15,7 +15,7 @@ import BlCheckPanel from "./BlCheckPanel";
 import PortStoragePanel from "./PortStoragePanel";
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-  <Paper variant="outlined" sx={{ p: 2 }}>
+  <Paper variant="outlined" sx={{ p: 2 }} data-keep-place={`section:${title}`}>
     <Typography variant="subtitle2" sx={{ mb: 1.5 }}>
       {title}
     </Typography>

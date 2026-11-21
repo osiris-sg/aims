@@ -67,6 +67,8 @@ function answer(d: any, key: readonly unknown[]): unknown {
     return d.issues?.[q.supplierId ?? q.customerId ?? q.orderId ?? q.shipmentId] ?? [];
   }
   if (k0 === "trade-record-emails") return d.recordEmails ?? [];
+  // Round BX: the Tracking list.
+  if (k0 === "trade-shipments" && key[2] === "tracking") return d.tracking;
   if (k0 === "trade-shipments" && key[2] === "list") {
     const f: any = key[3] ?? {};
     if (d.answer) return f.status === "COMPLETED" ? d.answer.shipsDone : d.answer.shipsOpen;

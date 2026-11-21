@@ -1667,6 +1667,31 @@ export type ContractInput = {
   status?: "CANCELLED";
 };
 
+/** Round BX — Tracking list: one open shipment arriving in the next ~21 days. */
+export type TrackingRow = {
+  id: string;
+  orderId: string | null;
+  ref: string;
+  customerName: string | null;
+  blNumber: string | null;
+  vessel: string | null;
+  voyageNo: string | null;
+  carrier: { code: string; name: string; url: string; prefilled: boolean } | null;
+  shippingLine: string | null;
+  eta: string | null;
+  etaTrail: string;
+  etaHistory: Array<{ eta: string | null; previous: string | null; at: string; by: string | null; source: string }>;
+  firstEta: string | null;
+  delayDays: number;
+  delayed: boolean;
+  daysToEta: number | null;
+  tsPort: string | null;
+  tsEta: string | null;
+  tsEtd: string | null;
+  arrivingVessel: string | null;
+  arrivingVoyageNo: string | null;
+};
+
 export type ShipmentInput = {
   contractId?: string;
   orderId?: string;
@@ -1683,6 +1708,8 @@ export type ShipmentInput = {
   shippingLine?: string | null;
   etd?: string | null;
   eta?: string | null;
+  /** Where an ETA change came from (MANUAL, PASTE …) — kept in the ETA history. */
+  etaSource?: string;
   actualArrivalDate?: string | null;
   deliveryMonth?: string | null;
   containerCount?: number | null;
@@ -1985,6 +2012,8 @@ export function useShipmentsApi() {
       // ── Shipments ────────────────────────────────────────────────────────
       listShipments: (f: ShipmentFilters = {}) => call<Paged<ShipmentListItem> & { counts?: { pending: number; completed: number }; tabs?: Record<ShipmentTab, number> }>(`/shipments${qs(f)}`),
       getShipment: (id: string) => call<Shipment>(`/shipments/${id}`),
+      /** Round BX: open shipments arriving in the next `days` days (default 21), sorted by ETA. */
+      shipmentTracking: (days?: number) => call<{ today: string; days: number; items: TrackingRow[] }>(`/shipments/tracking${days ? `?days=${days}` : ""}`),
       createShipment: (body: ShipmentInput) => call<Shipment>(`/shipments`, "POST", body),
       updateShipment: (id: string, body: ShipmentInput) => call<Shipment>(`/shipments/${id}`, "PATCH", body),
       deleteShipment: (id: string) => call<{ id: string; deleted: boolean }>(`/shipments/${id}`, "DELETE"),

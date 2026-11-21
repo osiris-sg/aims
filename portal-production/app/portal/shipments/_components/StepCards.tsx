@@ -520,6 +520,7 @@ export default function StepCards({
     return (
       <Paper
         id={`step-${s.id}`}
+        data-keep-place={`step:${s.code}`}
         key={s.id}
         elevation={0}
         sx={{ p: { xs: 1.5, md: 2.5 }, border: 2, borderColor: isDone ? "success.main" : "primary.main", borderRadius: 2, scrollMarginTop: 96 }}
@@ -660,6 +661,7 @@ export default function StepCards({
     return (
       <ButtonBase
         id={`step-${s.id}`}
+        data-keep-place={`step:${s.code}`}
         key={s.id}
         onClick={() => onOpen(s.id)}
         sx={{ width: "100%", justifyContent: "flex-start", textAlign: "left", px: 1.5, py: 1, borderRadius: 1, "&:hover": { bgcolor: "action.hover" }, scrollMarginTop: 96 }}
@@ -684,7 +686,7 @@ export default function StepCards({
 
   /** A step that doesn't apply to this customer: collapsed, greyed, never blocks. */
   const naLine = (s: TradeStep) => (
-    <Box key={s.id} id={`step-${s.id}`} sx={{ px: 1.5, py: 0.75, display: "flex", alignItems: "center", gap: 1.25, opacity: 0.7 }}>
+    <Box key={s.id} id={`step-${s.id}`} data-keep-place={`step:${s.code}`} sx={{ px: 1.5, py: 0.75, display: "flex", alignItems: "center", gap: 1.25, opacity: 0.7 }}>
       <BlockIcon fontSize="small" sx={{ color: "text.disabled" }} />
       <Typography variant="body2" color="text.disabled" sx={{ textDecoration: "line-through" }}>
         {titleOf(s)}
