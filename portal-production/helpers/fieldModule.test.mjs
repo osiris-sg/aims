@@ -65,7 +65,7 @@ test("sites: SiteClock's ranges; invites: state", () => {
 });
 
 test("UI copy: no em-dashes, no helper text, no subtitles in the Field pages", () => {
-  for (const f of ["workers", "teams", "sites", "invites", "settings", "plan", "working-hours"]) {
+  for (const f of ["workers", "teams", "sites", "invites", "settings", "plan", "working-hours", "clock-ins"]) {
     const src = read(`app/portal/field/${f}/page.tsx`).replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
     assert.ok(!src.includes("—"), f);
     assert.ok(!/helperText=/.test(src), f);
@@ -83,4 +83,14 @@ test("phase 2 helpers: days, weeks, told", async () => {
   assert.equal(addDaysIso("2026-11-30", 1), "2026-12-01");
   assert.equal(toldText([{ notifiedAt: "x" }, { notifiedAt: null }]), "1 of 2 told");
   assert.equal(toldText([]), "No crew");
+});
+
+test("phase 3 helpers: flag words, approve body only sends what moved", async () => {
+  const { FLAG_LABEL, approveBody, toLocalInput } = await import("./fieldJobs.ts");
+  assert.equal(Object.keys(FLAG_LABEL).length, 13);
+  const rec = "2026-02-02T09:30:00.000Z";
+  assert.deepEqual(approveBody({ clockInAt: "", punchAt: toLocalInput(rec), note: " " }, rec), {});
+  const moved = approveBody({ clockInAt: "", punchAt: "2026-02-02T08:00", note: "ok" }, rec);
+  assert.equal(moved.note, "ok");
+  assert.ok(moved.punchAt);
 });

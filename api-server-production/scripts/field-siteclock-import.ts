@@ -15,6 +15,7 @@ import { randomUUID } from 'crypto';
 import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { Client } from 'pg';
+import { planAttendance, type ScAttendance } from '../src/field/import/attendance-plan';
 import { planJobs, type ScJobs } from '../src/field/import/jobs-plan';
 import { planPeople, type PeoplePlan, type ScPeople } from '../src/field/import/people-plan';
 
@@ -29,12 +30,13 @@ const TABLE: Record<string, string> = {
   fieldSite: 'FieldSite', fieldSiteAssignment: 'FieldSiteAssignment', fieldTrade: 'FieldTrade', fieldWorkerTrade: 'FieldWorkerTrade',
   fieldInvite: 'FieldInvite', fieldRegistration: 'FieldRegistration', fieldPhotoUpdate: 'FieldPhotoUpdate', fieldShiftTemplate: 'FieldShiftTemplate',
   fieldShiftAssignment: 'FieldShiftAssignment', fieldManningPreset: 'FieldManningPreset', fieldDayNote: 'FieldDayNote', fieldJob: 'FieldJob',
-  fieldJobCrew: 'FieldJobCrew', fieldJobNeed: 'FieldJobNeed',
+  fieldJobCrew: 'FieldJobCrew', fieldJobNeed: 'FieldJobNeed', fieldOvertimeRule: 'FieldOvertimeRule', fieldBreakRule: 'FieldBreakRule',
+  fieldTimeEntry: 'FieldTimeEntry', fieldPunch: 'FieldPunch',
 };
 /** The conflict key of each table (settings: one row per org; worker trades: composite). */
 const KEY: Record<string, string[]> = { fieldSettings: ['organizationId'], fieldWorkerTrade: ['workerId', 'tradeId'] };
-const HAS_UPDATED_AT = new Set(['fieldSettings', 'fieldWorkerProfile', 'fieldTeamStint', 'fieldSite', 'fieldInvite', 'fieldRegistration', 'fieldPhotoUpdate', 'fieldShiftTemplate', 'fieldShiftAssignment', 'fieldManningPreset', 'fieldDayNote', 'fieldJob']);
-const AREAS = ['people', 'jobs'];
+const HAS_UPDATED_AT = new Set(['fieldSettings', 'fieldWorkerProfile', 'fieldTeamStint', 'fieldSite', 'fieldInvite', 'fieldRegistration', 'fieldPhotoUpdate', 'fieldShiftTemplate', 'fieldShiftAssignment', 'fieldManningPreset', 'fieldDayNote', 'fieldJob', 'fieldOvertimeRule', 'fieldBreakRule', 'fieldTimeEntry', 'fieldPunch']);
+const AREAS = ['people', 'jobs', 'attendance'];
 const JSON_COLS = new Set(['items', 'leaveDays', 'faceDescriptor', 'workedFor', 'before', 'after']);
 
 /** Masks for printed samples: names cut to initials, phones to the last 4, no face data, no tokens. */
@@ -72,6 +74,16 @@ async function readSiteClock(sc: Client, companyId: string): Promise<ScPeople> {
   const registrations = await q(`select * from "RegistrationRequest" where "companyId" = $1`);
   const photoUpdates = await q(`select * from "PhotoUpdate" where "companyId" = $1`);
   return { company, users, teams, memberships, teamSupervisors, sites, siteAssignments, trades, userTrades, invites, registrations, photoUpdates } as ScPeople;
+}
+
+async function readSiteClockAttendance(sc: Client, companyId: string): Promise<ScAttendance> {
+  const q = async (sql: string) => (await sc.query(sql, [companyId])).rows;
+  return {
+    overtimeRules: await q(`select * from "OvertimeRule" where "companyId" = $1`),
+    breakRules: await q(`select * from "BreakRule" where "companyId" = $1`),
+    entries: await q(`select * from "TimeEntry" where "companyId" = $1`),
+    punches: await q(`select * from "Punch" where "companyId" = $1 order by "serverTime"`),
+  };
 }
 
 async function readSiteClockJobs(sc: Client, companyId: string): Promise<ScJobs> {
@@ -112,6 +124,7 @@ async function readSiteClockJobs(sc: Client, companyId: string): Promise<ScJobs>
     await sc.query('BEGIN TRANSACTION READ ONLY');
     const source = await readSiteClock(sc, companyId);
     const jobsSource = areas.includes('jobs') ? await readSiteClockJobs(sc, companyId) : null;
+    const attSource = areas.includes('attendance') ? await readSiteClockAttendance(sc, companyId) : null;
     await sc.query('ROLLBACK');
 
     const workers = (await db.query(`select id, "siteclockId" from ${S}."Worker" where "organizationId" = $1`, [org])).rows;
@@ -124,6 +137,10 @@ async function readSiteClockJobs(sc: Client, companyId: string): Promise<ScJobs>
     const parts: PeoplePlan[] = [];
     if (areas.includes('people')) parts.push(planPeople(source, { workers, teams, existing }, org));
     if (jobsSource) parts.push(planJobs(jobsSource, { workers, teams }, org));
+    if (attSource) {
+      const links = (await db.query(`select "organizationId", "siteclockCompanyId" from ${S}."FieldSettings" where "siteclockCompanyId" is not null`)).rows;
+      parts.push(planAttendance(attSource, { workers, orgOfCompany: new Map(links.map((r: any) => [r.siteclockCompanyId, r.organizationId])) }, org));
+    }
     const plan: PeoplePlan = { upserts: parts.flatMap((p) => p.upserts), skipped: parts.flatMap((p) => p.skipped), counts: Object.assign({}, ...parts.map((p) => p.counts)) };
 
     console.log(`SiteClock company ${companyId} -> AIMS org ${org} (${env}), ${dry ? 'DRY RUN' : 'APPLY'}`);
@@ -177,7 +194,7 @@ async function readSiteClockJobs(sc: Client, companyId: string): Promise<ScJobs>
       const params = cols.map((c) => (JSON_COLS.has(c) && data[c] != null ? JSON.stringify(data[c]) : data[c] !== null && typeof data[c] === 'object' && !(data[c] instanceof Date) && !Array.isArray(data[c]) ? JSON.stringify(data[c]) : data[c]));
       const r = await db.query(sql, params);
       const id = r.rows[0]?.id;
-      if (id && ['fieldSite', 'fieldTrade', 'fieldInvite', 'fieldShiftTemplate', 'fieldJob'].includes(u.table)) resolved.set(`new:${u.table}:${u.siteclockId}`, id);
+      if (id && ['fieldSite', 'fieldTrade', 'fieldInvite', 'fieldShiftTemplate', 'fieldShiftAssignment', 'fieldJob', 'fieldTimeEntry'].includes(u.table)) resolved.set(`new:${u.table}:${u.siteclockId}`, id);
       written++;
     }
     await db.query('COMMIT');

@@ -35,3 +35,39 @@ export function toldText(crew: Array<{ notifiedAt: string | null }>): string {
   const n = crew.filter((c) => c.notifiedAt).length;
   return n === crew.length ? "All told" : n === 0 ? "Not told" : `${n} of ${crew.length} told`;
 }
+
+// ── Phase 3 (Clock-ins) ─────────────────────────────────────────────────────
+
+/** SiteClock's 13 flag reasons (FlagReason) in plain words. */
+export const FLAG_LABEL: Record<string, string> = {
+  FACE_MISMATCH: "Face does not match",
+  VERIFY_REQUESTED: "Asked to verify",
+  OUTSIDE_FENCE: "Outside the site",
+  MOCKED: "Fake location app",
+  ROOTED: "Rooted phone",
+  NEW_DEVICE: "New phone",
+  OFFLINE: "Sent late (offline)",
+  TIME_DRIFT: "Phone clock wrong",
+  OUT_WITHOUT_IN: "Clock-out with no clock-in",
+  AUTO_CLOSE_OVERRIDE: "Still working after auto-close",
+  NOT_ASSIGNED: "Not assigned to this site",
+  POOR_ACCURACY: "Poor GPS",
+  QR_MISSING: "Job QR not scanned",
+};
+
+/** A local "yyyy-MM-ddTHH:mm" for a datetime-local field, from an ISO instant (browser time zone). */
+export function toLocalInput(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** The approve body: only the times that were given (a corrected time is sent only when it moved). */
+export function approveBody(f: { clockInAt: string; punchAt: string; note: string }, recorded: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (f.clockInAt) out.clockInAt = new Date(f.clockInAt).toISOString();
+  if (f.punchAt && toLocalInput(recorded) !== f.punchAt) out.punchAt = new Date(f.punchAt).toISOString();
+  if (f.note.trim()) out.note = f.note.trim().slice(0, 300);
+  return out;
+}
