@@ -673,7 +673,13 @@ export interface ImportedOrderInputs {
   quoteTotal: number | null;
   /** AIMS DOs of the order (own + linked), live ones; read only when nothing is billed yet. */
   nativeDos: any[];
+  /** Another group company's $1-or-less placeholders ("(NG)"): shown on the order, never counted (2026-11-23). */
+  crossPlaceholderDocs?: any[];
 }
+
+/** A cross-company invoice of $1 or less is the ERP's "(NG)" placeholder: shown, never counted (owner, 2026-11-23). */
+export const CROSS_PLACEHOLDER_MAX = 1;
+export const isCrossPlaceholder = (d: { config?: any }): boolean => (Number(grossOf(d?.config)) || 0) <= CROSS_PLACEHOLDER_MAX;
 
 /**
  * Read what the status needs for one or many imported orders in a few batched queries. AIMS DOs are read only for
@@ -726,14 +732,15 @@ export async function loadImportedOrderInputs(
     const m: any = importedMarkerOf(o) || {};
     const own = refsOf(o, 'invoice').map((r) => r.id);
     const cross = crossOrgInvoiceRefsOf(o).map((r) => crossById.get(r.id)).filter(Boolean);
-    const invoiceDocs = [...withSplitPartIds(own, own.map((id) => byId.get(id)).filter(Boolean)).map((id) => byId.get(id)).filter(Boolean), ...cross];
+    const crossPlaceholderDocs = cross.filter(isCrossPlaceholder);
+    const invoiceDocs = [...withSplitPartIds(own, own.map((id) => byId.get(id)).filter(Boolean)).map((id) => byId.get(id)).filter(Boolean), ...cross.filter((d) => !isCrossPlaceholder(d))];
     const creditNoteDocs = refsOf(o, 'creditNote').map((r) => byId.get(r.id)).filter(Boolean);
     const linkedQuotations = linkedQuotationRefsOf(o).map((r) => byId.get(r.id)).filter((d) => d && !isDead(d));
     const srcCfg = o.sourceQuotationId ? quoteCfg.get(o.sourceQuotationId) ?? null : null;
     const base = m.quoteTotal != null && Number.isFinite(Number(m.quoteTotal)) ? Number(m.quoteTotal) : srcCfg ? grossOf(srcCfg) : null;
     const totals = [base, ...linkedQuotations.map((d) => grossOf(d.config))].filter((n): n is number => n != null && Number.isFinite(Number(n)));
     const quoteTotal = totals.length ? R2(totals.reduce((t, n) => t + Number(n), 0)) : null;
-    partial.set(o.id, { invoiceDocs, creditNoteDocs, linkedQuotations, sourceQuotationConfig: srcCfg, quoteTotal });
+    partial.set(o.id, { invoiceDocs, creditNoteDocs, linkedQuotations, sourceQuotationConfig: srcCfg, quoteTotal, crossPlaceholderDocs });
   }
   // AIMS DOs: only for orders with nothing counted yet (the DO statuses decide then).
   const needDos = orders.filter((o) => !partial.get(o.id)!.invoiceDocs.some((d) => isCountedInvoice(d)));

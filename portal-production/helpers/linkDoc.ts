@@ -120,16 +120,20 @@ export interface DocChain {
   order: { id: string; orderNumber: string; href: string } | null;
   quotations: Array<{ id: string; name: string | null; href: string | null }>;
   dos: Array<{ id: string; name: string | null; href: string | null }>;
-  invoices: Array<{ id: string; name: string | null; href: string | null }>;
+  invoices: Array<{ id: string; name: string | null; href: string | null; placeholder?: boolean }>;
   canCreateDo: boolean;
   canCreateInvoice: boolean;
   direct: Array<{ id: string; type: string; name: string | null; href: string | null }>;
 }
 
+/** The hover text on a greyed cross-company placeholder pill (owner wording, 2026-11-23). */
+export const PLACEHOLDER_TIP = "placeholder, not counted";
+
 /** The panel's sections in the old ERP's order: Order, QO, DO(s), Invoice(s); "+ Create" where the order has none. */
-export function chainSections(c: DocChain | null | undefined): Array<{ key: string; label: string; items: Array<{ id: string; name: string; href: string | null; current?: boolean }>; create?: "do" | "invoice" }> {
+export function chainSections(c: DocChain | null | undefined): Array<{ key: string; label: string; items: Array<{ id: string; name: string; href: string | null; current?: boolean; placeholder?: boolean }>; create?: "do" | "invoice" }> {
   if (!c?.order) return [];
-  const items = (list: Array<{ id: string; name: string | null; href: string | null }>) => list.map((d) => ({ id: d.id, name: d.name || "Draft", href: d.href }));
+  // A placeholder (another company's $1-or-less "(NG)" invoice) is shown greyed: "placeholder, not counted".
+  const items = (list: Array<{ id: string; name: string | null; href: string | null; placeholder?: boolean }>) => list.map((d) => ({ id: d.id, name: d.name || "Draft", href: d.href, ...(d.placeholder ? { placeholder: true } : {}) }));
   return [
     { key: "order", label: "Order", items: [{ id: c.order.id, name: c.order.orderNumber, href: c.order.href }] },
     { key: "qo", label: "QO", items: items(c.quotations) },

@@ -95,6 +95,7 @@ const qKey = (s: unknown) => { const m = String(s ?? '').match(/(\d{1,6})(?!.*\d
     // Billed / status before and after, with the same inputs the order page reads.
     const at = new Date().toISOString();
     const changes: any[] = [];
+    const held: any[] = [];
     const list = [...plan.values()];
     for (let i = 0; i < list.length; i += 200) {
       const chunk = list.slice(i, i + 200);
@@ -104,7 +105,14 @@ const qKey = (s: unknown) => { const m = String(s ?? '').match(/(\d{1,6})(?!.*\d
       for (const p of chunk) {
         const b = importedStatusFrom(p.order, before.get(p.order.id)!);
         const a = importedStatusFrom({ linkedDocuments: nextLd.get(p.order.id) }, after.get(p.order.id)!);
-        changes.push({ orderId: p.order.id, order: p.order.orderNumber, quote: p.order.quote, invoices: p.add.map((d) => d.name).join(' '), added: p.add.length, addedTotal: p.add.reduce((t, d) => t + Number(d.total || 0), 0), statusBefore: p.order.status, statusAfter: a.status, labelAfter: a.label, billedBefore: b.billed, billedAfter: a.billed, quoteTotal: a.quoteTotal, ld: nextLd.get(p.order.id) });
+        // Held (owner 2026-11-23): counted WCT (S) invoices that push the order over its quotation total by a real
+        // amount are not linked; they go on the finance list (over-billed-real.csv).
+        const tol = 0.01;
+        if (a.quoteTotal != null && a.billed > Number(a.quoteTotal) + tol && !(b.billed > Number(a.quoteTotal) + tol)) {
+          held.push({ order: p.order.orderNumber, quote: p.order.quote, invoices: p.add.map((d) => d.name).join(' '), billedBefore: b.billed, billedAfter: a.billed, quoteTotal: a.quoteTotal, overBy: Math.round((a.billed - Number(a.quoteTotal)) * 100) / 100 });
+          continue;
+        }
+        changes.push({ orderId: p.order.id, order: p.order.orderNumber, quote: p.order.quote, invoices: p.add.map((d) => d.name).join(' '), added: p.add.length, addedTotal: p.add.reduce((t, d) => t + Number(d.total || 0), 0), statusBefore: p.order.status, statusAfter: a.status, labelAfter: a.label, billedBefore: b.billed, billedAfter: a.billed, quoteTotal: a.quoteTotal, ld: nextLd.get(p.order.id), placeholders: p.add.filter((d) => Number(d.total || 0) <= 1).length });
       }
     }
     const L: string[] = [];
@@ -115,12 +123,18 @@ const qKey = (s: unknown) => { const m = String(s ?? '').match(/(\d{1,6})(?!.*\d
     const moves: Record<string, number> = {};
     for (const x of changes) if (x.statusBefore !== x.statusAfter) moves[`${x.statusBefore} -> ${x.statusAfter}`] = (moves[`${x.statusBefore} -> ${x.statusAfter}`] || 0) + 1;
     say(`Status changes from the counted invoices: ${Object.entries(moves).map(([k, v]) => `${k} ${v}`).join(', ') || 'none'} · unchanged ${changes.filter((x) => x.statusBefore === x.statusAfter).length}`);
+    const placeholderCount = changes.reduce((t, x) => t + x.placeholders, 0);
+    say(`Of those, $1-or-less placeholders (greyed pills, not counted): ${placeholderCount} · counted invoices ${changes.reduce((t, x) => t + x.added, 0) - placeholderCount}`);
+    const paidMoved = changes.filter((x) => x.statusBefore === 'PAID' && x.statusAfter !== 'PAID');
+    say(`Paid orders whose status would change: ${paidMoved.length}${paidMoved.length ? ' (' + paidMoved.slice(0, 10).map((x) => x.order).join(', ') + ')' : ''}`);
+    say(`HELD, not linked (counted invoices would bill over the quotation total; finance list over-billed-real.csv): ${held.length} orders, over by S$${money(held.reduce((t, x) => t + x.overBy, 0))}`);
     say(`Not linked: quotation has no BC Air order ${noOrder.length} (S$${money(noOrder.reduce((t, x) => t + x.total, 0))}), several BC Air orders for the quotation ${several.length}`);
     say('Books / AR: unchanged in both companies (only the BC Air order\'s link list and status are written).');
     say('\nSamples (order | quotation | WCT (S) invoices | billed before -> after | quotation total | status):');
     for (const x of changes.filter((_, i) => i % Math.max(1, Math.floor(changes.length / 12)) === 0).slice(0, 12)) say(`  ${x.order} | ${x.quote} | ${x.invoices} | ${money(x.billedBefore)} -> ${money(x.billedAfter)} | ${money(x.quoteTotal)} | ${x.statusBefore} -> ${x.statusAfter}`);
     fs.mkdirSync(OUT, { recursive: true });
-    writeCsv(path.join(OUT, 'orders.csv'), ['order', 'quote', 'invoices', 'added', 'addedTotal', 'statusBefore', 'statusAfter', 'billedBefore', 'billedAfter', 'quoteTotal'], changes);
+    writeCsv(path.join(OUT, 'orders.csv'), ['order', 'quote', 'invoices', 'added', 'placeholders', 'addedTotal', 'statusBefore', 'statusAfter', 'billedBefore', 'billedAfter', 'quoteTotal'], changes);
+    writeCsv(path.join(OUT, 'over-billed-real.csv'), ['order', 'quote', 'invoices', 'billedBefore', 'billedAfter', 'quoteTotal', 'overBy'], held);
     writeCsv(path.join(OUT, 'no-bcair-order.csv'), ['invoice', 'quotation', 'total'], noOrder);
     writeCsv(path.join(OUT, 'several-orders.csv'), ['invoice', 'quotation', 'orders'], several);
     if (APPLY) {

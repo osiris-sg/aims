@@ -4,6 +4,7 @@
 // model from helpers/orderPage.ts (same sections, card keys, actions and Documents columns for both kinds) and hands
 // every click back to the page (WctOrderDetail), which owns the dialogs, menus and API calls.
 
+import { PLACEHOLDER_TIP } from "@/helpers/linkDoc";
 import React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -90,7 +91,7 @@ function Card({ card, n, onClick }: { card: OrderCard; n: number; onClick: (e: R
       )}
       {card.docs.length ? (
         card.docs.map((d, i) => (
-          <Typography key={i} variant="caption" component="div" sx={{ color: "text.secondary" }}>
+          <Typography key={i} variant="caption" component="div" title={d.placeholder ? PLACEHOLDER_TIP : undefined} sx={{ color: "text.secondary", ...(d.placeholder ? { opacity: 0.5 } : {}) }}>
             {d.href ? (
               <NumberLink href={d.href} label={d.label} />
             ) : (
@@ -336,7 +337,7 @@ export default function OrderPageLayout({
               const menu = docRowMenu(r, { manualFlow: m.manualFlow });
               const can = !!r.href || !!r.fileKey;
               return (
-                <TableRow key={r.key} hover sx={{ cursor: can ? "pointer" : "default" }} onClick={() => can && onRow(r)}>
+                <TableRow key={r.key} hover title={r.placeholder ? PLACEHOLDER_TIP : undefined} sx={{ cursor: can ? "pointer" : "default", ...(r.placeholder ? { opacity: 0.5 } : {}) }} onClick={() => can && onRow(r)}>
                   <TableCell sx={r.child ? { pl: 4 } : undefined}>
                     <Box component="span" sx={{ color: "text.secondary", mr: 0.75 }}>
                       {r.type}

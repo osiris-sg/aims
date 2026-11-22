@@ -20,7 +20,7 @@ import { toast } from "react-toastify";
 import { request } from "@/helpers/request";
 import { requestFailed } from "@/helpers/requestOutcome";
 import PickerDialog, { type PickerColumn } from "@/components/PickerDialog";
-import { chainSections, linkPills, linkedToastText, pickDate, pickMoney, pickerPath, pickerTabs, statusWords, unlinkConfirmText, type DocChain, type DocLinks, type LinkPill, type PageKind, type PickKind, type PickRow } from "@/helpers/linkDoc";
+import { PLACEHOLDER_TIP, chainSections, linkPills, linkedToastText, pickDate, pickMoney, pickerPath, pickerTabs, statusWords, unlinkConfirmText, type DocChain, type DocLinks, type LinkPill, type PageKind, type PickKind, type PickRow } from "@/helpers/linkDoc";
 
 const CHANGED = "aims:doc-links-changed";
 const announce = (documentId: string) => window.dispatchEvent(new CustomEvent(CHANGED, { detail: { documentId } }));
@@ -326,17 +326,26 @@ export function DocChainPanel({ documentId, page, onLinked }: { documentId: stri
                 {s.label}
               </Typography>
               <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
-                {s.items.map((i) => (
-                  <Chip
-                    key={i.id}
-                    size="small"
-                    label={i.name}
-                    color={i.id === documentId ? "primary" : "default"}
-                    variant={i.id === documentId ? "filled" : "outlined"}
-                    onClick={i.href && i.id !== documentId ? () => router.push(i.href!) : undefined}
-                    sx={{ maxWidth: "100%", fontWeight: 600 }}
-                  />
-                ))}
+                {s.items.map((i) => {
+                  const chip = (
+                    <Chip
+                      key={i.id}
+                      size="small"
+                      label={i.name}
+                      color={i.id === documentId ? "primary" : "default"}
+                      variant={i.id === documentId ? "filled" : "outlined"}
+                      onClick={i.href && i.id !== documentId ? () => router.push(i.href!) : undefined}
+                      sx={{ maxWidth: "100%", fontWeight: 600, ...(i.placeholder ? { opacity: 0.5, borderStyle: "dashed" } : {}) }}
+                    />
+                  );
+                  return i.placeholder ? (
+                    <Tooltip key={i.id} title={PLACEHOLDER_TIP}>
+                      {chip}
+                    </Tooltip>
+                  ) : (
+                    chip
+                  );
+                })}
                 {!s.items.length && !s.create && (
                   <Typography variant="body2" color="text.secondary">
                     None yet

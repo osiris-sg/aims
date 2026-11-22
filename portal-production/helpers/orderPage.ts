@@ -11,6 +11,7 @@ import { importedBilledPct, importedLinkSourceLabel, importedMoney, importedProg
 import { invoiceNowText, jobStatusLabel, orderStatusLabel } from "./wctOrders";
 import { flowDocStatus, flowOrderStatus } from "./wctStatusFlow";
 import { crossOrgHref, crossOrgLabel } from "./crossOrg";
+import { PLACEHOLDER_TIP } from "./linkDoc";
 
 export type OrderKind = "native" | "imported";
 export type OrderCardKey = "quotation" | "invoice" | "do" | "report";
@@ -30,6 +31,8 @@ export interface OrderCardDoc {
   label: string;
   status?: string | null;
   href?: string | null;
+  /** Another company's $1-or-less "(NG)" invoice: greyed, "placeholder, not counted" on hover (2026-11-23). */
+  placeholder?: boolean;
 }
 /** A card's click: its first document, else its add action (nothing for a card with neither). */
 export type OrderCardClick = { href: string } | { action: "add-do" | "service-report" | "create-invoice" } | null;
@@ -78,6 +81,8 @@ export interface OrderDocFile {
 }
 export interface OrderDocRow {
   key: string;
+  /** Another company's $1-or-less "(NG)" invoice: greyed, "placeholder, not counted" on hover (2026-11-23). */
+  placeholder?: boolean;
   kind: "quotation" | "invoice" | "creditNote" | "do" | "job" | "report" | "file";
   /** "Quotation", "Invoice", "DO", "Job", "Service report", "File". */
   type: string;
@@ -601,7 +606,11 @@ export function importedOrderPage(o: any, ctx: OrderPageContext = {}): OrderPage
     return i.crossOrg.canOpen && own ? crossOrgHref(i.crossOrg.orgId, own) : null;
   };
   const invLabel = (i: any) => (i.crossOrg ? crossOrgLabel(i.name, i.crossOrg.orgName) : i.name || "Invoice");
-  const invDocs: OrderCardDoc[] = invoices.map((i) => ({ label: invLabel(i), status: i.stateLabel ?? null, href: invHref(i) }));
+  const placeholders: any[] = o.crossPlaceholders ?? [];
+  const invDocs: OrderCardDoc[] = [
+    ...invoices.map((i) => ({ label: invLabel(i), status: i.stateLabel ?? null, href: invHref(i) })),
+    ...placeholders.map((i) => ({ label: invLabel(i), status: null, href: invHref(i), placeholder: true })),
+  ];
   const firstInvDate = invoices.map((i) => i.date).filter(Boolean).sort()[0] ?? null;
   const reportLabel = (l: string) => (l.startsWith("#") ? `Service report ${l}` : l);
   const canCreate = !!o.canInvoice && !draft;
@@ -707,6 +716,26 @@ export function importedOrderPage(o: any, ctx: OrderPageContext = {}): OrderPage
       unlinkBlocked: i.crossOrg ? UNLINK_BLOCKED.crossOrg : i.unlinkable ? null : UNLINK_BLOCKED.madeOnOrder,
       // An ERP invoice never; an AIMS one (made or linked here) while it is a draft with nothing paid.
       deletePath: i.native === true && deletableDraft(i) ? docDelete(i.id) : null,
+    });
+  }
+  // Cross-company placeholders: shown greyed, not counted in Billed / Left to bill / status.
+  for (const i of placeholders) {
+    documents.push({
+      key: `ip:${i.id}`,
+      kind: "invoice",
+      type: "Invoice",
+      number: invLabel(i),
+      note: PLACEHOLDER_TIP,
+      placeholder: true,
+      date: i.date ?? null,
+      status: "",
+      by: `${i.crossOrg?.orgName || "Other company"} (read only)`,
+      amount: i.total ?? null,
+      owed: null,
+      href: invHref(i),
+      file: null,
+      unlink: null,
+      unlinkBlocked: UNLINK_BLOCKED.crossOrg,
     });
   }
   for (const c of o.creditNotes ?? []) {

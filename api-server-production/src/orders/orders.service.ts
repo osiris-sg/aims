@@ -1081,7 +1081,8 @@ export class OrdersService {
       })),
     ];
     // Cross-company invoices (2026-11-23): a link only for a viewer who belongs to that company; else plain text.
-    const crossOrgIds = [...new Set(invDocs.filter((d: any) => d.crossOrg).map((d: any) => d.crossOrg.orgId))];
+    const placeholders: any[] = inputs.crossPlaceholderDocs ?? [];
+    const crossOrgIds = [...new Set([...invDocs, ...placeholders].filter((d: any) => d.crossOrg).map((d: any) => d.crossOrg.orgId))];
     const canOpen = crossOrgIds.length ? (viewer?.isAdmin ? new Set(crossOrgIds) : await memberOrgIds(this.prisma, viewer?.userId ?? null, crossOrgIds)) : new Set<string>();
     const jobReports: any[] = native?.jobReports ?? [];
     const attachments: any[] = native?.attachments ?? [];
@@ -1170,6 +1171,16 @@ export class OrdersService {
           ...(d.crossOrg ? { crossOrg: { orgId: d.crossOrg.orgId, orgName: d.crossOrg.orgName, canOpen: canOpen.has(d.crossOrg.orgId) }, unlinkable: false } : {}),
         };
       }),
+      // Another company's $1-or-less "(NG)" placeholders: greyed pills, not counted in Billed / Left to bill / status.
+      crossPlaceholders: placeholders.map((d: any) => ({
+        id: d.id,
+        name: d.name,
+        type: d.type,
+        templateId: d.documentTemplateId,
+        date: d.config?.date ?? null,
+        total: grossOf(d.config),
+        crossOrg: { orgId: d.crossOrg.orgId, orgName: d.crossOrg.orgName, canOpen: canOpen.has(d.crossOrg.orgId) },
+      })),
       creditNotes: inputs.creditNoteDocs.map((d: any) => ({ id: d.id, name: d.name, type: d.type, status: d.status, templateId: d.documentTemplateId, total: grossOf(d.config) })),
       total: st.total,
       owed: st.owed,

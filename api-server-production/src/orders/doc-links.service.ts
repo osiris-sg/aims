@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../common/prisma.service';
 import { grossOf } from '../common/document-money';
 import { docCustomerIdOf, holderRefusal, linkEntryOf, madeOnOrder, orderHoldersOf } from './imported-order-links';
-import { crossOrgInvoiceRefsOf, importedMarkerOf } from './imported-orders';
+import { crossOrgInvoiceRefsOf, importedMarkerOf, isCrossPlaceholder } from './imported-orders';
 import { groupOrgIds, memberOrgIds } from '../organizations/org-group';
 import { isWctOrdersEnabled, MARKED_COMPLETE, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
 import { MANUAL_ORDER_STATUS_LABEL, ManualOrderStatus } from './manual-order-flow';
@@ -51,6 +51,8 @@ export interface ChainDoc {
   name: string | null;
   type: string;
   href: string | null;
+  /** Another company's $1-or-less "(NG)" placeholder: shown greyed, not counted (2026-11-23). */
+  placeholder?: boolean;
 }
 
 /**
@@ -394,7 +396,7 @@ export class DocLinksService {
       for (const d of docsX.filter((x) => !isDeadConfig(x.config))) {
         const r = ok.find((x) => x.id === d.id)!;
         const own = docHref(d.type, d.documentTemplateId, d.id);
-        crossOut.push({ id: d.id, name: `${d.name ?? r.name ?? 'Invoice'} · ${r.orgName ?? 'other company'}`, type: d.type, href: canOpen.has(d.organizationId) && own ? `/portal/open-in-org?org=${encodeURIComponent(d.organizationId)}&to=${encodeURIComponent(own)}` : null });
+        crossOut.push({ id: d.id, name: `${d.name ?? r.name ?? 'Invoice'} · ${r.orgName ?? 'other company'}`, type: d.type, href: canOpen.has(d.organizationId) && own ? `/portal/open-in-org?org=${encodeURIComponent(d.organizationId)}&to=${encodeURIComponent(own)}` : null, ...(isCrossPlaceholder(d) ? { placeholder: true } : {}) });
       }
     }
     const open = o.status !== 'CANCELLED';
@@ -405,7 +407,7 @@ export class DocLinksService {
       dos: [...dos, ...erpOnly],
       invoices: [...invoices, ...crossOut],
       canCreateDo: open && dos.length + erpOnly.length === 0,
-      canCreateInvoice: open && invoices.length + crossOut.length === 0,
+      canCreateInvoice: open && invoices.length + crossOut.filter((x) => !x.placeholder).length === 0,
       direct,
     };
   }
