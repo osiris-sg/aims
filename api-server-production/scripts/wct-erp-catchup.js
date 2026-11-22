@@ -152,10 +152,19 @@ function mergeParts() {
   const lastQuoteId = maxId('QUOTATION');
   const lastInvoiceId = maxId('INVOICE');
   if (argv.includes('--print-pull')) {
+    // Overlap (2026-11-23, Elroy): read again from N days before the last pull (default 3), so a document dated
+    // in those days with an ERP id below the highest imported one is still picked up. Already-imported ids are
+    // skipped by the puller (ranges below); the dry run dedupes by ERP number. --since yyyy-mm-dd overrides.
+    const lastPull = (fs.existsSync(path.join(IMPORTS, 'erp-catchup')) ? fs.readdirSync(path.join(IMPORTS, 'erp-catchup')).filter((f) => /^\d{4}-\d{2}-\d{2}/.test(f)).map((f) => f.slice(0, 10)).sort() : []).pop() || '2026-11-04';
+    const since = one('--since') || new Date(Date.parse(lastPull + 'T00:00:00Z') - Number(one('--overlap-days', '3')) * 864e5).toISOString().slice(0, 10);
+    const below = (type) => Math.max(0, ...wctErp.filter((d) => d.type === type && /^\d+$/.test(d.erp.erpId) && String(d.date || '').slice(0, 10) < since).map((d) => Number(d.erp.erpId)));
+    const fromQuoteId = Math.min(lastQuoteId, below('QUOTATION'));
+    const fromInvoiceId = Math.min(lastInvoiceId, below('INVOICE'));
+    console.error(`last pull ${lastPull}; reading from ${since}: quotations above ERP id ${fromQuoteId} (highest imported ${lastQuoteId}), invoices above ${fromInvoiceId} (highest imported ${lastInvoiceId}); DOs from ${since < '2026-11-01' ? since : '2026-11-01'}`);
     // ERP ids already in AIMS within the last ~1,500 of each list, as "a-b" ranges (the puller skips them).
     const ranges = (ids, from) => { const xs = [...new Set(ids.filter((n) => n >= from))].sort((a, b) => a - b); const out = []; for (const n of xs) { const l = out[out.length - 1]; if (l && n === l[1] + 1) l[1] = n; else out.push([n, n]); } return out.map(([a, b]) => (a === b ? `${a}` : `${a}-${b}`)).join(','); };
     const idsOf = (type) => wctErp.filter((d) => d.type === type && /^\d+$/.test(d.erp.erpId)).map((d) => Number(d.erp.erpId));
-    const importedQuoteRanges = ranges(idsOf('QUOTATION'), lastQuoteId - 1500), importedInvoiceRanges = ranges(idsOf('INVOICE'), lastInvoiceId - 1500);
+    const importedQuoteRanges = ranges(idsOf('QUOTATION'), Math.min(fromQuoteId, lastQuoteId - 1500)), importedInvoiceRanges = ranges(idsOf('INVOICE'), Math.min(fromInvoiceId, lastInvoiceId - 1500));
     // Open imported invoices that carry a credit note: their Amount Due is read every run.
     const extraInvoiceIds = wctErp.filter((d) => d.type === 'INVOICE' && OPEN_INVOICE.has(d.erp.status) && String(d.erp.creditNote || '').trim() && /^\d+$/.test(d.erp.erpId)).map((d) => Number(d.erp.erpId));
     // Open quotations looked up by number each run: Sent ones, and Drafts dated within the last 6 months (older Drafts
@@ -172,7 +181,7 @@ function mergeParts() {
     // Only the DOs inside the pulled window (dated since 1 Nov) need skipping; the ~12,400 older ones are never listed.
     const doIds = (await q(`select config->'erpImport'->>'erpId' id from "Document" where "organizationId" = any($1) and type = 'DELIVERY_ORDER' and config->'erpImport'->>'source' = 'wct-erp' and coalesce(config->>'date', '') >= '2026-11-01'`, [Object.values(ORG)])).map((r) => Number(r.id)).filter(Boolean).sort((a, b) => a - b);
     // Delivery orders: every ERP DO dated since the cutover month (a few dozen a week; already imported ones are skipped).
-    console.log(`__erpCatchup({ lastQuoteId: ${lastQuoteId}, lastInvoiceId: ${lastInvoiceId}, cnSince: '${cnSince}', extraInvoiceIds: ${JSON.stringify(extraInvoiceIds)}, openQuoteNos: ${JSON.stringify(openQuoteNos)}, importedQuoteRanges: '${importedQuoteRanges}', importedInvoiceRanges: '${importedInvoiceRanges}', doFrom: '2026-11-01', doSkipIds: ${JSON.stringify(doIds)} })`);
+    console.log(`__erpCatchup({ lastQuoteId: ${fromQuoteId}, lastInvoiceId: ${fromInvoiceId}, cnSince: '${cnSince}', extraInvoiceIds: ${JSON.stringify(extraInvoiceIds)}, openQuoteNos: ${JSON.stringify(openQuoteNos)}, importedQuoteRanges: '${importedQuoteRanges}', importedInvoiceRanges: '${importedInvoiceRanges}', doFrom: '2026-11-01', doSkipIds: ${JSON.stringify(doIds)} })`);
     await c.end();
     return;
   }
@@ -303,7 +312,37 @@ function mergeParts() {
   const names = new Set(docs.filter((d) => d.org === ORG.WCT || d.org === ORG.BCAIR).map((d) => `${d.type}|${d.name}`));
   const clashOf = (r) => names.has(r.quotation_no ? `QUOTATION|Q${r.quotation_no}` : `INVOICE|${r.invoice_no}`);
   const clashRows = [...inQ, ...inI].filter(clashOf);
-  const qOk = inQ.filter((r) => !decidedOut.has(r.customer) && !clashOf(r)), iOk = inI.filter((r) => !decidedOut.has(r.customer) && !clashOf(r));
+  // Possible double bills (2026-11-23, Elroy): an AIMS-native invoice (any status, drafts included, not voided /
+  // cancelled) for the same customer + the same quotation + the same amount as a new ERP invoice. Nothing is
+  // imported for those ERP invoices and the AIMS document is not touched; they are listed for finance.
+  const qKey = (s) => { const m = String(s ?? '').match(/(\d{4,6})(?!.*\d)/); return m ? String(Number(m[1])) : ''; };
+  const nativeInv = await q(
+    `select d.id::text id, d."organizationId"::text org, d.name, d.status::text status, d.config->>'customerName' "customerName", d.config->'customer'->>'name' "customerName2",
+            coalesce(d.config->>'totalWithTax', d.config->>'nettTotal')::numeric total,
+            coalesce(nullif(d.config->>'sourceDocumentNumber', ''), nullif(d.config->>'quotationNo', ''), q.name) quote_no
+       from "Document" d
+       left join "Order" o on o.id::text = d.config->>'orderId'
+       left join "Document" q on q.id = o."sourceQuotationId"
+      where d."organizationId" = any($1) and d.type = 'INVOICE' and d.config->'erpImport' is null
+        and coalesce(d.config->>'voided', '') <> 'true' and coalesce(d.config->>'cancelled', '') <> 'true'`,
+    [Object.values(ORG)],
+  );
+  const doubleBills = [];
+  for (const r of inI) {
+    const rq = qKey(r.erp_quotation_no);
+    if (!rq) continue;
+    for (const d of nativeInv) {
+      const sameCust = [d.customerName, d.customerName2].some((n) => n && (n1(n) === n1(r.customer) || normName(n) === normName(r.customer)));
+      if (sameCust && qKey(d.quote_no) === rq && Math.abs(Number(d.total || 0) - num(r.total)) < 0.011) {
+        doubleBills.push({ erp_invoice: r.invoice_no, erp_date: r.date, erp_status: r.status, customer: r.customer, quotation: r.erp_quotation_no, total: num(r.total), aims_doc: d.name, aims_status: d.status, aims_org: ORG_NAME[d.org] });
+      }
+    }
+  }
+  const heldDouble = new Set(doubleBills.map((x) => x.erp_invoice));
+  say(`Possible double bills (AIMS-native invoice, same customer + quotation + amount): ${doubleBills.length ? doubleBills.length + ' HELD, not imported' : 'none'}`);
+  for (const x of doubleBills) say(`  HELD ERP ${x.erp_invoice} (${x.erp_date}, ${x.erp_status}, ${x.customer}, Q ${x.quotation}, $${money(x.total)}) ~ AIMS ${x.aims_org} ${x.aims_doc} (${x.aims_status})`);
+  writeCsv(path.join(OUT, 'possible-double-bills.csv'), ['erp_invoice', 'erp_date', 'erp_status', 'customer', 'quotation', 'total', 'aims_org', 'aims_doc', 'aims_status'], doubleBills);
+  const qOk = inQ.filter((r) => !decidedOut.has(r.customer) && !clashOf(r)), iOk = inI.filter((r) => !decidedOut.has(r.customer) && !clashOf(r) && !heldDouble.has(r.invoice_no));
   const lq = readCsv(path.join(OUT, 'wct-quote-lines.csv')), li = readCsv(path.join(OUT, 'wct-invoice-lines.csv'));
   writeCsv(path.join(impDir, 'wct-quotes-full.csv'), Q_COLS, qOk);
   writeCsv(path.join(impDir, 'wct-invoices-full.csv'), I_COLS, iOk.map((r) => ({ ...r, credit_note: cnList.filter((x) => x.invoice_no === r.invoice_no).map((x) => x.credit_note_no).join(' ') })));
