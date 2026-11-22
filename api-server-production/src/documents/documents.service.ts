@@ -1626,6 +1626,9 @@ export class DocumentsService {
         // a creator had set (Shipments "Create invoice" → contract currency,
         // 2026-10). Only an existing value is kept; none is invented.
         'currency',
+        // Link Document (WCT group, 2026-11-22): two documents on no order linked to each other (orders/doc-links.ts).
+        // Server-owned; the editor never sends it, so a bare save must not drop it.
+        'linkedDocs',
       ];
       // Only meaningful when the caller actually sent a config. A status-only
       // save (dto.config absent → configAsPlainObject null) has nothing to

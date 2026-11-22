@@ -92,6 +92,8 @@ import { AutoAwesome as AutoAwesomeIcon } from "@mui/icons-material";
 import CleanDocumentPreview from "./CleanDocumentPreview";
 import ServerDocumentPreview, { type ServerDocumentPreviewHandle } from "./ServerDocumentPreview";
 import { orderDocLine } from "@/helpers/wctOrders";
+import { LINK_DOC_FIELD, linkDocOn, pageKindOf as linkPageKindOf, quotationRemarksSplitOn, withLinkDocFields } from "@/helpers/linkDoc";
+import { DocChainPanel, LinkDocumentField } from "./LinkDocument";
 import { signedByDefault, withRackingUom } from "@/helpers/rackingQuote";
 import { resolveDesign as resolveTemplateDesign } from "@/app/portal/documents/design";
 import RouteOrderPointsEditor from "./RouteOrderPointsEditor";
@@ -1136,6 +1138,13 @@ export default function TabbedDocumentCreator({
       manualFlow: !!isManualOrderFlowEnabled,
       importedOrders: !!(orgFeatureFlags as any)?.enableImportedOrders,
     });
+  // Link Document (WCT group, 2026-11-22; helpers/linkDoc.ts): the QO / DO / Invoice "Link Document" row (pills + the
+  // big picker) and the doc chain panel on the left (enableWctOrders). The quotation's left Reference box becomes
+  // "Customer Remarks" (config.remarks, printed as Remarks) and its right box Internal remarks (never printed)
+  // (enableWctDocNav). Every other org: unchanged.
+  const linkPage = linkPageKindOf(isQuotation ? "QUOTATION" : isInvoiceTypeDoc ? "INVOICE" : isDeliveryOrder ? "DELIVERY_ORDER" : null);
+  const linkOn = !!linkPage && linkDocOn(linkPage, { wctOrders: !!isWctOrdersEnabled, templateEdit: isTemplateEditMode });
+  const remarksSplit = quotationRemarksSplitOn(linkPage, { wctDocNav: !!isWctDocNavEnabled, templateEdit: isTemplateEditMode });
   // The title bar: WCT group (enableWctDocNav) never cuts the title or squeezes the back arrow.
   const titleBar = editorTitleBar(!!isWctDocNavEnabled);
   // Quotation templates (enableQuotationTemplates, WCT group): "+ Add" becomes a
@@ -1622,6 +1631,9 @@ export default function TabbedDocumentCreator({
       || "",
     bankDetails: existingData?.bankDetails || "",
     remarks: existingData?.remarks || "",
+    // WCT quotation Internal remarks (2026-11-22): never printed.
+    // Undefined when the document has none, so no other org's save gains the key.
+    internalRemarks: (existingData as any)?.internalRemarks ?? (existingData as any)?.config?.internalRemarks ?? undefined,
     // Header GL (enableHeaderGlAccount): saved flat on the config.
     glAccountCode: existingData?.glAccountCode ?? existingData?.config?.glAccountCode ?? "",
     glAccountName: existingData?.glAccountName ?? existingData?.config?.glAccountName ?? "",
@@ -1649,6 +1661,8 @@ export default function TabbedDocumentCreator({
     ? formData.pvData?.notes || formData.pvData?.remarks || ""
     : isJournalVoucher
     ? formData.jvData?.notes || ""
+    : remarksSplit
+    ? (formData as any).internalRemarks || ""
     : (formData.documentInfo as any)?.referenceNo || "";
   const setDocRemarks = (next: string) =>
     setFormData((prev: any) =>
@@ -1658,6 +1672,9 @@ export default function TabbedDocumentCreator({
         ? { ...prev, pvData: { ...(prev.pvData || {}), notes: next, remarks: next } }
         : isJournalVoucher
         ? { ...prev, jvData: { ...(prev.jvData || {}), notes: next } }
+        : remarksSplit
+        ? // WCT quotation: the right box is Internal remarks (config.internalRemarks, never printed).
+          { ...prev, internalRemarks: next }
         : // Typed-over refs are no longer a picked quotation (Biofuel DO picker).
           { ...prev, remarks: next, documentInfo: { ...(prev.documentInfo || {}), referenceNo: next, referenceQuotationDate: null } },
     );
@@ -1970,7 +1987,52 @@ export default function TabbedDocumentCreator({
       sx={headerInputSx}
     />
   ) : null;
-  const orderRefMerge = (base?: Record<string, React.ReactNode>) => (orderRefField ? { ...(base || {}), "documentInfo.referenceNo": orderRefField, referenceNo: orderRefField } : base);
+  // Link Document (WCT group, 2026-11-22): the pills row + picker in place of the Reference combobox (DO / Invoice), and
+  // on a quotation the Customer Remarks box (config.remarks, printed as Remarks) with its own Link Document row.
+  const linkDocId = (documentId || (existingData as any)?.id || null) as string | null;
+  const linkDocField =
+    linkOn && linkPage ? (
+      <LinkDocumentField
+        documentId={linkDocId}
+        docName={formData.documentInfo?.documentNumber || (existingData as any)?.name || null}
+        page={linkPage}
+        offerFill={isInvoiceTypeDoc && !confirmedReadOnly && isEmptyItems(items as any[])}
+        onFill={(lines) => setItems(itemsFromLines(lines, Date.now()))}
+        onLinked={({ reference, customer }) =>
+          setFormData((prev: any) => {
+            let next: any = reference ? withReference(prev, reference) : prev;
+            if (customer && !prev?.customer?.id) {
+              next = {
+                ...next,
+                customer: { id: customer.id, name: customer.name || "", address: customer.address || "", email: customer.email || "", customerCode: customer.customerCode || "", gstRegNo: customer.gstRegNo || "" },
+                billTo: next.billTo || addressToBillTo(customer.address),
+              };
+            }
+            return next;
+          })
+        }
+        onUnlinked={({ orderNumber, clearedReference }) => {
+          if (clearedReference && orderNumber) setFormData((prev: any) => (String(referenceOf(prev) || "").startsWith(orderNumber) ? withReference(prev, "") : prev));
+        }}
+        sx={headerInputSx}
+      />
+    ) : null;
+  const customerRemarksField = remarksSplit ? (
+    <TextField
+      size="small"
+      fullWidth
+      value={(formData as any).remarks || ""}
+      onChange={(e) => setFormData((prev: any) => ({ ...prev, remarks: e.target.value }))}
+      disabled={lockReadOnly || confirmedReadOnly}
+      sx={{ ...headerInputSx, flex: 1 }}
+      inputProps={{ "data-tour": "quotation-customer-remarks" }}
+    />
+  ) : null;
+  const orderRefMerge = (base?: Record<string, React.ReactNode>) => {
+    if (remarksSplit) return { ...(base || {}), "documentInfo.referenceNo": customerRemarksField, referenceNo: customerRemarksField, ...(linkDocField ? { [LINK_DOC_FIELD]: linkDocField } : {}) };
+    const refField = linkDocField || orderRefField;
+    return refField ? { ...(base || {}), "documentInfo.referenceNo": refField, referenceNo: refField } : base;
+  };
   // Mirror the committed state for the undo machinery. The wrappers run
   // BEFORE React applies the update, so at push time this still holds the
   // pre-edit values — exactly what a snapshot should capture.
@@ -5180,7 +5242,8 @@ export default function TabbedDocumentCreator({
               ? existingData?.name || `${getDocumentTitle()} Template`
               : formData.documentInfo?.documentNumber || formData.name || `${getDocumentTitle()} - New`}
           </Typography>
-          {!isTemplateEditMode && orderDocLine(existingData, documentType) && (
+          {/* WCT group (enableWctDocNav, 2026-11-22): no "Order ... Quotation ..." text here; the doc chain panel shows it. */}
+          {!isTemplateEditMode && !isWctDocNavEnabled && orderDocLine(existingData, documentType) && (
             <Typography variant="caption" color="text.secondary" noWrap={titleBar.noWrap} sx={{ minWidth: 0, flexShrink: 1, fontVariantNumeric: "tabular-nums" }} data-tour="editor-order-no">
               {orderDocLine(existingData, documentType)}
             </Typography>
@@ -6311,6 +6374,9 @@ export default function TabbedDocumentCreator({
                           fields = [...fields, { fieldName: "deliveryTo", displayLabel: "Deliver To", fieldType: "textarea", required: false }];
                         }
                       }
+                      // Link Document / Customer Remarks (WCT group, 2026-11-22): relabel the Reference row and add the
+                      // quotation's Link Document row (helpers/linkDoc.ts). Untouched for every other org.
+                      if (tab.tabId === "general") fields = withLinkDocFields(fields, { page: linkPage, linkOn, remarksSplit });
                       return fields;
                     })()}
                     formData={formData}
@@ -7176,9 +7242,11 @@ export default function TabbedDocumentCreator({
           <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>
             {/* Legacy left-rail modules, aligned to the top of the items table
                 and sitting in the left page margin (guru 2026-11-17). */}
-            {invoiceRailButtons.length > 0 && (
+            {(invoiceRailButtons.length > 0 || (linkOn && linkPage)) && (
               <Box sx={{ position: "absolute", left: "-192px", top: 0, zIndex: 2, display: { xs: "none", md: "block" } }}>
-                <EditorRail buttons={invoiceRailButtons} />
+                {invoiceRailButtons.length > 0 && <EditorRail buttons={invoiceRailButtons} />}
+                {/* Doc chain (WCT group, 2026-11-22): Order, QO, DO(s), Invoice(s), like the old ERP's side list. */}
+                {linkOn && linkPage && <DocChainPanel documentId={linkDocId} page={linkPage} />}
               </Box>
             )}
             <Card sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
@@ -8528,7 +8596,7 @@ export default function TabbedDocumentCreator({
           </Box>
           {/* The Remarks memo, right of every editor (guru 2026-11-21): on the vouchers it is the
               old To-Do List memo, now called what it is. */}
-          {!isTemplateEditMode && <DocRemarksMemo value={docRemarks} onChange={setDocRemarks} disabled={lockReadOnly || confirmedReadOnly} />}
+          {!isTemplateEditMode && <DocRemarksMemo value={docRemarks} onChange={setDocRemarks} disabled={lockReadOnly || confirmedReadOnly} title={remarksSplit ? "Internal remarks" : "Remarks"} />}
           </Box>
           </Box>
         ) : (

@@ -120,6 +120,8 @@ export function transformFormDataForBackend(
   // Add any additional flat fields that might exist in form
   const flatFields = [
     'note', 'termsAndConditions', 'remarks', 'agreementText',
+    // WCT quotation Internal remarks (2026-11-22, helpers/linkDoc.ts): saved, never printed.
+    'internalRemarks',
     // Doc footer message (Doc Defaults footer / per-quote edit). Persist it so a
     // per-document footer edit survives save/reload (inherit-when-empty handles
     // the default; the edit wins once set).
