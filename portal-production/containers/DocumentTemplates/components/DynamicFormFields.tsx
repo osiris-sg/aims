@@ -799,6 +799,8 @@ interface SalesmanCodeFieldProps {
   onOpenDialog?: (fieldName?: string) => void;
   inputSx: any;
   fieldName: string; // e.g., "documentInfo.salesPerson" or "documentInfo.purchaserCode"
+  // WCT (adaptivePairs): a long name ends in "…" with the full name on hover instead of running past the card.
+  clipName?: boolean;
 }
 
 // Helper to get nested value from object path
@@ -819,7 +821,7 @@ const setNestedVal = (obj: any, path: string, value: any) => {
   return newObj;
 };
 
-function SalesmanCodeField({ salesmen, formData, setFormData, onOpenDialog, inputSx, fieldName }: SalesmanCodeFieldProps) {
+function SalesmanCodeField({ salesmen, formData, setFormData, onOpenDialog, inputSx, fieldName, clipName }: SalesmanCodeFieldProps) {
   // Extract salesmen array - handle both direct array and response object with data property
   const salesmenArray = React.useMemo(() => {
     if (Array.isArray(salesmen)) {
@@ -875,7 +877,7 @@ function SalesmanCodeField({ salesmen, formData, setFormData, onOpenDialog, inpu
   };
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', flex: 1, gap: 1 }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', flex: 1, gap: 1, ...(clipName ? { minWidth: 0 } : {}) }}>
       <TextField
         // A matched salesman shows their code (blank when they have none,
         // the name echo beside identifies them); otherwise the typed text.
@@ -905,7 +907,10 @@ function SalesmanCodeField({ salesmen, formData, setFormData, onOpenDialog, inpu
         }}
       />
       {selectedSalesman?.name && (
-        <Typography sx={{ fontSize: '13px', fontWeight: 700, fontFamily: fieldFontFamily, whiteSpace: 'nowrap' }}>
+        <Typography
+          title={clipName ? selectedSalesman.name : undefined}
+          sx={{ fontSize: '13px', fontWeight: 700, fontFamily: fieldFontFamily, whiteSpace: 'nowrap', ...(clipName ? { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' } : {}) }}
+        >
           {selectedSalesman.name}
         </Typography>
       )}
@@ -1236,6 +1241,7 @@ export default function DynamicFormFields({
             onOpenDialog={onOpenSalesmanDialog}
             inputSx={inputSx}
             fieldName={field.fieldName}
+            clipName={adaptivePairs}
           />
         );
 
