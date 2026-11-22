@@ -6,6 +6,7 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { IdCell } from "@/components/IdCell";
 import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import { kebabColumn } from "@/components/RowKebab";
 import type { FilterField } from "@/components/FilterDrawer";
@@ -88,7 +89,7 @@ function LegacyProjectsPage() {
   const [isDeleting, setIsDeleting] = useState(false);
 
   const columns = [
-    { id: "id", accessorKey: "id", header: "Project ID", cell: (info: any) => info.getValue() },
+    { id: "id", accessorKey: "id", header: "Project ID", cell: (info: any) => <IdCell>{info.getValue()}</IdCell> },
     { id: "name", accessorKey: "name", header: "Project Name", cell: (info: any) => info.getValue() },
     { id: "customer", accessorKey: "customer", header: "Customer", cell: ({ row }: { row: any }) => <Typography variant="body2">{row.original.customer?.name ?? "N/A"}</Typography> },
     { id: "siteOffice", accessorKey: "siteOffice", header: "Site Office", cell: ({ row }: { row: any }) => <Typography variant="body2">{row.original.siteOffice?.name ?? "N/A"}</Typography> },

@@ -25,22 +25,20 @@ export function lineColumnWidth(columnId: string, narrowSno = false): string {
       return "auto";
     case "item":
       return "10%";
+    // Number columns are fixed in px (2026-11-21, guru: "a lot of things are going
+    // beyond their row"): at 8% of a narrow table the 80-90px number boxes ran
+    // into the next column. Description ("auto") absorbs whatever is left.
     case "uom":
-      return "8%";
+      return "106px"; // its text box is 90px + cell padding
     case "quantity":
-      return "8%";
-    case "unitPrice":
-      return "10%";
-    case "salePrice":
-      return "10%";
     case "tax":
-      return "8%";
-    case "discount":
-      return "11%";
+      return "96px";
+    case "unitPrice":
+    case "salePrice":
     case "amount":
-      return "10%";
+    case "discount":
     case "receivedQty":
-      return "10%";
+      return "112px";
     default:
       return "auto";
   }

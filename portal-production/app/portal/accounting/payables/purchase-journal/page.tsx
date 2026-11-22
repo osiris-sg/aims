@@ -407,17 +407,6 @@ export default function BillsPage() {
         );
       },
     },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }: any) => {
-        const s = row.original.status as Bill["status"];
-        // guru 2026-07-24 status model: DRAFT reads "Unconfirmed", POSTED
-        // (confirmed, unpaid) reads "Awaiting Payment".
-        const label = s === "DRAFT" ? "UNCONFIRMED" : s === "POSTED" ? "AWAITING PAYMENT" : s.replace("_", " ");
-        return <Chip size="small" variant="outlined" color={STATUS_COLOR[s] || "default"} label={label} sx={{ fontSize: "0.7rem" }} />;
-      },
-    },
     // Xero sync column only for orgs with enableXeroDocSync (Biofuel) — other
     // orgs don't sync docs to Xero, so "Not synced" everywhere is just noise.
     ...(isXeroDocSyncEnabled ? [{
@@ -442,6 +431,17 @@ export default function BillsPage() {
       cell: ({ row }: any) => (
         <Box sx={{ fontSize: "0.7rem", color: "text.secondary" }}>{row.original.inboundChannel || "MANUAL"}</Box>
       ),
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }: any) => {
+        const s = row.original.status as Bill["status"];
+        // guru 2026-07-24 status model: DRAFT reads "Unconfirmed", POSTED
+        // (confirmed, unpaid) reads "Awaiting Payment".
+        const label = s === "DRAFT" ? "UNCONFIRMED" : s === "POSTED" ? "AWAITING PAYMENT" : s.replace("_", " ");
+        return <Chip size="small" variant="outlined" color={STATUS_COLOR[s] || "default"} label={label} sx={{ fontSize: "0.7rem" }} />;
+      },
     },
     kebabColumn((b: Bill) => {
       // A credit / debit note is managed in its own editor (void, duplicate…);

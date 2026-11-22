@@ -465,7 +465,7 @@ export function JournalVoucherLinesSection({
                     <TableCell sx={{ ...headCellSx, width: 170 }}>Account code</TableCell>
                     <TableCell sx={headCellSx}>Description</TableCell>
                     <TableCell sx={headCellSx}>Remarks</TableCell>
-                    {gstOrg && <TableCell sx={{ ...headCellSx, width: 190 }}>Tax Rate</TableCell>}
+                    {gstOrg && <TableCell sx={{ ...headCellSx, width: 96 }}>Tax</TableCell>}
                     <TableCell sx={{ ...headCellSx, textAlign: "right", width: 150 }}>Debit</TableCell>
                     <TableCell sx={{ ...headCellSx, textAlign: "right", width: 150 }}>Credit</TableCell>
                     <TableCell sx={{ ...headCellSx, width: 44 }} />
@@ -535,16 +535,16 @@ export function JournalVoucherLinesSection({
                                   const t = taxRates.find((x) => x.code === e.target.value);
                                   patchLine(l.id, { taxCode: t ? t.code : null, taxRate: t ? t.rate : 0 });
                                 }}
-                                renderValue={(v) => {
-                                  const t = taxRates.find((x) => x.code === v);
-                                  return t ? `${t.name} (${t.rate}%)` : "No Tax (0%)";
-                                }}
+                                // Same look as the document header's tax-code box (guru 2026-11-21:
+                                // "for the JV tax column follow this instead"): the box shows the CODE,
+                                // the list reads "1 - Output Tax  9.00 %".
+                                renderValue={(v) => (v ? String(v) : "—")}
                                 sx={{ fontSize: "0.8125rem" }}
                               >
-                                <MenuItem value="">No Tax (0%)</MenuItem>
+                                <MenuItem value="" sx={{ fontSize: "13px" }}>— No Tax</MenuItem>
                                 {taxRates.map((t) => (
-                                  <MenuItem key={t.code} value={t.code}>
-                                    {t.name} ({t.rate}%)
+                                  <MenuItem key={t.code} value={t.code} sx={{ fontSize: "13px" }}>
+                                    {t.code} - {t.name}{t.rate > 0 ? `  ${t.rate.toFixed(2)} %` : ""}
                                   </MenuItem>
                                 ))}
                               </Select>

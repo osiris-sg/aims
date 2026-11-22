@@ -174,14 +174,14 @@ export default function IdQuotationList() {
         },
       },
       {
-        accessorKey: "status",
-        header: "Status",
-        cell: ({ row }: any) => <StatusChip status={row.original.status} />,
-      },
-      {
         accessorKey: "createdAt",
         header: "Created",
         cell: ({ row }: any) => <Typography variant="body2">{moment(row.original.createdAt).format("DD/MM/YYYY")}</Typography>,
+      },
+      {
+        accessorKey: "status",
+        header: "Status",
+        cell: ({ row }: any) => <StatusChip status={row.original.status} />,
       },
       kebabColumn((d: any) => [
         { label: "Open", onClick: () => router.push(quotationUrl(d)) },

@@ -330,26 +330,6 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
   const plain = (v: any) => (v == null || v === "" ? "" : v);
   const columns: any[] = [
     {
-      id: "status",
-      accessorFn: (o: WctOrderRow) => hubStatusSortValue(o.status),
-      header: "Status",
-      size: 11,
-      cell: ({ row }: any) => {
-        const info = hubStatusInfo(row.original.status);
-        if (row.original.imported) return <StatusPill label={row.original.statusLabel || info.label} color="default" hue={importedStatusHue(row.original.status)} />;
-        if (isWctStatusFlowEnabled) {
-          const f = flowOrderStatus(row.original);
-          // One colour per order status: amber while anything is left to do, green when done, red when cancelled.
-          return <StatusPill label={f.label} color="default" hue={f.key === "completed" ? "#16a34a" : f.key === "cancelled" ? "#ef4444" : "#f59e0b"} />;
-        }
-        return (
-          <Box sx={{ "& .MuiChip-label": { whiteSpace: "nowrap", overflow: "visible" }, "& .MuiChip-root": { maxWidth: "none" } }}>
-            <StatusPill label={orderStatusLabel(row.original.status) || info.label} color={orderStatusColor(row.original.status)} hue={info.hue} />
-          </Box>
-        );
-      },
-    },
-    {
       accessorKey: "orderNumber",
       header: "Order no.",
       size: 10,
@@ -422,6 +402,26 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
         ]
       : []),
     { id: "createdAt", accessorFn: (o: WctOrderRow) => new Date(o.createdAt).getTime(), header: "Created", size: 8, cell: ({ row }: any) => <Box sx={{ whiteSpace: "nowrap" }}>{moment(row.original.createdAt).format("DD/MM/YYYY")}</Box> },
+    {
+      id: "status",
+      accessorFn: (o: WctOrderRow) => hubStatusSortValue(o.status),
+      header: "Status",
+      size: 11,
+      cell: ({ row }: any) => {
+        const info = hubStatusInfo(row.original.status);
+        if (row.original.imported) return <StatusPill label={row.original.statusLabel || info.label} color="default" hue={importedStatusHue(row.original.status)} />;
+        if (isWctStatusFlowEnabled) {
+          const f = flowOrderStatus(row.original);
+          // One colour per order status: amber while anything is left to do, green when done, red when cancelled.
+          return <StatusPill label={f.label} color="default" hue={f.key === "completed" ? "#16a34a" : f.key === "cancelled" ? "#ef4444" : "#f59e0b"} />;
+        }
+        return (
+          <Box sx={{ "& .MuiChip-label": { whiteSpace: "nowrap", overflow: "visible" }, "& .MuiChip-root": { maxWidth: "none" } }}>
+            <StatusPill label={orderStatusLabel(row.original.status) || info.label} color={orderStatusColor(row.original.status)} hue={info.hue} />
+          </Box>
+        );
+      },
+    },
     {
       id: "menu",
       header: "",

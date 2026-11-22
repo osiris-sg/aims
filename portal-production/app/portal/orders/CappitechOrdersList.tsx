@@ -7,6 +7,7 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { idCellSx } from "@/components/IdCell";
 import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import type { FilterField } from "@/components/FilterDrawer";
 import { Box, Chip, IconButton, Stack, Tooltip, Typography } from "@mui/material";
@@ -148,7 +149,7 @@ export function CappitechOrdersList() {
       header: "Order No.",
       size: 13,
       cell: ({ row }: any) => (
-        <Typography variant="body2" sx={{ fontWeight: 500 }}>{row.original.orderNumber}</Typography>
+        <Typography variant="body2" sx={idCellSx}>{row.original.orderNumber}</Typography>
       ),
     },
     hasAnyCustomer
@@ -231,6 +232,12 @@ export function CappitechOrdersList() {
       cell: ({ row }: any) => <VerifiedColumnChip items={row.original.items} kind="verifiedInv" />,
     },
     {
+      accessorKey: "createdAt",
+      header: "Created",
+      size: 9,
+      cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
+    },
+    {
       accessorKey: "status",
       header: "Status",
       size: 8,
@@ -242,12 +249,6 @@ export function CappitechOrdersList() {
           sx={{ textTransform: "capitalize" }}
         />
       ),
-    },
-    {
-      accessorKey: "createdAt",
-      header: "Created",
-      size: 9,
-      cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
     },
   ] as Array<any>).filter(Boolean);
 

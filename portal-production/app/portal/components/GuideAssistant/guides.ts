@@ -209,7 +209,7 @@ export const GUIDES: Guide[] = [
         selector: '[data-tour="editor-confirm"]',
         patient: true,
         title: 'Save, then confirm or send for e-signature',
-        body: 'Save keeps it as a draft. Confirm Quotation accepts it on the customer\'s behalf; Send Email or the sign link lets the customer accept online. Once accepted, a draft delivery schedule is created for the job automatically (orgs with quotation-to-delivery).',
+        body: 'Save keeps it as a draft. Confirm accepts it on the customer\'s behalf; Send Email or the sign link lets the customer accept online. Once accepted, a draft delivery schedule is created for the job automatically (orgs with quotation-to-delivery).',
       },
     ],
   },

@@ -135,14 +135,6 @@ export default function IdProjectList() {
       },
       { id: "contractNo", header: "Contract", cell: ({ row }: any) => <Typography variant="body2">{row.original.contractNo || "—"}</Typography> },
       { id: "designer", header: "Designer", cell: ({ row }: any) => <Typography variant="body2">{row.original.designer || "—"}</Typography> },
-      {
-        id: "stage",
-        header: "Stage",
-        cell: ({ row }: any) => {
-          const s = row.original.stage;
-          return s ? <Chip size="small" variant="outlined" color={STAGE_COLOR[s] || "default"} label={STAGE_LABEL[s] || s} /> : <Chip size="small" variant="outlined" label="Not signed" sx={{ color: "text.secondary" }} />;
-        },
-      },
       { id: "contract", header: "Contract (S$)", cell: ({ row }: any) => <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", textAlign: "right" }}>{money(row.original.contractTotal)}</Typography> },
       { id: "collected", header: "Collected", cell: ({ row }: any) => <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", textAlign: "right", color: "success.main" }}>{money(row.original.collected)}</Typography> },
       { id: "outstanding", header: "Outstanding", cell: ({ row }: any) => <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums", textAlign: "right", color: row.original.outstanding > 0 ? "warning.main" : "text.secondary" }}>{money(row.original.outstanding)}</Typography> },
@@ -165,6 +157,14 @@ export default function IdProjectList() {
         ),
       },
       { id: "started", header: "Started", cell: ({ row }: any) => <Typography variant="body2">{fmtDate(row.original.startDate || row.original.createdAt)}</Typography> },
+      {
+        id: "stage",
+        header: "Stage",
+        cell: ({ row }: any) => {
+          const s = row.original.stage;
+          return s ? <Chip size="small" variant="outlined" color={STAGE_COLOR[s] || "default"} label={STAGE_LABEL[s] || s} /> : <Chip size="small" variant="outlined" label="Not signed" sx={{ color: "text.secondary" }} />;
+        },
+      },
       ...(canDelete
         ? [
             kebabColumn((r: any) => [

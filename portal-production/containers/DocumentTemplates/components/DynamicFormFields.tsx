@@ -594,7 +594,7 @@ function CustomerCodeField({
 
   return (
     // data-tour: anchor for AIMS Guide walkthroughs (customer step)
-    <Box data-tour="editor-customer" sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', flex: 1, gap: 1 }}>
+    <Box data-tour="editor-customer" sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', flex: 1, minWidth: 0, gap: 1 }}>
       <TextField
         value={selectedCustomer ? (selectedCustomer.customerCode || '') : customerCodeInput}
         onChange={(e) => {
@@ -643,7 +643,8 @@ function CustomerCodeField({
           '';
         return echoName ? (
           <Typography
-            sx={{ fontSize: '13px', fontWeight: 700, fontFamily: fieldFontFamily, whiteSpace: 'nowrap' }}
+            // Wraps inside the column instead of pushing the row past its border (2026-11-21).
+            sx={{ fontSize: '13px', fontWeight: 700, fontFamily: fieldFontFamily, minWidth: 0, overflowWrap: 'anywhere' }}
           >
             {echoName}
           </Typography>
@@ -1397,7 +1398,8 @@ export default function DynamicFormFields({
       }}
     >
       <Typography sx={leftLabelSx}>{field.displayLabel}</Typography>
-      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', maxWidth: HEADER_INPUT_MAX_WIDTH[field.fieldName] }}>
+      {/* pr: the input never runs into the column divider (guru 2026-11-21: "a lot of things are going beyond their row"). */}
+      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', pr: 1, maxWidth: HEADER_INPUT_MAX_WIDTH[field.fieldName] }}>
         {customInputs?.[field.fieldName] ?? renderInput(field)}
       </Box>
     </Box>
@@ -1688,7 +1690,7 @@ export default function DynamicFormFields({
       sx={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, ...(withRightBorder ? { borderRight: { md: 1 }, borderColor: 'divider' } : {}) }}
     >
       <Typography sx={pairLabelSx}>{field.displayLabel}</Typography>
-      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', minWidth: 0 }}>
+      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', minWidth: 0, pr: 1 }}>
         {customInputs?.[field.fieldName] ?? renderInput(field)}
       </Box>
     </Box>
@@ -1734,7 +1736,7 @@ export default function DynamicFormFields({
         {appendRow && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, borderBottom: 1, borderColor: 'divider' }}>
             <Typography sx={leftLabelSx}>{appendRow.label}</Typography>
-            <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', gap: 1, py: 0.25 }}>
+            <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', gap: 1, py: 0.25, pr: 1 }}>
               {appendRow.content}
             </Box>
           </Box>

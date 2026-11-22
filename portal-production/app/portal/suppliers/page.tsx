@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useGetSuppliers, useDeleteSupplier } from "@/app/portal/hooks/api/useSuppliers";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { IdCell } from "@/components/IdCell";
 import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
 import { kebabColumn } from "@/components/RowKebab";
@@ -43,7 +44,7 @@ export default function SuppliersPage() {
       id: "supplierCode",
       accessorKey: "supplierCode",
       header: "Supplier Code",
-      cell: (info: any) => info.getValue() || "-",
+      cell: (info: any) => <IdCell>{info.getValue() || "-"}</IdCell>,
     },
     {
       id: "name",

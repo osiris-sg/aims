@@ -20,6 +20,7 @@ import {
 import { toast } from "react-toastify";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { IdCell } from "@/components/IdCell";
 import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import { useClientSort } from "@/components/clientSort";
 import { kebabColumn } from "@/components/RowKebab";
@@ -188,7 +189,7 @@ export default function MasterFilesServices() {
       id: "code",
       accessorKey: "code",
       header: "Service Code",
-      cell: (info: any) => info.getValue() || "-",
+      cell: (info: any) => <IdCell>{info.getValue() || "-"}</IdCell>,
     },
     {
       id: "name",

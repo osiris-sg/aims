@@ -10,7 +10,7 @@ test("Back to order: shown with the setting off (other orgs), gone with it on", 
 });
 
 test("line column widths with the setting off are the editor's old map (S/No auto like any custom column)", () => {
-  const old = { description: "auto", item: "10%", uom: "8%", quantity: "8%", unitPrice: "10%", salePrice: "10%", tax: "8%", discount: "11%", amount: "10%", receivedQty: "10%", no: "auto", remarks: "auto", location: "auto" };
+  const old = { description: "auto", item: "10%", uom: "106px", quantity: "96px", unitPrice: "112px", salePrice: "112px", tax: "96px", discount: "112px", amount: "112px", receivedQty: "112px", no: "auto", remarks: "auto", location: "auto" };
   for (const [col, w] of Object.entries(old)) assert.equal(lineColumnWidth(col, false), w, col);
   assert.equal(lineColumnWidth("no"), "auto");
   assert.equal(isNarrowSnoCell("no", false), false);

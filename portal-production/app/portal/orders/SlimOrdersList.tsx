@@ -7,6 +7,7 @@ import { useOrganization } from "@hooks/useOrganization";
 import { request } from "@/helpers/request";
 import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
+import { idCellSx } from "@/components/IdCell";
 import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import { Box, Chip, IconButton, Tab, Tabs, Typography } from "@mui/material";
 import moment from "moment";
@@ -182,7 +183,7 @@ export default function SlimOrdersList() {
       header: "Order No.",
       size: 12,
       cell: ({ row }: any) => (
-        <Typography variant="body2" sx={{ fontWeight: 500 }}>{row.original.orderNumber}</Typography>
+        <Typography variant="body2" sx={idCellSx}>{row.original.orderNumber}</Typography>
       ),
     },
     {
@@ -210,6 +211,12 @@ export default function SlimOrdersList() {
       cell: ({ row }: any) => (Array.isArray(row.original.items) ? row.original.items.length : 0),
     },
     {
+      accessorKey: "createdAt",
+      header: "Created",
+      size: 9,
+      cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
+    },
+    {
       accessorKey: "status",
       header: "Status",
       size: 9,
@@ -221,12 +228,6 @@ export default function SlimOrdersList() {
           sx={{ textTransform: "capitalize" }}
         />
       ),
-    },
-    {
-      accessorKey: "createdAt",
-      header: "Created",
-      size: 9,
-      cell: ({ row }: any) => moment(row.original.createdAt).format("DD/MM/YYYY"),
     },
   ];
 

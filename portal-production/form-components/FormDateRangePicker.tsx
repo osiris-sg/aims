@@ -1,142 +1,125 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-/* eslint-disable @typescript-eslint/no-explicit-any */
+"use client";
+/*
+ * Date range for the Filter drawer and the project / inventory forms
+ * (guru 2026-11-21: "fix the UI of the date range").
+ *
+ * It used to open react-date-range in a dialog painted with the tertiary
+ * colour: a green box, a white preset list with white text, "Early" /
+ * "Continuous" placeholders, a calendar that ignored the theme. Now it is the
+ * portal's own DateInput twice (From / To, dd/mm/yyyy, the same picker every
+ * date field uses) plus one row of quick ranges as chips. No dialog; the value
+ * is reported on every change, so the drawer's Apply still decides when it
+ * takes effect. Same props as before, so every caller is unchanged.
+ */
 import React from "react";
-import { format } from "date-fns";
-import { enUS } from "date-fns/locale";
-import "react-date-range/dist/styles.css"; // main style file
-import "react-date-range/dist/theme/default.css"; // theme css file
-import { Box, Button, Dialog, IconButton, InputLabel, Stack, Typography, useTheme } from "@mui/material";
-import { IconCalendarStats, IconX } from "@tabler/icons-react";
-import { dateContainerStyles, StyledDateRangePicker } from "./styles/date-range-picker-styles";
+import { Box, Button, Chip, InputLabel, Stack } from "@mui/material";
+import DateInput from "@/components/DateInput";
+
+type Range = { startDate: Date | null; endDate: Date | null };
 
 interface Props {
-  onConfirm?: (value: any) => void;
-  value: { startDate: Date | null; endDate: Date | null };
+  onConfirm?: (value: Range & { key: "selection" }) => void;
+  value: { startDate: Date | null | undefined; endDate: Date | null | undefined } | any;
   label: string;
 }
 
-export default function DateRangePicker(props: Props) {
-  const { onConfirm = (value: any) => {}, value, label } = props;
-  const theme = useTheme();
+/** A Date, a moment, an ISO string or nothing → a Date at local midnight, or null. */
+function toDate(v: any): Date | null {
+  if (!v) return null;
+  const d: Date = typeof v?.toDate === "function" ? v.toDate() : v instanceof Date ? v : new Date(v);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+const pad = (n: number) => String(n).padStart(2, "0");
+/** Date → "yyyy-mm-dd" for DateInput (its wire format), "" when empty. */
+const ymd = (d: Date | null) => (d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` : "");
+/** "yyyy-mm-dd" → local-midnight Date, null when empty. */
+const fromYmd = (s: string): Date | null => {
+  if (!s) return null;
+  const [y, m, d] = s.split("-").map(Number);
+  return y && m && d ? new Date(y, m - 1, d) : null;
+};
+const sameDay = (a: Date | null, b: Date | null) => (!a && !b) || (!!a && !!b && a.getTime() === b.getTime());
 
-  const [state, setState] = React.useState([
-    {
-      startDate: value.startDate ?? undefined, // Use undefined if null
-      endDate: value.endDate ?? undefined, // Use undefined if null
-      key: "selection",
-    },
-  ]);
-  const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
+/** The quick ranges, computed at click time. Weeks run Monday → Sunday. */
+const PRESETS: { key: string; label: string; range: () => Range }[] = [
+  { key: "today", label: "Today", range: () => { const t = today(); return { startDate: t, endDate: t }; } },
+  { key: "yesterday", label: "Yesterday", range: () => { const t = addDays(today(), -1); return { startDate: t, endDate: t }; } },
+  { key: "thisWeek", label: "This week", range: () => { const s = startOfWeek(today()); return { startDate: s, endDate: addDays(s, 6) }; } },
+  { key: "lastWeek", label: "Last week", range: () => { const s = addDays(startOfWeek(today()), -7); return { startDate: s, endDate: addDays(s, 6) }; } },
+  { key: "thisMonth", label: "This month", range: () => { const t = today(); return { startDate: new Date(t.getFullYear(), t.getMonth(), 1), endDate: new Date(t.getFullYear(), t.getMonth() + 1, 0) }; } },
+  { key: "lastMonth", label: "Last month", range: () => { const t = today(); return { startDate: new Date(t.getFullYear(), t.getMonth() - 1, 1), endDate: new Date(t.getFullYear(), t.getMonth(), 0) }; } },
+  { key: "thisYear", label: "This year", range: () => { const t = today(); return { startDate: new Date(t.getFullYear(), 0, 1), endDate: new Date(t.getFullYear(), 11, 31) }; } },
+];
+function today(): Date { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()); }
+function addDays(d: Date, n: number): Date { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+function startOfWeek(d: Date): Date { const dow = (d.getDay() + 6) % 7; return addDays(d, -dow); }
 
-  const handleClick = (event: React.MouseEvent<HTMLElement>) => {
-    setAnchorEl(event.currentTarget);
-  };
+export default function DateRangePicker({ onConfirm, value, label }: Props) {
+  const start = toDate(value?.startDate);
+  const end = toDate(value?.endDate);
 
-  const handleDateChange = (item: any) => {
-    if (item.selection) {
-      const { startDate, endDate } = item.selection;
-      setState([
-        {
-          startDate: startDate ?? undefined, // Use undefined if null
-          endDate: endDate ?? undefined, // Use undefined if null
-          key: "selection",
-        },
-      ]);
-    }
-  };
+  const emit = (startDate: Date | null, endDate: Date | null) => onConfirm?.({ startDate, endDate, key: "selection" });
 
-  const handleClosePopover = () => {
-    setState([
-      {
-        startDate: value.startDate ?? state[0].startDate ?? undefined,
-        endDate: value.endDate ?? state[0].endDate ?? undefined,
-        key: "selection",
-      },
-    ]);
-    setAnchorEl(null);
-  };
-
-  const _onConfirm = () => {
-    onConfirm(state[0]);
-    setAnchorEl(null);
-  };
-
-  const onReset = () => {
-    const resetState = { startDate: undefined, endDate: undefined, key: "selection" };
-    setState([resetState]);
-    onConfirm(resetState);
-    setAnchorEl(null);
-  };
+  const activePreset = PRESETS.find((p) => {
+    const r = p.range();
+    return sameDay(r.startDate, start) && sameDay(r.endDate, end);
+  })?.key;
 
   return (
-    <>
-      <Box sx={{ width: "100%" }}>
-        <InputLabel
-          sx={{
-            color: "text.secondary",
-            display: "flex",
-            alignItems: "space-between",
-            justifyContent: "space-between",
-            width: "100%",
-          }}
+    <Box sx={{ width: "100%" }}>
+      <InputLabel sx={{ color: "text.secondary", fontSize: "0.875rem", display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", mb: 0.75 }}>
+        {label}
+        <Button
+          variant="text"
+          onClick={() => emit(null, null)}
+          disabled={!start && !end}
+          sx={{ p: 0, minWidth: 0, textTransform: "none", fontSize: "0.8rem", color: "text.secondary", "&:hover": { color: "text.primary", backgroundColor: "transparent" } }}
         >
-          {label}
-          <Button sx={{ p: 0 }} onClick={onReset}>
-            Reset filter
-          </Button>
-        </InputLabel>
+          Reset filter
+        </Button>
+      </InputLabel>
 
-        <Stack
-          direction="row"
-          spacing={2}
-          sx={{
-            width: "100%",
+      <Stack direction="row" spacing={1.5} sx={{ width: "100%" }}>
+        <DateInput
+          label="From"
+          fullWidth
+          value={ymd(start)}
+          onChange={(e) => {
+            const s = fromYmd(e.target.value);
+            // A start after the end drags the end along so the range never inverts.
+            emit(s, s && end && s > end ? s : end);
           }}
-        >
-          <Box display="flex" flexDirection="column" alignItems="flex-start" width="100%" p={0}>
-            <Typography sx={{ width: "100%" }}>From:</Typography>
-            <Box onClick={handleClick} sx={dateContainerStyles(theme, !state[0].startDate)} role="button">
-              <Typography>{!state[0].startDate ? "Select the start date" : format(state[0].startDate, "dd/MM/yyyy")}</Typography>
+          inputProps={end ? { max: ymd(end) } : undefined}
+        />
+        <DateInput
+          label="To"
+          fullWidth
+          value={ymd(end)}
+          onChange={(e) => {
+            const en = fromYmd(e.target.value);
+            emit(en && start && en < start ? en : start, en);
+          }}
+          inputProps={start ? { min: ymd(start) } : undefined}
+        />
+      </Stack>
 
-              <IconButton size="small">
-                <IconCalendarStats />
-              </IconButton>
-            </Box>
-          </Box>
-          <Box display="flex" flexDirection="column" alignItems="flex-start" width="100%" p={0}>
-            <Typography>To:</Typography>
-            <Box onClick={handleClick} sx={dateContainerStyles(theme, !state[0].endDate)} role="button">
-              {!state[0].endDate ? "select the end date" : format(state[0].endDate, "dd/MM/yyyy")}
-              <IconButton onClick={handleClick} size="small">
-                <IconCalendarStats />
-              </IconButton>
-            </Box>
-          </Box>
-        </Stack>
-      </Box>
-
-      <Dialog open={Boolean(anchorEl)} onClose={handleClosePopover} sx={{ "& .MuiDialog-paper": { background: theme.palette.tertiary.contrastText } }}>
-        <Box className="--DATERANGEPICKER">
-          <Box className="--DATERANGEPICKER-HEADER" sx={{ mb: 1 }}>
-            <Typography variant="h4">Select a date range</Typography>
-
-            <IconButton size="small" onClick={handleClosePopover}>
-              <IconX />
-            </IconButton>
-          </Box>
-
-          <StyledDateRangePicker onChange={handleDateChange} moveRangeOnFirstSelection={false} months={1} ranges={state} direction="horizontal" locale={enUS} />
-
-          <Box display="flex" justifyContent="space-between" alignItems="center" sx={{ mt: 2, px: 2, pb: 2 }}>
-            <Button onClick={handleClosePopover} color="info" variant="outlined">
-              Close
-            </Button>
-            <Button onClick={_onConfirm} color="primary" variant="contained" sx={{ minWidth: "100px" }}>
-              Apply
-            </Button>
-          </Box>
-        </Box>
-      </Dialog>
-    </>
+      <Stack direction="row" useFlexGap flexWrap="wrap" gap={0.75} sx={{ mt: 1 }}>
+        {PRESETS.map((p) => (
+          <Chip
+            key={p.key}
+            size="small"
+            label={p.label}
+            clickable
+            color={activePreset === p.key ? "primary" : "default"}
+            variant={activePreset === p.key ? "filled" : "outlined"}
+            onClick={() => {
+              const r = p.range();
+              emit(r.startDate, r.endDate);
+            }}
+          />
+        ))}
+      </Stack>
+    </Box>
   );
 }

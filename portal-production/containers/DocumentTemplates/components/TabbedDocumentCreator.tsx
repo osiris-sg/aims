@@ -247,8 +247,6 @@ const LEGACY_BTN = {
   duplicate: legacyBtn("#0077C5", "#005F9E", "#8FC7F2", "#A5D3F5", "#082A44"),
   preview: legacyBtn("#BE185D", "#9D174D", "#F5A8C9", "#F8BBD6", "#4A0A2B"),
   edit: legacyBtn("#D97706", "#B45309", "#F7CB7A", "#F9D694", "#3D2300"),
-  lock: legacyBtn("#64748B", "#475569", "#C3CCD9", "#D0D8E3", "#111827"),
-  void: legacyBtn("#7F1D1D", "#641616", "#E3A5A5", "#EBB5B5", "#2B0707"),
 };
 // A fully-uppercase tab label (a legacy config's "DETAILS") becomes Title case;
 // labels that already have lower-case letters (e.g. "Delivery Address") are
@@ -1078,6 +1076,11 @@ export default function TabbedDocumentCreator({
   // Component-scope invoice flag so the header project picker (appendRow) can
   // cover invoices too. (Inner callbacks keep their own local copies.)
   const isInvoiceTypeDoc = documentType === "INVOICE" || documentType === "TI" || documentType === "TI2";
+  // Credit / debit notes post to the GL per line like invoices (guru 2026-11-21: "biofuel should
+  // be able to see the account" — the chip used to be invoice-only, so a note always hit the
+  // default sales account). Header-GL orgs (WCT, Chong Aik) keep the whole-document account.
+  // documentType is the TEMPLATE VARIANT; the record's own type arrives as actualDocumentType.
+  const isNoteTypeDoc = ["CN", "CREDIT_NOTE", "DN", "DEBIT_NOTE"].some((t) => t === String(documentType || "") || t === String(actualDocumentType || ""));
   // Legacy invoice screen's left-rail modules (guru 2026-11-14, like the O/R,
   // P/V and J/V pages): Stock Card, Debtor Statement. They sit at the top-left
   // of the margin the invoice editor keeps on both sides.
@@ -1099,7 +1102,7 @@ export default function TabbedDocumentCreator({
   // whole invoice instead of a GL account per line. The per-line chip hides;
   // posting credits that one account for the net (blank = the org's default
   // sales account).
-  const headerGlMode = isHeaderGlAccountEnabled && isInvoiceTypeDoc;
+  const headerGlMode = isHeaderGlAccountEnabled && (isInvoiceTypeDoc || isNoteTypeDoc);
   // LEGACY INVOICE SCREEN (guru 2026-11-14, Chong Aik — rides on the same
   // enableHeaderGlAccount flag): General / Details / Delivery Address tabs laid
   // out like the previous software, the toolbar in its Add · Edit · Delete ·
@@ -4074,7 +4077,7 @@ export default function TabbedDocumentCreator({
   // picker can show: the per-line chip prints the ACCOUNT NAME (guru
   // 2026-11-12: "GL 214" alone says nothing to the office), and a saved line
   // only carries its code, so the name is looked up from the chart.
-  const linesCarryGl = isInvoiceTypeDoc || (items || []).some((r: any) => r?.accountCode);
+  const linesCarryGl = isInvoiceTypeDoc || isNoteTypeDoc || (items || []).some((r: any) => r?.accountCode);
   useEffect(() => {
     if (headerGlMode || linesCarryGl) void loadGlAccounts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -5413,7 +5416,7 @@ export default function TabbedDocumentCreator({
               onClick={() => setConfirmPODialogOpen(true)}
               sx={TOOLBAR_GREEN}
             >
-              Confirm Purchase Order
+              Confirm
             </Button>
           )}
           {/* Confirm button for Purchase Returns */}
@@ -5425,9 +5428,10 @@ export default function TabbedDocumentCreator({
               onClick={() => setConfirmPRDialogOpen(true)}
               sx={TOOLBAR_GREEN}
             >
-              Confirm Document
+              Confirm
             </Button>
           )}
+          {/* Every Confirm button reads just "Confirm" (guru 2026-11-21: "this can just be the word confirm, this is for all documents"). */}
           {/* Confirm button for Stock Adjustments */}
           {!isDocumentConfirmedStatus && !isTemplateEditMode && isStockAdjustment && (
             <Button
@@ -5437,7 +5441,7 @@ export default function TabbedDocumentCreator({
               onClick={() => setConfirmAdjustmentDialogOpen(true)}
               sx={TOOLBAR_GREEN}
             >
-              {isStockAdjustmentIn ? "Confirm Stock Adjustment In" : "Confirm Stock Adjustment Out"}
+              Confirm
             </Button>
           )}
           {/* Manual order flow, DO first (2026-11-13): a DO on an order gets the order toolbar (Complete DO, sign link,
@@ -5469,7 +5473,7 @@ export default function TabbedDocumentCreator({
               }}
               sx={TOOLBAR_GREEN}
             >
-              Confirm Delivery Order
+              Confirm
             </Button>
           )}
           {/* Confirm split-button for Invoices: primary confirms as always;
@@ -5490,7 +5494,7 @@ export default function TabbedDocumentCreator({
               }}
               sx={TOOLBAR_GREEN}
             >
-              Confirm Invoice
+              Confirm
             </Button>
           )}
           {!isDocumentConfirmedStatus && !isTemplateEditMode && isInvoiceType && isRecurringInvoicesEnabled && (
@@ -5506,7 +5510,7 @@ export default function TabbedDocumentCreator({
                   }}
                   sx={TOOLBAR_GREEN}
                 >
-                  Confirm Invoice
+                  Confirm
                 </Button>
                 <Button
                   aria-label="More confirm options"
@@ -5540,26 +5544,9 @@ export default function TabbedDocumentCreator({
           {legacyLayout && (
             <Button size="small" variant="contained" startIcon={<ContentCopyIcon />} onClick={handleDuplicateDocument} disabled={!(existingData?.id || documentId)} sx={LEGACY_BTN.duplicate} data-tour="editor-legacy-duplicate">Duplicate</Button>
           )}
-          {/* Per-document Lock / Unlock (2026-11-20): unlock is for accounting admins only. */}
-          {legacyLayout && recordLockable && !isVoidedDoc && (
-            <Tooltip title={recordLocked && !isLockAdviser ? `${recordLockTitle} Only an accounting admin can unlock it.` : recordLockTitle}>
-              <span>
-                <Button size="small" variant="contained" startIcon={recordLocked ? <LockOpenOutlinedIcon /> : <LockOutlinedIcon />} onClick={toggleRecordLock} disabled={recordLockBusy || (recordLocked && !isLockAdviser)} sx={LEGACY_BTN.lock} data-tour="editor-legacy-lock">
-                  {recordLocked ? "Unlock" : "Lock"}
-                </Button>
-              </span>
-            </Tooltip>
-          )}
-          {/* Void (2026-11-20): the document and its journal, for good. Greyed while it has money. */}
-          {legacyLayout && voidable && (
-            <Tooltip title={voidTitle}>
-              <span>
-                <Button size="small" variant="contained" startIcon={<BlockOutlinedIcon />} onClick={() => setVoidDialogOpen(true)} disabled={voidDisabled} sx={LEGACY_BTN.void} data-tour="editor-legacy-void">
-                  Void
-                </Button>
-              </span>
-            </Tooltip>
-          )}
+          {/* Lock / Unlock and Void live in the ⋮ menu on every toolbar (guru 2026-11-21:
+              "move void and lock inside the three dots" — the coloured toolbar had grown
+              so wide the document number was hard to see). */}
           {/* Edit after confirm on the legacy toolbar too (guru 2026-11-19: "I
               can't edit a confirmed document any more"). The coloured toolbar hid
               the generic Edit button; this is the same unlock, behind the same
@@ -5604,7 +5591,7 @@ export default function TabbedDocumentCreator({
               disabled={isConfirming}
               sx={TOOLBAR_GREEN}
             >
-              {isConfirming ? "Confirming..." : "Confirm Quotation"}
+              {isConfirming ? "Confirming..." : "Confirm"}
             </Button>
           )}
           {/* Confirm button for non-Purchase Order/Return, non-Quotation, non-Stock Adjustment, non-DO, and non-Invoice documents */}
@@ -5618,7 +5605,7 @@ export default function TabbedDocumentCreator({
               disabled={isConfirming}
               sx={TOOLBAR_GREEN}
             >
-              {isConfirming ? "Confirming..." : "Confirm Document"}
+              {isConfirming ? "Confirming..." : "Confirm"}
             </Button>
           )}
           {/* Split payment (enableInvoiceSplit, WCT group 2026-11-17): a draft invoice into parts -1..-n; Undo split while all parts are drafts. */}
@@ -5856,14 +5843,29 @@ export default function TabbedDocumentCreator({
               </MenuItem>
             )}
             {/* Per-document Lock / Unlock (2026-11-20). */}
-            {!legacyLayout && recordLockable && !isVoidedDoc && (
-              <MenuItem onClick={() => { closeMoreMenu(); void toggleRecordLock(); }} disabled={recordLockBusy || (recordLocked && !isLockAdviser)}>
+            {recordLockable && !isVoidedDoc && (
+              // A document inside a locked period is already read-only (guru 2026-11-21:
+              // "it's in the locked period but how come the lock button is still active").
+              <MenuItem
+                onClick={() => { closeMoreMenu(); void toggleRecordLock(); }}
+                disabled={recordLockBusy || (recordLocked && !isLockAdviser) || (periodLocked && !recordLocked)}
+                data-tour="editor-lock"
+              >
                 <ListItemIcon>{recordLocked ? <LockOpenOutlinedIcon fontSize="small" /> : <LockOutlinedIcon fontSize="small" />}</ListItemIcon>
-                <ListItemText>{recordLocked ? "Unlock" : "Lock"}</ListItemText>
+                <ListItemText
+                  primary={recordLocked ? "Unlock" : "Lock"}
+                  secondary={
+                    periodLocked && !recordLocked
+                      ? "In a locked period — already read-only"
+                      : recordLocked && !isLockAdviser
+                      ? "Only an accounting admin can unlock it"
+                      : undefined
+                  }
+                />
               </MenuItem>
             )}
             {/* Void (2026-11-20): the document and its journal, for good. */}
-            {!legacyLayout && voidable && (
+            {voidable && (
               <MenuItem onClick={() => { closeMoreMenu(); setVoidDialogOpen(true); }} disabled={voidDisabled} sx={{ color: "error.main" }} data-tour="editor-void">
                 <ListItemIcon><BlockOutlinedIcon fontSize="small" color="error" /></ListItemIcon>
                 <ListItemText primary="Void" secondary={voidDisabled ? voidTitle : undefined} />
@@ -6145,7 +6147,9 @@ export default function TabbedDocumentCreator({
           {/* Dynamic Tabs based on template config */}
           {editorTabs.map((tab, index) => (
             <TabPanel key={tab.tabId} value={mainTabValue} index={index}>
-              <Card sx={{ flexShrink: 0, maxHeight: isSettlementDoc ? 420 : 320, display: "flex", flexDirection: "column" }}>
+              {/* The header shows ALL its rows (guru 2026-11-21: the last row was cut off at a
+                  fixed 320px); only a very short window makes it scroll. */}
+              <Card sx={{ flexShrink: 0, maxHeight: "min(62vh, 600px)", display: "flex", flexDirection: "column" }}>
                 <CardContent
                   {...readOnlyShield(confirmedReadOnly)}
                   sx={{ p: 1, flex: 1, overflow: "auto", "&:last-child": { pb: 1 }, ...(readOnlyShield(confirmedReadOnly).sx || {}) }}
@@ -7533,7 +7537,7 @@ export default function TabbedDocumentCreator({
                                           (guru 2026-08-17) — the code alone doesn't say
                                           which account it hits, so a mis-picked item is
                                           invisible until the ledger is wrong. */}
-                                      {isInvoiceTypeDoc && !headerGlMode && (
+                                      {(isInvoiceTypeDoc || isNoteTypeDoc) && !headerGlMode && (
                                         <Tooltip
                                           title={
                                             item.accountCode

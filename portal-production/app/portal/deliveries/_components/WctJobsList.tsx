@@ -171,12 +171,6 @@ export default function WctJobsList({ fixture }: { fixture?: JobsFixture } = {})
     },
     { accessorKey: "dos", header: "DO", size: 8, cell: ({ row }: any) => (row.original.dos?.length ? row.original.dos.map((d: any) => d.name || "DO").join(", ") : "-") },
     {
-      accessorKey: "state",
-      header: "Status",
-      size: 12,
-      cell: ({ row }: any) => <StatusPill label={ORDER_JOB_STATE_LABEL[row.original.state] ?? row.original.state} color={orderJobStateColor(row.original.state)} />,
-    },
-    {
       accessorKey: "verificationState",
       header: "Verified",
       size: 9,
@@ -185,6 +179,12 @@ export default function WctJobsList({ fixture }: { fixture?: JobsFixture } = {})
           {verifiedText(row.original)}
         </Typography>
       ),
+    },
+    {
+      accessorKey: "state",
+      header: "Status",
+      size: 12,
+      cell: ({ row }: any) => <StatusPill label={ORDER_JOB_STATE_LABEL[row.original.state] ?? row.original.state} color={orderJobStateColor(row.original.state)} />,
     },
     kebabColumn((row: JobRow) => [
       { label: "Open job", onClick: () => router.push(`/portal/deliveries/${row.id}`) },

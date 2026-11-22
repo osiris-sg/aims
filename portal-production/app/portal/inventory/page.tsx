@@ -226,20 +226,6 @@ export default function InventoryPage() {
       },
     },
     {
-      id: "status",
-      accessorKey: "status",
-      header: "Status",
-      cell: (info: any) => {
-        const value = info.getValue();
-        // Auto-created child placeholder awaiting its real serial/SKU —
-        // rename the SKU (inline edit) and it flips to instock automatically.
-        if (value === "pending") {
-          return <Chip size="small" label="Pending details" color="warning" variant="outlined" />;
-        }
-        return value;
-      },
-    },
-    {
       id: "category",
       accessorKey: "category",
       header: "Category",
@@ -296,6 +282,20 @@ export default function InventoryPage() {
             title={site.siteName}
           />
         );
+      },
+    },
+    {
+      id: "status",
+      accessorKey: "status",
+      header: "Status",
+      cell: (info: any) => {
+        const value = info.getValue();
+        // Auto-created child placeholder awaiting its real serial/SKU —
+        // rename the SKU (inline edit) and it flips to instock automatically.
+        if (value === "pending") {
+          return <Chip size="small" label="Pending details" color="warning" variant="outlined" />;
+        }
+        return value;
       },
     },
     kebabColumn((row: any) => [

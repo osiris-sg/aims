@@ -315,13 +315,6 @@ export default function InvoicesPage() {
       },
     },
     {
-      accessorKey: "status",
-      header: t("colStatus"),
-      // wrap: chip may take two lines (no "…" — guru 2026-08-27)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      cell: ({ row }: any) => <StatusChip status={row.original.status} doc={row.original} />,
-    },
-    {
       // Xero sync state: grey until the invoice is pushed to / imported from
       // Xero; then a green chip carrying the Xero-side status.
       accessorKey: "xeroSync",
@@ -395,6 +388,13 @@ export default function InvoicesPage() {
       // creation timestamp only when an invoice has no issue date recorded.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       cell: ({ row }: any) => fmtDmy(row.original.config?.date ?? row.original.createdAt),
+    },
+    {
+      accessorKey: "status",
+      header: t("colStatus"),
+      // wrap: chip may take two lines (no "…" — guru 2026-08-27)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      cell: ({ row }: any) => <StatusChip status={row.original.status} doc={row.original} />,
     },
     {
       // Row-click opens the invoice; the kebab holds payment/download/delete

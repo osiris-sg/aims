@@ -589,6 +589,21 @@ export default function DocumentListView({
         ]
       : []),
     {
+      // The DOCUMENT'S OWN date, named after what that date means to the person
+      // reading the list — Delivery date on a DO, Invoice date on an invoice
+      // (guru 2026-11-18). It used to be the row's CREATED timestamp, which is
+      // when somebody happened to type it in: a December-keyed November invoice
+      // read as December, and a DO's delivery date — the only date a storeman
+      // cares about — was nowhere on the list.
+      accessorKey: "issueDate",
+      header: dateHeader,
+      nowrap: true,
+      // 140, not the old 120: "Delivery date" / "Credit note date" wrap onto
+      // two lines in the narrower column and the header row grows.
+      pxWidth: 140,
+      cell: ({ row }: any) => moment(row.original.issueDate || row.original.createdAt).format("DD/MM/YYYY"),
+    },
+    {
       accessorKey: "status",
       header: "Status",
       // wrap: chip may take two lines (no "…" — guru 2026-08-27)
@@ -609,21 +624,6 @@ export default function DocumentListView({
           </Stack>
         );
       },
-    },
-    {
-      // The DOCUMENT'S OWN date, named after what that date means to the person
-      // reading the list — Delivery date on a DO, Invoice date on an invoice
-      // (guru 2026-11-18). It used to be the row's CREATED timestamp, which is
-      // when somebody happened to type it in: a December-keyed November invoice
-      // read as December, and a DO's delivery date — the only date a storeman
-      // cares about — was nowhere on the list.
-      accessorKey: "issueDate",
-      header: dateHeader,
-      nowrap: true,
-      // 140, not the old 120: "Delivery date" / "Credit note date" wrap onto
-      // two lines in the narrower column and the header row grows.
-      pxWidth: 140,
-      cell: ({ row }: any) => moment(row.original.issueDate || row.original.createdAt).format("DD/MM/YYYY"),
     },
     {
       // Row-click opens the document; the kebab holds secondary actions

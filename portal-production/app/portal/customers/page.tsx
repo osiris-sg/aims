@@ -5,6 +5,7 @@ import { useGetCustomers, useDeleteCustomer } from "@/app/portal/hooks/api";
 import MainCard from "@/components/MainCard";
 import { kebabColumn } from "@/components/RowKebab";
 import PageTable from "@/components/PageTable";
+import { IdCell } from "@/components/IdCell";
 import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import type { FilterField } from "@/components/FilterDrawer";
 import DeleteItemDialogNoConfirm from "@/components/DeleteItemDialogNoConfirm";
@@ -120,7 +121,7 @@ export default function CustomersPage() {
       id: "customerCode",
       accessorKey: "customerCode",
       header: "Customer Code",
-      cell: (info: any) => info.getValue() || "-",
+      cell: (info: any) => <IdCell>{info.getValue() || "-"}</IdCell>,
     },
     ...(isCustomerUenEnabled
       ? [
