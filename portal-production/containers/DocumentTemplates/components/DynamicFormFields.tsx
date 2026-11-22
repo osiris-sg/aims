@@ -1687,7 +1687,10 @@ export default function DynamicFormFields({
   // scrolls). Fields with no gridSize stay full-width — every other org is
   // unchanged. Textareas are always full-width; the Attention trio keeps its
   // own full row.
-  const isHalf = (f: FieldDefinition) => f.gridSize === 6 && f.fieldType !== 'textarea';
+  // WCT (adaptivePairs, 2026-11-23): Job Location (dropdown + "+ Add location") and Sales Person (search + name) carry
+  // two controls each, so they take a full row and stay readable; a field left without its partner goes full too.
+  const twoControls = (f: FieldDefinition) => adaptivePairs && (f.fieldType === 'siteLocation' || f.fieldType === 'salesman');
+  const isHalf = (f: FieldDefinition) => f.gridSize === 6 && f.fieldType !== 'textarea' && !twoControls(f);
   // Same label width as the full rows, so the first column's inputs line up
   // across paired and full rows (the lines were jagged at 118).
   const pairLabelSx = adaptivePairs ? { ...leftLabelSx, width: 120 } : { ...leftLabelSx };
