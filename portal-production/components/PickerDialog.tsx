@@ -105,7 +105,8 @@ export default function PickerDialog<T>({
       PaperProps={{
         sx: {
           m: { xs: 0, sm: 4 },
-          width: { xs: "100%", sm: "auto" },
+          // Always the full large width (the Stock Card's "auto" shrank to a few columns when a search left few rows).
+          width: "100%",
           maxWidth: { xs: "100%", sm: undefined },
           borderRadius: { xs: 0, sm: 1 },
           minHeight: { xs: "100%", sm: "70vh" },
