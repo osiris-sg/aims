@@ -825,12 +825,18 @@ export async function leanDocsByIds(prisma: any, organizationId: string, ids: st
   }
 }
 
-/** Every DO of the org that sits on an order (config.orderId), lean, by order id. One scan for the whole list. */
-export async function orderDosByOrder(prisma: any, organizationId: string): Promise<Map<string, any[]>> {
+/**
+ * The org's DOs on orders (config.orderId), lean, by order id: one scan for the whole list. The imported ERP DOs
+ * (10,000+ at WCT, each naming its imported order) are left out except for keepErpFor (the AIMS orders on the list,
+ * whose status reads every DO on them); the imported orders and the DO cells drop ERP DOs anyway.
+ */
+export async function orderDosByOrder(prisma: any, organizationId: string, keepErpFor: string[] = []): Promise<Map<string, any[]>> {
   const rows: any[] = await prisma.$queryRawUnsafe(
     `SELECT d.id::text AS id, d.name, d.type, d.status, d."documentTemplateId", ${LEAN_CONFIG} AS config, d."createdAt" FROM "Document" d
-      WHERE d."organizationId" = $1 AND d.type IN ('DELIVERY_ORDER', 'DO') AND d.config->>'orderId' IS NOT NULL`,
+      WHERE d."organizationId" = $1 AND d.type IN ('DELIVERY_ORDER', 'DO') AND d.config->>'orderId' IS NOT NULL
+        AND (jsonb_typeof(d.config->'erpImport'->'source') IS DISTINCT FROM 'string' OR d.config->'erpImport'->>'source' = '' OR d.config->>'orderId' = ANY($2::text[]))`,
     organizationId,
+    keepErpFor,
   );
   const out = new Map<string, any[]>();
   for (const r of rows ?? []) {

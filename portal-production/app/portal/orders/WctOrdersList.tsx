@@ -177,8 +177,8 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
   const hasImported = useMemo(() => orders.some((o) => o.imported === true), [orders]);
   const sourceRows = useMemo(() => newestFirst(hasImported ? orders.filter((o) => matchesOrderSource(o, source)) : orders), [orders, source, hasImported]);
 
-  // 2026-11-22 (speed): orgs with imported orders load the AIMS orders and the imported ones as two calls at once;
-  // the AIMS orders show as soon as they arrive and the imported rows join them (thousands, slower). Others: one call.
+  // 2026-11-22 (speed): orgs with imported orders load the AIMS orders first and then the imported ones; the AIMS
+  // orders show as soon as they arrive and the imported rows join them (thousands, slower). Others: one call.
   const splitLoad = features?.enableImportedOrders === true;
   const [importedLoading, setImportedLoading] = useState(false);
   const fetchOrders = useCallback(async () => {
@@ -192,13 +192,13 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
         return;
       }
       setImportedLoading(true);
-      const importedCall = request({ path: "/orders?part=imported", method: "GET" }, {}, token ?? undefined);
+      // One after the other: in parallel the two slowed each other down (measured on prod, 2026-11-22).
       const nativeRes = await request({ path: "/orders?part=native", method: "GET" }, {}, token ?? undefined);
       const native: WctOrderRow[] = Array.isArray(nativeRes?.data) ? nativeRes.data : [];
       setOrders(native);
       setLoading(false);
       try {
-        const importedRes = await importedCall;
+        const importedRes = await request({ path: "/orders?part=imported", method: "GET" }, {}, token ?? undefined);
         const imported: WctOrderRow[] = Array.isArray(importedRes?.data) ? importedRes.data : [];
         setOrders([...native, ...imported]);
       } finally {

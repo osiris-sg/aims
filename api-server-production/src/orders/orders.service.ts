@@ -481,7 +481,7 @@ export class OrdersService {
     });
     const orders = rows.map(({ deliveries, ...o }: any) => ({ ...o, jobs: deliveries as any[] }));
     // 2026-11-22: the org's DOs on orders, read once (lean) for the status sync, the imported orders and their DO cells.
-    const orderDos = await orderDosByOrder(this.prisma, organizationId).catch(() => undefined);
+    const orderDos = await orderDosByOrder(this.prisma, organizationId, orders.map((o: any) => o.id)).catch(() => undefined);
     await this.syncWctStatuses(organizationId, orders, orderDos);
     const hub = await this.wctListHub(organizationId, orders);
     const now = Date.now();
