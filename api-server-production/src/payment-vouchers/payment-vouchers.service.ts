@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { assertPeriodOpen, documentDay } from '../common/period-lock';
 import { assertRecordUnlocked } from '../common/record-lock';
@@ -112,7 +112,8 @@ export class PaymentVouchersService {
     private readonly prisma: PrismaService,
     private readonly journalAutoPost: JournalAutoPostService,
     private readonly journalService: JournalService,
-    private readonly bills: BillsService,
+    // BillsService imports this service lazily (recordPayment → createForBillPayment): forwardRef breaks the class-level cycle.
+    @Inject(forwardRef(() => BillsService)) private readonly bills: BillsService,
     private readonly auditService: AuditService,
     private readonly numbering: DocumentNumberingService,
     private readonly receipts: ReceiptsService,
@@ -292,6 +293,138 @@ export class PaymentVouchersService {
     });
     void this.logEvent({ documentId: doc.id, organizationId, action: 'CREATED', detail: `Payment Voucher ${number} created`, documentName: number, actor });
     return this.toVoucher(doc);
+  }
+
+  /**
+   * A Payment Voucher DOCUMENT for a payment recorded on the bill itself (Supplier
+   * Invoice dialog → Record payment; guru 2026-11-21: "recorded the payment at this
+   * page itself, tried to find it in PV page but cant find"). The journal and the
+   * BillPayment already exist (bills.service recordPayment); this mints the voucher
+   * that shows the payment on the Payment Vouchers page, the P/V listing and the
+   * paper, and re-points that journal to the voucher so opening, re-saving or
+   * deleting it from the P/V page behaves like any other voucher — ONE journal,
+   * never a second one.
+   */
+  async createForBillPayment(
+    organizationId: string,
+    args: {
+      billId: string;
+      billNumber: string | null;
+      billDate: string | null;
+      billReference: string | null;
+      supplierId: string;
+      amount: number;
+      paymentDate: string;
+      paymentMethod: string;
+      reference?: string | null;
+      notes?: string | null;
+      bank: { id: string; code: string; name: string };
+      journal: { id: string; journalNumber: string | null };
+      actor?: Actor;
+    },
+  ) {
+    const [templateId, setting, supplier] = await Promise.all([
+      this.getOrCreateTemplate(organizationId),
+      this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { controlAccounts: true, baseCurrency: true } }),
+      this.prisma.supplier.findFirst({ where: { id: args.supplierId, organizationId }, select: { id: true, name: true, supplierCode: true, currency: true } }),
+    ]);
+    const controls = (setting?.controlAccounts as any) || {};
+    const creditorCode = controls.creditorControl || 'CL001';
+    const base = String(setting?.baseCurrency || 'SGD').toUpperCase();
+    const amount = ROUND(args.amount);
+    // Number it the way a saved voucher is numbered (custom format with the paid-from bank, else PV-######).
+    let voucherNumber = await this.nextVoucherNumber(organizationId);
+    if (PaymentVouchersService.isPending(voucherNumber)) {
+      const issued = await this.numbering.issueNumberLocked(organizationId, 'PAYMENT_VOUCHER', null, new Date(args.paymentDate), undefined, {
+        bankCode: bankCodeOf(args.bank.name || args.bank.code),
+      });
+      if (!issued) throw new BadRequestException('No active Payment Voucher number format — set one in Accounting Setup → Document Numbers');
+      voucherNumber = issued;
+    }
+    const supplierName = supplier?.name || '';
+    const supplierCode = supplier?.supplierCode || null;
+    const allocation = {
+      documentId: args.billId,
+      amount,
+      supplierId: args.supplierId,
+      reference: args.billNumber || null,
+      date: args.billDate || null,
+      description: args.billReference || 'SUPPLIER INVOICE',
+    };
+    const line = {
+      id: 'l1',
+      accountCode: creditorCode,
+      description: 'TRADE CREDITORS',
+      remarks: supplierCode ? `${supplierCode} — ${supplierName}`.trim() : supplierName,
+      amount,
+      offset: {
+        party: 'supplier' as const,
+        supplierId: args.supplierId,
+        customerId: null,
+        supplierCode,
+        supplierName,
+        customerCode: null,
+        customerName: '',
+        currency: String(supplier?.currency || base).toUpperCase(),
+        rate: 1,
+        allocations: [allocation],
+        updateFx: true,
+        fxAccountCode: null,
+        supplierAmount: amount,
+      },
+    };
+    const savedBy = args.actor?.name || args.actor?.email || args.actor?.id || 'system';
+    const doc = await this.prisma.document.create({
+      data: {
+        organizationId,
+        documentTemplateId: templateId,
+        type: 'PAYMENT_VOUCHER',
+        name: voucherNumber,
+        status: 'confirmed' as any,
+        config: {
+          date: args.paymentDate,
+          bankAccountCode: args.bank.code,
+          currency: base,
+          rate: 1,
+          payee: supplierName,
+          remarks: args.reference || null,
+          notes: args.notes || '',
+          chequeNo: args.paymentMethod === 'cheque' ? args.reference || null : null,
+          preparedBy: savedBy,
+          paymentMethod: args.paymentMethod || 'transfer',
+          creditorAccountCode: creditorCode,
+          debtorAccountCode: controls.debtorControl || 'CA001',
+          lines: [line],
+          voucherAmount: amount,
+          supplierId: args.supplierId,
+          supplierName,
+          supplierCode,
+          debitAccountCode: creditorCode,
+          creditAccountCode: args.bank.code,
+          allocations: [allocation],
+          journalNumber: args.journal.journalNumber,
+          incompleteReason: null,
+          // Where it came from, for the History and the office.
+          recordedOnBill: { billId: args.billId, billNumber: args.billNumber },
+          savedBy,
+          savedAt: new Date().toISOString(),
+        } as any,
+      },
+    });
+    // The payment journal now belongs to the voucher (the P/V page finds its journal by sourceDocumentId).
+    await this.prisma.journalEntry.update({
+      where: { id: args.journal.id },
+      data: { sourceDocumentId: doc.id, reference: voucherNumber, description: `Payment Voucher ${voucherNumber} — ${supplierName}`.trim() },
+    });
+    void this.logEvent({
+      documentId: doc.id,
+      organizationId,
+      action: 'CREATED',
+      detail: `Payment Voucher ${voucherNumber} recorded from bill ${args.billNumber || ''}: ${amount.toFixed(2)} from ${args.bank.code} ${args.bank.name}`.trim(),
+      documentName: voucherNumber,
+      actor: args.actor,
+    });
+    return { id: doc.id, voucherNumber };
   }
 
   /**

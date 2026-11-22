@@ -1149,9 +1149,15 @@ export class JournalAutoPostService {
     netAmount: number;
     taxAmount: number;
     grossAmount: number;
+    // Per-line GL accounts (guru 2026-11-21: "biofuel should be able to see the account" on a
+    // credit note): the sales reversal splits across each line's account like postFromInvoice;
+    // unmapped lines fall back to the default sales account. `amount` = line NET.
+    revenueLines?: Array<{ accountCode?: string | null; accountId?: string | null; amount: number }>;
+    glRemarks?: string | null;
     userId?: string;
   }) {
     const { organizationId, documentId, documentNumber, entryDate, customerName } = args;
+    const glRemarks = String(args.glRemarks || '').trim() || null;
     const net = ROUND(args.netAmount);
     const tax = ROUND(args.taxAmount);
     const gross = ROUND(args.grossAmount);
@@ -1183,9 +1189,39 @@ export class JournalAutoPostService {
     const toBase = (n: number) => ROUND(n * fx.rate);
     const fxFields = (foreign: number) => (fx.isForeign ? { foreignAmount: ROUND(foreign), exchangeRate: fx.rate } : {});
 
-    const lines: Array<{ accountId: string; debit: number; credit: number; description: string; foreignAmount?: number; exchangeRate?: number }> = [
-      { accountId: sales.id, debit: toBase(net), credit: 0, description: `Credit note — ${documentNumber ?? ''}`.trim(), ...fxFields(net) },
-    ];
+    const lines: Array<{ accountId: string; debit: number; credit: number; description: string; foreignAmount?: number; exchangeRate?: number }> = [];
+    // Sales reversal: per line-account when supplied (header "Accounts to Credit" or the per-line
+    // GL chip), the uncovered remainder on the default sales account — mirrors postFromInvoice.
+    const byAccount = new Map<string, number>();
+    for (const rl of args.revenueLines || []) {
+      const amt = ROUND(rl.amount || 0);
+      if (amt === 0) continue;
+      let acctId = rl.accountId || null;
+      if (!acctId && rl.accountCode) acctId = (await this.resolveAccountByCode(organizationId, rl.accountCode))?.id || null;
+      if (acctId) byAccount.set(acctId, ROUND((byAccount.get(acctId) || 0) + amt));
+    }
+    const linesTotal = ROUND([...byAccount.values()].reduce((sum, a) => sum + a, 0));
+    if (linesTotal > 0 && ROUND(net - linesTotal) < -0.02) {
+      const ratio = net / linesTotal;
+      for (const [acctId, amt] of byAccount) byAccount.set(acctId, ROUND(amt * ratio));
+    }
+    const salesDesc = glRemarks || `Credit note — ${documentNumber ?? ''}`.trim();
+    if (byAccount.size === 0) {
+      lines.push({ accountId: sales.id, debit: toBase(net), credit: 0, description: salesDesc, ...fxFields(net) });
+    } else {
+      let posted = 0;
+      for (const [acctId, amt] of byAccount) {
+        lines.push({ accountId: acctId, debit: toBase(amt), credit: 0, description: salesDesc, ...fxFields(amt) });
+        posted = ROUND(posted + amt);
+      }
+      const remainder = ROUND(net - posted);
+      if (Math.abs(remainder) > 0.02) {
+        lines.push({ accountId: sales.id, debit: toBase(remainder), credit: 0, description: `${salesDesc} (unmapped)`, ...fxFields(remainder) });
+      } else if (remainder !== 0) {
+        const biggest = lines.reduce((a, b) => (b.debit > a.debit ? b : a), lines[0]);
+        biggest.debit = ROUND(biggest.debit + toBase(remainder));
+      }
+    }
     if (tax > 0 && taxAccount) {
       lines.push({ accountId: taxAccount.id, debit: toBase(tax), credit: 0, description: `Tax reversal — ${documentNumber ?? ''}`.trim(), ...fxFields(tax) });
     }
@@ -1227,6 +1263,9 @@ export class JournalAutoPostService {
     netAmount: number;
     taxAmount: number;
     grossAmount: number;
+    // Per-line GL accounts, as postFromInvoice / postFromCreditNote (2026-11-21).
+    revenueLines?: Array<{ accountCode?: string | null; accountId?: string | null; amount: number }>;
+    glRemarks?: string | null;
     userId?: string;
   }) {
     return this.postFromInvoice({
@@ -1238,6 +1277,8 @@ export class JournalAutoPostService {
       netAmount: args.netAmount,
       taxAmount: args.taxAmount,
       grossAmount: args.grossAmount,
+      revenueLines: args.revenueLines,
+      glRemarks: args.glRemarks,
       userId: args.userId,
     }).then((entry) => {
       // Patch the type so it shows up as DEBIT_NOTE in the GL.

@@ -519,10 +519,10 @@ export class DocumentsService {
               entry = await this.prisma.journalEntry.update({ where: { id: entry.id }, data: { type: 'CREDIT_NOTE' } });
             }
           } else {
-            entry = await this.journalAutoPost.postFromCreditNote({ ...baseArgs, customerName: partyName });
+            entry = await this.journalAutoPost.postFromCreditNote({ ...baseArgs, customerName: partyName, ...(await this.noteRevenueLines(organizationId, cfg, items, netAmount)) });
           }
         } else if (jeType === 'DEBIT_NOTE') {
-          entry = await this.journalAutoPost.postFromDebitNote({ ...baseArgs, customerName: partyName });
+          entry = await this.journalAutoPost.postFromDebitNote({ ...baseArgs, customerName: partyName, ...(await this.noteRevenueLines(organizationId, cfg, items, netAmount)) });
         } else if (jeType === 'PURCHASE_ORDER') {
           entry = await this.journalAutoPost.postFromPurchaseOrder({ ...baseArgs, supplierName: partyName });
         } else if (jeType === 'PURCHASE_RETURN') {
@@ -545,6 +545,34 @@ export class DocumentsService {
     } catch (e) {
       console.error('[GL on save] failed for', docType, documentId, e);
     }
+  }
+
+  /**
+   * Per-line GL accounts for a credit / debit note (guru 2026-11-21: Biofuel, header-GL flag
+   * off, "should be able to see the account" on a credit note). The same chain an invoice
+   * uses minus the WCT subject and split-payment cases: header "Accounts to Credit" when the
+   * org has that flag (blank = default sales account), else each line's accountCode with
+   * tax-inclusive lines scaled to net. The posters fall back to the default sales account
+   * for anything unmapped, so a note with no codes posts exactly as before.
+   */
+  private async noteRevenueLines(organizationId: string, cfg: any, items: any[], netAmount: number) {
+    const di: any = cfg?.documentInfo || {};
+    const fallbackNet = (items || []).reduce((sum: number, item: any) => sum + (parseFloat(item.amount) || parseFloat(item.quantity) * parseFloat(item.unitPrice) || 0), 0);
+    const inclusive = di?.absorbTax === 'Y' || di?.absorbTax === true;
+    const factor = inclusive && fallbackNet > 0 ? netAmount / fallbackNet : 1;
+    const headerGl = await isOrgFeatureEnabled(this.prisma as any, organizationId, HEADER_GL_ACCOUNT_FLAG);
+    const glRemarks = String(cfg?.glRemarks || '').trim() || null;
+    if (headerGl) {
+      const code = String(cfg?.glAccountCode || '').trim() || null;
+      return { revenueLines: code ? [{ accountCode: code, amount: netAmount }] : [], glRemarks };
+    }
+    return {
+      revenueLines: (items || []).map((it: any) => ({
+        accountCode: it.accountCode || it.revenueAccountCode || null,
+        amount: Math.round((parseFloat(it.amount) || parseFloat(it.quantity) * parseFloat(it.unitPrice) || 0) * factor * 100) / 100,
+      })),
+      glRemarks,
+    };
   }
 
   /** postInvoicesOnConfirm is on and the invoice is still a draft / unconfirmed. */
@@ -2264,10 +2292,10 @@ export class DocumentsService {
                   });
                 }
               } else {
-                entry = await this.journalAutoPost.postFromCreditNote({ ...baseArgs, customerName: partyName });
+                entry = await this.journalAutoPost.postFromCreditNote({ ...baseArgs, customerName: partyName, ...(await this.noteRevenueLines(organizationId, cfg, items, netAmount)) });
               }
             } else if (glType === 'DEBIT_NOTE') {
-              entry = await this.journalAutoPost.postFromDebitNote({ ...baseArgs, customerName: partyName });
+              entry = await this.journalAutoPost.postFromDebitNote({ ...baseArgs, customerName: partyName, ...(await this.noteRevenueLines(organizationId, cfg, items, netAmount)) });
             } else if (glType === 'PURCHASE_ORDER') {
               entry = await this.journalAutoPost.postFromPurchaseOrder({ ...baseArgs, supplierName: partyName });
             } else if (glType === 'PURCHASE_RETURN') {

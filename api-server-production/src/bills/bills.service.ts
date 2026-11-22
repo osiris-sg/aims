@@ -1,4 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
+import { PaymentVouchersService } from '../payment-vouchers/payment-vouchers.service';
 import Anthropic from '@anthropic-ai/sdk';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
@@ -76,6 +78,8 @@ export class BillsService {
     private readonly journal: JournalService,
     private readonly coa: ChartOfAccountsService,
     private readonly memory: AccountMemoryService,
+    // PaymentVouchersModule imports this module, so the voucher service is fetched lazily (recordPayment).
+    private readonly moduleRef: ModuleRef,
   ) {}
 
   // ---- Bill template resolver (cached per org) ----
@@ -1662,7 +1666,32 @@ Output STRICT JSON only — never emit the token undefined and never leave trail
     await this.patchConfig(billId, { amountPaid: newPaid });
     await this.stampBillMoney(billId, newPaid);
     if (fullyPaid) await this.patchStatus(billId, 'PAID');
-    return payment;
+
+    // The Payment Voucher document for this payment (guru 2026-11-21: a payment recorded on the
+    // bill was nowhere on the Payment Vouchers page). Best effort: the payment is already in the
+    // books; a numbering hiccup must not undo it.
+    let voucher: { id: string; voucherNumber: string } | null = null;
+    try {
+      const vouchers = this.moduleRef.get(PaymentVouchersService, { strict: false });
+      voucher = await vouchers.createForBillPayment(organizationId, {
+        billId,
+        billNumber: bill.billNumber || null,
+        billDate: bill.billDate || null,
+        billReference: bill.reference || null,
+        supplierId: bill.supplierId,
+        amount: dto.amount,
+        paymentDate: dto.paymentDate,
+        paymentMethod: dto.paymentMethod,
+        reference: dto.reference || null,
+        notes: dto.notes || null,
+        bank: { id: bankAccount.id, code: bankAccount.code, name: bankAccount.name },
+        journal: { id: posted.id, journalNumber: (posted as any).journalNumber || null },
+        actor: { id: userId },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[recordPayment] payment voucher not minted for bill ${bill.billNumber}: ${e?.message || e}`);
+    }
+    return { ...payment, voucherId: voucher?.id || null, voucherNumber: voucher?.voucherNumber || null };
   }
 
   // Recompute a bill's paid total + status from its BillPayment rows. Used by
