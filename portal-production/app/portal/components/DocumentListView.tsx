@@ -286,21 +286,8 @@ export default function DocumentListView({
   // WCT group (enableWctDocNav, 2026-11-18): no "All … for this organization" line under the title.
   // WCT orders hub (2026-11-13): a quotation's order number, linked, in the Quotations list.
   const showOrderColumn = !!isWctOrdersEnabled && documentTypes.some((t) => ["QUOTATION", "QO", "QO1", "QO2", "QT"].includes(t));
-  const [ordersByQuotation, setOrdersByQuotation] = useState<Map<string, { id: string; orderNumber: string }>>(new Map());
-  useEffect(() => {
-    if (!showOrderColumn) return;
-    (async () => {
-      try {
-        const token = await getToken();
-        const res: any = await request({ path: "/orders", method: "GET" }, {}, token ?? undefined);
-        const m = new Map<string, { id: string; orderNumber: string }>();
-        for (const o of Array.isArray(res?.data) ? res.data : []) if (o?.sourceQuotationId) m.set(o.sourceQuotationId, { id: o.id, orderNumber: o.orderNumber });
-        setOrdersByQuotation(m);
-      } catch {
-        /* no order links */
-      }
-    })();
-  }, [showOrderColumn, getToken]);
+  // The order number comes with each quotation row (server linkedOrder, documents.service quotationOrders); the list
+  // used to load the whole Orders list (9 MB at WCT) just for this column (2026-11-23).
   const filterConfig: FilterField[] = useMemo(
     () => [
       { type: "dateRange", key: "createdOn", label: "Created On" },
@@ -321,12 +308,20 @@ export default function DocumentListView({
   const sortBy = sortState ? sortColMap[sortState.id] : undefined;
   const sortDir = sortState ? (sortState.desc ? "desc" : "asc") : undefined;
 
+  // WCT group (enableWctDocNav, 2026-11-23): the search waits 300 ms after typing stops, so typing an order number no
+  // longer sends one request per key (they queued: ~7.5 s each). Every other org: as before.
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  useEffect(() => {
+    if (!isWctDocNavEnabled) return setDebouncedSearch(search);
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search, isWctDocNavEnabled]);
   // Server-side paginated list for this document-type set (fetches one page).
   const { docs, total, totalPages, isFetching, refetch } = useGetDocumentsPaginated({
     documentTypes,
     page,
     limit,
-    search,
+    search: debouncedSearch,
     status: filters.status || undefined,
     customerId: filters.customerId || undefined,
     createdOn: filters.createdOn,
@@ -458,7 +453,7 @@ export default function DocumentListView({
             header: "Order",
             enableSorting: false,
             cell: ({ row }: any) => {
-              const o = ordersByQuotation.get(row.original.id);
+              const o = (row.original as any).linkedOrder as { id: string; orderNumber: string } | undefined;
               if (!o) return "";
               return (
                 <Box

@@ -166,7 +166,12 @@ const money = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 
   plan.updates = plan.updates.filter((u) => !doOnlyHeld.includes(u));
   if (doOnlyHeld.length) console.log(`DO-only imported orders still without an invoice (left as they are): ${doOnlyHeld.length}`);
   const clash = plan.orders.filter((o) => numbers.has(`${o.organizationId}|${o.orderNumber}`));
-  const todo = plan.orders.filter((o) => !numbers.has(`${o.organizationId}|${o.orderNumber}`));
+  const todoAll = plan.orders.filter((o) => !numbers.has(`${o.organizationId}|${o.orderNumber}`));
+  // --hold-customer-differs (2026-11-23, Elroy): a new order whose invoice customer differs from the quotation's is
+  // not made (its invoices stay unlinked); listed in held-customer-differs.csv for a decision.
+  const HOLD_DIFFERS = argv.includes('--hold-customer-differs');
+  const heldDiffers = HOLD_DIFFERS ? todoAll.filter((o) => o.customerMismatch.length) : [];
+  const todo = todoAll.filter((o) => !heldDiffers.includes(o));
 
   // ── Report ────────────────────────────────────────────────────────────────
   const lines: string[] = [];
@@ -257,6 +262,31 @@ const money = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 
     path.join(OUT, 'updates.csv'),
     csv([['org', 'order', 'changes', 'old status', 'new status', 'billed %', 'invoices added'], ...plan.updates.map((u) => [orgName(u.order.organizationId), u.order.orderNumber, u.changes.join(' '), u.oldStatus, u.status.label, u.status.billedPct ?? '', u.addInvoices.map((a) => `${a.doc.name} (${a.source})`).join(' ')])]),
   );
+  if (HOLD_DIFFERS) {
+    const referLine = (cfg: any) =>
+      (Array.isArray(cfg?.items) ? cfg.items : [])
+        .map((l: any) => String(l?.description ?? ''))
+        .filter((d: string) => /refer\w*\s+to/i.test(d))
+        .map((d: string) => d.replace(/\s+/g, ' ').trim())
+        .join(' | ');
+    const rows = heldDiffers.flatMap((o) =>
+      o.invoices.map((i) => [
+        orgName(o.organizationId),
+        o.orderNumber,
+        o.quotation.name,
+        String(o.quotation.config?.customerName ?? ''),
+        i.doc.name,
+        String((i.doc as any).config?.customerName ?? (i.doc as any).config?.customer?.name ?? ''),
+        referLine((i.doc as any).config),
+        Number((i.doc as any).config?.totalWithTax ?? (i.doc as any).config?.nettTotal ?? 0).toFixed(2),
+        IMPORTED_LINK_SOURCE_LABEL[i.source],
+      ]),
+    );
+    fs.writeFileSync(path.join(OUT, 'held-customer-differs.csv'), csv([['org', 'order (not made)', 'quotation', 'quotation customer', 'invoice', 'invoice customer', 'Refer to Quotation line', 'invoice amount', 'link source'], ...rows]));
+    say(`HELD (customer differs, --hold-customer-differs): ${heldDiffers.length} order(s), ${rows.length} invoice(s) left unlinked · held-customer-differs.csv`);
+    for (const r of rows) say(`  ${r[1]} | ${r[2]} (${r[3]}) | ${r[4]} (${r[5]}) | ${r[7]} | "${r[6].slice(0, 120)}"`);
+    fs.writeFileSync(path.join(OUT, 'report.txt'), lines.join('\n') + '\n');
+  }
   console.log(`\nFiles: ${OUT}`);
 
   if (!APPLY) {
