@@ -46,12 +46,13 @@ import { keepSplitPartTotals, splitGlRevenueLines, type SplitPlan } from './invo
 import { sgToday, wctFamilyOf, wctFamilyOfTypes, isWctStatusValue, wctStatusMatches, wctStatusOf } from '../common/wct-statuses';
 import { ERP_QUOTE_CANCELLED_STATUSES, assertNotErpImportedDo, confirmPostsToGl, erpDraftState, erpPaidAtImport, erpQuotationDate, erpQuotationDisplayStatus, erpQuotationTag, erpStoredTotalsOf, isErpImported, isErpImportedDo, isQuotationDocType, moneySignature } from '../common/erp-import';
 import { carryServerDoKeys, carryServerInvoiceKeys } from '../deliveries/do-number';
-import { fillEmptyOrderCustomer, invoiceRowsWithSplitParts, linkedDoEntriesOf, liveInvoiceIds, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
+import { fillEmptyOrderCustomer, invoiceRowsWithSplitParts, isWctOrdersEnabled, linkedDoEntriesOf, liveInvoiceIds, orderInvoiceIdsOf, refreshOrderStatus, WCT_ORDER_INVOICE_FLAG } from '../orders/wct-orders';
 import { isManualOrderFlow, manualAutoDraftsOff } from '../orders/manual-order-flow';
 import { skipsDoSaveStockRule } from './do-first-save';
 import { RDO_FREE_ROWS_FLAG, allowsRdoFreeRows, hasUnit, isRdoSigned, isRdoType } from './rdo-free-rows';
 import { SOFT_DELETE_DRAFTS_FLAG, SOFT_DELETED_TYPE, WCT_STATUSES_FLAG, isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
+import { linkedDocIdsForNumber, wantsLinkedSearch } from '../orders/linked-number-search';
 import { assetKey, descKey, invoiceDiscountPercent, isDisplayRow, orderInvoiceReference, planOrderInvoice, quoteDiscountAmount, splitJobLines } from '../orders/order-billing';
 import { loadSubjectAccounts, subjectPostingLines } from './subject-type-account';
 
@@ -5182,6 +5183,12 @@ export class DocumentsService {
           { type: { contains: term, mode: 'insensitive' } },
         ];
         if (hits.length) or.push({ id: { in: hits.map((h) => h.id) } });
+        // WCT group (enableWctOrders, 2026-11-23): a number also finds the documents linked to it (order, its
+        // quotation, DOs, invoices; orders/linked-number-search.ts). The list's type filter keeps its own type.
+        if (wantsLinkedSearch(term) && (await isWctOrdersEnabled(this.prisma as any, organizationId))) {
+          const linked = await linkedDocIdsForNumber(this.prisma, organizationId, term).catch(() => [] as string[]);
+          if (linked.length) or.push({ id: { in: linked } });
+        }
         and.push({ OR: or });
       }
 
