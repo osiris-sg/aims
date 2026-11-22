@@ -83,4 +83,7 @@ test("fields: DO / Invoice Reference becomes Link Document; quotation Reference 
   // displayOrder keeps the new row right after Customer Remarks.
   const ordered = withLinkDocFields([{ fieldName: "documentInfo.referenceNo", displayLabel: "Reference", displayOrder: 3 }], { page: "QUOTATION", linkOn: true, remarksSplit: true });
   assert.equal(ordered[1].displayOrder, 3.01);
+  // Both quotation rows are full rows, so a half-width Reference never pairs them side by side.
+  const half = withLinkDocFields([{ fieldName: "documentInfo.referenceNo", displayLabel: "Reference", gridSize: 6 }], { page: "QUOTATION", linkOn: true, remarksSplit: true });
+  assert.deepEqual(half.map((f) => f.gridSize), [12, 12]);
 });

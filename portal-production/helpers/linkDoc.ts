@@ -139,7 +139,7 @@ export function chainSections(c: DocChain | null | undefined): Array<{ key: stri
  * (its input is the pills row). Quotation (split on): the Reference row is renamed "Customer Remarks" (its input edits
  * config.remarks) and, with Link Document on, a "Link Document" row follows it.
  */
-export function withLinkDocFields<F extends { fieldName: string; displayLabel?: string; displayOrder?: number }>(fields: F[], opts: { page: PageKind | null; linkOn: boolean; remarksSplit: boolean }): F[] {
+export function withLinkDocFields<F extends { fieldName: string; displayLabel?: string; displayOrder?: number; gridSize?: number }>(fields: F[], opts: { page: PageKind | null; linkOn: boolean; remarksSplit: boolean }): F[] {
   const isRef = (f: F) => f.fieldName === "documentInfo.referenceNo" || f.fieldName === "referenceNo";
   if (opts.page === "QUOTATION") {
     if (!opts.remarksSplit) return fields;
@@ -149,8 +149,9 @@ export function withLinkDocFields<F extends { fieldName: string; displayLabel?: 
         out.push(f);
         continue;
       }
-      out.push({ ...f, displayLabel: "Customer Remarks" });
-      if (opts.linkOn) out.push({ ...f, fieldName: LINK_DOC_FIELD, displayLabel: "Link Document", ...(typeof f.displayOrder === "number" ? { displayOrder: f.displayOrder + 0.01 } : {}) } as F);
+      // Full rows (gridSize 12): a half-width Reference would pair the two side by side and squeeze both.
+      out.push({ ...f, displayLabel: "Customer Remarks", gridSize: 12 });
+      if (opts.linkOn) out.push({ ...f, fieldName: LINK_DOC_FIELD, displayLabel: "Link Document", gridSize: 12, ...(typeof f.displayOrder === "number" ? { displayOrder: f.displayOrder + 0.01 } : {}) } as F);
     }
     return out;
   }
