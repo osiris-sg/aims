@@ -1412,7 +1412,8 @@ export default function DynamicFormFields({
     >
       <Typography sx={leftLabelSx}>{field.displayLabel}</Typography>
       {/* pr: the input never runs into the column divider (guru 2026-11-21: "a lot of things are going beyond their row"). */}
-      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', pr: 1, maxWidth: HEADER_INPUT_MAX_WIDTH[field.fieldName] }}>
+      {/* adaptivePairs (WCT): minWidth 0 lets the value shrink to the card, so a long salesperson name ends in an ellipsis. */}
+      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', pr: 1, maxWidth: HEADER_INPUT_MAX_WIDTH[field.fieldName], ...(adaptivePairs ? { minWidth: 0 } : {}) }}>
         {customInputs?.[field.fieldName] ?? renderInput(field)}
       </Box>
     </Box>
