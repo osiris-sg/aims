@@ -20,6 +20,12 @@ export const DEFAULT_ORG_FEATURES: Record<string, boolean> = {
   enableAssetPoints: false,
   // Invoice header 'Accounts to Credit' + GL Remarks (one sales account per
   // invoice, legacy Details tab) instead of a GL account per line.
+  // Per-line GL accounts on the legacy invoice screen (guru 2026-11-23): a
+  // service business keeps the legacy screen but codes each line to its own
+  // revenue account, so the header "Accounts to Credit" box is off and the
+  // per-line GL chip stays. Only meaningful with enableHeaderGlAccount on.
+  // Default OFF (the header box behaves as before).
+  enableLineGlAccounts: false,
   enableHeaderGlAccount: false,
   enableItemTagging: false,
   enablePOAsProject: false,
