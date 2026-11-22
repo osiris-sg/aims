@@ -2,10 +2,12 @@
 // goes to that document, then when done they can go back to that page").
 //
 // A line posted from a document opens THAT document in its own editor; a
-// manual journal voucher (no source document) opens the read-only journal
-// view with its double entry. Every target gets ?from=<the page the user was
-// on, with its state in the query string>, which the editors' Back arrow and
-// the journal view honour, so the user lands back on the same ledger.
+// journal with no document behind it (a Xero / legacy import) opens the J/V
+// editor too (guru 2026-11-23: every accounting document on the same screen):
+// a manual journal is adopted into a voucher on first open, any other posting
+// shows read-only. Every target gets ?from=<the page the user was on, with its
+// state in the query string>, which the editors' Back arrow honours, so the
+// user lands back on the same ledger.
 
 export type LedgerSource = {
   journalEntryId?: string | null;
@@ -29,7 +31,7 @@ export function sourceHref(src: LedgerSource, from: string): string | null {
     if (type === "RECEIVE_MONEY") return `/portal/accounting/receivables?tab=receive-money&open=${enc(src.documentId)}${q(false)}`;
     if (src.templateId) return `/portal/documents/${type}/${src.templateId}/${src.documentId}${q(true)}`;
   }
-  if (src.journalEntryId) return `/portal/accounting/journal/${src.journalEntryId}${q(true)}`;
+  if (src.journalEntryId) return `/portal/accounting/journal-vouchers/${src.journalEntryId}${q(true)}`;
   return null;
 }
 

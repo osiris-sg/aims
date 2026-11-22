@@ -34,8 +34,10 @@ type Spec = {
   number: (r: any) => string;
   party: { header: string; of: (r: any) => string };
   amount: (r: any) => number;
-  /** A row that isn't a voucher document opens somewhere else (JV: the journal view). */
+  /** A row that isn't a voucher document opens somewhere else. */
   rowPath?: (r: any) => string | null;
+  /** Rows the bulk bar may act on (default: all). */
+  bulkEligible?: (r: any) => boolean;
 };
 
 const SPECS: Record<Kind, Spec> = {
@@ -72,12 +74,10 @@ const SPECS: Record<Kind, Spec> = {
     party: { header: "Prepared by", of: (r) => r.preparedBy || "" },
     amount: (r) => Number(r.totalDebit) || 0,
     // A hand-keyed journal with no voucher document behind it (Biofuel's Xero
-    // J/Vs) is read-only — it opens the journal view, never the editor, since
-    // saving it through the J/V screen would post it a second time.
-    rowPath: (r) =>
-      r.source === "journal"
-        ? `/portal/accounting/journal/${r.id}?from=${encodeURIComponent("/portal/accounting/journal-vouchers")}`
-        : null,
+    // J/Vs) opens the SAME J/V editor (guru 2026-11-23): the server adopts it into
+    // a voucher document on first open, so a save reposts instead of posting twice.
+    // Bulk actions skip such rows until they have been opened once.
+    bulkEligible: (r) => r.source !== "journal",
   },
 };
 
@@ -313,7 +313,7 @@ export default function VoucherListPage({ kind }: { kind: Kind }) {
         noun={spec.label.toLowerCase()}
         plural={spec.plural.toLowerCase()}
         run={(r) => request(`${spec.apiPath}/${r.id}`, { method: "DELETE" })}
-        eligible={(r) => !spec.rowPath?.(r)}
+        eligible={(r) => !spec.rowPath?.(r) && (spec.bulkEligible?.(r) ?? true)}
         skipNote="are journals, not vouchers, and"
         confirmBody="Each voucher's journal is voided with it. This cannot be undone."
         onDone={() => void load()}

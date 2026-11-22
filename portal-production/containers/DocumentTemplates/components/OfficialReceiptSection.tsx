@@ -579,12 +579,15 @@ export function OfficialReceiptOffsetSection({
   setFormData,
   receiptId,
   disabled = false,
+  lockNote = false,
   framed = false,
 }: {
   formData: any;
   setFormData: (next: any) => void;
   receiptId?: string;
   disabled?: boolean;
+  /** The presence lock (another session edits it): the only lock that explains itself here. */
+  lockNote?: boolean;
   // Legacy chrome: put the rail in the editor's 204px left margin (guru 2026-11-16).
   framed?: boolean;
 }) {
@@ -717,7 +720,7 @@ export function OfficialReceiptOffsetSection({
           <Box sx={{ flex: 1, minHeight: 120, display: "flex", flexDirection: "column", pt: 1 }}>
             {/* The lock/read-only state only gates allocations + save (header
                 inputs stay typeable), so say WHY the ticks are disabled. */}
-            {disabled && (
+            {disabled && lockNote && (
               <Alert severity="warning" variant="outlined" sx={{ mb: 1, alignSelf: "flex-start" }}>
                 Read-only — another session holds this receipt&apos;s edit lock. Close the other tab
                 or use &quot;Take over&quot; in the banner at the top of the page.
