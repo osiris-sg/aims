@@ -10,7 +10,7 @@ import { ReceiptsService } from '../receipts/receipts.service';
 import { PaymentsService } from '../payments/payments.service';
 import { AuditService } from 'src/common/audit.service';
 import { orgToday } from '../common/org-today';
-import { listJournalVouchersPaged, VoucherListQuery } from '../common/voucher-list';
+import { importerLabel, listJournalVouchersPaged, VoucherListQuery } from '../common/voucher-list';
 
 const ROUND = (n: number) => Math.round(n * 100) / 100;
 
@@ -197,6 +197,10 @@ export class JournalVouchersService {
       recordLockedAt: c.recordLockedAt || null,
       recordLockedBy: c.recordLockedBy || null,
       savedAt: c.savedAt || null,
+      // Voided (config.voided is THE marker, common/document-void.ts): the editor opens it read-only.
+      voided: c.voided === true,
+      voidedAt: c.voidedAt || null,
+      voidedBy: c.voidedBy || null,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
     };
@@ -244,9 +248,15 @@ export class JournalVouchersService {
    * (incomplete = saved, NOT posted) until the user picks the invoices again.
    */
   async duplicate(organizationId: string, id: string, actor?: Actor) {
-    const src = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'JOURNAL_VOUCHER' } });
-    if (!src) throw new NotFoundException('Journal voucher not found');
-    const c: any = src.config || {};
+    // The source is a voucher document, or (Duplicate on a read-only imported
+    // posting shown in the J/V editor) a bare journal: its lines copy the same way.
+    const srcDoc = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'JOURNAL_VOUCHER' } });
+    const srcJournal = srcDoc ? null : await this.adoptJournal(organizationId, id);
+    if (!srcDoc && !srcJournal) throw new NotFoundException('Journal voucher not found');
+    const src = srcDoc
+      ? { name: srcDoc.name, documentTemplateId: srcDoc.documentTemplateId }
+      : { name: srcJournal.voucherNumber, documentTemplateId: await this.getOrCreateTemplate(organizationId) };
+    const c: any = srcDoc ? srcDoc.config || {} : { lines: srcJournal.lines, notes: srcJournal.notes };
     const setting = await this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { timeZone: true } });
     const lines = (Array.isArray(c.lines) ? c.lines : []).map((l: any, i: number) => {
       const hadOffset = !!(l?.offset?.supplierId || l?.offset?.customerId);
@@ -301,7 +311,7 @@ export class JournalVouchersService {
    * hand-keyed journals that never had a voucher document — Biofuel's 1,842
    * J/Vs came in from Xero as journals, so a Documents-only list showed her
    * nothing (guru 2026-11-18). Imported rows come back `source: 'journal'`
-   * and open the read-only journal view.
+   * and open the J/V editor like any other (adopted on first open, see adoptJournal).
    */
   async listPaged(organizationId: string, q: VoucherListQuery) {
     return listJournalVouchersPaged(this.prisma as any, organizationId, q, (d) => this.toVoucher(d));
@@ -309,7 +319,141 @@ export class JournalVouchersService {
 
   async getById(organizationId: string, id: string) {
     const doc = await this.prisma.document.findFirst({ where: { id, organizationId, type: 'JOURNAL_VOUCHER' } });
-    if (!doc) throw new NotFoundException('Journal voucher not found');
+    if (doc) return this.toVoucher(doc);
+    // Not a voucher document: a bare JOURNAL id (the J/V list's imported rows, a
+    // ledger line's journal). See adoptJournal.
+    const fromJournal = await this.adoptJournal(organizationId, id);
+    if (fromJournal) return fromJournal;
+    throw new NotFoundException('Journal voucher not found');
+  }
+
+  /**
+   * A journal with NO voucher document behind it (Biofuel's 1,842 Xero manual
+   * journals, a legacy books import) opens on the SAME J/V editor as every other
+   * accounting document (guru 2026-11-23: "all document edit should follow the
+   * same component structure… even when confirmed she can still edit as long as
+   * not locked, and can duplicate"). It used to open a bare read-only journal
+   * page, so that re-saving could not post it a second time.
+   *
+   * A MANUAL journal is ADOPTED on first open: a JOURNAL_VOUCHER document is
+   * minted from it, numbered as the journal, dated and lined as the journal,
+   * and the journal is linked to it as its posting (sourceDocumentId). From then
+   * on it IS a journal voucher: the editor's normal save path voids that journal
+   * and reposts as -Rn, so nothing is ever posted twice; the lock dates and the
+   * Lock / Void rules apply as to any voucher. Adopting is idempotent (the link
+   * is claimed with a conditional update, so two first opens mint one voucher).
+   *
+   * A journal of any OTHER type (an invoice / payment posting whose document
+   * AIMS never held — Xero history matched by reference) is shown in the same
+   * editor READ-ONLY, under its journal id, with `readOnlyReason` set: no
+   * document is minted for it, because it is not a journal voucher.
+   */
+  private async adoptJournal(organizationId: string, journalId: string): Promise<any | null> {
+    const je = await this.prisma.journalEntry.findFirst({
+      where: { id: journalId, organizationId },
+      include: { lines: { orderBy: { lineNumber: 'asc' }, include: { account: { select: { code: true, name: true } } } } },
+    });
+    if (!je) return null;
+    if (je.sourceDocumentId) {
+      // Adopted already (or posted by a document): the voucher document is the record.
+      const doc = await this.prisma.document.findFirst({ where: { id: je.sourceDocumentId, organizationId, type: 'JOURNAL_VOUCHER' } });
+      if (doc) return this.toVoucher(doc);
+    }
+    const lines = je.lines.map((l, i) => ({
+      id: `l${i + 1}`,
+      accountCode: l.account?.code || '',
+      accountName: l.account?.name || '',
+      description: l.description || '',
+      remarks: '',
+      debit: ROUND(Number(l.debit) || 0),
+      credit: ROUND(Number(l.credit) || 0),
+    }));
+    const status = je.status === 'DRAFT' || je.isUnconfirmed ? 'unconfirmed' : 'confirmed';
+    const date = new Date(je.entryDate).toISOString().slice(0, 10);
+    const description = String(je.description || '').trim();
+    const reference = String(je.reference || '').trim();
+    // The narration goes to the Remarks memo; the Xero reference joins it when it says more.
+    const notes = reference && !description.includes(reference) ? [description, reference].filter(Boolean).join('\n') : description || reference;
+    const preparedBy = importerLabel(je.createdBy);
+    const voidStamp = je.status === 'VOID' ? { voided: true, voidedAt: je.voidedAt || null, voidedBy: je.voidedBy ? { name: je.voidedBy } : null } : {};
+    const totalDebit = ROUND(lines.reduce((a, l) => a + l.debit, 0));
+    const totalCredit = ROUND(lines.reduce((a, l) => a + l.credit, 0));
+
+    if (je.type !== 'MANUAL' || je.sourceDocumentId) {
+      const kind = je.sourceDocumentId ? 'a document' : `a${/^[AEIOU]/i.test(je.type) ? 'n' : ''} ${je.type.toLowerCase().replace(/_/g, ' ')}`;
+      return {
+        id: je.id,
+        voucherNumber: je.journalNumber,
+        status,
+        date,
+        preparedBy,
+        notes,
+        creditorAccountCode: null,
+        debtorAccountCode: null,
+        lines,
+        totalDebit,
+        totalCredit,
+        journalNumber: je.journalNumber,
+        journalEntryId: je.id,
+        incompleteReason: null,
+        documentTemplateId: null,
+        savedBy: preparedBy,
+        recordLocked: false,
+        recordLockedAt: null,
+        recordLockedBy: null,
+        savedAt: je.createdAt,
+        voided: je.status === 'VOID',
+        voidedAt: je.voidedAt || null,
+        voidedBy: je.voidedBy ? { name: je.voidedBy } : null,
+        createdAt: je.createdAt,
+        updatedAt: je.updatedAt,
+        readOnlyReason: `Journal ${je.journalNumber} was posted by ${kind} AIMS holds no document for (${preparedBy}). It is shown as posted and cannot be changed here.`,
+      };
+    }
+
+    const [templateId, setting] = await Promise.all([
+      this.getOrCreateTemplate(organizationId),
+      this.prisma.accountingSetting.findUnique({ where: { organizationId }, select: { controlAccounts: true } }),
+    ]);
+    const controls = (setting?.controlAccounts as any) || {};
+    const doc = await this.prisma.document.create({
+      data: {
+        organizationId,
+        documentTemplateId: templateId,
+        type: 'JOURNAL_VOUCHER',
+        name: je.journalNumber,
+        status,
+        config: {
+          date,
+          preparedBy,
+          notes,
+          creditorAccountCode: controls.creditorControl || 'CL001',
+          debtorAccountCode: controls.debtorControl || 'CA001',
+          lines,
+          totalDebit,
+          totalCredit,
+          journalNumber: je.journalNumber,
+          journalEntryId: je.id,
+          adoptedFromJournalId: je.id,
+          savedBy: preparedBy,
+          savedAt: je.createdAt.toISOString(),
+          ...voidStamp,
+        } as any,
+      },
+    });
+    // Claim the journal for this voucher; a concurrent first open loses the race and reuses the winner's voucher.
+    const linked = await this.prisma.journalEntry.updateMany({ where: { id: je.id, organizationId, sourceDocumentId: null }, data: { sourceDocumentId: doc.id } });
+    if (linked.count === 0) {
+      await this.prisma.document.delete({ where: { id: doc.id } });
+      return this.adoptJournal(organizationId, journalId);
+    }
+    void this.logEvent({
+      documentId: doc.id,
+      organizationId,
+      action: 'CREATED',
+      documentName: je.journalNumber,
+      detail: `Journal Voucher opened from journal ${je.journalNumber} (${preparedBy}); its posting is unchanged`,
+    });
     return this.toVoucher(doc);
   }
 

@@ -27,8 +27,16 @@ const toExisting = (v: any) => ({
   name: v.voucherNumber,
   status: v.status,
   documentTemplateId: v.documentTemplateId,
-  // Per-document Lock button: a locked voucher opens read-only.
-  config: { recordLocked: v.recordLocked === true, recordLockedAt: v.recordLockedAt, recordLockedBy: v.recordLockedBy },
+  // Per-document Lock button: a locked voucher opens read-only. Voided (config.voided) too.
+  config: {
+    recordLocked: v.recordLocked === true,
+    recordLockedAt: v.recordLockedAt,
+    recordLockedBy: v.recordLockedBy,
+    ...(v.voided === true ? { voided: true, voidedAt: v.voidedAt, voidedBy: v.voidedBy } : {}),
+  },
+  // A journal shown without a document behind it (an invoice / payment posting AIMS
+  // never held): the same editor, read-only, with the reason on its chip.
+  readOnlyReason: v.readOnlyReason || null,
   documentInfo: { documentNumber: v.voucherNumber, date: v.date },
   savedBy: v.savedBy,
   savedAt: v.savedAt,
@@ -78,6 +86,12 @@ export default function JournalVoucherPage() {
         const v = unwrap(one);
         if (!v?.id) throw new Error("Journal voucher not found");
         if (cancelled) return;
+        // Opened by a JOURNAL id (the J/V list's imported rows, a ledger line): the server
+        // adopted that journal into a voucher document — continue under the voucher's id.
+        if (v.id !== documentId && !v.readOnlyReason) {
+          router.replace(`/portal/accounting/journal-vouchers/${v.id}${typeof window !== "undefined" ? window.location.search : ""}`);
+          return;
+        }
         const navList = listFrom<any>(list, "Could not load the journal voucher list");
         setVouchers(navList.rows);
         setListError(navList.error);
