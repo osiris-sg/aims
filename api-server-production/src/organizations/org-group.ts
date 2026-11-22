@@ -86,3 +86,56 @@ export async function memberOrgIds(prisma: any, userId: string | null | undefine
   for (const m of memberships ?? []) if (withRole.has(m.organizationId)) out.add(m.organizationId);
   return out;
 }
+
+/**
+ * Group New job (WCT 2026-11-22): the group an org belongs to, for picking which company a new job goes under.
+ * Root = the org's parent when that parent has the group calendar on, else the org itself when it has the flag on
+ * and has children. Returns [root, ...children by name], or [] when the org is in no active group (every org outside
+ * the WCT group). Writes still go to one org at a time: the client sends X-Active-Org-Id for the chosen company, so the
+ * auth guard checks membership and the create-job permission THERE; this only says which orgs are in the group.
+ */
+export async function groupFamily(prisma: any, orgId: string): Promise<GroupOrg[]> {
+  if (!orgId || typeof prisma?.$queryRawUnsafe !== 'function') return [];
+  let root = orgId;
+  try {
+    const rows: any[] = await prisma.$queryRawUnsafe('SELECT "parentOrgId" FROM "Organization" WHERE "id" = $1', orgId);
+    const parent = rows?.[0]?.parentOrgId;
+    if (typeof parent === 'string' && parent && parent !== orgId) root = parent;
+  } catch {
+    return [];
+  }
+  if (!(await isOrgFeatureEnabled(prisma, root, GROUP_CALENDAR_FLAG))) return [];
+  const children = await childOrgsOf(prisma, root);
+  if (!children.length) return [];
+  const me = await prisma.organization.findUnique({ where: { id: root }, select: { id: true, name: true } });
+  if (!me) return [];
+  return [{ id: me.id, name: me.name ?? '' }, ...children];
+}
+
+/** The New job "Company" choices: the group's orgs this user may open (osiris admins: all of them). */
+export async function groupJobCompanies(prisma: any, orgId: string, userId: string | null | undefined, isAdmin = false): Promise<{ group: boolean; current: string; orgs: GroupOrg[] }> {
+  const family = await groupFamily(prisma, orgId);
+  if (!family.length) return { group: false, current: orgId, orgs: [] };
+  const allowed = isAdmin ? new Set(family.map((o) => o.id)) : await memberOrgIds(prisma, userId, family.map((o) => o.id));
+  return { group: true, current: orgId, orgs: family.filter((o) => allowed.has(o.id) || o.id === orgId) };
+}
+
+export const OUTSIDE_GROUP_MESSAGE = 'That company is not in your group';
+export const NO_COMPANY_ACCESS_MESSAGE = 'You do not have access to that company';
+
+/**
+ * A job made from the group calendar under another company (groupFromOrgId = the calendar's org, targetOrgId = the
+ * request org the guard already let in). The two must be in the same group, and the user must belong to the calendar's
+ * org too. Returns an error message, or null when allowed. Same org = nothing to check.
+ */
+export async function groupJobTargetError(prisma: any, fromOrgId: unknown, targetOrgId: string, userId: string | null | undefined, isAdmin = false): Promise<string | null> {
+  if (fromOrgId === undefined || fromOrgId === null || fromOrgId === '') return null;
+  if (typeof fromOrgId !== 'string') return OUTSIDE_GROUP_MESSAGE;
+  if (fromOrgId === targetOrgId) return null;
+  const family = await groupFamily(prisma, fromOrgId);
+  const ids = new Set(family.map((o) => o.id));
+  if (!ids.has(fromOrgId) || !ids.has(targetOrgId)) return OUTSIDE_GROUP_MESSAGE;
+  if (isAdmin) return null;
+  const member = await memberOrgIds(prisma, userId, [fromOrgId, targetOrgId]);
+  return member.has(fromOrgId) && member.has(targetOrgId) ? null : NO_COMPANY_ACCESS_MESSAGE;
+}

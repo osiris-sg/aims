@@ -5,7 +5,7 @@ import { runAsOrg } from '../common/tenancy/tenant-context';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { SiteClockLinkService } from '../siteclock/siteclock-link.service';
 import { buildCalendarEvents, CalendarEvent, CalendarRun, CalendarSiteClockJob, CALENDAR_TZ, checkRange, chipLabelOf, rangeInstants, stripLinks } from './jobs-calendar';
-import { GroupOrg, groupReadScope, memberOrgIds } from '../organizations/org-group';
+import { GroupOrg, groupJobCompanies, groupReadScope, memberOrgIds } from '../organizations/org-group';
 import { calendarBadge, calendarLegend, isJobFieldsEnabled, jobFieldDefs, jobFieldValues } from '../deliveries/job-fields';
 import { jobCategoryDef, jobCategoryValues } from '../deliveries/job-category';
 import { CalendarNoteView, CalendarNotesService } from './calendar-notes.service';
@@ -87,6 +87,11 @@ export class JobsCalendarService {
     @Optional() private readonly notes?: CalendarNotesService,
     @Optional() private readonly style?: CalendarStyleService,
   ) {}
+
+  /** Group New job (WCT 2026-11-22): the companies a new job can go under (org-group.ts groupJobCompanies). */
+  companies(organizationId: string, userId: string | null, isAdmin: boolean) {
+    return groupJobCompanies(this.prisma, organizationId, userId, isAdmin);
+  }
 
   async get(organizationId: string, from: string, to: string, viewer?: { userId?: string | null }): Promise<JobsCalendarResponse> {
     if (!(await isOrgFeatureEnabled(this.prisma, organizationId, JOBS_CALENDAR_FLAG))) {

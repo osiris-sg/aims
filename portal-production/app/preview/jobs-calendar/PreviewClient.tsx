@@ -137,7 +137,7 @@ const STYLE_NOTES = [
 ];
 const STYLE_LEGEND = [icon("✋", "PTW pending"), icon("👍", "PTW approved"), icon("👎", "PTW rejected"), icon("✅", "DO generated"), icon("❌", "Cancelled"), icon("⭕", "Postponed"), icon("📅", "Leave"), icon("🟫", "COD"), icon("📌", "Generate sticker")];
 
-export default function PreviewClient({ mode, view, cancelled, down, add = false, styled = false, hq = false }: { mode: "light" | "dark"; view: "dayGridMonth" | "timeGridWeek" | "timeGridDay" | "schedule"; cancelled: boolean; down: boolean; add?: boolean; styled?: boolean; hq?: boolean }) {
+export default function PreviewClient({ mode, view, cancelled, down, add = false, styled = false, hq = false, date = "2026-11-03" }: { date?: string; mode: "light" | "dark"; view: "dayGridMonth" | "timeGridWeek" | "timeGridDay" | "schedule"; cancelled: boolean; down: boolean; add?: boolean; styled?: boolean; hq?: boolean }) {
   const theme = useMemo(() => createTheme({ palette: { mode } }), [mode]);
   const [showCancelled, setShowCancelled] = useState(cancelled);
   const [adding, setAdding] = useState<{ kind: "job" | "note"; slot: { date: string; time: string } } | null>(null);
@@ -166,7 +166,7 @@ export default function PreviewClient({ mode, view, cancelled, down, add = false
           showCancelled={showCancelled}
           onShowCancelled={setShowCancelled}
           onRange={() => undefined}
-          initialDate="2026-11-03"
+          initialDate={date}
           initialView={view}
           jobWords={add}
           canAdd={add}

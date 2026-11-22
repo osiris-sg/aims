@@ -49,8 +49,9 @@ export interface WorkerOption {
   group: string;
 }
 
-/** SiteClock workers (grouped by team) for the job and note forms; enabled = the org's SiteClock link is on. */
-export function useSiteClockWorkers(open: boolean) {
+/** SiteClock workers (grouped by team) for the job and note forms; enabled = the org's SiteClock link is on.
+ * orgId (group New job, 2026-11-22): the chosen company's workers instead of the current org's. */
+export function useSiteClockWorkers(open: boolean, orgId?: string | null) {
   const api = useCalendarApi();
   const [state, setState] = useState<{ enabled: boolean; options: WorkerOption[]; loading: boolean; error: string }>({ enabled: false, options: [], loading: false, error: "" });
   useEffect(() => {
@@ -58,10 +59,10 @@ export function useSiteClockWorkers(open: boolean) {
     let live = true;
     setState((s) => ({ ...s, loading: true, error: "" }));
     (async () => {
-      const cfg = await api<any>("GET", "/deliveries/siteclock/config");
+      const cfg = await api<any>("GET", "/deliveries/siteclock/config", undefined, orgId);
       if (!live) return;
       if (!cfg.ok || !cfg.data?.enabled) return setState({ enabled: false, options: [], loading: false, error: "" });
-      const res = await api<any>("GET", "/deliveries/siteclock/workers");
+      const res = await api<any>("GET", "/deliveries/siteclock/workers", undefined, orgId);
       if (!live) return;
       if (!res.ok) return setState({ enabled: true, options: [], loading: false, error: res.message || "Couldn't load SiteClock workers" });
       const seen = new Set<string>();
@@ -73,7 +74,7 @@ export function useSiteClockWorkers(open: boolean) {
     return () => {
       live = false;
     };
-  }, [open, api]);
+  }, [open, api, orgId]);
   return state;
 }
 
@@ -99,7 +100,7 @@ export interface CalendarStylePeople {
 const NO_STYLE: CalendarStylePeople = { enabled: false, salespeople: [], applicants: [], defaultSalesperson: null, defaultApplicant: null };
 
 /** Calendar style (enableCalendarStyle): the Salesperson / PTW applicant pickers; enabled false for every other org. */
-export function useCalendarStylePeople(open: boolean) {
+export function useCalendarStylePeople(open: boolean, orgId?: string | null) {
   const api = useCalendarApi();
   // Only orgs with the flag ask the server (every other org: no request, nothing shown).
   const { features } = useOrganizationFeatures();
@@ -108,7 +109,8 @@ export function useCalendarStylePeople(open: boolean) {
   useEffect(() => {
     if (!open || !on) return;
     let live = true;
-    void api<CalendarStylePeople>("GET", "/dashboard/calendar-style/people").then((res) => {
+    setState({ ...NO_STYLE, loaded: false });
+    void api<CalendarStylePeople>("GET", "/dashboard/calendar-style/people", undefined, orgId).then((res) => {
       if (!live) return;
       const d = res.ok && res.data?.enabled ? res.data : NO_STYLE;
       setState({ ...NO_STYLE, ...d, loaded: true });
@@ -116,6 +118,33 @@ export function useCalendarStylePeople(open: boolean) {
     return () => {
       live = false;
     };
-  }, [open, on, api]);
+  }, [open, on, api, orgId]);
   return on ? state : { ...NO_STYLE, loaded: true };
+}
+
+export interface JobCompanies {
+  /** false = the org is in no active group (every org outside the WCT group): no Company field. */
+  group: boolean;
+  /** The org the person is in now (the default). */
+  current: string;
+  /** The group's companies this person belongs to, the parent first. */
+  orgs: Array<{ id: string; name: string }>;
+}
+
+/** Group New job (WCT 2026-11-22): the companies a new job can go under (GET /dashboard/jobs-calendar/companies). */
+export function useJobCompanies(open: boolean) {
+  const api = useCalendarApi();
+  const [state, setState] = useState<JobCompanies | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    void api<JobCompanies>("GET", "/dashboard/jobs-calendar/companies").then((res) => {
+      if (!live) return;
+      setState(res.ok && res.data && Array.isArray(res.data.orgs) ? res.data : null);
+    });
+    return () => {
+      live = false;
+    };
+  }, [open, api]);
+  return state;
 }

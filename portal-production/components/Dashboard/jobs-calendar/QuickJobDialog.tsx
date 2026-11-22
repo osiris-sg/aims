@@ -15,7 +15,7 @@ import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import CustomerPicker from "@/components/CustomerPicker";
 import type { PickerCustomer } from "@/app/portal/hooks/api/useCustomerPicker";
 import { ptwOptions, quickJobBody, sgtParts, type PtwStatus, type QuickJobForm } from "@/helpers/calendarAdd";
-import { useCalendarApi, useCalendarStylePeople, useSiteClockWorkers, type WorkerOption } from "./calendarAddApi";
+import { useCalendarApi, useCalendarStylePeople, useJobCompanies, useSiteClockWorkers, type WorkerOption } from "./calendarAddApi";
 import JobStyleFields from "./JobStyleFields";
 import { applyQuotationPick, doOptionLabel, needsDoPick, quotationLabel, quotationRow, quotationSearchPath, type QuotationDetail, type QuotationOption } from "@/helpers/quickJobQuotation";
 import { categoryShown, type JobCategoryDef } from "@/helpers/jobCategory";
@@ -52,8 +52,8 @@ export default function QuickJobDialog({
 }: {
   open: boolean;
   onClose: () => void;
-  /** result (new job): where it went (orderNumber / doName), for the toast. */
-  onSaved: (id: string, result?: { orderNumber?: string | null; doName?: string | null; quotationName?: string | null }) => void;
+  /** result (new job): where it went (orderNumber / doName; orgName when saved under another company), for the toast. */
+  onSaved: (id: string, result?: { orderNumber?: string | null; doName?: string | null; quotationName?: string | null; orgName?: string | null }) => void;
   /** Edit only: the job was deleted. */
   onDeleted?: () => void;
   /** New job: the clicked day / time. */
@@ -65,9 +65,20 @@ export default function QuickJobDialog({
   /** New job with Quotation: picked when the dialog opens (the order page's Add job, 2026-11-17): Customer, Site and the DO follow. */
   initialQuotationId?: string | null;
 }) {
-  const api = useCalendarApi();
+  const baseApi = useCalendarApi();
   const phone = useMediaQuery((t: any) => t.breakpoints.down("sm"));
-  const workers = useSiteClockWorkers(open);
+  // Group New job (WCT group, 2026-11-22): the Company the job goes under. Default = the org the person is in now;
+  // another company of the group = every load and the save go to that company (its customers, quotations, people,
+  // workers, numbering), and the server checks the person's access there. Edit: shown, never changed.
+  const companies = useJobCompanies(open);
+  const [companyId, setCompanyId] = useState<string | null>(null);
+  useEffect(() => {
+    if (open) setCompanyId(null);
+  }, [open]);
+  const orgFor = !edit && companies?.group && companyId && companyId !== companies.current ? companyId : null;
+  const companyName = (id: string | null | undefined) => companies?.orgs.find((o) => o.id === id)?.name ?? "";
+  const api = useMemo(() => (orgFor ? (<T = any,>(m: string, p: string, b?: any) => baseApi<T>(m, p, b, orgFor)) : baseApi), [baseApi, orgFor]) as typeof baseApi;
+  const workers = useSiteClockWorkers(open, orgFor);
   const [form, setForm] = useState<QuickJobForm>(() => blank(slot));
   // Round 39 #8: the mini calendar's warning above Save (same team at the same time, a busy slot).
   const [hints, setHints] = useState<string[]>([]);
@@ -93,7 +104,7 @@ export default function QuickJobDialog({
     return () => {
       live = false;
     };
-  }, [open, api, editCategory]);
+  }, [open, api, editCategory, orgFor]);
 
   useEffect(() => {
     if (!open) return;
@@ -123,7 +134,7 @@ export default function QuickJobDialog({
   }, [open, edit, slot]);
 
   // Calendar style (enableCalendarStyle; disabled for every other org: no fields shown, nothing sent).
-  const people = useCalendarStylePeople(open);
+  const people = useCalendarStylePeople(open, orgFor);
   const editId = edit?.id ?? null;
   useEffect(() => {
     if (!open || !people.loaded || !people.enabled) return;
@@ -174,13 +185,24 @@ export default function QuickJobDialog({
   };
 
   const set = (patch: Partial<QuickJobForm>) => setForm((f) => ({ ...f, ...patch }));
+  // A new Company clears everything that belongs to a company; its own lists load in their place.
+  const switchCompany = (id: string) => {
+    if (id === (companyId ?? companies?.current)) return;
+    setCompanyId(id);
+    setQuotation(null);
+    setCustomer(null);
+    setError("");
+    setForm((f) => ({ ...f, quotationId: null, doId: null, doRequired: false, customerId: null, siteAddress: "", workers: [], style: undefined, category: null }));
+  };
   const chosen = useMemo<WorkerOption[]>(() => form.workers.map((w) => workers.options.find((o) => o.id === w.id) ?? { id: w.id, name: w.name, employeeNo: null, group: "Current" }), [form.workers, workers.options]);
 
   const save = async () => {
     // PTW applicant only when a PTW is needed.
     const styled = form.style ? { ...form, style: { ...form.style, ptwApplicant: form.ptwStatus === "NOT_NEEDED" ? null : form.style.ptwApplicant } } : form;
-    const { body, error: bad } = quickJobBody(styled);
-    if (!body) return setError(bad || "Check the form");
+    const { body: built, error: bad } = quickJobBody(styled);
+    if (!built) return setError(bad || "Check the form");
+    // Another company of the group: the server checks both orgs are in the same group.
+    const body = orgFor && companies ? { ...built, groupFromOrgId: companies.current } : built;
     setSaving(true);
     setError("");
     type Saved = { id: string; orderNumber?: string | null; doName?: string | null };
@@ -188,7 +210,7 @@ export default function QuickJobDialog({
     setSaving(false);
     if (!res.ok) return setError(res.message || "Couldn't save the job");
     const saved = res.data;
-    onSaved(edit?.id ?? saved?.id ?? "", edit ? undefined : { orderNumber: saved?.orderNumber ?? null, doName: saved?.doName ?? null, quotationName: quotation?.name ?? null });
+    onSaved(edit?.id ?? saved?.id ?? "", edit ? undefined : { orderNumber: saved?.orderNumber ?? null, doName: saved?.doName ?? null, quotationName: quotation?.name ?? null, orgName: orgFor ? companyName(orgFor) : null });
   };
 
   const remove = async () => {
@@ -214,14 +236,25 @@ export default function QuickJobDialog({
               durationMin={form.durationMin}
               team={crewDisplay(form.style?.crew, form.style?.team) || null}
               excludeId={edit?.id ?? null}
+              orgId={orgFor}
               onPick={(sl) => set(sl.time ? { date: sl.date, time: sl.time, allDay: false } : { date: sl.date, allDay: true })}
               onHints={setHints}
             />
           }
           form={
         <Stack spacing={2} sx={{ mt: 1 }}>
+          {companies?.group && !edit && companies.orgs.length > 1 && (
+            <TextField select label="Company" size="small" fullWidth value={companyId ?? companies.current} onChange={(e) => switchCompany(e.target.value)} data-tour="quick-job-company">
+              {companies.orgs.map((o) => (
+                <MenuItem key={o.id} value={o.id}>
+                  {o.name}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
+          {companies?.group && edit && <TextField label="Company" size="small" fullWidth value={companyName(companies.current)} InputProps={{ readOnly: true }} disabled />}
           {quotationOn && (
-            <QuotationPicker value={quotation} customerId={form.customerId} busy={quotationBusy} onChange={(o) => void pickQuotation(o)} />
+            <QuotationPicker key={orgFor ?? "own"} api={api} value={quotation} customerId={form.customerId} busy={quotationBusy} onChange={(o) => void pickQuotation(o)} />
           )}
           {quotationOn && quotation && needsDoPick(quotation) && (
             <TextField select required label="DO" size="small" fullWidth value={form.doId ?? ""} onChange={(e) => set({ doId: e.target.value || null })} data-tour="quick-job-do">
@@ -243,6 +276,8 @@ export default function QuickJobDialog({
             </TextField>
           )}
           <CustomerPicker
+            key={orgFor ?? "own"}
+            orgId={orgFor}
             value={form.customerId}
             initialCustomer={customer}
             onChange={(c) => {
@@ -367,8 +402,7 @@ function blank(slot?: { date: string; time: string } | null): QuickJobForm {
 }
 
 /** The Quotation field: server search (QO number, customer, Subject), newest first, narrowed to the picked customer. */
-function QuotationPicker({ value, customerId, busy, onChange }: { value: QuotationOption | null; customerId: string | null; busy: boolean; onChange: (o: QuotationOption | null) => void }) {
-  const api = useCalendarApi();
+function QuotationPicker({ api, value, customerId, busy, onChange }: { api: ReturnType<typeof useCalendarApi>; value: QuotationOption | null; customerId: string | null; busy: boolean; onChange: (o: QuotationOption | null) => void }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [options, setOptions] = useState<QuotationOption[]>([]);

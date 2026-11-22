@@ -78,9 +78,11 @@ const docsOf = (res: any): PickerCustomer[] => {
 
 // ── Search as you type ────────────────────────────────────────────────────
 /** Server search (code, name, email, phone, address, UEN, old code). Empty term = newest customers. */
-export function useCustomerSearch(term: string, { limit = 20, enabled = true }: { limit?: number; enabled?: boolean } = {}) {
+export function useCustomerSearch(term: string, { limit = 20, enabled = true, orgId: forOrg }: { limit?: number; enabled?: boolean; orgId?: string | null } = {}) {
   const { organization } = useOrganization();
-  const orgId = organization?.id;
+  // forOrg (group New job, 2026-11-22): another company of the person's group; the server checks the membership.
+  const orgId = forOrg || organization?.id;
+  const headers = forOrg ? { "X-Active-Org-Id": forOrg } : undefined;
   const { getToken } = useAuth();
   const q = term.trim();
   const query = useQuery({
@@ -91,7 +93,7 @@ export function useCustomerSearch(term: string, { limit = 20, enabled = true }: 
       const token = await getToken();
       // exactFirst: an exact code / UEN / old-code hit leads (a short old code
       // like "449" also matches many phones and addresses).
-      const res = await request({ path: "/customers", method: "POST" }, { page: 1, limit, search: q, exactFirst: true }, token || undefined);
+      const res = await request({ path: "/customers", method: "POST" }, { page: 1, limit, search: q, exactFirst: true }, token || undefined, headers);
       return { docs: docsOf(res), total: Number(res?.data?.total ?? res?.data?.totalDocuments ?? 0) };
     },
   });
@@ -106,9 +108,10 @@ export function useCustomerSearch(term: string, { limit = 20, enabled = true }: 
  * The customers with these ids (from the pool, else fetched via
  * POST /customers/lookup in chunks of 500). Unknown ids are simply missing.
  */
-export function useCustomersByIds(ids: (string | null | undefined)[]) {
+export function useCustomersByIds(ids: (string | null | undefined)[], forOrg?: string | null) {
   const { organization } = useOrganization();
-  const orgId = organization?.id;
+  const orgId = forOrg || organization?.id;
+  const headers = forOrg ? { "X-Active-Org-Id": forOrg } : undefined;
   const { getToken } = useAuth();
   const pool = usePool(orgId);
   const wanted = useMemo(() => [...new Set(ids.filter((i): i is string => !!i))].sort(), [JSON.stringify(ids)]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -121,7 +124,7 @@ export function useCustomersByIds(ids: (string | null | undefined)[]) {
       const token = await getToken();
       const out: PickerCustomer[] = [];
       for (let i = 0; i < missing.length; i += 500) {
-        const res = await request({ path: "/customers/lookup", method: "POST" }, { ids: missing.slice(i, i + 500) }, token || undefined);
+        const res = await request({ path: "/customers/lookup", method: "POST" }, { ids: missing.slice(i, i + 500) }, token || undefined, headers);
         out.push(...docsOf(res));
       }
       return out;
@@ -138,8 +141,8 @@ export function useCustomersByIds(ids: (string | null | undefined)[]) {
   return { byId, customers: [...byId.values()], isLoading: missing.length > 0 && query.isFetching };
 }
 
-export function useCustomerById(id: string | null | undefined) {
-  const { byId, isLoading } = useCustomersByIds([id]);
+export function useCustomerById(id: string | null | undefined, forOrg?: string | null) {
+  const { byId, isLoading } = useCustomersByIds([id], forOrg);
   return { customer: id ? byId.get(id) ?? null : null, isLoading };
 }
 

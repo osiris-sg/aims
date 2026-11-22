@@ -587,19 +587,19 @@ export function peopleRows(p: Pick<CalendarPayload, "people" | "events" | "notes
   if (off.has(UNKNOWN_PERSON) || items.some((it) => !it.foreign && !it.createdBy?.id)) {
     rows.push({ id: UNKNOWN_PERSON, label: "Unknown", colour: UNKNOWN_COLOUR, checked: !off.has(UNKNOWN_PERSON), kind: "unknown" });
   }
-  const own = p.group?.orgs?.[0]?.id;
+  // 2026-11-22: the calendar's own company leads the Companies list (ticked by default); unticking it hides its own
+  // items the same way a sister company's row hides theirs. Names come from the server (the DB), never hard-coded.
   for (const o of p.group?.orgs ?? []) {
-    if (o.id === own) continue;
     rows.push({ id: orgRowId(o.id), label: o.name, colour: UNKNOWN_COLOUR, checked: !off.has(orgRowId(o.id)), kind: "company" });
   }
   return rows;
 }
 
-/** Items whose row is ticked (an empty hidden list keeps the same array). */
+/** Items whose row is ticked (an empty hidden list keeps the same array). An own item also needs its company ticked. */
 export function filterByPeople<T extends Made>(items: T[], hidden: string[]): T[] {
   if (!hidden.length) return items;
   const off = new Set(hidden);
-  return items.filter((it) => !off.has(rowOf(it)));
+  return items.filter((it) => !off.has(rowOf(it)) && !(it.orgId && off.has(orgRowId(it.orgId))));
 }
 
 /** Tick / untick one row. */

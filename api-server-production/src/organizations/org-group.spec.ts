@@ -1,5 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
-import { childOrgsOf, groupReadScope, memberOrgIds, ORG_GROUP_SHARED_FEATURES, GROUP_CALENDAR_FLAG } from './org-group';
+import { childOrgsOf, groupFamily, groupJobCompanies, groupJobTargetError, groupReadScope, memberOrgIds, ORG_GROUP_SHARED_FEATURES, GROUP_CALENDAR_FLAG, NO_COMPANY_ACCESS_MESSAGE, OUTSIDE_GROUP_MESSAGE } from './org-group';
 import { JobsCalendarService } from '../dashboard/jobs-calendar.service';
 import { CalendarNotesService } from '../dashboard/calendar-notes.service';
 import { DeliveriesService } from '../deliveries/deliveries.service';
@@ -82,6 +82,7 @@ function fakePrisma(w: World) {
     organization: { findUnique: jest.fn(async ({ where }: any) => (touched.add(where.id), w.names[where.id] ? { id: where.id, name: w.names[where.id] } : null)) },
     $queryRawUnsafe: jest.fn(async (_sql: string, id: string) => {
       touched.add(id);
+      if (_sql.startsWith('SELECT "parentOrgId"')) return [{ parentOrgId: w.parentOf[id] ?? null }];
       prisma.raw(id);
       return Object.entries(w.parentOf)
         .filter(([, p]) => p === id)
@@ -366,5 +367,55 @@ describe('group jobs calendar: HQ view', () => {
     expect(strip(r)).toEqual(strip(await svcFor(world()).svc.get(P, FROM, TO, { userId: 'u' })));
     const child = await svcFor(w).svc.get(C1, FROM, TO, { userId: 'u' });
     expect(child).not.toHaveProperty('hqView');
+  });
+});
+
+describe('group New job: choose the company (WCT 2026-11-22)', () => {
+  const member = (userId: string, ...orgs: string[]) => orgs.map((orgId) => ({ userId, orgId, role: true }));
+
+  it('the group is the same seen from the parent or a child: parent first, then the children by name', async () => {
+    const prisma = fakePrisma(world());
+    expect((await groupFamily(prisma, P)).map((o) => o.name)).toEqual(['WCT (S)', 'BC Air', 'WCT Racking']);
+    expect((await groupFamily(prisma, C2)).map((o) => o.id)).toEqual([P, C2, C1]);
+  });
+
+  it('no group: an org outside it, or the parent flag off, gets no Company choice', async () => {
+    expect(await groupFamily(fakePrisma(world()), X)).toEqual([]);
+    const off = world();
+    off.features[P] = { ...ON };
+    expect(await groupFamily(fakePrisma(off), P)).toEqual([]);
+    expect(await groupFamily(fakePrisma(off), C1)).toEqual([]);
+    expect(await groupJobCompanies(fakePrisma(world()), X, 'u1')).toEqual({ group: false, current: X, orgs: [] });
+  });
+
+  it('choices = the group orgs the user belongs to (membership AND a role); the current org always', async () => {
+    const w = world({ members: [...member('u1', P, C1), { userId: 'u1', orgId: C2, role: false }] });
+    const r = await groupJobCompanies(fakePrisma(w), P, 'u1');
+    expect(r.group).toBe(true);
+    expect(r.orgs.map((o) => o.id)).toEqual([P, C1]);
+    const admin = await groupJobCompanies(fakePrisma(world()), P, 'nobody', true);
+    expect(admin.orgs.map((o) => o.id)).toEqual([P, C2, C1]);
+  });
+
+  it('create check: same org or no group field = allowed; another group org needs membership in both', async () => {
+    const w = world({ members: member('u1', P, C2) });
+    const prisma = fakePrisma(w);
+    expect(await groupJobTargetError(prisma, undefined, C2, 'u1')).toBeNull();
+    expect(await groupJobTargetError(prisma, P, P, 'u1')).toBeNull();
+    expect(await groupJobTargetError(prisma, P, C2, 'u1')).toBeNull();
+    // u2 belongs to WCT (S) only: BC Air is refused (the guard would also refuse the header).
+    const w2 = world({ members: member('u2', P) });
+    expect(await groupJobTargetError(fakePrisma(w2), P, C2, 'u2')).toBe(NO_COMPANY_ACCESS_MESSAGE);
+  });
+
+  it('create check: an org outside the group is refused, even for a member and an admin', async () => {
+    const w = world({ members: member('u1', P, X) });
+    expect(await groupJobTargetError(fakePrisma(w), P, X, 'u1')).toBe(OUTSIDE_GROUP_MESSAGE);
+    expect(await groupJobTargetError(fakePrisma(w), X, P, 'u1')).toBe(OUTSIDE_GROUP_MESSAGE);
+    expect(await groupJobTargetError(fakePrisma(w), P, X, 'u1', true)).toBe(OUTSIDE_GROUP_MESSAGE);
+    expect(await groupJobTargetError(fakePrisma(w), 42 as any, P, 'u1')).toBe(OUTSIDE_GROUP_MESSAGE);
+    const off = world({ members: member('u1', P, C2) });
+    off.features[P] = { ...ON };
+    expect(await groupJobTargetError(fakePrisma(off), P, C2, 'u1')).toBe(OUTSIDE_GROUP_MESSAGE);
   });
 });

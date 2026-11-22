@@ -193,7 +193,10 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
             onSaved={(id, result) => {
               setAdding(null);
               reload();
-              toast.success(linkedToast(result, result?.quotationName), { onClick: () => router.push(`/portal/deliveries/${id}`) });
+              // Saved under another company of the group: it shows on this calendar under that company (no link
+              // here: opening it needs that company, like any of its jobs on this calendar).
+              if (result?.orgName) toast.success(`${linkedToast(result, result.quotationName)} (${result.orgName})`);
+              else toast.success(linkedToast(result, result?.quotationName), { onClick: () => router.push(`/portal/deliveries/${id}`) });
             }}
           />
           <NoteDialog

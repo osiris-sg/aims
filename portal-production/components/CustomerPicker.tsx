@@ -30,6 +30,8 @@ export interface CustomerPickerProps {
   sx?: SxProps<Theme>;
   /** Hide the field label (e.g. inside a labelled filter row). */
   hideLabel?: boolean;
+  /** Group New job (2026-11-22): search another company of the person's group (default: the current org). */
+  orgId?: string | null;
 }
 
 function useDebounced<T>(value: T, ms: number) {
@@ -55,8 +57,10 @@ export default function CustomerPicker({
   fullWidth = true,
   sx,
   hideLabel,
+  orgId: forOrg,
 }: CustomerPickerProps) {
-  const { organization } = useOrganization();
+  const { organization: currentOrg } = useOrganization();
+  const organization = forOrg ? { id: forOrg } : currentOrg;
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const term = useDebounced(input, 250);
@@ -66,13 +70,13 @@ export default function CustomerPicker({
   }, [initialCustomer, organization?.id]);
 
   const id = value || null;
-  const { customer: fetched, isLoading: loadingSelected } = useCustomerById(initialCustomer?.id === id ? null : id);
+  const { customer: fetched, isLoading: loadingSelected } = useCustomerById(initialCustomer?.id === id ? null : id, forOrg);
   const selected = id ? (initialCustomer?.id === id ? initialCustomer : fetched) ?? null : null;
 
   // While the box shows the selected customer's label, an open popup lists the
   // newest customers rather than searching for that label.
   const searching = selected && input === customerLabel(selected) ? "" : term;
-  const { customers, isLoading } = useCustomerSearch(searching, { enabled: open && !disabled });
+  const { customers, isLoading } = useCustomerSearch(searching, { enabled: open && !disabled, orgId: forOrg });
   // UEN ranking + hidden import tags: enableCustomerUen orgs only.
   const { isCustomerUenEnabled: uenOn } = useOrganizationFeatures();
   const options = useMemo(() => {

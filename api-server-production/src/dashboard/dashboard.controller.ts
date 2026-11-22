@@ -261,6 +261,15 @@ export class DashboardController {
     return await this.calendarStyle.formPeople(this.orgOf(req), req.user?.id ?? null);
   }
 
+  // Group New job (WCT 2026-11-22): the companies this user may put a new job under (the group's orgs they belong to).
+  // Every org outside an active group: { group: false, orgs: [] } and the form shows no Company field.
+  @Get('jobs-calendar/companies')
+  @Permissions('dashboard:read')
+  @ApiOperation({ summary: 'Jobs calendar: the group companies a new job can go under' })
+  async getJobCompanies(@Req() req: RequestWithOrganization) {
+    return await this.jobsCalendar.companies(this.orgOf(req), req.user?.id ?? null, !!(req as any).isOsirisAdmin);
+  }
+
   private userOf(req: RequestWithOrganization): string {
     const userId = req.user?.id;
     if (!userId) throw new Error('Not signed in');

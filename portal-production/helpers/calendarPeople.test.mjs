@@ -46,12 +46,13 @@ const payload = (over = {}) => ({
   ...over,
 });
 
-test("people list: everyone ticked by default, then a row per sister company", () => {
+test("people list: everyone ticked by default, then the companies, the calendar's own first", () => {
   const rows = peopleRows(payload(), []);
   assert.deepEqual(rows.map((r) => [r.label, r.checked, r.kind]), [
     ["Amy", true, "person"],
     ["Nat HH", true, "person"],
     ["Joyna", true, "person"],
+    ["WCT (S)", true, "company"],
     ["Racking", true, "company"],
   ]);
   assert.equal(rows[0].colour, "#8e24aa");
@@ -86,7 +87,7 @@ test("a company row hides that sister company's items; a person row never hides 
 test("select all / none and single ticks; the choice is stored as the hidden rows", () => {
   const rows = peopleRows(payload(), []);
   const none = selectNoRows(rows);
-  assert.deepEqual(none, [AMY, HH, "u-joyna", orgRowId(RACKING)]);
+  assert.deepEqual(none, [AMY, HH, "u-joyna", orgRowId(HQ), orgRowId(RACKING)]);
   assert.equal(filterByPeople([ev()], none).length, 0);
   assert.deepEqual(selectAllRows(), []);
   assert.deepEqual(toggleRow([], AMY), [AMY]);
@@ -193,4 +194,17 @@ test("chip text: prefix + customer only; no customer = site address; neither = t
   // Schedule rows use the same short text.
   const days = scheduleDays([order, noCustomer], [], null);
   assert.deepEqual(days[0].rows.map((r) => r.title), ["(SV) Domino's Pizza", "10 Anson Road"]);
+});
+
+test("2026-11-22: unticking the calendar's own company hides its own jobs and notes, like a sister company", () => {
+  const own = ev({ id: "aims:own", orgId: HQ, orgName: "WCT (S)" });
+  const ownNote = note({ id: "n-own", orgId: HQ });
+  const child = ev({ id: "aims:c", foreign: true, orgId: RACKING, orgName: "Racking" });
+  assert.deepEqual(filterByPeople([own, child], [orgRowId(HQ)]).map((e) => e.id), ["aims:c"]);
+  assert.deepEqual(filterByPeople([ownNote], [orgRowId(HQ)]), []);
+  // Ticked again: back, and the person rows still apply on top.
+  assert.deepEqual(filterByPeople([own, child], [AMY]).map((e) => e.id), ["aims:c"]);
+  // A calendar without the group view: no company rows, nothing hidden by company.
+  assert.equal(peopleRows(payload({ group: undefined }), []).some((r) => r.kind === "company"), false);
+  assert.equal(peopleRows(payload(), [orgRowId(HQ)]).find((r) => r.id === orgRowId(HQ)).checked, false);
 });

@@ -88,6 +88,12 @@ interface Props {
 
 export const SCHEDULE_VIEW = "schedule";
 
+// Calendar style chips (WCT group; only jobs with `style` use these). 2026-11-22: two sizes up from 0.72 / 0.64 / 0.70rem
+// (Month, Week, Day) and 0.875 / 0.75rem (Schedule). Month cells grow to keep about 4 two-row chips before "+n more".
+export const CHIP_FONT = { text: "0.85rem", time: "0.76rem", row2: "0.82rem" } as const;
+export const SCHEDULE_FONT = { text: "1rem", time: "0.875rem", row2: "0.875rem" } as const;
+export const MONTH_CELL_MIN = 206;
+
 export default function CalendarView({
   events,
   showCancelled,
@@ -283,7 +289,7 @@ export default function CalendarView({
         // Month (calendar style, round 36): the same pastel boxes as Week / Day, two rows each; cells fit about 4.
         "& .fc-dayGridMonth-view .aims-jc-styled": { borderRadius: "4px", marginBottom: "2px" },
         "& .fc-dayGridMonth-view .aims-jc-styled:hover": { filter: "brightness(0.96)" },
-        ...(monthRows ? { "& .fc-dayGridMonth-view .fc-daygrid-day-frame": { minHeight: 176 } } : {}),
+        ...(monthRows ? { "& .fc-dayGridMonth-view .fc-daygrid-day-frame": { minHeight: MONTH_CELL_MIN } } : {}),
         "& .fc-schedule-view": { height: "100%" },
         "@media (max-width: 600px)": { "& .fc .fc-toolbar": { flexDirection: "column", gap: 1 } },
       }}
@@ -847,12 +853,12 @@ function StyledBox({ event: e, block }: { event: CalendarEvent; block: boolean }
     <Box
       title={styledTooltip(e)}
       data-testid="styled-chip"
-      sx={{ px: 0.5, py: "1px", overflow: "hidden", color: CHIP_TEXT, lineHeight: 1.3, fontSize: "0.72rem", minWidth: 0, height: block ? "100%" : "auto", boxSizing: "border-box" }}
+      sx={{ px: 0.5, py: "1px", overflow: "hidden", color: CHIP_TEXT, lineHeight: 1.3, fontSize: CHIP_FONT.text, minWidth: 0, height: block ? "100%" : "auto", boxSizing: "border-box" }}
     >
       <Box sx={{ display: "flex", gap: "3px", alignItems: "baseline", whiteSpace: "nowrap", overflow: "hidden" }}>
         {/* Round 39: Day / Week blocks print no time (the time axis shows it); Month keeps a small grey time. */}
         {l.time && !block && (
-          <Box component="span" sx={{ flexShrink: 0, fontVariantNumeric: "tabular-nums", fontSize: "0.64rem", color: CHIP_TIME }}>
+          <Box component="span" sx={{ flexShrink: 0, fontVariantNumeric: "tabular-nums", fontSize: CHIP_FONT.time, color: CHIP_TIME }}>
             {l.time}
           </Box>
         )}
@@ -861,7 +867,7 @@ function StyledBox({ event: e, block }: { event: CalendarEvent; block: boolean }
           {l.customer}
         </Box>
       </Box>
-      {l.row2 && <Box sx={{ whiteSpace: "nowrap", overflow: "hidden", fontSize: "0.7rem" }}>{l.row2}</Box>}
+      {l.row2 && <Box sx={{ whiteSpace: "nowrap", overflow: "hidden", fontSize: CHIP_FONT.row2 }}>{l.row2}</Box>}
     </Box>
   );
 }
@@ -1031,23 +1037,23 @@ function ScheduleStyledRow({ row: r, event: e, onRow }: { row: ScheduleRow; even
         "&:hover": { filter: tone ? undefined : "brightness(0.97)" },
       }}
     >
-      <Typography variant="body2" sx={{ width: { xs: "auto", sm: 120 }, flexShrink: 0, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", fontSize: "0.75rem", color: CHIP_TIME }}>
+      <Typography variant="body2" sx={{ width: { xs: "auto", sm: 130 }, flexShrink: 0, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", fontSize: SCHEDULE_FONT.time, color: CHIP_TIME }}>
         {r.time}
       </Typography>
       <Box sx={{ minWidth: 0, flex: 1 }}>
         <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: 1 }}>
-          <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: "break-word", color: CHIP_TEXT, textDecoration: e.cancelled ? "line-through" : "none" }}>
+          <Typography variant="body2" sx={{ fontWeight: 600, wordBreak: "break-word", fontSize: SCHEDULE_FONT.text, color: CHIP_TEXT, textDecoration: e.cancelled ? "line-through" : "none" }}>
             {l.icons && <span style={{ marginRight: 6 }}>{l.icons}</span>}
             {l.customer}
           </Typography>
           {r.site && (
-            <Typography variant="body2" sx={{ wordBreak: "break-word", color: CHIP_TEXT, opacity: 0.75 }}>
+            <Typography variant="body2" sx={{ wordBreak: "break-word", fontSize: SCHEDULE_FONT.text, color: CHIP_TEXT, opacity: 0.75 }}>
               {r.site}
             </Typography>
           )}
         </Box>
         {l.row2 && (
-          <Typography variant="caption" component="div" sx={{ color: CHIP_TEXT }}>
+          <Typography variant="caption" component="div" sx={{ color: CHIP_TEXT, fontSize: SCHEDULE_FONT.row2 }}>
             {l.row2}
           </Typography>
         )}

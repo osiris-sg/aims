@@ -16,6 +16,7 @@ import { useOrganizationFeatures } from "@/app/portal/hooks/useOrganizationFeatu
 import CalendarView from "./CalendarView";
 import { filterByPeople, parseHidden, peopleStorageKey, rangeOf, withoutSiteClockJobs, type CalendarPayload } from "./calendarModel";
 import { parseFilters, slotHints } from "./calendarPanel";
+import { useCalendarApi } from "./calendarAddApi";
 
 export interface JobDayPreviewProps {
   /** YYYY-MM-DD; empty = today. */
@@ -30,6 +31,8 @@ export interface JobDayPreviewProps {
   onPick: (slot: { date: string; time: string | null }) => void;
   /** The warning lines for above Save (empty = none). */
   onHints?: (lines: string[]) => void;
+  /** Group New job (2026-11-22): another company of the group was chosen; show that company's own calendar. */
+  orgId?: string | null;
 }
 
 /** Fixture previews only (/preview/jobs-calendar): the calendar data instead of the API. */
@@ -38,7 +41,8 @@ export const JobDayPreviewFixture = createContext<CalendarPayload | null>(null);
 const SGT_TODAY = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 const addMin = (date: string, time: string, min: number) => new Date(Date.parse(`${date}T${time}:00+08:00`) + min * 60_000).toISOString();
 
-export default function JobDayPreview({ date, time, allDay, durationMin, team, excludeId, onPick, onHints }: JobDayPreviewProps) {
+export default function JobDayPreview({ date, time, allDay, durationMin, team, excludeId, onPick, onHints, orgId = null }: JobDayPreviewProps) {
+  const api = useCalendarApi();
   const { getToken, userId } = useAuth();
   const { isHideSiteClockJobs } = useOrganizationFeatures();
   const fixture = useContext(JobDayPreviewFixture);
@@ -59,15 +63,23 @@ export default function JobDayPreview({ date, time, allDay, durationMin, team, e
   }, []);
   useEffect(() => {
     if (!range || fixture) return;
-    const key = `${range.from}|${range.to}`;
+    const key = `${orgId ?? ""}|${range.from}|${range.to}`;
     latest.current = key;
     setLoading(true);
     (async () => {
       try {
-        const token = await getToken();
-        if (!token) return;
-        const res = await request({ path: `/dashboard/jobs-calendar?from=${range.from}&to=${range.to}`, method: "GET", ownError: true }, undefined, token);
-        const payload = unwrap<CalendarPayload>(res, "Couldn't load the calendar");
+        let payload: CalendarPayload | null;
+        if (orgId) {
+          // Another company: its own calendar, read with that company's header (the server checks the membership).
+          const r = await api<CalendarPayload>("GET", `/dashboard/jobs-calendar?from=${range.from}&to=${range.to}`, undefined, orgId);
+          if (!r.ok) throw new Error(r.message || "Couldn't load the calendar");
+          payload = r.data;
+        } else {
+          const token = await getToken();
+          if (!token) return;
+          const res = await request({ path: `/dashboard/jobs-calendar?from=${range.from}&to=${range.to}`, method: "GET", ownError: true }, undefined, token);
+          payload = unwrap<CalendarPayload>(res, "Couldn't load the calendar");
+        }
         if (latest.current !== key) return;
         setData(payload ? withoutSiteClockJobs(payload, !!isHideSiteClockJobs) : payload);
         setError("");
@@ -77,7 +89,7 @@ export default function JobDayPreview({ date, time, allDay, durationMin, team, e
         if (latest.current === key) setLoading(false);
       }
     })();
-  }, [range, getToken, isHideSiteClockJobs, fixture]);
+  }, [range, getToken, isHideSiteClockJobs, fixture, orgId, api]);
 
   // The person's People ticks and Company filter, as the calendar keeps them in this browser.
   const { hidden, companies } = useMemo(() => {
@@ -92,9 +104,10 @@ export default function JobDayPreview({ date, time, allDay, durationMin, team, e
   const events = useMemo(() => {
     const all = data?.events ?? [];
     const byPeople = Array.isArray(data?.people) ? filterByPeople(all, hidden) : all;
-    const shown = companies.length ? byPeople.filter((e) => companies.includes(e.orgId || ownOrgId || "")) : byPeople;
+    // The Company filter belongs to the calendar the person is in, not to another company's own calendar.
+    const shown = companies.length && !orgId ? byPeople.filter((e) => companies.includes(e.orgId || ownOrgId || "")) : byPeople;
     return excludeId ? shown.filter((e) => e.id !== excludeId && e.id !== `aims:${excludeId}`) : shown;
-  }, [data, hidden, companies, ownOrgId, excludeId]);
+  }, [data, hidden, companies, ownOrgId, excludeId, orgId]);
   const notes = useMemo(() => (Array.isArray(data?.people) && data?.notes ? filterByPeople(data.notes, hidden) : data?.notes), [data, hidden]);
 
   const t = !allDay && time && /^\d{2}:\d{2}$/.test(time) ? time : null;

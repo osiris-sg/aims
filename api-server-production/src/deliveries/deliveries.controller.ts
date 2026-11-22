@@ -262,7 +262,13 @@ export class DeliveriesController {
   @Post('quick-job')
   @Permissions('documents:create-basic')
   async createQuickJob(@Body() body: any, @UserOrganization() org: { id: string }, @Req() req: ClerkRequest) {
-    return this.withCreator(org.id, req, await this.service.createQuickJob(org.id, body));
+    // Group New job (WCT 2026-11-22): made from the group calendar under another company. The guard already checked
+    // membership and documents:create-basic in this (the chosen) org; here the calendar's org and this one must be
+    // in the same group. Any org outside it is refused.
+    const { groupFromOrgId, ...rest } = body ?? {};
+    const bad = await this.service.groupJobTargetError(groupFromOrgId, org.id, req.user?.id ?? null, !!(req as any).isOsirisAdmin);
+    if (bad) throw new ForbiddenException(bad);
+    return this.withCreator(org.id, req, await this.service.createQuickJob(org.id, rest));
   }
 
   // New job with a Quotation (2026-11-17): the form's server-side quotation search (GET, so the Activity Log

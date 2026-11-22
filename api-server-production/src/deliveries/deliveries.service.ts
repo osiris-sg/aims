@@ -5,6 +5,7 @@ import { BadRequestException, ConflictException, Inject, Injectable, Logger, Not
 import { AssetClass, DeliveryDirection, DeliveryOrigin, DeliveryStatus, DeploymentStatus, DeploymentType, InventoryStatus, Prisma } from '@prisma/client';
 import { restampDeploymentTypeOnDocuments } from '../common/do-deployment-type';
 import { PrismaService } from 'src/common/prisma.service';
+import { groupJobTargetError } from '../organizations/org-group';
 import { isUnconfirmedDoc } from 'src/common/doc-status';
 import { purgeBlocker } from './purge-guard';
 import { resolveLineAssetClass, minPhotosForAssetClass } from 'src/common/asset-class';
@@ -920,6 +921,11 @@ export class DeliveriesService {
    * no lines and NO Delivery Order (so no DO number is taken). It syncs to
    * SiteClock like any job: the first worker is the assignee.
    */
+  /** Group New job (WCT 2026-11-22): see org-group.ts groupJobTargetError. */
+  groupJobTargetError(fromOrgId: unknown, targetOrgId: string, userId: string | null, isAdmin: boolean) {
+    return groupJobTargetError(this.prisma, fromOrgId, targetOrgId, userId, isAdmin);
+  }
+
   async createQuickJob(organizationId: string, body: any) {
     await this.assertCalendarAdd(organizationId);
     const f = await this.quickJobFields(organizationId, body);
