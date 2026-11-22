@@ -1698,7 +1698,24 @@ export default function DynamicFormFields({
       sx={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, ...(withRightBorder ? { borderRight: { md: 1 }, borderColor: 'divider' } : {}) }}
     >
       <Typography sx={pairLabelSx}>{field.displayLabel}</Typography>
-      <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', minWidth: 0, pr: 1 }}>
+      <Box
+        sx={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          minWidth: 0,
+          pr: 1,
+          // WCT (adaptivePairs): nothing in a pair cell may spill into the next one; inputs shrink, long text
+          // (a salesperson's name or email next to its search box) ends in an ellipsis.
+          ...(adaptivePairs
+            ? {
+                overflow: 'hidden',
+                '& .MuiFormControl-root, & .MuiTextField-root, & .MuiAutocomplete-root': { minWidth: 0, flexShrink: 1 },
+                '& p': { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+              }
+            : {}),
+        }}
+      >
         {customInputs?.[field.fieldName] ?? renderInput(field)}
       </Box>
     </Box>
