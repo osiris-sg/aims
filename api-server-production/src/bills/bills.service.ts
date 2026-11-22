@@ -5,6 +5,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
 import { assertPeriodOpen } from '../common/period-lock';
+import { assertRecordUnlocked } from '../common/record-lock';
+import { isDocumentVoided } from '../common/document-void';
 import { JournalService } from '../journal/journal.service';
 import { refWith, documentReferenceOf } from '../common/doc-ref';
 import { ChartOfAccountsService } from '../accounting/chart-of-accounts.service';
@@ -650,8 +652,30 @@ export class BillsService {
 
   async update(organizationId: string, id: string, dto: Partial<any>, opts?: { postOnSave?: boolean; userId?: string }) {
     const existing = await this.findOne(organizationId, id);
-    if (existing.status !== 'DRAFT' && existing.status !== 'PENDING_APPROVAL') {
+    const label = existing.billNumber ? `Bill ${existing.billNumber}` : 'This bill';
+    // EDIT AFTER CONFIRM (guru 2026-11-23: "i can edit invoices already but cant edit AP bills"):
+    // a POSTED bill with no money against it is editable like a confirmed invoice — its
+    // confirmed journal is voided and reposted with the new figures below. Paid or partly
+    // paid bills stay locked (the payment voucher holds the money); voided ones too.
+    const afterConfirm = existing.status === 'POSTED';
+    if (existing.status !== 'DRAFT' && existing.status !== 'PENDING_APPROVAL' && !afterConfirm) {
+      if (existing.status === 'PAID') throw new BadRequestException(`${label} is paid: money is recorded against it. Delete the payment voucher first, then edit it.`);
       throw new BadRequestException(`Can't edit a ${existing.status} bill — void and re-create`);
+    }
+    if (afterConfirm) {
+      const row = await this.prisma.document.findUnique({ where: { id }, select: { name: true, config: true } });
+      if (isDocumentVoided(row?.config)) throw new BadRequestException(`${label} is voided and cannot be edited.`);
+      assertRecordUnlocked({ name: row?.name, config: row?.config }, 'changed');
+      const paidRows = await this.prisma.billPayment.count({ where: { organizationId, billId: id } });
+      if ((existing.amountPaid || 0) > 0.005 || paidRows > 0) {
+        throw new BadRequestException(`${label} has a payment recorded against it. Delete the payment voucher first, then edit it.`);
+      }
+      // Its posting must be AIMS's own live journal. A bill whose journal arrived with the
+      // Xero GL import (no journalEntryId) would gain a SECOND posting on re-save.
+      const ownJournal = existing.journalEntryId
+        ? await this.prisma.journalEntry.findFirst({ where: { id: existing.journalEntryId, organizationId, status: { not: 'VOID' } }, select: { id: true } })
+        : null;
+      if (!ownJournal) throw new BadRequestException(`${label} was posted outside AIMS (imported), so it cannot be edited here. Void it and key it again.`);
     }
     await assertPeriodOpen(this.prisma, { organizationId, date: existing.billDate, actorId: opts?.userId, what: existing.billNumber ? `Bill ${existing.billNumber}` : 'This bill' });
     if (dto.billDate) await assertPeriodOpen(this.prisma, { organizationId, date: dto.billDate, actorId: opts?.userId, what: existing.billNumber ? `Bill ${existing.billNumber}` : 'This bill', verb: 'dated there' });
@@ -746,12 +770,20 @@ export class BillsService {
         }
       }
       if (opts?.postOnSave !== false || hadLive) {
-        const posted = await this.postBillJournal(organizationId, id, undefined, { confirmed: false });
-        await this.patchConfig(id, { journalEntryId: posted.id });
+        // A confirmed bill reposts CONFIRMED — it stays Awaiting Payment with one live journal.
+        const posted = await this.postBillJournal(organizationId, id, opts?.userId, { confirmed: afterConfirm });
+        await this.patchConfig(id, {
+          journalEntryId: posted.id,
+          ...(afterConfirm ? { editedAfterConfirmAt: new Date().toISOString(), editedAfterConfirmBy: opts?.userId || null } : {}),
+        });
       }
     } catch (e: any) {
+      // A confirmed bill whose journal was just voided must not be left without a posting.
+      if (afterConfirm) throw e instanceof BadRequestException ? e : new BadRequestException(`Saved, but the journal could not be reposted: ${e?.message || e}`);
       console.warn(`Bill ${id}: re-save post skipped — ${e?.message || e}`);
     }
+    // Totals may have moved: re-stamp the canonical money (nothing paid on an editable confirmed bill).
+    if (afterConfirm) await this.stampBillMoney(id, 0);
     return this.findOne(organizationId, id);
   }
 

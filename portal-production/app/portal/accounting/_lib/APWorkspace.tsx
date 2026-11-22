@@ -527,9 +527,8 @@ export default function APWorkspace() {
           margin (guru 2026-11-16) — not a row above it. Phones: rail on top. */}
       <Box sx={{ display: "flex", flexDirection: { xs: "column", md: "row" }, gap: 2, alignItems: "flex-start" }}>
       <Stack gap={1} sx={{ width: { xs: "100%", md: RAIL_WIDTH }, flexShrink: 0, "& .MuiButton-root": { justifyContent: "flex-start", whiteSpace: "nowrap" } }}>
-        {/* Legacy AP home's actions. No separate Payment Voucher action —
-            paying is the Record Payment step on the Purchase Journal
-            (guru 2026-08-01). */}
+        {/* Legacy AP home's actions. Paying a bill happens ONLY on a Payment
+            Voucher (guru 2026-11-23); the Purchase Journal's Record payment is gone. */}
         {/* Payment Voucher — the legacy AP home's primary action, now a real
             document (AP twin of the Official Receipt, guru 2026-10-21). It and
             Journal Voucher follow enableDocumentListView (guru 2026-11-16):

@@ -23,6 +23,7 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteIcon from "@mui/icons-material/Delete";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import EditIcon from "@mui/icons-material/Edit";
 import NavigateBeforeIcon from "@mui/icons-material/NavigateBefore";
 import NavigateNextIcon from "@mui/icons-material/NavigateNext";
 import PrintIcon from "@mui/icons-material/Print";
@@ -276,6 +277,11 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
   };
 
   const [exitPromptOpen, setExitPromptOpen] = useState(false);
+  // Edit after confirm (guru 2026-11-23): a POSTED entry with nothing paid unlocks behind a
+  // warning; its save voids and reposts the journal on the server. Paid entries stay locked.
+  const [editUnlocked, setEditUnlocked] = useState(false);
+  const [unlockPromptOpen, setUnlockPromptOpen] = useState(false);
+  useEffect(() => setEditUnlocked(false), [savedId]);
   // Back goes up to the AP home (the list is bypassed for this org); Locate is
   // the explicit way into the list.
   // Back = where they came from (?from=, guru 2026-11-18), else the AP home.
@@ -311,7 +317,8 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
 
   // Editable only while still a draft / unconfirmed; a posted, awaiting-payment
   // or paid entry opens read-only (like the legacy confirmed voucher).
-  const confirmed = !["DRAFT", "UNCONFIRMED", ""].includes(status);
+  const canUnlock = status === "POSTED";
+  const confirmed = !["DRAFT", "UNCONFIRMED", ""].includes(status) && !(canUnlock && editUnlocked);
   const railButtons = [
     { label: "Audit Trail", icon: <HistoryIcon />, onClick: () => router.push(`/portal/accounting/payables?tab=audit-trail&prefix=SIN`) },
   ];
@@ -334,7 +341,14 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
           <Button size="small" variant="contained" endIcon={<NavigateNextIcon />} onClick={() => goSibling(sibIdx - 1)} disabled={!hasNext} sx={BTN.nav}>Next</Button>
           <Button size="small" variant="contained" startIcon={<PrintIcon />} onClick={() => window.print()} sx={BTN.print}>Print</Button>
           <Button size="small" variant="contained" data-hotkey="locate" startIcon={<SearchIcon />} onClick={() => router.push(listPath)} sx={BTN.locate}>Locate</Button>
-          {!confirmed && (
+          {confirmed && canUnlock && (
+            <Button size="small" variant="contained" startIcon={<EditIcon />} onClick={() => setUnlockPromptOpen(true)} sx={BTN.confirm} data-tour="bill-edit-after-confirm">Edit</Button>
+          )}
+          {editUnlocked && !confirmed && (
+            // Unlocked confirmed entry: Save reposts; Confirm has nothing to do.
+            <Button size="small" variant="contained" data-hotkey="save" startIcon={saving ? <CircularProgress size={14} color="inherit" /> : <CheckCircleIcon />} onClick={async () => { const id = await saveDraft(); if (id) { toast.success("Journal reposted"); setEditUnlocked(false); } }} disabled={saving || !dirty} sx={BTN.confirm}>Save</Button>
+          )}
+          {!confirmed && !editUnlocked && (
             // The block reason rides on Confirm only — the status area just reads
             // Saving… / Unsaved changes / Saved, same as OR/JV/PV (guru 2026-11-18:
             // "dont need to tell them saved not posted").
@@ -485,6 +499,19 @@ export default function PurchaseJournalEditor({ billId, initialKind }: { billId:
       </Box>
 
       {/* Exit prompt */}
+      <Dialog open={unlockPromptOpen} onClose={() => setUnlockPromptOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Edit a confirmed entry?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            {voucherNo || "This entry"} is posted. Saving a change voids its journal and reposts it with the new figures; it stays awaiting
+            payment and the edit is recorded under your name.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setUnlockPromptOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="warning" onClick={() => { setEditUnlocked(true); setUnlockPromptOpen(false); }}>Edit anyway</Button>
+        </DialogActions>
+      </Dialog>
       <Dialog open={exitPromptOpen} onClose={() => setExitPromptOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>Unsaved changes</DialogTitle>
         <DialogContent><Typography variant="body2">This purchase journal has changes that haven&apos;t been saved.</Typography></DialogContent>

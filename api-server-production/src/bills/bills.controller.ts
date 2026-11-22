@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -201,7 +202,12 @@ export class BillsController {
       attachments?: Array<{ fileKey: string; fileName: string; mimeType?: string; label?: string }>;
     },
   ) {
-    return this.service.recordPayment(requireOrgId(req), id, body, req.auth?.userId || 'unknown');
+    // RETIRED 2026-11-23 (guru: "only allow payment from the P/V side"): every supplier payment
+    // is a Payment Voucher, so one screen, one numbering series and one paper trail. The service
+    // method stays for the bank reconciliation's settle-and-match, which mints its voucher too.
+    void id;
+    void body;
+    throw new BadRequestException('Payments are recorded on a Payment Voucher now: Accounts Payable → Payment Voucher → Offset Supplier Invoices, tick this bill.');
   }
 
   // ---------- Attachments on the bill itself ----------
