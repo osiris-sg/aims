@@ -199,7 +199,7 @@ export async function lockQuotation(tx: any, quotationId: string) {
 }
 
 /** Re-derive and store an order's status from its jobs. Best-effort: never throws. Returns the status, or null. */
-export async function refreshOrderStatus(prisma: any, organizationId: string, orderId: string | null | undefined): Promise<WctOrderStatus | null> {
+export async function refreshOrderStatus(prisma: any, organizationId: string, orderId: string | null | undefined, pre?: { orderDos?: Map<string, any[]> }): Promise<WctOrderStatus | null> {
   if (!orderId) return null;
   try {
     return await runAsOrg(organizationId, async () => {
@@ -209,7 +209,7 @@ export async function refreshOrderStatus(prisma: any, organizationId: string, or
       if (imported) return imported.status as any;
       // Manual (dashboard-only) flow: its own status list + the date each was
       // reached. Every other org takes the unchanged path below.
-      if (await isManualOrderFlow(prisma, organizationId)) return (await refreshManualOrderStatus(prisma, organizationId, orderId)) as any;
+      if (await isManualOrderFlow(prisma, organizationId)) return (await refreshManualOrderStatus(prisma, organizationId, orderId, pre)) as any;
       const order = await prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, attachments: true, linkedDocuments: true } });
       if (!order) return null;
       // A cancelled order (Cancel order, 2026-11-13) stays cancelled.
@@ -231,8 +231,13 @@ export async function refreshOrderStatus(prisma: any, organizationId: string, or
   }
 }
 
+const dedupeById = <T extends { id: string }>(rows: T[]): T[] => {
+  const seen = new Set<string>();
+  return rows.filter((r) => !seen.has(r.id) && !!seen.add(r.id));
+};
+
 /** Manual flow: derive, store the status and stamp its first date. Caller is inside runAsOrg. */
-async function refreshManualOrderStatus(prisma: any, organizationId: string, orderId: string): Promise<ManualOrderStatus | null> {
+async function refreshManualOrderStatus(prisma: any, organizationId: string, orderId: string, pre?: { orderDos?: Map<string, any[]> }): Promise<ManualOrderStatus | null> {
   const order = await prisma.order.findFirst({ where: { id: orderId, organizationId }, select: { id: true, status: true, statusDates: true, createdAt: true, linkedDocuments: true, invoiceDocumentId: true } });
   if (!order) return null;
   // A cancelled order (set by the office / a cleanup) stays cancelled.
@@ -245,11 +250,19 @@ async function refreshManualOrderStatus(prisma: any, organizationId: string, ord
   const jobDoIds = [...new Set(jobs.flatMap((j: any) => j.items.map((i: any) => i.documentId)).filter(Boolean))] as string[];
   // Round 29: a DO linked to the order (Link existing document) is one of its DOs too; the DO itself is never written.
   const linkedDoIds = linkedDoIdsOf(order);
+  // pre.orderDos (the Orders list, 2026-11-22): the org's DOs on orders, read once for the whole list; only the
+  // job / linked DOs are read here then (by id). Same rows as the single query below.
+  const byIds = [...new Set([...jobDoIds, ...linkedDoIds])];
   const dos = (
-    await prisma.document.findMany({
-      where: { organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] }, OR: [{ config: { path: ['orderId'], equals: orderId } }, { id: { in: [...jobDoIds, ...linkedDoIds] } }] },
-      select: { id: true, status: true, config: true },
-    })
+    pre?.orderDos
+      ? dedupeById([
+          ...(pre.orderDos.get(orderId) ?? []),
+          ...(byIds.length ? await prisma.document.findMany({ where: { organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] }, id: { in: byIds } }, select: { id: true, status: true, config: true } }) : []),
+        ])
+      : await prisma.document.findMany({
+          where: { organizationId, type: { in: ['DELIVERY_ORDER', 'DO'] }, OR: [{ config: { path: ['orderId'], equals: orderId } }, { id: { in: byIds } }] },
+          select: { id: true, status: true, config: true },
+        })
   ).filter((d: any) => d.config?.cancelled !== true);
   const realInvoice = (v: any) => (v && !String(v).startsWith('claim:') ? String(v) : null);
   // Round 33: a linked DO is billed through its link entry (never the DO itself), while that invoice is live.

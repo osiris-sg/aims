@@ -682,19 +682,21 @@ export async function loadImportedOrderInputs(
   prisma: any,
   organizationId: string,
   orders: Array<{ id: string; sourceQuotationId?: string | null; linkedDocuments?: unknown }>,
-  opts: { sourceQuotationConfigs?: Map<string, any> } = {},
+  opts: { sourceQuotationConfigs?: Map<string, any>; orderDos?: Map<string, any[]>; lean?: boolean } = {},
 ): Promise<Map<string, ImportedOrderInputs>> {
   const out = new Map<string, ImportedOrderInputs>();
   if (!orders.length) return out;
   const sel = { id: true, name: true, type: true, status: true, documentTemplateId: true, config: true, createdAt: true };
+  // lean (the Orders list, 2026-11-22): the documents without their lines and terms, which the status never reads.
+  const readDocs = (ids: string[]): Promise<any[]> => (opts.lean ? leanDocsByIds(prisma, organizationId, ids) : prisma.document.findMany({ where: { organizationId, id: { in: ids } }, select: sel }));
   const linkedDoRefs = (o: any) => refsOf(o, 'do').filter((r) => r.imported !== true);
   const ids = [...new Set(orders.flatMap((o) => [...refsOf(o, 'invoice'), ...refsOf(o, 'creditNote'), ...linkedQuotationRefsOf(o), ...linkedDoRefs(o)].map((r) => r.id)))];
-  const rows: any[] = ids.length ? await prisma.document.findMany({ where: { organizationId, id: { in: ids } }, select: sel }) : [];
+  const rows: any[] = ids.length ? await readDocs(ids) : [];
   const byId = new Map<string, any>(rows.map((d) => [d.id, d]));
   // Split payment: the other parts of a split invoice count too.
   const invIds = [...new Set(orders.flatMap((o) => refsOf(o, 'invoice').map((r) => r.id)))];
   const parts = withSplitPartIds(invIds, invIds.map((id) => byId.get(id)).filter(Boolean)).filter((id) => !byId.has(id));
-  if (parts.length) for (const d of await prisma.document.findMany({ where: { organizationId, id: { in: parts } }, select: sel })) byId.set(d.id, d);
+  if (parts.length) for (const d of await readDocs(parts)) byId.set(d.id, d);
   // Source quotation totals the marker does not carry.
   const needQuote = orders.filter((o) => {
     const m: any = importedMarkerOf(o) || {};
@@ -718,12 +720,15 @@ export async function loadImportedOrderInputs(
   }
   // AIMS DOs: only for orders with nothing counted yet (the DO statuses decide then).
   const needDos = orders.filter((o) => !partial.get(o.id)!.invoiceDocs.some((d) => isCountedInvoice(d)));
-  const own = needDos.length
-    ? await prisma.document.findMany({
+  // orderDos (the Orders list): every DO on an order, read once for the whole list instead of one scan here.
+  const own = !needDos.length
+    ? []
+    : opts.orderDos
+    ? needDos.flatMap((o) => opts.orderDos!.get(o.id) ?? [])
+    : await prisma.document.findMany({
         where: { organizationId, type: { in: DO_TYPES }, OR: needDos.map((o) => ({ config: { path: ['orderId'], equals: o.id } })) },
         select: sel,
-      })
-    : [];
+      });
   for (const o of orders) {
     const p = partial.get(o.id)!;
     let nativeDos: any[] = [];
@@ -789,3 +794,63 @@ export const importedDosOf = (order: { linkedDocuments?: unknown } | null | unde
   const list = (order?.linkedDocuments as any)?.do;
   return Array.isArray(list) ? list.filter((d: any) => d && d.imported === true) : [];
 };
+
+
+// ── Orders list speed (2026-11-22) ───────────────────────────────────────────
+// The list used to scan the org's DOs (WCT: 10,597, the JSON orderId has no index) once per AIMS order and once more
+// for the imported orders, and read 1,000+ invoices with their lines. These read the same rows, once and lean.
+
+/** The heavy config keys the list's status and cells never read (lines and terms). */
+const LEAN_CONFIG = "d.config - 'items' - 'termsAndConditions'";
+
+/** Documents by id, without their lines and terms (same fields as the status reads use). */
+export async function leanDocsByIds(prisma: any, organizationId: string, ids: string[]): Promise<any[]> {
+  const uniq = [...new Set(ids.filter((x) => typeof x === 'string' && x))];
+  const full = () => prisma.document.findMany({ where: { organizationId, id: { in: uniq } }, select: { id: true, name: true, type: true, status: true, documentTemplateId: true, config: true, createdAt: true } });
+  // No raw SQL (a test double), or it failed: the same rows the plain way (with their lines).
+  if (typeof prisma?.$queryRawUnsafe !== 'function') return full();
+  try {
+    const out: any[] = [];
+    for (let i = 0; i < uniq.length; i += 2000) {
+      const rows: any[] = await prisma.$queryRawUnsafe(
+        `SELECT d.id::text AS id, d.name, d.type, d.status, d."documentTemplateId", ${LEAN_CONFIG} AS config, d."createdAt" FROM "Document" d WHERE d."organizationId" = $1 AND d.id = ANY($2::uuid[])`,
+        organizationId,
+        uniq.slice(i, i + 2000),
+      );
+      out.push(...(rows ?? []));
+    }
+    return out;
+  } catch {
+    return full();
+  }
+}
+
+/** Every DO of the org that sits on an order (config.orderId), lean, by order id. One scan for the whole list. */
+export async function orderDosByOrder(prisma: any, organizationId: string): Promise<Map<string, any[]>> {
+  const rows: any[] = await prisma.$queryRawUnsafe(
+    `SELECT d.id::text AS id, d.name, d.type, d.status, d."documentTemplateId", ${LEAN_CONFIG} AS config, d."createdAt" FROM "Document" d
+      WHERE d."organizationId" = $1 AND d.type IN ('DELIVERY_ORDER', 'DO') AND d.config->>'orderId' IS NOT NULL`,
+    organizationId,
+  );
+  const out = new Map<string, any[]>();
+  for (const r of rows ?? []) {
+    const k = r?.config?.orderId;
+    if (typeof k === 'string' && k) out.set(k, [...(out.get(k) ?? []), r]);
+  }
+  return out;
+}
+
+/**
+ * The AIMS DO names per order from orderDosByOrder: the same rows aimsDoNamesByOrder's own query picks (not the
+ * imported ERP DOs, not cancelled or voided).
+ */
+export function aimsDoNamesFrom(orderDos: Map<string, any[]>): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const [orderId, docs] of orderDos) {
+    const names = docs
+      .filter((d) => d?.name && d.config?.erpImport === undefined && String(d.config?.cancelled ?? '') !== 'true' && String(d.config?.voided ?? '') !== 'true')
+      .map((d) => String(d.name));
+    if (names.length) out.set(orderId, names);
+  }
+  return out;
+}

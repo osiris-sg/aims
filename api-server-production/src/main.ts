@@ -1,3 +1,4 @@
+import { gzipListMiddleware } from './common/gzip-list';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
@@ -71,6 +72,8 @@ async function bootstrap() {
     }),
   );
   app.use(urlencoded({ extended: true, limit: '15mb' }));
+  // Gzip for the big Orders list answer only (common/gzip-list.ts); every other route is untouched.
+  app.use(gzipListMiddleware);
   AppModule.registerSwagger(app);
   app.enableCors(corsOptions);
   app.use(morgan('dev'));

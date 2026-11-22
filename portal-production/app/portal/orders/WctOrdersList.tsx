@@ -9,7 +9,7 @@ import MainCard from "@/components/MainCard";
 import PageTable from "@/components/PageTable";
 import { BulkDeleteBar, useBulkSelection } from "@/components/useBulkSelection";
 import CancelIcon from "@mui/icons-material/Cancel";
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, ListItemText, Menu, MenuItem, Stack, TextField, Tooltip, Typography, alpha, lighten } from "@mui/material";
+import { Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, IconButton, ListItemText, Menu, MenuItem, Stack, TextField, Tooltip, Typography, alpha, lighten } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import AddIcon from "@mui/icons-material/Add";
 import StatusPill from "./_components/StatusPill";
@@ -177,20 +177,40 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
   const hasImported = useMemo(() => orders.some((o) => o.imported === true), [orders]);
   const sourceRows = useMemo(() => newestFirst(hasImported ? orders.filter((o) => matchesOrderSource(o, source)) : orders), [orders, source, hasImported]);
 
+  // 2026-11-22 (speed): orgs with imported orders load the AIMS orders and the imported ones as two calls at once;
+  // the AIMS orders show as soon as they arrive and the imported rows join them (thousands, slower). Others: one call.
+  const splitLoad = features?.enableImportedOrders === true;
+  const [importedLoading, setImportedLoading] = useState(false);
   const fetchOrders = useCallback(async () => {
     if (fixture || !organization?.id) return;
     setLoading(true);
     try {
       const token = await getToken();
-      const res = await request({ path: "/orders", method: "GET" }, {}, token ?? undefined);
-      setOrders(Array.isArray(res?.data) ? res.data : []);
+      if (!splitLoad) {
+        const res = await request({ path: "/orders", method: "GET" }, {}, token ?? undefined);
+        setOrders(Array.isArray(res?.data) ? res.data : []);
+        return;
+      }
+      setImportedLoading(true);
+      const importedCall = request({ path: "/orders?part=imported", method: "GET" }, {}, token ?? undefined);
+      const nativeRes = await request({ path: "/orders?part=native", method: "GET" }, {}, token ?? undefined);
+      const native: WctOrderRow[] = Array.isArray(nativeRes?.data) ? nativeRes.data : [];
+      setOrders(native);
+      setLoading(false);
+      try {
+        const importedRes = await importedCall;
+        const imported: WctOrderRow[] = Array.isArray(importedRes?.data) ? importedRes.data : [];
+        setOrders([...native, ...imported]);
+      } finally {
+        setImportedLoading(false);
+      }
     } catch (err) {
       console.error("Fetch orders failed:", err);
       toast.error("Failed to load orders");
     } finally {
       setLoading(false);
     }
-  }, [organization?.id, getToken, fixture]);
+  }, [organization?.id, getToken, fixture, splitLoad]);
 
   useEffect(() => {
     fetchOrders();
@@ -470,6 +490,12 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
           </MenuItem>
         )}
       </TextField>
+      {importedLoading && (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, color: "text.secondary" }} data-tour="orders-imported-loading">
+          <CircularProgress size={14} />
+          <Typography variant="body2">Loading imported orders</Typography>
+        </Box>
+      )}
       {hasImported && (
         <TextField
           select

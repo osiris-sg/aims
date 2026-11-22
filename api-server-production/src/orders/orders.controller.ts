@@ -37,7 +37,10 @@ export class OrdersController {
   async list(@Req() req: RequestWithOrganization) {
     const orgId = req.userOrganization?.id;
     if (!orgId) throw new Error('User is not assigned to any organization');
-    return this.ordersService.list(orgId);
+    // ?part=native | imported (WCT orders list, 2026-11-22): the AIMS orders and the imported ones as two loads, so
+    // the page shows its own orders at once. No part = everything, as before.
+    const part = (req as any).query?.part;
+    return this.ordersService.list(orgId, part === 'native' || part === 'imported' ? part : undefined);
   }
 
   /**

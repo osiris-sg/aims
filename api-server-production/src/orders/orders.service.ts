@@ -43,6 +43,8 @@ import {
   isImportedOrdersEnabled,
   linkedQuotationRefsOf,
   loadImportedOrderInputs,
+  orderDosByOrder,
+  aimsDoNamesFrom,
   refreshImportedOrderStatus,
 } from './imported-orders';
 import {
@@ -332,8 +334,8 @@ export class OrdersService {
     }
   }
 
-  async list(organizationId: string) {
-    if (await isWctOrdersEnabled(this.prisma, organizationId)) return this.listWct(organizationId);
+  async list(organizationId: string, part?: 'native' | 'imported') {
+    if (await isWctOrdersEnabled(this.prisma, organizationId)) return this.listWct(organizationId, part);
     const orders = await this.prisma.order.findMany({
       where: { organizationId, ...NOT_IMPORTED_NUMBER },
       orderBy: { createdAt: 'desc' },
@@ -450,20 +452,21 @@ export class OrdersService {
   // ────────────────────────────────────────────────────────────────────────
 
   /** Store the status the jobs + invoices say, where it drifted (best-effort). Mutates the rows. */
-  private async syncWctStatuses(organizationId: string, orders: Array<{ id: string; status: string }>) {
+  private async syncWctStatuses(organizationId: string, orders: Array<{ id: string; status: string }>, orderDos?: Map<string, any[]>) {
     // Eight at a time (2026-11-20): one after another this was ~0.4s per order, so the Orders list of
     // 100 orders took ~40s on dev and timed out in the portal. Same refresh, same result per order.
     const BATCH = 8;
     for (let i = 0; i < orders.length; i += BATCH) {
       await Promise.all(
         orders.slice(i, i + BATCH).map(async (o) => {
-          o.status = (await refreshOrderStatus(this.prisma, organizationId, o.id)) ?? o.status;
+          o.status = (await refreshOrderStatus(this.prisma, organizationId, o.id, orderDos ? { orderDos } : undefined)) ?? o.status;
         }),
       );
     }
   }
 
-  private async listWct(organizationId: string) {
+  private async listWct(organizationId: string, part?: 'native' | 'imported') {
+    if (part === 'imported') return this.importedListRows(organizationId, await orderDosByOrder(this.prisma, organizationId).catch(() => undefined));
     const rows = await this.prisma.order.findMany({
       where: { organizationId, ...NOT_IMPORTED_NUMBER },
       orderBy: { createdAt: 'desc' },
@@ -477,10 +480,12 @@ export class OrdersService {
       },
     });
     const orders = rows.map(({ deliveries, ...o }: any) => ({ ...o, jobs: deliveries as any[] }));
-    await this.syncWctStatuses(organizationId, orders);
+    // 2026-11-22: the org's DOs on orders, read once (lean) for the status sync, the imported orders and their DO cells.
+    const orderDos = await orderDosByOrder(this.prisma, organizationId).catch(() => undefined);
+    await this.syncWctStatuses(organizationId, orders, orderDos);
     const hub = await this.wctListHub(organizationId, orders);
     const now = Date.now();
-    const imported = await this.importedListRows(organizationId);
+    const imported = part === 'native' ? [] : await this.importedListRows(organizationId, orderDos);
     const native = orders.map(({ jobs, ...o }) => {
       const live = jobs.filter((j) => j.status !== 'cancelled');
       // An all-day job (2026-11-10) stays upcoming until the end of its day, and
@@ -513,7 +518,7 @@ export class OrdersService {
   // <-> invoice links. Read-only; listed and opened only while the setting is on.
 
   /** The imported orders' list rows (setting on), after the native ones. Status re-read from the invoices' money where not yet Paid. */
-  private async importedListRows(organizationId: string): Promise<any[]> {
+  private async importedListRows(organizationId: string, orderDos?: Map<string, any[]>): Promise<any[]> {
     if (!(await isImportedOrdersEnabled(this.prisma, organizationId))) return [];
     const rows: any[] = (
       await this.prisma.order.findMany({
@@ -534,7 +539,7 @@ export class OrdersService {
     // Paid and Complete orders keep their status (a completion wins over the money; Reopen re-reads it), unless the
     // order holds AIMS documents or links (round 19): those can change without the import, so they are re-read too.
     const open = rows.filter((o) => (o.status !== 'PAID' && o.status !== 'COMPLETED') || hasAimsLinks(o));
-    const inputs = await loadImportedOrderInputs(this.prisma, organizationId, open.map((o) => ({ id: o.id, sourceQuotationId: o.sourceQuotation?.id ?? null, linkedDocuments: o.linkedDocuments })));
+    const inputs = await loadImportedOrderInputs(this.prisma, organizationId, open.map((o) => ({ id: o.id, sourceQuotationId: o.sourceQuotation?.id ?? null, linkedDocuments: o.linkedDocuments })), { orderDos, lean: true });
     const labels = new Map<string, string>();
     const pcts = new Map<string, number | null>();
     for (const o of open) {
@@ -549,7 +554,7 @@ export class OrdersService {
     // Round 38: the DO(s) cell also lists the order's linked DOs (the old ERP DOs) and the AIMS DOs made on it, and
     // the "+" cells follow the order page (Add DO in the manual flow, Create invoice with the quotation).
     const manualFlow = await isManualOrderFlow(this.prisma, organizationId);
-    const aimsDos = await this.aimsDoNamesByOrder(organizationId);
+    const aimsDos = orderDos ? aimsDoNamesFrom(orderDos) : await this.aimsDoNamesByOrder(organizationId);
     return rows.map((o) => {
       const m: any = importedMarkerOf(o);
       const doNumbers = importedDoNumbers(m?.erpDoNumbers, (o.linkedDocuments as any)?.do, aimsDos.get(o.id) ?? []);
