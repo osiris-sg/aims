@@ -43,6 +43,16 @@ export class OrdersController {
     return this.ordersService.list(orgId, part === 'native' || part === 'imported' ? part : undefined);
   }
 
+  // WCT orders list, one page at a time (2026-11-23, orders-page.ts): ?source=&tab=&q=&sort=&dir=&offset=&limit=.
+  // Declared before @Get(':id').
+  @Get('page')
+  @Permissions('orders:read')
+  async listPage(@Req() req: RequestWithOrganization) {
+    const orgId = req.userOrganization?.id;
+    if (!orgId) throw new Error('User is not assigned to any organization');
+    return this.ordersService.listPage(orgId, ((req as any).query || {}) as any);
+  }
+
   /**
    * Mint a short-lived signed S3 URL for an uploaded supplier doc (DO/Invoice),
    * so the order page can offer a download even though the bucket is private.

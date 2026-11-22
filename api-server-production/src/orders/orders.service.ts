@@ -47,6 +47,8 @@ import {
   aimsDoNamesFrom,
   refreshImportedOrderStatus,
 } from './imported-orders';
+import { IMPORTED_ORDER_SOURCE } from './imported-orders';
+import { OrderSource, PAGE_SIZE, compareRows, importedSortSql, importedStatusOfTab, mergePage, nativeMatchesSearch, nativeMatchesTab, orderTabs, parseSort, sortValue } from './orders-page';
 import {
   DOC_TYPES_FOR,
   LINK_TYPE_LABEL,
@@ -465,7 +467,86 @@ export class OrdersService {
     }
   }
 
-  private async listWct(organizationId: string, part?: 'native' | 'imported') {
+  /**
+   * GET /orders/page (WCT orders list, 2026-11-23; rules in orders-page.ts): one page of the list with its filter,
+   * search, sort and counts done here. AIMS orders are built in full (with their status sync, first page only);
+   * imported orders are filtered, counted and sorted in SQL and only the page's ones are built.
+   */
+  async listPage(organizationId: string, q: { source?: string; tab?: string; q?: string; sort?: string; dir?: string; offset?: string | number; limit?: string | number }) {
+    if (!(await isWctOrdersEnabled(this.prisma, organizationId))) throw new HttpException('Not available for this company', HttpStatus.NOT_FOUND);
+    const importedOn = await isImportedOrdersEnabled(this.prisma, organizationId);
+    const flow = await isOrgFeatureEnabled(this.prisma as any, organizationId, 'enableWctStatusFlow');
+    const source: OrderSource = q.source === 'aims' || q.source === 'imported' ? q.source : importedOn ? 'all' : 'aims';
+    const tab = String(q.tab || 'all');
+    const search = String(q.q || '').trim().slice(0, 80);
+    const offset = Math.max(0, Math.min(100000, Number(q.offset) || 0));
+    const limit = Math.max(1, Math.min(200, Number(q.limit) || PAGE_SIZE));
+    const { key, desc } = parseSort(q.sort, q.dir);
+
+    const wantNative = source !== 'imported';
+    const wantImported = importedOn && source !== 'aims';
+    const like = search ? `%${search.replace(/[\\%_]/g, (ch) => '\\' + ch)}%` : null;
+    const impStatus = importedStatusOfTab(tab);
+    const IMP_WHERE = `o."organizationId" = $1 AND o."orderNumber" LIKE 'ORD-Q-%' AND o."linkedDocuments"->'imported'->>'source' = '${IMPORTED_ORDER_SOURCE}'`;
+    const SEARCH = `($2::text IS NULL OR o."orderNumber" ILIKE $2 OR c.name ILIKE $2 OR c."customerCode" ILIKE $2 OR q.name ILIKE $2
+      OR o."linkedDocuments"->'imported'->>'subject' ILIKE $2 OR o."linkedDocuments"->'imported'->>'site' ILIKE $2)`;
+    const FROM = `FROM "Order" o LEFT JOIN "Customer" c ON c.id = o."customerId" LEFT JOIN "Document" q ON q.id = o."sourceQuotationId"`;
+    const numericKey = key !== 'orderNumber' && key !== 'customer';
+    const orderExpr = importedSortSql(key);
+
+    // One DO scan for the whole request (the AIMS rows and the page's imported rows share it).
+    const nativeIds = (await this.prisma.order.findMany({ where: { organizationId, ...NOT_IMPORTED_NUMBER }, select: { id: true } })).map((o: any) => o.id);
+    const orderDosP = orderDosByOrder(this.prisma, organizationId, nativeIds).catch(() => undefined);
+    const [nativeAll, importedCounts, importedPage, nativeCount] = await Promise.all([
+      wantNative ? orderDosP.then((orderDos) => this.listWct(organizationId, 'native', { sync: offset === 0, orderDos }) as Promise<any[]>) : Promise.resolve([] as any[]),
+      importedOn
+        ? (this.prisma as any).$queryRawUnsafe(`SELECT o.status, count(*)::int AS n FROM "Order" o WHERE ${IMP_WHERE} GROUP BY o.status`, organizationId)
+        : Promise.resolve([]),
+      wantImported && impStatus !== undefined
+        ? (this.prisma as any).$queryRawUnsafe(
+            `SELECT o.id::text AS id, ${orderExpr}${numericKey ? '::float8' : ''} AS v, count(*) OVER ()::int AS total ${FROM}
+              WHERE ${IMP_WHERE} AND ${SEARCH} AND ($3::text IS NULL OR o.status = $3)
+              ORDER BY v ${desc ? 'DESC' : 'ASC'}, o.id::text ASC LIMIT ${offset + limit}`,
+            organizationId,
+            like,
+            impStatus,
+          )
+        : Promise.resolve([]),
+      // The AIMS count for the source picker when the AIMS rows are not built (Imported view).
+      Promise.resolve(nativeIds.length),
+    ]);
+    const counts: Record<string, number> = {};
+    for (const r of importedCounts as any[]) counts[String(r.status)] = Number(r.n) || 0;
+    const importedTotalAll = Object.values(counts).reduce((t, n) => t + n, 0);
+
+    const nativeShown = nativeAll.filter((o) => nativeMatchesTab(o, tab) && nativeMatchesSearch(o, search));
+    const nativeSorted = nativeShown.map((row) => ({ row, v: sortValue(row, key) })).sort((a, b) => compareRows({ v: a.v, id: a.row.id }, { v: b.v, id: b.row.id }, desc));
+    const imp = (importedPage as any[]).map((r) => ({ id: r.id, v: numericKey ? Number(r.v) : String(r.v ?? '') }));
+    const importedTotal = (importedPage as any[])[0]?.total ?? 0;
+    const slice = mergePage(nativeSorted, imp, desc, offset, limit);
+
+    // Build only the page's imported rows, in the page's order.
+    const pageIds = slice.filter((x): x is { kind: 'imported'; id: string } => x.kind === 'imported').map((x) => x.id);
+    const built = pageIds.length ? await this.importedListRows(organizationId, await orderDosP, pageIds) : [];
+    const byId = new Map(built.map((r: any) => [r.id, r]));
+    const rows = slice.map((x) => (x.kind === 'native' ? x.row : byId.get(x.id))).filter(Boolean);
+
+    const sourceNative = wantNative ? nativeAll.length : 0;
+    return {
+      rows,
+      offset,
+      limit,
+      total: nativeShown.length + importedTotal,
+      hasMore: offset + rows.length < nativeShown.length + importedTotal,
+      source,
+      tab,
+      sort: { key, dir: desc ? 'desc' : 'asc' },
+      tabs: orderTabs(wantNative ? nativeAll : [], wantImported ? counts : {}, { flow, source }),
+      sources: { aims: wantNative ? sourceNative : Number(nativeCount) || 0, imported: importedOn ? importedTotalAll : 0 },
+    };
+  }
+
+  private async listWct(organizationId: string, part?: 'native' | 'imported', opts: { sync?: boolean; orderDos?: Map<string, any[]> } = {}) {
     if (part === 'imported') return this.importedListRows(organizationId, await orderDosByOrder(this.prisma, organizationId).catch(() => undefined));
     const rows = await this.prisma.order.findMany({
       where: { organizationId, ...NOT_IMPORTED_NUMBER },
@@ -481,8 +562,9 @@ export class OrdersService {
     });
     const orders = rows.map(({ deliveries, ...o }: any) => ({ ...o, jobs: deliveries as any[] }));
     // 2026-11-22: the org's DOs on orders, read once (lean) for the status sync, the imported orders and their DO cells.
-    const orderDos = await orderDosByOrder(this.prisma, organizationId, orders.map((o: any) => o.id)).catch(() => undefined);
-    await this.syncWctStatuses(organizationId, orders, orderDos);
+    const orderDos = opts.orderDos ?? (await orderDosByOrder(this.prisma, organizationId, orders.map((o: any) => o.id)).catch(() => undefined));
+    // The paged list syncs on its first page only (Load more reads the stored statuses).
+    if (opts.sync !== false) await this.syncWctStatuses(organizationId, orders, orderDos);
     const hub = await this.wctListHub(organizationId, orders);
     const now = Date.now();
     const imported = part === 'native' ? [] : await this.importedListRows(organizationId, orderDos);
@@ -518,11 +600,13 @@ export class OrdersService {
   // <-> invoice links. Read-only; listed and opened only while the setting is on.
 
   /** The imported orders' list rows (setting on), after the native ones. Status re-read from the invoices' money where not yet Paid. */
-  private async importedListRows(organizationId: string, orderDos?: Map<string, any[]>): Promise<any[]> {
+  private async importedListRows(organizationId: string, orderDos?: Map<string, any[]>, onlyIds?: string[]): Promise<any[]> {
     if (!(await isImportedOrdersEnabled(this.prisma, organizationId))) return [];
+    if (onlyIds && !onlyIds.length) return [];
     const rows: any[] = (
       await this.prisma.order.findMany({
-        where: { organizationId, orderNumber: { startsWith: IMPORTED_NUMBER_PREFIX } },
+        // onlyIds (the paged list, 2026-11-23): just the page's imported orders.
+        where: { organizationId, orderNumber: { startsWith: IMPORTED_NUMBER_PREFIX }, ...(onlyIds ? { id: { in: onlyIds } } : {}) },
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,

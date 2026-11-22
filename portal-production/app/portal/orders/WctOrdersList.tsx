@@ -24,6 +24,9 @@ import { useUserPermissions } from "@/app/portal/hooks/useUserPermissions";
 import { canAddCell, createInvoiceHref, LIST_ADD_LABEL, type ListAddAccess, type ListAddKind } from "@/helpers/orderListAdd";
 import { ORDER_SOURCE_OPTIONS, defaultOrderSource, newestFirst, importedBilledPct, showBilledPctColumn, importedMatchesTab, importedStatusHue, importedTabs, isImportedTab, matchesOrderSource, type OrderSource } from "@/helpers/importedOrders";
 
+/** Server paging (2026-11-23): rows per page, the same as the server's PAGE_SIZE (api orders/orders-page.ts). */
+const PAGE_SIZE = 50;
+
 // WCT calendar add (2026-11-04): jobs made from the calendar with no order yet, so nothing gets forgotten.
 interface UntaggedJob {
   id: string;
@@ -171,50 +174,70 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
   const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<any>({});
+  // Server paging (2026-11-23): the server's total, whether there is more, its status entries and source counts.
+  const [paged, setPaged] = useState<{ total: number; hasMore: boolean; tabs: Array<{ key: string; label: string; count: number }>; sources: { aims: number; imported: number } } | null>(null);
   // Orgs with imported orders (enableImportedOrders) open on "All orders", newest first; others on AIMS's own orders.
   const [pickedSource, setSource] = useState<OrderSource | null>(null);
   const source: OrderSource = pickedSource ?? defaultOrderSource(features);
-  const hasImported = useMemo(() => orders.some((o) => o.imported === true), [orders]);
+  const hasImported = useMemo(() => (fixture ? orders.some((o) => o.imported === true) : (paged?.sources.imported ?? 0) > 0), [orders, fixture, paged]);
   const sourceRows = useMemo(() => newestFirst(hasImported ? orders.filter((o) => matchesOrderSource(o, source)) : orders), [orders, source, hasImported]);
 
-  // 2026-11-22 (speed): orgs with imported orders load the AIMS orders first and then the imported ones; the AIMS
-  // orders show as soon as they arrive and the imported rows join them (thousands, slower). Others: one call.
-  const splitLoad = features?.enableImportedOrders === true;
-  const [importedLoading, setImportedLoading] = useState(false);
-  const fetchOrders = useCallback(async () => {
-    if (fixture || !organization?.id) return;
-    setLoading(true);
-    try {
-      const token = await getToken();
-      if (!splitLoad) {
-        const res = await request({ path: "/orders", method: "GET" }, {}, token ?? undefined);
-        setOrders(Array.isArray(res?.data) ? res.data : []);
-        return;
-      }
-      setImportedLoading(true);
-      // One after the other: in parallel the two slowed each other down (measured on prod, 2026-11-22).
-      const nativeRes = await request({ path: "/orders?part=native", method: "GET" }, {}, token ?? undefined);
-      const native: WctOrderRow[] = Array.isArray(nativeRes?.data) ? nativeRes.data : [];
-      setOrders(native);
-      setLoading(false);
-      try {
-        const importedRes = await request({ path: "/orders?part=imported", method: "GET" }, {}, token ?? undefined);
-        const imported: WctOrderRow[] = Array.isArray(importedRes?.data) ? importedRes.data : [];
-        setOrders([...native, ...imported]);
-      } finally {
-        setImportedLoading(false);
-      }
-    } catch (err) {
-      console.error("Fetch orders failed:", err);
-      toast.error("Failed to load orders");
-    } finally {
-      setLoading(false);
+  // Server paging (2026-11-23, api orders/orders-page.ts): one page of 50 at a time; the status filter, search, sort
+  // and every count are worked out on the server, and "Load more" adds the next page. The preview fixture keeps the
+  // in-browser list below.
+  const serverPaged = !fixture;
+  const [sorting, setSorting] = useState<Array<{ id: string; desc: boolean }>>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [debounced, setDebounced] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+  const pageQuery = useMemo(() => {
+    const p = new URLSearchParams({ source: pickedSource ?? "", tab: tab === "untagged" ? "all" : String(tab), limit: String(PAGE_SIZE) });
+    if (!pickedSource) p.delete("source");
+    if (debounced) p.set("q", debounced);
+    if (sorting[0]) {
+      p.set("sort", sorting[0].id);
+      p.set("dir", sorting[0].desc ? "desc" : "asc");
     }
-  }, [organization?.id, getToken, fixture, splitLoad]);
+    return p.toString();
+  }, [pickedSource, tab, debounced, sorting]);
+  const latestQuery = React.useRef("");
+  const fetchOrders = useCallback(
+    async (more = false) => {
+      if (fixture || !organization?.id) return;
+      const offset = more ? orders.length : 0;
+      const key = `${pageQuery}|${offset}`;
+      latestQuery.current = key;
+      if (more) setLoadingMore(true);
+      else setLoading(true);
+      try {
+        const token = await getToken();
+        const res: any = await request({ path: `/orders/page?${pageQuery}&offset=${offset}`, method: "GET" }, {}, token ?? undefined);
+        if (latestQuery.current !== key) return; // a newer filter is on screen
+        const d = res?.data ?? res;
+        const rows: WctOrderRow[] = Array.isArray(d?.rows) ? d.rows : [];
+        setOrders((prev) => (more ? [...prev, ...rows.filter((r) => !prev.some((x) => x.id === r.id))] : rows));
+        setPaged({ total: Number(d?.total) || 0, hasMore: !!d?.hasMore, tabs: Array.isArray(d?.tabs) ? d.tabs : [], sources: d?.sources ?? { aims: 0, imported: 0 } });
+      } catch (err) {
+        console.error("Fetch orders failed:", err);
+        toast.error("Failed to load orders");
+      } finally {
+        if (latestQuery.current === key) {
+          setLoading(false);
+          setLoadingMore(false);
+        }
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [organization?.id, getToken, fixture, pageQuery, orders.length],
+  );
 
   useEffect(() => {
-    fetchOrders();
-  }, [fetchOrders]);
+    void fetchOrders(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organization?.id, pageQuery]);
 
   useEffect(() => {
     if (!calendarAdd || !organization?.id) return;
@@ -230,7 +253,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
 
   // One tab per status, counted from the real statuses (the old "Open" tab missed DO drafts).
   // Imported rows have their own statuses (Invoiced / Paid), listed after the AIMS ones.
-  const tabs = useMemo(() => {
+  const clientTabs = useMemo(() => {
     const native = sourceRows.filter((o) => o.imported !== true);
     // WCT group wording (enableWctStatusFlow): an order is Pending or Completed (Cancelled when there is one).
     if (isWctStatusFlowEnabled && (native.length || source !== "imported")) {
@@ -246,8 +269,9 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
     const own = native.length || source !== "imported" ? hubTabs(native).map((t) => (t.key === "all" ? { ...t, count: sourceRows.length } : t)) : [{ key: "all" as const, label: "All", count: sourceRows.length }];
     return [...own, ...importedTabs(sourceRows)] as Array<{ key: any; label: string; count: number }>;
   }, [sourceRows, source, isWctStatusFlowEnabled]);
+  const tabs = serverPaged ? paged?.tabs ?? [{ key: "all", label: "All", count: 0 }] : clientTabs;
 
-  const filtered = useMemo(
+  const clientFiltered = useMemo(
     () => (tab === "untagged" ? [] : sourceRows.filter(
             (o) =>
               (o.imported
@@ -259,6 +283,8 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
           )),
     [sourceRows, tab, search],
   );
+  // Server paging: the loaded pages, already filtered, searched and sorted by the server.
+  const filtered = serverPaged ? (tab === "untagged" ? [] : orders) : clientFiltered;
 
   /** Round 38: a "+" cell. Quotation / DO: made here, then their editor opens; Invoice: the order page's Create invoice. */
   const addFromList = async (kind: ListAddKind, row: WctOrderRow) => {
@@ -277,7 +303,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
       else if (out?.note) toast.info(`${out?.doName || "A draft DO"} added. ${out.note}`);
       else toast.success(`${out?.doName || "A draft DO"} added with what is still to deliver`);
       if (out?.href) router.push(out.href);
-      else await fetchOrders();
+      else await fetchOrders(false);
     } catch (e: any) {
       toast.error(e?.message || "Could not add it");
     } finally {
@@ -326,7 +352,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
       if (res?.success === false) throw new Error(res?.message || "Could not cancel");
       toast.success(confirm.action === "cancel-order" ? `Order ${confirm.row.orderNumber} cancelled` : "Job cancelled");
       setConfirm(null);
-      await fetchOrders();
+      await fetchOrders(false);
     } catch (e: any) {
       toast.error(e?.message || "Could not cancel");
     } finally {
@@ -490,12 +516,6 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
           </MenuItem>
         )}
       </TextField>
-      {importedLoading && (
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, color: "text.secondary" }} data-tour="orders-imported-loading">
-          <CircularProgress size={14} />
-          <Typography variant="body2">Loading imported orders</Typography>
-        </Box>
-      )}
       {hasImported && (
         <TextField
           select
@@ -512,7 +532,7 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
         >
           {ORDER_SOURCE_OPTIONS.map((o) => (
             <MenuItem key={o.key} value={o.key}>
-              {o.label} ({orders.filter((r) => matchesOrderSource(r, o.key)).length})
+              {o.label} ({serverPaged ? (o.key === "aims" ? paged?.sources.aims ?? 0 : o.key === "imported" ? paged?.sources.imported ?? 0 : (paged?.sources.aims ?? 0) + (paged?.sources.imported ?? 0)) : orders.filter((r) => matchesOrderSource(r, o.key)).length})
             </MenuItem>
           ))}
         </TextField>
@@ -548,12 +568,29 @@ export default function WctOrdersList({ fixture }: { fixture?: WctOrderRow[] } =
         setSearch={setSearch}
         setFilters={setFilters}
         filterConfig={[]}
-        clientPaging
+        clientPaging={!serverPaged || tab === "untagged"}
+        noPagination={serverPaged && tab !== "untagged"}
+        manualSorting={serverPaged && tab !== "untagged"}
+        sorting={serverPaged && tab !== "untagged" ? sorting : undefined}
+        onSortingChange={serverPaged && tab !== "untagged" ? (u: any) => setSorting((cur) => (typeof u === "function" ? u(cur) : u)) : undefined}
         pageCount={1}
-        totalDocs={tab === "untagged" ? untaggedRows.length : filtered.length}
+        totalDocs={tab === "untagged" ? untaggedRows.length : serverPaged ? paged?.total ?? 0 : filtered.length}
         noSelectionColumn
       />
-      <BulkDeleteBar bulk={bulk} noun="order" verb="Cancel" color="error" icon={<CancelIcon />} eligible={(r) => hubRowActions(r.status, { doFirst: !!isManualOrderFlowEnabled }).includes("cancel-order")} skipNote="have started (a job is done or an invoice exists)" confirmBody="Each order's draft jobs and draft invoices go with it." run={bulkCancel} onDone={() => void fetchOrders()} />
+      {/* Server paging: what is shown of how many, and the next 50. */}
+      {serverPaged && tab !== "untagged" && (
+        <Stack direction="row" spacing={2} alignItems="center" justifyContent="center" sx={{ py: 1.5 }} data-tour="orders-load-more">
+          <Typography variant="body2" color="text.secondary">
+            {`Showing ${filtered.length.toLocaleString("en-SG")} of ${(paged?.total ?? 0).toLocaleString("en-SG")}`}
+          </Typography>
+          {paged?.hasMore && (
+            <Button variant="outlined" size="small" onClick={() => void fetchOrders(true)} disabled={loadingMore || loading} startIcon={loadingMore ? <CircularProgress size={14} /> : undefined}>
+              Load more
+            </Button>
+          )}
+        </Stack>
+      )}
+      <BulkDeleteBar bulk={bulk} noun="order" verb="Cancel" color="error" icon={<CancelIcon />} eligible={(r) => hubRowActions(r.status, { doFirst: !!isManualOrderFlowEnabled }).includes("cancel-order")} skipNote="have started (a job is done or an invoice exists)" confirmBody="Each order's draft jobs and draft invoices go with it." run={bulkCancel} onDone={() => void fetchOrders(false)} />
 
       {/* Row menu: anchored to the click position (table rows re-render). */}
       <Menu open={!!rowMenu} onClose={() => setRowMenu(null)} anchorReference="anchorPosition" anchorPosition={rowMenu?.pos}>

@@ -79,8 +79,13 @@ test("PageTable: every row it is handed is rendered (no hidden 30-row cap); clie
   assert.match(table, /pagination: clientPage \? \{ pageIndex: clientPage\.index, pageSize: Math\.max\(clientPage\.size, 1\) \} : pagination,/);
   // Table used outside PageTable keeps its old behaviour (default false, no clientPage).
   assert.match(table, /showAllRows = false, clientPage \} = props;/);
+  // WCT Orders list (2026-11-23): paged on the server (GET /orders/page, Load more); client paging only for the
+  // preview fixture and the Untagged jobs view.
+  const wct = read("app/portal/orders/WctOrdersList.tsx");
+  assert.match(wct, /clientPaging=\{!serverPaged \|\| tab === "untagged"\}/);
+  assert.match(wct, /noPagination=\{serverPaged && tab !== "untagged"\}/);
+  assert.match(wct, /\/orders\/page\?/);
   for (const f of [
-    "app/portal/orders/WctOrdersList.tsx",
     "app/portal/orders/SlimOrdersList.tsx",
     "app/portal/orders/CappitechOrdersList.tsx",
     "app/portal/assets/vehicles/page.tsx",
