@@ -445,7 +445,7 @@ function newOrderLinked(o, batch, at) {
   return {
     po: [], salesOrder: [], invoice: [], creditNote: [],
     do: o.dos,
-    imported: { source: ORDER_SOURCE, batch, quotationNo: o.quotationNo, linkSources: {}, erpDoNumbers: o.dos.map((d) => d.name), at, quoteTotal: o.quoteTotal, subject: o.subject, site: o.site, credits: {}, doOnly: true },
+    imported: { source: ORDER_SOURCE, batch, quotationNo: o.quotationNo, linkSources: {}, erpDoNumbers: o.dos.map((d) => d.name), at, quoteTotal: o.quoteTotal, subject: o.subject, site: o.site, credits: {}, doOnly: true, partBilledRule: true },
   };
 }
 /**

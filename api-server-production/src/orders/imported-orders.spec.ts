@@ -134,7 +134,8 @@ describe('imported orders: plan', () => {
     expect(plan.orders[0].creditNotes.map((d) => d.name)).toEqual(['CN0009']);
     // Credit 200 lowers what the invoice bills (300) against the quotation's 1,000: part billed, paid.
     expect(plan.orders[0].credits).toEqual({ ib: 200 });
-    expect(plan.orders[0].status).toMatchObject({ status: 'PAID', label: 'Paid', total: 500, billed: 300, billedPct: 30, owed: 0, credited: 200, quoteTotal: 1000 });
+    // New orders use the 2026-11-19 rule (2026-11-23): S$300 billed of S$1,000 is Part billed, not Paid.
+    expect(plan.orders[0].status).toMatchObject({ status: 'PART_BILLED', label: 'Part billed', total: 500, billed: 300, billedPct: 30, owed: 0, credited: 200, quoteTotal: 1000 });
   });
 
   it('lists invoices whose ERP links disagree and keeps the ERP quotation link', () => {
@@ -152,7 +153,8 @@ describe('imported orders: plan', () => {
     const plan = planImportedOrders([quote('q1', 'Q-000100', WCT, { totalWithTax: 500 }), invoice('i1', 'I-1', { source: 'wct-erp', contractNo: '-000100 - x' })], {
       creditsByInvoiceNo: new Map([[`${WCT}|I-1`, 500]]),
     });
-    expect(plan.orders[0].status).toMatchObject({ status: 'PAID', billed: 0, billedPct: 0, credited: 500 });
+    // Fully credited: bills nothing, so Part billed under the 2026-11-19 rule (2026-11-23).
+    expect(plan.orders[0].status).toMatchObject({ status: 'PART_BILLED', billed: 0, billedPct: 0, credited: 500 });
   });
 });
 

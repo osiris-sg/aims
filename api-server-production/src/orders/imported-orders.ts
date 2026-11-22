@@ -413,7 +413,8 @@ export function planImportedOrders(
     const customerId = (q.config?.customerId as string) || null;
     const credits = creditsFor(invoices);
     const quoteTotal = grossOf(q.config);
-    const st = importedOrderStatus(invoices.map((i) => ({ ...i.doc, credit: credits[i.doc.id] ?? 0 })), quoteTotal);
+    // New orders are made under the 2026-11-19 rule (Part billed below the quotation total) and carry its mark (2026-11-23).
+    const st = importedOrderStatus(invoices.map((i) => ({ ...i.doc, credit: credits[i.doc.id] ?? 0 })), quoteTotal, { partBilledRule: true });
     orders.push({
       organizationId: q.organizationId,
       orderNumber: importedOrderNumber(String(q.name)),

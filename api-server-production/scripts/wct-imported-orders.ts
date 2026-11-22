@@ -407,6 +407,8 @@ const money = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 
       billed: o.status.billed,
       billedPct: o.status.billedPct,
       credits: o.credits,
+      // The 2026-11-19 Part billed rule, like every other imported order (2026-11-23).
+      partBilledRule: true,
       at: now,
     };
     const linked = {
