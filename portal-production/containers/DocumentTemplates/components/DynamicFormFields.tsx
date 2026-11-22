@@ -1693,7 +1693,7 @@ export default function DynamicFormFields({
   const isHalf = (f: FieldDefinition) => f.gridSize === 6 && f.fieldType !== 'textarea' && !twoControls(f);
   // Same label width as the full rows, so the first column's inputs line up
   // across paired and full rows (the lines were jagged at 118).
-  const pairLabelSx = adaptivePairs ? { ...leftLabelSx, width: 120 } : { ...leftLabelSx };
+  const pairLabelSx = adaptivePairs ? { ...leftLabelSx, width: 120, whiteSpace: 'normal' as const, alignSelf: 'stretch', display: 'flex', alignItems: 'center' } : { ...leftLabelSx };
   const renderCell = (field: FieldDefinition, withRightBorder: boolean) => (
     <Box
       key={field.fieldName}
