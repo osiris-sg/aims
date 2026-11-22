@@ -236,7 +236,8 @@ export function LinkDocumentField({
     }
   };
   return (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap", flex: 1, minHeight: 32, ...(sx || {}) }} data-tour="link-document-row">
+    // aims-shield-exempt: a confirmed document's read-only shield leaves this row usable (linking never edits it).
+    <Box className="aims-shield-exempt" sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap", flex: 1, minHeight: 32, py: 0.25, ...(sx || {}) }} data-tour="link-document-row">
       {pills.map((p) => (
         <Pill key={p.key} pill={p} onOpen={() => p.href && router.push(p.href)} onUnlink={p.unlink ? () => setConfirm(p) : undefined} disabled={busy} />
       ))}
@@ -247,7 +248,7 @@ export function LinkDocumentField({
         </Button>
       )}
       {documentId ? (
-        <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={() => setOpen(true)} sx={{ textTransform: "none" }} data-tour="link-document-open">
+        <Button size="small" startIcon={<AddIcon />} onClick={() => setOpen(true)} sx={{ textTransform: "none", minWidth: 0, px: 1 }} data-tour="link-document-open">
           Link Document
         </Button>
       ) : (

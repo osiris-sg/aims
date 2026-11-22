@@ -315,6 +315,8 @@ const readOnlyShield = (active: boolean) =>
           const isTextEntry =
             el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el.isContentEditable;
           if (isTextEntry || e.metaKey || e.ctrlKey || e.key === "Tab" || e.key === "Escape") return;
+          // Link Document (2026-11-22): linking a confirmed document is allowed (it never changes the document).
+          if (el.closest(".aims-shield-exempt")) return;
           e.preventDefault();
         },
         onPasteCapture: (e: React.ClipboardEvent) => e.preventDefault(),
@@ -323,6 +325,8 @@ const readOnlyShield = (active: boolean) =>
         sx: {
           "& .MuiButtonBase-root, & .MuiSelect-select, & [role='combobox'], & .MuiAutocomplete-root, & .MuiSwitch-root":
             { pointerEvents: "none" },
+          // Link Document row (2026-11-22): its pills and button stay usable on a confirmed document.
+          "& .aims-shield-exempt .MuiButtonBase-root": { pointerEvents: "auto" },
           // Keep the text itself readable at full contrast and selectable.
           "& input, & textarea, & [contenteditable]": { cursor: "text", userSelect: "text" },
         } as const,
