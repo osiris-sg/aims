@@ -254,7 +254,7 @@ export default function QuickJobDialog({
           )}
           {companies?.group && edit && <TextField label="Company" size="small" fullWidth value={companyName(companies.current)} InputProps={{ readOnly: true }} disabled />}
           {quotationOn && (
-            <QuotationPicker key={orgFor ?? "own"} api={api} value={quotation} customerId={form.customerId} busy={quotationBusy} onChange={(o) => void pickQuotation(o)} />
+            <QuotationPicker key={`quotation-${orgFor ?? "own"}`} api={api} value={quotation} customerId={form.customerId} busy={quotationBusy} onChange={(o) => void pickQuotation(o)} />
           )}
           {quotationOn && quotation && needsDoPick(quotation) && (
             <TextField select required label="DO" size="small" fullWidth value={form.doId ?? ""} onChange={(e) => set({ doId: e.target.value || null })} data-tour="quick-job-do">
@@ -276,7 +276,7 @@ export default function QuickJobDialog({
             </TextField>
           )}
           <CustomerPicker
-            key={orgFor ?? "own"}
+            key={`customer-${orgFor ?? "own"}`}
             orgId={orgFor}
             value={form.customerId}
             initialCustomer={customer}
