@@ -104,16 +104,19 @@ export function planOrderInvoice<T extends Record<string, any>>(input: {
 }
 
 /**
- * The order invoice's Reference: "ORD202611-001 · DO202611008, DO202611009",
- * unless the DO already carried a reference of its own (kept as it is). The
- * invoice prints the order and its DOs on their own lines either way; the
- * Reference (config.referenceNo, the canonical free-text key) makes the
- * invoice findable by order number in the lists and survives editor saves.
+ * Link text: what the old order link wrote into a Reference ("ORD202611-001 · QO202611-0041",
+ * "ORDW202611-001 · DO202611008, DO202611009", "ORD-Q-014922 · Q-014922"): an order number, then document numbers.
  */
-export function orderInvoiceReference(orderNumber: string, doNumbers: string[], existing?: unknown): string {
+export const isLinkText = (v: unknown): boolean => /^ORD[A-Z0-9-]*\d(\s·\s[A-Za-z0-9()-]+(,\s*[A-Za-z0-9()-]+)*)?$/.test(String(v ?? '').trim());
+
+/**
+ * The order invoice's Reference (2026-11-22, Elroy: links live only in the Link Document pills, never in a text box):
+ * the DO's / quotation's own reference when it has one, never link text (an old "ORD... · DO..." label is dropped),
+ * else empty. The invoice names its order and DOs on its own lines (orderNo, deliveryOrderNos) either way.
+ */
+export function orderInvoiceReference(_orderNumber: string, _doNumbers: string[], existing?: unknown): string {
   const prev = String(existing ?? '').trim();
-  if (prev) return prev;
-  return [orderNumber, doNumbers.filter(Boolean).join(', ')].filter(Boolean).join(' · ');
+  return prev && !isLinkText(prev) ? prev : '';
 }
 
 const num = (v: unknown): number | null => {

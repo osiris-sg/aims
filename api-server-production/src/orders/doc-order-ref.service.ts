@@ -222,18 +222,10 @@ export class DocOrderRefService {
         : await ensureQuotationOrder(this.prisma, organizationId, quotation);
     await this.orders.linkImportedDocument(ensured.orderId, organizationId, { type: kind, id: doc.id }, actor);
 
-    // A draft: its Reference reads the link (canonical config.referenceNo; the editor's copy follows).
+    // 2026-11-22 (Elroy): no link text is written into the Reference any more; the link lives in the Link Document
+    // pills (and on the order). The label is still returned for the chip.
     const label = orderRefLabel(ensured.orderNumber, quotation.name);
-    let reference: string | null = null;
-    if (isDraftDoc(doc.status)) {
-      const fresh: any = await this.prisma.document.findFirst({ where: { id: doc.id, organizationId }, select: { config: true } });
-      const cfg = fresh?.config || {};
-      await this.prisma.document.update({
-        where: { id: doc.id },
-        data: { config: { ...cfg, referenceNo: label, ...(cfg.documentInfo && typeof cfg.documentInfo === 'object' ? { documentInfo: { ...cfg.documentInfo, referenceNo: label } } : {}) } },
-      });
-      reference = label;
-    }
+    const reference: string | null = null;
     const linked = await this.linkOf(organizationId, doc, kind);
     return { ...(linked ?? { orderId: ensured.orderId, orderNumber: ensured.orderNumber, quotationId: quotation.id, quotationName: quotation.name, label, unlinkable: true }), createdOrder: ensured.created, reference, customer, docName, kind };
   }

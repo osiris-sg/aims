@@ -1,5 +1,5 @@
 import { computeDocumentTotals } from '../common/document-money';
-import { assetKey, descKey, invoiceDiscountPercent, orderInvoiceReference, planOrderInvoice, quoteAllowance, quoteDiscountAmount, splitJobLines } from './order-billing';
+import { assetKey, descKey, invoiceDiscountPercent, isLinkText, orderInvoiceReference, planOrderInvoice, quoteAllowance, quoteDiscountAmount, splitJobLines } from './order-billing';
 
 // WCT invoice per order: the quotation is billed once per order; only lines a
 // job carries on top of it are billed again (guru 2026-11-02, ORD202611-001).
@@ -138,10 +138,16 @@ describe('order billing: the quotation is billed once', () => {
 });
 
 describe('orderInvoiceReference', () => {
-  it('order · DOs, unless the DO carried its own reference', () => {
-    expect(orderInvoiceReference('ORD202611-001', ['DO202611008', 'DO202611009'])).toBe('ORD202611-001 · DO202611008, DO202611009');
+  it('keeps a real reference; never writes or copies link text (links live in the Link Document pills)', () => {
+    expect(orderInvoiceReference('ORD202611-001', ['DO202611008', 'DO202611009'])).toBe('');
     expect(orderInvoiceReference('ORD202611-001', ['DO202611008'], 'PO-778')).toBe('PO-778');
-    expect(orderInvoiceReference('ORD202611-001', [], '')).toBe('ORD202611-001');
+    expect(orderInvoiceReference('ORD202611-001', [], '')).toBe('');
+    expect(orderInvoiceReference('ORD202611-001', [], 'ORDW202611-001 · QO202611-0041')).toBe('');
+    expect(orderInvoiceReference('ORD202611-001', [], 'ORD-Q-014922 · Q-014922')).toBe('');
+    expect(orderInvoiceReference('ORD202611-001', [], 'ORD202611-001 · DO202611008, DO202611009')).toBe('');
+    expect(orderInvoiceReference('ORD202611-001', [], 'Kitchen exhaust, Tampines')).toBe('Kitchen exhaust, Tampines');
+    expect(isLinkText('ORDER 55 for Ali')).toBe(false);
+    expect(isLinkText('ORD202611-018')).toBe(true);
   });
 });
 

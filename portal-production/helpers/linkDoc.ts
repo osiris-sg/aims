@@ -1,8 +1,8 @@
 // Link Document + doc chain (WCT group, 2026-11-22; enableWctOrders). The QO / DO / Invoice editor's "Link Document"
 // row: pills for what the document is linked to, and a big picker (tabs Order, QO, DO, Invoice minus the page's own
-// type) to add one. The doc chain panel on the left lists the order's QO, DO(s) and Invoice(s). The quotation's left
-// "Reference" box becomes "Customer Remarks" (config.remarks, printed as Remarks) and its right box Internal remarks
-// (config.internalRemarks, never printed). API: api-server-production/src/orders/doc-links*.ts. Pure helpers, tested
+// type) to add one. The doc chain panel on the left lists the order's QO, DO(s) and Invoice(s). On a QO, DO and
+// Invoice the left "Reference" box becomes "Customer Remarks" (config.remarks, printed as Remarks) and the right box
+// Internal remarks (config.internalRemarks, never printed); link text never shows in either. API: api-server-production/src/orders/doc-links*.ts. Pure helpers, tested
 // by helpers/linkDoc.test.mjs.
 
 export type PageKind = "QUOTATION" | "DELIVERY_ORDER" | "INVOICE";
@@ -30,8 +30,12 @@ export function pickerTabs(page: PageKind): Array<{ value: PickKind; label: stri
 /** Link Document is on for a WCT orders company, on a saved or unsaved QO / DO / Invoice (not a template being edited). */
 export const linkDocOn = (type: string | null | undefined, f: { wctOrders?: boolean; templateEdit?: boolean }): boolean => !!f.wctOrders && !f.templateEdit && !!pageKindOf(type);
 
-/** The quotation's Customer Remarks / Internal remarks split (WCT group: enableWctDocNav). */
-export const quotationRemarksSplitOn = (type: string | null | undefined, f: { wctDocNav?: boolean; templateEdit?: boolean }): boolean => !!f.wctDocNav && !f.templateEdit && pageKindOf(type) === "QUOTATION";
+/**
+ * The Customer Remarks / Internal remarks split on a QO, DO and Invoice (WCT group: enableWctDocNav; DO + Invoice
+ * since 2026-11-23). Left = Customer Remarks (config.remarks, printed as Remarks), right = Internal remarks
+ * (config.internalRemarks, never printed). The old Reference text box is gone: links live only in the pills.
+ */
+export const remarksSplitOn = (type: string | null | undefined, f: { wctDocNav?: boolean; templateEdit?: boolean }): boolean => !!f.wctDocNav && !f.templateEdit && !!pageKindOf(type);
 
 export interface PickRow {
   kind: PickKind;
@@ -135,14 +139,13 @@ export function chainSections(c: DocChain | null | undefined): Array<{ key: stri
 }
 
 /**
- * The editor's header fields with Link Document applied. DO / Invoice: the Reference row is renamed "Link Document"
- * (its input is the pills row). Quotation (split on): the Reference row is renamed "Customer Remarks" (its input edits
- * config.remarks) and, with Link Document on, a "Link Document" row follows it.
+ * The editor's header fields with Link Document applied. Split on (WCT group): the Reference row becomes "Customer
+ * Remarks" (its input edits config.remarks) and, with Link Document on, a "Link Document" row follows it; both full rows.
+ * Split off but Link Document on (a DO / Invoice): the Reference row is renamed "Link Document" (its input is the pills).
  */
 export function withLinkDocFields<F extends { fieldName: string; displayLabel?: string; displayOrder?: number; gridSize?: number }>(fields: F[], opts: { page: PageKind | null; linkOn: boolean; remarksSplit: boolean }): F[] {
   const isRef = (f: F) => f.fieldName === "documentInfo.referenceNo" || f.fieldName === "referenceNo";
-  if (opts.page === "QUOTATION") {
-    if (!opts.remarksSplit) return fields;
+  if (opts.remarksSplit && opts.page) {
     const out: F[] = [];
     for (const f of fields) {
       if (!isRef(f)) {

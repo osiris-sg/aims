@@ -75,12 +75,12 @@ describe('Reference = order link: helpers', () => {
 });
 
 describe('DocOrderRefService', () => {
-  it('links a draft invoice to the quotation\'s order and its Reference reads "ORD… · QO…"', async () => {
+  it('links a draft invoice to the quotation\'s order; no link text is written into its Reference (2026-11-22)', async () => {
     const { svc, orders, writes } = make();
     const out: any = await svc.link(ORG, { documentId: INV, quotationId: QO }, { id: 'u1', name: 'Amy' });
     expect(orders.linkImportedDocument).toHaveBeenCalledWith(ORD, ORG, { type: 'INVOICE', id: INV }, { id: 'u1', name: 'Amy' });
-    expect(out).toMatchObject({ orderNumber: 'ORDW202611-004', label: 'ORDW202611-004 · QO202611-0051', reference: 'ORDW202611-004 · QO202611-0051', createdOrder: false, unlinkable: true });
-    expect(writes.at(-1)[1].referenceNo).toBe('ORDW202611-004 · QO202611-0051');
+    expect(out).toMatchObject({ orderNumber: 'ORDW202611-004', label: 'ORDW202611-004 · QO202611-0051', reference: null, createdOrder: false, unlinkable: true });
+    expect(writes.some((w: any) => w?.[1]?.referenceNo !== undefined)).toBe(false);
     expect(ensureQuotationOrder).not.toHaveBeenCalled();
   });
 

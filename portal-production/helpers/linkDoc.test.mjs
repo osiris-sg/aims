@@ -1,7 +1,7 @@
 // Run: npm test. Link Document + doc chain + quotation remarks split (WCT group, 2026-11-22).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LINK_DOC_FIELD, chainSections, linkDocOn, linkPills, linkedToastText, pageKindOf, pickDate, pickMoney, pickerPath, pickerTabs, quotationRemarksSplitOn, statusWords, unlinkConfirmText, withLinkDocFields } from "./linkDoc.ts";
+import { LINK_DOC_FIELD, chainSections, linkDocOn, linkPills, linkedToastText, pageKindOf, pickDate, pickMoney, pickerPath, pickerTabs, remarksSplitOn, statusWords, unlinkConfirmText, withLinkDocFields } from "./linkDoc.ts";
 
 test("tabs per page: Order, QO, DO, Invoice minus the page's own type", () => {
   assert.deepEqual(pickerTabs("QUOTATION").map((t) => t.label), ["Order", "DO", "Invoice"]);
@@ -16,9 +16,11 @@ test("on only for WCT orders companies, on QO / DO / Invoice, never in template 
   assert.equal(linkDocOn("INVOICE", { wctOrders: false }), false);
   assert.equal(linkDocOn("INVOICE", { wctOrders: true, templateEdit: true }), false);
   assert.equal(linkDocOn("BILL", { wctOrders: true }), false);
-  assert.equal(quotationRemarksSplitOn("QO", { wctDocNav: true }), true);
-  assert.equal(quotationRemarksSplitOn("INVOICE", { wctDocNav: true }), false);
-  assert.equal(quotationRemarksSplitOn("QO", { wctDocNav: false }), false);
+  assert.equal(remarksSplitOn("QO", { wctDocNav: true }), true);
+  assert.equal(remarksSplitOn("INVOICE", { wctDocNav: true }), true);
+  assert.equal(remarksSplitOn("DO", { wctDocNav: true }), true);
+  assert.equal(remarksSplitOn("BILL", { wctDocNav: true }), false);
+  assert.equal(remarksSplitOn("QO", { wctDocNav: false }), false);
 });
 
 test("pills: the order (x when removable), its quotation, each direct link (x); confirm text", () => {
@@ -72,8 +74,12 @@ test("doc chain sections: Order, QO, DO(s), Invoice(s); Create only where the or
 
 test("fields: DO / Invoice Reference becomes Link Document; quotation Reference becomes Customer Remarks + a Link Document row", () => {
   const base = [{ fieldName: "documentNo", displayLabel: "Invoice No." }, { fieldName: "documentInfo.referenceNo", displayLabel: "Reference" }, { fieldName: "customer", displayLabel: "Customer" }];
-  assert.deepEqual(withLinkDocFields(base, { page: "INVOICE", linkOn: true, remarksSplit: true }).map((f) => f.displayLabel), ["Invoice No.", "Link Document", "Customer"]);
-  assert.equal(withLinkDocFields(base, { page: "INVOICE", linkOn: false, remarksSplit: true }), base);
+  // WCT group (split on): DO / Invoice get Customer Remarks + Link Document rows, like the quotation.
+  assert.deepEqual(withLinkDocFields(base, { page: "INVOICE", linkOn: true, remarksSplit: true }).map((f) => f.displayLabel), ["Invoice No.", "Customer Remarks", "Link Document", "Customer"]);
+  assert.deepEqual(withLinkDocFields(base, { page: "DELIVERY_ORDER", linkOn: true, remarksSplit: true }).map((f) => f.fieldName), ["documentNo", "documentInfo.referenceNo", LINK_DOC_FIELD, "customer"]);
+  // Split off, Link Document on: the Reference row is the pills row.
+  assert.deepEqual(withLinkDocFields(base, { page: "INVOICE", linkOn: true, remarksSplit: false }).map((f) => f.displayLabel), ["Invoice No.", "Link Document", "Customer"]);
+  assert.equal(withLinkDocFields(base, { page: "INVOICE", linkOn: false, remarksSplit: false }), base);
   const qo = withLinkDocFields(base, { page: "QUOTATION", linkOn: true, remarksSplit: true });
   assert.deepEqual(qo.map((f) => [f.fieldName, f.displayLabel]), [["documentNo", "Invoice No."], ["documentInfo.referenceNo", "Customer Remarks"], [LINK_DOC_FIELD, "Link Document"], ["customer", "Customer"]]);
   // YMM (doc nav on, no WCT orders): the split, no Link Document row.

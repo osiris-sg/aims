@@ -92,7 +92,7 @@ import { AutoAwesome as AutoAwesomeIcon } from "@mui/icons-material";
 import CleanDocumentPreview from "./CleanDocumentPreview";
 import ServerDocumentPreview, { type ServerDocumentPreviewHandle } from "./ServerDocumentPreview";
 import { orderDocLine } from "@/helpers/wctOrders";
-import { LINK_DOC_FIELD, linkDocOn, pageKindOf as linkPageKindOf, quotationRemarksSplitOn, withLinkDocFields } from "@/helpers/linkDoc";
+import { LINK_DOC_FIELD, linkDocOn, pageKindOf as linkPageKindOf, remarksSplitOn, withLinkDocFields } from "@/helpers/linkDoc";
 import { DocChainPanel, LinkDocumentField } from "./LinkDocument";
 import { signedByDefault, withRackingUom } from "@/helpers/rackingQuote";
 import { resolveDesign as resolveTemplateDesign } from "@/app/portal/documents/design";
@@ -1143,12 +1143,12 @@ export default function TabbedDocumentCreator({
       importedOrders: !!(orgFeatureFlags as any)?.enableImportedOrders,
     });
   // Link Document (WCT group, 2026-11-22; helpers/linkDoc.ts): the QO / DO / Invoice "Link Document" row (pills + the
-  // big picker) and the doc chain panel on the left (enableWctOrders). The quotation's left Reference box becomes
-  // "Customer Remarks" (config.remarks, printed as Remarks) and its right box Internal remarks (never printed)
-  // (enableWctDocNav). Every other org: unchanged.
+  // big picker) and the doc chain panel on the left (enableWctOrders). On a QO, DO and Invoice the left Reference box
+  // becomes "Customer Remarks" (config.remarks, printed as Remarks) and the right box Internal remarks (never printed)
+  // (enableWctDocNav); link text never shows in either. Every other org: unchanged.
   const linkPage = linkPageKindOf(isQuotation ? "QUOTATION" : isInvoiceTypeDoc ? "INVOICE" : isDeliveryOrder ? "DELIVERY_ORDER" : null);
   const linkOn = !!linkPage && linkDocOn(linkPage, { wctOrders: !!isWctOrdersEnabled, templateEdit: isTemplateEditMode });
-  const remarksSplit = quotationRemarksSplitOn(linkPage, { wctDocNav: !!isWctDocNavEnabled, templateEdit: isTemplateEditMode });
+  const remarksSplit = remarksSplitOn(linkPage, { wctDocNav: !!isWctDocNavEnabled, templateEdit: isTemplateEditMode });
   // The title bar: WCT group (enableWctDocNav) never cuts the title or squeezes the back arrow.
   const titleBar = editorTitleBar(!!isWctDocNavEnabled);
   // Quotation templates (enableQuotationTemplates, WCT group): "+ Add" becomes a
@@ -1635,7 +1635,7 @@ export default function TabbedDocumentCreator({
       || "",
     bankDetails: existingData?.bankDetails || "",
     remarks: existingData?.remarks || "",
-    // WCT quotation Internal remarks (2026-11-22): never printed.
+    // WCT QO / DO / Invoice Internal remarks (2026-11-22): never printed.
     // Undefined when the document has none, so no other org's save gains the key.
     internalRemarks: (existingData as any)?.internalRemarks ?? (existingData as any)?.config?.internalRemarks ?? undefined,
     // Header GL (enableHeaderGlAccount): saved flat on the config.
@@ -1677,7 +1677,7 @@ export default function TabbedDocumentCreator({
         : isJournalVoucher
         ? { ...prev, jvData: { ...(prev.jvData || {}), notes: next } }
         : remarksSplit
-        ? // WCT quotation: the right box is Internal remarks (config.internalRemarks, never printed).
+        ? // WCT QO / DO / Invoice: the right box is Internal remarks (config.internalRemarks, never printed).
           { ...prev, internalRemarks: next }
         : // Typed-over refs are no longer a picked quotation (Biofuel DO picker).
           { ...prev, remarks: next, documentInfo: { ...(prev.documentInfo || {}), referenceNo: next, referenceQuotationDate: null } },
@@ -2002,9 +2002,10 @@ export default function TabbedDocumentCreator({
         page={linkPage}
         offerFill={isInvoiceTypeDoc && !confirmedReadOnly && isEmptyItems(items as any[])}
         onFill={(lines) => setItems(itemsFromLines(lines, Date.now()))}
-        onLinked={({ reference, customer }) =>
+        onLinked={({ customer }) =>
+          // No link text comes back any more (2026-11-23): only the customer a draft took from the order.
           setFormData((prev: any) => {
-            let next: any = reference ? withReference(prev, reference) : prev;
+            let next: any = prev;
             if (customer && !prev?.customer?.id) {
               next = {
                 ...next,
@@ -6333,7 +6334,8 @@ export default function TabbedDocumentCreator({
                       // two stay in step through the form state.
                       if (
                         !isSettlementDoc &&
-                        (!legacyLayout || orderRefOn) &&
+                        // remarksSplit (WCT group incl. YMM): the row hosts Customer Remarks, so it is always there.
+                        (!legacyLayout || orderRefOn || remarksSplit) &&
                         tab.tabId === "general" &&
                         !fields.some((f: any) => f.fieldName === "documentInfo.referenceNo" || f.fieldName === "referenceNo")
                       ) {
