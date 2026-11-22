@@ -1612,6 +1612,27 @@ export default function DynamicFormFields({
   // shares that row when present (DOs hide Terms — the trio still renders).
   const contactField = orderedFields.find((f) => f.fieldName === 'documentInfo.contact' || f.fieldName === 'contact');
   const termsField = orderedFields.find((f) => f.fieldName === 'documentInfo.paymentTerms' || f.fieldName === 'paymentTerms');
+  // The left column's own width decides whether paired rows sit side by side
+  // (guru 2026-11-23: "a lot of the config fields are being squished" — the
+  // md breakpoint judged the WINDOW, but this column is a third of it once the
+  // totals and the Remarks rail are beside it). Under 760px the pairs stack and
+  // the Contact row lets Terms drop to its own line.
+  const [leftColNarrow, setLeftColNarrow] = React.useState(false);
+  const leftColObserver = React.useRef<ResizeObserver | null>(null);
+  // Callback ref: attaches whenever the column mounts (the plain-ref + effect
+  // pairing missed it when the editor rendered the column after first paint).
+  const leftColRef = React.useCallback((el: HTMLDivElement | null) => {
+    leftColObserver.current?.disconnect();
+    leftColObserver.current = null;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect?.width ?? el.clientWidth;
+      // 760: label 150 + Attn picker / Add contact + a 160px readout + Terms (90 + 180) is what the Contact row needs inline.
+      setLeftColNarrow(w > 0 && w < 760);
+    });
+    ro.observe(el);
+    leftColObserver.current = ro;
+  }, []);
   const pairContactTerms = Boolean(contactField);
 
   // When the header has a Contact row, THAT row hosts the customer-contact
@@ -1658,7 +1679,7 @@ export default function DynamicFormFields({
     >
       <Typography sx={leftLabelSx}>{contactField!.displayLabel}</Typography>
       {/* Phone: picker + readout + Terms wrap instead of clipping. */}
-      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 1, flexWrap: { xs: 'wrap', md: 'nowrap' }, py: 0.25 }}>
+      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', py: 0.25, pr: 1 }}>
         <ContactPicker cc={cc} inputSx={inputSx} disabled={!mainCustomer} />
         <Typography
           sx={{
@@ -1669,18 +1690,22 @@ export default function DynamicFormFields({
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             minWidth: 0,
+            flex: '1 1 160px',
           }}
           title={attnReadout}
         >
           {attnReadout}
         </Typography>
-        {termsField && (
+        {termsField && !leftColNarrow && (
           <>
-            <Typography sx={{ ...leftLabelSx, width: 90, ml: 'auto', borderLeft: 1 }}>
-              {termsField.displayLabel}
-            </Typography>
-            <Box sx={{ width: 240, display: 'flex', alignItems: 'center' }}>
-              {renderInput(termsField)}
+            {/* Terms sits at the right of the Contact row while the column is wide; narrow columns give it its own row. */}
+            <Box sx={{ display: 'flex', alignItems: 'center', ml: 'auto', flexShrink: 0 }}>
+              <Typography sx={{ ...leftLabelSx, width: 90, borderLeft: 1 }}>
+                {termsField.displayLabel}
+              </Typography>
+              <Box sx={{ width: 180, display: 'flex', alignItems: 'center' }}>
+                {renderInput(termsField)}
+              </Box>
             </Box>
           </>
         )}
@@ -1743,7 +1768,7 @@ export default function DynamicFormFields({
           : {}),
       }}
     >
-      {renderCell(a, true)}
+      {renderCell(a, !leftColNarrow)}
       {renderCell(b, false)}
     </Box>
   );
@@ -1752,7 +1777,12 @@ export default function DynamicFormFields({
   for (let k = 0; k < orderedFields.length; ) {
     const f = orderedFields[k];
     if (pairContactTerms && f === contactField) { leftRows.push(renderContactTermsRow()); k += 1; continue; }
-    if (pairContactTerms && termsField && f === termsField) { k += 1; continue; } // drawn inside the contact row
+    if (pairContactTerms && termsField && f === termsField) {
+      // Drawn inside the Contact row while the column is wide; its own row when narrow.
+      if (leftColNarrow) leftRows.push(renderRow(f));
+      k += 1;
+      continue;
+    }
     const next = orderedFields[k + 1];
     if (isHalf(f) && next && !skipUnit(next) && isHalf(next)) { leftRows.push(renderPairRow(f, next)); k += 2; }
     else { leftRows.push(renderRow(f)); k += 1; }
@@ -1764,6 +1794,7 @@ export default function DynamicFormFields({
     <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', md: 'row' } }}>
       {/* Left Column - Form Fields */}
       <Box
+        ref={leftColRef}
         sx={{
           flex: 1,
           minWidth: 0,

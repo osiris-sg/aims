@@ -443,7 +443,7 @@ export default function TabbedDocumentCreator({
 }: DocumentCreatorProps) {
   const { isServiceItemsEnabled, isAssetPointsEnabled, isConfirmQuotationEnabled, isQuotationESignEnabled, isNettRoundDownEnabled, isDocumentListViewEnabled, isQuotationProjectLinkEnabled, isXeroDocSyncEnabled, isQuotationItemGroupsEnabled, isRealDoOnScheduleEnabled, isHeaderGlAccountEnabled, isQuotationSubjectEnabled, isQuotationTemplatesEnabled, isManualOrderFlowEnabled, isWctOrdersEnabled, isQuotationGstEnabled, isQuotationTotalsToggleEnabled, isRecurringInvoicesEnabled, isInvoiceSplitEnabled, isWctDocNavEnabled, isDocRemarksEnabled, isQuotationCategoryEnabled, isRackingLayoutEnabled, features: orgFeatureFlags } = useOrganizationFeatures();
   // RDO free-typed rows + signed-RDO lock (enableRdoFreeTypedRows, Biofuel 2026-11-19).
-  const { isRdoFreeTypedRowsEnabled, isOptionalSaleOrderEnabled } = useOrganizationFeatures();
+  const { isRdoFreeTypedRowsEnabled, isOptionalSaleOrderEnabled, isLineGlAccountsEnabled } = useOrganizationFeatures();
   // In-app Back (enableWctDocNav): history back when opened inside the app, else the parent list; off = the parent list.
   const { goBack } = useAppBack();
   // Manual order flow: after an order's invoice is emailed, offer to send its service report too.
@@ -526,6 +526,11 @@ export default function TabbedDocumentCreator({
   const [voidedLocal, setVoidedLocal] = useState(false);
   useEffect(() => setVoidedLocal(false), [existingData?.id]);
   const isVoidedDoc = voidedLocal || isDocVoided((existingData as any)?.config);
+  // A posting shown WITHOUT a document behind it (a ledger line posted by an invoice or
+  // payment AIMS never held — Xero history) opens on this editor read-only, under its
+  // journal id: no Lock / Void / Delete / Edit, no presence lock, a "Read-only" chip
+  // carrying the server's reason (journal-vouchers.service adoptJournal).
+  const externalReadOnly = String((existingData as any)?.readOnlyReason || "");
   const isDocumentConfirmedStatus = !["draft", "unconfirmed"].includes(documentStatus) || isVoidedDoc;
   // Edit-after-confirm (guru 2026-09-09): a confirmed document opens as a
   // READ-ONLY form; the toolbar "Edit" button (behind a warning dialog)
@@ -619,7 +624,7 @@ export default function TabbedDocumentCreator({
     setRecordLock({ locked: c.recordLocked === true, at: c.recordLockedAt ?? null, by: c.recordLockedBy ?? null });
   }, [existingData?.id, (existingData as any)?.config?.recordLocked]);
   const recordLocked = recordLock.locked;
-  const recordLockable = !isTemplateEditMode && !!(documentId || existingData?.id) && isPeriodLockedDocType(actualDocumentType || documentType);
+  const recordLockable = !isTemplateEditMode && !!(documentId || existingData?.id) && isPeriodLockedDocType(actualDocumentType || documentType) && !externalReadOnly;
   const [recordLockBusy, setRecordLockBusy] = useState(false);
   const toggleRecordLock = async () => {
     const docId = existingData?.id || documentId;
@@ -642,7 +647,7 @@ export default function TabbedDocumentCreator({
   // VOID (guru 2026-11-20: "there is no way to void an actual document"): POST /documents/:id/void
   // voids the document AND every live journal posted from it; the status pill reads Voided, it
   // owes nothing, and it is read-only for good. Refused while money is recorded against it.
-  const voidable = !isTemplateEditMode && !!(documentId || existingData?.id) && isPeriodLockedDocType(actualDocumentType || documentType) && !isSettlementType && !isVoidedDoc;
+  const voidable = !isTemplateEditMode && !!(documentId || existingData?.id) && isPeriodLockedDocType(actualDocumentType || documentType) && !isSettlementType && !isVoidedDoc && !externalReadOnly;
   const docHasMoney = isPaidInvoice || (docPaidOf((existingData as any)?.config) ?? 0) > 0.005;
   const [voidDialogOpen, setVoidDialogOpen] = useState(false);
   const [voidReason, setVoidReason] = useState("");
@@ -674,8 +679,8 @@ export default function TabbedDocumentCreator({
       setVoidBusy(false);
     }
   };
-  const isDocumentConfirmed = (isDocumentConfirmedStatus && !confirmedEditUnlocked && !isSettlementType) || rdoSignedLock || periodLocked || recordLocked;
-  const confirmedReadOnly = (isDocumentConfirmedStatus && !confirmedEditUnlocked && !isSettlementType) || rdoSignedLock || periodLocked || recordLocked;
+  const isDocumentConfirmed = (isDocumentConfirmedStatus && !confirmedEditUnlocked && !isSettlementType) || rdoSignedLock || periodLocked || recordLocked || !!externalReadOnly;
+  const confirmedReadOnly = (isDocumentConfirmedStatus && !confirmedEditUnlocked && !isSettlementType) || rdoSignedLock || periodLocked || recordLocked || !!externalReadOnly;
   const isDocumentEditable = !isDocumentConfirmed && !isTemplateEditMode;
 
   // Confirmed documents now open on the (read-only) edit screen, not preview.
@@ -1108,7 +1113,11 @@ export default function TabbedDocumentCreator({
   // whole invoice instead of a GL account per line. The per-line chip hides;
   // posting credits that one account for the net (blank = the org's default
   // sales account).
-  const headerGlMode = isHeaderGlAccountEnabled && (isInvoiceTypeDoc || isNoteTypeDoc);
+  // A SERVICE business keeps the legacy screen but codes each line to its own
+  // revenue account (enableLineGlAccounts, guru 2026-11-23: "its a service
+  // industry so the accounts is per line") — disposal to 202, rental to 214 —
+  // so the header box is off there and the per-line chip stays.
+  const headerGlMode = isHeaderGlAccountEnabled && !isLineGlAccountsEnabled && (isInvoiceTypeDoc || isNoteTypeDoc);
   // LEGACY INVOICE SCREEN (guru 2026-11-14, Chong Aik — rides on the same
   // enableHeaderGlAccount flag): General / Details / Delivery Address tabs laid
   // out like the previous software, the toolbar in its Add · Edit · Delete ·
@@ -1150,7 +1159,8 @@ export default function TabbedDocumentCreator({
   const linkOn = !!linkPage && linkDocOn(linkPage, { wctOrders: !!isWctOrdersEnabled, templateEdit: isTemplateEditMode });
   const remarksSplit = remarksSplitOn(linkPage, { wctDocNav: !!isWctDocNavEnabled, templateEdit: isTemplateEditMode });
   // The title bar: WCT group (enableWctDocNav) never cuts the title or squeezes the back arrow.
-  const titleBar = editorTitleBar(!!isWctDocNavEnabled);
+  // Two rows for every org since 2026-11-23 (details on top, buttons below).
+  const titleBar = editorTitleBar();
   // Quotation templates (enableQuotationTemplates, WCT group): "+ Add" becomes a
   // split button (arrow > Create from template) and the ⋮ menu gets Save as
   // template. Setting off: all false, the toolbar is unchanged.
@@ -4121,11 +4131,12 @@ export default function TabbedDocumentCreator({
   const [moreMenuAnchor, setMoreMenuAnchor] = useState<null | HTMLElement>(null);
   const closeMoreMenu = () => setMoreMenuAnchor(null);
 
-  // Per-line GL account (guru 2026-10-27): the "GL <code>" chip under each
-  // line's item code opens a picker of the chart's accounts, so the office can
-  // fix the account a line posts to without leaving the editor (Review Posting
-  // stays for the AI-suggested pass). Accounts load once, on first open.
-  const [glMenu, setGlMenu] = useState<{ pos: { left: number; top: number }; itemId: any } | null>(null);
+  // Per-line GL account chip under each line's item code (guru 2026-10-27).
+  // It is DISPLAY ONLY since 2026-11-23 (guru: "only allow one edit, which is
+  // the code, not the GL account"): the account comes from the item / service
+  // picked for the row, so the only edit on the cell is re-picking the code.
+  // The old per-line account picker menu is gone; Review Posting stays for
+  // account corrections.
   const [glAccounts, setGlAccounts] = useState<Array<{ id: string; code: string; name: string; accountType?: string }> | null>(null);
   const loadGlAccounts = async () => {
     if (glAccounts) return;
@@ -4138,11 +4149,6 @@ export default function TabbedDocumentCreator({
       setGlAccounts([]);
     }
   };
-  const openGlMenu = async (e: React.MouseEvent, itemId: any) => {
-    e.stopPropagation();
-    setGlMenu({ pos: { left: e.clientX, top: e.clientY }, itemId });
-    void loadGlAccounts();
-  };
   // The chart loads up front whenever a GL chip or the Accounts to Credit
   // picker can show: the per-line chip prints the ACCOUNT NAME (guru
   // 2026-11-12: "GL 214" alone says nothing to the office), and a saved line
@@ -4154,13 +4160,7 @@ export default function TabbedDocumentCreator({
   }, [headerGlMode, linesCarryGl]);
   const glAccountName = (code?: string | null, name?: string | null) =>
     name || (code ? glAccounts?.find((a) => a.code === code)?.name || "" : "");
-  const pickGlAccount = (acc: { code: string; name: string } | null) => {
-    const id = glMenu?.itemId;
-    setGlMenu(null);
-    if (id === undefined) return;
-    setItems((rows: any[]) => rows.map((r) => (r.id === id ? { ...r, accountCode: acc?.code ?? null, accountName: acc?.name ?? null } : r)));
-  };
-  // Revenue accounts first — that is what a sales line posts to.
+  // Revenue accounts first — that is what a sales line posts to (Accounts to Credit picker).
   const glRank = (a: { accountType?: string }) => (/SALES|INCOME|REVENUE/i.test(a.accountType || "") ? 0 : 1);
 
   // Xero-style per-document "History & notes" drawer (⋮ menu).
@@ -5289,6 +5289,12 @@ export default function TabbedDocumentCreator({
               <Chip size="small" variant="outlined" color="error" icon={<LockOutlinedIcon />} label="Locked" data-tour="editor-record-locked" sx={{ fontWeight: 600, flexShrink: 0 }} />
             </Tooltip>
           )}
+          {/* A posting with no document behind it (see externalReadOnly). */}
+          {!!externalReadOnly && !isTemplateEditMode && (
+            <Tooltip title={externalReadOnly}>
+              <Chip size="small" variant="outlined" icon={<LockOutlinedIcon />} label="Read-only" data-tour="editor-read-only" sx={{ fontWeight: 600, flexShrink: 0 }} />
+            </Tooltip>
+          )}
           {/* enableOptionalSaleOrder (Biofuel): a draft invoice made from a DO with no
               Sales Order is priced from the price list, so flag it for a check. */}
           {!isTemplateEditMode &&
@@ -5624,7 +5630,7 @@ export default function TabbedDocumentCreator({
               warning dialog, and every save after it lands in the document history
               as "Edited after confirm" under the user's name. Paid invoices stay
               locked — money is received through the receipt, not by editing. */}
-          {legacyLayout && confirmedReadOnly && !isPaidInvoice && !isImportedDo && !periodLocked && !recordLocked && !isVoidedDoc && (
+          {legacyLayout && confirmedReadOnly && !isPaidInvoice && !isImportedDo && !periodLocked && !recordLocked && !isVoidedDoc && !externalReadOnly && (
             <Button size="small" variant="contained" startIcon={<EditIcon />} onClick={() => setConfirmedEditWarningOpen(true)} sx={LEGACY_BTN.edit} data-tour="editor-legacy-edit">Edit</Button>
           )}
           {/* enableQuotationESign (2026-11-13): CIEL's "Send for signature" toolbar
@@ -5800,7 +5806,7 @@ export default function TabbedDocumentCreator({
               sx={{ fontWeight: 600 }}
             />
           ))}
-          {confirmedReadOnly && !isTemplateEditMode && !isPaidInvoice && !legacyLayout && !isImportedDo && !periodLocked && !recordLocked && !isVoidedDoc && (
+          {confirmedReadOnly && !isTemplateEditMode && !isPaidInvoice && !legacyLayout && !isImportedDo && !periodLocked && !recordLocked && !isVoidedDoc && !externalReadOnly && (
             <Button
               size="small"
               variant="outlined"
@@ -5812,12 +5818,15 @@ export default function TabbedDocumentCreator({
             </Button>
           )}
           {qtCtl.standardAddSplit && <QuotationAddSplitButton onAdd={handleAddNewDocument} onFromTemplate={() => setQtListOpen(true)} />}
-          {/* ⋮ overflow menu — secondary actions (Xero-style) */}
-          <Tooltip title="More actions">
-            <IconButton data-tour="editor-more-menu" size="small" onClick={(e) => setMoreMenuAnchor(e.currentTarget)}>
-              <MoreVertIcon />
-            </IconButton>
-          </Tooltip>
+          {/* ⋮ overflow menu — secondary actions (Xero-style). A posting with no document
+              behind it has nothing in it (every item needs a document), so no button. */}
+          {!externalReadOnly && (
+            <Tooltip title="More actions">
+              <IconButton data-tour="editor-more-menu" size="small" onClick={(e) => setMoreMenuAnchor(e.currentTarget)}>
+                <MoreVertIcon />
+              </IconButton>
+            </Tooltip>
+          )}
           <Menu
             anchorEl={moreMenuAnchor}
             open={Boolean(moreMenuAnchor)}
@@ -5853,7 +5862,9 @@ export default function TabbedDocumentCreator({
                 <ListItemText>Save as template</ListItemText>
               </MenuItem>
             )}
-            {isDocumentConfirmed && (
+            {/* Revisions are a sales-document idea: a receipt / voucher is edited in place, so a
+                locked one (lock dates, Lock, a posting with no document) never offers it. */}
+            {isDocumentConfirmed && !isSettlementDoc && !externalReadOnly && (
               <MenuItem onClick={() => { closeMoreMenu(); handleCreateRevision(); }}>
                 <ListItemIcon><ContentCopyIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Create Revision</ListItemText>
@@ -5901,13 +5912,13 @@ export default function TabbedDocumentCreator({
                 <ListItemText>Stock Card</ListItemText>
               </MenuItem>
             )}
-            {(existingData?.id || documentId) && (
+            {(existingData?.id || documentId) && !externalReadOnly && (
               <MenuItem onClick={() => { closeMoreMenu(); setAttachmentsDialogOpen(true); }}>
                 <ListItemIcon><AttachFileIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>Attachments</ListItemText>
               </MenuItem>
             )}
-            {(existingData?.id || documentId) && (
+            {(existingData?.id || documentId) && !externalReadOnly && (
               <MenuItem onClick={() => { closeMoreMenu(); setHistoryDrawerOpen(true); }}>
                 <ListItemIcon><HistoryIcon fontSize="small" /></ListItemIcon>
                 <ListItemText>History &amp; notes</ListItemText>
@@ -5944,7 +5955,7 @@ export default function TabbedDocumentCreator({
             )}
             {/* Receipts: legacy toolbar's Delete — voids the journal and
                 restores the allocated invoices to outstanding. */}
-            {isSettlementDoc && (existingData?.id || documentId) && (
+            {isSettlementDoc && (existingData?.id || documentId) && !externalReadOnly && (
               <MenuItem onClick={() => { closeMoreMenu(); setOrDeleteConfirmOpen(true); }} sx={{ color: "error.main" }}>
                 <ListItemIcon><DeleteIcon fontSize="small" color="error" /></ListItemIcon>
                 <ListItemText>Delete</ListItemText>
@@ -6014,36 +6025,6 @@ export default function TabbedDocumentCreator({
                 <ListItemText>Bulk complete</ListItemText>
               </MenuItem>
             )}
-          </Menu>
-          {/* Per-line GL account picker (the chip under the item code). Anchored
-              to the click position so it never detaches on a table re-render. */}
-          <Menu
-            open={!!glMenu}
-            onClose={() => setGlMenu(null)}
-            anchorReference="anchorPosition"
-            anchorPosition={glMenu?.pos}
-            slotProps={{ paper: { sx: { maxHeight: 380, minWidth: 320 } } }}
-          >
-            {glAccounts === null && <MenuItem disabled>Loading accounts…</MenuItem>}
-            {glAccounts && glAccounts.length === 0 && <MenuItem disabled>No accounts in the chart of accounts</MenuItem>}
-            {glAccounts && glAccounts.length > 0 && (
-              <MenuItem onClick={() => pickGlAccount(null)} sx={{ color: "text.secondary" }}>
-                — no account (post to the default sales account) —
-              </MenuItem>
-            )}
-            {(glAccounts ?? [])
-              .slice()
-              .sort((a, b) => glRank(a) - glRank(b) || a.code.localeCompare(b.code))
-              .map((a) => (
-                <MenuItem
-                  key={a.id}
-                  dense
-                  selected={!!glMenu && items.some((r: any) => r.id === glMenu.itemId && r.accountCode === a.code)}
-                  onClick={() => pickGlAccount(a)}
-                >
-                  <ListItemText primary={`${a.code} — ${a.name}`} secondary={a.accountType || undefined} />
-                </MenuItem>
-              ))}
           </Menu>
         </Box>
       </Box>
@@ -6480,8 +6461,8 @@ export default function TabbedDocumentCreator({
                           }
                         : isJournalVoucher
                         ? {
-                            jvVoucherNo: <JvVoucherNoInput formData={formData} setFormData={setFormData} />,
-                            jvPrepareRow: <JvPrepareByInput formData={formData} setFormData={setFormData} />,
+                            jvVoucherNo: <JvVoucherNoInput formData={formData} setFormData={setFormData} disabled={confirmedReadOnly || lockReadOnly} />,
+                            jvPrepareRow: <JvPrepareByInput formData={formData} setFormData={setFormData} disabled={confirmedReadOnly || lockReadOnly} />,
                           }
                         : isPaymentVoucher
                         ? {
@@ -7244,7 +7225,8 @@ export default function TabbedDocumentCreator({
               setFormData={setFormData}
               voucherId={(existingData?.id || documentId) as string | undefined}
               suppliers={suppliers}
-              disabled={lockReadOnly}
+              disabled={lockReadOnly || confirmedReadOnly}
+              lockNote={lockReadOnly}
               framed={legacyLayout}
             />
           ) : isPaymentVoucher ? (
@@ -7253,7 +7235,8 @@ export default function TabbedDocumentCreator({
               setFormData={setFormData}
               voucherId={(existingData?.id || documentId) as string | undefined}
               suppliers={suppliers}
-              disabled={lockReadOnly}
+              disabled={lockReadOnly || confirmedReadOnly}
+              lockNote={lockReadOnly}
               framed={legacyLayout}
             />
           ) : isOfficialReceipt ? (
@@ -7261,7 +7244,8 @@ export default function TabbedDocumentCreator({
               formData={formData}
               setFormData={setFormData}
               receiptId={(existingData?.id || documentId) as string | undefined}
-              disabled={lockReadOnly}
+              disabled={lockReadOnly || confirmedReadOnly}
+              lockNote={lockReadOnly}
               framed={legacyLayout}
             />
           ) : (
@@ -7592,64 +7576,75 @@ export default function TabbedDocumentCreator({
                                   if (!isVisible) return null;
 
                                 if (columnId === "item") {
-                                  // Read-only Product Code + an edit pencil. The inline
-                                  // SKU dropdown / free-text field is gone — the pencil
-                                  // reopens the Stock Card (stock lines) or the Service
-                                  // picker (service lines) to change/re-pick this row.
+                                  // Read-only Product Code. The inline SKU dropdown /
+                                  // free-text field is gone — clicking the cell reopens
+                                  // the Stock Card (stock lines) or the Service picker
+                                  // (service lines) to change/re-pick this row. The
+                                  // pencil that used to sit beside the code is gone too
+                                  // (guru 2026-11-23: "remove the pencil icon, make it
+                                  // such that when u click the row it's the same… only
+                                  // allow one edit which is the code, not GL account"),
+                                  // so the GL chip below is display only and a click on
+                                  // it falls through to the same re-pick.
                                   const isSvcRow = isServiceRow(item);
                                   const rowCode = isSvcRow
                                     ? (item.itemCode || "")
                                     : (item.inventoryItemId
                                         ? (inventoriesForDocument.find((i: any) => i.id === item.inventoryItemId)?.sku || item.itemCode || "")
                                         : (item.itemCode || ""));
+                                  const repickRow = () => {
+                                    setEditingItemId(item.id);
+                                    if (isSvcRow) {
+                                      setRevenueItemPickerOpen(true);
+                                    } else {
+                                      setStockCardMode("add");
+                                      setStockCardDialogOpen(true);
+                                    }
+                                  };
                                   return (
-                                    <TableCell key={columnId}>
-                                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, minWidth: 120 }}>
-                                        <Typography variant="body2" sx={{ flex: 1, wordBreak: "break-word", color: rowCode ? "text.primary" : "text.disabled" }}>
+                                    <TableCell
+                                      key={columnId}
+                                      onClick={repickRow}
+                                      sx={{
+                                        cursor: "pointer",
+                                        "&:hover": { bgcolor: (t) => alpha(t.palette.primary.main, t.palette.mode === "dark" ? 0.12 : 0.06) },
+                                        "&:hover .aims-item-code": { textDecoration: "underline" },
+                                      }}
+                                    >
+                                      <Tooltip title={isSvcRow ? "Click to change service" : "Click to change item / stock"} placement="top-start">
+                                        <Typography variant="body2" className="aims-item-code" sx={{ minWidth: 120, wordBreak: "break-word", color: rowCode ? "text.primary" : "text.disabled" }}>
                                           {rowCode || "—"}
                                         </Typography>
-                                        <Tooltip title={isSvcRow ? "Change service" : "Change item / stock"}>
-                                          <IconButton
-                                            size="small"
-                                            onClick={() => {
-                                              setEditingItemId(item.id);
-                                              if (isSvcRow) {
-                                                setRevenueItemPickerOpen(true);
-                                              } else {
-                                                setStockCardMode("add");
-                                                setStockCardDialogOpen(true);
-                                              }
-                                            }}
-                                          >
-                                            <EditIcon fontSize="small" />
-                                          </IconButton>
-                                        </Tooltip>
-                                      </Box>
+                                      </Tooltip>
                                       {/* GL account this line posts to, under the code
                                           (guru 2026-08-17) — the code alone doesn't say
                                           which account it hits, so a mis-picked item is
-                                          invisible until the ledger is wrong. */}
-                                      {(isInvoiceTypeDoc || isNoteTypeDoc) && !headerGlMode && (
+                                          invisible until the ledger is wrong. Display only:
+                                          clicking it re-picks the row like the code above. */}
+                                      {/* In "Accounts to Credit" mode the HEADER account takes the
+                                          whole net, so the per-line chip is hidden — but only while an
+                                          account is actually chosen up there. With the header blank the
+                                          LINES decide what posts, so the chip comes back: the office
+                                          could not see that a line coded 202 was about to post
+                                          (guru 2026-11-23: "how come i cant see gl name?"). */}
+                                      {(isInvoiceTypeDoc || isNoteTypeDoc) && (!headerGlMode || !String(formData.glAccountCode || "").trim()) && (
                                         <Tooltip
                                           title={
                                             item.accountCode
-                                              ? `Posts to GL account ${item.accountCode}${glAccountName(item.accountCode, item.accountName) ? ` — ${glAccountName(item.accountCode, item.accountName)}` : ""} · click to change`
-                                              : "No GL account yet — click to pick the account this line posts to"
+                                              ? `Posts to GL account ${item.accountCode}${glAccountName(item.accountCode, item.accountName) ? ` — ${glAccountName(item.accountCode, item.accountName)}` : ""} · set by the item picked for this line`
+                                              : "No GL account yet — it comes from the item or service picked for this line"
                                           }
                                         >
                                           <Typography
                                             variant="caption"
-                                            onClick={(e) => void openGlMenu(e, item.id)}
                                             sx={{
                                               display: "inline-block",
                                               mt: 0.25,
                                               px: 0.5,
                                               borderRadius: 0.5,
-                                              cursor: "pointer",
                                               fontVariantNumeric: "tabular-nums",
                                               color: item.accountCode ? "text.secondary" : "warning.main",
                                               bgcolor: (t) => alpha(item.accountCode ? t.palette.primary.main : t.palette.warning.main, t.palette.mode === "dark" ? 0.18 : 0.08),
-                                              "&:hover": { textDecoration: "underline" },
                                             }}
                                           >
                                             {item.accountCode ? (
@@ -7659,7 +7654,7 @@ export default function TabbedDocumentCreator({
                                                   <Box component="span" sx={{ fontWeight: 600, ml: 0.5 }}>{glAccountName(item.accountCode, item.accountName)}</Box>
                                                 )}
                                               </>
-                                            ) : "GL — pick account"}
+                                            ) : "GL — none yet"}
                                           </Typography>
                                         </Tooltip>
                                       )}

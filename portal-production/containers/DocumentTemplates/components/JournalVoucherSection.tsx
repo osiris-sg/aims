@@ -94,7 +94,7 @@ const fmt = (n: number) => (Number(n) || 0).toLocaleString(undefined, { minimumF
 const R = (n: number) => Math.round(n * 100) / 100;
 const num = (v: any) => parseFloat(String(v ?? "")) || 0;
 
-type RowProps = { formData: any; setFormData: (next: any) => void };
+type RowProps = { formData: any; setFormData: (next: any) => void; disabled?: boolean };
 const setJvData = (formData: any, setFormData: (next: any) => void, patch: Record<string, any>) =>
   setFormData({ ...formData, jvData: { ...(formData.jvData || {}), ...patch } });
 
@@ -168,12 +168,13 @@ export function jvValidationError(formData: any): string | null {
 }
 
 // Voucher No. — editable; a pending shell shows the placeholder.
-export function JvVoucherNoInput({ formData, setFormData }: RowProps) {
+export function JvVoucherNoInput({ formData, setFormData, disabled }: RowProps) {
   const raw = formData?.documentInfo?.documentNumber || formData?.name || "";
   const value = raw.startsWith("JV-PENDING") ? "" : raw;
   return (
     <TextField
       size="small"
+      disabled={disabled}
       value={value}
       placeholder="Next JV number on save"
       onChange={(e) => {
@@ -186,11 +187,12 @@ export function JvVoucherNoInput({ formData, setFormData }: RowProps) {
   );
 }
 
-export function JvPrepareByInput({ formData, setFormData }: RowProps) {
+export function JvPrepareByInput({ formData, setFormData, disabled }: RowProps) {
   const jd = formData?.jvData || {};
   return (
     <TextField
       size="small"
+      disabled={disabled}
       value={jd.preparedBy || ""}
       onChange={(e) => setJvData(formData, setFormData, { preparedBy: e.target.value })}
       sx={{ ...headerInputSx, width: 260 }}
@@ -312,6 +314,7 @@ export function JournalVoucherLinesSection({
   voucherId,
   suppliers = [],
   disabled = false,
+  lockNote = false,
   framed = false,
 }: {
   formData: any;
@@ -319,6 +322,8 @@ export function JournalVoucherLinesSection({
   voucherId?: string;
   suppliers?: any[];
   disabled?: boolean;
+  /** The presence lock (another session edits it): the only lock that explains itself here. */
+  lockNote?: boolean;
   // Legacy chrome: put the rail in the editor's 204px left margin, like the
   // invoice (guru 2026-11-16).
   framed?: boolean;
@@ -453,7 +458,7 @@ export function JournalVoucherLinesSection({
             </Tabs>
           </Box>
           <Box sx={{ flex: 1, minHeight: 120, display: "flex", flexDirection: "column", pt: 1 }}>
-            {disabled && (
+            {disabled && lockNote && (
               <Alert severity="warning" variant="outlined" sx={{ mb: 1, alignSelf: "flex-start" }}>
                 Read-only — another session holds this voucher&apos;s edit lock.
               </Alert>

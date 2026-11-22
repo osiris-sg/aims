@@ -48,29 +48,21 @@ export function lineColumnWidth(columnId: string, narrowSno = false): string {
 export const isNarrowSnoCell = (columnId: string, narrowSno: boolean): boolean => narrowSno && columnId === SNO_COLUMN;
 
 /**
- * The editor's title bar (back arrow, title, order line) beside the action buttons. Off: as before (one row on
- * desktop; a long title is cut with "…" and the arrow can be squeezed when the legacy toolbar is full).
- * roomy (enableWctDocNav, WCT group 2026-11-18): the arrow never shrinks, the title is never cut (it wraps), and
- * the action buttons move onto the next row (right-aligned) when the row is too narrow for both.
+ * The editor's title bar is TWO ROWS for every org (guru 2026-11-23: "like WCT, move the back button and
+ * invoice details to the top while the buttons go below"): row 1 = back arrow · document number · status
+ * pills · Saved; row 2 = the action buttons, left-aligned (guru 2026-11-23 tried right-aligned, then "nvm move it back"),
+ * wrapping when the window is narrow. The arrow never
+ * shrinks and the number is never cut. (Until 2026-11-23 this was the WCT group's "roomy" variant only; every
+ * other org squeezed both onto one row and the number and the Saved pill were the first things to go.)
  */
-export function editorTitleBar(roomy: boolean) {
-  if (!roomy) {
-    return {
-      barWrap: { xs: "wrap", md: "nowrap" } as Record<string, string>,
-      left: { display: "flex", alignItems: "center", gap: 1, minWidth: 0, flex: "1 1 auto" } as Record<string, unknown>,
-      back: {} as Record<string, unknown>,
-      noWrap: true,
-      title: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" } as Record<string, unknown>,
-      actions: {} as Record<string, unknown>,
-    };
-  }
+export function editorTitleBar(_roomy = true) {
   return {
     barWrap: { xs: "wrap", md: "wrap" } as Record<string, string>,
-    left: { display: "flex", alignItems: "center", flexWrap: "wrap", columnGap: 1, rowGap: 0.25, minWidth: 0, maxWidth: "100%", flex: "1 0 auto" } as Record<string, unknown>,
+    left: { display: "flex", alignItems: "center", flexWrap: "wrap", columnGap: 1, rowGap: 0.25, minWidth: 0, maxWidth: "100%", flex: "1 0 100%" } as Record<string, unknown>,
     back: { flexShrink: 0 } as Record<string, unknown>,
     noWrap: false,
     title: { minWidth: 0, whiteSpace: "normal", overflowWrap: "anywhere" } as Record<string, unknown>,
-    actions: { ml: "auto", flexShrink: 1, flexWrap: "wrap", justifyContent: "flex-end" } as Record<string, unknown>,
+    actions: { flex: "1 0 100%", ml: 0, flexShrink: 1, flexWrap: "wrap", justifyContent: "flex-start" } as Record<string, unknown>,
   };
 }
 

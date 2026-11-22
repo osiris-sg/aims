@@ -31,25 +31,15 @@ test("document list subtitle: other orgs keep it, the WCT group (setting on) and
   assert.equal(documentListSubtitle("Invoices", true, false), undefined);
 });
 
-test("editor title bar, setting off (other orgs): the old one-row layout, byte for byte", () => {
-  const b = editorTitleBar(false);
-  assert.deepEqual(b.barWrap, { xs: "wrap", md: "nowrap" });
-  assert.deepEqual(b.left, { display: "flex", alignItems: "center", gap: 1, minWidth: 0, flex: "1 1 auto" });
-  assert.deepEqual(b.back, {});
-  assert.equal(b.noWrap, true);
-  assert.deepEqual(b.title, { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" });
-  assert.deepEqual(b.actions, {});
-});
-
-test("editor title bar, WCT group: the arrow never shrinks, the title is never cut, the buttons wrap instead", () => {
-  const b = editorTitleBar(true);
-  assert.equal(b.barWrap.md, "wrap");
-  assert.equal(b.back.flexShrink, 0);
-  assert.equal(b.left.flex, "1 0 auto");
-  assert.equal(b.left.maxWidth, "100%");
-  assert.equal(b.noWrap, false);
-  assert.equal(b.title.textOverflow, undefined);
-  assert.equal(b.title.whiteSpace, "normal");
-  assert.equal(b.actions.flexWrap, "wrap");
-  assert.equal(b.actions.ml, "auto");
+test("editor title bar: two rows for every org — details on top, buttons below (2026-11-23)", () => {
+  for (const b of [editorTitleBar(false), editorTitleBar(true), editorTitleBar()]) {
+    assert.equal(b.barWrap.md, "wrap");
+    assert.equal(b.back.flexShrink, 0);
+    assert.equal(b.left.flex, "1 0 100%"); // the title row owns the whole first line
+    assert.equal(b.noWrap, false);
+    assert.equal(b.title.whiteSpace, "normal");
+    assert.equal(b.actions.flex, "1 0 100%"); // the buttons own the whole second line
+    assert.equal(b.actions.justifyContent, "flex-start"); // buttons start at the left of row 2
+    assert.equal(b.actions.flexWrap, "wrap");
+  }
 });

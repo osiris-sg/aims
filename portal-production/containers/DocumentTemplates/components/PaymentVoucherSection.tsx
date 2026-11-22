@@ -479,6 +479,7 @@ export function PaymentVoucherLinesSection({
   voucherId,
   suppliers = [],
   disabled = false,
+  lockNote = false,
   framed = false,
 }: {
   formData: any;
@@ -486,6 +487,8 @@ export function PaymentVoucherLinesSection({
   voucherId?: string;
   suppliers?: any[];
   disabled?: boolean;
+  /** The presence lock (another session edits it): the only lock that explains itself here. */
+  lockNote?: boolean;
   // Legacy chrome (enableHeaderGlAccount): the editor frames the body with a
   // 204px left margin and expects the rail to sit IN that margin, like the
   // invoice (guru 2026-11-16). Pull the rail left out of the flow when set.
@@ -666,7 +669,7 @@ export function PaymentVoucherLinesSection({
           </Box>
 
           <Box sx={{ flex: 1, minHeight: 120, display: "flex", flexDirection: "column", pt: 1 }}>
-            {disabled && (
+            {disabled && lockNote && (
               <Alert severity="warning" variant="outlined" sx={{ mb: 1, alignSelf: "flex-start" }}>
                 Read-only — another session holds this voucher&apos;s edit lock. Close the other tab or use &quot;Take over&quot; in the banner at the top of the page.
               </Alert>

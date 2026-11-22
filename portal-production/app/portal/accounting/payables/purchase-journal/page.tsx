@@ -28,7 +28,6 @@ import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { expandUploadFiles, UPLOAD_ACCEPT } from "@/helpers/uploadExpand";
 import { Button } from "@mui/material";
-import RecordBillPaymentDialog from "../../bills/_components/RecordBillPaymentDialog";
 import PageTable from "@/components/PageTable";
 import BulkActionBar from "@/components/BulkActionBar";
 import { BulkConfirmDialog, runBulk, useBulkSelection } from "@/components/useBulkSelection";
@@ -114,8 +113,6 @@ export default function BillsPage() {
   const [batchFiles, setBatchFiles] = useState<File[] | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [editing, setEditing] = useState<Bill | null>(null);
-  const [paymentOpen, setPaymentOpen] = useState(false);
-  const [payingBill, setPayingBill] = useState<Bill | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -447,7 +444,6 @@ export default function BillsPage() {
       // A credit / debit note is managed in its own editor (void, duplicate…);
       // the bill actions below call /bills endpoints that don't know it.
       if (isNote(b)) return [{ label: "Open", onClick: () => openRow(b) }];
-      const outstanding = outstandingOf(b);
       return [
         { label: "View / edit", onClick: () => { setEditing(b); setEditorOpen(true); } },
         { label: "Duplicate", onClick: () => duplicateBill(b) },
@@ -458,9 +454,8 @@ export default function BillsPage() {
               { label: "Reject", destructive: true, onClick: () => reject(b) },
             ]
           : []),
-        ...((b.status === "POSTED" || b.status === "PAID") && outstanding > 0 && (b as any).kind !== "SPR"
-          ? [{ label: "Record payment", onClick: () => { setPayingBill(b); setPaymentOpen(true); } }]
-          : []),
+        // "Record payment" RETIRED 2026-11-23 (guru: payments only from the P/V side): a bill is
+        // paid on a Payment Voucher (AP home → Payment Voucher → Offset Supplier Invoices).
         ...(b.status !== "VOID" ? [{ label: "Void", destructive: true, onClick: () => voidIt(b) }] : []),
       ];
     }),
@@ -623,20 +618,6 @@ export default function BillsPage() {
         onDuplicate={(b: any) => duplicateBill(b)}
       />
 
-      {payingBill && (
-        <RecordBillPaymentDialog
-          open={paymentOpen}
-          onClose={() => setPaymentOpen(false)}
-          onSuccess={() => load()}
-          bill={{
-            id: payingBill.id,
-            billNumber: payingBill.billNumber,
-            totalAmount: payingBill.totalAmount,
-            amountPaid: payingBill.amountPaid,
-            supplierName: payingBill.supplier?.name,
-          }}
-        />
-      )}
 
       {/* Floating bulk-action bar (guru 2026-11-21) */}
       <BulkActionBar

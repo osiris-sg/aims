@@ -152,9 +152,10 @@ export async function listVouchersPaged<T>(
  * So the list is the UNION of the two: the vouchers typed here, plus every
  * hand-keyed journal that has no voucher document (`type = 'MANUAL'`,
  * `sourceDocumentId IS NULL` — a journal born from an invoice or a receipt
- * belongs to that document, never here). Imported rows are read-only: they
- * open the journal view, not the editor, because re-saving a Xero-imported
- * journal would post it a second time.
+ * belongs to that document, never here). An imported row opens the J/V
+ * editor like every other voucher: on first open it is ADOPTED into a
+ * JOURNAL_VOUCHER document linked to that journal (journal-vouchers.service
+ * adoptJournal), so a later save voids and reposts instead of posting twice.
  */
 export type JvListRow = {
   id: string;
@@ -197,7 +198,7 @@ const JV_UNION = `
 // `createdBy` on an imported journal is a machine name — 'xero-import',
 // 'legacy-import'. Under a column headed "Prepared by" that reads like a
 // person, so say plainly where the voucher came from.
-const importerLabel = (by?: string | null): string => {
+export const importerLabel = (by?: string | null): string => {
   const v = String(by || '').trim();
   if (!v) return '';
   if (/^xero-/i.test(v)) return 'Xero import';

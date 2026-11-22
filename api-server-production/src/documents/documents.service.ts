@@ -50,7 +50,7 @@ import { fillEmptyOrderCustomer, invoiceRowsWithSplitParts, isWctOrdersEnabled, 
 import { isManualOrderFlow, manualAutoDraftsOff } from '../orders/manual-order-flow';
 import { skipsDoSaveStockRule } from './do-first-save';
 import { RDO_FREE_ROWS_FLAG, allowsRdoFreeRows, hasUnit, isRdoSigned, isRdoType } from './rdo-free-rows';
-import { SOFT_DELETE_DRAFTS_FLAG, SOFT_DELETED_TYPE, WCT_STATUSES_FLAG, isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
+import { SOFT_DELETE_DRAFTS_FLAG, SOFT_DELETED_TYPE, WCT_STATUSES_FLAG, isOrgFeatureEnabled, HEADER_GL_ACCOUNT_FLAG, LINE_GL_ACCOUNTS_FLAG, POST_INVOICES_ON_CONFIRM_FLAG, QUOTATION_GST_FLAG, QUOTATION_TOTALS_TOGGLE_FLAG, invoicePostingHeld } from '../common/org-features';
 import { isVerifiedJob } from '../deliveries/finish-modes';
 import { linkedDocIdsForNumber, wantsLinkedSearch } from '../orders/linked-number-search';
 import { assetKey, descKey, invoiceDiscountPercent, isDisplayRow, orderInvoiceReference, planOrderInvoice, quoteDiscountAmount, splitJobLines } from '../orders/order-billing';
@@ -470,9 +470,13 @@ export class DocumentsService {
         const factor = inclusive && fallbackNet > 0 ? netAmount / fallbackNet : 1;
         // Header "Accounts to Credit" (HEADER_GL_ACCOUNT_FLAG): the whole net
         // credits that one account; per-line codes are ignored.
-        const headerGl = (await isOrgFeatureEnabled(this.prisma as any, organizationId, HEADER_GL_ACCOUNT_FLAG))
-          ? { accountCode: String(cfg?.glAccountCode || '').trim() || null, remarks: String(cfg?.glRemarks || '').trim() || null }
-          : null;
+        // A service business codes each LINE (LINE_GL_ACCOUNTS_FLAG), so the
+        // header box is off there even though the legacy screen is on.
+        const headerGl =
+          (await isOrgFeatureEnabled(this.prisma as any, organizationId, HEADER_GL_ACCOUNT_FLAG)) &&
+          !(await isOrgFeatureEnabled(this.prisma as any, organizationId, LINE_GL_ACCOUNTS_FLAG))
+            ? { accountCode: String(cfg?.glAccountCode || '').trim() || null, remarks: String(cfg?.glRemarks || '').trim() || null }
+            : null;
         const bySubject = subjectPostingLines(cfg, await loadSubjectAccounts(this.prisma, organizationId), netAmount);
         entry = await this.journalAutoPost.postFromInvoice({
           organizationId,
@@ -489,10 +493,16 @@ export class DocumentsService {
           // every invoice to the default sales account. Null (no type in the subject) = as before.
           revenueLines: bySubject
             ? bySubject.lines.map((l) => ({ accountCode: l.accountCode, amount: l.lineIndex < 0 ? l.amount : Math.round(l.amount * factor * 100) / 100 }))
-            : headerGl
-            ? headerGl.accountCode
-              ? [{ accountCode: headerGl.accountCode, amount: netAmount }]
-              : []
+            : // A SET header account takes the whole net. A BLANK one does NOT mean
+              // "no coding" — it means nothing was chosen up top, so the LINES decide,
+              // exactly as the confirm path has always done (guru 2026-11-23: "how come
+              // i cant see gl name? i added this last time"). Until now a blank header
+              // sent an empty list, so the net fell through to the single default sales
+              // account: a soil-disposal invoice whose lines said 202 Transportation of
+              // Hardcore posted to 200 Rental of MBR System, and the SAME invoice coded
+              // itself differently depending on whether a save or a confirm posted it.
+              headerGl?.accountCode
+            ? [{ accountCode: headerGl.accountCode, amount: netAmount }]
             : // Split payment part: its net over the ORIGINAL invoice's revenue accounts (invoice-split.ts). Null for every other invoice.
               splitGlRevenueLines(cfg, netAmount) ??
               items.map((it: any) => ({
@@ -561,7 +571,9 @@ export class DocumentsService {
     const fallbackNet = (items || []).reduce((sum: number, item: any) => sum + (parseFloat(item.amount) || parseFloat(item.quantity) * parseFloat(item.unitPrice) || 0), 0);
     const inclusive = di?.absorbTax === 'Y' || di?.absorbTax === true;
     const factor = inclusive && fallbackNet > 0 ? netAmount / fallbackNet : 1;
-    const headerGl = await isOrgFeatureEnabled(this.prisma as any, organizationId, HEADER_GL_ACCOUNT_FLAG);
+    const headerGl =
+      (await isOrgFeatureEnabled(this.prisma as any, organizationId, HEADER_GL_ACCOUNT_FLAG)) &&
+      !(await isOrgFeatureEnabled(this.prisma as any, organizationId, LINE_GL_ACCOUNTS_FLAG));
     const glRemarks = String(cfg?.glRemarks || '').trim() || null;
     if (headerGl) {
       const code = String(cfg?.glAccountCode || '').trim() || null;

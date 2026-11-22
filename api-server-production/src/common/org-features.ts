@@ -79,6 +79,15 @@ export const SITECLOCK_DELIVERIES_FLAG = 'enableSiteClockDeliveries';
 // journal's description. Off = per-line accounts as before.
 export const HEADER_GL_ACCOUNT_FLAG = 'enableHeaderGlAccount';
 
+// PER-LINE GL ACCOUNTS, even on the legacy screen (guru 2026-11-23: "its a
+// service industry so the accounts is per line"). enableHeaderGlAccount does
+// two jobs — it draws the legacy invoice screen AND moves the GL account to a
+// single header box. A service business wants the legacy screen but codes each
+// line to its own revenue account (disposal to 202, rental to 214…), so this
+// flag turns the header box off on its own: the per-line GL chip stays, and
+// posting credits each line's account. Absent = unchanged (header box as before).
+export const LINE_GL_ACCOUNTS_FLAG = 'enableLineGlAccounts';
+
 // GST on quotations (guru 2026-11-14): the printed standard quotation shows the
 // GST row and the nett total (absorb tax: Sub-Total net of GST). Read by the
 // server render paths and passed to the renderer as data.quotationGst.

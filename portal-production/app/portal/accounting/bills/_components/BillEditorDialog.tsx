@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Autocomplete,
+  createFilterOptions,
   Box,
   Button,
   Chip,
@@ -34,6 +35,7 @@ import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import EditIcon from "@mui/icons-material/Edit";
 import { accountTypeLabel, sortAccountsByType } from "@/components/glAccountGrouping";
 import CloudSyncIcon from "@mui/icons-material/CloudSync";
 import { toast } from "react-toastify";
@@ -175,6 +177,30 @@ export default function BillEditorDialog({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewData, setPreviewData] = useState<PreviewResult | null>(null);
   const [supplierId, setSupplierId] = useState<string | null>(null);
+  // "Add ‹typed name› as a new supplier" (guru 2026-11-23: a supplier not in the masterfile
+  // left the picker at "No options" with no way forward). The option appears when nothing
+  // matches the typed text exactly; picking it creates the supplier and selects it.
+  const [supplierInput, setSupplierInput] = useState("");
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
+  const supplierFilter = useMemo(() => createFilterOptions<Supplier>(), []);
+  const createSupplier = useCallback(
+    async (name: string) => {
+      setCreatingSupplier(true);
+      try {
+        const res: any = await request<any>("/suppliers/create", { method: "POST", body: JSON.stringify({ name, email: null, phone: null, address: null }) });
+        const created: Supplier | undefined = res?.data?.id ? res.data : res?.id ? res : undefined;
+        if (!created) throw new Error(res?.message || "Could not create the supplier");
+        setSuppliers((prev) => [created, ...prev.filter((x) => x.id !== created.id)]);
+        setSupplierId(created.id);
+        toast.success(`Supplier ${created.name} added`);
+      } catch (e: any) {
+        toast.error(e?.message || "Could not create the supplier");
+      } finally {
+        setCreatingSupplier(false);
+      }
+    },
+    [request],
+  );
   const [billNumber, setBillNumber] = useState("");
   const [billDate, setBillDate] = useState(todayIso);
   const [dueDate, setDueDate] = useState("");
@@ -216,7 +242,15 @@ export default function BillEditorDialog({
   // True while close-time auto-save of unreviewed batch items is running.
   const [flushing, setFlushing] = useState(false);
 
-  const isReadOnly = !!editing && editing.status !== "DRAFT" && editing.status !== "PENDING_APPROVAL";
+  // Edit after confirm (guru 2026-11-23: "i can edit invoices already but cant edit AP bills"):
+  // a POSTED bill with nothing paid against it unlocks behind a warning, like a confirmed
+  // invoice. Save voids and reposts its journal on the server; paid / voided bills stay locked.
+  const [editUnlocked, setEditUnlocked] = useState(false);
+  const [unlockPromptOpen, setUnlockPromptOpen] = useState(false);
+  useEffect(() => setEditUnlocked(false), [editing?.id, open]);
+  const paidOnBill = Number(editing?.amountPaid) || 0;
+  const canUnlock = !!editing && editing.status === "POSTED" && paidOnBill <= 0.005;
+  const isReadOnly = !!editing && editing.status !== "DRAFT" && editing.status !== "PENDING_APPROVAL" && !(canUnlock && editUnlocked);
 
   const loadSuppliersAndAccounts = useCallback(async () => {
     try {
@@ -813,7 +847,7 @@ export default function BillEditorDialog({
       if (editing) {
         await request(`/bills/${editing.id}`, { method: "PATCH", body: JSON.stringify(body) });
         billId = editing.id;
-        toast.success(`${kindLabel} updated`);
+        toast.success(editing.status === "POSTED" ? `${kindLabel} updated — journal reposted` : `${kindLabel} updated`);
       } else {
         const created: any = await request("/bills", { method: "POST", body: JSON.stringify(body) });
         billId = created?.id;
@@ -1135,9 +1169,18 @@ export default function BillEditorDialog({
               {st !== "VOID" && cell("Balance due", fmt(balance), balance > 0.005)}
               {editing.dueDate && cell(overdue ? "Was due" : "Due", when(editing.dueDate) || "")}
               <Box sx={{ flex: 1 }} />
-              {isReadOnly && (
+              {isReadOnly && canUnlock && (
+                <Button size="small" variant="outlined" startIcon={<EditIcon />} onClick={() => setUnlockPromptOpen(true)} data-tour="bill-edit-after-confirm">
+                  Edit
+                </Button>
+              )}
+              {isReadOnly && !canUnlock && (
                 <Typography variant="body2" sx={{ color: "text.secondary" }}>
-                  {st === "VOID" ? "A voided bill cannot be edited." : "Locked. Void it to make changes."}
+                  {st === "VOID"
+                    ? "A voided bill cannot be edited."
+                    : paid > 0.005
+                    ? "Paid: delete its payment voucher to make changes."
+                    : "Locked. Void it to make changes."}
                 </Typography>
               )}
             </Box>
@@ -1160,8 +1203,30 @@ export default function BillEditorDialog({
             disableClearable={isReadOnly as any}
             options={suppliers}
             value={suppliers.find((s) => s.id === supplierId) || null}
-            onChange={(_, v) => setSupplierId(v?.id || null)}
-            getOptionLabel={(o) => o.name + (o.gstRegNo ? ` (${o.gstRegNo})` : "")}
+            inputValue={supplierInput}
+            onInputChange={(_, v) => setSupplierInput(v)}
+            onChange={(_, v) => {
+              if (v && (v as any).__create) {
+                void createSupplier((v as any).__create as string);
+                return;
+              }
+              setSupplierId(v?.id || null);
+            }}
+            filterOptions={(opts, state) => {
+              const filtered = supplierFilter(opts, state);
+              const typed = state.inputValue.trim();
+              if (typed && !isReadOnly && !opts.some((o) => o.name.trim().toLowerCase() === typed.toLowerCase())) {
+                filtered.push({ id: `__create__${typed}`, name: `Add “${typed}” as a new supplier`, __create: typed } as any);
+              }
+              return filtered;
+            }}
+            getOptionLabel={(o) => ((o as any).__create ? (o as any).__create : o.name + (o.gstRegNo ? ` (${o.gstRegNo})` : ""))}
+            renderOption={(props, o) => (
+              <li {...props} key={o.id} style={(o as any).__create ? { fontWeight: 600 } : undefined}>
+                {o.name}
+              </li>
+            )}
+            loading={creatingSupplier}
             renderInput={(params) => <TextField {...params} label="Supplier" required disabled={isReadOnly} />}
           />
           <TextField
@@ -1570,6 +1635,22 @@ export default function BillEditorDialog({
           }).catch(() => {})
         }
       />
+      {/* Edit-after-confirm warning (the invoice editor's wording). */}
+      <Dialog open={unlockPromptOpen} onClose={() => setUnlockPromptOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Edit a confirmed bill?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            {editing?.billNumber || "This bill"} is posted. Saving a change voids its journal and reposts it with the new figures; the bill stays
+            awaiting payment and the edit is recorded under your name.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setUnlockPromptOpen(false)}>Cancel</Button>
+          <Button variant="contained" color="warning" onClick={() => { setEditUnlocked(true); setUnlockPromptOpen(false); }}>
+            Edit anyway
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   );
 }
