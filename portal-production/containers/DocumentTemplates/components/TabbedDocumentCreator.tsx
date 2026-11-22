@@ -1219,6 +1219,9 @@ export default function TabbedDocumentCreator({
       } as any,
     ];
   }, [templateFieldConfig, legacyInvoice]);
+  // WCT QO / DO / Invoice (2026-11-23): the Internal remarks memo sits under the totals in the open General tab, so the
+  // General fields get the memo column's width back (the paired rows were squeezed to nothing at 1280-1440px).
+  const memoInGeneral = remarksSplit && !isTemplateEditMode && !isFieldsCollapsed && editorTabs[mainTabValue]?.tabId === "general";
   // Active template's display name — drives the Stock Card rental/sales lock
   // (guru 2026-08-03: a "… Rental …" template must only offer rental items).
   const [activeTemplateName, setActiveTemplateName] = useState<string>("");
@@ -6101,7 +6104,18 @@ export default function TabbedDocumentCreator({
 
             {/* Legacy rail (Stock Card / Debtor Statement) is rendered down in
                 the items section so it lines up with the line-items table, not
-                the header (guru 2026-11-17). */}
+                the header (guru 2026-11-17). WCT QO / DO / Invoice (Link Document on, 2026-11-23): the doc chain
+                panel heads the left column instead, with the rail buttons under it. */}
+            {linkOn && linkPage && !isTemplateEditMode && (
+              <Box sx={{ position: "absolute", left: "12px", top: "8px", width: "180px", zIndex: 2, display: { xs: "none", md: "block" } }} data-tour="doc-chain-top">
+                <DocChainPanel documentId={linkDocId} page={linkPage} />
+                {invoiceRailButtons.length > 0 && (
+                  <Box sx={{ mt: 1 }}>
+                    <EditorRail buttons={invoiceRailButtons} />
+                  </Box>
+                )}
+              </Box>
+            )}
             {/* Document Tracking Info - Unconfirmed User, Confirmed User & Last Used */}
             <Box
               sx={{
@@ -6273,6 +6287,12 @@ export default function TabbedDocumentCreator({
                        posting and every conversion read. Default ticked, and a
                        document with no showTotals key reads ticked — only an
                        explicit false hides. */
+                    adaptivePairs={remarksSplit}
+                    rightAppend={
+                      memoInGeneral && tab.tabId === "general" ? (
+                        <DocRemarksMemo embedded value={docRemarks} onChange={setDocRemarks} disabled={lockReadOnly || confirmedReadOnly} title="Internal remarks" />
+                      ) : undefined
+                    }
                     prependRightRow={
                       isQuotation && isQuotationTotalsToggleEnabled ? (
                         <FormControlLabel
@@ -7248,11 +7268,9 @@ export default function TabbedDocumentCreator({
           <Box sx={{ mt: 0.5, mx: 0.5, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>
             {/* Legacy left-rail modules, aligned to the top of the items table
                 and sitting in the left page margin (guru 2026-11-17). */}
-            {(invoiceRailButtons.length > 0 || (linkOn && linkPage)) && (
+            {invoiceRailButtons.length > 0 && !(linkOn && linkPage && !isTemplateEditMode) && (
               <Box sx={{ position: "absolute", left: "-192px", top: 0, zIndex: 2, display: { xs: "none", md: "block" } }}>
-                {invoiceRailButtons.length > 0 && <EditorRail buttons={invoiceRailButtons} />}
-                {/* Doc chain (WCT group, 2026-11-22): Order, QO, DO(s), Invoice(s), like the old ERP's side list. */}
-                {linkOn && linkPage && <DocChainPanel documentId={linkDocId} page={linkPage} />}
+                <EditorRail buttons={invoiceRailButtons} />
               </Box>
             )}
             <Card sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column" }}>
@@ -8602,7 +8620,10 @@ export default function TabbedDocumentCreator({
           </Box>
           {/* The Remarks memo, right of every editor (guru 2026-11-21): on the vouchers it is the
               old To-Do List memo, now called what it is. */}
-          {!isTemplateEditMode && <DocRemarksMemo value={docRemarks} onChange={setDocRemarks} disabled={lockReadOnly || confirmedReadOnly} title={remarksSplit ? "Internal remarks" : "Remarks"} />}
+          {/* WCT QO / DO / Invoice (2026-11-23): Internal remarks sit under the totals in the General card instead
+              (memoInGeneral), giving the General fields this column's width; the column stays while the fields are
+              hidden or another tab is open. */}
+          {!isTemplateEditMode && !memoInGeneral && <DocRemarksMemo value={docRemarks} onChange={setDocRemarks} disabled={lockReadOnly || confirmedReadOnly} title={remarksSplit ? "Internal remarks" : "Remarks"} />}
           </Box>
           </Box>
         ) : (

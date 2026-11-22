@@ -6,9 +6,17 @@
 // config.referenceNo (the canonical reference key, CLAUDE.md) mirrored to
 // config.remarks; receipts / vouchers save it as their remarks. Every list's
 // Remarks column reads the same chain.
-import { Card, CardContent, TextField, Typography } from "@mui/material";
+import { Box, Card, CardContent, TextField, Typography } from "@mui/material";
 
-export default function DocRemarksMemo({ value, onChange, disabled, title = "Remarks" }: { value: string; onChange: (next: string) => void; disabled?: boolean; title?: string }) {
+export default function DocRemarksMemo({ value, onChange, disabled, title = "Remarks", embedded = false }: { value: string; onChange: (next: string) => void; disabled?: boolean; title?: string; embedded?: boolean }) {
+  // Embedded (WCT QO / DO / Invoice, 2026-11-23): inside the General card's totals column, under Nett Total.
+  if (embedded)
+    return (
+      <Box sx={{ p: 1, borderTop: 1, borderColor: "divider" }} data-tour="doc-remarks">
+        <Typography sx={{ fontWeight: 700, fontSize: "0.8125rem", mb: 0.5 }}>{title}</Typography>
+        <TextField multiline minRows={4} fullWidth value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} />
+      </Box>
+    );
   return (
     <Card sx={{ width: 260, flexShrink: 0, my: 0.5, mr: 0.5, display: "flex", flexDirection: "column" }} data-tour="doc-remarks">
       <CardContent sx={{ p: 1, flex: 1, display: "flex", flexDirection: "column", "&:last-child": { pb: 1 } }}>

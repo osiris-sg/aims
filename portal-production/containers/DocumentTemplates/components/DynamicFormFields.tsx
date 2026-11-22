@@ -932,6 +932,11 @@ interface DynamicFormFieldsProps {
   // built by filtering field definitions, so a control with no field
   // definition — the quotation totals switch — has no other way in.
   prependRightRow?: React.ReactNode;
+  // Rendered LAST in the right column (made if the template has no summary fields): WCT's Internal remarks memo.
+  rightAppend?: React.ReactNode;
+  // WCT QO / DO / Invoice (2026-11-23): paired rows keep label | value | label | value only while the left card is wide
+  // enough (narrower labels); below that each field takes its own full row, so nothing is squeezed or overlaps.
+  adaptivePairs?: boolean;
   customers?: any[];
   suppliers?: any[];
   projects?: any[];
@@ -1086,6 +1091,8 @@ export default function DynamicFormFields({
   appendRow,
   customInputs,
   prependRightRow,
+  rightAppend,
+  adaptivePairs = false,
   customers = [],
   suppliers = [],
   projects = [],
@@ -1683,10 +1690,11 @@ export default function DynamicFormFields({
   const isHalf = (f: FieldDefinition) => f.gridSize === 6 && f.fieldType !== 'textarea';
   // Same label width as the full rows, so the first column's inputs line up
   // across paired and full rows (the lines were jagged at 118).
-  const pairLabelSx = { ...leftLabelSx };
+  const pairLabelSx = adaptivePairs ? { ...leftLabelSx, width: 120 } : { ...leftLabelSx };
   const renderCell = (field: FieldDefinition, withRightBorder: boolean) => (
     <Box
       key={field.fieldName}
+      className={withRightBorder ? 'aims-pair-first' : undefined}
       sx={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, ...(withRightBorder ? { borderRight: { md: 1 }, borderColor: 'divider' } : {}) }}
     >
       <Typography sx={pairLabelSx}>{field.displayLabel}</Typography>
@@ -1698,7 +1706,16 @@ export default function DynamicFormFields({
   const renderPairRow = (a: FieldDefinition, b: FieldDefinition) => (
     <Box
       key={`${a.fieldName}|${b.fieldName}`}
-      sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, borderBottom: 1, borderColor: 'divider' }}
+      sx={{
+        display: 'flex',
+        flexDirection: { xs: 'column', md: 'row' },
+        borderBottom: 1,
+        borderColor: 'divider',
+        // Too narrow for two label + value pairs: stack them (each its own full row).
+        ...(adaptivePairs
+          ? { '@container aimsfields (max-width: 579px)': { flexDirection: 'column', '& > .aims-pair-first': { borderRight: 'none', borderBottom: 1, borderColor: 'divider' } } }
+          : {}),
+      }}
     >
       {renderCell(a, true)}
       {renderCell(b, false)}
@@ -1730,6 +1747,7 @@ export default function DynamicFormFields({
           overflow: 'hidden',
           bgcolor: 'background.paper',
           '& > div:last-of-type': { borderBottom: 'none' },
+          ...(adaptivePairs ? { containerType: 'inline-size', containerName: 'aimsfields' } : {}),
         }}
       >
         {leftRows}
@@ -1746,7 +1764,7 @@ export default function DynamicFormFields({
       {/* Right Column - Summary/Totals. Skipped entirely when the template
           defines no summary fields (plain TI invoices, DOs) — an empty bordered
           box used to sit there (guru 2026-10-24). */}
-      {(prependRightRow || rightFields.length > 0) && (
+      {(prependRightRow || rightFields.length > 0 || rightAppend) && (
       <Box
         sx={{
           minWidth: { xs: 0, md: 300 },
@@ -1762,6 +1780,7 @@ export default function DynamicFormFields({
             so a control with no field definition still looks native here. */}
         {prependRightRow && <Box sx={rightRowSx}>{prependRightRow}</Box>}
         {rightFields.map((field) => renderRightRow(field))}
+        {rightAppend}
       </Box>
       )}
       {/* The Attention row's "+ Add contact" dialog (only when that row hosts
