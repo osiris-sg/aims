@@ -75,7 +75,7 @@ export class OrdersController {
   async getById(@Param('id') id: string, @Req() req: RequestWithOrganization) {
     const orgId = req.userOrganization?.id;
     if (!orgId) throw new Error('User is not assigned to any organization');
-    return this.ordersService.getById(id, orgId);
+    return this.ordersService.getById(id, orgId, { userId: (req as any).user?.id ?? null, isAdmin: !!(req as any).isOsirisAdmin });
   }
 
   // WCT service report on the order (enableWctOrders): the reports the order

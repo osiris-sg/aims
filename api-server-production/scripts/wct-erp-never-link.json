@@ -1,0 +1,13 @@
+{
+  "note": "ERP invoices never linked to an order by the ERP import / catch-up (owner decision 2026-11-23: the old ERP reused these quotation numbers; the invoice's customer differs from the quotation's). Read by wct-imported-orders.ts.",
+  "invoices": [
+    { "invoice": "I-000046", "quotation": "Q-000045", "reason": "ERP reused the quotation number (Stamford American vs Yassin Kampung Seafood)" },
+    { "invoice": "I-000206", "quotation": "Q-000045", "reason": "ERP reused the quotation number (Stamford American vs Yassin Kampung Seafood)" },
+    { "invoice": "I-000808", "quotation": "Q-000058", "reason": "ERP reused the quotation number (Food Junction Management vs Cocoba)" },
+    { "invoice": "I-001046", "quotation": "Q-000058", "reason": "ERP reused the quotation number (Food Junction Management vs Cocoba)" },
+    { "invoice": "I-000367", "quotation": "Q-000618", "reason": "ERP reused the quotation number (Urban Savoury vs HYT Investment)" },
+    { "invoice": "I-000382", "quotation": "Q-000725", "reason": "ERP reused the quotation number (CWT Logistics vs Putien Restaurant)" },
+    { "invoice": "I-000620", "quotation": "Q-000852", "reason": "ERP reused the quotation number (Plaza Premium Lounge vs Pang Catering Holdings)" },
+    { "invoice": "I-000212", "quotation": "Q-000942", "reason": "ERP reused the quotation number (Jin Xin Yuan vs Xiao Jin Yuan)" }
+  ]
+}

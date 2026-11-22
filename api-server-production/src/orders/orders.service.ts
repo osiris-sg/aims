@@ -1,3 +1,4 @@
+import { memberOrgIds } from '../organizations/org-group';
 import { randomUUID } from 'crypto';
 import { HttpException, HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -363,8 +364,8 @@ export class OrdersService {
     return orders;
   }
 
-  async getById(id: string, organizationId: string) {
-    const imported = await this.importedOrderView(id, organizationId);
+  async getById(id: string, organizationId: string, viewer?: { userId?: string | null; isAdmin?: boolean }) {
+    const imported = await this.importedOrderView(id, organizationId, viewer);
     if (imported) return imported;
     if (await isWctOrdersEnabled(this.prisma, organizationId)) return this.getWctById(id, organizationId);
     const order = await this.prisma.order.findFirst({
@@ -1008,7 +1009,7 @@ export class OrdersService {
    * attachments come from the native order page, getWctById) and "Link existing document"; every row says whether
    * it can be unlinked.
    */
-  private async importedOrderView(id: string, organizationId: string): Promise<any | null> {
+  private async importedOrderView(id: string, organizationId: string, viewer?: { userId?: string | null; isAdmin?: boolean }): Promise<any | null> {
     let row: any = null;
     try {
       row = await this.prisma.order.findFirst({
@@ -1079,6 +1080,9 @@ export class OrdersService {
         linked: stampOf(linkedDoRefs.find((x: any) => x.id === d.id)),
       })),
     ];
+    // Cross-company invoices (2026-11-23): a link only for a viewer who belongs to that company; else plain text.
+    const crossOrgIds = [...new Set(invDocs.filter((d: any) => d.crossOrg).map((d: any) => d.crossOrg.orgId))];
+    const canOpen = crossOrgIds.length ? (viewer?.isAdmin ? new Set(crossOrgIds) : await memberOrgIds(this.prisma, viewer?.userId ?? null, crossOrgIds)) : new Set<string>();
     const jobReports: any[] = native?.jobReports ?? [];
     const attachments: any[] = native?.attachments ?? [];
     const reportsForTracker = [...jobReports, ...attachments.filter((a: any) => a?.kind === 'report' && a.report && !jobReports.some((r: any) => r.id === a.reportId)).map((a: any) => a.report)];
@@ -1162,6 +1166,8 @@ export class OrdersService {
           paid: amountPaidOf(d.config) ?? 0,
           linked: stampOf(invEntry.get(d.id)),
           ...(split ? { split: { part: Number(split.part), of: Number(split.of) } } : {}),
+          // Another group company's invoice (read-only here): its company, and whether this viewer may open it there.
+          ...(d.crossOrg ? { crossOrg: { orgId: d.crossOrg.orgId, orgName: d.crossOrg.orgName, canOpen: canOpen.has(d.crossOrg.orgId) }, unlinkable: false } : {}),
         };
       }),
       creditNotes: inputs.creditNoteDocs.map((d: any) => ({ id: d.id, name: d.name, type: d.type, status: d.status, templateId: d.documentTemplateId, total: grossOf(d.config) })),

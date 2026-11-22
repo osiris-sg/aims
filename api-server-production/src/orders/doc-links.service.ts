@@ -2,7 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../common/prisma.service';
 import { grossOf } from '../common/document-money';
 import { docCustomerIdOf, holderRefusal, linkEntryOf, madeOnOrder, orderHoldersOf } from './imported-order-links';
-import { importedMarkerOf } from './imported-orders';
+import { crossOrgInvoiceRefsOf, importedMarkerOf } from './imported-orders';
+import { groupOrgIds, memberOrgIds } from '../organizations/org-group';
 import { isWctOrdersEnabled, MARKED_COMPLETE, WCT_ORDER_STATUS_LABEL, WctOrderStatus } from './wct-orders';
 import { MANUAL_ORDER_STATUS_LABEL, ManualOrderStatus } from './manual-order-flow';
 import { OrdersService } from './orders.service';
@@ -341,7 +342,7 @@ export class DocLinksService {
    * GET /order-refs/chain/:documentId: the order's quotation(s), DO(s) and invoice(s) (live ones), each with its
    * editor link, and whether "+ Create DO" / "+ Create invoice" apply. No order: the direct links only.
    */
-  async chain(organizationId: string, documentId: string) {
+  async chain(organizationId: string, documentId: string, viewer?: { userId?: string | null; isAdmin?: boolean }) {
     await this.assertOn(organizationId);
     const { doc, kind } = await this.loadDoc(organizationId, documentId);
     const held = await this.orderOf(organizationId, doc, kind);
@@ -380,15 +381,31 @@ export class DocLinksService {
     const known = new Set(dos.map((d) => d.name));
     const erpOnly = erpDoNames.filter((n) => !known.has(n)).map((n) => ({ id: `erp:${n}`, name: n, type: 'DELIVERY_ORDER', href: null }));
     const invoices = ofKind('INVOICE');
+    // Cross-company invoices (WCT group, 2026-11-23): another group company's invoices billed against this order's
+    // quotation, "I-012345 · WCT (S)", read only; a link that switches company only for a viewer who belongs there.
+    const cross = crossOrgInvoiceRefsOf(o);
+    const crossOut: ChainDoc[] = [];
+    if (cross.length) {
+      const family = new Set(await groupOrgIds(this.prisma, organizationId));
+      const ok = cross.filter((r) => family.has(r.orgId) && r.orgId !== organizationId);
+      const orgIds = [...new Set(ok.map((r) => r.orgId))];
+      const canOpen = viewer?.isAdmin ? new Set(orgIds) : await memberOrgIds(this.prisma, viewer?.userId ?? null, orgIds);
+      const docsX: any[] = ok.length ? await this.prisma.document.findMany({ where: { id: { in: ok.map((r) => r.id) }, organizationId: { in: orgIds } }, select: { id: true, name: true, type: true, organizationId: true, documentTemplateId: true, config: true } }) : [];
+      for (const d of docsX.filter((x) => !isDeadConfig(x.config))) {
+        const r = ok.find((x) => x.id === d.id)!;
+        const own = docHref(d.type, d.documentTemplateId, d.id);
+        crossOut.push({ id: d.id, name: `${d.name ?? r.name ?? 'Invoice'} · ${r.orgName ?? 'other company'}`, type: d.type, href: canOpen.has(d.organizationId) && own ? `/portal/open-in-org?org=${encodeURIComponent(d.organizationId)}&to=${encodeURIComponent(own)}` : null });
+      }
+    }
     const open = o.status !== 'CANCELLED';
     return {
       kind,
       order: { id: o.id, orderNumber: o.orderNumber, href: `/portal/orders/${o.id}` },
       quotations: ofKind('QUOTATION'),
       dos: [...dos, ...erpOnly],
-      invoices,
+      invoices: [...invoices, ...crossOut],
       canCreateDo: open && dos.length + erpOnly.length === 0,
-      canCreateInvoice: open && invoices.length === 0,
+      canCreateInvoice: open && invoices.length + crossOut.length === 0,
       direct,
     };
   }

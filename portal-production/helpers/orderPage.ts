@@ -10,6 +10,7 @@ import { HUB_ACTION_LABEL, hubNextStep, hubRowActions, hubStatus, hubStatusInfo,
 import { importedBilledPct, importedLinkSourceLabel, importedMoney, importedProgress, importedStatusHue, importedSteps, type ImportedLinkType } from "./importedOrders";
 import { invoiceNowText, jobStatusLabel, orderStatusLabel } from "./wctOrders";
 import { flowDocStatus, flowOrderStatus } from "./wctStatusFlow";
+import { crossOrgHref, crossOrgLabel } from "./crossOrg";
 
 export type OrderKind = "native" | "imported";
 export type OrderCardKey = "quotation" | "invoice" | "do" | "report";
@@ -120,6 +121,8 @@ export const UNLINK_BLOCKED = {
   withInvoice: "Goes with its invoice",
   // Round 33: a linked DO billed by Create invoice stays while that invoice is live.
   billed: "Billed: void its invoice first",
+  // 2026-11-23: another group company's invoice billed against this quotation (read only here).
+  crossOrg: "Another company's invoice",
 } as const;
 
 const docDelete = (id: string) => `/documents/delete/${id}`;
@@ -590,7 +593,15 @@ export function importedOrderPage(o: any, ctx: OrderPageContext = {}): OrderPage
   const tracker: any[] = o.tracker ?? [];
   const t = (k: string) => tracker.find((s) => s.key === k) ?? {};
   const qDocs: OrderCardDoc[] = [q, ...(o.quotations ?? [])].filter(Boolean).map((x: any) => ({ label: x.name || "Quotation", status: null, href: docHref(x.type || "QUOTATION", x.templateId ?? x.documentTemplateId, x.id) }));
-  const invDocs: OrderCardDoc[] = invoices.map((i) => ({ label: i.name || "Invoice", status: i.stateLabel ?? null, href: docHref(i.type || "INVOICE", i.templateId ?? i.documentTemplateId, i.id) }));
+  // Cross-company invoices (WCT group, 2026-11-23): "I-012345 · WCT (S)", read only; a link (switching company) only
+  // for a person who belongs to that company, else plain text.
+  const invHref = (i: any) => {
+    const own = docHref(i.type || "INVOICE", i.templateId ?? i.documentTemplateId, i.id);
+    if (!i.crossOrg) return own;
+    return i.crossOrg.canOpen && own ? crossOrgHref(i.crossOrg.orgId, own) : null;
+  };
+  const invLabel = (i: any) => (i.crossOrg ? crossOrgLabel(i.name, i.crossOrg.orgName) : i.name || "Invoice");
+  const invDocs: OrderCardDoc[] = invoices.map((i) => ({ label: invLabel(i), status: i.stateLabel ?? null, href: invHref(i) }));
   const firstInvDate = invoices.map((i) => i.date).filter(Boolean).sort()[0] ?? null;
   const reportLabel = (l: string) => (l.startsWith("#") ? `Service report ${l}` : l);
   const canCreate = !!o.canInvoice && !draft;
@@ -682,17 +693,18 @@ export function importedOrderPage(o: any, ctx: OrderPageContext = {}): OrderPage
       key: `i:${i.id}`,
       kind: "invoice",
       type: "Invoice",
-      number: i.name || "Invoice",
+      number: invLabel(i),
       note: [i.split ? `Part ${i.split.part} of ${i.split.of}` : "", i.erpDoNumber ? `ERP DO ${i.erpDoNumber}` : ""].filter(Boolean).join(" · ") || null,
       date: i.date ?? null,
       status: state,
-      by: i.linked ? linkedBy(i.linked) : importedLinkSourceLabel(i.linkSource),
+      by: i.crossOrg ? `${i.crossOrg.orgName || "Other company"} (read only)` : i.linked ? linkedBy(i.linked) : importedLinkSourceLabel(i.linkSource),
       amount: i.total ?? null,
       owed: i.owed ?? null,
-      href: docHref(i.type || "INVOICE", i.templateId ?? i.documentTemplateId, i.id),
-      file: { label: "PDF", path: `/orders/${o.id}/invoice-pdf?documentId=${i.id}` },
-      unlink: i.unlinkable ? { type: "INVOICE", id: i.id, name: i.name ?? "the invoice" } : null,
-      unlinkBlocked: i.unlinkable ? null : UNLINK_BLOCKED.madeOnOrder,
+      href: invHref(i),
+      // Another company's invoice: no PDF through this order and no unlink here (it lives in its own company).
+      file: i.crossOrg ? null : { label: "PDF", path: `/orders/${o.id}/invoice-pdf?documentId=${i.id}` },
+      unlink: i.unlinkable && !i.crossOrg ? { type: "INVOICE", id: i.id, name: i.name ?? "the invoice" } : null,
+      unlinkBlocked: i.crossOrg ? UNLINK_BLOCKED.crossOrg : i.unlinkable ? null : UNLINK_BLOCKED.madeOnOrder,
       // An ERP invoice never; an AIMS one (made or linked here) while it is a draft with nothing paid.
       deletePath: i.native === true && deletableDraft(i) ? docDelete(i.id) : null,
     });

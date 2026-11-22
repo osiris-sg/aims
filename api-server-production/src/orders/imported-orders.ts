@@ -1,4 +1,5 @@
 import { HttpException, HttpStatus } from '@nestjs/common';
+import { groupOrgIds } from '../organizations/org-group';
 import { isOrgFeatureEnabled } from '../common/org-features';
 import { erpImportOf, isErpImported } from '../common/erp-import';
 import { amountPaidOf, grossOf, owedOf } from '../common/document-money';
@@ -706,10 +707,26 @@ export async function loadImportedOrderInputs(
   if (needQuote.length) for (const d of await prisma.document.findMany({ where: { organizationId, id: { in: [...new Set(needQuote)] } }, select: { id: true, config: true } })) quoteCfg.set(d.id, d.config);
 
   const partial = new Map<string, Omit<ImportedOrderInputs, 'nativeDos'>>();
+  // Cross-company invoices (WCT group, 2026-11-23): another group company's invoices billed against this order's
+  // quotation (linkedDocuments.crossOrgInvoice, by the ERP's own links). Read in their own company, only when that
+  // company is in this order's group; counted in Billed / Left to bill; never moved, never in this company's books.
+  const crossRefs = orders.flatMap((o) => crossOrgInvoiceRefsOf(o));
+  const crossById = new Map<string, any>();
+  if (crossRefs.length) {
+    const family = new Set(await groupOrgIds(prisma, organizationId));
+    const byOrg = new Map<string, string[]>();
+    for (const r of crossRefs) if (family.has(r.orgId) && r.orgId !== organizationId) byOrg.set(r.orgId, [...(byOrg.get(r.orgId) ?? []), r.id]);
+    for (const [org, ids] of byOrg) {
+      const docs: any[] = opts.lean ? await leanDocsByIds(prisma, org, ids) : await prisma.document.findMany({ where: { organizationId: org, id: { in: ids } }, select: sel });
+      const name = crossRefs.find((r) => r.orgId === org)?.orgName ?? null;
+      for (const d of docs) if (!isDead(d)) crossById.set(d.id, { ...d, crossOrg: { orgId: org, orgName: name } });
+    }
+  }
   for (const o of orders) {
     const m: any = importedMarkerOf(o) || {};
     const own = refsOf(o, 'invoice').map((r) => r.id);
-    const invoiceDocs = withSplitPartIds(own, own.map((id) => byId.get(id)).filter(Boolean)).map((id) => byId.get(id)).filter(Boolean);
+    const cross = crossOrgInvoiceRefsOf(o).map((r) => crossById.get(r.id)).filter(Boolean);
+    const invoiceDocs = [...withSplitPartIds(own, own.map((id) => byId.get(id)).filter(Boolean)).map((id) => byId.get(id)).filter(Boolean), ...cross];
     const creditNoteDocs = refsOf(o, 'creditNote').map((r) => byId.get(r.id)).filter(Boolean);
     const linkedQuotations = linkedQuotationRefsOf(o).map((r) => byId.get(r.id)).filter((d) => d && !isDead(d));
     const srcCfg = o.sourceQuotationId ? quoteCfg.get(o.sourceQuotationId) ?? null : null;
@@ -779,6 +796,7 @@ export async function importedOrderLinkingQuotation(prisma: any, organizationId:
 /** The order holds an AIMS document or a link made in AIMS: its status can move without the import (round 19). */
 export function hasAimsLinks(order: { linkedDocuments?: unknown }): boolean {
   return (
+    crossOrgInvoiceRefsOf(order).length > 0 ||
     refsOf(order, 'invoice').some((r) => r.native === true || r.splitPart === true || !!r.linked) ||
     linkedQuotationRefsOf(order).length > 0 ||
     refsOf(order, 'do').some((r) => r.imported !== true || !!r.linked)
@@ -859,4 +877,19 @@ export function aimsDoNamesFrom(orderDos: Map<string, any[]>): Map<string, strin
     if (names.length) out.set(orderId, names);
   }
   return out;
+}
+
+
+/** A group company's invoice billed against this order's quotation (cross-company, read-only; 2026-11-23). */
+export interface CrossOrgInvoiceRef {
+  id: string;
+  orgId: string;
+  orgName: string | null;
+  name: string | null;
+}
+
+/** The order's cross-company invoice links (linkedDocuments.crossOrgInvoice). */
+export function crossOrgInvoiceRefsOf(order: { linkedDocuments?: unknown } | null | undefined): CrossOrgInvoiceRef[] {
+  const list = (order?.linkedDocuments as any)?.crossOrgInvoice;
+  return Array.isArray(list) ? list.filter((x: any) => x && typeof x.id === 'string' && typeof x.orgId === 'string') : [];
 }

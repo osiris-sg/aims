@@ -112,6 +112,20 @@ export async function groupFamily(prisma: any, orgId: string): Promise<GroupOrg[
   return [{ id: me.id, name: me.name ?? '' }, ...children];
 }
 
+/** The ids of every org in orgId's group (root + children), whatever flags are on; [] outside a group. Never throws. */
+export async function groupOrgIds(prisma: any, orgId: string): Promise<string[]> {
+  if (!orgId || typeof prisma?.$queryRawUnsafe !== 'function') return [];
+  try {
+    const rows: any[] = await prisma.$queryRawUnsafe(
+      'SELECT o."id"::text AS id FROM "Organization" o, (SELECT coalesce("parentOrgId", "id") AS root FROM "Organization" WHERE "id" = $1) r WHERE o."id" = r.root OR o."parentOrgId" = r.root',
+      orgId,
+    );
+    return rows.length > 1 ? rows.map((r) => String(r.id)) : [];
+  } catch {
+    return [];
+  }
+}
+
 /** The New job "Company" choices: the group's orgs this user may open (osiris admins: all of them). */
 export async function groupJobCompanies(prisma: any, orgId: string, userId: string | null | undefined, isAdmin = false): Promise<{ group: boolean; current: string; orgs: GroupOrg[] }> {
   const family = await groupFamily(prisma, orgId);

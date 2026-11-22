@@ -56,7 +56,7 @@ export class DocOrderRefController {
   @Get('chain/:documentId')
   @Permissions('documents:read')
   chain(@Param('documentId') documentId: string, @Req() req: any) {
-    return this.links.chain(this.orgId(req), documentId);
+    return this.links.chain(this.orgId(req), documentId, { userId: req.user?.id ?? null, isAdmin: !!req.isOsirisAdmin });
   }
 
   // Activity Log: link-document = LINK, unlink-document = UNLINK (VERB_ACTIONS), with what was linked in the result.

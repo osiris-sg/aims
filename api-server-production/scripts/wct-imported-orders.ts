@@ -157,6 +157,14 @@ const money = (n: number) => n.toLocaleString('en-SG', { minimumFractionDigits: 
     }
     console.log(`WCT ERP credit notes read: ${creditsByInvoiceNo.size} invoice(s)`);
   }
+  // Never-link list (scripts/wct-erp-never-link.json, owner decisions): those ERP invoices are never put on an order.
+  const neverFile = path.join(__dirname, 'wct-erp-never-link.json');
+  const never = new Set<string>(fs.existsSync(neverFile) ? (JSON.parse(fs.readFileSync(neverFile, 'utf8')).invoices || []).map((x: any) => String(x.invoice)) : []);
+  const neverHit = docs.filter((d) => d.type === 'INVOICE' && never.has(String(d.name)));
+  if (never.size) {
+    docs = docs.filter((d) => !(d.type === 'INVOICE' && never.has(String(d.name))));
+    console.log(`Never-link list: ${never.size} invoice(s), ${neverHit.length} found and left unlinked (${neverHit.map((d) => d.name).join(', ')})`);
+  }
   const plan = planImportedOrders(docs, { quotationIdsWithOrder: withOrder, exclude: EXCLUDE, erpLinks, creditsByInvoiceNo, existingImported });
   // DO-only imported orders (scripts/wct-erp-dos.js, 2026-11-19: made from an old-ERP DO before any invoice): their
   // status is the DO's (DO draft / DO completed) until an invoice is linked, so a top-up without an invoice leaves
