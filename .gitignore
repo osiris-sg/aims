@@ -22,3 +22,5 @@ gcp-credentials*.json
 
 # agents
 .omc/
+# Customer accounting exports passed to import scripts, never committed
+_imports/
