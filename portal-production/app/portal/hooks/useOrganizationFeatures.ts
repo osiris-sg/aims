@@ -477,6 +477,8 @@ export function useOrganizationFeatures() {
     isSiteClockDeliveriesEnabled: features.enableSiteClockDeliveries ?? false,
     isJobsCalendarEnabled: features.enableJobsCalendar ?? false,
     isHideSiteClockJobs: features.hideSiteClockJobs ?? false,
+    // Group calendar (WCT 2026-11-17): the sister companies on one calendar; also its "+ New" button (2026-11-23).
+    isGroupCalendarEnabled: features.enableGroupCalendar ?? false,
     // Calendar HQ view (WCT group 2026-11-18): the jobs calendar's Salesperson filter.
     isCalendarHqView: features.calendarHqView ?? false,
     isRealDoOnScheduleEnabled: features.enableRealDoOnSchedule ?? false,

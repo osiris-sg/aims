@@ -1035,18 +1035,19 @@ export class DocumentsService {
    * quotation id, for the quotation banner and the quotations list. Empty for
    * every other org and for non-quotation rows (one batched read).
    */
-  private async quotationOrders(organizationId: string, docs: Array<{ id: string; type?: string | null }>): Promise<Map<string, { id: string; orderNumber: string }>> {
+  private async quotationOrders(organizationId: string, docs: Array<{ id: string; type?: string | null }>): Promise<Map<string, { id: string; orderNumber: string; createdAt: string }>> {
     const ids = docs.filter((d) => ['QUOTATION', 'QO', 'QO1', 'QO2', 'QT'].includes(String(d.type ?? ''))).map((d) => d.id);
     if (!ids.length || !(await isOrgFeatureEnabled(this.prisma, organizationId, 'enableWctOrders'))) return new Map();
     const orders = await this.prisma.order.findMany({
       where: { organizationId, sourceQuotationId: { in: ids } },
       orderBy: { createdAt: 'asc' },
-      select: { id: true, orderNumber: true, sourceQuotationId: true, linkedDocuments: true },
+      select: { id: true, orderNumber: true, sourceQuotationId: true, linkedDocuments: true, createdAt: true },
     });
     // Imported orders (imported-orders.ts) show on their quotation only while the setting is on.
     const showImported = orders.some((o) => isImportedOrder(o)) && (await isImportedOrdersEnabled(this.prisma, organizationId));
-    const out = new Map<string, { id: string; orderNumber: string }>();
-    for (const o of orders.filter((x) => showImported || !isImportedOrder(x))) if (o.sourceQuotationId && !out.has(o.sourceQuotationId)) out.set(o.sourceQuotationId, { id: o.id, orderNumber: o.orderNumber });
+    // createdAt: the quotation page says "Order … created" only right after the confirm that made it (2026-11-23).
+    const out = new Map<string, { id: string; orderNumber: string; createdAt: string }>();
+    for (const o of orders.filter((x) => showImported || !isImportedOrder(x))) if (o.sourceQuotationId && !out.has(o.sourceQuotationId)) out.set(o.sourceQuotationId, { id: o.id, orderNumber: o.orderNumber, createdAt: o.createdAt.toISOString() });
     return out;
   }
 

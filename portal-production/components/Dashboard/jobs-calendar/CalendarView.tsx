@@ -42,7 +42,8 @@ import CloseIcon from "@mui/icons-material/Close";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import WorkOutlineIcon from "@mui/icons-material/WorkOutline";
 import StickyNote2OutlinedIcon from "@mui/icons-material/StickyNote2Outlined";
-import { ADD_MENU_TEXT, noteTitle, noteToCalendarInput, noteType, noteWhen, ptwColor, slotOf, type CalendarNote } from "@/helpers/calendarAdd";
+import { ADD_MENU_TEXT, newButtonSlot, noteTitle, noteToCalendarInput, noteType, noteWhen, ptwColor, slotOf, type CalendarNote } from "@/helpers/calendarAdd";
+import { todayIso } from "@/helpers/orgToday";
 import { categoryChipTitle } from "@/helpers/jobCategory";
 import { ACTIVE_ORG_KEY } from "@/helpers/multiOrg";
 import { alpha, useTheme } from "@mui/material/styles";
@@ -77,6 +78,8 @@ interface Props {
   styled?: boolean;
   /** Calendar style orgs (2026-11-19): the "Schedule" view next to Month / Week / Day. */
   schedule?: boolean;
+  /** WCT group calendar (enableGroupCalendar, 2026-11-23): "+ New" beside the views opens the same Job / Note menu as a cell. */
+  newButton?: boolean;
   /** Round 36 (calendar style): what the side panel may do (toggles, Cancel / Undo, Reschedule); absent = read only. */
   actions?: CalendarActions;
   /**
@@ -110,6 +113,7 @@ export default function CalendarView({
   onMove,
   styled = false,
   schedule = false,
+  newButton = false,
   actions,
   mini,
 }: Props) {
@@ -224,6 +228,29 @@ export default function CalendarView({
   const onDateClick = (arg: DateClickArg) => {
     setAddMenu({ pos: { left: arg.jsEvent.clientX, top: arg.jsEvent.clientY }, slot: slotOf(arg.dateStr, arg.allDay) });
   };
+  // "+ New": the view on screen (its own days, not the greyed days around a month), kept by datesSet.
+  const shownView = useRef<{ type: string; from: string; to: string } | null>(null);
+  const showNewButton = newButton && canAdd && !mini;
+  const customButtons = useMemo(
+    () =>
+      showNewButton
+        ? {
+            aimsNew: {
+              text: "+ New",
+              hint: "New job or note",
+              click: (ev: MouseEvent, el: HTMLElement) => {
+                const v = shownView.current;
+                if (!v) return;
+                // At the click, like a cell click; from the keyboard (no pointer position) under the button.
+                const r = el.getBoundingClientRect();
+                const pos = ev.clientX || ev.clientY ? { left: ev.clientX, top: ev.clientY } : { left: r.left, top: r.bottom };
+                setAddMenu({ pos, slot: newButtonSlot(v, todayIso(new Date(), CALENDAR_TZ)) });
+              },
+            },
+          }
+        : undefined,
+    [showNewButton],
+  );
 
   const onClick = (arg: EventClickArg) => {
     arg.jsEvent.preventDefault();
@@ -302,7 +329,8 @@ export default function CalendarView({
         timeZone={CALENDAR_TZ}
         initialView={initialView}
         initialDate={initialDate}
-        headerToolbar={mini ? { left: "prev,next", center: "title", right: "timeGridDay,timeGridWeek" } : { left: "prev,next today", center: "title", right: `dayGridMonth,timeGridWeek,timeGridDay${scheduleViews ? `,${SCHEDULE_VIEW}` : ""}` }}
+        headerToolbar={mini ? { left: "prev,next", center: "title", right: "timeGridDay,timeGridWeek" } : { left: "prev,next today", center: "title", right: `${showNewButton ? "aimsNew " : ""}dayGridMonth,timeGridWeek,timeGridDay${scheduleViews ? `,${SCHEDULE_VIEW}` : ""}` }}
+        customButtons={customButtons}
         views={mini ? undefined : scheduleViews}
         buttonText={{ today: "Today", month: "Month", week: "Week", day: "Day", ...(scheduleViews ? { [SCHEDULE_VIEW]: "Schedule" } : {}) }}
         firstDay={1}
@@ -357,6 +385,7 @@ export default function CalendarView({
         }}
         datesSet={(arg: DatesSetArg) => {
           setViewType(arg.view.type);
+          shownView.current = { type: arg.view.type, from: arg.view.calendar.formatIso(arg.view.currentStart, true), to: arg.view.calendar.formatIso(arg.view.currentEnd, true) };
           setVisible(rangeOf(arg.startStr, arg.endStr));
           onRange(arg.startStr, arg.endStr);
         }}

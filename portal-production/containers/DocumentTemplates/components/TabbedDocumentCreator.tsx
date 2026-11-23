@@ -93,6 +93,7 @@ import { AutoAwesome as AutoAwesomeIcon } from "@mui/icons-material";
 import CleanDocumentPreview from "./CleanDocumentPreview";
 import ServerDocumentPreview, { type ServerDocumentPreviewHandle } from "./ServerDocumentPreview";
 import { orderDocLine } from "@/helpers/wctOrders";
+import { markQuotationConfirmed } from "@/helpers/orderCreatedNote";
 import { LINK_DOC_FIELD, linkDocOn, pageKindOf as linkPageKindOf, remarksSplitOn, withLinkDocFields } from "@/helpers/linkDoc";
 import { DocChainPanel, LinkDocumentField } from "./LinkDocument";
 import { signedByDefault, withRackingUom } from "@/helpers/rackingQuote";
@@ -3612,7 +3613,8 @@ export default function TabbedDocumentCreator({
     setIsConfirming(true);
     try {
       const currentUserName = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress || 'SYS';
-      const currentTimestamp = new Date().toISOString();
+      const confirmStartedAt = new Date();
+      const currentTimestamp = confirmStartedAt.toISOString();
       const saveData = {
         ...formData,
         items: items,
@@ -3624,6 +3626,8 @@ export default function TabbedDocumentCreator({
         lastUsedAt: currentTimestamp,
       };
       await guardedSave(saveData);
+      // The page's "Order ORD… created" shows once, after this confirm made the order (helpers/orderCreatedNote).
+      markQuotationConfirmed(typeof window !== "undefined" ? window.sessionStorage : null, documentId || (existingData as any)?.id, confirmStartedAt);
       // Persist any pending quotation→project link.
       await persistProjectLinkIfChanged();
       toast.success("Quotation confirmed");

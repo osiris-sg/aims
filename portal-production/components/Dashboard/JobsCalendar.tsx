@@ -40,7 +40,7 @@ const CalendarView = dynamic(() => import("./jobs-calendar/CalendarView"), {
 /** fullHeight: WCT's dashboard is this calendar alone. */
 export default function JobsCalendar({ fullHeight = false }: { fullHeight?: boolean }) {
   // WCT (enableWctOrders): "Job" wording, and a click opens the job.
-  const { isWctOrdersEnabled, isHideSiteClockJobs } = useOrganizationFeatures();
+  const { isWctOrdersEnabled, isHideSiteClockJobs, isGroupCalendarEnabled } = useOrganizationFeatures();
   const { getToken, userId } = useAuth();
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
   const [data, setData] = useState<CalendarPayload | null>(null);
@@ -175,6 +175,7 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
         jobWords={!!isWctOrdersEnabled}
         fullHeight={fullHeight}
         canAdd={canAdd}
+        newButton={!!isGroupCalendarEnabled}
         onAdd={(kind, slot) => setAdding({ kind, slot })}
         onNoteClick={setEditNote}
         onMove={onMove}
@@ -232,6 +233,7 @@ export function JobsCalendarPanel({
   jobWords = false,
   fullHeight = false,
   canAdd = false,
+  newButton = false,
   onAdd,
   onNoteClick,
   onMove,
@@ -251,6 +253,8 @@ export function JobsCalendarPanel({
   jobWords?: boolean;
   fullHeight?: boolean;
   canAdd?: boolean;
+  /** WCT group calendar (enableGroupCalendar): "+ New" beside Month / Week / Day / Schedule. */
+  newButton?: boolean;
   onAdd?: (kind: "job" | "note", slot: { date: string; time: string }) => void;
   onNoteClick?: (note: CalendarNote) => void;
   /** All-day jobs (2026-11-10): drag to another day. */
@@ -443,6 +447,7 @@ export function JobsCalendarPanel({
         fullHeight={fullHeight}
         notes={shownNotes}
         canAdd={canAdd}
+        newButton={newButton}
         onAdd={onAdd}
         onNoteClick={onNoteClick}
         onMove={onMove}

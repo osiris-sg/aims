@@ -17,6 +17,7 @@ import { useGetSiteOffices } from "@/containers/DocumentTemplates/hooks/useGetSi
 import { useGetSalesmen } from "@/containers/DocumentTemplates/hooks/useGetSalesmen";
 import { getTemplateFormFields, TemplateFieldConfig } from "@/containers/DocumentTemplates/utils/templateFieldSync";
 import { erpStoredTotalsOf } from "@/helpers/erpImport";
+import { takeOrderCreated } from "@/helpers/orderCreatedNote";
 import {
   transformFormDataForBackend,
   transformBackendDataForForm
@@ -63,6 +64,23 @@ export default function page() {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
   const [existingData, setExistingData] = useState<any>(null);
   const [documentMetadata, setDocumentMetadata] = useState<any>(null);
+  // "Order ORD… created": decided once per loaded quotation (helpers/orderCreatedNote), then the stamp is gone.
+  const [orderCreatedNow, setOrderCreatedNow] = useState(false);
+  const orderNoteFor = useRef<string | null>(null);
+  useEffect(() => {
+    const docId = documentMetadata?.id as string | undefined;
+    // Only once the quotation has its order (a cached copy from before the confirm has none: the stamp waits).
+    if (!docId || !documentMetadata?.linkedOrder) return setOrderCreatedNow(false);
+    if (orderNoteFor.current === docId) return;
+    orderNoteFor.current = docId;
+    let store: Storage | null = null;
+    try {
+      store = window.sessionStorage;
+    } catch {
+      store = null;
+    }
+    setOrderCreatedNow(takeOrderCreated(store, docId, documentMetadata?.linkedOrder));
+  }, [documentMetadata]);
   const [isLoading, setIsLoading] = useState(true);
   const [fieldConfig, setFieldConfig] = useState<TemplateFieldConfig | null>(null);
 
@@ -740,8 +758,9 @@ export default function page() {
   console.log("type from URL:", type);
   console.log("Final actualDocumentType:", actualDocumentType);
 
-  // WCT (enableWctOrders, 2026-11-03): a confirmed quotation that became an order says so at the top.
-  const linkedOrder: { id: string; orderNumber: string } | undefined = documentMetadata?.linkedOrder;
+  // WCT (enableWctOrders, 2026-11-03): a confirmed quotation that became an order says so at the top. Since
+  // 2026-11-23 only once, right after the confirm in this tab made the order (the doc chain panel links the order).
+  const linkedOrder = orderCreatedNow ? (documentMetadata?.linkedOrder as { id: string; orderNumber: string } | undefined) : undefined;
   return (
     <>
     {linkedOrder && (

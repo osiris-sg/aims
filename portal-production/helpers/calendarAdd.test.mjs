@@ -89,3 +89,23 @@ test("job category: sent only when the org has categories (else the body is as b
   assert.equal("category" in quickJobBody({ ...f, category: null }).body, false);
   assert.equal(quickJobBody({ ...f, category: "Site visit" }).body.category, "Site visit");
 });
+
+test("+ New (WCT group calendar): Day view's day, else today when on screen, else the first day; time as a cell", async () => {
+  const { newButtonSlot } = await import("./calendarAdd.ts");
+  assert.deepEqual(newButtonSlot({ type: "timeGridDay", from: "2026-12-03", to: "2026-12-04" }, "2026-11-23"), { date: "2026-12-03", time: "09:00" });
+  assert.deepEqual(newButtonSlot({ type: "dayGridMonth", from: "2026-11-01", to: "2026-12-01" }, "2026-11-23"), { date: "2026-11-23", time: "09:00" });
+  assert.deepEqual(newButtonSlot({ type: "dayGridMonth", from: "2026-12-01", to: "2027-01-01" }, "2026-11-23"), { date: "2026-12-01", time: "09:00" });
+  assert.deepEqual(newButtonSlot({ type: "timeGridWeek", from: "2026-11-23", to: "2026-11-30" }, "2026-11-29"), { date: "2026-11-29", time: "09:00" });
+  assert.deepEqual(newButtonSlot({ type: "timeGridWeek", from: "2026-11-16", to: "2026-11-23" }, "2026-11-23"), { date: "2026-11-16", time: "09:00" });
+  assert.deepEqual(newButtonSlot({ type: "schedule", from: "2026-11-01", to: "2026-12-01" }, "2026-11-23"), { date: "2026-11-23", time: "09:00" });
+});
+
+test("+ New is wired to the same menu and only behind the group calendar flag", () => {
+  const view = read("components/Dashboard/jobs-calendar/CalendarView.tsx");
+  assert.match(view, /aimsNew:/);
+  assert.match(view, /showNewButton \? "aimsNew " : ""/);
+  assert.match(view, /setAddMenu\(\{ pos, slot: newButtonSlot\(/);
+  assert.match(view, /const showNewButton = newButton && canAdd && !mini/);
+  const cal = read("components/Dashboard/JobsCalendar.tsx");
+  assert.match(cal, /newButton=\{!!isGroupCalendarEnabled\}/);
+});

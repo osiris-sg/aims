@@ -100,6 +100,16 @@ export function slotOf(dateStr: string, allDay: boolean): { date: string; time: 
   return { date, time: m ? `${m[1]}:${m[2]}` : "09:00" };
 }
 
+/**
+ * "+ New" beside Month / Week / Day / Schedule (WCT group calendar, 2026-11-23): the slot the cell menu gets.
+ * Day view: the day on screen. Otherwise today when it is in the range on screen, else the range's first day.
+ * Time as a day-cell click (all day: 09:00). `to` is exclusive (FullCalendar's currentEnd).
+ */
+export function newButtonSlot(view: { type: string; from: string; to: string }, today: string): { date: string; time: string } {
+  const date = view.type === "timeGridDay" ? view.from : today >= view.from && today < view.to ? today : view.from;
+  return slotOf(date, true);
+}
+
 export interface QuickJobForm {
   customerId: string | null;
   siteAddress: string;
