@@ -178,10 +178,125 @@ export function remainingAllowance(
 export const SUMMARY_DO_REMARK = 'Check qty: earlier DOs were summary lines';
 
 /** Earlier DOs exist and none of their lines is a quotation line (summary lines): the new DO lists every line in full. */
-export function earlierDosSummaryOnly(quote: Array<{ key: ScopeKey | null }>, used: Array<{ key: ScopeKey | null }>): boolean {
-  const keys = new Set(quote.map((q) => q.key).filter(Boolean));
-  const lines = used.filter((u) => u.key);
-  return lines.length > 0 && keys.size > 0 && !lines.some((u) => keys.has(u.key));
+export function earlierDosSummaryOnly(quote: TextLine[], used: TextLine[]): boolean {
+  // Same matching as remainingByLine (exact key, then tolerant full-text match).
+  return remainingByLine(quote.map((q) => ({ ...q, line: null })), used).summaryOnly;
+}
+
+// ── Tolerant DO-side matching (2026-11-23, ORD-Q-014151) ───────────────────
+// The key is the FIRST line of a description, so the quotation's long
+// multi-line lines either share one key ("Maintenance agreement of 1 year 4
+// times package (Quarterly)" x3) or miss the earlier DOs' wording (imported ERP
+// DOs flatten the lines and drop the "- $400+GST per service" note). Each used
+// line is therefore matched to ONE quotation line by its full text, in the
+// spirit of the invoice side (imported-remaining.ts remainingToBill).
+
+/** A line with its full description (`text`) beside its key; `text` is optional (old callers). */
+export interface TextLine {
+  key: ScopeKey | null;
+  quantity?: any;
+  text?: unknown;
+}
+
+/** Full text of a description: html stripped, line breaks kept. */
+const rawLines = (v: unknown): string =>
+  String(v ?? '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li)>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+
+/** A price note inside a description ("- $400+GST per service", "– $1,200.50 + GST"): wording, not identity. */
+const PRICE_NOTE = /\s*[-–—]?\s*\$\s*[\d,]+(?:\.\d+)?\s*(?:\+\s*gst)?(?:\s*(?:per|\/)\s*[a-z]+)?/gi;
+
+/** Case, punctuation, spacing and price notes ignored. */
+export const matchText = (v: unknown): string =>
+  rawLines(v).replace(PRICE_NOTE, ' ').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+/** The normalised text before the first line break. */
+const firstLineText = (v: unknown): string => matchText(rawLines(v).trim().split('\n')[0]);
+
+/** Every word of `small` appears in `big` in the same order (words of `big` may be skipped). */
+const isSubsequence = (small: string[], big: string[]): boolean => {
+  let i = 0;
+  for (const w of big) if (i < small.length && w === small[i]) i++;
+  return i === small.length;
+};
+
+/**
+ * The quotation lines (indices) one used line counts against. Exact key first,
+ * as before (several lines sharing the key are narrowed by full text when that
+ * picks exactly one, else the whole group). Without an exact key, a
+ * description line (never a catalog product) is matched by full text to the
+ * UNIQUE quotation description line that fits, trying in turn: the same
+ * normalised text; one starts with the other; the same first line; the used
+ * line's words in order inside the quotation line (4+ words). [] = none.
+ */
+export function matchUsedLine(quote: TextLine[], u: TextLine): number[] {
+  const keyed = quote.map((_, i) => i).filter((i) => !!quote[i].key);
+  const fuzzy = (cands: number[]): number[] => {
+    const t = matchText(u.text);
+    if (!t || !cands.length) return [];
+    const texts = new Map(cands.map((i) => [i, matchText(quote[i].text)]));
+    const same = cands.filter((i) => texts.get(i) === t);
+    if (same.length) return same; // identical lines are one group
+    const one = (f: (i: number) => boolean): number[] | null => {
+      const hit = cands.filter(f);
+      return hit.length === 1 ? hit : null;
+    };
+    const words = t.split(' ');
+    const first = firstLineText(u.text);
+    return (
+      one((i) => !!texts.get(i) && (texts.get(i)!.startsWith(t) || t.startsWith(texts.get(i)!))) ??
+      one((i) => !!first && firstLineText(quote[i].text) === first) ??
+      (words.length >= 4 ? one((i) => isSubsequence(words, (texts.get(i) || '').split(' '))) : null) ??
+      []
+    );
+  };
+  const exact = u.key ? keyed.filter((i) => quote[i].key === u.key) : [];
+  if (exact.length > 1 && u.text != null) {
+    const narrowed = fuzzy(exact);
+    if (narrowed.length === 1) return narrowed;
+  }
+  if (exact.length) return exact;
+  if (u.key && !u.key.startsWith('d:')) return []; // a catalog product matches only its own product
+  return fuzzy(keyed.filter((i) => quote[i].key!.startsWith('d:') && quote[i].text != null));
+}
+
+/**
+ * What is still to deliver per quotation line: quoted qty minus what the used
+ * lines (the order's other DOs, its jobs with no DO, linked ERP DOs) carry,
+ * each used line counted against the quotation line(s) `matchUsedLine` finds.
+ * A group (lines sharing a key) is used up from its LAST line backwards, which
+ * gives the same result as the old per-key pool (earlier lines keep their qty).
+ * Lines with nothing left are dropped; lines with no key are skipped.
+ * `summaryOnly` = earlier lines exist and none matched any quotation line.
+ */
+export function remainingByLine<T>(
+  lines: Array<{ line: T } & TextLine>,
+  used: TextLine[],
+): { remaining: Array<{ line: T; quantity: number }>; summaryOnly: boolean } {
+  const left = lines.map((l) => (l.key ? qty(l) : 0));
+  let anyUsed = false;
+  let anyMatched = false;
+  for (const u of used) {
+    if (!u.key && !matchText(u.text)) continue;
+    anyUsed = true;
+    const hit = matchUsedLine(lines, u);
+    if (!hit.length) continue;
+    anyMatched = true;
+    let q = qty(u);
+    for (let j = hit.length - 1; j >= 0 && q > 0; j--) {
+      const take = Math.min(left[hit[j]], q);
+      left[hit[j]] -= take;
+      q -= take;
+    }
+  }
+  const remaining = lines.map((l, i) => ({ line: l.line, quantity: left[i] })).filter((r, i) => !!lines[i].key && r.quantity > 0);
+  return { remaining, summaryOnly: anyUsed && !anyMatched && lines.some((l) => !!l.key) };
 }
 
 /** The quote's lines with the quantity still to deliver (lines with none left are dropped). */

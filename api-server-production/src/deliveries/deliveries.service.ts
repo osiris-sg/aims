@@ -67,7 +67,7 @@ import { SiteClockLinkService, SiteClockScheduleInput } from '../siteclock/sitec
 import { applyOrderToDoConfig, isWctOrdersEnabled, refreshOrderStatus, refreshOrderStatusForRun } from '../orders/wct-orders';
 import { assertDocNotErpImportedDo, assertNotErpImportedDo } from '../common/erp-import';
 import { isManualOrderFlow, manualAutoDraftsOff } from '../orders/manual-order-flow';
-import { SUMMARY_DO_REMARK, assetKey, descKey, doLineWarnings, earlierDosSummaryOnly, remainingAllowance, remainingQuoteLines } from '../orders/order-billing';
+import { SUMMARY_DO_REMARK, assetKey, descKey, doLineWarnings, remainingByLine } from '../orders/order-billing';
 import { plannedRiderView, savePlannedRider } from './planned-rider';
 import { CompletionMode, WCT_FINISH_MODES_FLAG, finishModeProblem, initialVerification, isCompletionMode } from './finish-modes';
 import { checkJobFieldValues, isJobFieldsEnabled, jobFieldDefs, jobFieldValues, saveJobFieldValues } from './job-fields';
@@ -1792,33 +1792,34 @@ export class DeliveriesService {
    * live DO's lines (except `excludeDoId`) and the lines of live jobs with no DO.
    */
   /** The lines of DOs linked to the order (linkedDocuments.do: an imported order's ERP DOs) that are not on it by orderId. */
-  async linkedDoLinesInUse(organizationId: string, order: { id: string; linkedDocuments?: unknown }): Promise<Array<{ key: string | null; quantity: number }>> {
+  async linkedDoLinesInUse(organizationId: string, order: { id: string; linkedDocuments?: unknown }): Promise<Array<{ key: string | null; quantity: number; text?: string }>> {
     const ids: string[] = (Array.isArray((order.linkedDocuments as any)?.do) ? (order.linkedDocuments as any).do : []).map((x: any) => x?.id).filter((x: any) => typeof x === 'string');
     if (!ids.length) return [];
     const docs = await this.prisma.document.findMany({ where: { organizationId, id: { in: ids }, type: { in: ['DELIVERY_ORDER', 'DO'] } }, select: { id: true, config: true } });
-    const out: Array<{ key: string | null; quantity: number }> = [];
+    const out: Array<{ key: string | null; quantity: number; text?: string }> = [];
     for (const d of docs) {
       const c: any = d.config || {};
       if (c.cancelled === true || c.voided === true || c.orderId === order.id) continue;
-      for (const it of Array.isArray(c.items) ? c.items : []) out.push({ key: assetKey(it?.assetId) ?? descKey(it?.description), quantity: Number(it?.quantity) || 1 });
+      for (const it of Array.isArray(c.items) ? c.items : []) out.push({ key: assetKey(it?.assetId) ?? descKey(it?.description), quantity: Number(it?.quantity) || 1, text: String(it?.description ?? '') });
     }
     return out;
   }
 
-  async orderLinesInUse(organizationId: string, orderId: string, excludeDoId?: string): Promise<Array<{ key: string | null; quantity: number }>> {
+  async orderLinesInUse(organizationId: string, orderId: string, excludeDoId?: string): Promise<Array<{ key: string | null; quantity: number; text?: string }>> {
     const dos = await this.orderDos(organizationId, orderId);
-    const out: Array<{ key: string | null; quantity: number }> = [];
+    // text = the full description, for the tolerant matching of the DO prefill (remainingByLine).
+    const out: Array<{ key: string | null; quantity: number; text?: string }> = [];
     for (const d of dos) {
       if (d.id === excludeDoId) continue;
       for (const it of Array.isArray((d.config as any)?.items) ? (d.config as any).items : []) {
-        out.push({ key: assetKey(it?.assetId) ?? descKey(it?.description), quantity: Number(it?.quantity) || 1 });
+        out.push({ key: assetKey(it?.assetId) ?? descKey(it?.description), quantity: Number(it?.quantity) || 1, text: String(it?.description ?? '') });
       }
     }
     const loose = await this.prisma.deliveryItem.findMany({
       where: { documentId: null, delivery: { organizationId, orderId, status: { not: 'cancelled' } } },
       select: { assetId: true, description: true, quantity: true },
     });
-    for (const it of loose) out.push({ key: assetKey(it.assetId) ?? descKey(it.description), quantity: Number(it.quantity) || 1 });
+    for (const it of loose) out.push({ key: assetKey(it.assetId) ?? descKey(it.description), quantity: Number(it.quantity) || 1, text: String(it.description ?? '') });
     return out;
   }
 
@@ -1879,17 +1880,21 @@ export class DeliveriesService {
       const di: any = qcfg.documentInfo || {};
       const resolved = quotation ? await quotationLinesForJob(this.prisma, organizationId, qcfg) : [];
       // Only what is still to deliver (2026-11-13): quoted minus the order's other DOs (and jobs with no DO).
-      const keyed = resolved.map((l) => ({ line: l, key: l.asset ? assetKey(l.asset.id) : descKey(l.description), quantity: l.quantity }));
+      // text = the quotation line's FULL description (resolved keeps only its first line): resolved is
+      // quotationLines(qcfg) in order, so the same filter lines them up one to one.
+      const fullTexts = (Array.isArray(qcfg.items) ? qcfg.items : []).filter((it: any) => it && !it.isGroupHeader && !it.isTagGroup).map((it: any) => String(it?.description ?? ''));
+      const keyed = resolved.map((l, i) => ({ line: l, key: l.asset ? assetKey(l.asset.id) : descKey(l.description), quantity: l.quantity, text: fullTexts.length === resolved.length ? fullTexts[i] : l.description }));
       // 2026-11-23: DOs linked to the order (an imported order's ERP DOs) count as earlier DOs too.
       const used = [...(await this.orderLinesInUse(organizationId, order.id)), ...(await this.linkedDoLinesInUse(organizationId, order))];
-      const left = remainingAllowance(keyed, used);
-      const remaining = remainingQuoteLines(keyed, left);
+      // Per quotation line, earlier DO lines matched by key then tolerantly by full text (ERP DOs word lines differently).
       // Earlier DOs that were only summary lines (none matches a quotation line): every line at full qty, flagged.
-      const summaryOnly = earlierDosSummaryOnly(keyed, used);
+      const { remaining, summaryOnly } = remainingByLine(keyed, used);
       const note = resolved.length && !remaining.length ? 'Everything quoted is already on a DO: this DO starts empty.' : undefined;
+      // WCT group (2026-11-23): a balance DO keeps each quotation line's full description, as the quotation has it.
+      const fullText = (await isOrgFeatureEnabled(this.prisma, organizationId, 'enableWctOrders')) ? new Map(keyed.map((k) => [k.line, k.text])) : null;
       const lines = remaining.map(({ line: l, quantity }) => ({
         assetId: l.asset?.id,
-        description: l.description,
+        description: (!l.asset && fullText?.get(l)) || l.description,
         quantity,
         assetClass: l.asset ? undefined : ((l.assetClass as AssetClass | null) ?? AssetClass.SERVICE),
       }));
