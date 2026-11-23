@@ -159,3 +159,19 @@ describe('balance invoice after a lump sum or deposit', () => {
     expect(invoiceRefOf({ name: null, config: { documentNumber: 'INV7', date: '2026-02-03' } }, 10)).toEqual({ name: 'INV7', date: '2026-02-03', gross: 10 });
   });
 });
+
+describe('balance invoice rounding (2026-11-23 review)', () => {
+  const { remainingToBill } = jest.requireActual('./imported-remaining');
+  it('rounding cents go into the last Less line, never a fake discount line', () => {
+    for (let k = 1; k <= 300; k++) {
+      const unit = 37 + k * 1.13;
+      const net = Math.round(unit * 3 * 100) / 100;
+      const total = Math.round(net * 1.09 * 100) / 100;
+      const dep = Math.round(total * 0.3 * 100) / 100;
+      const plan = remainingToBill({ quoteItems: [{ description: 'Line', quantity: 3, unitPrice: unit, amount: net }], billedInvoiceItems: [[{ description: 'Deposit', quantity: 1, unitPrice: dep, amount: dep }]], quoteTotal: total, billed: dep, gstPercent: 9, billedInvoices: [{ name: 'INV1', date: '2026-11-01', gross: dep }] });
+      expect(plan.lines.some((l: any) => /quotation discount|Adjustment/.test(l.description))).toBe(false);
+      const sum = plan.lines.reduce((t: number, l: any) => t + l.amount, 0);
+      expect(Math.abs(Math.round(sum * 100) / 100 - plan.remainingNet)).toBeLessThan(0.005);
+    }
+  });
+});

@@ -104,11 +104,12 @@ export default function OfficeCompleteJobDialog({
   useEffect(() => {
     if (!open) return;
     setPicked({});
-    setMode("signature");
+    // The order page's "Upload completed DO" opens on Upload signed DO (2026-11-23); every other opening on Signature.
+    setMode(initialMode ?? "signature");
     setName(defaultName ?? "");
     setFiles([]);
     setError(null);
-  }, [open, defaultName]);
+  }, [open, defaultName, initialMode]);
 
   const submit = async () => {
     setBusy(true);

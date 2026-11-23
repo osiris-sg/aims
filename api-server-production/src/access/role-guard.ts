@@ -101,3 +101,19 @@ export async function assertRoleChange(prisma: any, organizationId: string, acto
     if (had && !keeps) throw new BadRequestException(LOCKOUT_MESSAGE);
   }
 }
+
+export const ADMIN_TARGET_MESSAGE = 'Only an Admin can change or remove an Admin';
+
+/**
+ * Editing (name, email, password, roles) or removing a person who holds Admin / superadmin, in a custom access org:
+ * only an Admin / superadmin (or the platform admin) may (2026-11-23). Org Settings edit through a custom role gives
+ * users:*, and must never reach an Admin's login. Yourself: the other guards decide.
+ */
+export async function assertMayManageAdmin(prisma: any, organizationId: string | null | undefined, actor: AdminActor | undefined, targetUserId: string | null | undefined): Promise<void> {
+  if (!actor || actor.platform || !organizationId || !targetUserId || actor.userId === targetUserId) return;
+  if (!(await accessFlags(prisma, organizationId)).custom) return;
+  const target = await rolesWithMaps(prisma, organizationId, await activeRoleIds(prisma, organizationId, targetUserId));
+  if (!target.some((r) => PRIVILEGED_ROLES.has(r.name))) return;
+  const mine = actor.userId ? await rolesWithMaps(prisma, organizationId, await activeRoleIds(prisma, organizationId, actor.userId)) : [];
+  if (!mine.some((r) => PRIVILEGED_ROLES.has(r.name))) throw new ForbiddenException(ADMIN_TARGET_MESSAGE);
+}

@@ -156,7 +156,13 @@ export function remainingToBill(args: {
     const lines = [...full, ...less];
     const target = R2(remainingGross / (1 + rate / 100));
     const diff = R2(target - lines.reduce((t, l) => t + l.amount, 0));
-    if (Math.abs(diff) >= 0.01) lines.push({ description: diff < 0 ? 'Less: quotation discount' : 'Adjustment', quantity: 1, unitPrice: diff, amount: diff, quotedQty: null, billedQty: null, priced: true, less: true });
+    // Rounding cents (each Less line is rounded on its own) go into the last Less line; only a real gap (a quotation
+    // discount, a different GST rate) gets its own line.
+    if (Math.abs(diff) >= 0.01 && Math.abs(diff) <= 0.05 && less.length) {
+      const last = less[less.length - 1];
+      last.unitPrice = R2(last.unitPrice + diff);
+      last.amount = last.unitPrice;
+    } else if (Math.abs(diff) >= 0.01) lines.push({ description: diff < 0 ? 'Less: quotation discount' : 'Adjustment', quantity: 1, unitPrice: diff, amount: diff, quotedQty: null, billedQty: null, priced: true, less: true });
     return { matched: false, reason, lines: remainingGross > 0 ? lines : [], remainingNet: remainingGross > 0 ? target : 0, remainingGross, progress, partQtyLines };
   };
 

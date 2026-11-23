@@ -12,7 +12,7 @@ import { AdminActor, PLATFORM_ADMIN_ROLE_WHERE } from '../auth/admin-scope';
 import { normEmail } from '../auth/active-org';
 import { multiRoleOn, orderPrimaryFirst, planRoleSave, primaryRoleIdOf, roleChangeSummary } from '../roles/multi-role';
 import { customAccessUserIds, withCustomAccess } from '../access/custom-access';
-import { activeRoleIds, assertRoleChange } from '../access/role-guard';
+import { activeRoleIds, assertMayManageAdmin, assertRoleChange } from '../access/role-guard';
 
 /** Edit User: the new email already belongs to another login. */
 export const EMAIL_TAKEN = 'That email is already used by another login';
@@ -64,6 +64,11 @@ export class UsersService {
     if (!(await this.isMember(userId, actor.orgId))) throw new NotFoundException('User not found in this organization');
     const platform = await this.prisma.userRole.count({ where: { userId, isActive: true, ...PLATFORM_ADMIN_ROLE_WHERE } });
     if (platform) throw new ForbiddenException('Platform administrators can only be changed by Osiris');
+  }
+
+  /** Custom access orgs: a person holding Admin / superadmin is changed only by an Admin / superadmin (role-guard.ts). */
+  assertMayManageAdmin(organizationId: string, actor: AdminActor | undefined, userId: string) {
+    return assertMayManageAdmin(this.prisma, organizationId, actor, userId);
   }
 
   /** Round AW: roles handed out by a non-platform caller must belong to their org. */
@@ -531,6 +536,8 @@ export class UsersService {
     const organizationId = this.orgFor(updateUserDto.organizationId, actor);
     await this.assertReach(userId, actor);
     await this.assertRolesInOrg(roleIds ?? [], organizationId, actor);
+    // Custom access orgs: an Admin's name, email, password and roles only by an Admin (role-guard.ts).
+    await assertMayManageAdmin(this.prisma, organizationId, actor, userId);
     // Custom access orgs: the Admin role only from an Admin, and never your own last Org Settings Edit (role-guard.ts).
     if (roleIds && roleIds.length > 0 && organizationId) {
       await assertRoleChange(this.prisma, organizationId, actor, userId, await activeRoleIds(this.prisma, organizationId, userId), roleIds);
@@ -796,6 +803,8 @@ export class UsersService {
   async deleteUser(userId: string, actor?: AdminActor) {
     if (actor && actor.userId && actor.userId === userId) throw new BadRequestException('You cannot remove yourself');
     await this.assertReach(userId, actor);
+    // Custom access orgs: an Admin is removed only by an Admin (role-guard.ts).
+    await assertMayManageAdmin(this.prisma, actor?.orgId, actor, userId);
     const everywhere = !actor || (actor.platform && !(await this.isMember(userId, actor.orgId)));
     const scope = everywhere ? { userId } : { userId, organizationId: actor!.orgId };
 

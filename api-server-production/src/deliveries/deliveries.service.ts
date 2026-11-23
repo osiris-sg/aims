@@ -1022,8 +1022,11 @@ export class DeliveriesService {
     // Before typing: the newest OPEN quotations (no order yet, or its order not paid / closed / complete / cancelled).
     // Typing: every match, newest first. A quotation whose order is cancelled never shows (as before).
     const out: any[] = [];
-    for (let i = 0; i < ids.length && out.length < limit && i < 400; i += 40) {
-      const rows = await this.quotationRowsByIds(organizationId, ids.slice(i, i + 40));
+    // Before typing most of the newest may be closed: read further back in bigger steps (still only list fields).
+    const step = term ? 40 : 200;
+    const cap = term ? 400 : 4000;
+    for (let i = 0; i < ids.length && out.length < limit && i < cap; i += step) {
+      const rows = await this.quotationRowsByIds(organizationId, ids.slice(i, i + step));
       for (const r of rows) {
         if (r.orderStatus === 'CANCELLED') continue;
         if (!term && !isOpenQuotation(r.orderStatus)) continue;
@@ -1909,7 +1912,8 @@ export class DeliveriesService {
       } as any);
       if (order.sourceQuotationId) await applyQuotationLinkToDoConfig(this.prisma, organizationId, order.sourceQuotationId, doConfig, this.logger);
       await applyOrderToDoConfig(this.prisma, organizationId, order.id, doConfig);
-      if (summaryOnly) (doConfig as any).remarks = [String((doConfig as any).remarks ?? '').trim(), SUMMARY_DO_REMARK].filter(Boolean).join('\n');
+      // Internal remarks (config.internalRemarks: never printed), not the printed Customer Remarks.
+      if (summaryOnly) (doConfig as any).internalRemarks = [String((doConfig as any).internalRemarks ?? '').trim(), SUMMARY_DO_REMARK].filter(Boolean).join('\n');
       const doc = await this.documentsService.createNumberedDeliveryOrder(
         templateId,
         organizationId,

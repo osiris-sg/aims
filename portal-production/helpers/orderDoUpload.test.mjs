@@ -21,6 +21,8 @@ test("only pending DOs get Upload completed DO on the DO card (not completed, no
 test("same dialog as the DO page, opened on Upload signed DO; the file opens from FILE", () => {
   const dialog = read("components/delivery/OfficeCompleteJobDialog.tsx");
   assert.match(dialog, /useState<Mode>\(initialMode \?\? "signature"\)/);
+  // The reset when it opens keeps the starting way too (review 23 Nov).
+  assert.match(dialog, /setMode\(initialMode \?\? "signature"\);[\s\S]*\}, \[open, defaultName, initialMode\]\);/);
   const page = read("app/portal/orders/[id]/WctOrderDetail.tsx");
   assert.match(page, /<OfficeCompleteJobDialog/);
   assert.match(page, /initialMode=\{completeMode\}/);

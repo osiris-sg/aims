@@ -18,7 +18,7 @@ import { reportScope } from '../sales-report/sales-report';
 import { NEW_PERMISSIONS, PRESET_FIXES, ROLE_PRESETS, isReadPermission, planPresetFix, resolvePresetPermissions } from '../roles/role-presets';
 import { AccessService } from './access.service';
 import { CUSTOM_ACCESS_ROLE_ID, NO_TAB_ACCESS_MESSAGE, customAccessUserIds, invalidateCustomAccess, resolveCustomAccess, withCustomAccess } from './custom-access';
-import { LOCKOUT_MESSAGE, PRIVILEGED_MESSAGE, assertRoleChange, orgSettingsEditFrom } from './role-guard';
+import { ADMIN_TARGET_MESSAGE, LOCKOUT_MESSAGE, PRIVILEGED_MESSAGE, assertMayManageAdmin, assertRoleChange, orgSettingsEditFrom } from './role-guard';
 import {
   ORG_SETTINGS_EDIT_NEEDS_ADMIN,
   PRESET_TAB_ACCESS,
@@ -508,6 +508,29 @@ describe('Roles tab (23 Nov): who manages, no lock-out, Admin stays an Admin, hi
     await expect(assertRoleChange(w.prisma, WCT, actor('olive'), 'sam', ['w-sales'], ['w-sales', 'w-desk'])).resolves.toBeUndefined();
     await expect(assertRoleChange(w.prisma, WCT, actor('adam'), 'sam', ['w-sales'], ['w-sales', 'w-admin'])).resolves.toBeUndefined();
     await expect(assertRoleChange(w.prisma, WCT, { orgId: WCT, platform: true, userId: 'x' } as any, 'sam', [], ['w-admin'])).resolves.toBeUndefined();
+  });
+
+  it("Org Settings edit through a role never edits or removes an Admin (password, email, profile, delete)", async () => {
+    const w = world();
+    const s = new AccessService(w.prisma);
+    const boss = await s.createRole(WCT, { name: 'Office manager', tabs: { orgSettings: 'edit' } }, actor('adam'));
+    give(w, 'olive', boss.role.id);
+    invalidateCustomAccess();
+    await expect(assertMayManageAdmin(w.prisma, WCT, actor('olive'), 'adam')).rejects.toThrow(ADMIN_TARGET_MESSAGE);
+    await expect(assertMayManageAdmin(w.prisma, WCT, actor('olive'), 'sue')).rejects.toThrow(ADMIN_TARGET_MESSAGE);
+    // Non-Admins: fine. An Admin on an Admin: fine. Platform: fine. Orgs without custom access: unchanged.
+    await expect(assertMayManageAdmin(w.prisma, WCT, actor('olive'), 'sam')).resolves.toBeUndefined();
+    await expect(assertMayManageAdmin(w.prisma, WCT, actor('sue'), 'adam')).resolves.toBeUndefined();
+    await expect(assertMayManageAdmin(w.prisma, WCT, { orgId: WCT, platform: true, userId: 'x' } as any, 'adam')).resolves.toBeUndefined();
+    await expect(assertMayManageAdmin(w.prisma, CIEL, actor('cia', CIEL), 'cadmin')).resolves.toBeUndefined();
+    // The service paths call it: edit (incl. password / email) and remove.
+    // assertReach's own reads (membership, platform admin), which the shared fake does not have.
+    w.prisma.userOrganization.count = async ({ where }: any) => w.db.userOrganization.filter((m) => m.userId === where.userId && m.organizationId === where.organizationId && m.isActive).length;
+    const countRoles = w.prisma.userRole.count;
+    w.prisma.userRole.count = async (q: any) => (q?.where?.organizationId === 'osiris-platform' ? 0 : countRoles(q));
+    const users = new UsersService(null as any, w.prisma, null as any);
+    await expect(users.updateUser('adam', { password: 'NewPassw0rd!' } as any, actor('olive'))).rejects.toThrow(ADMIN_TARGET_MESSAGE);
+    await expect(users.deleteUser('adam', actor('olive'))).rejects.toThrow(ADMIN_TARGET_MESSAGE);
   });
 
   it('nobody removes their own last way into Org Settings edit', async () => {

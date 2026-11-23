@@ -135,6 +135,8 @@ export class UsersController {
   @ApiOperation({ summary: 'Update the org-scoped member profile (WhatsApp number, default commission %, yearly sales target)' })
   async updateProfile(@Param('userId') userId: string, @Body() body: { whatsappNumber?: string | null; whatsappPrefs?: Record<string, unknown> | null; commissionPct?: number | null; yearlySalesTarget?: number | null }, @UserOrganization() organization: { id: string; name: string }, @Req() req: any) {
     await this.usersService.assertReach(userId, actorOf(req, organization.id));
+    // Custom access orgs: an Admin's profile (incl. their WhatsApp number) only by an Admin (role-guard.ts).
+    await this.usersService.assertMayManageAdmin(organization.id, actorOf(req, organization.id), userId);
     return this.usersService.upsertMemberProfile(userId, organization.id, body || {});
   }
 
