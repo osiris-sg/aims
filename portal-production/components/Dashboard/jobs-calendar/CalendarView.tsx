@@ -80,6 +80,8 @@ interface Props {
   schedule?: boolean;
   /** WCT group calendar (enableGroupCalendar, 2026-11-23): "+ New" beside the views opens the same Job / Note menu as a cell. */
   newButton?: boolean;
+  /** Calendar search pick (2026-11-23): go to this day and open the job (or the note); n changes on every pick. */
+  focus?: { id: string; kind: "job" | "note"; date: string; n: number } | null;
   /** Round 36 (calendar style): what the side panel may do (toggles, Cancel / Undo, Reschedule); absent = read only. */
   actions?: CalendarActions;
   /**
@@ -114,6 +116,7 @@ export default function CalendarView({
   styled = false,
   schedule = false,
   newButton = false,
+  focus = null,
   actions,
   mini,
 }: Props) {
@@ -251,6 +254,36 @@ export default function CalendarView({
         : undefined,
     [showNewButton],
   );
+
+  // Calendar search: jump to the day, then open the job's panel (or the note) once that day's items are loaded.
+  const pendingFocus = useRef<NonNullable<Props["focus"]> | null>(null);
+  const tryFocus = useCallback(() => {
+    const f = pendingFocus.current;
+    if (!f) return;
+    if (f.kind === "job") {
+      const e = liveEvents.find((x) => x.id === f.id);
+      if (!e) return;
+      pendingFocus.current = null;
+      if (openOnClick) setPanel({ event: e, day: null });
+      else setOpen({ pos: { left: window.innerWidth / 2, top: 160 }, event: e });
+      return;
+    }
+    const n = (notes ?? []).find((x) => x.id === f.id) as (CalendarNote & GroupTag) | undefined;
+    if (!n) return;
+    pendingFocus.current = null;
+    if (n.foreign) setNoteView({ pos: { left: window.innerWidth / 2, top: 160 }, note: n });
+    else onNoteClick?.(n);
+  }, [liveEvents, notes, openOnClick, onNoteClick]);
+  useEffect(() => {
+    if (!focus) return;
+    pendingFocus.current = focus;
+    calRef.current?.getApi().gotoDate(focus.date);
+    tryFocus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.n]);
+  useEffect(() => {
+    tryFocus();
+  }, [tryFocus]);
 
   const onClick = (arg: EventClickArg) => {
     arg.jsEvent.preventDefault();

@@ -263,6 +263,14 @@ export class DashboardController {
 
   // Group New job (WCT 2026-11-22): the companies this user may put a new job under (the group's orgs they belong to).
   // Every org outside an active group: { group: false, orgs: [] } and the form shows no Company field.
+  // Jobs calendar search (WCT group, enableGroupCalendar, 2026-11-23): every job and note, any date. GET = a view.
+  @Get('jobs-calendar/search')
+  @Permissions('dashboard:read')
+  @ApiOperation({ summary: 'Jobs calendar: search every job and note of the companies the calendar shows' })
+  async searchJobsCalendar(@Req() req: RequestWithOrganization, @Query('q') q: string, @Query('companies') companies?: string) {
+    return await this.jobsCalendar.search(this.orgOf(req), q, String(companies ?? '').split(',').map((x) => x.trim()).filter(Boolean));
+  }
+
   @Get('jobs-calendar/companies')
   @Permissions('dashboard:read')
   @ApiOperation({ summary: 'Jobs calendar: the group companies a new job can go under' })

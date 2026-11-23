@@ -10,6 +10,7 @@ import { calendarBadge, calendarLegend, isJobFieldsEnabled, jobFieldDefs, jobFie
 import { jobCategoryDef, jobCategoryValues } from '../deliveries/job-category';
 import { CalendarNoteView, CalendarNotesService } from './calendar-notes.service';
 import { quotationIndex } from '../deliveries/quotation-search-index';
+import { CalendarSearchHit, SEARCH_LIMIT, orderHits, searchOrg } from './jobs-calendar-search';
 import { CalendarStyleService } from './calendar-style.service';
 import { resolveSalespersonIds, salespersonAliases } from '../sales-report/salesperson-resolver';
 import { CALENDAR_STYLE_LEGEND, CalendarColours, StyleInput, mergeColours, quotationSalesmanCode, salespersonFromCode, styleOf } from './calendar-style';
@@ -124,6 +125,23 @@ export class JobsCalendarService {
     // Gate off (or no children): exactly the org's own calendar.
     if (!scope.group) return withHq(own);
     return withHq(await this.withGroup(organizationId, own, scope.orgs, from, to, viewer?.userId ?? null, styleOn ? { parent: ownColours } : null, hideSc));
+  }
+
+  /**
+   * Jobs calendar search (WCT group, enableGroupCalendar, 2026-11-23): the companies this calendar shows (the group's,
+   * or the org alone), narrowed to the Companies filter; every date; 20 at most (jobs-calendar-search.ts).
+   */
+  async search(organizationId: string, rawQ: string, companies: string[] = []): Promise<{ results: CalendarSearchHit[] }> {
+    if (!(await isOrgFeatureEnabled(this.prisma, organizationId, 'enableGroupCalendar'))) throw new NotFoundException('Calendar search is not enabled for this organisation');
+    const q = String(rawQ ?? '').trim().slice(0, 80);
+    if (q.length < 2) return { results: [] };
+    const scope = await groupReadScope(this.prisma, organizationId, 'jobsCalendar');
+    const own = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } });
+    let orgs: Array<{ id: string; name: string }> = scope.group ? scope.orgs.map((o) => ({ id: o.id, name: o.id === organizationId ? own?.name ?? o.name : o.name })) : [{ id: organizationId, name: own?.name ?? '' }];
+    if (companies.length) orgs = orgs.filter((o) => companies.includes(o.id));
+    const parts = await Promise.all(orgs.map((o) => searchOrg(this.prisma, o, q)));
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: CALENDAR_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    return { results: orderHits(parts.flat(), today).slice(0, SEARCH_LIMIT) };
   }
 
   /** Calendar style: the people list (job and note creators of this org, plus its Sales members). */

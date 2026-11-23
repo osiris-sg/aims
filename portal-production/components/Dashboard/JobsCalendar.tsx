@@ -30,6 +30,7 @@ import { type CalendarNote } from "@/helpers/calendarAdd";
 import QuickJobDialog from "./jobs-calendar/QuickJobDialog";
 import { linkedToast } from "@/helpers/quickJobQuotation";
 import NoteDialog from "./jobs-calendar/NoteDialog";
+import CalendarSearch, { type CalendarSearchHit } from "./jobs-calendar/CalendarSearch";
 
 const CalendarView = dynamic(() => import("./jobs-calendar/CalendarView"), {
   ssr: false,
@@ -144,6 +145,16 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
     },
     [getToken, isHideSiteClockJobs],
   );
+  // Calendar search (WCT group, enableGroupCalendar, 2026-11-23): every job and note, any date, on the server.
+  const searchJobs = useCallback(
+    async (q: string, companies: string[]): Promise<CalendarSearchHit[]> => {
+      const p = new URLSearchParams({ q });
+      if (companies.length) p.set("companies", companies.join(","));
+      const r = await api<{ results: CalendarSearchHit[] }>("GET", `/dashboard/jobs-calendar/search?${p.toString()}`);
+      return r.ok && Array.isArray(r.data?.results) ? r.data!.results : [];
+    },
+    [api],
+  );
   const loadHeader = useCallback(async () => {
     const r = await api<any>("GET", "/dashboard/calendar-style/export-header");
     return r.ok && typeof r.data?.header === "string" ? r.data.header : null;
@@ -176,6 +187,7 @@ export default function JobsCalendar({ fullHeight = false }: { fullHeight?: bool
         fullHeight={fullHeight}
         canAdd={canAdd}
         newButton={!!isGroupCalendarEnabled}
+        searchJobs={isGroupCalendarEnabled ? searchJobs : undefined}
         onAdd={(kind, slot) => setAdding({ kind, slot })}
         onNoteClick={setEditNote}
         onMove={onMove}
@@ -234,6 +246,7 @@ export function JobsCalendarPanel({
   fullHeight = false,
   canAdd = false,
   newButton = false,
+  searchJobs,
   onAdd,
   onNoteClick,
   onMove,
@@ -255,6 +268,8 @@ export function JobsCalendarPanel({
   canAdd?: boolean;
   /** WCT group calendar (enableGroupCalendar): "+ New" beside Month / Week / Day / Schedule. */
   newButton?: boolean;
+  /** WCT group calendar: the search box at the start of the filter row (server search, any date). */
+  searchJobs?: (q: string, companies: string[]) => Promise<CalendarSearchHit[]>;
   onAdd?: (kind: "job" | "note", slot: { date: string; time: string }) => void;
   onNoteClick?: (note: CalendarNote) => void;
   /** All-day jobs (2026-11-10): drag to another day. */
@@ -332,6 +347,9 @@ export function JobsCalendarPanel({
     return out;
   }, [actions, allEvents]);
   const [exportOpen, setExportOpen] = useState(false);
+  // Calendar search pick: the calendar goes to its day and opens it (the Companies filter narrows the search too).
+  const [focus, setFocus] = useState<{ id: string; kind: "job" | "note"; date: string; n: number } | null>(null);
+  const runSearch = useCallback((q: string) => (searchJobs ? searchJobs(q, filters.companies) : Promise.resolve([])), [searchJobs, filters.companies]);
   const exportEvents = useCallback(
     async (from: string, to: string) => {
       const p = loadRange ? await loadRange(from, to) : data;
@@ -434,6 +452,7 @@ export function JobsCalendarPanel({
           categories={filterCategories}
           companies={data?.group?.orgs ?? []}
           onExport={() => setExportOpen(true)}
+          search={searchJobs ? <CalendarSearch search={runSearch} onPick={(h) => setFocus((f) => ({ id: h.id, kind: h.kind, date: h.date, n: (f?.n ?? 0) + 1 }))} /> : null}
         />
       )}
       {styled && <ExportListDialog open={exportOpen} onClose={() => setExportOpen(false)} loadEvents={exportEvents} loadHeader={loadHeader} />}
@@ -452,6 +471,7 @@ export function JobsCalendarPanel({
         notes={shownNotes}
         canAdd={canAdd}
         newButton={newButton}
+        focus={focus}
         onAdd={onAdd}
         onNoteClick={onNoteClick}
         onMove={onMove}

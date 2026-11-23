@@ -49,6 +49,7 @@ export default function CalendarFilterBar({
   categories,
   companies,
   onExport,
+  search,
 }: {
   value: CalendarFilters;
   onChange: (f: CalendarFilters) => void;
@@ -57,11 +58,14 @@ export default function CalendarFilterBar({
   /** Group calendar: the companies shown (none = no Company filter). */
   companies: Array<{ id: string; name: string }>;
   onExport?: () => void;
+  /** WCT group calendar (2026-11-23): the search box, first in the row. */
+  search?: React.ReactNode;
 }) {
   const set = (patch: Partial<CalendarFilters>) => onChange({ ...value, ...patch });
   const n = filterCount(value);
   return (
     <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" alignItems="center" sx={{ mb: 1.5 }} data-tour="jobs-calendar-filters">
+      {search}
       <FormControl size="small" sx={{ minWidth: 140 }}>
         <InputLabel id="jc-filter-do">DO</InputLabel>
         <Select labelId="jc-filter-do" label="DO" value={value.doState} onChange={(e) => set({ doState: e.target.value as CalendarFilters["doState"] })}>
